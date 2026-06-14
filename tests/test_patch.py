@@ -31,7 +31,7 @@ class TestPatch(unittest.TestCase):
 
     def test_not_found(self):
         res = tool_patch_file(str(self.test_file), "missing", "whatever")
-        self.assertIn("[ERROR] String not found", res)
+        self.assertIn("old_str not found", res)
 
     def test_undo_roundtrip(self):
         # Initial state
