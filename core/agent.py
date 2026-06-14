@@ -147,183 +147,216 @@ def extract_json(raw):
     """
     Extract JSON from LLM output. Handles trailing commas, missing closing
     braces, literal newlines inside strings, and Python triple-quotes.
+    
+    Args:
+        raw: Raw LLM output text
+        
+    Returns:
+        Parsed JSON dict or None
+        
+    Raises:
+        No exceptions - returns None on any parsing error
     """
-    raw = raw.strip()
+    if not raw or not isinstance(raw, str):
+        return None
+    
+    try:
+        raw = raw.strip()
 
-    # Fix Python triple-quotes → JSON strings (common 7B model error).
-    # The model writes """content""" instead of a proper JSON string.
-    # Handles nested docstrings inside the code content.
-    def _fix_triple_quotes(s):
-        # The original s.find('"""') always matched the FIRST triple-quote
-        # found after the opening — which is the docstring opener inside the
-        # code content, not the real closing delimiter.  Fix: scan all """
-        # positions and pick the LAST one followed by } or , (JSON context),
-        # so nested docstrings in the code are captured as part of the content.
-        result = []
-        i = 0
-        while i < len(s):
-            if s[i : i + 3] == '"""':
-                rest = s[i + 3 :]
-                positions = [m.start() for m in re.finditer(r'"""', rest)]
-                closing_pos = -1
-                for pos in reversed(positions):
-                    after = rest[pos + 3 :].lstrip()
-                    if not after or after[0] in ",}":
-                        closing_pos = pos
-                        break
-                if closing_pos == -1 and positions:
-                    closing_pos = positions[-1]
-                if closing_pos != -1:
-                    inner = rest[:closing_pos]
-                    i = i + 3 + closing_pos + 3
+        # Fix Python triple-quotes → JSON strings (common 7B model error).
+        # The model writes """content""" instead of a proper JSON string.
+        # Handles nested docstrings inside the code content.
+        def _fix_triple_quotes(s):
+            # The original s.find('"""') always matched the FIRST triple-quote
+            # found after the opening — which is the docstring opener inside the
+            # code content, not the real closing delimiter.  Fix: scan all """
+            # positions and pick the LAST one followed by } or , (JSON context),
+            # so nested docstrings in the code are captured as part of the content.
+            result = []
+            i = 0
+            while i < len(s):
+                if s[i : i + 3] == '"""':
+                    rest = s[i + 3 :]
+                    positions = [m.start() for m in re.finditer(r'"""', rest)]
+                    closing_pos = -1
+                    for pos in reversed(positions):
+                        after = rest[pos + 3 :].lstrip()
+                        if not after or after[0] in ",}":
+                            closing_pos = pos
+                            break
+                    if closing_pos == -1 and positions:
+                        closing_pos = positions[-1]
+                    if closing_pos != -1:
+                        inner = rest[:closing_pos]
+                        i = i + 3 + closing_pos + 3
+                    else:
+                        inner = rest
+                        i = len(s)
+                    # Encode raw content as a proper JSON string
+                    inner = inner.replace("\\", "\\\\")
+                    inner = inner.replace('"', '\\"')
+                    inner = inner.replace("\n", "\\n")
+                    inner = inner.replace("\t", "\\t")
+                    inner = inner.replace("\r", "\\r")
+                    result.append('"' + inner + '"')
                 else:
-                    inner = rest
-                    i = len(s)
-                # Encode raw content as a proper JSON string
-                inner = inner.replace("\\", "\\\\")
-                inner = inner.replace('"', '\\"')
-                inner = inner.replace("\n", "\\n")
-                inner = inner.replace("\t", "\\t")
-                inner = inner.replace("\r", "\\r")
-                result.append('"' + inner + '"')
+                    result.append(s[i])
+                    i += 1
+            return "".join(result)
+
+        if '"""' in raw:
+            raw = _fix_triple_quotes(raw)
+
+        if not raw.startswith("{"):
+            # Try to find the start of a JSON block
+            idx = raw.find("{")
+            if idx != -1:
+                raw = raw[idx:]
             else:
-                result.append(s[i])
-                i += 1
-        return "".join(result)
+                return None
 
-    if '"""' in raw:
-        raw = _fix_triple_quotes(raw)
+        # Improved depth tracking that ignores braces inside strings
+        depth = 0
+        in_string = False
+        escape = False
+        end = 0
 
-    if not raw.startswith("{"):
-        # Try to find the start of a JSON block
-        idx = raw.find("{")
-        if idx != -1:
-            raw = raw[idx:]
-        else:
-            return None
-
-    # Improved depth tracking that ignores braces inside strings
-    depth = 0
-    in_string = False
-    escape = False
-    end = 0
-
-    for i, ch in enumerate(raw):
-        if escape:
-            escape = False
-            continue
-        if ch == "\\":
-            escape = True
-            continue
-        if ch == '"':
-            in_string = not in_string
-            continue
-        if not in_string:
-            if ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-                if depth == 0:
-                    end = i + 1
-                    break
-
-    if end == 0:
-        # If we didn't find the end, maybe the model just outputted incomplete JSON
-        # Let's try to close it as a last resort
-        if depth > 0:
-            candidate = raw + ("}" * depth)
-        else:
-            return None
-    else:
-        candidate = raw[:end]
-
-    # Clean candidate for common LLM artifacts: trailing commas
-    cleaned = re.sub(r",\s*([}\]])", r"\1", candidate)
-
-    # Fix literal newlines inside JSON strings (common 7B model error)
-    # Replace actual newlines inside string values with \n
-    def _fix_literal_newlines(s):
-        result = []
-        in_str = False
-        esc = False
-        for ch in s:
-            if esc:
-                result.append(ch)
-                esc = False
+        for i, ch in enumerate(raw):
+            if escape:
+                escape = False
                 continue
             if ch == "\\":
-                result.append(ch)
-                esc = True
+                escape = True
                 continue
             if ch == '"':
-                in_str = not in_str
+                in_string = not in_string
+                continue
+            if not in_string:
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end = i + 1
+                        break
+
+        if end == 0:
+            # If we didn't find the end, maybe the model just outputted incomplete JSON
+            # Let's try to close it as a last resort
+            if depth > 0:
+                candidate = raw + ("}" * depth)
+            else:
+                return None
+        else:
+            candidate = raw[:end]
+
+        # Clean candidate for common LLM artifacts: trailing commas
+        cleaned = re.sub(r",\s*([}\]])", r"\1", candidate)
+
+        # Fix literal newlines inside JSON strings (common 7B model error)
+        # Replace actual newlines inside string values with \n
+        def _fix_literal_newlines(s):
+            result = []
+            in_str = False
+            esc = False
+            for ch in s:
+                if esc:
+                    result.append(ch)
+                    esc = False
+                    continue
+                if ch == "\\":
+                    result.append(ch)
+                    esc = True
+                    continue
+                if ch == '"':
+                    in_str = not in_str
+                    result.append(ch)
+                    continue
+                if in_str and ch == "\n":
+                    result.append("\\n")
+                    continue
                 result.append(ch)
-                continue
-            if in_str and ch == "\n":
-                result.append("\\n")
-                continue
-            result.append(ch)
-        return "".join(result)
+            return "".join(result)
 
-    def _fix_unquoted_values(s):
-        """Quote unquoted string values emitted by smaller models.
+        def _fix_unquoted_values(s):
+            """Quote unquoted string values emitted by smaller models.
 
-        Handles cases like {"path": /tmp/foo.py} or {"cmd": ls -la}
-        where the model omits quotes around non-JSON-primitive values.
-        """
+            Handles cases like {"path": /tmp/foo.py} or {"cmd": ls -la}
+            where the model omits quotes around non-JSON-primitive values.
+            """
 
-        def _replacer(m):
-            key_part = m.group(1)
-            val = m.group(2).strip()
-            # Leave JSON primitives alone
-            if val in ("true", "false", "null"):
-                return m.group(0)
-            if re.match(r"^-?\d+\.?\d*$", val):
-                return m.group(0)
-            escaped = val.replace("\\", "\\\\").replace('"', '\\"')
-            return key_part + '"' + escaped + '"'
+            def _replacer(m):
+                key_part = m.group(1)
+                val = m.group(2).strip()
+                # Leave JSON primitives alone
+                if val in ("true", "false", "null"):
+                    return m.group(0)
+                if re.match(r"^-?\d+\.?\d*$", val):
+                    return m.group(0)
+                escaped = val.replace("\\", "\\\\").replace('"', '\\"')
+                return key_part + '"' + escaped + '"'
 
-        # Match ": unquoted_value  where value is not already quoted/object/array
-        return re.sub(
-            r'(":\s*)([^",\{\[\s][^,\}]*?)(?=\s*[,\}])',
-            _replacer,
-            s,
-        )
+            # Match ": unquoted_value  where value is not already quoted/object/array
+            return re.sub(
+                r'(":\s*)([^",\{\[\s][^,\}]*?)(?=\s*[,\}])',
+                _replacer,
+                s,
+            )
 
-    # Try raw candidate first, then cleaned, then newline-fixed, then unquoted-fixed
-    for s in [candidate, cleaned, _fix_literal_newlines(cleaned), _fix_unquoted_values(cleaned)]:
-        try:
-            return json.loads(s)
-        except (json.JSONDecodeError, ValueError):
-            pass
+        # Try raw candidate first, then cleaned, then newline-fixed, then unquoted-fixed
+        for s in [candidate, cleaned, _fix_literal_newlines(cleaned), _fix_unquoted_values(cleaned)]:
+            try:
+                return json.loads(s)
+            except (json.JSONDecodeError, ValueError):
+                pass
 
-    return None
+        return None
+    except Exception:
+        return None
 
 
 def parse_tool_call(text):
-    # ── Primary: JSON format in <tool> tags ──────────────────────────
-    match = re.search(r"<tool>\s*(\{.*)", text, re.DOTALL)
-    if match:
-        result = extract_json(match.group(1))
-        if result and "name" in result:
-            return result
-    # Rogue tags: <write_file>{json}</write_file> etc.
-    for tag, canonical in ROGUE_TAG_MAP.items():
-        match = re.search(r"<" + tag + r">\s*(\{.*)", text, re.DOTALL)
+    """
+    Parse tool call from LLM output.
+    
+    Args:
+        text: LLM output text
+        
+    Returns:
+        Parsed tool call dict or None
+        
+    Raises:
+        No exceptions - returns None on any parsing error
+    """
+    if not text or not isinstance(text, str):
+        return None
+    
+    try:
+        # ── Primary: JSON format in <tool> tags ──────────────────────────
+        match = re.search(r"<tool>\s*(\{.*)", text, re.DOTALL)
         if match:
-            inner = extract_json(match.group(1))
-            if inner:
-                if "name" in inner:
-                    return inner
-                return {"name": canonical, "args": inner}
+            result = extract_json(match.group(1))
+            if result and "name" in result:
+                return result
+        # Rogue tags: <write_file>{json}</write_file> etc.
+        for tag, canonical in ROGUE_TAG_MAP.items():
+            match = re.search(r"<" + tag + r">\s*(\{.*)", text, re.DOTALL)
+            if match:
+                inner = extract_json(match.group(1))
+                if inner:
+                    if "name" in inner:
+                        return inner
+                    return {"name": canonical, "args": inner}
 
-    # ── Fallback: block-style tags (no JSON escaping) ────────────────
-    # <write_file path="...">...code...</write_file>
-    m = re.search(r'<write_file\s+path="([^"]+)">\s*\n?(.*?)(?:</write_file>|\Z)', text, re.DOTALL)
-    if m and m.group(2).strip():
-        return {"name": "write_file", "args": {"path": m.group(1), "content": m.group(2).strip()}}
+        # ── Fallback: block-style tags (no JSON escaping) ────────────────
+        # <write_file path="...">...code...</write_file>
+        m = re.search(r'<write_file\s+path="([^"]+)">\s*\n?(.*?)(?:</write_file>|\Z)', text, re.DOTALL)
+        if m and m.group(2).strip():
+            return {"name": "write_file", "args": {"path": m.group(1), "content": m.group(2).strip()}}
 
-    return None
+        return None
+    except Exception:
+        return None
 
 
 def _format_tool_for_history(tool_dict):

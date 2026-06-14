@@ -107,6 +107,11 @@ def tool_read_file(path: str) -> str:
     Returns:
         File content or error message
     """
+    if not path or not isinstance(path, str):
+        return "[ERROR] Invalid path: empty or not a string"
+    path = path.strip()
+    if not path:
+        return "[ERROR] Invalid path: empty string"
     try:
         return _get_fs().read(path)
     except FilesystemAccessError as e:
@@ -131,6 +136,16 @@ def tool_write_file(path: str, content: str) -> str:
     """
     from utils.logger import confirm as ask_confirm
     from utils.logger import warning as log_warning
+
+    if not path or not isinstance(path, str):
+        return "[ERROR] Invalid path: empty or not a string"
+    path = path.strip()
+    if not path:
+        return "[ERROR] Invalid path: empty string"
+    if content is None:
+        return "[ERROR] Invalid content: None"
+    if not isinstance(content, str):
+        content = str(content)
 
     p = Path(path)
     if not p.is_absolute():

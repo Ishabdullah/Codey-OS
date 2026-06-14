@@ -40,10 +40,20 @@
 - [x] Verify no secrets/credentials are hardcoded
 
 ## Phase 5: Testing & Documentation
-- [x] Ensure existing tests pass after changes (234 passed, 9 pre-existing failures)
+- [x] Ensure existing tests pass after changes (253 passed, 0 failures)
 - [x] Update test imports for renamed modules
 - [x] Document security model in README
-- [ ] Update CHANGELOG for V3
+- [x] Update CHANGELOG for V3
+- [x] Create PRIVACY.md
+
+## Phase 6: Post-Overhaul Tasks
+- [x] Fix hallucination detection (20/20 tests passing)
+- [x] Tighten daemon shell allowlist
+- [x] Add path traversal tests (10/10 passing)
+- [x] Run autoflake (remove unused imports)
+- [x] Run black (format code)
+- [x] Run isort (sort imports)
+- [x] Fix patch test error format
 
 ## New Issues Found During Work
 - [x] Documented in NEW_ISSUES.md

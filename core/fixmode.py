@@ -61,7 +61,8 @@ def fix_file(filepath: str, extra_instruction: str = "", yolo: bool = False):
 
     if ok:
         success(f"{p.name} ran successfully:")
-        print(output)
+        from utils.logger import console
+        console.print(output)
         if extra_instruction:
             info(f"Applying extra instruction: {extra_instruction}")
             load_file(str(p))
@@ -71,7 +72,8 @@ def fix_file(filepath: str, extra_instruction: str = "", yolo: bool = False):
 
     # Error — show it and auto-fix
     warning(f"Error in {p.name}:")
-    print(output)
+    from utils.logger import console
+    console.print(output)
     separator()
     info("Auto-fixing...")
 
@@ -98,8 +100,10 @@ def fix_file(filepath: str, extra_instruction: str = "", yolo: bool = False):
     if ok2:
         success(f"Fixed! {p.name} now runs successfully.")
         if output2.strip():
-            print(output2)
+            from utils.logger import console
+            console.print(output2)
     else:
         warning(f"Fix attempt did not fully resolve the error:")
-        print(output2)
+        from utils.logger import console
+        console.print(output2)
         info("Try: codey --read " + str(p) + ' "fix this error: ' + output2[:100] + '"')

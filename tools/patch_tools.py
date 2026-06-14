@@ -16,6 +16,15 @@ def tool_patch_file(path: str, old_str: str, new_str: str) -> str:
     Replace first occurrence of old_str with new_str in file.
     Snapshots before patching for /undo support.
     """
+    if not path or not isinstance(path, str):
+        return "[ERROR] Invalid path: empty or not a string"
+    if not old_str or not isinstance(old_str, str):
+        return "[ERROR] Invalid old_str: empty or not a string"
+    if new_str is None:
+        return "[ERROR] Invalid new_str: None"
+    if not isinstance(new_str, str):
+        new_str = str(new_str)
+
     p = Path(path).expanduser()
     if not p.exists():
         # Try relative to cwd

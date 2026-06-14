@@ -67,7 +67,8 @@ class DaemonConfig:
                 # Merge with defaults
                 return self._merge_configs(DEFAULT_CONFIG, user_config)
             except (json.JSONDecodeError, IOError) as e:
-                print(f"Warning: Could not load config file: {e}")
+                from utils.logger import warning
+                warning(f"Could not load config file: {e}")
                 return DEFAULT_CONFIG.copy()
         return DEFAULT_CONFIG.copy()
 
