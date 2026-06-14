@@ -7,9 +7,9 @@
 #   • Python dependencies
 #   • llama.cpp (built from source)
 #   • All three models:
-#       7B  — Qwen2.5-Coder-7B-Instruct Q4_K_M  (official Qwen HF)
-#       0.5B — planner-codey  (Ishabdullah HF, falls back to Qwen official)
-#       Embed — nomic-embed-text-v1.5 Q4_K_M    (nomic-ai HF)
+#       7B    — Qwen2.5-Coder-7B-Instruct Q4_K_M   (official Qwen HF)
+#       1.5B  — Qwen2.5-Coder-1.5B-Instruct Q4_K_M (official Qwen HF)
+#       Embed — nomic-embed-text-v1.5 Q4_K_M        (nomic-ai HF)
 #   • PATH, executable bits, daemon directory
 #
 # Usage:
@@ -75,21 +75,39 @@ install_system_deps() {
     print_step "System packages"
 
     if is_termux; then
-        pkg update -y
-        pkg install -y python cmake ninja clang wget curl git
-        # pyarrow & pandas must come from pkg on Termux (pip wheels fail on aarch64)
-        pkg install -y python-pyarrow python-pandas 2>/dev/null \
-            || print_warning "python-pyarrow/pandas pkg install failed — pipeline features may not work"
+        # Termux pkg doesn't work as root
+        if [ "$(id -u)" -eq 0 ]; then
+            print_warning "Running as root in Termux — skipping pkg install (run as regular user for full install)"
+        else
+            pkg update -y
+            pkg install -y python cmake ninja clang wget curl git
+            # pyarrow & pandas must come from pkg on Termux (pip wheels fail on aarch64)
+            pkg install -y python-pyarrow python-pandas 2>/dev/null \
+                || print_warning "python-pyarrow/pandas pkg install failed — pipeline features may not work"
+        fi
         print_success "Termux packages installed"
     elif command -v apt &>/dev/null; then
-        sudo apt update -y
-        sudo apt install -y python3 python3-pip cmake ninja-build clang wget curl git
+        if [ "$(id -u)" -eq 0 ]; then
+            apt update -y
+            apt install -y python3 python3-pip cmake ninja-build clang wget curl git
+        else
+            sudo apt update -y
+            sudo apt install -y python3 python3-pip cmake ninja-build clang wget curl git
+        fi
         print_success "apt packages installed"
     elif command -v dnf &>/dev/null; then
-        sudo dnf install -y python3 python3-pip cmake ninja clang wget curl git
+        if [ "$(id -u)" -eq 0 ]; then
+            dnf install -y python3 python3-pip cmake ninja clang wget curl git
+        else
+            sudo dnf install -y python3 python3-pip cmake ninja clang wget curl git
+        fi
         print_success "dnf packages installed"
     elif command -v pacman &>/dev/null; then
-        sudo pacman -S --noconfirm python python-pip cmake ninja clang wget curl git
+        if [ "$(id -u)" -eq 0 ]; then
+            pacman -S --noconfirm python python-pip cmake ninja clang wget curl git
+        else
+            sudo pacman -S --noconfirm python python-pip cmake ninja clang wget curl git
+        fi
         print_success "pacman packages installed"
     else
         print_warning "Package manager not detected — install manually: python3 pip cmake ninja clang wget curl git"
@@ -100,16 +118,27 @@ install_system_deps() {
 install_python_deps() {
     print_step "Python dependencies"
 
-    # Upgrade pip first on non-Termux
+    # Upgrade pip (skip on Termux where it's forbidden)
     if ! is_termux; then
-        pip3 install --upgrade pip
+        if [ "$(id -u)" -eq 0 ] || [ -n "$SUDO_USER" ]; then
+            pip3 install --upgrade pip --break-system-packages 2>/dev/null \
+                || pip3 install --upgrade pip
+        else
+            pip3 install --upgrade pip 2>/dev/null \
+                || pip3 install --upgrade pip --user
+        fi
     fi
 
     cd "$CODEY_V2_DIR"
 
     # Install only what's needed for the core agent + GUI
     # (pipeline/training deps are optional — see requirements.txt for full list)
-    pip3 install \
+    PIP_INSTALL_ARGS=""
+    if [ "$(id -u)" -eq 0 ] || [ -n "$SUDO_USER" ]; then
+        PIP_INSTALL_ARGS="--break-system-packages"
+    fi
+
+    pip3 install $PIP_INSTALL_ARGS \
         "rich>=14.0.0" \
         "numpy>=1.24.0" \
         "watchdog>=3.0.0" \
@@ -130,7 +159,7 @@ install_python_deps() {
         read -p "  Install pipeline/training extras? (large download, optional) [y/N] " -n 1 -r
         echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then
-            pip3 install -r "$CODEY_V2_DIR/requirements.txt" \
+            pip3 install $PIP_INSTALL_ARGS -r "$CODEY_V2_DIR/requirements.txt" \
                 || print_warning "Some pipeline packages may have failed (normal on Termux)"
         fi
     fi
@@ -160,11 +189,26 @@ install_llama_cpp() {
     cd "$LLAMA_CPP_DIR"
     print_status "Building llama.cpp — this takes 5–15 min on mobile..."
 
-    cmake -B build -DLLAMA_CURL=ON -DBUILD_SHARED_LIBS=OFF || {
-        print_error "cmake config failed"; return 1
+    # Use clang on Termux (GCC can't handle bionic's _Nonnull/_Nullable annotations)
+    CMAKE_FLAGS="-DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF -DGGML_FATAL_WARNINGS=OFF -DGGML_ALL_WARNINGS=OFF"
+    if is_termux; then
+        CMAKE_FLAGS="$CMAKE_FLAGS -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++"
+    fi
+    
+    cmake -B build $CMAKE_FLAGS || {
+        print_error "cmake config failed"
+        print_warning "Try building manually:"
+        print_warning "  cd $LLAMA_CPP_DIR"
+        print_warning "  PREFIX=$PREFIX cmake -B build $CMAKE_FLAGS"
+        print_warning "  cmake --build build -j\$(nproc)"
+        return 1
     }
+    
     cmake --build build --config Release -j"$(nproc)" || {
         print_error "Build failed — try closing other apps and re-running"
+        print_warning "If build fails on Termux, try:"
+        print_warning "  pkg install clang"
+        print_warning "  Or build on a desktop Linux system and copy the binary"
         return 1
     }
 
@@ -265,7 +309,7 @@ download_models() {
 make_executable() {
     print_step "Permissions"
     chmod +x "$CODEY_V2_DIR/codey3"
-    chmod +x "$CODEY_V2_DIR/codeyd2"
+    chmod +x "$CODEY_V2_DIR/codeyd3"
     chmod +x "$CODEY_V2_DIR/install.sh"
     [ -f "$CODEY_V2_DIR/gui/start.sh" ] && chmod +x "$CODEY_V2_DIR/gui/start.sh"
     print_success "Executable bits set"
@@ -334,27 +378,27 @@ print_completion() {
     echo
     echo -e "${GREEN}${BOLD}"
     echo "╔══════════════════════════════════════════════════════════════╗"
-    echo "║            CODEY-V2 — Installation Complete                  ║"
+    echo "║            CODEY-V3 — Installation Complete                  ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
 
     echo -e "${CYAN}${BOLD}QUICK START${NC}"
     echo
     echo -e "  Reload shell:   ${BLUE}source $SHELL_CONFIG${NC}"
-    echo -e "  Start daemon:   ${BLUE}codeyd2 start${NC}"
+    echo -e "  Start daemon:   ${BLUE}codeyd3 start${NC}"
     echo -e "  Run Codey:      ${BLUE}codey3${NC}"
     echo -e "    → opens the interactive TUI ${BOLD}and${NC} the browser GUI automatically"
     echo -e "    → browser:    ${BLUE}http://localhost:8888${NC}"
     echo
-    echo -e "  Stop daemon:    ${BLUE}codeyd2 stop${NC}"
-    echo -e "  Daemon status:  ${BLUE}codeyd2 status${NC}"
+    echo -e "  Stop daemon:    ${BLUE}codeyd3 stop${NC}"
+    echo -e "  Daemon status:  ${BLUE}codeyd3 status${NC}"
     echo
 
     echo -e "${CYAN}${BOLD}BACKEND SWITCHING  (local models are the default — no key needed)${NC}"
     echo
     echo -e "  Two independent backends:"
     echo -e "    ${BOLD}CODEY_BACKEND${NC}   — 7B coding agent  (ports 8080)"
-    echo -e "    ${BOLD}CODEY_BACKEND_P${NC} — 0.5B planner     (port 8081, defaults to CODEY_BACKEND)"
+    echo -e "    ${BOLD}CODEY_BACKEND_P${NC} — 1.5B planner    (port 8081, defaults to CODEY_BACKEND)"
     echo -e "  Each can be: ${BOLD}local${NC} | ${BOLD}openrouter${NC} | ${BOLD}unlimitedclaude${NC}"
     echo
     echo -e "  ── ${BOLD}OpenRouter${NC} ─────────────────────────────────────────────────"
@@ -367,7 +411,7 @@ print_completion() {
     echo -e "    # Override the 7B coding model (default: qwen/qwen-2.5-coder-7b-instruct):"
     echo -e "    ${BLUE}export OPENROUTER_MODEL=\"anthropic/claude-sonnet-4-5\"${NC}"
     echo
-    echo -e "    # Override the 0.5B planner model independently (default: same as OPENROUTER_MODEL):"
+    echo -e "    # Override the 1.5B planner model independently (default: same as OPENROUTER_MODEL):"
     echo -e "    ${BLUE}export OPENROUTER_PLANNER_MODEL=\"meta-llama/llama-3.2-1b-instruct:free\"${NC}"
     echo
     echo -e "  ── ${BOLD}UnlimitedClaude${NC} ──────────────────────────────────────────────"
@@ -379,7 +423,7 @@ print_completion() {
     echo -e "    # Override the 7B coding model (default: qwen3-coder-next):"
     echo -e "    ${BLUE}export UNLIMITEDCLAUDE_MODEL=\"claude-sonnet-4-5\"${NC}"
     echo
-    echo -e "    # Override the 0.5B planner model independently (default: claude-haiku-4.5):"
+    echo -e "    # Override the 1.5B planner model independently (default: claude-haiku-4.5):"
     echo -e "    ${BLUE}export UNLIMITEDCLAUDE_PLANNER_MODEL=\"claude-haiku-4-5\"${NC}"
     echo
     echo -e "  ── ${BOLD}Mix backends${NC} (most flexible) ───────────────────────────────"
@@ -435,11 +479,9 @@ main() {
     install_python_deps
 
     if ! install_llama_cpp; then
-        print_error "llama.cpp build failed — fix the error above and re-run"
-        print_warning "Manual build:"
-        print_warning "  git clone --depth 1 https://github.com/ggerganov/llama.cpp ~/llama.cpp"
-        print_warning "  cd ~/llama.cpp && cmake -B build -DLLAMA_CURL=ON && cmake --build build -j\$(nproc)"
-        exit 1
+        print_warning "llama.cpp build failed — Codey-V3 will not work without llama-server"
+        print_warning "You can try building manually later or install from a package manager"
+        print_warning "Continuing with model downloads..."
     fi
 
     download_models || print_warning "Some models failed — re-run to resume (wget -c is used)"

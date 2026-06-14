@@ -13,15 +13,15 @@
 
 ---
 
-## Current Model Configuration
+## Current Model Configuration (Upgraded)
 
 | Role | Model | Size | Quantization | RAM Usage | Context |
 |------|-------|------|--------------|-----------|---------|
 | Coder | Qwen2.5-Coder-7B-Instruct | 7.6B | Q4_K_M | ~4.2 GB | 128K |
-| Planner | Qwen2.5-0.5B-Instruct | 0.49B | Q8_0 | ~500 MB | 32K |
+| Planner | **Qwen2.5-Coder-1.5B-Instruct** | 1.5B | Q4_K_M | ~1 GB | 32K |
 | Embedder | nomic-embed-text-v1.5 | 137M | Q4 | ~80 MB | 8K |
 
-**Total RAM usage:** ~4.8 GB
+**Total RAM usage:** ~5.3 GB
 
 ---
 

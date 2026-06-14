@@ -17,11 +17,11 @@
 set -e
 
 CODEY_V2_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DAEMON_DIR="$HOME/.codey-v2"
+DAEMON_DIR="$HOME/.codey-v3"
 
 # Main daemon files
-PID_FILE="$DAEMON_DIR/codey-v2.pid"
-LOG_FILE="$DAEMON_DIR/codey-v2.log"
+PID_FILE="$DAEMON_DIR/codey-v3.pid"
+LOG_FILE="$DAEMON_DIR/codey-v3.log"
 
 # Planner daemon files
 PLANND_PID_FILE="$DAEMON_DIR/plannd.pid"
