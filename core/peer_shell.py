@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-PTY-based peer CLI runner for Codey-v2.
+PTY-based peer CLI runner for Codey-V3.
 
 Spawns a peer CLI (claude, gemini, qwen) directly inside Codey's
 terminal window, automatically types the task prompt into it, and captures
@@ -341,7 +341,8 @@ def run_direct(cli_name: str, cmd: str, prompt_text: str = "") -> str:
     import tempfile
     width   = _terminal_width()
     border  = "─" * width
-    outfile = tempfile.mktemp(prefix="codey_peer_", suffix=".txt")
+    with tempfile.NamedTemporaryFile(prefix="codey_peer_", suffix=".txt", delete=False) as f:
+        outfile = f.name
 
     print(f"\n{_CYAN}{_header(cli_name.upper() + ' CLI', width)}{_RESET}")
     info(f"Opening {cli_name} in your terminal.")
@@ -357,7 +358,12 @@ def run_direct(cli_name: str, cmd: str, prompt_text: str = "") -> str:
     # `script -q -c <cmd> <file>` records the session to outfile
     # while letting the CLI run in the real terminal with full PTY support.
     # -q = quiet (no "Script started/done" lines)
-    os.system(f'script -q -c "{cmd}" "{outfile}"')
+    try:
+        import shlex
+        args = ["script", "-q", "-c", cmd, outfile]
+        subprocess.run(args, timeout=600)
+    except Exception as e:
+        print(f"{_RED}[peer_shell] script error: {e}{_RESET}")
 
     print(f"\n{_DIM}{border}{_RESET}")
     print(f"{_CYAN}{_header(cli_name.upper() + ' DONE', width)}{_RESET}\n")
@@ -489,7 +495,8 @@ def _run_basic_fallback(cli_name: str, cmd: str, prompt_text: str) -> str:
     """
     import tempfile
     width  = _terminal_width()
-    outfile = tempfile.mktemp(prefix="codey_peer_", suffix=".txt")
+    with tempfile.NamedTemporaryFile(prefix="codey_peer_", suffix=".txt", delete=False) as f:
+        outfile = f.name
 
     print(f"\n{_CYAN}{_header(cli_name.upper() + ' CLI  (manual mode)', width)}{_RESET}")
     if prompt_text:
@@ -497,7 +504,14 @@ def _run_basic_fallback(cli_name: str, cmd: str, prompt_text: str) -> str:
         print(f"{_DIM}{prompt_text}{_RESET}")
         print(f"{_DIM}{'─' * width}{_RESET}\n")
 
-    os.system(f'{cmd} 2>&1 | tee "{outfile}"')
+    try:
+        import shlex
+        args = shlex.split(cmd)
+        with open(outfile, 'w') as f:
+            proc = subprocess.Popen(args, stdout=f, stderr=subprocess.STDOUT)
+            proc.wait()
+    except Exception as e:
+        print(f"{_RED}[peer_shell] command error: {e}{_RESET}")
 
     print(f"\n{_CYAN}{_header(cli_name.upper() + ' DONE', width)}{_RESET}\n")
     info(f"Reading {cli_name} output…")

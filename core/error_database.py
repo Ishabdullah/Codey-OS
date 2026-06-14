@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Error pattern database for Codey-v2.
+Error pattern database for Codey-V3.
 
 Learns from errors and their successful fixes:
 - Records errors encountered
@@ -8,7 +8,7 @@ Learns from errors and their successful fixes:
 - Suggests fixes for similar errors
 - Builds a knowledge base over time
 
-This makes Codey-v2 genuinely smarter with each error fixed.
+This makes Codey-V3 genuinely smarter with each error fixed.
 """
 
 import json

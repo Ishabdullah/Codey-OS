@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Codey-v2 are documented in this file.
+All notable changes to Codey-V3 are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Initial Public Release
 
-This is the first public release of Codey-v2. All features described below are
+This is the first public release of Codey-V3. All features described below are
 present in the `v2.0.0` tag. The internal development history that led here is
 preserved in the [Pre-release Development History](#pre-release-development-history)
 section below.
@@ -24,7 +24,7 @@ section below.
 
 #### Persistent Daemon
 - `codeyd2 start|stop|status|restart|reload|config` — full lifecycle management
-- Unix socket at `~/.codey-v2/codey-v2.sock` for low-latency IPC
+- Unix socket at `~/.codey-v3/codey-v3.sock` for low-latency IPC
 - SQLite state store — task queue and session state survive restarts
 - Watchdog auto-restarts any of the three model servers if they crash
 
@@ -179,7 +179,7 @@ section below.
 
 #### New Components
 - **`core/plannd.py`** — Planner daemon: runs `DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M` on port 8081 as a
-  dedicated task-planning model. Listens on Unix socket `~/.codey-v2/plannd.sock`. Accepts raw user
+  dedicated task-planning model. Listens on Unix socket `~/.codey-v3/plannd.sock`. Accepts raw user
   prompts, returns numbered step lists for the 7B execution model to work through one at a time.
 - **`core/planner_client.py`** — Async socket client for plannd. Used by daemon to send planning
   requests and receive step lists. Raises `ConnectionRefusedError` if plannd is not running (silent
@@ -230,7 +230,7 @@ section below.
 
 ### Removed — Single-Model Architecture
 
-Removed the dual-model hot-swap system. Codey-v2 now runs exclusively on the
+Removed the dual-model hot-swap system. Codey-V3 now runs exclusively on the
 primary Qwen2.5-Coder-7B model. The router and secondary model added complexity
 (SIGSTOP/SIGCONT caching, routing heuristics, cooldown logic) that caused subtle
 failures (e.g. the 1.5B model timing out on tasks it couldn't handle) with
@@ -354,7 +354,7 @@ KB vector index now takes ~3 minutes instead of ~3 hours on-device.
 - `start_embed_server()` / `stop_embed_server()` — public helpers; both
   idempotent and safe to call multiple times.
 - Startup: waits up to 30 s for `/health` to respond; logs to
-  `~/.codey-v2/embed-server.log` on failure.
+  `~/.codey-v3/embed-server.log` on failure.
 - Graceful stop on daemon shutdown; `pkill -f llama-server` from `codeyd2
   stop` also catches the embed server process.
 
@@ -415,7 +415,7 @@ codeyd2 stop && codeyd2 start
 sleep 20
 
 # Rebuild semantic index (~3 min with nomic on port 8082)
-cd ~/codey-v2
+cd ~/codey-v3
 python3 -c "from tools.kb_semantic import build_semantic_index; build_semantic_index()"
 # writes vectors.npy at 768-dim (nomic-embed-text-v1.5)
 ```
@@ -747,9 +747,9 @@ Safety headroom:    ~1444 tokens
 - SQLite state store for persistence (`core/state.py`)
 - Daemon configuration management (`core/daemon_config.py`)
 - Task executor for background execution (`core/task_executor.py`)
-- CLI client (`codey2`) and daemon manager (`codeyd2`) scripts
+- CLI client (`codey3`) and daemon manager (`codeyd2`) scripts
 - Commands: `codeyd2 start|stop|status|restart|reload|config`
-- Commands: `codey2 "prompt"`, `codey2 status`, `codey2 task list`
+- Commands: `codey3 "prompt"`, `codey3 status`, `codey3 task list`
 
 #### Phase 2: Direct Filesystem Access
 - Class-based filesystem access (`core/filesystem.py`)
@@ -796,8 +796,8 @@ Safety headroom:    ~1444 tokens
 - Auto-reduce threads after 10 minutes continuous use
 
 ### Changed
-- All references updated from "Codey v2" to "Codey-v2"
-- Daemon files renamed to `codey-v2.*` (pid, sock, log)
+- All references updated from "Codey V3" to "Codey-V3"
+- Daemon files renamed to `codey-v3.*` (pid, sock, log)
 - Complete separation from original `codey` directory
 - Fixed interactive mode crash (Termux-safe thinking indicator)
 - Fixed response display in REPL
@@ -881,7 +881,7 @@ The following features are explicitly out of scope for v2.0.0 but may be conside
 ### From v1.0.0 to v2.0.0
 
 **Breaking Changes:**
-- Daemon files renamed: `codey.pid` → `codey-v2.pid`, `codey.sock` → `codey-v2.sock`, `codey.log` → `codey-v2.log`
+- Daemon files renamed: `codey.pid` → `codey-v3.pid`, `codey.sock` → `codey-v3.sock`, `codey.log` → `codey-v3.log`
 - `PROTECTED_FILES` removed (self-modification now allowed with checkpointing)
 - Session format unchanged (backward compatible)
 
@@ -895,16 +895,16 @@ The following features are explicitly out of scope for v2.0.0 but may be conside
 **New Commands:**
 ```bash
 codeyd2 start|stop|status|restart|reload|config  # Daemon management
-codey2 status                                     # Full system status
-codey2 task list                                  # List recent tasks
-codey2 cancel <id>                                # Cancel a task
+codey3 status                                     # Full system status
+codey3 task list                                  # List recent tasks
+codey3 cancel <id>                                # Cancel a task
 ```
 
 ---
 
 ## Contributors
 
-Thanks to all contributors who made Codey-v2 possible!
+Thanks to all contributors who made Codey-V3 possible!
 
 For a complete list of changes, see the git history:
 ```bash

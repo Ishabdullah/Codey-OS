@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Model loader for Codey-v2 - Termux/Android compatible.
+Model loader for Codey-V3 - Termux/Android compatible.
 
 Uses llama-server binary via subprocess instead of llama-cpp-python bindings
 (since llama-cpp-python doesn't support Android platform).
@@ -99,7 +99,7 @@ class LlamaServer:
                 pass  # Config not available — use llama.cpp defaults (mmap on, mlock off)
 
             # Start process - redirect output to log file to avoid pipe buffer issues
-            log_file = Path.home() / ".codey-v2" / "llama-server.log"
+            log_file = Path.home() / ".codey-v3" / "llama-server.log"
             log_file.parent.mkdir(parents=True, exist_ok=True)
 
             with open(log_file, "w") as f:
@@ -130,7 +130,7 @@ class LlamaServer:
                         with open(log_file, "r") as f:
                             logs = f.read()
                         error(f"Server log: {logs[-1000:]}")
-                    except:
+                    except (IOError, OSError):
                         pass
                     return False
 
@@ -187,7 +187,7 @@ class LlamaServer:
             url = f"http://{SERVER_HOST}:{self.port}/health"
             with urllib.request.urlopen(url, timeout=2) as response:
                 return response.status == 200
-        except:
+        except (urllib.error.URLError, OSError, ValueError):
             return False
 
     def _is_port_in_use(self) -> bool:
@@ -204,7 +204,7 @@ class LlamaServer:
                     url = f"http://{SERVER_HOST}:{self.port}/health"
                     with urllib.request.urlopen(url, timeout=2) as response:
                         return response.status == 200
-                except:
+                except (urllib.error.URLError, OSError, ValueError):
                     pass
             return result == 0
         except Exception:

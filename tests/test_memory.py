@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Unit tests for Codey-v2 hierarchical memory system (memory_v2.py).
+Unit tests for Codey-V3 hierarchical memory system (memory_v2.py).
 
 Tests cover:
 - load_file

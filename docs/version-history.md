@@ -2,7 +2,7 @@
 
 ## v2.0.0 — Initial Public Release (2026-04-01)
 
-The full feature set of Codey-v2 — three-model architecture, four-tier memory,
+The full feature set of Codey-V3 — three-model architecture, four-tier memory,
 multi-peer escalation, shell consent model, design-only planning phase, hybrid
 RAG retrieval, thermal management, voice, fine-tuning pipeline, and security
 hardening. See [CHANGELOG.md](../CHANGELOG.md) for the complete feature list.

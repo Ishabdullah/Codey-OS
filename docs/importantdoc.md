@@ -1,6 +1,6 @@
-# importantdoc.md — Qwen2.5-Coder-7B-Instruct Prompting Guide for Codey-v2
+# importantdoc.md — Qwen2.5-Coder-7B-Instruct Prompting Guide for Codey-V3
 
-This document captures everything you need to know to get correct tool calls, proper instruction following, and reliable code generation from the exact model Codey-v2 runs: **Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf** via llama-server.
+This document captures everything you need to know to get correct tool calls, proper instruction following, and reliable code generation from the exact model Codey-V3 runs: **Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf** via llama-server.
 
 ---
 
@@ -374,4 +374,4 @@ When modifying Codey's prompting pipeline, verify:
 - Qwen2.5 technical report: https://arxiv.org/abs/2409.12186
 - llama.cpp server docs: https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md
 - ChatML format: https://huggingface.co/docs/transformers/chat_templating
-- Codey-v2 architecture: `CLAUDE.md` (this repo)
+- Codey-V3 architecture: `CLAUDE.md` (this repo)

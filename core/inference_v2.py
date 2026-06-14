@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Inference engine for Codey-v2 (v2.6.0 — ChatML fix).
+Inference engine for Codey-V3 (v2.6.0 — ChatML fix).
 
 Uses llama-server's /v1/chat/completions endpoint which automatically applies
 the model's chat template. Previous versions sent raw text to /completion,
@@ -75,7 +75,6 @@ def infer(messages: list[dict], stream: bool = False, extra_stop: list = None,
     Returns:
         Generated text or error message
     """
-    global last_tps
 
     # Skip local loader when using a remote backend
     if not is_remote_backend():

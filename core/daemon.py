@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Daemon core for Codey-v2.
+Daemon core for Codey-V3.
 
 Main daemon process with:
 - Unix socket server for CLI communication
@@ -32,13 +32,13 @@ from core.task_executor import TaskExecutor
 
 # Daemon directory — defined at module level so check_pid_file / is_daemon_running
 # can use it without triggering a full Daemon init.
-DAEMON_DIR = Path.home() / ".codey-v2"
+DAEMON_DIR = Path.home() / ".codey-v3"
 
 # Stable path constants with hardcoded defaults.
 # These may be overridden when Daemon.__init__ reads the config file.
-PID_FILE    = DAEMON_DIR / "codey-v2.pid"
-SOCKET_FILE = DAEMON_DIR / "codey-v2.sock"
-LOG_FILE    = DAEMON_DIR / "codey-v2.log"
+PID_FILE    = DAEMON_DIR / "codey-v3.pid"
+SOCKET_FILE = DAEMON_DIR / "codey-v3.sock"
+LOG_FILE    = DAEMON_DIR / "codey-v3.log"
 
 
 # ==================== PID File Management ====================
@@ -50,24 +50,36 @@ def check_pid_file() -> bool:
     Returns True if another daemon is running.
     Removes stale PID file if process is dead.
     """
+    import fcntl
     if PID_FILE.exists():
         try:
-            pid = int(PID_FILE.read_text().strip())
-            os.kill(pid, 0)  # Signal 0 checks if process exists
-            return True  # Daemon is running
-        except PermissionError:
-            return True  # Process exists but owned by another user — treat as running
-        except (ProcessLookupError, ValueError):
-            # Process is dead or PID file is corrupt — remove stale file
-            warning("Removing stale PID file")
-            PID_FILE.unlink(missing_ok=True)
-            return False
+            with open(PID_FILE, 'r') as f:
+                fcntl.flock(f, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                try:
+                    pid = int(f.read().strip())
+                    os.kill(pid, 0)
+                    return True
+                except (ProcessLookupError, ValueError):
+                    warning("Removing stale PID file")
+                    PID_FILE.unlink(missing_ok=True)
+                    return False
+                finally:
+                    fcntl.flock(f, fcntl.LOCK_UN)
+        except (IOError, OSError):
+            return True
     return False
 
 
 def write_pid_file():
-    """Write current PID to PID file."""
-    PID_FILE.write_text(str(os.getpid()))
+    """Write current PID to PID file with file locking."""
+    import fcntl
+    with open(PID_FILE, 'w') as f:
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            f.write(str(os.getpid()))
+            f.flush()
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
 
 
 def remove_pid_file():
@@ -218,7 +230,7 @@ class DaemonServer:
         try:
             usage = resource.getrusage(resource.RUSAGE_SELF)
             memory_mb = usage.ru_maxrss / 1024  # Convert to MB (on Linux)
-        except:
+        except (ValueError, ZeroDivisionError, OSError):
             memory_mb = 0
         
         # Get task stats
@@ -292,8 +304,19 @@ class DaemonServer:
         return {"status": "ok", "message": "Shutting down"}
     
     async def _handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
-        """Handle incoming client connection."""
+        """Handle incoming client connection with peer credential verification."""
         try:
+            # Verify peer credentials (same user only)
+            peer_pid = writer.get_extra_info('peer_pid')
+            peer_uid = writer.get_extra_info('peer_uid')
+            if peer_uid is not None and peer_uid != os.getuid():
+                error(f"Rejected connection from different UID: {peer_uid}")
+                writer.write(json.dumps({"status": "error", "message": "Unauthorized"}).encode('utf-8'))
+                await writer.drain()
+                writer.close()
+                await writer.wait_closed()
+                return
+
             # Read request (JSON message)
             data = await reader.read(65536)
             if not data:
@@ -324,13 +347,13 @@ class DaemonServer:
             try:
                 writer.write(json.dumps({"status": "error", "message": str(e)}).encode('utf-8'))
                 await writer.drain()
-            except:
+            except (ConnectionError, OSError):
                 pass
         finally:
             try:
                 writer.close()
                 await writer.wait_closed()
-            except:
+            except (ConnectionError, OSError):
                 pass
     
     async def start(self):
@@ -386,8 +409,8 @@ class Daemon:
         setup_file_logging(log_file_path)
 
         # Override path constants from config so all other functions see them.
-        PID_FILE    = Path(self._config.get("daemon", "pid_file",    default=str(DAEMON_DIR / "codey-v2.pid")))
-        SOCKET_FILE = Path(self._config.get("daemon", "socket_file", default=str(DAEMON_DIR / "codey-v2.sock")))
+        PID_FILE    = Path(self._config.get("daemon", "pid_file",    default=str(DAEMON_DIR / "codey-v3.pid")))
+        SOCKET_FILE = Path(self._config.get("daemon", "socket_file", default=str(DAEMON_DIR / "codey-v3.sock")))
         LOG_FILE    = Path(log_file_path)
 
         self.state = get_state_store()
@@ -422,7 +445,7 @@ class Daemon:
                     info(f"ProjectMemory: loaded {_codeymd_path}")
 
             # Load config.json if it exists
-            _config_path = _Path.home() / ".codey-v2" / "config.json"
+            _config_path = _Path.home() / ".codey-v3" / "config.json"
             if _config_path.exists():
                 _config_content = _config_path.read_text(encoding="utf-8", errors="replace")
                 _mem.add_to_project(str(_config_path), _config_content, is_protected=True)
@@ -697,7 +720,7 @@ def send_command(cmd: str, data: Dict = None, timeout: float = 60.0) -> Dict:
     finally:
         try:
             sock.close()
-        except:
+        except (OSError, IOError):
             pass
 
 

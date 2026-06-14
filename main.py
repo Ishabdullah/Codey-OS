@@ -17,14 +17,15 @@ BANNER = f"""[bold blue]
  ██╔════╝██╔═══██╗██╔══██╗██╔════╝╚██╗ ██╔╝
  ██║     ██║   ██║██║  ██║█████╗   ╚████╔╝
  ██║     ██║   ██║██║  ██║██╔══╝    ╚██╔╝
- ╚██████╗╚██████╔╝██████╔╝███████╗   ██║
-  ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝   ╚═╝  ─ V2
-[/bold blue][dim]  v{CODEY_VERSION} · Local AI Coding Assistant · Termux[/dim]
+  ╚██████╗╚██████╔╝██████╔╝███████╗   ██║
+   ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝   ╚═╝  ─ V3
+[/bold blue][dim]  v{CODEY_VERSION} · Privacy-Focused AI Coding Assistant · Termux[/dim]
+[dim]  🔒 100% Local · No Telemetry · No Cloud Required[/dim]
 """
 
 def parse_args():
     import argparse
-    parser = argparse.ArgumentParser(description="Codey-v2 - Local AI coding assistant")
+    parser = argparse.ArgumentParser(description="Codey-V3 - Local AI coding assistant")
     parser.add_argument("prompt",       nargs="?")
     parser.add_argument("--yolo",       action="store_true", help="Skip confirmations")
     parser.add_argument("--threads",    type=int)
@@ -819,7 +820,7 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
                     )
                     if response and not response.startswith("["):
                         separator()
-                        console.print(f"\n[bold green]Codey-v2:[/bold green] {response}")
+                        console.print(f"\n[bold green]Codey-V3:[/bold green] {response}")
                         separator()
                     from core.sessions import save_session
                     save_session(history)
@@ -847,7 +848,7 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
                     response, history = run_agent(text, history, yolo=yolo)
                     if response and not response.startswith("["):
                         separator()
-                        console.print(f"\n[bold green]Codey-v2:[/bold green] {response}")
+                        console.print(f"\n[bold green]Codey-V3:[/bold green] {response}")
                         separator()
                         if v.enabled and v.tts_available():
                             try:
@@ -996,7 +997,7 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
   /unread <file>         Remove file from context
   /ignore <pattern>      Add pattern to .codeyignore
   /context               Show loaded files and sizes
-  /diff [file]           Show what Codey-v2 changed (colored diff)
+  /diff [file]           Show what Codey-V3 changed (colored diff)
   /undo [file]           Restore file to previous version
 
 [bold]Code Review (v2.5.2):[/bold]
@@ -1047,20 +1048,20 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
   /peer <task>           Auto-pick best CLI for the task
 
 [bold]CLI flags:[/bold]
-  codey-v2 "task"              One-shot
-  codey-v2 --chat "task"       Chat with prefilled prompt
-  codey-v2 --yolo "task"       Skip all confirmations
-  codey-v2 --fix file.py       Run file, auto-fix any errors
-  codey-v2 --read file.py      Pre-load file into context
-  codey-v2 --init              Generate CODEY.md and exit
-  codey-v2 --no-resume         Start fresh (ignore saved session)
-  codey-v2 --allow-self-mod    Enable self-modification (with checkpoints)
-  codey-v2 --no-peer          Disable peer CLI escalation
+  codey-v3 "task"              One-shot
+  codey-v3 --chat "task"       Chat with prefilled prompt
+  codey-v3 --yolo "task"       Skip all confirmations
+  codey-v3 --fix file.py       Run file, auto-fix any errors
+  codey-v3 --read file.py      Pre-load file into context
+  codey-v3 --init              Generate CODEY.md and exit
+  codey-v3 --no-resume         Start fresh (ignore saved session)
+  codey-v3 --allow-self-mod    Enable self-modification (with checkpoints)
+  codey-v3 --no-peer          Disable peer CLI escalation
 
 [bold]Fine-tuning (v2.3.0):[/bold]
-  codey-v2 --finetune          Export fine-tuning dataset + Colab notebook
-  codey-v2 --finetune --ft-days 30 --ft-quality 0.7 --ft-model both
-  codey-v2 --import-lora /path/to/adapter --lora-model primary
+  codey-v3 --finetune          Export fine-tuning dataset + Colab notebook
+  codey-v3 --finetune --ft-days 30 --ft-quality 0.7 --ft-model both
+  codey-v3 --import-lora /path/to/adapter --lora-model primary
 
 [bold]Environment variables:[/bold]
   ALLOW_SELF_MOD=1             Enable self-modification (alternative to flag)
@@ -1117,7 +1118,7 @@ def repl(initial_prompt=None, yolo=False, one_shot=False, preload=None, plan=Fal
                     separator()
                 else:
                     separator()
-                    console.print(f"\n[bold green]Codey-v2:[/bold green] {response}")
+                    console.print(f"\n[bold green]Codey-V3:[/bold green] {response}")
                     separator()
             save_session(history)
         except KeyboardInterrupt:
@@ -1138,7 +1139,7 @@ def repl(initial_prompt=None, yolo=False, one_shot=False, preload=None, plan=Fal
                     separator()
                 else:
                     separator()
-                    console.print(f"\n[bold green]Codey-v2:[/bold green] {response}")
+                    console.print(f"\n[bold green]Codey-V3:[/bold green] {response}")
                     separator()
             save_session(history)
         except KeyboardInterrupt:
@@ -1210,7 +1211,7 @@ def repl(initial_prompt=None, yolo=False, one_shot=False, preload=None, plan=Fal
                     separator()
                 else:
                     separator()
-                    console.print(f"\n[bold green]Codey-v2:[/bold green] {response}")
+                    console.print(f"\n[bold green]Codey-V3:[/bold green] {response}")
                     separator()
                 # Speak the response if voice mode is on (Ctrl+C to interrupt)
                 try:
@@ -1241,7 +1242,7 @@ def main():
     args = parse_args()
 
     if args.version:
-        print(f"Codey-v2 v{CODEY_VERSION}")
+        print(f"Codey-V3 v{CODEY_VERSION}")
         sys.exit(0)
 
     apply_overrides(args)
@@ -1252,7 +1253,7 @@ def main():
         if check_pid_file():
             error("Daemon is already running. Use --daemon-stop to shut it down.")
             sys.exit(1)
-        info("Starting Codey-v2 daemon mode...")
+        info("Starting Codey-V3 daemon mode...")
         daemon = Daemon()
         daemon.run()
         return
@@ -1278,7 +1279,7 @@ def main():
             # Suggest test file name
             from pathlib import Path as _P
             suggested = "test_" + _P(args.tdd).name
-            error(f"No test file found. Create {suggested} or use: codey-v2 --tdd {args.tdd} --tests {suggested}")
+            error(f"No test file found. Create {suggested} or use: codey-v3 --tdd {args.tdd} --tests {suggested}")
             shutdown()
             return
         run_tdd_loop(args.tdd, test_file, yolo=args.yolo)

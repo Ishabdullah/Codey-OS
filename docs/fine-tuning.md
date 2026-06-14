@@ -1,6 +1,6 @@
 # Fine-tuning
 
-Codey-v2 supports personalizing the underlying model using your own interaction history. Heavy training runs off-device on Google Colab (free tier), while your phone handles only lightweight data export and model file management.
+Codey-V3 supports personalizing the underlying model using your own interaction history. Heavy training runs off-device on Google Colab (free tier), while your phone handles only lightweight data export and model file management.
 
 ---
 
@@ -8,10 +8,10 @@ Codey-v2 supports personalizing the underlying model using your own interaction 
 
 ```bash
 # Export last 30 days with default quality threshold
-codey2 --finetune
+codey3 --finetune
 
 # Customize the export
-codey2 --finetune --ft-days 60 --ft-quality 0.6 --ft-model 7b
+codey3 --finetune --ft-days 60 --ft-quality 0.6 --ft-model 7b
 ```
 
 | Flag | Default | Description |
@@ -47,8 +47,8 @@ Training uses [Unsloth](https://github.com/unslothai/unsloth) for 2x speed and 7
 # Extract the downloaded adapter
 unzip codey-lora-adapter.zip
 
-# Import to Codey-v2
-codey2 --import-lora /path/to/codey-lora-adapter --lora-model primary
+# Import to Codey-V3
+codey3 --import-lora /path/to/codey-lora-adapter --lora-model primary
 ```
 
 | Flag | Default | Description |
@@ -65,7 +65,7 @@ If you want a single merged GGUF file instead of a base model + adapter:
 
 ```bash
 # Merge on import
-codey2 --import-lora /path/to/adapter --lora-model primary --lora-merge
+codey3 --import-lora /path/to/adapter --lora-model primary --lora-merge
 
 # Or manually with llama.cpp
 python ~/llama.cpp/convert-lora.py \
@@ -85,7 +85,7 @@ Merging requires ~8 GB free RAM for the 7B model and takes 5–15 minutes.
 A full backup is created automatically before any import. To restore:
 
 ```bash
-codey2 --rollback --lora-model primary
+codey3 --rollback --lora-model primary
 ```
 
 ---

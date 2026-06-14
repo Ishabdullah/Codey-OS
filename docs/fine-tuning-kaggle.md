@@ -1,6 +1,6 @@
-# Fine-Tuning Codey-v2 on Kaggle
+# Fine-Tuning Codey-V3 on Kaggle
 
-This guide covers the full end-to-end workflow for fine-tuning both Codey-v2 models using your own training data and a free Kaggle GPU.
+This guide covers the full end-to-end workflow for fine-tuning both Codey-V3 models using your own training data and a free Kaggle GPU.
 
 ---
 
@@ -17,10 +17,10 @@ Both models are trained with QLoRA (4-bit quantized base + LoRA adapters) so the
 
 ## Step 1 — Generate training data (on your phone)
 
-Run the pipeline in Termux from the codey-v2 directory:
+Run the pipeline in Termux from the codey-v3 directory:
 
 ```bash
-cd ~/codey-v2
+cd ~/codey-v3
 
 # Quick option — no internet needed, ~5,800 synthetic records:
 python pipeline/run.py --synthetic-only
@@ -32,7 +32,7 @@ python pipeline/run.py --datasets phase1 --max-records 3000
 python pipeline/run.py --datasets phase1
 ```
 
-Output file: `~/codey-v2/pipeline_output/training_data.jsonl`
+Output file: `~/codey-v3/pipeline_output/training_data.jsonl`
 
 See `docs/pipeline.md` for full pipeline documentation.
 
@@ -52,10 +52,10 @@ Then copy both files:
 
 ```bash
 # The Kaggle notebook
-cp ~/codey-v2/notebooks/codey_finetune_kaggle.ipynb ~/storage/downloads/
+cp ~/codey-v3/notebooks/codey_finetune_kaggle.ipynb ~/storage/downloads/
 
 # The training data
-cp ~/codey-v2/pipeline_output/training_data.jsonl ~/storage/downloads/
+cp ~/codey-v3/pipeline_output/training_data.jsonl ~/storage/downloads/
 ```
 
 Both files will now appear in your phone's Downloads folder and can be uploaded from there.
@@ -176,7 +176,7 @@ cp ~/storage/downloads/unsloth.Q4_K_M.gguf ~/models/qwen2.5-0.5b/planner-codey.g
 
 ## Step 9 — Load the new models
 
-Restart Codey-v2 to load the new weights:
+Restart Codey-V3 to load the new weights:
 
 ```bash
 codeyd2 stop

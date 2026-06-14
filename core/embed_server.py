@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Dedicated embedding server for Codey-v2 knowledge base indexing.
+Dedicated embedding server for Codey-V3 knowledge base indexing.
 
 Runs nomic-embed-text-v1.5 (80 MB Q4, 2048 ctx, 768-dim) as a separate
 llama-server on port 8082 — distinct from the generation server on 8080/8081.
@@ -90,7 +90,7 @@ class EmbedServer:
             "--pooling", "mean",# OAI-compatible single vector per input
         ]
 
-        log_file = Path.home() / ".codey-v2" / "embed-server.log"
+        log_file = Path.home() / ".codey-v3" / "embed-server.log"
         log_file.parent.mkdir(parents=True, exist_ok=True)
 
         log_fd = open(log_file, "a")

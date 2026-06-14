@@ -1,5 +1,5 @@
 """
-Git helper for Codey-v2.
+Git helper for Codey-V3.
 
 v2.5.5 — Phase 3: branch management, smart commit messages,
                    merge conflict detection and resolution.
@@ -131,8 +131,12 @@ def git_branches(path: str = None) -> str:
 def git_branch_create(name: str, path: str = None) -> str:
     """Create a new branch and switch to it immediately."""
     path = path or os.getcwd()
-    # Validate name (no spaces, no special chars)
+    # Validate name (no spaces, no special chars, no leading dashes)
     if re.search(r"[\s~^:?*\[\\\]@{]", name):
+        return f"[ERROR] Invalid branch name: '{name}'"
+    if name.startswith("-"):
+        return f"[ERROR] Branch name cannot start with '-': '{name}'"
+    if not name or name in (".", ".."):
         return f"[ERROR] Invalid branch name: '{name}'"
 
     result = subprocess.run(

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Checkpoint system for Codey-v2 self-modification.
+Checkpoint system for Codey-V3 self-modification.
 
 Before modifying core files, creates a checkpoint:
 - Git commit with checkpoint message
-- Full file backup in ~/.codey-v2/checkpoints/
+- Full file backup in ~/.codey-v3/checkpoints/
 - SQLite record for tracking
 
 Supports rollback to any checkpoint.
@@ -25,7 +25,7 @@ from core.state import get_state_store
 
 
 # Checkpoint directory
-CHECKPOINT_DIR = Path.home() / ".codey-v2" / "checkpoints"
+CHECKPOINT_DIR = Path.home() / ".codey-v3" / "checkpoints"
 CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Core files that should be checkpointed before modification
@@ -48,10 +48,10 @@ class Checkpoint:
 
 
 def is_core_file(file_path: str) -> bool:
-    """Check if a file is a Codey-v2 file that needs checkpointing."""
+    """Check if a file is a Codey-V3 file that needs checkpointing."""
     path = Path(file_path).resolve()
 
-    # Check if in CODE_DIR (Codey-v2 source)
+    # Check if in CODE_DIR (Codey-V3 source)
     try:
         path.relative_to(CODE_DIR)
         return True
@@ -104,7 +104,7 @@ def create_checkpoint(reason: str, files_modified: List[str] = None) -> str:
     important_files = [
         CODE_DIR / "main.py",
         CODE_DIR / "codey",
-        CODE_DIR / "codey2",
+        CODE_DIR / "codey3",
     ]
     for f in important_files:
         if f.exists():

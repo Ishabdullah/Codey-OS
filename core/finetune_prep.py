@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Fine-tuning data preparation for Codey-v2.
+Fine-tuning data preparation for Codey-V3.
 
 Exports interaction data for off-device fine-tuning using Unsloth + Colab.
 Generates ShareGPT-style JSONL datasets and ready-to-run Colab notebooks.
@@ -33,7 +33,7 @@ from core.memory_v2 import memory as _mem
 
 class DatasetCurator:
     """
-    Curates high-quality fine-tuning examples from Codey-v2 interaction history.
+    Curates high-quality fine-tuning examples from Codey-V3 interaction history.
     
     Filters by:
     - Successful interactions (no errors, task completed)
@@ -181,7 +181,7 @@ class DatasetCurator:
                 {"role": "assistant", "content": assistant_msg}
             ],
             "metadata": {
-                "source": "codey-v2",
+                "source": "codey-v3",
                 "quality": action.get("_quality", 0.5),
                 "timestamp": action.get("timestamp", 0),
                 "tools_used": action.get("tools_used", []),
@@ -195,7 +195,7 @@ class DatasetCurator:
         learning = get_learning_manager()
         prefs = learning.get_all_preferences()
         
-        parts = ["You are Codey-v2, a helpful AI coding assistant."]
+        parts = ["You are Codey-V3, a helpful AI coding assistant."]
         
         # Add learned preferences
         if prefs.get("test_framework"):
@@ -268,12 +268,12 @@ def _write_jsonl(examples: List[Dict], output_file: Path) -> int:
 # Colab Notebook Generation
 # =============================================================================
 
-UNSLOTH_NOTEBOOK_TEMPLATE = '''# Codey-v2 Fine-tuning with Unsloth
+UNSLOTH_NOTEBOOK_TEMPLATE = '''# Codey-V3 Fine-tuning with Unsloth
 # Model: {model_name}
 # Generated: {generated_date}
 
 """
-This notebook fine-tunes {model_name} on your Codey-v2 interaction data.
+This notebook fine-tunes {model_name} on your Codey-V3 interaction data.
 
 Requirements:
 - Google Colab free tier (T4 GPU, 16GB VRAM)
@@ -284,7 +284,7 @@ Steps:
 1. Upload your codey-finetune-*.jsonl file
 2. Run all cells
 3. Download the LoRA adapter
-4. Import back to Codey-v2 with: codey2 --import-lora /path/to/adapter
+4. Import back to Codey-V3 with: codey3 --import-lora /path/to/adapter
 
 Estimated time: 1-4 hours on free T4 GPU
 """
@@ -414,7 +414,7 @@ print("""
 Next steps:
 1. Download the codey-lora-adapter.zip file
 2. Extract it on your device
-3. Import to Codey-v2: codey2 --import-lora /path/to/codey-lora-adapter
+3. Import to Codey-V3: codey3 --import-lora /path/to/codey-lora-adapter
 
 To merge with base model (optional):
   python merge_adapter.py --base {model_id} --adapter codey-lora-adapter --output merged-model
@@ -521,7 +521,7 @@ def print_instructions(
     
     instructions = f"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║                    Codey-v2 Fine-tuning Workflow                             ║
+║                    Codey-V3 Fine-tuning Workflow                             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 
 ✓ Dataset exported: {dataset_path}
@@ -556,7 +556,7 @@ STEP 4: Download Adapter
   3. Transfer to your Android device
 
 ────────────────────────────────────────────────────────────────────────────────
-STEP 5: Import to Codey-v2
+STEP 5: Import to Codey-V3
 ────────────────────────────────────────────────────────────────────────────────
   On your device:
   
@@ -564,10 +564,10 @@ STEP 5: Import to Codey-v2
      unzip codey-lora-adapter.zip
   
   2. Import the adapter:
-     codey2 --import-lora /path/to/codey-lora-adapter --model {model_variant}
+     codey3 --import-lora /path/to/codey-lora-adapter --model {model_variant}
   
   3. Test the fine-tuned model:
-     codey2 "test the new model"
+     codey3 "test the new model"
 
 ────────────────────────────────────────────────────────────────────────────────
 TROUBLESHOOTING

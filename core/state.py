@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Core state store for Codey-v2.
+Core state store for Codey-V3.
 
 SQLite-backed persistent storage for:
 - General state (key-value)
@@ -18,8 +18,8 @@ from threading import Lock
 
 from utils.config import CODEY_DIR
 
-# State directory and database path (Codey-v2 specific)
-STATE_DIR = Path.home() / ".codey-v2"
+# State directory and database path (Codey-V3 specific)
+STATE_DIR = Path.home() / ".codey-v3"
 STATE_DB = STATE_DIR / "state.db"
 
 # Ensure state directory exists

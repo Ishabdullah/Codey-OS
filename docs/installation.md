@@ -68,27 +68,27 @@ cd ~/models/nomic-embed
 wget https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf
 ```
 
-### Step 4 — Clone Codey-v2
+### Step 4 — Clone Codey-V3
 
 ```bash
-git clone https://github.com/Ishabdullah/Codey.git ~/codey-v2
-cd ~/codey-v2
-chmod +x codey2 codeyd2
+git clone https://github.com/Ishabdullah/Codey.git ~/codey-v3
+cd ~/codey-v3
+chmod +x codey3 codeyd2
 ```
 
 ### Step 5 — Add to PATH
 
 ```bash
-echo 'export PATH="$HOME/codey-v2:$PATH"' >> ~/.bashrc
+echo 'export PATH="$HOME/codey-v3:$PATH"' >> ~/.bashrc
 source ~/.bashrc
 ```
 
-> **Other shells:** For `zsh`, replace `~/.bashrc` with `~/.zshrc`. For fish, add `set -x PATH $HOME/codey-v2 $PATH` to `~/.config/fish/config.fish`. For a universal fallback, add the export to `~/.profile`.
+> **Other shells:** For `zsh`, replace `~/.bashrc` with `~/.zshrc`. For fish, add `set -x PATH $HOME/codey-v3 $PATH` to `~/.config/fish/config.fish`. For a universal fallback, add the export to `~/.profile`.
 
 ### Step 6 — Verify
 
 ```bash
-codey2 --version
+codey3 --version
 codeyd2 status
 ```
 
@@ -110,7 +110,7 @@ The `pipeline/` directory contains a full data ingestion and transformation pipe
 
 ### What the pipeline needs
 
-The pipeline has additional dependencies beyond the base Codey-v2 install. The install order matters on Termux — some packages with C extensions must be installed via `pkg` (pre-built ARM binaries); pip cannot compile them on aarch64.
+The pipeline has additional dependencies beyond the base Codey-V3 install. The install order matters on Termux — some packages with C extensions must be installed via `pkg` (pre-built ARM binaries); pip cannot compile them on aarch64.
 
 #### Step 1 — Install compiled packages via pkg
 
@@ -157,7 +157,7 @@ This generates two synthetic JSONL corpora (~5K Termux CLI examples and ~3K mult
 
 | Component | Size |
 |-----------|------|
-| Base Codey-v2 (models + toolchain) | ~6 GB |
+| Base Codey-V3 (models + toolchain) | ~6 GB |
 | Pipeline dependencies (pip packages) | ~800 MB |
 | HuggingFace dataset cache (phase 1, streaming) | minimal — only processed records kept |
 | Pipeline output (training_data.jsonl + index) | ~50–500 MB depending on record count |

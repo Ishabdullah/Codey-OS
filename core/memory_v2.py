@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Hierarchical Memory for Codey-v2 (v2.7.0).
+Hierarchical Memory for Codey-V3 (v2.7.0).
 
 Four-tier memory system:
 1. Working Memory   — currently edited files (LRU eviction by turn + token limit)
@@ -260,7 +260,7 @@ class ProjectMemory:
     def __init__(self):
         self._files: Dict[str, ProjectMemoryItem] = {}
         self._protected_patterns = [
-            "CODEY.md", "codey-v2.md", "README.md",
+            "CODEY.md", "codey-v3.md", "README.md",
             "config.py", "config.json",
         ]
 

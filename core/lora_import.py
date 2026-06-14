@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-LoRA adapter import and merge for Codey-v2.
+LoRA adapter import and merge for Codey-V3.
 
 Handles:
 - Importing LoRA adapters trained with Unsloth
@@ -116,7 +116,7 @@ def get_adapter_info(adapter_path: str) -> Dict:
             info_dict["base_model"] = config.get("base_model_name_or_path", "unknown")
             info_dict["lora_r"] = config.get("r", "unknown")
             info_dict["lora_alpha"] = config.get("lora_alpha", "unknown")
-        except:
+        except (IOError, OSError, json.JSONDecodeError):
             pass
     
     return info_dict
@@ -482,10 +482,10 @@ def import_lora_adapter(
         # Full merge on-device (requires llama.cpp, lots of RAM)
         if model_variant == "primary":
             base_model = str(MODEL_PATH)
-            output_name = "codey-v2-finetuned-7b.gguf"
+            output_name = "codey-v3-finetuned-7b.gguf"
         else:
             base_model = str(SECONDARY_MODEL_PATH)
-            output_name = "codey-v2-finetuned-1.5b.gguf"
+            output_name = "codey-v3-finetuned-1.5b.gguf"
         
         output_path = Path.home() / "models" / "codey-finetuned" / output_name
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -529,7 +529,7 @@ To merge the adapter:
    python core/finetune_merge.py --adapter {adapter_path} --model {model_variant}
 
 3. Then run:
-   codey2 --import-lora /path/to/merged-q4.gguf --model {model_variant}
+   codey3 --import-lora /path/to/merged-q4.gguf --model {model_variant}
 """.format(adapter_path=adapter_path, model_variant=model_variant)
             return results
         

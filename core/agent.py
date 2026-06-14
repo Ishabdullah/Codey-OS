@@ -309,7 +309,7 @@ def execute_tool(tool_dict):
             p = _P(args.get("path", ""))
             if p.exists():
                 try: old_content = p.read_text()
-                except: pass
+                except (IOError, OSError, UnicodeDecodeError): pass
 
         result = TOOLS[name](args)
         duration = time.time() - start_time

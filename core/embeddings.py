@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Embeddings for Codey-v2 hierarchical memory.
+Embeddings for Codey-V3 hierarchical memory.
 
 Uses sentence-transformers for semantic search:
 - Embed text chunks into vectors
@@ -11,7 +11,6 @@ Model: all-MiniLM-L6-v2 (small, ~80MB, fast)
 """
 
 import sqlite3
-import pickle
 import time
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
@@ -87,7 +86,7 @@ class EmbeddingModel:
         try:
             import numpy as np
             embedding = self._model.encode(text, convert_to_numpy=True)
-            return pickle.dumps(embedding)
+            return embedding.astype(np.float32).tobytes()
         except Exception as e:
             error(f"Embedding error: {e}")
             return None
@@ -110,7 +109,7 @@ class EmbeddingModel:
         try:
             import numpy as np
             embeddings = self._model.encode(texts, convert_to_numpy=True)
-            return [pickle.dumps(e) for e in embeddings]
+            return [e.astype(np.float32).tobytes() for e in embeddings]
         except Exception as e:
             error(f"Batch embedding error: {e}")
             return None
@@ -133,7 +132,7 @@ class EmbeddingStore:
     
     def __init__(self, db_path: Path = None):
         if db_path is None:
-            db_dir = Path.home() / ".codey-v2"
+            db_dir = Path.home() / ".codey-v3"
             db_dir.mkdir(parents=True, exist_ok=True)
             db_path = db_dir / "state.db"
         self.db_path = db_path
@@ -235,7 +234,7 @@ class EmbeddingStore:
         """
         try:
             import numpy as np
-            query_vec = pickle.loads(query_embedding)
+            query_vec = np.frombuffer(query_embedding, dtype=np.float32)
             query_norm = np.linalg.norm(query_vec)
             if query_norm == 0:
                 return []
@@ -255,7 +254,7 @@ class EmbeddingStore:
             for row in cursor.fetchall():
                 try:
                     import numpy as np
-                    vec = pickle.loads(row["embedding"])
+                    vec = np.frombuffer(row["embedding"], dtype=np.float32)
                     vec_norm = np.linalg.norm(vec)
                     if vec_norm == 0:
                         continue

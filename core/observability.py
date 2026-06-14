@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Observability for Codey-v2.
+Observability for Codey-V3.
 
 Agent can query its own state:
 - Token usage
@@ -32,7 +32,7 @@ from core.state import get_state_store
 
 class State:
     """
-    Observable state for Codey-v2.
+    Observable state for Codey-V3.
 
     Provides property accessors for:
     - tokens_used
@@ -67,7 +67,7 @@ class State:
             from core.memory_v2 import get_memory
             memory = get_memory()
             return memory.status()
-        except:
+        except (ImportError, AttributeError, TypeError, ValueError):
             return {"error": "Memory not initialized"}
     
     @property
@@ -77,7 +77,7 @@ class State:
             from core.planner_v2 import get_planner
             planner = get_planner()
             return len(planner.get_pending_tasks())
-        except:
+        except (ImportError, AttributeError, TypeError, ValueError):
             # Fallback to state store
             tasks = self.state_store.get_tasks_by_status("pending")
             return len(tasks)
@@ -89,7 +89,7 @@ class State:
             from core.planner_v2 import get_planner
             planner = get_planner()
             return len(planner.get_running_tasks())
-        except:
+        except (ImportError, AttributeError, TypeError, ValueError):
             tasks = self.state_store.get_tasks_by_status("running")
             return len(tasks)
     
@@ -100,7 +100,7 @@ class State:
             from core.loader_v2 import get_loader
             loader = get_loader()
             return loader.get_loaded_model()
-        except:
+        except (ImportError, AttributeError, TypeError, ValueError):
             return None
     
     @property
@@ -128,7 +128,7 @@ class State:
                     "rss_mb": round(mem_info.rss / 1024 / 1024, 1),
                     "vms_mb": round(mem_info.vms / 1024 / 1024, 1),
                 }
-            except:
+            except (ImportError, AttributeError, TypeError, ValueError):
                 pass
         # Fallback: read from /proc on Linux
         try:
@@ -137,7 +137,7 @@ class State:
                     if line.startswith("VmRSS:"):
                         rss_kb = int(line.split()[1])
                         return {"rss_mb": round(rss_kb / 1024, 1), "vms_mb": 0}
-        except:
+        except (ImportError, AttributeError, TypeError, ValueError):
             pass
         return {"rss_mb": 0, "vms_mb": 0}
     
@@ -147,7 +147,7 @@ class State:
         if HAS_PSUTIL and self._process:
             try:
                 return round(self._process.cpu_percent(interval=0.1), 1)
-            except:
+            except (ImportError, AttributeError, TypeError, ValueError):
                 pass
         return 0.0
     
@@ -164,7 +164,7 @@ class State:
         """Get daemon PID."""
         try:
             return self._process.pid
-        except:
+        except (ImportError, AttributeError, TypeError, ValueError):
             return None
     
     @property

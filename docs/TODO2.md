@@ -1,4 +1,4 @@
-# Codey-v2 — TODO2: Deferred Items & Recommendations
+# Codey-V3 — TODO2: Deferred Items & Recommendations
 
 **Created:** 2026-03-29
 **Version:** v2.7.2

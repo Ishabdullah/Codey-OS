@@ -6,10 +6,10 @@
 
 ```bash
 # Remove a stale PID file left by a crash
-rm -f ~/.codey-v2/codey-v2.pid
+rm -f ~/.codey-v3/codey-v3.pid
 
 # Check the log for the actual error
-cat ~/.codey-v2/codey-v2.log
+cat ~/.codey-v3/codey-v3.log
 
 # Restart cleanly
 codeyd2 restart
@@ -22,7 +22,7 @@ codeyd2 restart
 codeyd2 status
 
 # Confirm the socket exists with correct permissions
-ls -la ~/.codey-v2/codey-v2.sock
+ls -la ~/.codey-v3/codey-v3.sock
 # Expected: srw------- (0600, owner only)
 ```
 
@@ -51,8 +51,8 @@ If the 7B model alone is using more than ~5 GB, verify that `CODEY_7B_MMAP=1` is
 The 0.5B model on port 8081 may have failed to start or crashed.
 
 ```bash
-cat ~/.codey-v2/plannd.log        # Check planner log
-cat ~/.codey-v2/plannd-llama.log  # Check llama-server log
+cat ~/.codey-v3/plannd.log        # Check planner log
+cat ~/.codey-v3/plannd-llama.log  # Check llama-server log
 
 codeyd2 restart                   # Restart all daemons
 ```
@@ -66,7 +66,7 @@ On Android ARM64, some CLIs bundle native Node.js modules (e.g., `node-pty`) tha
 To check which peers are available:
 
 ```bash
-codey2   # then type /peer
+codey3   # then type /peer
 ```
 
 ---
@@ -101,7 +101,7 @@ codey2   # then type /peer
 | `watchdog` optional | Background file monitoring disabled without it | `pip install watchdog` to enable |
 | Single-device only | State is not synced across devices | Intentional — local privacy by design |
 | Peer CLIs with `node-pty` | CLIs that bundle ARM64-incompatible native modules crash on Android | Auto-detected and excluded at startup |
-| No encrypted memory | `~/.codey-v2/` stored in plaintext | Encryption planned for a future release |
+| No encrypted memory | `~/.codey-v3/` stored in plaintext | Encryption planned for a future release |
 
 ---
 
@@ -109,7 +109,7 @@ codey2   # then type /peer
 
 | Log file | Contents |
 |----------|----------|
-| `~/.codey-v2/codey-v2.log` | Main daemon log |
-| `~/.codey-v2/plannd.log` | 0.5B planner daemon log |
-| `~/.codey-v2/plannd-llama.log` | llama-server log for the 0.5B model |
-| `~/.codey-v2/embed-server.log` | nomic-embed llama-server log |
+| `~/.codey-v3/codey-v3.log` | Main daemon log |
+| `~/.codey-v3/plannd.log` | 0.5B planner daemon log |
+| `~/.codey-v3/plannd-llama.log` | llama-server log for the 0.5B model |
+| `~/.codey-v3/embed-server.log` | nomic-embed llama-server log |

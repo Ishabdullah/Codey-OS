@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Internal Planner for Codey-v2.
+Internal Planner for Codey-V3.
 
 Native task planning (no model-asked orchestration):
 - Task queue with dependency tracking
@@ -45,7 +45,7 @@ class Task:
 
 class Planner:
     """
-    Internal task planner for Codey-v2.
+    Internal task planner for Codey-V3.
 
     Features:
     - Task queue with dependencies
@@ -74,7 +74,7 @@ class Planner:
                 if t.get("dependencies"):
                     try:
                         deps = json.loads(t["dependencies"])
-                    except:
+                    except (json.JSONDecodeError, TypeError):
                         deps = []
                 
                 self._tasks[t["id"]] = Task(

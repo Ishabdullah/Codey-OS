@@ -2,10 +2,14 @@ import os
 import shutil
 from pathlib import Path
 
-CODEY_DIR = Path(os.environ.get("CODEY_DIR", Path.home() / "codey-v2"))
+CODEY_DIR = Path(os.environ.get("CODEY_DIR", Path.home() / "codey-v3"))
 MODEL_PATH = Path(os.environ.get(
     "CODEY_MODEL",
     Path.home() / "models" / "qwen2.5-coder-7b" / "qwen2.5-coder-7b-instruct-q4_k_m.gguf"
+))
+SECONDARY_MODEL_PATH = Path(os.environ.get(
+    "CODEY_SECONDARY_MODEL",
+    Path.home() / "models" / "qwen2.5-coder-1.5b" / "qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
 ))
 
 # Dedicated embedding model — Option C (v2.6.6)
@@ -120,7 +124,7 @@ RETRIEVAL_CONFIG = {
                                         # the KB has no specifically relevant material)
 }
 
-CODEY_VERSION = "2.0.0"
+CODEY_VERSION = "3.0.0"
 CODEY_NAME    = "CODEY-V2"
 
 # ── OpenRouter backend (optional) ────────────────────────────────────────────

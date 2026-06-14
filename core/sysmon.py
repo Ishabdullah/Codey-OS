@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-System monitor for Codey-v2 TUI.
+System monitor for Codey-V3 TUI.
 
 Reads CPU%, RAM, and CPU/SoC temperature in a background thread.
 Provides a Rich renderable for live display and a terminal-title updater.

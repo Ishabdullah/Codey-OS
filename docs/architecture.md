@@ -2,7 +2,7 @@
 
 ## Three-Model Design
 
-Codey-v2 runs three purpose-built models simultaneously, each on its own port:
+Codey-V3 runs three purpose-built models simultaneously, each on its own port:
 
 | Model | Port | Role |
 |-------|------|------|
@@ -18,7 +18,7 @@ The 7B model handles all user-facing work. The 0.5B runs independently for task 
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                   CLI Client (codey2)                   │
+│                   CLI Client (codey3)                   │
 │  User commands · flags · task queries · /status         │
 └─────────────────────────────────────────────────────────┘
                           │  Unix socket
@@ -106,12 +106,12 @@ This table covers exactly what Codey saves, where it lives, and how long it last
 
 | What | Where | Survives restart? | Expires? | How to clear |
 |------|-------|------------------|----------|--------------|
-| Last 6 turns of conversation | `~/.codey_sessions/<project-hash>.json` | Yes | After 2 hours of inactivity | `/clear` in-chat or `codey2 --clear-session` |
+| Last 6 turns of conversation | `~/.codey_sessions/<project-hash>.json` | Yes | After 2 hours of inactivity | `/clear` in-chat or `codey3 --clear-session` |
 | Project memory (`CODEY.md`) | `<project>/CODEY.md` | Yes | Never | Edit or delete the file manually |
-| Action log (every tool call) | `~/.codey-v2/state.db` | Yes | Never (append-only) | Delete `~/.codey-v2/state.db` |
+| Action log (every tool call) | `~/.codey-v3/state.db` | Yes | Never (append-only) | Delete `~/.codey-v3/state.db` |
 | Open files / working context | In-memory only | No | On exit | — |
 | File undo history | In-memory only | No | On exit | — |
-| Knowledge base embeddings | `~/.codey-v2/kb/` (if set up) | Yes | Never | `codey2 kb clear` |
+| Knowledge base embeddings | `~/.codey-v3/kb/` (if set up) | Yes | Never | `codey3 kb clear` |
 
 ### What Codey does NOT do
 
@@ -130,8 +130,8 @@ This table covers exactly what Codey saves, where it lives, and how long it last
 ## Project Structure
 
 ```
-~/codey-v2/
-├── codey2                   # CLI client
+~/codey-v3/
+├── codey3                   # CLI client
 ├── codeyd2                  # Daemon manager
 ├── main.py                  # Entry point
 ├── core/

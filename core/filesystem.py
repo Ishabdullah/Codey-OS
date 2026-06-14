@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Direct filesystem access for Codey-v2.
+Direct filesystem access for Codey-V3.
 
 Provides a class-based interface for file operations:
 - read(path) - Read file content
@@ -30,7 +30,7 @@ class FilesystemAccessError(Exception):
 
 class Filesystem:
     """
-    Direct filesystem access for Codey-v2 agent.
+    Direct filesystem access for Codey-V3 agent.
 
     Provides safe file operations with:
     - Path validation (no access outside workspace)
@@ -143,6 +143,7 @@ class Filesystem:
         Raises:
             FilesystemAccessError: If file cannot be read
         """
+        MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB limit
         try:
             path = self._validate_path(path)
             
@@ -151,6 +152,12 @@ class Filesystem:
             
             if not path.is_file():
                 raise FilesystemAccessError(f"Not a file: {path}")
+            
+            file_size = path.stat().st_size
+            if file_size > MAX_FILE_SIZE:
+                raise FilesystemAccessError(
+                    f"File too large ({file_size / 1024 / 1024:.1f}MB > {MAX_FILE_SIZE / 1024 / 1024}MB limit)"
+                )
             
             content = path.read_text(encoding='utf-8')
             try:

@@ -1,6 +1,6 @@
 # Security
 
-Codey-v2 is a persistent, autonomous coding agent that runs as a background daemon, executes shell commands, maintains long-term memory, and loads local LLMs. These capabilities make it powerful but introduce non-trivial risks compared to a simple chat tool.
+Codey-V3 is a persistent, autonomous coding agent that runs as a background daemon, executes shell commands, maintains long-term memory, and loads local LLMs. These capabilities make it powerful but introduce non-trivial risks compared to a simple chat tool.
 
 **This is early-stage open-source software. Use with caution on devices with sensitive data. Always review generated code and commands before execution.**
 
@@ -10,7 +10,7 @@ Codey-v2 is a persistent, autonomous coding agent that runs as a background daem
 
 ### 1. Persistent Daemon
 
-The daemon runs continuously with a Unix socket (`~/.codey-v2/codey-v2.sock`) for IPC.
+The daemon runs continuously with a Unix socket (`~/.codey-v3/codey-v3.sock`) for IPC.
 
 **Risk:** If the socket has permissive permissions or is in a shared location, unauthorized local processes could send commands.
 
@@ -57,7 +57,7 @@ Opt-in feature that allows the agent to patch its own code and files.
 
 ### 4. Memory and State Persistence
 
-Hierarchical memory stored in SQLite (`~/.codey-v2/`).
+Hierarchical memory stored in SQLite (`~/.codey-v3/`).
 
 **Risk:** Sensitive code snippets or personal data could be stored and leaked if the device is compromised or backups are mishandled.
 
@@ -68,7 +68,7 @@ Hierarchical memory stored in SQLite (`~/.codey-v2/`).
 
 **Recommendation:** Avoid feeding sensitive information (API keys, passwords) to the agent. Periodically review or clear state:
 - **In-chat:** type `/clear` to wipe history, context, undo history, and saved session
-- **CLI flag:** `codey2 --clear-session` to clear the saved session before starting
+- **CLI flag:** `codey3 --clear-session` to clear the saved session before starting
 - **Manual:** `rm -f ~/.codey_sessions/*.json` to delete all saved sessions
 
 ---

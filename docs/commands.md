@@ -9,20 +9,20 @@
 | `codeyd2 status` | Show daemon status, uptime, and model state |
 | `codeyd2 restart` | Restart all daemons |
 | `codeyd2 reload` | Send hot-reload signal (SIGUSR1) without downtime |
-| `codeyd2 config` | Write a default config file to `~/.codey-v2/config.json` |
+| `codeyd2 config` | Write a default config file to `~/.codey-v3/config.json` |
 
 ---
 
-## CLI Client — `codey2`
+## CLI Client — `codey3`
 
 | Command | Description |
 |---------|-------------|
-| `codey2 "prompt"` | Send a task to the running daemon, or run standalone if no daemon is active |
-| `codey2 status` | Show full system status |
-| `codey2 task list` | List recent tasks and their state |
-| `codey2 task <id>` | Get full details of a specific task |
-| `codey2 cancel <id>` | Cancel a pending or running task |
-| `codey2 --daemon` | Run in foreground daemon mode (for debugging) |
+| `codey3 "prompt"` | Send a task to the running daemon, or run standalone if no daemon is active |
+| `codey3 status` | Show full system status |
+| `codey3 task list` | List recent tasks and their state |
+| `codey3 task <id>` | Get full details of a specific task |
+| `codey3 cancel <id>` | Cancel a pending or running task |
+| `codey3 --daemon` | Run in foreground daemon mode (for debugging) |
 
 ### CLI Flags
 

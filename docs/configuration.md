@@ -2,16 +2,16 @@
 
 ## Daemon Config
 
-Default location: `~/.codey-v2/config.json`
+Default location: `~/.codey-v3/config.json`
 
 Generate with: `codeyd2 config`
 
 ```json
 {
   "daemon": {
-    "pid_file":    "~/.codey-v2/codey-v2.pid",
-    "socket_file": "~/.codey-v2/codey-v2.sock",
-    "log_file":    "~/.codey-v2/codey-v2.log",
+    "pid_file":    "~/.codey-v3/codey-v3.pid",
+    "socket_file": "~/.codey-v3/codey-v3.sock",
+    "log_file":    "~/.codey-v3/codey-v3.log",
     "log_level":   "INFO"
   },
   "tasks": {
@@ -25,7 +25,7 @@ Generate with: `codeyd2 config`
     "stuck_task_threshold":  1800
   },
   "state": {
-    "db_path":                    "~/.codey-v2/state.db",
+    "db_path":                    "~/.codey-v3/state.db",
     "cleanup_old_actions_hours":  24
   }
 }
@@ -120,7 +120,7 @@ RECURSIVE_CONFIG = {
 ```python
 RETRIEVAL_CONFIG = {
     "enabled":            True,
-    "kb_path":            "~/codey-v2/knowledge",
+    "kb_path":            "~/codey-v3/knowledge",
     "semantic_search":    True,
     "max_chunks":         4,
     "budget_chars":       2400,    # ~600 tokens of retrieved content per call
