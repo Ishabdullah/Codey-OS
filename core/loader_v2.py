@@ -8,19 +8,17 @@ Uses llama-server binary via subprocess instead of llama-cpp-python bindings
 Single-model architecture: always loads the primary 7B model.
 """
 
-import subprocess
-import time
-import socket
-import urllib.request
-import urllib.error
 import json
 import os
-import signal
-from typing import Optional
+import subprocess
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
+from typing import Optional
 
-from utils.logger import info, warning, error, success
-from utils.config import MODEL_PATH, MODEL_CONFIG, LLAMA_SERVER_BIN
+from utils.config import LLAMA_SERVER_BIN, MODEL_CONFIG, MODEL_PATH
+from utils.logger import error, info, success, warning
 
 # llama-server configuration
 SERVER_HOST = "127.0.0.1"
@@ -59,19 +57,31 @@ class LlamaServer:
             # Build command
             cmd = [
                 str(LLAMA_SERVER_BIN),
-                "-m", str(self.model_path),
-                "--host", SERVER_HOST,
-                "--port", str(self.port),
-                "-c", str(MODEL_CONFIG["n_ctx"]),
-                "-t", str(MODEL_CONFIG["n_threads"]),
-                "--temp", str(MODEL_CONFIG["temperature"]),
-                "--top-p", str(MODEL_CONFIG["top_p"]),
-                "--top-k", str(MODEL_CONFIG["top_k"]),
-                "--repeat-penalty", str(MODEL_CONFIG["repeat_penalty"]),
-                "--n-predict", str(MODEL_CONFIG["max_tokens"]),
-                "--flash-attn", "on",  # fused attention kernel, faster prefill
-                "--embedding",       # enable /v1/embeddings endpoint for hybrid KB search
-                "--pooling", "mean", # mean pooling → single vector per input (OAI-compatible)
+                "-m",
+                str(self.model_path),
+                "--host",
+                SERVER_HOST,
+                "--port",
+                str(self.port),
+                "-c",
+                str(MODEL_CONFIG["n_ctx"]),
+                "-t",
+                str(MODEL_CONFIG["n_threads"]),
+                "--temp",
+                str(MODEL_CONFIG["temperature"]),
+                "--top-p",
+                str(MODEL_CONFIG["top_p"]),
+                "--top-k",
+                str(MODEL_CONFIG["top_k"]),
+                "--repeat-penalty",
+                str(MODEL_CONFIG["repeat_penalty"]),
+                "--n-predict",
+                str(MODEL_CONFIG["max_tokens"]),
+                "--flash-attn",
+                "on",  # fused attention kernel, faster prefill
+                "--embedding",  # enable /v1/embeddings endpoint for hybrid KB search
+                "--pooling",
+                "mean",  # mean pooling → single vector per input (OAI-compatible)
             ]
 
             # Add stop tokens (using --reverse-prompt)
@@ -84,7 +94,8 @@ class LlamaServer:
             # --no-mlock does NOT exist in this llama.cpp build; omitting --mlock
             # is sufficient to keep mlock disabled (the llama.cpp default).
             try:
-                from utils.config import QWEN_7B_MMAP, QWEN_7B_MLOCK
+                from utils.config import QWEN_7B_MLOCK, QWEN_7B_MMAP
+
                 if QWEN_7B_MMAP:
                     cmd.append("--mmap")
                 else:
@@ -113,7 +124,7 @@ class LlamaServer:
                 cmd,
                 stdout=log_fd,
                 stderr=subprocess.STDOUT,
-                preexec_fn=os.setsid if os.name != 'nt' else None,
+                preexec_fn=os.setsid if os.name != "nt" else None,
             )
 
             info(f"llama-server PID: {self.process.pid}, logging to {log_file}")
@@ -148,6 +159,7 @@ class LlamaServer:
         except Exception as e:
             error(f"Failed to start llama-server: {e}")
             import traceback
+
             error(traceback.format_exc())
             return False
 
@@ -155,6 +167,7 @@ class LlamaServer:
         if self.process:
             try:
                 import signal as _signal
+
                 if os.name != "nt":
                     try:
                         os.killpg(os.getpgid(self.process.pid), _signal.SIGTERM)
@@ -193,6 +206,7 @@ class LlamaServer:
     def _is_port_in_use(self) -> bool:
         """Check if port 8080 is already in use by another llama-server instance."""
         import socket
+
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(1.0)
@@ -210,8 +224,7 @@ class LlamaServer:
         except Exception:
             return False
 
-    def infer(self, prompt: str, max_tokens: int = None,
-              stop: list = None) -> Optional[str]:
+    def infer(self, prompt: str, max_tokens: int = None, stop: list = None) -> Optional[str]:
         """
         Run inference via HTTP API.
 
@@ -253,13 +266,13 @@ class LlamaServer:
 
                 req = urllib.request.Request(
                     url,
-                    data=json.dumps(data).encode('utf-8'),
-                    headers={'Content-Type': 'application/json'},
-                    method='POST'
+                    data=json.dumps(data).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
                 )
 
                 with urllib.request.urlopen(req, timeout=300) as response:
-                    result = json.loads(response.read().decode('utf-8'))
+                    result = json.loads(response.read().decode("utf-8"))
                     return result.get("content", "").strip()
 
             except urllib.error.HTTPError as e:

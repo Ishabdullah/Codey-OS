@@ -1,6 +1,8 @@
 from pathlib import Path
+
 from utils.config import AGENT_CONFIG
 from utils.logger import warning
+
 
 def read_file(path: str) -> str:
     """Read a file and return its contents as string."""
@@ -12,6 +14,7 @@ def read_file(path: str) -> str:
     except Exception as e:
         return f"[ERROR] Could not read {path}: {e}"
 
+
 def write_file(path: str, content: str) -> str:
     """Write content to a file, creating parent dirs as needed."""
     try:
@@ -22,6 +25,7 @@ def write_file(path: str, content: str) -> str:
     except Exception as e:
         return f"[ERROR] Could not write {path}: {e}"
 
+
 def append_file(path: str, content: str) -> str:
     try:
         p = Path(path).expanduser().resolve()
@@ -30,6 +34,7 @@ def append_file(path: str, content: str) -> str:
         return f"Appended {len(content)} chars to {p}"
     except Exception as e:
         return f"[ERROR] {e}"
+
 
 def list_dir(path: str = ".") -> str:
     """List directory contents."""
@@ -44,9 +49,11 @@ def list_dir(path: str = ".") -> str:
     except Exception as e:
         return f"[ERROR] {e}"
 
+
 def estimate_tokens(text: str) -> int:
     """Rough token estimate: ~4 chars per token."""
     return len(text) // 4
+
 
 def budget_file_context(files: list[str]) -> str:
     """Build a file context block, respecting token budget."""

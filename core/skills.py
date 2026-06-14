@@ -20,7 +20,6 @@ Usage:
     # ['awesome-claude-skills', 'superpowers', 'skil', ...]
 """
 
-from pathlib import Path
 from utils.config import CODEY_DIR
 
 SKILL_DIR = CODEY_DIR / "knowledge" / "skills"
@@ -56,6 +55,7 @@ def load_relevant_skills(user_message: str, budget_chars: int = 800) -> str:
 
     try:
         from core.retrieval import retrieve
+
         raw = retrieve(
             f"skill template pattern: {user_message}",
             budget_chars=budget_chars,
@@ -74,8 +74,7 @@ def list_available_skills() -> list:
         return []
     try:
         return [
-            d.name for d in sorted(SKILL_DIR.iterdir())
-            if d.is_dir() and not d.name.startswith(".")
+            d.name for d in sorted(SKILL_DIR.iterdir()) if d.is_dir() and not d.name.startswith(".")
         ]
     except Exception:
         return []

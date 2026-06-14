@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-import sys
 import os
+import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent))
 
-from utils.logger import console, info, success, error, warning, separator
-from utils.config import CODEY_VERSION
-from core.loader_v2 import get_loader
-from core.inference_v2 import infer, was_last_streamed
-from core.agent import run_agent
 from core import context as ctx
+from core.agent import run_agent
+from core.inference_v2 import was_last_streamed
+from core.loader_v2 import get_loader
 from core.sysmon import get_monitor
+from utils.config import CODEY_VERSION
+from utils.logger import console, error, info, separator, success, warning
 
 BANNER = f"""[bold blue]
   ██████╗ ██████╗ ██████╗ ███████╗██╗   ██╗
@@ -23,64 +24,98 @@ BANNER = f"""[bold blue]
 [dim]  🔒 100% Local · No Telemetry · No Cloud Required[/dim]
 """
 
+
 def parse_args():
     import argparse
+
     parser = argparse.ArgumentParser(description="Codey-V3 - Local AI coding assistant")
-    parser.add_argument("prompt",       nargs="?")
-    parser.add_argument("--yolo",       action="store_true", help="Skip confirmations")
-    parser.add_argument("--threads",    type=int)
-    parser.add_argument("--ctx",        type=int)
-    parser.add_argument("--version",    action="store_true")
-    parser.add_argument("--chat",       action="store_true")
-    parser.add_argument("--read",       nargs="+", metavar="FILE")
-    parser.add_argument("--init",       action="store_true", help="Generate CODEY.md")
-    parser.add_argument("--fix",        metavar="FILE", help="Run file, auto-fix errors")
-    parser.add_argument("--tdd",        metavar="FILE", help="TDD mode: source.py test_source.py")
-    parser.add_argument("--tests",      metavar="FILE", help="Test file for --tdd mode")
-    parser.add_argument("--session",    nargs="?", const="list", metavar="ID", help="Resume saved session")
+    parser.add_argument("prompt", nargs="?")
+    parser.add_argument("--yolo", action="store_true", help="Skip confirmations")
+    parser.add_argument("--threads", type=int)
+    parser.add_argument("--ctx", type=int)
+    parser.add_argument("--version", action="store_true")
+    parser.add_argument("--chat", action="store_true")
+    parser.add_argument("--read", nargs="+", metavar="FILE")
+    parser.add_argument("--init", action="store_true", help="Generate CODEY.md")
+    parser.add_argument("--fix", metavar="FILE", help="Run file, auto-fix errors")
+    parser.add_argument("--tdd", metavar="FILE", help="TDD mode: source.py test_source.py")
+    parser.add_argument("--tests", metavar="FILE", help="Test file for --tdd mode")
+    parser.add_argument(
+        "--session", nargs="?", const="list", metavar="ID", help="Resume saved session"
+    )
     parser.add_argument("--clear-session", action="store_true", help="Clear saved session")
     parser.add_argument("--plan", action="store_true", help="Enable plan mode for complex tasks")
-    parser.add_argument("--no-plan", action="store_true", help="Disable orchestration/planning for complex tasks")
-    parser.add_argument("--daemon",     action="store_true", help="Run in daemon mode (v2 feature)")
-    parser.add_argument("--no-resume",  action="store_true", help="Start fresh, ignore saved session")
-    parser.add_argument("--allow-self-mod", action="store_true", help="Allow self-modification with checkpoint enforcement")
+    parser.add_argument(
+        "--no-plan", action="store_true", help="Disable orchestration/planning for complex tasks"
+    )
+    parser.add_argument("--daemon", action="store_true", help="Run in daemon mode (v2 feature)")
+    parser.add_argument(
+        "--no-resume", action="store_true", help="Start fresh, ignore saved session"
+    )
+    parser.add_argument(
+        "--allow-self-mod",
+        action="store_true",
+        help="Allow self-modification with checkpoint enforcement",
+    )
     # Fine-tuning commands (v2.3.0)
-    parser.add_argument("--finetune",   action="store_true", help="Export fine-tuning dataset and generate Colab notebook")
-    parser.add_argument("--ft-days",    type=int, default=30, help="Days of history to include (default: 30)")
-    parser.add_argument("--ft-quality", type=float, default=0.7, help="Min quality threshold 0.0-1.0 (default: 0.7)")
-    parser.add_argument("--ft-model",   choices=["7b"], default="7b", help="Model variant for fine-tuning")
-    parser.add_argument("--ft-output",  type=str, help="Output directory (default: ~/Downloads/codey-finetune)")
+    parser.add_argument(
+        "--finetune",
+        action="store_true",
+        help="Export fine-tuning dataset and generate Colab notebook",
+    )
+    parser.add_argument(
+        "--ft-days", type=int, default=30, help="Days of history to include (default: 30)"
+    )
+    parser.add_argument(
+        "--ft-quality", type=float, default=0.7, help="Min quality threshold 0.0-1.0 (default: 0.7)"
+    )
+    parser.add_argument(
+        "--ft-model", choices=["7b"], default="7b", help="Model variant for fine-tuning"
+    )
+    parser.add_argument(
+        "--ft-output", type=str, help="Output directory (default: ~/Downloads/codey-finetune)"
+    )
     parser.add_argument("--import-lora", metavar="PATH", help="Import LoRA adapter from path")
-    parser.add_argument("--lora-model", choices=["primary"], default="primary", help="Model for LoRA import")
-    parser.add_argument("--lora-quant", type=str, default="q4_0", help="Quantization for merged model")
-    parser.add_argument("--lora-merge", action="store_true", help="Merge LoRA on-device (requires llama.cpp)")
+    parser.add_argument(
+        "--lora-model", choices=["primary"], default="primary", help="Model for LoRA import"
+    )
+    parser.add_argument(
+        "--lora-quant", type=str, default="q4_0", help="Quantization for merged model"
+    )
+    parser.add_argument(
+        "--lora-merge", action="store_true", help="Merge LoRA on-device (requires llama.cpp)"
+    )
     return parser.parse_args()
+
 
 def apply_overrides(args):
     import os
+
     from utils import config
     from utils.logger import info
-    
+
     if args.yolo:
         config.AGENT_CONFIG["confirm_shell"] = False
         config.AGENT_CONFIG["confirm_write"] = False
         info("YOLO mode: confirmations disabled.")
-    
+
     # Check for self-modification enablement (CLI flag or env var)
     allow_self_mod = args.allow_self_mod or os.environ.get("ALLOW_SELF_MOD", "0") == "1"
     if allow_self_mod:
         config.AGENT_CONFIG["allow_self_modification"] = True
         info("Self-modification enabled: Codey can modify its own source files (with checkpoints).")
-    
+
     if args.threads:
         config.MODEL_CONFIG["n_threads"] = args.threads
     if args.ctx:
         config.MODEL_CONFIG["n_ctx"] = args.ctx
 
+
 def _daemon_is_running() -> bool:
     """Check if the daemon is running (PID file check)."""
     try:
         from core.daemon import check_pid_file
+
         return check_pid_file()
     except Exception:
         return False
@@ -98,20 +133,24 @@ def shutdown():
     # Unload model and kill llama-server on port 8080
     try:
         from core.loader_v2 import get_loader
+
         get_loader().unload()
     except Exception:
         pass
     # SIGKILL any remaining llama-server
     try:
         import subprocess
+
         subprocess.run(["pkill", "-9", "-f", "llama-server"], capture_output=True, timeout=5)
     except Exception:
         pass
 
+
 def run_init():
-    from core.project import detect_project
-    from core.codeymd import get_init_prompt, write_codeymd, find_codeymd
+    from core.codeymd import find_codeymd, get_init_prompt, write_codeymd
     from core.inference_v2 import infer
+    from core.project import detect_project
+
     existing = find_codeymd()
     if existing:
         warning(f"CODEY.md already exists at {existing}")
@@ -122,8 +161,11 @@ def run_init():
     proj = detect_project()
     info(f"Analyzing {proj['type']} project in {proj['cwd']}...")
     messages = [
-        {"role": "system", "content": "You are a technical writer. Output only clean markdown, no preamble."},
-        {"role": "user",   "content": get_init_prompt(proj)}
+        {
+            "role": "system",
+            "content": "You are a technical writer. Output only clean markdown, no preamble.",
+        },
+        {"role": "user", "content": get_init_prompt(proj)},
     ]
     info("Generating CODEY.md...")
     content = infer(messages, stream=False)
@@ -133,9 +175,11 @@ def run_init():
     path = write_codeymd(content)
     success(f"CODEY.md written to {path}") if not path.startswith("[ERROR]") else error(path)
 
+
 def _try_daemon_plan(prompt: str, no_plan: bool = False):
     """Thin shim — delegates to core.planner_service.get_plan."""
     from core.planner_service import _request_daemon_plan
+
     if no_plan:
         return None
     return _request_daemon_plan(prompt)
@@ -150,10 +194,11 @@ def _extract_filename_from_step(step: str) -> str:
     Returns an empty string if no filename is found.
     """
     import re
-    m = re.search(r'`([^`]+\.[a-zA-Z0-9]{1,10})`', step)
+
+    m = re.search(r"`([^`]+\.[a-zA-Z0-9]{1,10})`", step)
     if m:
         return m.group(1)
-    m = re.search(r'\b(\w[\w.-]*\.[a-zA-Z0-9]{1,5})\b', step)
+    m = re.search(r"\b(\w[\w.-]*\.[a-zA-Z0-9]{1,5})\b", step)
     if m:
         return m.group(1)
     return ""
@@ -173,9 +218,9 @@ def _run_with_plan(prompt: str, history: list, yolo: bool, use_plan: bool, no_pl
 
     Returns (response, updated_history) with the same contract as run_agent().
     """
+    import os
     import re
     from pathlib import Path
-    import os
 
     # ── Peer delegation gate ──────────────────────────────────────────────────
     # For SINGLE-STEP peer directives ("ask claude to X" with no follow-up),
@@ -188,20 +233,20 @@ def _run_with_plan(prompt: str, history: list, yolo: bool, use_plan: bool, no_pl
     # and filter_tool_steps keeps peer steps in the plan.
     _PEER_NAMES = ["claude", "gemini", "qwen"]
     _peer_directive_re = re.compile(
-        r'\b(?:ask|call|have|tell|use|get|let)\s+(' + '|'.join(_PEER_NAMES) + r')\b',
+        r"\b(?:ask|call|have|tell|use|get|let)\s+(" + "|".join(_PEER_NAMES) + r")\b",
         re.IGNORECASE,
     )
     # Multi-step signals: sentence-boundary transition words, or more than one peer mentioned
     _MULTI_STEP_RE = re.compile(
-        r'[.!?\n]\s*\b(?:then|after(?:\s+that)?|also|additionally|next|finally|'
-        r'and\s+(?:run|show|test|verify|use|ask|have|call|write|create|commit|init))\b',
+        r"[.!?\n]\s*\b(?:then|after(?:\s+that)?|also|additionally|next|finally|"
+        r"and\s+(?:run|show|test|verify|use|ask|have|call|write|create|commit|init))\b",
         re.IGNORECASE,
     )
     _peer_hits = _peer_directive_re.findall(prompt)
     _is_solo_peer = (
         bool(_peer_hits)
         and len(set(h.lower() for h in _peer_hits)) == 1  # only one peer mentioned
-        and not _MULTI_STEP_RE.search(prompt)              # no multi-step signals
+        and not _MULTI_STEP_RE.search(prompt)  # no multi-step signals
     )
     if not no_plan and _is_solo_peer:
         return run_agent(prompt, history, yolo=yolo, use_plan=use_plan, no_plan=no_plan)
@@ -223,6 +268,7 @@ def _run_with_plan(prompt: str, history: list, yolo: bool, use_plan: bool, no_pl
         _plan_rag = ""
         try:
             from core.retrieval import retrieve
+
             _plan_rag = retrieve(prompt) or ""
         except Exception:
             pass
@@ -235,8 +281,9 @@ def _run_with_plan(prompt: str, history: list, yolo: bool, use_plan: bool, no_pl
             # planner abbreviates "fibonacci.py" → "fib.py"; agent sees the
             # overall goal and uses the correct name per the system prompt rule).
             step_with_goal = f"Overall goal: {prompt}\n\nCurrent step: {step}"
-            step_resp, history = run_agent(step_with_goal, history, yolo=yolo, no_plan=True,
-                                           _plan_rag_block=_plan_rag)
+            step_resp, history = run_agent(
+                step_with_goal, history, yolo=yolo, no_plan=True, _plan_rag_block=_plan_rag
+            )
             response = step_resp or response
 
             # Post-step: if this step was supposed to create a file, verify it
@@ -262,18 +309,24 @@ def _run_with_plan(prompt: str, history: list, yolo: bool, use_plan: bool, no_pl
                         if found_elsewhere:
                             wrong_path = found_elsewhere[0]
                             rel = wrong_path.relative_to(os.getcwd())
-                            warning(f"Step {i}: '{fname}' created at '{rel}' instead of cwd — retrying")
-                            console.print(f"\n[dim]↺  Step {i}/{len(plan)} retry (wrong path)[/dim]")
+                            warning(
+                                f"Step {i}: '{fname}' created at '{rel}' instead of cwd — retrying"
+                            )
+                            console.print(
+                                f"\n[dim]↺  Step {i}/{len(plan)} retry (wrong path)[/dim]"
+                            )
                             _retry_prefix = (
                                 f"RETRY: '{fname}' was written to '{rel}' instead of the "
                                 f"current working directory. "
-                                f"Run: shell mv \"{rel}\" \"{fname}\" to move it, OR "
+                                f'Run: shell mv "{rel}" "{fname}" to move it, OR '
                                 f"delete '{rel}' and re-create '{fname}' directly in cwd. "
                                 "Do NOT create or use subdirectories.\n\n"
                             )
                         else:
                             warning(f"Step {i}: '{fname}' not found after step — retrying")
-                            console.print(f"\n[dim]↺  Step {i}/{len(plan)} retry (file not created)[/dim]")
+                            console.print(
+                                f"\n[dim]↺  Step {i}/{len(plan)} retry (file not created)[/dim]"
+                            )
                             _prev_summary = (step_resp or "")[:300]
                             _retry_prefix = (
                                 f"RETRY: The previous attempt did not create '{fname}'. "
@@ -282,7 +335,10 @@ def _run_with_plan(prompt: str, history: list, yolo: bool, use_plan: bool, no_pl
                                 "using write_file. Do not create subdirectories.\n\n"
                             )
                         step_resp, history = run_agent(
-                            _retry_prefix + step_with_goal, history, yolo=yolo, no_plan=True,
+                            _retry_prefix + step_with_goal,
+                            history,
+                            yolo=yolo,
+                            no_plan=True,
                             _plan_rag_block=_plan_rag,
                         )
                         response = step_resp or response
@@ -304,12 +360,14 @@ def print_diff(diff_output: str):
         else:
             console.print(line)
 
+
 def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[bool, list]:
     cmd = user_input.strip()
     low = cmd.lower()
 
     if low in ("/exit", "/quit", "exit", "quit"):
         from core.sessions import save_session
+
         save_session(history)
         console.print("[dim]Session saved. Goodbye![/dim]")
         shutdown()
@@ -319,8 +377,10 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
         history.clear()
         ctx.clear_context()
         from core.filehistory import clear_history
+
         clear_history()
         from core.sessions import clear_session
+
         clear_session()
         success("History, context, undo history, and saved session cleared.")
         return True, history
@@ -331,6 +391,7 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
         else:
             from core.summarizer import summarize_history
             from core.tokens import estimate_messages_tokens
+
             old_tokens = estimate_messages_tokens(history)
             history = summarize_history(history)
             new_tokens = estimate_messages_tokens(history)
@@ -338,7 +399,8 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
         return True, history
 
     if low.startswith("/undo"):
-        from core.filehistory import undo, list_history
+        from core.filehistory import list_history, undo
+
         parts = cmd.split(maxsplit=1)
         if len(parts) < 2:
             hist = list_history()
@@ -356,6 +418,7 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
 
     if low.startswith("/diff"):
         from core.filehistory import diff, list_history
+
         parts = cmd.split(maxsplit=1)
         if len(parts) < 2:
             hist = list_history()
@@ -375,7 +438,8 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
         return True, history
 
     if low.startswith("/search"):
-        from core.search import search_in_project, search_definitions
+        from core.search import search_in_project
+
         parts = cmd.split(maxsplit=1)
         if len(parts) < 2:
             info("Usage: /search <pattern> [path]")
@@ -385,8 +449,7 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
             query_parts = parts[1].rsplit(maxsplit=1)
             # Only treat last arg as path if it looks like a path (starts with . / ~ or is a dir)
             if len(query_parts) > 1 and (
-                query_parts[-1].startswith((".", "/", "~")) or
-                os.path.isdir(query_parts[-1])
+                query_parts[-1].startswith((".", "/", "~")) or os.path.isdir(query_parts[-1])
             ):
                 pattern = query_parts[0]
                 search_path = query_parts[1]
@@ -398,13 +461,14 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
         return True, history
 
     if low.startswith("/git"):
-        from core.githelper import (
-            git_commit, git_push, git_status, git_log, is_git_repo,
-            git_branches, git_branch_create, git_checkout, git_merge,
-            detect_conflicts, get_conflict_sections,
-            git_diff_for_commit, git_commit_log_messages, generate_commit_message,
-            git_current_branch,
-        )
+        from core.githelper import (detect_conflicts, generate_commit_message,
+                                    get_conflict_sections, git_branch_create,
+                                    git_branches, git_checkout, git_commit,
+                                    git_commit_log_messages,
+                                    git_current_branch, git_diff_for_commit,
+                                    git_log, git_merge, git_push, git_status,
+                                    is_git_repo)
+
         parts = cmd.split(maxsplit=2)
 
         if not is_git_repo():
@@ -459,11 +523,15 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
                     # Conflict resolution flow
                     conflict_files = detect_conflicts()
                     if conflict_files:
-                        console.print(f"\n[bold red]Conflicts in {len(conflict_files)} file(s):[/bold red]")
+                        console.print(
+                            f"\n[bold red]Conflicts in {len(conflict_files)} file(s):[/bold red]"
+                        )
                         for cf in conflict_files:
                             console.print(f"  • {cf}")
                         try:
-                            resolve = input("\nAsk Codey to resolve conflicts? [y/N] ").strip().lower()
+                            resolve = (
+                                input("\nAsk Codey to resolve conflicts? [y/N] ").strip().lower()
+                            )
                         except (EOFError, KeyboardInterrupt):
                             resolve = "n"
                         if resolve == "y":
@@ -550,13 +618,16 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
 
     if low.startswith("/sessions"):
         from core.sessions import list_sessions
+
         sessions = list_sessions()
         if not sessions:
             info("No saved sessions.")
         else:
             console.print("[bold]Saved sessions:[/bold]")
             for s in sessions:
-                console.print(f"  📁 {Path(s['project']).name} — {s['turns']} turns — {s['saved_at']}")
+                console.print(
+                    f"  📁 {Path(s['project']).name} — {s['turns']} turns — {s['saved_at']}"
+                )
         return True, history
 
     if low.startswith("/load"):
@@ -591,15 +662,16 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
 
     if low == "/context":
         from core.memory_v2 import memory as _mem
+
         s = _mem.status()
-        loaded = s['file_names']
+        loaded = s["file_names"]
         if loaded:
             console.print(f"[bold]Files in memory (turn {s['turn']}):[/bold]")
             for fname in loaded:
                 files = _mem._files
                 for k, r in files.items():
                     if r.name == fname:
-                        age = s['turn'] - r.last_used_turn
+                        age = s["turn"] - r.last_used_turn
                         score_hint = f"last used {age} turns ago"
                         console.print(f"  📄 {r.name} ({r.tokens} tokens, {score_hint})")
         else:
@@ -608,6 +680,7 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
 
     if low == "/project":
         from core.project import detect_project
+
         proj = detect_project()
         console.print(f"[bold]Project:[/bold] {proj['type']} · {proj['cwd']}")
         if proj["key_files"]:
@@ -620,6 +693,7 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
 
     if low == "/memory":
         from core.codeymd import find_codeymd, read_codeymd
+
         path = find_codeymd()
         if path:
             console.print(f"[bold]CODEY.md[/bold] ({path}):\n")
@@ -630,7 +704,7 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
 
     if low.startswith("/memory-status"):
         from core.memory_v2 import memory as _mem
-        from core.tokens import estimate_tokens, usage_bar
+
         s = _mem.status()
         console.print(f"[bold]Memory status — turn {s['turn']}:[/bold]")
         console.print(f"  Files in memory:  {s['files']} — {', '.join(s['file_names']) or 'none'}")
@@ -641,12 +715,15 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
 
     if low.startswith("/memory-v2"):
         from core.memory_v2 import memory as _mem
+
         s = _mem.status()
         console.print("[bold]Four-Tier Memory Status:[/bold]")
         console.print()
         # Tier 1: Working Memory
         console.print("[bold cyan]1. Working Memory[/bold cyan]")
-        console.print(f"   Files: {s['working']['files']} — {', '.join(s['working']['file_names']) or 'none'}")
+        console.print(
+            f"   Files: {s['working']['files']} — {', '.join(s['working']['file_names']) or 'none'}"
+        )
         console.print(f"   Tokens: {s['working']['total_tokens']} / {s['working']['turn']} turns")
         console.print()
         # Tier 2: Project Memory
@@ -660,8 +737,8 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
         console.print()
         # Tier 3: Long-term Memory
         console.print("[bold cyan]3. Long-term Memory (embeddings)[/bold cyan]")
-        _lt = s['longterm']
-        if _lt['available']:
+        _lt = s["longterm"]
+        if _lt["available"]:
             console.print(f"   Status: available")
             console.print(f"   Embeddings: {_lt['embeddings']}")
         else:
@@ -673,9 +750,9 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
         if _recent:
             console.print(f"   Recent actions (last {len(_recent)}):")
             for action in _recent[-5:]:
-                _action = action.get('action', 'unknown')
-                _details = action.get('details', '')[:60]
-                _ts = action.get('timestamp', '')
+                _action = action.get("action", "unknown")
+                _details = action.get("details", "")[:60]
+                _ts = action.get("timestamp", "")
                 console.print(f"     [{_ts}] {_action}: {_details}")
         else:
             console.print("   No recent actions logged")
@@ -689,17 +766,22 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
                 os.chdir(parts[1])
                 new_cwd = os.getcwd()
                 # Update WORKSPACE_ROOT so Filesystem boundary checks use new dir
-                import utils.config as _cfg
                 from pathlib import Path as _Path
+
+                import utils.config as _cfg
+
                 _cfg.WORKSPACE_ROOT = _Path(new_cwd).resolve()
                 # Reset Filesystem singleton so next tool call picks up new workspace
                 from core.filesystem import reset_filesystem
+
                 reset_filesystem()
                 # Invalidate project cache (repo map, project type)
                 from core.project import invalidate_cache
+
                 invalidate_cache()
                 # Invalidate .codeyignore pattern cache for old cwd
                 from core import context as _ctx
+
                 _ctx._ignore_cache.clear()
                 success(f"Working directory: {new_cwd}")
             except Exception as e:
@@ -725,11 +807,12 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
 
     if low == "/learning":
         from core.learning import get_learning_manager
+
         learning = get_learning_manager()
         status = learning.get_status()
-        
+
         console.print("\n[bold]Learning System Status[/bold]\n")
-        
+
         # Preferences
         console.print("[bold cyan]Preferences:[/bold cyan]")
         prefs = status["preferences"]["preferences"]
@@ -740,31 +823,34 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
                 console.print(f"  {key}: [green]{value}[/green] [{bar}]")
         else:
             console.print("  [dim]No preferences learned yet[/dim]")
-        
+
         # Errors
         console.print("\n[bold cyan]Error Database:[/bold cyan]")
         console.print(f"  Patterns: {status['errors']['total_patterns']}")
         console.print(f"  Occurrences: {status['errors']['total_occurrences']}")
         console.print(f"  Fixed: {status['errors']['total_fixed']}")
         console.print(f"  Success Rate: {status['errors']['success_rate']}")
-        
+
         # Strategies
         console.print("\n[bold cyan]Strategy Tracker:[/bold cyan]")
         console.print(f"  Strategies: {status['strategies']['total_strategies']}")
         console.print(f"  Total Attempts: {status['strategies']['total_attempts']}")
         console.print(f"  Overall Success: {status['strategies']['overall_success_rate']:.1f}%")
-        
-        top = status['strategies'].get('top_strategies', [])
+
+        top = status["strategies"].get("top_strategies", [])
         if top:
             console.print("  [dim]Top Strategies:[/dim]")
             for s in top[:3]:
-                console.print(f"    {s['name']}: {s['success_rate']*100:.0f}% ({s['attempts']} attempts)")
-        
+                console.print(
+                    f"    {s['name']}: {s['success_rate']*100:.0f}% ({s['attempts']} attempts)"
+                )
+
         return True, history
 
     # ── /review ──────────────────────────────────────────────────────────────
     if low.startswith("/review"):
-        from core.linter import run_all_linters, get_available_linters
+        from core.linter import get_available_linters, run_all_linters
+
         parts = cmd.split(maxsplit=1)
         if len(parts) < 2:
             info("Usage: /review <file.py>")
@@ -772,6 +858,7 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
 
         filepath = parts[1].strip()
         from pathlib import Path as _P
+
         if not _P(filepath).exists():
             error(f"File not found: {filepath}")
             return True, history
@@ -787,7 +874,7 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
 
         for tool_name, issues in all_results:
             if tool_name == "syntax" and not issues:
-                continue   # skip clean syntax row — clutters the output
+                continue  # skip clean syntax row — clutters the output
             errors_only = [i for i in issues if i.severity == "error"]
             warnings_only = [i for i in issues if i.severity != "error"]
             if issues:
@@ -795,7 +882,9 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
                 for issue in (errors_only + warnings_only)[:20]:
                     color = "red" if issue.severity == "error" else "yellow"
                     sym = "✗" if issue.severity == "error" else "⚠"
-                    console.print(f"    [{color}]{sym} Line {issue.line}[/{color}] [{issue.code}] {issue.message}")
+                    console.print(
+                        f"    [{color}]{sym} Line {issue.line}[/{color}] [{issue.code}] {issue.message}"
+                    )
                     review_lines.append(f"Line {issue.line}: [{issue.code}] {issue.message}")
                 if len(issues) > 20:
                     console.print(f"    [dim]... and {len(issues) - 20} more[/dim]")
@@ -816,13 +905,15 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
                     ctx_block = "\n".join(review_lines[:15])
                     response, history = run_agent(
                         f"Review {filepath} and fix these linter issues (read the file first):\n{ctx_block}",
-                        history, yolo=yolo,
+                        history,
+                        yolo=yolo,
                     )
                     if response and not response.startswith("["):
                         separator()
                         console.print(f"\n[bold green]Codey-V3:[/bold green] {response}")
                         separator()
                     from core.sessions import save_session
+
                     save_session(history)
             except (KeyboardInterrupt, EOFError):
                 pass
@@ -831,6 +922,7 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
     # ── /voice ───────────────────────────────────────────────────────────────
     if low.startswith("/voice"):
         from core.voice import get_voice
+
         v = get_voice()
         parts = cmd.split()
         sub = parts[1].lower() if len(parts) > 1 else ""
@@ -856,6 +948,7 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
                             except KeyboardInterrupt:
                                 pass
                     from core.sessions import save_session
+
                     save_session(history)
                 except KeyboardInterrupt:
                     console.print("\n[dim]Interrupted.[/dim]")
@@ -894,6 +987,7 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
 
     if low.startswith("/peer"):
         from core.peer_cli import get_peer_cli_manager
+
         mgr = get_peer_cli_manager()
         parts = cmd.split(maxsplit=2)
         available = mgr.available()
@@ -948,14 +1042,17 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
             return True, history
 
         from core.retrieval import retrieve_debug
+
         d = retrieve_debug(parts[1])
 
         console.print(f"\n[bold]RAG Debug[/bold] — query sent to KB: [cyan]\"{d['query']}\"[/cyan]")
-        console.print(f"  Backend: [cyan]{d['backend']}[/cyan]   "
-                      f"Score threshold: [cyan]{d.get('threshold', '?')}[/cyan]\n")
+        console.print(
+            f"  Backend: [cyan]{d['backend']}[/cyan]   "
+            f"Score threshold: [cyan]{d.get('threshold', '?')}[/cyan]\n"
+        )
 
         all_chunks = d.get("all_chunks", [])
-        kept_set   = {id(r) for r in d.get("kept_chunks", [])}
+        kept_set = {id(r) for r in d.get("kept_chunks", [])}
 
         if not all_chunks:
             if "error" in d:
@@ -966,12 +1063,14 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
 
         console.print(f"[bold]All chunks returned ({len(all_chunks)}):[/bold]")
         for i, r in enumerate(all_chunks, 1):
-            score  = r.get("score", 0)
+            score = r.get("score", 0)
             source = Path(r.get("source", "")).name or "?"
-            text   = r.get("text", "").strip()
-            kept   = id(r) in kept_set
-            tag    = "[green]✓ kept[/green]" if kept else "[red]✗ filtered[/red]"
-            console.print(f"\n  [{i}] {tag}  score=[cyan]{score:.3f}[/cyan]  source=[dim]{source}[/dim]")
+            text = r.get("text", "").strip()
+            kept = id(r) in kept_set
+            tag = "[green]✓ kept[/green]" if kept else "[red]✗ filtered[/red]"
+            console.print(
+                f"\n  [{i}] {tag}  score=[cyan]{score:.3f}[/cyan]  source=[dim]{source}[/dim]"
+            )
             # Show first 3 lines of the chunk
             preview = "\n".join(text.splitlines()[:3])
             if len(text.splitlines()) > 3:
@@ -1072,7 +1171,17 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
 
     return False, history
 
-def repl(initial_prompt=None, yolo=False, one_shot=False, preload=None, plan=False, no_plan=False, session_path=None, no_resume=False):
+
+def repl(
+    initial_prompt=None,
+    yolo=False,
+    one_shot=False,
+    preload=None,
+    plan=False,
+    no_plan=False,
+    session_path=None,
+    no_resume=False,
+):
     console.print(BANNER)
     separator()
 
@@ -1082,12 +1191,14 @@ def repl(initial_prompt=None, yolo=False, one_shot=False, preload=None, plan=Fal
 
     # v2: Use loader_v2 to ensure model is available (skip for remote backends)
     from utils.config import is_remote_backend
+
     if not is_remote_backend():
         loader = get_loader()
         loader.load_primary()
 
-    from core.project import detect_project
     from core.codeymd import find_codeymd
+    from core.project import detect_project
+
     proj = detect_project()
     if proj["type"] != "unknown":
         info(f"Project: [bold]{proj['type']}[/bold] · {os.getcwd()}")
@@ -1102,6 +1213,7 @@ def repl(initial_prompt=None, yolo=False, one_shot=False, preload=None, plan=Fal
 
     # Load saved session
     from core.sessions import load_session, save_session
+
     history = []
     if not no_resume:
         if session_path:
@@ -1158,13 +1270,14 @@ def repl(initial_prompt=None, yolo=False, one_shot=False, preload=None, plan=Fal
             # so a multi-line paste is treated as one message, not many short ones.
             try:
                 import select as _sel
+
                 _extra = []
                 while _sel.select([sys.stdin], [], [], 0.02)[0]:
-                    _line = sys.stdin.readline().rstrip('\n').strip()
+                    _line = sys.stdin.readline().rstrip("\n").strip()
                     if _line:
                         _extra.append(_line)
                 if _extra:
-                    user_input = user_input + ' ' + ' '.join(_extra)
+                    user_input = user_input + " " + " ".join(_extra)
             except Exception:
                 pass  # select unavailable — proceed with single line
         except (KeyboardInterrupt, EOFError):
@@ -1184,6 +1297,7 @@ def repl(initial_prompt=None, yolo=False, one_shot=False, preload=None, plan=Fal
             # In voice mode: blank input → trigger STT
             try:
                 from core.voice import get_voice as _get_voice
+
                 _v = _get_voice()
                 if _v.enabled and _v.stt_available():
                     spoken = _v.listen()
@@ -1216,6 +1330,7 @@ def repl(initial_prompt=None, yolo=False, one_shot=False, preload=None, plan=Fal
                 # Speak the response if voice mode is on (Ctrl+C to interrupt)
                 try:
                     from core.voice import get_voice as _get_voice
+
                     _v = _get_voice()
                     if _v.enabled and _v.tts_available():
                         try:
@@ -1234,9 +1349,11 @@ def repl(initial_prompt=None, yolo=False, one_shot=False, preload=None, plan=Fal
         except Exception as e:
             error(f"Agent error: {e}")
             import traceback
+
             traceback.print_exc()
             # Continue the REPL even after errors
             console.print("\n[dim]An error occurred. You can continue chatting.[/dim]")
+
 
 def main():
     args = parse_args()
@@ -1250,6 +1367,7 @@ def main():
     # Daemon mode (v2 feature)
     if args.daemon:
         from core.daemon import Daemon, check_pid_file
+
         if check_pid_file():
             error("Daemon is already running. Use --daemon-stop to shut it down.")
             sys.exit(1)
@@ -1260,6 +1378,7 @@ def main():
 
     if args.clear_session:
         from core.sessions import clear_session
+
         clear_session()
         return
 
@@ -1273,13 +1392,17 @@ def main():
     if args.tdd:
         loader = get_loader()
         loader.load_primary()
-        from core.tdd import run_tdd_loop, find_test_file
+        from core.tdd import find_test_file, run_tdd_loop
+
         test_file = args.tests or find_test_file(args.tdd)
         if not test_file:
             # Suggest test file name
             from pathlib import Path as _P
+
             suggested = "test_" + _P(args.tdd).name
-            error(f"No test file found. Create {suggested} or use: codey-v3 --tdd {args.tdd} --tests {suggested}")
+            error(
+                f"No test file found. Create {suggested} or use: codey-v3 --tdd {args.tdd} --tests {suggested}"
+            )
             shutdown()
             return
         run_tdd_loop(args.tdd, test_file, yolo=args.yolo)
@@ -1292,6 +1415,7 @@ def main():
         from core.fixmode import fix_file
         # --fix is automated, always disable confirmations
         from utils import config
+
         config.AGENT_CONFIG["confirm_write"] = False
         config.AGENT_CONFIG["confirm_shell"] = False
         fix_file(args.fix, extra_instruction=args.prompt or "", yolo=True)
@@ -1301,12 +1425,13 @@ def main():
     # Fine-tuning data export (v2.3.0)
     if args.finetune:
         from core.finetune_prep import prepare_finetune_data
+
         info("Preparing fine-tuning dataset...")
         results = prepare_finetune_data(
             days=args.ft_days,
             min_quality=args.ft_quality,
             model_variant=args.ft_model,
-            output_dir=args.ft_output
+            output_dir=args.ft_output,
         )
         if "error" in results:
             error(results["error"])
@@ -1317,12 +1442,13 @@ def main():
     # LoRA adapter import (v2.3.0)
     if args.import_lora:
         from core.lora_import import import_lora_adapter
+
         info(f"Importing LoRA adapter from {args.import_lora}...")
         results = import_lora_adapter(
             adapter_path=args.import_lora,
             model_variant=args.lora_model,
             quantize=args.lora_quant,
-            merge_on_device=args.lora_merge
+            merge_on_device=args.lora_merge,
         )
         if results.get("success"):
             success(f"LoRA adapter imported: {results.get('model_path')}")
@@ -1339,7 +1465,9 @@ def main():
     resolved_session = None
     if hasattr(args, "session") and args.session and args.session != "list":
         from pathlib import Path as _P
+
         from core.sessions import SESSIONS_DIR
+
         matches = list(_P(SESSIONS_DIR).glob(f"*{args.session}*.json"))
         if matches:
             resolved_session = str(matches[0])
@@ -1356,6 +1484,7 @@ def main():
         no_plan=args.no_plan,
         no_resume=args.no_resume,
     )
+
 
 if __name__ == "__main__":
     main()

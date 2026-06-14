@@ -12,12 +12,14 @@ Strategy (in order):
 The 0.5B call is best-effort: if port 8081 is unreachable the drop still happens,
 we just skip the micro-summary line.
 """
+
 import json
-import urllib.request
 import urllib.error
-from utils.logger import info, warning
-from utils.config import MODEL_CONFIG
+import urllib.request
+
 from core.tokens import estimate_messages_tokens
+from utils.config import MODEL_CONFIG
+from utils.logger import info, warning
 
 # ── Thresholds ────────────────────────────────────────────────────────────────
 
@@ -34,6 +36,7 @@ MICRO_SUMMARY_MSG_LIMIT = 2000
 # 0.5B model endpoint — uses plannd port from config to avoid hardcoded collision
 try:
     from utils.config import PLANND_SERVER_PORT
+
     _05B_PORT = PLANND_SERVER_PORT
 except ImportError:
     _05B_PORT = 8081
@@ -57,8 +60,9 @@ _PIN_SIGNALS = (
     "[BLOCKED]",
     "[CONVERSATION SUMMARY]",
     "Tool error:",
-    "shell",        # shell tool results often contain critical output
+    "shell",  # shell tool results often contain critical output
 )
+
 
 def _is_pinned(msg: dict) -> bool:
     """
@@ -78,6 +82,7 @@ def _is_pinned(msg: dict) -> bool:
 
 # ── 0.5B micro-summary ────────────────────────────────────────────────────────
 
+
 def _call_05b(dropped_msgs: list[dict]) -> str | None:
     """
     Summarize dropped messages using the 0.5B on port 8081, or OpenRouter
@@ -93,14 +98,17 @@ def _call_05b(dropped_msgs: list[dict]) -> str | None:
 
     messages = [
         {"role": "system", "content": _MICRO_SUMMARY_SYSTEM},
-        {"role": "user",   "content": f"Conversation:\n{history_text}"},
+        {"role": "user", "content": f"Conversation:\n{history_text}"},
     ]
 
     # Route to remote planner backend when active — avoids needing the local 0.5B server
     try:
-        from utils.config import is_remote_planner_backend, CODEY_PLANNER_BACKEND
+        from utils.config import (CODEY_PLANNER_BACKEND,
+                                  is_remote_planner_backend)
+
         if is_remote_planner_backend():
             from core.inference_openrouter import get_remote_backend
+
             backend = get_remote_backend(CODEY_PLANNER_BACKEND)
             result = backend.infer(messages, max_tokens=160, stream=False)
             if result:
@@ -142,6 +150,7 @@ def _call_05b(dropped_msgs: list[dict]) -> str | None:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
+
 def should_summarize(history: list[dict], system_messages: list[dict] = None) -> bool:
     """
     Return True if context usage has crossed the 55% threshold.
@@ -154,8 +163,8 @@ def should_summarize(history: list[dict], system_messages: list[dict] = None) ->
     if not history or len(history) < 4:
         return False
 
-    msgs  = system_messages if system_messages else history
-    used  = estimate_messages_tokens(msgs)
+    msgs = system_messages if system_messages else history
+    used = estimate_messages_tokens(msgs)
     budget = MODEL_CONFIG["n_ctx"]
     response_reserve = MODEL_CONFIG.get("max_tokens", 2048)
 
@@ -177,18 +186,18 @@ def summarize_history(history: list[dict]) -> list[dict]:
     if len(history) < 4:
         return history
 
-    budget          = MODEL_CONFIG["n_ctx"]
-    drop_target     = int(budget * DROP_TARGET_PCT)
+    budget = MODEL_CONFIG["n_ctx"]
+    drop_target = int(budget * DROP_TARGET_PCT)
     response_reserve = MODEL_CONFIG.get("max_tokens", 2048)
 
     old_tokens = estimate_messages_tokens(history)
     info(f"[summarizer] Compressing context ({old_tokens} tokens, {len(history)} messages)")
 
     # Always keep the 4 most recent messages intact
-    keep_tail    = history[-4:]
-    candidates   = history[:-4]          # everything older, oldest-first
+    keep_tail = history[-4:]
+    candidates = history[:-4]  # everything older, oldest-first
 
-    pinned   : list[dict] = []
+    pinned: list[dict] = []
     droppable: list[dict] = []
 
     for msg in candidates:
@@ -198,7 +207,7 @@ def summarize_history(history: list[dict]) -> list[dict]:
             droppable.append(msg)
 
     # Drop oldest droppable messages until we hit the target
-    dropped : list[dict] = []
+    dropped: list[dict] = []
     kept_droppable = list(droppable)  # copy; we'll pop from front
 
     while kept_droppable:
@@ -219,7 +228,7 @@ def summarize_history(history: list[dict]) -> list[dict]:
 
     if micro:
         summary_msg = {
-            "role":    "user",
+            "role": "user",
             "content": f"[CONVERSATION SUMMARY]\n{micro}\n[END SUMMARY]",
         }
         compressed = [summary_msg] + compressed

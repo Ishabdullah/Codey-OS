@@ -25,7 +25,7 @@ import time
 from typing import Dict, List, Optional
 
 from .rules import apply_rules
-from .validator import validate_record, coerce_args
+from .validator import coerce_args, validate_record
 
 
 class TransformationEngine:
@@ -39,7 +39,7 @@ class TransformationEngine:
 
     def __init__(self, skip_invalid: bool = True):
         self.skip_invalid = skip_invalid
-        self._errors: List[Dict] = []   # pipeline_errors log
+        self._errors: List[Dict] = []  # pipeline_errors log
 
     @property
     def errors(self) -> List[Dict]:
@@ -73,9 +73,9 @@ class TransformationEngine:
             # Build output record
             user = intermediate["instruction"]
             record = {
-                "user":       user,
+                "user": user,
                 "tool_calls": tool_calls,
-                "metadata":   self._build_metadata(intermediate, tool_calls),
+                "metadata": self._build_metadata(intermediate, tool_calls),
             }
             return record
 
@@ -88,23 +88,25 @@ class TransformationEngine:
     def _build_metadata(self, intermediate: Dict, tool_calls: List[Dict]) -> Dict:
         user = intermediate["instruction"]
         tool_names = [tc["name"] for tc in tool_calls]
-        has_test   = "test_solution.py" in str(tool_calls)
+        has_test = "test_solution.py" in str(tool_calls)
 
         return {
-            "id":           hashlib.sha256(user.encode()).hexdigest()[:16],
-            "source":       intermediate.get("source_dataset", "unknown"),
-            "quality":      round(intermediate.get("quality", 0.5), 3),
-            "language":     intermediate.get("language"),
-            "num_steps":    len(tool_calls),
-            "tool_names":   tool_names,
-            "has_test":     has_test,
+            "id": hashlib.sha256(user.encode()).hexdigest()[:16],
+            "source": intermediate.get("source_dataset", "unknown"),
+            "quality": round(intermediate.get("quality", 0.5), 3),
+            "language": intermediate.get("language"),
+            "num_steps": len(tool_calls),
+            "tool_names": tool_names,
+            "has_test": has_test,
             "is_synthetic": intermediate.get("is_synthetic", False),
-            "created_at":   int(time.time()),
+            "created_at": int(time.time()),
         }
 
     def _log_error(self, intermediate: Dict, reason: str) -> None:
-        self._errors.append({
-            "instruction": intermediate.get("instruction", "")[:100],
-            "source":      intermediate.get("source_dataset", ""),
-            "reason":      reason,
-        })
+        self._errors.append(
+            {
+                "instruction": intermediate.get("instruction", "")[:100],
+                "source": intermediate.get("source_dataset", ""),
+                "reason": reason,
+            }
+        )

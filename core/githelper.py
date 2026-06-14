@@ -4,40 +4,32 @@ Git helper for Codey-V3.
 v2.5.5 — Phase 3: branch management, smart commit messages,
                    merge conflict detection and resolution.
 """
-import subprocess
+
 import os
 import re
+import subprocess
 from pathlib import Path
-from typing import List, Optional, Tuple
-
-from utils.logger import success, error, info, warning
-
+from typing import List
 
 # ── Basic repo queries ─────────────────────────────────────────────────────────
 
+
 def is_git_repo(path: str = None) -> bool:
     path = path or os.getcwd()
-    result = subprocess.run(
-        ["git", "rev-parse", "--git-dir"],
-        capture_output=True, cwd=path
-    )
+    result = subprocess.run(["git", "rev-parse", "--git-dir"], capture_output=True, cwd=path)
     return result.returncode == 0
 
 
 def git_status(path: str = None) -> str:
     path = path or os.getcwd()
-    result = subprocess.run(
-        ["git", "status", "--short"],
-        capture_output=True, text=True, cwd=path
-    )
+    result = subprocess.run(["git", "status", "--short"], capture_output=True, text=True, cwd=path)
     return result.stdout.strip() or "Nothing to commit."
 
 
 def git_diff_stat(path: str = None) -> str:
     path = path or os.getcwd()
     result = subprocess.run(
-        ["git", "diff", "--stat", "HEAD"],
-        capture_output=True, text=True, cwd=path
+        ["git", "diff", "--stat", "HEAD"], capture_output=True, text=True, cwd=path
     )
     return result.stdout.strip()
 
@@ -45,8 +37,7 @@ def git_diff_stat(path: str = None) -> str:
 def git_log(n: int = 5, path: str = None) -> str:
     path = path or os.getcwd()
     result = subprocess.run(
-        ["git", "log", f"-{n}", "--oneline"],
-        capture_output=True, text=True, cwd=path
+        ["git", "log", f"-{n}", "--oneline"], capture_output=True, text=True, cwd=path
     )
     return result.stdout.strip() or "No commits yet."
 
@@ -55,13 +46,13 @@ def git_current_branch(path: str = None) -> str:
     """Return the name of the current branch."""
     path = path or os.getcwd()
     result = subprocess.run(
-        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-        capture_output=True, text=True, cwd=path
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True, cwd=path
     )
     return result.stdout.strip() or "unknown"
 
 
 # ── Commit ─────────────────────────────────────────────────────────────────────
+
 
 def git_commit(message: str, path: str = None, add_all: bool = True) -> str:
     path = path or os.getcwd()
@@ -70,10 +61,7 @@ def git_commit(message: str, path: str = None, add_all: bool = True) -> str:
         return "[ERROR] Not a git repository."
 
     if add_all:
-        result = subprocess.run(
-            ["git", "add", "-A"],
-            capture_output=True, text=True, cwd=path
-        )
+        result = subprocess.run(["git", "add", "-A"], capture_output=True, text=True, cwd=path)
         if result.returncode != 0:
             return f"[ERROR] git add failed: {result.stderr}"
 
@@ -82,8 +70,7 @@ def git_commit(message: str, path: str = None, add_all: bool = True) -> str:
         return "Nothing to commit — working tree clean."
 
     result = subprocess.run(
-        ["git", "commit", "-m", message],
-        capture_output=True, text=True, cwd=path
+        ["git", "commit", "-m", message], capture_output=True, text=True, cwd=path
     )
     if result.returncode == 0:
         return result.stdout.strip()
@@ -92,16 +79,14 @@ def git_commit(message: str, path: str = None, add_all: bool = True) -> str:
 
 def git_push(path: str = None) -> str:
     path = path or os.getcwd()
-    result = subprocess.run(
-        ["git", "push"],
-        capture_output=True, text=True, cwd=path
-    )
+    result = subprocess.run(["git", "push"], capture_output=True, text=True, cwd=path)
     if result.returncode == 0:
         return result.stdout.strip() or "Pushed successfully."
     return f"[ERROR] {result.stderr.strip()}"
 
 
 # ── Branch management (Phase 3.1) ─────────────────────────────────────────────
+
 
 def git_branches(path: str = None) -> str:
     """
@@ -111,7 +96,9 @@ def git_branches(path: str = None) -> str:
     path = path or os.getcwd()
     result = subprocess.run(
         ["git", "branch", "-a", "--format=%(HEAD) %(refname:short)"],
-        capture_output=True, text=True, cwd=path
+        capture_output=True,
+        text=True,
+        cwd=path,
     )
     if result.returncode != 0 or not result.stdout.strip():
         return "No branches found."
@@ -140,8 +127,7 @@ def git_branch_create(name: str, path: str = None) -> str:
         return f"[ERROR] Invalid branch name: '{name}'"
 
     result = subprocess.run(
-        ["git", "checkout", "-b", name],
-        capture_output=True, text=True, cwd=path
+        ["git", "checkout", "-b", name], capture_output=True, text=True, cwd=path
     )
     if result.returncode == 0:
         return f"Created and switched to branch '{name}'."
@@ -151,10 +137,7 @@ def git_branch_create(name: str, path: str = None) -> str:
 def git_checkout(name: str, path: str = None) -> str:
     """Switch to an existing branch."""
     path = path or os.getcwd()
-    result = subprocess.run(
-        ["git", "checkout", name],
-        capture_output=True, text=True, cwd=path
-    )
+    result = subprocess.run(["git", "checkout", name], capture_output=True, text=True, cwd=path)
     if result.returncode == 0:
         msg = result.stderr.strip() or result.stdout.strip()
         return msg or f"Switched to branch '{name}'."
@@ -171,10 +154,7 @@ def git_merge(branch: str, path: str = None) -> str:
         "[ERROR] <message>"         on other failure
     """
     path = path or os.getcwd()
-    result = subprocess.run(
-        ["git", "merge", branch],
-        capture_output=True, text=True, cwd=path
-    )
+    result = subprocess.run(["git", "merge", branch], capture_output=True, text=True, cwd=path)
     combined = (result.stdout + result.stderr).strip()
     if result.returncode == 0:
         return f"OK: {combined or 'Merged successfully.'}"
@@ -185,6 +165,7 @@ def git_merge(branch: str, path: str = None) -> str:
 
 # ── Conflict detection & parsing (Phase 3.2) ──────────────────────────────────
 
+
 def detect_conflicts(path: str = None) -> List[str]:
     """
     Return a list of files that currently have merge conflict markers
@@ -193,15 +174,13 @@ def detect_conflicts(path: str = None) -> List[str]:
     """
     cwd = path or os.getcwd()
     result = subprocess.run(
-        ["git", "diff", "--name-only", "--diff-filter=U"],
-        capture_output=True, text=True, cwd=cwd
+        ["git", "diff", "--name-only", "--diff-filter=U"], capture_output=True, text=True, cwd=cwd
     )
     files = [f.strip() for f in result.stdout.splitlines() if f.strip()]
     # Fallback: grep for conflict markers (catches edge cases)
     if not files:
         result2 = subprocess.run(
-            ["git", "status", "--short"],
-            capture_output=True, text=True, cwd=cwd
+            ["git", "status", "--short"], capture_output=True, text=True, cwd=cwd
         )
         for line in result2.stdout.splitlines():
             if line.startswith("UU ") or line.startswith("AA "):
@@ -237,7 +216,7 @@ def get_conflict_sections(filepath: str) -> dict:
     pre_lines: List[str] = []
     post_lines: List[str] = []
 
-    state = "pre"   # pre | ours | theirs | post
+    state = "pre"  # pre | ours | theirs | post
     ours_buf: List[str] = []
     theirs_buf: List[str] = []
 
@@ -263,16 +242,17 @@ def get_conflict_sections(filepath: str) -> dict:
 
     return {
         "has_conflicts": True,
-        "ours":   "\n---\n".join(ours_blocks),
+        "ours": "\n---\n".join(ours_blocks),
         "theirs": "\n---\n".join(theirs_blocks),
-        "pre":    "".join(pre_lines),
-        "post":   "".join(post_lines),
-        "raw":    raw,
-        "count":  len(ours_blocks),
+        "pre": "".join(pre_lines),
+        "post": "".join(post_lines),
+        "raw": raw,
+        "count": len(ours_blocks),
     }
 
 
 # ── Smart commit helpers (Phase 3.3) ──────────────────────────────────────────
+
 
 def git_diff_for_commit(path: str = None, max_chars: int = 3000) -> str:
     """
@@ -292,8 +272,7 @@ def git_diff_for_commit(path: str = None, max_chars: int = 3000) -> str:
 
     # Nothing staged or unstaged — use HEAD diff
     result = subprocess.run(
-        ["git", "diff", "HEAD~1", "HEAD"],
-        capture_output=True, text=True, cwd=cwd
+        ["git", "diff", "HEAD~1", "HEAD"], capture_output=True, text=True, cwd=cwd
     )
     diff = result.stdout.strip()
     if len(diff) > max_chars:
@@ -305,8 +284,7 @@ def git_commit_log_messages(n: int = 10, path: str = None) -> List[str]:
     """Return the last n commit subject lines (for style detection)."""
     cwd = path or os.getcwd()
     result = subprocess.run(
-        ["git", "log", f"-{n}", "--format=%s"],
-        capture_output=True, text=True, cwd=cwd
+        ["git", "log", f"-{n}", "--format=%s"], capture_output=True, text=True, cwd=cwd
     )
     return [l.strip() for l in result.stdout.splitlines() if l.strip()]
 
@@ -319,8 +297,7 @@ def uses_conventional_commits(messages: List[str]) -> bool:
     if not messages:
         return False
     _cc_re = re.compile(
-        r"^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)"
-        r"(\([^)]+\))?!?:\s+.+",
+        r"^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)" r"(\([^)]+\))?!?:\s+.+",
         re.IGNORECASE,
     )
     hits = sum(1 for m in messages if _cc_re.match(m))
@@ -341,8 +318,8 @@ def generate_commit_message(diff: str, history_msgs: List[str]) -> str:
         "Use conventional commits format: type(scope)?: description\n"
         "Types: feat, fix, docs, style, refactor, test, chore, perf\n"
         "Examples: 'feat: add voice interface', 'fix: agent loop on simple writes'"
-        if cc_style else
-        "Write a clear, descriptive single-line message.\n"
+        if cc_style
+        else "Write a clear, descriptive single-line message.\n"
         "Examples: 'Add voice TTS/STT interface', 'Fix agent loop after file write'"
     )
 
@@ -354,15 +331,18 @@ def generate_commit_message(diff: str, history_msgs: List[str]) -> str:
     )
 
     messages = [
-        {"role": "system", "content": "You are a git commit message writer. Output only the commit message line, nothing else."},
-        {"role": "user",   "content": prompt_text},
+        {
+            "role": "system",
+            "content": "You are a git commit message writer. Output only the commit message line, nothing else.",
+        },
+        {"role": "user", "content": prompt_text},
     ]
 
     try:
         result = infer(messages, stream=False, show_thinking=False)
         if result and not result.startswith("[ERROR]"):
             # Clean up: strip quotes, trim, take first line only
-            msg = result.strip().strip('"\'`').splitlines()[0].strip()
+            msg = result.strip().strip("\"'`").splitlines()[0].strip()
             # Cap length
             return msg[:100] if len(msg) > 100 else msg
     except Exception:

@@ -24,7 +24,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from utils.logger import info, warning, separator
+from utils.logger import info, warning
 
 # How long to wait for each CLI to show its ready prompt before typing
 CLI_READY_TIMEOUT = 6.0
@@ -34,10 +34,10 @@ CLI_READY_TIMEOUT = 6.0
 CLI_READY_PATTERNS: dict = {}  # populated lazily to avoid pexpect import at module level
 
 # ANSI colours
-_CYAN  = "\033[1;36m"
-_DIM   = "\033[2m"
+_CYAN = "\033[1;36m"
+_DIM = "\033[2m"
 _RESET = "\033[0m"
-_RED   = "\033[31m"
+_RED = "\033[31m"
 
 
 def _terminal_width() -> int:
@@ -78,6 +78,7 @@ class _LiveCapture:
 def _check_pexpect() -> bool:
     try:
         import pexpect  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -102,8 +103,8 @@ def run_peer(cli_name: str, cmd: str, prompt_text: str = "") -> str:
 
     import pexpect
 
-    width   = _terminal_width()
-    border  = "─" * width
+    width = _terminal_width()
+    border = "─" * width
     capture = _LiveCapture()
 
     # ── Draw opening border ────────────────────────────────────────────────
@@ -121,7 +122,7 @@ def run_peer(cli_name: str, cmd: str, prompt_text: str = "") -> str:
             timeout=300,
             dimensions=(40, min(width, 220)),
         )
-        child.logfile_read = capture   # everything child prints → stdout + buffer
+        child.logfile_read = capture  # everything child prints → stdout + buffer
 
         # ── Wait for CLI to initialise ────────────────────────────────────
         _wait_for_ready(child, cli_name, pexpect)
@@ -193,7 +194,7 @@ def _strip_gemini_noise(output: str) -> str:
         stripped = line.strip()
         # Skip blank lines that are part of the noise header
         if not stripped:
-            if not cleaned:   # leading blank lines only
+            if not cleaned:  # leading blank lines only
                 continue
         # Skip known noise prefixes and node require-stack entries
         if any(stripped.startswith(p) for p in _GEMINI_NOISE_PREFIXES):
@@ -235,7 +236,8 @@ def run_prompted(cli_name: str, cmd: str, flag: str, prompt_text: str, yolo_flag
     """
     import shlex
     import subprocess
-    width  = _terminal_width()
+
+    width = _terminal_width()
     border = "─" * width
 
     print(f"\n{_CYAN}{_header(cli_name.upper() + ' CLI  (direct)', width)}{_RESET}")
@@ -295,7 +297,8 @@ def run_positional(cli_name: str, cmd: str, prompt_text: str) -> str:
     final argument.  Streams output live and captures it for Codey.
     """
     import subprocess
-    width  = _terminal_width()
+
+    width = _terminal_width()
     border = "─" * width
 
     argv = cmd.split() + [prompt_text]
@@ -339,8 +342,9 @@ def run_direct(cli_name: str, cmd: str, prompt_text: str = "") -> str:
     The prepared prompt is shown above the CLI so you can paste it in.
     """
     import tempfile
-    width   = _terminal_width()
-    border  = "─" * width
+
+    width = _terminal_width()
+    border = "─" * width
     with tempfile.NamedTemporaryFile(prefix="codey_peer_", suffix=".txt", delete=False) as f:
         outfile = f.name
 
@@ -359,7 +363,6 @@ def run_direct(cli_name: str, cmd: str, prompt_text: str = "") -> str:
     # while letting the CLI run in the real terminal with full PTY support.
     # -q = quiet (no "Script started/done" lines)
     try:
-        import shlex
         args = ["script", "-q", "-c", cmd, outfile]
         subprocess.run(args, timeout=600)
     except Exception as e:
@@ -494,7 +497,8 @@ def _run_basic_fallback(cli_name: str, cmd: str, prompt_text: str) -> str:
     Opens CLI with tee capture; user must type the prompt manually.
     """
     import tempfile
-    width  = _terminal_width()
+
+    width = _terminal_width()
     with tempfile.NamedTemporaryFile(prefix="codey_peer_", suffix=".txt", delete=False) as f:
         outfile = f.name
 
@@ -506,8 +510,9 @@ def _run_basic_fallback(cli_name: str, cmd: str, prompt_text: str) -> str:
 
     try:
         import shlex
+
         args = shlex.split(cmd)
-        with open(outfile, 'w') as f:
+        with open(outfile, "w") as f:
             proc = subprocess.Popen(args, stdout=f, stderr=subprocess.STDOUT)
             proc.wait()
     except Exception as e:
@@ -518,6 +523,7 @@ def _run_basic_fallback(cli_name: str, cmd: str, prompt_text: str) -> str:
 
     try:
         import pathlib
+
         out = pathlib.Path(outfile).read_text(encoding="utf-8", errors="replace")
         pathlib.Path(outfile).unlink(missing_ok=True)
         return out

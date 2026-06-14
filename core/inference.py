@@ -1,27 +1,29 @@
-import subprocess
-import os
-import time
 import json
+import os
+import subprocess
+import time
 
 last_tps = 0.0  # tokens per second from last inference
-import urllib.request
-import urllib.error
 import sys
-from pathlib import Path
-from utils.config import MODEL_CONFIG, MODEL_PATH, LLAMA_SERVER_BIN, LLAMA_LIB
+import urllib.error
+import urllib.request
+
+from utils.config import LLAMA_LIB, LLAMA_SERVER_BIN, MODEL_CONFIG, MODEL_PATH
 from utils.logger import error, info
 
-SERVER_URL       = "http://127.0.0.1:8080"  # 7B primary server (port 8081 = plannd)
-CHAT_URL         = f"{SERVER_URL}/v1/chat/completions"
-HEALTH_URL       = f"{SERVER_URL}/health"
+SERVER_URL = "http://127.0.0.1:8080"  # 7B primary server (port 8081 = plannd)
+CHAT_URL = f"{SERVER_URL}/v1/chat/completions"
+HEALTH_URL = f"{SERVER_URL}/health"
 
 _server_proc = None
+
 
 def _get_env():
     env = os.environ.copy()
     ld = env.get("LD_LIBRARY_PATH", "")
     env["LD_LIBRARY_PATH"] = f"{LLAMA_LIB}:{ld}" if ld else LLAMA_LIB
     return env
+
 
 def _server_ready(retries=90, delay=1.0) -> bool:
     for _ in range(retries):
@@ -34,12 +36,14 @@ def _server_ready(retries=90, delay=1.0) -> bool:
         time.sleep(delay)
     return False
 
+
 def _start_server():
     global _server_proc
     if _server_proc and _server_proc.poll() is None:
         # Check if thermal manager has requested a server restart (thread reduction)
         try:
             from core.thermal import get_thermal_manager
+
             tm = get_thermal_manager()
             if tm.restart_recommended:
                 info(f"Thermal: restarting server with {tm.current_threads} threads...")
@@ -55,18 +59,28 @@ def _start_server():
     cfg = MODEL_CONFIG
     cmd = [
         LLAMA_SERVER_BIN,
-        "--model",        str(MODEL_PATH),
-        "--ctx-size",     str(cfg["n_ctx"]),
-        "--threads",      str(cfg["n_threads"]),
-        "--batch-size",   str(cfg["batch_size"]),
-        "--cache-type-k", cfg["kv_type"],
-        "--cache-type-v", cfg["kv_type"],
-        "--flash-attn", "on",  # fused attention kernel, 10-20% faster prefill
-        "--port",         "8080",  # was 8081 — collided with plannd/summarizer
+        "--model",
+        str(MODEL_PATH),
+        "--ctx-size",
+        str(cfg["n_ctx"]),
+        "--threads",
+        str(cfg["n_threads"]),
+        "--batch-size",
+        str(cfg["batch_size"]),
+        "--cache-type-k",
+        cfg["kv_type"],
+        "--cache-type-v",
+        cfg["kv_type"],
+        "--flash-attn",
+        "on",  # fused attention kernel, 10-20% faster prefill
+        "--port",
+        "8080",  # was 8081 — collided with plannd/summarizer
         "--log-disable",
     ]
 
-    info(f"Starting llama-server (ctx={cfg['n_ctx']}, threads={cfg['n_threads']}, batch={cfg['batch_size']}, kv={cfg['kv_type']}, fa=on)...")
+    info(
+        f"Starting llama-server (ctx={cfg['n_ctx']}, threads={cfg['n_threads']}, batch={cfg['batch_size']}, kv={cfg['kv_type']}, fa=on)..."
+    )
     _server_proc = subprocess.Popen(
         cmd,
         stdout=subprocess.DEVNULL,
@@ -83,9 +97,11 @@ def _start_server():
     # Start dedicated embed server (nomic on port 8082) alongside generation server
     try:
         from core.embed_server import start_embed_server
+
         start_embed_server()
     except Exception:
         pass  # embed server is optional — BM25 fallback remains active
+
 
 def stop_server():
     global _server_proc
@@ -93,32 +109,43 @@ def stop_server():
         _server_proc.terminate()
         _server_proc = None
 
+
 def infer(messages: list[dict], stream: bool = True, extra_stop: list = None) -> str:
     global last_tps
     _start_server()
     cfg = MODEL_CONFIG
 
     stop_tokens = list(cfg["stop"]) + [
-        "</tool>", "</write_file>", "</shell>",
+        "</tool>",
+        "</write_file>",
+        "</shell>",
         # Prevent model from echoing system prompt sections into its response
-        "\n## Current Project", "\n## Project Map", "\n## Loaded Files",
-        "\n## Project Memory", "\nuser\n", "\nUSER\n", "\nUser\n",
-        "<|im_start|>user", "<|im_start|>system",
+        "\n## Current Project",
+        "\n## Project Map",
+        "\n## Loaded Files",
+        "\n## Project Memory",
+        "\nuser\n",
+        "\nUSER\n",
+        "\nUser\n",
+        "<|im_start|>user",
+        "<|im_start|>system",
     ]
     if extra_stop:
         stop_tokens += [s for s in extra_stop if s not in stop_tokens]
 
-    payload = json.dumps({
-        "model":          "codey",
-        "messages":       messages,
-        "max_tokens":     cfg["max_tokens"],
-        "temperature":    cfg["temperature"],
-        "top_p":          cfg["top_p"],
-        "top_k":          cfg["top_k"],
-        "repeat_penalty": cfg["repeat_penalty"],
-        "stop":           stop_tokens,
-        "stream":         stream,
-    }).encode("utf-8")
+    payload = json.dumps(
+        {
+            "model": "codey",
+            "messages": messages,
+            "max_tokens": cfg["max_tokens"],
+            "temperature": cfg["temperature"],
+            "top_p": cfg["top_p"],
+            "top_k": cfg["top_k"],
+            "repeat_penalty": cfg["repeat_penalty"],
+            "stop": stop_tokens,
+            "stream": stream,
+        }
+    ).encode("utf-8")
 
     req = urllib.request.Request(
         CHAT_URL,

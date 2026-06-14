@@ -24,14 +24,13 @@ Usage:
 import os
 import subprocess
 import time
-import json
-import urllib.request
 import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Optional
 
-from utils.logger import info, warning, error, success
-from utils.config import LLAMA_SERVER_BIN, EMBED_MODEL_PATH, EMBED_SERVER_PORT
+from utils.config import EMBED_MODEL_PATH, EMBED_SERVER_PORT, LLAMA_SERVER_BIN
+from utils.logger import error, info, success, warning
 
 # Host is always localhost
 _HOST = "127.0.0.1"
@@ -79,15 +78,23 @@ class EmbedServer:
 
         cmd = [
             str(llama_bin),
-            "-m", str(self.model_path),
-            "--host", _HOST,
-            "--port", str(self.port),
-            "-c", "2048",        # 2k ctx — fast for 92% of chunks; rest use BM25 fallback
-            "-t", "2",           # 2 threads for embedding (keep CPU headroom for 7B)
-            "-b", "2048",        # logical batch size matches ctx
-            "--ubatch-size", "2048",  # physical batch matches ctx
-            "--embedding",      # enable /v1/embeddings endpoint
-            "--pooling", "mean",# OAI-compatible single vector per input
+            "-m",
+            str(self.model_path),
+            "--host",
+            _HOST,
+            "--port",
+            str(self.port),
+            "-c",
+            "2048",  # 2k ctx — fast for 92% of chunks; rest use BM25 fallback
+            "-t",
+            "2",  # 2 threads for embedding (keep CPU headroom for 7B)
+            "-b",
+            "2048",  # logical batch size matches ctx
+            "--ubatch-size",
+            "2048",  # physical batch matches ctx
+            "--embedding",  # enable /v1/embeddings endpoint
+            "--pooling",
+            "mean",  # OAI-compatible single vector per input
         ]
 
         log_file = Path.home() / ".codey-v3" / "embed-server.log"
@@ -132,6 +139,7 @@ class EmbedServer:
         if self.process:
             try:
                 import signal as _signal
+
                 if os.name != "nt":
                     try:
                         os.killpg(os.getpgid(self.process.pid), _signal.SIGTERM)
@@ -212,6 +220,7 @@ class EmbedServer:
             pass
 
         import time as _time
+
         _time.sleep(2)  # give kernel time to release the port
 
     def _check_health(self) -> bool:
@@ -224,6 +233,7 @@ class EmbedServer:
 
     def _is_port_open(self) -> bool:
         import socket
+
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.settimeout(1.0)

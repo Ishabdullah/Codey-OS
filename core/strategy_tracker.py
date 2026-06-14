@@ -12,21 +12,27 @@ This makes Codey-V3's error recovery smarter over time.
 """
 
 import json
-import time
-from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
-from datetime import datetime, timedelta
 from collections import defaultdict
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
-from utils.logger import info, warning, success as log_success
 from core.state import get_state_store
+from utils.logger import info
+from utils.logger import success as log_success
+from utils.logger import warning
 
 
 class StrategyRecord:
     """Records a single strategy usage."""
 
-    def __init__(self, strategy: str, error_type: str, success: bool,
-                 duration: float = 0.0, context: Dict = None):
+    def __init__(
+        self,
+        strategy: str,
+        error_type: str,
+        success: bool,
+        duration: float = 0.0,
+        context: Dict = None,
+    ):
         self.strategy = strategy
         self.error_type = error_type
         self.success = success
@@ -194,10 +200,7 @@ class StrategyTracker:
             data = self.state.get("strategy_tracker")
             if data:
                 loaded = json.loads(data)
-                self._stats = {
-                    key: StrategyStats.from_dict(value)
-                    for key, value in loaded.items()
-                }
+                self._stats = {key: StrategyStats.from_dict(value) for key, value in loaded.items()}
 
             # Initialize built-in strategies
             for strategy in self.BUILTIN_STRATEGIES:
@@ -206,25 +209,24 @@ class StrategyTracker:
 
         except Exception as e:
             warning(f"Failed to load strategy tracker: {e}")
-            self._stats = {
-                name: StrategyStats(name)
-                for name in self.BUILTIN_STRATEGIES
-            }
+            self._stats = {name: StrategyStats(name) for name in self.BUILTIN_STRATEGIES}
 
     def _save_tracker(self):
         """Save strategy tracker to storage."""
         try:
-            data = {
-                name: stats.to_dict()
-                for name, stats in self._stats.items()
-            }
+            data = {name: stats.to_dict() for name, stats in self._stats.items()}
             self.state.set("strategy_tracker", json.dumps(data))
         except Exception as e:
             warning(f"Failed to save strategy tracker: {e}")
 
-    def record_attempt(self, strategy: str, error_type: str,
-                       success: bool, duration: float = 0.0,
-                       context: Dict = None) -> StrategyRecord:
+    def record_attempt(
+        self,
+        strategy: str,
+        error_type: str,
+        success: bool,
+        duration: float = 0.0,
+        context: Dict = None,
+    ) -> StrategyRecord:
         """
         Record a strategy attempt.
 
@@ -260,8 +262,7 @@ class StrategyTracker:
 
         return record
 
-    def get_best_strategy(self, error_type: str,
-                          min_attempts: int = 3) -> Optional[str]:
+    def get_best_strategy(self, error_type: str, min_attempts: int = 3) -> Optional[str]:
         """
         Get the best strategy for an error type.
 
@@ -308,8 +309,7 @@ class StrategyTracker:
                 return strategy
         return None
 
-    def get_strategies_for_error(self, error_type: str,
-                                  limit: int = 5) -> List[Dict]:
+    def get_strategies_for_error(self, error_type: str, limit: int = 5) -> List[Dict]:
         """
         Get ranked strategies for an error type.
 
@@ -327,21 +327,23 @@ class StrategyTracker:
                 continue
 
             # Check relevance
-            is_relevant = (
-                error_type in stats.error_breakdown or
-                self.BUILTIN_STRATEGIES.get(strategy, {}).get("error_types", []) == ["*"]
-            )
+            is_relevant = error_type in stats.error_breakdown or self.BUILTIN_STRATEGIES.get(
+                strategy, {}
+            ).get("error_types", []) == ["*"]
 
             if is_relevant or stats.total_attempts >= 5:
-                results.append({
-                    "strategy": strategy,
-                    "description": self.BUILTIN_STRATEGIES.get(
-                        strategy, {}).get("description", ""),
-                    "success_rate": stats.success_rate,
-                    "total_attempts": stats.total_attempts,
-                    "avg_duration": stats.avg_duration,
-                    "relevant_for_error": is_relevant,
-                })
+                results.append(
+                    {
+                        "strategy": strategy,
+                        "description": self.BUILTIN_STRATEGIES.get(strategy, {}).get(
+                            "description", ""
+                        ),
+                        "success_rate": stats.success_rate,
+                        "total_attempts": stats.total_attempts,
+                        "avg_duration": stats.avg_duration,
+                        "relevant_for_error": is_relevant,
+                    }
+                )
 
         # Sort by success rate
         results.sort(key=lambda x: x["success_rate"], reverse=True)
@@ -382,10 +384,7 @@ class StrategyTracker:
 
     def clear(self):
         """Clear all strategy statistics."""
-        self._stats = {
-            name: StrategyStats(name)
-            for name in self.BUILTIN_STRATEGIES
-        }
+        self._stats = {name: StrategyStats(name) for name in self.BUILTIN_STRATEGIES}
         self._recent_records = []
         self.state.delete("strategy_tracker")
         info("Strategy tracker cleared")

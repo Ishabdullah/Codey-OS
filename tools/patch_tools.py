@@ -2,10 +2,14 @@
 patch_file — surgical find/replace in files.
 Much more efficient than write_file for small edits.
 """
+
 from pathlib import Path
-from utils.logger import confirm as ask_confirm, warning, success
-from utils.config import AGENT_CONFIG
+
 from core.filehistory import snapshot
+from utils.config import AGENT_CONFIG
+from utils.logger import confirm as ask_confirm
+from utils.logger import warning
+
 
 def tool_patch_file(path: str, old_str: str, new_str: str) -> str:
     """
@@ -16,6 +20,7 @@ def tool_patch_file(path: str, old_str: str, new_str: str) -> str:
     if not p.exists():
         # Try relative to cwd
         import os
+
         p = Path(os.getcwd()) / path
     if not p.exists():
         return f"[ERROR] File not found: {path}"
@@ -38,7 +43,7 @@ def tool_patch_file(path: str, old_str: str, new_str: str) -> str:
             "and issue a corrected patch.\n"
             f"Current file content:\n{content}"
         )
-    
+
     if count > 1:
         lines = content.splitlines()
         return (
@@ -61,9 +66,10 @@ def tool_patch_file(path: str, old_str: str, new_str: str) -> str:
             return "[CANCELLED] Patch cancelled."
 
     # Pre-patch syntax check for Python files: reject patches that break syntax
-    if p.suffix == '.py':
+    if p.suffix == ".py":
         try:
             from core.linter import check_syntax
+
             syn_err = check_syntax(new_content, str(p))
             if syn_err:
                 return (
@@ -77,7 +83,8 @@ def tool_patch_file(path: str, old_str: str, new_str: str) -> str:
     snapshot(str(p))
     try:
         # Route through Filesystem layer for workspace boundary and safety enforcement
-        from core.filesystem import get_filesystem, FilesystemAccessError
+        from core.filesystem import FilesystemAccessError, get_filesystem
+
         get_filesystem().write(str(p), new_content)
         return f"Patched {path} ({len(old_str)} chars → {len(new_str)} chars)"
     except FilesystemAccessError as e:

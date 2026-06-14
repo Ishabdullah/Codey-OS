@@ -2,11 +2,11 @@
 File history — stores backups of files before Codey writes them.
 Powers /undo and /diff commands.
 """
-import os
-import shutil
-from pathlib import Path
+
 from datetime import datetime
-from utils.logger import success, warning, info
+from pathlib import Path
+
+from utils.logger import success, warning
 
 # In-memory history: path -> list of (timestamp, content) tuples
 # Most recent last.  Reduced from 5 to 2 — on a phone, 5 full copies
@@ -14,6 +14,7 @@ from utils.logger import success, warning, info
 # the last 1-2 versions in practice.
 _history: dict[str, list[tuple[str, str]]] = {}
 MAX_VERSIONS = 2
+
 
 def snapshot(path: str) -> bool:
     """
@@ -38,10 +39,12 @@ def snapshot(path: str) -> bool:
         warning(f"Could not snapshot {path}: {e}")
         return False
 
+
 def get_versions(path: str) -> list[tuple[str, str]]:
     """Return list of (timestamp, content) for a file, oldest first."""
     p = Path(path).expanduser().resolve()
     return _history.get(str(p), [])
+
 
 def undo(path: str) -> str:
     """
@@ -75,11 +78,13 @@ def undo(path: str) -> str:
         versions.append((timestamp, content))
         return f"[ERROR] Could not restore {path}: {e}"
 
+
 def diff(path: str) -> str:
     """
     Show unified diff between last backup and current file.
     """
     import difflib
+
     p = Path(path).expanduser().resolve()
     key = str(p)
     versions = _history.get(key, [])
@@ -98,25 +103,26 @@ def diff(path: str) -> str:
 
     old_lines = old_content.splitlines(keepends=True)
     new_lines = new_content.splitlines(keepends=True)
-    diff_lines = list(difflib.unified_diff(
-        old_lines, new_lines,
-        fromfile=f"{path} (before, {timestamp})",
-        tofile=f"{path} (current)",
-        lineterm=""
-    ))
+    diff_lines = list(
+        difflib.unified_diff(
+            old_lines,
+            new_lines,
+            fromfile=f"{path} (before, {timestamp})",
+            tofile=f"{path} (current)",
+            lineterm="",
+        )
+    )
 
     if not diff_lines:
         return f"No differences found in {path}."
 
     return "\n".join(diff_lines)
 
+
 def list_history() -> dict[str, list[str]]:
     """Return dict of path -> list of timestamps for all tracked files."""
-    return {
-        path: [ts for ts, _ in versions]
-        for path, versions in _history.items()
-        if versions
-    }
+    return {path: [ts for ts, _ in versions] for path, versions in _history.items() if versions}
+
 
 def clear_history():
     """Clear all file history."""

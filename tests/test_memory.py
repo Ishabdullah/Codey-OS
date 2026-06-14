@@ -11,27 +11,16 @@ Tests cover:
 """
 
 import sys
-from pathlib import Path
-import unittest
-import os
 import tempfile
+import unittest
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.memory_v2 import (
-    Memory,
-    WorkingMemory,
-    ProjectMemory,
-    LongTermMemory,
-    EpisodicMemory,
-    WorkingMemoryItem,
-    get_memory,
-    reset_memory,
-    BUDGET_FILES,
-    LRU_EVICT_AFTER,
-    MAX_FILE_CONTEXT_TOKENS,
-)
-from core.memory_v2 import memory as global_memory
+from core.memory_v2 import (LRU_EVICT_AFTER, MAX_FILE_CONTEXT_TOKENS,
+                            EpisodicMemory, LongTermMemory, Memory,
+                            ProjectMemory, WorkingMemory, WorkingMemoryItem,
+                            get_memory, reset_memory)
 
 
 class TestWorkingMemoryItem(unittest.TestCase):
@@ -143,7 +132,7 @@ class TestWorkingMemory(unittest.TestCase):
         self.wm.evict_stale()
         # Check internal dict directly since get() updates last_used_turn
         self.assertIn("recent.py", self.wm._files)
-        
+
         # One more tick should evict it: 6 - 2 = 4 > 3
         self.wm.tick()  # Turn 6
         self.wm.evict_stale()
@@ -235,6 +224,7 @@ class TestMemoryLoadFile(unittest.TestCase):
         reset_memory()
         # Cleanup temp files
         import shutil
+
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_load_file_with_content(self):
@@ -250,7 +240,7 @@ class TestMemoryLoadFile(unittest.TestCase):
         # Create a temp file in our temp dir
         test_file = Path(self.temp_dir) / "codey_test_memory.py"
         test_file.write_text("test content")
-        
+
         result = self.memory.load_file(str(test_file))
         self.assertTrue(result)
         content = self.memory.working.get(str(test_file.resolve()))
@@ -288,7 +278,7 @@ class TestMemoryTickAndEvict(unittest.TestCase):
         files = self.memory.list_files()
         self.assertFalse(
             any(f.endswith("stale.py") for f in files),
-            f"stale.py should have been evicted, got: {files}"
+            f"stale.py should have been evicted, got: {files}",
         )
 
     def test_tick_logs_action(self):
@@ -361,12 +351,8 @@ class TestMemoryCompressSummary(unittest.TestCase):
     def test_compress_summary_handles_inference_failure(self):
         """compress_summary should return fresh turns when inference fails."""
         # Create long history
-        long_history = [
-            {"role": "user", "content": f"message {i}"}
-            for i in range(10)
-        ] + [
-            {"role": "assistant", "content": f"response {i}"}
-            for i in range(10)
+        long_history = [{"role": "user", "content": f"message {i}"} for i in range(10)] + [
+            {"role": "assistant", "content": f"response {i}"} for i in range(10)
         ]
         # With inference unavailable, should return last 4 messages
         result = self.memory.compress_summary(long_history)
@@ -474,6 +460,7 @@ class TestMemoryGlobalSingleton(unittest.TestCase):
     def test_global_memory_is_memory_instance(self):
         """Global memory import should be Memory instance."""
         from core.memory_v2 import memory
+
         self.assertIsInstance(memory, Memory)
 
 
@@ -514,7 +501,11 @@ class TestMemoryLogAction(unittest.TestCase):
         self.memory.log_action("write_file", "Created test.py")
         recent = self.memory.episodic.get_recent(10)
         # Find the action we just logged - check for any action with "write_file" in details
-        write_actions = [a for a in recent if "write_file" in str(a.get("action", "")) or "write_file" in str(a.get("details", ""))]
+        write_actions = [
+            a
+            for a in recent
+            if "write_file" in str(a.get("action", "")) or "write_file" in str(a.get("details", ""))
+        ]
         # The episodic memory logs via state store, which may or may not be available
         # Just verify the method doesn't crash and returns without error
         self.assertIsInstance(recent, list)

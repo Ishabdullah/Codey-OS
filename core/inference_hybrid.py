@@ -10,19 +10,16 @@ distinguish system instructions from user messages.
 Backend: TCP HTTP to llama-server on port 8080 (started by loader_v2 or daemon).
 """
 
-import os
+import json
+import socket
 import sys
 import time
-import socket
-import urllib.request
 import urllib.error
-import json
-from pathlib import Path
-from typing import Optional, Dict, Any, List
-from dataclasses import dataclass, field
+import urllib.request
+from typing import Any, Dict, List, Optional
 
-from utils.logger import info, warning, error, success
 from utils.config import MODEL_CONFIG
+from utils.logger import error, info, warning
 
 
 class ChatCompletionBackend:
@@ -60,8 +57,9 @@ class ChatCompletionBackend:
         except Exception:
             return False
 
-    def infer(self, messages: list, max_tokens: int = 2048,
-              stop: List[str] = None, stream: bool = False) -> Optional[tuple]:
+    def infer(
+        self, messages: list, max_tokens: int = 2048, stop: List[str] = None, stream: bool = False
+    ) -> Optional[tuple]:
         """
         Run inference via /v1/chat/completions.
 
@@ -95,9 +93,9 @@ class ChatCompletionBackend:
 
             req = urllib.request.Request(
                 f"{self._base_url}/v1/chat/completions",
-                data=json.dumps(payload).encode('utf-8'),
-                headers={'Content-Type': 'application/json'},
-                method='POST'
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
             )
 
             if stream:
@@ -115,7 +113,7 @@ class ChatCompletionBackend:
     def _infer_blocking(self, req, start: float) -> Optional[tuple]:
         """Non-streaming inference — waits for full response before returning."""
         with urllib.request.urlopen(req, timeout=300) as response:
-            result = json.loads(response.read().decode('utf-8'))
+            result = json.loads(response.read().decode("utf-8"))
 
         elapsed = time.time() - start
         self._calls_made += 1
@@ -171,30 +169,30 @@ class ChatCompletionBackend:
             pass
         try:
             for raw_line in response:
-                line = raw_line.decode('utf-8').rstrip('\n\r')
+                line = raw_line.decode("utf-8").rstrip("\n\r")
 
-                if line == 'data: [DONE]':
+                if line == "data: [DONE]":
                     break
                 if not line:
                     continue
 
-                if not line.startswith('data: '):
+                if not line.startswith("data: "):
                     continue
 
                 try:
                     chunk = json.loads(line[6:])
-                    choices = chunk.get('choices', [])
+                    choices = chunk.get("choices", [])
                     if choices:
-                        delta = choices[0].get('delta', {})
-                        content = delta.get('content')
+                        delta = choices[0].get("delta", {})
+                        content = delta.get("content")
                         if content:
                             sys.stdout.write(content)
                             sys.stdout.flush()
                             full_text.append(content)
 
                             # Circuit breaker: detect repeated sentences
-                            built = ''.join(full_text)
-                            if content in '.!?\n' and len(built) > 80:
+                            built = "".join(full_text)
+                            if content in ".!?\n" and len(built) > 80:
                                 # Extract last ~60 chars as a "sentence"
                                 tail = built[-60:].strip()
                                 if tail in _recent_sentences:
@@ -209,21 +207,21 @@ class ChatCompletionBackend:
                                         _recent_sentences.pop(0)
 
                         # Break on finish_reason (backup for [DONE])
-                        if choices[0].get('finish_reason'):
-                            if 'timings' in chunk:
-                                t = chunk['timings']
-                                predicted = t.get('predicted_n', 0)
-                                ms = t.get('predicted_ms', 0)
+                        if choices[0].get("finish_reason"):
+                            if "timings" in chunk:
+                                t = chunk["timings"]
+                                predicted = t.get("predicted_n", 0)
+                                ms = t.get("predicted_ms", 0)
                                 if ms > 0:
                                     tps = round((predicted / ms) * 1000, 1)
                                     tokens = predicted
                             break
 
                     # timings arrive in the final chunk
-                    if 'timings' in chunk:
-                        t = chunk['timings']
-                        predicted = t.get('predicted_n', 0)
-                        ms = t.get('predicted_ms', 0)
+                    if "timings" in chunk:
+                        t = chunk["timings"]
+                        predicted = t.get("predicted_n", 0)
+                        ms = t.get("predicted_ms", 0)
                         if ms > 0:
                             tps = round((predicted / ms) * 1000, 1)
                             tokens = predicted
@@ -247,13 +245,13 @@ class ChatCompletionBackend:
         # Raw sys.stdout.write() during streaming bypasses Rich's console,
         # leaving the terminal in an inconsistent state. The ANSI reset
         # (\033[0m) ensures Rich's console.input() gets a clean terminal.
-        sys.stdout.write('\n\033[0m')
+        sys.stdout.write("\n\033[0m")
         sys.stdout.flush()
 
         elapsed = time.time() - start
         self._calls_made += 1
 
-        text = ''.join(full_text)
+        text = "".join(full_text)
         if not tokens:
             tokens = len(text.split())
         if not tps and elapsed > 0:

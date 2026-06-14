@@ -7,6 +7,7 @@ Verifies that the extract_json function handles malformed JSON gracefully.
 
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.agent import extract_json
@@ -96,16 +97,16 @@ class TestJsonExtraction:
 
     def test_multiline_content(self):
         """Multi-line content in strings should be handled."""
-        raw = '''{"name": "write_file", "args": {"content": "def foo():\\n    pass"}}'''
+        raw = """{"name": "write_file", "args": {"content": "def foo():\\n    pass"}}"""
         result = extract_json(raw)
         assert result is not None
         assert "\n" in result["args"]["content"]
 
     def test_finds_json_in_text(self):
         """Should find JSON block in larger text."""
-        raw = '''Here's the tool call:
+        raw = """Here's the tool call:
         {"name": "read_file", "args": {"path": "test.py"}}
-        Let me know if you need more.'''
+        Let me know if you need more."""
         result = extract_json(raw)
         assert result is not None
         assert result["name"] == "read_file"
@@ -149,6 +150,7 @@ class TestParseToolCall:
     def test_standard_tool_tag(self):
         """Standard <tool> tag should be parsed."""
         from core.agent import parse_tool_call
+
         raw = '<tool>{"name": "write_file", "args": {"path": "test.py"}}</tool>'
         result = parse_tool_call(raw)
         assert result is not None
@@ -157,6 +159,7 @@ class TestParseToolCall:
     def test_rogue_tag_mapping(self):
         """Rogue tags should map to canonical names."""
         from core.agent import parse_tool_call
+
         raw = '<write_file>{"path": "test.py", "content": "hello"}</write_file>'
         result = parse_tool_call(raw)
         assert result is not None
@@ -165,4 +168,5 @@ class TestParseToolCall:
 
 if __name__ == "__main__":
     import pytest
+
     pytest.main([__file__, "-v"])

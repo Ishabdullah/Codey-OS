@@ -1,7 +1,7 @@
 """Abstract base class for all dataset ingestors."""
 
 from abc import ABC, abstractmethod
-from typing import Iterator, Dict
+from typing import Dict, Iterator
 
 
 class BaseIngestor(ABC):

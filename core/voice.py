@@ -18,7 +18,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
-from utils.logger import info, warning, success
+from utils.logger import info, success, warning
 
 # Persist voice settings across sessions
 _VOICE_CONFIG_PATH = Path.home() / ".config" / "codey-v3" / "voice_config.json"
@@ -29,10 +29,10 @@ class VoiceManager:
 
     def __init__(self):
         self.enabled: bool = False
-        self.tts_rate: float = 1.0      # 0.5 = slow, 2.0 = fast
+        self.tts_rate: float = 1.0  # 0.5 = slow, 2.0 = fast
         self.tts_pitch: float = 1.0
-        self.tts_engine: str = ""       # "" = system default
-        self.tts_language: str = ""     # "" = system default
+        self.tts_engine: str = ""  # "" = system default
+        self.tts_language: str = ""  # "" = system default
         self._tts_available: Optional[bool] = None
         self._stt_available: Optional[bool] = None
         self._speak_proc: Optional[subprocess.Popen] = None
@@ -179,7 +179,9 @@ class VoiceManager:
         Prints a "Listening..." indicator while waiting.
         """
         if not self.stt_available():
-            warning("termux-speech-to-text not found. Install Termux:API app + pkg install termux-api")
+            warning(
+                "termux-speech-to-text not found. Install Termux:API app + pkg install termux-api"
+            )
             return None
 
         info("[Voice] Listening... (speak now, Ctrl+C to cancel)")

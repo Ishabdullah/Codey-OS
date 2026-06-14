@@ -46,13 +46,13 @@ import json
 import math
 import os
 from collections import Counter, OrderedDict
-from pathlib import Path
 
 from tools.kb_scraper import KB_ROOT
 
 # ── numpy ─────────────────────────────────────────────────────────────────────
 try:
     import numpy as np
+
     _np_ok = True
 except ImportError:
     np = None
@@ -66,18 +66,20 @@ _legacy_model = None
 if _np_ok:
     try:
         from fastembed import TextEmbedding as _FETextEmbedding
+
         HAS_FASTEMBED = True
     except ImportError:
         pass
     if not HAS_FASTEMBED:
         try:
             from sentence_transformers import SentenceTransformer as _STModel
+
             HAS_SENTENCE_TRANSFORMERS = True
         except ImportError:
             pass
 
 EMBED_MODEL_FASTEMBED = "BAAI/bge-small-en-v1.5"
-EMBED_MODEL_ST        = "all-MiniLM-L6-v2"
+EMBED_MODEL_ST = "all-MiniLM-L6-v2"
 
 
 def _get_legacy_model():
@@ -131,6 +133,7 @@ def check_llama_embeddings() -> bool:
         return False
     try:
         import urllib.request as _req
+
         payload = json.dumps({"model": "local", "input": ["ping"]}).encode()
         request = _req.Request(
             _LLAMA_EMBED_URL,
@@ -211,8 +214,10 @@ def _embed_query(query: str) -> "np.ndarray | None":
 
 # ── BM25 (pure Python, Okapi BM25) ────────────────────────────────────────────
 
+
 def _tokenize(text: str) -> list:
     import re
+
     return re.findall(r"[a-z0-9_]{2,}", text.lower())
 
 
@@ -222,8 +227,9 @@ class _BM25Index:
     k1=1.5, b=0.75 — Elasticsearch/Lucene defaults.
     IDF uses Robertson formula: log((N - df + 0.5) / (df + 0.5) + 1).
     """
+
     K1 = 1.5
-    B  = 0.75
+    B = 0.75
 
     def __init__(self, chunks: list):
         self.chunks = chunks
@@ -242,10 +248,7 @@ class _BM25Index:
         for tokens in self.doc_tokens:
             for w in set(tokens):
                 df[w] = df.get(w, 0) + 1
-        self.idf = {
-            w: math.log((self.n - f + 0.5) / (f + 0.5) + 1.0)
-            for w, f in df.items()
-        }
+        self.idf = {w: math.log((self.n - f + 0.5) / (f + 0.5) + 1.0) for w, f in df.items()}
 
     def score(self, query_tokens: list, doc_idx: int) -> float:
         tokens = self.doc_tokens[doc_idx]
@@ -274,15 +277,18 @@ class _BM25Index:
             if score <= 0:
                 break
             c = self.chunks[idx]
-            results.append({
-                "text":   c.get("text", ""),
-                "source": c.get("source", c.get("filename", "")),
-                "score":  score,
-            })
+            results.append(
+                {
+                    "text": c.get("text", ""),
+                    "source": c.get("source", c.get("filename", "")),
+                    "score": score,
+                }
+            )
         return results
 
 
 # ── RRF merge ─────────────────────────────────────────────────────────────────
+
 
 def _rrf_merge(result_lists: list, k: int = 60, top_n: int = 5) -> list:
     """
@@ -323,6 +329,7 @@ def _rrf_merge(result_lists: list, k: int = 60, top_n: int = 5) -> list:
 
 # ── Chunk loading ─────────────────────────────────────────────────────────────
 
+
 def _load_all_chunks() -> list:
     chunk_dir = KB_ROOT / "embeddings"
     if not chunk_dir.exists():
@@ -338,6 +345,7 @@ def _load_all_chunks() -> list:
 
 
 # ── Vector index: build + load ────────────────────────────────────────────────
+
 
 def build_semantic_index() -> int:
     """
@@ -418,19 +426,22 @@ def build_semantic_index() -> int:
     np.save(str(chunk_dir / "vectors.npy"), embeddings.astype("float32"))
 
     with open(chunk_dir / "vectors.meta.json", "w") as f:
-        json.dump({
-            "backend": backend,
-            "dim":     int(embeddings.shape[1]),
-            "count":   int(embeddings.shape[0]),
-        }, f)
+        json.dump(
+            {
+                "backend": backend,
+                "dim": int(embeddings.shape[1]),
+                "count": int(embeddings.shape[0]),
+            },
+            f,
+        )
 
     mapping = [
         {
-            "id":       c["id"],
-            "source":   c.get("source", ""),
+            "id": c["id"],
+            "source": c.get("source", ""),
             "category": c.get("category", ""),
             "filename": c.get("filename", ""),
-            "text":     c["text"],
+            "text": c["text"],
         }
         for c in all_chunks
     ]
@@ -481,7 +492,9 @@ def repair_failed_embeddings() -> int:
         vectors = np.concatenate([pad, vectors], axis=0)
         np.save(str(vp), vectors.astype("float32"))
     elif len(vectors) > len(mapping):
-        print(f"[kb_semantic] Index mismatch: {len(vectors)} vectors vs {len(mapping)} mapping entries")
+        print(
+            f"[kb_semantic] Index mismatch: {len(vectors)} vectors vs {len(mapping)} mapping entries"
+        )
         return -1
 
     # Find zero-vector rows (norm == 0.0)
@@ -521,7 +534,9 @@ def repair_failed_embeddings() -> int:
                 print(f"  [first error] {type(e).__name__}: {e}")
         if (i + 1) % 100 == 0 or (i + 1) == len(failed_indices):
             pct = int(100 * (i + 1) / len(failed_indices))
-            print(f"  {pct}%  ({i + 1}/{len(failed_indices)}) repaired={repaired} failed={still_failed}")
+            print(
+                f"  {pct}%  ({i + 1}/{len(failed_indices)}) repaired={repaired} failed={still_failed}"
+            )
 
     # Save updated vectors
     np.save(str(vp), vectors.astype("float32"))
@@ -565,6 +580,7 @@ def _load_vector_index() -> tuple:
 
 
 # ── Public search API ─────────────────────────────────────────────────────────
+
 
 def semantic_search(query: str, top_k: int = 5) -> list:
     """
@@ -627,12 +643,14 @@ def semantic_search(query: str, top_k: int = 5) -> list:
         for i in top_idx:
             if i < len(mapping):
                 m = mapping[int(i)]
-                vector_results.append({
-                    "text":           m["text"],
-                    "source":         m.get("source", m.get("filename", "")),
-                    "score":          float(sims[i]),
-                    "semantic_score": float(sims[i]),  # preserved for relevance gate
-                })
+                vector_results.append(
+                    {
+                        "text": m["text"],
+                        "source": m.get("source", m.get("filename", "")),
+                        "score": float(sims[i]),
+                        "semantic_score": float(sims[i]),  # preserved for relevance gate
+                    }
+                )
 
         if not vector_results:
             return bm25_results[:top_k]
@@ -675,8 +693,10 @@ def index_stats() -> dict:
     chunk_dir = KB_ROOT / "embeddings"
     if not chunk_dir.exists():
         return {
-            "chunk_files": 0, "total_chunks": 0,
-            "has_semantic": False, "backend": "none",
+            "chunk_files": 0,
+            "total_chunks": 0,
+            "has_semantic": False,
+            "backend": "none",
             "kb_root": str(KB_ROOT),
         }
 
@@ -716,11 +736,11 @@ def index_stats() -> dict:
         backend = "BM25 keyword (no vector index — run setup_skills.sh with llama-server active)"
 
     return {
-        "chunk_files":            len(chunk_files),
-        "total_chunks":           total,
-        "has_semantic":           has_vec,
-        "backend":                backend,
-        "llama_embed_available":  check_llama_embeddings(),
-        "sentence_transformers":  HAS_SENTENCE_TRANSFORMERS,
-        "kb_root":                str(KB_ROOT),
+        "chunk_files": len(chunk_files),
+        "total_chunks": total,
+        "has_semantic": has_vec,
+        "backend": backend,
+        "llama_embed_available": check_llama_embeddings(),
+        "sentence_transformers": HAS_SENTENCE_TRANSFORMERS,
+        "kb_root": str(KB_ROOT),
     }

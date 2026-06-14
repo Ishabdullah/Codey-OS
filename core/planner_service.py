@@ -43,6 +43,7 @@ def get_plan(prompt: str, no_plan: bool = False, project_context: str = ""):
     # ── Attempt 2: in-process 7B orchestrator ────────────────────────────────
     try:
         from core.orchestrator import plan_tasks
+
         queue = plan_tasks(prompt, project_context)
         if queue and queue.tasks:
             return [t.description for t in queue.tasks]
@@ -59,15 +60,21 @@ def _request_daemon_plan(prompt: str):
     """
     try:
         from core.daemon import is_daemon_running, send_command
+
         if not is_daemon_running():
             return None
         try:
-            from utils.config import is_remote_planner_backend, CODEY_PLANNER_BACKEND
-            from utils.config import OPENROUTER_PLANNER_MODEL, UNLIMITEDCLAUDE_PLANNER_MODEL
+            from utils.config import (CODEY_PLANNER_BACKEND,
+                                      OPENROUTER_PLANNER_MODEL,
+                                      UNLIMITEDCLAUDE_PLANNER_MODEL,
+                                      is_remote_planner_backend)
+
             if is_remote_planner_backend():
-                pm = (UNLIMITEDCLAUDE_PLANNER_MODEL
-                      if CODEY_PLANNER_BACKEND == "unlimitedclaude"
-                      else OPENROUTER_PLANNER_MODEL)
+                pm = (
+                    UNLIMITEDCLAUDE_PLANNER_MODEL
+                    if CODEY_PLANNER_BACKEND == "unlimitedclaude"
+                    else OPENROUTER_PLANNER_MODEL
+                )
                 info(f"Requesting plan from {CODEY_PLANNER_BACKEND} planner ({pm})...")
             else:
                 info("Requesting plan from 0.5B planner...")

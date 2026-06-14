@@ -40,35 +40,96 @@ Usage:
 import re
 from typing import Optional
 
-from utils.config import RECURSIVE_CONFIG, THERMAL_CONFIG, MODEL_CONFIG
 from prompts.layered_prompt import build_recursive_prompt
+from utils.config import MODEL_CONFIG, RECURSIVE_CONFIG, THERMAL_CONFIG
 from utils.logger import info, warning
-
 
 # ── Breadth classification ────────────────────────────────────────────────────
 
 _DEEP_SIGNALS = [
-    "api", "database", "db", "auth", "authentication", "deploy", "deployment",
-    "test", "tests", "testing", "migrate", "migration", "refactor", "integrate",
-    "integration", "full", "complete", "entire", "all of", "multiple", "several",
-    "then", "also", "and then", "after that",
+    "api",
+    "database",
+    "db",
+    "auth",
+    "authentication",
+    "deploy",
+    "deployment",
+    "test",
+    "tests",
+    "testing",
+    "migrate",
+    "migration",
+    "refactor",
+    "integrate",
+    "integration",
+    "full",
+    "complete",
+    "entire",
+    "all of",
+    "multiple",
+    "several",
+    "then",
+    "also",
+    "and then",
+    "after that",
 ]
 
 _ACTION_KEYWORDS = [
-    "create", "write", "make", "build", "edit", "fix", "run", "execute",
-    "implement", "generate", "rewrite", "patch", "update", "add", "delete",
-    "remove", "install", "deploy", "setup", "configure",
+    "create",
+    "write",
+    "make",
+    "build",
+    "edit",
+    "fix",
+    "run",
+    "execute",
+    "implement",
+    "generate",
+    "rewrite",
+    "patch",
+    "update",
+    "add",
+    "delete",
+    "remove",
+    "install",
+    "deploy",
+    "setup",
+    "configure",
 ]
 
 _QA_STARTERS = (
-    "what", "why", "how", "when", "where", "who", "which",
-    "is ", "are ", "do ", "does ", "can ", "could ", "would ",
-    "should ", "will ", "was ", "were ", "has ", "have ",
+    "what",
+    "why",
+    "how",
+    "when",
+    "where",
+    "who",
+    "which",
+    "is ",
+    "are ",
+    "do ",
+    "does ",
+    "can ",
+    "could ",
+    "would ",
+    "should ",
+    "will ",
+    "was ",
+    "were ",
+    "has ",
+    "have ",
 )
 
 _QA_PHRASES = [
-    "tell me", "explain", "help me understand", "what can you",
-    "hello", "hi ", "hey ", "thanks", "thank you",
+    "tell me",
+    "explain",
+    "help me understand",
+    "what can you",
+    "hello",
+    "hi ",
+    "hey ",
+    "thanks",
+    "thank you",
 ]
 
 
@@ -86,9 +147,7 @@ def classify_breadth_need(user_message: str) -> str:
 
     # Very short messages that look like questions → minimal
     if len(words) < 8:
-        if (msg.endswith("?")
-                or msg.startswith(_QA_STARTERS)
-                or any(k in msg for k in _QA_PHRASES)):
+        if msg.endswith("?") or msg.startswith(_QA_STARTERS) or any(k in msg for k in _QA_PHRASES):
             return "minimal"
 
     # No action keywords → likely Q&A → minimal
@@ -105,6 +164,7 @@ def classify_breadth_need(user_message: str) -> str:
 
 
 # ── Adaptive depth (Phase 8) ────────────────────────────────────────────────
+
 
 def get_adaptive_depth(requested_depth: int) -> int:
     """
@@ -125,11 +185,12 @@ def get_adaptive_depth(requested_depth: int) -> int:
     cfg = THERMAL_CONFIG
     temp_crit = cfg.get("temp_critical", 80)
     temp_warn = cfg.get("temp_warn", 65)
-    batt_low  = cfg.get("batt_low", 15)
+    batt_low = cfg.get("batt_low", 15)
     batt_crit = cfg.get("batt_critical", 5)
 
     try:
         from core.sysmon import get_monitor
+
         snap = get_monitor().snapshot
     except Exception:
         return requested_depth  # monitor unavailable — use full depth
@@ -163,6 +224,7 @@ def get_adaptive_depth(requested_depth: int) -> int:
 
 # ── Quality gate helpers ──────────────────────────────────────────────────────
 
+
 def extract_rating(critique: str) -> Optional[float]:
     """
     Extract a numeric X/10 quality rating from critique text.
@@ -171,11 +233,11 @@ def extract_rating(critique: str) -> Optional[float]:
     Returns None if no rating found.
     """
     # "8/10", "8 / 10", "8.5/10"
-    m = re.search(r'(\d+(?:\.\d+)?)\s*/\s*10', critique)
+    m = re.search(r"(\d+(?:\.\d+)?)\s*/\s*10", critique)
     if m:
         return float(m.group(1))
     # "8 out of 10"
-    m = re.search(r'(\d+(?:\.\d+)?)\s+out\s+of\s+10', critique, re.IGNORECASE)
+    m = re.search(r"(\d+(?:\.\d+)?)\s+out\s+of\s+10", critique, re.IGNORECASE)
     if m:
         return float(m.group(1))
     return None
@@ -190,17 +252,29 @@ def extract_doc_needs(critique: str) -> Optional[str]:
 
     Returns the joined query string, or None if no markers found.
     """
-    matches = re.findall(r'NEED_DOCS:\s*(.+?)(?:\n|$)', critique, re.IGNORECASE)
+    matches = re.findall(r"NEED_DOCS:\s*(.+?)(?:\n|$)", critique, re.IGNORECASE)
     if matches:
         return " ".join(m.strip() for m in matches)
     return None
 
 
 _CRITICAL_MARKERS = [
-    "syntax error", "will crash", "missing import", "undefined variable",
-    "security issue", "incomplete", "won't work", "logic bug", "wrong output",
-    "broken", "need_docs", "missing return", "indentation error",
-    "name error", "type error", "attribute error",
+    "syntax error",
+    "will crash",
+    "missing import",
+    "undefined variable",
+    "security issue",
+    "incomplete",
+    "won't work",
+    "logic bug",
+    "wrong output",
+    "broken",
+    "need_docs",
+    "missing return",
+    "indentation error",
+    "name error",
+    "type error",
+    "attribute error",
 ]
 
 
@@ -223,15 +297,16 @@ def passes_quality_check(critique: str, threshold: float = 0.7) -> bool:
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
+
 def _strip_tool_calls(text: str) -> str:
     """Remove <tool>...</tool> blocks from text (critique should not contain them)."""
-    cleaned = re.sub(r'<tool>.*?</tool>', '', text, flags=re.DOTALL)
+    cleaned = re.sub(r"<tool>.*?</tool>", "", text, flags=re.DOTALL)
     return cleaned.strip()
 
 
 def _has_tool_call(text: str) -> bool:
     """Return True if the text contains a <tool> call block."""
-    return bool(re.search(r'<tool>', text))
+    return bool(re.search(r"<tool>", text))
 
 
 def _log_phase(label: str, pass_num: int, max_depth: int) -> None:
@@ -240,6 +315,7 @@ def _log_phase(label: str, pass_num: int, max_depth: int) -> None:
 
 
 # ── Main API ──────────────────────────────────────────────────────────────────
+
 
 def recursive_infer(
     messages: list,
@@ -273,8 +349,10 @@ def recursive_infer(
     # Guard: return immediately if recursive inference is disabled
     if not RECURSIVE_CONFIG.get("enabled", True):
         from core.inference_v2 import infer
-        return infer(messages, stream=stream,
-                     extra_stop=extra_stop or ["</tool>"], show_thinking=True)
+
+        return infer(
+            messages, stream=stream, extra_stop=extra_stop or ["</tool>"], show_thinking=True
+        )
 
     cfg = RECURSIVE_CONFIG
     if max_depth is None:
@@ -295,8 +373,7 @@ def recursive_infer(
 
     try:
         _log_phase("Draft", 1, max_depth + 1)
-        draft = infer(messages, stream=stream,
-                      extra_stop=extra_stop, show_thinking=True)
+        draft = infer(messages, stream=stream, extra_stop=extra_stop, show_thinking=True)
     except Exception as e:
         return f"[ERROR] recursive_infer draft: {e}"
 
@@ -307,9 +384,11 @@ def recursive_infer(
     # draft contains no <tool> block, the model hallucinated the action (wrote
     # "I created the file" instead of calling write_file). Force one retry with
     # an explicit instruction before entering the critique loop.
-    if (user_message
-            and any(k in user_message.lower() for k in _ACTION_KEYWORDS)
-            and not _has_tool_call(draft)):
+    if (
+        user_message
+        and any(k in user_message.lower() for k in _ACTION_KEYWORDS)
+        and not _has_tool_call(draft)
+    ):
         warning("[Recursive] No tool call found for action step — forcing tool retry")
         _retry_msgs = messages + [
             {"role": "assistant", "content": draft},
@@ -323,8 +402,7 @@ def recursive_infer(
             },
         ]
         try:
-            draft = infer(_retry_msgs, stream=stream,
-                          extra_stop=extra_stop, show_thinking=True)
+            draft = infer(_retry_msgs, stream=stream, extra_stop=extra_stop, show_thinking=True)
         except Exception as _e:
             warning(f"[Recursive] Tool retry failed: {_e}")
 
@@ -391,6 +469,7 @@ def recursive_infer(
             info(f"[Recursive] Retrieving: {doc_needs[:60]}...")
             try:
                 from core.retrieval import retrieve
+
                 extra_context = retrieve(doc_needs, budget_chars=1200)
             except Exception:
                 pass  # KB unavailable — continue without
@@ -419,8 +498,7 @@ def recursive_infer(
 
         try:
             _log_phase("Refine", cycle + 1, max_depth + 1)
-            draft = infer(refine_messages, stream=stream,
-                          extra_stop=extra_stop, show_thinking=True)
+            draft = infer(refine_messages, stream=stream, extra_stop=extra_stop, show_thinking=True)
         except Exception as e:
             warning(f"[Recursive] Refine failed (cycle {cycle}): {e}")
             break  # Return last known good draft

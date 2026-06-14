@@ -8,30 +8,52 @@ Snapshots handled by Filesystem class.
 """
 
 from pathlib import Path
-from typing import List, Union
-from core.filesystem import Filesystem, get_filesystem, FilesystemAccessError
+
+from core.filesystem import Filesystem, FilesystemAccessError, get_filesystem
 from utils.config import AGENT_CONFIG
 
 # File types that must be created by code, not written as text by the agent.
 # Writing these as plain text produces corrupt/invalid files.
 BINARY_FILE_TYPES = {
-    '.db', '.sqlite', '.sqlite3',            # SQLite databases (binary format)
-    '.gguf', '.bin', '.safetensors',         # ML model files
-    '.so', '.dylib', '.dll',                 # Compiled native libraries
-    '.pyc', '.pyo', '.pyd',                  # Python bytecode
-    '.zip', '.tar', '.gz', '.bz2', '.xz',   # Archives
-    '.jpg', '.jpeg', '.png', '.gif', '.webp', '.ico',  # Images
-    '.pdf',                                  # PDFs
+    ".db",
+    ".sqlite",
+    ".sqlite3",  # SQLite databases (binary format)
+    ".gguf",
+    ".bin",
+    ".safetensors",  # ML model files
+    ".so",
+    ".dylib",
+    ".dll",  # Compiled native libraries
+    ".pyc",
+    ".pyo",
+    ".pyd",  # Python bytecode
+    ".zip",
+    ".tar",
+    ".gz",
+    ".bz2",
+    ".xz",  # Archives
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".gif",
+    ".webp",
+    ".ico",  # Images
+    ".pdf",  # PDFs
 }
 
 # Files that must never be silently overwritten — always prompt regardless of yolo.
 # These are repo/project metadata files whose loss is hard to recover without git history.
 WRITE_PROTECTED = {
     ".gitignore",
-    "README.md", "readme.md",
-    "CLAUDE.md", "CODEY.md",
-    "requirements.txt", "requirements-dev.txt",
-    "setup.py", "setup.cfg", "pyproject.toml",
+    "README.md",
+    "readme.md",
+    "CLAUDE.md",
+    "CODEY.md",
+    "requirements.txt",
+    "requirements-dev.txt",
+    "setup.py",
+    "setup.cfg",
+    "pyproject.toml",
     "Makefile",
     ".env",
 }
@@ -40,9 +62,20 @@ WRITE_PROTECTED = {
 # The 7B model sometimes double-encodes JSON, leaving literal \" in content.
 # Excluded: .json (\" is valid JSON escaping), .sh (\" is a shell escape).
 _DECODE_EXTS = {
-    '.py', '.js', '.ts', '.jsx', '.tsx',
-    '.html', '.css', '.txt', '.md',
-    '.yaml', '.yml', '.toml', '.ini', '.cfg',
+    ".py",
+    ".js",
+    ".ts",
+    ".jsx",
+    ".tsx",
+    ".html",
+    ".css",
+    ".txt",
+    ".md",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".ini",
+    ".cfg",
 }
 
 # Global filesystem instance
@@ -53,24 +86,24 @@ _fs_allow_self_mod: bool = False
 def _get_fs() -> Filesystem:
     """Get or create filesystem instance."""
     global _fs, _fs_allow_self_mod
-    
+
     # Check if allow_self_modification setting changed
     allow_self_mod = AGENT_CONFIG.get("allow_self_modification", False)
-    
+
     if _fs is None or _fs_allow_self_mod != allow_self_mod:
         _fs = get_filesystem(allow_self_modification=allow_self_mod)
         _fs_allow_self_mod = allow_self_mod
-    
+
     return _fs
 
 
 def tool_read_file(path: str) -> str:
     """
     Read file content.
-    
+
     Args:
         path: Path to file
-        
+
     Returns:
         File content or error message
     """
@@ -96,20 +129,22 @@ def tool_write_file(path: str, content: str) -> str:
     Returns:
         Success message or error message
     """
-    from utils.logger import confirm as ask_confirm, warning as log_warning
+    from utils.logger import confirm as ask_confirm
+    from utils.logger import warning as log_warning
 
     p = Path(path)
     if not p.is_absolute():
         import os
+
         p = Path(os.getcwd()) / path
     file_exists = p.exists() and p.is_file()
 
     # Block writes that would replace a file with drastically smaller content
     # (e.g., overwriting 500-line app.py with just a shebang line)
-    if file_exists and p.suffix in ('.py', '.js', '.ts', '.html', '.css'):
+    if file_exists and p.suffix in (".py", ".js", ".ts", ".html", ".css"):
         try:
             existing_size = p.stat().st_size
-            new_size = len(content.encode('utf-8'))
+            new_size = len(content.encode("utf-8"))
             # If existing file is > 200 bytes and new content is < 20% of it, block
             if existing_size > 200 and new_size < existing_size * 0.2:
                 return (
@@ -124,7 +159,7 @@ def tool_write_file(path: str, content: str) -> str:
     # Block writes to binary/non-text file types — these must be created by code.
     if p.suffix.lower() in BINARY_FILE_TYPES:
         hint = ""
-        if p.suffix.lower() in ('.db', '.sqlite', '.sqlite3'):
+        if p.suffix.lower() in (".db", ".sqlite", ".sqlite3"):
             hint = (
                 " SQLite databases are created automatically when your Python code "
                 "calls sqlite3.connect(). Do NOT create them with write_file — "
@@ -156,12 +191,12 @@ def tool_write_file(path: str, content: str) -> str:
 def tool_patch_file(path: str, old_str: str, new_str: str) -> str:
     """
     Patch file content (replace old_str with new_str).
-    
+
     Args:
         path: Path to file
         old_str: String to find and replace
         new_str: Replacement string
-        
+
     Returns:
         Diff of changes or error message
     """
@@ -174,11 +209,11 @@ def tool_patch_file(path: str, old_str: str, new_str: str) -> str:
 def tool_append_file(path: str, content: str) -> str:
     """
     Append content to file.
-    
+
     Args:
         path: Path to file
         content: Content to append
-        
+
     Returns:
         Success message or error message
     """
@@ -191,10 +226,10 @@ def tool_append_file(path: str, content: str) -> str:
 def tool_list_dir(path: str = ".") -> str:
     """
     List directory contents.
-    
+
     Args:
         path: Directory path (default: current directory)
-        
+
     Returns:
         Formatted list of entries or error message
     """

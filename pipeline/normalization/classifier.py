@@ -9,24 +9,62 @@ import re
 from typing import Optional
 
 # Response types
-SHELL_COMMAND   = "shell_command"
-FILE_WRITE      = "file_write"
-FILE_PATCH      = "file_patch"
-FILE_READ       = "file_read"
+SHELL_COMMAND = "shell_command"
+FILE_WRITE = "file_write"
+FILE_PATCH = "file_patch"
+FILE_READ = "file_read"
 CODE_GENERATION = "code_generation"
-MULTI_STEP      = "multi_step"
-NOTE_SAVE       = "note_save"
-UNKNOWN         = "unknown"
+MULTI_STEP = "multi_step"
+NOTE_SAVE = "note_save"
+UNKNOWN = "unknown"
 
 # Single-token commands that strongly signal a shell command response
 _SHELL_PREFIXES = {
-    "pkg", "pip", "pip3", "python", "python3", "node", "npm", "git",
-    "ls", "cd", "mkdir", "rm", "cp", "mv", "cat", "echo", "chmod",
-    "apt", "apt-get", "brew", "curl", "wget", "tar", "unzip", "zip",
-    "grep", "find", "sed", "awk", "make", "cmake", "cargo", "go",
-    "java", "javac", "bash", "sh", "zsh", "termux-setup-storage",
-    "termux-notification", "termux-clipboard-get", "termux-clipboard-set",
-    "termux-battery-status", "termux-camera-photo", "adb",
+    "pkg",
+    "pip",
+    "pip3",
+    "python",
+    "python3",
+    "node",
+    "npm",
+    "git",
+    "ls",
+    "cd",
+    "mkdir",
+    "rm",
+    "cp",
+    "mv",
+    "cat",
+    "echo",
+    "chmod",
+    "apt",
+    "apt-get",
+    "brew",
+    "curl",
+    "wget",
+    "tar",
+    "unzip",
+    "zip",
+    "grep",
+    "find",
+    "sed",
+    "awk",
+    "make",
+    "cmake",
+    "cargo",
+    "go",
+    "java",
+    "javac",
+    "bash",
+    "sh",
+    "zsh",
+    "termux-setup-storage",
+    "termux-notification",
+    "termux-clipboard-get",
+    "termux-clipboard-set",
+    "termux-battery-status",
+    "termux-camera-photo",
+    "adb",
 }
 
 # Code block language tags
@@ -141,13 +179,27 @@ def detect_language(code: str, instruction: str = "") -> Optional[str]:
 
     # Instruction keywords
     lang_keywords = {
-        "python": "python", "py ": "python",
-        "javascript": "javascript", "js ": "javascript", "node": "javascript",
-        "typescript": "typescript", "ts ": "typescript",
-        "bash": "bash", "shell": "bash", "sh ": "bash",
-        "rust": "rust", "java ": "java", "golang": "go", "go ": "go",
-        "ruby": "ruby", "php": "php", "sql": "sql", "c++": "cpp",
-        "c#": "csharp", "kotlin": "kotlin", "swift": "swift",
+        "python": "python",
+        "py ": "python",
+        "javascript": "javascript",
+        "js ": "javascript",
+        "node": "javascript",
+        "typescript": "typescript",
+        "ts ": "typescript",
+        "bash": "bash",
+        "shell": "bash",
+        "sh ": "bash",
+        "rust": "rust",
+        "java ": "java",
+        "golang": "go",
+        "go ": "go",
+        "ruby": "ruby",
+        "php": "php",
+        "sql": "sql",
+        "c++": "cpp",
+        "c#": "csharp",
+        "kotlin": "kotlin",
+        "swift": "swift",
     }
     for kw, lang in lang_keywords.items():
         if kw in instr_lower:

@@ -9,26 +9,26 @@ from typing import Dict, List, Tuple
 
 # Canonical tool registry with required arg keys
 TOOL_SCHEMAS: Dict[str, List[str]] = {
-    "shell":        ["command"],
-    "write_file":   ["path", "content"],
-    "patch_file":   ["path", "old_str", "new_str"],
-    "read_file":    ["path"],
-    "append_file":  ["path", "content"],
-    "list_dir":     [],          # path is optional
-    "search_files": ["pattern"], # path is optional
-    "note_save":    ["key", "value"],
-    "note_forget":  ["key"],
+    "shell": ["command"],
+    "write_file": ["path", "content"],
+    "patch_file": ["path", "old_str", "new_str"],
+    "read_file": ["path"],
+    "append_file": ["path", "content"],
+    "list_dir": [],  # path is optional
+    "search_files": ["pattern"],  # path is optional
+    "note_save": ["key", "value"],
+    "note_forget": ["key"],
 }
 
 VALID_TOOL_NAMES = set(TOOL_SCHEMAS.keys())
 
 # Shell metacharacters that the Codey-V3 shell tool blocks (mirrors shell_tools.py)
-_SHELL_METACHARACTERS = [';', '&&', '||', '|', '`', '$(', '${', '<(', '>(', '\n', '\r']
+_SHELL_METACHARACTERS = [";", "&&", "||", "|", "`", "$(", "${", "<(", ">(", "\n", "\r"]
 
 # Max content sizes (characters) — prevent enormous records in the index
-_MAX_CONTENT_LEN  = 50_000
-_MAX_COMMAND_LEN  = 500
-_MAX_PATH_LEN     = 256
+_MAX_CONTENT_LEN = 50_000
+_MAX_COMMAND_LEN = 500
+_MAX_PATH_LEN = 256
 
 # Placeholder indicators
 _PLACEHOLDERS = {"...", "TODO", "PLACEHOLDER", "<content>", "<code>", "pass"}

@@ -5,27 +5,27 @@ Streams records from any HF dataset without downloading the full corpus.
 Each dataset has a schema_type that tells the normalizer how to read its fields.
 """
 
-from typing import Iterator, Dict, Optional
-from .base import BaseIngestor
+from typing import Dict, Iterator, Optional
 
+from .base import BaseIngestor
 
 # Registered datasets: maps HF path → schema_type
 # schema_type tells the normalizer which field extractor to use.
 REGISTERED_DATASETS = {
-    "glaiveai/glaive-function-calling-v2":          "glaive_fc",
-    "NousResearch/hermes-function-calling-v1":       "hermes_fc",
-    "lockon/xlam-function-calling-60k":              "xlam_fc",
-    "argilla/apigen-function-calling":               "xlam_fc",
-    "iamtarun/python_code_instructions_18k_alpaca":  "alpaca_code",
+    "glaiveai/glaive-function-calling-v2": "glaive_fc",
+    "NousResearch/hermes-function-calling-v1": "hermes_fc",
+    "lockon/xlam-function-calling-60k": "xlam_fc",
+    "argilla/apigen-function-calling": "xlam_fc",
+    "iamtarun/python_code_instructions_18k_alpaca": "alpaca_code",
     "TokenBender/code_instructions_122k_alpaca_style": "alpaca_code",
-    "Nan-Do/instructional_code-search-net-python":   "codesearchnet",
-    "google-research-datasets/mbpp":                 "mbpp",
-    "evalplus/humanevalplus":                        "humaneval",
-    "bigcode/bigcodebench":                          "bigcodebench",
-    "bigcode/humanevalpack":                         "humanevalpack",
-    "yahma/alpaca-cleaned":                          "alpaca_general",
-    "microsoft/orca-agentinstruct-1M-v1":            "orca_agent",
-    "m-a-p/Code-Feedback":                           "code_feedback",
+    "Nan-Do/instructional_code-search-net-python": "codesearchnet",
+    "google-research-datasets/mbpp": "mbpp",
+    "evalplus/humanevalplus": "humaneval",
+    "bigcode/bigcodebench": "bigcodebench",
+    "bigcode/humanevalpack": "humanevalpack",
+    "yahma/alpaca-cleaned": "alpaca_general",
+    "microsoft/orca-agentinstruct-1M-v1": "orca_agent",
+    "m-a-p/Code-Feedback": "code_feedback",
     "gorilla-llm/Berkeley-Function-Calling-Leaderboard": "bfcl",
 }
 

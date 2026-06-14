@@ -2,27 +2,31 @@
 Project context detection.
 Auto-detects project type and key files when cwd changes.
 """
+
 import os
-import json
 from pathlib import Path
-from utils.logger import info, success
 
 # Signatures to detect project type
 PROJECT_SIGNATURES = {
-    "python":     ["requirements.txt", "setup.py", "pyproject.toml", "*.py"],
-    "node":       ["package.json", "node_modules"],
-    "rust":       ["Cargo.toml"],
-    "go":         ["go.mod"],
-    "shell":      ["*.sh"],
-    "web":        ["index.html", "*.html"],
-    "c/cpp":      ["Makefile", "CMakeLists.txt", "*.c", "*.cpp"],
+    "python": ["requirements.txt", "setup.py", "pyproject.toml", "*.py"],
+    "node": ["package.json", "node_modules"],
+    "rust": ["Cargo.toml"],
+    "go": ["go.mod"],
+    "shell": ["*.sh"],
+    "web": ["index.html", "*.html"],
+    "c/cpp": ["Makefile", "CMakeLists.txt", "*.c", "*.cpp"],
 }
 
 # Files worth reading for context (small config/manifest files)
 CONTEXT_FILES = [
-    "README.md", "readme.md", "README.txt",
-    "requirements.txt", "package.json",
-    "Cargo.toml", "go.mod", "pyproject.toml",
+    "README.md",
+    "readme.md",
+    "README.txt",
+    "requirements.txt",
+    "package.json",
+    "Cargo.toml",
+    "go.mod",
+    "pyproject.toml",
     ".env.example",
 ]
 
@@ -31,18 +35,20 @@ _last_cwd: str = ""
 _repo_map_cache: str = ""
 _repo_map_cwd: str = ""
 
+
 def get_repo_map(cwd: str = None) -> str:
     """Generate a lightweight map of the project (symbols, classes, imports)."""
     global _repo_map_cache, _repo_map_cwd
     from core.context import is_ignored
+
     cwd = Path(cwd or os.getcwd())
     cwd_str = str(cwd)
     if cwd_str == _repo_map_cwd and _repo_map_cache is not None:
         return _repo_map_cache
-    
+
     # Only scan these extensions
     map_exts = {".py", ".js", ".ts", ".c", ".cpp", ".rs", ".go"}
-    
+
     # Heuristic for symbols
     patterns = [
         r"^class\s+(\w+)",
@@ -53,20 +59,21 @@ def get_repo_map(cwd: str = None) -> str:
         r"^(?:import|from)\s+[\w.]+",
     ]
     import re
-    
+
     repo_map = []
-    
+
     # Limit to first 50 relevant files to keep it fast
     try:
-        files = sorted([
-            f for f in cwd.rglob("*")
-            if f.is_file()
-            and f.suffix in map_exts
-            and not is_ignored(f)
-        ])[:50]
+        files = sorted(
+            [
+                f
+                for f in cwd.rglob("*")
+                if f.is_file() and f.suffix in map_exts and not is_ignored(f)
+            ]
+        )[:50]
     except Exception:
         return ""
-        
+
     for f in files:
         rel = f.relative_to(cwd)
         try:
@@ -81,7 +88,7 @@ def get_repo_map(cwd: str = None) -> str:
                 repo_map.append(f"📄 {rel}:\n  " + "\n  ".join(symbols[:15]))
         except Exception:
             continue
-            
+
     if not repo_map:
         _repo_map_cache = ""
         _repo_map_cwd = cwd_str
@@ -94,6 +101,7 @@ def get_repo_map(cwd: str = None) -> str:
     _repo_map_cache = result
     _repo_map_cwd = cwd_str
     return result
+
 
 def detect_project(cwd: str = None) -> dict:
     """
@@ -147,7 +155,7 @@ def detect_project(cwd: str = None) -> dict:
     try:
         top_files = sorted(
             [p.name for p in cwd_path.iterdir() if not p.name.startswith(".")],
-            key=lambda x: (Path(x).suffix, x)
+            key=lambda x: (Path(x).suffix, x),
         )[:20]
         context_parts.append(f"Files: {', '.join(top_files)}")
     except Exception:
@@ -170,12 +178,14 @@ def detect_project(cwd: str = None) -> dict:
     _project_cache = result
     return result
 
+
 def get_project_summary() -> str:
     """Get a compact project summary for injection into system prompt."""
     proj = detect_project()
     if proj["type"] == "unknown" and not proj["key_files"]:
         return ""
     return proj["context"]
+
 
 def invalidate_cache():
     """Call this when cwd changes."""

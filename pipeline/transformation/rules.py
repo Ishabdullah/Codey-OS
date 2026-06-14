@@ -5,15 +5,14 @@ Each rule function receives the intermediate dict and returns a list of
 tool call dicts, or None if the record cannot be mapped.
 """
 
-import re
 import json
+import re
 from typing import Dict, List, Optional
 
-from ..normalization.classifier import (
-    SHELL_COMMAND, FILE_WRITE, FILE_PATCH, FILE_READ,
-    CODE_GENERATION, MULTI_STEP, NOTE_SAVE, UNKNOWN,
-    detect_language, language_to_extension,
-)
+from ..normalization.classifier import (CODE_GENERATION, FILE_PATCH, FILE_READ,
+                                        FILE_WRITE, MULTI_STEP, NOTE_SAVE,
+                                        SHELL_COMMAND, UNKNOWN,
+                                        detect_language, language_to_extension)
 from .termux import normalize_command
 
 # ── Tool name mapping for function-calling datasets ──────────────────────────
@@ -34,15 +33,15 @@ _FC_NAME_MAP = [
 
 # File extension → default filename stem
 _LANG_DEFAULTS = {
-    "python":     "solution",
+    "python": "solution",
     "javascript": "solution",
     "typescript": "solution",
-    "bash":       "script",
-    "rust":       "main",
-    "java":       "Solution",
-    "go":         "main",
-    "ruby":       "solution",
-    "sql":        "query",
+    "bash": "script",
+    "rust": "main",
+    "java": "Solution",
+    "go": "main",
+    "ruby": "solution",
+    "sql": "query",
 }
 
 
@@ -75,12 +74,12 @@ def _infer_path(instruction: str, language: Optional[str], code: str) -> str:
     fn_match = re.search(r"^(?:def|class|function|func)\s+(\w+)", code, re.MULTILINE)
     if fn_match:
         name = fn_match.group(1).lower()
-        ext  = language_to_extension(language)
+        ext = language_to_extension(language)
         if name not in ("main", "solution", "answer", "func"):
             return f"{name}{ext}"
 
     # 3. Default
-    ext  = language_to_extension(language)
+    ext = language_to_extension(language)
     stem = _LANG_DEFAULTS.get(language or "", "solution")
     return f"{stem}{ext}"
 
@@ -103,18 +102,25 @@ def _build_test_file(tests, entry_point: str = "", language: str = "python") -> 
         ext = language_to_extension(language)
         stem = _LANG_DEFAULTS.get(language, "solution")
         imports = f"from {stem} import {entry_point}\n\n" if entry_point else ""
-        return imports + tests + '\n\nif __name__ == "__main__":\n    check(' + (entry_point or "solution") + ')\n    print("All tests passed")\n'
+        return (
+            imports
+            + tests
+            + '\n\nif __name__ == "__main__":\n    check('
+            + (entry_point or "solution")
+            + ')\n    print("All tests passed")\n'
+        )
 
     if isinstance(tests, list):
         lines = [f"from solution import *", ""]
         lines += tests
-        lines += ['', 'print("All tests passed")']
+        lines += ["", 'print("All tests passed")']
         return "\n".join(lines) + "\n"
 
     return None
 
 
 # ── Rule functions ─────────────────────────────────────────────────────────────
+
 
 def rule_shell_command(intermediate: Dict) -> Optional[List[Dict]]:
     """Single shell command → one shell tool call."""
@@ -132,7 +138,7 @@ def rule_shell_command(intermediate: Dict) -> Optional[List[Dict]]:
 
 def rule_code_generation(intermediate: Dict) -> Optional[List[Dict]]:
     """Code response → write_file."""
-    raw  = intermediate["raw_response"]
+    raw = intermediate["raw_response"]
     code = _extract_code_content(raw)
     if not code:
         return None
@@ -153,13 +159,14 @@ def rule_file_patch(intermediate: Dict) -> Optional[List[Dict]]:
     Tries to extract old/new from the response. Falls back to write_file
     if the diff can't be parsed.
     """
-    raw  = intermediate["raw_response"]
+    raw = intermediate["raw_response"]
     code = _extract_code_content(raw)
 
     # Look for unified diff or explicit old/new markers
     diff_match = re.search(
         r"(?:^|\n)[-<]\s*(.*?)(?:\n[+>]\s*(.*?))?(?:\n|$)",
-        raw, re.DOTALL,
+        raw,
+        re.DOTALL,
     )
 
     extra = intermediate.get("_extra", {})
@@ -172,11 +179,16 @@ def rule_file_patch(intermediate: Dict) -> Optional[List[Dict]]:
             intermediate.get("language"),
             code,
         )
-        return [{"name": "patch_file", "args": {
-            "path": path,
-            "old_str": buggy.strip(),
-            "new_str": code.strip(),
-        }}]
+        return [
+            {
+                "name": "patch_file",
+                "args": {
+                    "path": path,
+                    "old_str": buggy.strip(),
+                    "new_str": code.strip(),
+                },
+            }
+        ]
 
     # Can't reliably extract old/new — fall back to write_file
     return rule_code_generation(intermediate)
@@ -194,9 +206,16 @@ def rule_note_save(intermediate: Dict) -> Optional[List[Dict]]:
     """Remember/note instruction → note_save."""
     instr = intermediate["instruction"]
     # Try to extract key=value from instruction
-    kv = re.search(r"(?:remember|note|store)[:\s]+(.+?)(?:\s*=\s*|\s+is\s+|\s*:\s*)(.+)", instr, re.I)
+    kv = re.search(
+        r"(?:remember|note|store)[:\s]+(.+?)(?:\s*=\s*|\s+is\s+|\s*:\s*)(.+)", instr, re.I
+    )
     if kv:
-        return [{"name": "note_save", "args": {"key": kv.group(1).strip(), "value": kv.group(2).strip()}}]
+        return [
+            {
+                "name": "note_save",
+                "args": {"key": kv.group(1).strip(), "value": kv.group(2).strip()},
+            }
+        ]
     # Fallback: whole instruction as key, response as value
     raw = intermediate["raw_response"].strip()[:200]
     return [{"name": "note_save", "args": {"key": instr[:80], "value": raw}}]
@@ -204,7 +223,7 @@ def rule_note_save(intermediate: Dict) -> Optional[List[Dict]]:
 
 def rule_mbpp(intermediate: Dict) -> Optional[List[Dict]]:
     """MBPP: write solution + write test + shell run."""
-    code  = _extract_code_content(intermediate["raw_response"])
+    code = _extract_code_content(intermediate["raw_response"])
     tests = intermediate.get("_extra", {}).get("test_list", [])
     if not code:
         return None
@@ -218,17 +237,19 @@ def rule_mbpp(intermediate: Dict) -> Optional[List[Dict]]:
 
     test_content = _build_test_file(tests)
     if test_content:
-        tool_calls.append({"name": "write_file", "args": {"path": "test_solution.py", "content": test_content}})
-        tool_calls.append({"name": "shell",      "args": {"command": "python test_solution.py"}})
+        tool_calls.append(
+            {"name": "write_file", "args": {"path": "test_solution.py", "content": test_content}}
+        )
+        tool_calls.append({"name": "shell", "args": {"command": "python test_solution.py"}})
 
     return tool_calls
 
 
 def rule_humaneval(intermediate: Dict) -> Optional[List[Dict]]:
     """HumanEval / BigCodeBench: write solution + write test + shell run."""
-    code  = _extract_code_content(intermediate["raw_response"])
+    code = _extract_code_content(intermediate["raw_response"])
     extra = intermediate.get("_extra", {})
-    test  = extra.get("test", "")
+    test = extra.get("test", "")
     entry = extra.get("entry_point", "")
 
     if not code:
@@ -243,8 +264,10 @@ def rule_humaneval(intermediate: Dict) -> Optional[List[Dict]]:
 
     test_content = _build_test_file(test, entry, lang)
     if test_content:
-        tool_calls.append({"name": "write_file", "args": {"path": "test_solution.py", "content": test_content}})
-        tool_calls.append({"name": "shell",      "args": {"command": "python test_solution.py"}})
+        tool_calls.append(
+            {"name": "write_file", "args": {"path": "test_solution.py", "content": test_content}}
+        )
+        tool_calls.append({"name": "shell", "args": {"command": "python test_solution.py"}})
 
     return tool_calls
 
@@ -270,7 +293,7 @@ def rule_function_call_json(intermediate: Dict) -> Optional[List[Dict]]:
             return None
 
     func_name = fc.get("name", fc.get("function", ""))
-    raw_args  = fc.get("arguments", fc.get("args", fc.get("parameters", {})))
+    raw_args = fc.get("arguments", fc.get("args", fc.get("parameters", {})))
 
     if isinstance(raw_args, str):
         try:
@@ -299,9 +322,13 @@ def _map_fc_args(tool_name: str, orig_name: str, raw_args: Dict) -> Optional[Dic
     if tool_name == "shell":
         # Find the command value — try common key names
         cmd = (
-            raw_args.get("command") or raw_args.get("cmd") or
-            raw_args.get("code") or raw_args.get("script") or
-            raw_args.get("file") or raw_args.get("path") or
+            raw_args.get("command")
+            or raw_args.get("cmd")
+            or raw_args.get("code")
+            or raw_args.get("script")
+            or raw_args.get("file")
+            or raw_args.get("path")
+            or
             # If executing a file, build: python <file>
             next(iter(raw_args.values()), None)
         )
@@ -314,26 +341,31 @@ def _map_fc_args(tool_name: str, orig_name: str, raw_args: Dict) -> Optional[Dic
 
     elif tool_name == "write_file":
         content = (
-            raw_args.get("content") or raw_args.get("code") or
-            raw_args.get("text") or raw_args.get("data") or ""
+            raw_args.get("content")
+            or raw_args.get("code")
+            or raw_args.get("text")
+            or raw_args.get("data")
+            or ""
         )
         path = (
-            raw_args.get("path") or raw_args.get("filename") or
-            raw_args.get("file") or raw_args.get("name") or "output.txt"
+            raw_args.get("path")
+            or raw_args.get("filename")
+            or raw_args.get("file")
+            or raw_args.get("name")
+            or "output.txt"
         )
         return {"path": str(path), "content": str(content)}
 
     elif tool_name == "read_file":
-        path = (
-            raw_args.get("path") or raw_args.get("file") or
-            raw_args.get("filename") or "."
-        )
+        path = raw_args.get("path") or raw_args.get("file") or raw_args.get("filename") or "."
         return {"path": str(path)}
 
     elif tool_name == "patch_file":
         return {
-            "path":    str(raw_args.get("path", raw_args.get("file", "file.py"))),
-            "old_str": str(raw_args.get("old_str", raw_args.get("old", raw_args.get("before", "")))),
+            "path": str(raw_args.get("path", raw_args.get("file", "file.py"))),
+            "old_str": str(
+                raw_args.get("old_str", raw_args.get("old", raw_args.get("before", "")))
+            ),
             "new_str": str(raw_args.get("new_str", raw_args.get("new", raw_args.get("after", "")))),
         }
 
@@ -342,13 +374,15 @@ def _map_fc_args(tool_name: str, orig_name: str, raw_args: Dict) -> Optional[Dic
 
     elif tool_name == "search_files":
         return {
-            "pattern": str(raw_args.get("pattern", raw_args.get("query", raw_args.get("glob", "*")))),
-            "path":    str(raw_args.get("path", ".")),
+            "pattern": str(
+                raw_args.get("pattern", raw_args.get("query", raw_args.get("glob", "*")))
+            ),
+            "path": str(raw_args.get("path", ".")),
         }
 
     elif tool_name == "note_save":
         return {
-            "key":   str(raw_args.get("key", raw_args.get("name", "fact"))),
+            "key": str(raw_args.get("key", raw_args.get("name", "fact"))),
             "value": str(raw_args.get("value", raw_args.get("content", ""))),
         }
 
@@ -375,7 +409,7 @@ def rule_xlam_answers(intermediate: Dict) -> Optional[List[Dict]]:
     tool_calls = []
     for entry in answers:
         func_name = entry.get("name", "")
-        raw_args  = entry.get("arguments", entry.get("args", {}))
+        raw_args = entry.get("arguments", entry.get("args", {}))
 
         if isinstance(raw_args, str):
             try:
@@ -396,7 +430,7 @@ def rule_xlam_answers(intermediate: Dict) -> Optional[List[Dict]]:
 
 def rule_code_with_execution(intermediate: Dict) -> Optional[List[Dict]]:
     """Code-Feedback: write_file + shell execute."""
-    code  = _extract_code_content(intermediate["raw_response"])
+    code = _extract_code_content(intermediate["raw_response"])
     extra = intermediate.get("_extra", {})
 
     if not code:
@@ -426,23 +460,23 @@ def rule_code_with_execution(intermediate: Dict) -> Optional[List[Dict]]:
 # ── Rule dispatcher ───────────────────────────────────────────────────────────
 
 _SCHEMA_RULE_MAP = {
-    "mbpp":              rule_mbpp,
-    "humaneval":         rule_humaneval,
-    "bigcodebench":      rule_humaneval,
+    "mbpp": rule_mbpp,
+    "humaneval": rule_humaneval,
+    "bigcodebench": rule_humaneval,
     "function_call_json": rule_function_call_json,
-    "xlam_answers":      rule_xlam_answers,
+    "xlam_answers": rule_xlam_answers,
     "code_with_execution": rule_code_with_execution,
-    "patch":             rule_file_patch,
+    "patch": rule_file_patch,
 }
 
 _TYPE_RULE_MAP = {
-    SHELL_COMMAND:   rule_shell_command,
-    FILE_WRITE:      rule_file_write,
-    FILE_PATCH:      rule_file_patch,
-    FILE_READ:       rule_file_read,
+    SHELL_COMMAND: rule_shell_command,
+    FILE_WRITE: rule_file_write,
+    FILE_PATCH: rule_file_patch,
+    FILE_READ: rule_file_read,
     CODE_GENERATION: rule_code_generation,
-    NOTE_SAVE:       rule_note_save,
-    MULTI_STEP:      rule_code_generation,  # fallback; multi-step parsed separately
+    NOTE_SAVE: rule_note_save,
+    MULTI_STEP: rule_code_generation,  # fallback; multi-step parsed separately
 }
 
 
@@ -458,5 +492,5 @@ def apply_rules(intermediate: Dict) -> Optional[List[Dict]]:
         return _SCHEMA_RULE_MAP[schema](intermediate)
 
     resp_type = intermediate.get("response_type", UNKNOWN)
-    rule_fn   = _TYPE_RULE_MAP.get(resp_type, rule_code_generation)
+    rule_fn = _TYPE_RULE_MAP.get(resp_type, rule_code_generation)
     return rule_fn(intermediate)

@@ -13,8 +13,8 @@ psutil is used when installed for slightly more accurate CPU%.
 import json
 import subprocess
 import sys
-import time
 import threading
+import time
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -43,7 +43,7 @@ class SystemMonitor:
         # For /proc/stat delta CPU calculation
         self._prev_idle: int = 0
         self._prev_total: int = 0
-        self._seed_cpu_proc()   # seed /proc/stat fallback
+        self._seed_cpu_proc()  # seed /proc/stat fallback
 
     # ── public API ────────────────────────────────────────────────────────────
 
@@ -63,25 +63,25 @@ class SystemMonitor:
     def snapshot(self) -> dict:
         with self._lock:
             return {
-                "cpu":              self._cpu,
-                "ram_used":         self._ram_used,
-                "ram_total":        self._ram_total,
-                "temp":             self._temp,
-                "battery_pct":      self._battery_pct,
+                "cpu": self._cpu,
+                "ram_used": self._ram_used,
+                "ram_total": self._ram_total,
+                "temp": self._temp,
+                "battery_pct": self._battery_pct,
                 "battery_charging": self._battery_charging,
             }
 
     def render(self) -> Text:
         """Return a Rich Text line suitable for printing as a stats bar."""
         s = self.snapshot
-        cpu  = s["cpu"]
-        ru   = s["ram_used"]  / 1024 ** 3
-        rt   = s["ram_total"] / 1024 ** 3
+        cpu = s["cpu"]
+        ru = s["ram_used"] / 1024**3
+        rt = s["ram_total"] / 1024**3
         temp = s["temp"]
 
-        cpu_col  = _threshold_color(cpu, warn=60, crit=85)
-        ram_pct  = (ru / rt * 100) if rt else 0
-        ram_col  = _threshold_color(ram_pct, warn=65, crit=85)
+        cpu_col = _threshold_color(cpu, warn=60, crit=85)
+        ram_pct = (ru / rt * 100) if rt else 0
+        ram_col = _threshold_color(ram_pct, warn=65, crit=85)
         temp_col = _threshold_color(temp or 0, warn=65, crit=80) if temp else "dim"
 
         cpu_bar = _bar(cpu, width=8)
@@ -104,9 +104,9 @@ class SystemMonitor:
         if not sys.stdout.isatty():
             return
         s = self.snapshot
-        cpu  = s["cpu"]
-        ru   = s["ram_used"]  / 1024 ** 3
-        rt   = s["ram_total"] / 1024 ** 3
+        cpu = s["cpu"]
+        ru = s["ram_used"] / 1024**3
+        rt = s["ram_total"] / 1024**3
         temp = s["temp"]
         parts = [f"CPU {cpu:.0f}%", f"RAM {ru:.1f}/{rt:.1f}G"]
         if temp is not None:
@@ -121,9 +121,9 @@ class SystemMonitor:
     # ── internals ─────────────────────────────────────────────────────────────
 
     def _loop_once(self) -> None:
-        cpu    = self._read_cpu()
+        cpu = self._read_cpu()
         ru, rt = self._read_ram()
-        temp   = self._read_temp()
+        temp = self._read_temp()
         # Battery is slow (~200ms subprocess) — read every 5th tick (~10s)
         self._battery_tick += 1
         if self._battery_tick >= 5:
@@ -133,10 +133,10 @@ class SystemMonitor:
                 self._battery_pct = bpct
                 self._battery_charging = bcharging
         with self._lock:
-            self._cpu       = cpu
-            self._ram_used  = ru
+            self._cpu = cpu
+            self._ram_used = ru
             self._ram_total = rt
-            self._temp      = temp
+            self._temp = temp
         self.set_title()
 
     def _loop(self) -> None:
@@ -148,7 +148,7 @@ class SystemMonitor:
         try:
             with open("/proc/stat") as f:
                 fields = list(map(int, f.readline().split()[1:]))
-            self._prev_idle  = fields[3] + (fields[4] if len(fields) > 4 else 0)
+            self._prev_idle = fields[3] + (fields[4] if len(fields) > 4 else 0)
             self._prev_total = sum(fields)
         except Exception:
             pass
@@ -160,6 +160,7 @@ class SystemMonitor:
         # to /proc/stat in both cases.
         try:
             import psutil
+
             val = psutil.cpu_percent(interval=None)
             if val > 0.0:
                 return val
@@ -176,28 +177,29 @@ class SystemMonitor:
         we do a self-contained 250 ms mini-sample so the first render() call
         already shows a real value instead of 0.0.
         """
+
         def _stat():
             with open("/proc/stat") as f:
                 fields = list(map(int, f.readline().split()[1:]))
-            idle  = fields[3] + (fields[4] if len(fields) > 4 else 0)
+            idle = fields[3] + (fields[4] if len(fields) > 4 else 0)
             total = sum(fields)
             return idle, total
 
         try:
             idle1, total1 = _stat()
-            d_idle  = idle1  - self._prev_idle
+            d_idle = idle1 - self._prev_idle
             d_total = total1 - self._prev_total
 
             if d_total < 20:
                 # Delta too small — seed and do a fresh 250 ms sample
                 time.sleep(0.25)
                 idle2, total2 = _stat()
-                d_idle  = idle2  - idle1
+                d_idle = idle2 - idle1
                 d_total = total2 - total1
-                self._prev_idle  = idle2
+                self._prev_idle = idle2
                 self._prev_total = total2
             else:
-                self._prev_idle  = idle1
+                self._prev_idle = idle1
                 self._prev_total = total1
 
             if d_total <= 0:
@@ -209,6 +211,7 @@ class SystemMonitor:
     def _read_ram(self) -> Tuple[int, int]:
         try:
             import psutil
+
             m = psutil.virtual_memory()
             return m.used, m.total
         except ImportError:
@@ -235,7 +238,7 @@ class SystemMonitor:
             for zone in sorted(Path("/sys/class/thermal").glob("thermal_zone*")):
                 try:
                     ztype = (zone / "type").read_text().strip().lower()
-                    raw   = int((zone / "temp").read_text().strip())
+                    raw = int((zone / "temp").read_text().strip())
                     temp_c = raw / 1000.0
                     # Ignore absurd readings (sensor glitches)
                     if not (0 < temp_c < 120):
@@ -273,7 +276,9 @@ class SystemMonitor:
         try:
             out = subprocess.run(
                 ["termux-battery-status"],
-                capture_output=True, text=True, timeout=2,
+                capture_output=True,
+                text=True,
+                timeout=2,
             )
             if out.returncode == 0 and out.stdout.strip():
                 data = json.loads(out.stdout)
@@ -286,6 +291,7 @@ class SystemMonitor:
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
 
 def _threshold_color(value: float, warn: float, crit: float) -> str:
     if value >= crit:

@@ -10,14 +10,14 @@ Integrates:
 Provides unified interface for Codey-V3 to learn and improve over time.
 """
 
-import time
-from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
 
-from utils.logger import info, warning, success as log_success
-from core.preferences import get_preferences, PreferenceManager
-from core.error_database import get_error_database, ErrorDatabase
-from core.strategy_tracker import get_strategy_tracker, StrategyTracker
+from core.error_database import ErrorDatabase, get_error_database
+from core.preferences import PreferenceManager, get_preferences
+from core.strategy_tracker import StrategyTracker, get_strategy_tracker
+from utils.logger import info
+from utils.logger import success as log_success
+from utils.logger import warning
 
 
 class LearningManager:
@@ -75,8 +75,7 @@ class LearningManager:
         """
         return self.preferences.learn_from_files(files)
 
-    def record_error(self, error_type: str, error_message: str,
-                     context: Dict = None) -> str:
+    def record_error(self, error_type: str, error_message: str, context: Dict = None) -> str:
         """
         Record an error occurrence.
 
@@ -113,8 +112,9 @@ class LearningManager:
         """
         self.error_db.record_fix(error_key, fix, success)
 
-    def record_strategy_attempt(self, strategy: str, error_type: str,
-                                 success: bool, duration: float = 0.0):
+    def record_strategy_attempt(
+        self, strategy: str, error_type: str, success: bool, duration: float = 0.0
+    ):
         """
         Record a strategy attempt.
 
@@ -124,15 +124,18 @@ class LearningManager:
             success: Whether strategy succeeded
             duration: Time taken in seconds
         """
-        self.strategy_tracker.record_attempt(
-            strategy, error_type, success, duration
-        )
+        self.strategy_tracker.record_attempt(strategy, error_type, success, duration)
 
-    def learn_from_error_and_fix(self, error_type: str, error_message: str,
-                                  fix: str, success: bool = True,
-                                  strategy: str = None,
-                                  duration: float = 0.0,
-                                  context: Dict = None):
+    def learn_from_error_and_fix(
+        self,
+        error_type: str,
+        error_message: str,
+        fix: str,
+        success: bool = True,
+        strategy: str = None,
+        duration: float = 0.0,
+        context: Dict = None,
+    ):
         """
         Learn from a complete error-fix cycle.
 
@@ -151,9 +154,7 @@ class LearningManager:
 
         # Record strategy effectiveness
         if strategy:
-            self.strategy_tracker.record_attempt(
-                strategy, error_type, success, duration
-            )
+            self.strategy_tracker.record_attempt(strategy, error_type, success, duration)
 
         if success:
             log_success(f"Learned from {error_type}: {fix[:50]}...")
@@ -202,8 +203,7 @@ class LearningManager:
         """Get all learned preferences."""
         return self.preferences.get_all()
 
-    def get_similar_errors(self, error_type: str, error_message: str,
-                           limit: int = 5) -> List:
+    def get_similar_errors(self, error_type: str, error_message: str, limit: int = 5) -> List:
         """
         Find similar errors and their fixes.
 

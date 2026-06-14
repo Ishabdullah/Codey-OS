@@ -15,19 +15,18 @@ Exposed via /status CLI command and agent-internal queries.
 
 import os
 import time
-from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Optional
 
 # psutil is optional - will use fallback if not available
 try:
     import psutil
+
     HAS_PSUTIL = True
 except ImportError:
     HAS_PSUTIL = False
 
-from utils.logger import info, warning
-from utils.config import MODEL_CONFIG, CODEY_VERSION
 from core.state import get_state_store
+from utils.config import CODEY_VERSION, MODEL_CONFIG
 
 
 class State:
@@ -42,82 +41,86 @@ class State:
     - temperature
     - health metrics
     """
-    
+
     def __init__(self):
         self.state_store = get_state_store()
         if HAS_PSUTIL:
             self._process = psutil.Process(os.getpid())
         else:
             self._process = None
-    
+
     @property
     def tokens_used(self) -> int:
         """Get total tokens used (from state)."""
         return int(self.state_store.get("tokens_used", 0))
-    
+
     @tokens_used.setter
     def tokens_used(self, value: int):
         """Set total tokens used."""
         self.state_store.set("tokens_used", value)
-    
+
     @property
     def memory_loaded(self) -> Dict:
         """Get memory status."""
         try:
             from core.memory_v2 import get_memory
+
             memory = get_memory()
             return memory.status()
         except (ImportError, AttributeError, TypeError, ValueError):
             return {"error": "Memory not initialized"}
-    
+
     @property
     def tasks_pending(self) -> int:
         """Get number of pending tasks."""
         try:
             from core.planner_v2 import get_planner
+
             planner = get_planner()
             return len(planner.get_pending_tasks())
         except (ImportError, AttributeError, TypeError, ValueError):
             # Fallback to state store
             tasks = self.state_store.get_tasks_by_status("pending")
             return len(tasks)
-    
+
     @property
     def tasks_running(self) -> int:
         """Get number of running tasks."""
         try:
             from core.planner_v2 import get_planner
+
             planner = get_planner()
             return len(planner.get_running_tasks())
         except (ImportError, AttributeError, TypeError, ValueError):
             tasks = self.state_store.get_tasks_by_status("running")
             return len(tasks)
-    
+
     @property
     def model_active(self) -> Optional[str]:
         """Get currently active model."""
         try:
             from core.loader_v2 import get_loader
+
             loader = get_loader()
             return loader.get_loaded_model()
         except (ImportError, AttributeError, TypeError, ValueError):
             return None
-    
+
     @property
     def model_state(self) -> Dict:
         """Get model state from database."""
         return self.state_store.get_model_state()
-    
+
     @property
     def temperature(self) -> float:
         """Get current temperature (from model config)."""
         return MODEL_CONFIG.get("temperature", 0.2)
-    
+
     @property
     def context_size(self) -> int:
         """Get context size (from model config)."""
         return MODEL_CONFIG.get("n_ctx", 4096)
-    
+
     @property
     def memory_usage(self) -> Dict:
         """Get process memory usage."""
@@ -140,7 +143,7 @@ class State:
         except (ImportError, AttributeError, TypeError, ValueError):
             pass
         return {"rss_mb": 0, "vms_mb": 0}
-    
+
     @property
     def cpu_usage(self) -> float:
         """Get CPU usage percentage."""
@@ -150,7 +153,7 @@ class State:
             except (ImportError, AttributeError, TypeError, ValueError):
                 pass
         return 0.0
-    
+
     @property
     def uptime(self) -> int:
         """Get daemon uptime in seconds."""
@@ -158,7 +161,7 @@ class State:
         if started_at:
             return int(time.time()) - started_at
         return 0
-    
+
     @property
     def daemon_pid(self) -> Optional[int]:
         """Get daemon PID."""
@@ -166,7 +169,7 @@ class State:
             return self._process.pid
         except (ImportError, AttributeError, TypeError, ValueError):
             return None
-    
+
     @property
     def health(self) -> Dict:
         """Get health metrics."""
@@ -177,7 +180,7 @@ class State:
             "tasks_pending": self.tasks_pending,
             "model_loaded": self.model_active is not None,
         }
-    
+
     def get_full_status(self) -> Dict:
         """Get complete observability status."""
         return {
@@ -208,7 +211,7 @@ class State:
             },
             "health": self.health,
         }
-    
+
     def to_dict(self) -> Dict:
         """Alias for get_full_status()."""
         return self.get_full_status()

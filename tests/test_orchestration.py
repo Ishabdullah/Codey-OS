@@ -8,9 +8,11 @@ a request should trigger multi-step planning vs. direct response.
 
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.orchestrator import is_complex, CONVERSATIONAL_PATTERNS, _postprocess_plan
+from core.orchestrator import (CONVERSATIONAL_PATTERNS, _postprocess_plan,
+                               is_complex)
 
 
 class TestOrchestrationHeuristics:
@@ -63,7 +65,12 @@ class TestOrchestrationHeuristics:
 
     def test_complex_build_multiple_components(self):
         """Build with multiple components SHOULD trigger orchestration."""
-        assert is_complex("Build a REST API with multiple endpoints for users, posts, and also comments") == True
+        assert (
+            is_complex(
+                "Build a REST API with multiple endpoints for users, posts, and also comments"
+            )
+            == True
+        )
 
     def test_complex_refactor_and_run(self):
         """Refactor and run SHOULD trigger orchestration."""
@@ -110,21 +117,37 @@ class TestOrchestrationHeuristics:
     def test_implementation_request_complex(self):
         """Implementation requests SHOULD trigger orchestration."""
         # Need enough COMPLEX_SIGNALS matches
-        assert is_complex("Implement a user registration system with multiple models and also API endpoints") == True
+        assert (
+            is_complex(
+                "Implement a user registration system with multiple models and also API endpoints"
+            )
+            == True
+        )
 
     def test_add_feature_complex(self):
         """Add feature requests SHOULD trigger orchestration."""
-        # Need enough COMPLEX_SIGNALS matches  
-        assert is_complex("Add a new module for handling file uploads and then also add tests for it") == True
+        # Need enough COMPLEX_SIGNALS matches
+        assert (
+            is_complex("Add a new module for handling file uploads and then also add tests for it")
+            == True
+        )
 
     def test_rewrite_and_refactor_complex(self):
         """Rewrite/refactor requests SHOULD trigger orchestration."""
         # Need enough COMPLEX_SIGNALS matches
-        assert is_complex("Rewrite the data processing module to use async and also refactor for the application") == True
+        assert (
+            is_complex(
+                "Rewrite the data processing module to use async and also refactor for the application"
+            )
+            == True
+        )
 
     def test_multiple_tasks_complex(self):
         """Multiple tasks SHOULD trigger orchestration."""
-        assert is_complex("Create the models and then add the API endpoints and also write tests") == True
+        assert (
+            is_complex("Create the models and then add the API endpoints and also write tests")
+            == True
+        )
 
     def test_empty_message_not_complex(self):
         """Empty messages should NOT be complex."""
@@ -143,7 +166,7 @@ class TestConversationalPatterns:
     def test_common_question_starters(self):
         """Common question starters should be in patterns."""
         patterns_text = " ".join(CONVERSATIONAL_PATTERNS)
-        
+
         # Should cover common question formats
         assert "how do i" in patterns_text.lower()
         assert "what is" in patterns_text.lower()
@@ -152,7 +175,7 @@ class TestConversationalPatterns:
     def test_help_patterns(self):
         """Help-seeking patterns should be included."""
         patterns_text = " ".join(CONVERSATIONAL_PATTERNS)
-        
+
         assert "help" in patterns_text.lower()
         assert "explain" in patterns_text.lower()
 
@@ -238,14 +261,17 @@ class TestIntegrationAgentUtils:
 
     def test_extract_json_roundtrip(self):
         from core.agent import extract_json
+
         data = {"name": "write_file", "args": {"path": "x.py", "content": "pass\n"}}
         import json
+
         raw = json.dumps(data)
         result = extract_json(raw)
         assert result == data
 
     def test_parse_tool_call_roundtrip(self):
         from core.agent import parse_tool_call
+
         raw = '<tool>\n{"name": "shell", "args": {"command": "pytest test.py -v"}}\n</tool>'
         result = parse_tool_call(raw)
         assert result is not None
@@ -254,14 +280,16 @@ class TestIntegrationAgentUtils:
 
     def test_hallucination_no_false_positive_for_tool_use(self):
         from core.agent import is_hallucination
+
         response = "I created the file for you."
         user_message = "Create hello.py"
-        tools_used = ["write_file:{\"path\":\"hello.py\"}"]  # tool was used
+        tools_used = ['write_file:{"path":"hello.py"}']  # tool was used
         false_file, false_run = is_hallucination(response, user_message, tools_used)
         assert false_file == False  # tool was used, so not a hallucination
 
     def test_hallucination_detects_no_tool_used(self):
         from core.agent import is_hallucination
+
         # is_hallucination fires on exact phrases OR on code-in-markdown without tool
         response = "I created the file for you."  # matches "i created" phrase
         user_message = "Create hello.py"
@@ -271,6 +299,7 @@ class TestIntegrationAgentUtils:
 
     def test_hallucination_detects_code_block_without_write(self):
         from core.agent import is_hallucination
+
         response = "Here is the code:\n```python\nprint('hello')\n```"
         user_message = "Create hello.py"
         tools_used = []  # no write_file used
@@ -280,4 +309,5 @@ class TestIntegrationAgentUtils:
 
 if __name__ == "__main__":
     import pytest
+
     pytest.main([__file__, "-v"])

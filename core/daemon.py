@@ -12,21 +12,21 @@ The daemon runs continuously in the background, accepting commands
 from the CLI client via a Unix domain socket.
 """
 
-import os
-import sys
-import json
-import socket
-import signal
 import asyncio
+import json
+import os
+import signal
+import socket
+import sys
 import time
 from pathlib import Path
-from typing import Optional, Callable, Dict, Any
+from typing import Callable, Dict, Optional
 
-from utils.config import CODEY_DIR
-from utils.logger import info, warning, error, success, set_log_level, setup_file_logging
-from core.state import get_state_store, StateStore
-from core.daemon_config import get_config, DaemonConfig
+from core.daemon_config import get_config
+from core.state import StateStore, get_state_store
 from core.task_executor import TaskExecutor
+from utils.logger import (error, info, set_log_level, setup_file_logging,
+                          warning)
 
 # ==================== Configuration ====================
 
@@ -36,24 +36,26 @@ DAEMON_DIR = Path.home() / ".codey-v3"
 
 # Stable path constants with hardcoded defaults.
 # These may be overridden when Daemon.__init__ reads the config file.
-PID_FILE    = DAEMON_DIR / "codey-v3.pid"
+PID_FILE = DAEMON_DIR / "codey-v3.pid"
 SOCKET_FILE = DAEMON_DIR / "codey-v3.sock"
-LOG_FILE    = DAEMON_DIR / "codey-v3.log"
+LOG_FILE = DAEMON_DIR / "codey-v3.log"
 
 
 # ==================== PID File Management ====================
 
+
 def check_pid_file() -> bool:
     """
     Check if daemon is already running.
-    
+
     Returns True if another daemon is running.
     Removes stale PID file if process is dead.
     """
     import fcntl
+
     if PID_FILE.exists():
         try:
-            with open(PID_FILE, 'r') as f:
+            with open(PID_FILE, "r") as f:
                 fcntl.flock(f, fcntl.LOCK_SH | fcntl.LOCK_NB)
                 try:
                     pid = int(f.read().strip())
@@ -73,7 +75,8 @@ def check_pid_file() -> bool:
 def write_pid_file():
     """Write current PID to PID file with file locking."""
     import fcntl
-    with open(PID_FILE, 'w') as f:
+
+    with open(PID_FILE, "w") as f:
         fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
         try:
             f.write(str(os.getpid()))
@@ -89,14 +92,15 @@ def remove_pid_file():
 
 # ==================== Unix Socket Server ====================
 
+
 class DaemonServer:
     """
     Unix socket server for CLI communication.
-    
+
     Handles incoming commands from CLI clients and routes them
     to appropriate handlers.
     """
-    
+
     def __init__(self, state: StateStore, shutdown_callback=None):
         self.state = state
         self.server: Optional[asyncio.Server] = None
@@ -104,7 +108,7 @@ class DaemonServer:
         self._handlers: Dict[str, Callable] = {}
         self._shutdown_callback = shutdown_callback
         self._register_default_handlers()
-    
+
     def _register_default_handlers(self):
         """Register default command handlers."""
         self.register_handler("ping", self._handle_ping)
@@ -114,15 +118,15 @@ class DaemonServer:
         self.register_handler("task", self._handle_task)
         self.register_handler("cancel", self._handle_cancel)
         self.register_handler("shutdown", self._handle_shutdown)
-    
+
     def register_handler(self, cmd: str, handler: Callable):
         """Register a command handler."""
         self._handlers[cmd] = handler
-    
+
     async def _handle_ping(self, data: Dict) -> Dict:
         """Handle ping command."""
         return {"status": "ok", "message": "pong"}
-    
+
     async def _handle_command(self, data: Dict) -> Dict:
         """Handle a user command (prompt).
 
@@ -146,6 +150,7 @@ class DaemonServer:
         if not no_plan:
             try:
                 from core.planner_client import send_plan_request_async
+
                 steps = await asyncio.wait_for(
                     send_plan_request_async(prompt),
                     timeout=180.0,
@@ -203,7 +208,7 @@ class DaemonServer:
             "message": f"Task queued with ID {task_id}",
             "task_id": task_id,
         }
-    
+
     async def _handle_status(self, data: Dict) -> Dict:
         """Handle status query."""
         pending = len(self.state.get_tasks_by_status("pending"))
@@ -214,25 +219,21 @@ class DaemonServer:
             "status": "ok",
             "daemon": "running",
             "pid": os.getpid(),
-            "tasks": {
-                "pending": pending,
-                "running": running,
-                "done": done
-            },
-            "state": self.state.get_all()
+            "tasks": {"pending": pending, "running": running, "done": done},
+            "state": self.state.get_all(),
         }
 
     async def _handle_health(self, data: Dict) -> Dict:
         """Handle health check query."""
         import resource
-        
+
         # Get process memory usage
         try:
             usage = resource.getrusage(resource.RUSAGE_SELF)
             memory_mb = usage.ru_maxrss / 1024  # Convert to MB (on Linux)
         except (ValueError, ZeroDivisionError, OSError):
             memory_mb = 0
-        
+
         # Get task stats
         all_tasks = self.state.get_all_tasks()
         pending_count = len([t for t in all_tasks if t["status"] == "pending"])
@@ -243,31 +244,28 @@ class DaemonServer:
                 running_time = now - t["started_at"]
                 if running_time > 1800:  # 30 minutes
                     stuck_tasks.append(t["id"])
-        
+
         # Get recent actions count
         recent_actions = len(self.state.get_recent_actions(100))
-        
+
         # Get uptime
         started_at = self.state.get("daemon_started_at", 0)
         uptime_seconds = int(time.time()) - int(started_at) if started_at else 0
-        
+
         return {
             "status": "ok",
             "healthy": True,
             "pid": os.getpid(),
             "uptime_seconds": uptime_seconds,
             "memory_mb": round(memory_mb, 1),
-            "tasks": {
-                "pending": pending_count,
-                "stuck": stuck_tasks
-            },
-            "recent_actions": recent_actions
+            "tasks": {"pending": pending_count, "stuck": stuck_tasks},
+            "recent_actions": recent_actions,
         }
 
     async def _handle_task(self, data: Dict) -> Dict:
         """Handle task query (get task by ID or list all)."""
         task_id = data.get("id")
-        
+
         if task_id is not None:
             # Get specific task
             task = self.state.get_task(task_id)
@@ -285,7 +283,7 @@ class DaemonServer:
         task_id = data.get("id")
         if not task_id:
             return {"status": "error", "message": "Task ID required"}
-        
+
         cancelled = self.state.cancel_task(task_id)
         if cancelled:
             self.state.log_action("task_cancelled", f"Task {task_id}")
@@ -302,16 +300,18 @@ class DaemonServer:
         if self._shutdown_callback:
             self._shutdown_callback()
         return {"status": "ok", "message": "Shutting down"}
-    
+
     async def _handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         """Handle incoming client connection with peer credential verification."""
         try:
             # Verify peer credentials (same user only)
-            peer_pid = writer.get_extra_info('peer_pid')
-            peer_uid = writer.get_extra_info('peer_uid')
+            peer_pid = writer.get_extra_info("peer_pid")
+            peer_uid = writer.get_extra_info("peer_uid")
             if peer_uid is not None and peer_uid != os.getuid():
                 error(f"Rejected connection from different UID: {peer_uid}")
-                writer.write(json.dumps({"status": "error", "message": "Unauthorized"}).encode('utf-8'))
+                writer.write(
+                    json.dumps({"status": "error", "message": "Unauthorized"}).encode("utf-8")
+                )
                 await writer.drain()
                 writer.close()
                 await writer.wait_closed()
@@ -321,31 +321,31 @@ class DaemonServer:
             data = await reader.read(65536)
             if not data:
                 return
-            
-            request = json.loads(data.decode('utf-8'))
+
+            request = json.loads(data.decode("utf-8"))
             cmd = request.get("cmd", "unknown")
-            
+
             info(f"Received command: {cmd}")
-            
+
             # Route to handler
             handler = self._handlers.get(cmd)
             if handler:
                 response = await handler(request.get("data", {}))
             else:
                 response = {"status": "error", "message": f"Unknown command: {cmd}"}
-            
+
             # Send response
-            writer.write(json.dumps(response).encode('utf-8'))
+            writer.write(json.dumps(response).encode("utf-8"))
             await writer.drain()
-            
+
         except json.JSONDecodeError as e:
             error(f"Invalid JSON from client: {e}")
-            writer.write(json.dumps({"status": "error", "message": "Invalid JSON"}).encode('utf-8'))
+            writer.write(json.dumps({"status": "error", "message": "Invalid JSON"}).encode("utf-8"))
             await writer.drain()
         except Exception as e:
             error(f"Error handling client: {e}")
             try:
-                writer.write(json.dumps({"status": "error", "message": str(e)}).encode('utf-8'))
+                writer.write(json.dumps({"status": "error", "message": str(e)}).encode("utf-8"))
                 await writer.drain()
             except (ConnectionError, OSError):
                 pass
@@ -355,26 +355,23 @@ class DaemonServer:
                 await writer.wait_closed()
             except (ConnectionError, OSError):
                 pass
-    
+
     async def start(self):
         """Start the socket server."""
         # Remove old socket file if exists
         SOCKET_FILE.unlink(missing_ok=True)
-        
-        self.server = await asyncio.start_unix_server(
-            self._handle_client,
-            path=str(SOCKET_FILE)
-        )
-        
+
+        self.server = await asyncio.start_unix_server(self._handle_client, path=str(SOCKET_FILE))
+
         # Set socket permissions (user only)
         os.chmod(SOCKET_FILE, 0o600)
-        
+
         self.running = True
         info(f"Daemon listening on {SOCKET_FILE}")
-        
+
         async with self.server:
             await self.server.serve_forever()
-    
+
     async def stop(self):
         """Stop the socket server."""
         self.running = False
@@ -386,6 +383,7 @@ class DaemonServer:
 
 
 # ==================== Daemon Core ====================
+
 
 class Daemon:
     """
@@ -409,18 +407,25 @@ class Daemon:
         setup_file_logging(log_file_path)
 
         # Override path constants from config so all other functions see them.
-        PID_FILE    = Path(self._config.get("daemon", "pid_file",    default=str(DAEMON_DIR / "codey-v3.pid")))
-        SOCKET_FILE = Path(self._config.get("daemon", "socket_file", default=str(DAEMON_DIR / "codey-v3.sock")))
-        LOG_FILE    = Path(log_file_path)
+        PID_FILE = Path(
+            self._config.get("daemon", "pid_file", default=str(DAEMON_DIR / "codey-v3.pid"))
+        )
+        SOCKET_FILE = Path(
+            self._config.get("daemon", "socket_file", default=str(DAEMON_DIR / "codey-v3.sock"))
+        )
+        LOG_FILE = Path(log_file_path)
 
         self.state = get_state_store()
         self.server = DaemonServer(self.state, shutdown_callback=self._trigger_shutdown)
         self.executor = TaskExecutor(self.state, self._config)
         from core.planner_v2 import get_planner
+
         self.planner = get_planner()
         # Give DaemonServer access to the planner so _handle_command can queue steps.
         self.server.planner = self.planner
-        from core.background import get_background_manager, get_file_watch_manager
+        from core.background import (get_background_manager,
+                                     get_file_watch_manager)
+
         self.background = get_background_manager()
         self.file_watch = get_file_watch_manager()
         self.running = True
@@ -432,9 +437,10 @@ class Daemon:
 
         # Wire ProjectMemory: load CODEY.md and config.json at boot (never evicted)
         try:
-            from core.memory_v2 import memory as _mem
-            from core.codeymd import find_codeymd, read_codeymd
             from pathlib import Path as _Path
+
+            from core.codeymd import find_codeymd, read_codeymd
+            from core.memory_v2 import memory as _mem
 
             # Load CODEY.md if it exists
             _codeymd_path = find_codeymd()
@@ -459,17 +465,17 @@ class Daemon:
         self.running = False
         if self.server.server:
             self.server.server.close()
-    
+
     def _handle_sigterm(self, signum, frame):
         """Handle SIGTERM (graceful shutdown)."""
         info("SIGTERM received, shutting down...")
         self.running = False
-    
+
     def _handle_sigusr1(self, signum, frame):
         """Handle SIGUSR1 (reload configuration)."""
         info("SIGUSR1 received, reload requested")
         self._reload_requested = True
-    
+
     async def _main_loop(self):
         """Main daemon event loop."""
         info("Daemon started")
@@ -487,10 +493,13 @@ class Daemon:
 
         # Pre-load 7B model (llama-server on port 8080) so it's ready for CLI
         # Skip when using a remote backend — no local server needed
-        from utils.config import CODEY_BACKEND as _backend, is_remote_backend as _is_remote
+        from utils.config import CODEY_BACKEND as _backend
+        from utils.config import is_remote_backend as _is_remote
+
         if not _is_remote():
             try:
                 from core.loader_v2 import get_loader
+
                 loader = get_loader()
                 if loader.ensure_model():
                     info("7B model pre-loaded (port 8080)")
@@ -504,6 +513,7 @@ class Daemon:
         # Start dedicated embedding server (nomic-embed on port 8082)
         try:
             from core.embed_server import start_embed_server
+
             if start_embed_server():
                 info("Embed server started (port 8082)")
             else:
@@ -536,6 +546,7 @@ class Daemon:
                     if not _is_remote():
                         try:
                             from core.loader_v2 import get_loader
+
                             _loader = get_loader()
                             if not _loader.get_loaded_model():
                                 warning("7B model server died — restarting...")
@@ -545,9 +556,11 @@ class Daemon:
                     # Embed server watchdog
                     try:
                         from core.embed_server import get_embed_server
+
                         if not get_embed_server().is_running():
                             warning("Embed server died — restarting...")
                             from core.embed_server import start_embed_server
+
                             start_embed_server()
                     except Exception:
                         pass
@@ -562,6 +575,7 @@ class Daemon:
             # Stop embed server
             try:
                 from core.embed_server import stop_embed_server
+
                 stop_embed_server()
             except Exception:
                 pass
@@ -662,11 +676,12 @@ class Daemon:
 
 # ==================== CLI Functions ====================
 
+
 def is_daemon_running() -> bool:
     """Check if daemon is running by testing socket."""
     if not SOCKET_FILE.exists():
         return False
-    
+
     try:
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.settimeout(1.0)
@@ -690,7 +705,7 @@ def send_command(cmd: str, data: Dict = None, timeout: float = 60.0) -> Dict:
 
         # Send request
         request = {"cmd": cmd, "data": data or {}}
-        sock.sendall(json.dumps(request).encode('utf-8'))
+        sock.sendall(json.dumps(request).encode("utf-8"))
 
         # Receive response
         response_data = b""
@@ -699,16 +714,16 @@ def send_command(cmd: str, data: Dict = None, timeout: float = 60.0) -> Dict:
             if not chunk:
                 break
             response_data += chunk
-        
+
         if not response_data:
             raise ConnectionError("No response from daemon. Connection closed.")
 
-        response = json.loads(response_data.decode('utf-8'))
-        
+        response = json.loads(response_data.decode("utf-8"))
+
         # Check for error response
         if response.get("status") == "error":
             raise RuntimeError(response.get("message", "Unknown error"))
-        
+
         return response
 
     except socket.timeout:
@@ -746,12 +761,13 @@ def daemon_shutdown():
 
 # ==================== Entry Point ====================
 
+
 def main():
     """Main entry point for daemon."""
     if check_pid_file():
         error("Daemon is already running")
         sys.exit(1)
-    
+
     daemon = Daemon()
     daemon.run()
 

@@ -2,8 +2,9 @@
 Plan mode — think before acting on complex tasks.
 Codey writes a short plan, user approves, then executes.
 """
-from utils.logger import console, info, warning, separator
+
 from core.orchestrator import is_complex  # single shared implementation
+from utils.logger import console, info, separator
 
 PLAN_SYSTEM_PROMPT = """You are Codey's planning module. When given a task, write a concise action plan.
 
@@ -25,17 +26,25 @@ Example:
 Ready to execute.
 """
 
+
 def get_plan(user_message: str, system_context: str = "") -> str:
     """Ask the model to plan before executing."""
     from core.inference_v2 import infer
+
     messages = [
-        {"role": "system", "content": PLAN_SYSTEM_PROMPT + (f"\n\nProject context:\n{system_context}" if system_context else "")},
-        {"role": "user",   "content": f"Plan this task: {user_message}"}
+        {
+            "role": "system",
+            "content": PLAN_SYSTEM_PROMPT
+            + (f"\n\nProject context:\n{system_context}" if system_context else ""),
+        },
+        {"role": "user", "content": f"Plan this task: {user_message}"},
     ]
-    from utils.logger import console, info
+    from utils.logger import info
+
     info("Generating plan...")
     result = infer(messages, stream=False)
     return result
+
 
 def show_and_confirm_plan(plan: str) -> bool:
     """

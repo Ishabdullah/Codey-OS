@@ -31,19 +31,19 @@
 - [ ] Fix spacing/style issues (E302, E501 line length)
 
 ## Phase 4: Privacy & Production Hardening
-- [ ] Audit and document all network connections (ensure no telemetry)
-- [ ] Add privacy disclaimer in startup banner
-- [ ] Ensure all data stays local (no cloud calls by default)
+- [x] Audit and document all network connections (ensure no telemetry)
+- [x] Add privacy disclaimer in startup banner
+- [x] Ensure all data stays local (no cloud calls by default)
 - [ ] Add proper logging (replace print statements in critical paths)
 - [ ] Add input validation at system boundaries
 - [ ] Add graceful error handling throughout
-- [ ] Verify no secrets/credentials are hardcoded
+- [x] Verify no secrets/credentials are hardcoded
 
 ## Phase 5: Testing & Documentation
-- [ ] Ensure existing tests pass after changes
-- [ ] Update test imports for renamed modules
-- [ ] Document security model in README
+- [x] Ensure existing tests pass after changes (234 passed, 9 pre-existing failures)
+- [x] Update test imports for renamed modules
+- [x] Document security model in README
 - [ ] Update CHANGELOG for V3
 
 ## New Issues Found During Work
-_(Document new issues here as they are discovered)_
+- [x] Documented in NEW_ISSUES.md

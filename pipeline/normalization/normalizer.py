@@ -20,18 +20,16 @@ Intermediate format:
 }
 """
 
-import re
 import hashlib
-from typing import Dict, Optional, Iterator
+import re
+from typing import Dict, Optional
 
-from .classifier import (
-    classify_response, detect_language,
-    SHELL_COMMAND, FILE_WRITE, CODE_GENERATION, UNKNOWN,
-)
-from .quality import score as quality_score, has_placeholder
-
+from .classifier import classify_response, detect_language
+from .quality import has_placeholder
+from .quality import score as quality_score
 
 # ── Text cleaning helpers ─────────────────────────────────────────────────────
+
 
 def _clean_text(text: str) -> str:
     """Normalise whitespace, strip leading/trailing noise."""
@@ -58,6 +56,7 @@ def _strip_leading_verb(instruction: str) -> str:
 
 # ── Per-schema extractors ─────────────────────────────────────────────────────
 
+
 class NormalizationPipeline:
     """
     Routes raw records to the correct extractor based on _schema_type,
@@ -74,20 +73,20 @@ class NormalizationPipeline:
         self._seen: set = set()
 
         self._extractors = {
-            "glaive_fc":       self._extract_glaive_fc,
-            "hermes_fc":       self._extract_hermes_fc,
-            "xlam_fc":         self._extract_xlam_fc,
-            "alpaca_code":     self._extract_alpaca,
-            "alpaca_general":  self._extract_alpaca,
-            "codesearchnet":   self._extract_codesearchnet,
-            "mbpp":            self._extract_mbpp,
-            "humaneval":       self._extract_humaneval,
-            "bigcodebench":    self._extract_bigcodebench,
-            "humanevalpack":   self._extract_humanevalpack,
-            "code_feedback":   self._extract_code_feedback,
-            "orca_agent":      self._extract_orca_agent,
-            "bfcl":            self._extract_bfcl,
-            "jsonl_generic":   self._extract_jsonl_generic,
+            "glaive_fc": self._extract_glaive_fc,
+            "hermes_fc": self._extract_hermes_fc,
+            "xlam_fc": self._extract_xlam_fc,
+            "alpaca_code": self._extract_alpaca,
+            "alpaca_general": self._extract_alpaca,
+            "codesearchnet": self._extract_codesearchnet,
+            "mbpp": self._extract_mbpp,
+            "humaneval": self._extract_humaneval,
+            "bigcodebench": self._extract_bigcodebench,
+            "humanevalpack": self._extract_humanevalpack,
+            "code_feedback": self._extract_code_feedback,
+            "orca_agent": self._extract_orca_agent,
+            "bfcl": self._extract_bfcl,
+            "jsonl_generic": self._extract_jsonl_generic,
         }
 
     # ── Public entry point ────────────────────────────────────────────────────
@@ -139,7 +138,7 @@ class NormalizationPipeline:
         is_synthetic: bool = False,
         execution_verified: bool = False,
     ) -> Optional[Dict]:
-        instruction  = _clean_text(instruction)
+        instruction = _clean_text(instruction)
         raw_response = _clean_text(raw_response)
 
         if not instruction or not raw_response:
@@ -150,16 +149,16 @@ class NormalizationPipeline:
         resp_type = classify_response(raw_response, instruction)
 
         return {
-            "instruction":        _strip_leading_verb(instruction),
-            "response_type":      resp_type,
-            "raw_response":       raw_response,
-            "language":           lang,
-            "source_dataset":     source,
-            "source_id":          source_id or "",
-            "quality":            0.0,  # filled in by process()
-            "is_synthetic":       is_synthetic,
+            "instruction": _strip_leading_verb(instruction),
+            "response_type": resp_type,
+            "raw_response": raw_response,
+            "language": lang,
+            "source_dataset": source,
+            "source_id": source_id or "",
+            "quality": 0.0,  # filled in by process()
+            "is_synthetic": is_synthetic,
             "execution_verified": execution_verified,
-            "_extra":             extra or {},
+            "_extra": extra or {},
         }
 
     # ── Glaive function-calling v2 ────────────────────────────────────────────
@@ -183,7 +182,8 @@ class NormalizationPipeline:
         raw_response = fc_match.group(1).strip()
 
         return self._make_base(
-            instruction, raw_response,
+            instruction,
+            raw_response,
             source="glaive-function-calling-v2",
             extra={"system_prompt": system, "schema_type": "function_call_json"},
         )
@@ -213,7 +213,8 @@ class NormalizationPipeline:
         raw_response = tc_match.group(1) if tc_match else assistant_content
 
         return self._make_base(
-            user_content, raw_response,
+            user_content,
+            raw_response,
             source="hermes-function-calling-v1",
             extra={"schema_type": "function_call_json"},
         )
@@ -230,7 +231,8 @@ class NormalizationPipeline:
             return None
 
         return self._make_base(
-            query, answers,
+            query,
+            answers,
             source=raw.get("_source", "xlam-function-calling"),
             execution_verified=True,
             extra={"schema_type": "xlam_answers", "tools_spec": raw.get("tools", "")},
@@ -239,8 +241,8 @@ class NormalizationPipeline:
     # ── Alpaca-style (code and general) ───────────────────────────────────────
     def _extract_alpaca(self, raw: Dict) -> Optional[Dict]:
         instruction = raw.get("instruction", "")
-        inp         = raw.get("input", "")
-        output      = raw.get("output", raw.get("response", ""))
+        inp = raw.get("input", "")
+        output = raw.get("output", raw.get("response", ""))
 
         if not instruction or not output:
             return None
@@ -250,33 +252,36 @@ class NormalizationPipeline:
             instruction = f"{instruction}\nContext: {inp}"
 
         return self._make_base(
-            instruction, output,
+            instruction,
+            output,
             source=raw.get("_source", "alpaca"),
         )
 
     # ── CodeSearchNet instructional ───────────────────────────────────────────
     def _extract_codesearchnet(self, raw: Dict) -> Optional[Dict]:
         instruction = raw.get("instruction", "")
-        response    = raw.get("response", "")
+        response = raw.get("response", "")
         if not instruction or not response:
             return None
         return self._make_base(
-            instruction, response,
+            instruction,
+            response,
             source="instructional-codesearchnet-python",
         )
 
     # ── MBPP ─────────────────────────────────────────────────────────────────
     def _extract_mbpp(self, raw: Dict) -> Optional[Dict]:
-        text      = raw.get("text", "")
-        code      = raw.get("code", "")
-        tests     = raw.get("test_list", [])
-        task_id   = str(raw.get("task_id", ""))
+        text = raw.get("text", "")
+        code = raw.get("code", "")
+        tests = raw.get("test_list", [])
+        task_id = str(raw.get("task_id", ""))
 
         if not text or not code:
             return None
 
         return self._make_base(
-            text, code,
+            text,
+            code,
             source="mbpp",
             source_id=task_id,
             execution_verified=True,
@@ -285,11 +290,11 @@ class NormalizationPipeline:
 
     # ── HumanEval+ ───────────────────────────────────────────────────────────
     def _extract_humaneval(self, raw: Dict) -> Optional[Dict]:
-        prompt    = raw.get("prompt", "")
-        solution  = raw.get("canonical_solution", "")
-        test      = raw.get("test", "")
-        task_id   = str(raw.get("task_id", ""))
-        entry     = raw.get("entry_point", "")
+        prompt = raw.get("prompt", "")
+        solution = raw.get("canonical_solution", "")
+        test = raw.get("test", "")
+        task_id = str(raw.get("task_id", ""))
+        entry = raw.get("entry_point", "")
 
         if not prompt or not solution:
             return None
@@ -300,7 +305,8 @@ class NormalizationPipeline:
 
         full_code = prompt + solution
         return self._make_base(
-            instruction, full_code,
+            instruction,
+            full_code,
             source="humanevalplus",
             source_id=task_id,
             execution_verified=True,
@@ -310,15 +316,16 @@ class NormalizationPipeline:
     # ── BigCodeBench ─────────────────────────────────────────────────────────
     def _extract_bigcodebench(self, raw: Dict) -> Optional[Dict]:
         instruction = raw.get("instruct_prompt", "")
-        solution    = raw.get("canonical_solution", "")
-        test        = raw.get("test", "")
-        task_id     = str(raw.get("task_id", ""))
+        solution = raw.get("canonical_solution", "")
+        test = raw.get("test", "")
+        task_id = str(raw.get("task_id", ""))
 
         if not instruction or not solution:
             return None
 
         return self._make_base(
-            instruction, solution,
+            instruction,
+            solution,
             source="bigcodebench",
             source_id=task_id,
             execution_verified=True,
@@ -327,17 +334,17 @@ class NormalizationPipeline:
 
     # ── HumanEvalPack ────────────────────────────────────────────────────────
     def _extract_humanevalpack(self, raw: Dict) -> Optional[Dict]:
-        prompt        = raw.get("prompt", "")
-        solution      = raw.get("canonical_solution", "")
-        buggy         = raw.get("buggy_solution", "")
-        task_id       = str(raw.get("task_id", ""))
-        task_type     = raw.get("task_type", "synthesis")  # synthesis|fix|explain
-        language      = raw.get("language", "python")
+        prompt = raw.get("prompt", "")
+        solution = raw.get("canonical_solution", "")
+        buggy = raw.get("buggy_solution", "")
+        task_id = str(raw.get("task_id", ""))
+        task_type = raw.get("task_type", "synthesis")  # synthesis|fix|explain
+        language = raw.get("language", "python")
 
         if not prompt:
             return None
 
-        doc_match   = re.search(r'"""(.*?)"""', prompt, re.DOTALL)
+        doc_match = re.search(r'"""(.*?)"""', prompt, re.DOTALL)
         instruction = doc_match.group(1).strip() if doc_match else prompt.strip()
 
         if task_type == "fix":
@@ -351,7 +358,8 @@ class NormalizationPipeline:
             extra = {"schema_type": "humaneval", "language": language}
 
         return self._make_base(
-            instruction, raw_response,
+            instruction,
+            raw_response,
             source="humanevalpack",
             source_id=task_id,
             execution_verified=True,
@@ -360,8 +368,8 @@ class NormalizationPipeline:
 
     # ── Code-Feedback (OpenCodeInterpreter) ──────────────────────────────────
     def _extract_code_feedback(self, raw: Dict) -> Optional[Dict]:
-        query    = raw.get("query", "")
-        answer   = raw.get("answer", "")
+        query = raw.get("query", "")
+        answer = raw.get("answer", "")
         feedback = raw.get("code_feedback", [])
 
         if not query or not answer:
@@ -369,7 +377,8 @@ class NormalizationPipeline:
 
         has_execution = bool(feedback)
         return self._make_base(
-            query, answer,
+            query,
+            answer,
             source="code-feedback",
             execution_verified=has_execution,
             extra={"code_feedback": feedback[:1], "schema_type": "code_with_execution"},
@@ -384,7 +393,7 @@ class NormalizationPipeline:
         user_content = ""
         assistant_content = ""
         for msg in messages:
-            role    = msg.get("role", "")
+            role = msg.get("role", "")
             content = msg.get("content", "")
             if role == "user" and not user_content:
                 user_content = content
@@ -395,18 +404,20 @@ class NormalizationPipeline:
             return None
 
         return self._make_base(
-            user_content, assistant_content,
+            user_content,
+            assistant_content,
             source="orca-agentinstruct",
         )
 
     # ── BFCL (eval set only) ─────────────────────────────────────────────────
     def _extract_bfcl(self, raw: Dict) -> Optional[Dict]:
         instruction = raw.get("question", raw.get("prompt", ""))
-        answer      = raw.get("ground_truth", raw.get("answer", ""))
+        answer = raw.get("ground_truth", raw.get("answer", ""))
         if not instruction or not answer:
             return None
         return self._make_base(
-            instruction, str(answer),
+            instruction,
+            str(answer),
             source="bfcl",
             execution_verified=True,
         )
@@ -415,18 +426,21 @@ class NormalizationPipeline:
     def _extract_jsonl_generic(self, raw: Dict) -> Optional[Dict]:
         # Try common field names in order of preference
         instruction = (
-            raw.get("instruction") or raw.get("user") or
-            raw.get("query") or raw.get("prompt") or ""
+            raw.get("instruction") or raw.get("user") or raw.get("query") or raw.get("prompt") or ""
         )
         response = (
-            raw.get("response") or raw.get("output") or
-            raw.get("assistant") or raw.get("answer") or ""
+            raw.get("response")
+            or raw.get("output")
+            or raw.get("assistant")
+            or raw.get("answer")
+            or ""
         )
         if not instruction or not response:
             return None
 
         return self._make_base(
-            instruction, response,
+            instruction,
+            response,
             source=raw.get("_source", "custom"),
             is_synthetic=raw.get("is_synthetic", False),
             extra=raw.get("_extra", {}),

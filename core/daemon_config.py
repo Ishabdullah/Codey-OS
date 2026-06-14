@@ -8,7 +8,7 @@ Provides defaults for all settings.
 
 import json
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 # Configuration directory
 CONFIG_DIR = Path.home() / ".codey-v3"
@@ -26,21 +26,18 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "log_file": str(Path.home() / ".codey-v3/codey-v3.log"),
         "log_level": "INFO",  # DEBUG, INFO, WARNING, ERROR
     },
-    
     # Task processing settings
     "tasks": {
         "max_concurrent": 1,
         "task_timeout": 1800,  # 30 minutes
         "max_retries": 3,
     },
-    
     # Health check settings
     "health": {
         "check_interval": 60,  # seconds
         "max_memory_mb": 1500,
         "stuck_task_threshold": 1800,  # 30 minutes
     },
-    
     # State database settings
     "state": {
         "db_path": str(Path.home() / ".codey-v3/state.db"),
@@ -52,20 +49,20 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 class DaemonConfig:
     """
     Daemon configuration manager.
-    
+
     Loads from config file, falls back to defaults.
     Provides get/set methods for configuration access.
     """
-    
+
     def __init__(self, config_file: Path = CONFIG_FILE):
         self.config_file = config_file
         self._config: Dict[str, Any] = self._load_config()
-    
+
     def _load_config(self) -> Dict[str, Any]:
         """Load configuration from file or return defaults."""
         if self.config_file.exists():
             try:
-                with open(self.config_file, 'r') as f:
+                with open(self.config_file, "r") as f:
                     user_config = json.load(f)
                 # Merge with defaults
                 return self._merge_configs(DEFAULT_CONFIG, user_config)
@@ -73,7 +70,7 @@ class DaemonConfig:
                 print(f"Warning: Could not load config file: {e}")
                 return DEFAULT_CONFIG.copy()
         return DEFAULT_CONFIG.copy()
-    
+
     def _merge_configs(self, base: Dict, override: Dict) -> Dict:
         """Recursively merge override config into base config."""
         result = base.copy()
@@ -83,7 +80,7 @@ class DaemonConfig:
             else:
                 result[key] = value
         return result
-    
+
     def get(self, *keys: str, default: Any = None) -> Any:
         """
         Get a configuration value by nested keys.
@@ -96,16 +93,16 @@ class DaemonConfig:
                 current = current[key]
             else:
                 return default
-        
+
         # Expand tilde paths for string values
         if isinstance(current, str) and current.startswith("~"):
             return str(Path(current).expanduser())
         return current
-    
+
     def set(self, *keys: str, value: Any):
         """
         Set a configuration value by nested keys.
-        
+
         Example: config.set("daemon", "log_level", value="DEBUG")
         """
         current = self._config
@@ -114,19 +111,19 @@ class DaemonConfig:
                 current[key] = {}
             current = current[key]
         current[keys[-1]] = value
-    
+
     def save(self):
         """Save current configuration to file."""
-        with open(self.config_file, 'w') as f:
+        with open(self.config_file, "w") as f:
             json.dump(self._config, f, indent=2)
-    
+
     def create_default_config(self) -> Path:
         """Create a default config file if it doesn't exist."""
         if not self.config_file.exists():
-            with open(self.config_file, 'w') as f:
+            with open(self.config_file, "w") as f:
                 json.dump(DEFAULT_CONFIG, f, indent=2)
         return self.config_file
-    
+
     @property
     def all(self) -> Dict[str, Any]:
         """Get all configuration as a dictionary."""

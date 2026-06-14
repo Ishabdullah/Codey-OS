@@ -54,7 +54,9 @@ class SQLiteMetadataStore:
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_record_id ON records(record_id)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_source    ON records(json_extract(metadata, '$.source'))")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_source    ON records(json_extract(metadata, '$.source'))"
+        )
         conn.commit()
 
     def insert(self, vector_id: int, record: Dict, embed_text: str) -> None:
@@ -90,15 +92,17 @@ class SQLiteMetadataStore:
         rows = []
         for vector_id, record, embed_text in items:
             meta = record.get("metadata", {})
-            rows.append((
-                vector_id,
-                meta.get("id", ""),
-                record.get("user", ""),
-                json.dumps(record.get("tool_calls", []), ensure_ascii=False),
-                json.dumps(meta, ensure_ascii=False),
-                embed_text,
-                int(time.time()),
-            ))
+            rows.append(
+                (
+                    vector_id,
+                    meta.get("id", ""),
+                    record.get("user", ""),
+                    json.dumps(record.get("tool_calls", []), ensure_ascii=False),
+                    json.dumps(meta, ensure_ascii=False),
+                    embed_text,
+                    int(time.time()),
+                )
+            )
         conn.executemany(
             """
             INSERT OR REPLACE INTO records
@@ -112,9 +116,7 @@ class SQLiteMetadataStore:
     def get_by_vector_id(self, vector_id: int) -> Optional[Dict]:
         """Retrieve a full record by its vector index ID."""
         conn = self._connect()
-        row  = conn.execute(
-            "SELECT * FROM records WHERE id = ?", (vector_id,)
-        ).fetchone()
+        row = conn.execute("SELECT * FROM records WHERE id = ?", (vector_id,)).fetchone()
         return self._row_to_dict(row) if row else None
 
     def get_by_ids(self, vector_ids: List[int]) -> List[Optional[Dict]]:
@@ -141,10 +143,10 @@ class SQLiteMetadataStore:
     @staticmethod
     def _row_to_dict(row) -> Dict:
         return {
-            "vector_id":  row["id"],
-            "record_id":  row["record_id"],
-            "user":       row["user"],
+            "vector_id": row["id"],
+            "record_id": row["record_id"],
+            "user": row["user"],
             "tool_calls": json.loads(row["tool_calls"]),
-            "metadata":   json.loads(row["metadata"]),
+            "metadata": json.loads(row["metadata"]),
             "embed_text": row["embed_text"],
         }

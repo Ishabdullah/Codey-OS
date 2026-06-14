@@ -10,13 +10,13 @@ Falls back to legacy HTTP backend (core/inference.py) if hybrid is unavailable.
 """
 
 import time
-from typing import Optional, Dict, Any
+from typing import Any, Dict
 
-from utils.logger import info, error, warning, success
-from utils.config import MODEL_CONFIG, CODEY_BACKEND, is_remote_backend
-from core.loader_v2 import get_loader
 from rich.console import Console
-import sys
+
+from core.loader_v2 import get_loader
+from utils.config import MODEL_CONFIG, is_remote_backend
+from utils.logger import info, warning
 
 console = Console()
 
@@ -41,6 +41,7 @@ def _get_chat_backend():
         if is_remote_backend():
             try:
                 from core.inference_openrouter import get_remote_backend
+
                 _chat_backend = get_remote_backend()
                 info(f"Backend: {_chat_backend.backend_name}")
             except Exception as e:
@@ -49,6 +50,7 @@ def _get_chat_backend():
         else:
             try:
                 from core.inference_hybrid import get_hybrid_backend
+
                 _chat_backend = get_hybrid_backend()
                 info(f"Backend: {_chat_backend.backend_name}")
             except Exception as e:
@@ -57,9 +59,15 @@ def _get_chat_backend():
     return _chat_backend
 
 
-def infer(messages: list[dict], stream: bool = False, extra_stop: list = None,
-          model: str = None, show_thinking: bool = False,
-          use_hybrid: bool = True, max_tokens: int = None) -> str:
+def infer(
+    messages: list[dict],
+    stream: bool = False,
+    extra_stop: list = None,
+    model: str = None,
+    show_thinking: bool = False,
+    use_hybrid: bool = True,
+    max_tokens: int = None,
+) -> str:
     """
     Run inference using /v1/chat/completions (ChatML).
 
@@ -95,9 +103,14 @@ def infer(messages: list[dict], stream: bool = False, extra_stop: list = None,
     return _infer_http(messages, stream, extra_stop, show_thinking)
 
 
-def _infer_chat(backend, messages: list[dict], extra_stop: list,
-                show_thinking: bool, stream: bool = False,
-                max_tokens: int = None) -> str:
+def _infer_chat(
+    backend,
+    messages: list[dict],
+    extra_stop: list,
+    show_thinking: bool,
+    stream: bool = False,
+    max_tokens: int = None,
+) -> str:
     """Run inference via /v1/chat/completions — proper ChatML."""
     global last_tps, _last_was_streamed
 
@@ -111,8 +124,7 @@ def _infer_chat(backend, messages: list[dict], extra_stop: list,
 
     _max = max_tokens or MODEL_CONFIG.get("max_tokens", 2048)
     start = time.time()
-    result = backend.infer(messages, max_tokens=_max,
-                           stop=stop, stream=stream)
+    result = backend.infer(messages, max_tokens=_max, stop=stop, stream=stream)
 
     if result is None:
         _last_was_streamed = False
@@ -131,13 +143,14 @@ def _infer_chat(backend, messages: list[dict], extra_stop: list,
     # to avoid cluttering the output. For blocking mode, show the summary.
     if show_thinking and not stream:
         bname = backend.backend_name
-        console.print(f"[dim]\u2713 Done ({bname}): {tokens} tokens in {elapsed:.1f}s ({tps:.1f} t/s)[/dim]")
+        console.print(
+            f"[dim]\u2713 Done ({bname}): {tokens} tokens in {elapsed:.1f}s ({tps:.1f} t/s)[/dim]"
+        )
 
     return text
 
 
-def _infer_http(messages: list[dict], stream: bool, extra_stop: list,
-                show_thinking: bool) -> str:
+def _infer_http(messages: list[dict], stream: bool, extra_stop: list, show_thinking: bool) -> str:
     """Run inference using legacy HTTP backend (inference.py on port 8081)."""
     global last_tps
 
@@ -154,7 +167,9 @@ def _infer_http(messages: list[dict], stream: bool, extra_stop: list,
         tokens = len(result.split())
         tps = round(tokens / elapsed, 1) if elapsed > 0 else 0
         last_tps = tps
-        console.print(f"[dim]\u2713 Done (http): {tokens} tokens in {elapsed:.1f}s ({tps:.1f} t/s)[/dim]")
+        console.print(
+            f"[dim]\u2713 Done (http): {tokens} tokens in {elapsed:.1f}s ({tps:.1f} t/s)[/dim]"
+        )
 
     return result
 
@@ -186,7 +201,7 @@ def get_backend_info() -> Dict[str, Any]:
         return {
             "type": "http",
             "method": "llama-server + /v1/chat/completions (legacy port 8081)",
-            "note": "Chat backend unavailable, using HTTP fallback"
+            "note": "Chat backend unavailable, using HTTP fallback",
         }
 
     return {

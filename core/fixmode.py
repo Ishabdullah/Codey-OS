@@ -3,11 +3,12 @@
 codey --fix script.py
 codey --fix script.py "also add argument parsing while you're at it"
 """
+
 import subprocess
-import sys
 from pathlib import Path
-from utils.logger import info, success, error, warning, separator
-from utils.config import MODEL_CONFIG
+
+from utils.logger import error, info, separator, success, warning
+
 
 def run_and_capture(path: str) -> tuple[bool, str]:
     """
@@ -30,6 +31,7 @@ def run_and_capture(path: str) -> tuple[bool, str]:
     except Exception as e:
         return False, f"[ERROR] {e}"
 
+
 def fix_file(filepath: str, extra_instruction: str = "", yolo: bool = False):
     """
     Main fix mode entrypoint.
@@ -50,6 +52,7 @@ def fix_file(filepath: str, extra_instruction: str = "", yolo: bool = False):
     # Override confirmations in fix mode
     if yolo:
         from utils import config
+
         config.AGENT_CONFIG["confirm_write"] = False
         config.AGENT_CONFIG["confirm_shell"] = False
 
@@ -63,10 +66,7 @@ def fix_file(filepath: str, extra_instruction: str = "", yolo: bool = False):
             info(f"Applying extra instruction: {extra_instruction}")
             load_file(str(p))
             history = []
-            run_agent(
-                f"File {p.name} runs fine. Now: {extra_instruction}",
-                history, yolo=yolo
-            )
+            run_agent(f"File {p.name} runs fine. Now: {extra_instruction}", history, yolo=yolo)
         return
 
     # Error — show it and auto-fix
@@ -102,4 +102,4 @@ def fix_file(filepath: str, extra_instruction: str = "", yolo: bool = False):
     else:
         warning(f"Fix attempt did not fully resolve the error:")
         print(output2)
-        info("Try: codey --read " + str(p) + " \"fix this error: " + output2[:100] + "\"")
+        info("Try: codey --read " + str(p) + ' "fix this error: ' + output2[:100] + '"')

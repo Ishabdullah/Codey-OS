@@ -6,9 +6,9 @@ Fallback: sentence-transformers all-MiniLM-L6-v2 (384-dim)
 """
 
 from typing import Dict, List, Optional, Tuple
-from .nomic_client    import NomicEmbedClient
-from .sentence_client import SentenceEmbedClient
 
+from .nomic_client import NomicEmbedClient
+from .sentence_client import SentenceEmbedClient
 
 # Batch size: how many texts to embed per HTTP/inference call
 _BATCH_SIZE = 64
@@ -24,7 +24,7 @@ def build_embed_text(record: Dict) -> str:
     so that similarity search retrieves examples with matching *actions*,
     not just matching questions.
     """
-    user       = record.get("user", "").strip()
+    user = record.get("user", "").strip()
     tool_calls = record.get("tool_calls", [])
 
     if not tool_calls:
@@ -75,10 +75,10 @@ class EmbeddingPipeline:
         batch_size: int = _BATCH_SIZE,
         force_local: bool = False,
     ):
-        self.batch_size  = batch_size
-        self._nomic      = NomicEmbedClient(port=nomic_port)
-        self._local      = SentenceEmbedClient()
-        self._backend    = None
+        self.batch_size = batch_size
+        self._nomic = NomicEmbedClient(port=nomic_port)
+        self._local = SentenceEmbedClient()
+        self._backend = None
         self._dim: Optional[int] = None
         self._force_local = force_local
 
@@ -90,10 +90,10 @@ class EmbeddingPipeline:
 
         if not self._force_local and self._nomic.is_available():
             self._backend = self._nomic
-            self._dim     = 768
+            self._dim = 768
         elif self._local.is_available():
             self._backend = self._local
-            self._dim     = self._local.dim
+            self._dim = self._local.dim
         else:
             raise RuntimeError(
                 "No embedding backend available. "
@@ -137,11 +137,11 @@ class EmbeddingPipeline:
         """
         backend = self._get_backend()
         results = []
-        total   = len(records)
+        total = len(records)
 
         for batch_start in range(0, total, self.batch_size):
-            batch   = records[batch_start: batch_start + self.batch_size]
-            texts   = [build_embed_text(r) for r in batch]
+            batch = records[batch_start : batch_start + self.batch_size]
+            texts = [build_embed_text(r) for r in batch]
             vectors = backend.embed_batch(texts)
 
             for record, vec in zip(batch, vectors):

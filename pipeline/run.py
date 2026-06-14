@@ -19,49 +19,48 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from pipeline.ingestion         import HFIngestor, JSONLIngestor
-from pipeline.normalization     import NormalizationPipeline
-from pipeline.transformation    import TransformationEngine
-from pipeline.embedding         import EmbeddingPipeline
-from pipeline.storage           import SQLiteMetadataStore, VectorStore
-from pipeline.export            import Exporter
-from pipeline.synthetic         import write_synthetic_corpora
+from pipeline.embedding import EmbeddingPipeline
 from pipeline.embedding.embedder import build_embed_text
-
+from pipeline.export import Exporter
+from pipeline.ingestion import HFIngestor, JSONLIngestor
+from pipeline.normalization import NormalizationPipeline
+from pipeline.storage import SQLiteMetadataStore, VectorStore
+from pipeline.synthetic import write_synthetic_corpora
+from pipeline.transformation import TransformationEngine
 
 # ── Dataset registry ──────────────────────────────────────────────────────────
 
 PHASE1_DATASETS = {
-    "glaive":   "glaiveai/glaive-function-calling-v2",
-    "hermes":   "NousResearch/hermes-function-calling-v1",
-    "mbpp":     "google-research-datasets/mbpp",
-    "humaneval":"evalplus/humanevalplus",
-    "python18k":"iamtarun/python_code_instructions_18k_alpaca",
+    "glaive": "glaiveai/glaive-function-calling-v2",
+    "hermes": "NousResearch/hermes-function-calling-v1",
+    "mbpp": "google-research-datasets/mbpp",
+    "humaneval": "evalplus/humanevalplus",
+    "python18k": "iamtarun/python_code_instructions_18k_alpaca",
 }
 
 PHASE2_DATASETS = {
-    "xlam":     "lockon/xlam-function-calling-60k",
+    "xlam": "lockon/xlam-function-calling-60k",
     "code122k": "TokenBender/code_instructions_122k_alpaca_style",
     "codefeedback": "m-a-p/Code-Feedback",
-    "apigen":   "argilla/apigen-function-calling",
+    "apigen": "argilla/apigen-function-calling",
 }
 
 PHASE3_DATASETS = {
-    "bigcodebench":  "bigcode/bigcodebench",
+    "bigcodebench": "bigcode/bigcodebench",
     "humanevalpack": "bigcode/humanevalpack",
-    "alpaca":        "yahma/alpaca-cleaned",
+    "alpaca": "yahma/alpaca-cleaned",
     "codesearchnet": "Nan-Do/instructional_code-search-net-python",
-    "orca":          "microsoft/orca-agentinstruct-1M-v1",
+    "orca": "microsoft/orca-agentinstruct-1M-v1",
 }
 
 ALL_DATASETS = {**PHASE1_DATASETS, **PHASE2_DATASETS, **PHASE3_DATASETS}
 
 DATASET_SPLITS = {
     "google-research-datasets/mbpp": "train",
-    "evalplus/humanevalplus":         "test",
-    "bigcode/bigcodebench":           "v0.1.2",
-    "bigcode/humanevalpack":          "test",
-    "openai/openai_humaneval":        "test",
+    "evalplus/humanevalplus": "test",
+    "bigcode/bigcodebench": "v0.1.2",
+    "bigcode/humanevalpack": "test",
+    "openai/openai_humaneval": "test",
 }
 
 
@@ -99,12 +98,12 @@ def run_pipeline(args: argparse.Namespace) -> None:
     print(f"  Embed:       {args.embed}")
     print()
 
-    normalizer  = NormalizationPipeline(min_quality=args.min_quality)
+    normalizer = NormalizationPipeline(min_quality=args.min_quality)
     transformer = TransformationEngine(skip_invalid=True)
 
     embed_pipeline = None
-    vector_store   = None
-    sqlite_store   = None
+    vector_store = None
+    sqlite_store = None
 
     if args.embed:
         embed_pipeline = EmbeddingPipeline(nomic_port=8082)
@@ -132,11 +131,13 @@ def run_pipeline(args: argparse.Namespace) -> None:
         dataset_map = _resolve_datasets(args.datasets or ["phase1"])
         for short, hf_path in dataset_map.items():
             split = DATASET_SPLITS.get(hf_path, "train")
-            ingestors.append(HFIngestor(
-                dataset_path=hf_path,
-                split=split,
-                max_records=args.max_records,
-            ))
+            ingestors.append(
+                HFIngestor(
+                    dataset_path=hf_path,
+                    split=split,
+                    max_records=args.max_records,
+                )
+            )
 
     # Synthetic JSONL datasets
     if not args.skip_synthetic:
@@ -145,7 +146,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
             ingestors.append(JSONLIngestor(path, schema_type=schema, max_records=args.max_records))
 
     # Any extra JSONL files
-    for extra_path in (args.extra_jsonl or []):
+    for extra_path in args.extra_jsonl or []:
         ingestors.append(JSONLIngestor(extra_path))
 
     if not ingestors:
@@ -160,7 +161,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
             print(f"  Processing: {ingestor.name()} ...")
             t0 = time.time()
             source_count = 0
-            source_out   = 0
+            source_out = 0
 
             for raw in ingestor.ingest():
                 exporter.increment_input()
@@ -226,7 +227,7 @@ def _flush_embeddings(
     sqlite_store: SQLiteMetadataStore,
 ) -> None:
     """Embed a batch and persist to vector store + SQLite."""
-    records    = [r for r, _ in buffer]
+    records = [r for r, _ in buffer]
     embed_texts = [t for _, t in buffer]
 
     vectors = embed_pipeline._get_backend().embed_batch(embed_texts)
@@ -236,7 +237,7 @@ def _flush_embeddings(
         if vec is None:
             continue
         vid = vector_store.add(vec)
-        et  = build_embed_text(record)
+        et = build_embed_text(record)
         insert_batch.append((vid, record, et))
 
     if insert_batch:
@@ -244,6 +245,7 @@ def _flush_embeddings(
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
+
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
@@ -267,39 +269,52 @@ Examples:
     )
 
     p.add_argument(
-        "--datasets", nargs="*", default=["phase1"],
+        "--datasets",
+        nargs="*",
+        default=["phase1"],
         help="Dataset shortnames or phase (default: phase1)",
     )
     p.add_argument(
-        "--output-dir", default="./pipeline_output",
+        "--output-dir",
+        default="./pipeline_output",
         help="Output directory (default: ./pipeline_output)",
     )
     p.add_argument(
-        "--min-quality", type=float, default=0.5,
+        "--min-quality",
+        type=float,
+        default=0.5,
         help="Minimum quality score 0.0–1.0 (default: 0.5)",
     )
     p.add_argument(
-        "--max-records", type=int, default=None,
+        "--max-records",
+        type=int,
+        default=None,
         help="Max records per dataset (default: unlimited)",
     )
     p.add_argument(
-        "--embed", action="store_true",
+        "--embed",
+        action="store_true",
         help="Generate embeddings and build retrieval index",
     )
     p.add_argument(
-        "--skip-synthetic", action="store_true",
+        "--skip-synthetic",
+        action="store_true",
         help="Skip synthetic corpus generation",
     )
     p.add_argument(
-        "--synthetic-only", action="store_true",
+        "--synthetic-only",
+        action="store_true",
         help="Generate synthetic corpora only (no HF datasets)",
     )
     p.add_argument(
-        "--extra-jsonl", nargs="*", default=[],
+        "--extra-jsonl",
+        nargs="*",
+        default=[],
         help="Additional local JSONL files to include",
     )
     p.add_argument(
-        "--force-local-embed", action="store_true",
+        "--force-local-embed",
+        action="store_true",
         help="Use sentence-transformers instead of nomic server",
     )
 
@@ -308,7 +323,7 @@ Examples:
 
 def main() -> None:
     parser = build_parser()
-    args   = parser.parse_args()
+    args = parser.parse_args()
     run_pipeline(args)
 
 

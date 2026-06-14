@@ -1,5 +1,7 @@
 import unittest
+
 from core.agent import extract_json
+
 
 class TestAgentParsing(unittest.TestCase):
     def test_standard_json(self):
@@ -28,6 +30,7 @@ class TestAgentParsing(unittest.TestCase):
         raw = '{"name": "test", "args": {"foo": "bar"'
         result = extract_json(raw)
         self.assertEqual(result, {"name": "test", "args": {"foo": "bar"}})
+
 
 if __name__ == "__main__":
     unittest.main()

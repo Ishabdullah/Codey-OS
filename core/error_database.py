@@ -11,23 +11,23 @@ Learns from errors and their successful fixes:
 This makes Codey-V3 genuinely smarter with each error fixed.
 """
 
-import json
 import hashlib
+import json
 import re
-from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
-from datetime import datetime
 from collections import defaultdict
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple
 
-from utils.logger import info, warning, success
 from core.state import get_state_store
+from utils.logger import info, warning
 
 
 class ErrorPattern:
     """Represents a learned error pattern."""
 
-    def __init__(self, error_type: str, error_message: str, fix: str,
-                 success: bool, context: Dict = None):
+    def __init__(
+        self, error_type: str, error_message: str, fix: str, success: bool, context: Dict = None
+    ):
         self.error_type = error_type
         self.error_message = error_message
         self.fix = fix
@@ -73,8 +73,7 @@ class ErrorPattern:
 
         # Similar error messages
         msg_similarity = self._string_similarity(
-            self.error_message.lower(),
-            other.error_message.lower()
+            self.error_message.lower(), other.error_message.lower()
         )
         score += msg_similarity * 0.4
 
@@ -86,8 +85,8 @@ class ErrorPattern:
 
     def _string_similarity(self, s1: str, s2: str) -> float:
         """Simple string similarity using common words."""
-        words1 = set(re.findall(r'\w+', s1))
-        words2 = set(re.findall(r'\w+', s2))
+        words1 = set(re.findall(r"\w+", s1))
+        words2 = set(re.findall(r"\w+", s2))
         if not words1 or not words2:
             return 0.0
         intersection = words1 & words2
@@ -159,10 +158,7 @@ class ErrorDatabase:
             data = self.state.get("error_database")
             if data:
                 loaded = json.loads(data)
-                self._cache = {
-                    key: ErrorPattern.from_dict(value)
-                    for key, value in loaded.items()
-                }
+                self._cache = {key: ErrorPattern.from_dict(value) for key, value in loaded.items()}
         except Exception as e:
             warning(f"Failed to load error database: {e}")
             self._cache = {}
@@ -170,10 +166,7 @@ class ErrorDatabase:
     def _save_database(self):
         """Save error database to storage."""
         try:
-            data = {
-                key: pattern.to_dict()
-                for key, pattern in self._cache.items()
-            }
+            data = {key: pattern.to_dict() for key, pattern in self._cache.items()}
             self.state.set("error_database", json.dumps(data))
         except Exception as e:
             warning(f"Failed to save error database: {e}")
@@ -181,15 +174,14 @@ class ErrorDatabase:
     def _generate_key(self, error_type: str, error_message: str) -> str:
         """Generate unique key for error pattern."""
         # Normalize error message (remove specific paths, line numbers)
-        normalized = re.sub(r'line \d+', 'line N', error_message.lower())
+        normalized = re.sub(r"line \d+", "line N", error_message.lower())
         normalized = re.sub(r'file "[^"]+"', 'file "..."', normalized)
-        normalized = re.sub(r'/[a-zA-Z0-9_/.-]+', '/...', normalized)
+        normalized = re.sub(r"/[a-zA-Z0-9_/.-]+", "/...", normalized)
 
         content = f"{error_type}:{normalized}"
         return hashlib.sha256(content.encode()).hexdigest()[:16]
 
-    def record_error(self, error_type: str, error_message: str,
-                     context: Dict = None) -> str:
+    def record_error(self, error_type: str, error_message: str, context: Dict = None) -> str:
         """
         Record an error occurrence.
 
@@ -241,9 +233,14 @@ class ErrorDatabase:
         self._save_database()
         info(f"Recorded fix for {pattern.error_type}: {fix[:50]}...")
 
-    def learn_from_error(self, error_type: str, error_message: str,
-                         fix: str, success: bool = True,
-                         context: Dict = None):
+    def learn_from_error(
+        self,
+        error_type: str,
+        error_message: str,
+        fix: str,
+        success: bool = True,
+        context: Dict = None,
+    ):
         """
         Learn from an error and its fix in one call.
 
@@ -257,8 +254,9 @@ class ErrorDatabase:
         key = self.record_error(error_type, error_message, context)
         self.record_fix(key, fix, success)
 
-    def find_similar_errors(self, error_type: str, error_message: str,
-                            limit: int = 5) -> List[Tuple[ErrorPattern, float]]:
+    def find_similar_errors(
+        self, error_type: str, error_message: str, limit: int = 5
+    ) -> List[Tuple[ErrorPattern, float]]:
         """
         Find similar error patterns.
 
@@ -321,7 +319,7 @@ class ErrorDatabase:
 
     def _extract_line(self, error_message: str) -> str:
         """Extract line number from error message."""
-        match = re.search(r'line (\d+)', error_message)
+        match = re.search(r"line (\d+)", error_message)
         return match.group(1) if match else "N"
 
     def get_statistics(self) -> Dict[str, Any]:

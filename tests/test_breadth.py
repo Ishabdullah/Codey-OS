@@ -9,9 +9,11 @@ or "deep" (multi-file / complex API tasks).
 
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
+
 from core.recursive import classify_breadth_need
 
 
@@ -44,7 +46,9 @@ class TestStandard:
     """Single-file coding tasks should classify as standard."""
 
     def test_create_simple_file(self):
-        result = classify_breadth_need("Create a Python script called hello.py that prints Hello World")
+        result = classify_breadth_need(
+            "Create a Python script called hello.py that prints Hello World"
+        )
         assert result in ("standard", "deep")
 
     def test_write_function(self):
@@ -52,7 +56,9 @@ class TestStandard:
         assert result in ("standard", "deep")
 
     def test_fix_bug(self):
-        result = classify_breadth_need("Fix the bug in fibonacci.py where it crashes on negative input")
+        result = classify_breadth_need(
+            "Fix the bug in fibonacci.py where it crashes on negative input"
+        )
         assert result in ("standard", "deep")
 
     def test_edit_file(self):

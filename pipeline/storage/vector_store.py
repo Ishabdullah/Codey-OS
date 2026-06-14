@@ -8,9 +8,10 @@ records table). IDs are stable across save/load cycles.
 """
 
 import json
-import numpy as np
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Tuple
+
+import numpy as np
 
 
 class VectorStore:
@@ -31,12 +32,12 @@ class VectorStore:
         max_elements: int = 500_000,
         use_cosine: bool = True,
     ):
-        self.dim          = dim
-        self.index_path   = Path(index_path)
+        self.dim = dim
+        self.index_path = Path(index_path)
         self.max_elements = max_elements
-        self.space        = "cosine" if use_cosine else "l2"
-        self._index       = None
-        self._next_id     = 0
+        self.space = "cosine" if use_cosine else "l2"
+        self._index = None
+        self._next_id = 0
         self._use_hnswlib = False
 
         self.index_path.parent.mkdir(parents=True, exist_ok=True)
@@ -47,6 +48,7 @@ class VectorStore:
     def _load_or_create(self) -> None:
         try:
             import hnswlib
+
             self._use_hnswlib = True
             index = hnswlib.Index(space=self.space, dim=self.dim)
             bin_path = self._bin_path()
@@ -85,12 +87,16 @@ class VectorStore:
         Add a single vector. Returns its assigned integer ID.
         """
         vec_id = self._next_id
-        arr    = np.array(vector, dtype=np.float32)
+        arr = np.array(vector, dtype=np.float32)
 
         if self._use_hnswlib:
             self._index.add_items(arr.reshape(1, -1), [vec_id])
         else:
-            self._np_vecs = np.vstack([self._np_vecs, arr.reshape(1, -1)]) if len(self._np_vecs) else arr.reshape(1, -1)
+            self._np_vecs = (
+                np.vstack([self._np_vecs, arr.reshape(1, -1)])
+                if len(self._np_vecs)
+                else arr.reshape(1, -1)
+            )
 
         self._next_id += 1
         return vec_id
@@ -103,8 +109,8 @@ class VectorStore:
             return []
 
         start_id = self._next_id
-        ids      = list(range(start_id, start_id + len(vectors)))
-        arr      = np.array(vectors, dtype=np.float32)
+        ids = list(range(start_id, start_id + len(vectors)))
+        arr = np.array(vectors, dtype=np.float32)
 
         if self._use_hnswlib:
             self._index.add_items(arr, ids)
@@ -143,11 +149,11 @@ class VectorStore:
 
         else:
             # Brute-force cosine similarity
-            norms  = np.linalg.norm(self._np_vecs, axis=1, keepdims=True)
+            norms = np.linalg.norm(self._np_vecs, axis=1, keepdims=True)
             normed = self._np_vecs / (norms + 1e-10)
-            qnorm  = query / (np.linalg.norm(query) + 1e-10)
-            sims   = normed @ qnorm
-            k      = min(top_k, len(sims))
+            qnorm = query / (np.linalg.norm(query) + 1e-10)
+            sims = normed @ qnorm
+            k = min(top_k, len(sims))
             top_idx = np.argpartition(-sims, k - 1)[:k]
             top_idx = top_idx[np.argsort(-sims[top_idx])]
             return [(int(i), float(1.0 - sims[i])) for i in top_idx]

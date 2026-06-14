@@ -7,9 +7,10 @@ Verifies that shell metacharacters are properly blocked to prevent injection att
 
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from tools.shell_tools import validate_command_structure, SHELL_METACHARACTERS
+from tools.shell_tools import SHELL_METACHARACTERS, validate_command_structure
 
 
 class TestShellInjection:
@@ -116,4 +117,5 @@ class TestShellInjection:
 
 if __name__ == "__main__":
     import pytest
+
     pytest.main([__file__, "-v"])

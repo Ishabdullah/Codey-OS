@@ -4,7 +4,8 @@ Local JSONL ingestor — for synthetic corpora and custom datasets.
 
 import json
 from pathlib import Path
-from typing import Iterator, Dict, Optional
+from typing import Dict, Iterator, Optional
+
 from .base import BaseIngestor
 
 

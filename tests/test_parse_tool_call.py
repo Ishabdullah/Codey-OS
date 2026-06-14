@@ -9,9 +9,11 @@ block-style write_file, malformed JSON, etc.).
 
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
+
 from core.agent import parse_tool_call
 
 
@@ -109,6 +111,7 @@ class TestParseToolCallMalformed:
     def test_missing_closing_brace_in_standalone_json(self):
         """extract_json can repair missing closing brace when no trailing text."""
         from core.agent import extract_json
+
         raw = '{"name": "read_file", "args": {"path": "test.py"}'
         result = extract_json(raw)
         assert result is not None
@@ -122,9 +125,9 @@ class TestParseToolCallMalformed:
     def test_multiline_content_in_write_file(self):
         """write_file with multi-line content string."""
         raw = (
-            '<tool>\n'
+            "<tool>\n"
             '{"name": "write_file", "args": {"path": "a.py", "content": "line1\\nline2\\nline3"}}\n'
-            '</tool>'
+            "</tool>"
         )
         result = parse_tool_call(raw)
         assert result is not None

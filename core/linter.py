@@ -29,13 +29,14 @@ class LintIssue:
     col: int
     code: str
     message: str
-    severity: str   # "error" | "warning" | "info"
+    severity: str  # "error" | "warning" | "info"
 
     def __str__(self):
         return f"Line {self.line}:{self.col} [{self.code}] {self.message}"
 
 
 # ── Syntax check (free, no external tools) ────────────────────────────────────
+
 
 def check_syntax(content: str, filename: str = "<string>") -> Optional[str]:
     """
@@ -53,6 +54,7 @@ def check_syntax(content: str, filename: str = "<string>") -> Optional[str]:
 
 # ── Output parsers ─────────────────────────────────────────────────────────────
 
+
 def _parse_colon_format(output: str, filepath: str) -> List[LintIssue]:
     """
     Parse standard 'file:line:col: CODE message' format used by ruff and flake8.
@@ -66,7 +68,7 @@ def _parse_colon_format(output: str, filepath: str) -> List[LintIssue]:
         # Strip leading filename prefix if present
         for prefix in (filepath + ":", fname + ":"):
             if line.startswith(prefix):
-                line = line[len(prefix):]
+                line = line[len(prefix) :]
                 break
         parts = line.split(":", 2)
         if len(parts) >= 3:
@@ -77,7 +79,7 @@ def _parse_colon_format(output: str, filepath: str) -> List[LintIssue]:
                 # Split code from message: "E302 expected 2 blank lines..."
                 space = rest.find(" ")
                 code = rest[:space].strip() if space > 0 else rest
-                msg = rest[space + 1:].strip() if space > 0 else ""
+                msg = rest[space + 1 :].strip() if space > 0 else ""
                 if not code:
                     continue
                 severity = "error" if code and code[0] in ("E", "F") else "warning"
@@ -104,13 +106,17 @@ def _parse_mypy_output(output: str, filepath: str) -> List[LintIssue]:
                     lineno = int(parts[-1]) if len(parts) > 1 else 0
                 except ValueError:
                     lineno = 0
-                issues.append(LintIssue(filepath, lineno, 0, "mypy", msg,
-                                        "error" if sev == "error" else "warning"))
+                issues.append(
+                    LintIssue(
+                        filepath, lineno, 0, "mypy", msg, "error" if sev == "error" else "warning"
+                    )
+                )
                 break
     return issues
 
 
 # ── Single-linter runner ───────────────────────────────────────────────────────
+
 
 def run_linter(filepath: str, content: str = None) -> Tuple[List[LintIssue], str]:
     """
@@ -137,7 +143,9 @@ def run_linter(filepath: str, content: str = None) -> Tuple[List[LintIssue], str
         try:
             result = subprocess.run(
                 ["ruff", "check", "--output-format=concise", str(filepath)],
-                capture_output=True, text=True, timeout=20,
+                capture_output=True,
+                text=True,
+                timeout=20,
             )
             issues = _parse_colon_format(result.stdout + result.stderr, filepath)
             return issues, "ruff"
@@ -148,7 +156,9 @@ def run_linter(filepath: str, content: str = None) -> Tuple[List[LintIssue], str
         try:
             result = subprocess.run(
                 ["flake8", "--max-line-length=120", str(filepath)],
-                capture_output=True, text=True, timeout=20,
+                capture_output=True,
+                text=True,
+                timeout=20,
             )
             issues = _parse_colon_format(result.stdout, filepath)
             return issues, "flake8"
@@ -182,6 +192,7 @@ def run_linter(filepath: str, content: str = None) -> Tuple[List[LintIssue], str
 
 # ── Multi-linter runner (for /review) ─────────────────────────────────────────
 
+
 def run_all_linters(filepath: str) -> List[Tuple[str, List[LintIssue]]]:
     """
     Run ALL available linters and return a list of (tool_name, issues) pairs.
@@ -197,7 +208,9 @@ def run_all_linters(filepath: str) -> List[Tuple[str, List[LintIssue]]]:
         try:
             out = subprocess.run(
                 ["ruff", "check", "--output-format=concise", str(filepath)],
-                capture_output=True, text=True, timeout=20,
+                capture_output=True,
+                text=True,
+                timeout=20,
             )
             results.append(("ruff", _parse_colon_format(out.stdout + out.stderr, filepath)))
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
@@ -207,7 +220,9 @@ def run_all_linters(filepath: str) -> List[Tuple[str, List[LintIssue]]]:
         try:
             out = subprocess.run(
                 ["flake8", "--max-line-length=120", str(filepath)],
-                capture_output=True, text=True, timeout=20,
+                capture_output=True,
+                text=True,
+                timeout=20,
             )
             results.append(("flake8", _parse_colon_format(out.stdout, filepath)))
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
@@ -217,7 +232,9 @@ def run_all_linters(filepath: str) -> List[Tuple[str, List[LintIssue]]]:
         try:
             out = subprocess.run(
                 ["mypy", "--no-error-summary", str(filepath)],
-                capture_output=True, text=True, timeout=30,
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
             results.append(("mypy", _parse_mypy_output(out.stdout, filepath)))
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
@@ -228,9 +245,7 @@ def run_all_linters(filepath: str) -> List[Tuple[str, List[LintIssue]]]:
         try:
             src = p.read_text(encoding="utf-8", errors="replace")
             err = check_syntax(src, filepath)
-            syntax_issues = (
-                [LintIssue(filepath, 0, 0, "SyntaxError", err, "error")] if err else []
-            )
+            syntax_issues = [LintIssue(filepath, 0, 0, "SyntaxError", err, "error")] if err else []
             results.append(("syntax", syntax_issues))
         except Exception:
             pass
@@ -239,6 +254,7 @@ def run_all_linters(filepath: str) -> List[Tuple[str, List[LintIssue]]]:
 
 
 # ── Formatting helpers ─────────────────────────────────────────────────────────
+
 
 def format_issues(issues: List[LintIssue], max_issues: int = 8) -> str:
     """

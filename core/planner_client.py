@@ -11,7 +11,7 @@ Failure contract:
 """
 
 import asyncio
-from typing import Optional, List
+from typing import List, Optional
 
 
 async def send_plan_request_async(task: str) -> Optional[List[str]]:

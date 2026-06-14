@@ -20,36 +20,38 @@ core/memory.py now imports from here.
 import os
 import re
 import time
-from pathlib import Path
-from typing import Dict, List, Optional, Any
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional
 
-from utils.logger import info, warning, error, success
-from utils.config import CODEY_DIR, MODEL_CONFIG
 from core.tokens import estimate_tokens
+from utils.config import MODEL_CONFIG
+from utils.logger import info, warning
 
 # ── Token budget constants ───────────────────────────────────────────────────
-CTX_TOTAL               = MODEL_CONFIG['n_ctx']
+CTX_TOTAL = MODEL_CONFIG["n_ctx"]
 # ── Budgets scaled for 32k context (were tuned for 8k) ───────────────────
-BUDGET_SUMMARY          = 1200   # rolling work summary token cap
-BUDGET_FILES            = 6000   # default file context budget
+BUDGET_SUMMARY = 1200  # rolling work summary token cap
+BUDGET_FILES = 6000  # default file context budget
 MAX_FILE_CONTEXT_TOKENS = 12000  # hard cap for large context windows
-LRU_EVICT_AFTER         = 3      # evict file after N turns without reference
+LRU_EVICT_AFTER = 3  # evict file after N turns without reference
 
 
 # ────────────────────────────────────────────────────────────────────────────
 # Tier 1 — Working Memory
 # ────────────────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class WorkingMemoryItem:
     """A file held in working memory with LRU and relevance metadata."""
+
     file_path: str
     content: str
     tokens: int
-    loaded_at: int          # unix timestamp
-    last_used_at: int       # unix timestamp (for wall-clock LRU)
+    loaded_at: int  # unix timestamp
+    last_used_at: int  # unix timestamp (for wall-clock LRU)
     last_used_turn: int = 0  # agent turn counter (for turn-based LRU eviction)
     access_count: int = 1
 
@@ -60,10 +62,10 @@ class WorkingMemoryItem:
 
     def relevance_score(self, message: str) -> float:
         """Score 0-1 based on keyword overlap between message and file."""
-        msg_words = set(re.findall(r'\w+', message.lower()))
-        file_words = set(re.findall(r'\w+', self.content.lower()))
-        name_words = set(re.findall(r'\w+', self.name.lower()))
-        name_overlap = len(msg_words & name_words) * 3   # filename hit = high signal
+        msg_words = set(re.findall(r"\w+", message.lower()))
+        file_words = set(re.findall(r"\w+", self.content.lower()))
+        name_words = set(re.findall(r"\w+", self.name.lower()))
+        name_overlap = len(msg_words & name_words) * 3  # filename hit = high signal
         content_overlap = len(msg_words & file_words)
         if not msg_words:
             return 0.5
@@ -139,7 +141,8 @@ class WorkingMemory:
     def evict_stale(self):
         """Remove files not accessed within LRU_EVICT_AFTER turns."""
         stale = [
-            k for k, item in self._files.items()
+            k
+            for k, item in self._files.items()
             if self._turn - item.last_used_turn > LRU_EVICT_AFTER
         ]
         for k in stale:
@@ -155,10 +158,7 @@ class WorkingMemory:
         total = sum(f.tokens for f in self._files.values())
         while total > self.max_tokens and self._files:
             # Only consider files NOT touched this turn
-            candidates = {
-                k: v for k, v in self._files.items()
-                if v.last_used_turn < self._turn
-            }
+            candidates = {k: v for k, v in self._files.items() if v.last_used_turn < self._turn}
             if not candidates:
                 break  # all files are current-turn — nothing safe to evict
             lru = min(candidates, key=lambda k: candidates[k].last_used_at)
@@ -166,7 +166,9 @@ class WorkingMemory:
             total -= evicted.tokens
             info(f"Working memory: token-evicted {evicted.name} ({evicted.tokens} tokens)")
 
-    def select_for_context(self, message: str, budget: int = BUDGET_FILES) -> List[WorkingMemoryItem]:
+    def select_for_context(
+        self, message: str, budget: int = BUDGET_FILES
+    ) -> List[WorkingMemoryItem]:
         """
         Return files scored by relevance that fit within the token budget.
         Highest-scored files are included first; partially-truncated file
@@ -188,7 +190,7 @@ class WorkingMemory:
                 used += item.tokens
             else:
                 remaining = effective - used
-                marker = '\n...[truncated]'
+                marker = "\n...[truncated]"
                 code_exts = {".py", ".js", ".ts", ".c", ".cpp", ".h", ".rs", ".go"}
                 multiplier = 3 if any(item.file_path.endswith(e) for e in code_exts) else 4
                 marker_tokens = len(marker) // multiplier
@@ -213,9 +215,9 @@ class WorkingMemory:
         """Build the <file> XML block for the system prompt."""
         selected = self.select_for_context(message)
         if not selected:
-            return ''
+            return ""
         blocks = [f'<file path="{item.name}">\n{item.content}\n</file>' for item in selected]
-        return '\n'.join(blocks)
+        return "\n".join(blocks)
 
     def tick(self):
         """Advance turn counter."""
@@ -242,9 +244,11 @@ class WorkingMemory:
 # Tier 2 — Project Memory
 # ────────────────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class ProjectMemoryItem:
     """Item in project memory."""
+
     file_path: str
     content_hash: str
     loaded_at: int
@@ -260,12 +264,16 @@ class ProjectMemory:
     def __init__(self):
         self._files: Dict[str, ProjectMemoryItem] = {}
         self._protected_patterns = [
-            "CODEY.md", "codey-v3.md", "README.md",
-            "config.py", "config.json",
+            "CODEY.md",
+            "codey-v3.md",
+            "README.md",
+            "config.py",
+            "config.json",
         ]
 
     def add(self, file_path: str, content: str, is_protected: bool = False):
         import hashlib
+
         content_hash = hashlib.md5(content.encode()).hexdigest()
         self._files[file_path] = ProjectMemoryItem(
             file_path=file_path,
@@ -298,6 +306,7 @@ class ProjectMemory:
 # Tier 3 — Long-term Memory (optional — requires embedding server)
 # ────────────────────────────────────────────────────────────────────────────
 
+
 class LongTermMemory:
     """
     Long-term memory with semantic search.
@@ -317,7 +326,9 @@ class LongTermMemory:
     def _try_init(self):
         """Lazy-initialize the embedding backend. Silently skip if unavailable."""
         try:
-            from core.embeddings import get_embedding_model, get_embedding_store
+            from core.embeddings import (get_embedding_model,
+                                         get_embedding_store)
+
             self._store = get_embedding_store()
             self._model = get_embedding_model()
             self._available = True
@@ -330,6 +341,7 @@ class LongTermMemory:
             return 0
         try:
             from core.embeddings import chunk_text
+
             chunks = chunk_text(content)
             embeddings_data = []
             for chunk_text_item, start, end in chunks:
@@ -382,6 +394,7 @@ class LongTermMemory:
 # Tier 4 — Episodic Memory
 # ────────────────────────────────────────────────────────────────────────────
 
+
 class EpisodicMemory:
     """
     Episodic memory — append-only log of actions.
@@ -392,19 +405,20 @@ class EpisodicMemory:
     def __init__(self):
         try:
             from core.state import get_state_store
+
             self._state = get_state_store()
         except Exception:
             self._state = None
 
     def log(self, action: str, details: str = None):
-        if self._state and hasattr(self._state, 'log_action'):
+        if self._state and hasattr(self._state, "log_action"):
             try:
                 self._state.log_action(action, details)
             except Exception:
                 pass
 
     def get_recent(self, limit: int = 50) -> List[Dict]:
-        if self._state and hasattr(self._state, 'get_recent_actions'):
+        if self._state and hasattr(self._state, "get_recent_actions"):
             try:
                 return self._state.get_recent_actions(limit)
             except Exception:
@@ -412,7 +426,7 @@ class EpisodicMemory:
         return []
 
     def get_since(self, timestamp: int) -> List[Dict]:
-        if self._state and hasattr(self._state, 'get_actions_since'):
+        if self._state and hasattr(self._state, "get_actions_since"):
             try:
                 return self._state.get_actions_since(timestamp)
             except Exception:
@@ -426,6 +440,7 @@ class EpisodicMemory:
 # ────────────────────────────────────────────────────────────────────────────
 # Unified Memory — combines all four tiers + MemoryManager-compatible API
 # ────────────────────────────────────────────────────────────────────────────
+
 
 class Memory:
     """
@@ -441,12 +456,12 @@ class Memory:
     """
 
     def __init__(self):
-        self.working  = WorkingMemory()
-        self.project  = ProjectMemory()
+        self.working = WorkingMemory()
+        self.project = ProjectMemory()
         self.longterm = LongTermMemory()
         self.episodic = EpisodicMemory()
-        self._turn    = 0
-        self._summary = ''   # rolling compressed work log
+        self._turn = 0
+        self._summary = ""  # rolling compressed work log
 
     # ── MemoryManager-compatible file API ────────────────────────────────────
 
@@ -463,7 +478,7 @@ class Memory:
             if not p.exists():
                 return False
             try:
-                content = p.read_text(encoding='utf-8', errors='replace')
+                content = p.read_text(encoding="utf-8", errors="replace")
             except Exception:
                 return False
         key = str(p.resolve())
@@ -489,7 +504,7 @@ class Memory:
         """Return list of fully-resolved paths currently in working memory."""
         return self.working.get_file_names()
 
-    def build_file_block(self, message: str = '') -> str:
+    def build_file_block(self, message: str = "") -> str:
         """Build the <file> XML block for the system prompt."""
         return self.working.build_file_block(message)
 
@@ -505,14 +520,14 @@ class Memory:
 
     def append_to_summary(self, task: str, result: str):
         """Add a completed task entry to the rolling summary."""
-        entry = f'[Turn {self._turn}] {task[:80]}: {result[:120]}'
-        self._summary = (self._summary + '\n' + entry).strip()
+        entry = f"[Turn {self._turn}] {task[:80]}: {result[:120]}"
+        self._summary = (self._summary + "\n" + entry).strip()
         # Trim oldest entries to stay within budget
         while estimate_tokens(self._summary) > BUDGET_SUMMARY:
             lines = self._summary.splitlines()
             if len(lines) <= 1:
                 break
-            self._summary = '\n'.join(lines[1:])
+            self._summary = "\n".join(lines[1:])
 
     def compress_summary(self, history: list) -> list:
         """
@@ -523,28 +538,26 @@ class Memory:
             return history
         try:
             from core.inference_v2 import infer
-            old_turns  = history[:-4]
+
+            old_turns = history[:-4]
             fresh_turns = history[-4:]
-            text = '\n'.join(
-                f"{m['role'].upper()}: {m['content'][:200]}"
-                for m in old_turns
-            )
+            text = "\n".join(f"{m['role'].upper()}: {m['content'][:200]}" for m in old_turns)
             prompt = [
                 {
-                    'role': 'system',
-                    'content': (
-                        'Summarize this conversation in 3-5 bullet points. '
-                        'Be specific about files created, commands run, and errors fixed. '
-                        'Max 200 words.'
+                    "role": "system",
+                    "content": (
+                        "Summarize this conversation in 3-5 bullet points. "
+                        "Be specific about files created, commands run, and errors fixed. "
+                        "Max 200 words."
                     ),
                 },
-                {'role': 'user', 'content': text},
+                {"role": "user", "content": text},
             ]
             compressed = infer(prompt, stream=False)
-            if compressed and not compressed.startswith('[ERROR]'):
-                ts = datetime.now().strftime('%H:%M')
-                self._summary = f'[Session work as of {ts}]\n' + compressed.strip()
-                info('Compressed old turns into summary.')
+            if compressed and not compressed.startswith("[ERROR]"):
+                ts = datetime.now().strftime("%H:%M")
+                self._summary = f"[Session work as of {ts}]\n" + compressed.strip()
+                info("Compressed old turns into summary.")
             return fresh_turns
         except Exception as e:
             warning(f"compress_summary failed: {e}")
@@ -569,7 +582,7 @@ class Memory:
     def clear(self):
         """Clear all working memory and reset the rolling summary."""
         self.working.clear()
-        self._summary = ''
+        self._summary = ""
 
     # ── Higher-level helpers (v2 additions) ──────────────────────────────────
 
@@ -605,7 +618,7 @@ class Memory:
     # ── MemoryManager-compatible _files property ─────────────────────────────
 
     @property
-    def _files(self) -> Dict[str, 'WorkingMemoryItem']:
+    def _files(self) -> Dict[str, "WorkingMemoryItem"]:
         """
         Direct access to the working memory files dict.
         Exposed for backward compatibility with main.py /context command,
@@ -626,15 +639,15 @@ class Memory:
         wstatus = self.working.status()
         return {
             # ── MemoryManager-compatible flat keys ──────────────────────────
-            'files':         wstatus['files'],
-            'file_names':    wstatus['file_names'],
-            'summary_tokens': estimate_tokens(self._summary),
-            'turn':          self._turn,
+            "files": wstatus["files"],
+            "file_names": wstatus["file_names"],
+            "summary_tokens": estimate_tokens(self._summary),
+            "turn": self._turn,
             # ── v2 hierarchical detail ───────────────────────────────────────
-            'working':   wstatus,
-            'project':   self.project.status(),
-            'longterm':  self.longterm.status(),
-            'episodic':  self.episodic.status(),
+            "working": wstatus,
+            "project": self.project.status(),
+            "longterm": self.longterm.status(),
+            "episodic": self.episodic.status(),
         }
 
 

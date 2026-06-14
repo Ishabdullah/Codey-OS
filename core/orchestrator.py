@@ -1,12 +1,14 @@
 """
 Orchestrator — plans complex tasks into subtask queues and executes them.
 """
+
 import re
 from pathlib import Path
-from core.taskqueue import TaskQueue, STATUS_PENDING, STATUS_RUNNING
-from utils.logger import info, warning
 
-from prompts.system_prompt import GUIDANCE_HTTP_SERVER, GUIDANCE_HTTP_TESTING, GUIDANCE_SQLITE, GUIDANCE_PERSISTENCE
+from core.taskqueue import TaskQueue
+from prompts.system_prompt import (GUIDANCE_HTTP_SERVER, GUIDANCE_HTTP_TESTING,
+                                   GUIDANCE_PERSISTENCE, GUIDANCE_SQLITE)
+from utils.logger import info, warning
 
 PLAN_PROMPT = """Break the task into 2-8 numbered steps. Max 8 steps.
 Each step must be a single concrete action: create a file, edit a file, run a command, or delegate to a peer CLI.
@@ -24,37 +26,77 @@ NEVER use port 8080 (reserved). Use 8765 or 9000.
 Output ONLY the numbered list."""
 
 COMPLEX_SIGNALS = [
-    'create', 'build', 'implement', 'refactor', 'rewrite',
-    'add', 'and then', 'then run', 'also', 'multiple',
-    'class', 'module', 'app', 'application', 'system', 'api',
-    'with tests', 'and test', 'and run',
-    'git commit', 'git init', 'git add', 'initialize git', 'commit',
+    "create",
+    "build",
+    "implement",
+    "refactor",
+    "rewrite",
+    "add",
+    "and then",
+    "then run",
+    "also",
+    "multiple",
+    "class",
+    "module",
+    "app",
+    "application",
+    "system",
+    "api",
+    "with tests",
+    "and test",
+    "and run",
+    "git commit",
+    "git init",
+    "git add",
+    "initialize git",
+    "commit",
     # Peer CLI delegation — each peer name counts as a complexity signal
-    'ask claude', 'ask gemini', 'ask qwen',
-    'use claude', 'use gemini', 'use qwen',
-    'have claude', 'have gemini', 'have qwen',
-    'call claude', 'call gemini', 'call qwen',
+    "ask claude",
+    "ask gemini",
+    "ask qwen",
+    "use claude",
+    "use gemini",
+    "use qwen",
+    "have claude",
+    "have gemini",
+    "have qwen",
+    "call claude",
+    "call gemini",
+    "call qwen",
 ]
 
 # Conversational patterns that should NOT trigger orchestration
 CONVERSATIONAL_PATTERNS = [
-    "how do i", "what is", "can you explain", "tell me about",
-    "what's the best way", "should i use", "difference between",
-    "explain how", "what does", "how does", "why does",
-    "can you help me", "could you explain", "i need help",
-    "what's the difference", "how to use", "how do you",
+    "how do i",
+    "what is",
+    "can you explain",
+    "tell me about",
+    "what's the best way",
+    "should i use",
+    "difference between",
+    "explain how",
+    "what does",
+    "how does",
+    "why does",
+    "can you help me",
+    "could you explain",
+    "i need help",
+    "what's the difference",
+    "how to use",
+    "how do you",
 ]
+
 
 def is_complex(message):
     """
     Heuristic: does this need multiple steps?
-    
+
     Uses keyword matching, conversational pattern detection, and message length
     to determine if a request should trigger orchestration.
-    
+
     Args:
         message: User's request text
-        
+
     Returns:
         True if request should be orchestrated, False otherwise
     """
@@ -63,41 +105,109 @@ def is_complex(message):
     # Action keywords that indicate a task (not a question)
     # Keep in sync with _action_kws in core/agent.py
     _action_kws = [
-        "create", "write", "make", "build", "edit", "fix", "run", "execute",
-        "install", "add", "delete", "remove", "update", "patch", "refactor",
-        "implement", "generate", "rewrite", "deploy", "setup", "configure",
-        "review", "analyze", "analyse", "audit", "examine", "inspect", "assess",
-        "read", "look at", "show me", "check",
-        "replace", "rename", "swap", "convert", "change", "append", "insert",
-        "move", "copy", "print", "output", "display", "open",
-        "remember", "don't forget", "forget",
-        "ask gemini", "ask claude", "call gemini", "call claude",
+        "create",
+        "write",
+        "make",
+        "build",
+        "edit",
+        "fix",
+        "run",
+        "execute",
+        "install",
+        "add",
+        "delete",
+        "remove",
+        "update",
+        "patch",
+        "refactor",
+        "implement",
+        "generate",
+        "rewrite",
+        "deploy",
+        "setup",
+        "configure",
+        "review",
+        "analyze",
+        "analyse",
+        "audit",
+        "examine",
+        "inspect",
+        "assess",
+        "read",
+        "look at",
+        "show me",
+        "check",
+        "replace",
+        "rename",
+        "swap",
+        "convert",
+        "change",
+        "append",
+        "insert",
+        "move",
+        "copy",
+        "print",
+        "output",
+        "display",
+        "open",
+        "remember",
+        "don't forget",
+        "forget",
+        "ask gemini",
+        "ask claude",
+        "call gemini",
+        "call claude",
     ]
-    _has_action = any(re.search(r'\b' + re.escape(k) + r'\b', msg) for k in _action_kws)
+    _has_action = any(re.search(r"\b" + re.escape(k) + r"\b", msg) for k in _action_kws)
 
     # Question starters that indicate Q&A (not a task)
     _question_starters = (
-        "what", "why", "how", "when", "where", "who", "which",
-        "is ", "are ", "do ", "does ", "can ", "could ", "would ",
-        "should ", "will ", "was ", "were ", "has ", "have ",
+        "what",
+        "why",
+        "how",
+        "when",
+        "where",
+        "who",
+        "which",
+        "is ",
+        "are ",
+        "do ",
+        "does ",
+        "can ",
+        "could ",
+        "would ",
+        "should ",
+        "will ",
+        "was ",
+        "were ",
+        "has ",
+        "have ",
     )
     _qa_phrases = [
-        "tell me", "tell me about", "explain", "help me understand",
-        "what can you", "hello", "hi", "hey", "thanks", "thank you",
+        "tell me",
+        "tell me about",
+        "explain",
+        "help me understand",
+        "what can you",
+        "hello",
+        "hi",
+        "hey",
+        "thanks",
+        "thank you",
     ]
 
     # If no action keyword AND looks like a question, NOT complex
     if not _has_action and (
-        msg.endswith("?") or
-        msg.startswith(_question_starters) or
-        any(re.search(r'\b' + re.escape(k) + r'\b', msg) for k in _qa_phrases)
+        msg.endswith("?")
+        or msg.startswith(_question_starters)
+        or any(re.search(r"\b" + re.escape(k) + r"\b", msg) for k in _qa_phrases)
     ):
         return False
-    
+
     # Check for conversational patterns (even with action keywords)
     if any(pattern in msg for pattern in CONVERSATIONAL_PATTERNS):
         return False
-    
+
     # Short messages are rarely complex
     if len(message) < 50:
         return False
@@ -114,22 +224,23 @@ def is_complex(message):
     else:
         return signals >= 3
 
+
 def parse_task_list(model_output):
     """Extract numbered steps from model output."""
     tasks = []
     for line in model_output.splitlines():
         line = line.strip()
-        m = re.match(r'^(\d+)[.)\s]+(.+)$', line)
+        m = re.match(r"^(\d+)[.)\s]+(.+)$", line)
         if m and len(m.group(2)) > 5:
             tasks.append(m.group(2).strip())
     return _postprocess_plan(tasks[:8])
 
 
 # Filename extraction pattern
-_FILE_RE = re.compile(r'\b([\w][\w\-]*\.(?:py|js|ts|html|css|json|yaml|yml|toml|txt|md|sh))\b')
+_FILE_RE = re.compile(r"\b([\w][\w\-]*\.(?:py|js|ts|html|css|json|yaml|yml|toml|txt|md|sh))\b")
 
 
-_RUN_STEP_RE = re.compile(r'^run\b', re.IGNORECASE)
+_RUN_STEP_RE = re.compile(r"^run\b", re.IGNORECASE)
 
 
 def _postprocess_plan(tasks):
@@ -173,7 +284,8 @@ def _postprocess_plan(tasks):
 
     return merged[:8]
 
-def plan_tasks(user_message, project_context=''):
+
+def plan_tasks(user_message, project_context=""):
     """
     Ask model to plan the task. Returns TaskQueue.
 
@@ -184,14 +296,15 @@ def plan_tasks(user_message, project_context=''):
     """
     plan_prompt = PLAN_PROMPT
     if project_context:
-        plan_prompt += f'\nProject context:\n{project_context}'
+        plan_prompt += f"\nProject context:\n{project_context}"
     # Inject git-repo awareness so model never adds "git init / .gitignore" steps
     try:
         from core.githelper import is_git_repo
+
         if is_git_repo():
             plan_prompt += (
-                '\nIMPORTANT: Already inside an existing git repository. '
-                'Do NOT add git init, .gitignore creation, or initial commit steps.'
+                "\nIMPORTANT: Already inside an existing git repository. "
+                "Do NOT add git init, .gitignore creation, or initial commit steps."
             )
     except Exception:
         pass
@@ -202,6 +315,7 @@ def plan_tasks(user_message, project_context=''):
     try:
         from core.retrieval import retrieve
         from utils.config import RETRIEVAL_CONFIG
+
         if RETRIEVAL_CONFIG.get("enabled", True):
             _retrieved = retrieve(user_message, budget_chars=1200)
             if _retrieved:
@@ -211,13 +325,14 @@ def plan_tasks(user_message, project_context=''):
 
     messages = [
         {
-            'role': 'user',
-            'content': (
+            "role": "user",
+            "content": (
                 plan_prompt
-                + '\n\n'
+                + "\n\n"
                 + retrieved_block
-                + 'Task: ' + user_message
-                + '\n\nNumbered steps:'
+                + "Task: "
+                + user_message
+                + "\n\nNumbered steps:"
             ),
         }
     ]
@@ -231,8 +346,10 @@ def plan_tasks(user_message, project_context=''):
     try:
         from core.recursive import recursive_infer
         from utils.config import RECURSIVE_CONFIG
-        if (RECURSIVE_CONFIG.get("enabled", True)
-                and RECURSIVE_CONFIG.get("recursive_for_plans", True)):
+
+        if RECURSIVE_CONFIG.get("enabled", True) and RECURSIVE_CONFIG.get(
+            "recursive_for_plans", True
+        ):
             output = recursive_infer(
                 messages,
                 task_type="plan",
@@ -245,6 +362,7 @@ def plan_tasks(user_message, project_context=''):
 
     if not output:
         from core.inference_v2 import infer
+
         output = infer(messages, stream=False)
 
     task_list = parse_task_list(output)
@@ -258,8 +376,10 @@ def plan_tasks(user_message, project_context=''):
     queue.save()
     return queue
 
-_SKIP_DIRS = frozenset({'__pycache__', '.git', 'node_modules', '.venv', 'venv', '.mypy_cache'})
-_COLLECT_SUFFIXES = frozenset(('.py', '.js', '.ts', '.html', '.css', '.json', '.md'))
+
+_SKIP_DIRS = frozenset({"__pycache__", ".git", "node_modules", ".venv", "venv", ".mypy_cache"})
+_COLLECT_SUFFIXES = frozenset((".py", ".js", ".ts", ".html", ".css", ".json", ".md"))
+
 
 def _collect_project_files(max_chars=6000):
     """Read small project files to inject as context between subtasks.
@@ -272,12 +392,12 @@ def _collect_project_files(max_chars=6000):
 
     def _add(f):
         nonlocal total
-        if f.name.startswith('.') or f.suffix not in _COLLECT_SUFFIXES:
+        if f.name.startswith(".") or f.suffix not in _COLLECT_SUFFIXES:
             return
         try:
-            content = f.read_text(encoding='utf-8', errors='replace')
+            content = f.read_text(encoding="utf-8", errors="replace")
             if len(content) > 3000:
-                content = content[:3000] + '\n...[truncated]'
+                content = content[:3000] + "\n...[truncated]"
             if total + len(content) > max_chars:
                 return
             rel = f.relative_to(cwd)
@@ -291,21 +411,30 @@ def _collect_project_files(max_chars=6000):
             break
         if entry.is_file():
             _add(entry)
-        elif entry.is_dir() and entry.name not in _SKIP_DIRS and not entry.name.startswith('.'):
+        elif entry.is_dir() and entry.name not in _SKIP_DIRS and not entry.name.startswith("."):
             for f in sorted(entry.iterdir()):
                 if total >= max_chars:
                     break
                 if f.is_file():
                     _add(f)
 
-    return '\n\n'.join(parts)
+    return "\n\n".join(parts)
 
 
 # Patterns that indicate a task result is actually a failure
 _FAILURE_SIGNALS = [
-    "[error]", "[incomplete]", "traceback", "syntaxerror",
-    "nameerror", "typeerror", "importerror", "failed",
-    "assert", "exception", "1 failed", "errors=",
+    "[error]",
+    "[incomplete]",
+    "traceback",
+    "syntaxerror",
+    "nameerror",
+    "typeerror",
+    "importerror",
+    "failed",
+    "assert",
+    "exception",
+    "1 failed",
+    "errors=",
 ]
 
 
@@ -320,20 +449,22 @@ def _completion_audit(queue):
     After all subtasks finish, check whether the overall goal was met.
     Reports any deliverables from the original request that appear to be missing.
     """
-    original = getattr(queue, 'original_request', '')
+    original = getattr(queue, "original_request", "")
     if not original:
         return
 
     # Extract filenames the user expected to exist
     expected_files = _FILE_RE.findall(original)
     missing = [f for f in expected_files if not (Path.cwd() / f).exists()]
-    failed_tasks = [t for t in queue.tasks if t.status == 'failed']
+    failed_tasks = [t for t in queue.tasks if t.status == "failed"]
 
     if missing:
         warning(f"[Audit] Requested file(s) not found after all steps: {', '.join(missing)}")
     if failed_tasks:
-        warning(f"[Audit] {len(failed_tasks)} task(s) failed: " +
-                ', '.join(t.description[:50] for t in failed_tasks))
+        warning(
+            f"[Audit] {len(failed_tasks)} task(s) failed: "
+            + ", ".join(t.description[:50] for t in failed_tasks)
+        )
     if not missing and not failed_tasks:
         info("[Audit] All expected deliverables present.")
 
@@ -344,9 +475,10 @@ def run_queue(queue, yolo=False):
     Each task runs an agent with file context from prior steps.
     Results chain as context to the next task.
     """
+    import signal
+
     from core.agent import run_agent
     from core.display import update_task_display
-    import signal
 
     prior_results = []
     interrupted = False
@@ -355,8 +487,8 @@ def run_queue(queue, yolo=False):
         nonlocal interrupted
         interrupted = True
         for t in queue.tasks:
-            if t.status == 'running':
-                t.status = 'pending'
+            if t.status == "running":
+                t.status = "pending"
         queue.save()
         raise KeyboardInterrupt
 
@@ -364,42 +496,59 @@ def run_queue(queue, yolo=False):
 
     try:
         for task in queue.tasks:
-            if task.status == 'done':
+            if task.status == "done":
                 continue
-            if task.status == 'failed':
+            if task.status == "failed":
                 continue
 
             queue.mark_running(task.id)
 
             # Build context from prior results
-            context_prefix = ''
+            context_prefix = ""
             if prior_results:
-                context_prefix = ('Previous steps completed:\n' +
-                    '\n'.join(f'- {r}' for r in prior_results[-3:]) +
-                    '\n\n')
+                context_prefix = (
+                    "Previous steps completed:\n"
+                    + "\n".join(f"- {r}" for r in prior_results[-3:])
+                    + "\n\n"
+                )
 
             # Inject file contents from prior steps so this subtask
             # knows what was actually written (not just a summary).
-            file_context = ''
+            file_context = ""
             if prior_results:
                 files = _collect_project_files()
                 if files:
                     file_context = f"Files created so far:\n\n{files}\n\n"
 
             # Inject domain-specific guidance based on task content
-            guidance = ''
-            combined = (getattr(queue, 'original_request', '') + ' ' + task.description).lower()
-            if any(k in combined for k in ['http', 'rest', 'api', 'server', 'endpoint']):
-                guidance += '\n' + GUIDANCE_HTTP_SERVER + '\n'
-            if any(k in combined for k in ['test', 'unittest', 'pytest', 'assert']):
-                guidance += '\n' + GUIDANCE_HTTP_TESTING + '\n'
-            if any(k in combined for k in ['sqlite', 'database', '.db', 'accounts']):
-                guidance += '\n' + GUIDANCE_SQLITE + '\n'
-            if any(k in combined for k in ['expense', 'tracker', 'track', 'log', 'record', 'budget', 'note', 'history', 'persist', 'save data', 'store data']):
-                guidance += '\n' + GUIDANCE_PERSISTENCE + '\n'
+            guidance = ""
+            combined = (getattr(queue, "original_request", "") + " " + task.description).lower()
+            if any(k in combined for k in ["http", "rest", "api", "server", "endpoint"]):
+                guidance += "\n" + GUIDANCE_HTTP_SERVER + "\n"
+            if any(k in combined for k in ["test", "unittest", "pytest", "assert"]):
+                guidance += "\n" + GUIDANCE_HTTP_TESTING + "\n"
+            if any(k in combined for k in ["sqlite", "database", ".db", "accounts"]):
+                guidance += "\n" + GUIDANCE_SQLITE + "\n"
+            if any(
+                k in combined
+                for k in [
+                    "expense",
+                    "tracker",
+                    "track",
+                    "log",
+                    "record",
+                    "budget",
+                    "note",
+                    "history",
+                    "persist",
+                    "save data",
+                    "store data",
+                ]
+            ):
+                guidance += "\n" + GUIDANCE_PERSISTENCE + "\n"
 
             # Always inject the full original request
-            original = getattr(queue, 'original_request', '')
+            original = getattr(queue, "original_request", "")
             if original and original.strip() not in task.description:
                 prompt = (
                     f"Overall goal: {original}\n\n"
@@ -418,9 +567,9 @@ def run_queue(queue, yolo=False):
             try:
                 from core.recursive import classify_breadth_need
                 from core.retrieval import retrieve
-                from utils.config import RETRIEVAL_CONFIG, RECURSIVE_CONFIG
-                if (RETRIEVAL_CONFIG.get("enabled", True)
-                        and RECURSIVE_CONFIG.get("enabled", True)):
+                from utils.config import RECURSIVE_CONFIG, RETRIEVAL_CONFIG
+
+                if RETRIEVAL_CONFIG.get("enabled", True) and RECURSIVE_CONFIG.get("enabled", True):
                     _task_breadth = classify_breadth_need(task.description)
                     if _task_breadth in ("standard", "deep"):
                         _task_retrieved = retrieve(task.description, budget_chars=1200)
@@ -437,15 +586,15 @@ def run_queue(queue, yolo=False):
             if _target_files:
                 _fname = _target_files[0]
                 prompt += (
-                    f'\n\nUse write_file to create {_fname} with the COMPLETE code. '
+                    f"\n\nUse write_file to create {_fname} with the COMPLETE code. "
                     f'Output ONLY: <tool>\n{{"name": "write_file", "args": {{"path": "{_fname}", "content": "...ALL CODE HERE..."}}}}\n</tool>'
                 )
-            elif any(k in task.description.lower() for k in ['run', 'execute', 'test', 'python']):
-                _cmd_match = re.search(r'(?:run|execute|python)\s+(.+)', task.description, re.IGNORECASE)
-                _cmd_hint = _cmd_match.group(1).strip() if _cmd_match else "python -m unittest"
-                prompt += (
-                    f'\n\nUse shell tool. Output ONLY: <tool>\n{{"name": "shell", "args": {{"command": "{_cmd_hint}"}}}}\n</tool>'
+            elif any(k in task.description.lower() for k in ["run", "execute", "test", "python"]):
+                _cmd_match = re.search(
+                    r"(?:run|execute|python)\s+(.+)", task.description, re.IGNORECASE
                 )
+                _cmd_hint = _cmd_match.group(1).strip() if _cmd_match else "python -m unittest"
+                prompt += f'\n\nUse shell tool. Output ONLY: <tool>\n{{"name": "shell", "args": {{"command": "{_cmd_hint}"}}}}\n</tool>'
 
             history = []  # isolated message history per subtask
 
@@ -454,55 +603,55 @@ def run_queue(queue, yolo=False):
 
                 # Strip common redundant prefixes
                 summary = result
-                for prefix in ["Done. Final Answer: ", "Final Answer: ",
-                               "Done. Final answer: ", "Final answer: "]:
+                for prefix in [
+                    "Done. Final Answer: ",
+                    "Final Answer: ",
+                    "Done. Final answer: ",
+                    "Final answer: ",
+                ]:
                     if summary.startswith(prefix):
-                        summary = summary[len(prefix):]
+                        summary = summary[len(prefix) :]
                         break
 
                 # Validate result — catch false success claims
                 _expected_files = _FILE_RE.findall(task.description)
-                _missing_files = [
-                    f for f in _expected_files
-                    if not (Path.cwd() / f).exists()
-                ]
+                _missing_files = [f for f in _expected_files if not (Path.cwd() / f).exists()]
 
                 if summary.startswith("[INCOMPLETE]"):
                     queue.mark_failed(task.id, summary)
-                    prior_results.append(
-                        f'Task {task.id}: {task.description[:60]} -> INCOMPLETE'
-                    )
+                    prior_results.append(f"Task {task.id}: {task.description[:60]} -> INCOMPLETE")
                 elif _is_result_failure(summary):
                     queue.mark_failed(task.id, summary)
                     prior_results.append(
-                        f'Task {task.id}: {task.description[:60]} -> FAILED: {summary[:80]}'
+                        f"Task {task.id}: {task.description[:60]} -> FAILED: {summary[:80]}"
                     )
                 elif _missing_files:
                     _fail_msg = f"Expected file(s) not created: {', '.join(_missing_files)}"
                     warning(_fail_msg)
                     queue.mark_failed(task.id, _fail_msg)
                     prior_results.append(
-                        f'Task {task.id}: {task.description[:60]} -> FAILED: {_fail_msg}'
+                        f"Task {task.id}: {task.description[:60]} -> FAILED: {_fail_msg}"
                     )
                 else:
                     queue.mark_done(task.id, summary)
                     prior_results.append(
-                        f'Task {task.id}: {task.description[:60]} -> {summary[:80]}'
+                        f"Task {task.id}: {task.description[:60]} -> {summary[:80]}"
                     )
             except KeyboardInterrupt:
                 raise
             except Exception as e:
                 queue.mark_failed(task.id, str(e))
-                warning(f'Task {task.id} failed: {e}')
+                warning(f"Task {task.id} failed: {e}")
 
             update_task_display(queue)
 
     except KeyboardInterrupt:
         queue.save()
         from core.display import console
-        console.print('\n  [yellow]Task queue paused. Resume with:[/yellow]')
+
+        console.print("\n  [yellow]Task queue paused. Resume with:[/yellow]")
         if queue._path:
-            console.print(f'  [cyan]codey --session {queue._path.stem}[/cyan]')
+            console.print(f"  [cyan]codey --session {queue._path.stem}[/cyan]")
         console.print()
     finally:
         signal.signal(signal.SIGINT, old_handler)

@@ -18,8 +18,8 @@ _URL_REF_RE = re.compile(r"https?://\S+|www\.\S+")
 
 # Minimum lengths (characters)
 _MIN_INSTRUCTION_LEN = 15
-_MIN_RESPONSE_LEN    = 10
-_MIN_CONTENT_LEN     = 20   # for write_file content
+_MIN_RESPONSE_LEN = 10
+_MIN_CONTENT_LEN = 20  # for write_file content
 
 
 def score(record: Dict) -> float:
@@ -35,10 +35,10 @@ def score(record: Dict) -> float:
     """
     score_val = 0.5  # Base
 
-    instruction  = record.get("instruction", "")
+    instruction = record.get("instruction", "")
     raw_response = record.get("raw_response", "")
-    source       = record.get("source_dataset", "")
-    resp_type    = record.get("response_type", "unknown")
+    source = record.get("source_dataset", "")
+    resp_type = record.get("response_type", "unknown")
 
     # ── Instruction quality ───────────────────────────────────────────────────
     instr_words = len(instruction.split())
@@ -72,7 +72,10 @@ def score(record: Dict) -> float:
         "hermes-function-calling-v1",
         "glaive-function-calling-v2",
         "xlam-function-calling-60k",
-        "mbpp", "humanevalplus", "bigcodebench", "humanevalpack",
+        "mbpp",
+        "humanevalplus",
+        "bigcodebench",
+        "humanevalpack",
     }
     generic_sources = {"alpaca-cleaned", "alpaca_general"}
 

@@ -11,12 +11,14 @@ Tests:
 
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.preferences import PreferenceManager, PreferenceDetector, reset_preferences
-from core.error_database import ErrorDatabase, ErrorPattern, reset_error_database
-from core.strategy_tracker import StrategyTracker, reset_strategy_tracker
+from core.error_database import ErrorDatabase, reset_error_database
 from core.learning import LearningManager, reset_learning_manager
+from core.preferences import (PreferenceDetector, PreferenceManager,
+                              reset_preferences)
+from core.strategy_tracker import StrategyTracker, reset_strategy_tracker
 
 
 class TestPreferenceDetector:
@@ -104,7 +106,7 @@ class TestPreferenceManager:
         # Learn multiple times to build confidence
         for _ in range(5):
             pm.learn_from_file("test.py", "import pytest\ndef test_x(): pass")
-        
+
         result = pm.get("test_framework")
         assert result == "pytest"
 
@@ -141,7 +143,7 @@ class TestErrorDatabase:
         db = ErrorDatabase()
         key = db.record_error("ModuleNotFoundError", "No module named 'flask'")
         db.record_fix(key, "pip install flask", success=True)
-        
+
         # Verify fix was recorded
         similar = db.find_similar_errors("ModuleNotFoundError", "No module named 'flask'")
         assert len(similar) > 0
@@ -154,26 +156,32 @@ class TestErrorDatabase:
             "ModuleNotFoundError",
             "No module named 'requests'",
             "pip install requests",
-            success=True
+            success=True,
         )
-        
+
         stats = db.get_statistics()
         assert stats["total_fixed"] >= 1
 
     def test_find_similar_errors(self):
         """Should find similar error patterns."""
         db = ErrorDatabase()
-        db.learn_from_error("ModuleNotFoundError", "No module named 'flask'", "pip install flask", True)
-        db.learn_from_error("ModuleNotFoundError", "No module named 'requests'", "pip install requests", True)
-        
+        db.learn_from_error(
+            "ModuleNotFoundError", "No module named 'flask'", "pip install flask", True
+        )
+        db.learn_from_error(
+            "ModuleNotFoundError", "No module named 'requests'", "pip install requests", True
+        )
+
         similar = db.find_similar_errors("ModuleNotFoundError", "No module named 'django'")
         assert len(similar) > 0
 
     def test_suggest_fix(self):
         """Should suggest fix for known error."""
         db = ErrorDatabase()
-        db.learn_from_error("ModuleNotFoundError", "No module named 'flask'", "pip install flask", True)
-        
+        db.learn_from_error(
+            "ModuleNotFoundError", "No module named 'flask'", "pip install flask", True
+        )
+
         suggestion = db.suggest_fix("ModuleNotFoundError", "No module named 'flask'")
         assert suggestion == "pip install flask"
 
@@ -182,7 +190,7 @@ class TestErrorDatabase:
         db = ErrorDatabase()
         db.learn_from_error("ValueError", "invalid literal", "fix input", True)
         db.learn_from_error("TypeError", "wrong type", "fix type", False)
-        
+
         stats = db.get_statistics()
         assert "total_patterns" in stats
         assert "success_rate" in stats
@@ -199,7 +207,7 @@ class TestStrategyTracker:
         """Should record strategy attempt."""
         tracker = StrategyTracker()
         tracker.record_attempt("use_patch", "write_failed", success=True, duration=1.5)
-        
+
         stats = tracker.get_statistics()
         assert stats["total_attempts"] >= 1
 
@@ -211,7 +219,7 @@ class TestStrategyTracker:
             tracker.record_attempt("use_patch", "write_failed", success=True, duration=1.0)
         for _ in range(3):
             tracker.record_attempt("retry", "write_failed", success=False, duration=2.0)
-        
+
         best = tracker.get_best_strategy("write_failed")
         assert best == "use_patch"
 
@@ -220,7 +228,7 @@ class TestStrategyTracker:
         tracker = StrategyTracker()
         tracker.record_attempt("install_dep", "ModuleNotFoundError", True, 5.0)
         tracker.record_attempt("fix_import", "ModuleNotFoundError", True, 2.0)
-        
+
         strategies = tracker.get_strategies_for_error("ModuleNotFoundError")
         assert len(strategies) > 0
         # Higher success rate should be first
@@ -230,7 +238,7 @@ class TestStrategyTracker:
         """Should return strategy statistics."""
         tracker = StrategyTracker()
         tracker.record_attempt("test_strategy", "test_error", True, 1.0)
-        
+
         stats = tracker.get_statistics()
         assert "total_strategies" in stats
         assert "overall_success_rate" in stats
@@ -257,9 +265,9 @@ class TestLearningManager:
             "No module named 'flask'",
             "pip install flask",
             success=True,
-            strategy="install_dependency"
+            strategy="install_dependency",
         )
-        
+
         status = lm.get_status()
         assert status["errors"]["total_fixed"] >= 1
 
@@ -269,7 +277,7 @@ class TestLearningManager:
         lm.record_strategy_attempt("use_patch", "write_failed", True, 1.0)
         lm.record_strategy_attempt("use_patch", "write_failed", True, 1.0)
         lm.record_strategy_attempt("use_patch", "write_failed", True, 1.0)
-        
+
         best = lm.get_best_strategy("write_failed")
         assert best == "use_patch"
 
@@ -277,12 +285,9 @@ class TestLearningManager:
         """Should suggest fix from error database."""
         lm = LearningManager()
         lm.learn_from_error_and_fix(
-            "ValueError",
-            "invalid literal for int",
-            "add try/except",
-            success=True
+            "ValueError", "invalid literal for int", "add try/except", success=True
         )
-        
+
         suggestion = lm.suggest_fix("ValueError", "invalid literal for int")
         assert suggestion == "add try/except"
 
@@ -291,7 +296,7 @@ class TestLearningManager:
         lm = LearningManager()
         for _ in range(5):
             lm.learn_from_file("test.py", "import pytest\ndef test_x(): pass")
-        
+
         pref = lm.get_preference("test_framework")
         assert pref == "pytest"
 
@@ -299,7 +304,7 @@ class TestLearningManager:
         """Should return complete status."""
         lm = LearningManager()
         status = lm.get_status()
-        
+
         assert "preferences" in status
         assert "errors" in status
         assert "strategies" in status
@@ -307,4 +312,5 @@ class TestLearningManager:
 
 if __name__ == "__main__":
     import pytest
+
     pytest.main([__file__, "-v"])

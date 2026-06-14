@@ -14,17 +14,17 @@ Usage:
     index_directory("knowledge/docs", category="docs")
 """
 
-import os
-import json
 import hashlib
+import json
+import os
 from pathlib import Path
 
 # ── KB root — resolved from env var so it works wherever codey-v3 lives ──────
 KB_ROOT = Path(os.environ.get("CODEY_DIR", Path.home() / "codey-v3")) / "knowledge"
 
 # Chunk tuning — 512 words ≈ ~680 tokens (fits within retrieval budget)
-CHUNK_SIZE = 512       # words per chunk
-CHUNK_OVERLAP = 64     # overlap between adjacent chunks for continuity
+CHUNK_SIZE = 512  # words per chunk
+CHUNK_OVERLAP = 64  # overlap between adjacent chunks for continuity
 
 # Extensions to index by default
 DEFAULT_EXTENSIONS = (".md", ".txt", ".py", ".rst", ".yaml", ".yml", ".json")
@@ -53,12 +53,14 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVE
         chunk = " ".join(words[start:end])
         # Stable ID: MD5 of first 100 chars — deterministic across re-index runs
         chunk_id = hashlib.md5(chunk[:100].encode("utf-8", errors="replace")).hexdigest()[:12]
-        chunks.append({
-            "id": chunk_id,
-            "text": chunk,
-            "start_word": start,
-            "end_word": end,
-        })
+        chunks.append(
+            {
+                "id": chunk_id,
+                "text": chunk,
+                "start_word": start,
+                "end_word": end,
+            }
+        )
         if end == len(words):
             break
         start += chunk_size - overlap

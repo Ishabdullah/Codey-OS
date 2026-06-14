@@ -14,12 +14,11 @@ Preferences are stored in SQLite and improve over time.
 
 import json
 import re
-from pathlib import Path
-from typing import Dict, List, Optional, Any
 from collections import defaultdict
+from typing import Any, Dict, List, Optional
 
-from utils.logger import info, warning
 from core.state import get_state_store
+from utils.logger import info, warning
 
 
 class PreferenceDetector:
@@ -77,12 +76,12 @@ class PreferenceDetector:
     # Type hint usage
     TYPE_HINT_PATTERNS = {
         "yes": [
-            r"def \w+\(.*:.*\)\s*->",   # return type annotation
-            r"def \w+\(.*:\s*\w+",       # parameter annotation
+            r"def \w+\(.*:.*\)\s*->",  # return type annotation
+            r"def \w+\(.*:\s*\w+",  # parameter annotation
             r":\s*(?:str|int|float|bool|list|dict|tuple|set|Optional|List|Dict|Union)\b",
         ],
         "no": [
-            r"def \w+\([^:)]+\):",       # args with no annotations
+            r"def \w+\([^:)]+\):",  # args with no annotations
         ],
     }
 
@@ -101,25 +100,29 @@ class PreferenceDetector:
 
     # Preferred HTTP/web libraries
     HTTP_LIBS = {
-        "httpx":    [r"import httpx", r"from httpx import"],
+        "httpx": [r"import httpx", r"from httpx import"],
         "requests": [r"import requests", r"from requests import"],
-        "aiohttp":  [r"import aiohttp", r"from aiohttp import"],
-        "urllib":   [r"import urllib", r"from urllib"],
+        "aiohttp": [r"import aiohttp", r"from aiohttp import"],
+        "urllib": [r"import urllib", r"from urllib"],
     }
 
     # Preferred CLI libraries
     CLI_LIBS = {
-        "click":    [r"import click", r"from click import", r"@click\."],
+        "click": [r"import click", r"from click import", r"@click\."],
         "argparse": [r"import argparse", r"ArgumentParser\("],
-        "typer":    [r"import typer", r"from typer import"],
+        "typer": [r"import typer", r"from typer import"],
     }
 
     # Logging style
     LOG_STYLES = {
-        "logging": [r"import logging", r"logging\.get[Ll]ogger", r"logger\.(?:info|debug|warning|error)"],
-        "print":   [r"\bprint\("],
-        "loguru":  [r"from loguru import", r"import loguru"],
-        "rich":    [r"from rich import", r"console\.print\("],
+        "logging": [
+            r"import logging",
+            r"logging\.get[Ll]ogger",
+            r"logger\.(?:info|debug|warning|error)",
+        ],
+        "print": [r"\bprint\("],
+        "loguru": [r"from loguru import", r"import loguru"],
+        "rich": [r"from rich import", r"console\.print\("],
     }
 
     @classmethod
@@ -165,8 +168,7 @@ class PreferenceDetector:
     def detect_type_hints(cls, content: str) -> Optional[str]:
         """Detect whether type hints are used."""
         yes_score = sum(
-            1 for p in cls.TYPE_HINT_PATTERNS["yes"]
-            if re.search(p, content, re.MULTILINE)
+            1 for p in cls.TYPE_HINT_PATTERNS["yes"] if re.search(p, content, re.MULTILINE)
         )
         no_score = len(re.findall(cls.TYPE_HINT_PATTERNS["no"][0], content, re.MULTILINE))
         if yes_score >= 2:
@@ -178,10 +180,7 @@ class PreferenceDetector:
     @classmethod
     def detect_async_style(cls, content: str) -> Optional[str]:
         """Detect whether async/await patterns are used."""
-        score = sum(
-            1 for p in cls.ASYNC_PATTERNS["async"]
-            if re.search(p, content, re.MULTILINE)
-        )
+        score = sum(1 for p in cls.ASYNC_PATTERNS["async"] if re.search(p, content, re.MULTILINE))
         return "async" if score >= 2 else None
 
     @classmethod
@@ -209,15 +208,15 @@ class PreferenceDetector:
     def detect_all_preferences(cls, content: str) -> Dict[str, str]:
         """Detect all preferences from file content."""
         return {
-            "test_framework":    cls.detect_test_framework(content),
-            "code_style":        cls.detect_code_style(content),
+            "test_framework": cls.detect_test_framework(content),
+            "code_style": cls.detect_code_style(content),
             "naming_convention": cls.detect_naming_convention(content),
-            "import_style":      cls.detect_import_style(content),
-            "type_hints":        cls.detect_type_hints(content),
-            "async_style":       cls.detect_async_style(content),
-            "http_library":      cls.detect_preferred_library(content, cls.HTTP_LIBS, "http_library"),
-            "cli_library":       cls.detect_preferred_library(content, cls.CLI_LIBS, "cli_library"),
-            "log_style":         cls.detect_log_style(content),
+            "import_style": cls.detect_import_style(content),
+            "type_hints": cls.detect_type_hints(content),
+            "async_style": cls.detect_async_style(content),
+            "http_library": cls.detect_preferred_library(content, cls.HTTP_LIBS, "http_library"),
+            "cli_library": cls.detect_preferred_library(content, cls.CLI_LIBS, "cli_library"),
+            "log_style": cls.detect_log_style(content),
         }
 
 
@@ -238,17 +237,17 @@ class PreferenceManager:
 
     # Preference categories and their weights
     CATEGORIES = {
-        "test_framework":    {"weight": 1.0, "default": "pytest"},
-        "code_style":        {"weight": 0.8, "default": "black"},
+        "test_framework": {"weight": 1.0, "default": "pytest"},
+        "code_style": {"weight": 0.8, "default": "black"},
         "naming_convention": {"weight": 0.9, "default": "snake_case"},
-        "import_style":      {"weight": 0.7, "default": "absolute"},
-        "docstring_style":   {"weight": 0.6, "default": "google"},
-        "error_handling":    {"weight": 0.8, "default": "explicit"},
-        "type_hints":        {"weight": 0.8, "default": None},
-        "async_style":       {"weight": 0.7, "default": None},
-        "http_library":      {"weight": 0.9, "default": None},
-        "cli_library":       {"weight": 0.9, "default": None},
-        "log_style":         {"weight": 0.7, "default": None},
+        "import_style": {"weight": 0.7, "default": "absolute"},
+        "docstring_style": {"weight": 0.6, "default": "google"},
+        "error_handling": {"weight": 0.8, "default": "explicit"},
+        "type_hints": {"weight": 0.8, "default": None},
+        "async_style": {"weight": 0.7, "default": None},
+        "http_library": {"weight": 0.9, "default": None},
+        "cli_library": {"weight": 0.9, "default": None},
+        "log_style": {"weight": 0.7, "default": None},
     }
 
     # Natural language patterns for extracting preferences from user messages.
@@ -256,22 +255,58 @@ class PreferenceManager:
     # value_group_or_literal: int → capture group index; str → literal value
     NL_PATTERNS = [
         # "always use X" / "use X" / "prefer X" / "I like X"
-        (r"(?:always use|prefer|use|i (?:prefer|like|want)|stick to)\s+(pytest|unittest)", "test_framework", 1),
-        (r"(?:always use|prefer|use|i (?:prefer|like|want)|stick to)\s+(black|pep8|ruff)", "code_style", 1),
-        (r"(?:always use|prefer|use|i (?:prefer|like|want)|stick to)\s+(httpx|requests|aiohttp|urllib)", "http_library", 1),
-        (r"(?:always use|prefer|use|i (?:prefer|like|want)|stick to)\s+(click|argparse|typer)", "cli_library", 1),
-        (r"(?:always use|prefer|use|i (?:prefer|like|want)|stick to)\s+(loguru|logging|rich)\s*(?:for\s*log(?:ging)?)?", "log_style", 1),
+        (
+            r"(?:always use|prefer|use|i (?:prefer|like|want)|stick to)\s+(pytest|unittest)",
+            "test_framework",
+            1,
+        ),
+        (
+            r"(?:always use|prefer|use|i (?:prefer|like|want)|stick to)\s+(black|pep8|ruff)",
+            "code_style",
+            1,
+        ),
+        (
+            r"(?:always use|prefer|use|i (?:prefer|like|want)|stick to)\s+(httpx|requests|aiohttp|urllib)",
+            "http_library",
+            1,
+        ),
+        (
+            r"(?:always use|prefer|use|i (?:prefer|like|want)|stick to)\s+(click|argparse|typer)",
+            "cli_library",
+            1,
+        ),
+        (
+            r"(?:always use|prefer|use|i (?:prefer|like|want)|stick to)\s+(loguru|logging|rich)\s*(?:for\s*log(?:ging)?)?",
+            "log_style",
+            1,
+        ),
         # type hints
-        (r"(?:always (?:add|use|include)|i (?:want|prefer|like))\s+type\s*hints?", "type_hints", "yes"),
+        (
+            r"(?:always (?:add|use|include)|i (?:want|prefer|like))\s+type\s*hints?",
+            "type_hints",
+            "yes",
+        ),
         (r"(?:don'?t|no|skip|avoid)\s+type\s*hints?", "type_hints", "no"),
         # async
         (r"(?:always use|prefer|use|i (?:prefer|like|want))\s+async", "async_style", "async"),
         # docstrings
-        (r"(?:always use|prefer|use|i (?:prefer|like|want)|stick to)\s+(google|numpy|sphinx|epytext)\s+docstrings?", "docstring_style", 1),
+        (
+            r"(?:always use|prefer|use|i (?:prefer|like|want)|stick to)\s+(google|numpy|sphinx|epytext)\s+docstrings?",
+            "docstring_style",
+            1,
+        ),
         # error handling
-        (r"(?:always use|prefer|use|i (?:prefer|like|want)|stick to)\s+(explicit|try.except|raise)\s*(?:error\s*handling)?", "error_handling", 1),
+        (
+            r"(?:always use|prefer|use|i (?:prefer|like|want)|stick to)\s+(explicit|try.except|raise)\s*(?:error\s*handling)?",
+            "error_handling",
+            1,
+        ),
         # naming
-        (r"(?:always use|prefer|use|i (?:prefer|like|want)|stick to)\s+(snake_case|camelCase|PascalCase)\s*(?:naming)?", "naming_convention", 1),
+        (
+            r"(?:always use|prefer|use|i (?:prefer|like|want)|stick to)\s+(snake_case|camelCase|PascalCase)\s*(?:naming)?",
+            "naming_convention",
+            1,
+        ),
         # "don't use X" → negative preference
         (r"(?:don'?t|do not|never|avoid)\s+use\s+(requests)\b", "http_library", "httpx"),
         (r"(?:don'?t|do not|never|avoid)\s+use\s+(argparse)\b", "cli_library", "click"),
@@ -420,23 +455,23 @@ class PreferenceManager:
         """Write a learned preference into the Conventions section of CODEY.md."""
         try:
             from core.codeymd import find_codeymd
-            import os
+
             codeymd_path = find_codeymd()
             if not codeymd_path:
                 return
             text = codeymd_path.read_text(encoding="utf-8", errors="replace")
             label_map = {
-                "test_framework":    "Test framework",
-                "code_style":        "Code style",
+                "test_framework": "Test framework",
+                "code_style": "Code style",
                 "naming_convention": "Naming",
-                "import_style":      "Imports",
-                "docstring_style":   "Docstrings",
-                "error_handling":    "Error handling",
-                "type_hints":        "Type hints",
-                "async_style":       "Async",
-                "http_library":      "HTTP library",
-                "cli_library":       "CLI library",
-                "log_style":         "Logging",
+                "import_style": "Imports",
+                "docstring_style": "Docstrings",
+                "error_handling": "Error handling",
+                "type_hints": "Type hints",
+                "async_style": "Async",
+                "http_library": "HTTP library",
+                "cli_library": "CLI library",
+                "log_style": "Logging",
             }
             label = label_map.get(key, key)
             entry = f"- {label}: {value}"
@@ -468,8 +503,7 @@ class PreferenceManager:
             else:
                 # No Conventions section — append one
                 codeymd_path.write_text(
-                    text.rstrip() + f"\n\n# Conventions\n{entry}\n",
-                    encoding="utf-8"
+                    text.rstrip() + f"\n\n# Conventions\n{entry}\n", encoding="utf-8"
                 )
         except Exception:
             pass
@@ -527,13 +561,9 @@ class PreferenceManager:
         """Get preference status."""
         return {
             "preferences": self.get_all(),
-            "confidence": {
-                cat: self.get_confidence(cat)
-                for cat in self.CATEGORIES
-            },
+            "confidence": {cat: self.get_confidence(cat) for cat in self.CATEGORIES},
             "total_observations": sum(
-                self._cache.get(cat, {}).get("observations", 0)
-                for cat in self.CATEGORIES
+                self._cache.get(cat, {}).get("observations", 0) for cat in self.CATEGORIES
             ),
         }
 

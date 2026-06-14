@@ -1,18 +1,21 @@
-import sys
 import logging
-from rich.console import Console
-from rich.theme import Theme
+import sys
 from typing import Optional
 
-_theme = Theme({
-    "info":    "bold cyan",
-    "success": "bold green",
-    "warning": "bold yellow",
-    "error":   "bold red",
-    "tool":    "bold magenta",
-    "think":   "dim italic white",
-    "user":    "bold blue",
-})
+from rich.console import Console
+from rich.theme import Theme
+
+_theme = Theme(
+    {
+        "info": "bold cyan",
+        "success": "bold green",
+        "warning": "bold yellow",
+        "error": "bold red",
+        "tool": "bold magenta",
+        "think": "dim italic white",
+        "user": "bold blue",
+    }
+)
 
 console = Console(theme=_theme, highlight=False)
 
@@ -41,15 +44,15 @@ def set_log_level(level: str):
 def setup_file_logging(log_file: str):
     """Set up file logging for daemon mode."""
     global _file_handler, _file_logger
-    
+
     _file_logger = logging.getLogger("codey_daemon")
     _file_logger.setLevel(logging.DEBUG)
-    
-    _file_handler = logging.FileHandler(log_file, mode='a')
+
+    _file_handler = logging.FileHandler(log_file, mode="a")
     _file_handler.setLevel(logging.DEBUG)
-    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
     _file_handler.setFormatter(formatter)
-    
+
     _file_logger.addHandler(_file_handler)
 
 
@@ -65,25 +68,30 @@ def info(msg):
         console.print(f"[info]ℹ  {msg}[/info]")
     _log_to_file("info", msg)
 
+
 def success(msg):
     if _current_log_level <= logging.INFO:
         console.print(f"[success]✓  {msg}[/success]")
     _log_to_file("info", msg)
+
 
 def warning(msg):
     if _current_log_level <= logging.WARNING:
         console.print(f"[warning]⚠  {msg}[/warning]")
     _log_to_file("warning", msg)
 
+
 def error(msg):
     if _current_log_level <= logging.ERROR:
         console.print(f"[error]✗  {msg}[/error]")
     _log_to_file("error", msg)
 
+
 def think(msg):
     if _current_log_level <= logging.DEBUG:
         console.print(f"[think]💭 {msg}[/think]")
     _log_to_file("debug", msg)
+
 
 def debug(msg):
     """Debug level logging."""
@@ -91,15 +99,19 @@ def debug(msg):
         console.print(f"[dim]🔍 {msg}[/dim]")
     _log_to_file("debug", msg)
 
+
 def tool_call(name, args):
     console.print(f"[tool]🔧 TOOL [{name}][/tool]")
+
 
 def tool_result(result):
     preview = str(result)[:200]
     console.print(f"[success]   ↳ {preview}[/success]")
 
+
 def separator():
     console.rule(style="dim")
+
 
 def confirm(question) -> bool:
     """Keep asking until we get a real y or n — never auto-cancel."""

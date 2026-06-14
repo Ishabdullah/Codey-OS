@@ -15,29 +15,27 @@ Flow:
   6. Work continues with the result as context
 """
 
-import re
 import shutil
 import subprocess
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
-from utils.logger import info, warning, success, error, separator
+from utils.logger import info, separator, success, warning
 
 
 @dataclass
 class PeerCLI:
     name: str
     description: str
-    cmd: str            # base shell command
-    check_cmd: str      # command to test if installed
+    cmd: str  # base shell command
+    check_cmd: str  # command to test if installed
     strengths: List[str]
-    interactive: bool = True   # True = open full interactive session
-    prompt_flag: str = ""      # flag for non-interactive prompt injection
-    prompt_prefix: str = ""    # prefix before the prompt string
-    use_pty: bool = True       # False = run via os.system (avoids nested PTY issues)
-    yolo_flag: str = ""        # appended after the prompt to skip tool confirmations
-                               # e.g. "-y" for qwen so it can auto-approve its own tools
+    interactive: bool = True  # True = open full interactive session
+    prompt_flag: str = ""  # flag for non-interactive prompt injection
+    prompt_prefix: str = ""  # prefix before the prompt string
+    use_pty: bool = True  # False = run via os.system (avoids nested PTY issues)
+    yolo_flag: str = ""  # appended after the prompt to skip tool confirmations
+    # e.g. "-y" for qwen so it can auto-approve its own tools
 
 
 # ── Registry ──────────────────────────────────────────────────────────────────
@@ -51,13 +49,13 @@ PEER_REGISTRY: List[PeerCLI] = [
         strengths=["debugging", "refactor", "architecture", "complex", "review"],
         interactive=False,
         use_pty=False,
-        prompt_flag="-p",   # claude -p "task" → non-interactive, clean output
+        prompt_flag="-p",  # claude -p "task" → non-interactive, clean output
     ),
     PeerCLI(
         name="gemini",
         description="Gemini CLI (Google)",
         cmd="gemini",
-        check_cmd="",   # No Node.js native modules — shutil.which check is sufficient
+        check_cmd="",  # No Node.js native modules — shutil.which check is sufficient
         strengths=["explain", "analysis", "large_context", "review", "generate"],
         interactive=False,
         use_pty=False,
@@ -67,28 +65,29 @@ PEER_REGISTRY: List[PeerCLI] = [
         name="qwen",
         description="Qwen CLI",
         cmd="qwen",
-        check_cmd="",   # No Node.js native modules — shutil.which check is sufficient
+        check_cmd="",  # No Node.js native modules — shutil.which check is sufficient
         strengths=["generate", "code", "completion", "quick_fix"],
         interactive=False,
         use_pty=False,
         prompt_flag="-p",
-        yolo_flag="-y",   # qwen -p "task" -y → auto-approve its own tool calls
+        yolo_flag="-y",  # qwen -p "task" -y → auto-approve its own tool calls
     ),
 ]
 
 # Task type → preferred CLI order (first available wins)
 TASK_CLI_PREFERENCE: Dict[str, List[str]] = {
-    "debugging":  ["claude", "gemini", "qwen"],
-    "refactor":   ["claude", "gemini", "qwen"],
-    "generate":   ["qwen", "claude", "gemini"],
-    "review":     ["gemini", "claude", "qwen"],
-    "explain":    ["gemini", "claude", "qwen"],
-    "complex":    ["claude", "gemini", "qwen"],
-    "default":    ["claude", "gemini", "qwen"],
+    "debugging": ["claude", "gemini", "qwen"],
+    "refactor": ["claude", "gemini", "qwen"],
+    "generate": ["qwen", "claude", "gemini"],
+    "review": ["gemini", "claude", "qwen"],
+    "explain": ["gemini", "claude", "qwen"],
+    "complex": ["claude", "gemini", "qwen"],
+    "default": ["claude", "gemini", "qwen"],
 }
 
 
 # ── Manager ───────────────────────────────────────────────────────────────────
+
 
 class PeerCLIManager:
     """Manages escalation to external AI coding CLIs."""
@@ -113,18 +112,18 @@ class PeerCLIManager:
         # start (e.g. missing pty.node prebuilds on Android ARM64).
         if cli.check_cmd:
             try:
-                result = subprocess.run(
-                    cli.check_cmd.split(),
-                    capture_output=True, timeout=5
-                )
+                result = subprocess.run(cli.check_cmd.split(), capture_output=True, timeout=5)
                 stderr = (result.stderr or b"").decode("utf-8", errors="replace")
                 # Detect node native-module crash signatures
-                native_crash = any(sig in stderr for sig in [
-                    "Failed to load native module",
-                    "pty.node",
-                    "prebuilds/",
-                    "NODE_MODULE_VERSION",
-                ])
+                native_crash = any(
+                    sig in stderr
+                    for sig in [
+                        "Failed to load native module",
+                        "pty.node",
+                        "prebuilds/",
+                        "NODE_MODULE_VERSION",
+                    ]
+                )
                 return not native_crash
             except FileNotFoundError:
                 return False
@@ -216,13 +215,18 @@ class PeerCLIManager:
           ("redirect", instruction)  — user gave Codey a new instruction
         """
         from utils.logger import console
+
         available_names = [c.name for c in self.available()]
         others = [n for n in available_names if n != cli.name]
 
         separator()
         console.print("\n[bold yellow]  ⚠  Codey hit max retries and needs help.[/bold yellow]")
-        console.print(f"  Task:       [dim]{user_message[:80]}{'…' if len(user_message) > 80 else ''}[/dim]")
-        console.print(f"  Suggest:    [bold cyan]{cli.description}[/bold cyan]  [dim]({task_type} task)[/dim]")
+        console.print(
+            f"  Task:       [dim]{user_message[:80]}{'…' if len(user_message) > 80 else ''}[/dim]"
+        )
+        console.print(
+            f"  Suggest:    [bold cyan]{cli.description}[/bold cyan]  [dim]({task_type} task)[/dim]"
+        )
         if others:
             console.print(f"  Fallbacks:  [dim]{', '.join(others)}[/dim]")
         console.print()
@@ -230,8 +234,7 @@ class PeerCLIManager:
         console.print(f"    [green]y / enter[/green]          Call {cli.description}")
         console.print(f"    [red]n[/red]                  Skip — return control to you")
         if others:
-            console.print(f"    [cyan]{' | '.join(others)}[/cyan]"
-                          f"{'':>4}Use that CLI instead")
+            console.print(f"    [cyan]{' | '.join(others)}[/cyan]" f"{'':>4}Use that CLI instead")
         console.print(f"    [cyan]<any text>[/cyan]         Tell Codey to try differently\n")
 
         try:
@@ -256,7 +259,8 @@ class PeerCLIManager:
         prompt, let the user interact freely, capture everything it outputs.
         Returns the full captured output as a string.
         """
-        from core.peer_shell import run_peer, run_direct, run_prompted
+        from core.peer_shell import run_direct, run_peer, run_prompted
+
         if cli.prompt_flag and prompt:
             # Non-interactive: cmd -p "task" — clean output, no TUI
             return run_prompted(cli.name, cli.cmd, cli.prompt_flag, prompt, cli.yolo_flag)
@@ -275,13 +279,12 @@ class PeerCLIManager:
         if not output or len(output.strip()) < 10:
             return f"[Peer: {cli_name} produced no readable output]"
         if self.is_peer_error(output):
-            return output   # pass the error sentinel through as-is
+            return output  # pass the error sentinel through as-is
         preview = output[:2000].strip()
         return (
             f"[Peer CLI — {cli_name}]\n"
             f"Task: {original_task[:120]}\n"
-            f"Output:\n{preview}"
-            + ("\n… [truncated]" if len(output) > 2000 else "")
+            f"Output:\n{preview}" + ("\n… [truncated]" if len(output) > 2000 else "")
         )
 
 
@@ -313,10 +316,7 @@ def escalate(
     mgr = get_peer_cli_manager()
 
     if not mgr.available():
-        warning(
-            "No peer CLIs found. Install claude / gemini / qwen "
-            "to enable escalation."
-        )
+        warning("No peer CLIs found. Install claude / gemini / qwen " "to enable escalation.")
         return None
 
     task_type = mgr.detect_task_type(user_message, errors)

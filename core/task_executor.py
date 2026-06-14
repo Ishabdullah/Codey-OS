@@ -13,14 +13,13 @@ These are restored after each task so they never bleed into interactive sessions
 """
 
 import asyncio
-from typing import Optional, Dict
+from typing import Dict, Optional
 
-from utils.logger import info, warning, error, success
-from utils.config import AGENT_CONFIG
-from core.state import StateStore
 from core.daemon_config import DaemonConfig
-from core.thermal import start_inference, end_inference
-
+from core.state import StateStore
+from core.thermal import end_inference, start_inference
+from utils.config import AGENT_CONFIG
+from utils.logger import error, warning
 
 # ---------------------------------------------------------------------------
 # Daemon shell allowlist
@@ -39,17 +38,40 @@ from core.thermal import start_inference, end_inference
 #   cd                — change working directory for subsequent commands
 #   pwd / which / env / printenv — environment introspection; read-only
 #
-# Security note: "python" and "pip" are broad prefixes — a malformed task
-# could use them to run arbitrary code.  This is acceptable in daemon mode
-# because the agent already has full filesystem access; the allowlist mainly
-# prevents accidental destructive shell commands (rm, curl, chmod, etc.).
+# Security note: Python/pip commands are validated to prevent arbitrary code
+# execution. Only specific patterns are allowed (e.g., "python script.py",
+# "pip install package"). Commands like "python -c 'import os; os.system(...)'"
+# are blocked.
 # ---------------------------------------------------------------------------
 _DAEMON_ALLOWED_PREFIXES = (
-    "python", "python3", "pip", "pip3",
-    "pytest", "ls", "cat", "echo", "grep", "find",
-    "git status", "git log", "git diff", "git show",
-    "cd ", "pwd", "which", "env", "printenv",
+    "pytest",
+    "ls",
+    "cat",
+    "echo",
+    "grep",
+    "find",
+    "git status",
+    "git log",
+    "git diff",
+    "git show",
+    "cd ",
+    "pwd",
+    "which",
+    "env",
+    "printenv",
 )
+
+# Dangerous patterns that should be blocked even if prefix is allowed
+_DANGEROUS_FLAGS = ["-c", "-e", "-exec", "--eval", "-r", "-m"]
+
+# Allowed Python/pip patterns (more restrictive)
+_PYTHON_ALLOWED_PATTERNS = [
+    "python ",
+    "python3 ",  # Must have space after (not "python -c")
+    "pip install ",
+    "pip3 install ",  # Only install allowed
+    "pytest ",  # Test runner
+]
 
 
 class TaskExecutor:
@@ -95,15 +117,16 @@ class TaskExecutor:
             # files and turn counter bleed into this step causing stale
             # context and premature LRU eviction of files we haven't seen yet.
             from core.memory_v2 import memory as _mem
+
             _mem.clear()
 
             # Save and override AGENT_CONFIG for daemon execution.
             _saved = {
-                "_shell_fn":     AGENT_CONFIG.get("_shell_fn"),
+                "_shell_fn": AGENT_CONFIG.get("_shell_fn"),
                 "confirm_shell": AGENT_CONFIG.get("confirm_shell"),
                 "confirm_write": AGENT_CONFIG.get("confirm_write"),
             }
-            AGENT_CONFIG["_shell_fn"]     = self._daemon_shell
+            AGENT_CONFIG["_shell_fn"] = self._daemon_shell
             AGENT_CONFIG["confirm_shell"] = False  # guard is in _daemon_shell
             AGENT_CONFIG["confirm_write"] = False  # daemon writes without prompting
 
@@ -115,7 +138,7 @@ class TaskExecutor:
                         prompt,
                         history=[],
                         yolo=True,
-                        no_plan=True,      # each daemon step is already planned
+                        no_plan=True,  # each daemon step is already planned
                         _in_subtask=True,  # suppress git prompts; scale max_steps
                     ),
                 )
@@ -125,6 +148,7 @@ class TaskExecutor:
 
         except Exception as e:
             import traceback
+
             error(f"Task execution error: {e}\n{traceback.format_exc()}")
             raise  # re-raise original exception; already logged above
         finally:
@@ -139,19 +163,38 @@ class TaskExecutor:
         Execute a shell command in daemon context.
 
         Only prefixes listed in _DAEMON_ALLOWED_PREFIXES are permitted.
+        Python/pip commands are additionally validated against dangerous patterns.
         Anything else is blocked with a clear message so the model knows
         to restructure its approach rather than silently failing.
         """
         from tools.shell_tools import shell
 
         cmd = command.strip()
-        if not any(cmd.startswith(p) for p in _DAEMON_ALLOWED_PREFIXES):
+
+        # Check if it's a Python/pip command (needs special validation)
+        is_python_cmd = any(cmd.startswith(p) for p in ["python", "python3", "pip", "pip3"])
+
+        if is_python_cmd:
+            # Validate Python/pip commands more strictly
+            if not any(cmd.startswith(p) for p in _PYTHON_ALLOWED_PATTERNS):
+                warning(f"Daemon: blocked Python/pip command: {cmd[:80]}")
+                return (
+                    f"[BLOCKED] Daemon mode will not run '{cmd[:60]}'. "
+                    "Only 'python script.py' and 'pip install package' are allowed."
+                )
+            # Check for dangerous flags
+            for flag in _DANGEROUS_FLAGS:
+                if flag in cmd:
+                    warning(f"Daemon: blocked dangerous flag '{flag}' in: {cmd[:80]}")
+                    return f"[BLOCKED] Flag '{flag}' is not allowed in daemon mode."
+        elif not any(cmd.startswith(p) for p in _DAEMON_ALLOWED_PREFIXES):
             warning(f"Daemon: blocked shell command: {cmd[:80]}")
             return (
                 f"[BLOCKED] Daemon mode will not run '{cmd[:60]}' without "
                 "explicit authorization. Add the command prefix to "
                 "_DAEMON_ALLOWED_PREFIXES in core/task_executor.py to enable it."
             )
+
         return shell(command, yolo=True)
 
     # ------------------------------------------------------------------
@@ -174,8 +217,9 @@ def get_executor() -> TaskExecutor:
     """Return the module-level TaskExecutor singleton."""
     global _executor
     if _executor is None:
-        from core.state import get_state_store
         from core.daemon_config import get_config
+        from core.state import get_state_store
+
         _executor = TaskExecutor(get_state_store(), get_config())
     return _executor
 

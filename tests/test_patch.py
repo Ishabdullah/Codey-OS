@@ -1,10 +1,13 @@
-import unittest
 import os
+import unittest
 from pathlib import Path
+
 from utils import config
+
 config.AGENT_CONFIG["confirm_write"] = False
+from core.filehistory import _history, undo
 from tools.patch_tools import tool_patch_file
-from core.filehistory import undo, _history
+
 
 class TestPatch(unittest.TestCase):
     def setUp(self):
@@ -39,6 +42,7 @@ class TestPatch(unittest.TestCase):
         # Undo
         undo(str(self.test_file))
         self.assertEqual(self.test_file.read_text(), initial_content)
+
 
 if __name__ == "__main__":
     unittest.main()

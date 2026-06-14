@@ -21,12 +21,13 @@ Activation:
 import json
 import sys
 import time
-import urllib.request
 import urllib.error
-from typing import Optional, Dict, Any, List
+import urllib.request
+from typing import Any, Dict, List, Optional
 
-from utils.logger import info, warning, error
-from utils.config import MODEL_CONFIG, OPENROUTER_API_KEY, OPENROUTER_MODEL, OPENROUTER_BASE_URL
+from utils.config import (MODEL_CONFIG, OPENROUTER_API_KEY,
+                          OPENROUTER_BASE_URL, OPENROUTER_MODEL)
+from utils.logger import error, info, warning
 
 
 class OpenRouterBackend:
@@ -38,12 +39,13 @@ class OpenRouterBackend:
     defaulting to OpenRouter config values when called without arguments.
     """
 
-    def __init__(self, api_key: str = None, model: str = None,
-                 base_url: str = None, name: str = "openrouter"):
-        self._base_url   = (base_url or OPENROUTER_BASE_URL).rstrip("/")
-        self._api_key    = api_key if api_key is not None else OPENROUTER_API_KEY
-        self._model      = model   if model   is not None else OPENROUTER_MODEL
-        self._name       = name
+    def __init__(
+        self, api_key: str = None, model: str = None, base_url: str = None, name: str = "openrouter"
+    ):
+        self._base_url = (base_url or OPENROUTER_BASE_URL).rstrip("/")
+        self._api_key = api_key if api_key is not None else OPENROUTER_API_KEY
+        self._model = model if model is not None else OPENROUTER_MODEL
+        self._name = name
         self._calls_made = 0
 
     def check_health(self) -> bool:
@@ -54,8 +56,9 @@ class OpenRouterBackend:
         """For compatibility with loader checks — always True for remote API."""
         return bool(self._api_key)
 
-    def infer(self, messages: list, max_tokens: int = 2048,
-              stop: List[str] = None, stream: bool = False) -> Optional[tuple]:
+    def infer(
+        self, messages: list, max_tokens: int = 2048, stop: List[str] = None, stream: bool = False
+    ) -> Optional[tuple]:
         """
         Run inference via OpenRouter /v1/chat/completions.
 
@@ -189,7 +192,9 @@ class OpenRouterBackend:
             tokens = len(text.split())
         tps = round(tokens / elapsed, 1) if elapsed > 0 else 0.0
 
-        info(f"{self._name} stream ({self._model}): {tokens} tokens in {elapsed:.1f}s ({tps:.1f} t/s)")
+        info(
+            f"{self._name} stream ({self._model}): {tokens} tokens in {elapsed:.1f}s ({tps:.1f} t/s)"
+        )
         return text.strip(), tokens, tps
 
     @property
@@ -219,11 +224,11 @@ def get_remote_backend(backend_name: str = None) -> OpenRouterBackend:
     Return a backend singleton configured for the given backend name.
     Defaults to the active CODEY_BACKEND setting.
     """
-    from utils.config import (
-        CODEY_BACKEND,
-        OPENROUTER_API_KEY, OPENROUTER_MODEL, OPENROUTER_BASE_URL,
-        UNLIMITEDCLAUDE_API_KEY, UNLIMITEDCLAUDE_MODEL, UNLIMITEDCLAUDE_BASE_URL,
-    )
+    from utils.config import (CODEY_BACKEND, OPENROUTER_API_KEY,
+                              OPENROUTER_BASE_URL, OPENROUTER_MODEL,
+                              UNLIMITEDCLAUDE_API_KEY,
+                              UNLIMITEDCLAUDE_BASE_URL, UNLIMITEDCLAUDE_MODEL)
+
     name = backend_name or CODEY_BACKEND
 
     if name not in _backends:

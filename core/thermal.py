@@ -11,11 +11,11 @@ Optimized for Samsung S24 Ultra (12GB RAM, mobile CPU).
 """
 
 import time
-from typing import Optional
 from pathlib import Path
+from typing import Optional
 
-from utils.logger import info, warning, error
-from utils.config import THERMAL_CONFIG, MODEL_CONFIG
+from utils.config import MODEL_CONFIG, THERMAL_CONFIG
+from utils.logger import info, warning
 
 
 class ThermalManager:
@@ -27,7 +27,7 @@ class ThermalManager:
     - Total inference time
     - Thread count adjustments
     """
-    
+
     def __init__(self):
         self._start_time: Optional[float] = None
         self._total_inference_sec: float = 0
@@ -39,8 +39,8 @@ class ThermalManager:
         # and restarts llama-server with the updated thread count on next call.
         self.restart_recommended: bool = False
         # Temperature snapshot tracking
-        self._last_start_time: Optional[float] = None   # kept after inference ends
-        self._last_temp_snapshot: float = 0             # monotonic time of last read
+        self._last_start_time: Optional[float] = None  # kept after inference ends
+        self._last_temp_snapshot: float = 0  # monotonic time of last read
 
     def _read_cpu_temp(self) -> Optional[float]:
         """Read peak CPU temperature from /sys/class/thermal, return °C or None."""
@@ -62,20 +62,20 @@ class ThermalManager:
         """Mark the start of an inference."""
         self._start_time = time.time()
         self._last_start_time = self._start_time
-    
+
     def end_inference(self):
         """Mark the end of an inference and check thermal status."""
         if self._start_time is None:
             return
-        
+
         duration = time.time() - self._start_time
         self._total_inference_sec += duration
         self._last_inference_end = time.time()
         self._start_time = None
-        
+
         # Check if we need to throttle
         self._check_thermal_status()
-    
+
     def _check_thermal_status(self):
         """Check thermal status and apply throttling if needed."""
         if not THERMAL_CONFIG.get("enabled", True):
@@ -108,21 +108,18 @@ class ThermalManager:
             if self._warnings_issued < expected_warnings:
                 warning(f"Thermal: Continuous inference for {self._total_inference_sec/60:.1f} min")
                 self._warnings_issued += 1
-        
+
         # Check for thread reduction threshold
         reduce_after = THERMAL_CONFIG.get("reduce_threads_after_sec", 600)
         if self._total_inference_sec > reduce_after:
             if self._current_threads > THERMAL_CONFIG.get("min_threads", 2):
                 self._reduce_threads()
-    
+
     def _reduce_threads(self):
         """Reduce thread count to lower thermal output."""
         old_threads = self._current_threads
-        new_threads = max(
-            THERMAL_CONFIG.get("min_threads", 2),
-            old_threads - 2
-        )
-        
+        new_threads = max(THERMAL_CONFIG.get("min_threads", 2), old_threads - 2)
+
         if new_threads < old_threads:
             self._current_threads = new_threads
             MODEL_CONFIG["n_threads"] = new_threads
@@ -136,20 +133,20 @@ class ThermalManager:
                 f"(total inference: {self._total_inference_sec/60:.1f} min). "
                 f"Server will restart on next inference call."
             )
-    
+
     def reset(self):
         """Reset thermal tracking (called after cooldown period)."""
         self._total_inference_sec = 0
         self._warnings_issued = 0
         self._thread_reductions = 0
-        
+
         # Restore original thread count
         original = THERMAL_CONFIG.get("original_threads", 4)
         if self._current_threads != original:
             self._current_threads = original
             MODEL_CONFIG["n_threads"] = original
             info(f"Thermal: Restored threads to {original}")
-    
+
     def get_status(self) -> dict:
         """Get thermal management status."""
         return {
@@ -161,12 +158,12 @@ class ThermalManager:
             "thread_reductions": self._thread_reductions,
             "throttled": self._current_threads < THERMAL_CONFIG.get("original_threads", 4),
         }
-    
+
     @property
     def current_threads(self) -> int:
         """Get current thread count (may be reduced due to thermal)."""
         return self._current_threads
-    
+
     @property
     def is_throttled(self) -> bool:
         """Check if thermal throttling is active."""

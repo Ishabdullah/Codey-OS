@@ -12,10 +12,9 @@ Port assignments:
 
 import json
 import re
-import urllib.request
 import urllib.error
-from typing import Optional, List
-
+import urllib.request
+from typing import List, Optional
 
 # ── Planner prompt ────────────────────────────────────────────────────────────
 # Single prompt used by ALL backends: local 0.5B, OpenRouter, UnlimitedClaude.
@@ -89,6 +88,7 @@ PLANNER_PROMPT = (
 
 # ── Step parser ───────────────────────────────────────────────────────────────
 
+
 def parse_steps(raw: str) -> List[str]:
     """
     Extract numbered steps from model output.
@@ -125,7 +125,8 @@ _TOOL_VERBS = re.compile(
 )
 
 # Peer CLI names — steps mentioning these are always kept regardless of verb
-_PEER_NAME_RE = re.compile(r'\b(claude|gemini|qwen)\b', re.IGNORECASE)
+_PEER_NAME_RE = re.compile(r"\b(claude|gemini|qwen)\b", re.IGNORECASE)
+
 
 def filter_tool_steps(steps: List[str]) -> List[str]:
     """
@@ -154,35 +155,38 @@ def filter_tool_steps(steps: List[str]) -> List[str]:
 
 # ── Planning via 0.5B on port 8081 (or remote when CODEY_BACKEND_P is set) ──
 
+
 def _get_plan_remote(prompt: str) -> Optional[List[str]]:
     """Route planning through the active planner backend (OpenRouter or UnlimitedClaude)."""
     try:
-        from utils.config import (
-            PLANNER_TEMPERATURE, PLANNER_MAX_TOKENS, CODEY_PLANNER_BACKEND,
-            OPENROUTER_PLANNER_MODEL, OPENROUTER_BASE_URL, OPENROUTER_API_KEY,
-            UNLIMITEDCLAUDE_PLANNER_MODEL, UNLIMITEDCLAUDE_BASE_URL, UNLIMITEDCLAUDE_API_KEY,
-        )
+        from utils.config import (CODEY_PLANNER_BACKEND, OPENROUTER_API_KEY,
+                                  OPENROUTER_BASE_URL,
+                                  OPENROUTER_PLANNER_MODEL, PLANNER_MAX_TOKENS,
+                                  PLANNER_TEMPERATURE, UNLIMITEDCLAUDE_API_KEY,
+                                  UNLIMITEDCLAUDE_BASE_URL,
+                                  UNLIMITEDCLAUDE_PLANNER_MODEL)
         from utils.logger import info, warning
 
         if CODEY_PLANNER_BACKEND == "unlimitedclaude":
             planner_model = UNLIMITEDCLAUDE_PLANNER_MODEL
-            base_url      = UNLIMITEDCLAUDE_BASE_URL.rstrip("/")
-            api_key       = UNLIMITEDCLAUDE_API_KEY
+            base_url = UNLIMITEDCLAUDE_BASE_URL.rstrip("/")
+            api_key = UNLIMITEDCLAUDE_API_KEY
             backend_label = "unlimitedclaude"
         else:
             planner_model = OPENROUTER_PLANNER_MODEL
-            base_url      = OPENROUTER_BASE_URL.rstrip("/")
-            api_key       = OPENROUTER_API_KEY
+            base_url = OPENROUTER_BASE_URL.rstrip("/")
+            api_key = OPENROUTER_API_KEY
             backend_label = "openrouter"
 
         messages = [
             {"role": "system", "content": PLANNER_PROMPT},
-            {"role": "user",   "content": prompt},
+            {"role": "user", "content": prompt},
         ]
 
         # Use the dedicated planner model and low temperature (0.2 not 0.7)
         import json as _json
         import urllib.request as _req
+
         payload = {
             "model": planner_model,
             "messages": messages,
@@ -235,6 +239,7 @@ def _get_plan_remote(prompt: str) -> Optional[List[str]]:
         return steps
     except Exception as e:
         from utils.logger import warning
+
         warning(f"[plannd] remote planning failed: {e}")
         return None
 
@@ -249,21 +254,24 @@ def get_plan(prompt: str) -> Optional[List[str]]:
     """
     try:
         from utils.config import is_remote_planner_backend
+
         if is_remote_planner_backend():
             return _get_plan_remote(prompt)
     except ImportError:
         pass
 
     try:
-        from utils.config import PLANNER_TEMPERATURE, PLANNER_MAX_TOKENS
+        from utils.config import PLANNER_MAX_TOKENS, PLANNER_TEMPERATURE
+
         temperature = PLANNER_TEMPERATURE
-        max_tokens  = PLANNER_MAX_TOKENS
+        max_tokens = PLANNER_MAX_TOKENS
     except ImportError:
         temperature = 0.2
-        max_tokens  = 512
+        max_tokens = 512
 
     try:
         from utils.config import PLANND_SERVER_PORT
+
         port = PLANND_SERVER_PORT
     except ImportError:
         port = 8081
@@ -272,7 +280,7 @@ def get_plan(prompt: str) -> Optional[List[str]]:
         "model": "plannd",
         "messages": [
             {"role": "system", "content": PLANNER_PROMPT},
-            {"role": "user",   "content": prompt},
+            {"role": "user", "content": prompt},
         ],
         "max_tokens": max_tokens,
         "temperature": temperature,

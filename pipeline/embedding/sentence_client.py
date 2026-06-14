@@ -26,8 +26,9 @@ class SentenceEmbedClient:
             return True
         try:
             from sentence_transformers import SentenceTransformer
+
             self._model = SentenceTransformer(self.model_name)
-            self._dim   = self._model.get_sentence_embedding_dimension()
+            self._dim = self._model.get_sentence_embedding_dimension()
             return True
         except ImportError:
             return False

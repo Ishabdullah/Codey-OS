@@ -8,6 +8,7 @@ the model claims actions it didn't take.
 
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.agent import is_hallucination
@@ -21,7 +22,7 @@ class TestHallucinationDetection:
         response = "I have created the file test.py"
         user_message = "Create a file called test.py"
         tools_used = []
-        
+
         false_file, false_run = is_hallucination(response, user_message, tools_used)
         assert false_file == True
 
@@ -30,7 +31,7 @@ class TestHallucinationDetection:
         response = "I created the file for you"
         user_message = "Make a new file"
         tools_used = []
-        
+
         false_file, false_run = is_hallucination(response, user_message, tools_used)
         assert false_file == True
 
@@ -39,7 +40,7 @@ class TestHallucinationDetection:
         response = "The file has been successfully created"
         user_message = "Create a config file"
         tools_used = []
-        
+
         false_file, false_run = is_hallucination(response, user_message, tools_used)
         assert false_file == True
 
@@ -48,7 +49,7 @@ class TestHallucinationDetection:
         response = "I will create the file for you"
         user_message = "Create a file"
         tools_used = []
-        
+
         false_file, false_run = is_hallucination(response, user_message, tools_used)
         assert false_file == False
 
@@ -57,7 +58,7 @@ class TestHallucinationDetection:
         response = "Let me create that file for you"
         user_message = "Create a file"
         tools_used = []
-        
+
         false_file, false_run = is_hallucination(response, user_message, tools_used)
         assert false_file == False
 
@@ -66,7 +67,7 @@ class TestHallucinationDetection:
         response = "I'll create the file right away"
         user_message = "Create a file"
         tools_used = []
-        
+
         false_file, false_run = is_hallucination(response, user_message, tools_used)
         assert false_file == False
 
@@ -75,7 +76,7 @@ class TestHallucinationDetection:
         response = "I can help you create that file"
         user_message = "Create a file"
         tools_used = []
-        
+
         false_file, false_run = is_hallucination(response, user_message, tools_used)
         assert false_file == False
 
@@ -84,7 +85,7 @@ class TestHallucinationDetection:
         response = "I have created the file test.py"
         user_message = "Create a file"
         tools_used = ["write_file"]
-        
+
         false_file, false_run = is_hallucination(response, user_message, tools_used)
         assert false_file == False
 
@@ -93,7 +94,7 @@ class TestHallucinationDetection:
         response = "I ran the tests successfully"
         user_message = "Run the tests"
         tools_used = []
-        
+
         false_file, false_run = is_hallucination(response, user_message, tools_used)
         assert false_run == True
 
@@ -102,7 +103,7 @@ class TestHallucinationDetection:
         response = "The command executed successfully"
         user_message = "Execute the script"
         tools_used = []
-        
+
         false_file, false_run = is_hallucination(response, user_message, tools_used)
         assert false_run == True
 
@@ -111,7 +112,7 @@ class TestHallucinationDetection:
         response = "Here's how you can create a file in Python..."
         user_message = "How do I create a file?"
         tools_used = []
-        
+
         false_file, false_run = is_hallucination(response, user_message, tools_used)
         assert false_file == False
         assert false_run == False
@@ -121,7 +122,7 @@ class TestHallucinationDetection:
         response = "This capability is already implemented in the codebase"
         user_message = "Add a new feature"
         tools_used = []
-        
+
         false_file, false_run = is_hallucination(response, user_message, tools_used)
         assert false_file == True
 
@@ -130,7 +131,7 @@ class TestHallucinationDetection:
         response = "I wrote the code to handle this"
         user_message = "Write code for this"
         tools_used = []
-        
+
         false_file, false_run = is_hallucination(response, user_message, tools_used)
         assert false_file == True
 
@@ -140,7 +141,7 @@ class TestHallucinationDetection:
         # Use "create" to trigger needs_file check
         user_message = "Create and modify this function"
         tools_used = []
-        
+
         false_file, false_run = is_hallucination(response, user_message, tools_used)
         # "i modified" is in past_tense_claims list
         # This should be detected as potential hallucination
@@ -151,7 +152,7 @@ class TestHallucinationDetection:
         response = "Next I will run the tests to verify"
         user_message = "Fix the bug"
         tools_used = []
-        
+
         false_file, false_run = is_hallucination(response, user_message, tools_used)
         assert false_file == False
 
@@ -160,7 +161,7 @@ class TestHallucinationDetection:
         response = "I'm going to create the file now"
         user_message = "Create a file"
         tools_used = []
-        
+
         false_file, false_run = is_hallucination(response, user_message, tools_used)
         assert false_file == False
 
@@ -169,7 +170,7 @@ class TestHallucinationDetection:
         response = "Let's create a new module for this"
         user_message = "Create a module"
         tools_used = []
-        
+
         false_file, false_run = is_hallucination(response, user_message, tools_used)
         assert false_file == False
 
@@ -178,7 +179,7 @@ class TestHallucinationDetection:
         response = "I have written the implementation"
         user_message = "Write an implementation"
         tools_used = []
-        
+
         false_file, false_run = is_hallucination(response, user_message, tools_used)
         assert false_file == True
 
@@ -187,7 +188,7 @@ class TestHallucinationDetection:
         response = "I ran the tests and they passed"
         user_message = "Run the tests"
         tools_used = []
-        
+
         false_file, false_run = is_hallucination(response, user_message, tools_used)
         assert false_run == True
 
@@ -196,11 +197,12 @@ class TestHallucinationDetection:
         response = "The file exists already"
         user_message = "What files are in the project?"
         tools_used = []
-        
+
         false_file, false_run = is_hallucination(response, user_message, tools_used)
         assert false_file == False
 
 
 if __name__ == "__main__":
     import pytest
+
     pytest.main([__file__, "-v"])

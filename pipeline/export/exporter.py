@@ -16,7 +16,7 @@ from typing import Dict, List
 # Import the actual Codey-V3 system prompt so training data is consistent
 try:
     import sys
-    import os
+
     _repo_root = Path(__file__).resolve().parents[2]
     sys.path.insert(0, str(_repo_root))
     from prompts.system_prompt import SYSTEM_PROMPT
@@ -24,7 +24,7 @@ except ImportError:
     SYSTEM_PROMPT = (
         "You are Codey-V3, a local AI coding assistant running on Termux.\n"
         "YOUR RESPONSE IS ALWAYS ONE TOOL CALL. Output exactly this structure:\n"
-        "<tool>\n{\"name\": \"TOOL_NAME\", \"args\": {\"ARG\": \"VALUE\"}}\n</tool>"
+        '<tool>\n{"name": "TOOL_NAME", "args": {"ARG": "VALUE"}}\n</tool>'
     )
 
 
@@ -59,30 +59,30 @@ class Exporter:
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         self._training_path = self.output_dir / "training_data.jsonl"
-        self._errors_path   = self.output_dir / "pipeline_errors.jsonl"
-        self._stats_path    = self.output_dir / "pipeline_stats.json"
+        self._errors_path = self.output_dir / "pipeline_errors.jsonl"
+        self._stats_path = self.output_dir / "pipeline_stats.json"
 
-        self._training_fh   = None
-        self._errors_fh     = None
+        self._training_fh = None
+        self._errors_fh = None
 
         # Stats counters
         self._stats = {
-            "start_time":       int(time.time()),
-            "end_time":         None,
-            "total_input":      0,
-            "total_output":     0,
-            "total_errors":     0,
-            "by_source":        defaultdict(int),
-            "by_tool":          defaultdict(int),
-            "by_num_steps":     defaultdict(int),
-            "quality_buckets":  defaultdict(int),  # 0-0.5, 0.5-0.7, 0.7-0.9, 0.9-1.0
+            "start_time": int(time.time()),
+            "end_time": None,
+            "total_input": 0,
+            "total_output": 0,
+            "total_errors": 0,
+            "by_source": defaultdict(int),
+            "by_tool": defaultdict(int),
+            "by_num_steps": defaultdict(int),
+            "quality_buckets": defaultdict(int),  # 0-0.5, 0.5-0.7, 0.7-0.9, 0.9-1.0
         }
 
     # ── Context manager ───────────────────────────────────────────────────────
 
     def __enter__(self):
         self._training_fh = open(self._training_path, "w", encoding="utf-8")
-        self._errors_fh   = open(self._errors_path,   "w", encoding="utf-8")
+        self._errors_fh = open(self._errors_path, "w", encoding="utf-8")
         return self
 
     def __exit__(self, *_):
@@ -127,8 +127,8 @@ class Exporter:
         assistant_content = _format_tool_calls_as_assistant(record["tool_calls"])
         return {
             "conversations": [
-                {"role": "system",    "content": SYSTEM_PROMPT},
-                {"role": "user",      "content": record["user"]},
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": record["user"]},
                 {"role": "assistant", "content": assistant_content},
             ],
             "metadata": record.get("metadata", {}),
@@ -140,13 +140,13 @@ class Exporter:
         self._stats["total_output"] += 1
 
         meta = record.get("metadata", {})
-        source     = meta.get("source", "unknown")
+        source = meta.get("source", "unknown")
         tool_names = meta.get("tool_names", [])
-        num_steps  = meta.get("num_steps", 1)
-        quality    = meta.get("quality", 0.5)
+        num_steps = meta.get("num_steps", 1)
+        quality = meta.get("quality", 0.5)
 
-        self._stats["by_source"][source]         += 1
-        self._stats["by_num_steps"][num_steps]   += 1
+        self._stats["by_source"][source] += 1
+        self._stats["by_num_steps"][num_steps] += 1
 
         for tool in tool_names:
             self._stats["by_tool"][tool] += 1
@@ -167,19 +167,19 @@ class Exporter:
 
         # Convert defaultdicts to regular dicts for JSON serialisation
         stats_out = {
-            "start_time":       self._stats["start_time"],
-            "end_time":         self._stats["end_time"],
-            "elapsed_seconds":  elapsed,
-            "total_input":      self._stats["total_input"],
-            "total_output":     self._stats["total_output"],
-            "total_errors":     self._stats["total_errors"],
-            "retention_rate":   round(
+            "start_time": self._stats["start_time"],
+            "end_time": self._stats["end_time"],
+            "elapsed_seconds": elapsed,
+            "total_input": self._stats["total_input"],
+            "total_output": self._stats["total_output"],
+            "total_errors": self._stats["total_errors"],
+            "retention_rate": round(
                 self._stats["total_output"] / max(self._stats["total_input"], 1), 3
             ),
-            "by_source":        dict(self._stats["by_source"]),
-            "by_tool":          dict(self._stats["by_tool"]),
-            "by_num_steps":     {str(k): v for k, v in self._stats["by_num_steps"].items()},
-            "quality_buckets":  dict(self._stats["quality_buckets"]),
+            "by_source": dict(self._stats["by_source"]),
+            "by_tool": dict(self._stats["by_tool"]),
+            "by_num_steps": {str(k): v for k, v in self._stats["by_num_steps"].items()},
+            "quality_buckets": dict(self._stats["quality_buckets"]),
         }
 
         with open(self._stats_path, "w") as f:

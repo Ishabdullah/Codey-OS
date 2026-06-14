@@ -1,16 +1,31 @@
 """
 /search — grep across project files from inside Codey chat.
 """
-import subprocess
+
 import os
+import subprocess
 from pathlib import Path
-from utils.logger import warning
 
 DEFAULT_EXTENSIONS = [
-    "*.py", "*.js", "*.ts", "*.sh", "*.json",
-    "*.yaml", "*.yml", "*.toml", "*.md", "*.txt",
-    "*.html", "*.css", "*.c", "*.cpp", "*.h", "*.rs", "*.go",
+    "*.py",
+    "*.js",
+    "*.ts",
+    "*.sh",
+    "*.json",
+    "*.yaml",
+    "*.yml",
+    "*.toml",
+    "*.md",
+    "*.txt",
+    "*.html",
+    "*.css",
+    "*.c",
+    "*.cpp",
+    "*.h",
+    "*.rs",
+    "*.go",
 ]
+
 
 def search_in_project(pattern: str, path: str = ".", case_sensitive: bool = False) -> str:
     """
@@ -29,14 +44,15 @@ def search_in_project(pattern: str, path: str = ".", case_sensitive: bool = Fals
     cmd += ["--color=never", pattern, str(p)]
 
     # Exclude pycache and .git
-    cmd += ["--exclude-dir=__pycache__", "--exclude-dir=.git",
-            "--exclude-dir=node_modules", "--exclude-dir=.venv"]
+    cmd += [
+        "--exclude-dir=__pycache__",
+        "--exclude-dir=.git",
+        "--exclude-dir=node_modules",
+        "--exclude-dir=.venv",
+    ]
 
     try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=15,
-            cwd=os.getcwd()
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=15, cwd=os.getcwd())
         output = result.stdout.strip()
         if not output:
             return f"No matches for '{pattern}' in {path}"
@@ -54,6 +70,7 @@ def search_in_project(pattern: str, path: str = ".", case_sensitive: bool = Fals
         return "[ERROR] grep not found"
     except Exception as e:
         return f"[ERROR] {e}"
+
 
 def search_definitions(name: str, path: str = ".") -> str:
     """Search for function/class definitions by name."""

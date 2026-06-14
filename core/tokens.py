@@ -1,7 +1,9 @@
 """
 Token usage tracking — show context window utilization.
 """
+
 from utils.config import MODEL_CONFIG
+
 
 def estimate_tokens(text: str, path: str = None) -> int:
     """
@@ -15,11 +17,13 @@ def estimate_tokens(text: str, path: str = None) -> int:
             return len(text) // 3
     return len(text) // 4
 
+
 def estimate_messages_tokens(messages: list[dict]) -> int:
     total = sum(estimate_tokens(m.get("content", "")) for m in messages)
     # Add ~4 tokens per message for role/formatting overhead
     total += len(messages) * 4
     return total
+
 
 def usage_bar(used: int, total: int, width: int = 20) -> str:
     """Return a simple ASCII usage bar."""
@@ -30,11 +34,13 @@ def usage_bar(used: int, total: int, width: int = 20) -> str:
     tps = ""
     try:
         import core.inference_v2 as _inf
+
         if hasattr(_inf, "last_tps") and _inf.last_tps > 0:
             tps = f" [dim]· {_inf.last_tps:.1f} t/s[/dim]"
     except Exception:
         pass
     return f"[{color}]{bar}[/{color}] {used}/{total} tokens ({pct*100:.0f}%){tps}"
+
 
 def get_context_usage(messages: list[dict]) -> tuple[int, int]:
     """Return (used_tokens, max_tokens)."""

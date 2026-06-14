@@ -1,53 +1,125 @@
 import shlex
 import subprocess
 from pathlib import Path
-from utils.logger import warning, confirm as ask_confirm, error
+
 from utils.config import AGENT_CONFIG
+from utils.logger import confirm as ask_confirm
+from utils.logger import warning
 
 SHELL_METACHARACTERS = {
-    ";", "&&", "||", "|", "`", "$(", "${", "<(", ">(", ">", "<",
-    "&", "\n", "\\",
+    ";",
+    "&&",
+    "||",
+    "|",
+    "`",
+    "$(",
+    "${",
+    "<(",
+    ">(",
+    ">",
+    "<",
+    "&",
+    "\n",
+    "\\",
 }
 
 DANGEROUS_COMMANDS = [
-    "rm", "rmdir", "mkfs", "dd", "chmod", "wget", "curl", "mv", "cp",
+    "rm",
+    "rmdir",
+    "mkfs",
+    "dd",
+    "chmod",
+    "wget",
+    "curl",
+    "mv",
+    "cp",
 ]
 
 ALLOWED_COMMANDS = {
-    "ls", "cat", "head", "tail", "grep", "find", "wc", "sort", "uniq",
-    "echo", "pwd", "which", "env", "printenv", "date", "whoami",
-    "python", "python3", "pip", "pip3", "pytest", "node", "npm",
-    "git", "cd", "mkdir", "touch", "cp", "mv", "ln",
-    "diff", "file", "stat", "du", "df", "tree",
-    "sed", "awk", "tr", "cut", "xargs",
-    "termux-open", "termux-clipboard-set", "termux-clipboard-get",
+    "ls",
+    "cat",
+    "head",
+    "tail",
+    "grep",
+    "find",
+    "wc",
+    "sort",
+    "uniq",
+    "echo",
+    "pwd",
+    "which",
+    "env",
+    "printenv",
+    "date",
+    "whoami",
+    "python",
+    "python3",
+    "pip",
+    "pip3",
+    "pytest",
+    "node",
+    "npm",
+    "git",
+    "cd",
+    "mkdir",
+    "touch",
+    "cp",
+    "mv",
+    "ln",
+    "diff",
+    "file",
+    "stat",
+    "du",
+    "df",
+    "tree",
+    "sed",
+    "awk",
+    "tr",
+    "cut",
+    "xargs",
+    "termux-open",
+    "termux-clipboard-set",
+    "termux-clipboard-get",
 }
 
 DANGEROUS_PATTERNS = [
-    "sudo ", "> /dev/", "| sh", "| bash", ":(){:|:&};:",
-    "sh -c ", "bash -c ",
-    "reset --hard", "push --force", "push -f ",
-    " -delete", "rm -rf", "rm -r ",
-    "mkfs", "dd if=", "> /etc/", "chmod 777",
-    "curl.*|.*sh", "wget.*|.*sh",
+    "sudo ",
+    "> /dev/",
+    "| sh",
+    "| bash",
+    ":(){:|:&};:",
+    "sh -c ",
+    "bash -c ",
+    "reset --hard",
+    "push --force",
+    "push -f ",
+    " -delete",
+    "rm -rf",
+    "rm -r ",
+    "mkfs",
+    "dd if=",
+    "> /etc/",
+    "chmod 777",
+    "curl.*|.*sh",
+    "wget.*|.*sh",
 ]
 
 
 def validate_command_structure(command: str) -> tuple:
     """
     Validate command structure to prevent shell injection.
-    
+
     Returns:
         (is_valid, error_message) tuple
     """
     if not command or not command.strip():
         return True, ""
-    
+
     sorted_chars = sorted(SHELL_METACHARACTERS, key=len, reverse=True)
     for char in sorted_chars:
         if char in command:
             return False, f"Blocked metacharacter '{char}' found in command"
-    
+
     return True, ""
 
 
@@ -169,8 +241,7 @@ def search_files(pattern: str, path: str = ".") -> str:
     """Search for files matching pattern. Uses subprocess list args to prevent injection."""
     try:
         result = subprocess.run(
-            ["find", path, "-name", pattern],
-            capture_output=True, text=True, timeout=15
+            ["find", path, "-name", pattern], capture_output=True, text=True, timeout=15
         )
         lines = (result.stdout + result.stderr).strip().splitlines()
         lines = [l for l in lines if l.strip()][:50]

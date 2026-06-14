@@ -6,8 +6,8 @@ so no additional processes are needed.
 """
 
 import json
-import urllib.request
 import urllib.error
+import urllib.request
 from typing import List, Optional
 
 

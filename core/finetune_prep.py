@@ -17,85 +17,79 @@ Phone only does lightweight data export + file writing.
 """
 
 import json
-import os
-from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Tuple
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
-from utils.logger import info, warning, success, error
 from core.state import get_state_store
-from core.memory_v2 import memory as _mem
-
+from utils.logger import info, warning
 
 # =============================================================================
 # Dataset Curation
 # =============================================================================
 
+
 class DatasetCurator:
     """
     Curates high-quality fine-tuning examples from Codey-V3 interaction history.
-    
+
     Filters by:
     - Successful interactions (no errors, task completed)
     - User corrections accepted
     - Multi-turn conversations (richer context)
     - Recent interactions (more relevant to current style)
     """
-    
+
     def __init__(self):
         self.state = get_state_store()
-    
-    def get_episodic_actions(
-        self,
-        days: int = 30,
-        min_quality: float = 0.7
-    ) -> List[Dict]:
+
+    def get_episodic_actions(self, days: int = 30, min_quality: float = 0.7) -> List[Dict]:
         """
         Retrieve episodic actions from the last N days.
-        
+
         Args:
             days: Number of days to look back
             min_quality: Minimum quality score (0.0-1.0)
-            
+
         Returns:
             List of action dictionaries
         """
         cutoff = datetime.now() - timedelta(days=days)
         cutoff_ts = int(cutoff.timestamp())
-        
+
         try:
             # Get episodic log from state
             actions_json = self.state.get("episodic_log")
             if not actions_json:
                 return []
-            
+
             actions = json.loads(actions_json)
-            
+
             # Filter by date and quality
             filtered = []
             for action in actions:
                 ts = action.get("timestamp", 0)
                 if ts < cutoff_ts:
                     continue
-                
+
                 # Quality heuristics
                 quality = self._calculate_quality(action)
                 if quality >= min_quality:
                     action["_quality"] = quality
                     filtered.append(action)
-            
+
             # Sort by quality descending
             filtered.sort(key=lambda x: x.get("_quality", 0), reverse=True)
             return filtered
-            
+
         except Exception as e:
             warning(f"Failed to load episodic actions: {e}")
             return []
-    
+
     def _calculate_quality(self, action: Dict) -> float:
         """
         Calculate quality score for an action.
-        
+
         Heuristics:
         - Task completed successfully: +0.5
         - User accepted/corrected: +0.3
@@ -104,58 +98,55 @@ class DatasetCurator:
         - Error occurred: -0.5
         """
         score = 0.5  # Base score
-        
+
         # Success bonus
         if action.get("success", False):
             score += 0.3
-        
+
         # Multi-step bonus
         if action.get("steps", 1) > 1:
             score += 0.2
-        
+
         # Recency bonus
         ts = action.get("timestamp", 0)
         days_ago = (datetime.now().timestamp() - ts) / 86400
         if days_ago <= 7:
             score += 0.1
-        
+
         # Error penalty
         if action.get("error"):
             score -= 0.5
-        
+
         return max(0.0, min(1.0, score))
-    
+
     def curate_examples(
-        self,
-        days: int = 30,
-        min_quality: float = 0.7,
-        max_examples: int = 500
+        self, days: int = 30, min_quality: float = 0.7, max_examples: int = 500
     ) -> List[Dict]:
         """
         Curate fine-tuning examples from history.
-        
+
         Args:
             days: Days to look back
             min_quality: Minimum quality threshold
             max_examples: Maximum examples to return
-            
+
         Returns:
             List of curated examples in ShareGPT format
         """
         actions = self.get_episodic_actions(days, min_quality)
         examples = []
-        
+
         for action in actions[:max_examples]:
             example = self._action_to_sharegpt(action)
             if example:
                 examples.append(example)
-        
+
         return examples
-    
+
     def _action_to_sharegpt(self, action: Dict) -> Optional[Dict]:
         """
         Convert an episodic action to ShareGPT format.
-        
+
         ShareGPT format:
         {
             "conversations": [
@@ -167,36 +158,36 @@ class DatasetCurator:
         """
         user_msg = action.get("user_message", "")
         assistant_msg = action.get("response", "")
-        
+
         if not user_msg or not assistant_msg:
             return None
-        
+
         # Build system prompt from preferences
         system_prompt = self._build_system_prompt(action)
-        
+
         return {
             "conversations": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_msg},
-                {"role": "assistant", "content": assistant_msg}
+                {"role": "assistant", "content": assistant_msg},
             ],
             "metadata": {
                 "source": "codey-v3",
                 "quality": action.get("_quality", 0.5),
                 "timestamp": action.get("timestamp", 0),
                 "tools_used": action.get("tools_used", []),
-            }
+            },
         }
-    
+
     def _build_system_prompt(self, action: Dict) -> str:
         """Build system prompt from learned preferences."""
         from core.learning import get_learning_manager
-        
+
         learning = get_learning_manager()
         prefs = learning.get_all_preferences()
-        
+
         parts = ["You are Codey-V3, a helpful AI coding assistant."]
-        
+
         # Add learned preferences
         if prefs.get("test_framework"):
             parts.append(f"User prefers {prefs['test_framework']} for testing.")
@@ -204,7 +195,7 @@ class DatasetCurator:
             parts.append(f"User prefers {prefs['code_style']} code style.")
         if prefs.get("naming_convention"):
             parts.append(f"User prefers {prefs['naming_convention']} naming.")
-        
+
         return " ".join(parts)
 
 
@@ -212,44 +203,43 @@ class DatasetCurator:
 # Dataset Export
 # =============================================================================
 
+
 def export_dataset(
-    examples: List[Dict],
-    output_path: str,
-    model_variant: str = "both"
+    examples: List[Dict], output_path: str, model_variant: str = "both"
 ) -> Tuple[str, int]:
     """
     Export examples to ShareGPT-style JSONL.
-    
+
     Args:
         examples: List of ShareGPT examples
         output_path: Output directory
         model_variant: "1.5b", "7b", or "both"
-        
+
     Returns:
         Tuple of (output_file, example_count)
     """
     output_dir = Path(output_path)
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     if model_variant == "both":
         # Export single combined file
         output_file = output_dir / "codey-finetune-combined.jsonl"
         count = _write_jsonl(examples, output_file)
         return str(output_file), count
-    
+
     elif model_variant == "1.5b":
         # Filter for simpler examples (single-turn, style-focused)
         simple = [e for e in examples if len(e["conversations"]) <= 3]
         output_file = output_dir / "codey-finetune-1.5b.jsonl"
         count = _write_jsonl(simple, output_file)
         return str(output_file), count
-    
+
     elif model_variant == "7b":
         # Include complex multi-turn examples
         output_file = output_dir / "codey-finetune-7b.jsonl"
         count = _write_jsonl(examples, output_file)
         return str(output_file), count
-    
+
     else:
         raise ValueError(f"Unknown model variant: {model_variant}")
 
@@ -428,24 +418,24 @@ def generate_notebook(
     output_path: str,
     lora_r: int = 16,
     lora_alpha: int = 16,
-    max_steps: int = 200
+    max_steps: int = 200,
 ) -> str:
     """
     Generate Unsloth Colab notebook for fine-tuning.
-    
+
     Args:
         model_variant: "1.5b" or "7b"
         output_path: Output directory
         lora_r: LoRA rank
         lora_alpha: LoRA alpha
         max_steps: Maximum training steps
-        
+
     Returns:
         Path to generated notebook
     """
     output_dir = Path(output_path)
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Model configuration
     if model_variant == "1.5b":
         model_name = "Qwen2.5-1.5B-Instruct"
@@ -457,7 +447,7 @@ def generate_notebook(
         notebook_name = "codey-finetune-qwen-coder-7b.ipynb"
     else:
         raise ValueError(f"Unknown model variant: {model_variant}")
-    
+
     # Generate notebook content
     notebook_content = UNSLOTH_NOTEBOOK_TEMPLATE.format(
         model_name=model_name,
@@ -466,44 +456,37 @@ def generate_notebook(
         lora_r=lora_r,
         lora_alpha=lora_alpha,
         max_steps=max_steps,
-        generated_date=datetime.now().strftime("%Y-%m-%d %H:%M")
+        generated_date=datetime.now().strftime("%Y-%m-%d %H:%M"),
     )
-    
+
     # Convert to Jupyter notebook format
     notebook = {
         "cells": [
             {
                 "cell_type": "markdown",
                 "metadata": {},
-                "source": [f"# {model_name} Fine-tuning with Unsloth\n\n"]
+                "source": [f"# {model_name} Fine-tuning with Unsloth\n\n"],
             },
             {
                 "cell_type": "code",
                 "execution_count": None,
                 "metadata": {},
                 "outputs": [],
-                "source": notebook_content.split("\n")
-            }
+                "source": notebook_content.split("\n"),
+            },
         ],
         "metadata": {
-            "kernelspec": {
-                "display_name": "Python 3",
-                "language": "python",
-                "name": "python3"
-            },
-            "language_info": {
-                "name": "python",
-                "version": "3.10.0"
-            }
+            "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
+            "language_info": {"name": "python", "version": "3.10.0"},
         },
         "nbformat": 4,
-        "nbformat_minor": 4
+        "nbformat_minor": 4,
     }
-    
+
     output_file = output_dir / notebook_name
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(notebook, f, indent=2)
-    
+
     info(f"Generated notebook: {output_file}")
     return str(output_file)
 
@@ -512,13 +495,10 @@ def generate_notebook(
 # User Instructions
 # =============================================================================
 
-def print_instructions(
-    dataset_path: str,
-    notebook_path: str,
-    model_variant: str
-):
+
+def print_instructions(dataset_path: str, notebook_path: str, model_variant: str):
     """Print step-by-step instructions for the user."""
-    
+
     instructions = f"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║                    Codey-V3 Fine-tuning Workflow                             ║
@@ -594,52 +574,50 @@ NOTES
 # Main Entry Point
 # =============================================================================
 
+
 def prepare_finetune_data(
-    days: int = 30,
-    min_quality: float = 0.7,
-    model_variant: str = "both",
-    output_dir: str = None
+    days: int = 30, min_quality: float = 0.7, model_variant: str = "both", output_dir: str = None
 ) -> Dict[str, str]:
     """
     Main entry point for fine-tuning data preparation.
-    
+
     Args:
         days: Days of history to include
         min_quality: Minimum quality threshold
         model_variant: "1.5b", "7b", or "both"
         output_dir: Output directory (default: ~/Downloads)
-        
+
     Returns:
         Dict with paths to generated files
     """
     if output_dir is None:
         output_dir = str(Path.home() / "Downloads" / "codey-finetune")
-    
+
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
-    
+
     info(f"Curating examples from last {days} days (min_quality={min_quality})...")
-    
+
     # Curate examples
     curator = DatasetCurator()
     examples = curator.curate_examples(days, min_quality)
-    
+
     if not examples:
         warning("No high-quality examples found. Try lowering min_quality or increasing days.")
         return {"error": "No examples found"}
-    
+
     info(f"Curated {len(examples)} examples")
-    
+
     # Export dataset(s)
     results = {}
-    
+
     if model_variant == "both":
         # Export combined + both variants
         for variant in ["1.5b", "7b"]:
             path, count = export_dataset(examples, str(output_path), variant)
             results[f"dataset_{variant}"] = path
             info(f"Exported {count} examples to {path}")
-            
+
             # Generate notebook
             nb_path = generate_notebook(variant, str(output_path))
             results[f"notebook_{variant}"] = nb_path
@@ -647,30 +625,18 @@ def prepare_finetune_data(
         path, count = export_dataset(examples, str(output_path), model_variant)
         results["dataset"] = path
         info(f"Exported {count} examples to {path}")
-        
+
         nb_path = generate_notebook(model_variant, str(output_path))
         results["notebook"] = nb_path
-    
+
     # Print instructions
     variant_key = f"dataset_{model_variant}" if model_variant == "both" else "dataset"
     nb_key = f"notebook_{model_variant}" if model_variant == "both" else "notebook"
-    
+
     if model_variant == "both":
-        print_instructions(
-            results["dataset_1.5b"],
-            results["notebook_1.5b"],
-            "1.5b"
-        )
-        print_instructions(
-            results["dataset_7b"],
-            results["notebook_7b"],
-            "7b"
-        )
+        print_instructions(results["dataset_1.5b"], results["notebook_1.5b"], "1.5b")
+        print_instructions(results["dataset_7b"], results["notebook_7b"], "7b")
     else:
-        print_instructions(
-            results[variant_key],
-            results[nb_key],
-            model_variant
-        )
-    
+        print_instructions(results[variant_key], results[nb_key], model_variant)
+
     return results

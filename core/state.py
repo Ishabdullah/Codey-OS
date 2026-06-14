@@ -13,10 +13,8 @@ Used by the daemon to persist state across restarts.
 import sqlite3
 import time
 from pathlib import Path
-from typing import Optional, Any, List, Dict
 from threading import Lock
-
-from utils.config import CODEY_DIR
+from typing import Any, Dict, List, Optional
 
 # State directory and database path (Codey-V3 specific)
 STATE_DIR = Path.home() / ".codey-v3"
@@ -87,7 +85,7 @@ class StateStore:
             # Add columns to existing DBs that predate this schema version
             for col, defn in [
                 ("dependencies", "TEXT DEFAULT '[]'"),
-                ("retry_count",  "INTEGER DEFAULT 0"),
+                ("retry_count", "INTEGER DEFAULT 0"),
             ]:
                 try:
                     cur.execute(f"ALTER TABLE task_queue ADD COLUMN {col} {defn}")
@@ -185,6 +183,7 @@ class StateStore:
     def add_task(self, description: str, dependencies: list = None) -> int:
         """Add a task to the queue. Returns task ID."""
         import json
+
         deps = json.dumps(dependencies or [])
         with self._lock:
             cur = self._conn.execute(
@@ -209,6 +208,7 @@ class StateStore:
         cursors not allowed' on some SQLite builds.
         """
         import json
+
         with self._lock:
             # Fetch all pending tasks ordered oldest-first in one shot
             rows = self._conn.execute(
@@ -371,7 +371,12 @@ class StateStore:
             cur = self._conn.execute("SELECT * FROM model_state WHERE id = 1")
             row = cur.fetchone()
             if row is None:
-                return {"active_model": "primary", "loaded_at": 0, "last_swap_at": 0, "swap_count": 0}
+                return {
+                    "active_model": "primary",
+                    "loaded_at": 0,
+                    "last_swap_at": 0,
+                    "swap_count": 0,
+                }
             return dict(row)
 
     def update_model_swap(self, active_model: str, swap_count: int):
@@ -397,18 +402,14 @@ class StateStore:
     def get_checkpoint(self, checkpoint_id: str) -> Optional[Dict]:
         """Get a specific checkpoint."""
         with self._lock:
-            cur = self._conn.execute(
-                "SELECT * FROM checkpoints WHERE id = ?", (checkpoint_id,)
-            )
+            cur = self._conn.execute("SELECT * FROM checkpoints WHERE id = ?", (checkpoint_id,))
             row = cur.fetchone()
             return dict(row) if row else None
 
     def delete_checkpoint(self, checkpoint_id: str) -> bool:
         """Delete a checkpoint."""
         with self._lock:
-            cur = self._conn.execute(
-                "DELETE FROM checkpoints WHERE id = ?", (checkpoint_id,)
-            )
+            cur = self._conn.execute("DELETE FROM checkpoints WHERE id = ?", (checkpoint_id,))
             self._conn.commit()
             return cur.rowcount > 0
 
