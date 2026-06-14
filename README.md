@@ -20,7 +20,7 @@
 
 ![Codey Mascot](assets/codey-mascot.png)
 
-A persistent, daemon-based AI coding agent that runs entirely on your Android device. CODEY-V3 maintains state across sessions, manages a background task queue, and uses three purpose-built models — a 7B primary agent, a 0.5B planner and summarizer, and a dedicated embedding encoder — all served locally via llama.cpp.
+A persistent, daemon-based AI coding agent that runs entirely on your Android device. CODEY-V3 maintains state across sessions, manages a background task queue, and uses three purpose-built models — a 7B primary agent, a 1.5B planner and summarizer, and a dedicated embedding encoder — all served locally via llama.cpp.
 
 > **Privacy & Security:** CODEY-V3 executes shell commands and writes files based on model output. All data stays on your device. No telemetry, no analytics, no cloud calls by default. Read the [security guide](docs/security.md) before use.
 
@@ -92,7 +92,7 @@ Any model slug from [openrouter.ai/models](https://openrouter.ai/models) works. 
 
 ```bash
 export CODEY_BACKEND="openrouter"    # coding → OpenRouter
-export CODEY_BACKEND_P="local"       # planner → local 0.5B (port 8081)
+export CODEY_BACKEND_P="local"       # planner → local 1.5B (port 8081)
 ```
 
 ---
@@ -115,7 +115,7 @@ export CODEY_BACKEND_P="local"       # planner → local 0.5B (port 8081)
 - **Malformed JSON recovery** — relaxed parser now handles unquoted values emitted by smaller models, eliminating silent tool-call failures
 - **Shell safety hardened** — dangerous command detection expanded to catch `find -delete`, `git reset --hard`, `git push --force`, and indirect execution via `sh -c` / `bash -c`
 - **Peer code extraction improved** — fuzzy filename matching in peer output now handles `### File: x.py` and `File: x.py` heading styles in addition to bold/backtick patterns
-- **Unified planning interface** — `core/planner_service.py` consolidates daemon (0.5B) and orchestrator (7B) planning paths into a single entry point
+- **Unified planning interface** — `core/planner_service.py` consolidates daemon (1.5B) and orchestrator (7B) planning paths into a single entry point
 - **Memory system cleaned up** — all callers now import directly from `core/memory_v2.py`; the legacy shim has been removed
 - **LRU eviction threshold fixed** — aligned to 3 turns (was incorrectly set to 6, causing memory bloat)
 - **Codebase pruned** — removed legacy `core/loader.py`, `core/router.py`, outdated audit reports, and old plan documents
@@ -129,7 +129,7 @@ export CODEY_BACKEND_P="local"       # planner → local 0.5B (port 8081)
 | Model | Port | Role |
 |-------|------|------|
 | Qwen2.5-Coder-7B Q4_K_M | 8080 | Primary agent — coding, reasoning, tool use |
-| Qwen2.5-0.5B Q8_0 | 8081 | Task planning and conversation summarization |
+| Qwen2.5-Coder-1.5B Q8_0 | 8081 | Task planning and conversation summarization |
 | nomic-embed-text-v1.5 Q4 | 8082 | RAG retrieval encoder |
 
 All three run as independent llama-server processes, managed and watchdog-monitored by `codeyd2`.
@@ -173,7 +173,7 @@ All three run as independent llama-server processes, managed and watchdog-monito
 |-|-|
 | **Platform** | Termux on Android, or any Linux system |
 | **RAM** | 6 GB+ available |
-| **Storage** | ~6 GB base (7B model ~4.2 GB, 0.5B ~500 MB, embed ~80 MB, toolchain ~1 GB); ~8 GB with training pipeline |
+| **Storage** | ~6 GB base (7B model ~4.2 GB, 1.5B ~500 MB, embed ~80 MB, toolchain ~1 GB); ~8 GB with training pipeline |
 | **Python** | 3.12+ |
 
 ---

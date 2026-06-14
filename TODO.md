@@ -34,9 +34,9 @@
 - [x] Audit and document all network connections (ensure no telemetry)
 - [x] Add privacy disclaimer in startup banner
 - [x] Ensure all data stays local (no cloud calls by default)
-- [ ] Add proper logging (replace print statements in critical paths)
-- [ ] Add input validation at system boundaries
-- [ ] Add graceful error handling throughout
+- [x] Add proper logging (replace print statements in critical paths)
+- [x] Add input validation at system boundaries
+- [x] Add graceful error handling throughout
 - [x] Verify no secrets/credentials are hardcoded
 
 ## Phase 5: Testing & Documentation
@@ -54,6 +54,11 @@
 - [x] Run black (format code)
 - [x] Run isort (sort imports)
 - [x] Fix patch test error format
+
+## Phase 7: Remaining Enhancements
+- [x] Replace print statements with proper logging in daemon_config.py, fixmode.py
+- [x] Add input validation to file tools (read, write, patch)
+- [x] Add error handling to parse_tool_call and extract_json functions
 
 ## New Issues Found During Work
 - [x] Documented in NEW_ISSUES.md

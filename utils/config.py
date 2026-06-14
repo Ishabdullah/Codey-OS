@@ -187,12 +187,14 @@ UNLIMITEDCLAUDE_BASE_URL = os.environ.get(
     "UNLIMITEDCLAUDE_BASE_URL", "https://api.unlimitedclaude.com/v1"
 )
 
-# ── 0.5B planner/summarizer (port 8081) ───────────────────────────────────────
-# Qwen2.5-0.5B runs as a dedicated planning + summarization model on port 8081,
+# ── 1.5B planner/summarizer (port 8081) ──────────────────────────────────────
+# Qwen2.5-Coder-1.5B runs as a dedicated planning + summarization model on port 8081,
 # entirely separate from the 7B agent server on port 8080.
+# Upgraded from 0.5B for better code-aware planning and task decomposition.
 PLANNER_MODEL_PATH = Path(
     os.environ.get(
-        "CODEY_PLANNER_MODEL", Path.home() / "models" / "qwen2.5-0.5b" / "planner-codey.gguf"
+        "CODEY_PLANNER_MODEL",
+        Path.home() / "models" / "qwen2.5-coder-1.5b" / "qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
     )
 )
 PLANND_SERVER_PORT = int(os.environ.get("CODEY_PLANND_PORT", "8081"))

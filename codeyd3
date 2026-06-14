@@ -10,7 +10,7 @@
 #   reload  - Send reload signal (SIGUSR1) to main daemon
 #   config  - Create default config file
 #
-# plannd (planner daemon) runs Qwen2.5-0.5B on port 8081.
+# plannd (planner daemon) runs Qwen2.5-Coder-1.5B on port 8081.
 # If plannd fails to start, the main daemon continues with heuristic planning.
 #
 
@@ -117,9 +117,9 @@ if _is_remote_planner():
     print(f"Planner:        {_pb} ({_planner_m}){_planner_suffix}")
 else:
     if port_healthy(8081):
-        print("Planner:        0.5B local (port 8081)")
+        print("Planner:        1.5B local (port 8081)")
     else:
-        print("Planner:        0.5B not loaded (port 8081)")
+        print("Planner:        1.5B not loaded (port 8081)")
 PYEOF
 
     if $main_running; then
@@ -225,25 +225,25 @@ stop_daemon() {
 # ── Planner daemon (plannd) ────────────────────────────────────────────────────
 
 start_plannd() {
-    # Skip when planner backend is remote — no local 0.5B server needed.
+    # Skip when planner backend is remote — no local 1.5B server needed.
     # CODEY_BACKEND_P takes precedence; falls back to CODEY_BACKEND.
     _pb="${CODEY_BACKEND_P:-${CODEY_BACKEND:-local}}"
     if [ "$_pb" = "openrouter" ] || [ "$_pb" = "unlimitedclaude" ]; then
-        echo "Planner backend: ${_pb} — skipping 0.5B planner startup"
+        echo "Planner backend: ${_pb} — skipping 1.5B planner startup"
         return 0
     fi
 
     if [ -f "$PLANND_PID_FILE" ]; then
         PID=$(cat "$PLANND_PID_FILE" 2>/dev/null || echo "")
         if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
-            echo "Planner (0.5B) already running (PID: $PID)"
+            echo "Planner (1.5B) already running (PID: $PID)"
             return 0
         else
             rm -f "$PLANND_PID_FILE"
         fi
     fi
 
-    echo "Starting 0.5B planner/summarizer on port 8081..."
+    echo "Starting 1.5B planner/summarizer on port 8081..."
 
     # Kill any orphaned llama-server on port 8081 from a previous session
     pkill -9 -f "llama-server.*8081" 2>/dev/null || true
@@ -261,7 +261,7 @@ print(LLAMA_SERVER_BIN)
     LLAMA_BIN=$(echo "$PLANNER_MODEL" | tail -1)
 
     if [ -z "$MODEL_FILE" ] || [ ! -f "$MODEL_FILE" ]; then
-        echo "WARNING: 0.5B model not found. Planner/summarizer unavailable."
+        echo "WARNING: 1.5B model not found. Planner/summarizer unavailable."
         return 0
     fi
 
@@ -285,7 +285,7 @@ print(LLAMA_SERVER_BIN)
     if kill -0 "$PLANND_PID" 2>/dev/null; then
         echo "Planner started (PID: $PLANND_PID)"
         echo "Log: $PLANND_LOG_FILE"
-        echo "Note: 0.5B model loading in background (~30-60 s)."
+        echo "Note: 1.5B model loading in background (~30-60 s)."
     else
         echo "WARNING: Planner failed to start. Check: $PLANND_LOG_FILE"
         echo "         Main daemon will use fallback planning."

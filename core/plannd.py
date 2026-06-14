@@ -1,12 +1,12 @@
 """
 plannd — Task planner for Codey-V3
 
-Provides get_plan(): sends a user prompt to the 0.5B model on port 8081
+Provides get_plan(): sends a user prompt to the 1.5B model on port 8081
 and returns a numbered step list for the 7B agent to execute.
 
 Port assignments:
   8080 — Qwen2.5-Coder-7B  (agent execution only)
-  8081 — Qwen2.5-0.5B       (planning + summarization)
+  8081 — Qwen2.5-1.5B       (planning + summarization)
   8082 — nomic-embed-text    (embeddings)
 """
 
@@ -17,7 +17,7 @@ import urllib.request
 from typing import List, Optional
 
 # ── Planner prompt ────────────────────────────────────────────────────────────
-# Single prompt used by ALL backends: local 0.5B, OpenRouter, UnlimitedClaude.
+# Single prompt used by ALL backends: local 1.5B, OpenRouter, UnlimitedClaude.
 # Test and tune this prompt against remote models (faster iteration), then
 # the same prompt runs on local — results are directly comparable.
 
@@ -131,7 +131,7 @@ _PEER_NAME_RE = re.compile(r"\b(claude|gemini|qwen)\b", re.IGNORECASE)
 def filter_tool_steps(steps: List[str]) -> List[str]:
     """
     Keep only steps that correspond to real tool calls (create file, run
-    command, verify output).  Drops implementation-detail steps the 0.5B
+    command, verify output).  Drops implementation-detail steps the 1.5B
     model sometimes emits (e.g. "Count lines using os.linesep").
 
     Rules:
@@ -153,7 +153,7 @@ def filter_tool_steps(steps: List[str]) -> List[str]:
     return kept if len(kept) > 1 else steps[:2]  # fallback: keep first two
 
 
-# ── Planning via 0.5B on port 8081 (or remote when CODEY_BACKEND_P is set) ──
+# ── Planning via 1.5B on port 8081 (or remote when CODEY_BACKEND_P is set) ──
 
 
 def _get_plan_remote(prompt: str) -> Optional[List[str]]:
@@ -248,9 +248,9 @@ def get_plan(prompt: str) -> Optional[List[str]]:
     """
     Break *prompt* into a numbered plan.
 
-    Uses the local 0.5B on port 8081 by default.
+    Uses the local 1.5B on port 8081 by default.
     When CODEY_BACKEND_P (or CODEY_BACKEND) is a remote backend, routes
-    there instead so the 0.5B server does not need to be running.
+    there instead so the 1.5B server does not need to be running.
     """
     try:
         from utils.config import is_remote_planner_backend

@@ -130,7 +130,7 @@ class DaemonServer:
     async def _handle_command(self, data: Dict) -> Dict:
         """Handle a user command (prompt).
 
-        The 0.5B model on port 8081 plans the task into numbered steps.
+        The 1.5B model on port 8081 plans the task into numbered steps.
         Each step is added as a dependent task so the 7B agent works through
         them one at a time.
 
@@ -508,7 +508,7 @@ class Daemon:
             except Exception as _e:
                 warning(f"7B model pre-load skipped: {_e}")
         else:
-            info(f"Backend: {_backend} — skipping local 7B and 0.5B server startup")
+            info(f"Backend: {_backend} — skipping local 7B and 1.5B server startup")
 
         # Start dedicated embedding server (nomic-embed on port 8082)
         try:

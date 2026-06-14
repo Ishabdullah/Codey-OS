@@ -33,22 +33,20 @@ CODEY_V2_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LLAMA_CPP_DIR="$HOME/llama.cpp"
 MODELS_DIR="$HOME/models"
 PRIMARY_MODEL_DIR="$MODELS_DIR/qwen2.5-coder-7b"
-SECONDARY_MODEL_DIR="$MODELS_DIR/qwen2.5-0.5b"
+PLANNER_MODEL_DIR="$MODELS_DIR/qwen2.5-coder-1.5b"
 EMBED_MODEL_DIR="$MODELS_DIR/nomic-embed"
 
 # Filenames — must match utils/config.py exactly
 PRIMARY_MODEL_FILE="qwen2.5-coder-7b-instruct-q4_k_m.gguf"
-SECONDARY_MODEL_FILE="planner-codey.gguf"          # ← matches PLANNER_MODEL_PATH in config.py
+PLANNER_MODEL_FILE="qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
 EMBED_MODEL_FILE="nomic-embed-text-v1.5.Q4_K_M.gguf"
 
 # ── Model URLs ────────────────────────────────────────────────────────────────
 # 7B coder — official Qwen HF
 PRIMARY_MODEL_URL="https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/main/qwen2.5-coder-7b-instruct-q4_k_m.gguf"
 
-# 0.5B planner — Ishymoto/qwen2.5-0.5b-codey-planner-gguf (custom fine-tune)
-# Fallback to official Qwen if HF is unreachable.
-SECONDARY_MODEL_URL="https://huggingface.co/Ishymoto/qwen2.5-0.5b-codey-planner-gguf/resolve/main/qwen2.5-0.5b-instruct.Q4_K_M.gguf"
-SECONDARY_MODEL_FALLBACK_URL="https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q8_0.gguf"
+# 1.5B planner — official Qwen HF (code-specific, better planning than 0.5B)
+PLANNER_MODEL_URL="https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
 
 # Embedding model — nomic-ai HF
 EMBED_MODEL_URL="https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf"
@@ -216,11 +214,11 @@ file_ok() {
 
 download_models() {
     print_step "Models"
-    mkdir -p "$PRIMARY_MODEL_DIR" "$SECONDARY_MODEL_DIR" "$EMBED_MODEL_DIR"
+    mkdir -p "$PRIMARY_MODEL_DIR" "$PLANNER_MODEL_DIR" "$EMBED_MODEL_DIR"
     check_disk_space 8000 "$HOME" || true
 
     local PRIMARY_PATH="$PRIMARY_MODEL_DIR/$PRIMARY_MODEL_FILE"
-    local SECONDARY_PATH="$SECONDARY_MODEL_DIR/$SECONDARY_MODEL_FILE"
+    local PLANNER_PATH="$PLANNER_MODEL_DIR/$PLANNER_MODEL_FILE"
     local EMBED_PATH="$EMBED_MODEL_DIR/$EMBED_MODEL_FILE"
     local all_present=true
 
@@ -236,19 +234,16 @@ download_models() {
         fi
     fi
 
-    # ── 0.5B planner model ──────────────────────────────────────────────────
-    if file_ok "$SECONDARY_PATH" 200000000; then
-        print_success "0.5B planner model already present — skipping"
+    # ── 1.5B planner model ──────────────────────────────────────────────────
+    if file_ok "$PLANNER_PATH" 500000000; then
+        print_success "1.5B planner model already present — skipping"
     else
-        [ -f "$SECONDARY_PATH" ] && rm -f "$SECONDARY_PATH"
+        [ -f "$PLANNER_PATH" ] && rm -f "$PLANNER_PATH"
         all_present=false
-        print_status "0.5B planner model — Ishymoto/qwen2.5-0.5b-codey-planner-gguf (~398 MB)"
+        print_status "1.5B planner model (~1 GB) — official Qwen HF (code-specific)"
 
-        if ! download_file "$SECONDARY_MODEL_URL" "$SECONDARY_PATH" "qwen2.5-0.5b-codey-planner Q4_K_M"; then
-            print_warning "HF unreachable — falling back to official Qwen2.5-0.5B"
-            rm -f "$SECONDARY_PATH"
-            download_file "$SECONDARY_MODEL_FALLBACK_URL" "$SECONDARY_PATH" "Qwen2.5-0.5B (fallback)" \
-                || print_warning "Manual: wget -c '$SECONDARY_MODEL_FALLBACK_URL' -O '$SECONDARY_PATH'"
+        if ! download_file "$PLANNER_MODEL_URL" "$PLANNER_PATH" "Qwen2.5-Coder-1.5B Q4_K_M"; then
+            print_warning "Manual: wget -c '$PLANNER_MODEL_URL' -O '$PLANNER_PATH'"
         fi
     fi
 
@@ -322,16 +317,16 @@ verify_installation() {
         && print_success "7B agent model: ready" \
         || print_warning "7B agent model: missing"
 
-    file_ok "$SECONDARY_MODEL_DIR/$SECONDARY_MODEL_FILE" 200000000 \
-        && print_success "0.5B planner model: ready" \
-        || print_warning "0.5B planner model: missing"
+    file_ok "$PLANNER_MODEL_DIR/$PLANNER_MODEL_FILE" 500000000 \
+        && print_success "1.5B planner model: ready" \
+        || print_warning "1.5B planner model: missing"
 
     file_ok "$EMBED_MODEL_DIR/$EMBED_MODEL_FILE" 50000000 \
         && print_success "Embedding model: ready" \
         || print_warning "Embedding model: missing"
 
     command -v codey3  &>/dev/null && print_success "codey3:  in PATH"  || print_warning "codey3:  not in PATH yet (restart terminal)"
-    command -v codeyd2 &>/dev/null && print_success "codeyd2: in PATH"  || print_warning "codeyd2: not in PATH yet (restart terminal)"
+    command -v codeyd3 &>/dev/null && print_success "codeyd3: in PATH"  || print_warning "codeyd3: not in PATH yet (restart terminal)"
 }
 
 # ── 8. Completion message ─────────────────────────────────────────────────────
@@ -400,13 +395,13 @@ print_completion() {
     echo
 
     echo -e "${CYAN}${BOLD}MODEL LOCATIONS${NC}"
-    echo -e "  7B  agent:   ${BLUE}$PRIMARY_MODEL_DIR/$PRIMARY_MODEL_FILE${NC}"
-    echo -e "  0.5B planner: ${BLUE}$SECONDARY_MODEL_DIR/$SECONDARY_MODEL_FILE${NC}"
-    echo -e "  Embed:       ${BLUE}$EMBED_MODEL_DIR/$EMBED_MODEL_FILE${NC}"
+    echo -e "  7B  agent:    ${BLUE}$PRIMARY_MODEL_DIR/$PRIMARY_MODEL_FILE${NC}"
+    echo -e "  1.5B planner: ${BLUE}$PLANNER_MODEL_DIR/$PLANNER_MODEL_FILE${NC}"
+    echo -e "  Embed:        ${BLUE}$EMBED_MODEL_DIR/$EMBED_MODEL_FILE${NC}"
     echo
     echo -e "  If any model is missing, resume with:"
     echo -e "  ${BLUE}wget -c '$PRIMARY_MODEL_URL' -O '$PRIMARY_MODEL_DIR/$PRIMARY_MODEL_FILE'${NC}"
-    echo -e "  ${BLUE}wget -c '$SECONDARY_MODEL_FALLBACK_URL' -O '$SECONDARY_MODEL_DIR/$SECONDARY_MODEL_FILE'${NC}"
+    echo -e "  ${BLUE}wget -c '$PLANNER_MODEL_URL' -O '$PLANNER_MODEL_DIR/$PLANNER_MODEL_FILE'${NC}"
     echo -e "  ${BLUE}wget -c '$EMBED_MODEL_URL' -O '$EMBED_MODEL_DIR/$EMBED_MODEL_FILE'${NC}"
     echo
 }
