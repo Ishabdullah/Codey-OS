@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v3.0.0] - 2026-06-13
+
+### Security Overhaul
+
+#### Critical Fixes
+- **Shell injection prevention**: Replaced `shell=True` with `shlex.split()` + command allowlist in `tools/shell_tools.py`
+- **Command validation**: Added `validate_command_structure()` to block shell metacharacters
+- **Peer shell safety**: Replaced `os.system()` with `subprocess.run(list)` in `core/peer_shell.py`
+- **Temporary file safety**: Replaced insecure `tempfile.mktemp()` with `NamedTemporaryFile()`
+
+#### High Priority Fixes
+- **PID file locking**: Added `fcntl.flock()` to prevent race conditions in daemon mode
+- **Socket authentication**: Added peer UID verification to Unix socket handler
+- **Safe deserialization**: Replaced `pickle.loads()` with `numpy.frombuffer()` for embeddings
+- **File size limits**: Added 10MB limit to prevent memory exhaustion via large file reads
+- **Branch name validation**: Added protection against git flag injection
+
+#### Medium Priority Fixes
+- **Daemon shell allowlist**: Tightened to block `python -c` and dangerous flags
+- **Bare except clauses**: Replaced 18 bare `except:` with specific exception types
+- **Unused code cleanup**: Removed unused global variables and imports
+
+### Code Quality
+
+#### Formatting
+- Applied `black` formatter with 100-character line length
+- Applied `isort` for consistent import ordering
+- Applied `autoflake` to remove unused imports
+
+#### Testing
+- Fixed hallucination detection to catch more false claims
+- Added path traversal tests (10 new tests)
+- All 253 tests now passing
+
+### Privacy & Documentation
+
+#### New Files
+- `PRIVACY.md` - Comprehensive privacy policy documenting data handling
+- `NEW_ISSUES.md` - Documented additional issues found during overhaul
+- `tests/security/test_path_traversal.py` - Path traversal prevention tests
+
+#### Updated Files
+- README.md - Updated with privacy focus and V3 branding
+- All code references updated from Codey-V2 to Codey-V3
+- Version bumped to 3.0.0
+
+### Breaking Changes
+- Directory renamed from `Codey-v2` to `Codey-v3`
+- CLI scripts renamed: `codey2` → `codey3`, `codeyd2` → `codeyd3`
+- Config directory: `~/.codey-v2` → `~/.codey-v3`
+- Error message format changed in patch tool
+
+---
+
 ## [v2.0.0] - 2026-04-01
 
 ### Initial Public Release
