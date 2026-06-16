@@ -145,15 +145,24 @@ class DatasetCurator:
 
     def _action_to_sharegpt(self, action: Dict) -> Optional[Dict]:
         """
-        Convert an episodic action to ShareGPT format.
+        Convert an episodic action to ShareGPT format with thought_trace.
 
-        ShareGPT format:
+        ShareGPT format (v3.0.0 — thought_trace):
         {
             "conversations": [
                 {"role": "system", "content": "..."},
                 {"role": "user", "content": "..."},
                 {"role": "assistant", "content": "..."}
-            ]
+            ],
+            "thought_trace": {
+                "observation": "raw user input",
+                "symbolic_graph": {...},  // NetworkX adjacency list
+                "utterances": {
+                    "en": "English description",
+                    "ar": "Arabic description",
+                    "es": "Spanish description"
+                }
+            }
         }
         """
         user_msg = action.get("user_message", "")
@@ -165,7 +174,10 @@ class DatasetCurator:
         # Build system prompt from preferences
         system_prompt = self._build_system_prompt(action)
 
-        return {
+        # Build thought_trace for symbolic graph training
+        thought_trace = self._build_thought_trace(action)
+
+        result = {
             "conversations": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_msg},
@@ -178,6 +190,51 @@ class DatasetCurator:
                 "tools_used": action.get("tools_used", []),
             },
         }
+
+        # Attach thought_trace if available
+        if thought_trace:
+            result["thought_trace"] = thought_trace
+
+        return result
+
+    def _build_thought_trace(self, action: Dict) -> Optional[Dict]:
+        """
+        Build a thought_trace for the symbolic graph training objective.
+
+        The thought_trace contains:
+        - observation: raw user input
+        - symbolic_graph: the graph state as JSON adjacency list
+        - utterances: parallel descriptions in multiple languages
+
+        Training objective:
+        - Given observation, predict symbolic_graph
+        - Given symbolic_graph, predict utterances
+        """
+        user_msg = action.get("user_message", "")
+        if not user_msg:
+            return None
+
+        try:
+            from core.memory_v2 import memory as _mem
+
+            # Get current graph state
+            graph_state = _mem.get_graph_state()
+
+            # Build utterances from the observation
+            utterances = {"en": user_msg}
+
+            # If the action has a response, include it as additional context
+            response = action.get("response", "")
+            if response:
+                utterances["en_response"] = response[:200]
+
+            return {
+                "observation": user_msg,
+                "symbolic_graph": graph_state,
+                "utterances": utterances,
+            }
+        except Exception:
+            return None
 
     def _build_system_prompt(self, action: Dict) -> str:
         """Build system prompt from learned preferences."""

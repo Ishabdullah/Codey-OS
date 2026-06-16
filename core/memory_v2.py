@@ -1,20 +1,25 @@
 #!/usr/bin/env python3
 """
-Hierarchical Memory for Codey-V3 (v2.7.0).
+Hierarchical Memory for Codey-V3 (v3.0.0 — Symbolic Graph Integration).
 
-Four-tier memory system:
+Five-tier memory system:
 1. Working Memory   — currently edited files (LRU eviction by turn + token limit)
 2. Project Memory   — key project files (CODEY.md, config) — never evicted
-3. Long-term Memory — semantic search via embeddings (SQLite-backed, optional)
-4. Episodic Memory  — append-only action log
+3. Long-term Memory — semantic search via multilingual embeddings (SQLite-backed)
+4. Episodic Memory  — raw observations with language tags
+5. Symbolic Memory  — concept graph (language-agnostic UUIDs, typed relations)
 
-The unified Memory class also exposes the full MemoryManager-compatible API
-from core/memory.py (tick, load_file, unload_file, build_file_block,
-compress_summary, get_summary, status, _files, etc.) so that core/memory.py
-can be a thin shim that delegates here without any caller changes.
+The symbolic graph sits between planner and coder:
+  - Planner output -> graph operations -> graph state -> coder input
+  - RAG queries first hit the symbolic graph, then fetch language renderings
+  - All embeddings are in a multilingual vector space
 
-Migration note: This is the canonical memory system for v2.7.0+.
-core/memory.py now imports from here.
+SQLite schema additions:
+  sg_concepts:    abstract nodes (language-agnostic UUIDs)
+  sg_relations:   edges between concepts with typed predicates
+  sg_utterances:  multilingual text renderings of concepts
+  sg_episodes:    raw observations with graph snapshots
+  longterm_embeddings: multilingual vector representations
 """
 
 import os
@@ -31,11 +36,10 @@ from utils.logger import info, warning
 
 # ── Token budget constants ───────────────────────────────────────────────────
 CTX_TOTAL = MODEL_CONFIG["n_ctx"]
-# ── Budgets scaled for 32k context (were tuned for 8k) ───────────────────
-BUDGET_SUMMARY = 1200  # rolling work summary token cap
-BUDGET_FILES = 6000  # default file context budget
-MAX_FILE_CONTEXT_TOKENS = 12000  # hard cap for large context windows
-LRU_EVICT_AFTER = 3  # evict file after N turns without reference
+BUDGET_SUMMARY = 1200
+BUDGET_FILES = 6000
+MAX_FILE_CONTEXT_TOKENS = 12000
+LRU_EVICT_AFTER = 3
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -45,27 +49,23 @@ LRU_EVICT_AFTER = 3  # evict file after N turns without reference
 
 @dataclass
 class WorkingMemoryItem:
-    """A file held in working memory with LRU and relevance metadata."""
-
     file_path: str
     content: str
     tokens: int
-    loaded_at: int  # unix timestamp
-    last_used_at: int  # unix timestamp (for wall-clock LRU)
-    last_used_turn: int = 0  # agent turn counter (for turn-based LRU eviction)
+    loaded_at: int
+    last_used_at: int
+    last_used_turn: int = 0
     access_count: int = 1
 
     @property
     def name(self) -> str:
-        """Filename without directory — used by /context display."""
         return Path(self.file_path).name
 
     def relevance_score(self, message: str) -> float:
-        """Score 0-1 based on keyword overlap between message and file."""
         msg_words = set(re.findall(r"\w+", message.lower()))
         file_words = set(re.findall(r"\w+", self.content.lower()))
         name_words = set(re.findall(r"\w+", self.name.lower()))
-        name_overlap = len(msg_words & name_words) * 3  # filename hit = high signal
+        name_overlap = len(msg_words & name_words) * 3
         content_overlap = len(msg_words & file_words)
         if not msg_words:
             return 0.5
@@ -73,22 +73,12 @@ class WorkingMemoryItem:
 
 
 class WorkingMemory:
-    """
-    Working memory for currently edited files.
-
-    Two eviction strategies:
-    - Token-based: evict LRU file when total tokens exceed max_tokens.
-    - Turn-based:  evict files not accessed for LRU_EVICT_AFTER turns
-                   (called by evict_stale() each tick).
-    """
-
     def __init__(self, max_tokens: int = MAX_FILE_CONTEXT_TOKENS):
         self.max_tokens = max_tokens
         self._files: Dict[str, WorkingMemoryItem] = {}
         self._turn: int = 0
 
     def add(self, file_path: str, content: str, tokens: int):
-        """Add or refresh a file in working memory."""
         now = int(time.time())
         if file_path in self._files:
             item = self._files[file_path]
@@ -109,7 +99,6 @@ class WorkingMemory:
         self._evict_by_tokens()
 
     def get(self, file_path: str) -> Optional[str]:
-        """Get file content and mark as recently used."""
         item = self._files.get(file_path)
         if item:
             item.last_used_at = int(time.time())
@@ -119,7 +108,6 @@ class WorkingMemory:
         return None
 
     def touch(self, file_path: str):
-        """Mark file as recently used without returning content."""
         item = self._files.get(file_path)
         if item:
             item.last_used_at = int(time.time())
@@ -127,19 +115,16 @@ class WorkingMemory:
             item.access_count += 1
 
     def remove(self, file_path: str):
-        """Remove a file from working memory."""
         if file_path in self._files:
             del self._files[file_path]
 
     def clear(self):
-        """Clear all working memory (after task completes)."""
         count = len(self._files)
         self._files.clear()
         if count:
             info(f"Working memory: cleared {count} files")
 
     def evict_stale(self):
-        """Remove files not accessed within LRU_EVICT_AFTER turns."""
         stale = [
             k
             for k, item in self._files.items()
@@ -150,17 +135,11 @@ class WorkingMemory:
             del self._files[k]
 
     def _evict_by_tokens(self):
-        """Evict LRU files when over token limit.
-
-        Files touched in the current turn are pinned — evicting a file the
-        model is actively working with causes context loss and cascading errors.
-        """
         total = sum(f.tokens for f in self._files.values())
         while total > self.max_tokens and self._files:
-            # Only consider files NOT touched this turn
             candidates = {k: v for k, v in self._files.items() if v.last_used_turn < self._turn}
             if not candidates:
-                break  # all files are current-turn — nothing safe to evict
+                break
             lru = min(candidates, key=lambda k: candidates[k].last_used_at)
             evicted = self._files.pop(lru)
             total -= evicted.tokens
@@ -169,11 +148,6 @@ class WorkingMemory:
     def select_for_context(
         self, message: str, budget: int = BUDGET_FILES
     ) -> List[WorkingMemoryItem]:
-        """
-        Return files scored by relevance that fit within the token budget.
-        Highest-scored files are included first; partially-truncated file
-        appended if room remains.
-        """
         if not self._files:
             return []
         effective = min(budget, MAX_FILE_CONTEXT_TOKENS)
@@ -212,7 +186,6 @@ class WorkingMemory:
         return selected
 
     def build_file_block(self, message: str) -> str:
-        """Build the <file> XML block for the system prompt."""
         selected = self.select_for_context(message)
         if not selected:
             return ""
@@ -220,15 +193,12 @@ class WorkingMemory:
         return "\n".join(blocks)
 
     def tick(self):
-        """Advance turn counter."""
         self._turn += 1
 
     def get_all(self) -> Dict[str, str]:
-        """Return all {path: content} pairs."""
         return {k: v.content for k, v in self._files.items()}
 
     def get_file_names(self) -> List[str]:
-        """Return list of full paths currently loaded."""
         return list(self._files.keys())
 
     def status(self) -> dict:
@@ -247,8 +217,6 @@ class WorkingMemory:
 
 @dataclass
 class ProjectMemoryItem:
-    """Item in project memory."""
-
     file_path: str
     content_hash: str
     loaded_at: int
@@ -256,24 +224,14 @@ class ProjectMemoryItem:
 
 
 class ProjectMemory:
-    """
-    Project memory for key files (CODEY.md, config, README).
-    Never evicted — loaded once at daemon start.
-    """
-
     def __init__(self):
         self._files: Dict[str, ProjectMemoryItem] = {}
         self._protected_patterns = [
-            "CODEY.md",
-            "codey-v3.md",
-            "README.md",
-            "config.py",
-            "config.json",
+            "CODEY.md", "codey-v3.md", "README.md", "config.py", "config.json",
         ]
 
     def add(self, file_path: str, content: str, is_protected: bool = False):
         import hashlib
-
         content_hash = hashlib.md5(content.encode()).hexdigest()
         self._files[file_path] = ProjectMemoryItem(
             file_path=file_path,
@@ -283,7 +241,6 @@ class ProjectMemory:
         )
 
     def get(self, file_path: str) -> Optional[str]:
-        """Returns the path if tracked, None otherwise (content not stored)."""
         return file_path if file_path in self._files else None
 
     def is_tracked(self, file_path: str) -> bool:
@@ -303,17 +260,16 @@ class ProjectMemory:
 
 
 # ────────────────────────────────────────────────────────────────────────────
-# Tier 3 — Long-term Memory (optional — requires embedding server)
+# Tier 3 — Long-term Memory (multilingual embeddings)
 # ────────────────────────────────────────────────────────────────────────────
 
 
 class LongTermMemory:
     """
-    Long-term memory with semantic search.
+    Long-term memory with multilingual semantic search.
 
-    Stores file chunks as embeddings in SQLite.
-    Requires the nomic-embed server (port 8082). Degrades gracefully
-    if the embedding infrastructure is unavailable.
+    Uses paraphrase-multilingual-MiniLM-L12-v2 for embeddings.
+    Same concept in English, Arabic, or Spanish maps to the same vector.
     """
 
     def __init__(self):
@@ -324,24 +280,19 @@ class LongTermMemory:
         self._try_init()
 
     def _try_init(self):
-        """Lazy-initialize the embedding backend. Silently skip if unavailable."""
         try:
-            from core.embeddings import (get_embedding_model,
-                                         get_embedding_store)
-
+            from core.embeddings import get_embedding_model, get_embedding_store
             self._store = get_embedding_store()
             self._model = get_embedding_model()
             self._available = True
         except Exception as e:
             self._init_error = str(e)
-            # Long-term memory is optional — don't crash the agent if unavailable
 
     def store_file(self, file_path: str, content: str) -> int:
         if not self._available:
             return 0
         try:
             from core.embeddings import chunk_text
-
             chunks = chunk_text(content)
             embeddings_data = []
             for chunk_text_item, start, end in chunks:
@@ -349,8 +300,7 @@ class LongTermMemory:
                 if embedding:
                     embeddings_data.append((file_path, start, end, embedding))
             if embeddings_data:
-                count = self._store.store_batch(embeddings_data)
-                return count
+                return self._store.store_batch(embeddings_data)
         except Exception as e:
             warning(f"Long-term memory store_file failed: {e}")
         return 0
@@ -391,21 +341,21 @@ class LongTermMemory:
 
 
 # ────────────────────────────────────────────────────────────────────────────
-# Tier 4 — Episodic Memory
+# Tier 4 — Episodic Memory (raw observations)
 # ────────────────────────────────────────────────────────────────────────────
 
 
 class EpisodicMemory:
     """
-    Episodic memory — append-only log of actions.
-    Stored in SQLite via the state store.
-    Degrades gracefully if the state store lacks action-log methods.
+    Episodic memory — append-only log of observations.
+
+    Stores raw user inputs and observations with language tags.
+    Each episode can include a graph snapshot for reconstruction.
     """
 
     def __init__(self):
         try:
             from core.state import get_state_store
-
             self._state = get_state_store()
         except Exception:
             self._state = None
@@ -414,6 +364,22 @@ class EpisodicMemory:
         if self._state and hasattr(self._state, "log_action"):
             try:
                 self._state.log_action(action, details)
+            except Exception:
+                pass
+
+    def log_observation(self, observation: str, lang: str = "en", graph_snapshot: str = "{}"):
+        """Log a raw observation with language tag and optional graph snapshot."""
+        if self._state:
+            try:
+                import json
+                self._state.log_action(
+                    "observation",
+                    json.dumps({
+                        "text": observation,
+                        "lang": lang,
+                        "graph": graph_snapshot,
+                    }, ensure_ascii=False),
+                )
             except Exception:
                 pass
 
@@ -438,21 +404,139 @@ class EpisodicMemory:
 
 
 # ────────────────────────────────────────────────────────────────────────────
-# Unified Memory — combines all four tiers + MemoryManager-compatible API
+# Tier 5 — Symbolic Memory (concept graph)
+# ────────────────────────────────────────────────────────────────────────────
+
+
+class SymbolicMemory:
+    """
+    Symbolic memory layer backed by the SymbolicGraph.
+
+    Provides a high-level interface for:
+    - Converting observations to graph operations
+    - Querying the graph for related concepts
+    - Rendering graph state as natural language
+    - Checking logical consistency
+    """
+
+    def __init__(self):
+        self._graph = None
+        self._available = False
+        self._init_error: Optional[str] = None
+        self._try_init()
+
+    def _try_init(self):
+        try:
+            from core.symbolic_graph import get_symbolic_graph
+            self._graph = get_symbolic_graph()
+            self._available = True
+        except Exception as e:
+            self._init_error = str(e)
+
+    def observe(self, label: str, utterances: Dict[str, str] = None, node_type: str = "entity"):
+        """Add an observation to the graph."""
+        if not self._available:
+            return None
+        from core.symbolic_graph import GraphOperation, GraphOp
+        op = GraphOperation(
+            op=GraphOp.OBSERVE,
+            args={"label": label, "utterances": utterances or {}, "node_type": node_type},
+        )
+        return self._graph.execute(op)
+
+    def relate(self, source: str, target: str, relation_type: str, lang: str = "en"):
+        """Add a relation between two concepts."""
+        if not self._available:
+            return None
+        from core.symbolic_graph import GraphOperation, GraphOp
+        op_map = {
+            "cause": GraphOp.CAUSE,
+            "possess": GraphOp.POSSESS,
+            "agentive": GraphOp.AGENTIVE,
+            "spatial": GraphOp.SPATIAL,
+            "temporal": GraphOp.TEMPORAL,
+        }
+        op_type = op_map.get(relation_type)
+        if not op_type:
+            return None
+        op = GraphOperation(
+            op=op_type,
+            args={"source": source, "target": target, "lang": lang},
+        )
+        return self._graph.execute(op)
+
+    def query(self, concept: str = None, relation: str = None, lang: str = "en"):
+        """Query the graph for concepts and relations."""
+        if not self._available:
+            return {"results": []}
+        from core.symbolic_graph import GraphOperation, GraphOp
+        op = GraphOperation(
+            op=GraphOp.QUERY,
+            args={"concept": concept, "relation": relation, "lang": lang},
+        )
+        return self._graph.execute(op)
+
+    def get_state(self) -> Dict:
+        """Get the full graph state."""
+        if not self._available:
+            return {"nodes": [], "edges": []}
+        return self._graph.get_graph_state()
+
+    def get_state_json(self) -> str:
+        """Get graph state as JSON string."""
+        if not self._available:
+            return '{"nodes": [], "edges": []}'
+        return self._graph.get_graph_state_json()
+
+    def get_adjacency_list(self) -> str:
+        """Get NetworkX-style adjacency list for training data."""
+        if not self._available:
+            return '{"nodes": [], "edges": []}'
+        return self._graph.get_adjacency_list()
+
+    def to_natural_language(self, lang: str = "en") -> str:
+        """Render graph state as natural language."""
+        if not self._available:
+            return ""
+        return self._graph.to_natural_language(lang)
+
+    def check_consistency(self) -> List[str]:
+        """Check graph for logical inconsistencies."""
+        if not self._available:
+            return []
+        return self._graph.check_consistency()
+
+    def clear(self):
+        """Clear the entire graph."""
+        if self._available:
+            self._graph.clear()
+
+    def status(self) -> dict:
+        if not self._available:
+            return {"available": False, "init_error": self._init_error}
+        graph_status = self._graph.status()
+        return {
+            "available": True,
+            "concepts": graph_status["concepts"],
+            "relations": graph_status["relations"],
+        }
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Unified Memory — combines all five tiers
 # ────────────────────────────────────────────────────────────────────────────
 
 
 class Memory:
     """
-    Unified hierarchical memory system.
+    Unified hierarchical memory system with symbolic graph integration.
 
-    Combines all four tiers AND exposes the full MemoryManager-compatible
-    API so core/memory.py can be a transparent shim:
-
-        load_file, unload_file, touch_file, list_files,
-        build_file_block, select_files_for_context,
-        append_to_summary, compress_summary, get_summary,
-        tick, clear, evict_stale, status, _files (property)
+    Five tiers:
+    1. Working Memory  — currently loaded files
+    2. Project Memory  — protected project files
+    3. Long-term Memory — multilingual semantic search
+    4. Episodic Memory — action log with observations
+    5. Symbolic Memory — concept graph (language-agnostic)
     """
 
     def __init__(self):
@@ -460,17 +544,13 @@ class Memory:
         self.project = ProjectMemory()
         self.longterm = LongTermMemory()
         self.episodic = EpisodicMemory()
+        self.symbolic = SymbolicMemory()
         self._turn = 0
-        self._summary = ""  # rolling compressed work log
+        self._summary = ""
 
-    # ── MemoryManager-compatible file API ────────────────────────────────────
+    # ── File API ────────────────────────────────────────────────────────────
 
     def load_file(self, path: str, content: str = None) -> bool:
-        """
-        Load a file into working memory.
-        Reads from disk if content is not provided.
-        Also stores in long-term memory (embeddings) if available.
-        """
         p = Path(path).expanduser()
         if content is None:
             if not p.exists():
@@ -484,45 +564,33 @@ class Memory:
         key = str(p.resolve())
         tokens = estimate_tokens(content, key)
         self.working.add(key, content, tokens)
-        # Long-term indexing deferred — store_file chunks the content and
-        # calls the embedding server, which is too heavy during a file write
-        # (causes OOM on memory-constrained devices).  Long-term indexing
-        # happens lazily on read_file or via /index command instead.
         return True
 
     def unload_file(self, path: str):
-        """Remove a file from working memory."""
         key = str(Path(path).expanduser().resolve())
         self.working.remove(key)
 
     def touch_file(self, path: str):
-        """Mark a file as recently used (prevents LRU eviction)."""
         key = str(Path(path).expanduser().resolve())
         self.working.touch(key)
 
     def list_files(self) -> List[str]:
-        """Return list of fully-resolved paths currently in working memory."""
         return self.working.get_file_names()
 
     def build_file_block(self, message: str = "") -> str:
-        """Build the <file> XML block for the system prompt."""
         return self.working.build_file_block(message)
 
     def select_files_for_context(self, message: str, budget: int = BUDGET_FILES) -> list:
-        """Return relevance-scored WorkingMemoryItem list that fits budget."""
         return self.working.select_for_context(message, budget)
 
     def evict_stale(self):
-        """Evict files not accessed in the last LRU_EVICT_AFTER turns."""
         self.working.evict_stale()
 
-    # ── Summary / work log ───────────────────────────────────────────────────
+    # ── Summary ─────────────────────────────────────────────────────────────
 
     def append_to_summary(self, task: str, result: str):
-        """Add a completed task entry to the rolling summary."""
         entry = f"[Turn {self._turn}] {task[:80]}: {result[:120]}"
         self._summary = (self._summary + "\n" + entry).strip()
-        # Trim oldest entries to stay within budget
         while estimate_tokens(self._summary) > BUDGET_SUMMARY:
             lines = self._summary.splitlines()
             if len(lines) <= 1:
@@ -530,15 +598,10 @@ class Memory:
             self._summary = "\n".join(lines[1:])
 
     def compress_summary(self, history: list) -> list:
-        """
-        Compress old history turns into the rolling summary via inference.
-        Returns the trimmed history (last 4 messages kept fresh).
-        """
         if len(history) < 8:
             return history
         try:
             from core.inference_v2 import infer
-
             old_turns = history[:-4]
             fresh_turns = history[-4:]
             text = "\n".join(f"{m['role'].upper()}: {m['content'][:200]}" for m in old_turns)
@@ -564,102 +627,93 @@ class Memory:
             return history
 
     def get_summary(self) -> str:
-        """Return the current rolling summary string."""
         return self._summary
 
     # ── Turn management ──────────────────────────────────────────────────────
 
     def tick(self):
-        """
-        Advance the turn counter, run LRU eviction, and tick working memory.
-        Call once at the start of each agent turn.
-        """
         self._turn += 1
         self.working.tick()
         self.working.evict_stale()
         self.episodic.log("tick", f"Turn {self._turn}")
 
     def clear(self):
-        """Clear all working memory and reset the rolling summary."""
         self.working.clear()
         self._summary = ""
 
-    # ── Higher-level helpers (v2 additions) ──────────────────────────────────
+    # ── Higher-level helpers ────────────────────────────────────────────────
 
     def add_to_working(self, file_path: str, content: str, tokens: int):
-        """Directly add pre-tokenised content to working memory."""
         key = str(Path(file_path).expanduser().resolve())
         self.working.add(key, content, tokens)
 
     def add_to_project(self, file_path: str, content: str, is_protected: bool = False):
-        """Add a file to project memory (never evicted)."""
         self.project.add(file_path, content, is_protected)
 
     def store_in_longterm(self, file_path: str, content: str):
-        """Index a file in long-term (embedding) memory."""
         self.longterm.store_file(file_path, content)
 
     def log_action(self, action: str, details: str = None):
-        """Append an entry to episodic memory."""
         self.episodic.log(action, details)
+
+    def log_observation(self, observation: str, lang: str = "en"):
+        """Log a raw observation and add to symbolic graph."""
+        self.episodic.log_observation(observation, lang)
+        if self.symbolic._available:
+            self.symbolic.observe(observation, utterances={lang: observation})
 
     def search(self, query: str, limit: int = 5) -> List[Dict]:
         """Semantic search over long-term memory."""
         return self.longterm.search(query, limit)
 
+    def search_symbolic(self, query: str, lang: str = "en") -> List[Dict]:
+        """Search symbolic graph for related concepts."""
+        result = self.symbolic.query(concept=query, lang=lang)
+        return result.get("results", [])
+
+    def get_graph_state(self) -> Dict:
+        """Get the symbolic graph state."""
+        return self.symbolic.get_state()
+
+    def get_graph_state_json(self) -> str:
+        """Get symbolic graph state as JSON."""
+        return self.symbolic.get_state_json()
+
+    def to_natural_language(self, lang: str = "en") -> str:
+        """Render symbolic graph as natural language."""
+        return self.symbolic.to_natural_language(lang)
+
     def get_working_content(self) -> Dict[str, str]:
-        """Return all {path: content} pairs from working memory."""
         return self.working.get_all()
 
     def clear_working(self):
-        """Clear working memory only (keeps summary and project memory)."""
         self.working.clear()
-
-    # ── MemoryManager-compatible _files property ─────────────────────────────
 
     @property
     def _files(self) -> Dict[str, "WorkingMemoryItem"]:
-        """
-        Direct access to the working memory files dict.
-        Exposed for backward compatibility with main.py /context command,
-        which iterates this dict to display token counts and LRU ages.
-        """
         return self.working._files
 
-    # ── Status ───────────────────────────────────────────────────────────────
-
     def status(self) -> dict:
-        """
-        Return a flat status dict compatible with the MemoryManager API.
-
-        Keys consumed by callers:
-          files, file_names, summary_tokens, turn   (main.py /context, /memory-status)
-          working, project, longterm, episodic       (four-tier detail)
-        """
         wstatus = self.working.status()
         return {
-            # ── MemoryManager-compatible flat keys ──────────────────────────
             "files": wstatus["files"],
             "file_names": wstatus["file_names"],
             "summary_tokens": estimate_tokens(self._summary),
             "turn": self._turn,
-            # ── v2 hierarchical detail ───────────────────────────────────────
             "working": wstatus,
             "project": self.project.status(),
             "longterm": self.longterm.status(),
             "episodic": self.episodic.status(),
+            "symbolic": self.symbolic.status(),
         }
 
 
-# ────────────────────────────────────────────────────────────────────────────
-# Global singleton
-# ────────────────────────────────────────────────────────────────────────────
+# ── Global singleton ──────────────────────────────────────────────────────────
 
 _memory: Optional[Memory] = None
 
 
 def get_memory() -> Memory:
-    """Get (or create) the global Memory singleton."""
     global _memory
     if _memory is None:
         _memory = Memory()
@@ -667,11 +721,8 @@ def get_memory() -> Memory:
 
 
 def reset_memory():
-    """Reset the global singleton (used in tests)."""
     global _memory
     _memory = None
 
 
-# Module-level singleton — mirrors what the old core/memory.py shim exported
-# so callers can do: from core.memory_v2 import memory as _mem
 memory = get_memory()

@@ -113,19 +113,25 @@ class Exporter:
     @staticmethod
     def _to_sharegpt(record: Dict) -> Dict:
         """
-        Convert an output record to ShareGPT JSONL format.
+        Convert an output record to ShareGPT JSONL format with thought_trace.
 
         {
           "conversations": [
-            {"role": "system",    "content": "<Codey-V3 system prompt>"},
-            {"role": "user",      "content": "install python in termux"},
+            {"role": "system", "content": "<Codey-V3 system prompt>"},
+            {"role": "user", "content": "install python in termux"},
             {"role": "assistant", "content": "<tool>\n{...}\n</tool>"}
           ],
+          "thought_trace": {
+            "observation": "install python in termux",
+            "symbolic_graph": {...},
+            "utterances": {"en": "...", "ar": "...", "es": "..."}
+          },
           "metadata": {...}
         }
         """
         assistant_content = _format_tool_calls_as_assistant(record["tool_calls"])
-        return {
+
+        sharegpt = {
             "conversations": [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": record["user"]},
@@ -133,6 +139,25 @@ class Exporter:
             ],
             "metadata": record.get("metadata", {}),
         }
+
+        # Add thought_trace for symbolic graph training
+        thought_trace = record.get("thought_trace")
+        if thought_trace:
+            sharegpt["thought_trace"] = thought_trace
+        else:
+            # Auto-generate thought_trace from the record
+            try:
+                from core.memory_v2 import memory as _mem
+                graph_state = _mem.get_graph_state()
+                sharegpt["thought_trace"] = {
+                    "observation": record["user"],
+                    "symbolic_graph": graph_state,
+                    "utterances": {"en": record["user"]},
+                }
+            except Exception:
+                pass
+
+        return sharegpt
 
     # ── Stats ─────────────────────────────────────────────────────────────────
 

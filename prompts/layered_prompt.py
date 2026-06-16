@@ -242,6 +242,19 @@ def invalidate_prompt_cache():
 # ── Phase-specific builders ───────────────────────────────────────────────────
 
 
+def _get_symbolic_graph_block() -> str:
+    """Return symbolic graph state block, or empty string."""
+    try:
+        from core.memory_v2 import memory as _mem
+        if _mem.symbolic._available:
+            graph_nl = _mem.to_natural_language(lang="en")
+            if graph_nl and graph_nl != "No concepts in graph.":
+                return "## Symbolic Graph\n(Language-agnostic concept graph)\n" + graph_nl
+    except Exception:
+        pass
+    return ""
+
+
 def _build_draft_prompt(user_message: str, plan_rag_block: str = "") -> str:
     """
     Full-context system prompt for the initial draft generation.
@@ -312,6 +325,8 @@ def _build_draft_prompt(user_message: str, plan_rag_block: str = "") -> str:
             pass  # Skills unavailable — continue without
 
     p.add("files", _get_file_block(user_message), priority=4)
+    # v3.0.0: Add symbolic graph context if available
+    p.add("symbolic_graph", _get_symbolic_graph_block(), priority=3)
     result = p.build()
 
     # Store in cache
@@ -396,6 +411,8 @@ def _build_refine_prompt(
         p.add("retrieval", retrieved_context, priority=3)
 
     p.add("files", _get_file_block(user_message), priority=4)
+    # v3.0.0: Add symbolic graph context if available
+    p.add("symbolic_graph", _get_symbolic_graph_block(), priority=3)
     return p.build()
 
 

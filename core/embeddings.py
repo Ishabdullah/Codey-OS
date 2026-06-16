@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-Embeddings for Codey-V3 hierarchical memory.
+Multilingual Embeddings for Codey-V3 hierarchical memory.
 
-Uses sentence-transformers for semantic search:
-- Embed text chunks into vectors
-- Store in SQLite for persistence
-- Search by semantic similarity
+Uses sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2:
+- 384-dim vectors, supports 50+ languages
+- Same concept described in English, Arabic, or Spanish maps to the same vector
+- Lazy-loads model on first use to avoid overhead when embeddings aren't needed
 
-Model: all-MiniLM-L6-v2 (small, ~80MB, fast)
+On Termux/Android: falls back to nomic-embed-text-v1.5 via llama-server
+(port 8082) if sentence-transformers is unavailable.
 """
 
 import sqlite3
@@ -18,119 +19,152 @@ from typing import Dict, List, Optional, Tuple
 
 from utils.logger import error, info, success
 
-# Embedding model configuration
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"
-EMBEDDING_DIM = 384  # Dimension of all-MiniLM-L6-v2
-CHUNK_SIZE = 500  # Characters per chunk
-CHUNK_OVERLAP = 50  # Overlap between chunks
+# Multilingual embedding model — paraphrase-multilingual-MiniLM-L12-v2
+# 384-dim, 50+ languages, same vector space for all languages
+EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+EMBEDDING_DIM = 384
+CHUNK_SIZE = 500
+CHUNK_OVERLAP = 50
 
 
 @dataclass
 class Embedding:
-    """Represents a text embedding."""
-
     id: int
     file_path: str
     chunk_start: int
     chunk_end: int
-    embedding: bytes  # Pickled numpy array
+    embedding: bytes
     created_at: int
 
 
 class EmbeddingModel:
     """
-    Manages sentence-transformers embedding model.
+    Manages multilingual embedding model.
 
-    Lazy-loads the model on first use to avoid
-    loading overhead when embeddings aren't needed.
+    Primary: sentence-transformers paraphrase-multilingual-MiniLM-L12-v2
+    Fallback: nomic-embed-text-v1.5 via llama-server (port 8082)
+
+    Both produce vectors in a language-agnostic space — the same concept
+    described in different languages maps to the same vector region.
     """
 
     def __init__(self, model_name: str = EMBEDDING_MODEL):
         self.model_name = model_name
         self._model = None
         self._loaded = False
+        self._backend = None  # "sentence-transformers" or "llama-server"
 
     def _load_model(self):
-        """Load the embedding model (lazy)."""
         if self._loaded:
             return
 
+        # Try sentence-transformers first (multilingual model)
         try:
             from sentence_transformers import SentenceTransformer
 
-            info(f"Loading embedding model: {self.model_name}")
+            info(f"Loading multilingual embedding model: {self.model_name}")
             self._model = SentenceTransformer(self.model_name)
             self._loaded = True
-            success(f"Embedding model loaded ({EMBEDDING_DIM} dimensions)")
+            self._backend = "sentence-transformers"
+            success(f"Multilingual embedding model loaded ({EMBEDDING_DIM}d, 50+ languages)")
+            return
         except ImportError:
-            error("sentence-transformers not installed. Run: pip install sentence-transformers")
-            self._loaded = False
+            info("sentence-transformers not available, trying llama-server fallback")
         except Exception as e:
-            error(f"Failed to load embedding model: {e}")
-            self._loaded = False
+            info(f"sentence-transformers failed: {e}, trying llama-server fallback")
+
+        # Fallback: nomic-embed-text via llama-server (port 8082)
+        try:
+            import urllib.request
+            import json
+
+            url = "http://127.0.0.1:8082/health"
+            with urllib.request.urlopen(url, timeout=2) as r:
+                if r.status == 200:
+                    self._loaded = True
+                    self._backend = "llama-server"
+                    success("Using nomic-embed-text-v1.5 fallback (llama-server:8082)")
+                    return
+        except Exception:
+            pass
+
+        error("No embedding backend available")
+        self._loaded = False
 
     def embed(self, text: str) -> Optional[bytes]:
-        """
-        Generate embedding for text.
-
-        Args:
-            text: Text to embed
-
-        Returns:
-            Pickled numpy array of embedding, or None on error
-        """
+        """Generate embedding for text (language-agnostic)."""
         self._load_model()
-
-        if not self._loaded or self._model is None:
+        if not self._loaded:
             return None
 
         try:
             import numpy as np
 
-            embedding = self._model.encode(text, convert_to_numpy=True)
-            return embedding.astype(np.float32).tobytes()
+            if self._backend == "sentence-transformers":
+                embedding = self._model.encode(text, convert_to_numpy=True)
+                return embedding.astype(np.float32).tobytes()
+            elif self._backend == "llama-server":
+                return self._embed_via_server(text)
         except Exception as e:
             error(f"Embedding error: {e}")
             return None
 
     def embed_batch(self, texts: List[str]) -> Optional[List[bytes]]:
-        """
-        Generate embeddings for multiple texts.
-
-        Args:
-            texts: List of texts to embed
-
-        Returns:
-            List of pickled embeddings, or None on error
-        """
+        """Generate embeddings for multiple texts."""
         self._load_model()
-
-        if not self._loaded or self._model is None:
+        if not self._loaded:
             return None
 
         try:
             import numpy as np
 
-            embeddings = self._model.encode(texts, convert_to_numpy=True)
-            return [e.astype(np.float32).tobytes() for e in embeddings]
+            if self._backend == "sentence-transformers":
+                embeddings = self._model.encode(texts, convert_to_numpy=True)
+                return [e.astype(np.float32).tobytes() for e in embeddings]
+            elif self._backend == "llama-server":
+                return [self._embed_via_server(t) for t in texts]
         except Exception as e:
             error(f"Batch embedding error: {e}")
             return None
 
+    def _embed_via_server(self, text: str) -> Optional[bytes]:
+        """Embed text via llama-server /v1/embeddings endpoint."""
+        try:
+            import json
+            import urllib.request
+            import numpy as np
+
+            payload = json.dumps({
+                "input": text,
+                "model": "nomic-embed-text-v1.5",
+            }).encode()
+
+            req = urllib.request.Request(
+                "http://127.0.0.1:8082/v1/embeddings",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read())
+                vec = data["data"][0]["embedding"]
+                return np.array(vec, dtype=np.float32).tobytes()
+        except Exception as e:
+            error(f"llama-server embedding failed: {e}")
+            return None
+
     def is_loaded(self) -> bool:
-        """Check if model is loaded."""
         return self._loaded
+
+    def get_backend(self) -> str:
+        return self._backend or "none"
 
 
 class EmbeddingStore:
     """
-    SQLite-backed storage for embeddings.
+    SQLite-backed storage for multilingual embeddings.
 
-    Stores:
-    - File path
-    - Chunk positions
-    - Embedding vector (pickled)
-    - Timestamp
+    Stores vectors in a language-agnostic space — the same concept in
+    different languages produces vectors that are close in cosine space.
     """
 
     def __init__(self, db_path: Path = None):
@@ -142,13 +176,11 @@ class EmbeddingStore:
         self._ensure_schema()
 
     def _get_connection(self) -> sqlite3.Connection:
-        """Get database connection."""
         conn = sqlite3.connect(str(self.db_path), timeout=30.0)
         conn.row_factory = sqlite3.Row
         return conn
 
     def _ensure_schema(self):
-        """Create embeddings table if not exists."""
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
@@ -171,18 +203,6 @@ class EmbeddingStore:
             conn.close()
 
     def store(self, file_path: str, chunk_start: int, chunk_end: int, embedding: bytes) -> int:
-        """
-        Store an embedding.
-
-        Args:
-            file_path: Path to the source file
-            chunk_start: Start position of chunk in file
-            chunk_end: End position of chunk in file
-            embedding: Pickled embedding vector
-
-        Returns:
-            ID of stored embedding
-        """
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
@@ -200,15 +220,6 @@ class EmbeddingStore:
             conn.close()
 
     def store_batch(self, embeddings: List[Tuple[str, int, int, bytes]]) -> int:
-        """
-        Store multiple embeddings in a transaction.
-
-        Args:
-            embeddings: List of (file_path, chunk_start, chunk_end, embedding)
-
-        Returns:
-            Number of embeddings stored
-        """
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
@@ -226,20 +237,6 @@ class EmbeddingStore:
             conn.close()
 
     def search(self, query_embedding: bytes, limit: int = 5) -> List[Dict]:
-        """
-        Search for similar embeddings using cosine similarity.
-
-        Loads all stored embeddings, computes cosine similarity
-        against the query vector in Python, and returns the top
-        results ranked by similarity score.
-
-        Args:
-            query_embedding: Pickled numpy query embedding
-            limit: Maximum results to return
-
-        Returns:
-            List of matching embeddings with metadata and similarity score
-        """
         try:
             import numpy as np
 
@@ -285,45 +282,18 @@ class EmbeddingStore:
                 except Exception:
                     continue
 
-            # Sort by similarity descending, return top results
             scored.sort(key=lambda x: x[0], reverse=True)
             return [item for _, item in scored[:limit]]
 
         finally:
             conn.close()
 
-    def get_by_file(self, file_path: str) -> List[Dict]:
-        """Get all embeddings for a file."""
-        conn = self._get_connection()
-        try:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT id, file_path, chunk_start, chunk_end, created_at
-                FROM longterm_embeddings
-                WHERE file_path = ?
-                ORDER BY chunk_start
-            """,
-                (file_path,),
-            )
-
-            results = []
-            for row in cursor.fetchall():
-                results.append(dict(row))
-            return results
-        finally:
-            conn.close()
-
     def delete_by_file(self, file_path: str) -> int:
-        """Delete all embeddings for a file."""
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute(
-                """
-                DELETE FROM longterm_embeddings
-                WHERE file_path = ?
-            """,
+                "DELETE FROM longterm_embeddings WHERE file_path = ?",
                 (file_path,),
             )
             deleted = cursor.rowcount
@@ -333,7 +303,6 @@ class EmbeddingStore:
             conn.close()
 
     def count(self) -> int:
-        """Get total number of embeddings."""
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
@@ -346,40 +315,23 @@ class EmbeddingStore:
 def chunk_text(
     text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP
 ) -> List[Tuple[str, int, int]]:
-    """
-    Split text into overlapping chunks.
-
-    Args:
-        text: Text to chunk
-        chunk_size: Maximum characters per chunk
-        overlap: Characters of overlap between chunks
-
-    Returns:
-        List of (chunk_text, start_pos, end_pos) tuples
-    """
     chunks = []
     start = 0
-
     while start < len(text):
         end = min(start + chunk_size, len(text))
         chunk = text[start:end]
         chunks.append((chunk, start, end))
-
-        # Move start forward, accounting for overlap
         start = end - overlap
         if start < 0:
             start = end
-
     return chunks
 
 
-# Global instances
 _embedding_model: Optional[EmbeddingModel] = None
 _embedding_store: Optional[EmbeddingStore] = None
 
 
 def get_embedding_model() -> EmbeddingModel:
-    """Get the global embedding model instance."""
     global _embedding_model
     if _embedding_model is None:
         _embedding_model = EmbeddingModel()
@@ -387,7 +339,6 @@ def get_embedding_model() -> EmbeddingModel:
 
 
 def get_embedding_store() -> EmbeddingStore:
-    """Get the global embedding store instance."""
     global _embedding_store
     if _embedding_store is None:
         _embedding_store = EmbeddingStore()
@@ -395,7 +346,6 @@ def get_embedding_store() -> EmbeddingStore:
 
 
 def reset_embeddings():
-    """Reset global instances (for testing)."""
     global _embedding_model, _embedding_store
     _embedding_model = None
     _embedding_store = None

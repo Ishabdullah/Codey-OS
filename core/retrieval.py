@@ -105,6 +105,11 @@ def retrieve(user_message: str, budget_chars: int = None) -> str:
     """
     Retrieve relevant knowledge for a user message.
 
+    Search order:
+    1. Symbolic graph — query for related concepts first
+    2. Knowledge base — semantic/keyword search
+    3. Combined block within budget
+
     Returns a formatted ## Reference Material block ready to inject into
     the system prompt, or "" if nothing relevant is found.
 
@@ -127,61 +132,78 @@ def retrieve(user_message: str, budget_chars: int = None) -> str:
     if not query.strip():
         return ""
 
-    # Choose search backend
+    # ── Step 1: Query symbolic graph first ────────────────────────────────────
+    # The symbolic graph holds language-agnostic concepts and relations.
+    # RAG queries hit this first to get structured context.
+    graph_block = ""
+    try:
+        from core.memory_v2 import memory as _mem
+        if _mem.symbolic._available:
+            graph_results = _mem.search_symbolic(query)
+            if graph_results:
+                lines = []
+                for r in graph_results[:max_chunks]:
+                    concept = r.get("concept", "")
+                    relation = r.get("relation", "")
+                    if relation:
+                        lines.append(f"- {concept} ({relation})")
+                    else:
+                        lines.append(f"- {concept}")
+                if lines:
+                    graph_block = "## Symbolic Graph Context\n" + "\n".join(lines) + "\n\n"
+    except Exception:
+        pass  # symbolic graph unavailable — continue without
+
+    # ── Step 2: Knowledge base search ─────────────────────────────────────────
+    kb_results = []
     try:
         if use_semantic:
             from tools.kb_semantic import has_index, semantic_search
 
             if has_index():
-                results = semantic_search(query, top_k=max_chunks)
+                kb_results = semantic_search(query, top_k=max_chunks)
             else:
                 from tools.kb_semantic import keyword_fallback
-
-                results = keyword_fallback(query, top_k=max_chunks)
+                kb_results = keyword_fallback(query, top_k=max_chunks)
         else:
             from tools.kb_semantic import keyword_fallback
-
-            results = keyword_fallback(query, top_k=max_chunks)
+            kb_results = keyword_fallback(query, top_k=max_chunks)
     except Exception:
-        return ""  # KB unavailable — silent fallback
+        pass  # KB unavailable — silent fallback
 
-    if not results:
+    if not kb_results and not graph_block:
         return ""
 
-    # Filter by semantic relevance when hybrid search ran.
-    # semantic_score is the cosine similarity (0–1) stored on each result that
-    # came from the vector search.  BM25-only results have no semantic_score
-    # and are passed through unconditionally.
-    if use_semantic:
+    # Filter KB results by semantic relevance
+    if use_semantic and kb_results:
         semantic_threshold = RETRIEVAL_CONFIG.get("semantic_threshold", 0.3)
-        results = [
-            r for r in results if r.get("semantic_score", semantic_threshold) >= semantic_threshold
+        kb_results = [
+            r for r in kb_results
+            if r.get("semantic_score", semantic_threshold) >= semantic_threshold
         ]
-
-        # Relevance gate: if even the best chunk's cosine similarity doesn't
-        # clear the gate, the KB has nothing specifically relevant — inject
-        # nothing rather than padding the prompt with unrelated content.
         relevance_gate = RETRIEVAL_CONFIG.get("relevance_gate", 0.72)
-        best_cosine = max((r.get("semantic_score", 0.0) for r in results), default=0.0)
+        best_cosine = max((r.get("semantic_score", 0.0) for r in kb_results), default=0.0)
         if best_cosine > 0.0 and best_cosine < relevance_gate:
-            return ""
-
-    if not results:
-        return ""
+            kb_results = []
 
     # Build retrieval block within budget
     header = "## Reference Material\n(Retrieved from knowledge base — use this if relevant)\n\n"
     total_chars = len(header)
     entries = []
 
-    for r in results:
+    # Add graph block first (higher priority)
+    if graph_block:
+        if total_chars + len(graph_block) <= budget_chars:
+            entries.append(graph_block)
+            total_chars += len(graph_block)
+
+    for r in kb_results:
         source_label = Path(r.get("source", "")).name or "knowledge-base"
         text = r.get("text", "").strip()
         if not text:
             continue
         entry = f"**[{source_label}]**\n{text}\n\n"
         if total_chars + len(entry) > budget_chars:
-            # Try a truncated version
             remaining = budget_chars - total_chars - len(f"**[{source_label}]**\n\n")
             if remaining > 200:
                 entry = f"**[{source_label}]**\n{text[:remaining]}...\n\n"

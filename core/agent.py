@@ -852,6 +852,101 @@ def _auto_apply_peer_code(peer_output, context_message=""):
     return files_written
 
 
+def _run_symbolic_pipeline(
+    user_message, history, yolo=False, no_plan=False, _plan_rag_block=""
+):
+    """
+    Two-step generation pipeline: language -> planner -> symbolic graph -> deliberation -> coder -> language
+
+    The planner converts natural language to graph operations.
+    The graph engine executes operations against the persistent graph.
+    The deliberation step checks for logical consistency.
+    The coder renders the graph state back to natural language.
+
+    The coder does NOT see the original prompt — only the symbolic graph state.
+    This forces reasoning through structure rather than predicting tokens from surface text.
+    """
+    from core.inference_v2 import infer
+    from core.memory_v2 import memory as _mem
+
+    # Step 1: Planner — convert NL to graph operations
+    planner_system = (
+        "You are a symbolic reasoning planner. Convert the user's input into graph operations.\n"
+        "Output each operation on a separate line in this format:\n"
+        "  OBSERVE: label=\"concept\", utterances={\"en\": \"text\", \"ar\": \"text\", \"es\": \"text\"}\n"
+        "  CAUSE: source=\"A\", target=\"B\"\n"
+        "  POSSESS: source=\"owner\", target=\"thing\"\n"
+        "  AGENTIVE: source=\"actor\", target=\"action\"\n"
+        "  SPATIAL: source=\"thing\", target=\"location\"\n"
+        "  TEMPORAL: source=\"earlier\", target=\"later\"\n"
+        "  INTEND: label=\"goal\", utterances={\"en\": \"goal text\"}\n"
+        "Use the user's language for utterances. Add translations if you know them.\n"
+        "Output ONLY operations, no explanations."
+    )
+
+    info("Symbolic pipeline: planner converting to graph operations...")
+    planner_messages = [
+        {"role": "system", "content": planner_system},
+        {"role": "user", "content": user_message},
+    ]
+    planner_output = infer(planner_messages, stream=False, max_tokens=1024)
+
+    if not planner_output or planner_output.startswith("[ERROR]"):
+        warning("Planner failed, falling back to direct agent")
+        return None
+
+    # Step 2: Execute graph operations
+    from core.symbolic_graph import parse_graph_ops, get_symbolic_graph
+
+    graph = get_symbolic_graph()
+    ops = parse_graph_ops(planner_output)
+
+    if ops:
+        info(f"Symbolic pipeline: executing {len(ops)} graph operations...")
+        results = graph.execute_batch(ops)
+        success_ops = sum(1 for r in results if "error" not in r)
+        info(f"Symbolic pipeline: {success_ops}/{len(ops)} operations succeeded")
+
+    # Step 3: Deliberation — check consistency
+    issues = graph.check_consistency()
+    if issues:
+        warning(f"Symbolic graph consistency issues: {issues}")
+
+    # Step 4: Get graph state as natural language for the coder
+    graph_state = graph.to_natural_language(lang="en")
+    graph_json = graph.get_graph_state_json()
+
+    # Log the observation
+    _mem.log_observation(user_message)
+
+    # Step 5: Coder — render graph state back to NL (NO original prompt)
+    coder_system = (
+        "You are a code assistant. You receive a symbolic graph state representing "
+        "the user's intent and context. Based ONLY on this graph state, generate "
+        "the appropriate response or tool call.\n\n"
+        "Graph state:\n" + graph_state + "\n\n"
+        "Generate the response that addresses the concepts and relations in the graph."
+    )
+
+    coder_messages = [
+        {"role": "system", "content": coder_system},
+        {"role": "user", "content": f"Graph state (JSON): {graph_json}"},
+    ]
+
+    info("Symbolic pipeline: coder rendering graph state...")
+    coder_output = infer(coder_messages, stream=True, extra_stop=["</tool>"], show_thinking=True)
+
+    if not coder_output or coder_output.startswith("[ERROR]"):
+        warning("Coder failed, falling back to direct agent")
+        return None
+
+    # Update history with the symbolic pipeline result
+    history.append({"role": "user", "content": user_message})
+    history.append({"role": "assistant", "content": coder_output})
+
+    return coder_output, history
+
+
 def run_agent(
     user_message,
     history,
@@ -868,6 +963,23 @@ def run_agent(
 
     # Learn preferences from natural language in the user's message
     _get_learning().learn_from_message(user_message)
+
+    # ── Symbolic pipeline (v3.0.0) ────────────────────────────────────────────
+    # When symbolic graph is enabled, route through: language -> planner -> graph -> coder -> language
+    # The coder sees ONLY the graph state, not the original prompt.
+    # Controlled by CODEY_SYMBOLIC=1 env var (default: off for backward compat).
+    import os
+    _symbolic_enabled = os.environ.get("CODEY_SYMBOLIC", "0") == "1"
+    if _symbolic_enabled and not _in_subtask:
+        try:
+            result = _run_symbolic_pipeline(
+                user_message, history, yolo=yolo, no_plan=no_plan,
+                _plan_rag_block=_plan_rag_block,
+            )
+            if result is not None:
+                return result
+        except Exception as e:
+            warning(f"Symbolic pipeline failed: {e}, falling back to direct agent")
 
     # ── Explicit peer delegation ──────────────────────────────────────────────
     # Handle: "ask gemini to X", "have claude do X", etc.

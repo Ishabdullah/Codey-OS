@@ -12,6 +12,7 @@ filelock>=3.13.0
 tqdm>=4.65.0
 hnswlib>=0.7.0          # vector search (falls back to numpy if missing)
 pytest>=9.0.0           # optional: run tests with  pytest tests/
+networkx>=3.0           # symbolic graph layer (Mentalese Engine)
 
 # LLM inference — we use the llama-server binary, not the Python binding
 # llama-cpp-python>=0.2.50  # uncomment only if you need the Python API directly

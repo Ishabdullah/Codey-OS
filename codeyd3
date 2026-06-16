@@ -55,7 +55,7 @@ show_status() {
     fi
 
     # Check model server port and print model status via Python
-    python3 - <<PYEOF
+    /data/data/com.termux/files/usr/bin/python3 - <<PYEOF
 import sys, urllib.request
 sys.path.insert(0, "$CODEY_V2_DIR")
 
@@ -169,7 +169,7 @@ main()
 PYEOF
 
     # Start daemon in background, redirect output to log
-    nohup python3 "$TMPSCRIPT" > "$LOG_FILE" 2>&1 &
+    nohup /data/data/com.termux/files/usr/bin/python3 "$TMPSCRIPT" > "$LOG_FILE" 2>&1 &
     DAEMON_PID=$!
 
     sleep 1
@@ -250,7 +250,7 @@ start_plannd() {
     sleep 0.5
 
     # Resolve model path and llama-server binary from config
-    PLANNER_MODEL=$(python3 -c "
+    PLANNER_MODEL=$(/data/data/com.termux/files/usr/bin/python3 -c "
 import sys; sys.path.insert(0, '$CODEY_V2_DIR')
 from utils.config import PLANNER_MODEL_PATH, LLAMA_SERVER_BIN
 print(PLANNER_MODEL_PATH)
@@ -392,7 +392,7 @@ path = create_default_config()
 print(f"Default config created at: {path}")
 PYEOF
 
-        python3 "$TMPSCRIPT" || { rm -f "$TMPSCRIPT"; exit 1; }
+        /data/data/com.termux/files/usr/bin/python3 "$TMPSCRIPT" || { rm -f "$TMPSCRIPT"; exit 1; }
         rm -f "$TMPSCRIPT"
         ;;
     *)

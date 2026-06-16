@@ -133,7 +133,31 @@ RETRIEVAL_CONFIG = {
 }
 
 CODEY_VERSION = "3.0.0"
-CODEY_NAME = "CODEY-V2"
+CODEY_NAME = "CODEY-V3"
+
+# ── Symbolic Graph (Mentalese Engine) — v3.0.0 ────────────────────────────────
+# CODEY_SYMBOLIC=1  — enable symbolic graph pipeline
+# CODEY_SYMBOLIC=0  — disable (default, backward compat)
+# When enabled, the pipeline routes: language -> planner -> graph -> coder -> language
+SYMBOLIC_CONFIG = {
+    "enabled": os.environ.get("CODEY_SYMBOLIC", "0") == "1",
+    # Graph operations supported
+    "operations": ["observe", "cause", "possess", "agentive", "spatial", "temporal", "intend"],
+    # Maximum graph size before pruning (prevents unbounded growth)
+    "max_concepts": 10000,
+    "max_relations": 50000,
+    # Consistency check on each batch (can be disabled for performance)
+    "check_consistency": True,
+}
+
+# ── Multilingual Embeddings — v3.0.0 ─────────────────────────────────────────
+# sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+# 384-dim, 50+ languages, same vector space for all languages
+EMBEDDING_CONFIG = {
+    "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "dimension": 384,
+    "fallback": "nomic-embed-text-v1.5",  # llama-server fallback on Termux
+}
 
 # ── OpenRouter backend (optional) ────────────────────────────────────────────
 # ── Remote backend selection ─────────────────────────────────────────────────

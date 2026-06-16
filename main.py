@@ -757,6 +757,16 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
         else:
             console.print("   No recent actions logged")
         console.print()
+        # Tier 5: Symbolic Memory
+        console.print("[bold cyan]5. Symbolic Memory (concept graph)[/bold cyan]")
+        _sym = s["symbolic"]
+        if _sym.get("available"):
+            console.print(f"   Status: available")
+            console.print(f"   Concepts: {_sym.get('concepts', 0)}")
+            console.print(f"   Relations: {_sym.get('relations', 0)}")
+        else:
+            console.print(f"   Status: unavailable ({_sym.get('init_error', 'not initialized')})")
+        console.print()
         return True, history
 
     if low.startswith("/cwd"):
@@ -1088,6 +1098,41 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
         console.print()
         return True, history
 
+    if low.startswith("/graph"):
+        from core.memory_v2 import memory as _mem
+
+        parts = cmd.split(maxsplit=1)
+        sub = parts[1].strip().lower() if len(parts) > 1 else ""
+
+        if sub == "clear":
+            _mem.symbolic.clear()
+            success("Symbolic graph cleared.")
+        elif sub == "state":
+            state = _mem.get_graph_state()
+            console.print(f"[bold]Symbolic Graph State:[/bold]")
+            console.print(f"  Nodes: {len(state['nodes'])}")
+            console.print(f"  Edges: {len(state['edges'])}")
+            for node in state["nodes"][:10]:
+                console.print(f"    - {node['label']} (type={node['node_type']})")
+            if len(state["nodes"]) > 10:
+                console.print(f"    ... and {len(state['nodes']) - 10} more")
+        elif sub == "check":
+            issues = _mem.symbolic.check_consistency()
+            if issues:
+                warning(f"Consistency issues found: {len(issues)}")
+                for issue in issues[:5]:
+                    console.print(f"  [red]![/red] {issue}")
+            else:
+                success("Graph is consistent.")
+        else:
+            status = _mem.symbolic.status()
+            console.print(f"[bold]Symbolic Graph:[/bold]")
+            console.print(f"  Available: {status.get('available', False)}")
+            console.print(f"  Concepts: {status.get('concepts', 0)}")
+            console.print(f"  Relations: {status.get('relations', 0)}")
+            console.print("\n  Subcommands: state, check, clear")
+        return True, history
+
     if low == "/help":
         console.print("""
 [bold]File commands:[/bold]
@@ -1131,6 +1176,12 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
 [bold]Learning:[/bold]
   /learning              Show learning system status (v2.2.0)
 
+[bold]Symbolic Graph (v3.0.0):[/bold]
+  /graph                 Show symbolic graph status
+  /graph state           Show graph nodes and edges
+  /graph check           Check graph consistency
+  /graph clear           Clear the entire graph
+
 [bold]Voice (v2.5.1 — requires Termux:API):[/bold]
   /voice                 Show voice status and commands
   /voice on              Enable voice mode (TTS + STT)
@@ -1164,6 +1215,7 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
 
 [bold]Environment variables:[/bold]
   ALLOW_SELF_MOD=1             Enable self-modification (alternative to flag)
+  CODEY_SYMBOLIC=1             Enable symbolic graph pipeline (v3.0.0)
   CODEY_MODEL                  Override model path
   CODEY_THREADS                Override thread count
         """)
