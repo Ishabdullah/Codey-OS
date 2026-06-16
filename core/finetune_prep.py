@@ -203,7 +203,7 @@ class DatasetCurator:
 
         The thought_trace contains:
         - observation: raw user input
-        - symbolic_graph: the graph state as JSON adjacency list
+        - symbolic_graph: the graph state at the time of observation (subgraph)
         - utterances: parallel descriptions in multiple languages
 
         Training objective:
@@ -217,16 +217,23 @@ class DatasetCurator:
         try:
             from core.memory_v2 import memory as _mem
 
-            # Get current graph state
+            # Get current graph state — this is the subgraph relevant to this observation
+            # (concepts were added by the symbolic pipeline during this interaction)
             graph_state = _mem.get_graph_state()
 
-            # Build utterances from the observation
+            # Build utterances in multiple languages
+            # The observation is the primary utterance; we attempt basic translations
             utterances = {"en": user_msg}
 
-            # If the action has a response, include it as additional context
-            response = action.get("response", "")
-            if response:
-                utterances["en_response"] = response[:200]
+            # If the symbolic graph has concepts with multilingual utterances, include them
+            for node in graph_state.get("nodes", []):
+                node_utterances = node.get("utterances", {})
+                for lang, text in node_utterances.items():
+                    if lang != "en" and lang not in utterances:
+                        utterances[lang] = text
+                    elif lang == "en" and text != user_msg:
+                        # Graph may have a normalized version of the observation
+                        utterances["en"] = text
 
             return {
                 "observation": user_msg,
@@ -390,25 +397,69 @@ model = FastLanguageModel.get_peft_model(
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Step 5: Prepare Training Data
+# Step 5: Prepare Training Data (Two-Step Symbolic Training)
 # ─────────────────────────────────────────────────────────────────────────────
 from trl import SFTTrainer
 from transformers import TrainingArguments
+import json
 
-# Format conversations for training
-def format_conversation(example):
-    conversations = example["conversations"]
-    text = ""
-    for msg in conversations:
-        role = msg["role"]
-        content = msg["content"]
-        if role == "user":
-            text += f"User: {{content}}\\n\\n"
-        elif role == "assistant":
-            text += f"Assistant: {{content}}"
+# Two-step training objective for symbolic graph reasoning:
+#   Step A: observation -> symbolic_graph  (NL to structured representation)
+#   Step B: symbolic_graph -> utterances   (structured to NL output)
+def format_symbolic_training(example):
+    \"\"\"Format thought_trace data for two-step symbolic training.\"\"\"
+    conversations = example.get("conversations", [])
+    thought_trace = example.get("thought_trace", None)
+
+    if not thought_trace:
+        # Fallback: standard conversation format
+        text = ""
+        for msg in conversations:
+            role = msg["role"]
+            content = msg["content"]
+            if role == "user":
+                text += f"User: {{content}}\\n\\n"
+            elif role == "assistant":
+                text += f"Assistant: {{content}}"
+        return {{"text": text}}
+
+    observation = thought_trace.get("observation", "")
+    symbolic_graph = thought_trace.get("symbolic_graph", {{"nodes": [], "edges": []}})
+    utterances = thought_trace.get("utterances", {{"en": observation}})
+
+    # Format as two-step training:
+    # Step A: observation -> symbolic_graph
+    graph_json = json.dumps(symbolic_graph, ensure_ascii=False, indent=2)
+    step_a = f"Convert this observation to a symbolic graph:\\n\\nObservation: {{observation}}\\n\\nSymbolic Graph: {{graph_json}}"
+
+    # Step B: symbolic_graph -> utterances (in user's language)
+    utt_json = json.dumps(utterances, ensure_ascii=False, indent=2)
+    step_b = f"Given this symbolic graph, generate natural language descriptions:\\n\\nGraph: {{graph_json}}\\n\\nDescriptions: {{utt_json}}"
+
+    # Combine both steps
+    text = f"Step 1: {{step_a}}\\n\\nStep 2: {{step_b}}"
     return {{"text": text}}
 
-formatted_dataset = [format_conversation(ex) for ex in dataset]
+# Apply formatting — prioritize thought_trace when available
+has_thought_trace = any(ex.get("thought_trace") for ex in dataset)
+if has_thought_trace:
+    formatted_dataset = [format_symbolic_training(ex) for ex in dataset]
+    print("Using two-step symbolic training format (observation -> graph -> utterances)")
+else:
+    # Fallback to standard conversation format
+    def format_conversation(example):
+        conversations = example["conversations"]
+        text = ""
+        for msg in conversations:
+            role = msg["role"]
+            content = msg["content"]
+            if role == "user":
+                text += f"User: {{content}}\\n\\n"
+            elif role == "assistant":
+                text += f"Assistant: {{content}}"
+        return {{"text": text}}
+    formatted_dataset = [format_conversation(ex) for ex in dataset]
+    print("Using standard conversation format (no thought_trace found)")
 
 # Training arguments
 training_args = TrainingArguments(

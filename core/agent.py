@@ -858,16 +858,16 @@ def _run_symbolic_pipeline(
     """
     Two-step generation pipeline: language -> planner -> symbolic graph -> deliberation -> coder -> language
 
-    The planner converts natural language to graph operations.
-    The graph engine executes operations against the persistent graph.
-    The deliberation step checks for logical consistency.
-    The coder renders the graph state back to natural language.
+    Phase 1 (planner): Convert NL to graph operations via inference.
+    Phase 2 (graph engine): Execute operations against the persistent graph.
+    Phase 3 (deliberation): Check graph for logical consistency.
+    Phase 4 (enrichment): Render graph state as structured context for the coder.
 
-    The coder does NOT see the original prompt — only the symbolic graph state.
-    This forces reasoning through structure rather than predicting tokens from surface text.
+    Returns an enriched user_message string that replaces the original prompt.
+    The coder still goes through the normal agent loop (tool execution, retries, etc.)
+    but sees ONLY the symbolic graph state, not the original prompt.
     """
     from core.inference_v2 import infer
-    from core.memory_v2 import memory as _mem
 
     # Step 1: Planner — convert NL to graph operations
     planner_system = (
@@ -917,34 +917,20 @@ def _run_symbolic_pipeline(
     graph_json = graph.get_graph_state_json()
 
     # Log the observation
+    from core.memory_v2 import memory as _mem
     _mem.log_observation(user_message)
 
-    # Step 5: Coder — render graph state back to NL (NO original prompt)
-    coder_system = (
-        "You are a code assistant. You receive a symbolic graph state representing "
-        "the user's intent and context. Based ONLY on this graph state, generate "
-        "the appropriate response or tool call.\n\n"
-        "Graph state:\n" + graph_state + "\n\n"
-        "Generate the response that addresses the concepts and relations in the graph."
+    # Step 5: Return enriched prompt — the coder sees graph state, not the original.
+    # This feeds back into the normal agent loop which handles tool execution.
+    enriched = (
+        f"[SYMBOLIC GRAPH STATE — this is the structured representation of the user's request]\n\n"
+        f"User intent (from graph):\n{graph_state}\n\n"
+        f"Full graph JSON:\n{graph_json}\n\n"
+        f"Original request (for reference only — base your response on the graph above):\n{user_message}\n\n"
+        f"Based on the symbolic graph state above, generate the appropriate tool call or response."
     )
 
-    coder_messages = [
-        {"role": "system", "content": coder_system},
-        {"role": "user", "content": f"Graph state (JSON): {graph_json}"},
-    ]
-
-    info("Symbolic pipeline: coder rendering graph state...")
-    coder_output = infer(coder_messages, stream=True, extra_stop=["</tool>"], show_thinking=True)
-
-    if not coder_output or coder_output.startswith("[ERROR]"):
-        warning("Coder failed, falling back to direct agent")
-        return None
-
-    # Update history with the symbolic pipeline result
-    history.append({"role": "user", "content": user_message})
-    history.append({"role": "assistant", "content": coder_output})
-
-    return coder_output, history
+    return enriched
 
 
 def run_agent(
@@ -967,17 +953,19 @@ def run_agent(
     # ── Symbolic pipeline (v3.0.0) ────────────────────────────────────────────
     # When symbolic graph is enabled, route through: language -> planner -> graph -> coder -> language
     # The coder sees ONLY the graph state, not the original prompt.
+    # The enriched message replaces user_message and feeds into the normal agent loop
+    # (tool execution, retries, hallucination checks all still work).
     # Controlled by CODEY_SYMBOLIC=1 env var (default: off for backward compat).
     import os
     _symbolic_enabled = os.environ.get("CODEY_SYMBOLIC", "0") == "1"
     if _symbolic_enabled and not _in_subtask:
         try:
-            result = _run_symbolic_pipeline(
+            enriched = _run_symbolic_pipeline(
                 user_message, history, yolo=yolo, no_plan=no_plan,
                 _plan_rag_block=_plan_rag_block,
             )
-            if result is not None:
-                return result
+            if enriched is not None:
+                user_message = enriched
         except Exception as e:
             warning(f"Symbolic pipeline failed: {e}, falling back to direct agent")
 
