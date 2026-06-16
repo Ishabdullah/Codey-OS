@@ -160,6 +160,10 @@ class SymbolicGraph:
 
     def _load_graph(self):
         """Rebuild in-memory state from SQLite."""
+        # Clear existing state to avoid duplicates
+        self._concepts.clear()
+        self._relations.clear()
+
         conn = self._get_conn()
         try:
             # Load concepts
