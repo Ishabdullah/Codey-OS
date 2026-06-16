@@ -1,80 +1,29 @@
-# ── Python ────────────────────────────────────────────────────────────────────
+# Python cache
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-*.egg-info/
-dist/
-build/
-.eggs/
+*.py[cod]
+*$py.class
 
-# ── Virtual environments ───────────────────────────────────────────────────────
-.env
-.venv
-venv/
-env/
+# SQLite files
+*.db
+*.sqlite
+*.sqlite3
 
-# ── Codey-v2: user-generated / per-install files ──────────────────────────────
-# Users generate these themselves after install — should NOT be in the repo
-CODEY.md
-CLAUDE.md
-
-# ── Codey-v2: runtime state ───────────────────────────────────────────────────
-# Daemon state, logs, PID, socket, checkpoints, sessions
-~/.codey-v2/
-.codey-v2/
-*.pid
-*.sock
-*.log
-codey_sessions/
-.codey_sessions/
-checkpoints/
-
-# ── Codey-v2: knowledge base (auto-generated, per-install) ───────────────────
-# 266MB of external content (cloned repos, chunk indexes, vector stores).
-# Generated locally — never commit.
-knowledge/
-
-# ── Codey-v2: model files ─────────────────────────────────────────────────────
-# Models live in ~/models/, never committed
-*.gguf
+# Model weights
+*.pt
+*.pth
 *.bin
+*.ckpt
 *.safetensors
-model/
+*.h5
+*.pb
+*.onnx
+*.weights
 
-# ── Codey-v2: fine-tuning output ──────────────────────────────────────────────
-*.jsonl
-*.ipynb
-codey-finetune*/
-codey-lora*/
-pipeline_output/retrieval/metadata.db
-pipeline_output/pipeline_stats.json
-
-# ── Codey-v2: dev artifacts ───────────────────────────────────────────────────
-backups/
-codey_backup_*/
-.pytest_cache/
-.codeyignore
-audit_report_*.md
-REFACTOR_*.md
-RELEASE_NOTES_*.md
-test_checkpoint.json
-test1_output.log
-test_project/
-*.bak
-*.bak.*
-README.md.bak*
-install.log
-install_background.log
-
-# ── Secrets ───────────────────────────────────────────────────────────────────
-*.key
-*.pem
-*.token
-secrets.py
-config.local.*
-
-# ── OS ────────────────────────────────────────────────────────────────────────
-.DS_Store
-Thumbs.db
+# API keys and secrets
+.env
+.env.local
+.env.production
+*secret*
+*token*
+*apikey*
+*api_key*
