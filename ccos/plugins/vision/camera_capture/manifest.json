@@ -1,0 +1,27 @@
+{
+  "name": "camera_capture",
+  "version": "1.0.0",
+  "description": "Capture images from camera using OpenCV or ffmpeg",
+  "category": "vision",
+  "entry_point": "camera.py",
+  "capabilities": [
+    {
+      "name": "vision.camera_capture",
+      "description": "Capture a photo from the device camera",
+      "implementation": "camera:capture_image",
+      "category": "vision",
+      "dependencies": ["opencv-python"],
+      "hardware_requirements": ["camera"]
+    },
+    {
+      "name": "vision.camera_list",
+      "description": "List available camera devices",
+      "implementation": "camera:list_cameras",
+      "category": "vision",
+      "dependencies": [],
+      "hardware_requirements": []
+    }
+  ],
+  "author": "CCOS",
+  "license": "MIT"
+}

@@ -1,0 +1,27 @@
+{
+  "name": "system_info",
+  "version": "1.0.0",
+  "description": "Reads detailed system information including CPU, memory, disk, and network stats",
+  "category": "system",
+  "entry_point": "system_info.py",
+  "capabilities": [
+    {
+      "name": "system.info",
+      "description": "Get detailed system information (CPU, RAM, disk, uptime)",
+      "implementation": "system_info:get_system_info",
+      "category": "system",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "system.processes",
+      "description": "List running processes",
+      "implementation": "system_info:list_processes",
+      "category": "system",
+      "dependencies": [],
+      "hardware_requirements": []
+    }
+  ],
+  "author": "CCOS",
+  "license": "MIT"
+}

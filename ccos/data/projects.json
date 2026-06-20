@@ -1,0 +1,281 @@
+{
+  "proj_consolidate_vision_1781948042": {
+    "project_id": "proj_consolidate_vision_1781948042",
+    "name": "Review vision capabilities (3 exist)",
+    "goal_source": "consolidate_vision",
+    "goal_score": 0.305,
+    "status": "completed",
+    "progress": 1.0,
+    "milestones": [
+      {
+        "milestone_id": "plan",
+        "description": "Plan approach for: Review vision capabilities (3 exist)",
+        "status": "done",
+        "progress": 1.0,
+        "tasks": [
+          {
+            "task_id": "analyze",
+            "description": "Analyze requirements",
+            "capability": "",
+            "status": "done",
+            "result": "Completed: Analyze requirements",
+            "error": "",
+            "attempts": 1,
+            "created_at": 1781948042.7026613,
+            "completed_at": 1781948042.7033892
+          },
+          {
+            "task_id": "design",
+            "description": "Design solution",
+            "capability": "",
+            "status": "done",
+            "result": "Completed: Design solution",
+            "error": "",
+            "attempts": 1,
+            "created_at": 1781948042.7026644,
+            "completed_at": 1781948042.7039633
+          }
+        ],
+        "success_criteria": "Plan approved by agent orchestrator",
+        "created_at": 1781948042.70267,
+        "completed_at": 1781948042.7039661
+      },
+      {
+        "milestone_id": "execute",
+        "description": "Execute plan",
+        "status": "done",
+        "progress": 1.0,
+        "tasks": [
+          {
+            "task_id": "implement",
+            "description": "Implement solution",
+            "capability": "",
+            "status": "done",
+            "result": "Completed: Implement solution",
+            "error": "",
+            "attempts": 1,
+            "created_at": 1781948042.7026727,
+            "completed_at": 1781948042.7050638
+          },
+          {
+            "task_id": "test",
+            "description": "Test solution",
+            "capability": "",
+            "status": "done",
+            "result": "Completed: Test solution",
+            "error": "",
+            "attempts": 1,
+            "created_at": 1781948042.7026737,
+            "completed_at": 1781948042.7056417
+          }
+        ],
+        "success_criteria": "Solution tested and working",
+        "created_at": 1781948042.7026808,
+        "completed_at": 1781948042.7056434
+      }
+    ],
+    "dependencies": [
+      "vision"
+    ],
+    "created_at": 1781948042.702688,
+    "last_updated": 1781948042.7056482,
+    "completed_at": 1781948042.7056475
+  },
+  "proj_consolidate_vision_1781948059": {
+    "project_id": "proj_consolidate_vision_1781948059",
+    "name": "Review vision capabilities (3 exist)",
+    "goal_source": "consolidate_vision",
+    "goal_score": 0.305,
+    "status": "completed",
+    "progress": 1.0,
+    "milestones": [
+      {
+        "milestone_id": "plan",
+        "description": "Plan approach for: Review vision capabilities (3 exist)",
+        "status": "done",
+        "progress": 1.0,
+        "tasks": [
+          {
+            "task_id": "analyze",
+            "description": "Analyze requirements",
+            "capability": "",
+            "status": "done",
+            "result": "Completed: Analyze requirements",
+            "error": "",
+            "attempts": 1,
+            "created_at": 1781948059.3581092,
+            "completed_at": 1781948059.359039
+          },
+          {
+            "task_id": "design",
+            "description": "Design solution",
+            "capability": "",
+            "status": "done",
+            "result": "Completed: Design solution",
+            "error": "",
+            "attempts": 1,
+            "created_at": 1781948059.3581114,
+            "completed_at": 1781948059.3598187
+          }
+        ],
+        "success_criteria": "Plan approved by agent orchestrator",
+        "created_at": 1781948059.358115,
+        "completed_at": 1781948059.359821
+      },
+      {
+        "milestone_id": "execute",
+        "description": "Execute plan",
+        "status": "done",
+        "progress": 1.0,
+        "tasks": [
+          {
+            "task_id": "implement",
+            "description": "Implement solution",
+            "capability": "",
+            "status": "done",
+            "result": "Completed: Implement solution",
+            "error": "",
+            "attempts": 1,
+            "created_at": 1781948059.3581169,
+            "completed_at": 1781948059.3612647
+          },
+          {
+            "task_id": "test",
+            "description": "Test solution",
+            "capability": "",
+            "status": "done",
+            "result": "Completed: Test solution",
+            "error": "",
+            "attempts": 1,
+            "created_at": 1781948059.3581178,
+            "completed_at": 1781948059.3619397
+          }
+        ],
+        "success_criteria": "Solution tested and working",
+        "created_at": 1781948059.3581192,
+        "completed_at": 1781948059.3619416
+      }
+    ],
+    "dependencies": [
+      "vision"
+    ],
+    "created_at": 1781948059.3581245,
+    "last_updated": 1781948059.361945,
+    "completed_at": 1781948059.3619444
+  },
+  "proj_orchestrator_demo_1781948059": {
+    "project_id": "proj_orchestrator_demo_1781948059",
+    "name": "Optimize system diagnostics",
+    "goal_source": "orchestrator_demo",
+    "goal_score": 0.88,
+    "status": "active",
+    "progress": 0.17,
+    "milestones": [
+      {
+        "milestone_id": "analyze",
+        "description": "Analyze performance of system.info",
+        "status": "in_progress",
+        "progress": 0.5,
+        "tasks": [
+          {
+            "task_id": "collect_metrics",
+            "description": "Collect metrics for system.info",
+            "capability": "",
+            "status": "done",
+            "result": "Approved by orchestrator (agreement=100%)",
+            "error": "",
+            "attempts": 1,
+            "created_at": 1781948059.3635778,
+            "completed_at": 1781948059.3676977
+          },
+          {
+            "task_id": "identify_bottleneck",
+            "description": "Identify bottleneck in system.info",
+            "capability": "",
+            "status": "pending",
+            "result": "",
+            "error": "",
+            "attempts": 0,
+            "created_at": 1781948059.363579,
+            "completed_at": 0
+          }
+        ],
+        "success_criteria": "Bottleneck identified with evidence",
+        "created_at": 1781948059.3635805,
+        "completed_at": 0
+      },
+      {
+        "milestone_id": "optimize",
+        "description": "Implement optimization for system.info",
+        "status": "pending",
+        "progress": 0.0,
+        "tasks": [
+          {
+            "task_id": "generate_improvement",
+            "description": "Generate improved version of system.info",
+            "capability": "system.info",
+            "status": "pending",
+            "result": "",
+            "error": "",
+            "attempts": 0,
+            "created_at": 1781948059.3635821,
+            "completed_at": 0
+          },
+          {
+            "task_id": "sandbox_test",
+            "description": "Test improved version in sandbox",
+            "capability": "",
+            "status": "pending",
+            "result": "",
+            "error": "",
+            "attempts": 0,
+            "created_at": 1781948059.363585,
+            "completed_at": 0
+          }
+        ],
+        "success_criteria": "Improved version passes sandbox tests",
+        "created_at": 1781948059.3635867,
+        "completed_at": 0
+      },
+      {
+        "milestone_id": "validate",
+        "description": "Validate optimization results",
+        "status": "pending",
+        "progress": 0.0,
+        "tasks": [
+          {
+            "task_id": "compare_performance",
+            "description": "Compare old vs new performance",
+            "capability": "",
+            "status": "pending",
+            "result": "",
+            "error": "",
+            "attempts": 0,
+            "created_at": 1781948059.3635879,
+            "completed_at": 0
+          },
+          {
+            "task_id": "register",
+            "description": "Register optimized version if better",
+            "capability": "",
+            "status": "pending",
+            "result": "",
+            "error": "",
+            "attempts": 0,
+            "created_at": 1781948059.3635888,
+            "completed_at": 0
+          }
+        ],
+        "success_criteria": "New version outperforms old version",
+        "created_at": 1781948059.36359,
+        "completed_at": 0
+      }
+    ],
+    "dependencies": [
+      "system.info"
+    ],
+    "created_at": 1781948059.3635917,
+    "last_updated": 1781948059.3677008,
+    "completed_at": 0
+  }
+}

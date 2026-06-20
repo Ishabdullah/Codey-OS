@@ -1,0 +1,27 @@
+{
+  "name": "tts_speech",
+  "version": "1.0.0",
+  "description": "Text-to-speech output using system TTS engines (Piper, espeak, Termux:API)",
+  "category": "speech",
+  "entry_point": "tts.py",
+  "capabilities": [
+    {
+      "name": "speech.tts",
+      "description": "Convert text to speech audio output",
+      "implementation": "tts:speak",
+      "category": "speech",
+      "dependencies": [],
+      "hardware_requirements": ["audio_output"]
+    },
+    {
+      "name": "speech.tts_engines",
+      "description": "List available TTS engines",
+      "implementation": "tts:list_engines",
+      "category": "speech",
+      "dependencies": [],
+      "hardware_requirements": []
+    }
+  ],
+  "author": "CCOS",
+  "license": "MIT"
+}

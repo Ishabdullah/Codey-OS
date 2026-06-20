@@ -1,0 +1,88 @@
+[
+  {
+    "id": "create_camera",
+    "goal_type": "create",
+    "title": "Create camera capability",
+    "description": "Users have requested 'camera' functionality 3 time(s). This capability does not currently exist.",
+    "target_capability": "camera",
+    "score": 0.54,
+    "status": "in_progress",
+    "reason": "Missing capability requested 3 time(s)",
+    "evidence": [
+      "Requested 3 times in recent reflections",
+      "Category 'camera' has no active implementation"
+    ],
+    "expected_impact": {
+      "metric": "capability_coverage",
+      "new_capability": "camera"
+    },
+    "created_at": 1781947076.7851813,
+    "completed_at": 0,
+    "attempts": 0,
+    "result": ""
+  },
+  {
+    "id": "recomb_system_info_system_processes",
+    "goal_type": "recombine",
+    "title": "Combine system.info + system.processes into compound skill",
+    "description": "Capabilities 'system.info' and 'system.processes' are used together in 16 workflows. Consider creating a compound skill.",
+    "target_capability": "system.info+system.processes",
+    "score": 0.35,
+    "status": "in_progress",
+    "reason": "Co-used in 16 workflows",
+    "evidence": [
+      "Pair appears in 16 successful workflows"
+    ],
+    "expected_impact": {
+      "metric": "workflow_efficiency",
+      "steps_reduced": 1,
+      "workflows_affected": 16
+    },
+    "created_at": 1781947076.8063092,
+    "completed_at": 0,
+    "attempts": 0,
+    "result": ""
+  },
+  {
+    "id": "consolidate_vision",
+    "goal_type": "consolidate",
+    "title": "Review vision capabilities (3 exist)",
+    "description": "Category 'vision' has 3 capabilities: vision.camera_capture, vision.camera_list, skill.camera_capture_tts. Consider consolidating overlaps.",
+    "target_capability": "vision",
+    "score": 0.305,
+    "status": "proposed",
+    "reason": "Category has 3 capabilities \u2014 potential redundancy",
+    "evidence": [
+      "3 capabilities in 'vision'"
+    ],
+    "expected_impact": {
+      "metric": "capability_clarity",
+      "capabilities_in_category": 3
+    },
+    "created_at": 1781947076.8063676,
+    "completed_at": 0,
+    "attempts": 0,
+    "result": ""
+  },
+  {
+    "id": "consolidate_system",
+    "goal_type": "consolidate",
+    "title": "Review system capabilities (4 exist)",
+    "description": "Category 'system' has 4 capabilities: system.info, system.processes, skill.info_info, skill.info_processes. Consider consolidating overlaps.",
+    "target_capability": "system",
+    "score": 0.305,
+    "status": "proposed",
+    "reason": "Category has 4 capabilities \u2014 potential redundancy",
+    "evidence": [
+      "4 capabilities in 'system'"
+    ],
+    "expected_impact": {
+      "metric": "capability_clarity",
+      "capabilities_in_category": 4
+    },
+    "created_at": 1781947076.8063796,
+    "completed_at": 0,
+    "attempts": 0,
+    "result": ""
+  }
+]
