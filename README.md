@@ -1,3 +1,5 @@
+THIS IS NOT FOR USE BUT A TEMPORARY TESTING GROUND
+
 # Codey Cognitive OS (CCOS)
 
 ```
