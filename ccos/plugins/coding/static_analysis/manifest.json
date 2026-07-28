@@ -1,0 +1,27 @@
+{
+  "name": "static_analysis",
+  "version": "1.0.0",
+  "description": "Wraps core/linter.py's static analysis pipeline as a CCOS capability — runs the best available linter (ruff/flake8/ast) on a file and returns issues",
+  "category": "coding",
+  "entry_point": "static_analysis.py",
+  "capabilities": [
+    {
+      "name": "coding.lint",
+      "description": "Run the best available linter on a file and return (issues, linter_name)",
+      "implementation": "static_analysis:lint",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.check_syntax",
+      "description": "Quick syntax-only check of Python source, no external linter required",
+      "implementation": "static_analysis:check_syntax",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    }
+  ],
+  "author": "CCOS",
+  "license": "MIT"
+}
