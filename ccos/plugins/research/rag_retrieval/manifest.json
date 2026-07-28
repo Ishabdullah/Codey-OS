@@ -1,0 +1,19 @@
+{
+  "name": "rag_retrieval",
+  "version": "1.0.0",
+  "description": "Wraps core/retrieval.py's RAG pipeline as a CCOS capability — searches the local knowledge base and returns relevant context for a query",
+  "category": "research",
+  "entry_point": "rag_retrieval.py",
+  "capabilities": [
+    {
+      "name": "research.retrieve",
+      "description": "Retrieve relevant knowledge-base context for a user message",
+      "implementation": "rag_retrieval:retrieve",
+      "category": "research",
+      "dependencies": [],
+      "hardware_requirements": []
+    }
+  ],
+  "author": "CCOS",
+  "license": "MIT"
+}
