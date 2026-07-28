@@ -3,12 +3,20 @@
 CCOS Test Suite — Tests for all core modules.
 """
 
+import importlib.util
 import json
 import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# _pathutil.py lives at ccos/plugins/_pathutil.py, one level above this
+# file's directory (test_ccos.py -> tests/ -> ccos/). Loaded by file path
+# since the ccos package isn't importable yet.
+_pathutil_path = Path(__file__).resolve().parent.parent / "plugins" / "_pathutil.py"
+_spec = importlib.util.spec_from_file_location("_pathutil", _pathutil_path)
+_pathutil = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_pathutil)
+_pathutil.ensure_repo_root_on_path()
 
 from ccos.core.device_manager import get_device_manager
 from ccos.core.capability_registry import Capability, CapabilityStatus, get_capability_registry
@@ -121,7 +129,15 @@ def test_plugin_manager():
     # Load all
     results = pm.load_all()
     loaded = sum(1 for v in results.values() if v)
-    assert loaded >= 1, f"At least 1 plugin should load, got {loaded}"
+    failed = {
+        name: pm.get_plugin(name).error
+        for name, v in results.items()
+        if not v
+    }
+    assert loaded == len(plugins), (
+        f"Expected all {len(plugins)} discovered plugins to load, got {loaded}. "
+        f"Failed: {failed}"
+    )
 
     # Check capabilities were registered
     from ccos.core.capability_registry import get_capability_registry

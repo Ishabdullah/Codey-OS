@@ -14,15 +14,18 @@ def ensure_repo_root_on_path() -> Path:
     """
     Walk upward from this file until a directory containing both
     'core' and 'ccos' as subdirectories is found (the actual repo
-    root), and add it to sys.path if not already present. Returns
-    the resolved repo root Path.
+    root), and ensure it sits at sys.path[0] — removing any existing
+    occurrence first so a shadowing path inserted ahead of it (e.g.
+    by another module's own sys.path.insert(0, ...)) can't win.
+    Returns the resolved repo root Path.
     """
     current = Path(__file__).resolve().parent
     for candidate in [current, *current.parents]:
         if (candidate / "core").is_dir() and (candidate / "ccos").is_dir():
             repo_root = str(candidate)
-            if repo_root not in sys.path:
-                sys.path.insert(0, repo_root)
+            while repo_root in sys.path:
+                sys.path.remove(repo_root)
+            sys.path.insert(0, repo_root)
             return candidate
 
     raise RuntimeError(
