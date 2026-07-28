@@ -181,6 +181,15 @@ Codey-OS/
 ├── test_patch.txt
 └── TODO.md
 
+## Ground rules for working in this repo
+
+1. **Read before you write.** Before modifying any file, read it first. Before adding a dependency, check `requirements.txt` and `install.sh`. Before changing architecture, re-read `CODEY_OS_MASTER_VISION.md`.
+2. **Follow existing conventions.** Match the style, naming, imports, typing, and patterns already in the file or module you're editing. Don't introduce new patterns without a reason.
+3. **Don't add features, abstractions, or error handling that wasn't asked for.** Three similar lines beat a premature abstraction. Only validate at system boundaries (user input, external APIs).
+4. **Verify before claiming success.** Run the project's test suite, linter, and type checker before claiming a task is done. If you can't run them, say so explicitly.
+5. **Keep `CODEY_OS_MASTER_VISION.md` as the source of truth.** If a task would contradict it, stop and flag it rather than proceeding.
+6. **Keep `install.sh` current with anything we add.** Any time a task adds a new dependency (a pip package, a `pkg install` requirement, a new system binary) or changes a setup step, `install.sh` must be updated in the same task to reflect it — not left for later, and not installed ad hoc on the device without also being captured in the script. A fresh clone of this repo should be able to run `install.sh` once and end up with a fully working system, matching whatever the current state actually requires. If a task can't determine the right place to add something to `install.sh`, flag it rather than skipping the update silently.
+
 **Summary counts (excluding .git, __pycache__):**
 - 216 total files
 - 169 Python files
