@@ -5,12 +5,9 @@ Wraps the existing RAG pipeline as a capability without duplicating any
 of its logic. All actual retrieval work stays in core/retrieval.py.
 """
 
-import sys
-from pathlib import Path
+from ccos.plugins._pathutil import ensure_repo_root_on_path
 
-_REPO_ROOT = str(Path(__file__).resolve().parents[4])
-if _REPO_ROOT not in sys.path:
-    sys.path.insert(0, _REPO_ROOT)
+ensure_repo_root_on_path()
 
 from core.retrieval import retrieve as _retrieve
 

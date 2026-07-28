@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 """Test for rag_retrieval plugin."""
 
-import sys
+import importlib.util
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
+# _pathutil.py lives at ccos/plugins/_pathutil.py, two levels above this
+# plugin's directory (test.py -> rag_retrieval/ -> research/ -> plugins/).
+# Loaded by file path since the ccos package isn't importable yet.
+_pathutil_path = Path(__file__).resolve().parent.parent.parent / "_pathutil.py"
+_spec = importlib.util.spec_from_file_location("_pathutil", _pathutil_path)
+_pathutil = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_pathutil)
+_pathutil.ensure_repo_root_on_path()
 
 from ccos.plugins.research.rag_retrieval.rag_retrieval import retrieve, test
 
