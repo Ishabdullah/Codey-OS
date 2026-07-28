@@ -28,6 +28,10 @@ Review the response you just wrote. Check for:
 4. Whether it completely solves the user's request (no stubs, no "...")
 5. Security issues (injection, hardcoded secrets, path traversal)
 6. Any APIs, methods, or library calls you are not 100% sure about
+7. Task completeness: compare the draft against the user's original request below.
+   If the user asked for multiple actions (e.g. edit a file AND run it) and the
+   draft only performs some of them, this is a critical issue — rate below 5/10
+   regardless of how correct the included action is.
 
 Rate the quality 1-10. List specific issues found.
 If you're unsure about any API or library, write "NEED_DOCS: <topic>" on its own line.

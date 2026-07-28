@@ -336,22 +336,28 @@ def _build_draft_prompt(user_message: str, plan_rag_block: str = "") -> str:
     return result
 
 
-def _build_critique_prompt(prior_draft: str) -> str:
+def _build_critique_prompt(user_message: str, prior_draft: str) -> str:
     """
     Lean system prompt for the self-critique phase.
 
     Drops project context, files, and history — the model only needs to see
-    its own output and the critique instructions.  The prior draft is embedded
-    directly in the system prompt so the user turn stays minimal.
+    its own output, the original request, and the critique instructions.  The
+    prior draft is embedded directly in the system prompt so the user turn
+    stays minimal.
 
     Priority map:
       0 Critique instructions — required
+      1 Original request — required (so completeness can be judged)
       1 Prior draft to review — required
     """
     from prompts.critique_prompts import CRITIQUE_CODE
 
     p = LayeredPrompt(budget_chars=8000)
     p.add("critique_instr", CRITIQUE_CODE, priority=0, required=True)
+
+    if user_message:
+        request_block = "\n## User's Original Request\n" + user_message[:1000]
+        p.add("original_request", request_block, priority=1, required=True)
 
     if prior_draft:
         draft_block = (
@@ -433,7 +439,8 @@ def build_recursive_prompt(
     Args:
         user_message:      The user's current request
                            - "draft":    drives RAG query + file relevance scoring
-                           - "critique": unused (draft is in prior_draft)
+                           - "critique": included verbatim so the critique model can
+                                         judge task completeness, not just correctness
                            - "refine":   drives file relevance scoring
         phase:             "draft" | "critique" | "refine"
         prior_draft:       Output to critique (critique phase only, max 1500 chars)
@@ -445,7 +452,7 @@ def build_recursive_prompt(
         Never raises — all inner calls are try/except guarded.
     """
     if phase == "critique":
-        return _build_critique_prompt(prior_draft)
+        return _build_critique_prompt(user_message, prior_draft)
     if phase == "refine":
         return _build_refine_prompt(user_message, prior_critique, retrieved_context)
     # default: "draft"

@@ -19,7 +19,8 @@
       "Bash(sleep *)",
       "Bash(pkill *)",
       "Bash(rm *)",
-      "Bash(codeyd3 *)"
+      "Bash(codeyd3 *)",
+      "Bash(/data/data/com.termux/files/home/llama.cpp/build/bin/llama-server *)"
     ]
   },
   "$version": 4

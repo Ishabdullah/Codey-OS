@@ -1459,6 +1459,8 @@ def run_agent(
         _use_recursive = step == 1 and not is_qa and RECURSIVE_CONFIG.get("enabled", True)
         _stop = ["</tool>"] + _LEAK_STOP_SEQUENCES
         _qa_max_tokens = 512 if is_qa else None
+        _low_confidence = False
+        _quality = None
         if _use_recursive:
             try:
                 from core.recursive import (classify_breadth_need,
@@ -1475,13 +1477,14 @@ def run_agent(
                     )
                 else:
                     _depth = 2 if _breadth == "deep" else 1
-                    response = recursive_infer(
+                    response, _low_confidence, _quality = recursive_infer(
                         messages,
                         task_type="code",
                         user_message=user_message,
                         max_depth=_depth,
                         extra_stop=_stop,
                         stream=True,
+                        return_confidence=True,
                     )
             except Exception:
                 # Recursive inference unavailable — fall back to plain infer
@@ -1501,6 +1504,22 @@ def run_agent(
                 max_tokens=_qa_max_tokens,
             )
         response = clean_response(response)
+
+        # ── Low-confidence gate: max recursion depth reached below the quality
+        # floor. Warn the user with an honest caveat instead of presenting the
+        # draft as a normal success — the confirm-before-execute gate for any
+        # resulting tool call lives further down, right before execute_tool().
+        if _low_confidence:
+            _quality_str = f"{_quality:.1f}/10" if _quality is not None else "unknown"
+            warning(
+                f"Low-confidence result after {_depth} attempt(s) — quality {_quality_str}"
+            )
+            print(
+                f"\n⚠  I wasn't able to complete this with full confidence after "
+                f"multiple attempts (quality: {_quality_str}). Here's my best attempt "
+                f"— please review it carefully.\n"
+            )
+
         tool_dict = parse_tool_call(response)
 
         # ── Malformed tool call: <tool> tag present but JSON failed to parse ──
@@ -1616,6 +1635,29 @@ def run_agent(
                     }
                 )
                 continue
+
+            # ── Low-confidence gate: confirm before running a tool call that
+            # came from a draft the critique loop couldn't rate above the
+            # quality floor after max recursion depth.
+            if _low_confidence:
+                from utils.logger import confirm as ask_confirm
+
+                if not ask_confirm("Proceed with this tool call anyway?"):
+                    guidance = input(
+                        "Type guidance to correct it (or press Enter to just retry): "
+                    ).strip()
+                    messages.append(
+                        {"role": "assistant", "content": _format_tool_for_history(tool_dict)}
+                    )
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": guidance
+                            or "That attempt wasn't good enough. Please try again, more carefully.",
+                        }
+                    )
+                    continue
+
             tools_used.append(sig)
             last_tool_result = execute_tool(tool_dict)
             if name in ("write_file", "patch_file"):

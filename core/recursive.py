@@ -10,7 +10,9 @@ How it works
 3. Quality gate: if rating ≥ threshold (default 7/10) or no critical issues → accept
 4. If NEED_DOCS marker found in critique → retrieve targeted KB context
 5. Send refine prompt (original messages + draft + critique + retrieved docs) → new draft
-6. Repeat up to max_depth times, then accept final draft
+6. Repeat up to max_depth times, then accept final draft — if the final rating is
+   below LOW_CONFIDENCE_FLOOR, the caller can opt in (return_confidence=True) to
+   learn this and warn the user instead of presenting it as a normal success
 
 Selective activation via classify_breadth_need():
   "minimal"  — Q&A, short lookups.       → No recursion (single pass).
@@ -258,6 +260,10 @@ def extract_doc_needs(critique: str) -> Optional[str]:
     return None
 
 
+# Hard floor below which a max-depth result must not be silently accepted as
+# a normal success — see recursive_infer()'s return_confidence handling.
+LOW_CONFIDENCE_FLOOR = 4.0
+
 _CRITICAL_MARKERS = [
     "syntax error",
     "will crash",
@@ -325,7 +331,8 @@ def recursive_infer(
     quality_threshold: float = None,
     extra_stop: list = None,
     stream: bool = True,
-) -> str:
+    return_confidence: bool = False,
+):
     """
     Self-refining inference: draft → critique → refine loop.
 
@@ -341,17 +348,32 @@ def recursive_infer(
         quality_threshold: 0–1 gate; above this the draft is accepted (default 0.7)
         extra_stop:        Additional stop tokens forwarded to infer()
         stream:            Whether to stream final output tokens (default True)
+        return_confidence: If True, return (response, low_confidence, quality) instead
+                           of just the response string. low_confidence is True only
+                           when max_depth was reached and the final rating is below
+                           LOW_CONFIDENCE_FLOOR. Default False preserves the plain
+                           string return for existing callers (e.g. core/orchestrator.py).
 
     Returns:
-        Final (possibly refined) response string. Never raises — errors are returned
-        as "[ERROR] ..." strings matching the normal infer() contract.
+        Final (possibly refined) response string, or a
+        (response, low_confidence, quality) tuple if return_confidence=True.
+        Never raises — errors are returned as "[ERROR] ..." strings matching the
+        normal infer() contract.
     """
+
+    def _finish(text, low_confidence=False, quality=None):
+        if return_confidence:
+            return text, low_confidence, quality
+        return text
+
     # Guard: return immediately if recursive inference is disabled
     if not RECURSIVE_CONFIG.get("enabled", True):
         from core.inference_v2 import infer
 
-        return infer(
-            messages, stream=stream, extra_stop=extra_stop or ["</tool>"], show_thinking=True
+        return _finish(
+            infer(
+                messages, stream=stream, extra_stop=extra_stop or ["</tool>"], show_thinking=True
+            )
         )
 
     cfg = RECURSIVE_CONFIG
@@ -369,16 +391,16 @@ def recursive_infer(
     try:
         from core.inference_v2 import infer
     except Exception as e:
-        return f"[ERROR] recursive_infer: cannot import infer: {e}"
+        return _finish(f"[ERROR] recursive_infer: cannot import infer: {e}")
 
     try:
         _log_phase("Draft", 1, max_depth + 1)
         draft = infer(messages, stream=stream, extra_stop=extra_stop, show_thinking=True)
     except Exception as e:
-        return f"[ERROR] recursive_infer draft: {e}"
+        return _finish(f"[ERROR] recursive_infer draft: {e}")
 
     if not draft or draft.startswith("[ERROR]"):
-        return draft  # propagate immediately
+        return _finish(draft)  # propagate immediately
 
     # Pre-critique: if the step is an action that requires a tool call but the
     # draft contains no <tool> block, the model hallucinated the action (wrote
@@ -407,6 +429,8 @@ def recursive_infer(
             warning(f"[Recursive] Tool retry failed: {_e}")
 
     # ── Steps 2…N: Critique + optionally refine ───────────────────────────────
+    low_confidence = False
+    final_quality = None
     for cycle in range(1, max_depth + 1):
 
         # ── Phase 3: Critique phase — lean layered prompt ─────────────────────
@@ -447,17 +471,28 @@ def recursive_infer(
         # Quality gate: if good enough, stop here
         if passes_quality_check(critique, quality_threshold):
             rating = extract_rating(critique)
+            final_quality = rating
             if rating is not None:
                 info(f"[Recursive] Accepted — quality {rating:.0f}/10")
             else:
                 info("[Recursive] Accepted — no critical issues")
             break
 
-        # Last cycle reached — accept draft even if quality didn't pass
+        # Last cycle reached — accept draft even if quality didn't pass, but
+        # flag it as low-confidence if the rating is below the hard floor so
+        # the caller can warn the user instead of presenting it as a normal
+        # success.
         if cycle >= max_depth:
             rating = extract_rating(critique)
+            final_quality = rating
             if rating is not None:
                 info(f"[Recursive] Max depth — using draft (quality {rating:.0f}/10)")
+                if rating < LOW_CONFIDENCE_FLOOR:
+                    low_confidence = True
+                    warning(
+                        f"[Recursive] Low-confidence result: quality {rating:.1f}/10 "
+                        f"< floor {LOW_CONFIDENCE_FLOOR}"
+                    )
             else:
                 info("[Recursive] Max depth — using draft")
             break
@@ -506,4 +541,4 @@ def recursive_infer(
         if not draft or draft.startswith("[ERROR]"):
             break  # Propagate or fall back
 
-    return draft
+    return _finish(draft, low_confidence, final_quality)
