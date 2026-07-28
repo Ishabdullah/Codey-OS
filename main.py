@@ -252,6 +252,15 @@ def _run_with_plan(prompt: str, history: list, yolo: bool, use_plan: bool, no_pl
         return run_agent(prompt, history, yolo=yolo, use_plan=use_plan, no_plan=no_plan)
     # Multi-peer or multi-step peer prompts fall through to plannd below
 
+    # ── Complexity gate: skip 1.5B planner for simple, non-complex tasks ───────
+    # Mirrors the pattern in core/agent.py:1256 which gates its own orchestrator
+    # planner behind is_complex(). Simple single-step edits should go straight
+    # to the 7B agent instead of routing through the 1.5B planner.
+    from core.orchestrator import is_complex
+
+    if not is_complex(prompt):
+        return run_agent(prompt, history, yolo=yolo, use_plan=use_plan, no_plan=no_plan)
+
     plan = _try_daemon_plan(prompt, no_plan)
 
     if plan:
