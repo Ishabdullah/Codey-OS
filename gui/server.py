@@ -19,6 +19,12 @@ GUI_DIR = Path(__file__).parent
 
 sys.path.insert(0, str(CODEY_DIR))
 
+# Port/host the server is (or will be) bound to. Computed at import time so
+# both the WebSocket Origin check and the __main__ entry point agree on the
+# same value — do not hardcode a port anywhere else in this module.
+PORT = int(sys.argv[1]) if len(sys.argv) > 1 else int(os.environ.get("CODEY_GUI_PORT", "8888"))
+HOST = os.environ.get("CODEY_GUI_HOST", "127.0.0.1")
+
 # ─── ANSI / metric parsers ────────────────────────────────────────────────────
 
 ANSI_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])|\r")
@@ -203,7 +209,18 @@ async def handle_index(request: web.Request) -> web.Response:
     return web.Response(text=html, content_type="text/html")
 
 
+ALLOWED_ORIGINS = {f"http://localhost:{PORT}", f"http://127.0.0.1:{PORT}"}
+
+
 async def handle_ws(request: web.Request) -> web.WebSocketResponse:
+    origin = request.headers.get("Origin")
+    # This Origin check is currently the sole access control on the WS
+    # endpoint (session-token auth lands in a later sub-task), so a missing
+    # or mismatched Origin is rejected outright — there is no bundled
+    # non-browser client in this repo that needs an exemption.
+    if origin not in ALLOWED_ORIGINS:
+        return web.Response(status=403, text="Forbidden: origin not allowed")
+
     ws = web.WebSocketResponse(heartbeat=30)
     await ws.prepare(request)
     clients.add(ws)
@@ -265,7 +282,5 @@ def make_app() -> web.Application:
 # ─── Entry point ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else int(os.environ.get("CODEY_GUI_PORT", "8888"))
-    host = os.environ.get("CODEY_GUI_HOST", "127.0.0.1")
-    print(f"\n  Codey-OS GUI  →  http://localhost:{port}\n")
-    web.run_app(make_app(), host=host, port=port, print=lambda *_: None)
+    print(f"\n  Codey-OS GUI  →  http://localhost:{PORT}\n")
+    web.run_app(make_app(), host=HOST, port=PORT, print=lambda *_: None)
