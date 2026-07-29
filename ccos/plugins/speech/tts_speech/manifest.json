@@ -1,14 +1,14 @@
 {
   "name": "tts_speech",
-  "version": "1.0.0",
-  "description": "Text-to-speech output using system TTS engines (Piper, espeak, Termux:API)",
+  "version": "1.1.0",
+  "description": "Text-to-speech output (Piper, espeak, Termux:API, pyttsx3) and speech-to-text input (Termux:API), via core/voice.py",
   "category": "speech",
   "entry_point": "tts.py",
   "capabilities": [
     {
       "name": "speech.tts",
       "description": "Convert text to speech audio output",
-      "implementation": "tts:speak",
+      "implementation": "tts_speech:speak",
       "category": "speech",
       "dependencies": [],
       "hardware_requirements": ["audio_output"]
@@ -16,10 +16,26 @@
     {
       "name": "speech.tts_engines",
       "description": "List available TTS engines",
-      "implementation": "tts:list_engines",
+      "implementation": "tts_speech:list_engines",
       "category": "speech",
       "dependencies": [],
       "hardware_requirements": []
+    },
+    {
+      "name": "speech.stt_available",
+      "description": "Check whether speech-to-text input (termux-speech-to-text) is available",
+      "implementation": "tts_speech:stt_available",
+      "category": "speech",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "speech.stt",
+      "description": "Capture one speech utterance and transcribe it to text",
+      "implementation": "tts_speech:listen",
+      "category": "speech",
+      "dependencies": [],
+      "hardware_requirements": ["microphone"]
     }
   ],
   "author": "CCOS",

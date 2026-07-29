@@ -1,17 +1,28 @@
 """
-TTS Speech Plugin — Text-to-speech output.
+Speech Plugin — text-to-speech output and speech-to-text input.
 
-Tries multiple engines in order:
+TTS tries multiple engines in order:
 1. Piper (offline, high quality)
 2. espeak (offline, lightweight)
 3. Termux:API tts-speak (Android/Termux)
 4. Python pyttsx3 (cross-platform fallback)
+
+STT is sourced from core/voice.py's VoiceManager (Termux:API
+termux-speech-to-text) — there is no equivalent multi-engine STT
+fallback chain, so this plugin wraps that implementation directly
+rather than duplicating it.
 """
 
 import shutil
 import subprocess
 import time
 from typing import Any, Dict, List, Optional
+
+from ccos.plugins._pathutil import ensure_repo_root_on_path
+
+ensure_repo_root_on_path()
+
+from core.voice import get_voice
 
 
 def list_engines() -> List[Dict[str, Any]]:
@@ -155,6 +166,22 @@ def _speak_pyttsx3(text: str, rate: int = 150, voice: str = None) -> Dict[str, A
     engine.say(text)
     engine.runAndWait()
     return {"success": True, "engine_used": "pyttsx3", "error": None}
+
+
+# ── STT ──────────────────────────────────────────────────────────────────────
+
+def stt_available() -> bool:
+    """Whether speech-to-text input (termux-speech-to-text) is available."""
+    return get_voice().stt_available()
+
+
+def listen(timeout: int = 20) -> Optional[str]:
+    """
+    Capture one speech utterance via core/voice.py's VoiceManager.
+
+    Returns transcribed text, or None if unavailable/failed/empty.
+    """
+    return get_voice().listen(timeout=timeout)
 
 
 def install():

@@ -84,29 +84,32 @@ install_system_deps() {
             # pyarrow & pandas must come from pkg on Termux (pip wheels fail on aarch64)
             pkg install -y python-pyarrow python-pandas 2>/dev/null \
                 || print_warning "python-pyarrow/pandas pkg install failed — pipeline features may not work"
+            # espeak (offline TTS engine) + termux-api (TTS/STT via Termux:API) — voice interface
+            pkg install -y espeak termux-api 2>/dev/null \
+                || print_warning "espeak/termux-api pkg install failed — voice interface may not work"
         fi
         print_success "Termux packages installed"
     elif command -v apt &>/dev/null; then
         if [ "$(id -u)" -eq 0 ]; then
             apt update -y
-            apt install -y python3 python3-pip cmake ninja-build clang wget curl git
+            apt install -y python3 python3-pip cmake ninja-build clang wget curl git espeak
         else
             sudo apt update -y
-            sudo apt install -y python3 python3-pip cmake ninja-build clang wget curl git
+            sudo apt install -y python3 python3-pip cmake ninja-build clang wget curl git espeak
         fi
         print_success "apt packages installed"
     elif command -v dnf &>/dev/null; then
         if [ "$(id -u)" -eq 0 ]; then
-            dnf install -y python3 python3-pip cmake ninja clang wget curl git
+            dnf install -y python3 python3-pip cmake ninja clang wget curl git espeak
         else
-            sudo dnf install -y python3 python3-pip cmake ninja clang wget curl git
+            sudo dnf install -y python3 python3-pip cmake ninja clang wget curl git espeak
         fi
         print_success "dnf packages installed"
     elif command -v pacman &>/dev/null; then
         if [ "$(id -u)" -eq 0 ]; then
-            pacman -S --noconfirm python python-pip cmake ninja clang wget curl git
+            pacman -S --noconfirm python python-pip cmake ninja clang wget curl git espeak-ng
         else
-            sudo pacman -S --noconfirm python python-pip cmake ninja clang wget curl git
+            sudo pacman -S --noconfirm python python-pip cmake ninja clang wget curl git espeak-ng
         fi
         print_success "pacman packages installed"
     else
@@ -149,6 +152,7 @@ install_python_deps() {
         "filelock>=3.13.0" \
         "tqdm>=4.65.0" \
         "hnswlib>=0.7.0" \
+        "pyttsx3>=2.90" \
         || print_warning "Some pip packages failed — Codey-V3 may still work"
 
     print_success "Core Python packages installed"
