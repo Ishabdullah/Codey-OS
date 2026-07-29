@@ -5,6 +5,59 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-29 — Round 2 (C-2) live-verification: real `gui/start.sh` launch path, fully live-verified
+
+**What changed:** No code changes — this is a live-verifier pass closing
+the one open item left after the C-2 GUI-security fixes (see entry
+directly below), upgrading status from "code-reviewer-verified against a
+live scratch instance" to **fully live-verified through the real
+daemon-managed GUI launch path**.
+
+**Method:** launched via the actual `gui/start.sh` invocation (not a
+scratch `gui/server.py` instance). Since `main.py`'s REPL requires open
+stdin, a held-open FIFO + detached holder process fed stdin so the launch
+could proceed without orphaning the REPL — a test-harness technique only,
+no code change.
+
+**Verification (real, live, RAM-monitored):**
+
+- Baseline `free -h` (before launch): Mem 4.0Gi used, 3.9Gi free, 6.6Gi
+  available.
+- Model load confirmed: 7B (`qwen2.5-coder-7b-instruct-q4_k_m.gguf`)
+  loaded, `llama-server` PID 25675, `/health` → 200.
+- Bind address confirmed loopback-only. `ss`/`netstat` unavailable on
+  this Android build, so verified via direct connectivity instead:
+  `127.0.0.1:8888` → 200; the device's real LAN IP, both
+  `192.168.1.111:8888` and `192.168.1.111:8080` → connection refused.
+- WS auth re-checked against the **real served token** (fetched live via
+  curl from the actual served `index.html`, not reused from any prior
+  test): missing Origin → 403; correct Origin + wrong token → 403;
+  correct Origin + missing token → 403; correct Origin + correct token →
+  101 Switching Protocols, followed by a real metrics broadcast frame
+  showing the 7B model online.
+- Teardown: all 4 real processes (`gui/server.py` PID 25672,
+  `llama-server` PID 25675, `main.py` PID 25673, `start.sh` wrapper PID
+  25669) plus the test's own FIFO-holder helper (PID 25612) killed
+  individually by tracked PID, confirmed gone via `ps` — no
+  pattern-based kill used.
+- Final `free -h`: Mem 3.4Gi used, 5.2Gi free, 7.2Gi available —
+  healthier than the pre-launch baseline.
+- Single model-load cycle, confirmed unloaded afterward. No second cycle
+  run.
+
+**Result:** C-2 is now **fully live-verified**, not just
+code-reviewer-verified on a scratch instance. All three C-2 sub-tasks
+(`d29468f`, `ca94ab5`, `1198ba1`) plus this live pass close out Round 2
+in full — no open items remain.
+
+**New finding logged, not a security issue:** `gui/start.sh`
+unconditionally chains into `main.py`, which eagerly loads the 7B model
+with zero user interaction — running the GUI "just to check the
+dashboard" always costs a full model load. Directly observed live during
+this pass. Logged as `NEW_ISSUES.md` [NEW-4] (Confirmed).
+
+---
+
 ## 2026-07-29 — Round 2 (audit finding C-2, GUI server security): loopback bind, Origin allowlist, session token
 
 **What changed:** Three sequenced sub-tasks, each committed and

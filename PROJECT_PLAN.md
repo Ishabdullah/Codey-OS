@@ -499,12 +499,13 @@ above it) for full detail.
       the one captured PID's process group.
 
 ### Audit Remediation — Round 2 (C-2)
-**Status: CODE COMPLETE, code-reviewer-verified against a live scratch
-instance — NOT fully live-verified** (2026-07-29) — fix from
+**Status: FULLY LIVE-VERIFIED** (2026-07-29) — fix from
 `Codey-OS-audit.md`'s Critical finding [C-2] (GUI server: unauthenticated
 command execution, bound to `0.0.0.0` by default, no WebSocket Origin
 check). Three sub-tasks, each committed and code-reviewer-approved
-separately. See `PROJECT_LOG.md` 2026-07-29 entry for full detail.
+separately, then confirmed end-to-end by a live-verifier pass through the
+real `gui/start.sh` launch path. See `PROJECT_LOG.md` 2026-07-29 entries
+for full detail.
 - [x] Default GUI bind host changed `0.0.0.0` → `127.0.0.1`
       (`CODEY_GUI_HOST` env override preserved) — commit `d29468f`
 - [x] `handle_ws` rejects connections with missing or mismatched `Origin`
@@ -520,14 +521,32 @@ separately. See `PROJECT_LOG.md` 2026-07-29 entry for full detail.
       scratch port: all 4 token/Origin combinations behaved as expected
       (no-token 403, wrong-token 403, correct+correct 101,
       correct-token+bad-Origin 403), clean PID-tracked teardown
-- [ ] **NOT live-verified through the actual daemon-managed GUI startup
-      path** (`codeydOS`/`codey-start`'s real env-var propagation and
-      PID-file-coordinated launch sequence) — no live-verifier agent was
-      run this round. Needs a dedicated live-verifier pass before this
-      can be marked fully live-verified.
+- [x] **Fully live-verified through the actual `gui/start.sh` launch
+      path** (real daemon startup, not a scratch instance). Model load
+      confirmed (7B, PID 25675, `/health` → 200). Loopback-only bind
+      confirmed via direct connectivity: `127.0.0.1:8888` → 200, real LAN
+      IP `192.168.1.111` → connection refused on both 8888 and 8080. WS
+      auth re-checked against the real served token (fetched live from
+      the actual `index.html`, not reused): missing Origin → 403,
+      correct Origin + wrong token → 403, correct Origin + missing token
+      → 403, correct Origin + correct token → 101 + real metrics
+      broadcast frame. All 5 real processes (`gui/server.py`,
+      `llama-server`, `main.py`, `start.sh` wrapper, plus the test
+      harness's FIFO-holder helper) torn down individually by tracked
+      PID. `free -h`: 4.0Gi used pre-launch → 3.4Gi used post-teardown
+      (healthier than baseline). Single model-load cycle, confirmed
+      unloaded. See `PROJECT_LOG.md` for full numbers.
 - Follow-up logged, not fixed: `NEW_ISSUES.md` [NEW-3] (Suspected) —
   GUI session token could leak into access logs if logging is ever
   configured for `gui/server.py` (dormant today).
+- New follow-up logged during this live-verification pass:
+  `NEW_ISSUES.md` [NEW-4] (Confirmed) — `gui/start.sh` unconditionally
+  chains into `main.py`, forcing a full 7B model load with zero user
+  interaction just to view the dashboard.
+
+**Round 2 (C-2) is now fully closed** — all 3 sub-tasks committed and
+code-reviewer-approved, plus a full live-verifier pass through the real
+launch path. No open items remain under Round 2.
 
 ### Phase 4 — Self-improvement activation (deliberate, not automatic)
 Do NOT start this phase until Phases 1–3 are stable and you've watched the

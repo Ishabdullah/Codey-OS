@@ -1,5 +1,32 @@
 # New Issues Found During V3 Overhaul
 
+## Found during Round 2 (C-2) live-verification pass, 2026-07-29 — NOT fixed, logged only
+
+### [NEW-4] `gui/start.sh` unconditionally chains into `main.py`, forcing a full 7B model load just to view the dashboard
+- **Confidence: Confirmed** (directly observed live during the C-2
+  live-verification pass, not inferred).
+- **Where found:** live-verifier's real launch of `gui/start.sh` (the
+  actual daemon-managed GUI startup path, not a scratch instance) while
+  confirming C-2's GUI-security fixes end-to-end.
+- **Finding:** `gui/start.sh` unconditionally chains into `main.py` after
+  starting `gui/server.py`, and `main.py` eagerly loads the 7B model with
+  zero user interaction required. There is no path to bring up the GUI
+  server/dashboard alone without also paying the full 7B model-load cost
+  — observed directly: launching via `gui/start.sh` triggered a real
+  `llama-server` 7B load (PID 25675) before the dashboard was usable.
+- **Impact:** a user who only wants to check the dashboard (RAM/CPU/temp,
+  task status, etc.) via the GUI has no way to do so without incurring a
+  full model load, which on this device is a meaningful RAM/time cost and
+  runs against this project's RAM-discipline concerns (rule 2 in
+  `CLAUDE.md`).
+- **Suggested direction (not applied — out of scope for the C-2
+  live-verification task that found it):** decouple `gui/server.py`'s
+  dashboard-only capabilities (which read from `core/dashboard_data.py`,
+  not the model) from `main.py`'s model-loading REPL, so `gui/start.sh`
+  can optionally start just the dashboard server without also spawning
+  `main.py`. Needs its own scoped task — not a security issue, a
+  resource-cost/UX one.
+
 ## Found during Round 2 (C-2 GUI security) sub-task 3/3, 2026-07-29 — NOT fixed, logged only
 
 ### [NEW-3] GUI session token may leak into access logs if logging is ever configured for `gui/server.py`
