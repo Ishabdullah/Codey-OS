@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from core import context as ctx
 from core.agent import run_agent
+from core.dashboard_data import get_render_text
 from core.inference_v2 import was_last_streamed
 from core.loader_v2 import get_loader
 from core.sysmon import get_monitor
@@ -1372,7 +1373,7 @@ def repl(
                 continue
 
         # ── Stats bar after input ──────────────────────────────────────────
-        console.print(monitor.render())
+        console.print(get_render_text())
 
         was_cmd, history = handle_command(user_input, history, yolo=yolo)
         if was_cmd:

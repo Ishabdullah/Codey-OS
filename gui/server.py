@@ -17,6 +17,8 @@ from aiohttp import WSMsgType, web
 CODEY_DIR = Path(__file__).parent.parent
 GUI_DIR = Path(__file__).parent
 
+sys.path.insert(0, str(CODEY_DIR))
+
 # ─── ANSI / metric parsers ────────────────────────────────────────────────────
 
 ANSI_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])|\r")
@@ -46,15 +48,10 @@ def parse_ctx(text: str) -> Optional[Dict]:
 
 async def get_ram() -> Dict:
     try:
-        data: Dict[str, int] = {}
-        with open("/proc/meminfo") as f:
-            for line in f:
-                parts = line.split()
-                if len(parts) >= 2:
-                    data[parts[0].rstrip(":")] = int(parts[1]) * 1024
-        total = data.get("MemTotal", 0)
-        available = data.get("MemAvailable", 0)
-        return {"used": total - available, "total": total}
+        from core.dashboard_data import get_snapshot
+
+        snap = get_snapshot()
+        return {"used": snap["ram_used"], "total": snap["ram_total"]}
     except Exception:
         return {"used": 0, "total": 1}
 

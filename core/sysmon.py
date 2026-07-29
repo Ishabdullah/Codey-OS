@@ -73,31 +73,7 @@ class SystemMonitor:
 
     def render(self) -> Text:
         """Return a Rich Text line suitable for printing as a stats bar."""
-        s = self.snapshot
-        cpu = s["cpu"]
-        ru = s["ram_used"] / 1024**3
-        rt = s["ram_total"] / 1024**3
-        temp = s["temp"]
-
-        cpu_col = _threshold_color(cpu, warn=60, crit=85)
-        ram_pct = (ru / rt * 100) if rt else 0
-        ram_col = _threshold_color(ram_pct, warn=65, crit=85)
-        temp_col = _threshold_color(temp or 0, warn=65, crit=80) if temp else "dim"
-
-        cpu_bar = _bar(cpu, width=8)
-        ram_bar = _bar(ram_pct, width=8)
-
-        line = Text()
-        line.append(" CPU ", style="dim")
-        line.append(f"[{cpu_bar}]", style=cpu_col)
-        line.append(f" {cpu:4.1f}%", style=f"bold {cpu_col}")
-        line.append("   RAM ", style="dim")
-        line.append(f"[{ram_bar}]", style=ram_col)
-        line.append(f" {ru:.1f}/{rt:.1f} GB", style=f"bold {ram_col}")
-        if temp is not None:
-            line.append("   Temp ", style="dim")
-            line.append(f"{temp:.0f}°C", style=f"bold {temp_col}")
-        return line
+        return render_snapshot(self.snapshot)
 
     def set_title(self) -> None:
         """Write a compact stats string to the terminal title bar."""
@@ -291,6 +267,41 @@ class SystemMonitor:
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
+
+def render_snapshot(s: dict) -> Text:
+    """
+    Build the same Rich Text stats bar as SystemMonitor.render(), but from
+    any snapshot dict with the same shape (cpu, ram_used, ram_total, temp).
+
+    Factored out so callers who obtain a snapshot via a different path
+    (e.g. the CCOS `system.monitor_snapshot` capability) can still render
+    the exact colored TUI bar without duplicating the formatting logic.
+    """
+    cpu = s["cpu"]
+    ru = s["ram_used"] / 1024**3
+    rt = s["ram_total"] / 1024**3
+    temp = s["temp"]
+
+    cpu_col = _threshold_color(cpu, warn=60, crit=85)
+    ram_pct = (ru / rt * 100) if rt else 0
+    ram_col = _threshold_color(ram_pct, warn=65, crit=85)
+    temp_col = _threshold_color(temp or 0, warn=65, crit=80) if temp else "dim"
+
+    cpu_bar = _bar(cpu, width=8)
+    ram_bar = _bar(ram_pct, width=8)
+
+    line = Text()
+    line.append(" CPU ", style="dim")
+    line.append(f"[{cpu_bar}]", style=cpu_col)
+    line.append(f" {cpu:4.1f}%", style=f"bold {cpu_col}")
+    line.append("   RAM ", style="dim")
+    line.append(f"[{ram_bar}]", style=ram_col)
+    line.append(f" {ru:.1f}/{rt:.1f} GB", style=f"bold {ram_col}")
+    if temp is not None:
+        line.append("   Temp ", style="dim")
+        line.append(f"{temp:.0f}°C", style=f"bold {temp_col}")
+    return line
 
 
 def _threshold_color(value: float, warn: float, crit: float) -> str:
