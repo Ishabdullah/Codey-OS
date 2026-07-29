@@ -184,75 +184,71 @@
 
 ## Found during Round 1 (C-1/H-1/H-4) fix task, 2026-07-29 — NOT fixed, logged only
 
-### [NEW-1] A live, unowned 7B `llama-server` appeared twice this session, timing-correlated with `pytest tests/` runs — matches audit finding L-6, but the causal mechanism is UNCONFIRMED (correction below)
-- **Confidence: downgraded from an earlier overclaim in this same file.**
-  Originally logged as "pytest tests/ itself spawns" with Confirmed
-  confidence — that was **too strong**. Corrected after a follow-up static
-  investigation (see below): the temporal correlation is real and
-  reproduced, but no code path has actually been found that explains it.
-  Treat as **Suspected**, same as the audit's own original L-6 rating, not
-  upgraded.
-- **Evidence for the correlation:** Ran `python3 -m pytest tests/ -q`
-  (253/253 pass, no failures) inside one single shell command that also
-  ran `free -h; pgrep -af llama-server` immediately after — that combined
-  command's output showed a full 7B `llama-server` on port 8080 running
-  with `PPID 1` (reparented/orphaned), no PID file anywhere
-  (`~/.codeyOS/codeyOS.pid` doesn't exist), no daemon running. Reproduced
-  in an earlier separate run too (different PID). Both times the process
-  outlived the pytest run and had to be killed manually
-  (`kill -TERM -<pid>`, scoped to that PID's process group) to recover RAM
-  — that part (kill discipline, RAM recovery) is solid and verified both
-  times via `free -h` before/after.
-- **Follow-up investigation performed (2026-07-29, same session, per Ish's
-  request before attempting live C-1/H-4 verification):** targeted static
-  search, no pytest re-run.
-  - `grep -rn "llama-server\|LlamaServer\|subprocess\|Popen\|get_loader\|ensure_model" tests/*.py`
-    → only one hit, a comment in `tests/test_hybrid_inference.py`'s
-    docstring. No test file calls `get_loader()`, `ensure_model()`, or
-    constructs a `LlamaServer`/starts a subprocess.
-  - Read `tests/test_hybrid_inference.py` in full — it only constructs
-    `ChatCompletionBackend()` instances and calls `check_health()`/
-    `is_server_running()`/`get_stats()` (network-probe or pure-attribute
-    checks), never `.infer()`. No spawn path there.
-  - Checked the 4 files that import from `core.agent`
-    (`test_agent_parsing.py`, `test_hallucination.py`,
-    `test_orchestration.py`, `test_parse_tool_call.py`) — all import only
-    pure-parsing functions (`extract_json`, `is_hallucination`,
-    `parse_tool_call`), never `run_agent`, never anything that calls
-    `infer()`.
-  - `grep -n "^[a-zA-Z_].*get_loader()\|^[a-zA-Z_].*ensure_model()"` across
-    all of `core/*.py` → no module-level (import-time) call to either.
-  - No `pytest.ini`/`pyproject.toml`/`setup.cfg` exists in the repo, so
-    there's no autouse fixture or plugin hook that could be triggering it
-    that way either.
-  - No `crontab`, no `~/.termux/boot/`, and `ps aux` (checked while no
-    llama-server was running) showed nothing resembling a supervisor or
-    auto-restart process.
-  - **Net result: the grep-level investigation did not find a mechanism.**
-    Either the real cause is something not covered by these searches (a
-    deeper transitive import, a genuinely external process on the device
-    unrelated to this repo, or something that only triggers under specific
-    timing/state not present in a plain grep), or the two observations
-    were coincidental co-occurrence rather than pytest-caused. Given the
-    tight timing (both observations occurred within a single, uninterrupted
-    shell command that only ran pytest + the check), coincidence is not a
-    fully satisfying explanation either — this is genuinely unresolved, not
-    ruled out.
-- **Impact if real:** a device crash occurred during this same session,
-  and RAM went from ~6.6 GB available to under 200 MB free with 6+ GB in
-  swap without any deliberate model-load action. If pytest (or something
-  co-occurring with it) is really the cause, it's a plausible contributor
-  to this device's RAM/crash history — but that remains **plausible, not
-  confirmed**, based on one session's evidence.
-- **Suggested direction:** next time this is investigated, bisect rather
-  than grep — run subsets of `tests/` (e.g. `pytest tests/ -k
-  "not hybrid"` vs. individual files) with a `pgrep -af llama-server`
-  check after each, to narrow which file/collection step correlates with
-  the spawn, before assuming a fix target. Do this only as a dedicated,
-  RAM-monitored task, not bundled into unrelated work — and not
-  immediately before/after a live daemon verification cycle, since it
-  already appears to interact badly with RAM pressure from live model
-  tests.
+### [NEW-1] `pytest tests/` spawns a real 7B `llama-server` and orphans it — matches audit finding L-6
+
+- **Confidence: Confirmed (upgraded from Suspected, Round 5 diagnostic
+  investigation, 2026-07-29).** The mechanism below was live-reproduced
+  3+ times, including a decisive proof: catching the orphaned
+  `llama-server`'s PPID pointing directly at the live pytest process
+  itself, before OS reparenting to PID 1 had occurred.
+- **Root cause:**
+  `tests/test_memory.py::TestMemoryCompressSummary::test_compress_summary_handles_inference_failure`
+  (lines ~351-361) calls `self.memory.compress_summary(long_history)`
+  with **no mocking of inference at all**, despite its name and docstring
+  ("compress_summary should return fresh turns when inference fails")
+  implying it tests a failure/degraded path. Call chain: test →
+  `core/memory_v2.py:600-627` `compress_summary()` unconditionally does
+  `from core.inference_v2 import infer; ... compressed = infer(prompt,
+  stream=False)` (line 619, wrapped in a bare `try/except Exception`,
+  line 603/625, which is why the test still passes either way and never
+  signaled the problem) → `core/inference_v2.py:65-94` `infer()` does
+  `loader = get_loader(); if not loader.ensure_model(): ...` (lines
+  92-94) — this `ensure_model()` call is the real model-load trigger,
+  spawning an actual local 7B `llama-server` subprocess.
+- **Evidence:**
+  - A timestamped, verbose pytest log showed a 28-second gap (consistent
+    with a real 7B model load) immediately before this specific test,
+    versus ~5ms between every other adjacent test pair in the suite.
+  - Live-reproduced 3+ times in Round 5.
+  - Decisive proof: in one reproduction, the orphan `llama-server`'s PPID
+    was caught pointing directly at the live pytest process ID before OS
+    reparenting to PID 1 occurred (matches the two earlier PPID-1
+    orphan observations logged below, which were seen only after
+    reparenting had already happened).
+  - Nothing in the test's setUp/tearDown (`tests/test_memory.py:335-340`,
+    `reset_memory()` only) tracks or kills the spawned server, which is
+    why it's left running/orphaned after the test session ends.
+- **Original correlation evidence (Round 1, retained for record):** Ran
+  `python3 -m pytest tests/ -q` (253/253 pass, no failures) inside one
+  single shell command that also ran `free -h; pgrep -af llama-server`
+  immediately after — that combined command's output showed a full 7B
+  `llama-server` on port 8080 running with `PPID 1` (reparented/orphaned),
+  no PID file anywhere (`~/.codeyOS/codeyOS.pid` doesn't exist), no daemon
+  running. Reproduced in an earlier separate run too (different PID).
+  Both times the process outlived the pytest run and had to be killed
+  manually (`kill -TERM -<pid>`, scoped to that PID's process group) to
+  recover RAM — that part (kill discipline, RAM recovery) is solid and
+  verified both times via `free -h` before/after.
+- **Impact:** a device crash occurred during the Round 1 session in which
+  this was first observed, with RAM going from ~6.6 GB available to under
+  200 MB free with 6+ GB in swap without any deliberate model-load
+  action. Now that the mechanism is confirmed, this test is a real,
+  reproducible RAM-crash contributor, not just a plausible one — every
+  plain `pytest tests/` run loads a full 7B model and orphans the server.
+- **Round 1 static investigation (superseded by Round 5, not
+  retracted):** a targeted grep-level search
+  (`grep -rn "llama-server\|LlamaServer\|subprocess\|Popen\|get_loader\|ensure_model" tests/*.py`)
+  missed the mechanism because it only checked for direct spawn/loader
+  calls inside `tests/*.py` files, not the indirect path through
+  `core/memory_v2.py`'s `compress_summary()` (`infer(` is called from
+  non-test code). That static approach could not have found this; the
+  gap is closed by the Round 5 dynamic (timestamped-log + PPID-capture)
+  investigation above.
+- **Fix direction:** mock `core.inference_v2.infer` (or the loader it
+  calls) in `test_compress_summary_handles_inference_failure` so the test
+  actually exercises the inference-unavailable branch it claims to test,
+  without triggering a real model load. See fix task scoped in
+  `PROJECT_PLAN.md` / handed to implementer.
 
 ## Pre-existing Test Failures (Not Introduced by V3 Changes)
 
