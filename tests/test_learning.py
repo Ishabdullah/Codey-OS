@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Tests for Codey-V3 learning systems.
+Tests for Codey-OS learning systems.
 
 Tests:
 - User preference learning

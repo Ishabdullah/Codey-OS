@@ -1,8 +1,8 @@
-# Codey-V3 Privacy Policy
+# Codey-OS Privacy Policy
 
 ## Overview
 
-Codey-V3 is designed with privacy as a core principle. This document explains how Codey-V3 handles your data.
+Codey-OS is designed with privacy as a core principle. This document explains how Codey-OS handles your data.
 
 ## Key Principles
 
@@ -12,7 +12,7 @@ Codey-V3 is designed with privacy as a core principle. This document explains ho
 - Your code, conversations, and project data never leave your device
 
 ### 2. No Telemetry
-- Codey-V3 does not collect any usage statistics
+- Codey-OS does not collect any usage statistics
 - No analytics or tracking of any kind
 - No phone-home calls or telemetry endpoints
 

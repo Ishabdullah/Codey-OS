@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Daemon configuration for Codey-V3.
+Daemon configuration for Codey-OS.
 
 Loads configuration from ~/.codey-v3/config.json
 Provides defaults for all settings.

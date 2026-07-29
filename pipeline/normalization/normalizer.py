@@ -2,7 +2,7 @@
 Normalization pipeline.
 
 Converts raw heterogeneous dataset records into a uniform intermediate format
-before the transformation engine maps them to Codey-V3 tool calls.
+before the transformation engine maps them to Codey-OS tool calls.
 
 Intermediate format:
 {

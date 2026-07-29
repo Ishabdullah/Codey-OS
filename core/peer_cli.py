@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Peer CLI escalation for Codey-V3.
+Peer CLI escalation for Codey-OS.
 
 When Codey exhausts its retry budget on a task, it can escalate to an
 external AI coding CLI: Claude Code, Gemini CLI, or Qwen CLI.
@@ -177,7 +177,7 @@ class PeerCLIManager:
         lines = [
             f"Task: {user_message}",
             "",
-            "Codey-V3 has already attempted this and exhausted its retry budget.",
+            "Codey-OS has already attempted this and exhausted its retry budget.",
             "You are responding to an automated system. Do NOT ask for permission.",
             "Do NOT ask clarifying questions. Act immediately.",
         ]

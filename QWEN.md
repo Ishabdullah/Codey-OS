@@ -2,7 +2,7 @@
 
 ## What this project is
 
-Codey-OS is a local-first AI agent operating system for Termux/Android (and any Linux system). It unifies two previously-separate codebases — the **Codey-v3 core coding agent** (`core/`, `tools/`, `utils/`, `main.py`) and the **Cognitive OS layer (CCOS)** (`ccos/`) — into a single system governed by one OS shell (`codey-start` / `codey-stop`). The OS shell discovers, routes, monitors, and eventually self-improves capabilities; the coding agent remains the primary capability, now wrapped and registered.
+Codey-OS is a local-first AI agent operating system for Termux/Android (and any Linux system). It unifies two previously-separate codebases — the **Codey-OS core coding agent** (`core/`, `tools/`, `utils/`, `main.py`) and the **Cognitive OS layer (CCOS)** (`ccos/`) — into a single system governed by one OS shell (`codey-start` / `codey-stop`). The OS shell discovers, routes, monitors, and eventually self-improves capabilities; the coding agent remains the primary capability, now wrapped and registered.
 
 ## Authoritative spec
 
@@ -60,7 +60,7 @@ Codey-OS/
 ├── ccos_main.py                      # Root CCOS entry point
 ├── codey3                            # Legacy entry point (to be retired)
 ├── codeyd3                           # Legacy entry point (to be retired)
-├── core/                             # Codey-v3 core coding agent (55 .py files)
+├── core/                             # Codey-OS core coding agent (55 .py files)
 │   ├── __init__.py
 │   ├── agent.py                      # Main agent (75K) — three-model llama.cpp stack
 │   ├── background.py                 # Background task handling
@@ -122,7 +122,7 @@ Codey-OS/
 │   ├── server.py                     # WebSocket server
 │   └── start.sh
 ├── install.sh                        # Installation script
-├── main.py                           # Codey-v3 original entry point (62K)
+├── main.py                           # Codey-OS original entry point (62K)
 ├── pipeline/                         # Training data pipeline (25 .py files)
 │   ├── __init__.py
 │   ├── embedding/                    # Embedding backends (nomic, sentence-transformers)
@@ -138,7 +138,7 @@ Codey-OS/
 │   ├── critique_prompts.py
 │   ├── layered_prompt.py
 │   └── system_prompt.py
-├── tests/                            # Codey-v3 test suite (17 .py files)
+├── tests/                            # Codey-OS test suite (17 .py files)
 │   ├── __init__.py
 │   ├── security/                     # Security tests (path traversal, shell injection)
 │   ├── test_agent_parsing.py
@@ -193,10 +193,10 @@ Codey-OS/
 **Summary counts (excluding .git, __pycache__):**
 - 216 total files
 - 169 Python files
-- 55 in `core/` (Codey-v3 agent)
+- 55 in `core/` (Codey-OS agent)
 - 55 in `ccos/core/` (CCOS OS shell)
 - 25 in `pipeline/` (training data pipeline)
-- 17 in `tests/` (Codey-v3 tests)
+- 17 in `tests/` (Codey-OS tests)
 - 7 in `ccos/tests/` (CCOS tests)
 - 6 in `tools/`
 - 4 in `utils/`

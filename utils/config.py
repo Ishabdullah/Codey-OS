@@ -148,7 +148,7 @@ RETRIEVAL_CONFIG = {
 }
 
 CODEY_VERSION = "3.0.0"
-CODEY_NAME = "CODEY-V3"
+CODEY_NAME = "Codey-OS"
 
 # ── Symbolic Graph (Mentalese Engine) — v3.0.0 ────────────────────────────────
 # CODEY_SYMBOLIC=1  — enable symbolic graph pipeline

@@ -9,7 +9,7 @@ Demonstrates:
 4. Resume on restart
 5. Integration with goal engine + agent orchestrator
 
-Run: PYTHONPATH=/root/Codey-v3 python3 ccos/demo_project_engine.py
+Run: PYTHONPATH=/root/Codey-OS python3 ccos/demo_project_engine.py
 """
 
 import json

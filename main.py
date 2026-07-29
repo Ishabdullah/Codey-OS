@@ -19,7 +19,7 @@ BANNER = f"""[bold blue]
  ██║     ██║   ██║██║  ██║█████╗   ╚████╔╝
  ██║     ██║   ██║██║  ██║██╔══╝    ╚██╔╝
   ╚██████╗╚██████╔╝██████╔╝███████╗   ██║
-   ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝   ╚═╝  ─ V3
+   ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝   ╚═╝  ─ OS
 [/bold blue][dim]  v{CODEY_VERSION} · Privacy-Focused AI Coding Assistant · Termux[/dim]
 [dim]  🔒 100% Local · No Telemetry · No Cloud Required[/dim]
 """
@@ -28,7 +28,7 @@ BANNER = f"""[bold blue]
 def parse_args():
     import argparse
 
-    parser = argparse.ArgumentParser(description="Codey-V3 - Local AI coding assistant")
+    parser = argparse.ArgumentParser(description="Codey-OS - Local AI coding assistant")
     parser.add_argument("prompt", nargs="?")
     parser.add_argument("--yolo", action="store_true", help="Skip confirmations")
     parser.add_argument("--threads", type=int)
@@ -929,7 +929,7 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
                     )
                     if response and not response.startswith("["):
                         separator()
-                        console.print(f"\n[bold green]Codey-V3:[/bold green] {response}")
+                        console.print(f"\n[bold green]Codey-OS:[/bold green] {response}")
                         separator()
                     from core.sessions import save_session
 
@@ -959,7 +959,7 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
                     response, history = run_agent(text, history, yolo=yolo)
                     if response and not response.startswith("["):
                         separator()
-                        console.print(f"\n[bold green]Codey-V3:[/bold green] {response}")
+                        console.print(f"\n[bold green]Codey-OS:[/bold green] {response}")
                         separator()
                         if v.enabled and v.tts_available():
                             try:
@@ -1150,7 +1150,7 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
   /unread <file>         Remove file from context
   /ignore <pattern>      Add pattern to .codeyignore
   /context               Show loaded files and sizes
-  /diff [file]           Show what Codey-V3 changed (colored diff)
+  /diff [file]           Show what Codey-OS changed (colored diff)
   /undo [file]           Restore file to previous version
 
 [bold]Code Review (v2.5.2):[/bold]
@@ -1291,7 +1291,7 @@ def repl(
                     separator()
                 else:
                     separator()
-                    console.print(f"\n[bold green]Codey-V3:[/bold green] {response}")
+                    console.print(f"\n[bold green]Codey-OS:[/bold green] {response}")
                     separator()
             save_session(history)
         except KeyboardInterrupt:
@@ -1312,7 +1312,7 @@ def repl(
                     separator()
                 else:
                     separator()
-                    console.print(f"\n[bold green]Codey-V3:[/bold green] {response}")
+                    console.print(f"\n[bold green]Codey-OS:[/bold green] {response}")
                     separator()
             save_session(history)
         except KeyboardInterrupt:
@@ -1386,7 +1386,7 @@ def repl(
                     separator()
                 else:
                     separator()
-                    console.print(f"\n[bold green]Codey-V3:[/bold green] {response}")
+                    console.print(f"\n[bold green]Codey-OS:[/bold green] {response}")
                     separator()
                 # Speak the response if voice mode is on (Ctrl+C to interrupt)
                 try:
@@ -1420,7 +1420,7 @@ def main():
     args = parse_args()
 
     if args.version:
-        print(f"Codey-V3 v{CODEY_VERSION}")
+        print(f"Codey-OS v{CODEY_VERSION}")
         sys.exit(0)
 
     apply_overrides(args)
@@ -1432,7 +1432,7 @@ def main():
         if check_pid_file():
             error("Daemon is already running. Use --daemon-stop to shut it down.")
             sys.exit(1)
-        info("Starting Codey-V3 daemon mode...")
+        info("Starting Codey-OS daemon mode...")
         daemon = Daemon()
         daemon.run()
         return

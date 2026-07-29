@@ -2,7 +2,7 @@
 
 ## Three-Model Design
 
-Codey-V3 runs three purpose-built models simultaneously, each on its own port:
+Codey-OS runs three purpose-built models simultaneously, each on its own port:
 
 | Model | Port | Role |
 |-------|------|------|

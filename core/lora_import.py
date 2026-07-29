@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-LoRA adapter import and merge for Codey-V3.
+LoRA adapter import and merge for Codey-OS.
 
 Handles:
 - Importing LoRA adapters trained with Unsloth

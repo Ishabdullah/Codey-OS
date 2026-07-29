@@ -9,7 +9,7 @@ Demonstrates:
 4. Top goal is injected into planner for proactive execution
 5. Full cycle: usage → analysis → goals → improvement
 
-Run: PYTHONPATH=/root/Codey-v3 python3 ccos/demo_goal_engine.py
+Run: PYTHONPATH=/root/Codey-OS python3 ccos/demo_goal_engine.py
 """
 
 import json

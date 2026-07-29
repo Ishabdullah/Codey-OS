@@ -12,13 +12,13 @@ THIS IS NOT FOR USE BUT A TEMPORARY TESTING GROUND
   v3.0.0 · Adaptive Agent Operating System
 ```
 
-> **CCOS is a modular, self-extending AI agent operating system built on Codey-V3.** It perceives its hardware, manages its own capabilities, generates improvement goals, executes long-horizon projects, deliberates through internal agents, and evolves based on real-world execution telemetry. 100% local. No cloud dependency required.
+> **CCOS is a modular, self-extending AI agent operating system built on Codey-OS.** It perceives its hardware, manages its own capabilities, generates improvement goals, executes long-horizon projects, deliberates through internal agents, and evolves based on real-world execution telemetry. 100% local. No cloud dependency required.
 
 ---
 
 ## 1. Project Overview
 
-CCOS transforms Codey-V3 from a coding assistant into a **cognitive operating system** that:
+CCOS transforms Codey-OS from a coding assistant into a **cognitive operating system** that:
 
 - **Perceives** its hardware environment (CPU, RAM, GPU, cameras, microphones, network)
 - **Manages** a registry of capabilities it can perform
@@ -293,33 +293,33 @@ plugins/<category>/<name>/
 
 ### Run CCOS
 ```bash
-cd /root/Codey-v3
+cd /root/Codey-OS
 python3 ccos_main.py
 python3 ccos_main.py "read system information"
 ```
 
 ### Run Tests
 ```bash
-cd /root/Codey-v3
-PYTHONPATH=/root/Codey-v3 python3 ccos/tests/test_ccos.py              # Core (8 tests)
-PYTHONPATH=/root/Codey-v3 python3 ccos/tests/test_improvement_loop.py   # Improvement (6 tests)
-PYTHONPATH=/root/Codey-v3 python3 ccos/tests/test_skill_recombiner.py   # Skills (8 tests)
-PYTHONPATH=/root/Codey-v3 python3 ccos/tests/test_goal_engine.py        # Goals (10 tests)
-PYTHONPATH=/root/Codey-v3 python3 ccos/tests/test_agent_orchestrator.py # Agents (11 tests)
-PYTHONPATH=/root/Codey-v3 python3 ccos/tests/test_project_engine.py     # Projects (13 tests)
-PYTHONPATH=/root/Codey-v3 python3 ccos/tests/test_telemetry.py          # Telemetry (12 tests)
+cd /root/Codey-OS
+PYTHONPATH=/root/Codey-OS python3 ccos/tests/test_ccos.py              # Core (8 tests)
+PYTHONPATH=/root/Codey-OS python3 ccos/tests/test_improvement_loop.py   # Improvement (6 tests)
+PYTHONPATH=/root/Codey-OS python3 ccos/tests/test_skill_recombiner.py   # Skills (8 tests)
+PYTHONPATH=/root/Codey-OS python3 ccos/tests/test_goal_engine.py        # Goals (10 tests)
+PYTHONPATH=/root/Codey-OS python3 ccos/tests/test_agent_orchestrator.py # Agents (11 tests)
+PYTHONPATH=/root/Codey-OS python3 ccos/tests/test_project_engine.py     # Projects (13 tests)
+PYTHONPATH=/root/Codey-OS python3 ccos/tests/test_telemetry.py          # Telemetry (12 tests)
 ```
 
 **Total: 66 tests across 7 test suites.**
 
 ### Run Demos
 ```bash
-PYTHONPATH=/root/Codey-v3 python3 ccos/demo_improvement_loop.py     # Closed-loop improvement
-PYTHONPATH=/root/Codey-v3 python3 ccos/demo_skill_recombiner.py     # Skill invention
-PYTHONPATH=/root/Codey-v3 python3 ccos/demo_goal_engine.py          # Goal generation
-PYTHONPATH=/root/Codey-v3 python3 ccos/demo_agent_orchestrator.py   # Multi-agent debate
-PYTHONPATH=/root/Codey-v3 python3 ccos/demo_project_engine.py       # Long-horizon projects
-PYTHONPATH=/root/Codey-v3 python3 ccos/demo_telemetry.py            # Real-world telemetry
+PYTHONPATH=/root/Codey-OS python3 ccos/demo_improvement_loop.py     # Closed-loop improvement
+PYTHONPATH=/root/Codey-OS python3 ccos/demo_skill_recombiner.py     # Skill invention
+PYTHONPATH=/root/Codey-OS python3 ccos/demo_goal_engine.py          # Goal generation
+PYTHONPATH=/root/Codey-OS python3 ccos/demo_agent_orchestrator.py   # Multi-agent debate
+PYTHONPATH=/root/Codey-OS python3 ccos/demo_project_engine.py       # Long-horizon projects
+PYTHONPATH=/root/Codey-OS python3 ccos/demo_telemetry.py            # Real-world telemetry
 ```
 
 ### Execute a Task
@@ -370,7 +370,7 @@ needs_attention = get_project_engine().resume_active_projects()
 ## 12. Directory Structure
 
 ```
-Codey-v3/
+Codey-OS/
 ├── ccos_main.py                          # CCOS entry point
 ├── ccos/
 │   ├── __init__.py

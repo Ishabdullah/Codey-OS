@@ -1,5 +1,5 @@
 """
-plannd — Task planner for Codey-V3
+plannd — Task planner for Codey-OS
 
 Provides get_plan(): sends a user prompt to the 1.5B model on port 8081
 and returns a numbered step list for the 7B agent to execute.
@@ -206,8 +206,8 @@ def _get_plan_remote(prompt: str) -> Optional[List[str]]:
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}",
-            "HTTP-Referer": "https://github.com/codey-v3",
-            "X-Title": "Codey-V3",
+            "HTTP-Referer": "https://github.com/Ishabdullah/Codey-OS",
+            "X-Title": "Codey-OS",
         }
         request = _req.Request(
             f"{base_url}/chat/completions",

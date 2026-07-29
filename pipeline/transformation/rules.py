@@ -1,5 +1,5 @@
 """
-Mapping rules: normalized intermediate → Codey-V3 tool_calls list.
+Mapping rules: normalized intermediate → Codey-OS tool_calls list.
 
 Each rule function receives the intermediate dict and returns a list of
 tool call dicts, or None if the record cannot be mapped.
@@ -16,7 +16,7 @@ from ..normalization.classifier import (CODE_GENERATION, FILE_PATCH, FILE_READ,
 from .termux import normalize_command
 
 # ── Tool name mapping for function-calling datasets ──────────────────────────
-# Maps common API/function names → Codey-V3 tool name
+# Maps common API/function names → Codey-OS tool name
 _FC_NAME_MAP = [
     (re.compile(r"execut|run_code|run_script|run_command|invoke", re.I), "shell"),
     (re.compile(r"write_file|create_file|save_file|write_to|output_file", re.I), "write_file"),
@@ -46,7 +46,7 @@ _LANG_DEFAULTS = {
 
 
 def _infer_tool_name(function_name: str) -> Optional[str]:
-    """Map a generic function name to a Codey-V3 tool name."""
+    """Map a generic function name to a Codey-OS tool name."""
     for pattern, tool in _FC_NAME_MAP:
         if pattern.search(function_name):
             return tool
@@ -275,7 +275,7 @@ def rule_humaneval(intermediate: Dict) -> Optional[List[Dict]]:
 def rule_function_call_json(intermediate: Dict) -> Optional[List[Dict]]:
     """
     Function-calling datasets (Glaive, Hermes): parse JSON function call
-    and map to Codey-V3 tool.
+    and map to Codey-OS tool.
     """
     raw = intermediate["raw_response"].strip()
 
@@ -304,7 +304,7 @@ def rule_function_call_json(intermediate: Dict) -> Optional[List[Dict]]:
     if not isinstance(raw_args, dict):
         raw_args = {}
 
-    # Map function name to Codey-V3 tool
+    # Map function name to Codey-OS tool
     tool_name = _infer_tool_name(func_name)
     if not tool_name:
         return None
@@ -318,7 +318,7 @@ def rule_function_call_json(intermediate: Dict) -> Optional[List[Dict]]:
 
 
 def _map_fc_args(tool_name: str, orig_name: str, raw_args: Dict) -> Optional[Dict]:
-    """Translate generic function args to the required Codey-V3 tool args."""
+    """Translate generic function args to the required Codey-OS tool args."""
     if tool_name == "shell":
         # Find the command value — try common key names
         cmd = (

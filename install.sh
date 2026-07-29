@@ -1,8 +1,8 @@
 #!/data/data/com.termux/files/usr/bin/bash
 #
-# Codey-V3 — Full Installation Script
+# Codey-OS — Full Installation Script
 #
-# Installs everything needed to run Codey-V3 on Termux (Android) or Linux:
+# Installs everything needed to run Codey-OS on Termux (Android) or Linux:
 #   • System packages (pkg / apt / dnf / pacman)
 #   • Python dependencies
 #   • llama.cpp (built from source)
@@ -153,7 +153,7 @@ install_python_deps() {
         "tqdm>=4.65.0" \
         "hnswlib>=0.7.0" \
         "pyttsx3>=2.90" \
-        || print_warning "Some pip packages failed — Codey-V3 may still work"
+        || print_warning "Some pip packages failed — Codey-OS may still work"
 
     print_success "Core Python packages installed"
 
@@ -340,7 +340,7 @@ setup_path() {
     else
         {
             echo ""
-            echo "# Codey-V3"
+            echo "# Codey-OS"
             echo "export PATH=\"$CODEY_OS_DIR:\$PATH\""
         } >> "$SHELL_CONFIG"
         print_success "Added $CODEY_OS_DIR to PATH in $SHELL_CONFIG"
@@ -386,7 +386,7 @@ print_completion() {
     echo
     echo -e "${GREEN}${BOLD}"
     echo "╔══════════════════════════════════════════════════════════════╗"
-    echo "║            CODEY-V3 — Installation Complete                  ║"
+    echo "║            CODEY-OS — Installation Complete                  ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
 
@@ -470,7 +470,7 @@ main() {
 
     echo -e "${BLUE}${BOLD}"
     echo "╔══════════════════════════════════════════════════════════════╗"
-    echo "║           Codey-V3 Installation Script                       ║"
+    echo "║           Codey-OS Installation Script                       ║"
     echo "║   Persistent local AI coding agent for Termux / Android      ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
@@ -490,7 +490,7 @@ main() {
     install_python_deps
 
     if ! install_llama_cpp; then
-        print_warning "llama.cpp build failed — Codey-V3 will not work without llama-server"
+        print_warning "llama.cpp build failed — Codey-OS will not work without llama-server"
         print_warning "You can try building manually later or install from a package manager"
         print_warning "Continuing with model downloads..."
     fi

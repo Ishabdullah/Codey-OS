@@ -1,6 +1,6 @@
-# Fine-Tuning Codey-V3 on Kaggle
+# Fine-Tuning Codey-OS on Kaggle
 
-This guide covers the full end-to-end workflow for fine-tuning both Codey-V3 models using your own training data and a free Kaggle GPU.
+This guide covers the full end-to-end workflow for fine-tuning both Codey-OS models using your own training data and a free Kaggle GPU.
 
 ---
 
@@ -176,7 +176,7 @@ cp ~/storage/downloads/unsloth.Q4_K_M.gguf ~/models/qwen2.5-0.5b/planner-codey.g
 
 ## Step 9 — Load the new models
 
-Restart Codey-V3 to load the new weights:
+Restart Codey-OS to load the new weights:
 
 ```bash
 codeyd2 stop

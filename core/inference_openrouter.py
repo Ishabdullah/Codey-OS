@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Remote inference backend for Codey-V3.
+Remote inference backend for Codey-OS.
 
 Handles any OpenAI-compatible /v1/chat/completions API — OpenRouter,
 UnlimitedClaude, or any other proxy.  Drop-in replacement for
@@ -92,8 +92,8 @@ class OpenRouterBackend:
             headers = {
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self._api_key}",
-                "HTTP-Referer": "https://github.com/codey-v3",
-                "X-Title": "Codey-V3",
+                "HTTP-Referer": "https://github.com/Ishabdullah/Codey-OS",
+                "X-Title": "Codey-OS",
             }
 
             req = urllib.request.Request(

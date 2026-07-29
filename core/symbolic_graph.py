@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Symbolic Graph Layer — Mentalese Engine for Codey-V3.
+Symbolic Graph Layer — Mentalese Engine for Codey-OS.
 
 Inserts a structured concept graph between the planner and coder.
 The planner converts natural language into graph operations; the graph

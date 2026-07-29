@@ -19,7 +19,7 @@ simply as **Codey**.
 
 A local-first, self-hosted AI agent operating system that runs entirely on
 Android via Termux (or any Linux system). It starts from a fully-capable
-AI coding agent — everything Codey-v3 already does — and wraps it inside
+AI coding agent — everything Codey-OS already does — and wraps it inside
 an operating-system shell (CCOS) that can register, run, monitor, and
 eventually extend capabilities beyond coding. No cloud dependency required;
 optional cloud fallback (OpenRouter) available. Started and stopped as one
@@ -54,7 +54,7 @@ contain coding-agent intelligence.
 | `goal_engine` / `project_engine` | Generates and prioritizes improvement goals; converts high-value goals into persistent, resumable, multi-session projects |
 | `capability_optimizer` / `skill_recombiner` / `auto_improvement_loop` | Self-improvement mechanisms — **present in the codebase, but gated off from live execution until explicitly activated (see Section 5)** |
 
-### Layer B: Capabilities (from Codey-v3's coding agent, wrapped as plugins)
+### Layer B: Capabilities (from Codey-OS's coding agent, wrapped as plugins)
 The actual work Codey does. Each becomes a capability registered with the
 OS shell rather than a directly-called module.
 
@@ -62,7 +62,7 @@ OS shell rather than a directly-called module.
 
 ## 3. Full Capability List (when finished)
 
-Everything below is verified to exist as real, working code in Codey-v3.
+Everything below is verified to exist as real, working code in Codey-OS.
 "Layer" = where it lives once unification is done. "Status" = whether it's
 already wired to the OS shell or still needs wrapping.
 

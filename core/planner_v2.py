@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Internal Planner for Codey-V3.
+Internal Planner for Codey-OS.
 
 Native task planning (no model-asked orchestration):
 - Task queue with dependency tracking
@@ -46,7 +46,7 @@ class Task:
 
 class Planner:
     """
-    Internal task planner for Codey-V3.
+    Internal task planner for Codey-OS.
 
     Features:
     - Task queue with dependencies

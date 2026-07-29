@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Daemon core for Codey-V3.
+Daemon core for Codey-OS.
 
 Main daemon process with:
 - Unix socket server for CLI communication

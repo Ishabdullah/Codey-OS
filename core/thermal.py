@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Thermal Management for Codey-V3.
+Thermal Management for Codey-OS.
 
 Tracks inference duration and:
 - Logs warning after 5 min continuous
@@ -20,7 +20,7 @@ from utils.logger import info, warning
 
 class ThermalManager:
     """
-    Manages thermal throttling for Codey-V3.
+    Manages thermal throttling for Codey-OS.
 
     Tracks:
     - Continuous inference duration

@@ -1,5 +1,5 @@
 """
-planner_client — async planning interface for Codey-V3
+planner_client — async planning interface for Codey-OS
 
 Sends a raw user task to the 1.5B model on port 8081 for planning,
 then returns the numbered step list.  Designed to be awaited directly

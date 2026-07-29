@@ -1,6 +1,6 @@
 #!/data/data/com.termux/files/usr/bin/bash
 #
-# Quick setup for Codey-V3 - adds to PATH
+# Quick setup for Codey-OS - adds to PATH
 #
 # Run this if you've already installed dependencies
 # and just need to make codeyOS available system-wide.
@@ -24,7 +24,7 @@ chmod +x "$CODEY_OS_DIR/codeydOS"
 # Add to PATH if not already there
 if ! grep -q "codeyOS" "$SHELL_CONFIG" 2>/dev/null; then
     echo "" >> "$SHELL_CONFIG"
-    echo "# Codey-V3" >> "$SHELL_CONFIG"
+    echo "# Codey-OS" >> "$SHELL_CONFIG"
     echo "export PATH=\"$CODEY_OS_DIR:\$PATH\"" >> "$SHELL_CONFIG"
     echo "Added codeyOS to PATH in $SHELL_CONFIG"
 else
@@ -40,7 +40,7 @@ mkdir -p "$HOME/.codeyOS"
 echo ""
 echo "Setup complete!"
 echo ""
-echo "Now you can use Codey-V3:"
+echo "Now you can use Codey-OS:"
 echo "  codeydOS start          # Start the daemon"
 echo "  codeyOS \"hello\"         # Send a task"
 echo "  codeyOS status          # Check status"

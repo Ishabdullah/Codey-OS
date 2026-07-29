@@ -1,6 +1,6 @@
 # Security
 
-Codey-V3 is a persistent, autonomous coding agent that runs as a background daemon, executes shell commands, maintains long-term memory, and loads local LLMs. These capabilities make it powerful but introduce non-trivial risks compared to a simple chat tool.
+Codey-OS is a persistent, autonomous coding agent that runs as a background daemon, executes shell commands, maintains long-term memory, and loads local LLMs. These capabilities make it powerful but introduce non-trivial risks compared to a simple chat tool.
 
 **This is early-stage open-source software. Use with caution on devices with sensitive data. Always review generated code and commands before execution.**
 

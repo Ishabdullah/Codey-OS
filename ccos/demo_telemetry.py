@@ -9,7 +9,7 @@ Demonstrates:
 4. System health scoring
 5. Feedback injection into goal engine
 
-Run: PYTHONPATH=/root/Codey-v3 python3 ccos/demo_telemetry.py
+Run: PYTHONPATH=/root/Codey-OS python3 ccos/demo_telemetry.py
 """
 
 import json

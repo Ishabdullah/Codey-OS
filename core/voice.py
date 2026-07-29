@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Voice interface for Codey-V3 — TTS and STT via Termux:API.
+Voice interface for Codey-OS — TTS and STT via Termux:API.
 Phase 1 of the upgrade roadmap (v2.5.1).
 
 Requirements:
@@ -25,7 +25,7 @@ _VOICE_CONFIG_PATH = Path.home() / ".config" / "codeyOS" / "voice_config.json"
 
 
 class VoiceManager:
-    """Manages TTS and STT for Codey-V3 via Termux:API."""
+    """Manages TTS and STT for Codey-OS via Termux:API."""
 
     def __init__(self):
         self.enabled: bool = False

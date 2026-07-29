@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
-REPO_NAME="Codey-V3"
+REPO_NAME="Codey-OS"
 GITHUB_USER="Ishabdullah"
 REMOTE_URL="https://github.com/${GITHUB_USER}/${REPO_NAME}.git"
 BRANCH="main"
@@ -21,13 +21,13 @@ else
   echo ""
   echo "  git remote add origin $REMOTE_URL"
   echo "  git add ."
-  echo "  git commit -m 'Initial commit for Codey-V3'"
+  echo "  git commit -m 'Initial commit for Codey-OS'"
   echo "  git push -u origin $BRANCH"
   echo ""
   echo "Running them now..."
   git remote add origin "$REMOTE_URL" 2>/dev/null || true
   git add .
-  git commit -m "Initial commit for Codey-V3"
+  git commit -m "Initial commit for Codey-OS"
   git push -u origin "$BRANCH"
 fi
 

@@ -1,7 +1,7 @@
 """
-Codey-V3 Tools Embedding Pipeline
+Codey-OS Tools Embedding Pipeline
 ==================================
-Ingests open-source datasets, converts them to Codey-V3 tool-call format,
+Ingests open-source datasets, converts them to Codey-OS tool-call format,
 generates embeddings, and writes training + retrieval artifacts.
 """
 

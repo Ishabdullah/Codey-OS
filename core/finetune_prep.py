@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Fine-tuning data preparation for Codey-V3.
+Fine-tuning data preparation for Codey-OS.
 
 Exports interaction data for off-device fine-tuning using Unsloth + Colab.
 Generates ShareGPT-style JSONL datasets and ready-to-run Colab notebooks.
@@ -31,7 +31,7 @@ from utils.logger import info, warning
 
 class DatasetCurator:
     """
-    Curates high-quality fine-tuning examples from Codey-V3 interaction history.
+    Curates high-quality fine-tuning examples from Codey-OS interaction history.
 
     Filters by:
     - Successful interactions (no errors, task completed)
@@ -250,7 +250,7 @@ class DatasetCurator:
         learning = get_learning_manager()
         prefs = learning.get_all_preferences()
 
-        parts = ["You are Codey-V3, a helpful AI coding assistant."]
+        parts = ["You are Codey-OS, a helpful AI coding assistant."]
 
         # Add learned preferences
         if prefs.get("test_framework"):
@@ -322,12 +322,12 @@ def _write_jsonl(examples: List[Dict], output_file: Path) -> int:
 # Colab Notebook Generation
 # =============================================================================
 
-UNSLOTH_NOTEBOOK_TEMPLATE = '''# Codey-V3 Fine-tuning with Unsloth
+UNSLOTH_NOTEBOOK_TEMPLATE = '''# Codey-OS Fine-tuning with Unsloth
 # Model: {model_name}
 # Generated: {generated_date}
 
 """
-This notebook fine-tunes {model_name} on your Codey-V3 interaction data.
+This notebook fine-tunes {model_name} on your Codey-OS interaction data.
 
 Requirements:
 - Google Colab free tier (T4 GPU, 16GB VRAM)
@@ -338,7 +338,7 @@ Steps:
 1. Upload your codey-finetune-*.jsonl file
 2. Run all cells
 3. Download the LoRA adapter
-4. Import back to Codey-V3 with: codey3 --import-lora /path/to/adapter
+4. Import back to Codey-OS with: codey3 --import-lora /path/to/adapter
 
 Estimated time: 1-4 hours on free T4 GPU
 """
@@ -512,7 +512,7 @@ print("""
 Next steps:
 1. Download the codey-lora-adapter.zip file
 2. Extract it on your device
-3. Import to Codey-V3: codey3 --import-lora /path/to/codey-lora-adapter
+3. Import to Codey-OS: codey3 --import-lora /path/to/codey-lora-adapter
 
 To merge with base model (optional):
   python merge_adapter.py --base {model_id} --adapter codey-lora-adapter --output merged-model
@@ -609,7 +609,7 @@ def print_instructions(dataset_path: str, notebook_path: str, model_variant: str
 
     instructions = f"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║                    Codey-V3 Fine-tuning Workflow                             ║
+║                    Codey-OS Fine-tuning Workflow                             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 
 ✓ Dataset exported: {dataset_path}
@@ -644,7 +644,7 @@ STEP 4: Download Adapter
   3. Transfer to your Android device
 
 ────────────────────────────────────────────────────────────────────────────────
-STEP 5: Import to Codey-V3
+STEP 5: Import to Codey-OS
 ────────────────────────────────────────────────────────────────────────────────
   On your device:
   

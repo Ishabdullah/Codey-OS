@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Observability for Codey-V3.
+Observability for Codey-OS.
 
 Agent can query its own state:
 - Token usage
@@ -31,7 +31,7 @@ from utils.config import CODEY_VERSION, MODEL_CONFIG
 
 class State:
     """
-    Observable state for Codey-V3.
+    Observable state for Codey-OS.
 
     Provides property accessors for:
     - tokens_used

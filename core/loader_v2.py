@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Model loader for Codey-V3 - Termux/Android compatible.
+Model loader for Codey-OS - Termux/Android compatible.
 
 Uses llama-server binary via subprocess instead of llama-cpp-python bindings
 (since llama-cpp-python doesn't support Android platform).

@@ -1,5 +1,5 @@
 """
-Persistent user notes for Codey-V3.
+Persistent user notes for Codey-OS.
 
 Simple key-value store for facts the user asks Codey to remember
 (e.g., "my name is Ish", "I prefer tabs over spaces").

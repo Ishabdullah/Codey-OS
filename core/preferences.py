@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-User preference learning for Codey-V3.
+User preference learning for Codey-OS.
 
 Automatically learns and remembers user preferences:
 - Test framework (pytest vs unittest)

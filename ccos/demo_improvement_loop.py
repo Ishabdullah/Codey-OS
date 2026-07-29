@@ -10,7 +10,7 @@ Demonstrates:
 5. Version upgrade when improvement is validated
 6. System health monitoring
 
-Run: PYTHONPATH=/root/Codey-v3 python3 ccos/demo_improvement_loop.py
+Run: PYTHONPATH=/root/Codey-OS python3 ccos/demo_improvement_loop.py
 """
 
 import json

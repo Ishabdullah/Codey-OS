@@ -10,7 +10,7 @@ Shows:
 5. Sandbox validation
 6. Registration and metrics
 
-Run: PYTHONPATH=/root/Codey-v3 python3 ccos/demo_skill_recombiner.py
+Run: PYTHONPATH=/root/Codey-OS python3 ccos/demo_skill_recombiner.py
 """
 
 import json

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Inference backend for Codey-V3 (v2.6.0 — simplified).
+Inference backend for Codey-OS (v2.6.0 — simplified).
 
 Uses llama-server's /v1/chat/completions endpoint which automatically applies
 the model's chat template (ChatML for Qwen2.5-Coder). This is CRITICAL —

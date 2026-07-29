@@ -1,4 +1,4 @@
-# Codey-V3 Model Selection Guide
+# Codey-OS Model Selection Guide
 
 ## Samsung Galaxy S24 Ultra Hardware Constraints
 
@@ -155,7 +155,7 @@
 
 ---
 
-## Recommendations for Codey-V3
+## Recommendations for Codey-OS
 
 ### Option A: Keep Current Setup (Recommended)
 

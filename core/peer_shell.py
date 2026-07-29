@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-PTY-based peer CLI runner for Codey-V3.
+PTY-based peer CLI runner for Codey-OS.
 
 Spawns a peer CLI (claude, gemini, qwen) directly inside Codey's
 terminal window, automatically types the task prompt into it, and captures

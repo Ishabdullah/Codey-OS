@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Core state store for Codey-V3.
+Core state store for Codey-OS.
 
 SQLite-backed persistent storage for:
 - General state (key-value)
@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 
 from utils.config import CODEY_STATE_DIR, STATE_DB_FILE
 
-# State directory and database path (Codey-V3 specific)
+# State directory and database path (Codey-OS specific)
 STATE_DIR = CODEY_STATE_DIR
 STATE_DB = STATE_DB_FILE
 

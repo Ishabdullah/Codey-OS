@@ -1,5 +1,5 @@
 """
-CODEY-V2 GUI Server  —  uses only aiohttp (already in requirements.txt)
+Codey-OS GUI Server  —  uses only aiohttp (already in requirements.txt)
 Run:  python gui/server.py [port]
 Then: open http://localhost:8888 in your browser
 """
@@ -270,5 +270,5 @@ def make_app() -> web.Application:
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else int(os.environ.get("CODEY_GUI_PORT", "8888"))
     host = os.environ.get("CODEY_GUI_HOST", "0.0.0.0")
-    print(f"\n  CODEY-V2 GUI  →  http://localhost:{port}\n")
+    print(f"\n  Codey-OS GUI  →  http://localhost:{port}\n")
     web.run_app(make_app(), host=host, port=port, print=lambda *_: None)

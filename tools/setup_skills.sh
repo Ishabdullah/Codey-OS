@@ -28,7 +28,7 @@ for arg in "$@"; do
 done
 
 # ── Create directory structure ────────────────────────────────────────────────
-echo "=== Codey-V3 Knowledge Base Setup ==="
+echo "=== Codey-OS Knowledge Base Setup ==="
 echo "KB root: $CODEY_DIR/knowledge"
 echo ""
 

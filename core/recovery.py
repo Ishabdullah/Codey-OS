@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Error Recovery for Codey-V3.
+Error Recovery for Codey-OS.
 
 Strategy switching on failures:
 - write_file fails → try patch_file

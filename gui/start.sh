@@ -1,5 +1,5 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# CODEY-V2 GUI launcher
+# CODEY-OS GUI launcher
 # Usage:  bash gui/start.sh [port]
 #
 # Starts the browser GUI in the background, then drops you into the
@@ -16,7 +16,7 @@ export PYTHONUNBUFFERED=1
 
 echo ""
 echo "  ╔══════════════════════════════════════╗"
-echo "  ║    CODEY-V2  ·  GUI + CLI LAUNCHER   ║"
+echo "  ║    CODEY-OS  ·  GUI + CLI LAUNCHER   ║"
 echo "  ╠══════════════════════════════════════╣"
 echo "  ║  Browser → http://localhost:${PORT}      ║"
 echo "  ║  Terminal → interactive codey3 below ║"

@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Learning manager for Codey-V3.
+Learning manager for Codey-OS.
 
 Integrates:
 - User preference learning
 - Error pattern database
 - Strategy effectiveness tracking
 
-Provides unified interface for Codey-V3 to learn and improve over time.
+Provides unified interface for Codey-OS to learn and improve over time.
 """
 
 from typing import Any, Dict, List, Optional
@@ -22,7 +22,7 @@ from utils.logger import warning
 
 class LearningManager:
     """
-    Unified learning manager for Codey-V3.
+    Unified learning manager for Codey-OS.
 
     Coordinates learning across:
     - Preferences (user style)

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Codey-V3 Tools Embedding Pipeline — CLI entry point.
+Codey-OS Tools Embedding Pipeline — CLI entry point.
 
 Usage:
   python pipeline/run.py --help
@@ -90,7 +90,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
     retrieval_dir = output_dir / "retrieval"
     retrieval_dir.mkdir(exist_ok=True)
 
-    print(f"\nCodey-V3 Tools Embedding Pipeline")
+    print(f"\nCodey-OS Tools Embedding Pipeline")
     print(f"{'='*50}")
     print(f"  Output dir:  {output_dir}")
     print(f"  Min quality: {args.min_quality}")
@@ -249,7 +249,7 @@ def _flush_embeddings(
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="Codey-V3 Tools Embedding Pipeline",
+        description="Codey-OS Tools Embedding Pipeline",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Dataset shortnames:

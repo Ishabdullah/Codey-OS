@@ -8,7 +8,7 @@ Demonstrates multi-agent internal deliberation:
 Shows before/after comparison, agent debate, and integration
 with goal engine and skill recombiner.
 
-Run: PYTHONPATH=/root/Codey-v3 python3 ccos/demo_agent_orchestrator.py
+Run: PYTHONPATH=/root/Codey-OS python3 ccos/demo_agent_orchestrator.py
 """
 
 import json

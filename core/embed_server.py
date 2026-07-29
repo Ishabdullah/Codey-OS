@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Dedicated embedding server for Codey-V3 knowledge base indexing.
+Dedicated embedding server for Codey-OS knowledge base indexing.
 
 Runs nomic-embed-text-v1.5 (80 MB Q4, 2048 ctx, 768-dim) as a separate
 llama-server on port 8082 — distinct from the generation server on 8080/8081.

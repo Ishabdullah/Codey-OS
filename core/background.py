@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Background Task Execution for Codey-V3.
+Background Task Execution for Codey-OS.
 
 Supports:
 - Async background tasks
@@ -61,7 +61,7 @@ class BackgroundTask:
 
 class BackgroundTaskManager:
     """
-    Manages background tasks for Codey-V3.
+    Manages background tasks for Codey-OS.
 
     Features:
     - Start/stop tasks

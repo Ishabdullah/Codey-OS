@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Multilingual Embeddings for Codey-V3 hierarchical memory.
+Multilingual Embeddings for Codey-OS hierarchical memory.
 
 Uses sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2:
 - 384-dim vectors, supports 50+ languages

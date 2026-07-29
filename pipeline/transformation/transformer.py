@@ -1,6 +1,6 @@
 """
 TransformationEngine — converts normalized intermediates to final
-Codey-V3 tool-call records ready for export and embedding.
+Codey-OS tool-call records ready for export and embedding.
 
 Output record format:
 {
@@ -30,7 +30,7 @@ from .validator import coerce_args, validate_record
 
 class TransformationEngine:
     """
-    Transforms a normalized intermediate record into a Codey-V3 output record.
+    Transforms a normalized intermediate record into a Codey-OS output record.
 
     Args:
         skip_invalid: If True, silently drop invalid records (default True).

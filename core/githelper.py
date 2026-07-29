@@ -1,5 +1,5 @@
 """
-Git helper for Codey-V3.
+Git helper for Codey-OS.
 
 v2.5.5 — Phase 3: branch management, smart commit messages,
                    merge conflict detection and resolution.

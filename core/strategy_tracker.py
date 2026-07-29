@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Strategy effectiveness tracking for Codey-V3.
+Strategy effectiveness tracking for Codey-OS.
 
 Tracks which recovery strategies work best:
 - Records strategy usage and outcomes
@@ -8,7 +8,7 @@ Tracks which recovery strategies work best:
 - Recommends best strategies for error types
 - Adapts based on historical performance
 
-This makes Codey-V3's error recovery smarter over time.
+This makes Codey-OS's error recovery smarter over time.
 """
 
 import json

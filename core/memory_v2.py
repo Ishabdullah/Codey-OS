@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Hierarchical Memory for Codey-V3 (v3.0.0 — Symbolic Graph Integration).
+Hierarchical Memory for Codey-OS (v3.0.0 — Symbolic Graph Integration).
 
 Five-tier memory system:
 1. Working Memory   — currently edited files (LRU eviction by turn + token limit)
