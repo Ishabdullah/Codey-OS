@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/data/data/com.termux/files/usr/bin/bash
 #
 # codeydOS - Codey-OS Daemon Manager
 #
@@ -190,6 +190,7 @@ PYEOF
 stop_daemon() {
     if [ ! -f "$PID_FILE" ]; then
         echo "Main daemon is not running"
+        pkill -9 -f "llama-server.*8080" 2>/dev/null || true
         return 0
     fi
 
@@ -198,6 +199,7 @@ stop_daemon() {
     if [ -z "$PID" ] || ! kill -0 "$PID" 2>/dev/null; then
         echo "Main daemon is not running (stale PID file)"
         rm -f "$PID_FILE"
+        pkill -9 -f "llama-server.*8080" 2>/dev/null || true
         return 0
     fi
 

@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/data/data/com.termux/files/usr/bin/bash
 #
 # codey-stop - Codey-OS Orchestrator (stop daemon + GUI + confirm clean exit)
 #

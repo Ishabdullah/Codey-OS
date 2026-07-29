@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/data/data/com.termux/files/usr/bin/bash
 # CODEY-V2 GUI launcher
 # Usage:  bash gui/start.sh [port]
 #
