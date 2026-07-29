@@ -8,6 +8,7 @@ import asyncio
 import json
 import os
 import re
+import secrets
 import sys
 from pathlib import Path
 from typing import Dict, Optional, Set
@@ -24,6 +25,12 @@ sys.path.insert(0, str(CODEY_DIR))
 # same value — do not hardcode a port anywhere else in this module.
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else int(os.environ.get("CODEY_GUI_PORT", "8888"))
 HOST = os.environ.get("CODEY_GUI_HOST", "127.0.0.1")
+
+# One session token per server process, generated at import time (not
+# per-request). Embedded in the HTML served by handle_index and required as
+# a `token` query param on the `/ws` upgrade request — this is the second
+# layer of WS access control, additive to the Origin check below.
+SESSION_TOKEN = secrets.token_urlsafe(32)
 
 # ─── ANSI / metric parsers ────────────────────────────────────────────────────
 
@@ -206,6 +213,7 @@ async def metrics_loop() -> None:
 
 async def handle_index(request: web.Request) -> web.Response:
     html = (GUI_DIR / "index.html").read_text(encoding="utf-8")
+    html = html.replace("__CODEY_SESSION_TOKEN__", SESSION_TOKEN)
     return web.Response(text=html, content_type="text/html")
 
 
@@ -214,12 +222,18 @@ ALLOWED_ORIGINS = {f"http://localhost:{PORT}", f"http://127.0.0.1:{PORT}"}
 
 async def handle_ws(request: web.Request) -> web.WebSocketResponse:
     origin = request.headers.get("Origin")
-    # This Origin check is currently the sole access control on the WS
-    # endpoint (session-token auth lands in a later sub-task), so a missing
-    # or mismatched Origin is rejected outright — there is no bundled
-    # non-browser client in this repo that needs an exemption.
+    # A missing or mismatched Origin is rejected outright — there is no
+    # bundled non-browser client in this repo that needs an exemption.
     if origin not in ALLOWED_ORIGINS:
         return web.Response(status=403, text="Forbidden: origin not allowed")
+
+    # Second, independent layer: the per-process session token embedded in
+    # the HTML by handle_index must be presented as a query param on this
+    # upgrade request. Checked before ws.prepare(), so a bad/missing token
+    # never reaches the handshake and the socket is never added to `clients`.
+    token = request.query.get("token", "")
+    if not secrets.compare_digest(token, SESSION_TOKEN):
+        return web.Response(status=403, text="Forbidden: invalid session token")
 
     ws = web.WebSocketResponse(heartbeat=30)
     await ws.prepare(request)

@@ -308,6 +308,12 @@
 <body>
   <div id="root"></div>
 
+  <script>
+    // Injected by gui/server.py's handle_index at request time — one token
+    // per server process (see SESSION_TOKEN in gui/server.py). Required by
+    // the WS endpoint before any message is processed.
+    window.CODEY_SESSION_TOKEN = "__CODEY_SESSION_TOKEN__";
+  </script>
   <script type="text/babel">
   const { useState, useEffect, useRef, useCallback } = React;
 
@@ -555,7 +561,8 @@
     }, []);
 
     const connect = useCallback(() => {
-      const ws = new WebSocket(`ws://${location.host}/ws`);
+      const token = encodeURIComponent(window.CODEY_SESSION_TOKEN || '');
+      const ws = new WebSocket(`ws://${location.host}/ws?token=${token}`);
       wsRef.current = ws;
 
       ws.onopen = () => {
