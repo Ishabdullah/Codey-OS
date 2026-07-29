@@ -6,10 +6,14 @@ Wraps the generative fine-tuning data-prep pipeline (dataset curation,
 export, notebook generation, instructions) plus adapter inspection.
 
 Deliberately NOT wrapped: merge_lora_with_llama_cpp, swap_to_finetuned_model,
-create_backup_before_import, rollback_to_backup, and import_lora_adapter from
-core/lora_import.py. Those mutate the live model file the daemon runs on —
-see manifest.json's description for the reasoning. They remain callable via
-main.py's existing --import-lora path; this plugin does not touch that.
+and import_lora_adapter from core/lora_import.py. Those replace/reload the
+live model file the daemon runs on — see manifest.json's description for the
+reasoning. They remain callable via main.py's existing --import-lora path;
+this plugin does not touch that.
+
+create_backup_before_import and rollback_to_backup ARE wrapped (Ish's
+decision) — they only copy files and don't touch the active model, aside from
+rollback_to_backup's final reload step, which restores the prior model.
 
 `DatasetCurator` is a class, not a plain function, so it isn't exposed
 directly as a capability implementation; `curate_examples` below is a thin
@@ -30,7 +34,12 @@ from core.finetune_prep import (
     prepare_finetune_data,
     print_instructions,
 )
-from core.lora_import import get_adapter_info, validate_lora_adapter
+from core.lora_import import (
+    create_backup_before_import,
+    get_adapter_info,
+    rollback_to_backup,
+    validate_lora_adapter,
+)
 
 
 def curate_examples(days: int = 30, min_quality: float = 0.7, max_examples: int = 500) -> List[Dict]:

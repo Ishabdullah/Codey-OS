@@ -1,7 +1,7 @@
 {
   "name": "finetune",
   "version": "1.0.0",
-  "description": "Wraps core/finetune_prep.py's dataset export/notebook generation and core/lora_import.py's read-only adapter inspection as CCOS capabilities. Deliberately does NOT expose the model-swapping/merging functions in core/lora_import.py (merge_lora_with_llama_cpp, swap_to_finetuned_model, create_backup_before_import, rollback_to_backup, import_lora_adapter) — those replace the live model file the daemon runs on, and whether they should be directly agent-callable is left as an open decision for Ish rather than made here.",
+  "description": "Wraps core/finetune_prep.py's dataset export/notebook generation, core/lora_import.py's read-only adapter inspection, and its backup/rollback (file-copy only) functions as CCOS capabilities. Deliberately does NOT expose merge_lora_with_llama_cpp, swap_to_finetuned_model, or import_lora_adapter from core/lora_import.py — those replace the live model file the daemon runs on. create_backup_before_import and rollback_to_backup were added per Ish's decision: they only copy files and don't touch the active model, and having them agent-accessible lets an agent protect current model state before a risky operation.",
   "category": "coding",
   "entry_point": "finetune.py",
   "capabilities": [
@@ -57,6 +57,22 @@
       "name": "coding.finetune_adapter_info",
       "description": "Read-only: report size and LoRA config metadata (base model, rank, alpha) for an adapter directory",
       "implementation": "finetune:get_adapter_info",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.finetune_create_backup",
+      "description": "Create a file-copy backup of the current configured model (primary or secondary) before importing a LoRA adapter. Does not touch the active loaded model.",
+      "implementation": "finetune:create_backup_before_import",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.finetune_rollback_backup",
+      "description": "Restore a model from a previously created backup file, then reload it. File-copy operation followed by a model reload.",
+      "implementation": "finetune:rollback_to_backup",
       "category": "coding",
       "dependencies": [],
       "hardware_requirements": []
