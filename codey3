@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 #
-# codey2 - Codey-v2 CLI Client
+# codey3 - Codey-OS CLI Client
 #
 # If daemon is running, connects via Unix socket.
 # Otherwise, spawns direct mode.
 #
 
 CODEY_V2_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DAEMON_DIR="$HOME/.codey-v2"
-PID_FILE="$DAEMON_DIR/codey-v2.pid"
-SOCKET_FILE="$DAEMON_DIR/codey-v2.sock"
+DAEMON_DIR="$HOME/.codey-v3"
+PID_FILE="$DAEMON_DIR/codey-v3.pid"
+SOCKET_FILE="$DAEMON_DIR/codey-v3.sock"
 
 # Ensure daemon directory exists
 mkdir -p "$DAEMON_DIR"

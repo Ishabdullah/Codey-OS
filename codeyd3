@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# codeyd2 - Codey-v2 Daemon Manager
+# codeyd3 - Codey-OS Daemon Manager
 #
 # Commands:
 #   start   - Start both daemons (main + plannd)
