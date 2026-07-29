@@ -71,19 +71,19 @@ wget https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nom
 ### Step 4 — Clone Codey-V3
 
 ```bash
-git clone https://github.com/Ishabdullah/Codey.git ~/codey-v3
-cd ~/codey-v3
+git clone https://github.com/Ishabdullah/Codey.git ~/Codey-OS
+cd ~/Codey-OS
 chmod +x codey3 codeyd2
 ```
 
 ### Step 5 — Add to PATH
 
 ```bash
-echo 'export PATH="$HOME/codey-v3:$PATH"' >> ~/.bashrc
+echo 'export PATH="$HOME/Codey-OS:$PATH"' >> ~/.bashrc
 source ~/.bashrc
 ```
 
-> **Other shells:** For `zsh`, replace `~/.bashrc` with `~/.zshrc`. For fish, add `set -x PATH $HOME/codey-v3 $PATH` to `~/.config/fish/config.fish`. For a universal fallback, add the export to `~/.profile`.
+> **Other shells:** For `zsh`, replace `~/.bashrc` with `~/.zshrc`. For fish, add `set -x PATH $HOME/Codey-OS $PATH` to `~/.config/fish/config.fish`. For a universal fallback, add the export to `~/.profile`.
 
 ### Step 6 — Verify
 

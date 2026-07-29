@@ -312,8 +312,8 @@ download_models() {
 # ── 6. Executables & PATH ─────────────────────────────────────────────────────
 make_executable() {
     print_step "Permissions"
-    chmod +x "$CODEY_V2_DIR/codey3"
-    chmod +x "$CODEY_V2_DIR/codeyd3"
+    chmod +x "$CODEY_V2_DIR/codeyOS"
+    chmod +x "$CODEY_V2_DIR/codeydOS"
     chmod +x "$CODEY_V2_DIR/codey-start"
     chmod +x "$CODEY_V2_DIR/codey-stop"
     chmod +x "$CODEY_V2_DIR/install.sh"
@@ -322,8 +322,8 @@ make_executable() {
 }
 
 setup_daemon_dir() {
-    mkdir -p "$HOME/.codey-v3"
-    print_success "Daemon directory: $HOME/.codey-v3"
+    mkdir -p "$HOME/.codeyOS"
+    print_success "Daemon directory: $HOME/.codeyOS"
 }
 
 setup_path() {
@@ -335,7 +335,7 @@ setup_path() {
         SHELL_CONFIG="$HOME/.bashrc"
     fi
 
-    if grep -q "codey-v3" "$SHELL_CONFIG" 2>/dev/null; then
+    if grep -q "codeyOS" "$SHELL_CONFIG" 2>/dev/null; then
         print_status "PATH already configured in $SHELL_CONFIG"
     else
         {
@@ -375,8 +375,8 @@ verify_installation() {
         && print_success "Embedding model: ready" \
         || print_warning "Embedding model: missing"
 
-    command -v codey3       &>/dev/null && print_success "codey3:       in PATH"  || print_warning "codey3:       not in PATH yet (restart terminal)"
-    command -v codeyd3      &>/dev/null && print_success "codeyd3:      in PATH"  || print_warning "codeyd3:      not in PATH yet (restart terminal)"
+    command -v codeyOS      &>/dev/null && print_success "codeyOS:      in PATH"  || print_warning "codeyOS:      not in PATH yet (restart terminal)"
+    command -v codeydOS     &>/dev/null && print_success "codeydOS:     in PATH"  || print_warning "codeydOS:     not in PATH yet (restart terminal)"
     command -v codey-start  &>/dev/null && print_success "codey-start:  in PATH"  || print_warning "codey-start:  not in PATH yet (restart terminal)"
     command -v codey-stop   &>/dev/null && print_success "codey-stop:   in PATH"  || print_warning "codey-stop:   not in PATH yet (restart terminal)"
 }
@@ -398,11 +398,11 @@ print_completion() {
     echo -e "  Stop everything:  ${BLUE}codey-stop${NC}"
     echo
     echo -e "  Individual pieces still work as before:"
-    echo -e "  Start daemon:   ${BLUE}codeyd3 start${NC}"
-    echo -e "  Run Codey:      ${BLUE}codey3${NC}"
+    echo -e "  Start daemon:   ${BLUE}codeydOS start${NC}"
+    echo -e "  Run Codey:      ${BLUE}codeyOS${NC}"
     echo -e "    → opens the interactive TUI ${BOLD}and${NC} the browser GUI automatically"
-    echo -e "  Stop daemon:    ${BLUE}codeyd3 stop${NC}"
-    echo -e "  Daemon status:  ${BLUE}codeyd3 status${NC}"
+    echo -e "  Stop daemon:    ${BLUE}codeydOS stop${NC}"
+    echo -e "  Daemon status:  ${BLUE}codeydOS status${NC}"
     echo
 
     echo -e "${CYAN}${BOLD}BACKEND SWITCHING  (local models are the default — no key needed)${NC}"

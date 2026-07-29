@@ -19,8 +19,8 @@ import json
 import os
 from pathlib import Path
 
-# ── KB root — resolved from env var so it works wherever codey-v3 lives ──────
-KB_ROOT = Path(os.environ.get("CODEY_DIR", Path.home() / "codey-v3")) / "knowledge"
+# ── KB root — resolved from env var so it works wherever Codey-OS lives ──────
+KB_ROOT = Path(os.environ.get("CODEY_DIR", Path.home() / "Codey-OS")) / "knowledge"
 
 # Chunk tuning — 512 words ≈ ~680 tokens (fits within retrieval budget)
 CHUNK_SIZE = 512  # words per chunk

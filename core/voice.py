@@ -21,7 +21,7 @@ from typing import Optional
 from utils.logger import info, success, warning
 
 # Persist voice settings across sessions
-_VOICE_CONFIG_PATH = Path.home() / ".config" / "codey-v3" / "voice_config.json"
+_VOICE_CONFIG_PATH = Path.home() / ".config" / "codeyOS" / "voice_config.json"
 
 
 class VoiceManager:

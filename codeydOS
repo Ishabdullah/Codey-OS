@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# codeyd3 - Codey-OS Daemon Manager
+# codeydOS - Codey-OS Daemon Manager
 #
 # Commands:
 #   start   - Start both daemons (main + plannd)
@@ -16,12 +16,12 @@
 
 set -e
 
-CODEY_V2_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DAEMON_DIR="$HOME/.codey-v3"
+CODEY_OS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DAEMON_DIR="$HOME/.codeyOS"
 
 # Main daemon files
-PID_FILE="$DAEMON_DIR/codey-v3.pid"
-LOG_FILE="$DAEMON_DIR/codey-v3.log"
+PID_FILE="$DAEMON_DIR/codeyOS.pid"
+LOG_FILE="$DAEMON_DIR/codeyOS.log"
 
 # Planner daemon files
 PLANND_PID_FILE="$DAEMON_DIR/plannd.pid"
@@ -57,7 +57,7 @@ show_status() {
     # Check model server port and print model status via Python
     /data/data/com.termux/files/usr/bin/python3 - <<PYEOF
 import sys, urllib.request
-sys.path.insert(0, "$CODEY_V2_DIR")
+sys.path.insert(0, "$CODEY_OS_DIR")
 
 def port_healthy(port):
     try:
@@ -143,10 +143,10 @@ start_daemon() {
         fi
     fi
 
-    echo "Starting Codey-v2 daemon..."
+    echo "Starting Codey-OS daemon..."
 
     # Clear stale Python bytecode cache so code changes take effect immediately
-    find "$CODEY_V2_DIR" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+    find "$CODEY_OS_DIR" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 
     # Kill any orphaned llama-server on port 8080 from a previous session
     pkill -9 -f "llama-server.*8080" 2>/dev/null || true
@@ -160,9 +160,9 @@ start_daemon() {
 import sys
 import os
 
-CODEY_V2_DIR = "$CODEY_V2_DIR"
-sys.path.insert(0, CODEY_V2_DIR)
-os.environ.setdefault("CODEY_DIR", CODEY_V2_DIR)
+CODEY_OS_DIR = "$CODEY_OS_DIR"
+sys.path.insert(0, CODEY_OS_DIR)
+os.environ.setdefault("CODEY_DIR", CODEY_OS_DIR)
 
 from core.daemon import main
 main()
@@ -251,7 +251,7 @@ start_plannd() {
 
     # Resolve model path and llama-server binary from config
     PLANNER_MODEL=$(/data/data/com.termux/files/usr/bin/python3 -c "
-import sys; sys.path.insert(0, '$CODEY_V2_DIR')
+import sys; sys.path.insert(0, '$CODEY_OS_DIR')
 from utils.config import PLANNER_MODEL_PATH, LLAMA_SERVER_BIN
 print(PLANNER_MODEL_PATH)
 print(LLAMA_SERVER_BIN)
@@ -386,7 +386,7 @@ case "${1:-status}" in
 
         cat > "$TMPSCRIPT" << PYEOF
 import sys
-sys.path.insert(0, '$CODEY_V2_DIR')
+sys.path.insert(0, '$CODEY_OS_DIR')
 from core.daemon_config import create_default_config
 path = create_default_config()
 print(f"Default config created at: {path}")
@@ -396,7 +396,7 @@ PYEOF
         rm -f "$TMPSCRIPT"
         ;;
     *)
-        echo "Usage: codeyd2 {start|stop|status|restart|reload|config}"
+        echo "Usage: codeydOS {start|stop|status|restart|reload|config}"
         echo ""
         echo "Commands:"
         echo "  start   - Start main daemon and planner daemon"

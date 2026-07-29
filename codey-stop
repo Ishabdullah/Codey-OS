@@ -9,13 +9,13 @@
 
 set -e
 
-CODEY_V3_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DAEMON_DIR="$HOME/.codey-v3"
+CODEY_OS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DAEMON_DIR="$HOME/.codeyOS"
 GUI_PID_FILE="$DAEMON_DIR/gui-server.pid"
 
 # ── 1. Daemon (main + plannd) ───────────────────────────────────────────────
 echo "  Daemon → stopping..."
-bash "$CODEY_V3_DIR/codeyd3" stop
+bash "$CODEY_OS_DIR/codeydOS" stop
 
 # ── 2. GUI server ────────────────────────────────────────────────────────────
 if [ -f "$GUI_PID_FILE" ]; then

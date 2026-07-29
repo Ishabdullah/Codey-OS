@@ -102,7 +102,7 @@ def create_checkpoint(reason: str, files_modified: List[str] = None) -> str:
     important_files = [
         CODE_DIR / "main.py",
         CODE_DIR / "codey",
-        CODE_DIR / "codey3",
+        CODE_DIR / "codeyOS",
     ]
     for f in important_files:
         if f.exists():

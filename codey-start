@@ -3,7 +3,7 @@
 # codey-start - Codey-OS Orchestrator (daemon + GUI + TUI, all at once)
 #
 # Brings up the daemon (if not already running), starts the GUI server in
-# the background, then drops into the interactive TUI (codey3) in the
+# the background, then drops into the interactive TUI (codeyOS) in the
 # foreground — TUI and GUI stay live simultaneously, same as gui/start.sh's
 # pattern but with the daemon guaranteed up first.
 #
@@ -15,14 +15,14 @@
 
 set -e
 
-CODEY_V3_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DAEMON_DIR="$HOME/.codey-v3"
-PID_FILE="$DAEMON_DIR/codey-v3.pid"
-SOCKET_FILE="$DAEMON_DIR/codey-v3.sock"
+CODEY_OS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DAEMON_DIR="$HOME/.codeyOS"
+PID_FILE="$DAEMON_DIR/codeyOS.pid"
+SOCKET_FILE="$DAEMON_DIR/codeyOS.sock"
 
 mkdir -p "$DAEMON_DIR"
 
-# Check if daemon is running (same detection logic codey3 uses)
+# Check if daemon is running (same detection logic codeyOS uses)
 is_daemon_running() {
     if [ ! -f "$PID_FILE" ]; then
         return 1
@@ -49,7 +49,7 @@ if is_daemon_running; then
     echo "  Daemon → already running (PID $(cat "$PID_FILE"))"
 else
     echo "  Daemon → starting..."
-    bash "$CODEY_V3_DIR/codeyd3" start
+    bash "$CODEY_OS_DIR/codeydOS" start
 fi
 
 # ── 2. GUI server (background) ──────────────────────────────────────────────
@@ -59,10 +59,10 @@ GUI_STARTED_HERE="false"
 
 if [ -f "$GUI_PID_FILE" ] && kill -0 "$(cat "$GUI_PID_FILE" 2>/dev/null)" 2>/dev/null; then
     echo "  GUI    → http://localhost:${GUI_PORT}  (already running)"
-elif [ -f "$CODEY_V3_DIR/gui/server.py" ]; then
+elif [ -f "$CODEY_OS_DIR/gui/server.py" ]; then
     export PYTHONUNBUFFERED=1
     export CODEY_GUI_PORT="$GUI_PORT"
-    python3 "$CODEY_V3_DIR/gui/server.py" &
+    python3 "$CODEY_OS_DIR/gui/server.py" &
     echo $! > "$GUI_PID_FILE"
     GUI_STARTED_HERE="true"
     echo "  GUI    → http://localhost:${GUI_PORT}"
@@ -74,8 +74,8 @@ if [ "$GUI_STARTED_HERE" = "true" ]; then
     trap 'echo; echo "  Stopping GUI server..."; kill "$(cat "$GUI_PID_FILE" 2>/dev/null)" 2>/dev/null; rm -f "$GUI_PID_FILE"' EXIT
 fi
 
-echo "  TUI    → launching codey3..."
+echo "  TUI    → launching codeyOS..."
 echo
 
 # ── 3. TUI (foreground) ─────────────────────────────────────────────────────
-bash "$CODEY_V3_DIR/codey3" "$@"
+bash "$CODEY_OS_DIR/codeyOS" "$@"
