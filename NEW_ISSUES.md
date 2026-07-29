@@ -60,9 +60,20 @@
   `main.py`. Needs its own scoped task — not a security issue, a
   resource-cost/UX one.
 
-## Found during Round 2 (C-2 GUI security) sub-task 3/3, 2026-07-29 — NOT fixed, logged only
+## Found during Round 2 (C-2 GUI security) sub-task 3/3, 2026-07-29 — RESOLVED in Round 4, commit `efe9f5c`
 
 ### [NEW-3] GUI session token may leak into access logs if logging is ever configured for `gui/server.py`
+- **Status: RESOLVED (2026-07-29, commit `efe9f5c`).** `gui/server.py`'s
+  `web.run_app()` call now passes `access_log=None`, disabling aiohttp's
+  default `AccessLogger` outright rather than relying on the current
+  absence of a configured `logging` handler to keep the token dormant.
+  code-reviewer approved: confirmed `access_log` is a genuine documented
+  `aiohttp` kwarg (aiohttp 3.14.3 installed) and verified no other log
+  call site in `gui/server.py` could leak the token. No live-verification
+  performed for this fix specifically — scoped as a negative/absence
+  assertion with no new live-session behavior to exercise, already
+  covered by the prior Round 2 (C-2) full live-verification of normal GUI
+  start (see `PROJECT_LOG.md`). Original finding detail preserved below.
 - **Confidence: Suspected** (dormant today, plausible future trigger; not
   verified as currently reachable).
 - **Where found:** code-reviewer's review of the C-2 sub-task 3 session-token

@@ -585,6 +585,27 @@ approved, and live-verified on both the default and `--dashboard-only`
 paths. No open items remain under Round 3 itself; [NEW-5] is a separate,
 unscoped follow-up tracked in `NEW_ISSUES.md`.
 
+### Audit Remediation — Round 4 (NEW-3)
+**Status: CODE COMPLETE, code-reviewer-approved** (2026-07-29) — fix for
+`NEW_ISSUES.md` [NEW-3], found during Round 2 (C-2) sub-task 3's review:
+the GUI session token could leak into aiohttp's default access log if
+`logging.basicConfig()` (or any handler) is ever configured for
+`gui/server.py`'s process in the future — dormant, not currently
+exploitable, but fragile.
+- [x] `gui/server.py`'s `web.run_app()` call now passes `access_log=None`,
+      disabling aiohttp's default `AccessLogger` outright. Commit
+      `efe9f5c`.
+- [x] code-reviewer approved: confirmed `access_log` is a genuine
+      documented `aiohttp` kwarg (aiohttp 3.14.3 installed), verified no
+      other log call site in `gui/server.py` could leak the token.
+- No live-verification performed for this fix specifically — scoped as a
+  negative/absence assertion with no new live-session behavior to
+  exercise, already covered by Round 2 (C-2)'s prior full live
+  verification of normal GUI start.
+
+**Round 4 (NEW-3) is now fully closed** — code-complete and
+code-reviewer-approved. No open items remain under Round 4 itself.
+
 ### Phase 4 — Self-improvement activation (deliberate, not automatic)
 Do NOT start this phase until Phases 1–3 are stable and you've watched the
 system run real coding tasks through the sandbox/safety-veto path for a

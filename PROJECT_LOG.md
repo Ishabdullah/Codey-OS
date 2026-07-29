@@ -5,6 +5,37 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-29 — Round 4 (NEW-3): disable aiohttp access logger on GUI server, code complete
+
+**What changed:** `gui/server.py`'s `web.run_app()` call (commit
+`efe9f5c`) now passes `access_log=None`, closing `NEW_ISSUES.md` [NEW-3]
+— the dormant risk that the GUI session token (`?token=...` on `/ws`
+upgrades) would be written to aiohttp's default access log at INFO level
+if `logging.basicConfig()` is ever configured for the GUI process in the
+future. Nothing configures a handler today, so this was never currently
+exploitable, but the fix removes the risk outright rather than relying on
+that staying true. One-line diff:
+```
+- web.run_app(make_app(), host=HOST, port=PORT, print=lambda *_: None)
++ web.run_app(make_app(), host=HOST, port=PORT, print=lambda *_: None, access_log=None)
+```
+
+**Review:** code-reviewer approved. Confirmed `access_log` is a genuine
+documented `aiohttp` kwarg (installed aiohttp 3.14.3), and verified no
+other log call site in `gui/server.py` could leak the token.
+
+**Verification:** no live-verification performed for this fix
+specifically — scoped as a negative/absence assertion with no new
+live-session behavior to exercise; already covered by Round 2 (C-2)'s
+prior full live-verification of normal GUI start (2026-07-29 entry
+below).
+
+**Result:** Round 4 (NEW-3) is now fully closed — code-complete,
+code-reviewer-approved. `NEW_ISSUES.md` [NEW-3] marked Resolved. No open
+items remain under Round 4 itself.
+
+---
+
 ## 2026-07-29 — Round 3 (NEW-4): opt-in `--dashboard-only` mode for `gui/start.sh`, fully live-verified
 
 **What changed:** `gui/start.sh` (commit `ea954eb`) gained an opt-in
