@@ -253,7 +253,7 @@ Skills are markdown files cloned from external repos into `knowledge/skills/`. T
 ### Setup:
 ```bash
 bash tools/setup_skills.sh          # clone skill repos
-codeyd2 start                       # start embed server
+codeydOS start                       # start embed server
 python3 -c "from tools.kb_semantic import build_semantic_index; build_semantic_index()"
 ```
 

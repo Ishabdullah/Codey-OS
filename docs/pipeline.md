@@ -96,7 +96,7 @@ python pipeline/run.py --datasets mbpp humaneval
 python pipeline/run.py --datasets phase1 --embed
 ```
 
-Requires the nomic-embed-text llama-server running on port 8082 (`codeyd2 start` handles this). Builds a vector index for RAG retrieval in addition to the training JSONL.
+Requires the nomic-embed-text llama-server running on port 8082 (`codeydOS start` handles this). Builds a vector index for RAG retrieval in addition to the training JSONL.
 
 ### Custom output directory
 

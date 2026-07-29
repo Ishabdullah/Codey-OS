@@ -25,7 +25,7 @@ Codey-OS is designed with privacy as a core principle. This document explains ho
 
 ### Local Files
 All data is stored locally in:
-- `~/.codey-v3/` - Configuration, session data, daemon state
+- `~/.codeyOS/` - Configuration, session data, daemon state
 - `~/.models/` - Downloaded AI models
 - Your project directories - Source code and files
 
@@ -73,7 +73,7 @@ If you configure a remote backend (e.g., OpenRouter):
 ## Your Rights
 
 ### Data Control
-- You can delete all data by removing `~/.codey-v3/`
+- You can delete all data by removing `~/.codeyOS/`
 - Session data can be cleared with `/clear` command
 - No data persists after uninstalling
 

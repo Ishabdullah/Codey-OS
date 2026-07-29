@@ -4,7 +4,7 @@ Persistent user notes for Codey-OS.
 Simple key-value store for facts the user asks Codey to remember
 (e.g., "my name is Ish", "I prefer tabs over spaces").
 
-Stored at ~/.codey-v3/notes.json — survives across sessions.
+Stored at ~/.codeyOS/notes.json — survives across sessions.
 """
 
 import json

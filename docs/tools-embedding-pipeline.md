@@ -105,7 +105,7 @@ For the embedding/RAG store, each record is a flat dict:
 - Stream or batch-load datasets using `datasets` library
 - Support multiple dataset formats (instruction-tuning, code QA, shell commands)
 - Apply row-level deduplication (SHA-256 hash of normalized input text)
-- Cache locally in `~/.codey-v3/pipeline_cache/` to avoid re-downloading
+- Cache locally in `~/.codeyOS/pipeline_cache/` to avoid re-downloading
 
 **Input sources (initial targets):**
 
@@ -598,7 +598,7 @@ Once the pipeline runs, the outputs plug directly into the existing Codey-V3 sys
 
 1. **Fine-tuning:** `training_data.jsonl` is ShareGPT format, compatible with `core/finetune_prep.py` and the Unsloth Colab workflow.
 
-2. **RAG retrieval:** Copy `retrieval/faiss.index` + `retrieval/metadata.db` to `~/.codey-v3/kb/`. The existing `core/retrieval.py` will pick them up for semantic search on the next query.
+2. **RAG retrieval:** Copy `retrieval/faiss.index` + `retrieval/metadata.db` to `~/.codeyOS/kb/`. The existing `core/retrieval.py` will pick them up for semantic search on the next query.
 
 3. **Direct querying:** The `storage/faiss_store.py` module exposes a `search(query_text, top_k=5)` method that can be called from `core/agent.py` or a new `/kb-tools` command in `main.py`.
 

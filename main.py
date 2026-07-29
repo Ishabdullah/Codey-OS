@@ -1207,20 +1207,20 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
   /peer <task>           Auto-pick best CLI for the task
 
 [bold]CLI flags:[/bold]
-  codey-v3 "task"              One-shot
-  codey-v3 --chat "task"       Chat with prefilled prompt
-  codey-v3 --yolo "task"       Skip all confirmations
-  codey-v3 --fix file.py       Run file, auto-fix any errors
-  codey-v3 --read file.py      Pre-load file into context
-  codey-v3 --init              Generate CODEY.md and exit
-  codey-v3 --no-resume         Start fresh (ignore saved session)
-  codey-v3 --allow-self-mod    Enable self-modification (with checkpoints)
-  codey-v3 --no-peer          Disable peer CLI escalation
+  codeyOS "task"              One-shot
+  codeyOS --chat "task"       Chat with prefilled prompt
+  codeyOS --yolo "task"       Skip all confirmations
+  codeyOS --fix file.py       Run file, auto-fix any errors
+  codeyOS --read file.py      Pre-load file into context
+  codeyOS --init              Generate CODEY.md and exit
+  codeyOS --no-resume         Start fresh (ignore saved session)
+  codeyOS --allow-self-mod    Enable self-modification (with checkpoints)
+  codeyOS --no-peer          Disable peer CLI escalation
 
 [bold]Fine-tuning (v2.3.0):[/bold]
-  codey-v3 --finetune          Export fine-tuning dataset + Colab notebook
-  codey-v3 --finetune --ft-days 30 --ft-quality 0.7 --ft-model both
-  codey-v3 --import-lora /path/to/adapter --lora-model primary
+  codeyOS --finetune          Export fine-tuning dataset + Colab notebook
+  codeyOS --finetune --ft-days 30 --ft-quality 0.7 --ft-model both
+  codeyOS --import-lora /path/to/adapter --lora-model primary
 
 [bold]Environment variables:[/bold]
   ALLOW_SELF_MOD=1             Enable self-modification (alternative to flag)
@@ -1462,7 +1462,7 @@ def main():
 
             suggested = "test_" + _P(args.tdd).name
             error(
-                f"No test file found. Create {suggested} or use: codey-v3 --tdd {args.tdd} --tests {suggested}"
+                f"No test file found. Create {suggested} or use: codeyOS --tdd {args.tdd} --tests {suggested}"
             )
             shutdown()
             return

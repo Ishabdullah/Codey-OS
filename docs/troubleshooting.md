@@ -6,23 +6,23 @@
 
 ```bash
 # Remove a stale PID file left by a crash
-rm -f ~/.codey-v3/codey-v3.pid
+rm -f ~/.codeyOS/codeyOS.pid
 
 # Check the log for the actual error
-cat ~/.codey-v3/codey-v3.log
+cat ~/.codeyOS/codeyOS.log
 
 # Restart cleanly
-codeyd2 restart
+codeydOS restart
 ```
 
 ### Socket connection failed
 
 ```bash
 # Confirm the daemon is running
-codeyd2 status
+codeydOS status
 
 # Confirm the socket exists with correct permissions
-ls -la ~/.codey-v3/codey-v3.sock
+ls -la ~/.codeyOS/codeyOS.sock
 # Expected: srw------- (0600, owner only)
 ```
 
@@ -39,9 +39,9 @@ Check that the filenames match the paths in `utils/config.py`, or set `CODEY_MOD
 ### High memory usage
 
 ```bash
-codeyd2 status   # Check RAM and task queue
+codeydOS status   # Check RAM and task queue
 
-codeyd2 restart  # Clears working memory
+codeydOS restart  # Clears working memory
 ```
 
 If the 7B model alone is using more than ~5 GB, verify that `CODEY_7B_MMAP=1` is set (default). Memory-mapped weights only load touched pages into RAM.
@@ -51,10 +51,10 @@ If the 7B model alone is using more than ~5 GB, verify that `CODEY_7B_MMAP=1` is
 The 0.5B model on port 8081 may have failed to start or crashed.
 
 ```bash
-cat ~/.codey-v3/plannd.log        # Check planner log
-cat ~/.codey-v3/plannd-llama.log  # Check llama-server log
+cat ~/.codeyOS/plannd.log        # Check planner log
+cat ~/.codeyOS/plannd-llama.log  # Check llama-server log
 
-codeyd2 restart                   # Restart all daemons
+codeydOS restart                   # Restart all daemons
 ```
 
 If port 8081 is unreachable, task planning falls back to heuristic decomposition and context compression skips the micro-summary step. The agent continues working normally.
@@ -66,7 +66,7 @@ On Android ARM64, some CLIs bundle native Node.js modules (e.g., `node-pty`) tha
 To check which peers are available:
 
 ```bash
-codey3   # then type /peer
+codeyOS   # then type /peer
 ```
 
 ---
@@ -101,7 +101,7 @@ codey3   # then type /peer
 | `watchdog` optional | Background file monitoring disabled without it | `pip install watchdog` to enable |
 | Single-device only | State is not synced across devices | Intentional — local privacy by design |
 | Peer CLIs with `node-pty` | CLIs that bundle ARM64-incompatible native modules crash on Android | Auto-detected and excluded at startup |
-| No encrypted memory | `~/.codey-v3/` stored in plaintext | Encryption planned for a future release |
+| No encrypted memory | `~/.codeyOS/` stored in plaintext | Encryption planned for a future release |
 
 ---
 
@@ -109,7 +109,7 @@ codey3   # then type /peer
 
 | Log file | Contents |
 |----------|----------|
-| `~/.codey-v3/codey-v3.log` | Main daemon log |
-| `~/.codey-v3/plannd.log` | 0.5B planner daemon log |
-| `~/.codey-v3/plannd-llama.log` | llama-server log for the 0.5B model |
-| `~/.codey-v3/embed-server.log` | nomic-embed llama-server log |
+| `~/.codeyOS/codeyOS.log` | Main daemon log |
+| `~/.codeyOS/plannd.log` | 0.5B planner daemon log |
+| `~/.codeyOS/plannd-llama.log` | llama-server log for the 0.5B model |
+| `~/.codeyOS/embed-server.log` | nomic-embed llama-server log |

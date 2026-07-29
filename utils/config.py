@@ -2,7 +2,7 @@ import os
 import shutil
 from pathlib import Path
 
-CODEY_DIR = Path(os.environ.get("CODEY_DIR", Path.home() / "codey-v3"))
+CODEY_DIR = Path(os.environ.get("CODEY_DIR", Path.home() / "Codey-OS"))
 MODEL_PATH = Path(
     os.environ.get(
         "CODEY_MODEL",

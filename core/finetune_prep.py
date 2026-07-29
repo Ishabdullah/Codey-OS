@@ -184,7 +184,7 @@ class DatasetCurator:
                 {"role": "assistant", "content": assistant_msg},
             ],
             "metadata": {
-                "source": "codey-v3",
+                "source": "codeyOS",
                 "quality": action.get("_quality", 0.5),
                 "timestamp": action.get("timestamp", 0),
                 "tools_used": action.get("tools_used", []),
@@ -338,7 +338,7 @@ Steps:
 1. Upload your codey-finetune-*.jsonl file
 2. Run all cells
 3. Download the LoRA adapter
-4. Import back to Codey-OS with: codey3 --import-lora /path/to/adapter
+4. Import back to Codey-OS with: codeyOS --import-lora /path/to/adapter
 
 Estimated time: 1-4 hours on free T4 GPU
 """
@@ -512,7 +512,7 @@ print("""
 Next steps:
 1. Download the codey-lora-adapter.zip file
 2. Extract it on your device
-3. Import to Codey-OS: codey3 --import-lora /path/to/codey-lora-adapter
+3. Import to Codey-OS: codeyOS --import-lora /path/to/codey-lora-adapter
 
 To merge with base model (optional):
   python merge_adapter.py --base {model_id} --adapter codey-lora-adapter --output merged-model
@@ -652,10 +652,10 @@ STEP 5: Import to Codey-OS
      unzip codey-lora-adapter.zip
   
   2. Import the adapter:
-     codey3 --import-lora /path/to/codey-lora-adapter --model {model_variant}
+     codeyOS --import-lora /path/to/codey-lora-adapter --model {model_variant}
   
   3. Test the fine-tuned model:
-     codey3 "test the new model"
+     codeyOS "test the new model"
 
 ────────────────────────────────────────────────────────────────────────────────
 TROUBLESHOOTING

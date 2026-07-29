@@ -73,7 +73,7 @@ wget https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nom
 ```bash
 git clone https://github.com/Ishabdullah/Codey.git ~/Codey-OS
 cd ~/Codey-OS
-chmod +x codey3 codeyd2
+chmod +x codeyOS codeydOS
 ```
 
 ### Step 5 — Add to PATH
@@ -88,8 +88,8 @@ source ~/.bashrc
 ### Step 6 — Verify
 
 ```bash
-codey3 --version
-codeyd2 status
+codeyOS --version
+codeydOS status
 ```
 
 ---

@@ -14,7 +14,7 @@ Benefits:
 Lifecycle:
 - Auto-started by daemon (_main_loop) and inference.py (_start_server)
 - Auto-restarted by daemon watchdog every 30s if dead
-- Stopped on daemon shutdown or codeyd2 stop (pkill llama-server)
+- Stopped on daemon shutdown or codeydOS stop (pkill llama-server)
 
 Usage:
     from core.embed_server import get_embed_server, start_embed_server

@@ -2,7 +2,7 @@
 """
 Daemon configuration for Codey-OS.
 
-Loads configuration from ~/.codey-v3/config.json
+Loads configuration from ~/.codeyOS/config.json
 Provides defaults for all settings.
 """
 

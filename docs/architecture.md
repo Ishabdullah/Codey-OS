@@ -18,13 +18,13 @@ The 7B model handles all user-facing work. The 0.5B runs independently for task 
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                   CLI Client (codey3)                   │
+│                  CLI Client (codeyOS)                   │
 │  User commands · flags · task queries · /status         │
 └─────────────────────────────────────────────────────────┘
                           │  Unix socket
                           ▼
 ┌─────────────────────────────────────────────────────────┐
-│                Daemon Core (codeyd2)                    │
+│                 Daemon Core (codeydOS)                  │
 │  asyncio event loop · signal handlers · socket server   │
 └─────────────────────────────────────────────────────────┘
           │                    │                    │
@@ -106,12 +106,12 @@ This table covers exactly what Codey saves, where it lives, and how long it last
 
 | What | Where | Survives restart? | Expires? | How to clear |
 |------|-------|------------------|----------|--------------|
-| Last 6 turns of conversation | `~/.codey_sessions/<project-hash>.json` | Yes | After 2 hours of inactivity | `/clear` in-chat or `codey3 --clear-session` |
+| Last 6 turns of conversation | `~/.codey_sessions/<project-hash>.json` | Yes | After 2 hours of inactivity | `/clear` in-chat or `codeyOS --clear-session` |
 | Project memory (`CODEY.md`) | `<project>/CODEY.md` | Yes | Never | Edit or delete the file manually |
-| Action log (every tool call) | `~/.codey-v3/state.db` | Yes | Never (append-only) | Delete `~/.codey-v3/state.db` |
+| Action log (every tool call) | `~/.codeyOS/state.db` | Yes | Never (append-only) | Delete `~/.codeyOS/state.db` |
 | Open files / working context | In-memory only | No | On exit | — |
 | File undo history | In-memory only | No | On exit | — |
-| Knowledge base embeddings | `~/.codey-v3/kb/` (if set up) | Yes | Never | `codey3 kb clear` |
+| Knowledge base embeddings | `~/.codeyOS/kb/` (if set up) | Yes | Never | `codeyOS kb clear` |
 
 ### What Codey does NOT do
 
@@ -130,9 +130,9 @@ This table covers exactly what Codey saves, where it lives, and how long it last
 ## Project Structure
 
 ```
-~/codey-v3/
-├── codey3                   # CLI client
-├── codeyd2                  # Daemon manager
+~/Codey-OS/
+├── codeyOS                  # CLI client
+├── codeydOS                 # Daemon manager
 ├── main.py                  # Entry point
 ├── core/
 │   ├── daemon.py            # Daemon core and Unix socket server

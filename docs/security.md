@@ -10,7 +10,7 @@ Codey-OS is a persistent, autonomous coding agent that runs as a background daem
 
 ### 1. Persistent Daemon
 
-The daemon runs continuously with a Unix socket (`~/.codey-v3/codey-v3.sock`) for IPC.
+The daemon runs continuously with a Unix socket (`~/.codeyOS/codeyOS.sock`) for IPC.
 
 **Risk:** If the socket has permissive permissions or is in a shared location, unauthorized local processes could send commands.
 
@@ -18,7 +18,7 @@ The daemon runs continuously with a Unix socket (`~/.codey-v3/codey-v3.sock`) fo
 - Socket created with `0600` permissions (owner-only read/write).
 - Daemon runs under your Termux/Linux user — no root required.
 
-**Recommendation:** Stop the daemon when not in use (`codeyd2 stop`). Only run on trusted, single-user devices.
+**Recommendation:** Stop the daemon when not in use (`codeydOS stop`). Only run on trusted, single-user devices.
 
 ---
 
@@ -57,7 +57,7 @@ Opt-in feature that allows the agent to patch its own code and files.
 
 ### 4. Memory and State Persistence
 
-Hierarchical memory stored in SQLite (`~/.codey-v3/`).
+Hierarchical memory stored in SQLite (`~/.codeyOS/`).
 
 **Risk:** Sensitive code snippets or personal data could be stored and leaked if the device is compromised or backups are mishandled.
 
@@ -68,7 +68,7 @@ Hierarchical memory stored in SQLite (`~/.codey-v3/`).
 
 **Recommendation:** Avoid feeding sensitive information (API keys, passwords) to the agent. Periodically review or clear state:
 - **In-chat:** type `/clear` to wipe history, context, undo history, and saved session
-- **CLI flag:** `codey3 --clear-session` to clear the saved session before starting
+- **CLI flag:** `codeyOS --clear-session` to clear the saved session before starting
 - **Manual:** `rm -f ~/.codey_sessions/*.json` to delete all saved sessions
 
 ---
@@ -98,7 +98,7 @@ Runs with Termux permissions (storage, potentially network if tools are expanded
 - Built-in thermal management: warning at 5 minutes, thread reduction at 10 minutes.
 - Adaptive recursion depth based on device temperature and battery level.
 
-**Recommendation:** Monitor device temperature and battery. Use `codeyd2 status` to check thermal state.
+**Recommendation:** Monitor device temperature and battery. Use `codeydOS status` to check thermal state.
 
 ---
 

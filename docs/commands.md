@@ -1,28 +1,28 @@
 # Command Reference
 
-## Daemon Manager — `codeyd2`
+## Daemon Manager — `codeydOS`
 
 | Command | Description |
 |---------|-------------|
-| `codeyd2 start` | Start all daemons in the background |
-| `codeyd2 stop` | Stop all daemons cleanly |
-| `codeyd2 status` | Show daemon status, uptime, and model state |
-| `codeyd2 restart` | Restart all daemons |
-| `codeyd2 reload` | Send hot-reload signal (SIGUSR1) without downtime |
-| `codeyd2 config` | Write a default config file to `~/.codey-v3/config.json` |
+| `codeydOS start` | Start all daemons in the background |
+| `codeydOS stop` | Stop all daemons cleanly |
+| `codeydOS status` | Show daemon status, uptime, and model state |
+| `codeydOS restart` | Restart all daemons |
+| `codeydOS reload` | Send hot-reload signal (SIGUSR1) without downtime |
+| `codeydOS config` | Write a default config file to `~/.codeyOS/config.json` |
 
 ---
 
-## CLI Client — `codey3`
+## CLI Client — `codeyOS`
 
 | Command | Description |
 |---------|-------------|
-| `codey3 "prompt"` | Send a task to the running daemon, or run standalone if no daemon is active |
-| `codey3 status` | Show full system status |
-| `codey3 task list` | List recent tasks and their state |
-| `codey3 task <id>` | Get full details of a specific task |
-| `codey3 cancel <id>` | Cancel a pending or running task |
-| `codey3 --daemon` | Run in foreground daemon mode (for debugging) |
+| `codeyOS "prompt"` | Send a task to the running daemon, or run standalone if no daemon is active |
+| `codeyOS status` | Show full system status |
+| `codeyOS task list` | List recent tasks and their state |
+| `codeyOS task <id>` | Get full details of a specific task |
+| `codeyOS cancel <id>` | Cancel a pending or running task |
+| `codeyOS --daemon` | Run in foreground daemon mode (for debugging) |
 
 ### CLI Flags
 

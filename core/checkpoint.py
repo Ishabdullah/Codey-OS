@@ -4,7 +4,7 @@ Checkpoint system for Codey-OS self-modification.
 
 Before modifying core files, creates a checkpoint:
 - Git commit with checkpoint message
-- Full file backup in ~/.codey-v3/checkpoints/
+- Full file backup in ~/.codeyOS/checkpoints/
 - SQLite record for tracking
 
 Supports rollback to any checkpoint.

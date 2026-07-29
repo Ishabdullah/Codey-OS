@@ -17,10 +17,10 @@ Both models are trained with QLoRA (4-bit quantized base + LoRA adapters) so the
 
 ## Step 1 — Generate training data (on your phone)
 
-Run the pipeline in Termux from the codey-v3 directory:
+Run the pipeline in Termux from the Codey-OS directory:
 
 ```bash
-cd ~/codey-v3
+cd ~/Codey-OS
 
 # Quick option — no internet needed, ~5,800 synthetic records:
 python pipeline/run.py --synthetic-only
@@ -32,7 +32,7 @@ python pipeline/run.py --datasets phase1 --max-records 3000
 python pipeline/run.py --datasets phase1
 ```
 
-Output file: `~/codey-v3/pipeline_output/training_data.jsonl`
+Output file: `~/Codey-OS/pipeline_output/training_data.jsonl`
 
 See `docs/pipeline.md` for full pipeline documentation.
 
@@ -52,10 +52,10 @@ Then copy both files:
 
 ```bash
 # The Kaggle notebook
-cp ~/codey-v3/notebooks/codey_finetune_kaggle.ipynb ~/storage/downloads/
+cp ~/Codey-OS/notebooks/codey_finetune_kaggle.ipynb ~/storage/downloads/
 
 # The training data
-cp ~/codey-v3/pipeline_output/training_data.jsonl ~/storage/downloads/
+cp ~/Codey-OS/pipeline_output/training_data.jsonl ~/storage/downloads/
 ```
 
 Both files will now appear in your phone's Downloads folder and can be uploaded from there.
@@ -179,9 +179,9 @@ cp ~/storage/downloads/unsloth.Q4_K_M.gguf ~/models/qwen2.5-0.5b/planner-codey.g
 Restart Codey-OS to load the new weights:
 
 ```bash
-codeyd2 stop
-codeyd2 start
-codeyd2 status
+codeydOS stop
+codeydOS start
+codeydOS status
 ```
 
 If your `config.json` points to the old filenames, either rename the new files to match the old names (replacing them), or update the model paths in `config.json`.

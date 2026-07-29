@@ -8,10 +8,10 @@ Codey-OS supports personalizing the underlying model using your own interaction 
 
 ```bash
 # Export last 30 days with default quality threshold
-codey3 --finetune
+codeyOS --finetune
 
 # Customize the export
-codey3 --finetune --ft-days 60 --ft-quality 0.6 --ft-model 7b
+codeyOS --finetune --ft-days 60 --ft-quality 0.6 --ft-model 7b
 ```
 
 | Flag | Default | Description |
@@ -48,7 +48,7 @@ Training uses [Unsloth](https://github.com/unslothai/unsloth) for 2x speed and 7
 unzip codey-lora-adapter.zip
 
 # Import to Codey-OS
-codey3 --import-lora /path/to/codey-lora-adapter --lora-model primary
+codeyOS --import-lora /path/to/codey-lora-adapter --lora-model primary
 ```
 
 | Flag | Default | Description |
@@ -65,7 +65,7 @@ If you want a single merged GGUF file instead of a base model + adapter:
 
 ```bash
 # Merge on import
-codey3 --import-lora /path/to/adapter --lora-model primary --lora-merge
+codeyOS --import-lora /path/to/adapter --lora-model primary --lora-merge
 
 # Or manually with llama.cpp
 python ~/llama.cpp/convert-lora.py \
@@ -85,7 +85,7 @@ Merging requires ~8 GB free RAM for the 7B model and takes 5–15 minutes.
 A full backup is created automatically before any import. To restore:
 
 ```bash
-codey3 --rollback --lora-model primary
+codeyOS --rollback --lora-model primary
 ```
 
 ---

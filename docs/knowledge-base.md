@@ -16,7 +16,7 @@ If the KB is empty, there is no overhead — retrieval is silently skipped.
 ## Quick Setup — 5 Curated Repositories
 
 ```bash
-cd ~/codey-v3
+cd ~/Codey-OS
 mkdir -p knowledge && cd knowledge
 
 git clone --depth 1 https://github.com/swaroopch/byte-of-python
@@ -25,7 +25,7 @@ git clone --depth 1 https://github.com/luckrnx09/python-guide-for-javascript-eng
 git clone --depth 1 https://github.com/EbookFoundation/free-programming-books
 git clone --depth 1 https://github.com/mdn/content
 
-cd ~/codey-v3
+cd ~/Codey-OS
 ```
 
 Total size: ~266 MB · ~38 markdown files indexed · ~1167 searchable chunks.
@@ -81,7 +81,7 @@ Expected output:
 ## Add Your Own Documentation
 
 ```bash
-cp my_api_docs.md ~/codey-v3/knowledge/docs/
+cp my_api_docs.md ~/Codey-OS/knowledge/docs/
 
 python3 -c "
 from tools.kb_scraper import index_directory
@@ -123,7 +123,7 @@ Output breakdown:
 
 This is useful for:
 - Checking whether your KB has relevant content for a task
-- Tuning `semantic_threshold` in `~/.codey-v3/config.json` if too much or too little is being retrieved
+- Tuning `semantic_threshold` in `~/.codeyOS/config.json` if too much or too little is being retrieved
 - Verifying that newly indexed documents are being found
 
 If the output shows `(nothing injected — all chunks filtered out or KB empty)`, either the KB has no relevant documents or the score threshold is too high for the available content.

@@ -523,7 +523,7 @@ To merge the adapter:
    python core/finetune_merge.py --adapter {adapter_path} --model {model_variant}
 
 3. Then run:
-   codey3 --import-lora /path/to/merged-q4.gguf --model {model_variant}
+   codeyOS --import-lora /path/to/merged-q4.gguf --model {model_variant}
 """.format(adapter_path=adapter_path, model_variant=model_variant)
             return results
 
