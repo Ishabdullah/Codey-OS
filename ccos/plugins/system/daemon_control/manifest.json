@@ -1,0 +1,67 @@
+{
+  "name": "daemon_control",
+  "version": "1.0.0",
+  "description": "Wraps core/daemon.py's read-only status queries and single-task cancellation as CCOS capabilities. Deliberately does NOT expose the daemon's 'shutdown' handler (daemon_shutdown()) or 'command' handler (submitting a new prompt for the daemon to run) — shutdown kills the process Codey-OS depends on being up, and command triggers real 7B model inference and real tool execution as a side effect of an agent's own planning. Both are the same risk class as core/lora_import.py's swap_to_finetuned_model, left unwrapped pending Ish's explicit decision (see coding.finetune plugin).",
+  "category": "system",
+  "entry_point": "daemon_control.py",
+  "capabilities": [
+    {
+      "name": "system.daemon_check_pid_file",
+      "description": "Read-only: check whether a daemon PID file indicates another daemon instance is running (self-healing: removes a stale PID file if the process is dead)",
+      "implementation": "daemon_control:daemon_check_pid_file",
+      "category": "system",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "system.daemon_is_running",
+      "description": "Read-only: check whether the daemon is running by probing its Unix socket",
+      "implementation": "daemon_control:daemon_is_running",
+      "category": "system",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "system.daemon_ping",
+      "description": "Read-only: liveness check against the running daemon",
+      "implementation": "daemon_control:daemon_ping",
+      "category": "system",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "system.daemon_status",
+      "description": "Read-only: daemon status (PID, pending/running/done task counts, state snapshot)",
+      "implementation": "daemon_control:daemon_status",
+      "category": "system",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "system.daemon_health",
+      "description": "Read-only: daemon health check (uptime, memory, stuck tasks, recent action count)",
+      "implementation": "daemon_control:daemon_health",
+      "category": "system",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "system.daemon_get_task",
+      "description": "Read-only: look up a specific task by ID, or list recent tasks if no ID is given",
+      "implementation": "daemon_control:daemon_get_task",
+      "category": "system",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "system.daemon_cancel_task",
+      "description": "Cancel one pending task by ID. Scoped to a single task — does not affect the daemon process or any other queued task.",
+      "implementation": "daemon_control:daemon_cancel_task",
+      "category": "system",
+      "dependencies": [],
+      "hardware_requirements": []
+    }
+  ],
+  "author": "CCOS",
+  "license": "MIT"
+}
