@@ -1,0 +1,75 @@
+{
+  "name": "thermal_monitor",
+  "version": "1.0.0",
+  "description": "Wraps core/sysmon.py (live CPU/RAM/temp/battery monitor) and core/thermal.py (inference thermal throttling) as CCOS capabilities — the shared data source for the unified system dashboard",
+  "category": "system",
+  "entry_point": "thermal_monitor.py",
+  "capabilities": [
+    {
+      "name": "system.monitor_snapshot",
+      "description": "Get a live structured snapshot of CPU%, RAM used/total, temperature, and battery state. Ensures the background sampler is running so the first call already returns real data.",
+      "implementation": "thermal_monitor:monitor_snapshot",
+      "category": "system",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "system.monitor_render_text",
+      "description": "Get the TUI-formatted stats bar (CPU/RAM/temp) as plain text",
+      "implementation": "thermal_monitor:monitor_render_text",
+      "category": "system",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "system.thermal_status",
+      "description": "Get thermal management status: total inference time, current/original thread count, warnings issued, thread reductions, throttled flag",
+      "implementation": "thermal_monitor:thermal_status",
+      "category": "system",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "system.thermal_is_throttled",
+      "description": "Check whether thermal throttling is currently reducing inference thread count",
+      "implementation": "thermal_monitor:thermal_is_throttled",
+      "category": "system",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "system.thermal_current_threads",
+      "description": "Get the current inference thread count (may be thermally reduced from the original)",
+      "implementation": "thermal_monitor:thermal_current_threads",
+      "category": "system",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "system.thermal_start_inference",
+      "description": "Mark the start of an inference run for thermal tracking. Mutates thermal manager state.",
+      "implementation": "thermal_monitor:thermal_start_inference",
+      "category": "system",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "system.thermal_end_inference",
+      "description": "Mark the end of an inference run and evaluate thermal thresholds. Mutates thermal manager state.",
+      "implementation": "thermal_monitor:thermal_end_inference",
+      "category": "system",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "system.thermal_reset",
+      "description": "Reset thermal tracking counters and restore original thread count. Mutates thermal manager state.",
+      "implementation": "thermal_monitor:thermal_reset",
+      "category": "system",
+      "dependencies": [],
+      "hardware_requirements": []
+    }
+  ],
+  "author": "CCOS",
+  "license": "MIT"
+}
