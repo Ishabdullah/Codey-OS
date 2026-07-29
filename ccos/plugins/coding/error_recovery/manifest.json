@@ -1,0 +1,43 @@
+{
+  "name": "error_recovery",
+  "version": "1.0.0",
+  "description": "Wraps core/recovery.py's error classification, fallback selection, and real recovery actions as CCOS capabilities. Outcome tracking routes through core/strategy_tracker.py's StrategyTracker (already used, disk-persisted) rather than core/recovery.py's own in-memory StrategySwitcher history — see error_recovery.py module docstring.",
+  "category": "coding",
+  "entry_point": "error_recovery.py",
+  "capabilities": [
+    {
+      "name": "coding.recovery_classify_error",
+      "description": "Classify an error message into an error type (e.g. import_error, file_not_found, test_failure)",
+      "implementation": "error_recovery:recovery_classify_error",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.recovery_get_fallback",
+      "description": "Get the best fallback recovery strategy for an error type or error message",
+      "implementation": "error_recovery:recovery_get_fallback",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.recovery_execute_strategy",
+      "description": "Execute a recovery strategy's real action (pip install, search for similarly named files, create missing parent directories, check for a missing shell command, or isolate and re-run a failing pytest test)",
+      "implementation": "error_recovery:recovery_execute_strategy",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.recovery_record_outcome",
+      "description": "Record a recovery attempt's outcome (strategy, error type, success, duration) via the disk-persisted StrategyTracker",
+      "implementation": "error_recovery:recovery_record_outcome",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    }
+  ],
+  "author": "CCOS",
+  "license": "MIT"
+}
