@@ -1266,7 +1266,12 @@ def repl(
 
     if not is_remote_backend():
         loader = get_loader()
-        loader.load_primary()
+        try:
+            loader.load_primary()
+        except (KeyboardInterrupt, SystemExit):
+            console.print("\n[dim]Interrupted during model load, cleaning up...[/dim]")
+            shutdown()
+            return
 
     from core.codeymd import find_codeymd
     from core.project import detect_project
