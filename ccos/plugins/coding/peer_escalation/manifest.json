@@ -1,0 +1,43 @@
+{
+  "name": "peer_escalation",
+  "version": "1.0.0",
+  "description": "Wraps core/peer_cli.py's read-only discovery/selection/preview logic (which peer CLIs — Claude Code, Qwen CLI, Gemini CLI — are installed, task-type classification, CLI selection, prompt preview) as CCOS capabilities. Deliberately does NOT expose escalate(), confirm(), or call() from core/peer_cli.py, nor run_peer/run_direct/run_prompted/run_positional from core/peer_shell.py — those spawn real subprocess/pexpect sessions with external CLIs and, per CODEY_OS_MASTER_VISION.md, require the existing interactive terminal consent prompt (PeerCLIManager.confirm()) before any file contents leave the device. That consent step has no meaning behind an automated capability call, so wrapping it would either hang on stdin or bypass consent outright. Same risk class as daemon_control's unwrapped 'command' handler and finetune's unwrapped model-swap functions, left unwrapped pending Ish's explicit decision. Existing callers (main.py:999, core/agent.py:978, core/agent.py:1715) are untouched and remain the only path to real escalation.",
+  "category": "coding",
+  "entry_point": "peer_escalation.py",
+  "capabilities": [
+    {
+      "name": "coding.peer_list_available",
+      "description": "Read-only: list peer CLIs (claude/gemini/qwen) detected as installed on this device",
+      "implementation": "peer_escalation:peer_list_available",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.peer_detect_task_type",
+      "description": "Read-only: classify a message/error log into the task type escalate() would use (debugging/refactor/generate/review/explain/complex/default)",
+      "implementation": "peer_escalation:peer_detect_task_type",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.peer_select_cli",
+      "description": "Read-only: which installed peer CLI would be picked for a given task type, without calling it",
+      "implementation": "peer_escalation:peer_select_cli",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.peer_build_prompt",
+      "description": "Read-only: preview the exact prompt text that would be sent to a peer CLI if escalation proceeded, without sending it",
+      "implementation": "peer_escalation:peer_build_prompt",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    }
+  ],
+  "author": "CCOS",
+  "license": "MIT"
+}
