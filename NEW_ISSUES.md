@@ -2,36 +2,109 @@
 
 ## Found during Round 3 (NEW-4) live-verification pass, 2026-07-29 — NOT fixed, logged only
 
-### [NEW-5] `llama-server` child may briefly outlive `gui/start.sh`'s parent process on a TERM kill during mid-load
-- **Confidence: Suspected** (implementer's own rating; not confirmed
-  reproducible under normal use — code-reviewer concurred it is
-  unrelated to the `--dashboard-only` diff itself).
-- **Where found:** implementer's live verification of the default
-  (no-flag) path for the Round 3 `--dashboard-only` task
-  (`gui/start.sh`, commit `ea954eb`). Observed while `main.py`'s 7B model
-  was still mid-load: the script was killed via `TERM`, and the spawned
-  `llama-server` child (a tracked PID, not an untracked/orphan one) was
-  still alive briefly after the parent script had already exited, before
-  implementer killed it directly by that same tracked PID.
-- **Why Suspected, not Confirmed:** this was observed under an aggressive
-  test-timeout-driven `TERM` sent specifically mid-load — it may be an
-  artifact of killing during that narrow load window rather than
-  something reproducible in a normal mid-conversation session. Not
-  reproduced a second time; no root-cause investigation done yet.
-- **Scope note:** lives entirely in `main.py`'s own model-spawn/kill
-  path, not in `gui/start.sh`'s trap logic touched by this round's diff.
-  Confirmed unreachable in `--dashboard-only` mode, since `main.py` never
-  runs there. code-reviewer reviewed this observation as part of the
-  Round 3 approval and confirmed it does not implicate the
-  `--dashboard-only` change itself.
-- **Suggested direction (not applied — out of scope for Round 3):** a
-  dedicated task to reproduce deliberately (send `TERM` to `gui/start.sh`
-  at a controlled point mid-7B-load, repeat a few times) and check
-  whether `main.py`'s `shutdown()`/signal handling has a gap where the
-  child `llama-server` process can survive parent exit during the load
-  window specifically — this is exactly the class of process-lifecycle
-  issue CLAUDE.md rule 4 requires code-reviewer sign-off on, so any real
-  fix here needs that review regardless of how small it looks.
+### [NEW-5] `llama-server` child can outlive `gui/start.sh`'s (or any) parent process indefinitely on a TERM/Ctrl+C during mid-load, with no automatic recovery
+- **Confidence: Confirmed** (upgraded 2026-07-29, Round 6 — live-reproduced
+  and root-caused by reading the code; previously Suspected on a single
+  observation).
+- **Original (Suspected) finding, Round 3:** implementer's live
+  verification of the default (no-flag) path for the Round 3
+  `--dashboard-only` task (`gui/start.sh`, commit `ea954eb`) observed the
+  spawned `llama-server` child (a tracked PID) "still alive briefly"
+  after the parent script exited on a mid-load `TERM`, before being
+  killed directly by that tracked PID. Not reproduced a second time at
+  the time; no root cause investigated.
+- **Round 6 live reproduction (this entry's upgrade):** live-verifier sent
+  `kill -TERM` to the tracked `gui/start.sh` script PID while the 7B
+  model was mid-load, then polled every 0.5s for 10+ seconds. The bash
+  script, `gui/server.py`, `main.py`, and `llama-server` were **all still
+  alive, unchanged**, for the entire polling window — not "briefly"
+  outliving the parent, but surviving it with no sign of any teardown in
+  progress. Letting it run to full completion (~40s later total), the
+  script's own `trap ... TERM` handler **never fired**, because bash was
+  blocked in `wait()` on its foreground child (`python main.py`), which
+  does not exit on its own when sent `TERM` this way. The tracked PIDs
+  (`main.py` and `llama-server`) had to be killed individually and
+  manually — there is no automatic recovery path.
+- **Root cause (identified by reading the code, not just observing
+  behavior):**
+  - `main.py`'s `repl()` (around line 1269) calls
+    `loader.load_primary()` with no `try/except KeyboardInterrupt`
+    wrapper around the call.
+  - `ModelLoader.load_primary()`'s own exception handler
+    (`core/loader_v2.py` around line 351) is `except Exception`, which
+    does **not** catch `KeyboardInterrupt` (it subclasses
+    `BaseException`, not `Exception`), so a `KeyboardInterrupt` raised
+    during the load window propagates straight out of `load_primary()`
+    uncaught.
+  - There is also no top-level exception handler around `main()` itself
+    (bottom of `main.py`, `if __name__ == "__main__": main()` is bare),
+    so an uncaught `KeyboardInterrupt` during this window exits the
+    process without ever calling `shutdown()` (`main.py` line ~125,
+    which contains the correct scoped-PID teardown logic via
+    `loader.get_pid()` / `loader.unload()`).
+  - Separately, `llama-server` is spawned with `preexec_fn=os.setsid`
+    (`core/loader_v2.py` line 127), putting it in its own process
+    group specifically to insulate it from terminal signal groups —
+    meaning it is never touched by a terminal-delivered signal that
+    hits `main.py`, and depends entirely on `main.py`'s own code
+    explicitly killing it. When that code path is skipped (as above),
+    `llama-server` becomes a genuine, indefinitely-running orphan.
+  - Important supporting detail for any fix: `ModelLoader.load_primary()`
+    (`core/loader_v2.py` line 341) assigns `self._server = LlamaServer(...)`
+    **before** calling `self._server.start()` (line 342), and `start()`
+    itself sets `self.process` (the `Popen` handle, with its real PID)
+    immediately after spawning (line 123-130), well before the up-to-60s
+    health-check polling loop that follows (lines 132-153). This means
+    `loader.get_pid()` / `loader.unload()` are both usable to tear down a
+    partially-started server for nearly the entire load window, not just
+    after a successful load — a catch-and-teardown fix has a real target
+    to kill for almost the full duration of the exposure window.
+- **Confirmed NOT broken:** a normal Ctrl+C at the `You>` prompt (i.e.
+  post-load, in the REPL's own input loop) works cleanly and tears
+  everything down in ~1.5s — the REPL's existing
+  `except (KeyboardInterrupt, EOFError)` blocks (e.g. `main.py` line 948)
+  catch it fine there. The gap is specific to the model-load window,
+  before any of those handlers are active.
+- **Scope note:** lives entirely in `main.py`'s own model-load call site
+  and `core/loader_v2.py`'s exception handling, not in `gui/start.sh`'s
+  trap logic. Confirmed unreachable in `--dashboard-only` mode, since
+  `main.py` never runs there.
+- **Fix direction (scoped as a Round 6 follow-on task, not yet applied):**
+  wrap the `loader.load_primary()` call in `repl()` (`main.py` ~line
+  1269) in a `try/except (KeyboardInterrupt, SystemExit)` that, on catch,
+  calls the existing `shutdown()` (`main.py` line 125) to tear down any
+  partially-started server via the scoped-PID path it already uses, then
+  exits cleanly — reusing `shutdown()`, not reinventing a parallel kill
+  path. This is CLAUDE.md rule 4 territory (process/daemon lifecycle,
+  kill logic) and requires code-reviewer's explicit approval before
+  commit regardless of how small the diff looks.
+
+## Found during Round 6 NEW-5 root-cause investigation, 2026-07-29 — NOT fixed, logged only
+
+### [NEW-6] Same unguarded `loader.load_primary()` pattern exists at three other call sites in `main.py`
+- **Confidence: Suspected** (same code shape confirmed by reading the
+  code; not independently live-reproduced at each site the way NEW-5 was
+  for the `repl()` path — but the mechanism is identical, so the risk is
+  the same in kind).
+- **Where found:** while investigating NEW-5's root cause, grepped all
+  call sites of `loader.load_primary()` in `main.py`. In addition to
+  `repl()` (~line 1269, the one covered by NEW-5's scoped fix), the same
+  unguarded pattern (`loader = get_loader(); loader.load_primary()` with
+  no surrounding `try/except KeyboardInterrupt`) appears at:
+  - `args.init` path, `main.py` ~line 1458
+  - `args.tdd` path, `main.py` ~line 1465-1466
+  - `args.fix` path, `main.py` ~line 1485-1486
+- **Why this matters:** a `KeyboardInterrupt` (e.g. Ctrl+C) during model
+  load in any of these one-shot CLI paths would hit the same gap as
+  NEW-5 — no handler catches it before it propagates out of
+  `load_primary()`, `shutdown()` is never called, and `llama-server`
+  (spawned in its own process group via `preexec_fn=os.setsid`) is left
+  as an orphan.
+- **Not fixed here:** the NEW-5 fix task is deliberately scoped to just
+  the `repl()` call site (the one actually live-reproduced). These three
+  sibling sites are logged for a possible dedicated follow-up task, not
+  bundled into the NEW-5 fix, to keep that fix tightly scoped per
+  CLAUDE.md's project-architect instructions.
 
 ## Found during Round 2 (C-2) live-verification pass, 2026-07-29 — NOT fixed, logged only
 
