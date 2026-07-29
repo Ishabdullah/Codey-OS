@@ -35,6 +35,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from utils.config import STATE_DB_FILE
 from utils.logger import error, info, success, warning
 
 
@@ -95,9 +96,8 @@ class SymbolicGraph:
 
     def __init__(self, db_path: Optional[Path] = None):
         if db_path is None:
-            db_dir = Path.home() / ".codey-v3"
-            db_dir.mkdir(parents=True, exist_ok=True)
-            db_path = db_dir / "state.db"
+            STATE_DB_FILE.parent.mkdir(parents=True, exist_ok=True)
+            db_path = STATE_DB_FILE
         self.db_path = db_path
         self._concepts: Dict[str, Concept] = {}
         self._relations: List[Relation] = []

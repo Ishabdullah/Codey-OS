@@ -29,7 +29,7 @@ import urllib.request
 from pathlib import Path
 from typing import Optional
 
-from utils.config import EMBED_MODEL_PATH, EMBED_SERVER_PORT, LLAMA_SERVER_BIN
+from utils.config import CODEY_STATE_DIR, EMBED_MODEL_PATH, EMBED_SERVER_PORT, LLAMA_SERVER_BIN
 from utils.logger import error, info, success, warning
 
 # Host is always localhost
@@ -97,7 +97,7 @@ class EmbedServer:
             "mean",  # OAI-compatible single vector per input
         ]
 
-        log_file = Path.home() / ".codey-v3" / "embed-server.log"
+        log_file = CODEY_STATE_DIR / "embed-server.log"
         log_file.parent.mkdir(parents=True, exist_ok=True)
 
         log_fd = open(log_file, "a")

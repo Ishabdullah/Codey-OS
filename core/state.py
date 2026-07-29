@@ -16,9 +16,11 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Dict, List, Optional
 
+from utils.config import CODEY_STATE_DIR, STATE_DB_FILE
+
 # State directory and database path (Codey-V3 specific)
-STATE_DIR = Path.home() / ".codey-v3"
-STATE_DB = STATE_DIR / "state.db"
+STATE_DIR = CODEY_STATE_DIR
+STATE_DB = STATE_DB_FILE
 
 # Ensure state directory exists
 STATE_DIR.mkdir(parents=True, exist_ok=True)

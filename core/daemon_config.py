@@ -10,9 +10,12 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from utils.config import (CODEY_STATE_DIR, DAEMON_CONFIG_FILE, DAEMON_LOG_FILE,
+                          DAEMON_PID_FILE, DAEMON_SOCKET_FILE, STATE_DB_FILE)
+
 # Configuration directory
-CONFIG_DIR = Path.home() / ".codey-v3"
-CONFIG_FILE = CONFIG_DIR / "config.json"
+CONFIG_DIR = CODEY_STATE_DIR
+CONFIG_FILE = DAEMON_CONFIG_FILE
 
 # Ensure config directory exists
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -21,9 +24,9 @@ CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 DEFAULT_CONFIG: Dict[str, Any] = {
     # Daemon settings
     "daemon": {
-        "pid_file": str(Path.home() / ".codey-v3/codey-v3.pid"),
-        "socket_file": str(Path.home() / ".codey-v3/codey-v3.sock"),
-        "log_file": str(Path.home() / ".codey-v3/codey-v3.log"),
+        "pid_file": str(DAEMON_PID_FILE),
+        "socket_file": str(DAEMON_SOCKET_FILE),
+        "log_file": str(DAEMON_LOG_FILE),
         "log_level": "INFO",  # DEBUG, INFO, WARNING, ERROR
     },
     # Task processing settings
@@ -40,7 +43,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     },
     # State database settings
     "state": {
-        "db_path": str(Path.home() / ".codey-v3/state.db"),
+        "db_path": str(STATE_DB_FILE),
         "cleanup_old_actions_hours": 24,
     },
 }

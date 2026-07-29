@@ -17,7 +17,7 @@ import urllib.request
 from pathlib import Path
 from typing import Optional
 
-from utils.config import LLAMA_SERVER_BIN, MODEL_CONFIG, MODEL_PATH
+from utils.config import CODEY_STATE_DIR, LLAMA_SERVER_BIN, MODEL_CONFIG, MODEL_PATH
 from utils.logger import error, info, success, warning
 
 # llama-server configuration
@@ -110,7 +110,7 @@ class LlamaServer:
                 pass  # Config not available — use llama.cpp defaults (mmap on, mlock off)
 
             # Start process - redirect output to log file to avoid pipe buffer issues
-            log_file = Path.home() / ".codey-v3" / "llama-server.log"
+            log_file = CODEY_STATE_DIR / "llama-server.log"
             log_file.parent.mkdir(parents=True, exist_ok=True)
 
             with open(log_file, "w") as f:

@@ -19,11 +19,10 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from core.state import get_state_store
-from utils.config import CODE_DIR
+from utils.config import CHECKPOINT_DIR, CODE_DIR
 from utils.logger import error, info, success, warning
 
 # Checkpoint directory
-CHECKPOINT_DIR = Path.home() / ".codey-v3" / "checkpoints"
 CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Core files that should be checkpointed before modification

@@ -8,10 +8,9 @@ Stored at ~/.codey-v3/notes.json — survives across sessions.
 """
 
 import json
-from pathlib import Path
 from typing import Optional
 
-_NOTES_FILE = Path.home() / ".codey-v3" / "notes.json"
+from utils.config import NOTES_FILE as _NOTES_FILE
 
 
 def _load() -> dict:

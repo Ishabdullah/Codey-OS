@@ -87,6 +87,21 @@ THERMAL_CONFIG["original_threads"] = MODEL_CONFIG.get("n_threads", 4)
 CODE_DIR = Path(__file__).parent.parent.resolve()
 WORKSPACE_ROOT = Path(os.getcwd()).resolve()
 
+# ── Codey-OS state directory — single source of truth ──────────────────────
+# Do not hardcode ".codey-v3" or similar anywhere else; import from here.
+CODEY_STATE_DIR = Path.home() / ".codey-v3"  # will become .codeyOS in sub-task 2
+
+DAEMON_PID_FILE = CODEY_STATE_DIR / "codey-v3.pid"      # -> codeyOS.pid in sub-task 2
+DAEMON_SOCKET_FILE = CODEY_STATE_DIR / "codey-v3.sock"  # -> codeyOS.sock in sub-task 2
+DAEMON_LOG_FILE = CODEY_STATE_DIR / "codey-v3.log"      # -> codeyOS.log in sub-task 2
+DAEMON_CONFIG_FILE = CODEY_STATE_DIR / "config.json"
+STATE_DB_FILE = CODEY_STATE_DIR / "state.db"
+CHECKPOINT_DIR = CODEY_STATE_DIR / "checkpoints"
+NOTES_FILE = CODEY_STATE_DIR / "notes.json"
+PLANND_PID_FILE = CODEY_STATE_DIR / "plannd.pid"        # unchanged, already generic
+PLANND_LOG_FILE = CODEY_STATE_DIR / "plannd.log"        # unchanged, already generic
+GUI_PID_FILE = CODEY_STATE_DIR / "gui-server.pid"       # unchanged, already generic
+
 # Recursive Inference — Phase 2 (v2.6.2)
 # Controls the draft → critique → refine self-improvement loop.
 # CODEY_RECURSIVE=1  — force on   (even for remote backends)

@@ -25,6 +25,7 @@ from typing import Callable, Dict, Optional
 from core.daemon_config import get_config
 from core.state import StateStore, get_state_store
 from core.task_executor import TaskExecutor
+from utils.config import CODEY_STATE_DIR, DAEMON_LOG_FILE, DAEMON_PID_FILE, DAEMON_SOCKET_FILE
 from utils.logger import (error, info, set_log_level, setup_file_logging,
                           warning)
 
@@ -32,13 +33,13 @@ from utils.logger import (error, info, set_log_level, setup_file_logging,
 
 # Daemon directory — defined at module level so check_pid_file / is_daemon_running
 # can use it without triggering a full Daemon init.
-DAEMON_DIR = Path.home() / ".codey-v3"
+DAEMON_DIR = CODEY_STATE_DIR
 
 # Stable path constants with hardcoded defaults.
 # These may be overridden when Daemon.__init__ reads the config file.
-PID_FILE = DAEMON_DIR / "codey-v3.pid"
-SOCKET_FILE = DAEMON_DIR / "codey-v3.sock"
-LOG_FILE = DAEMON_DIR / "codey-v3.log"
+PID_FILE = DAEMON_PID_FILE
+SOCKET_FILE = DAEMON_SOCKET_FILE
+LOG_FILE = DAEMON_LOG_FILE
 
 
 # ==================== PID File Management ====================
@@ -408,10 +409,10 @@ class Daemon:
 
         # Override path constants from config so all other functions see them.
         PID_FILE = Path(
-            self._config.get("daemon", "pid_file", default=str(DAEMON_DIR / "codey-v3.pid"))
+            self._config.get("daemon", "pid_file", default=str(DAEMON_PID_FILE))
         )
         SOCKET_FILE = Path(
-            self._config.get("daemon", "socket_file", default=str(DAEMON_DIR / "codey-v3.sock"))
+            self._config.get("daemon", "socket_file", default=str(DAEMON_SOCKET_FILE))
         )
         LOG_FILE = Path(log_file_path)
 
@@ -451,7 +452,7 @@ class Daemon:
                     info(f"ProjectMemory: loaded {_codeymd_path}")
 
             # Load config.json if it exists
-            _config_path = _Path.home() / ".codey-v3" / "config.json"
+            from utils.config import DAEMON_CONFIG_FILE as _config_path
             if _config_path.exists():
                 _config_content = _config_path.read_text(encoding="utf-8", errors="replace")
                 _mem.add_to_project(str(_config_path), _config_content, is_protected=True)
