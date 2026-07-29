@@ -1,0 +1,131 @@
+{
+  "name": "observability",
+  "version": "1.0.0",
+  "description": "Wraps core/observability.py's self-status introspection (token usage, memory status, task queue depth, active model, temperature/context size, process CPU/memory usage, daemon uptime/PID, rolled-up health) as CCOS capabilities. Distinct from thermal_monitor's system-wide CPU/RAM/temp snapshot — this plugin's cpu_usage/memory_usage report this process's own resource use.",
+  "category": "system",
+  "entry_point": "observability.py",
+  "capabilities": [
+    {
+      "name": "system.observability_tokens_used",
+      "description": "Total tokens used so far, from the shared state store",
+      "implementation": "observability:tokens_used",
+      "category": "system",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "system.observability_memory_loaded",
+      "description": "Five-tier memory system's status dict (or an error dict if uninitialized)",
+      "implementation": "observability:memory_loaded",
+      "category": "system",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "system.observability_tasks_pending",
+      "description": "Number of pending tasks in the task queue/planner",
+      "implementation": "observability:tasks_pending",
+      "category": "system",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "system.observability_tasks_running",
+      "description": "Number of currently running tasks",
+      "implementation": "observability:tasks_running",
+      "category": "system",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "system.observability_model_active",
+      "description": "Name of the currently loaded/active model, or None",
+      "implementation": "observability:model_active",
+      "category": "system",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "system.observability_model_state",
+      "description": "Model state dict from the shared state store",
+      "implementation": "observability:model_state",
+      "category": "system",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "system.observability_temperature",
+      "description": "Configured inference temperature",
+      "implementation": "observability:temperature",
+      "category": "system",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "system.observability_context_size",
+      "description": "Configured context window size (n_ctx)",
+      "implementation": "observability:context_size",
+      "category": "system",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "system.observability_memory_usage",
+      "description": "This process's own RSS/VMS memory usage in MB (not the system-wide RAM covered by thermal_monitor)",
+      "implementation": "observability:memory_usage",
+      "category": "system",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "system.observability_cpu_usage",
+      "description": "This process's own CPU usage percentage (not the system-wide CPU covered by thermal_monitor)",
+      "implementation": "observability:cpu_usage",
+      "category": "system",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "system.observability_uptime",
+      "description": "Daemon uptime in seconds, or 0 if no daemon start time is recorded",
+      "implementation": "observability:uptime",
+      "category": "system",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "system.observability_daemon_pid",
+      "description": "PID of this process, or None if psutil isn't available",
+      "implementation": "observability:daemon_pid",
+      "category": "system",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "system.observability_health",
+      "description": "Rolled-up health summary: memory usage, CPU usage, uptime, pending tasks, model-loaded flag",
+      "implementation": "observability:health",
+      "category": "system",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "system.observability_full_status",
+      "description": "Complete observability status: version, daemon, model, tasks, memory, cpu, tokens, health. Backs get_full_status()/to_dict()/status(), which are all identical.",
+      "implementation": "observability:full_status",
+      "category": "system",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "system.observability_reset_state",
+      "description": "Drop the process-wide State singleton so the next call rebuilds it. Minor mutation, low risk: nothing currently depends on this state.",
+      "implementation": "observability:reset_state",
+      "category": "system",
+      "dependencies": [],
+      "hardware_requirements": []
+    }
+  ],
+  "author": "CCOS",
+  "license": "MIT"
+}
