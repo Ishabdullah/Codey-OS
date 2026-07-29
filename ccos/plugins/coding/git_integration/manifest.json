@@ -1,0 +1,139 @@
+{
+  "name": "git_integration",
+  "version": "1.0.0",
+  "description": "Wraps core/githelper.py's git integration as CCOS capabilities — read-only repo inspection plus mutating commit/branch/merge/push operations",
+  "category": "coding",
+  "entry_point": "git_integration.py",
+  "capabilities": [
+    {
+      "name": "coding.git_is_repo",
+      "description": "Check whether a path is inside a git repository",
+      "implementation": "git_integration:is_git_repo",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.git_status",
+      "description": "Return short-form git status for a repo",
+      "implementation": "git_integration:git_status",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.git_diff_stat",
+      "description": "Return diffstat (files changed/insertions/deletions) against HEAD",
+      "implementation": "git_integration:git_diff_stat",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.git_log",
+      "description": "Return the last n commits in oneline format",
+      "implementation": "git_integration:git_log",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.git_current_branch",
+      "description": "Return the name of the current branch",
+      "implementation": "git_integration:git_current_branch",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.git_branches",
+      "description": "List all local and remote-tracking branches with current branch marked",
+      "implementation": "git_integration:git_branches",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.git_detect_conflicts",
+      "description": "Return the list of files with unresolved merge conflicts",
+      "implementation": "git_integration:detect_conflicts",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.git_conflict_sections",
+      "description": "Parse a file's git conflict markers and extract 'ours'/'theirs' sections",
+      "implementation": "git_integration:get_conflict_sections",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.git_diff_for_commit",
+      "description": "Get a truncated diff (staged, then unstaged, then last commit) suitable for commit-message generation",
+      "implementation": "git_integration:git_diff_for_commit",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.git_commit_log_messages",
+      "description": "Return the last n commit subject lines",
+      "implementation": "git_integration:git_commit_log_messages",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.git_generate_commit_message",
+      "description": "Use the inference engine to generate a commit message from a diff and recent history (loads the model — do not call in lightweight contexts)",
+      "implementation": "git_integration:generate_commit_message",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.git_commit",
+      "description": "Stage (optional) and commit changes with a message. Mutates repo state.",
+      "implementation": "git_integration:git_commit",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.git_push",
+      "description": "Push the current branch to its remote. Mutates remote state.",
+      "implementation": "git_integration:git_push",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.git_branch_create",
+      "description": "Create a new branch and switch to it. Mutates repo state.",
+      "implementation": "git_integration:git_branch_create",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.git_checkout",
+      "description": "Switch to an existing branch. Mutates repo state.",
+      "implementation": "git_integration:git_checkout",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.git_merge",
+      "description": "Merge a branch into the current branch. Mutates repo state.",
+      "implementation": "git_integration:git_merge",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    }
+  ],
+  "author": "CCOS",
+  "license": "MIT"
+}
