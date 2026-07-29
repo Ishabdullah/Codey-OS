@@ -186,6 +186,12 @@
 
 ### [NEW-1] `pytest tests/` spawns a real 7B `llama-server` and orphans it — matches audit finding L-6
 
+- **Status: fix committed (`c65be95`), pending full-suite live
+  verification.** code-reviewer approved the fix after re-running the
+  targeted test and the full `tests/test_memory.py` file (no orphan
+  `llama-server` after either), but a live-verifier pass confirming a full
+  `pytest tests/` run is clean is still pending. Not marked Resolved until
+  that pass completes, per Ground Rule 7.
 - **Confidence: Confirmed (upgraded from Suspected, Round 5 diagnostic
   investigation, 2026-07-29).** The mechanism below was live-reproduced
   3+ times, including a decisive proof: catching the orphaned

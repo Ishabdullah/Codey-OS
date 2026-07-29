@@ -5,6 +5,43 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-29 — Round 5 (NEW-1): mock inference in unmocked `test_compress_summary_handles_inference_failure`, CODE COMPLETE (not yet fully live-verified)
+
+**What changed:** `tests/test_memory.py`'s
+`TestMemoryCompressSummary::test_compress_summary_handles_inference_failure`
+(commit `c65be95`) previously called `self.memory.compress_summary(...)`
+with zero mocking, despite its name/docstring claiming to test the
+inference-failure path. This meant every plain `pytest tests/` run
+triggered `core/memory_v2.py:600-627`'s `compress_summary()` →
+`core/inference_v2.py:65-94`'s `infer()` → `get_loader().ensure_model()`,
+spawning a real local 7B `llama-server` subprocess that nothing in the
+test tracked or cleaned up, leaving it orphaned after the suite ended —
+`NEW_ISSUES.md` [NEW-1], root-cause Confirmed in Round 5's diagnostic
+investigation (2026-07-29, decisive PPID-capture proof; see entry below).
+The fix patches `core.inference_v2.infer` (not `core.memory_v2.infer`,
+which would be a no-op since `compress_summary` does a local `from
+core.inference_v2 import infer` inside the function body) to return the
+real failure-return convention (`"[ERROR] ..."`), and asserts the actual
+fallback behavior: last 4 messages returned unchanged, summary left
+untouched.
+
+**Review:** code-reviewer approved. Independently re-ran both the
+targeted test and the full `tests/test_memory.py` file, confirmed no
+orphan `llama-server` process after either run.
+
+**Verification status:** CODE COMPLETE, code-reviewer-approved — **not
+yet fully live-verified.** code-reviewer's re-run was scoped to
+`tests/test_memory.py` only, not the full `pytest tests/` suite. A
+live-verifier pass confirming a full `pytest tests/` run no longer
+produces the orphan `llama-server` is pending and will be logged in a
+follow-up entry once it completes. Per Ground Rule 7, this is not marked
+fully live-verified until that pass confirms it.
+
+**Result:** `NEW_ISSUES.md` [NEW-1] updated to "fix committed (`c65be95`),
+pending full-suite live verification" — not marked Resolved yet.
+
+---
+
 ## 2026-07-29 — Round 4 (NEW-3): disable aiohttp access logger on GUI server, code complete
 
 **What changed:** `gui/server.py`'s `web.run_app()` call (commit

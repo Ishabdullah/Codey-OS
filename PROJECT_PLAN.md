@@ -606,6 +606,30 @@ exploitable, but fragile.
 **Round 4 (NEW-3) is now fully closed** — code-complete and
 code-reviewer-approved. No open items remain under Round 4 itself.
 
+### Audit Remediation — Round 5 (NEW-1)
+**Status: CODE COMPLETE, code-reviewer-approved — NOT YET FULLY
+LIVE-VERIFIED** (2026-07-29) — fix for `NEW_ISSUES.md` [NEW-1], root-cause
+Confirmed in Round 5's diagnostic investigation: `pytest tests/` spawned a
+real 7B `llama-server` and orphaned it because
+`tests/test_memory.py::TestMemoryCompressSummary::test_compress_summary_handles_inference_failure`
+called `compress_summary()` with no mocking of inference at all.
+- [x] `tests/test_memory.py`'s
+      `test_compress_summary_handles_inference_failure` now mocks
+      `core.inference_v2.infer` to return the real failure-return
+      convention, and asserts the actual failure-path fallback behavior.
+      Commit `c65be95`.
+- [x] code-reviewer approved: independently re-ran both the targeted test
+      and the full `tests/test_memory.py` file, confirmed no orphan
+      `llama-server` after either.
+- [ ] **Pending:** live-verifier pass confirming a full `pytest tests/`
+      run (not just `tests/test_memory.py`) no longer produces the orphan
+      `llama-server`. Until this completes, `NEW_ISSUES.md` [NEW-1] stays
+      marked "fix committed, pending full-suite live verification" rather
+      than Resolved, per Ground Rule 7.
+
+**Round 5 (NEW-1) is code complete but not yet fully closed** — awaiting
+the full-suite live-verifier pass above before marking Resolved.
+
 ### Phase 4 — Self-improvement activation (deliberate, not automatic)
 Do NOT start this phase until Phases 1–3 are stable and you've watched the
 system run real coding tasks through the sandbox/safety-veto path for a
