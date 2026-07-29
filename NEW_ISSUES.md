@@ -98,6 +98,45 @@
   `tools/patch_tools.py`'s handling of empty/non-matching `old_str`
   before deciding whether the fix is in the tool implementation or in
   prompting the model to never emit an empty `old_str`.
+- **Correction (2026-07-29, Round 3 scoping pass) — the hypothesized
+  root cause above does not hold up; downgrading per CLAUDE.md rule 6.**
+  Read `tools/patch_tools.py:19-22` directly: an empty/non-string
+  `old_str` is already explicitly rejected —
+  `if not old_str or not isinstance(old_str, str): return "[ERROR]
+  Invalid old_str: empty or not a string"` — and `git log --follow -p`
+  shows this check has existed since commit `8ab96e1` (Jun 13 2026), well
+  before this session. So `tool_patch_file` itself does **not**
+  silently no-op on `old_str: ""` — it returns a clear, explicit error
+  string. The originally-suspected fix location (`patch_tools.py`'s
+  matching logic) is not where the bug is.
+  - **Re-reading the original transcript evidence with this in mind:**
+    the "malformed tool call — JSON parse failed" warning fired
+    *before* any tool executed, meaning `tool_patch_file` was likely
+    never actually called on the first attempt (the JSON never parsed,
+    probably due to unescaped literal newlines inside the multi-line
+    docstring in `new_str`, which breaks strict JSON parsing). The
+    retry then produced a second near-identical malformed call.
+  - **New, more likely mechanism (unconfirmed, needs live reproduction
+    to nail down):** `core/agent.py:1434` sets `max_retries = 1`, so
+    the malformed-tool-call retry path (`core/agent.py:1537-1553`) only
+    gets one retry attempt. If the second attempt *also* fails to parse,
+    `auto_retries >= max_retries` and the code falls through past the
+    `if tool_dict:` block entirely (nothing between lines ~1553 and
+    ~1843 re-enters it for a null `tool_dict` after retries are
+    exhausted) to `history.append(...); return response, history`
+    around `core/agent.py:1869-1873` — i.e. the raw, still-malformed
+    model text becomes the "final answer" with no explicit surfacing of
+    "the patch never applied." This would explain a silent-looking
+    failure without any code in `patch_tools.py` being at fault.
+  - **Status:** downgraded from Confirmed-root-cause to Suspected — the
+    silent-no-op *symptom* is still Confirmed (git diff showed zero
+    change), but the mechanism is now believed to be in
+    `core/agent.py`'s malformed-JSON-retry exhaustion path, not
+    `tools/patch_tools.py`. Needs a fresh live reproduction (single warm
+    session, ask for a multi-line docstring/edit likely to trigger an
+    unescaped-newline JSON break) with the raw model output captured
+    verbatim before scoping an implementer task — not ready to hand off
+    yet.
 
 ## Found during Round 1 (C-1/H-1/H-4) fix task, 2026-07-29 — NOT fixed, logged only
 
