@@ -1,6 +1,6 @@
 # AUTO-IMPROVED by CCOS Capability Optimizer
 # Original issues: Increase timeout or optimize slow code paths
-# Improvement timestamp: 2026-07-29 00:16:36
+# Improvement timestamp: 2026-07-29 00:29:20
 
 def _with_timeout(func, seconds=30):
     """Run function with timeout in thread."""

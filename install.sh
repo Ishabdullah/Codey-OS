@@ -29,7 +29,7 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-CODEY_V2_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CODEY_OS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LLAMA_CPP_DIR="$HOME/llama.cpp"
 MODELS_DIR="$HOME/models"
 PRIMARY_MODEL_DIR="$MODELS_DIR/qwen2.5-coder-7b"
@@ -132,7 +132,7 @@ install_python_deps() {
         fi
     fi
 
-    cd "$CODEY_V2_DIR"
+    cd "$CODEY_OS_DIR"
 
     # Install only what's needed for the core agent + GUI
     # (pipeline/training deps are optional — see requirements.txt for full list)
@@ -163,7 +163,7 @@ install_python_deps() {
         read -p "  Install pipeline/training extras? (large download, optional) [y/N] " -n 1 -r
         echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then
-            pip3 install $PIP_INSTALL_ARGS -r "$CODEY_V2_DIR/requirements.txt" \
+            pip3 install $PIP_INSTALL_ARGS -r "$CODEY_OS_DIR/requirements.txt" \
                 || print_warning "Some pipeline packages may have failed (normal on Termux)"
         fi
     fi
@@ -312,12 +312,12 @@ download_models() {
 # ── 6. Executables & PATH ─────────────────────────────────────────────────────
 make_executable() {
     print_step "Permissions"
-    chmod +x "$CODEY_V2_DIR/codeyOS"
-    chmod +x "$CODEY_V2_DIR/codeydOS"
-    chmod +x "$CODEY_V2_DIR/codey-start"
-    chmod +x "$CODEY_V2_DIR/codey-stop"
-    chmod +x "$CODEY_V2_DIR/install.sh"
-    [ -f "$CODEY_V2_DIR/gui/start.sh" ] && chmod +x "$CODEY_V2_DIR/gui/start.sh"
+    chmod +x "$CODEY_OS_DIR/codeyOS"
+    chmod +x "$CODEY_OS_DIR/codeydOS"
+    chmod +x "$CODEY_OS_DIR/codey-start"
+    chmod +x "$CODEY_OS_DIR/codey-stop"
+    chmod +x "$CODEY_OS_DIR/install.sh"
+    [ -f "$CODEY_OS_DIR/gui/start.sh" ] && chmod +x "$CODEY_OS_DIR/gui/start.sh"
     print_success "Executable bits set"
 }
 
@@ -341,12 +341,12 @@ setup_path() {
         {
             echo ""
             echo "# Codey-V3"
-            echo "export PATH=\"$CODEY_V2_DIR:\$PATH\""
+            echo "export PATH=\"$CODEY_OS_DIR:\$PATH\""
         } >> "$SHELL_CONFIG"
-        print_success "Added $CODEY_V2_DIR to PATH in $SHELL_CONFIG"
+        print_success "Added $CODEY_OS_DIR to PATH in $SHELL_CONFIG"
     fi
 
-    export PATH="$CODEY_V2_DIR:$PATH"
+    export PATH="$CODEY_OS_DIR:$PATH"
     # shellcheck source=/dev/null
     source "$SHELL_CONFIG" 2>/dev/null || true
 }
