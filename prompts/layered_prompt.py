@@ -211,6 +211,7 @@ _draft_cache = {
     "prompt": None,
     "built_at": 0.0,
     "files_hash": None,
+    "lightweight": None,
 }
 _CACHE_TTL = 120.0  # seconds
 
@@ -255,7 +256,7 @@ def _get_symbolic_graph_block() -> str:
     return ""
 
 
-def _build_draft_prompt(user_message: str, plan_rag_block: str = "") -> str:
+def _build_draft_prompt(user_message: str, plan_rag_block: str = "", lightweight: bool = False) -> str:
     """
     Full-context system prompt for the initial draft generation.
     Identical output to the old build_system_prompt(message) — no regression.
@@ -268,6 +269,11 @@ def _build_draft_prompt(user_message: str, plan_rag_block: str = "") -> str:
       3 Retrieved KB docs (RAG)
       3 Relevant skill patterns (Phase 5)
       4 Loaded files
+
+    When lightweight=True (QA/smalltalk), the repo_map, retrieval, skills,
+    files, and symbolic_graph blocks — and the calls that build them — are
+    skipped entirely. Only identity, notes, prefs, project, and capabilities
+    (when asked about) are included.
     """
     # Check cache — reuse if files haven't changed and TTL hasn't expired
     now = time.time()
@@ -276,6 +282,7 @@ def _build_draft_prompt(user_message: str, plan_rag_block: str = "") -> str:
         _draft_cache["prompt"] is not None
         and now - _draft_cache["built_at"] < _CACHE_TTL
         and _draft_cache["files_hash"] == current_fh
+        and _draft_cache["lightweight"] == lightweight
     ):
         return _draft_cache["prompt"]
 
@@ -296,43 +303,47 @@ def _build_draft_prompt(user_message: str, plan_rag_block: str = "") -> str:
     p.add("notes", _get_notes_block(), priority=1)
     p.add("prefs", _get_preferences_block(), priority=1)
     p.add("project", _get_project_block(), priority=2)
-    p.add("repo_map", _get_repo_map_block(), priority=3)
 
-    # Phase 1 RAG: inject relevant KB docs.
-    # If a pre-fetched block is supplied (e.g. from _run_with_plan retrieving
-    # once on the full user prompt), use it directly — skip the per-step call.
-    if plan_rag_block:
-        p.add("retrieval", plan_rag_block, priority=3)
-    elif user_message:
-        try:
-            from core.retrieval import retrieve
+    if not lightweight:
+        p.add("repo_map", _get_repo_map_block(), priority=3)
 
-            retrieved = retrieve(user_message)
-            if retrieved:
-                p.add("retrieval", retrieved, priority=3)
-        except Exception:
-            pass  # KB unavailable — continue without
+        # Phase 1 RAG: inject relevant KB docs.
+        # If a pre-fetched block is supplied (e.g. from _run_with_plan retrieving
+        # once on the full user prompt), use it directly — skip the per-step call.
+        if plan_rag_block:
+            p.add("retrieval", plan_rag_block, priority=3)
+        elif user_message:
+            try:
+                from core.retrieval import retrieve
 
-    # Phase 5 skills: inject relevant skill patterns from external repos
-    if user_message:
-        try:
-            from core.skills import load_relevant_skills
+                retrieved = retrieve(user_message)
+                if retrieved:
+                    p.add("retrieval", retrieved, priority=3)
+            except Exception:
+                pass  # KB unavailable — continue without
 
-            skills = load_relevant_skills(user_message)
-            if skills:
-                p.add("skills", skills, priority=3)
-        except Exception:
-            pass  # Skills unavailable — continue without
+        # Phase 5 skills: inject relevant skill patterns from external repos
+        if user_message:
+            try:
+                from core.skills import load_relevant_skills
 
-    p.add("files", _get_file_block(user_message), priority=4)
-    # v3.0.0: Add symbolic graph context if available
-    p.add("symbolic_graph", _get_symbolic_graph_block(), priority=3)
+                skills = load_relevant_skills(user_message)
+                if skills:
+                    p.add("skills", skills, priority=3)
+            except Exception:
+                pass  # Skills unavailable — continue without
+
+        p.add("files", _get_file_block(user_message), priority=4)
+        # v3.0.0: Add symbolic graph context if available
+        p.add("symbolic_graph", _get_symbolic_graph_block(), priority=3)
+
     result = p.build()
 
     # Store in cache
     _draft_cache["prompt"] = result
     _draft_cache["built_at"] = now
     _draft_cache["files_hash"] = current_fh
+    _draft_cache["lightweight"] = lightweight
     return result
 
 
@@ -432,6 +443,7 @@ def build_recursive_prompt(
     prior_critique: str = "",
     retrieved_context: str = "",
     plan_rag_block: str = "",
+    lightweight: bool = False,
 ) -> str:
     """
     Phase-aware system prompt builder.  Replaces build_system_prompt().
@@ -446,6 +458,9 @@ def build_recursive_prompt(
         prior_draft:       Output to critique (critique phase only, max 1500 chars)
         prior_critique:    Critique text to fix (refine phase only, max 800 chars)
         retrieved_context: Pre-fetched KB docs for NEED_DOCS gaps (refine only)
+        lightweight:       "draft" phase only — QA/smalltalk messages skip
+                           repo_map, retrieval, skills, files, and
+                           symbolic_graph entirely (see _build_draft_prompt)
 
     Returns:
         System prompt string, ready as messages[0]["content"].
@@ -456,4 +471,4 @@ def build_recursive_prompt(
     if phase == "refine":
         return _build_refine_prompt(user_message, prior_critique, retrieved_context)
     # default: "draft"
-    return _build_draft_prompt(user_message, plan_rag_block=plan_rag_block)
+    return _build_draft_prompt(user_message, plan_rag_block=plan_rag_block, lightweight=lightweight)

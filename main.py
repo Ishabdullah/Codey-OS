@@ -131,18 +131,28 @@ def shutdown():
     # If daemon is running, leave llama-server alive for it
     if _daemon_is_running():
         return
-    # Unload model and kill llama-server on port 8080
+    # Unload model and kill llama-server on port 8080 — scoped to the PID
+    # this loader actually spawned. Never pkill by bare process name: that
+    # would also kill unrelated llama-server instances (plannd on 8081, the
+    # embed server on 8082, or another session's server entirely).
     try:
         from core.loader_v2 import get_loader
 
-        get_loader().unload()
-    except Exception:
-        pass
-    # SIGKILL any remaining llama-server
-    try:
-        import subprocess
+        loader = get_loader()
+        _pid = loader.get_pid()
+        try:
+            loader.unload()
+        except Exception:
+            # unload() threw before finishing its own kill step — fall back
+            # to killing only the PID we captured above, never a name pattern.
+            if _pid:
+                try:
+                    import os
+                    import signal
 
-        subprocess.run(["pkill", "-9", "-f", "llama-server"], capture_output=True, timeout=5)
+                    os.killpg(os.getpgid(_pid), signal.SIGKILL)
+                except Exception:
+                    pass
     except Exception:
         pass
 

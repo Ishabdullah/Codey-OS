@@ -9,12 +9,15 @@ bypassing ChatML — the root cause of most instruction-following failures.
 Falls back to legacy HTTP backend (core/inference.py) if hybrid is unavailable.
 """
 
+import sys
+import threading
 import time
 from typing import Any, Dict
 
 from rich.console import Console
 
 from core.loader_v2 import get_loader
+from core.tokens import estimate_messages_tokens
 from utils.config import MODEL_CONFIG, is_remote_backend
 from utils.logger import info, warning
 
@@ -124,7 +127,43 @@ def _infer_chat(
 
     _max = max_tokens or MODEL_CONFIG.get("max_tokens", 2048)
     start = time.time()
-    result = backend.infer(messages, max_tokens=_max, stop=stop, stream=stream)
+
+    # Elapsed-time ticker during prompt processing \u2014 the window between
+    # sending the request and the first streamed token, which for large
+    # system prompts can be 1-3 minutes of otherwise-silent waiting.
+    # Stops the instant the first token arrives (on_first_token callback),
+    # so it never collides with the live-streamed output.
+    _ticker_thread = None
+    _ticker_stop = None
+    _on_first_token = None
+    if show_thinking and stream:
+        _ticker_stop = threading.Event()
+        _prompt_tokens = estimate_messages_tokens(messages)
+
+        def _tick():
+            while not _ticker_stop.wait(1.0):
+                elapsed = time.time() - start
+                sys.stdout.write(
+                    f"\r\033[2K\u2901 Thinking... ({elapsed:.0f}s, processing {_prompt_tokens}-token prompt)"
+                )
+                sys.stdout.flush()
+
+        def _on_first_token():
+            _ticker_stop.set()
+            sys.stdout.write("\r\033[2K")
+            sys.stdout.flush()
+
+        _ticker_thread = threading.Thread(target=_tick, daemon=True)
+        _ticker_thread.start()
+
+    result = backend.infer(
+        messages, max_tokens=_max, stop=stop, stream=stream, on_first_token=_on_first_token
+    )
+
+    if _ticker_stop is not None:
+        _ticker_stop.set()
+    if _ticker_thread is not None:
+        _ticker_thread.join(timeout=0.5)
 
     if result is None:
         _last_was_streamed = False

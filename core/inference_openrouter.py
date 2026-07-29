@@ -57,7 +57,12 @@ class OpenRouterBackend:
         return bool(self._api_key)
 
     def infer(
-        self, messages: list, max_tokens: int = 2048, stop: List[str] = None, stream: bool = False
+        self,
+        messages: list,
+        max_tokens: int = 2048,
+        stop: List[str] = None,
+        stream: bool = False,
+        on_first_token: "Optional[callable]" = None,
     ) -> Optional[tuple]:
         """
         Run inference via OpenRouter /v1/chat/completions.
@@ -104,7 +109,7 @@ class OpenRouterBackend:
             )
 
             if stream:
-                return self._infer_streaming(req, start)
+                return self._infer_streaming(req, start, on_first_token=on_first_token)
             else:
                 return self._infer_blocking(req, start)
 
@@ -139,13 +144,14 @@ class OpenRouterBackend:
         info(f"{self._name} ({self._model}): {tokens} tokens in {elapsed:.1f}s ({tps:.1f} t/s)")
         return text.strip(), tokens, tps
 
-    def _infer_streaming(self, req, start: float) -> Optional[tuple]:
+    def _infer_streaming(self, req, start: float, on_first_token: "Optional[callable]" = None) -> Optional[tuple]:
         """
         SSE streaming — prints each token to stdout as it arrives.
         OpenRouter uses the same SSE format as llama-server / OpenAI.
         """
         full_text = []
         tokens = 0
+        _first_token_fired = False
 
         response = urllib.request.urlopen(req, timeout=120)
         try:
@@ -164,6 +170,12 @@ class OpenRouterBackend:
                         delta = choices[0].get("delta", {})
                         content = delta.get("content")
                         if content:
+                            if not _first_token_fired and on_first_token:
+                                _first_token_fired = True
+                                try:
+                                    on_first_token()
+                                except Exception:
+                                    pass
                             sys.stdout.write(content)
                             sys.stdout.flush()
                             full_text.append(content)

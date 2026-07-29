@@ -430,6 +430,57 @@ only ever handed back as downloadable files. Being fixed now (see below).
       before archiving it (should already be true, v4 was never part of
       Codey-OS's lineage)
 
+### Audit Remediation — Round 1 (C-1, H-1, H-4)
+**Status: CODE COMPLETE, LIVE VERIFICATION PENDING (2026-07-29)** — fixes
+from `Codey-OS-audit.md`'s Critical finding C-1 and High findings H-1/H-4,
+the three causally-linked issues behind the "Codey doesn't respond" live
+symptom (slow first response → impatient retry → daemon-race → killed
+model server). **Important:** the checkboxes below mark the code changes
+as written and mechanism-verified (unit/mock level) — they do NOT mean the
+live symptom has been confirmed fixed. Nobody has yet run "hello" against
+the real model and watched it respond fast, or run a real concurrent
+`codeydOS start` and watched the second one back off cleanly. That's a
+separate, still-open step — see the verification note below. See
+`PROJECT_LOG.md` 2026-07-29 entry for full detail.
+- [x] **C-1** — Tiered the system prompt: `is_qa` classification moved
+      before prompt construction in `core/agent.py`, threaded into
+      `build_recursive_prompt()`/`_build_draft_prompt()` as a new
+      `lightweight` param (`prompts/layered_prompt.py`) that skips the
+      repo_map/retrieval/skills/files/symbolic_graph code paths entirely
+      for QA/smalltalk messages. Added an elapsed-time "Thinking... (Ns,
+      processing N-token prompt)" ticker in `core/inference_v2.py` for the
+      prompt-processing window, threaded via an `on_first_token` callback
+      through `core/inference_hybrid.py` and `core/inference_openrouter.py`
+      so it clears cleanly the instant real output starts streaming.
+- [x] **H-1** — Removed `main.py`'s blanket `pkill -9 -f llama-server`
+      shutdown fallback. `core/loader_v2.py`'s `ModelLoader` gained a
+      `get_pid()` accessor; `main.py`'s `shutdown()` now captures that PID
+      before calling `unload()` and, only if `unload()` itself throws,
+      falls back to killing that one PID's process group — never a bare
+      name pattern.
+- [x] **H-4** — `codeydOS`'s `start_daemon()` now writes the PID file
+      (atomic write-then-`mv`) immediately after capturing `$DAEMON_PID`,
+      from the shell itself, instead of waiting for `core/daemon.py`'s own
+      later `write_pid_file()` call. Closes the race where a concurrent
+      `codeydOS start` during the 7B's load window passed the stale/absent
+      PID guard and pre-killed the first instance's loading model server.
+      Also cleans up the PID file on the daemon-failed-to-start path (a new
+      failure mode introduced by writing it earlier).
+- [ ] **Live verification — NOT YET DONE.** The two checks that actually
+      prove the symptom is gone were never run: (1) does "hello" against
+      the real 7B respond fast now (C-1), and (2) does a real concurrent
+      `codeydOS start` during the model's load window back off cleanly
+      instead of killing the first instance (H-4)? A device crash occurred
+      mid-task during an attempt at this, before either check completed.
+      What *was* done instead — full `pytest tests/` suite (253/253 pass),
+      mocked confirmation that the lightweight path never calls
+      `retrieve()`/`load_relevant_skills()`/`get_repo_map()` while the full
+      path still does, and a direct classification check (`is_qa` →
+      `True` for "hello", `False` for a real coding request) — verifies the
+      *mechanism* is wired correctly, not that the live symptom is
+      actually gone. Do not treat Round 1 as verified-complete until this
+      item is checked off via a real, RAM-monitored run.
+
 ### Phase 4 — Self-improvement activation (deliberate, not automatic)
 Do NOT start this phase until Phases 1–3 are stable and you've watched the
 system run real coding tasks through the sandbox/safety-veto path for a

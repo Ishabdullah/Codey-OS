@@ -5,6 +5,132 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-29 — Audit Round 1 fixes (C-1, H-1, H-4): tiered prompt, scoped process kills, PID-file race closed
+
+**What changed:** Three causally-linked fixes from `Codey-OS-audit.md`,
+scoped exactly to C-1/H-1/H-4 and nothing else:
+
+1. **C-1 (system prompt cost / silent hang).** `core/agent.py`'s `is_qa`
+   QA/smalltalk classification (previously computed at the old line ~1405,
+   *after* the system prompt was already built) was moved earlier, before
+   `build_recursive_prompt()` is called, and threaded through as a new
+   `lightweight: bool` parameter. `prompts/layered_prompt.py`'s
+   `_build_draft_prompt()` now skips the `repo_map`, `retrieval`, `skills`,
+   `files`, and `symbolic_graph` blocks' *code paths* entirely (not just
+   their output) when `lightweight=True` — `retrieve()` and
+   `load_relevant_skills()` are never called for QA turns. `identity`,
+   `notes`, `prefs`, `project`, and the conditional `capabilities` block
+   are unchanged for both paths. The draft-prompt cache key now includes
+   `lightweight` so a cached full prompt is never served for a QA request
+   or vice versa. Separately, added a visible elapsed-time indicator during
+   prompt processing: `core/inference_v2.py`'s `_infer_chat()` spawns a
+   1 Hz ticker thread showing `⤁ Thinking... (Ns, processing N-token
+   prompt)` (uses `core.tokens.estimate_messages_tokens`), stopped cleanly
+   the instant the first real token arrives via a new `on_first_token`
+   callback threaded through `core/inference_hybrid.py`'s
+   `ChatCompletionBackend.infer()`/`_infer_streaming()` and
+   `core/inference_openrouter.py`'s `OpenRouterBackend` (same signature,
+   for interface parity — both local and remote streaming backends now
+   support it).
+2. **H-1 (blanket `pkill` kills unrelated model servers).** Removed
+   `main.py`'s `subprocess.run(["pkill", "-9", "-f", "llama-server"], ...)`
+   shutdown fallback entirely. `core/loader_v2.py`'s `ModelLoader` gained
+   `get_pid()`, returning the actual spawned PID (or `None`). `main.py`'s
+   `shutdown()` now captures that PID before calling `unload()`; only if
+   `unload()` itself raises does it fall back to
+   `os.killpg(os.getpgid(pid), SIGKILL)` on that one captured PID — never a
+   name-pattern kill.
+3. **H-4 (daemon-start PID-file race).** `codeydOS`'s `start_daemon()` now
+   writes `$PID_FILE` immediately after capturing `DAEMON_PID=$!`, from the
+   shell itself, atomically (`echo > "${PID_FILE}.tmp"; mv` into place) —
+   before the `sleep 1` / health check / orphan pre-kill steps. This closes
+   the window where a concurrent `codeydOS start` during the 7B's ~15-40s
+   load could see no/stale PID file, pass the top-of-function guard, and
+   run its own `pkill -9 -f "llama-server.*8080"`, killing the *first*
+   instance's still-loading model server. `core/daemon.py:676`'s own
+   `write_pid_file()` call is untouched — it's now a harmless, idempotent
+   second write. Also added PID-file cleanup on the "daemon failed to
+   start" path, since writing the file earlier introduced a new failure
+   mode (a stale PID left behind by a failed start) that didn't exist
+   before.
+
+**Why:** These three findings were confirmed causally linked in the
+audit's own session-log evidence: a ~2,500-token system prompt on even
+"hello" takes 140-173s of silent prompt processing on-device (C-1) with no
+progress feedback, which reads as a hang and invites an impatient retry;
+that retry can race a daemon start (H-4) or trigger a client-side
+disconnect that later gets compounded by an over-broad shutdown kill
+(H-1) — together producing the "Codey doesn't respond" / `[ERROR] Chat
+completions inference failed` symptom pattern recorded in this morning's
+session files.
+
+**Verification performed:**
+- `python3 -m pytest tests/ -q` → **253/253 passed** (run twice across the
+  session, both clean).
+- Mocked confirmation (no model load) that the lightweight path never
+  calls `core.retrieval.retrieve`, `core.skills.load_relevant_skills`, or
+  `core.project.get_repo_map` — patched all three to return a sentinel
+  string and confirmed it appears in the non-lightweight output but never
+  in the lightweight output, and `.called` is `False` for all three
+  mocks in the lightweight case, `True` in the full-path case.
+- Direct classification check: reproduced `core/agent.py`'s `is_qa` logic
+  standalone — `is_qa("hello")` → `True`, `is_qa("add a function to
+  core/agent.py")` → `False`, matching required zero-regression behavior
+  for the non-QA path.
+- `ast.parse()` clean on all 8 touched files; `bash -n codeydOS` clean.
+- **Not performed:** live wall-clock before/after timing for C-1, live
+  orphan-survival test for H-1, live daemon-race reproduction for H-4 — a
+  Termux crash occurred mid-task during live testing (see below), and
+  after investigating I chose not to re-attempt further live model loads
+  this session. This is an honest gap, not a claimed-but-skipped step —
+  flagged explicitly rather than silently left off.
+
+**Incident during this task (relevant to H-1/H-4's own subject matter):**
+Mid-task, while starting a standalone 1.5B "unrelated server" for the H-1
+repro, Termux crashed. After recovery, `free -h` twice showed RAM cratering
+to <200 MB free / ~2.5 GB available with 6+ GB in swap, both times traced
+to a live 7B `llama-server` process running with `PPID 1` (orphaned,
+no PID file, not started by me) — once right after the crash, once again
+immediately after a routine `pytest tests/` run (both within the same
+uninterrupted shell command as the pytest invocation, so nothing else of
+mine could have interleaved). **Root cause NOT confirmed** — a follow-up
+static investigation (grep across `tests/*.py` for
+`llama-server|LlamaServer|subprocess|Popen|get_loader|ensure_model`, full
+read of `tests/test_hybrid_inference.py`, check of every `core.agent`
+import site, module-level `core/*.py` scan, and a check for
+cron/boot-script/pytest-plugin mechanisms) found **no code path** that
+explains it. The timing correlation is real and reproduced; the causal
+claim is not — corrected in `NEW_ISSUES.md` NEW-1 after initially
+overstating this as "confirmed." Matches the audit's original L-6 at
+**Suspected** confidence, not upgraded. Both orphaned processes were
+killed individually by their own PID (`kill -TERM -<pid>`, process-group
+scoped, matching the H-1 fix's own discipline), RAM recovered cleanly both
+times (confirmed via `free -h` before/after). No blanket kill was used at
+any point during cleanup.
+
+**Outcome:** All three targeted findings (C-1, H-1, H-4) fixed and
+statically/mock-verified; existing test suite green; one new issue (NEW-1)
+found and logged, not fixed, per task scope. `main` (the stray empty file
+noted in the audit as L-2) and `=3.9.0` (L-1) were left untouched — out of
+scope for this task.
+
+Inference-ticker plumbing (`core/inference_v2.py`, `core/inference_hybrid.py`,
+`core/inference_openrouter.py`) accepted without diff review, given
+cost/thoroughness tradeoff — flagging in case a ticker-related bug surfaces
+later.
+
+**Next action:** Live verification is still the open item — mock/unit
+checks confirm the mechanism is wired correctly, not that the live symptom
+is actually gone. Next: a single, careful test cycle (`free -h` before and
+after), with `pytest tests/` kept away from it entirely — NEW-1 (pytest
+possibly spawning a real model server) is unconfirmed but not ruled out,
+and stacking that risk on top of a live daemon/model test is exactly the
+kind of compounding that caused this session's crash. After live
+verification: Round 2 — C-2 (GUI server security: unauthenticated command
+execution, `0.0.0.0` default bind, no WebSocket Origin check).
+
+---
+
 ## 2026-07-27 — Corrected audit verified, deletion list finalized
 
 **What changed:** Qwen's corrected audit came back with a fixed method

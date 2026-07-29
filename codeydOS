@@ -172,6 +172,16 @@ PYEOF
     nohup /data/data/com.termux/files/usr/bin/python3 "$TMPSCRIPT" > "$LOG_FILE" 2>&1 &
     DAEMON_PID=$!
 
+    # Write the PID file immediately (atomic write-then-move), from the
+    # shell, rather than waiting for the Python process to write its own
+    # copy later. Closes the race where a concurrent `codeydOS start` run
+    # during the model's 15-40s load window sees no/stale PID file, passes
+    # the guard above, and pre-kills this instance's still-loading
+    # llama-server. core/daemon.py's own write_pid_file() still runs later
+    # as a second, idempotent write — this one just needs to land first.
+    echo "$DAEMON_PID" > "${PID_FILE}.tmp"
+    mv "${PID_FILE}.tmp" "$PID_FILE"
+
     sleep 1
 
     if kill -0 "$DAEMON_PID" 2>/dev/null; then
@@ -179,7 +189,7 @@ PYEOF
         echo "Log: $LOG_FILE"
     else
         echo "ERROR: Main daemon failed to start. Check: $LOG_FILE"
-        rm -f "$TMPSCRIPT"
+        rm -f "$TMPSCRIPT" "$PID_FILE"
         return 1
     fi
 

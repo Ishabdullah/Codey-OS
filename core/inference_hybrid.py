@@ -58,16 +58,25 @@ class ChatCompletionBackend:
             return False
 
     def infer(
-        self, messages: list, max_tokens: int = 2048, stop: List[str] = None, stream: bool = False
+        self,
+        messages: list,
+        max_tokens: int = 2048,
+        stop: List[str] = None,
+        stream: bool = False,
+        on_first_token: "Optional[callable]" = None,
     ) -> Optional[tuple]:
         """
         Run inference via /v1/chat/completions.
 
         Args:
-            messages:   Chat messages list
-            max_tokens: Maximum tokens to generate
-            stop:       Additional stop sequences
-            stream:     If True, print tokens to stdout as they arrive (SSE)
+            messages:       Chat messages list
+            max_tokens:     Maximum tokens to generate
+            stop:           Additional stop sequences
+            stream:         If True, print tokens to stdout as they arrive (SSE)
+            on_first_token: Optional callback invoked once, right before the
+                            first content chunk is written to stdout — lets
+                            callers stop a "processing" progress indicator at
+                            the exact moment real output starts.
 
         Returns:
             (text, tokens, tps) tuple or None on error
@@ -99,7 +108,7 @@ class ChatCompletionBackend:
             )
 
             if stream:
-                return self._infer_streaming(req, start)
+                return self._infer_streaming(req, start, on_first_token=on_first_token)
             else:
                 return self._infer_blocking(req, start)
 
@@ -140,7 +149,7 @@ class ChatCompletionBackend:
         info(f"Chat completions: {tokens} tokens in {elapsed:.1f}s ({tps:.1f} t/s)")
         return text.strip(), tokens, tps
 
-    def _infer_streaming(self, req, start: float) -> Optional[tuple]:
+    def _infer_streaming(self, req, start: float, on_first_token: "Optional[callable]" = None) -> Optional[tuple]:
         """
         SSE streaming inference — prints each token to stdout as it arrives.
 
@@ -151,6 +160,7 @@ class ChatCompletionBackend:
         full_text = []
         tokens = 0
         tps = 0.0
+        _first_token_fired = False
 
         # Repeat detection circuit breaker — stops babbling
         _recent_sentences = []
@@ -186,6 +196,12 @@ class ChatCompletionBackend:
                         delta = choices[0].get("delta", {})
                         content = delta.get("content")
                         if content:
+                            if not _first_token_fired and on_first_token:
+                                _first_token_fired = True
+                                try:
+                                    on_first_token()
+                                except Exception:
+                                    pass
                             sys.stdout.write(content)
                             sys.stdout.flush()
                             full_text.append(content)

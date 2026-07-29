@@ -1285,22 +1285,11 @@ def run_agent(
     from core.memory_v2 import memory as _mem
 
     _mem.tick()
-    # ── Phase 3: Layered system prompt (draft phase) ──────────────────────────
-    sys_prompt = build_recursive_prompt(user_message, phase="draft", plan_rag_block=_plan_rag_block)
-    messages = [{"role": "system", "content": sys_prompt}]
 
-    # Adaptive context management — only compress when context > 75% of n_ctx
-    # Build a temporary full messages array for accurate token measurement
-    _tmp_msgs = messages + history + [{"role": "user", "content": user_message}]
-    if should_summarize(history, system_messages=_tmp_msgs):
-        history = summarize_history(history)
-        # NOTE: _mem.compress_summary() was removed here — it calls infer()
-        # on the same 7B model that's about to run the real task, causing
-        # a single-slot collision. The 0.5B summarize_history() is sufficient.
-    # Rebuild messages with potentially compressed history
-    messages = [{"role": "system", "content": sys_prompt}]
-
-    # Pre-inference guide: if it's a question or conversation, tell it NOT to use tools
+    # ── QA/smalltalk classification — computed BEFORE the system prompt is
+    # built so it can gate which context blocks the prompt builder assembles
+    # (repo map, RAG, skills, files, symbolic graph are irrelevant to "hello"
+    # and needlessly cost ~2,500 tokens of prompt-processing time). ─────────
     msg_low = user_message.lower().strip()
     _action_kws = [
         "create",
@@ -1407,6 +1396,24 @@ def run_agent(
         or msg_low.startswith(_question_starters)
         or any(re.search(r"\b" + re.escape(k) + r"\b", msg_low) for k in _qa_phrases)
     )
+
+    # ── Phase 3: Layered system prompt (draft phase) ──────────────────────────
+    sys_prompt = build_recursive_prompt(
+        user_message, phase="draft", plan_rag_block=_plan_rag_block, lightweight=is_qa
+    )
+    messages = [{"role": "system", "content": sys_prompt}]
+
+    # Adaptive context management — only compress when context > 75% of n_ctx
+    # Build a temporary full messages array for accurate token measurement
+    _tmp_msgs = messages + history + [{"role": "user", "content": user_message}]
+    if should_summarize(history, system_messages=_tmp_msgs):
+        history = summarize_history(history)
+        # NOTE: _mem.compress_summary() was removed here — it calls infer()
+        # on the same 7B model that's about to run the real task, causing
+        # a single-slot collision. The 0.5B summarize_history() is sufficient.
+    # Rebuild messages with potentially compressed history
+    messages = [{"role": "system", "content": sys_prompt}]
+
     if is_qa:
         messages.append(
             {

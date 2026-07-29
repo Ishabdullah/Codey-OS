@@ -361,6 +361,12 @@ class ModelLoader:
             self._server = None
             self._loaded = False
 
+    def get_pid(self) -> Optional[int]:
+        """Return the PID of the llama-server process this loader spawned, if any."""
+        if self._server and self._server.process:
+            return self._server.process.pid
+        return None
+
     def ensure_model(self, model_type: str = "primary") -> bool:
         """Ensure the model is loaded and running."""
         if self._loaded and self._server and self._server.is_running():
