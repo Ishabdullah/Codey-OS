@@ -14,6 +14,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -349,16 +350,28 @@ class TestMemoryCompressSummary(unittest.TestCase):
         self.assertEqual(result, short_history)
 
     def test_compress_summary_handles_inference_failure(self):
-        """compress_summary should return fresh turns when inference fails."""
+        """compress_summary should return fresh turns when inference fails.
+
+        compress_summary() imports `infer` locally from core.inference_v2
+        inside its function body, so the patch target must be
+        "core.inference_v2.infer" (patching "core.memory_v2.infer" would
+        have no effect, since no such module-level name exists there).
+        Mocking here also prevents a real 7B model load during test runs.
+        """
         # Create long history
         long_history = [{"role": "user", "content": f"message {i}"} for i in range(10)] + [
             {"role": "assistant", "content": f"response {i}"} for i in range(10)
         ]
-        # With inference unavailable, should return last 4 messages
-        result = self.memory.compress_summary(long_history)
-        # Should return fresh turns (last 4 messages)
-        self.assertIsInstance(result, list)
-        self.assertLessEqual(len(result), len(long_history))
+        original_summary = self.memory.get_summary()
+        # Real inference failures return an "[ERROR] ..." string rather than
+        # raising (see core/inference_v2.py:94), so mock that convention.
+        with patch("core.inference_v2.infer", return_value="[ERROR] Failed to load model") as mock_infer:
+            result = self.memory.compress_summary(long_history)
+        mock_infer.assert_called_once()
+        # With inference unavailable, should return last 4 messages unchanged
+        self.assertEqual(result, long_history[-4:])
+        # The summary should not have been updated on inference failure
+        self.assertEqual(self.memory.get_summary(), original_summary)
 
 
 class TestMemoryStatusDictShape(unittest.TestCase):
