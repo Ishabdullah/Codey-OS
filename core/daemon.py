@@ -60,6 +60,13 @@ def check_pid_file() -> bool:
                 fcntl.flock(f, fcntl.LOCK_SH | fcntl.LOCK_NB)
                 try:
                     pid = int(f.read().strip())
+                    if pid == os.getpid():
+                        # codeydOS writes this process's own PID into the
+                        # file before Python starts, to close the H-4
+                        # daemon-start race. Finding our own PID here is
+                        # therefore expected on every startup — it is not
+                        # evidence of a second instance.
+                        return False
                     os.kill(pid, 0)
                     return True
                 except (ProcessLookupError, ValueError):

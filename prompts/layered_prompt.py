@@ -286,13 +286,15 @@ def _build_draft_prompt(user_message: str, plan_rag_block: str = "", lightweight
     ):
         return _draft_cache["prompt"]
 
-    from prompts.system_prompt import CAPABILITIES_PROMPT, get_system_prompt
+    from prompts.system_prompt import (CAPABILITIES_PROMPT, get_qa_system_prompt,
+                                       get_system_prompt)
 
     # 20 000 chars ≈ 5 000 tokens — well within the 32 768-token context window.
     # Previously 12 000 left 80% of the context unused; raising this lets more
     # files, RAG results, and skill patterns fit without eviction.
     p = LayeredPrompt(budget_chars=20000)
-    p.add("identity", get_system_prompt(), priority=0, required=True)
+    identity = get_qa_system_prompt() if lightweight else get_system_prompt()
+    p.add("identity", identity, priority=0, required=True)
 
     # Inject capabilities only when the user is asking about them
     _msg_low = user_message.lower() if user_message else ""

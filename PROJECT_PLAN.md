@@ -431,17 +431,22 @@ only ever handed back as downloadable files. Being fixed now (see below).
       Codey-OS's lineage)
 
 ### Audit Remediation — Round 1 (C-1, H-1, H-4)
-**Status: CODE COMPLETE, LIVE VERIFICATION PENDING (2026-07-29)** — fixes
-from `Codey-OS-audit.md`'s Critical finding C-1 and High findings H-1/H-4,
-the three causally-linked issues behind the "Codey doesn't respond" live
+**Status: H-4 FIXED AND LIVE-VERIFIED. C-1 FIXED AND LIVE-VERIFIED (short
+QA prompt landed as a follow-up). H-1 still mechanism-verified only — no
+live check of the shutdown path has been run.** (2026-07-29) — fixes from
+`Codey-OS-audit.md`'s Critical finding C-1 and High findings H-1/H-4, the
+three causally-linked issues behind the "Codey doesn't respond" live
 symptom (slow first response → impatient retry → daemon-race → killed
-model server). **Important:** the checkboxes below mark the code changes
-as written and mechanism-verified (unit/mock level) — they do NOT mean the
-live symptom has been confirmed fixed. Nobody has yet run "hello" against
-the real model and watched it respond fast, or run a real concurrent
-`codeydOS start` and watched the second one back off cleanly. That's a
-separate, still-open step — see the verification note below. See
-`PROJECT_LOG.md` 2026-07-29 entry for full detail.
+model server). Round 1's H-4 fix (writing the daemon's own PID early)
+introduced a self-race bug — the daemon always found its own PID in
+`check_pid_file()` and refused to start — which is why the first live
+verification attempt failed outright; that self-race is now also fixed
+and confirmed live. C-1's original fix only tiered the *code paths*, not
+the prompt content — the "identity" block was still the full
+8,352-char tool-format prompt even on the lightweight path; a follow-up
+(`get_qa_system_prompt()`) now actually shrinks it. See `PROJECT_LOG.md`
+2026-07-29 entries (both the original Round 1 entry and the follow-up
+above it) for full detail.
 - [x] **C-1** — Tiered the system prompt: `is_qa` classification moved
       before prompt construction in `core/agent.py`, threaded into
       `build_recursive_prompt()`/`_build_draft_prompt()` as a new
@@ -466,20 +471,32 @@ separate, still-open step — see the verification note below. See
       PID guard and pre-killed the first instance's loading model server.
       Also cleans up the PID file on the daemon-failed-to-start path (a new
       failure mode introduced by writing it earlier).
-- [ ] **Live verification — NOT YET DONE.** The two checks that actually
-      prove the symptom is gone were never run: (1) does "hello" against
-      the real 7B respond fast now (C-1), and (2) does a real concurrent
-      `codeydOS start` during the model's load window back off cleanly
-      instead of killing the first instance (H-4)? A device crash occurred
-      mid-task during an attempt at this, before either check completed.
-      What *was* done instead — full `pytest tests/` suite (253/253 pass),
-      mocked confirmation that the lightweight path never calls
-      `retrieve()`/`load_relevant_skills()`/`get_repo_map()` while the full
-      path still does, and a direct classification check (`is_qa` →
-      `True` for "hello", `False` for a real coding request) — verifies the
-      *mechanism* is wired correctly, not that the live symptom is
-      actually gone. Do not treat Round 1 as verified-complete until this
-      item is checked off via a real, RAM-monitored run.
+- [x] **H-4 self-race fix** — `check_pid_file()` in `core/daemon.py` now
+      returns `False` (not a duplicate) when the PID in the file is its
+      own, since Round 1's fix made that the expected case on every
+      startup. Live-verified: `codeydOS start` succeeds cleanly, a
+      concurrent `codeydOS start` during model load correctly reports
+      "already running" and does not kill the loading instance
+      (confirmed exactly one `llama-server` PID via `pgrep` once loading
+      finished).
+- [x] **C-1 follow-up: short QA identity prompt** — added
+      `get_qa_system_prompt()` (`prompts/system_prompt.py`, ~280 chars,
+      no tool-format instructions) and wired it into
+      `_build_draft_prompt()`'s `identity` layer for `lightweight=True`.
+      Lightweight prompt dropped from 8,947 → 849 chars. Live-verified in
+      a single warm session: QA turns ("hello", "what can you do?") both
+      returned plain text with no `<tool>` leakage in ~14-20s
+      first-token time; a real coding request in the same session
+      correctly took the full path (file loaded, recursive draft/review,
+      tool call generated). See `PROJECT_LOG.md` for the full numbers and
+      the caveat that the ~15s-vs-~180s comparison isn't a clean
+      isolation of the char-count savings alone (warm vs. cold session).
+- [ ] **H-1 live verification — NOT YET DONE.** Only C-1 and H-4 got a
+      real live check this round. H-1 (scoped process kill on shutdown)
+      is still verified at the mechanism level only (`get_pid()` exists,
+      the blanket `pkill` is gone) — nobody has yet triggered the
+      `unload()`-throws fallback path live and confirmed it kills only
+      the one captured PID's process group.
 
 ### Phase 4 — Self-improvement activation (deliberate, not automatic)
 Do NOT start this phase until Phases 1–3 are stable and you've watched the

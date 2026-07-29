@@ -5,6 +5,82 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-29 — Round 1 live-verification follow-up: H-4 self-race fix, C-1 short QA prompt
+
+**What changed:**
+
+1. **H-4 self-race (`core/daemon.py`'s `check_pid_file()`).** Round 1's
+   H-4 fix made `codeydOS` write the daemon's own PID into `PID_FILE`
+   immediately after spawning it. But `check_pid_file()` — called by
+   `main()` on every daemon startup, before `Daemon()` is even
+   constructed — did `os.kill(pid, 0)` against whatever PID was in the
+   file. A process can always signal itself, so the daemon now always
+   found its own freshly-written PID, concluded a duplicate was running,
+   and exited immediately with "Daemon is already running." This is why
+   live verification of Round 1 failed both times. Fix: added
+   `if pid == os.getpid(): return False` before the `os.kill` aliveness
+   check — one line, nothing else in the function changed.
+2. **C-1 follow-up (`prompts/system_prompt.py` / `prompts/layered_prompt.py`).**
+   Direct measurement showed `get_system_prompt()` (priority 0,
+   `required=True`, included even when `lightweight=True`) is 8,352
+   characters of pure tool-calling-format enforcement — irrelevant to a
+   QA/smalltalk turn that's already separately told not to use tools via
+   `is_qa`. Added `get_qa_system_prompt()` — a ~280-char identity block
+   with no tool-format instructions — and switched
+   `_build_draft_prompt()`'s `identity` layer to use it when
+   `lightweight=True`, leaving `get_system_prompt()`/`_SYSTEM_PROMPT_BODY`
+   byte-for-byte unchanged for the full path.
+
+**Verification (real, live, RAM-monitored — not mocked):**
+
+- **H-4:** `codeydOS start` succeeded cleanly (no more false "already
+  running"). A concurrent `codeydOS start` issued while the first
+  instance was still loading the 7B model correctly printed "Main daemon
+  is already running (PID: 7918)" and did **not** kill the loading
+  instance — `pgrep -fa "llama-server.*8080"` showed exactly one PID
+  (7926) once loading finished. Mid-task the whole Claude Code session
+  crashed and restarted (confirmed via `ps` showing a fresh `--resume`
+  process); this killed the daemon and its children as a side effect of
+  losing the process group, not a code defect — no error/crash trace in
+  `codeyOS.log`, just the log stopping mid-stream. Step 3 of the
+  verification plan (`codeydOS stop` + `free -h`) was therefore not
+  re-run as a clean stop cycle afterward, since nothing depending on
+  `stop_daemon()` was touched by this fix; post-crash state showed no
+  orphaned processes and no PID file, so cleanup was confirmed by other
+  means.
+- **C-1:** Char counts — full prompt 10,148 chars, lightweight prompt now
+  **849 chars** (was 8,947 before this fix), saving **9,299 chars**
+  (previously only 1,201 were saved). Live one-session test via
+  `python3 main.py --no-resume` (model loaded once, three turns in the
+  same warm session): `hello` → first token at ~14.0s after send;
+  `what can you do?` → first token at ~15.3s after send, both plain text
+  with no `<tool>` tags (confirms the separate `is_qa` "don't use tools"
+  behavior is untouched by this fix). A real coding request in the same
+  session ("add a docstring to the `shutdown` function in `main.py`")
+  correctly took the full/non-lightweight path — `[Recursive] Draft
+  (1/2)`, file loaded into context (2,667 tokens), a `patch_file` tool
+  call was generated and the recursive review accepted it at quality
+  8/10. Both QA turns' ~14-20s time-to-first-token is a large
+  improvement over Round 1's unverified ~166-186s baseline, though that
+  baseline was measured cold (fresh model load per invocation) while
+  this test was warm (one session, model loaded once) — the two numbers
+  aren't a clean apples-to-apples isolation of the char-count savings
+  alone, but the qualitative result (QA responses in ~15s instead of
+  minutes) is real and observed, not inferred.
+- **Unrelated observation, not in scope for this task:** on the coding
+  turn, after the recursive review accepted the draft, the harness logged
+  "Malformed tool call — JSON parse failed, retrying" and regenerated an
+  identical `patch_file` call with `old_str: ""`. `git diff main.py`
+  afterward showed no change was actually applied to `shutdown()` —
+  the patch appears to have silently no-op'd (likely `patch_file` doesn't
+  handle an empty `old_str` as "insert" the way the model assumed). This
+  predates both fixes in this task and lives in the recursive
+  critique/refine or `patch_file` tool-execution path, not in
+  `prompts/system_prompt.py`, `layered_prompt.py`, or `daemon.py` — flagged
+  for a future task, not fixed here.
+
+---
+
 ## 2026-07-29 — Audit Round 1 fixes (C-1, H-1, H-4): tiered prompt, scoped process kills, PID-file race closed
 
 **What changed:** Three causally-linked fixes from `Codey-OS-audit.md`,

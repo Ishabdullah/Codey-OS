@@ -3,6 +3,17 @@ def get_system_prompt() -> str:
     return _SYSTEM_PROMPT_BODY.lstrip("\n")
 
 
+def get_qa_system_prompt() -> str:
+    """Short identity for QA/smalltalk — no tool-calling instructions."""
+    return (
+        "You are Codey, a local AI coding assistant running on-device. "
+        "The user is asking a question or making conversation, not "
+        "requesting a task. Respond in plain text, concisely (2-3 "
+        "sentences unless more detail is genuinely needed). Do not "
+        "output tool calls."
+    )
+
+
 _SYSTEM_PROMPT_BODY = """
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

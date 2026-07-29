@@ -1,5 +1,46 @@
 # New Issues Found During V3 Overhaul
 
+## Found during H-4 self-race / C-1 short-prompt follow-up task, 2026-07-29 — NOT fixed, logged only
+
+### [NEW-2] `patch_file` with `old_str: ""` silently no-ops instead of inserting or erroring
+- **Confidence: Confirmed** (directly observed, not inferred).
+- **Where found:** Live verification of the C-1 short-QA-prompt fix. In a
+  single warm `python3 main.py --no-resume` session, after two QA turns
+  ("hello", "what can you do?"), a real coding request was sent: "add a
+  docstring to the `shutdown` function in `main.py`". This correctly took
+  the full/non-lightweight path (`main.py` loaded into context,
+  `[Recursive] Draft (1/2)` → `[Recursive] Review (2/2)` → "Accepted —
+  quality 8/10") and the model emitted a `patch_file` tool call:
+  `{"name": "patch_file", "args": {"path": "main.py", "old_str": "", "new_str": "def shutdown():\n    \"\"\"...docstring...\"\"\"\n    print('Shutting down...')\n    # Add your shutdown logic here."}}`.
+- **Evidence it no-op'd:** Immediately after acceptance, the harness
+  logged `⚠ Malformed tool call — JSON parse failed, retrying`, which
+  triggered a second, near-identical `patch_file` call with the same
+  `old_str: ""`. No error or success message about the patch's actual
+  effect was ever printed before the next `You>` prompt appeared.
+  `git diff main.py` afterward showed **zero changes** — `shutdown()` at
+  line 125 has no docstring, unmodified from HEAD. The model's tool call
+  ran (or was retried) but never touched the file.
+- **Likely root cause (not yet verified against `tools/patch_tools.py`):**
+  the model appears to be using `old_str: ""` to mean "insert without
+  matching," but `patch_file`'s matching logic likely treats an empty
+  `old_str` as either "match nothing" (silent no-op) or a bad match
+  that gets swallowed rather than surfaced as `[PATCH_FAILED]` to the
+  user. Note `tests/test_patch.py`'s pre-existing failure (further down
+  this file) is about the *format* of the failure message
+  (`[PATCH_FAILED]` vs `[ERROR] String not found`) — this is a different,
+  possibly related but unconfirmed, issue about a failure not being
+  surfaced at all for the empty-`old_str` case.
+- **Impact:** A user asking for a simple, common edit ("add a docstring
+  to X") can get a "quality 8/10, accepted" response with an emitted tool
+  call that looks successful in the transcript, while the file is
+  actually untouched — a silent-failure UX gap, not a crash.
+- **Not fixed here:** out of scope for the H-4/C-1 task that surfaced it
+  (this task touched `core/daemon.py`, `prompts/system_prompt.py`, and
+  `prompts/layered_prompt.py` only). Needs a dedicated look at
+  `tools/patch_tools.py`'s handling of empty/non-matching `old_str`
+  before deciding whether the fix is in the tool implementation or in
+  prompting the model to never emit an empty `old_str`.
+
 ## Found during Round 1 (C-1/H-1/H-4) fix task, 2026-07-29 — NOT fixed, logged only
 
 ### [NEW-1] A live, unowned 7B `llama-server` appeared twice this session, timing-correlated with `pytest tests/` runs — matches audit finding L-6, but the causal mechanism is UNCONFIRMED (correction below)
