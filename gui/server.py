@@ -297,4 +297,4 @@ def make_app() -> web.Application:
 
 if __name__ == "__main__":
     print(f"\n  Codey-OS GUI  →  http://localhost:{PORT}\n")
-    web.run_app(make_app(), host=HOST, port=PORT, print=lambda *_: None)
+    web.run_app(make_app(), host=HOST, port=PORT, print=lambda *_: None, access_log=None)
