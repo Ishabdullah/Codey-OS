@@ -79,11 +79,12 @@ class CapabilityOptimizer:
     6. Register new version ONLY if better
     """
 
-    def __init__(self):
+    def __init__(self, data_base: Optional[Path] = None):
         self._registry = get_capability_registry()
         self._tracker = get_performance_tracker()
         self._sandbox = get_sandbox()
         self._optimization_log: List[OptimizationResult] = []
+        self._data_base = data_base or (Path(__file__).parent.parent / "data")
 
     def find_optimization_targets(self, min_uses: int = 3) -> List[Dict[str, Any]]:
         """
@@ -199,7 +200,7 @@ class CapabilityOptimizer:
         diagnosis = self.analyze_failures(capability)
 
         # Create staging directory
-        staging_dir = Path(__file__).parent.parent / "data" / "staging" / capability.replace(".", "_")
+        staging_dir = self._data_base / "staging" / capability.replace(".", "_")
         staging_dir.mkdir(parents=True, exist_ok=True)
 
         new_path = staging_dir / impl_path.name
@@ -375,10 +376,7 @@ class CapabilityOptimizer:
 
         # Tests passed — register new version
         # Copy improved file to a versioned backup location
-        backup_dir = (
-            Path(__file__).parent.parent / "data" / "versions"
-            / capability.replace(".", "_")
-        )
+        backup_dir = self._data_base / "versions" / capability.replace(".", "_")
         backup_dir.mkdir(parents=True, exist_ok=True)
         backup_path = backup_dir / f"v{new_version}_{Path(new_path).name}"
         shutil.copy2(new_path, backup_path)

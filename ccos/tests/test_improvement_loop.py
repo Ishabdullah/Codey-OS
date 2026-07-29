@@ -188,11 +188,11 @@ print("PASS")
                 error_category="timeout" if i >= 5 else "",
             )
 
-        # Create optimizer (uses real sandbox)
-        from ccos.core.sandbox import Sandbox
-        sandbox = Sandbox()
+        # Create optimizer (uses real sandbox, restricted to this test's tmpdir)
+        from ccos.core.sandbox import Sandbox, ALLOWED_DIRS
+        sandbox = Sandbox(allowed_dirs=ALLOWED_DIRS + [tmpdir])
 
-        optimizer = CapabilityOptimizer()
+        optimizer = CapabilityOptimizer(data_base=Path(tmpdir) / "data")
         optimizer._registry = registry
         optimizer._tracker = tracker
         optimizer._sandbox = sandbox

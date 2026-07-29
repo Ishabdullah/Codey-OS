@@ -502,7 +502,8 @@ class SkillRecombiner:
     into a system that invents new tools from experience.
     """
 
-    def __init__(self, min_pattern_freq: int = 2, min_success: float = 0.75):
+    def __init__(self, min_pattern_freq: int = 2, min_success: float = 0.75,
+                 plugin_base: Optional[Path] = None):
         self._detector = PatternDetector(
             min_frequency=min_pattern_freq,
             min_success_rate=min_success,
@@ -513,6 +514,9 @@ class SkillRecombiner:
         self._memory = get_ccos_memory()
         self._tracker = get_performance_tracker()
         self._results: List[RecombinationResult] = []
+        self._plugin_base = plugin_base or (
+            Path(__file__).parent.parent / "plugins" / "compound"
+        )
 
     def analyze_and_generate(self) -> List[RecombinationResult]:
         """
@@ -567,10 +571,7 @@ class SkillRecombiner:
         )
 
         # Generate plugin files
-        plugin_dir = (
-            Path(__file__).parent.parent / "plugins" / "compound"
-            / skill.name.replace(".", "_")
-        )
+        plugin_dir = self._plugin_base / skill.name.replace(".", "_")
         plugin_dir.mkdir(parents=True, exist_ok=True)
 
         # Write manifest

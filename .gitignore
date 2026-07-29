@@ -27,3 +27,8 @@ __pycache__/
 *token*
 *apikey*
 *api_key*
+
+# CCOS runtime state — rebuilt from plugin manifests / accumulates during
+# normal use, not meant to carry committed content between sessions.
+ccos/data/capabilities.json
+ccos/data/reflections.jsonl

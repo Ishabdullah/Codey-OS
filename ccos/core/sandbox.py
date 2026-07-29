@@ -90,10 +90,10 @@ def _is_command_blocked(command: str) -> bool:
     return False
 
 
-def _validate_path(path: str) -> bool:
+def _validate_path(path: str, allowed_dirs: List[str] = None) -> bool:
     """Check if a path is within allowed directories."""
     resolved = Path(path).resolve()
-    for allowed in ALLOWED_DIRS:
+    for allowed in (allowed_dirs or ALLOWED_DIRS):
         try:
             resolved.relative_to(Path(allowed).resolve())
             return True
@@ -136,7 +136,7 @@ class Sandbox:
             )
 
         exec_cwd = cwd or str(self._tmp_dir)
-        if not _validate_path(exec_cwd):
+        if not _validate_path(exec_cwd, self._allowed_dirs):
             return SandboxResult(
                 success=False,
                 stderr=f"[SANDBOX VIOLATION] Path not allowed: {exec_cwd}",

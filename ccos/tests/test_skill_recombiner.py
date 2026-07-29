@@ -266,32 +266,37 @@ def test_full_recombination_pipeline():
     pattern2 = ("vision.camera_capture", "speech.tts")
     _seed_workflows(memory, pattern2, count=3)
 
-    # Create recombiner with temp stores
-    recombiner = SkillRecombiner(min_pattern_freq=2, min_success=0.5)
-    recombiner._memory = memory
-    recombiner._registry = registry
+    # Create recombiner with temp stores, including a temp plugin dir so this
+    # test doesn't write generated compound skills into the real repo tree.
+    with tempfile.TemporaryDirectory() as plugin_tmpdir:
+        recombiner = SkillRecombiner(
+            min_pattern_freq=2, min_success=0.5,
+            plugin_base=Path(plugin_tmpdir),
+        )
+        recombiner._memory = memory
+        recombiner._registry = registry
 
-    # Run analysis
-    results = recombiner.analyze_and_generate()
+        # Run analysis
+        results = recombiner.analyze_and_generate()
 
-    assert len(results) >= 1, f"Expected at least 1 result, got {len(results)}"
+        assert len(results) >= 1, f"Expected at least 1 result, got {len(results)}"
 
-    registered = [r for r in results if r.registered]
-    print(f"  [PASS] Generated {len(results)} skill(s), {len(registered)} registered")
+        registered = [r for r in results if r.registered]
+        print(f"  [PASS] Generated {len(results)} skill(s), {len(registered)} registered")
 
-    for r in results:
-        print(f"    {r.skill_name}: pattern={r.pattern.sequence}, "
-              f"sandbox={'PASS' if r.sandbox_passed else 'FAIL'}, "
-              f"registered={r.registered}")
+        for r in results:
+            print(f"    {r.skill_name}: pattern={r.pattern.sequence}, "
+                  f"sandbox={'PASS' if r.sandbox_passed else 'FAIL'}, "
+                  f"registered={r.registered}")
 
-    # Verify compound skills are queryable
-    compound = recombiner.get_compound_skills()
-    print(f"  Compound skills in registry: {len(compound)}")
+        # Verify compound skills are queryable
+        compound = recombiner.get_compound_skills()
+        print(f"  Compound skills in registry: {len(compound)}")
 
-    # Stats
-    stats = recombiner.get_stats()
-    assert stats["total_recombinations"] >= 1
-    print(f"  Stats: {stats}")
+        # Stats
+        stats = recombiner.get_stats()
+        assert stats["total_recombinations"] >= 1
+        print(f"  Stats: {stats}")
 
     Path(db_path).unlink(missing_ok=True)
     Path(reg_path).unlink(missing_ok=True)
