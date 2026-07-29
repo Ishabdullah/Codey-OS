@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased] - Codey-OS Rename
+
+Renamed the project from Codey-V3 to **Codey-OS**, reflecting its evolution
+from a standalone coding agent into a unified agent operating system (the
+coding agent plus the CCOS shell it now runs under).
+
+- Introduced shared naming constants (`utils/config.py`) as the single
+  source of truth for the product name and runtime state directory, rather
+  than hardcoding brand strings/paths per file.
+- Entry points renamed: `codey3` → `codeyOS`, `codeyd3` → `codeydOS`.
+- Runtime state directory renamed: `~/.codey-v3` → `~/.codeyOS`.
+- Swept docstrings, comments, GUI title/wordmark, ASCII banners, and
+  current-state docs (README.md, QWEN.md, MODEL_COMPARISON.md, etc.) from
+  Codey-V3/Codey-v3 branding to Codey-OS.
+- Updated OpenRouter cloud-fallback `HTTP-Referer` headers to the project's
+  real repository URL.
+- Renamed `core/lora_import.py`'s generated merged-model output filenames
+  from `codey-v3-finetuned-{7b,1.5b}.gguf` to `codeyOS-finetuned-{7b,1.5b}.gguf`.
+- Added `codeyOS.md` to `core/memory_v2.py`'s auto-detected project-file
+  list (alongside `CODEY.md`, `README.md`, `config.py`); kept `codey-v3.md`
+  in the list too for backward compatibility with existing projects.
+- Renamed `docs/codey-v2-tools-embed.md` → `docs/tools-embedding-pipeline.md`
+  to match its actual (already-current) content.
+- Historical entries below, `TODO.md`, `AUDIT_REPORT.md`, and
+  `docs/version-history.md` intentionally retain their original Codey-V2/
+  Codey-V3 wording, since they document what those versions actually were
+  called at the time.
+
 ## [v3.0.0] - 2026-06-13
 
 ### Security Overhaul

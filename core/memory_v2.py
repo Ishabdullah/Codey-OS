@@ -227,7 +227,7 @@ class ProjectMemory:
     def __init__(self):
         self._files: Dict[str, ProjectMemoryItem] = {}
         self._protected_patterns = [
-            "CODEY.md", "codey-v3.md", "README.md", "config.py", "config.json",
+            "CODEY.md", "codeyOS.md", "codey-v3.md", "README.md", "config.py", "config.json",
         ]
 
     def add(self, file_path: str, content: str, is_protected: bool = False):

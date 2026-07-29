@@ -477,10 +477,10 @@ def import_lora_adapter(
         # Full merge on-device (requires llama.cpp, lots of RAM)
         if model_variant == "primary":
             base_model = str(MODEL_PATH)
-            output_name = "codey-v3-finetuned-7b.gguf"
+            output_name = "codeyOS-finetuned-7b.gguf"
         else:
             base_model = str(SECONDARY_MODEL_PATH)
-            output_name = "codey-v3-finetuned-1.5b.gguf"
+            output_name = "codeyOS-finetuned-1.5b.gguf"
 
         output_path = Path.home() / "models" / "codey-finetuned" / output_name
         output_path.parent.mkdir(parents=True, exist_ok=True)
