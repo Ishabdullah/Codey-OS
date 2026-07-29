@@ -5,6 +5,67 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-29 — Round 2 (audit finding C-2, GUI server security): loopback bind, Origin allowlist, session token
+
+**What changed:** Three sequenced sub-tasks, each committed and
+code-reviewer-approved separately, closing out `Codey-OS-audit.md`'s
+[C-2] (GUI server: unauthenticated command execution, bound to `0.0.0.0`
+by default, no WebSocket Origin check):
+
+1. **`d29468f`** — `gui/server.py`'s default bind host changed from
+   `0.0.0.0` to `127.0.0.1`. `CODEY_GUI_HOST` env var override preserved
+   for deliberate LAN use. Reviewed and approved standalone, with an
+   explicit note in the commit that C-2 isn't resolved until sub-tasks 2
+   and 3 land (no auth/Origin check yet at this point).
+2. **`ca94ab5`** — `handle_ws` now rejects any WebSocket handshake unless
+   the `Origin` header exactly matches `http://localhost:<port>` or
+   `http://127.0.0.1:<port>` (port read from a module-level `PORT` global,
+   hoisted so the allowlist and `web.run_app` can never disagree on which
+   port is actually bound). Missing Origin is rejected, not exempted.
+   First submission was rejected by code-reviewer for allowing
+   missing-Origin through; resubmission with strict
+   reject-if-missing-or-mismatched was approved.
+3. **`1198ba1`** — per-process session token
+   (`secrets.token_urlsafe(32)`, generated once at server startup)
+   required as a `token` query param on the `/ws` upgrade request,
+   checked via timing-safe `secrets.compare_digest`, independently ANDed
+   with the Origin check, both checked before `ws.prepare()` so a
+   rejected request never completes the WS handshake. Token is embedded
+   in `index.html` for the browser client. `GET /` (`handle_index`)
+   deliberately left ungated by the token — code-reviewer concurred this
+   is correct given loopback-only bind (post sub-task 1), Origin isn't a
+   real boundary against a same-machine actor, and gating `/` would
+   require a second token-distribution channel with no real security
+   benefit.
+
+**Verification — code-reviewer-verified against a live scratch instance,
+NOT a live-verifier pass through the daemon-managed GUI startup path.**
+No live-verifier agent was run this round. Verification consisted of
+code-reviewer independently running a real `gui/server.py` instance on a
+scratch port and curl-testing all four token/Origin combinations against
+it directly: no-token → 403, wrong-token → 403, correct-token +
+correct-Origin → 101 (handshake succeeds), correct-token + bad-Origin →
+403. Teardown was clean and PID-tracked. This is stronger evidence than a
+mock/unit test, but it did not exercise the actual daemon-driven
+`codeydOS`/`codey-start` GUI-launch path (env var propagation, the real
+PID-file-coordinated startup sequence) — that remains unconfirmed. Mark
+C-2 **code-reviewer-verified (live scratch instance), not fully
+live-verified**, not "code complete only."
+
+**Follow-up issue logged, not fixed:** `NEW_ISSUES.md` [NEW-3]
+(Suspected) — code-reviewer flagged that `web.run_app()` is called
+without `access_log=None`, so aiohttp's default `AccessLogger` would log
+the full request line (including the `/ws?token=...` query string) at
+INFO level if any future change configures a `logging` handler for this
+process. Currently dormant/not exploitable: nothing in the repo calls
+`logging.basicConfig()` for the GUI process and `gui/start.sh` doesn't
+redirect stdout/stderr to a persistent file, so Python's default
+`lastResort` handler drops the INFO-level line today. Suggested fix
+(not applied, out of scope): `access_log=None` on `web.run_app()`, or
+move the token off the query string entirely.
+
+---
+
 ## 2026-07-29 — Round 1 live-verification follow-up: H-4 self-race fix, C-1 short QA prompt
 
 **What changed:**

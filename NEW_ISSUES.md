@@ -1,5 +1,36 @@
 # New Issues Found During V3 Overhaul
 
+## Found during Round 2 (C-2 GUI security) sub-task 3/3, 2026-07-29 — NOT fixed, logged only
+
+### [NEW-3] GUI session token may leak into access logs if logging is ever configured for `gui/server.py`
+- **Confidence: Suspected** (dormant today, plausible future trigger; not
+  verified as currently reachable).
+- **Where found:** code-reviewer's review of the C-2 sub-task 3 session-token
+  commit (`1198ba1`).
+- **Location:** `gui/server.py`, `web.run_app()` call (entry point, ~line 300).
+- **Finding:** `web.run_app(make_app(), host=HOST, port=PORT, print=lambda
+  *_: None)` is called without `access_log=None`, so aiohttp's default
+  `AccessLogger` remains active and logs the full request line — including
+  the `?token=<SESSION_TOKEN>` query string on `/ws` upgrade requests — at
+  INFO level via Python's `logging` module.
+- **Why not currently exploitable:** nothing in this repo calls
+  `logging.basicConfig()` (or otherwise configures a handler) for the GUI
+  process, and `gui/start.sh` backgrounds `python gui/server.py &` without
+  redirecting stdout/stderr to a persistent file. Python's `logging`
+  module's default `lastResort` handler only surfaces WARNING+ to stderr, so
+  the INFO-level access log line is silently dropped today — the token does
+  not currently land in any file or terminal output.
+- **Why it's still worth tracking:** this is fragile, not fixed. If a future
+  change adds `logging.basicConfig()` anywhere in the process (common when
+  wiring up broader observability), or if `gui/start.sh` (or any future
+  daemon supervisor) redirects the GUI subprocess's stdout/stderr to a log
+  file, the session token starts landing in a readable log with no code
+  change to `gui/server.py` itself required to trigger it.
+- **Suggested fix (not applied — out of scope for this sub-task):** either
+  pass `access_log=None` to `web.run_app()`, or move the token off the query
+  string (header on upgrade, or first-message-after-connect) so it's not
+  part of what any access logger would capture by default.
+
 ## Found during H-4 self-race / C-1 short-prompt follow-up task, 2026-07-29 — NOT fixed, logged only
 
 ### [NEW-2] `patch_file` with `old_str: ""` silently no-ops instead of inserting or erroring

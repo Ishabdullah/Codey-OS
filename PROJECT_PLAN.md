@@ -498,6 +498,37 @@ above it) for full detail.
       `unload()`-throws fallback path live and confirmed it kills only
       the one captured PID's process group.
 
+### Audit Remediation — Round 2 (C-2)
+**Status: CODE COMPLETE, code-reviewer-verified against a live scratch
+instance — NOT fully live-verified** (2026-07-29) — fix from
+`Codey-OS-audit.md`'s Critical finding [C-2] (GUI server: unauthenticated
+command execution, bound to `0.0.0.0` by default, no WebSocket Origin
+check). Three sub-tasks, each committed and code-reviewer-approved
+separately. See `PROJECT_LOG.md` 2026-07-29 entry for full detail.
+- [x] Default GUI bind host changed `0.0.0.0` → `127.0.0.1`
+      (`CODEY_GUI_HOST` env override preserved) — commit `d29468f`
+- [x] `handle_ws` rejects connections with missing or mismatched `Origin`
+      header (allowlist: `http://localhost:<port>` /
+      `http://127.0.0.1:<port>`, port read from module-level `PORT`, not
+      hardcoded) — commit `ca94ab5`
+- [x] Per-process session token (`secrets.token_urlsafe(32)`) required as
+      a query param on the `/ws` upgrade, timing-safe comparison,
+      independent AND with the Origin check, both checked before
+      `ws.prepare()`. `GET /` intentionally left ungated (loopback-only,
+      no real second security boundary to gain) — commit `1198ba1`
+- [x] Verified by code-reviewer against a real running instance on a
+      scratch port: all 4 token/Origin combinations behaved as expected
+      (no-token 403, wrong-token 403, correct+correct 101,
+      correct-token+bad-Origin 403), clean PID-tracked teardown
+- [ ] **NOT live-verified through the actual daemon-managed GUI startup
+      path** (`codeydOS`/`codey-start`'s real env-var propagation and
+      PID-file-coordinated launch sequence) — no live-verifier agent was
+      run this round. Needs a dedicated live-verifier pass before this
+      can be marked fully live-verified.
+- Follow-up logged, not fixed: `NEW_ISSUES.md` [NEW-3] (Suspected) —
+  GUI session token could leak into access logs if logging is ever
+  configured for `gui/server.py` (dormant today).
+
 ### Phase 4 — Self-improvement activation (deliberate, not automatic)
 Do NOT start this phase until Phases 1–3 are stable and you've watched the
 system run real coding tasks through the sandbox/safety-veto path for a
