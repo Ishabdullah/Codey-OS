@@ -1,0 +1,67 @@
+{
+  "name": "task_queue",
+  "version": "1.0.0",
+  "description": "Wraps core/taskqueue.py's TaskQueue as path-addressable CCOS capabilities — create/inspect/update a persistent subtask queue by its JSON file path, loading/saving on each call since capability calls are stateless",
+  "category": "coding",
+  "entry_point": "task_queue.py",
+  "capabilities": [
+    {
+      "name": "coding.taskqueue_create",
+      "description": "Create a new task queue, persist it to disk, and return its file path",
+      "implementation": "task_queue:taskqueue_create",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.taskqueue_add",
+      "description": "Add a task (by description) to a queue on disk. Mutates queue state.",
+      "implementation": "task_queue:taskqueue_add",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.taskqueue_mark_running",
+      "description": "Mark a task in a queue as running and persist. Mutates queue state.",
+      "implementation": "task_queue:taskqueue_mark_running",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.taskqueue_mark_done",
+      "description": "Mark a task in a queue as done (with an optional result) and persist. Mutates queue state.",
+      "implementation": "task_queue:taskqueue_mark_done",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.taskqueue_mark_failed",
+      "description": "Mark a task in a queue as failed (with an optional error) and persist. Mutates queue state.",
+      "implementation": "task_queue:taskqueue_mark_failed",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.taskqueue_status",
+      "description": "Return a snapshot of a queue's state: tasks, pending/done counts, completion, current task",
+      "implementation": "task_queue:taskqueue_status",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.taskqueue_list",
+      "description": "List all saved task queues (newest first) with path and summary status",
+      "implementation": "task_queue:taskqueue_list",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    }
+  ],
+  "author": "CCOS",
+  "license": "MIT"
+}
