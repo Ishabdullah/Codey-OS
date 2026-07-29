@@ -573,6 +573,15 @@ class Daemon:
             # Stop file watch
             self.file_watch.stop()
 
+            # Stop 7B model server (llama-server) — it runs detached (os.setsid)
+            # so it survives daemon exit unless explicitly unloaded here.
+            try:
+                from core.loader_v2 import get_loader
+
+                get_loader().unload()
+            except Exception:
+                pass
+
             # Stop embed server
             try:
                 from core.embed_server import stop_embed_server
