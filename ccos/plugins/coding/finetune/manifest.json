@@ -1,0 +1,67 @@
+{
+  "name": "finetune",
+  "version": "1.0.0",
+  "description": "Wraps core/finetune_prep.py's dataset export/notebook generation and core/lora_import.py's read-only adapter inspection as CCOS capabilities. Deliberately does NOT expose the model-swapping/merging functions in core/lora_import.py (merge_lora_with_llama_cpp, swap_to_finetuned_model, create_backup_before_import, rollback_to_backup, import_lora_adapter) — those replace the live model file the daemon runs on, and whether they should be directly agent-callable is left as an open decision for Ish rather than made here.",
+  "category": "coding",
+  "entry_point": "finetune.py",
+  "capabilities": [
+    {
+      "name": "coding.finetune_curate_examples",
+      "description": "Curate ShareGPT-format fine-tuning examples from episodic interaction history, filtered by recency and quality",
+      "implementation": "finetune:curate_examples",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.finetune_export_dataset",
+      "description": "Export curated examples to a ShareGPT-style JSONL dataset file",
+      "implementation": "finetune:export_dataset",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.finetune_generate_notebook",
+      "description": "Generate a ready-to-run Unsloth Colab notebook for off-device LoRA fine-tuning",
+      "implementation": "finetune:generate_notebook",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.finetune_print_instructions",
+      "description": "Print step-by-step user instructions for the Colab fine-tuning workflow",
+      "implementation": "finetune:print_instructions",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.finetune_prepare_data",
+      "description": "High-level entry point: curate, export, and generate notebook(s) for fine-tuning in one call. Purely generative — writes dataset/notebook files, does not touch any active model.",
+      "implementation": "finetune:prepare_finetune_data",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.finetune_validate_adapter",
+      "description": "Read-only: validate that a directory looks like a well-formed LoRA adapter (checks for adapter_config.json and weight files)",
+      "implementation": "finetune:validate_lora_adapter",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.finetune_adapter_info",
+      "description": "Read-only: report size and LoRA config metadata (base model, rank, alpha) for an adapter directory",
+      "implementation": "finetune:get_adapter_info",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    }
+  ],
+  "author": "CCOS",
+  "license": "MIT"
+}
