@@ -266,6 +266,6 @@ def make_app() -> web.Application:
 
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else int(os.environ.get("CODEY_GUI_PORT", "8888"))
-    host = os.environ.get("CODEY_GUI_HOST", "0.0.0.0")
+    host = os.environ.get("CODEY_GUI_HOST", "127.0.0.1")
     print(f"\n  Codey-OS GUI  →  http://localhost:{port}\n")
     web.run_app(make_app(), host=host, port=port, print=lambda *_: None)
