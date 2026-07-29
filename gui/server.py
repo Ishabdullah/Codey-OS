@@ -231,6 +231,10 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
                             pass
             elif msg.type in (WSMsgType.ERROR, WSMsgType.CLOSE):
                 break
+    except asyncio.CancelledError:
+        if not ws.closed:
+            await ws.close()
+        raise
     finally:
         clients.discard(ws)
 
@@ -244,11 +248,20 @@ async def on_startup(app: web.Application) -> None:
     asyncio.create_task(metrics_loop())
 
 
+async def on_shutdown(app: web.Application) -> None:
+    for ws in list(clients):
+        try:
+            await ws.close(code=1001, message=b"server shutdown")
+        except Exception:
+            pass
+
+
 def make_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_index)
     app.router.add_get("/ws", handle_ws)
     app.on_startup.append(on_startup)
+    app.on_shutdown.append(on_shutdown)
     return app
 
 

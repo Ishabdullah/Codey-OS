@@ -71,7 +71,7 @@ fi
 # Stop the GUI server on exit (Ctrl+C or natural exit) — but NOT the daemon.
 # Only tear down the GUI if we're the one who started it.
 if [ "$GUI_STARTED_HERE" = "true" ]; then
-    trap 'echo; echo "  Stopping GUI server..."; kill "$(cat "$GUI_PID_FILE" 2>/dev/null)" 2>/dev/null; rm -f "$GUI_PID_FILE"' EXIT INT TERM
+    trap 'echo; echo "  Stopping GUI server..."; kill "$(cat "$GUI_PID_FILE" 2>/dev/null)" 2>/dev/null; rm -f "$GUI_PID_FILE"' EXIT
 fi
 
 echo "  TUI    → launching codey3..."
