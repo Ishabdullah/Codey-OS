@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+#
+# codey-stop - Codey-OS Orchestrator (stop daemon + GUI + confirm clean exit)
+#
+# Shuts down everything codey-start brought up: main daemon, planner
+# daemon (plannd), the GUI server, and sweeps for any orphaned
+# llama-server model processes left behind.
+#
+
+set -e
+
+CODEY_V3_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DAEMON_DIR="$HOME/.codey-v3"
+GUI_PID_FILE="$DAEMON_DIR/gui-server.pid"
+
+# ── 1. Daemon (main + plannd) ───────────────────────────────────────────────
+echo "  Daemon → stopping..."
+bash "$CODEY_V3_DIR/codeyd3" stop
+
+# ── 2. GUI server ────────────────────────────────────────────────────────────
+if [ -f "$GUI_PID_FILE" ]; then
+    GUI_PID=$(cat "$GUI_PID_FILE" 2>/dev/null || echo "")
+    if [ -n "$GUI_PID" ] && kill -0 "$GUI_PID" 2>/dev/null; then
+        echo "  GUI    → stopping (PID $GUI_PID)..."
+        kill -TERM "$GUI_PID" 2>/dev/null || true
+        sleep 0.5
+        kill -0 "$GUI_PID" 2>/dev/null && kill -9 "$GUI_PID" 2>/dev/null || true
+    fi
+    rm -f "$GUI_PID_FILE"
+fi
+# Safety sweep for any stray GUI server not tracked by the PID file
+pkill -9 -f "gui/server.py" 2>/dev/null || true
+echo "  GUI    → stopped"
+
+# ── 3. Orphaned model server sweep ──────────────────────────────────────────
+pkill -9 -f "llama-server" 2>/dev/null || true
+sleep 0.5
+
+if pgrep -f "llama-server" >/dev/null 2>&1; then
+    echo "  Model  → WARNING: llama-server process(es) still running"
+else
+    echo "  Model  → no llama-server processes remain"
+fi
+
+echo
+echo "  Codey-OS stopped."

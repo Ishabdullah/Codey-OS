@@ -314,6 +314,8 @@ make_executable() {
     print_step "Permissions"
     chmod +x "$CODEY_V2_DIR/codey3"
     chmod +x "$CODEY_V2_DIR/codeyd3"
+    chmod +x "$CODEY_V2_DIR/codey-start"
+    chmod +x "$CODEY_V2_DIR/codey-stop"
     chmod +x "$CODEY_V2_DIR/install.sh"
     [ -f "$CODEY_V2_DIR/gui/start.sh" ] && chmod +x "$CODEY_V2_DIR/gui/start.sh"
     print_success "Executable bits set"
@@ -373,8 +375,10 @@ verify_installation() {
         && print_success "Embedding model: ready" \
         || print_warning "Embedding model: missing"
 
-    command -v codey3  &>/dev/null && print_success "codey3:  in PATH"  || print_warning "codey3:  not in PATH yet (restart terminal)"
-    command -v codeyd3 &>/dev/null && print_success "codeyd3: in PATH"  || print_warning "codeyd3: not in PATH yet (restart terminal)"
+    command -v codey3       &>/dev/null && print_success "codey3:       in PATH"  || print_warning "codey3:       not in PATH yet (restart terminal)"
+    command -v codeyd3      &>/dev/null && print_success "codeyd3:      in PATH"  || print_warning "codeyd3:      not in PATH yet (restart terminal)"
+    command -v codey-start  &>/dev/null && print_success "codey-start:  in PATH"  || print_warning "codey-start:  not in PATH yet (restart terminal)"
+    command -v codey-stop   &>/dev/null && print_success "codey-stop:   in PATH"  || print_warning "codey-stop:   not in PATH yet (restart terminal)"
 }
 
 # ── 8. Completion message ─────────────────────────────────────────────────────
@@ -389,11 +393,14 @@ print_completion() {
     echo -e "${CYAN}${BOLD}QUICK START${NC}"
     echo
     echo -e "  Reload shell:   ${BLUE}source $SHELL_CONFIG${NC}"
+    echo -e "  Start everything: ${BLUE}codey-start${NC}  (daemon + GUI + TUI together)"
+    echo -e "    → browser:    ${BLUE}http://localhost:8888${NC}"
+    echo -e "  Stop everything:  ${BLUE}codey-stop${NC}"
+    echo
+    echo -e "  Individual pieces still work as before:"
     echo -e "  Start daemon:   ${BLUE}codeyd3 start${NC}"
     echo -e "  Run Codey:      ${BLUE}codey3${NC}"
     echo -e "    → opens the interactive TUI ${BOLD}and${NC} the browser GUI automatically"
-    echo -e "    → browser:    ${BLUE}http://localhost:8888${NC}"
-    echo
     echo -e "  Stop daemon:    ${BLUE}codeyd3 stop${NC}"
     echo -e "  Daemon status:  ${BLUE}codeyd3 status${NC}"
     echo
