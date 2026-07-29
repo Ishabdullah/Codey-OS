@@ -5,6 +5,54 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-29 — Round 3 (NEW-4): opt-in `--dashboard-only` mode for `gui/start.sh`, fully live-verified
+
+**What changed:** `gui/start.sh` (commit `ea954eb`) gained an opt-in
+`--dashboard-only` flag (or `CODEY_GUI_DASHBOARD_ONLY=1` env var) that
+skips `main.py`'s eager 7B model load entirely and just serves the GUI/
+dashboard, waiting on the GUI server's own PID instead. Default (no-flag)
+behavior is byte-for-byte unchanged: still chains into `main.py` after
+starting `gui/server.py`. Reuses the existing trap/kill logic unchanged —
+no second kill path introduced. Addresses `NEW_ISSUES.md` [NEW-4], found
+during Round 2's live-verification pass (2026-07-29, entry below).
+
+**Review:** code-reviewer approved. One non-blocking suggestion noted:
+the new arg-parsing loop makes the last non-flag positional arg win
+instead of the first — latent (no current caller passes multiple
+positional args), not required to fix before merge.
+
+**Verification (real, live, RAM-monitored — not mocked):**
+
+- Default path: real model-load cycle triggered as before. `free -h`:
+  8.3Gi used during load → 3.1Gi used after teardown. `main.py` and
+  `llama-server` both confirmed running during the test, confirmed
+  unloaded after stop.
+- `--dashboard-only` path: `pgrep` confirmed no `main.py` or
+  `llama-server` process ever started; `curl` to the dashboard endpoint
+  returned 200. Teardown by tracked PID clean in both paths — no
+  pattern-based kill used.
+- Single model-load cycle run this round, confirmed unloaded afterward
+  per RAM-discipline rule (only the default path loads a model at all).
+
+**New finding logged, not fixed:** during the default-path live
+verification, implementer observed the spawned `llama-server` child (a
+tracked PID) briefly outliving `gui/start.sh`'s parent process after a
+`TERM` sent while the 7B model was still mid-load, before implementer
+killed it directly by that same PID. Rated **Suspected** by implementer's
+own assessment — observed under an aggressive test-timeout kill
+specifically during the load window, not reproduced a second time, may
+not be reproducible in a normal session. code-reviewer confirmed this is
+unrelated to the `--dashboard-only` diff itself (lives entirely in
+`main.py`'s own model-spawn/kill path, untouched by this change, and
+unreachable in `--dashboard-only` mode since `main.py` never runs there).
+Logged as `NEW_ISSUES.md` [NEW-5] (Suspected).
+
+**Result:** Round 3 (NEW-4) is now fully closed — code-complete,
+code-reviewer-approved, and live-verified on both paths. No open items
+remain under Round 3 itself.
+
+---
+
 ## 2026-07-29 — Round 2 (C-2) live-verification: real `gui/start.sh` launch path, fully live-verified
 
 **What changed:** No code changes — this is a live-verifier pass closing

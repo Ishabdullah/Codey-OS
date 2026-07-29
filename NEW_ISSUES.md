@@ -1,5 +1,38 @@
 # New Issues Found During V3 Overhaul
 
+## Found during Round 3 (NEW-4) live-verification pass, 2026-07-29 — NOT fixed, logged only
+
+### [NEW-5] `llama-server` child may briefly outlive `gui/start.sh`'s parent process on a TERM kill during mid-load
+- **Confidence: Suspected** (implementer's own rating; not confirmed
+  reproducible under normal use — code-reviewer concurred it is
+  unrelated to the `--dashboard-only` diff itself).
+- **Where found:** implementer's live verification of the default
+  (no-flag) path for the Round 3 `--dashboard-only` task
+  (`gui/start.sh`, commit `ea954eb`). Observed while `main.py`'s 7B model
+  was still mid-load: the script was killed via `TERM`, and the spawned
+  `llama-server` child (a tracked PID, not an untracked/orphan one) was
+  still alive briefly after the parent script had already exited, before
+  implementer killed it directly by that same tracked PID.
+- **Why Suspected, not Confirmed:** this was observed under an aggressive
+  test-timeout-driven `TERM` sent specifically mid-load — it may be an
+  artifact of killing during that narrow load window rather than
+  something reproducible in a normal mid-conversation session. Not
+  reproduced a second time; no root-cause investigation done yet.
+- **Scope note:** lives entirely in `main.py`'s own model-spawn/kill
+  path, not in `gui/start.sh`'s trap logic touched by this round's diff.
+  Confirmed unreachable in `--dashboard-only` mode, since `main.py` never
+  runs there. code-reviewer reviewed this observation as part of the
+  Round 3 approval and confirmed it does not implicate the
+  `--dashboard-only` change itself.
+- **Suggested direction (not applied — out of scope for Round 3):** a
+  dedicated task to reproduce deliberately (send `TERM` to `gui/start.sh`
+  at a controlled point mid-7B-load, repeat a few times) and check
+  whether `main.py`'s `shutdown()`/signal handling has a gap where the
+  child `llama-server` process can survive parent exit during the load
+  window specifically — this is exactly the class of process-lifecycle
+  issue CLAUDE.md rule 4 requires code-reviewer sign-off on, so any real
+  fix here needs that review regardless of how small it looks.
+
 ## Found during Round 2 (C-2) live-verification pass, 2026-07-29 — NOT fixed, logged only
 
 ### [NEW-4] `gui/start.sh` unconditionally chains into `main.py`, forcing a full 7B model load just to view the dashboard

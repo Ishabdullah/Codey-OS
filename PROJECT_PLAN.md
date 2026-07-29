@@ -548,6 +548,43 @@ for full detail.
 code-reviewer-approved, plus a full live-verifier pass through the real
 launch path. No open items remain under Round 2.
 
+### Audit Remediation — Round 3 (NEW-4)
+**Status: FULLY LIVE-VERIFIED** (2026-07-29) — fix for `NEW_ISSUES.md`
+[NEW-4], found during Round 2's live-verification pass: `gui/start.sh`
+unconditionally chained into `main.py`, forcing a full 7B model load with
+zero user interaction just to view the dashboard.
+- [x] Added an opt-in `--dashboard-only` flag (or
+      `CODEY_GUI_DASHBOARD_ONLY=1` env var) to `gui/start.sh` that skips
+      `main.py` entirely and waits on the GUI server's own PID instead,
+      reusing the existing trap/kill logic unchanged (no second kill
+      path introduced). Default (no-flag) behavior byte-for-byte
+      unchanged. Commit `ea954eb`.
+- [x] code-reviewer approved, with one non-blocking suggestion: the new
+      arg-parsing loop makes the last non-flag positional arg win
+      instead of the first — latent, no current caller passes multiple
+      positional args, not required to fix before merge.
+- [x] Live-verified both paths directly:
+      - Default path: real model-load cycle observed (`free -h`: 8.3Gi
+        used during load → 3.1Gi used after teardown), `main.py` +
+        `llama-server` both running as before, confirmed unloaded after
+        stop.
+      - `--dashboard-only` path: `pgrep` confirmed no `main.py`/
+        `llama-server` process ever started; `curl` to the dashboard
+        returned 200. Teardown by tracked PID clean in both cases.
+      - Single model-load cycle run for this round, confirmed unloaded
+        afterward per RAM-discipline rule.
+- Follow-up logged, not fixed: `NEW_ISSUES.md` [NEW-5] (Suspected) — a
+  `llama-server` child possibly briefly outliving `gui/start.sh`'s parent
+  on a mid-load `TERM` kill, observed once during this round's default-
+  path verification. code-reviewer confirmed it's unrelated to this
+  round's diff (lives in `main.py`'s own spawn/kill path, untouched here,
+  and unreachable in `--dashboard-only` mode).
+
+**Round 3 (NEW-4) is now fully closed** — code-complete, code-reviewer-
+approved, and live-verified on both the default and `--dashboard-only`
+paths. No open items remain under Round 3 itself; [NEW-5] is a separate,
+unscoped follow-up tracked in `NEW_ISSUES.md`.
+
 ### Phase 4 — Self-improvement activation (deliberate, not automatic)
 Do NOT start this phase until Phases 1–3 are stable and you've watched the
 system run real coding tasks through the sandbox/safety-veto path for a
