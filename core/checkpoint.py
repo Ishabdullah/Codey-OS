@@ -49,15 +49,14 @@ def is_core_file(file_path: str) -> bool:
     """Check if a file is a Codey-V3 file that needs checkpointing."""
     path = Path(file_path).resolve()
 
-    # Check if in CODE_DIR (Codey-V3 source)
-    try:
-        path.relative_to(CODE_DIR)
-        return True
-    except ValueError:
-        pass
-
-    # Check patterns
+    # Only files under the specific core directories (core/, tools/, utils/,
+    # prompts/) count — NOT the entire repo (CODE_DIR is the repo root).
     for pattern in CORE_PATTERNS:
+        base_dir = CODE_DIR / pattern.split("/")[0]
+        try:
+            path.relative_to(base_dir)
+        except ValueError:
+            continue
         if path.match(pattern):
             return True
 
@@ -114,7 +113,7 @@ def create_checkpoint(reason: str, files_modified: List[str] = None) -> str:
                 warning(f"Checkpoint: could not backup {f}: {e}")
 
     # Create git commit
-    git_hash = _create_git_commit(reason)
+    git_hash = _create_git_commit(reason, files_modified)
 
     # Record in database
     state = get_state_store()
@@ -131,8 +130,8 @@ def create_checkpoint(reason: str, files_modified: List[str] = None) -> str:
     return checkpoint_id
 
 
-def _create_git_commit(reason: str) -> Optional[str]:
-    """Create a git commit for the checkpoint."""
+def _create_git_commit(reason: str, files_modified: List[str] = None) -> Optional[str]:
+    """Create a git commit for the checkpoint, staging only the triggering file(s)."""
     try:
         # Check if we're in a git repo
         result = subprocess.run(
@@ -141,8 +140,17 @@ def _create_git_commit(reason: str) -> Optional[str]:
         if result.returncode != 0:
             return None
 
-        # Stage all changes
-        subprocess.run(["git", "add", "-A"], cwd=CODE_DIR, capture_output=True)
+        if not files_modified:
+            # Nothing specific to stage — no-op, just report current HEAD.
+            result = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=CODE_DIR, capture_output=True, text=True
+            )
+            return result.stdout.strip() if result.returncode == 0 else None
+
+        # Stage only the file(s) that triggered this checkpoint
+        subprocess.run(
+            ["git", "add", "--"] + list(files_modified), cwd=CODE_DIR, capture_output=True
+        )
 
         # Check if there are changes to commit
         result = subprocess.run(

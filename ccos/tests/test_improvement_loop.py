@@ -22,14 +22,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from ccos.core.performance_tracker import PerformanceTracker, get_performance_tracker
-from ccos.core.capability_optimizer import CapabilityOptimizer, get_capability_optimizer
-from ccos.core.auto_improvement_loop import AutoImprovementLoop, get_improvement_loop
-from ccos.core.lifecycle_manager import LifecycleManager, get_lifecycle_manager
+from ccos.core.performance_tracker import PerformanceTracker
+from ccos.core.capability_optimizer import CapabilityOptimizer
+from ccos.core.auto_improvement_loop import AutoImprovementLoop
+from ccos.core.lifecycle_manager import LifecycleManager
 from ccos.core.capability_registry import (
     Capability, CapabilityStatus, CapabilityRegistry,
 )
-from ccos.core.plugin_manager import get_plugin_manager
+from ccos.core.plugin_manager import PluginManager
+from ccos.core.tool_router import ToolRouter
+from ccos.core.reflection_engine import ReflectionEngine
+from ccos.core.memory.ccos_memory import CCOSMemory
 
 
 def _make_temp_tracker():
@@ -44,6 +47,32 @@ def _make_temp_registry():
     f = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
     f.close()
     return CapabilityRegistry(store_path=f.name), f.name
+
+
+def _make_temp_memory():
+    """Create a CCOSMemory backed by a temp DB."""
+    f = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    f.close()
+    return CCOSMemory(db_path=f.name), f.name
+
+
+def _make_temp_reflection_engine(registry):
+    """Create a ReflectionEngine backed by a temp log, wired to a temp registry."""
+    f = tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False)
+    f.close()
+    engine = ReflectionEngine(log_path=f.name)
+    engine._registry = registry
+    return engine, f.name
+
+
+def _make_isolated_improvement_loop(registry, tracker, memory, reflection):
+    """Build an AutoImprovementLoop wired entirely to temp fixtures (no real singletons)."""
+    loop = AutoImprovementLoop(auto_optimize=False)
+    loop._registry = registry
+    loop._tracker = tracker
+    loop._memory = memory
+    loop._reflection = reflection
+    return loop
 
 
 def test_performance_tracker():
@@ -299,10 +328,27 @@ def test_lifecycle_manager():
     """Test the full lifecycle orchestration."""
     print("Testing LifecycleManager...")
 
-    pm = get_plugin_manager()
+    registry, reg_path = _make_temp_registry()
+    tracker, db_path = _make_temp_tracker()
+    memory, mem_path = _make_temp_memory()
+    reflection, refl_path = _make_temp_reflection_engine(registry)
+
+    pm = PluginManager()
+    pm._registry = registry
     pm.load_all()
 
-    manager = get_lifecycle_manager()
+    router = ToolRouter()
+    router._registry = registry
+
+    loop = _make_isolated_improvement_loop(registry, tracker, memory, reflection)
+
+    manager = LifecycleManager()
+    manager._plugin_manager = pm
+    manager._router = router
+    manager._improvement_loop = loop
+    manager._memory = memory
+    manager._registry = registry
+    manager._tracker = tracker
 
     # Execute a task through the full lifecycle
     def mock_executor(task):
@@ -338,6 +384,10 @@ def test_lifecycle_manager():
 
     print("  [PASS] Full lifecycle: plan → execute → evaluate → store, event ordering, summary")
 
+    Path(reg_path).unlink(missing_ok=True)
+    Path(db_path).unlink(missing_ok=True)
+    Path(mem_path).unlink(missing_ok=True)
+    Path(refl_path).unlink(missing_ok=True)
     return True
 
 
@@ -385,20 +435,28 @@ def test_improvement_with_real_plugin():
     """
     print("Testing End-to-End Improvement with Real Plugin...")
 
-    pm = get_plugin_manager()
+    registry, reg_path = _make_temp_registry()
+    tracker, db_path = _make_temp_tracker()
+    memory, mem_path = _make_temp_memory()
+    reflection, refl_path = _make_temp_reflection_engine(registry)
+
+    pm = PluginManager()
+    pm._registry = registry
     pm.load_all()
 
     # Check if system.info capability exists
-    from ccos.core.capability_registry import get_capability_registry
-    registry = get_capability_registry()
     cap = registry.get("system.info")
 
     if not cap:
         print("  [SKIP] system.info not registered")
+        Path(reg_path).unlink(missing_ok=True)
+        Path(db_path).unlink(missing_ok=True)
+        Path(mem_path).unlink(missing_ok=True)
+        Path(refl_path).unlink(missing_ok=True)
         return True
 
     # Run system.info several times to build performance data
-    loop = get_improvement_loop()
+    loop = _make_isolated_improvement_loop(registry, tracker, memory, reflection)
     for i in range(4):
         start = time.time()
         try:
@@ -421,7 +479,6 @@ def test_improvement_with_real_plugin():
             )
 
     # Check metrics
-    tracker = get_performance_tracker()
     metrics = tracker.get_capability_metrics("system.info")
     assert metrics["total_uses"] >= 4
 
@@ -436,6 +493,11 @@ def test_improvement_with_real_plugin():
     print(f"  [PASS] system.info: {metrics['total_uses']} uses, "
           f"score={metrics.get('performance_score', 'N/A')}, "
           f"versions={len(versions)}")
+
+    Path(reg_path).unlink(missing_ok=True)
+    Path(db_path).unlink(missing_ok=True)
+    Path(mem_path).unlink(missing_ok=True)
+    Path(refl_path).unlink(missing_ok=True)
     return True
 
 
