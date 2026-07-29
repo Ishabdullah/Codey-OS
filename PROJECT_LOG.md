@@ -5,6 +5,36 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-29 — Round 5 (NEW-1) live-verification: full `pytest tests/` suite confirmed clean, FULLY LIVE-VERIFIED
+
+**What was verified:** live-verifier ran the full test suite (not just
+`tests/test_memory.py`, which is all code-reviewer had re-run in Round
+5's original approval) to confirm commit `c65be95`'s fix fully closes
+`NEW_ISSUES.md` [NEW-1] (orphaned real 7B `llama-server` from
+`tests/test_memory.py::TestMemoryCompressSummary::test_compress_summary_handles_inference_failure`
+running unmocked).
+
+**Result:** `pytest tests/ -q` → **253 passed in 0.43s** (previously
+~42s, consistent with the hidden real 7B model load this fix removes).
+No orphan `llama-server` process remained after the run, confirmed via
+`ps -eo pid,ppid,comm | grep llama` (deliberately not `pgrep -af`, which
+has a false-positive self-match issue in this shell environment — the
+wrapper's own command-line text matches the `llama` pattern and gives a
+misleading "still running" hit). `free -h` was stable before/after (563Mi
+free → 816Mi free; swap unchanged at 1.6Gi).
+
+**Docs updated:** `NEW_ISSUES.md` [NEW-1] moved from "fix committed,
+pending full-suite live verification" to **Resolved**. `PROJECT_PLAN.md`
+Round 5 entry upgraded from "CODE COMPLETE, not yet fully live-verified"
+to **FULLY LIVE-VERIFIED**, per Ground Rule 7.
+
+**Round 5 is fully closed.** Next up: Round 6, scoping `NEW_ISSUES.md`
+[NEW-5] (`llama-server` possibly outliving `gui/start.sh`'s parent on a
+mid-load TERM kill) — currently Suspected on a single observation, not
+yet reproduced.
+
+---
+
 ## 2026-07-29 — Round 5 (NEW-1): mock inference in unmocked `test_compress_summary_handles_inference_failure`, CODE COMPLETE (not yet fully live-verified)
 
 **What changed:** `tests/test_memory.py`'s

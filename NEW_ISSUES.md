@@ -186,12 +186,18 @@
 
 ### [NEW-1] `pytest tests/` spawns a real 7B `llama-server` and orphans it — matches audit finding L-6
 
-- **Status: fix committed (`c65be95`), pending full-suite live
-  verification.** code-reviewer approved the fix after re-running the
-  targeted test and the full `tests/test_memory.py` file (no orphan
-  `llama-server` after either), but a live-verifier pass confirming a full
-  `pytest tests/` run is clean is still pending. Not marked Resolved until
-  that pass completes, per Ground Rule 7.
+- **Status: RESOLVED (commit `c65be95`), fully live-verified 2026-07-29.**
+  live-verifier ran the full suite: `pytest tests/ -q` → **253 passed in
+  0.43s** (previously ~42s, due to the hidden real 7B model load). No
+  orphan `llama-server` process remained afterward, confirmed via
+  `ps -eo pid,ppid,comm | grep llama` (not `pgrep -af`, which has a
+  false-positive self-match issue in this shell environment — the
+  wrapper's own command-line text matches the `llama` pattern). `free -h`
+  was stable before/after (563Mi free → 816Mi free; swap unchanged at
+  1.6Gi). Per Ground Rule 7, this closes the "code complete" →
+  "fully live verified" gap left open after code-reviewer's approval,
+  which had only re-run `tests/test_memory.py` in isolation, not the full
+  suite.
 - **Confidence: Confirmed (upgraded from Suspected, Round 5 diagnostic
   investigation, 2026-07-29).** The mechanism below was live-reproduced
   3+ times, including a decisive proof: catching the orphaned
