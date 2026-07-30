@@ -552,6 +552,25 @@ own dedicated scoping pass, not yet queued for a fix.
 ## Found during Round 2 (C-2) live-verification pass, 2026-07-29 — NOT fixed, logged only
 
 ### [NEW-4] `gui/start.sh` unconditionally chains into `main.py`, forcing a full 7B model load just to view the dashboard
+- **Status: RESOLVED (2026-07-29, Round 3, commit `ea954eb`).** This
+  entry was never marked Resolved despite the fix landing back in
+  Round 3 — corrected 2026-07-30. `gui/start.sh` gained an opt-in
+  `--dashboard-only` flag (or `CODEY_GUI_DASHBOARD_ONLY=1` env var)
+  that skips `main.py`'s eager 7B model load entirely and just serves
+  the GUI/dashboard, waiting on the GUI server's own PID instead.
+  Default (no-flag) behavior is unchanged — still chains into
+  `main.py` — matching the original suggested direction below (an
+  opt-in decoupling, not a default-behavior change). code-reviewer
+  approved (one non-blocking suggestion: last-positional-arg-wins in
+  the new arg-parsing loop, latent/no current caller affected). Fully
+  live-verified: default path showed a real model-load cycle
+  (`free -h` 8.3Gi used during load → 3.1Gi after teardown);
+  `--dashboard-only` path confirmed via `pgrep` that no `main.py` or
+  `llama-server` process ever started, and `curl` to the dashboard
+  endpoint returned 200. See `PROJECT_LOG.md`'s 2026-07-29 Round 3
+  entry for full verbatim evidence. (This round's live-verification
+  also surfaced the original NEW-5 finding as a side observation,
+  since separately resolved.)
 - **Confidence: Confirmed** (directly observed live during the C-2
   live-verification pass, not inferred).
 - **Where found:** live-verifier's real launch of `gui/start.sh` (the
