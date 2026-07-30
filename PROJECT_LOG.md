@@ -5,6 +5,105 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-30 — Round 10 (NEW-9): widened pthread_sigmask window — code-reviewer approved, live-verification shows substantial improvement but does NOT fully close the bug — NOT RESOLVED
+
+**Fix attempt (commit `2aaabb1`):** based on Round 9's own root-cause
+correction (the masked window started ~70 lines too late, at the
+`Popen()` call itself rather than at `"Starting llama-server..."`),
+`2aaabb1` widened `signal.pthread_sigmask(SIG_BLOCK)` / `SIG_UNBLOCK` in
+`core/loader_v2.py` to cover the full window from at/before the log line
+through the `Popen()` call, not just the call itself.
+
+**code-reviewer:** approved.
+
+**live-verifier's results (verbatim):**
+
+Baseline `free -h` before batch:
+```
+Mem:            10Gi       5.1Gi       1.1Gi        47Mi       4.6Gi       5.5Gi
+Swap:           11Gi       1.9Gi        10Gi
+```
+
+22 valid, independent attempts (`pty.fork()`-based harness, tracked
+child PID, real `os.kill(pid, SIGINT)`, varied delay 0.0s-0.3s). 4
+additional attempts were invalid/contaminated by leftover orphans from
+earlier failures and excluded from the count.
+
+**20/22 clean** at delays ≥0.03s (0.03, 0.05, 0.08, 0.1, 0.12, 0.15×2,
+0.18, 0.2×2, 0.22, 0.25×2, 0.28, 0.3×2) plus some 0.0s attempts — guard
+fired correctly, no orphan, `ps` clean after each.
+
+**2/22 FAILED — both at delay=0.0s** (`SIGINT` sent the instant
+`"Starting llama-server..."` was observed):
+
+Attempt a01:
+```
+ℹ  Starting llama-server...
+ℹ  7B model: mmap=enabled, mlock=disabled
+Exception ignored in atfork callback <function _afterFork at 0x764aa8b530>:
+Traceback (most recent call last):
+  File "/data/.../python3.14/logging/__init__.py", line 245, in _afterFork
+    def _afterFork():
+KeyboardInterrupt: 
+ℹ  llama-server PID: 9141, logging to /data/data/com.termux/files/home/.codeyOS/llama-server.log
+✓  llama-server started on port 8080
+✓  Loaded model (qwen2.5-coder-7b-instruct-q4_k_m.gguf)
+...
+You> 
+```
+The `KeyboardInterrupt` was silently swallowed by CPython's atfork
+machinery, never reached `main.py`'s `except (KeyboardInterrupt,
+SystemExit)` guard. The REPL continued as if uninterrupted, loaded the
+model fully, sat at the `You>` prompt. Post-check: `ps` showed PID 9141,
+`llama-server`, PPID 1 (orphaned/reparented to init), 224s elapsed,
+1.87GB RSS. Killed via `kill -TERM 9141` (exact tracked PID), confirmed
+reaped, RAM recovered.
+
+Attempt a24: identical failure signature (same atfork traceback), PID
+15693, PPID 1, 128s elapsed, 914MB RSS. Killed via `kill -TERM 15693`,
+confirmed reaped and RAM recovered.
+
+Final `free -h` after full batch (all processes torn down):
+```
+Mem:            10Gi       3.8Gi       4.4Gi        24Mi       2.6Gi       6.8Gi
+Swap:           11Gi       1.8Gi        10Gi
+```
+
+**Root cause observation (not yet a confirmed fix path):** both failures
+show `KeyboardInterrupt` raised *inside* `logging._afterFork`, an
+`os.register_at_fork()` callback invoked as part of
+`subprocess.Popen()`'s internal `fork()` — even though
+`signal.pthread_sigmask(SIG_BLOCK, {SIGINT})` is active for the entire
+widened region at the time of the interrupt. The mask should be
+preventing `SIGINT` from reaching Python's normal signal-check point at
+all, yet this specific atfork-callback code path still independently
+observes/raises the interrupt. This suggests the remaining mechanism is
+deeper than "the guarded window was too narrow" (which explained Round
+9's failure) — Round 10 widened the window and reduced the failure rate
+substantially (from ~19% spread across the whole timing range to 2/22 ≈
+9%, clustered only at the absolute earliest timing), but did not
+eliminate it. Possible explanation not yet confirmed: a Termux/Android-
+specific signal-delivery quirk, or some property of CPython's
+atfork-callback execution that isn't fully governed by `pthread_sigmask`
+in this environment.
+
+**Disposition, per CLAUDE.md rule 6:** `2aaabb1` is not being
+reverted — it is a genuine, verified improvement over Round 9 (20/22
+clean vs. the original ~1-in-4/1-in-5 rate), not a regression. But it
+must not be described anywhere as having resolved NEW-9. `NEW_ISSUES.md`
+[NEW-9] has been corrected with a Round 10 block documenting this fix
+attempt, the improvement, and the residual 2/22 failure with its
+verbatim reproduction evidence, and remains open. This is now the
+**second consecutive live-verification failure of a fix attempt on this
+same bug** — the Round 9→Round 10 pattern of progressively widening the
+masked region has shown diminishing but nonzero returns and does not
+appear to be converging to zero through mask-widening alone. This round
+is **not** marked done or resolved in `PROJECT_PLAN.md`. Per CLAUDE.md's
+escalation rules, this is being brought to Ish directly for a decision
+on how to proceed — no new (third) fix attempt has been scoped here.
+
+---
+
 ## 2026-07-30 — Round 9 (NEW-9): pthread_sigmask fix around Popen() — code-reviewer approved, live-verification shows it does NOT close the bug — NOT RESOLVED
 
 **Fix attempt (commit `1a1c0b7`):** based on project-architect's own

@@ -396,6 +396,74 @@ own dedicated scoping pass, not yet queued for a fix.
   needs a fresh scoping pass that moves the block point up to cover the
   full window from the log line (or earlier) through the `Popen()` call,
   not just the call itself.
+- **Status: STILL OPEN — Round 10 fix attempt (commit `2aaabb1`)
+  substantially reduced but did NOT fully close this**, corrected
+  2026-07-30 per CLAUDE.md rule 6 after Round 10's own live-verification.
+  `2aaabb1` widened the masked region identified as missing in Round 9's
+  correction above — moving `signal.pthread_sigmask(SIG_BLOCK)` up to
+  cover the full window from at/before `"Starting llama-server..."`
+  through the `Popen()` call, not just the call itself.
+  live-verifier's repeated-attempt testing (22 valid, independent
+  attempts, `pty.fork()`-based harness, tracked child PID, real
+  `os.kill(pid, SIGINT)`, delay varied 0.0s-0.3s; 4 additional attempts
+  were invalid/contaminated by leftover orphans from earlier failures and
+  excluded from the count) found **20/22 clean at delays ≥0.03s, but 2/22
+  FAILED — both at delay=0.0s** (`SIGINT` sent the instant `"Starting
+  llama-server..."` was observed), reproducing the identical
+  `atfork`-swallowed-`KeyboardInterrupt` orphan symptom. This is a real,
+  substantial improvement (2/22 ≈ 9%, clustered only at the absolute
+  earliest timing, vs. Round 9's 3/16 ≈ 19% spread across the whole
+  range, vs. the original ~1-in-4 to ~1-in-5 rate) — but it is **not**
+  zero, and this is now the **second consecutive fix attempt on NEW-9 to
+  be live-verified as incomplete**. Verbatim reproduction (attempt a01 of
+  22):
+  ```
+  ℹ  Starting llama-server...
+  ℹ  7B model: mmap=enabled, mlock=disabled
+  Exception ignored in atfork callback <function _afterFork at 0x764aa8b530>:
+  Traceback (most recent call last):
+    File ".../python3.14/logging/__init__.py", line 245, in _afterFork
+      def _afterFork():
+  KeyboardInterrupt:
+  ℹ  llama-server PID: 9141, logging to /data/data/com.termux/files/home/.codeyOS/llama-server.log
+  ✓  llama-server started on port 8080
+  ✓  Loaded model (qwen2.5-coder-7b-instruct-q4_k_m.gguf)
+  ...
+  You>
+  ```
+  The `KeyboardInterrupt` was silently swallowed by CPython's atfork
+  machinery, never reached `main.py`'s `except (KeyboardInterrupt,
+  SystemExit)` guard. The REPL continued as if uninterrupted, loaded the
+  model fully, sat at the `You>` prompt. Post-check: `ps` showed PID
+  9141, `llama-server`, PPID 1 (orphaned/reparented to init), 224s
+  elapsed, 1.87GB RSS. Killed via `kill -TERM 9141` (exact tracked PID),
+  confirmed reaped, RAM recovered. A second, independent attempt (a24)
+  reproduced an identical failure signature (same `atfork` traceback),
+  PID 15693, PPID 1, 128s elapsed, 914MB RSS — also killed by tracked PID
+  and confirmed reaped. **Root cause observation (not yet a confirmed fix
+  path):** both failures show `KeyboardInterrupt` raised *inside*
+  `logging._afterFork`, an `os.register_at_fork()` callback invoked as
+  part of `subprocess.Popen()`'s internal `fork()` — even though
+  `signal.pthread_sigmask(SIG_BLOCK, {SIGINT})` is active for the entire
+  widened region at the time of the interrupt. The mask should be
+  preventing `SIGINT` from reaching Python's normal signal-check point at
+  all, yet this specific atfork-callback code path still independently
+  observes/raises the interrupt. This suggests the remaining failure mode
+  is deeper than "the guarded window was too narrow" (which explained
+  Round 9's failure and which Round 10 correctly fixed for the vast
+  majority of the window) — possible explanations not yet confirmed
+  include a Termux/Android-specific signal-delivery quirk, or some
+  property of CPython's atfork-callback execution that isn't fully
+  governed by `pthread_sigmask` in this environment. **`2aaabb1` is not
+  being reverted** — it is a genuine, verified improvement, not a
+  regression — but it must not be described anywhere as having resolved
+  NEW-9. A third fix attempt should not simply repeat the "widen the
+  masked window further" approach without new information: the Round
+  9→Round 10 pattern (progressively widening the masked region) has
+  shown diminishing but nonzero returns and does not appear to be
+  converging to zero through mask-widening alone. Per CLAUDE.md's
+  escalation rules, this is being brought to Ish directly for a decision
+  on how to proceed — no new fix attempt has been scoped here.
 - **Confidence: Confirmed** (directly reproduced live during Round 8's
   live-verification of the NEW-6 fix — a real orphaned `llama-server`
   process was caught, root-caused by reading CPython's `subprocess.Popen`/

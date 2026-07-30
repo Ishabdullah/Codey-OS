@@ -828,6 +828,49 @@ start at or before the `"Starting llama-server..."` log line) needs its
 own dedicated scoping pass and is being brought to Ish for a decision on
 how to proceed, not unilaterally re-attempted here.
 
+### Audit Remediation — Round 10 (NEW-9)
+**Status: code complete, code-reviewer approved, live-verified with
+continued residual failure (2/22) — improvement over Round 9 but not
+closed. NEW-9 remains open pending a different fix approach.**
+- [x] Fix attempt: commit `2aaabb1` widened
+      `signal.pthread_sigmask(SIG_BLOCK/SIG_UNBLOCK)` in
+      `core/loader_v2.py` to cover the full window from at/before
+      `"Starting llama-server..."` through the `Popen()` call, per
+      Round 9's root-cause correction (the previous mask started too
+      late).
+- [x] code-reviewer approved.
+- [ ] **live-verifier ran 22 valid, independent repeated-attempt tests
+      (`pty.fork()`-based harness, tracked child PID, real
+      `os.kill(pid, SIGINT)`, delay varied 0.0s-0.3s; 4 additional
+      attempts excluded as invalid/contaminated). Result: 20/22 clean,
+      2/22 FAILED — both at delay=0.0s, reproducing the identical
+      atfork-swallowed-`KeyboardInterrupt` orphan.** This is a real,
+      substantial improvement over Round 9's 3/16 (~19%) rate — 2/22
+      (~9%), clustered only at the absolute earliest timing — but not
+      zero.
+- [x] Root cause of the residual failure is not yet understood: both
+      failures show `KeyboardInterrupt` raised inside
+      `logging._afterFork` even while `pthread_sigmask(SIG_BLOCK)` is
+      active for the entire widened region — suggesting a deeper
+      mechanism (possibly Termux/Android-specific signal-delivery
+      behavior) than "the window was too narrow," which was Round 9's
+      diagnosis and which Round 10 correctly addressed for the vast
+      majority of the timing range.
+- [ ] `2aaabb1` is **not** being reverted (genuine improvement, not a
+      regression) but must **not** be described as having fixed NEW-9
+      anywhere in the docs.
+- [x] `NEW_ISSUES.md` [NEW-9] corrected per CLAUDE.md rule 6: a Round 10
+      block added documenting the fix attempt, the improvement, and the
+      residual 2/22 failure with verbatim reproduction evidence.
+
+**Round 10 (NEW-9) is NOT resolved.** This is the second consecutive
+fix attempt on NEW-9 to be live-verified as incomplete. The Round
+9→Round 10 pattern (progressively widening the masked region) has shown
+diminishing but nonzero returns and does not appear to be converging to
+zero through mask-widening alone. Per CLAUDE.md's escalation rules,
+this is being brought to Ish directly for a decision on how to proceed
+— no third fix attempt has been scoped here.
+
 ### Phase 4 — Self-improvement activation (deliberate, not automatic)
 Do NOT start this phase until Phases 1–3 are stable and you've watched the
 system run real coding tasks through the sandbox/safety-veto path for a
