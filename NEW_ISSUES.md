@@ -2,6 +2,68 @@
 
 ## Found during NEW-19 code-review (patch-failed repeat-escalation), 2026-07-30 — NOT fixed, logged only
 
+## Found during NEW-19 live-verification, 2026-07-30 — NOT fixed, logged only
+
+### [NEW-38] `[PATCH_FAILED, UNRESOLVED]` marker doesn't survive into saved-session `history` (Confirmed) — same append site suggests NEW-2's `[EDIT NOT APPLIED]` has the identical gap (Suspected, by code inspection only, not separately live-reproduced)
+
+- **Confidence: Confirmed for the `[PATCH_FAILED, UNRESOLVED]` half** —
+  reproduced live via a scripted `run_agent()`/`main._run_with_plan()`
+  session, including confirming the marker genuinely reaches the
+  `messages` list handed to the mocked `infer()` on the very next model
+  call (not merely inferred from the append-site code — the driver
+  printed the actual `messages` content seen by `infer()` and it
+  contained the marker verbatim). **Suspected only, by code inspection,
+  for the NEW-2 `[EDIT NOT APPLIED]` half** — that specific case (a
+  file-mutating tool call still in an error state after retries/
+  escalation exhausted) was not separately live-reproduced this round;
+  the claim that it has the identical history-persistence gap rests on
+  it sharing the same `_edit_not_applied_prefix` variable and the same
+  final `history.append()` site (`core/agent.py:1989-1990`), not on a
+  live run of that specific branch.
+- **Where found:** live-verifying NEW-19's end-to-end wiring (this round).
+  `core/agent.py`'s repeated-`[PATCH_FAILED]` branch (~line 1940-1949)
+  folds the `[PATCH_FAILED, UNRESOLVED] ...` marker into
+  `_edit_not_applied_prefix`, which is appended only to the in-turn
+  `messages` list (`messages.append({"role": "user", "content":
+  _edit_not_applied_prefix + "Tool result: " + ...})`, ~line 1953) — the
+  local variable used to drive the current turn's model calls. But the
+  `history` list returned by `run_agent()` (and saved to disk by
+  `save_session()`) only ever gets two entries appended at the very end
+  of the function, at `core/agent.py:1989-1990`: the original
+  `user_message` and the final `response` string. The marker text is
+  never one of those two things in this fallthrough path — it lives only
+  inside `messages`, which is local to the turn and discarded when
+  `run_agent()` returns.
+- **Live reproduction:** drove a 2-declined-escalation session; the
+  console/log showed the marker fire twice (verified via
+  `agent.log_error` capture); `json.dumps(history, indent=2)` on the
+  actual returned `history` showed only:
+  ```json
+  [
+    {"role": "user", "content": "add a docstring to shutdown function in main.py"},
+    {"role": "assistant", "content": "Please clarify the correct old_str for shutdown() (attempt 2)."}
+  ]
+  ```
+  No occurrence of `[PATCH_FAILED, UNRESOLVED]` anywhere in `history`.
+- **Why this matters:** NEW-19's own design intent (per its code comment
+  at ~line 1926-1928, inherited from NEW-2's original design) was
+  explicitly "fold the marker into the transcript itself (not just the
+  console/log) so it survives in `history` for later review." That intent
+  is not met for either marker in this fallthrough path — a
+  user/reviewer reopening a saved session later would see no trace that
+  an edit was attempted and dropped, only whatever the model's final
+  clarifying text happened to say (which may not mention the failure at
+  all). This appears to affect NEW-2's `[EDIT NOT APPLIED]` marker
+  identically, since it's folded into the same `_edit_not_applied_prefix`
+  variable via the same append site — not unique to NEW-19's new branch.
+- **Not fixed here** — out of scope for a verification pass per CLAUDE.md
+  rule 8 (log, don't silently fix). A fix would need to append the
+  marker text into `history` explicitly (e.g. as a distinct system/
+  assistant entry, or prepended into the final `response`/`history`
+  assistant entry) rather than relying on `messages`, which is scoped to
+  the turn.
+
+
 ### [NEW-36] The pre-existing verbatim-duplicate-tool-call guard bypasses NEW-19's repeat-`[PATCH_FAILED]` escalation entirely for the more common LLM failure mode (Confirmed)
 - **Confidence: Confirmed** — verified by reading the actual code paths,
   not inferred. Found during code-reviewer's adversarial pass on
@@ -1834,6 +1896,83 @@ remain open, deferred to a future round.
        `files_touched`'s pre-existing convention, so left as-is here, but
        worth normalizing (e.g. via `Path(...).resolve()`) in a future
        pass. Confidence: Suspected.
+  - **Update (code-review pass, 2026-07-30):** code-reviewer independently
+    re-verified scoping, key population, and elif-chain mutual exclusivity,
+    and ran the 5 new tests plus the full 263-test suite live rather than
+    trusting the implementer's summary — **APPROVED** (static/unit-test
+    grounds only at this point; live-verifier confirmation against a real
+    session was still outstanding).
+  - **Update (live-verifier pass, 2026-07-30): CONFIRMED end-to-end,
+    with one real gap surfaced and logged (not silently fixed) — see
+    `NEW-38` below.** Drove `core/agent.py`'s real `run_agent()` two ways:
+    directly, and (2nd run) through `main._run_with_plan(..., no_plan=True)`
+    — the same dispatch `main.py`'s REPL loop calls — with a scripted/
+    mocked `infer` (no local 7B/1.5B/embedding model loaded; `ps aux |
+    grep llama-server` showed nothing before or after either run,
+    confirmed). Fed two, then a third, `patch_file` calls with a
+    nonexistent `old_str` on the same path (`main.py`) within escalating
+    turns, `_in_subtask=False`. Deliberately did **not** mock
+    `core.peer_cli.escalate()` (unlike the unit tests) so its real
+    `confirm()` interactive prompt (`console.input()`) would fire for
+    real — it did, verbatim, on the 2nd same-path `[PATCH_FAILED]`:
+    ```
+      ⚠  Codey hit max retries and needs help.
+      Task:       add a docstring to shutdown function in main.py
+      Suggest:    Gemini CLI (Google)  (debugging task)
+      Fallbacks:  qwen
+    ```
+    Answered "n" via real stdin to decline. Confirmed live: (1) the
+    prompt fires on the 2nd same-path `[PATCH_FAILED]`; a 3rd same-path
+    failure (fed in the 2nd run) correctly fires the prompt **again**
+    (escalation is offered on every new occurrence past the first, not
+    just once per turn) — no double-fire for the *same* failure, no
+    infinite loop, no crash; (2) declining falls through each time to
+    `[PATCH_FAILED, UNRESOLVED] patch_file on main.py repeated
+    old_str-not-found failures were not resolved in this turn — no file
+    was modified.` via `agent.log_error` (2 log entries for the 2-decline
+    run) — **not** NEW-2's `[EDIT NOT APPLIED]` marker, confirming the two
+    are mutually exclusive as designed; (3) `git status` clean afterward
+    both runs (patch never matched, so no file was ever actually mutated,
+    as expected for this failure mode).
+    **Correction to an initial overclaim (per CLAUDE.md rule 6):** the
+    first live-verification pass claimed the marker was "confirmed
+    present in `history`/response chain" — that was asserted without
+    actually inspecting `history`, and a follow-up check disproved it:
+    `history` returned by `run_agent()`/`_run_with_plan()` only ever gets
+    the original `user_message` and the final `response` appended
+    (`core/agent.py:1989-1990`); the `[PATCH_FAILED, UNRESOLVED]` marker
+    is folded only into the in-turn `messages` list (the model's own
+    context for that turn), which is discarded once the turn ends — it
+    does **not** survive into the `history` that gets saved to disk via
+    `save_session()`. So the marker is visible live in the console/log at
+    the moment it fires, and — **separately confirmed live, not just
+    read from code** — actually reaches the `messages` list handed to
+    the model on the immediately-following call (a 3rd driver run
+    printed the exact `messages` content seen by the mocked `infer()`
+    for that call and it contained, verbatim: `'[PATCH_FAILED,
+    UNRESOLVED] patch_file on main.py repeated old_str-not-found
+    failures were not resolved in this turn — no file was modified.\n
+    Tool result: [PATCH_FAILED] old_str not found in main.py (1583
+    lines)...'`). But a user reopening a **saved session** afterward
+    would not see it in the transcript. Logged as `NEW-38` below rather
+    than silently accepted or fixed, since this is outside this task's
+    scope (verification, not a fix). Downgrading the "in the
+    transcript/history" wording accordingly.
+    **Scope caveat (NEW-36):** this run's `old_str` values were
+    deliberately non-identical across attempts (`_LIVE2_v1`/`_v2`/`_v3`,
+    matching the existing unit tests' convention) specifically to avoid
+    the pre-existing verbatim-duplicate-tool-call guard documented in
+    `NEW-36` (Confirmed), which intercepts byte-identical repeat tool
+    calls before NEW-19's counter ever increments. So this live
+    verification covers the **varied-old_str repeat** path only —
+    `NEW-36` itself notes that exact-repeat (identical `old_str`) is
+    actually the *more* common real-LLM failure mode, and that path
+    still bypasses NEW-19's escalation entirely, unchanged by this round.
+    **NEW-19's core escalation/marker-firing logic (for the varied-old_str
+    repeat path) is live-verified working as designed; the
+    transcript-persistence gap is a separate, logged, not-yet-fixed
+    follow-up (`NEW-38`); the exact-repeat gap remains `NEW-36`, also not
+    fixed here.**
 
 ## Found during Round 18 (NEW-18 live-reproduction attempt), 2026-07-30 — NOT fixed, logged only
 

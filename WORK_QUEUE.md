@@ -20,9 +20,10 @@ checkboxes had (Phase 0's `symbolic_graph` box, Section 5's Open Question
 ## How new issues get logged as we go
 
 Keep using `NEW_ISSUES.md` exactly as it already works — next sequential
-`NEW-##` ID (currently next free: **NEW-36**, after `NEW-27` through
-`NEW-35` were logged across this session's hygiene and Track 1 audit
-rounds), rated Confirmed or Suspected, same format as existing entries.
+`NEW-##` ID (currently next free: **NEW-39**, after `NEW-27` through
+`NEW-38` were logged across this session's hygiene, Track 1 audit, and
+NEW-19 live-verification rounds), rated Confirmed or Suspected, same
+format as existing entries.
 The only addition: if a newly-found issue blocks or changes a specific
 item in this queue, **cross-reference the queue item's name/number
 inline** in both directions — a line in the `NEW_ISSUES.md` entry pointing
@@ -153,11 +154,56 @@ gets logged, not silently fixed or dropped, even mid-queue-item.
       failure mode) and `NEW-37` (Suspected — minor `peer_cli.py`
       keyword-matching/wording side effects from `error_log` now
       containing `[PATCH_FAILED]` file-content text).
-      **Still needs:** live-verifier confirmation that the escalation
-      path actually fires against a live model (per CLAUDE.md rule 2 —
-      run `free -h` first, single model-load cycle, confirm unloaded
-      after) — not yet done, do not mark this fully complete until it
-      happens.
+      **live-verifier: CONFIRMED, 2026-07-30** — drove `core/agent.py`'s
+      real `run_agent()` entry point, and separately `main._run_with_plan
+      (..., no_plan=True)` (the actual dispatch `main.py`'s REPL loop
+      calls), with a scripted/mocked `infer` returning two (then, in a
+      2nd run, three) `patch_file` calls with a nonexistent `old_str` on
+      the same path within a turn, `_in_subtask=False`, and **did not
+      mock `core.peer_cli.escalate`** — its real `confirm()` interactive
+      `console.input()` prompt fired for real ("⚠ Codey hit max
+      retries and needs help... Suggest: Gemini CLI (Google)...");
+      answered "n" via real stdin to decline. Confirmed live: (1) the
+      escalation prompt fires on the 2nd same-path `[PATCH_FAILED]`, and
+      fires again on a 3rd — no double-fire for the same failure, no
+      infinite loop; (2) declining falls through each time to the
+      `[PATCH_FAILED, UNRESOLVED]` marker, not NEW-2's
+      `[EDIT NOT APPLIED]`; (3) no crash, `git status` clean afterward
+      both runs (patch never matched, so no file was ever mutated, as
+      expected). No local 7B/1.5B/embedding model was loaded for this
+      test — verified via `ps aux | grep llama-server` showing nothing
+      before and after both runs (this test exercises `run_agent()`/
+      `_run_with_plan()`/`peer_cli.escalate()` wiring directly, not model
+      inference, per the task's own scoping — a full 7B session was
+      judged unnecessary since the mocked-`infer` path through the real
+      entry point already proves the wiring).
+      **Correction (rule 6):** an initial pass over-claimed the marker
+      was "confirmed present in `history`" without actually checking —
+      a follow-up check disproved it: the marker is folded only into the
+      in-turn `messages` list, not into the `history` returned/saved by
+      `run_agent()`, so it does not survive into a reopened session's
+      transcript. **Positively re-confirmed live** (not just re-read from
+      code) that the marker does reach the in-turn `messages` list seen
+      by the model on the next call — a 3rd driver run printed the exact
+      `messages` passed to the mocked `infer()` and the marker text was
+      present verbatim. Logged the persistence gap as `NEW-38` — Confirmed
+      for the `[PATCH_FAILED, UNRESOLVED]` case (live-reproduced),
+      Suspected-by-code-inspection only for NEW-2's `[EDIT NOT APPLIED]`
+      (same append site, not separately live-reproduced) — rather than
+      fixed here (out of this task's scope).
+      **Scope caveat:** all three driver runs used deliberately
+      non-identical `old_str` values per attempt (dodging the pre-existing
+      exact-duplicate-tool-call guard, `NEW-36`, same convention the unit
+      tests use) — so this verifies the varied-old_str repeat path only;
+      `NEW-36` (Confirmed) notes the exact-repeat case, which it calls the
+      *more* common real-LLM failure mode, still bypasses this escalation
+      entirely, unchanged.
+      **NEW-19's core escalation/marker-firing logic (console/log +
+      in-turn model context, varied-old_str repeat path) is fully
+      live-verified working as designed; NEW-19 is done for that scope —
+      the transcript-persistence gap is tracked as `NEW-38` (not fixed),
+      and the exact-repeat gap remains `NEW-36` (not fixed), both
+      pre-existing/adjacent, not regressions from this round.**
 - [ ] `NEW-25` — `codeyOS --daemon` forwards a literal `$@` string
       instead of real args (backslash-escape bug outside the heredoc).
       Process-lifecycle-adjacent → needs code-reviewer per CLAUDE.md
