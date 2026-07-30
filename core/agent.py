@@ -1450,6 +1450,14 @@ def run_agent(
     max_retries = 1
     error_log = []  # accumulates error text for peer CLI context
     files_touched = []  # accumulates file paths for peer CLI context
+    # NEW-19: per-turn, per-path count of [PATCH_FAILED] (old_str-not-found)
+    # results. [PATCH_FAILED] is deliberately excluded from is_error() (see
+    # is_error() below) so a single failure bypasses retry entirely and shows
+    # the model full file content to reconstruct the edit itself. But if the
+    # SAME path fails repeatedly within this turn, that strategy isn't
+    # working — route it into the existing peer-CLI escalation path instead
+    # of showing full content again indefinitely.
+    patch_failed_counts = {}
     # Subtasks writing large files need more steps than simple Q&A.
     # If running inside the orchestrator (in_subtask) and the message contains
     # code-generation signals, raise the cap to 10.
@@ -1712,6 +1720,26 @@ def run_agent(
             if fpath_touched and fpath_touched not in files_touched:
                 files_touched.append(fpath_touched)
 
+            # NEW-19: track repeated [PATCH_FAILED] on the same path within
+            # this turn. is_error() intentionally does not match
+            # [PATCH_FAILED] (see is_error() docstring/comments above), so
+            # this is tracked independently of the retry-gate logic below.
+            _is_patch_failed = (
+                name == "patch_file"
+                and isinstance(last_tool_result, str)
+                and last_tool_result.startswith("[PATCH_FAILED]")
+            )
+            if _is_patch_failed and fpath_touched:
+                patch_failed_counts[fpath_touched] = patch_failed_counts.get(fpath_touched, 0) + 1
+                # is_error() deliberately doesn't match [PATCH_FAILED] (see
+                # above), so error_log wouldn't otherwise see this failure —
+                # but escalate() needs it for peer-CLI context, same as any
+                # other accumulated error. Mirror the is_error() append above.
+                error_log.append(last_tool_result[:300])
+            _patch_failed_repeat = (
+                _is_patch_failed and patch_failed_counts.get(fpath_touched, 0) > 1
+            )
+
             if is_error(last_tool_result, name) and auto_retries < max_retries:
                 auto_retries += 1
                 warning("Error detected — auto-retry " + str(auto_retries) + "/" + str(max_retries))
@@ -1800,6 +1828,35 @@ def run_agent(
                     auto_retries = 0
                     continue
                 # else: user skipped escalation, fall through to normal handling
+            elif _patch_failed_repeat and not _in_subtask:
+                # NEW-19: same path has now failed with [PATCH_FAILED] more
+                # than once this turn. Showing full file content again
+                # clearly isn't letting the model reconstruct a working
+                # patch — escalate to the peer CLI instead, reusing the same
+                # escalation path as the exhausted-retries case above.
+                from core.peer_cli import escalate
+
+                peer_result = escalate(user_message, error_log, files_touched)
+                if peer_result and peer_result.startswith("[redirect]:"):
+                    new_instruction = peer_result[len("[redirect]: ") :]
+                    messages.append({"role": "user", "content": new_instruction})
+                    auto_retries = 0
+                    continue
+                elif peer_result:
+                    messages.append(
+                        {"role": "assistant", "content": _format_tool_for_history(tool_dict)}
+                    )
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": peer_result
+                            + "\n\nBased on the above, complete the task or summarize what was accomplished.",
+                        }
+                    )
+                    auto_retries = 0
+                    continue
+                # else: user skipped escalation — fall through; the
+                # [PATCH_FAILED, UNRESOLVED] marker below records this.
             messages.append({"role": "assistant", "content": _format_tool_for_history(tool_dict)})
             # After write_file for a simple create request — force exit the loop.
             # The 7B model ignores "don't run commands" instructions and keeps
@@ -1868,6 +1925,27 @@ def run_agent(
                     log_error(_edit_not_applied_msg)
                     # Also fold the marker into the transcript itself (not just the
                     # console/log) so it survives in `history` for later review.
+                    _edit_not_applied_prefix = _edit_not_applied_msg + "\n"
+                elif _patch_failed_repeat:
+                    # NEW-19: distinct from NEW-2's [EDIT NOT APPLIED] marker
+                    # above — that marker's "failed after retries and
+                    # escalation were exhausted" wording would be false here,
+                    # since [PATCH_FAILED] never enters the auto-retry gate
+                    # (is_error() deliberately excludes it, by design). This
+                    # branch is also reached when _in_subtask=True, where
+                    # escalation never runs at all (see "not _in_subtask"
+                    # guard above) — so avoid claiming escalation ran or was
+                    # exhausted; state only what's true in every path here:
+                    # the repeat was never resolved and no file was modified.
+                    _edit_not_applied_msg = (
+                        "[PATCH_FAILED, UNRESOLVED] "
+                        + name
+                        + " on "
+                        + str(args.get("path", "<unknown>"))
+                        + " repeated old_str-not-found failures were not resolved "
+                        "in this turn — no file was modified."
+                    )
+                    log_error(_edit_not_applied_msg)
                     _edit_not_applied_prefix = _edit_not_applied_msg + "\n"
                 # 2000 chars gives the model enough content to work with.
                 # patch_file [PATCH_FAILED] responses include file content that

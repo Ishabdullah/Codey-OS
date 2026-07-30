@@ -18,3 +18,4 @@
 - [NEW-17 scoped git commit staging — APPROVED](new17_git_commit_scoped_staging_approved.md) — trailing `-- <paths>` on `git commit` (not just `git add`) is load-bearing; verified via scratch-repo pre-staged-file test
 - [NEW-20 main.py isatty() paste guard — APPROVED](new20_main_isatty_paste_guard_approved.md) — piped-stdin select() hang fixed; pty-verified TTY paste-glue still works; live-verifier pass still recommended
 - [NEW-22/23 entry-point cleanup (gui/start.sh, ccos_main.py deletion) — APPROVED](new22_23_entrypoint_cleanup_approved.md) — independent grep confirmed zero live refs; PROJECT_PLAN.md checklist closeout still pending (non-blocking, follow-up commit expected)
+- [NEW-19 patch-failed-repeat escalation — APPROVED](new19_patch_failed_repeat_escalation.md) — verbatim-duplicate tool calls bypass the fix entirely via pre-existing duplicate_count guard; check this gap first if NEW-19 or duplicate_count logic is touched again

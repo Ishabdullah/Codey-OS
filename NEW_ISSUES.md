@@ -1,5 +1,59 @@
 # New Issues Found During V3 Overhaul
 
+## Found during NEW-19 code-review (patch-failed repeat-escalation), 2026-07-30 — NOT fixed, logged only
+
+### [NEW-36] The pre-existing verbatim-duplicate-tool-call guard bypasses NEW-19's repeat-`[PATCH_FAILED]` escalation entirely for the more common LLM failure mode (Confirmed)
+- **Confidence: Confirmed** — verified by reading the actual code paths,
+  not inferred. Found during code-reviewer's adversarial pass on
+  `NEW-19`'s implementation.
+- **Where found:** `core/agent.py`'s pre-existing `duplicate_count` guard
+  (lines ~1645-1667, untouched by `NEW-19`) intercepts a byte-identical
+  repeated tool call *before* `execute_tool()` runs. On the 2nd identical
+  repeat it returns early with `"Done. " + last_tool_result[:300]` —
+  misrepresenting a still-failed `[PATCH_FAILED]` result as success — and
+  short-circuits before `execute_tool()` is re-invoked.
+- **Why this matters:** `NEW-19`'s new repeat-`[PATCH_FAILED]` escalation
+  logic (`patch_failed_counts`) only increments when `execute_tool()`
+  actually runs again, which requires the model to vary `old_str` between
+  attempts. When the model instead retries with the byte-identical
+  `old_str` (arguably the more common LLM failure mode for this class of
+  error), the duplicate-guard's "Done." short-circuit fires first,
+  `NEW-19`'s counter never increments, and the false "Done." message
+  likely makes the model believe the patch succeeded — a worse outcome
+  than either the old bypass-forever behavior or `NEW-19`'s new
+  escalation path. `NEW-19` materially narrows but does not close this
+  gap.
+- **Not fixed here** — pre-existing bug, not introduced by `NEW-19`;
+  needs its own scoping pass (likely: should the duplicate-guard's
+  "Done." short-circuit itself check for a `[PATCH_FAILED]`-prefixed
+  `last_tool_result` and route to escalation/marker logic instead of
+  claiming success?).
+
+### [NEW-37] `NEW-19`'s repeat-escalation now feeds `[PATCH_FAILED]` file-content text into `peer_cli.py`'s task-type keyword matching, and reuses `escalate()`'s fixed "exhausted its retry budget" wording even though retries were never entered for this path (Suspected)
+- **Confidence: Suspected** — low-severity, not live-verified, logged per
+  CLAUDE.md rule 8 rather than fixed silently during `NEW-19`'s review.
+- **Where found:** `NEW-19` (`core/agent.py`) now appends
+  `[PATCH_FAILED]` result text (which embeds up to 300 chars of the
+  target file's actual content) into `error_log`, which previously only
+  ever contained `is_error()`-matched failures. `error_log` flows into
+  `core.peer_cli.escalate(user_message, error_log, files_touched)` →
+  `detect_task_type()`'s fallback keyword match and `build_prompt()`'s
+  fixed prompt wording.
+- **Why this matters (two distinct sub-issues, both minor):**
+  1. File content text (not error text) now participates in
+     `detect_task_type()`'s fallback keyword match, worst case causing a
+     suboptimal peer-CLI selection — bounded impact (only a fallback
+     after `user_message` checks), not a safety issue.
+  2. `build_prompt()`'s fixed wording ("exhausted its retry budget") is
+     factually false for the `[PATCH_FAILED]`-repeat case, since
+     `[PATCH_FAILED]` deliberately never enters the retry gate. This is
+     inherited as-is from reusing the shared `escalate()` path, per
+     `NEW-19`'s recorded design decision to reuse the existing
+     escalation mechanism rather than build a parallel one.
+- **Not fixed here** — needs its own scoping pass if `peer_cli.py`'s
+  prompt wording is judged worth making conditional on escalation
+  reason, rather than fixed text shared across all callers.
+
 ## Found during Track 1 prompt audit (system_prompt.py, layered_prompt.py, critique_prompts.py, plannd.py PLANNER_PROMPT), 2026-07-30 — NOT fixed, logged only
 
 ### [NEW-28] `_TOOL_VERBS` regex in `core/plannd.py` has no `edit` alternative — `filter_tool_steps` can silently drop legitimate "Edit <file>: ..." steps
@@ -1748,6 +1802,38 @@ remain open, deferred to a future round.
      decision is scoping a real, still-open gap, not a stale one.
   - **Status: scoped, decision recorded, not yet implemented.** Moved to
     `WORK_QUEUE.md` Track 2 as its own task.
+  - **Update (implementation pass, 2026-07-30):** implemented in
+    `core/agent.py` — added a per-turn, per-path `patch_failed_counts`
+    dict; a repeated (>1) `[PATCH_FAILED]` on the same path within a turn
+    now routes into the existing `core.peer_cli.escalate()` call (mirroring
+    the exhausted-retries call site), and a new
+    `[PATCH_FAILED, UNRESOLVED] <tool> on <path> repeated old_str-not-found
+    failures were not resolved in this turn — no file was modified.` marker
+    fires if it's still unresolved after that (escalation skipped/didn't
+    resolve it, or `_in_subtask=True` skipped escalation entirely — the
+    wording was deliberately kept true in both cases, unlike a naive reuse
+    of NEW-2's wording). Code-complete and covered by 5 new unit tests in
+    `tests/test_new19_patch_failed_repeat_escalation.py` (263/263 full
+    suite passing) — **not yet live-verified** (no live model-load test was
+    run for this pass; needed before this can be marked fully done) and
+    **not yet code-reviewer approved.**
+  - **Two small pre-existing/adjacent items surfaced while implementing,
+    not fixed here (deliberately, per this task's scope):**
+    1. NEW-2's own `[EDIT NOT APPLIED]` marker already has the same
+       wording flaw the new NEW-19 marker was deliberately written to
+       avoid: it says "failed after retries and escalation were exhausted"
+       even when `_in_subtask=True`, where escalation is skipped entirely
+       (never attempted, so "exhausted" is imprecise). Pre-existing, not
+       introduced by this change. Confidence: Suspected.
+    2. `patch_failed_counts` (this fix) and the pre-existing
+       `files_touched` list are both keyed on the raw `args["path"]`
+       string as given by the model — `main.py`, `./main.py`, and an
+       absolute path to the same file would not collate, so the repeat
+       counter (and `files_touched` dedup) could under-count if the model
+       varies its path spelling across attempts. Consistent with
+       `files_touched`'s pre-existing convention, so left as-is here, but
+       worth normalizing (e.g. via `Path(...).resolve()`) in a future
+       pass. Confidence: Suspected.
 
 ## Found during Round 18 (NEW-18 live-reproduction attempt), 2026-07-30 — NOT fixed, logged only
 

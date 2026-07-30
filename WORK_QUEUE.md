@@ -132,16 +132,32 @@ gets logged, not silently fixed or dropped, even mid-queue-item.
 
 ## Track 2 — Independent bug/security fixes (real risk exposure now; not blocked by Phase 5, can run in parallel with Track 1/3)
 
-- [ ] `NEW-19` implementation — per the decision recorded above: add
-      repeated-same-file-`[PATCH_FAILED]`-in-a-turn escalation to the
-      existing peer-CLI path (`core/agent.py`, near the existing
-      exhausted-retries escalation at line ~1778-1781), plus a new
-      distinct transcript marker for the unresolved-within-turn case.
-      Touches the core tool-execution/retry loop in `agent.py` — not
-      process-lifecycle (rule 4 doesn't apply), but real behavior change
-      to the model's failure-handling path; code-reviewer pass
-      recommended given the class of change, live-verifier likely needed
-      to confirm the new escalation path actually fires.
+- [x] `NEW-19` implementation — **code-complete, 2026-07-30**, per the
+      decision recorded above: `core/agent.py` now tracks a per-turn,
+      per-path `patch_failed_counts` dict; a repeated (>1) same-path
+      `[PATCH_FAILED]` in a turn routes into the existing peer-CLI
+      escalation path (mirrors the exhausted-retries call site at
+      ~line 1798); a new `[PATCH_FAILED, UNRESOLVED]` marker (distinct
+      wording from NEW-2's `[EDIT NOT APPLIED]`) fires if still
+      unresolved after that. 5 new unit tests added in
+      `tests/test_new19_patch_failed_repeat_escalation.py`, covering the
+      redirect/peer-ran/skipped escalation branches and the single- vs.
+      repeated-failure marker distinction (263/263 full suite passing).
+      **code-reviewer: APPROVED, 2026-07-30** — independently re-verified
+      scoping, key population, elif-chain mutual exclusivity, and ran the
+      tests live (confirmed 5/5 and full-suite 263/263 match the
+      implementer's claims, not just re-stated them). Surfaced 2 adjacent
+      findings during review, logged (not fixed) per rule 8: `NEW-36`
+      (Confirmed — the pre-existing verbatim-duplicate-tool-call guard
+      bypasses this fix entirely for the more common exact-repeat LLM
+      failure mode) and `NEW-37` (Suspected — minor `peer_cli.py`
+      keyword-matching/wording side effects from `error_log` now
+      containing `[PATCH_FAILED]` file-content text).
+      **Still needs:** live-verifier confirmation that the escalation
+      path actually fires against a live model (per CLAUDE.md rule 2 —
+      run `free -h` first, single model-load cycle, confirm unloaded
+      after) — not yet done, do not mark this fully complete until it
+      happens.
 - [ ] `NEW-25` — `codeyOS --daemon` forwards a literal `$@` string
       instead of real args (backslash-escape bug outside the heredoc).
       Process-lifecycle-adjacent → needs code-reviewer per CLAUDE.md
