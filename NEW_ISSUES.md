@@ -1631,18 +1631,16 @@ remain open, deferred to a future round.
 ## Pre-existing Test Failures (Not Introduced by V3 Changes)
 
 ### test_hallucination.py (8 failures)
-- **Issue**: Hallucination detection tests failing
-- **Root Cause**: The `detect_hallucination()` function in `core/agent.py` doesn't detect past-tense claims like "I created", "I wrote", "I modified"
-- **Impact**: Medium - hallucination detection is incomplete
+- **Status: RESOLVED, verified 2026-07-30.** `python3 -m pytest tests/test_patch.py tests/test_hallucination.py -q` → `24 passed`, 0 failures. Whatever caused the original 8 failures no longer reproduces on current code — confirmed by directly running the test file, not inferred. Marked done during a NEW_ISSUES.md accuracy sweep; not tied to a specific round/commit since the fix (if any) predates when this was checked.
+- **Original issue (for history)**: Hallucination detection tests failing
+- **Original root cause**: The `detect_hallucination()` function in `core/agent.py` didn't detect past-tense claims like "I created", "I wrote", "I modified"
 - **Files**: `tests/test_hallucination.py`, `core/agent.py`
-- **Recommendation**: Review and update hallucination detection patterns
 
 ### test_patch.py (1 failure)
-- **Issue**: Patch error message format changed
-- **Root Cause**: The patch tool now returns `[PATCH_FAILED]` instead of `[ERROR] String not found`
-- **Impact**: Low - test expectation mismatch
+- **Status: RESOLVED, verified 2026-07-30.** Same test run as above confirms 0 failures in `test_patch.py`. The test's expectations were already updated to match the current `[PATCH_FAILED]` message format (confirmed during Round 15's code review, which noted `tests/test_patch.py` only asserts `assertIn("old_str not found", res)` — a substring unaffected by later wording changes).
+- **Original issue (for history)**: Patch error message format changed
+- **Original root cause**: The patch tool now returns `[PATCH_FAILED]` instead of `[ERROR] String not found`
 - **Files**: `tests/test_patch.py`, `tools/patch_tools.py`
-- **Recommendation**: Update test to match new error format
 
 ## Additional Security Hardening Needed
 
@@ -1707,6 +1705,9 @@ remain open, deferred to a future round.
 - **Recommendation**: Update `docs/security.md` with V3 changes
 
 ### 2. Privacy Policy
-- **Status**: Missing
-- **Issue**: No explicit privacy policy document
-- **Recommendation**: Add `PRIVACY.md` documenting data handling practices
+- **Status: RESOLVED, verified 2026-07-30.** `PRIVACY.md` exists in the
+  repo root with real content (87 lines — 100%-local-by-default, no
+  telemetry, data handling practices). This entry was stale; the file
+  it asked for already exists. Confirmed by directly reading the file,
+  not inferred.
+- **Original issue (for history)**: No explicit privacy policy document
