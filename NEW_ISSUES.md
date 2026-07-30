@@ -3,6 +3,18 @@
 ## Found during Round 3 (NEW-4) live-verification pass, 2026-07-29 — NOT fixed, logged only
 
 ### [NEW-5] `llama-server` child can outlive `gui/start.sh`'s (or any) parent process indefinitely on a TERM/Ctrl+C during mid-load, with no automatic recovery
+- **Status: Resolved** (2026-07-30, Round 6). Fixed by commit `eed29dc`:
+  `main.py`'s `repl()` (~line 1267-1274) now wraps `loader.load_primary()`
+  in `try/except (KeyboardInterrupt, SystemExit)`, calling the existing
+  `shutdown()` and returning cleanly, reusing the scoped-PID teardown
+  path with no new kill logic. code-reviewer approved; live-verifier
+  independently reproduced a genuine mid-load `SIGINT` via `pty.fork()`
+  (tracked child PID) and confirmed no orphan `llama-server` remained
+  (`ps -eo pid,ppid,pgid,comm | grep -E "python|llama"` empty, `free -h`
+  RAM recovered), plus a regression check on the normal-completion path.
+  See `PROJECT_LOG.md` 2026-07-30 entry for full verbatim evidence.
+  `NEW_ISSUES.md` [NEW-6] (same unguarded pattern at three sibling call
+  sites) remains open as a separate, unscoped follow-up.
 - **Confidence: Confirmed** (upgraded 2026-07-29, Round 6 — live-reproduced
   and root-caused by reading the code; previously Suspected on a single
   observation).

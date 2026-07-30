@@ -631,6 +631,50 @@ called `compress_summary()` with no mocking of inference at all.
 **Round 5 (NEW-1) is fully closed.** Both code-complete and live-verified
 criteria are met per Ground Rule 7.
 
+### Audit Remediation — Round 6 (NEW-5)
+**Status: FULLY LIVE-VERIFIED** (2026-07-30) — fix for `NEW_ISSUES.md`
+[NEW-5]: `llama-server` could be orphaned indefinitely if `SIGINT`
+landed while the model was still loading in `main.py`'s `repl()`,
+because `KeyboardInterrupt` is a `BaseException` not caught by
+`loader_v2.py`'s `load_primary()`'s own `except Exception`, and
+`llama-server` is spawned with `preexec_fn=os.setsid`, insulating it
+from the terminal's signal group.
+- [x] `main.py`'s `repl()` (~line 1267-1274) wraps `loader.load_primary()`
+      in `try/except (KeyboardInterrupt, SystemExit)`, calling the
+      existing `shutdown()` (~line 125-144, unchanged) and returning
+      cleanly. No new kill path introduced. Commit `eed29dc`.
+- [x] code-reviewer approved, with one Warning: live-verification output
+      wasn't yet recorded in `PROJECT_LOG.md` at approval time.
+- [x] **live-verifier independently reproduced a genuine mid-load
+      `SIGINT`** via `pty.fork()` (tracked child PID, not `timeout`, not
+      a name-pattern kill), sent directly to the tracked PID before
+      `llama-server` finished loading. Result: clean "Interrupted during
+      model load, cleaning up..." message, `shutdown()` ran, and
+      `ps -eo pid,ppid,pgid,comm | grep -E "python|llama"` was empty
+      afterward — no orphan. `free -h` recovered from 3.3Gi used/4.3Gi
+      free (mid-teardown) baseline of 4.2Gi used/892Mi free. An earlier
+      backgrounded attempt was voided by live-verifier itself as
+      inconclusive (model loaded before the `SIGINT` command ran) and
+      not counted as a pass.
+      - Regression check (normal-completion cycle, sequenced after the
+        model was confirmed unloaded): full model load, one real
+        inference exchange, clean `/exit` — no orphan process, RAM fully
+        recovered (2.7Gi used/6.0Gi free after).
+      - Single model-load cycle boundary respected: Test 2 only started
+        once Test 1's `llama-server` was confirmed fully unloaded.
+- [x] `NEW_ISSUES.md` [NEW-5] updated to Resolved, citing `eed29dc` and
+      this live-verification.
+
+**Round 6 (NEW-5) is now fully closed** — code-complete, code-reviewer-
+approved, and independently live-verified (a real live-verifier
+confirmation, not implementer-reported or code-complete-only evidence),
+per Ground Rule 7. Of the user's original four-item punch list, NEW-3,
+NEW-1, and NEW-5 are now all done. `NEW_ISSUES.md` [NEW-6] (same
+unguarded pattern at three sibling call sites: `args.init` ~line 1458,
+`args.tdd` ~line 1465-1466, `args.fix` ~line 1485-1486) remains open,
+Suspected, unscoped — not fixed as part of this round. **NEW-2 remains
+as Round 7, the hardest and final item on the punch list.**
+
 ### Phase 4 — Self-improvement activation (deliberate, not automatic)
 Do NOT start this phase until Phases 1–3 are stable and you've watched the
 system run real coding tasks through the sandbox/safety-veto path for a

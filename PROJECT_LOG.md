@@ -5,6 +5,133 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-30 — Round 6 (NEW-5) live-verification: genuine mid-load SIGINT confirmed handled, FULLY LIVE-VERIFIED
+
+**What was verified:** live-verifier independently reproduced a genuine
+mid-load `SIGINT` against `main.py`'s `repl()` to confirm commit
+`eed29dc`'s fix (a `try/except (KeyboardInterrupt, SystemExit)` around
+`loader.load_primary()` that calls the existing `shutdown()` and returns
+cleanly) actually closes `NEW_ISSUES.md` [NEW-5], and that this closes
+code-reviewer's one open Warning on this fix — that live-verification
+output wasn't yet recorded when it approved the diff.
+
+**Baseline `free -h`:**
+```
+               total        used        free      shared  buff/cache   available
+Mem:            10Gi       4.2Gi       892Mi        11Mi       5.7Gi       6.3Gi
+Swap:           11Gi       2.0Gi         9Gi
+```
+
+**Test 1 — genuine mid-load SIGINT, via `pty.fork()` (tracked child PID
+30600, not `timeout`, not a name-pattern kill):** `llama-server`'s own
+child PID (30603) confirmed in its own process group (`preexec_fn=
+os.setsid`). `SIGINT` sent directly to PID 30600 at t=0.88s, before
+`llama-server` finished loading:
+```
+CHILD_PID=30600
+ℹ  Loading model: qwen2.5-coder-7b-instruct-q4_k_m.gguf
+ℹ  Starting llama-server...
+
+>>> SENDING SIGINT to 30600 at t=0.88s
+ℹ  7B model: mmap=enabled, mlock=disabled
+ℹ  llama-server PID: 30603, logging to /data/data/com.termux/files/home/.codeyOS/llama-server.log
+
+Interrupted during model load, cleaning up...
+ℹ  Stopping model server...
+```
+Post-interrupt check:
+```
+ps -eo pid,ppid,pgid,comm | grep -E "python|llama"   -> (empty, no matches)
+free -h
+               total        used        free      shared  buff/cache   available
+Mem:            10Gi       3.3Gi       4.3Gi        16Mi       3.2Gi       7.3Gi
+Swap:           11Gi       2.2Gi       9.8Gi
+```
+No leak, no orphan — process fully reaped, RAM recovered. (An earlier
+attempt, backgrounded via `setsid ... &` with stdin redirected from
+`/dev/null`, was voided by live-verifier itself as inconclusive: the
+model loaded fast enough that the process hit an immediate EOF on
+`/dev/null` stdin and exited on its own before the `SIGINT` command ever
+ran. Reported transparently as void, not counted as a pass.)
+
+**Test 2 — regression check, normal-completion cycle** (sequenced after
+Test 1's model confirmed fully unloaded, per the one-model-load-cycle-
+at-a-time rule): model loaded fully, one real inference message sent
+("what is 2+2? answer in one word"), model responded "4" (`Chat
+completions (stream): 2 tokens in 12.3s (16.1 t/s)`), clean `/exit`:
+```
+/exit
+Session saved. Goodbye!
+ℹ  Stopping model server...
+```
+Post-exit check:
+```
+ps -eo pid,ppid,pgid,comm | grep -E "python|llama"   -> (empty)
+free -h
+               total        used        free      shared  buff/cache   available
+Mem:            10Gi       2.7Gi       6.0Gi       7.0Mi       2.1Gi       7.8Gi
+Swap:           11Gi       2.3Gi       9.7Gi
+```
+Peak RAM during inference reached 9.0/10.8GB per live monitor; device
+stayed responsive, no swap thrashing.
+
+**Overall verdict:** fix confirmed working under a genuine `SIGINT`
+during model load; no regression on the normal completion path.
+
+**Docs updated:** `NEW_ISSUES.md` [NEW-5] moved to **Resolved**, citing
+`eed29dc` and this live-verification. `PROJECT_PLAN.md` Round 6 entry
+upgraded from "code complete, code-reviewer approved" to **code
+complete, code-reviewer approved, and independently live-verified**, per
+Ground Rule 7 — this closes code-reviewer's open Warning about missing
+live-verification output.
+
+**Round 6 (NEW-5) is now fully closed.** Of the user's original
+four-item punch list, NEW-3, NEW-1, and NEW-5 are now all done; NEW-2
+remains as Round 7, the hardest and final item. `NEW_ISSUES.md` [NEW-6]
+(same unguarded `load_primary()` pattern at three sibling call sites in
+`main.py`) remains open, Suspected, unscoped — not part of this round.
+
+---
+
+## 2026-07-29 — Round 6 (NEW-5): guard against `KeyboardInterrupt` during model load in `repl()`, CODE COMPLETE
+
+**What changed:** `main.py`'s `repl()` (commit `eed29dc`, ~line
+1267-1274) now wraps the `loader.load_primary()` call in a
+`try/except (KeyboardInterrupt, SystemExit)` that prints an interrupted-
+during-load message, calls the existing `shutdown()` (`main.py` ~line
+125-144, unchanged), and returns cleanly — closing `NEW_ISSUES.md`
+[NEW-5]'s root cause (a `KeyboardInterrupt` during model load previously
+propagated straight out of `load_primary()` uncaught, since
+`core/loader_v2.py`'s own handler is `except Exception`, which does not
+catch `BaseException` subclasses, and `llama-server` is spawned via
+`preexec_fn=os.setsid`, insulating it from terminal signal delivery and
+leaving it a genuine indefinite orphan with no other teardown path):
+```python
+if not is_remote_backend():
+    loader = get_loader()
+    try:
+        loader.load_primary()
+    except (KeyboardInterrupt, SystemExit):
+        console.print("\n[dim]Interrupted during model load, cleaning up...[/dim]")
+        shutdown()
+        return
+```
+Reuses the existing scoped-PID `shutdown()` path unchanged — no new kill
+logic introduced. Scoped to just the `repl()` call site, the one
+actually live-reproduced in Round 6's root-cause investigation;
+`NEW_ISSUES.md` [NEW-6] tracks the same pattern at three other call
+sites as a separate, unscoped follow-up.
+
+**Review:** code-reviewer approved, with one Warning: live-verification
+output for this fix wasn't yet recorded in `PROJECT_LOG.md`. That Warning
+is closed in the entry above this one.
+
+**Verification status at commit time:** CODE COMPLETE, code-reviewer-
+approved — not yet live-verified (see entry above for the live-verifier
+pass that closes this out).
+
+---
+
 ## 2026-07-29 — Round 5 (NEW-1) live-verification: full `pytest tests/` suite confirmed clean, FULLY LIVE-VERIFIED
 
 **What was verified:** live-verifier ran the full test suite (not just
