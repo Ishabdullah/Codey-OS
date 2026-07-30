@@ -1,5 +1,110 @@
 # New Issues Found During V3 Overhaul
 
+## Found during NEW-10 (SIGTERM handler) implementation, 2026-07-30 — NOT fixed, logged only
+
+### [NEW-39] `tests/test_new19_patch_failed_repeat_escalation.py`'s `_in_subtask=False` tests are fragile to a dirty git working tree on `main.py` — they fail (with a stdin-capture `OSError`, not an assertion) whenever `main.py` has real uncommitted changes at test-run time
+
+- **Confidence: Confirmed** — reproduced directly. With a clean working
+  tree, `python3 -m pytest tests/test_new19_patch_failed_repeat_escalation.py -q`
+  passes all 5 tests. With the NEW-10 `main.py` diff applied but
+  uncommitted (a legitimate, in-progress, unrelated change), 3 of the 5
+  tests fail: `test_repeated_patch_failed_actually_calls_escalate_with_error_context`,
+  `test_repeated_patch_failed_escalate_redirect_branch`,
+  `test_repeated_patch_failed_escalate_skipped_falls_through_to_marker`
+  — all three call `agent.run_agent(..., _in_subtask=False)`, unlike the
+  two that pass (`_in_subtask=True`, or no `_in_subtask` param at all).
+  Confirmed by `git stash` / `git stash pop`: stashing the uncommitted
+  `main.py` diff makes all 5 pass again; popping it reintroduces the same
+  3 failures, with identical output both times.
+- **Root cause:** `core/agent.py`'s `run_agent()` (around line 679-694,
+  `git_status_paths(files_touched)` / `ask_confirm("\nStage and commit
+  ONLY the file(s) touched this turn (shown above)?")`) runs a real `git
+  status` on `files_touched` at the end of a turn and, if it sees
+  changes, prompts interactively via `input()` for whether to stage and
+  commit. The 3 failing tests target `main.py` as the file the mocked
+  `patch_file` tool call touches (an existing, deliberate choice in that
+  test file, unrelated to NEW-10). This auto-commit-prompt step is *not*
+  mocked/disabled in those 3 tests. In a clean tree, `git status` on
+  `main.py` reports nothing pending, so the prompt is skipped entirely.
+  With any real uncommitted change already sitting on `main.py` (from
+  totally unrelated in-progress work, e.g. this exact NEW-10 task), `git
+  status` reports it as pending, the prompt fires, `input()` tries to
+  read stdin, and pytest's stdin capture raises `OSError: pytest: reading
+  from stdin while output is captured!` — a hard test-harness error, not
+  a meaningful assertion failure about the feature under test.
+- **Impact if confirmed:** any future task that touches `main.py` and
+  leaves it modified-but-uncommitted while running the full test suite
+  (a completely normal workflow state — code-reviewer approval and
+  commit haven't happened yet) will see these 3 tests fail with a
+  confusing `OSError`, not because of anything wrong with the change
+  under test. Could cost real time misdiagnosing an unrelated diff as
+  having broken NEW-19's escalation logic.
+- **Not fixed here:** out of scope for NEW-10 (a `main.py` SIGTERM-handler
+  task). The real fix belongs in
+  `tests/test_new19_patch_failed_repeat_escalation.py` itself — either
+  mock/disable the auto-commit-prompt path (e.g. mock `ask_confirm` or
+  `git_status_paths`) for the `_in_subtask=False` tests the same way the
+  other tests in that file already mock `agent.infer` and
+  `core.peer_cli.escalate`, or have those tests operate on a scratch
+  file instead of the live `main.py` so a dirty tree on the real
+  `main.py` can't leak into `git_status_paths(files_touched)`.
+
+### [NEW-40] NEW-10's new SIGTERM handler covers the 4 model-load `try/except (KeyboardInterrupt, SystemExit)` guards in `main.py`, but the REPL's steady-state `input()` wait has an existing SIGINT-only guard that does NOT catch the new SystemExit — a real asymmetry, not parity with SIGINT
+
+- **Confidence: Confirmed** — read directly from `main.py`'s current
+  structure. Only 4 of the 14 `shutdown()` call sites in `main.py` are
+  reached via an `except (KeyboardInterrupt, SystemExit):` clause: the
+  `loader.load_primary()` guards in `repl()` (~line 1271) and the
+  `args.init`/`--tdd`/`--fix` branches (~lines 1467, 1479, 1504). The
+  other 10 `shutdown()` calls are plain sequential calls on a success
+  path, not exception guards, and are irrelevant to signal handling.
+- **Correction (rule 6):** this entry originally claimed the REPL's
+  main `input()` wait (line 1362, `except (KeyboardInterrupt, EOFError):`)
+  was "same as SIGINT already does today" — **false, caught by
+  code-reviewer**. Read directly: that clause DOES catch
+  `KeyboardInterrupt` and DOES call `shutdown()` (lines 1363-1365)
+  before `break` — `SIGINT` at the idle `input()` prompt is fully
+  cleaned up today. It does NOT include `SystemExit` in its caught
+  tuple, so `SIGTERM`'s new `raise SystemExit(143)` (from `NEW-10`)
+  propagates past it uncaught, exiting without `shutdown()` running.
+  This is a real asymmetry — `SIGINT` is covered there, `SIGTERM` is
+  not — not equivalent behavior as originally stated. The separate
+  initial-prompt non-one-shot branch (~line 1335, `except
+  KeyboardInterrupt:`, no `finally`) is different again: it doesn't call
+  `shutdown()` for `SIGINT` there either (just prints "Interrupted." and
+  falls through into the REPL loop below), so this isn't a cleanup
+  asymmetry versus `SIGINT` specifically — but it's still a real
+  control-flow gap: `SIGINT` there is absorbed and the process continues
+  into the REPL loop (reaching the covered site above on a later
+  interrupt), while `SIGTERM`'s `SystemExit` propagates straight out of
+  `main()`, skipping the loop and any later chance at cleanup entirely.
+- **Where found:** while implementing NEW-10's `SIGTERM` handler in
+  `main.py` (this round), an advisor review caught that NEW-10's task
+  framing ("14 existing guards") did not match the actual code (`grep -n
+  "except (KeyboardInterrupt, SystemExit)" main.py` shows only 4
+  matches). Code-reviewer's independent pass then caught this entry's
+  own "same as SIGINT" mischaracterization before commit.
+- **Impact:** NOT a regression relative to pre-`NEW-10` behavior —
+  `SIGTERM` at the `input()` wait was `SIG_DFL` (unconditional
+  kernel-level termination, zero cleanup) before this round, and still
+  results in no `shutdown()` running after this round (just via an
+  uncaught `SystemExit` instead of a raw kernel kill — same net
+  cleanup outcome, zero either way). But it IS a real, live gap: a
+  `kill -TERM` sent to an idle interactive session (the common case for
+  a human deliberately stopping one, and likely more commonly hit than
+  the mid-model-load window `NEW-10` specifically targets) still won't
+  get a clean `llama-server` unload today, while `Ctrl-C` at that exact
+  same moment already does.
+- **Not fixed here:** deliberately out of scope for NEW-10, which
+  required not touching the existing `try/except` structure at any of
+  the 14 `shutdown()` call sites. Closing this gap would mean either (a)
+  adding `SystemExit` to the two uncovered `except` clauses (lines
+  ~1335, ~1362) — itself a small, reviewable process-lifecycle change
+  under CLAUDE.md rule 4 — or (b) a broader refactor wrapping `repl()`'s
+  whole body in one outer `try/except (KeyboardInterrupt, SystemExit):
+  shutdown()`. Needs its own scoped task and code-reviewer approval; not
+  attempted here.
+
 ## Found during NEW-19 code-review (patch-failed repeat-escalation), 2026-07-30 — NOT fixed, logged only
 
 ## Found during NEW-19 live-verification, 2026-07-30 — NOT fixed, logged only

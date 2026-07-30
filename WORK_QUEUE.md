@@ -20,10 +20,10 @@ checkboxes had (Phase 0's `symbolic_graph` box, Section 5's Open Question
 ## How new issues get logged as we go
 
 Keep using `NEW_ISSUES.md` exactly as it already works — next sequential
-`NEW-##` ID (currently next free: **NEW-39**, after `NEW-27` through
-`NEW-38` were logged across this session's hygiene, Track 1 audit, and
-NEW-19 live-verification rounds), rated Confirmed or Suspected, same
-format as existing entries.
+`NEW-##` ID (currently next free: **NEW-41**, after `NEW-27` through
+`NEW-40` were logged across this session's hygiene, Track 1 audit,
+NEW-19, and NEW-10 rounds), rated Confirmed or Suspected, same format as
+existing entries.
 The only addition: if a newly-found issue blocks or changes a specific
 item in this queue, **cross-reference the queue item's name/number
 inline** in both directions — a line in the `NEW_ISSUES.md` entry pointing
@@ -210,14 +210,36 @@ gets logged, not silently fixed or dropped, even mid-queue-item.
       (removed stray backslash), matches the already-correct direct-mode
       pattern elsewhere in the same file. See `NEW_ISSUES.md`'s `NEW-25`
       entry for the review detail.
-- [ ] `NEW-10` — `main.py` has no `SIGTERM` handler at all; a direct
-      SIGTERM bypasses every existing guard. Rule 4 territory. **In
-      progress 2026-07-30** — implementer building a fix that installs a
-      `SIGTERM` handler raising `SystemExit`, reusing all 14 existing
+- [x] `NEW-10` — `main.py` has no `SIGTERM` handler at all. **Resolved
+      2026-07-30, code-reviewer approved.** Installed a module-level
+      `_sigterm_handler` that only `raise SystemExit(128 + signum)` (no
+      I/O/cleanup inside the handler itself), registered as the first
+      statement in `main()` — reuses the 4 real
       `try/except (KeyboardInterrupt, SystemExit): shutdown()` guards
-      rather than adding new shutdown-calling logic inside the signal
-      handler itself (mirrors how `SIGINT` already works via Python's
-      default handler). Code-reviewer pass pending.
+      around `loader.load_primary()` (not 14 as originally scoped; only
+      4 of the 14 `shutdown()` call sites are actually exception-guarded,
+      caught during implementation). Mirrors how `SIGINT` already works
+      via Python's default handler — zero new shutdown-calling logic.
+      code-reviewer independently confirmed placement, guard reuse,
+      `shutdown()`/`SIGINT` untouched, the daemon-mode handoff (`core/daemon.py`
+      installs its own `SIGTERM` handler shortly after, verified no
+      unsafe window), and reproduced real signal delivery
+      (`kill -TERM` → `SystemExit(143)` caught) independently. **Caught
+      and corrected a rule-6 issue before commit:** the implementer's own
+      self-flagged follow-up (`NEW-40`) originally claimed the REPL's
+      `input()`-wait guard was "same as SIGINT already does today" —
+      code-reviewer found this false (that guard DOES catch/clean up
+      `SIGINT` today, so `SIGTERM` is newly asymmetric there, not at
+      parity) — corrected in both `NEW_ISSUES.md` and the code comment
+      before commit. Two adjacent gaps logged, not fixed: `NEW-39`
+      (unrelated pre-existing test fragility found along the way) and
+      `NEW-40` (two REPL code paths outside the 4 model-load guards still
+      don't run `shutdown()` on `SIGTERM`, not a regression but a real
+      gap). No live-verifier pass needed for the mid-load orphan-prevention
+      claim specifically (real signal delivery was independently
+      reproduced by both implementer and code-reviewer without a model
+      load, per rule 2) — the model-load window itself remains
+      reasoned-not-live-exercised, consistent with RAM discipline.
 - [ ] `NEW-12` residual items 2–4 (only item 1 was fixed in Round 11):
       no single named `SERVER_PORT` constant across
       `loader_v2.py`/`inference.py`/`inference_hybrid.py`; the 1.5B

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import signal
 import sys
 from pathlib import Path
 
@@ -1433,7 +1434,92 @@ def repl(
             console.print("\n[dim]An error occurred. You can continue chatting.[/dim]")
 
 
+def _sigterm_handler(signum, frame):
+    """Translate SIGTERM into SystemExit (NEW-10).
+
+    Deliberately does nothing beyond raising an exception here -- no
+    shutdown() call, no I/O, no cleanup logic. This mirrors exactly what
+    CPython's own default SIGINT handler (signal.default_int_handler)
+    does: raise, and let the call stack unwind through whatever
+    try/except is active. That's what lets this reuse the 4 existing
+    `except (KeyboardInterrupt, SystemExit): ... shutdown()` guards around
+    each `loader.load_primary()` call in main.py (repl() line ~1271,
+    args.init/--tdd/--fix branches ~1467/1479/1504) unchanged -- SIGTERM
+    becomes just another case they already catch during model load, with
+    zero new shutdown-calling logic. Doing real work directly inside a
+    signal handler (which can fire mid-syscall or mid-bytecode) is the
+    kind of thing CLAUDE.md rule 4 exists to avoid.
+
+    NOT fully general: the REPL's steady-state input() wait
+    (~line 1362, `except (KeyboardInterrupt, EOFError):`) has no
+    SystemExit clause, so SIGTERM's new SystemExit propagates uncaught
+    there and the process exits without running shutdown() -- unlike
+    SIGINT, which that same clause DOES catch and clean up today
+    (verified: it catches KeyboardInterrupt and calls shutdown() at
+    line 1365). That's a real asymmetry, not parity with SIGINT (see
+    NEW-40, corrected per CLAUDE.md rule 6 after an earlier version of
+    this comment claimed "same as SIGINT already does today", which was
+    false for this specific site). The initial-prompt non-one-shot branch
+    (~line 1335, `except KeyboardInterrupt:`) is different again: it
+    doesn't call shutdown() for SIGINT either (just prints "Interrupted."
+    and falls through into the REPL loop below), so SIGTERM propagating
+    uncaught there isn't a cleanup asymmetry versus SIGINT specifically --
+    but it IS a control-flow asymmetry: SIGINT there is absorbed and the
+    process continues into the REPL loop (where a later SIGINT/SIGTERM at
+    the input() wait would be handled per the site above), while
+    SIGTERM's SystemExit propagates straight out of main(), skipping the
+    REPL loop and any chance at cleanup there entirely. Neither uncovered
+    site is a regression versus pre-fix behavior (SIG_DFL was
+    unconditional kernel-level termination with zero cleanup either way),
+    and per this task's scope the existing try/except structure at both
+    sites must not be
+    touched. Logged separately as NEW-40 rather than fixed here.
+
+    Exit code: 128 + signum (the conventional shell/POSIX "terminated by
+    signal N" code, e.g. 143 for SIGTERM) rather than SystemExit(0), so
+    that in the two uncovered paths above, an uncaught propagation still
+    reports "killed by a signal" to any supervisor/shell waiting on this
+    process -- not a false "clean voluntary exit". In the 4 guarded paths
+    this is moot: they all `return` after shutdown() rather than letting
+    the exception keep propagating, so the process exits 0 there
+    regardless.
+
+    Known residual gap (not introduced or closed by this handler): NEW-9
+    describes a fork-window race in core/loader_v2.py where a signal
+    delivered during os.fork() can be swallowed by CPython's atfork
+    exception-handling suppression. That applies identically to SIGINT
+    today and will apply identically to SIGTERM now that it uses the same
+    raise-and-let-existing-guards-catch-it mechanism. Not addressed here.
+    """
+    raise SystemExit(128 + signum)
+
+
 def main():
+    # NEW-10: SIGTERM's disposition defaults to SIG_DFL (immediate
+    # kernel-level termination, no Python-level exception, unlike SIGINT
+    # which Python's own default handler turns into KeyboardInterrupt).
+    # Installed as the very first thing main() does, before any
+    # argument-dependent branch can begin loading a model, so every
+    # model-load window below (loader.load_primary() / ensure_model())
+    # is covered from the start.
+    #
+    # NOTE: if args.daemon is set below, core/daemon.py's Daemon.__init__
+    # installs its OWN SIGTERM handler (core/daemon.py:443) in this same
+    # process partway through construction, and legitimately overrides
+    # this one -- the daemon has its own dedicated graceful-shutdown path
+    # (SIGTERM is a daemon's normal stop signal, e.g. from `codeydOS
+    # stop`). Daemon.__init__ does some setup (config, state store,
+    # get_planner() -- a lazy in-process singleton with no subprocess/
+    # model-load side effects, verified by reading core/planner_v2.py)
+    # BEFORE registering its own handler at line 443; this handler is the
+    # active disposition during that narrow window instead. That's fine,
+    # not a gap of consequence: nothing in that window loads a model or
+    # spawns a process, so a SIGTERM there has nothing to orphan either
+    # way. The daemon's own handler takes over well before its model
+    # pre-load (Daemon._main_loop -> loader.ensure_model()), which is the
+    # window that actually matters for RAM/orphan concerns.
+    signal.signal(signal.SIGTERM, _sigterm_handler)
+
     args = parse_args()
 
     if args.version:
