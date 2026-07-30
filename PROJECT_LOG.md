@@ -5,6 +5,97 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-30 — Round 19 (NEW-20): non-TTY stdin no longer hangs/spins/garbles `main.py`'s REPL — code complete, code-reviewer approved, fully live-verified with a real `main.py` invocation
+
+**Fix (commit `ac732e9`):** `main.py`'s paste-detection code
+(`main.py:~1346-1359`) used `select.select([sys.stdin], [], [], 0.02)` to
+glue fast multi-line pastes into one turn on a TTY. On non-TTY stdin
+(piped/redirected input, as Round 18's investigation hit), `select()`
+always reports "readable" — including at EOF — so it drained the entire
+remaining input file into one garbled message on the first `input()`
+call, then spun indefinitely once genuinely exhausted (near-100% CPU, no
+forward progress). The fix wraps the loop in `if sys.stdin.isatty():` so
+it's skipped entirely for non-TTY input, falling through to the plain
+single-line `input()` result with existing `EOFError` handling taking
+over naturally at end of input. TTY sessions keep the exact same
+paste-glue behavior unchanged.
+
+**Code-reviewer approval:** built its own scratch harness (not calling
+`repl()` directly, avoiding a real model load) and independently
+reproduced all three claimed behaviors: pre-fix piped input hangs
+(`timeout` kills it, exit 124); post-fix piped input processes lines
+cleanly and exits in under a millisecond; a pty-based TTY simulation
+confirms paste-glue still fires correctly for genuine interactive
+sessions. Also checked every launcher script in the repo (`gui/start.sh`,
+`codeydOS`, `codeyOS`) for any stdin wrapping that could make
+`isatty()` misreport during real interactive use — none found. Approved
+with no Critical/Warning findings; one Suggestion (a live `main.py`
+invocation would upgrade this from code-complete to live-verified) noted
+as not required to unblock the commit.
+
+**Live-verification (this round, closing that Suggestion):** ran the
+real REPL end-to-end — `printf 'hello\nwhat is 2+2\n/exit\n' | timeout
+180 python3 main.py --no-resume`. Because `repl()` calls
+`loader.load_primary()` unconditionally before the input loop begins,
+this invocation did involve a real model-load cycle (handled per CLAUDE.md
+rule 2).
+
+`free -h` before:
+```
+               total        used        free      shared  buff/cache   available
+Mem:            10Gi       4.3Gi       3.0Gi        27Mi       3.5Gi       6.3Gi
+Swap:           11Gi       1.8Gi        10Gi
+```
+
+Result: `real 0m27.791s`, exit code 0. Transcript:
+```
+You>  ...
+⤁ Thinking...
+Hello! How can I assist you today?
+ℹ  Chat completions (stream): 10 tokens in 15.7s (7.3 t/s)
+────────────────────────────────────────────────────────────────────────────────
+You>  ...
+⤁ Thinking...
+2 + 2 equals 4.
+ℹ  Chat completions (stream): 9 tokens in 1.7s (9.2 t/s)
+────────────────────────────────────────────────────────────────────────────────
+You>  ...
+Session saved. Goodbye!
+ℹ  Stopping model server...
+```
+
+All three criteria met: (1) no hang — completed in 27.8s, well inside the
+180s timeout; (2) the two piped lines ("hello", "what is 2+2") were
+processed as two distinct, correctly-answered turns, not garbled
+together — the exact NEW-20 failure mode did not recur; (3) clean exit
+via `/exit` with proper teardown messages.
+
+`free -h` after:
+```
+               total        used        free      shared  buff/cache   available
+Mem:            10Gi       3.3Gi       5.7Gi        16Mi       1.9Gi       7.2Gi
+Swap:           11Gi       2.3Gi       9.7Gi
+```
+No orphaned `llama-server` process (`ps aux | grep llama-server` empty
+apart from the grep itself). Single model-load cycle, confirmed fully
+unloaded.
+
+**Consequence for NEW-18:** NEW-18's entry previously told future
+reproduction attempts that the harness "must be TTY-backed... not plain
+stdin piping." That constraint is now relaxed — with NEW-20 fixed, plain
+stdin piping into `main.py --no-resume` no longer hangs, spins, or
+garbles input, so a future NEW-18 reproduction attempt can safely use
+plain stdin piping again. NEW_ISSUES.md's NEW-18 entry updated
+accordingly.
+
+**Remaining open:** NEW-7 (partially characterized), NEW-9
+(deprioritized), NEW-18 (still open/unanswered, harness constraint now
+relaxed), NEW-19 (unscoped design question), NEW-21 (observational), plus
+the two earlier-deferred NEW-12 items (cross-process port lock, planner
+auto-launcher).
+
+---
+
 ## 2026-07-30 — Round 18 (NEW-18 live-reproduction attempt): inconclusive — original size-vs-count question unanswered, two new findings logged (NEW-20, NEW-21)
 
 **What was attempted:** a live-reproduction pass intended to isolate

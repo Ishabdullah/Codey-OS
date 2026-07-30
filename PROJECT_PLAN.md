@@ -1165,6 +1165,31 @@ NEW-21). NEW-20 is flagged as a clean, well-isolated candidate for a
 near-future fix round. NEW-7, NEW-9, NEW-17 (deferred item), NEW-18,
 NEW-19, NEW-20, and NEW-21 all remain open.
 
+### Round 19 (NEW-20) — code complete, code-reviewer approved, fully live-verified with a real main.py invocation
+- [x] `main.py`'s paste-detection `select()` loop (`~1346-1359`) wrapped
+      in `if sys.stdin.isatty():` so it's skipped entirely for non-TTY
+      stdin, eliminating the drain-whole-file-then-spin-forever bug.
+      TTY paste-glue behavior unchanged. Commit `ac732e9`.
+- [x] Code-reviewer approved: independently reproduced pre-fix hang,
+      post-fix clean processing, and pty-based TTY paste-glue behavior
+      via its own scratch harness; checked all launcher scripts for
+      stdin wrapping that could affect `isatty()` in real use — none
+      found. No Critical/Warning findings.
+- [x] Live-verified: real `python3 main.py --no-resume` invocation with
+      piped multi-line stdin, `real 0m27.791s`, exit code 0, two piped
+      lines processed as two distinct correctly-answered turns (not
+      garbled), clean `/exit` teardown, no orphaned `llama-server`
+      process afterward. Single model-load cycle confirmed unloaded.
+- [x] NEW-18's harness guidance relaxed as a direct consequence: future
+      NEW-18 reproduction attempts can now use plain stdin piping again,
+      since the bug that made piping unsafe is fixed.
+
+Remaining open after this round: NEW-7 (partially characterized), NEW-9
+(deprioritized), NEW-18 (inconclusive, harness constraint now relaxed),
+NEW-19 (unscoped design question), NEW-21 (observational), plus the two
+earlier-deferred NEW-12 items (cross-process port lock, planner
+auto-launcher).
+
 ### Phase 4 — Self-improvement activation (deliberate, not automatic)
 Do NOT start this phase until Phases 1–3 are stable and you've watched the
 system run real coding tasks through the sandbox/safety-veto path for a

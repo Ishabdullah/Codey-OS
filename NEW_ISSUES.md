@@ -1417,10 +1417,17 @@ remain open, deferred to a future round.
   question (size vs. count/retries as the driver) is still exactly as
   open as it was when originally logged. Do not read this round as
   confirming, refuting, or narrowing that question.
-- **For any future reproduction attempt:** the harness must be
-  TTY-backed (e.g. a `pty`, `script(1)`, or similar), not plain stdin
-  piping into `main.py --no-resume` — see [NEW-20] for why plain piping
-  doesn't work. The harness should also control for baseline free RAM
+- **For any future reproduction attempt:** originally, this guidance
+  required a TTY-backed harness (e.g. a `pty`, `script(1)`, or similar),
+  not plain stdin piping into `main.py --no-resume` — see [NEW-20] for
+  why plain piping didn't work at the time. **Update (Round 19):** this
+  constraint is now relaxed. NEW-20 was fixed in commit `ac732e9` and
+  fully live-verified — plain stdin piping into `main.py --no-resume` no
+  longer hangs, spins, or garbles input, so a future NEW-18 reproduction
+  attempt can safely use plain stdin piping again; a TTY-backed harness
+  is no longer required for this reason (though may still be worth using
+  if a TTY-specific behavior is itself under test). The harness should
+  still control for baseline free RAM
   before model load, which varied meaningfully between the two runs
   attempted so far (this run's baseline was 4.3Gi used/2.2Gi free vs.
   the original NEW-7 run's baseline of 4.9Gi free) and is a likely
@@ -1428,7 +1435,33 @@ remain open, deferred to a future round.
 - **Not fixed here** — NEW-18 remains open, unresolved, unchanged in
   substance from its original entry above.
 
-### [NEW-20] `main.py`'s paste-detection `select()` logic busy-loops at ~100% CPU and mis-concatenates input when stdin is a non-TTY file/pipe (Confirmed)
+### [NEW-20] `main.py`'s paste-detection `select()` logic busy-loops at ~100% CPU and mis-concatenates input when stdin is a non-TTY file/pipe (Resolved)
+
+- **Resolved in Round 19, commit `ac732e9`.** The paste-detection
+  `select()` loop is now wrapped in `if sys.stdin.isatty():`, so it's
+  skipped entirely for non-TTY stdin — falling through to the plain
+  single-line `input()` result with existing `EOFError` handling taking
+  over naturally at end of input. TTY sessions keep the exact same
+  paste-glue behavior.
+- **Code-reviewer approved:** independently reproduced pre-fix hang
+  (piped input times out, exit 124), post-fix clean processing (exits in
+  under a millisecond), and confirmed via a pty-based TTY simulation that
+  paste-glue still fires correctly for genuine interactive sessions.
+  Checked all launcher scripts (`gui/start.sh`, `codeydOS`, `codeyOS`)
+  for stdin wrapping that could affect `isatty()` in real use — none
+  found.
+- **Fully live-verified (Round 19):** real invocation
+  `printf 'hello\nwhat is 2+2\n/exit\n' | timeout 180 python3 main.py
+  --no-resume` — `real 0m27.791s`, exit 0. The two piped lines were
+  processed as two distinct, correctly-answered turns (not garbled
+  together), with clean `/exit` teardown and no orphaned `llama-server`
+  process afterward. This did involve a real model-load cycle (`repl()`
+  calls `loader.load_primary()` unconditionally before the input loop),
+  confirmed fully unloaded afterward per CLAUDE.md rule 2.
+- **Consequence for [NEW-18]:** the harness guidance in NEW-18's entry
+  below is updated — plain stdin piping into `main.py --no-resume` is now
+  safe to use in a future reproduction attempt, since this fix is exactly
+  what made it unsafe.
 
 - **Confidence: Confirmed** — directly reproduced this round, and
   root-caused by reading the code and cross-referencing the session log
