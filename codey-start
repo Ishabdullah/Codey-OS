@@ -4,8 +4,8 @@
 #
 # Brings up the daemon (if not already running), starts the GUI server in
 # the background, then drops into the interactive TUI (codeyOS) in the
-# foreground — TUI and GUI stay live simultaneously, same as gui/start.sh's
-# pattern but with the daemon guaranteed up first.
+# foreground — TUI and GUI stay live simultaneously, with the daemon
+# guaranteed up first.
 #
 # By design, exiting the TUI (Ctrl+C or natural exit) stops the GUI server
 # but leaves the daemon running — daemon mode's whole point is to keep

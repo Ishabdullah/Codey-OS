@@ -19,7 +19,6 @@ Codey-OS/
 ├── assets/                           # Static assets (0 .py files)
 ├── ccos/                             # CCOS: Cognitive OS layer (55 .py files)
 │   ├── __init__.py
-│   ├── ccos_main.py                  # CCOS entry point
 │   ├── core/                         # OS shell core modules (55 .py files)
 │   │   ├── __init__.py
 │   │   ├── agent_orchestrator.py     # 5-agent internal deliberation
@@ -57,7 +56,6 @@ Codey-OS/
 │   │   └── vision/                   # Camera capture plugin
 │   │       └── camera_capture/
 │   └── tests/                        # CCOS test suite (7 test files)
-├── ccos_main.py                      # Root CCOS entry point
 ├── codey3                            # Legacy entry point (to be retired)
 ├── codeyd3                           # Legacy entry point (to be retired)
 ├── core/                             # Codey-OS core coding agent (55 .py files)
@@ -119,8 +117,7 @@ Codey-OS/
 ├── docs/                             # Documentation (0 .py files)
 ├── gui/                              # Browser-based GUI (1 .py file + HTML)
 │   ├── index.html
-│   ├── server.py                     # WebSocket server
-│   └── start.sh
+│   └── server.py                     # WebSocket server
 ├── install.sh                        # Installation script
 ├── main.py                           # Codey-OS original entry point (62K)
 ├── pipeline/                         # Training data pipeline (25 .py files)

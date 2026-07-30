@@ -50,6 +50,55 @@
   - **Not fixed this round** — flagged for Ish's decision alongside the
     Phase 3 entry-point checklist.
 
+### [NEW-24] `CODEY_OS_MASTER_VISION.md` Section 6a and `QWEN.md`'s tree listing still name `codey3`/`codeyd3` as the fragmented entry points being replaced, but the actual files in the repo are `codeyOS`/`codeydOS` — `codey3`/`codeyd3` don't exist on disk
+- **Status: Suspected, not fixed** (2026-07-30). Found while executing
+  the Phase 3 entry-point cleanup round (NEW-22/NEW-23/main.py doc
+  task). `ls codey3 codeyd3` at repo root returns "No such file or
+  directory" for both; the actual files present are `codeyOS` and
+  `codeydOS`. Yet `CODEY_OS_MASTER_VISION.md` Section 6a ("This replaces
+  the current fragmented entry points (`codey3`, `codeyd3`)...") and
+  `QWEN.md`'s tree (`codey3`/`codeyd3` listed as present, "Legacy entry
+  point (to be retired)") both still use the old names. This looks like
+  leftover wording from before a rename (codey3/codeyd3 → codeyOS/
+  codeydOS) that happened at some point without these two docs being
+  updated to match.
+  - **Why "Suspected" not "Confirmed":** haven't traced the exact commit
+    that renamed the scripts or confirmed there was never a separate
+    codey3/codeyd3 pair coexisting with codeyOS/codeydOS at some point;
+    only confirmed the current on-disk state via `ls`.
+  - **Second data point, same tree-drift class:** `QWEN.md`'s tree also
+    listed `ccos/ccos_main.py` ("CCOS entry point") at line 22 before
+    this round's edit removed it — that path never existed either (only
+    the now-deleted root-level `ccos_main.py` did). `QWEN.md`'s
+    structural tree appears to have drifted from the real repo layout
+    in more than one place; a full audit of it against the actual
+    filesystem is out of this round's scope.
+  - **Left untouched this round** — out of this round's explicit scope
+    (task instructions named only `gui/start.sh`, `ccos_main.py`, and
+    the main.py-documentation items; rewriting the codey3/codeyd3
+    references is a separate, not-yet-approved edit to the canonical
+    spec doc).
+
+### [NEW-25] `codeyOS --daemon` mode forwards a literal string `$@` instead of the actual arguments, due to a backslash-escape outside the heredoc
+- **Status: Confirmed, not fixed** (2026-07-30). Found while verifying a
+  `docs/commands.md` claim during the Phase 3 entry-point cleanup round
+  (not otherwise in scope). `codeyOS` line 119, inside the `--daemon`
+  branch:
+  ```
+  python3 "$TMPSCRIPT" "\$@"
+  ```
+  The `\$@` sits outside the heredoc body (after the closing `PYEOF`),
+  so the backslash is interpreted by the outer shell at that point,
+  producing the literal two-character string `$@` passed as a single
+  argument to `main.py` — not the actual positional arguments. Compare
+  the direct-mode branch at line 428, which is correct:
+  `python3 "$TMPSCRIPT" "$@"` (no backslash). Net effect: `codeyOS
+  --daemon --threads 4` (or any other flag) does not actually forward
+  `--threads 4` to `main.py` — only the literal string `$@` is passed.
+  - **Not fixed this round** — process-lifecycle-adjacent (daemon
+    startup argument handling), requires code-reviewer approval per
+    project rule 4, and is out of this round's approved scope.
+
 ## Milestone (2026-07-30): all four original punch-list items resolved
 
 The user's original four-item punch list — [NEW-3], [NEW-1], [NEW-5],

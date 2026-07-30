@@ -90,7 +90,8 @@ Loads external GGUF files; supports importing LoRA adapters.
 ### 6. GUI / Dashboard Server
 
 `gui/server.py` serves a local web dashboard (metrics + a command console)
-over WebSocket, started via `gui/start.sh` (part of `codey-start`).
+over WebSocket. It's started directly (backgrounded, PID-tracked for
+teardown) by `codey-start` and by `codeyOS` when run standalone.
 
 **Risk:** A web server that accepts commands is a much larger attack
 surface than a CLI — if reachable from other devices on the network or by

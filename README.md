@@ -49,9 +49,14 @@ already running), launches the GUI server in the background
 (`http://localhost:8888` by default), and drops you into the interactive
 TUI in the foreground — both stay live simultaneously and read from the
 same dashboard data, so neither shows a different picture from the other.
-The older fragmented entry points (`codeyOS`, `codeydOS`, `ccos_main.py`,
-`gui/start.sh`) still exist underneath and are what `codey-start`
-orchestrates — you generally don't need to call them directly anymore.
+
+Underneath, `codey-start` delegates to `codeyOS` (the CLI/TUI client) and
+`codeydOS` (the daemon manager) — call either directly for scripting or
+debugging. `codeyOS`'s direct/interactive mode is itself a thin pass-
+through to `main.py`, the underlying engine — invoke `main.py` directly
+for advanced flags that don't exist anywhere else (`--init`, `--tdd`,
+`--fix`, `--no-resume`, `--clear-session`; see
+[docs/commands.md](docs/commands.md)).
 
 ### Backend: local or remote
 

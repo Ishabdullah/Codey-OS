@@ -317,7 +317,6 @@ make_executable() {
     chmod +x "$CODEY_OS_DIR/codey-start"
     chmod +x "$CODEY_OS_DIR/codey-stop"
     chmod +x "$CODEY_OS_DIR/install.sh"
-    [ -f "$CODEY_OS_DIR/gui/start.sh" ] && chmod +x "$CODEY_OS_DIR/gui/start.sh"
     print_success "Executable bits set"
 }
 

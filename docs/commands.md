@@ -26,6 +26,12 @@
 
 ### CLI Flags
 
+These are `main.py`'s own flags. `codeyOS` passes prompt arguments through
+to `main.py` unfiltered in its direct/interactive mode, so all of the
+below work identically via `codeyOS` or `python main.py` directly —
+`main.py` is the advanced/direct-invocation interface when you need a
+flag not otherwise surfaced (e.g. `--init`, `--tdd`, `--fix`).
+
 | Flag | Description |
 |------|-------------|
 | `--yolo` | Skip all confirmations |

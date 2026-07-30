@@ -118,13 +118,22 @@ separate scripts:
 - **`codey-stop`** — cleanly shuts everything down: daemon, TUI, GUI, and
   any background model servers.
 
-This replaces the current fragmented entry points (`codey3`, `codeyd3`,
-`ccos_main.py`, `gui/start.sh`) as the primary way to run the system. Those
-underlying pieces don't disappear — `codey-start` orchestrates them — but
-the user-facing surface becomes these two commands. This also resolves the
-earlier open question about the duplicate no-extension `codey3`/`codeyd3`
-files found in the repo audit: those get retired in favor of this unified
-pair rather than resolved as standalone duplicates.
+This replaces the current fragmented entry points (`codey3`, `codeyd3`)
+as the primary way to run the system. Those underlying pieces don't
+disappear — `codey-start` orchestrates them — but the user-facing surface
+becomes these two commands. This also resolves the earlier open question
+about the duplicate no-extension `codey3`/`codeyd3` files found in the
+repo audit: those get retired in favor of this unified pair rather than
+resolved as standalone duplicates.
+
+Two other scripts that were never actually part of the live
+orchestration path were subsequently removed as dead/duplicate code,
+rather than kept around as unused legacy files: `ccos_main.py`, an
+orphaned standalone MVP demo script that nothing in the current codebase
+executed or imported; and `gui/start.sh`, a GUI-launch wrapper whose
+"start the GUI server, track its PID, tear it down on exit" pattern was
+independently reimplemented inside `codey-start` and `codeyOS` rather
+than ever being called by either.
 
 ---
 
