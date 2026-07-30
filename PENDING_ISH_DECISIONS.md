@@ -34,6 +34,32 @@ untouched).
 reviewed under this same framing and Ish decided to add them (lower risk
 — file-copy only, no model mutation) — already done, not pending.
 
+**Correction (2026-07-30, tool/capability audit, rule 6):** the "file-copy
+only, no model mutation" framing above does not hold for
+`rollback_to_backup`. Reading `core/lora_import.py:385-430` directly:
+it (1) `shutil.copy2(backup, original_path)` — **overwrites the live,
+configured model file** the daemon runs on, (2) `backup.unlink()` —
+**deletes the backup itself**, leaving nothing to fall back to if the
+restored file is bad, then (3) unloads and reloads the model via
+`core/loader_v2.py` — a real model-load cycle, the exact class of
+operation CLAUDE.md rule 2 asks to be handled with RAM discipline. This
+reads as this document's own tier-iii criteria ("mutates a live model
+file", partial failure leaves "no rollback at all") rather than the
+lower-risk tier it was approved under. `coding.finetune_rollback_backup`
+remains wrapped and callable today — flagging for Ish to re-review, not
+unwrapping unilaterally. `create_backup_before_import` is unaffected by
+this correction (it only copies a file, doesn't touch the active model).
+
+This is not just a theoretical tier-iii read: `rollback_to_backup`'s
+`model_variant="secondary"` path calls `loader.load_secondary()`
+(`core/lora_import.py:424`), the exact method `NEW_ISSUES.md`'s
+`NEW-24` (Confirmed, unresolved) already documents as missing from
+`ModelLoader` (`core/loader_v2.py` implements only `load_primary()` and
+`unload()`). So calling this capability with the secondary variant is a
+demonstrated failure, not an analogy: it overwrites the live model file,
+deletes its own backup, then raises `AttributeError` — no working model,
+no backup, no rollback.
+
 ---
 
 ## 2. Daemon control (`ccos/plugins/system/daemon_control/`)

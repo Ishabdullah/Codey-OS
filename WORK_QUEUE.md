@@ -20,9 +20,9 @@ checkboxes had (Phase 0's `symbolic_graph` box, Section 5's Open Question
 ## How new issues get logged as we go
 
 Keep using `NEW_ISSUES.md` exactly as it already works — next sequential
-`NEW-##` ID (currently next free: **NEW-28**, after `NEW-27` was logged
-this round from the UNCLEAR-files audit below), rated Confirmed or
-Suspected, same format as existing entries.
+`NEW-##` ID (currently next free: **NEW-36**, after `NEW-27` through
+`NEW-35` were logged across this session's hygiene and Track 1 audit
+rounds), rated Confirmed or Suspected, same format as existing entries.
 The only addition: if a newly-found issue blocks or changes a specific
 item in this queue, **cross-reference the queue item's name/number
 inline** in both directions — a line in the `NEW_ISSUES.md` entry pointing
@@ -68,22 +68,45 @@ gets logged, not silently fixed or dropped, even mid-queue-item.
 
 ## Track 1 — Audits (new this round; do before deeper Phase 5 work since findings feed into it)
 
-- [ ] **Tool/capability audit** — hand to `agent-tool-designer`: review
-      every `ccos/plugins/*/manifest.json` against what its
-      `implementation` function actually does; flag stale descriptions,
-      under-declared `hardware_requirements`/`dependencies`, and any
-      capability that should be added, split, or removed. Do this before
-      Phase 5c (wrapping `core/agent.py` as a capability) so that new
-      capability is designed against a clean baseline, not an unaudited
-      one.
-- [ ] **Prompt audit** — hand to `prompt-engineer`: review
-      `prompts/system_prompt.py`, `prompts/layered_prompt.py`,
-      `prompts/critique_prompts.py`, and `core/plannd.py`'s
-      `PLANNER_PROMPT` for the 7B coder / 1.5B planner. Do this before
-      Phase 5b (task classifier + tier config), since 5b's tier-specific
-      prompting work will build directly on top of whatever these look
-      like — better to fix known issues once than fix them, then retrofit
-      tier variants of the broken version.
+- [x] **Tool/capability audit** — done 2026-07-30 via `agent-tool-designer`.
+      Fixed 3 stale/wrong manifest descriptions (`coding.finetune_rollback_backup`,
+      `coding.git_commit`, `peer_escalation`'s stale call-site citations).
+      Logged `NEW-34` (Confirmed, needs Ish's call): the 3 `skill_*`
+      compound plugins under `ccos/plugins/compound/` are broken by
+      construction (no data piped between pipeline steps) **and** are
+      live, agent-callable output of the permanently-gated
+      `skill_recombiner` — the recombiner engine being gated doesn't stop
+      `plugin_manager._discover()` from auto-loading its pre-generated
+      output. This is a rule-1-adjacent question, not resolved
+      unilaterally. Also logged `NEW-35` (Suspected): `vision.camera_capture`'s
+      default `/tmp/...` output path likely wrong under Termux.
+      Recommendations (not executed): add `coding.git_commit_paths` as a
+      safer sibling; wrap `static_analysis`'s read-only linter functions;
+      consolidate `system_info`/`thermal_monitor`/`observability`'s
+      overlapping CPU/RAM reads eventually (not urgent). Everything else
+      audited (`error_recovery`, `task_queue`, `daemon_control`,
+      `observability`, `thermal_monitor`, `rag_retrieval`, `tts_speech`,
+      `camera_capture`, `system_info`) checked out accurate — kept as-is.
+- [x] **Prompt audit** — done 2026-07-30 via `prompt-engineer`. Fixed 2
+      real gaps: `system_prompt.py`'s word→tool mapping tables had no
+      entry for "Edit" (both `PLANNER_PROMPT` and `orchestrator.py`'s
+      `PLAN_PROMPT` emit "Edit <file>:" steps) — added as a `patch_file`
+      synonym. `critique_prompts.py`'s 3 templates didn't actually
+      instruct plain-text-only output despite the module docstring
+      claiming they do — added explicit no-tool-call-tags/no-code-blocks
+      wording (verified `core/recursive.py:460` uses the literal
+      `<tool>` string as a hard stop sequence, so this was a real
+      truncation risk, not cosmetic). Logged 5 follow-ups: `NEW-28`
+      (`plannd.py`'s `_TOOL_VERBS` regex still missing "edit"), `NEW-29`
+      (`orchestrator.py`'s `PLAN_PROMPT` format diverges from
+      `PLANNER_PROMPT`, out of this audit's 4-file scope), `NEW-30` (this
+      round's Edit-mapping fix enables a step needing two tool calls,
+      contradicting the "exactly one tool call per response" rule — needs
+      a design call + live-verifier), `NEW-31` (`CRITIQUE_TOOL`/`CRITIQUE_PLAN`
+      defined but never invoked), `NEW-32` (Suspected — `LayeredPrompt`
+      doesn't enforce layer-name uniqueness, likely to bite Phase 5b's
+      tier-specific layers). No live model-load test run (static analysis
+      only, per rule 2).
 - [ ] Compare `core/recovery.py`'s built-in success-rate tracking against
       `core/strategy_tracker.py` (flagged possible duplicate tracking,
       `CODEY_OS_MASTER_VISION.md` Section 8) — resolve before `recovery.py`
@@ -239,6 +262,9 @@ resource-awareness work twice.
 
 ## Currently here
 
-**Track 0 fully done (2026-07-30).** Next up: Track 1's two audits
-(tool/capability audit via `agent-tool-designer`, prompt audit via
-`prompt-engineer`) before Phase 5 work begins in earnest.
+**Tracks 0 and 1 fully done (2026-07-30).** Both audits surfaced real
+findings now logged as `NEW-28` through `NEW-35` (see Track 1 above for
+detail); none required stopping to escalate except `NEW-34`, which is
+flagged for Ish's call, not blocking further queue work. Next up:
+Track 2's independent bug/security fixes, which can run in parallel with
+starting Track 3's Phase 5a (Track 2 has no hard dependency on Track 3).

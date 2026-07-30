@@ -36,7 +36,7 @@ Review the response you just wrote. Check for:
 Rate the quality 1-10. List specific issues found.
 If you're unsure about any API or library, write "NEED_DOCS: <topic>" on its own line.
 If there are no issues, write "Quality: 9/10. No issues found." and nothing else.
-Output ONLY your critique — no revised code yet."""
+Output ONLY your critique in plain text — no revised code yet, no tool-call tags, no code blocks."""
 
 # ── Tool Call Critique ────────────────────────────────────────────────────────
 
@@ -50,7 +50,7 @@ Review the tool call you are about to make. Check:
 
 Rate confidence 1-10. List any concerns.
 If there are no issues, write "Quality: 9/10. No issues found." and nothing else.
-Output ONLY your critique — no revised tool call yet."""
+Output ONLY your critique in plain text — no revised tool call yet, no tool-call tags, no code blocks."""
 
 # ── Orchestration Plan Critique ───────────────────────────────────────────────
 
@@ -64,7 +64,7 @@ Review the plan you just wrote. Check:
 
 Rate quality 1-10. List issues.
 If there are no issues, write "Quality: 9/10. No issues found." and nothing else.
-Output ONLY your critique — no revised plan yet."""
+Output ONLY your critique in plain text — no revised plan yet, no tool-call tags, no code blocks."""
 
 # ── Prompt Selection ──────────────────────────────────────────────────────────
 

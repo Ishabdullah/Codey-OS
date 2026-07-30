@@ -1,5 +1,114 @@
 # New Issues Found During V3 Overhaul
 
+## Found during Track 1 prompt audit (system_prompt.py, layered_prompt.py, critique_prompts.py, plannd.py PLANNER_PROMPT), 2026-07-30 — NOT fixed, logged only
+
+### [NEW-28] `_TOOL_VERBS` regex in `core/plannd.py` has no `edit` alternative — `filter_tool_steps` can silently drop legitimate "Edit <file>: ..." steps
+- **Status: Confirmed, not fixed (code, not prompt text — out of this audit's
+  scope, which covered `PLANNER_PROMPT` the string, not `filter_tool_steps`).**
+  `PLANNER_PROMPT` explicitly instructs the 1.5B planner to emit `Edit <file>:
+  ...` steps (STEP TEMPLATES, RULES #2). `filter_tool_steps` (plannd.py:130-162)
+  keeps a non-first step only if it matches `_TOOL_VERBS`
+  (`create|write|build|add|run|execute|install|verify|check|test|confirm|update
+  |delete|remove|ask|have|use|tell|call|let|get|initialize|init|commit|push`),
+  contains `Run:`/`Verify`/`Check`, or names a peer CLI. `edit` is not in that
+  list, so an `Edit foo.py: ...` step at position 2+ fails all three checks and
+  is dropped — unless the `len(kept) > 1` fallback (`steps[:2]`) happens to
+  retain it. Recommend adding `edit` to `_TOOL_VERBS` as a follow-up code fix.
+
+### [NEW-29] `orchestrator.py`'s `PLAN_PROMPT` diverges from `plannd.py`'s `PLANNER_PROMPT` on Edit-step format, and neither wires filenames/step verbs identically
+- **Status: Confirmed, not fixed (out of the 4-file audit scope; touching
+  `orchestrator.py` is a design call).** `orchestrator.py:14` only says
+  "edit a file" generically with no `Edit <file>: <change>` template, no
+  filename-fidelity section, and no verb-consistency enforcement, unlike
+  `PLANNER_PROMPT`'s dedicated "CRITICAL RULE: FILENAMES AND PATHS" section.
+  Two planner prompts for the same downstream 7B executor should use the
+  same step-verb vocabulary; recommend either unifying them or explicitly
+  documenting why they differ.
+
+### [NEW-30] Adding "Edit" to `system_prompt.py`'s word→tool mapping (this round's fix) enables a step type that still needs two tool calls, contradicting the "exactly one tool call per response" rule
+- **Status: Confirmed, not fixed — needs a design decision plus live-model
+  validation.** An Edit step on a file the 7B model hasn't already read
+  requires `read_file` then `patch_file` (two calls), but
+  `system_prompt.py:55` and `:138` mandate the response is "always exactly
+  one tool call," while `:207` separately requires reading before editing
+  any unread file. This contradiction only bites on Edit steps — i.e.
+  exactly the path this round's mapping fix (see report) now routes traffic
+  through. Recommend either a documented two-call exception for Edit steps,
+  or having the orchestrator pre-inject the target file's content into Edit
+  step context so a single `patch_file` call suffices. Needs live-verifier
+  confirmation once a fix is chosen.
+
+### [NEW-31] `CRITIQUE_TOOL` and `CRITIQUE_PLAN` templates in `prompts/critique_prompts.py` are defined but never invoked — `select_critique_prompt()` has no callers
+- **Status: Confirmed, not fixed (wiring it up is a behavior change beyond
+  a wording fix).** `_build_critique_prompt` in `layered_prompt.py` hardcodes
+  `CRITIQUE_CODE` for every critique-phase call; nothing in the codebase calls
+  `select_critique_prompt()` except a comment reference in
+  `orchestrator.py:341`. The module docstring's claim that "Three templates
+  cover the main task types" is not true of current behavior — tool-call
+  critiques and plan critiques both get the code-review template. Recommend
+  either wiring `task_type` through `core/recursive.py` → `build_recursive_prompt`
+  → `_build_critique_prompt`, or removing the unused templates/docstring claim.
+
+### [NEW-32] `LayeredPrompt.add()`/`build()` in `prompts/layered_prompt.py` don't enforce layer-name uniqueness, which risks double-counting budget once Phase 5b adds tier-specific layers
+- **Status: Suspected, not fixed — not triggerable today, flagged because
+  Phase 5b is the change most likely to trigger it.** `build()` selects
+  included layers into a `set[str]` of names, then restores insertion order
+  with `[l for l in self._layers if l.name in selected_names]`. If two
+  layers ever share a `name`, both would render in the final output while
+  only one was charged against `self._budget` during the greedy pass — a
+  silent budget-accounting bug. Currently unreachable (the only conditionally
+  re-added name, `retrieval`, is added via if/elif so it can't collide with
+  itself), but Phase 5b's stated plan of adding tier-specific prompt layers
+  is exactly the kind of change that could introduce a name collision.
+  Recommend `add()` raise or overwrite on duplicate `name` before 5b lands.
+
+## Found during Track 1 tool/capability audit (ccos/plugins/*/manifest.json vs. implementation), 2026-07-30 — NOT fixed, logged only
+
+### [NEW-34] All 3 auto-generated `ccos/plugins/compound/skill_*` plugins are broken by construction (no data piped between pipeline steps) and are live, agent-callable capabilities produced by the permanently-gated `skill_recombiner` (Confirmed)
+- **Broken pipeline (Confirmed, verified by reading code):**
+  `pipeline.py` in each compound skill (e.g.
+  `ccos/plugins/compound/skill_camera_capture_tts/pipeline.py:81-89`)
+  calls `pm.call_capability(capability)` with no positional/keyword
+  arguments for every step. `speech.tts` requires `text`; with no
+  argument the call cannot meaningfully succeed, so
+  `skill.camera_capture_tts` is non-functional as authored despite
+  reporting `estimated_success_rate: 1.0` in its own manifest.
+  `skill.info_info` (`info -> info`, identical capability twice) and
+  `skill.info_processes` read as throwaway pattern-mining artifacts, not
+  intentional compositions.
+- **Gate question (Confirmed, needs Ish's decision, CLAUDE.md rule 1):**
+  these 3 manifests are `author: "CCOS-SkillRecombiner"` — output of
+  `core/skill_recombiner.py`, one of the four mechanisms rule 1 says
+  must stay "permanently gated off from live execution." The recombiner
+  *engine* being gated does not stop `ccos/core/plugin_manager.py`'s
+  `_discover()` from auto-loading everything under
+  `ccos/plugins/compound/` like any other plugin — these 3 skills are
+  registered, live, callable capabilities today, sitting in the repo
+  since the initial CCOS commit. Whether pre-generated recombiner output
+  being live counts as "activating" the gated mechanism is a real
+  product question, not something to resolve unilaterally here.
+- **Under-declared hardware_requirements (Confirmed):**
+  `skill_camera_capture_tts/manifest.json` declares
+  `"hardware_requirements": []` at both the top-level `capabilities[0]`
+  entry, despite its pipeline invoking `vision.camera_capture` (declared
+  `["camera"]`) and `speech.tts` (declared `["audio_output"]`).
+  `capability_registry.py:163` gates capability availability on exactly
+  that field, so this compound skill currently passes the hardware gate
+  and is offered as callable on a device with no camera and no speakers
+  — the two hardware requirements its own pipeline steps individually
+  declare are lost at the compound-skill level.
+- **Recommendation:** remove all 3 (both for being broken and for the
+  gate question) pending Ish's explicit call; not deleted in this audit
+  since it's a design/product judgment, not a descriptive fix.
+
+### [NEW-35] `vision.camera_capture`'s default output path (`camera.py:53`, `f"/tmp/ccos_capture_{...}.jpg"`) is likely wrong on Termux (Suspected)
+- Termux's writable temp dir is `$PREFIX/tmp`, not `/tmp` — bare `/tmp`
+  may not exist or be writable under Termux's app-sandboxed filesystem.
+  Not verified live in this audit (out of scope — audit covered manifest
+  accuracy, not a live device test); flagging per rule 8 rather than
+  silently fixing, since the correct default path needs an actual Termux
+  run to confirm, not just a read of the code.
+
 ## Found during root-level/docs UNCLEAR-files cleanup, 2026-07-30 — NOT fixed, logged only
 
 ### [NEW-27] Root-level/docs orphaned-markdown audit: discoverability gaps (Confirmed) and two ambiguous files (Suspected)

@@ -95,7 +95,7 @@
     },
     {
       "name": "coding.git_commit",
-      "description": "Stage (optional) and commit changes with a message. Mutates repo state.",
+      "description": "Commit changes with a message. Defaults to `git add -A` (stages the ENTIRE working tree, not just files the caller intended) unless add_all=False is passed explicitly. Mutates repo state. core/githelper.py also has git_commit_paths(), a path-scoped variant added for NEW-17 (see NEW_ISSUES.md) that stages only named files and never runs `git add -A` — not currently wrapped as a capability here; recommend adding it as coding.git_commit_paths so callers have a safer default available.",
       "implementation": "git_integration:git_commit",
       "category": "coding",
       "dependencies": [],

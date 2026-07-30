@@ -71,7 +71,7 @@
     },
     {
       "name": "coding.finetune_rollback_backup",
-      "description": "Restore a model from a previously created backup file, then reload it. File-copy operation followed by a model reload.",
+      "description": "Overwrites the live, configured model file (core/lora_import.py's rollback_to_backup: shutil.copy2(backup, original_path)), then deletes the backup file itself (backup.unlink()) leaving no further fallback, then unloads and reloads the primary/secondary model via core/loader_v2.py (a real model-load cycle — see CLAUDE.md rule 2 RAM discipline). This is NOT file-copy-only: it mutates the live model file and destroys its own backup as a side effect. When called with model_variant='secondary', it calls loader.load_secondary(), a method ModelLoader does not implement (see NEW_ISSUES.md NEW-24, Confirmed, unresolved) — the call raises AttributeError AFTER the model file has already been overwritten and the backup already deleted, leaving no working model and nothing to roll back to. Description corrected 2026-07-30 — PENDING_ISH_DECISIONS.md's original 'lower risk — file-copy only, no model mutation' framing for this function does not match the code; see PENDING_ISH_DECISIONS.md correction note.",
       "implementation": "finetune:rollback_to_backup",
       "category": "coding",
       "dependencies": [],

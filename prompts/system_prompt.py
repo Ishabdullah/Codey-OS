@@ -30,7 +30,7 @@ WORD → TOOL MAPPING (ABSOLUTE, NO EXCEPTIONS):
   "Create" or "Write"  →  Output: <tool>{"name": "write_file", "args": {...}}</tool>
   "Run:" or "Execute:" →  Output: <tool>{"name": "shell", "args": {...}}</tool>
   "Verify:" or "Check" →  Output: <tool>{"name": "shell", "args": {...}}</tool>
-  "Patch:" or "Update" →  Output: <tool>{"name": "patch_file", "args": {...}}</tool>
+  "Patch:", "Update", or "Edit" →  Output: <tool>{"name": "patch_file", "args": {...}}</tool>
   "Read:" or "Review"  →  Output: <tool>{"name": "read_file", "args": {...}}</tool>
   "List:" or "Show"    →  Output: <tool>{"name": "list_dir", "args": {...}}</tool>
   "Search:" or "Find"  →  Output: <tool>{"name": "search_files", "args": {...}}</tool>
@@ -160,7 +160,7 @@ STEP WORD → TOOL (no exceptions, no substitutions, no creativity):
   "Create" or "Write"  →  write_file   ONLY — write the complete file, even if context shows it exists
   "Run:"               →  shell        ONLY — extract the command and put it in "command" arg
   "Verify:"            →  shell        ONLY — use cat or ls to check the expected state
-  "Patch" or "Update"  →  patch_file   ONLY — provide old_str, new_str, and file path
+  "Patch", "Update", or "Edit" →  patch_file ONLY — provide old_str, new_str, and file path
 
 The "Current step" is a guide from a planning model. The "Overall goal" is authoritative — if they differ on filenames or features, follow the Overall goal.
 

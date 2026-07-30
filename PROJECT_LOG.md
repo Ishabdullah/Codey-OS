@@ -5,6 +5,55 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-30 — Track 1 audits complete: tool/capability audit + prompt audit, 8 new issues logged
+
+**What changed:** Ran `WORK_QUEUE.md` Track 1's two audits in parallel,
+ahead of Phase 5b/5c so both build on a clean baseline rather than an
+unaudited one.
+
+**Tool/capability audit** (`agent-tool-designer`): reviewed every
+`ccos/plugins/*/manifest.json` against its actual implementation. Fixed 3
+stale/wrong descriptions directly — `coding.finetune_rollback_backup`
+(materially wrong: it mutates the live model file and destroys its own
+backup, not "file-copy only"; also surfaced that `model_variant="secondary"`
+calls `loader.load_secondary()`, which doesn't exist, matching the
+already-open `NEW-24`), `coding.git_commit` (defaults to `git add -A`,
+not "stage (optional)"), and `peer_escalation` (stale call-site line
+numbers). Logged `NEW-34` (Confirmed): the 3 `skill_*` compound plugins
+under `ccos/plugins/compound/` are broken by construction (no data piped
+between pipeline steps) and are live, agent-callable output of the
+permanently-gated `skill_recombiner` — `plugin_manager._discover()`
+auto-loads them regardless of the gate on the engine itself. Correctly
+left unresolved as a CLAUDE.md-rule-1-adjacent question for Ish, not
+decided unilaterally. Also logged `NEW-35` (Suspected): `vision.camera_capture`'s
+default `/tmp/...` output path likely wrong under Termux's sandbox.
+
+**Prompt audit** (`prompt-engineer`): reviewed `prompts/system_prompt.py`,
+`prompts/layered_prompt.py`, `prompts/critique_prompts.py`, and
+`core/plannd.py`'s `PLANNER_PROMPT`. Fixed 2 real gaps: `system_prompt.py`'s
+word→tool mapping tables had no entry for "Edit" despite both
+`PLANNER_PROMPT` and `orchestrator.py`'s `PLAN_PROMPT` emitting
+"Edit <file>:" steps (added as a `patch_file` synonym); `critique_prompts.py`'s
+3 templates didn't instruct plain-text-only output despite the module
+docstring claiming they do, verified as a real truncation risk since
+`core/recursive.py:460` uses the literal `<tool>` string as a hard stop
+sequence on that generation call. Logged 5 follow-ups (`NEW-28` through
+`NEW-32`), including one this round's own fix introduced (`NEW-30`: the
+Edit-mapping fix enables a step needing two tool calls, contradicting the
+"exactly one tool call per response" rule — needs a design call, not
+guessed at). No live model-load test run; static analysis only, per rule 2.
+
+**Verification performed:** Reviewed both agents' actual diffs
+(`git diff`) before accepting, not just their summaries — per rule 5.
+
+**Outcome:** `WORK_QUEUE.md` Track 1 marked done; next-free `NEW-##` is
+now `NEW-36`. Track 0 and Track 1 both complete as of this round.
+
+**Next action:** Track 2 (independent bug/security fixes) — no hard
+dependency on Track 3, can start in parallel with Phase 5a.
+
+---
+
 ## 2026-07-30 — Root-level/`docs/` UNCLEAR-files cleanup (Track 0): TODO.md deleted, three files flagged for Ish, discoverability gap logged
 
 Executed the `WORK_QUEUE.md` Track 0 item to resolve `CODEY_OS_MASTER_VISION.md`
