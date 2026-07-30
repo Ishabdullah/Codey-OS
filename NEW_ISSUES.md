@@ -392,6 +392,28 @@ port constant, wiring the planner launcher, a real cross-process lock)
 remain open, deferred to a future round.
 
 ### [NEW-13] Removing `core/inference.py`'s independent launcher (Round 11, NEW-12 fix, commit `59f4f69`) orphaned `ThermalManager`'s thread-reduction restart mechanism
+- **Status: Resolved (Round 12, commit `0935cbd`).** Wired an equivalent
+  restart-recommended check into `core/loader_v2.py`'s `ensure_model()`
+  — when `ThermalManager.restart_recommended` is set, it now stops and
+  restarts the running primary `llama-server` with the updated thread
+  count and clears the flag. code-reviewer approved, with two
+  non-blocking Warnings (no lock around the check-then-act sequence —
+  not currently exploitable with only one call site; no unit test
+  coverage of the new branch). **Fully live-verified:** started the
+  primary model (PID 14619), forced `restart_recommended = True`,
+  called `ensure_model()` again in the same process — confirmed a real
+  restart (not a short-circuit): PID changed 14619 → 14800, old PID
+  gone (`ps -p 14619` returncode 1), the flag correctly cleared
+  afterward, a real inference call issued post-restart returned `'OK'`
+  (not an error string), and clean teardown (`ps -p 14800` returncode 1
+  after `unload()`). Verified via exact-PID `ps -p <pid>` checks rather
+  than a `comm`-substring grep, since Termux's `ps` truncates `COMMAND`
+  to `llama-serv` and would false-negative a `"llama-server"`
+  substring match (environmental wrinkle, not a code defect).
+  `free -h` before (`4.9Gi` used, `2.0Gi` free) / after (`3.3Gi` used,
+  `5.6Gi` free) showed full RAM recovery, no leak. An unrelated test
+  artifact (the inference call's side-effect embed server, PID 15580)
+  was cleaned up by its own tracked PID, not a name-pattern kill.
 - **Confidence: Confirmed** (found by code-reviewer during Round 11's
   NEW-12 review, verified via repo-wide grep, not inferred).
 - **Where:** `core/thermal.py`'s `ThermalManager` class sets

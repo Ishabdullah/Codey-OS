@@ -5,6 +5,81 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-30 — Round 12 (NEW-13): wired `ThermalManager`'s thread-reduction restart into `core/loader_v2.py`'s `ensure_model()` — code complete, code-reviewer approved, fully live-verified
+
+**Fix (commit `0935cbd`):** `core/loader_v2.py`'s `ensure_model()` now
+checks `get_thermal_manager().restart_recommended` and, if set, stops the
+already-running primary `llama-server` and restarts it with the updated
+thread count, then clears the flag — closing the gap NEW-13 identified,
+where Round 11's NEW-12 fix (removal of `core/inference.py`'s independent
+launcher) had orphaned `ThermalManager`'s thread-reduction restart
+mechanism (its only consumer was the now-removed launcher).
+
+**code-reviewer:** approved, with two non-blocking Warnings: (1) no lock
+around the check-then-act sequence, but not currently exploitable since
+`ensure_model()` has only one call site today; (2) no unit test coverage
+of the new branch.
+
+**live-verifier's results (verbatim):**
+
+`free -h` before:
+```
+               total        used        free      shared  buff/cache   available
+Mem:            10Gi       4.9Gi       2.0Gi        32Mi       3.9Gi       5.7Gi
+Swap:           11Gi       1.5Gi        10Gi
+```
+
+Started the primary model (PID 14619), forced
+`get_thermal_manager().restart_recommended = True`, then called
+`ensure_model()` again in the same process:
+```
+ℹ  Thermal: restarting server with 2 threads...
+ℹ  Stopping model server...
+ℹ  Loading model: qwen2.5-coder-7b-instruct-q4_k_m.gguf
+ℹ  Starting llama-server...
+ℹ  llama-server PID: 14800, logging to /data/data/com.termux/files/home/.codeyOS/llama-server.log
+✓  llama-server started on port 8080
+✓  Loaded model (qwen2.5-coder-7b-instruct-q4_k_m.gguf)
+ensure_model() returned: True
+tm.restart_recommended after: False
+```
+Confirmed: PID changed (14619 → 14800 — a real restart, not a
+short-circuit); old PID gone (`ps -p 14619` returncode 1); the
+`restart_recommended` flag correctly cleared after the restart; a real
+inference call issued after the restart returned `'OK'` (not an error
+string); clean teardown (`ps -p 14800` returncode 1 after `unload()`).
+
+One environmental wrinkle noted by live-verifier (not a code defect):
+Termux's `ps` truncates `COMMAND` to `llama-serv` (drops the trailing
+`-server`), so a `comm`-substring-match grep for `"llama-server"` can
+false-negative. live-verifier caught this and independently re-verified
+with exact-PID `ps -p <pid>` checks instead, which worked correctly
+throughout — so the PID-change/teardown evidence above rests on that more
+reliable method, not on a name-substring `ps` grep.
+
+One test-artifact cleanup, unrelated to NEW-13's own code path: the
+post-restart inference call also started the embed server (nomic, port
+8082) as a side effect (a separate singleton, not torn down by
+`loader.unload()`, which only tracks the primary server) — live-verifier
+killed it by its own explicitly-logged tracked PID (15580), not a
+name-pattern kill, and confirmed it was gone afterward.
+
+`free -h` after (fully clean):
+```
+               total        used        free      shared  buff/cache   available
+Mem:            10Gi       3.3Gi       5.6Gi        22Mi       1.9Gi       7.3Gi
+Swap:           11Gi       2.0Gi        10Gi
+```
+
+**Round 12 (NEW-13) is closed: code complete, code-reviewer approved, and
+fully live-verified.** Remaining open items: NEW-7 (recursive planner,
+hardest, deferred), NEW-9 (deprioritized per user decision), NEW-11
+(daemon watchdog stale-flag gap, logged only), and the two deferred items
+from NEW-12's own scoping (cross-process port lock, planner
+auto-launcher). Next round to be decided with the user.
+
+---
+
 ## 2026-07-30 — Round 11 (NEW-12): removed `core/inference.py`'s independent llama-server launcher, routed fallback through `loader_v2` — code complete, code-reviewer approved, live-verified
 
 **Fix (commit `59f4f69`):** removed `core/inference.py`'s independent,

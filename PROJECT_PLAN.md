@@ -932,6 +932,47 @@ this round: NEW-7 (recursive planner, hardest, deferred), NEW-9
 (deprioritized per user decision), NEW-11 (daemon watchdog stale-flag
 gap, logged only), NEW-13 (thermal-restart regression, logged only).
 
+### Audit Remediation — Round 12 (NEW-13)
+**Status: code complete, code-reviewer approved, fully live-verified.**
+- [x] Fix: commit `0935cbd` wired `ThermalManager`'s thread-reduction
+      restart mechanism into `core/loader_v2.py`'s `ensure_model()` —
+      when `restart_recommended` is set, it stops the running primary
+      `llama-server` and restarts it with the updated thread count, then
+      clears the flag. Closes the gap NEW-13 identified after Round 11's
+      NEW-12 fix removed `core/inference.py`'s independent launcher (the
+      flag's only prior consumer).
+- [x] code-reviewer approved, with two non-blocking Warnings: no lock
+      around the check-then-act sequence (not currently exploitable —
+      only one call site today), and no unit test coverage of the new
+      branch.
+- [x] live-verifier: `free -h` before — `4.9Gi` used, `2.0Gi` free,
+      `5.7Gi` available. Started the primary model (PID 14619), forced
+      `restart_recommended = True`, called `ensure_model()` again in the
+      same process. Confirmed a real restart, not a short-circuit: PID
+      changed 14619 → 14800, old PID gone (`ps -p 14619` returncode 1),
+      `restart_recommended` correctly cleared afterward, a real
+      inference call post-restart returned `'OK'` (not an error), clean
+      teardown (`ps -p 14800` returncode 1 after `unload()`). `free -h`
+      after — `3.3Gi` used, `5.6Gi` free, `7.3Gi` available — RAM fully
+      recovered, no leak.
+- [x] Verified via exact-PID `ps -p <pid>` checks rather than a
+      `comm`-substring grep for `"llama-server"`, since Termux's `ps`
+      truncates `COMMAND` to `llama-serv` and would false-negative such a
+      grep — noted as an environmental wrinkle, not a code defect.
+      live-verifier also cleaned up an unrelated test artifact (the
+      inference call's side-effect embed server, PID 15580, killed by
+      its own tracked PID and confirmed gone), not part of NEW-13's own
+      code path.
+- [x] `NEW_ISSUES.md` [NEW-13] marked Resolved, citing `0935cbd`, with
+      the same precise live-verification description (not overclaimed).
+
+**Round 12 (NEW-13) is closed: code complete, code-reviewer approved, and
+fully live-verified.** Remaining open items: NEW-7 (recursive planner,
+hardest, deferred), NEW-9 (deprioritized per user decision), NEW-11
+(daemon watchdog stale-flag gap, logged only), plus the two deferred
+items from NEW-12's own scoping (cross-process port lock, planner
+auto-launcher). Next round to be decided with the user.
+
 ### Phase 4 — Self-improvement activation (deliberate, not automatic)
 Do NOT start this phase until Phases 1–3 are stable and you've watched the
 system run real coding tasks through the sandbox/safety-veto path for a
