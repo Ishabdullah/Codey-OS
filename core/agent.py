@@ -15,6 +15,7 @@ from tools.file_tools import (tool_append_file, tool_list_dir, tool_read_file,
 from tools.patch_tools import tool_patch_file
 from tools.shell_tools import search_files, shell
 from utils.config import AGENT_CONFIG, RECURSIVE_CONFIG
+from utils.logger import error as log_error
 from utils.logger import info, separator, success, warning
 
 # Learning manager for adaptive behavior
@@ -1828,13 +1829,40 @@ def run_agent(
                 history.append({"role": "assistant", "content": _confirm})
                 return _confirm, history
             else:
+                # NEW-2 fix: if a file-mutating tool call reached this fallthrough
+                # while still in an error state, both auto-retry and peer-CLI
+                # escalation (above) are exhausted — no file was modified. Without
+                # this, the model gets one more ordinary "Tool result: ... Next
+                # action or final answer:" turn and its honest but easy-to-miss
+                # clarification reply gets returned as if it were a normal final
+                # answer, indistinguishable in the transcript from a successful
+                # edit. Surface a distinct, ERROR-level marker before that turn so
+                # a user/reviewer scanning the transcript can immediately tell an
+                # edit was attempted and dropped.
+                _edit_not_applied_prefix = ""
+                if name in ("write_file", "patch_file", "append_file") and is_error(
+                    last_tool_result, name
+                ):
+                    _edit_not_applied_msg = (
+                        "[EDIT NOT APPLIED] "
+                        + name
+                        + " on "
+                        + str(args.get("path", "<unknown>"))
+                        + " failed after retries and escalation were exhausted — "
+                        "no file was modified."
+                    )
+                    log_error(_edit_not_applied_msg)
+                    # Also fold the marker into the transcript itself (not just the
+                    # console/log) so it survives in `history` for later review.
+                    _edit_not_applied_prefix = _edit_not_applied_msg + "\n"
                 # 2000 chars gives the model enough content to work with.
                 # patch_file [PATCH_FAILED] responses include file content that
                 # the model needs to reconstruct a correct write_file call.
                 messages.append(
                     {
                         "role": "user",
-                        "content": "Tool result: "
+                        "content": _edit_not_applied_prefix
+                        + "Tool result: "
                         + last_tool_result[:2000]
                         + "\nNext action or final answer:",
                     }
