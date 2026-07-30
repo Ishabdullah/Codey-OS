@@ -5,6 +5,116 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-30 — Round 13 (NEW-11): daemon watchdog checks real process liveness, not a stale flag — code complete, code-reviewer approved, fully live-verified (after a crash-strewn path to get there)
+
+**Fix (commit `ab13a8d`):** `core/daemon.py`'s 30s periodic watchdog
+(inside `_main_loop`) previously checked `loader.get_loaded_model()`, an
+in-memory boolean that, once set `True` at load time, never resets — so
+it could not detect a genuine mid-session crash of an already-loaded
+`llama-server` while the daemon kept running (NEW-11). The fix changes
+the watchdog to check real process liveness instead, so a dead model
+server is now proactively detected and restarted on the daemon's own
+schedule rather than only self-healing lazily on the next inference
+call.
+
+**code-reviewer:** approved, on static/unit-test evidence — live
+verification was pending at approval time.
+
+**Live-verification history — recorded in full, not just the final
+result, per CLAUDE.md rule 6:**
+
+1. **First attempt** used the full `codeydOS start` wrapper (daemon plus
+   the 7B primary model, the separate 1.5B "plannd" planner process, and
+   the embed server, all launched concurrently). This crashed Termux
+   entirely, apparently right at 7B model-load time.
+2. **Second attempt**, same full stack, also crashed — possibly
+   compounded by the user backgrounding the Termux app during the test
+   (unconfirmed which factor dominated).
+3. The user confirmed they'd keep Termux foregrounded and asked for a
+   retry. **Third attempt**, still the full `codeydOS start` stack, did
+   NOT crash but self-aborted proactively per the live-verifier's own
+   safety instructions, after observing swap climb from a ~1Gi baseline
+   to 7.5-8.5Gi within ~40 seconds of steady-state daemon startup with
+   all three models running — well before reaching the actual
+   kill/restart test itself. Verbatim:
+   ```
+   check 1: used 9.0Gi available 1.5Gi swap 4.6Gi
+   check 2: used 9.0Gi available 1.5Gi swap 7.1Gi
+   ```
+   settling around `swap 7.5Gi`. The device stayed responsive only
+   because the test aborted itself in time, not because the risk wasn't
+   real. This finding is logged separately as `NEW_ISSUES.md` [NEW-14]
+   — Confirmed, an observational device-capacity finding, not a code
+   bug.
+4. The user chose, via an explicit question, to retry with a lighter,
+   isolated harness instead of the full stack: launching the daemon
+   directly via `python3 main.py --daemon` (bypassing the `codeydOS`
+   wrapper script, which is what spawns the separate 1.5B plannd
+   process), running only the 7B primary + embed server. **This
+   succeeded cleanly and safely.**
+
+**Successful live-verification evidence (verbatim, lighter harness):**
+
+Baseline `free -h`: `used 3.3Gi / available 7.3Gi / swap 1.2Gi`.
+
+After daemon+7B+embed server started (confirmed via `ps` — no plannd
+process present): `used 8.7Gi / available 1.8Gi / swap 1.8Gi` —
+stabilized, no aggressive climb this time.
+
+`curl http://127.0.0.1:8080/health` → `{"status":"ok"}`
+
+Killed the tracked `llama-server` PID (921) directly via `kill -9 921`
+— not a name-pattern kill. Watchdog fired on schedule, literal daemon
+log:
+```
+2026-07-30 01:11:41,418 - WARNING - 7B model server died — restarting...
+2026-07-30 01:11:41,444 - INFO - llama-server PID: 3034, logging to .../llama-server.log
+2026-07-30 01:11:51,056 - INFO - llama-server started on port 8080
+```
+New PID (3034) confirmed distinct from the killed PID (921). Fired at
+exactly the expected 30s-tick timing (4 ticks after the daemon started
+listening).
+
+Real inference issued against the restarted server (not just a health
+check):
+```
+curl .../v1/chat/completions ... → {"choices":[{"message":{"content":"PONG"}}]}
+```
+
+Clean teardown via `SIGTERM` on the tracked daemon PID (845) — the
+daemon's own shutdown path stopped the model server and embed server
+itself:
+```
+SIGTERM received, shutting down...
+Stopping model server...
+Embed server stopped
+Daemon socket stopped
+Daemon stopped
+```
+Final `ps` empty, PID file and socket file both removed. Final
+`free -h`: `used 2.9Gi / available 7.6Gi / swap 1.7Gi`. Peak swap this
+run: ~1.9Gi (vs. 7.5-8.5Gi in the full 3-model-stack attempt) —
+confirms the separate plannd process was the dominant RAM/swap pressure
+source, not the daemon/watchdog code itself.
+
+**`NEW_ISSUES.md` updates:** [NEW-11] marked Resolved, citing `ab13a8d`,
+with the full live-verification summary including the crash history.
+[NEW-14] newly logged, Confirmed — the full 3-model `codeydOS start`
+stack pushes this ~10.8GB device into severe swap pressure within
+seconds even under normal conditions; an observational device-capacity
+finding, not a code bug, not scoped as a fix here.
+
+**Round 13 (NEW-11) is closed: code complete, code-reviewer approved,
+and fully live-verified.** This closes the last item from the
+second-wave punch list (NEW-4 already resolved, NEW-12 and NEW-13 done
+in prior rounds, NEW-11 now done). Remaining open: NEW-7 (recursive
+planner, hardest, still deferred), NEW-9 (fork-window race,
+deprioritized), NEW-14 (device swap-pressure finding, observational),
+plus the two earlier-deferred items from NEW-12 (cross-process port
+lock, planner auto-launcher). Next round to be decided with the user.
+
+---
+
 ## 2026-07-30 — Round 12 (NEW-13): wired `ThermalManager`'s thread-reduction restart into `core/loader_v2.py`'s `ensure_model()` — code complete, code-reviewer approved, fully live-verified
 
 **Fix (commit `0935cbd`):** `core/loader_v2.py`'s `ensure_model()` now

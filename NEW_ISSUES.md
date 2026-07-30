@@ -219,6 +219,42 @@ own dedicated scoping pass, not yet queued for a fix.
 ## Found during Round 10 NEW-9 follow-up discussion, 2026-07-30 — NOT fixed, logged only
 
 ### [NEW-11] Daemon's 30s watchdog checks a stale in-memory flag, not real process liveness
+- **Status: Resolved (Round 13, commit `ab13a8d`).** code-reviewer
+  approved. **Fully live-verified**, after two earlier live-verification
+  attempts crashed Termux entirely at 7B model-load time (via the full
+  `codeydOS start`, which also spawns a separate 1.5B "plannd" planner
+  process) and a third attempt self-aborted proactively (per the
+  live-verifier's own safety instructions) after observing swap climb
+  from a ~1Gi baseline to 7.5-8.5Gi within ~40 seconds of steady-state
+  startup with all three models running — see [NEW-14] below. The
+  successful verification used a lighter, isolated harness instead:
+  launching the daemon directly via `python3 main.py --daemon` (bypassing
+  the `codeydOS` wrapper script that spawns the separate plannd process),
+  running only the 7B primary + embed server. Baseline `free -h`:
+  `used 3.3Gi / available 7.3Gi / swap 1.2Gi`. After daemon+7B+embed
+  started (confirmed via `ps` — no plannd process present):
+  `used 8.7Gi / available 1.8Gi / swap 1.8Gi`, stable, no aggressive
+  climb. `curl http://127.0.0.1:8080/health` → `{"status":"ok"}`. Killed
+  the tracked `llama-server` PID (921) directly via `kill -9 921` (not a
+  name-pattern kill). Watchdog fired on schedule, literal daemon log:
+  ```
+  2026-07-30 01:11:41,418 - WARNING - 7B model server died — restarting...
+  2026-07-30 01:11:41,444 - INFO - llama-server PID: 3034, logging to .../llama-server.log
+  2026-07-30 01:11:51,056 - INFO - llama-server started on port 8080
+  ```
+  New PID (3034) confirmed distinct from the killed PID (921), fired at
+  exactly the expected 30s-tick timing (4 ticks after the daemon started
+  listening). A real inference call against the restarted server (not
+  just a health check) returned `{"choices":[{"message":{"content":"PONG"}}]}`.
+  Clean teardown via `SIGTERM` on the tracked daemon PID (845) — the
+  daemon's own shutdown path stopped the model server and embed server
+  itself (`Stopping model server... / Embed server stopped / Daemon
+  socket stopped / Daemon stopped`). Final `ps` empty, PID file and
+  socket file both removed. Final `free -h`:
+  `used 2.9Gi / available 7.6Gi / swap 1.7Gi`. Peak swap this run: ~1.9Gi
+  (vs. 7.5-8.5Gi in the full 3-model-stack attempt), confirming the
+  separate plannd process was the dominant RAM/swap pressure source, not
+  the daemon/watchdog code itself.
 - **Confidence: Confirmed** (read directly from code, not inferred).
 - **Where:** `core/daemon.py:549-563`, the periodic (every 30s / 60 ticks
   × 0.5s) watchdog inside `_main_loop`. It checks
@@ -457,6 +493,50 @@ remain open, deferred to a future round.
   the check belongs given `loader_v2.py`'s different structure (e.g.
   the NEW-9-hardened `pthread_sigmask` block around `Popen` — any
   restart logic must not interfere with that).
+
+## Found during Round 13 (NEW-11) live-verification, 2026-07-30 — NOT fixed, logged only (observational)
+
+### [NEW-14] Full `codeydOS start` (daemon + 7B + 1.5B plannd + embed server, all three models concurrently) pushes this device into severe swap pressure within seconds, even under normal conditions
+- **Confidence: Confirmed** (directly observed, and consistent with two
+  earlier Termux crashes at model-load time before this pattern was
+  understood).
+- **Where observed:** during Round 13 (NEW-11) live-verification. The
+  first two live-verification attempts, both using the full `codeydOS
+  start` wrapper (which launches the daemon plus the 7B primary model,
+  the separate 1.5B "plannd" planner process, and the embed server, all
+  concurrently), crashed Termux entirely, apparently right at 7B
+  model-load time. A third attempt, same full stack, did not crash but
+  self-aborted proactively per the live-verifier's own safety
+  instructions after observing swap climb from a ~1Gi baseline to
+  7.5-8.5Gi used within ~40 seconds of steady-state daemon startup —
+  well before the actual kill/restart test began. Verbatim readings:
+  `check 1: used 9.0Gi available 1.5Gi swap 4.6Gi` →
+  `check 2: used 9.0Gi available 1.5Gi swap 7.1Gi` → settled around
+  `swap 7.5Gi`. The device stayed responsive only because the test
+  aborted itself in time, not because the risk wasn't real.
+- **Contrast:** a fourth attempt, using a lighter, isolated harness
+  (`python3 main.py --daemon` directly, bypassing the `codeydOS` wrapper
+  and thus skipping the separate plannd process — only the 7B primary +
+  embed server running), completed the same test safely with peak swap
+  around ~1.9Gi, a small fraction of the full-stack figure. This strongly
+  suggests the separate 1.5B plannd process (or the combination of all
+  three models loading concurrently) is the dominant swap-pressure
+  source, not the daemon/watchdog code exercised by the test itself.
+- **Impact:** this is not a code bug — no exception, no crash-inducing
+  logic error was found. It appears to be the genuine resource cost of
+  running the full 3-model stack concurrently on this specific ~10.8GB
+  device. It may explain other historical flakiness/crashes previously
+  attributed to unclear causes, and is directly relevant to CLAUDE.md's
+  RAM-discipline rule 2.
+- **Not fixed here, and not necessarily fixable in a traditional
+  code-level sense** — logged per CLAUDE.md rule 8 as a device-capacity
+  finding worth preserving, not a bug to scope. Candidate follow-ups for
+  a future pass (not scoped here): explicit user-facing documentation
+  that the full `codeydOS start` (all three models) is heavy on
+  ~10.8GB-class devices and should not be run alongside other memory-
+  intensive live-verification tests; consider whether the daemon-only /
+  plannd-optional lighter path used successfully here should become a
+  documented, supported "lite" mode for constrained devices.
 
 ## Found during Round 8 (NEW-6) live-verification pass, 2026-07-30 — NOT fixed, logged only
 

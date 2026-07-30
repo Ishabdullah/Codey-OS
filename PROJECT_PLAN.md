@@ -973,6 +973,58 @@ hardest, deferred), NEW-9 (deprioritized per user decision), NEW-11
 items from NEW-12's own scoping (cross-process port lock, planner
 auto-launcher). Next round to be decided with the user.
 
+### Audit Remediation — Round 13 (NEW-11)
+**Status: code complete, code-reviewer approved, fully live-verified**
+(via a lighter daemon-only harness after the full 3-model stack proved
+too RAM-heavy to safely test on this device).
+- [x] Fix: commit `ab13a8d` changed the daemon's 30s watchdog to check
+      real process liveness instead of the stale `get_loaded_model()`
+      in-memory flag.
+- [x] code-reviewer approved (static/unit-test evidence at review time;
+      live-verification was pending).
+- [x] live-verification history (recorded in full per CLAUDE.md rule 6 —
+      not just the final pass/fail):
+      1. First attempt, via the full `codeydOS start` (daemon + 7B +
+         1.5B plannd + embed server, all concurrently), crashed Termux
+         entirely, apparently right at 7B model-load time.
+      2. Second attempt, same full stack, also crashed — possibly
+         compounded by the app being backgrounded during the test
+         (unconfirmed which factor dominated).
+      3. Third attempt, full stack again with Termux kept foregrounded,
+         did not crash but self-aborted proactively per the
+         live-verifier's own safety instructions, after observing swap
+         climb from a ~1Gi baseline to 7.5-8.5Gi within ~40 seconds of
+         steady-state startup with all three models running — before
+         reaching the actual kill/restart test. Verbatim:
+         `check 1: used 9.0Gi available 1.5Gi swap 4.6Gi` →
+         `check 2: used 9.0Gi available 1.5Gi swap 7.1Gi` → settled
+         around `swap 7.5Gi`. Logged as `NEW_ISSUES.md` [NEW-14]
+         (Confirmed, observational device-capacity finding, not a code
+         bug).
+      4. Fourth attempt used a lighter, isolated harness instead:
+         `python3 main.py --daemon` directly (bypassing the `codeydOS`
+         wrapper, which is what spawns the separate 1.5B plannd
+         process), running only the 7B primary + embed server. This
+         succeeded cleanly and safely — see `NEW_ISSUES.md` [NEW-11]'s
+         Resolved write-up for the full verbatim evidence (baseline/
+         post-load `free -h`, watchdog log lines showing PID 921 → 3034
+         after `kill -9 921`, real post-restart inference returning
+         `PONG`, clean `SIGTERM` teardown, final `free -h`).
+- [x] `NEW_ISSUES.md` [NEW-11] marked Resolved, citing `ab13a8d`, with
+      the full live-verification summary (including the crash history).
+- [x] `NEW_ISSUES.md` [NEW-14] logged Confirmed — the full 3-model
+      `codeydOS start` stack is a genuine, previously-undocumented
+      RAM/swap-pressure risk on this ~10.8GB device, not a code bug.
+
+**Round 13 (NEW-11) is closed: code complete, code-reviewer approved,
+fully live-verified.** This closes the last item from the second-wave
+punch list (NEW-4/NEW-12/NEW-13 already done). Remaining open: NEW-7
+(recursive planner, hardest, still deferred), NEW-9 (fork-window race,
+deprioritized), NEW-14 (device swap-pressure finding, observational —
+not scoped as a fix), plus the two earlier-deferred items from NEW-12
+(cross-process port lock, planner auto-launcher). Next round to be
+decided with the user.
+
 ### Phase 4 — Self-improvement activation (deliberate, not automatic)
 Do NOT start this phase until Phases 1–3 are stable and you've watched the
 system run real coding tasks through the sandbox/safety-veto path for a
