@@ -120,12 +120,18 @@ class LlamaServer:
             # Open log file for appending stdout/stderr
             log_fd = open(log_file, "a")
 
-            self.process = subprocess.Popen(
-                cmd,
-                stdout=log_fd,
-                stderr=subprocess.STDOUT,
-                preexec_fn=os.setsid if os.name != "nt" else None,
-            )
+            import signal
+
+            signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})
+            try:
+                self.process = subprocess.Popen(
+                    cmd,
+                    stdout=log_fd,
+                    stderr=subprocess.STDOUT,
+                    preexec_fn=os.setsid if os.name != "nt" else None,
+                )
+            finally:
+                signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGINT})
 
             info(f"llama-server PID: {self.process.pid}, logging to {log_file}")
 
