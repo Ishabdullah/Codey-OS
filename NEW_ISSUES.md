@@ -100,6 +100,28 @@
 - **Recommendation:** remove all 3 (both for being broken and for the
   gate question) pending Ish's explicit call; not deleted in this audit
   since it's a design/product judgment, not a descriptive fix.
+- **Interim disable, 2026-07-30 (still open — this is not a resolution):**
+  Ish asked for these turned off now, safely, while the permanent
+  remove-vs-keep-and-fix decision waits. Renamed all 3 directories with a
+  leading `_` (`ccos/plugins/compound/_skill_camera_capture_tts`,
+  `_skill_info_info`, `_skill_info_processes`) — `plugin_manager.py`'s
+  `_discover()` already skips any dir starting with `_` (lines 81, 84),
+  so this required zero code changes and reuses an existing, already-
+  tested exclusion path. Verified live: `PluginManager().list_plugins()`
+  now returns 13 plugins total with none matching `skill.*` (previously
+  included the 3). Nothing deleted — manifest/pipeline/test files intact
+  on disk under the renamed dirs, git history preserved via `git mv`.
+  Grepped the repo first for hardcoded references to the old dotted
+  names/paths outside their own plugin dirs: only prose (docs, this
+  entry, `PROJECT_LOG.md`), gitignored runtime state
+  (`ccos/data/capabilities.json`, regenerates on next load), a queued-but-
+  never-acted-on `goals_queue.json` goal description, and
+  `ccos/tests/test_skill_recombiner.py` (generates skills in-memory via a
+  temp registry, doesn't read the live plugin dirs) — nothing that
+  resolves these plugins by path/import, so the rename is safe. Also
+  noted in `WORK_QUEUE.md`'s Parked section. Reversible: strip the `_`
+  prefix to re-enable. Still needs Ish's permanent call on final
+  disposition.
 
 ### [NEW-35] `vision.camera_capture`'s default output path (`camera.py:53`, `f"/tmp/ccos_capture_{...}.jpg"`) is likely wrong on Termux (Suspected)
 - Termux's writable temp dir is `$PREFIX/tmp`, not `/tmp` — bare `/tmp`

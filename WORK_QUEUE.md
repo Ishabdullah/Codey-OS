@@ -257,6 +257,21 @@ resource-awareness work twice.
   inferred from this queue reaching the end of Track 3. Revisit the
   activation criteria themselves (compound-skill approval gate, goal
   approval gate) when that time comes; don't pre-decide them here.
+  **Update 2026-07-30 (`NEW-34`):** the Track 1 tool audit found 3
+  compound plugins under `ccos/plugins/compound/` (`skill_camera_capture_tts`,
+  `skill_info_info`, `skill_info_processes`) that were already-generated
+  output of `skill_recombiner`, sitting in the repo since the initial
+  CCOS commit, live and agent-callable despite the engine itself never
+  having run this session — the gate on the *engine* didn't stop
+  `plugin_manager._discover()` from auto-loading its *pre-existing
+  output*. Ish asked for these turned off now as an interim safety
+  measure, separate from any Phase 4 activation decision: renamed the 3
+  directories with a leading `_` (an existing, already-supported
+  exclusion path in `_discover()`, zero code changes, fully reversible,
+  nothing deleted). Their final disposition — permanently remove, or
+  keep and fix the broken pipeline-argument-passing bug — is still open
+  and deferred to whenever Phase 4 activation is actually taken up; see
+  `NEW-34` for full detail and the verification performed.
 
 ---
 
