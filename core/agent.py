@@ -668,30 +668,33 @@ def enrich_message(user_message):
     return user_message
 
 
-def check_git_and_offer_commit(user_message, tools_used):
+def check_git_and_offer_commit(user_message, tools_used, files_touched=None):
     if not tools_used:
         return
     # Only offer if write_file or patch_file was used
     if not any("write_file" in s or "patch_file" in s for s in tools_used):
         return
 
-    from core.githelper import git_commit, git_status, is_git_repo
+    from core.githelper import git_commit_paths, git_status_paths, is_git_repo
     from utils.logger import confirm as ask_confirm
     from utils.logger import error, info, success
 
     if not is_git_repo():
         return
 
-    status = git_status()
+    if not files_touched:
+        return
+
+    status = git_status_paths(files_touched)
     if status == "Nothing to commit.":
         return
 
     info("\nChanges detected. Reviewing git status...")
     print(status)
-    if ask_confirm("\nStage all and commit these changes?"):
+    if ask_confirm("\nStage and commit ONLY the file(s) touched this turn (shown above)?"):
         # Simple heuristic for commit message from user request
         msg = f"Codey: {user_message[:50]}..."
-        res = git_commit(msg)
+        res = git_commit_paths(msg, files_touched)
         if res.startswith("[ERROR]"):
             error(res)
         else:
@@ -1908,11 +1911,11 @@ def run_agent(
         history.append({"role": "user", "content": user_message})
         history.append({"role": "assistant", "content": response})
         if not _in_subtask:
-            check_git_and_offer_commit(user_message, tools_used)
+            check_git_and_offer_commit(user_message, tools_used, files_touched)
         return response, history
     warning("Reached max steps (" + str(max_steps) + ").")
     if not _in_subtask:
-        check_git_and_offer_commit(user_message, tools_used)
+        check_git_and_offer_commit(user_message, tools_used, files_touched)
     # Return a failure marker so run_queue() can flag this subtask as incomplete
     # instead of silently marking it done. The last tool result is included so
     # the next subtask knows what was attempted.

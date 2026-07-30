@@ -77,6 +77,48 @@ def git_commit(message: str, path: str = None, add_all: bool = True) -> str:
     return f"[ERROR] {result.stderr.strip()}"
 
 
+def git_status_paths(paths: List[str], path: str = None) -> str:
+    """Like git_status(), but scoped to specific paths only."""
+    path = path or os.getcwd()
+    result = subprocess.run(
+        ["git", "status", "--short", "--"] + list(paths),
+        capture_output=True,
+        text=True,
+        cwd=path,
+    )
+    return result.stdout.strip() or "Nothing to commit."
+
+
+def git_commit_paths(message: str, paths: List[str], path: str = None) -> str:
+    """Like git_commit(), but stages and commits ONLY the given paths --
+    never `git add -A`. Used when a caller wants to commit exactly the
+    file(s) touched this turn, not the whole working tree (see NEW-17
+    in NEW_ISSUES.md for why this matters).
+    """
+    path = path or os.getcwd()
+
+    if not is_git_repo(path):
+        return "[ERROR] Not a git repository."
+
+    if not paths:
+        return "Nothing to commit."
+
+    result = subprocess.run(["git", "add", "--"] + list(paths), capture_output=True, text=True, cwd=path)
+    if result.returncode != 0:
+        return f"[ERROR] git add failed: {result.stderr}"
+
+    status = git_status_paths(paths, path)
+    if status == "Nothing to commit.":
+        return "Nothing to commit — working tree clean."
+
+    result = subprocess.run(
+        ["git", "commit", "-m", message, "--"] + list(paths), capture_output=True, text=True, cwd=path
+    )
+    if result.returncode == 0:
+        return result.stdout.strip()
+    return f"[ERROR] {result.stderr.strip()}"
+
+
 def git_push(path: str = None) -> str:
     path = path or os.getcwd()
     result = subprocess.run(["git", "push"], capture_output=True, text=True, cwd=path)
