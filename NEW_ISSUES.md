@@ -3,7 +3,19 @@
 ## Found during Phase 3 entry-point scoping pass, 2026-07-30 — NOT fixed, logged only
 
 ### [NEW-22] `README.md:53` misdescribes `gui/start.sh` as something `codey-start` orchestrates, and three independent copies of "start gui/server.py + PID file + trap-kill" logic exist
-- **Status: Confirmed, not fixed** (2026-07-30). Found while scoping
+- **Status: Resolved in part (commit `63ab3df`, 2026-07-30).** Ish decided
+  to delete `gui/start.sh` outright and fix `README.md`'s wording rather
+  than make the launchers call it — this closes the README-misdescription
+  half of this finding and the `gui/start.sh` copy of the duplicated
+  logic. **Still open:** the underlying duplication this finding is really
+  about — `codey-start:55-75` and `codeyOS:396-415` still each
+  independently reimplement the GUI-launch/PID-file/trap-kill pattern (63ab3df
+  did not touch either's launch logic, only a stale comment in
+  `codey-start`). Re-verified at HEAD: both blocks are still present
+  (`codey-start` lines 57-74, `codeyOS` lines 396-415). This residual
+  two-copy duplication remains Confirmed and unscoped — adjacent to the
+  NEW-12 dual-launcher bug class, no live symptom observed yet.
+- **Original finding** (2026-07-30). Found while scoping
   PROJECT_PLAN.md's Phase 3 "unified entry points" checklist.
   `README.md:52-54` says the older entry points including `gui/start.sh`
   "still exist underneath and are what `codey-start` orchestrates." This
@@ -31,7 +43,13 @@
     reimplementing it.
 
 ### [NEW-23] `ccos_main.py` is an orphaned standalone MVP demo script — nothing in the current codebase execs or imports it
-- **Status: Confirmed, not fixed** (2026-07-30). Grepped the full repo
+- **Status: RESOLVED (commit `63ab3df`, 2026-07-30).** Ish decided to
+  delete `ccos_main.py` outright rather than keep it as a documented
+  standalone demo. Deletion confirmed zero live references by the
+  implementer, independently re-verified from scratch by the
+  code-reviewer, who found nothing missed. Documentation references
+  updated to match (`README.md`, `CODEY_OS_MASTER_VISION.md`, `QWEN.md`).
+- **Original finding** (2026-07-30). Grepped the full repo
   (`.py`/`.sh`) for `ccos_main` — the only hit besides the file itself is
   documentation (`README.md`, `CODEY_OS_MASTER_VISION.md`, `PROJECT_PLAN.md`,
   `PROJECT_LOG.md`, `Codey-OS-audit.md`, `QWEN.md`). None of `codey-start`,

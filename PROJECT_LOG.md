@@ -5,6 +5,79 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-30 — Phase 3 CLOSED: entry-point cleanup decisions executed (commit `63ab3df`) — `gui/start.sh` and `ccos_main.py` deleted, `main.py` documented as-is, docs/spec corrected throughout
+
+Phase 3's final checklist item — the three remaining Phase 3 loose ends
+from the same-day scoping pass below (`gui/start.sh`, `ccos_main.py`,
+`main.py`) — is now resolved, closing Phase 3 entirely.
+
+**Ish made three decisions on the scoping pass's evidence:**
+1. `gui/start.sh` — delete the file outright and fix `README.md`'s
+   incorrect claim that `codey-start` orchestrates it.
+2. `ccos_main.py` — delete the file outright; it was an orphaned MVP demo
+   script nothing in the current codebase execs or imports.
+3. `main.py` — keep it, document it as-is as the advanced/direct-
+   invocation interface `codey-start`/`codeyOS` actually delegate to
+   (`from main import main; main()` with args passed through unfiltered
+   on the interactive-mode path). No code change — "fully retire" was
+   never viable without `codey-start` first growing equivalent flag
+   passthrough, which is a separate, uncommitted future option.
+
+**Implementation landed in `63ab3df`.** Both `gui/start.sh` and
+`ccos_main.py` deleted. Docs corrected to describe the real current
+architecture (`codey-start` → `codeyOS`/`codeydOS` → `main.py` as the
+underlying engine) instead of the deleted files: `README.md`'s entry-point
+paragraph, `docs/security.md`'s GUI-server description, `codey-start`'s
+stale comment, `install.sh` (removed a now-dangling `chmod` line),
+`docs/commands.md` (new intro noting these are `main.py`'s own flags,
+`main.py` is the advanced/direct-invocation interface), `QWEN.md`'s
+structure tree, and `CODEY_OS_MASTER_VISION.md` Section 6a itself (the
+canonical spec).
+
+**Code-reviewer independently re-verified from scratch** — not trusting
+the implementer's own grep — that nothing execs, sources, or imports
+either deleted file anywhere in the repo, and found nothing missed. Full
+test suite run: 258 passed. `bash -n` syntax checks clean on all four
+touched shell scripts. No Critical or Warning findings on the deletion
+itself.
+
+**NEW-22 update — resolved in part, not fully.** `63ab3df` closes the
+README-misdescription half of NEW-22 and retires `gui/start.sh` itself,
+which is what the Phase 3 checklist line asked for. But NEW-22's
+underlying finding — three independent copies of the GUI-launch/PID-file/
+trap-kill logic — is only reduced to two: `codey-start:57-74` and
+`codeyOS:396-415` still each independently reimplement the same pattern;
+`63ab3df` didn't touch either's launch logic, only a stale comment in
+`codey-start`. Re-checked at HEAD, both blocks are still present. This
+residual duplication remains open in `NEW_ISSUES.md`, unscoped.
+
+**Two other findings spun off along the way, not fixed this round (both
+logged in `NEW_ISSUES.md`):**
+- **NEW-24** (Suspected) — stale `codey3`/`codeyd3` naming survives in
+  `CODEY_OS_MASTER_VISION.md` Section 6a and `QWEN.md`'s tree listing,
+  even though the actual files on disk are `codeyOS`/`codeydOS`.
+- **NEW-25** (Confirmed) — a real shell-quoting bug in `codeyOS`'s
+  `--daemon` branch: `\$@` sits outside the heredoc and is expanded by
+  the outer shell, so a literal two-character string `$@` is forwarded
+  to `main.py` instead of the actual positional arguments (e.g.
+  `codeyOS --daemon --threads 4` silently drops `--threads 4`). Compare
+  the correct direct-mode branch, which uses `"$@"` with no backslash.
+  Process-lifecycle-adjacent, needs its own round with code-reviewer
+  approval per project rule 4.
+
+**Phase 3 is now COMPLETE**: Sub-step A, the Codey-OS branding rename,
+Sub-step B, Sub-step C, and this final entry-point-retirement checklist
+are all done — every checklist box in `PROJECT_PLAN.md`'s Phase 3 section
+is checked. Three known non-blocking residuals carry forward, not
+reopening the phase: Sub-step A's `sleep 0.5` orphan-pgrep race fix
+(code-complete, never live-tested), `docs/architecture.md`'s missing
+CCOS-layer content, `docs/commands.md`'s pre-existing incompleteness, and
+(per the NEW-22 update above) the `codey-start`/`codeyOS` GUI-launch
+duplication itself. See `PROJECT_PLAN.md`'s Phase 3 section for the full
+rollup.
+
+---
+
 ## 2026-07-30 — Phase 3 entry-point scoping pass (no code changed) — 3 items investigated, evidence gathered, decisions handed to Ish
 
 Returned to Phase 3's three remaining checklist items (`PROJECT_PLAN.md`

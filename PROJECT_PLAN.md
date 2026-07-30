@@ -299,7 +299,34 @@ Each item gets its own checklist (manifest, registration, routing test,
 CCOS test suite entry) mirroring Phase 1's pilot.
 
 ### Phase 3 — Unified entry points + retire old fragmented ones
-**Status: STARTING** (per `CODEY_OS_MASTER_VISION.md` Section 6a)
+**Status: COMPLETE** (commit `63ab3df`, 2026-07-30, per
+`CODEY_OS_MASTER_VISION.md` Section 6a). Closed out via three decisions
+from Ish on the final checklist below: (1) `gui/start.sh` deleted
+outright and `README.md` corrected to stop claiming `codey-start`
+orchestrates it; (2) `ccos_main.py` deleted outright as an orphaned demo
+script nothing execs or imports; (3) `main.py` documented as-is as the
+advanced/direct-invocation interface `codey-start`/`codeyOS` genuinely
+delegate to, no code change. Both deletions confirmed zero live
+references by the implementer and independently re-verified from scratch
+by the code-reviewer, who found nothing missed; docs updated to match
+across `README.md`, `docs/security.md`, `docs/commands.md`, `codey-start`,
+`install.sh`, `QWEN.md`, and `CODEY_OS_MASTER_VISION.md` itself. Full test
+suite (258 passed) and shell syntax checks all clean. Two findings spun
+off along the way, not fixed this round: **NEW-24** (stale `codey3`/
+`codeyd3` naming surviving in the spec doc and `QWEN.md`, Suspected) and
+**NEW-25** (a real shell-quoting bug in `codeyOS`'s `--daemon` branch —
+`\$@` instead of `$@` — forwarding a literal string instead of real
+arguments, Confirmed, needs its own round with code-reviewer approval per
+project rule 4). Three known non-blocking residuals also carry forward
+from earlier in this phase, tracked but not reopening Phase 3: Sub-step
+A's `sleep 0.5` orphan-pgrep race fix (code-complete, syntax-checked,
+never live-tested); `docs/architecture.md` still only documenting the
+coding agent's three-model design, no CCOS-layer content; and
+`docs/commands.md`'s pre-existing incompleteness (12 missing slash
+commands, ~13 missing CLI flags, one possibly-stale flag) found during
+Sub-step C. Per **NEW-22** below, the `codey-start`/`codeyOS`
+GUI-launch-logic duplication itself is also carried forward unresolved,
+distinct from `gui/start.sh`'s own retirement (which is done).
 
 Breaking into two sub-steps, same incremental philosophy as Phase 1/2
 (add new alongside old, prove it, retire old separately — not a risky
@@ -422,35 +449,40 @@ only ever handed back as downloadable files. Being fixed now (see below).
 
 **Then, once B and C are both proven stable:**
 
-**Scoping pass complete (2026-07-30, no code changed) — see
-`PROJECT_LOG.md` for full evidence. Status of each item:**
+**Scoping pass (2026-07-30, no code changed) gathered the evidence below;
+decisions were then made by Ish and executed in commit `63ab3df` — see
+`PROJECT_LOG.md` for both the scoping-pass entry and the closeout entry.
+Final status of each item:**
 
-- [ ] `core/kernel.py` — **ready to close, no decision needed.** File
+- [x] `core/kernel.py` — **closed, no decision needed.** File
       does not exist anywhere in this repo (`find -iname kernel.py`
       returns nothing); confirms PROJECT_PLAN's own note that v4 was
-      never part of Codey-OS's lineage. Recommend marking done next
-      round with this evidence.
-- [ ] `codey3`/`codeyd3` — **ready to close, no decision needed.**
+      never part of Codey-OS's lineage.
+- [x] `codey3`/`codeyd3` — **closed, no decision needed.**
       Neither file exists in this repo; the only hits are historical
       mentions in `CHANGELOG.md`/`PROJECT_PLAN.md`/`PROJECT_LOG.md`/
       `QWEN.md`/`CODEY_OS_MASTER_VISION.md`. Retirement already
-      happened; this half of the checklist item is stale.
-- [ ] `gui/start.sh` — **genuine product decision for Ish.** File
-      exists but nothing execs it (`codey-start`/`codeyOS`/`codeydOS`
-      each reimplement its GUI-start/PID/trap logic independently
-      instead of calling it — three copies of the same job, logged as
-      [NEW-22] in `NEW_ISSUES.md`). `README.md:53`'s claim that
-      `codey-start` orchestrates it is incorrect. Options: delete it
-      and fix the duplication, or make the launchers actually call it.
-- [ ] `ccos_main.py` — **genuine product decision for Ish, different
-      shape than assumed.** Section 6a's "keep it, codey-start
-      orchestrates it" rationale does not apply here — nothing in the
-      current codebase execs or imports `ccos_main.py` (confirmed by
-      repo-wide grep); it is an orphaned standalone MVP demo, not an
-      orchestrated underlying piece. Logged as [NEW-23]. The real
-      choice is delete outright vs. keep as a documented standalone demo.
-- [ ] `main.py` — **genuine product decision for Ish, but with a
-      constraint that rules out silent deletion.** Traced actual usage:
+      happened in an earlier round; this half of the checklist item was
+      stale bookkeeping. (Stale naming remnants in the spec doc/`QWEN.md`
+      tracked separately as **NEW-24**, unscoped, still open.)
+- [x] `gui/start.sh` — **retired as user-facing surface (commit
+      `63ab3df`).** Ish decided to delete the file outright and fix
+      `README.md`'s incorrect claim that `codey-start` orchestrates it.
+      Deletion confirmed zero live references by the implementer,
+      independently re-verified from scratch by the code-reviewer. This
+      closes the checklist item as written (retiring `gui/start.sh`
+      itself); the *underlying* duplication `gui/start.sh`'s existence was
+      a symptom of — `codey-start` and `codeyOS` each still independently
+      reimplement the same GUI-launch/PID/trap logic — was not touched
+      by this commit and remains open. See **NEW-22** (Resolved in part —
+      residual duplication tracked, unscoped).
+- [x] `ccos_main.py` — **resolved (commit `63ab3df`).** Ish decided to
+      delete the file outright as an orphaned standalone MVP demo that
+      nothing in the current codebase execs or imports. Confirmed zero
+      live references, independently re-verified by the code-reviewer.
+      See **NEW-23** (Resolved).
+- [x] `main.py` — **resolved: document as-is, no code change.** Traced
+      actual usage:
       `codey-start` → `codeyOS` (direct/interactive mode, `codeyOS:417-
       429`) does `from main import main; main()` with args passed through
       unfiltered (`codeyOS`'s only arg-scanning is for `--bg`/
@@ -463,11 +495,14 @@ only ever handed back as downloadable files. Being fixed now (see below).
       also checked for divergence — both do `check_pid_file()` then
       `Daemon().run()`, functionally identical, just duplicated code (no
       live bug found). Given Section 6's "not going to silently drop
-      working functionality" non-goal, "fully retire" is not viable
+      working functionality" non-goal, "fully retire" was not viable
       as-is without `codey-start` first growing equivalent flag
-      passthrough or subcommands; the live choice is "keep main.py
-      documented as the underlying engine/advanced interface" vs.
-      "invest in wiring those flags into codey-start and then retire."
+      passthrough or subcommands. Ish decided: keep `main.py`, document it
+      as-is as the underlying engine/advanced-invocation interface, no
+      code change this round (docs updated in commit `63ab3df`, including
+      `docs/commands.md`'s new intro noting these are `main.py`'s own
+      flags). Wiring those flags into `codey-start` directly remains a
+      future option, not committed to.
 
 ### Audit Remediation — Round 1 (C-1, H-1, H-4)
 **Status: H-4 FIXED AND LIVE-VERIFIED. C-1 FIXED AND LIVE-VERIFIED (short
