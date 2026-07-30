@@ -1,5 +1,55 @@
 # New Issues Found During V3 Overhaul
 
+## Found during Phase 3 entry-point scoping pass, 2026-07-30 — NOT fixed, logged only
+
+### [NEW-22] `README.md:53` misdescribes `gui/start.sh` as something `codey-start` orchestrates, and three independent copies of "start gui/server.py + PID file + trap-kill" logic exist
+- **Status: Confirmed, not fixed** (2026-07-30). Found while scoping
+  PROJECT_PLAN.md's Phase 3 "unified entry points" checklist.
+  `README.md:52-54` says the older entry points including `gui/start.sh`
+  "still exist underneath and are what `codey-start` orchestrates." This
+  is factually wrong: `codey-start` (lines 55-75) and `codeyOS` (lines
+  396-415) each **reimplement** gui/start.sh's exact pattern
+  (start `gui/server.py` in background, write a GUI PID file, trap on
+  exit to kill only if started here) independently, in bash, rather than
+  calling `gui/start.sh` itself. Grepped `codey-start`, `codeyOS`, and
+  `codeydOS` for any exec/source of `gui/start.sh` — zero hits. Meanwhile
+  `gui/start.sh` itself (line 58) calls `python main.py` directly, a
+  fourth, still-different code path nothing else uses.
+  - **Why this matters:** three near-identical, independently-maintained
+    copies of the same GUI-launch/teardown logic is exactly the kind of
+    duplication `CODEY_OS_MASTER_VISION.md` Section 6 says to avoid
+    ("Not going to duplicate effort by maintaining two implementations
+    of the same job... without a stated reason"). It's also adjacent to
+    the NEW-12 dual-launcher class of bug (two things independently
+    managing GUI-server lifecycle) — no live symptom observed yet, but
+    the same shape of risk.
+  - **Not fixed this round** — scoping pass only, per explicit
+    instruction not to implement. Needs a decision (see
+    `PROJECT_PLAN.md`'s Phase 3 entry-point checklist / hand-off to Ish):
+    either delete `gui/start.sh` and fix the README wording, or make
+    `codey-start`/`codeyOS` actually call `gui/start.sh` instead of
+    reimplementing it.
+
+### [NEW-23] `ccos_main.py` is an orphaned standalone MVP demo script — nothing in the current codebase execs or imports it
+- **Status: Confirmed, not fixed** (2026-07-30). Grepped the full repo
+  (`.py`/`.sh`) for `ccos_main` — the only hit besides the file itself is
+  documentation (`README.md`, `CODEY_OS_MASTER_VISION.md`, `PROJECT_PLAN.md`,
+  `PROJECT_LOG.md`, `Codey-OS-audit.md`, `QWEN.md`). None of `codey-start`,
+  `codeyOS`, `codeydOS`, or `gui/start.sh` reference it. Its own docstring
+  calls it "the MVP demo script. Run: python ccos_main.py" — i.e. it was
+  never wired into the unified launchers to begin with, unlike
+  `codeyOS`/`codeydOS`/`gui/start.sh` which genuinely are orchestrated
+  under the hood by `codey-start`.
+  - **Why this matters:** `CODEY_OS_MASTER_VISION.md` Section 6a's
+    rationale for not deleting the old fragmented entry points is that
+    "`codey-start` orchestrates them" — that rationale does not apply to
+    `ccos_main.py`, since nothing orchestrates it. The real decision is
+    "delete this demo script outright" vs. "keep it as a standalone,
+    documented demo with a stated reason," not "retire as user-facing
+    surface" (it was arguably never that).
+  - **Not fixed this round** — flagged for Ish's decision alongside the
+    Phase 3 entry-point checklist.
+
 ## Milestone (2026-07-30): all four original punch-list items resolved
 
 The user's original four-item punch list — [NEW-3], [NEW-1], [NEW-5],

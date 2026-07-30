@@ -421,14 +421,53 @@ only ever handed back as downloadable files. Being fixed now (see below).
    follow-up, since the new README now points readers there specifically.
 
 **Then, once B and C are both proven stable:**
-- [ ] Decide fate of `main.py` (v3's original direct entry point) — keep
-      as a thin compatibility shim, or fully retire
-- [ ] Retire `codey3`/`codeyd3`/`ccos_main.py`/`gui/start.sh` as the
-      user-facing surface (underlying pieces may remain, orchestrated by
-      the new scripts, per master vision Section 6a)
-- [ ] Confirm nothing still depends on v4's `core/kernel.py` pattern
-      before archiving it (should already be true, v4 was never part of
-      Codey-OS's lineage)
+
+**Scoping pass complete (2026-07-30, no code changed) — see
+`PROJECT_LOG.md` for full evidence. Status of each item:**
+
+- [ ] `core/kernel.py` — **ready to close, no decision needed.** File
+      does not exist anywhere in this repo (`find -iname kernel.py`
+      returns nothing); confirms PROJECT_PLAN's own note that v4 was
+      never part of Codey-OS's lineage. Recommend marking done next
+      round with this evidence.
+- [ ] `codey3`/`codeyd3` — **ready to close, no decision needed.**
+      Neither file exists in this repo; the only hits are historical
+      mentions in `CHANGELOG.md`/`PROJECT_PLAN.md`/`PROJECT_LOG.md`/
+      `QWEN.md`/`CODEY_OS_MASTER_VISION.md`. Retirement already
+      happened; this half of the checklist item is stale.
+- [ ] `gui/start.sh` — **genuine product decision for Ish.** File
+      exists but nothing execs it (`codey-start`/`codeyOS`/`codeydOS`
+      each reimplement its GUI-start/PID/trap logic independently
+      instead of calling it — three copies of the same job, logged as
+      [NEW-22] in `NEW_ISSUES.md`). `README.md:53`'s claim that
+      `codey-start` orchestrates it is incorrect. Options: delete it
+      and fix the duplication, or make the launchers actually call it.
+- [ ] `ccos_main.py` — **genuine product decision for Ish, different
+      shape than assumed.** Section 6a's "keep it, codey-start
+      orchestrates it" rationale does not apply here — nothing in the
+      current codebase execs or imports `ccos_main.py` (confirmed by
+      repo-wide grep); it is an orphaned standalone MVP demo, not an
+      orchestrated underlying piece. Logged as [NEW-23]. The real
+      choice is delete outright vs. keep as a documented standalone demo.
+- [ ] `main.py` — **genuine product decision for Ish, but with a
+      constraint that rules out silent deletion.** Traced actual usage:
+      `codey-start` → `codeyOS` (direct/interactive mode, `codeyOS:417-
+      429`) does `from main import main; main()` with args passed through
+      unfiltered (`codeyOS`'s only arg-scanning is for `--bg`/
+      `--background`, which doesn't touch the direct-mode path) — so
+      `main.py` is not a fragmented duplicate `codey-start` replaces, it
+      is the actual interactive-REPL engine `codey-start` delegates to
+      today, and all of `--init`/`--tdd`/`--fix`/`--no-resume`/
+      `--clear-session` still only exist there. `python3 main.py
+      --daemon` and `codeydOS start`'s `core.daemon.main()` path were
+      also checked for divergence — both do `check_pid_file()` then
+      `Daemon().run()`, functionally identical, just duplicated code (no
+      live bug found). Given Section 6's "not going to silently drop
+      working functionality" non-goal, "fully retire" is not viable
+      as-is without `codey-start` first growing equivalent flag
+      passthrough or subcommands; the live choice is "keep main.py
+      documented as the underlying engine/advanced interface" vs.
+      "invest in wiring those flags into codey-start and then retire."
 
 ### Audit Remediation — Round 1 (C-1, H-1, H-4)
 **Status: H-4 FIXED AND LIVE-VERIFIED. C-1 FIXED AND LIVE-VERIFIED (short

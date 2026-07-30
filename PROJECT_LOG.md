@@ -5,6 +5,81 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-30 — Phase 3 entry-point scoping pass (no code changed) — 3 items investigated, evidence gathered, decisions handed to Ish
+
+Returned to Phase 3's three remaining checklist items (`PROJECT_PLAN.md`
+~line 424) after the 19-round audit-remediation detour. Research-only
+pass, explicitly no implementation this round.
+
+**`core/kernel.py` — ready to close, no decision needed.** `find -iname
+kernel.py` across the whole repo returns nothing; the file does not
+exist. Confirms `PROJECT_PLAN.md`'s own note that v4 was never part of
+Codey-OS's lineage. Recommend marking this checklist line done next
+round with this evidence.
+
+**`codey3`/`codeyd3` — ready to close, no decision needed.** Neither
+file exists anywhere in the repo (`find -maxdepth 4 -iname
+"codey3*"/"codeyd3*"` returns nothing); only historical mentions remain
+in `CHANGELOG.md`/`PROJECT_PLAN.md`/`PROJECT_LOG.md`/`QWEN.md`/
+`CODEY_OS_MASTER_VISION.md`. Retirement already happened in practice;
+this half of the checklist item is stale bookkeeping, not open work.
+
+**`gui/start.sh` — genuine product decision for Ish.** The file exists,
+but nothing in the current codebase execs it: grepped `codey-start`,
+`codeyOS`, and `codeydOS` for any reference to `gui/start.sh` — zero
+hits. Instead, `codey-start` (lines 55-75) and `codeyOS` (lines 396-415)
+each independently reimplement its exact "start `gui/server.py` in
+background, write a PID file, trap-kill on exit only if started here"
+logic in bash. `README.md:52-54`'s claim that `codey-start` orchestrates
+`gui/start.sh` is factually incorrect — it orchestrates a *reimplementation*
+of it. `gui/start.sh` itself (line 58) still calls `python main.py`
+directly, a fourth, unused-elsewhere code path. Logged as **[NEW-22]**
+in `NEW_ISSUES.md` (Confirmed) — three copies of the same GUI-launch job
+is exactly what `CODEY_OS_MASTER_VISION.md` Section 6 says to avoid.
+Options for Ish: delete `gui/start.sh` and fix the README wording, or
+make the launchers call it instead of reimplementing it.
+
+**`ccos_main.py` — genuine product decision for Ish, different shape
+than the checklist assumed.** Repo-wide grep for `ccos_main` across
+`.py`/`.sh` files found zero references from `codey-start`, `codeyOS`,
+`codeydOS`, or `gui/start.sh` — nothing execs or imports it. Its own
+docstring says "This is the MVP demo script." Section 6a's rationale for
+keeping the old pieces around ("codey-start orchestrates them") does not
+apply to this file — it was never wired in, so "retire as user-facing
+surface" isn't quite the right framing. Logged as **[NEW-23]**. Real
+choice: delete outright, or keep as a documented standalone demo with a
+stated reason.
+
+**`main.py` — genuine product decision for Ish, with a hard constraint
+against silent deletion.** Traced the actual call chain: `codey-start` →
+`codeyOS`'s direct/interactive-mode branch (`codeyOS:417-429`) runs
+`from main import main; main()`, with all args (`"$@"`) passed through
+unfiltered — `codeyOS`'s only arg inspection anywhere is scanning for
+`--bg`/`--background` to opt into the daemon-queue branch, which doesn't
+touch the direct-mode path. So `main.py` is not the "old fragmented
+entry point `codey-start` replaces" — it's the actual interactive REPL
+engine `codey-start` delegates to today, including all of `--init`,
+`--tdd`, `--fix`, `--tests`, `--clear-session`, `--plan`, and friends,
+none of which have any equivalent in `codey-start`/`codeyOS` directly.
+Also checked `python3 main.py --daemon` (`main.py:1446-1454`, inline
+`check_pid_file()` + `Daemon().run()`) against `codeydOS start`'s path
+(`codeydOS:167-168`, `from core.daemon import main` → `core/daemon.py:
+783-790`, same `check_pid_file()` + `Daemon().run()`) — functionally
+identical, just duplicated code, no behavioral divergence and no live
+bug found. Given master vision Section 6's "not going to silently drop
+working functionality" non-goal, "fully retire main.py" isn't viable
+without `codey-start` first gaining equivalent flag passthrough. Options
+for Ish: document `main.py` as the underlying engine / advanced-scripting
+interface as-is, or invest in wiring its flags into `codey-start` first
+and retire it after.
+
+**Docs updated:** `PROJECT_PLAN.md` (~line 423-460, per-item status
+recorded, none marked done yet pending Ish's input on the two open
+decisions), `NEW_ISSUES.md` ([NEW-22], [NEW-23] added, both Confirmed).
+No code changed this round — investigation only, per explicit scope.
+
+---
+
 ## 2026-07-30 — Round 19 (NEW-20): non-TTY stdin no longer hangs/spins/garbles `main.py`'s REPL — code complete, code-reviewer approved, fully live-verified with a real `main.py` invocation
 
 **Fix (commit `ac732e9`):** `main.py`'s paste-detection code
