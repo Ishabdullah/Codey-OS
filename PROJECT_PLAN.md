@@ -1092,6 +1092,32 @@ Commit `7756581`. Narrowly scoped to the `write_file`
 full-file-corruption risk; does not address NEW-16/NEW-17/NEW-18 (still
 open, unscoped) or NEW-7 itself (still open, b3/b4 draws outstanding).
 
+### Round 16 (NEW-16)
+- [x] `core/agent.py` — both `show_patch()` and `show_file_write()`
+      call sites now pass `error=is_error(result, name)`.
+- [x] `core/display.py` — both functions gained an `error=False` param;
+      red border + "PATCH FAILED"/"WRITE FAILED" title on error,
+      unchanged happy-path styling otherwise.
+- [x] `show_patch()` call site also gained a narrow inline check for
+      `tools/patch_tools.py`'s `[PATCH_FAILED]` prefix — deliberately
+      not via widening the shared `is_error()`, to avoid breaking that
+      function's deliberate exclusion of `[PATCH_FAILED]` from the
+      retry/escalation logic.
+- [x] Code-reviewer approved: `is_error()` and all four
+      retry/escalation call sites confirmed untouched, happy-path
+      output byte-for-byte unchanged, full suite 325 passed (1
+      pre-existing unrelated failure).
+
+**Round 16 (NEW-16) is code complete, code-reviewer approved via direct
+`execute_tool()`-level verification (no live model session needed for
+this class of change).** Commit `99d922f`. Bundled the identical
+`show_file_write()` bug into the same fix (same file, same pattern).
+Spun off [NEW-19] (`NEW_ISSUES.md`) — a deferred design question about
+whether `[PATCH_FAILED]`'s retry/escalation bypass needs its own
+transcript marker distinct from `[EDIT NOT APPLIED]`. Does not address
+NEW-17/NEW-18 (still open, unscoped) or NEW-7 itself (still open,
+b3/b4 draws outstanding).
+
 ### Phase 4 — Self-improvement activation (deliberate, not automatic)
 Do NOT start this phase until Phases 1–3 are stable and you've watched the
 system run real coding tasks through the sandbox/safety-veto path for a

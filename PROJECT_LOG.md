@@ -5,6 +5,84 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-30 — Round 16 (NEW-16): `show_patch`/`show_file_write` no longer render a success-looking panel on failure — code complete, code-reviewer approved, no live model session (assessed unwarranted)
+
+**Root cause:** `core/agent.py`'s `execute_tool()` called `show_patch()`
+and `show_file_write()` (`core/display.py`) unconditionally after a
+patch/write tool ran, regardless of whether the underlying edit actually
+succeeded. A failed patch still rendered the same green/yellow
+success-styled "Patching `<file>`"/"Creating `<file>`" panel — directly
+observed in Round 14's NEW-7 investigation, where all 4 failed patch
+draws rendered a success-looking panel despite `git diff` showing zero
+actual change on disk.
+
+**Fix (commit `99d922f`, two files):**
+1. `core/agent.py` — both call sites now compute
+   `error=is_error(result, name)` before calling `show_patch()`/
+   `show_file_write()`, mirroring `show_shell()`'s existing
+   error-styling convention.
+2. `core/display.py` — both functions gained an `error=False` parameter;
+   on error, the panel's border switches to red and the title switches
+   to `"PATCH FAILED: <file>"` / `"WRITE FAILED: <file>"`; happy-path
+   styling and titles are byte-for-byte unchanged otherwise.
+3. **Bundled deliberately, not split into a near-duplicate round:** the
+   identical unconditional-render bug existed in `show_file_write()`
+   too, not just `show_patch()` — fixed together since it's the same
+   file, same pattern, decided during scoping.
+4. **`show_patch()`'s call site specifically also gained an inline
+   check** for `tools/patch_tools.py`'s `[PATCH_FAILED]` prefix (the
+   old_str-not-found case — the single most common patch failure, and
+   the exact scenario Round 14 observed in all 4 failed draws):
+   `error=is_error(result, name) or (isinstance(result, str) and
+   result.startswith("[PATCH_FAILED]"))`. This was deliberately done as
+   a narrow, display-only inline check at this one call site, **not** by
+   widening the shared `is_error()` function itself. Scoping investigation
+   found `[PATCH_FAILED]` is deliberately excluded from `is_error()` so
+   it bypasses the retry/escalation logic (auto-retry gate, peer-CLI
+   escalation, the `[EDIT NOT APPLIED]` marker from NEW-2's fix) and lets
+   the model see full untruncated file content to reconstruct the edit.
+   Widening `is_error()` globally would have broken that deliberate
+   design; the narrow inline check avoids it entirely. (See [NEW-19]
+   below for a deferred design question this surfaced.)
+
+**Code-reviewer confirmed:** `is_error()` itself and all four
+retry/escalation call sites (~lines 1706, 1712, 1773, 1854) are
+completely untouched; the `[PATCH_FAILED]` check is correctly scoped
+only to the `show_patch()` call site (`write_file`'s failure paths all
+use `[ERROR]`, already caught by base `is_error()`); the
+`isinstance(result, str)` guard is load-bearing (this display block sits
+inside a bare `except: pass`, so an unguarded `.startswith()` on a
+non-str result would silently drop the whole panel rather than just
+misrendering it); happy-path output is byte-for-byte unchanged (verified
+by reading full before/after of both display functions in
+`core/display.py`); ran the full suite itself — **325 passed, 1
+pre-existing unrelated `ccos/tests/test_ccos.py::test_sandbox` failure**,
+confirmed via stash/pop comparison. Approved, no Critical/Warning
+findings; one Suggestion (no dedicated unit test for the display-layer
+error styling — not blocking, flagged as hard-to-cheaply-unit-test Rich
+console output, already verified directly by the reviewer).
+
+**Why no live model session:** code-reviewer explicitly assessed this
+class of change (pure display-layer styling, no process-lifecycle,
+network, or GUI surface) as fully exhaustible via direct
+`execute_tool()`-level testing, which it performed. No new information a
+live session could surface that direct testing couldn't.
+
+**Status: code complete, code-reviewer approved via direct
+`execute_tool()`-level verification (no live model session needed for
+this class of change).** Scoped to the panel-rendering honesty gap only
+— does not touch NEW-17 (commit-prompt scope-bleed) or NEW-18 (swap
+finding), both still open and unscoped, nor NEW-7 itself (still open;
+2 of 8 planned reproduction draws remain outstanding). Spins off a new
+deferred design question, [NEW-19] (`NEW_ISSUES.md`): whether
+`[PATCH_FAILED]`'s bypass of retry/escalation needs its own distinct
+transcript marker, since the existing `[EDIT NOT APPLIED]` marker's
+wording ("failed after retries and escalation were exhausted") would be
+inaccurate for the `[PATCH_FAILED]` case, which never enters either
+mechanism.
+
+---
+
 ## 2026-07-30 — Round 15 (NEW-15): `write_file` guardrail against existing-file corruption — code complete, code-reviewer approved with live behavioral verification, full unit test coverage
 
 **Root cause:** after `patch_file` fails because `old_str` isn't found,

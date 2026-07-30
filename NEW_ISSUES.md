@@ -1272,8 +1272,27 @@ remain open, deferred to a future round.
   given the severity (potential for silent full-file data loss, not just
   a bad edit).
 
-### [NEW-16] The "Patching `<file>`" diff-preview UI panel renders unconditionally, regardless of whether the underlying patch actually succeeded (Confirmed)
+### [NEW-16] The "Patching `<file>`" diff-preview UI panel renders unconditionally, regardless of whether the underlying patch actually succeeded (Resolved 2026-07-30, Round 16, commit `99d922f`)
 
+- **Status: Resolved.** `core/agent.py`'s `show_patch()`/
+  `show_file_write()` call sites now thread `error=is_error(result,
+  name)` through to `core/display.py`, which switches to a red border +
+  "PATCH FAILED"/"WRITE FAILED" title on error (unchanged happy-path
+  styling otherwise, mirroring `show_shell()`'s existing convention).
+  The identical bug in `show_file_write()` was bundled into the same fix
+  (same file, same pattern). `show_patch()`'s call site additionally
+  gained a narrow inline check for `tools/patch_tools.py`'s
+  `[PATCH_FAILED]` prefix, deliberately not via widening the shared
+  `is_error()` (which by design excludes `[PATCH_FAILED]` from the
+  retry/escalation logic — see [NEW-19] below for a deferred design
+  question this surfaced). code-reviewer approved: confirmed
+  `is_error()` and all four retry/escalation call sites untouched,
+  happy-path output byte-for-byte unchanged, full suite 325 passed (1
+  pre-existing unrelated failure). **Code complete, code-reviewer
+  approved via direct `execute_tool()`-level verification — no live
+  model session, explicitly assessed as unwarranted for this
+  display-only class of change.** See `PROJECT_LOG.md` 2026-07-30 Round
+  16 entry for full detail.
 - **Confidence: Confirmed** — observed in all 4 of 4 failed draws this
   round (a1, a2, b1, b2).
 - **Where found:** `core/agent.py`'s `show_patch()` call (live-verifier
@@ -1329,6 +1348,40 @@ remain open, deferred to a future round.
   its implications for CLAUDE.md rule 2's RAM-discipline guidance (may
   need updating to caution about sustained retry-heavy sessions, not
   just concurrent multi-model stacks).
+
+## Found during Round 16 (NEW-16) scoping pass, 2026-07-30 — NOT fixed, logged only
+
+### [NEW-19] Whether `[PATCH_FAILED]`'s deliberate bypass of the retry/escalation logic is fully correct as designed, and whether it needs its own distinct transcript marker (Suspected)
+
+- **Confidence: Suspected** — a design question surfaced during Round
+  16's scoping, not yet confirmed as a bug. Needs its own dedicated
+  scoping pass, not fixed here.
+- **Where found:** while scoping Round 16's `show_patch()`/
+  `show_file_write()` display fix, confirmed (by reading
+  `tools/patch_tools.py` and `core/agent.py`'s retry/escalation call
+  sites) that `[PATCH_FAILED]` (the old_str-not-found case) is
+  deliberately excluded from `is_error()`, so it never enters the
+  auto-retry gate, the peer-CLI escalation path, or NEW-2's
+  `[EDIT NOT APPLIED]` transcript marker — by design, so the model sees
+  full untruncated file content to reconstruct the edit itself, rather
+  than a truncated retry message.
+- **Open question 1:** is bypassing retry/escalation entirely the right
+  behavior for every `[PATCH_FAILED]` case, or should some subset (e.g.
+  repeated failures on the same file/turn) still escalate?
+- **Open question 2:** if a `[PATCH_FAILED]` case is never resolved
+  within a turn, there is currently no transcript marker recording that
+  outcome at all. Reusing NEW-2's existing `[EDIT NOT APPLIED] <tool> on
+  <path> failed after retries and escalation were exhausted — no file
+  was modified.` marker verbatim would be **inaccurate** for this case
+  specifically: `[PATCH_FAILED]` never enters retry or escalation in the
+  first place, so the phrase "after retries and escalation were
+  exhausted" is false here. If a marker is wanted for this case, it
+  needs its own distinct wording, not a naive reuse of NEW-2's marker.
+- **Not fixed here** — this is a design question, not a display bug (the
+  narrow, display-only fix in Round 16 addresses only the UI-honesty gap
+  at the panel-rendering layer, not this deeper retry/escalation/
+  transcript-marker question). Needs its own dedicated scoping pass in
+  NEW-2/NEW-15 territory before any fix is attempted.
 
 ## Found during Round 1 (C-1/H-1/H-4) fix task, 2026-07-29 — NOT fixed, logged only
 
