@@ -10,6 +10,7 @@ Single-model architecture: always loads the primary 7B model.
 
 import json
 import os
+import signal
 import subprocess
 import time
 import urllib.error
@@ -52,78 +53,80 @@ class LlamaServer:
                 self._started = True
                 return True
 
-            info(f"Starting llama-server...")
-
-            # Build command
-            cmd = [
-                str(LLAMA_SERVER_BIN),
-                "-m",
-                str(self.model_path),
-                "--host",
-                SERVER_HOST,
-                "--port",
-                str(self.port),
-                "-c",
-                str(MODEL_CONFIG["n_ctx"]),
-                "-t",
-                str(MODEL_CONFIG["n_threads"]),
-                "--temp",
-                str(MODEL_CONFIG["temperature"]),
-                "--top-p",
-                str(MODEL_CONFIG["top_p"]),
-                "--top-k",
-                str(MODEL_CONFIG["top_k"]),
-                "--repeat-penalty",
-                str(MODEL_CONFIG["repeat_penalty"]),
-                "--n-predict",
-                str(MODEL_CONFIG["max_tokens"]),
-                "--flash-attn",
-                "on",  # fused attention kernel, faster prefill
-                "--embedding",  # enable /v1/embeddings endpoint for hybrid KB search
-                "--pooling",
-                "mean",  # mean pooling → single vector per input (OAI-compatible)
-            ]
-
-            # Add stop tokens (using --reverse-prompt)
-            for stop in MODEL_CONFIG.get("stop", []):
-                cmd.extend(["--reverse-prompt", stop])
-
-            # ── mmap / mlock settings for the 7B model (Change 2) ──────────
-            # Pass --mmap / --no-mmap explicitly in both directions so the flag
-            # is visible in ps output and not left to llama.cpp's default.
-            # --no-mlock does NOT exist in this llama.cpp build; omitting --mlock
-            # is sufficient to keep mlock disabled (the llama.cpp default).
-            try:
-                from utils.config import QWEN_7B_MLOCK, QWEN_7B_MMAP
-
-                if QWEN_7B_MMAP:
-                    cmd.append("--mmap")
-                else:
-                    cmd.append("--no-mmap")
-                if QWEN_7B_MLOCK:
-                    cmd.append("--mlock")
-                info(
-                    f"7B model: mmap={'enabled' if QWEN_7B_MMAP else 'disabled'}, "
-                    f"mlock={'enabled' if QWEN_7B_MLOCK else 'disabled'}"
-                )
-            except ImportError:
-                pass  # Config not available — use llama.cpp defaults (mmap on, mlock off)
-
-            # Start process - redirect output to log file to avoid pipe buffer issues
-            log_file = CODEY_STATE_DIR / "llama-server.log"
-            log_file.parent.mkdir(parents=True, exist_ok=True)
-
-            with open(log_file, "w") as f:
-                f.write(f"Starting llama-server: {' '.join(cmd)}\n")
-                f.flush()
-
-            # Open log file for appending stdout/stderr
-            log_fd = open(log_file, "a")
-
-            import signal
-
+            # NOTE: this mask MUST start here (before any Popen-related setup, not just
+            # around Popen() itself) — a narrower placement here previously failed to
+            # close a live-reproduced orphan-process bug (see NEW-9 in NEW_ISSUES.md).
+            # Do not narrow this window without re-reading that history.
             signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})
             try:
+                info(f"Starting llama-server...")
+
+                # Build command
+                cmd = [
+                    str(LLAMA_SERVER_BIN),
+                    "-m",
+                    str(self.model_path),
+                    "--host",
+                    SERVER_HOST,
+                    "--port",
+                    str(self.port),
+                    "-c",
+                    str(MODEL_CONFIG["n_ctx"]),
+                    "-t",
+                    str(MODEL_CONFIG["n_threads"]),
+                    "--temp",
+                    str(MODEL_CONFIG["temperature"]),
+                    "--top-p",
+                    str(MODEL_CONFIG["top_p"]),
+                    "--top-k",
+                    str(MODEL_CONFIG["top_k"]),
+                    "--repeat-penalty",
+                    str(MODEL_CONFIG["repeat_penalty"]),
+                    "--n-predict",
+                    str(MODEL_CONFIG["max_tokens"]),
+                    "--flash-attn",
+                    "on",  # fused attention kernel, faster prefill
+                    "--embedding",  # enable /v1/embeddings endpoint for hybrid KB search
+                    "--pooling",
+                    "mean",  # mean pooling → single vector per input (OAI-compatible)
+                ]
+
+                # Add stop tokens (using --reverse-prompt)
+                for stop in MODEL_CONFIG.get("stop", []):
+                    cmd.extend(["--reverse-prompt", stop])
+
+                # ── mmap / mlock settings for the 7B model (Change 2) ──────────
+                # Pass --mmap / --no-mmap explicitly in both directions so the flag
+                # is visible in ps output and not left to llama.cpp's default.
+                # --no-mlock does NOT exist in this llama.cpp build; omitting --mlock
+                # is sufficient to keep mlock disabled (the llama.cpp default).
+                try:
+                    from utils.config import QWEN_7B_MLOCK, QWEN_7B_MMAP
+
+                    if QWEN_7B_MMAP:
+                        cmd.append("--mmap")
+                    else:
+                        cmd.append("--no-mmap")
+                    if QWEN_7B_MLOCK:
+                        cmd.append("--mlock")
+                    info(
+                        f"7B model: mmap={'enabled' if QWEN_7B_MMAP else 'disabled'}, "
+                        f"mlock={'enabled' if QWEN_7B_MLOCK else 'disabled'}"
+                    )
+                except ImportError:
+                    pass  # Config not available — use llama.cpp defaults (mmap on, mlock off)
+
+                # Start process - redirect output to log file to avoid pipe buffer issues
+                log_file = CODEY_STATE_DIR / "llama-server.log"
+                log_file.parent.mkdir(parents=True, exist_ok=True)
+
+                with open(log_file, "w") as f:
+                    f.write(f"Starting llama-server: {' '.join(cmd)}\n")
+                    f.flush()
+
+                # Open log file for appending stdout/stderr
+                log_fd = open(log_file, "a")
+
                 self.process = subprocess.Popen(
                     cmd,
                     stdout=log_fd,
