@@ -20,10 +20,10 @@ checkboxes had (Phase 0's `symbolic_graph` box, Section 5's Open Question
 ## How new issues get logged as we go
 
 Keep using `NEW_ISSUES.md` exactly as it already works — next sequential
-`NEW-##` ID (currently next free: **NEW-43**, after `NEW-27` through
-`NEW-42` were logged across this session's hygiene, Track 1 audit,
-NEW-19, NEW-10, and NEW-8 rounds), rated Confirmed or Suspected, same
-format as existing entries.
+`NEW-##` ID (currently next free: **NEW-44**, after `NEW-27` through
+`NEW-43` were logged across this session's hygiene, Track 1 audit,
+NEW-19, NEW-10, NEW-8, and NEW-7 characterization rounds), rated
+Confirmed or Suspected, same format as existing entries.
 **ID-collision note (2026-07-30):** an interrupted session's
 code-reviewer pass logged two NEW-8-adjacent findings under `NEW-24`
 and `NEW-25` — both already taken (by the `load_secondary()` bug and
@@ -283,10 +283,19 @@ gets logged, not silently fixed or dropped, even mid-queue-item.
       is ever relied on as a real security boundary).
 - [ ] `NEW-7` — `[Recursive]` planner synthesizes whole duplicate
       functions instead of targeted patches (Confirmed, ~67% failure
-      rate, not recursion-specific). Characterization is incomplete —
-      the b3/b4 draws (loader_v2 error-handling and patch_tools rename
-      prompts on the plain path) were never finished. Finish
-      characterizing, then fix.
+      rate on the docstring-insertion prompt, not recursion-specific).
+      Characterization is now COMPLETE on the `old_str`-grounding
+      question (Round 20, 2026-07-30 — b3/b4 finished: neither the
+      loader_v2 error-handling nor the patch_tools rename prompt style
+      reproduced the `old_str`-grounding bug on the plain path, matching
+      the recursive-path a3/a4 results). Note: the loader_v2 prompt
+      style (a3, b3) has its own distinct, still-open finding — no
+      `patch_file` call attempted at all on either path, for possibly
+      different reasons per path (a3 gated at low quality, b3 not) —
+      not yet root-caused. Ready for a root-cause + fix pass (targeting
+      the `old_str`-grounding gap in
+      `system_prompt.py`/`patch_tools.py`). Related, out-of-scope
+      findings from Round 20 logged separately as `NEW-43`.
 - [ ] Security hardening backlog (from `NEW_ISSUES.md`'s bottom section,
       never assigned NEW-IDs — give them IDs when picked up):
       command-injection-via-filename in `agent.py:863-865` (partially

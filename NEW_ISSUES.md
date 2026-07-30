@@ -195,6 +195,17 @@
   "Done." short-circuit itself check for a `[PATCH_FAILED]`-prefixed
   `last_tool_result` and route to escalation/marker logic instead of
   claiming success?).
+- **Addendum (Round 20, NEW-7 live session, 2026-07-30):** live
+  corroboration that this guard is not `patch_file`-specific — it fired
+  on a repeated, byte-identical `read_file` call during `b3` (see
+  `NEW-7`'s Round 20 entry above), producing the same "Done. " +
+  truncated-result short-circuit and the same synthetic
+  "Task complete. Reply with 1 sentence only." injection, which directly
+  caused the model's "Done." reply without any `patch_file` attempt.
+  Confirms the guard's `sig = name + ":" + json.dumps(args,
+  sort_keys=True)` keying (`core/agent.py:1645`) applies to any tool, not
+  just `patch_file` — widens this entry's scope slightly but doesn't
+  change its severity assessment.
 
 ### [NEW-37] `NEW-19`'s repeat-escalation now feeds `[PATCH_FAILED]` file-content text into `peer_cli.py`'s task-type keyword matching, and reuses `escalate()`'s fixed "exhausted its retry budget" wording even though retries were never entered for this path (Suspected)
 - **Confidence: Suspected** — low-severity, not live-verified, logged per
@@ -1771,6 +1782,171 @@ remain open, deferred to a future round.
   open, still unfixed — no implementer task scoped this round
   (investigation/logging only, per this round's explicit scope).**
 
+- **Round 20 (2026-07-30) — live-reproduction pass, b3/b4 completed
+  (the 2 draws left outstanding by Round 14).** One session run:
+  `CODEY_RECURSIVE=0 python3 main.py --no-resume`, confirmed plain path
+  both via env var and via `RECURSIVE_CONFIG` printed directly
+  (`{'enabled': False, ...}`) and via absence of `[Recursive]` labels in
+  the transcript. Both prompts sent in one model-load cycle with `/clear`
+  between them, per the Round 14 plan. Reproduced verbatim from the
+  transcript (timestamps/spinner noise stripped):
+
+  - **b3 (loader_v2 error-handling prompt, plain path):** prompt sent —
+    "Add error handling to the load_primary function in
+    core/loader_v2.py." Model issued two `read_file` calls on
+    `core/loader_v2.py` (16645 chars), then replied "Done." with **no
+    `patch_file` call ever attempted**. `git diff core/loader_v2.py`
+    immediately after: empty, no edit landed. **Same observable outcome
+    as Round 14's `a3` (no patch call, no edit landed) — but a DIFFERENT
+    mechanism, confirmed by re-reading the raw log, not inferred.** The
+    log shows only ONE `✓ Read core/loader_v2.py (16645 chars)` line
+    (`grep -c` = 1), even though the model issued the `read_file` call
+    twice with byte-identical args — the second call's context only grew
+    by 104 tokens (vs. 547 for the first), too small for a re-sent
+    16645-char file. This is `core/agent.py:1645-1667`'s pre-existing
+    verbatim-duplicate-tool-call guard (the exact mechanism `NEW-36`
+    documents, previously only confirmed on `patch_file` calls) — it
+    intercepted the second, identical `read_file` call, injected
+    `"Already ran that... Task complete. Reply with 1 sentence only."`
+    into the conversation instead of re-executing it, which is what
+    directly produced the "Done." reply. So `b3`, like `a3`, DID have a
+    mechanism intervene before any `patch_file` call was attempted —
+    just a different one (the duplicate-call guard, not the
+    critique/quality gate) — **this is new live corroboration that
+    `NEW-36`'s guard fires on `read_file`, not just `patch_file`,
+    logged as an addendum to `NEW-36` below.** Whether the model would
+    have attempted a `patch_file` call absent this guard is not
+    established this round.
+  - **b4 (patch_tools rename prompt, plain path):** prompt sent —
+    "Rename the variable `p` to `file_path` in tool_patch_file in
+    tools/patch_tools.py." Model issued:
+    ```
+    <tool>
+    {"name": "patch_file", "args": {"path": "/data/data/com.termux/files/home/Codey-OS/tools/patch_tools.py", "old_str": "p = Path(path).expanduser()", "new_str": "file_path = Path(path).expanduser()"}}
+    ```
+    `old_str` is a **real, correct, verbatim substring** of
+    `tools/patch_tools.py` (confirmed present, and confirmed UNIQUE —
+    `grep -c` = 1 — both before and after this round's session) —
+    matching Round 14's `a4` result exactly (correctly targeted patch,
+    no `old_str`-grounding bug). The model then issued a second,
+    identical `patch_file` call after the first was not applied (see
+    caveat below), again with the same correct `old_str`/`new_str`.
+    - **Caveat — the live turn's edit did NOT land, and this is a
+      test-harness artifact, not a reproduction of the NEW-7 bug:**
+      `tool_patch_file` requires an interactive `ask_confirm("Apply
+      patch?")` (`tools/patch_tools.py:75`, `utils/logger.py:116-134`)
+      before applying. This round's non-interactive input file (`b3
+      prompt` / `/clear` / `b4 prompt` / `/exit`, piped via stdin) did
+      not include an explicit `y` answer for this prompt — the plan's
+      exact wording did not anticipate an apply-confirmation step.
+      `/exit` was consumed as an invalid answer (re-prompted), then the
+      confirm hit EOF and defaulted to `False` (`utils/logger.py:
+      129-131`), rejecting the patch both times. `git diff
+      tools/patch_tools.py` after the live turn: empty.
+    - **Applicability confirmed separately, by a static post-hoc replay
+      (no model/RAM load — a direct Python call to `tool_patch_file()`
+      with `ask_confirm` monkey-patched to return `True`, then
+      immediately reverted with `git checkout --`):** the exact same
+      `old_str`/`new_str` the model emitted DOES apply cleanly (`Patched
+      tools/patch_tools.py (27 chars → 35 chars)`, confirmed via `git
+      diff` then reverted). So the `old_str`-grounding property this
+      draw was designed to test is fully confirmed correct — but see
+      `NEW-43` below for two things this replay also surfaced: (1) the
+      live turn's cancelled-patch panel rendered as if successful (a gap
+      in `NEW-16`'s coverage), and (2) the replay shows this specific
+      rename, even if accepted, would leave the code referencing an
+      undefined variable in 4 other places — an edit-completeness
+      question distinct from `old_str` grounding, logged separately, not
+      part of NEW-7's own scope.
+
+  **RAM discipline note (all real, verbatim; first launch attempt was
+  interrupted by an external event before any model output — see below):**
+  - First launch attempt (`nohup ... &`, no active monitoring) was cut
+    off mid-startup by an unrelated session interruption. Confirmed on
+    resumption: no orphaned `python`/`llama-server` processes (`ps -eo
+    pid,ppid,comm | grep -E "python|llama"` → empty), `git diff` on both
+    target files empty, no data produced by that attempt — discarded,
+    not counted as a draw.
+  - Pre-relaunch baseline: 198Mi free / 5.4Gi available, swap 2.1Gi used
+    / 9.9Gi free (recovered better than the pre-session baseline before
+    the interrupted attempt, which was 1.2Gi free / 3.9Gi available,
+    swap 4.2Gi used / 7.8Gi free).
+  - Mid-session (during b3, `llama-server` RSS 4.4GB, CPU 300–370%):
+    137Mi–276Mi free / ~2.1Gi available, swap 3.5–3.7Gi used — stable,
+    no RSS collapse, not thrashing.
+  - Mid-session (during b4, after the rejected apply-patch retries):
+    139Mi free / 2.1Gi available, swap rose to 5.6Gi used — elevated but
+    `llama-server` CPU still 372% (actively computing, not swapped out),
+    no thrashing signature (no RSS collapse toward ~0).
+  - Session exited cleanly on its own (`/exit` was consumed by the
+    apply-patch confirm as described above, so the REPL's next `input()`
+    call hit EOF and the app's own `except (KeyboardInterrupt,
+    EOFError)` handler triggered normal shutdown — "Session saved.
+    Goodbye!" / "Stopping model server..." — no forced kill needed).
+  - Post-teardown: 1.2Gi free / 4.4Gi available, swap down to
+    3.1–3.2Gi used. `ps -eo pid,ppid,comm | grep -E "python|llama"` →
+    empty. Full clean recovery, no orphaned processes, no
+    swap-thrashing observed this round (unlike Round 14's b2, which hit
+    genuine thrashing at 8.9Gi swap / ~2MB RSS).
+
+  **Conclusions — this completes the same-path comparison Round 14 left
+  open:**
+  - `a3`/`b3` (loader_v2 error-handling): same observable outcome (no
+    patch attempt) on BOTH the recursive and plain paths, but via
+    DIFFERENT confirmed mechanisms — `a3` was gated by the critique loop
+    (quality 3/10), `b3` was intercepted by the pre-existing
+    verbatim-duplicate-tool-call guard on a repeated `read_file` call
+    (see bullet above, also logged as `NEW-36` corroboration). Both
+    mechanisms independently prevented any `patch_file` attempt on this
+    prompt style, on both paths — reproducible, but not (yet) evidence
+    of a single shared root cause.
+  - `a4`/`b4` (patch_tools rename): identical success (real, correct,
+    unique `old_str` substring match, confirmed applicable via the
+    post-hoc replay above) on BOTH paths — the rename-style prompt still
+    does not reproduce any NEW-7 `old_str`-grounding failure variant on
+    either path.
+  - Combined with Round 14's data, the full 8-draw matrix is now
+    complete: the "add a docstring to `shutdown()`" prompt style remains
+    the only one that reproduces the `old_str`-grounding bug (4/6 of
+    those draws, 67%); neither the loader_v2/error-handling style nor
+    the patch_tools/rename style reproduced any variant of the bug in
+    any of their 4 completed draws (a3, a4, b3, b4), across both
+    recursive and plain paths. This strengthens Round 14's tentative
+    conclusion — no longer "not fully confirmed" — that the failure
+    correlates with the specific "add a docstring" prompt/target
+    combination rather than with edit-requests broadly.
+
+  **Status after this round: NEW-7 is now fully characterized ON THE
+  `old_str`-GROUNDING QUESTION specifically** — which is the entry's own
+  stated completion bar ("A future round should complete these two
+  draws... before this can be called fully characterized" — Round 14).
+  All 8 planned draws across the 2-session x 4-prompt design are
+  complete, and for every draw the `old_str`-grounding property (empty /
+  hallucinated vs. real-and-unique substring) is directly evidenced —
+  including `b4`, via the post-hoc replay confirming applicability where
+  the live turn's own confirm-prompt answer was lost to a harness gap.
+  Findings stand as: Confirmed, reproducible (4/6 draws, 67%)
+  specifically on the docstring-insertion prompt style, NOT
+  recursion-specific. Neither of the two other prompt styles tested
+  (loader_v2 error-handling, patch_tools rename) reproduced any
+  `old_str`-grounding failure variant in any of their 4 completed draws
+  (a3, a4, b3, b4) — **but 2 of those 4 (a3, b3, both the loader_v2
+  prompt, one per path) produced no `patch_file` call at all**, a
+  distinct failure to complete the requested edit that is a real
+  characterization finding in its own right, not a null result; the
+  other 2 (a4, b4, both the patch_tools prompt) produced correct,
+  applicable patches. Still open, still unfixed — this round was
+  characterization only, no fix attempted, per this task's explicit
+  scope. Ready for an implementer task to be scoped (root-causing why
+  the docstring-insertion prompt specifically triggers the
+  `old_str`-grounding failure, and separately, why the loader_v2 prompt
+  style produces no patch attempt at all on either path, per Round 14's
+  structural findings on `system_prompt.py`/`patch_tools.py`'s missing
+  verbatim-substring instruction). See also `NEW-43` for two related,
+  out-of-scope findings surfaced this round (a `NEW-16` coverage gap on
+  cancelled patches, and a Suspected edit-completeness issue on the
+  rename prompt).
+
 ## Found during Round 14 (NEW-7) live-reproduction pass, 2026-07-30 — NOT fixed, logged only
 
 ### [NEW-15] After `patch_file` fails, the model can autonomously escalate to reconstructing an ENTIRE file from memory via `write_file` — and place the edit in the wrong location (Resolved 2026-07-30, Round 15, commit `7756581`)
@@ -1832,6 +2008,13 @@ remain open, deferred to a future round.
 
 ### [NEW-16] The "Patching `<file>`" diff-preview UI panel renders unconditionally, regardless of whether the underlying patch actually succeeded (Resolved 2026-07-30, Round 16, commit `99d922f`)
 
+- **Coverage correction (Round 20, 2026-07-30, per CLAUDE.md rule 6):**
+  this fix is resolved ONLY for the `[ERROR]`/`[PATCH_FAILED]` result
+  classes it was built and tested against. The `[CANCELLED]` result
+  class (user/EOF declines the apply-patch confirm) is NOT covered —
+  `is_error()`'s deliberate `[CANCELLED]` exclusion means the original
+  false-success panel still renders for that case, confirmed by live
+  reproduction. See `NEW-43` for the full finding.
 - **Status: Resolved.** `core/agent.py`'s `show_patch()`/
   `show_file_write()` call sites now thread `error=is_error(result,
   name)` through to `core/display.py`, which switches to a red border +
@@ -2089,6 +2272,78 @@ remain open, deferred to a future round.
     transcript-persistence gap is a separate, logged, not-yet-fixed
     follow-up (`NEW-38`); the exact-repeat gap remains `NEW-36`, also not
     fixed here.**
+
+
+### [NEW-43] `is_error()`'s deliberate `[CANCELLED]` exclusion means the Round 16 (`NEW-16`) patch-panel-honesty fix does not cover the user/EOF-declined-confirm case — the green "Patching `<file>`" success panel still renders when a patch was cancelled and nothing was written (Confirmed) — plus a related, distinct finding: a real, correctly-grounded rename `old_str` can still produce an incomplete/code-breaking edit if the target variable is used more than once in the function (Suspected)
+
+- **Confidence: Confirmed** (panel-honesty gap), reproduced live once
+  this round; **Suspected** (incomplete-rename finding), confirmed by a
+  static post-hoc replay of the exact tool call, not by a live multi-turn
+  session continuing past the first patch.
+- **Where found:** Round 20 (NEW-7 b3/b4 live-reproduction session,
+  2026-07-30). During `b4` (patch_tools rename prompt), the model's
+  `patch_file` call had a correct `old_str`, but the test harness's
+  non-interactive stdin didn't answer `tools/patch_tools.py:75`'s
+  `ask_confirm("Apply patch?")` — `utils/logger.py:129-131`'s EOF path
+  defaulted to `False`, so `tool_patch_file()` returned
+  `"[CANCELLED] Patch cancelled."` (`tools/patch_tools.py:76`) and no
+  file was modified (confirmed via `git diff` immediately after: empty).
+  **The terminal transcript still showed the panel titled "Patching
+  `patch_tools.py`" — not "PATCH FAILED", which per `NEW-16`'s own
+  resolution note is the title `error=True` produces — with no failure
+  indication, and the model's own next message was "Done."** (colour
+  was not independently observable in the captured log, since ANSI
+  codes were stripped during parsing; the title text is the load-bearing
+  evidence here) — a real user answering `N` to the same confirm prompt
+  would see the identical false-success signal.
+- **Root cause, confirmed by reading the code (not just re-asserting
+  NEW-16's fix):** `core/agent.py:415-424`'s `_is_patch` branch computes
+  `_is_err = is_error(result, name) or result.startswith("[PATCH_FAILED]")`
+  and passes it to `show_patch(..., error=_is_err)`
+  (`core/display.py:89`, the exact mechanism NEW-16's Round 16 fix
+  added). But `core/agent.py:492`'s `is_error()` has an explicit,
+  deliberate early return: `if "[cancelled]" in result_lower: return
+  False` (line 496-497) — this predates and is untouched by the Round 16
+  fix, and was apparently never exercised by Round 16's own live-reproduction
+  draws (a1/a2/b1/b2, all genuine `[PATCH_FAILED]`/`[ERROR]` cases, never
+  a user-declined confirm). **This is a real gap in NEW-16's coverage,
+  not a regression of the Round 16 fix itself** — the fix works exactly
+  as designed for the case it was built and tested against; `[CANCELLED]`
+  is a third, distinct result class that was never in scope for that fix
+  and still produces the original NEW-16 symptom.
+- **Why this matters:** identical severity to NEW-16's original finding —
+  a user watching the terminal, or the model itself narrating "Done.",
+  gets a success-looking signal for an edit that did not happen. This is
+  arguably *more* likely to occur in normal use than the `[PATCH_FAILED]`
+  case, since declining a patch confirmation (accidentally or
+  deliberately) is a common, ordinary interaction, not an edge case.
+- **Distinct second finding — incomplete rename, Suspected only:** a
+  post-hoc, non-live replay of the model's exact `patch_file` args
+  (`old_str="p = Path(path).expanduser()"`,
+  `new_str="file_path = Path(path).expanduser()"`) against
+  `tools/patch_tools.py`, with `ask_confirm` monkey-patched to return
+  `True` (no model/RAM load involved — a static function call, confirmed
+  via `git diff` then immediately reverted with `git checkout --`),
+  showed the patch **applies successfully** (the string is unique in the
+  file, confirmed via `grep -c` = 1) but leaves the function referencing
+  an undefined name `p` in 4 more places (`p.exists()` x2, `p =
+  Path(os.getcwd())...`, `p.read_text(...)`) that the rename request
+  ("rename the variable `p` to `file_path`") did not touch — the
+  resulting code would raise `NameError` at runtime. In the live
+  transcript, the model said "Done." immediately after this single patch
+  attempt (before the harness's confirm-default-reject kicked in),
+  suggesting it would have stopped after one patch call even had the
+  edit been accepted, without completing the rename across all uses.
+  **Not confirmed live** (the real turn never got a "yes" answer to
+  actually apply it and observe whether the model's *next* turn would
+  have caught and fixed the resulting `NameError`) — flagged as
+  Suspected, needs its own live draw with the confirm actually answered
+  `y` to settle whether the model self-corrects.
+- **Not fixed here** — both items are out of NEW-7's scope
+  (NEW-7 investigates `old_str` grounding specifically; both of these are
+  about different mechanisms — UI-honesty on cancellation, and edit
+  completeness). Logged per CLAUDE.md rule 8, not silently fixed or
+  dropped.
 
 ## Found during Round 18 (NEW-18 live-reproduction attempt), 2026-07-30 — NOT fixed, logged only
 
