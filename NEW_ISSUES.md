@@ -2317,6 +2317,60 @@ remain open, deferred to a future round.
   `ccos/core/sandbox.py`'s `echo`-command allowlist logic and
   `ccos/tests/test_ccos.py::test_sandbox`'s expectations before scoping
   a fix.
+- **Status: RESOLVED, verified 2026-07-30.** Root cause was exactly as
+  suspected: `ALLOWED_DIRS` in `ccos/core/sandbox.py` hardcoded the
+  literal string `"/tmp"`, but `Sandbox.__init__`'s
+  `tempfile.mkdtemp(prefix="ccos_sandbox_")` (no `dir=` arg) resolves
+  against `tempfile.gettempdir()`, which on this Termux device is
+  `/data/data/com.termux/files/usr/tmp`, not `/tmp` — so the sandbox's
+  own working directory failed its own allowlist check and every
+  command failed, including `echo hello`. Fix: replaced the `"/tmp"`
+  literal with `tempfile.gettempdir()`. Verified with
+  `python3 -m pytest ccos/tests/test_ccos.py::test_sandbox -v` → `1
+  passed` (via a real `assert result.success` on `echo hello`, not a
+  bare `return True`), and `python3 -m pytest tests/ ccos/tests/ -q` →
+  `334 passed, 0 failed`. Diff was a single 5-line, comment-included
+  change to `ALLOWED_DIRS`; no other lines in `sandbox.py` touched.
+
+### [NEW-41] `Sandbox.cleanup()` calls `shutil.rmtree()` with no `import shutil` in `ccos/core/sandbox.py`, and the resulting `NameError` is silently swallowed
+- **Confidence: Confirmed** (found while reviewing the NEW-8 fix;
+  `git blame` on the line dates it to commit `30e22b2c`, pre-existing
+  and unrelated to the NEW-8 `ALLOWED_DIRS` change).
+- **Where:** `ccos/core/sandbox.py`, `Sandbox.cleanup()` (around line
+  268): `shutil.rmtree(str(self._tmp_dir), ignore_errors=True)` inside
+  a `try: ... except Exception: pass`. The module only imports `os`,
+  `subprocess`, `tempfile`, `time`, `Path` — never `shutil`.
+- **Impact:** every call to `cleanup()` raises `NameError: name
+  'shutil' is not defined`, which the bare `except Exception: pass`
+  silently discards. The sandbox's per-instance temp directory (now
+  living under the just-widened `tempfile.gettempdir()` allowlist,
+  per the NEW-8 fix above) is therefore never actually deleted —
+  `Sandbox()` leaks one `ccos_sandbox_*` directory per
+  instantiation/singleton-reset for the life of the device, with no
+  visible error anywhere.
+- **Not fixed here:** out of scope for the NEW-8 fix, which only
+  touched the `ALLOWED_DIRS` list. Needs its own round: add
+  `import shutil` (or drop the `try/except Exception: pass` and let
+  cleanup failures surface, since silently swallowing exceptions is
+  its own smell per this project's review checklist).
+
+### [NEW-42] `ccos/core/sandbox.py`'s `ALLOWED_DIRS`/`_validate_path` only gates the execution `cwd`, not what a command can touch
+- **Confidence: Confirmed** (read of `Sandbox.run_command`, which
+  passes `command` to `subprocess.run(..., shell=True, cwd=exec_cwd)`
+  after `_validate_path` checks only `exec_cwd`).
+- **Impact:** the allowlist is not a filesystem containment boundary —
+  a command like `cat /etc/passwd` or `rm -rf ~/important` will run
+  fine from any allowed `cwd`, since `_validate_path` never inspects
+  the command string's own path arguments. This was true before the
+  NEW-8 fix too (widening `"/tmp"` to `tempfile.gettempdir()` doesn't
+  change this posture — on Termux the new path is actually
+  app-private and strictly narrower than shared `/tmp` would have
+  been on stock Linux, so NEW-8 is not a regression here).
+- **Not fixed here:** out of scope for NEW-8. If this sandbox is ever
+  relied on as a real security boundary (vs. a footgun-prevention
+  convenience for the self-improvement/plugin-test paths it's used
+  from), it needs its own design pass — e.g. a real filesystem
+  namespace/chroot, not a `cwd`-only string-prefix check.
 
 ## Pre-existing Test Failures (Not Introduced by V3 Changes)
 

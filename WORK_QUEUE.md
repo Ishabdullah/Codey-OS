@@ -20,10 +20,20 @@ checkboxes had (Phase 0's `symbolic_graph` box, Section 5's Open Question
 ## How new issues get logged as we go
 
 Keep using `NEW_ISSUES.md` exactly as it already works — next sequential
-`NEW-##` ID (currently next free: **NEW-41**, after `NEW-27` through
-`NEW-40` were logged across this session's hygiene, Track 1 audit,
-NEW-19, and NEW-10 rounds), rated Confirmed or Suspected, same format as
-existing entries.
+`NEW-##` ID (currently next free: **NEW-43**, after `NEW-27` through
+`NEW-42` were logged across this session's hygiene, Track 1 audit,
+NEW-19, NEW-10, and NEW-8 rounds), rated Confirmed or Suspected, same
+format as existing entries.
+**ID-collision note (2026-07-30):** an interrupted session's
+code-reviewer pass logged two NEW-8-adjacent findings under `NEW-24`
+and `NEW-25` — both already taken (by the `load_secondary()` bug and
+the `codeyOS` arg-forwarding fix, respectively). Renumbered the two new
+ones to `NEW-41`/`NEW-42` before they could ship as a second collision
+of the exact kind Track 0 already fixed once this session. Lesson: a
+background agent's own count of "next free ID" can go stale if another
+round advances it after that agent's context was formed — always
+re-grep `NEW_ISSUES.md` for the actual current max before trusting a
+remembered number.
 The only addition: if a newly-found issue blocks or changes a specific
 item in this queue, **cross-reference the queue item's name/number
 inline** in both directions — a line in the `NEW_ISSUES.md` entry pointing
@@ -253,9 +263,24 @@ gets logged, not silently fixed or dropped, even mid-queue-item.
       independently reimplement the same GUI-launch/PID-file/trap-kill
       pattern (confirmed still present at HEAD). Adjacent to `NEW-12`'s
       dual-launcher class.
-- [ ] `NEW-8` — `ccos/tests/test_ccos.py::test_sandbox` fails on this
-      device (pre-existing, unrelated to any round's changes) — likely a
-      sandbox path-allowlist issue for `echo`; needs its own investigation.
+- [x] `NEW-8` — `ccos/tests/test_ccos.py::test_sandbox` fails on this
+      device. **Resolved 2026-07-30, code-reviewer approved.** Root
+      cause: `ccos/core/sandbox.py`'s `ALLOWED_DIRS` hardcoded `"/tmp"`,
+      but `Sandbox.__init__`'s own `tempfile.mkdtemp()`-created working
+      directory resolves under Termux's real temp dir
+      (`tempfile.gettempdir()`, i.e. `$PREFIX/tmp`) — the sandbox's own
+      directory failed its own allowlist check, so every command
+      (even `echo hello`) failed before running. Fixed by using
+      `tempfile.gettempdir()` instead of the hardcoded string. 334/334
+      full suite passing. code-reviewer independently confirmed the
+      determinism of the `gettempdir()`/`mkdtemp()` pairing, assessed the
+      security tradeoff (not a regression — the allowlist was never real
+      containment; see `NEW-42`), and reproduced the test pass itself.
+      2 adjacent findings logged, not fixed: `NEW-41` (pre-existing
+      `Sandbox.cleanup()` `NameError` from a missing `import shutil`,
+      silently swallowed) and `NEW-42` (the allowlist only gates `cwd`,
+      not what a command actually touches — a design gap if this sandbox
+      is ever relied on as a real security boundary).
 - [ ] `NEW-7` — `[Recursive]` planner synthesizes whole duplicate
       functions instead of targeted patches (Confirmed, ~67% failure
       rate, not recursion-specific). Characterization is incomplete —

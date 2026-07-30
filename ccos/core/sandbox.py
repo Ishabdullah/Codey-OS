@@ -21,7 +21,10 @@ from typing import Any, Dict, List, Optional, Tuple
 # Allowed directories for sandbox operations
 ALLOWED_DIRS = [
     str(Path(__file__).parent.parent),  # ccos/ directory
-    "/tmp",
+    tempfile.gettempdir(),  # platform temp dir; on Termux this is $PREFIX/tmp,
+    # not bare /tmp -- the sandbox's own tempfile.mkdtemp()-created working
+    # dir (see Sandbox.__init__ below) must resolve inside this or every
+    # command fails its own allowlist check before it can run at all.
     str(Path.home() / ".local" / "share" / "ccos"),
 ]
 
