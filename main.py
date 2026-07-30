@@ -1346,15 +1346,16 @@ def repl(
             # Drain any immediately-available continuation lines and join them
             # so a multi-line paste is treated as one message, not many short ones.
             try:
-                import select as _sel
+                if sys.stdin.isatty():
+                    import select as _sel
 
-                _extra = []
-                while _sel.select([sys.stdin], [], [], 0.02)[0]:
-                    _line = sys.stdin.readline().rstrip("\n").strip()
-                    if _line:
-                        _extra.append(_line)
-                if _extra:
-                    user_input = user_input + " " + " ".join(_extra)
+                    _extra = []
+                    while _sel.select([sys.stdin], [], [], 0.02)[0]:
+                        _line = sys.stdin.readline().rstrip("\n").strip()
+                        if _line:
+                            _extra.append(_line)
+                    if _extra:
+                        user_input = user_input + " " + " ".join(_extra)
             except Exception:
                 pass  # select unavailable — proceed with single line
         except (KeyboardInterrupt, EOFError):
