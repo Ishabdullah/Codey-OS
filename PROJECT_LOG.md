@@ -5,6 +5,79 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-30 — NEW-8 fixed, NEW-7 fully characterized; caught and fixed a second NEW-24/NEW-25-class ID collision
+
+**NEW-8** (commit `746ff60`): `ccos/tests/test_ccos.py::test_sandbox`
+was failing because `ccos/core/sandbox.py`'s `ALLOWED_DIRS` hardcoded
+`"/tmp"`, but `Sandbox.__init__`'s own `tempfile.mkdtemp()`-created
+working directory resolves under Termux's real temp dir
+(`tempfile.gettempdir()`, i.e. `$PREFIX/tmp`) — the sandbox's own
+directory failed its own allowlist check, so every command (even `echo
+hello`) failed before running. Fixed by using `tempfile.gettempdir()`.
+code-reviewer approved after independently confirming the
+`gettempdir()`/`mkdtemp()` pairing is deterministic, assessing the
+security tradeoff as not a regression, and reproducing the test pass.
+334/334 full suite passing.
+
+**Session-continuity incident, caught and corrected:** a session
+interruption during this round caused two things to go wrong, both
+caught before commit rather than shipped: (1) the `NEW-8` fix itself
+had been applied but never committed before the interruption, and the
+working-tree edit was gone on resume — reapplied and committed
+immediately this time rather than left uncommitted again; (2) the
+interrupted code-reviewer pass had logged two real, legitimate findings
+(a `Sandbox.cleanup()` `NameError` from a missing `import shutil`, and
+the allowlist only gating `cwd` not command content) under `NEW-24` and
+`NEW-25` — both IDs already taken by unrelated issues (the
+`load_secondary()` bug and the already-fixed `codeyOS` arg-forwarding
+bug respectively). This is the exact same class of mistake Track 0
+fixed once already this session (see the 2026-07-30 Track 0 entry).
+Renumbered to `NEW-41`/`NEW-42` before commit. Root cause noted in
+`WORK_QUEUE.md`: a background agent's own memory of "next free ID" can
+go stale if another round advances the real count after that agent's
+context was formed — the fix is always re-grepping `NEW_ISSUES.md`'s
+actual current max immediately before assigning a new ID, not trusting
+a remembered number.
+
+**NEW-7** (commit `6a3bdfc`): completed the last 2 of 8 planned
+live-reproduction draws (`b3`/`b4` — loader_v2 error-handling and
+patch_tools rename prompts, plain/`CODEY_RECURSIVE=0` path), finishing
+Round 14's design. Neither prompt style reproduced the `old_str`-
+grounding bug on either path (recursive or plain), matching the
+already-completed `a3`/`a4` results — only the docstring-insertion
+prompt reproduces it, at 4/6 (67%) across all 8 completed draws.
+`NEW-7` is now fully characterized on its own stated completion bar:
+reproducible, confirmed not recursion-specific, and correlated with the
+docstring-insertion prompt style specifically. Live-verifier followed
+RAM discipline throughout (`free -h` recorded before/mid/after, no
+thrashing, clean self-termination, no orphaned processes after
+teardown). Two related findings logged, not fixed: `NEW-43` (a real
+coverage gap in `NEW-16`'s "Resolved" patch-panel-honesty fix — the
+success-titled panel still renders on a declined/EOF-defaulted patch
+confirm, since `is_error()` deliberately excludes `[CANCELLED]`) and a
+Suspected finding that a correctly-grounded rename can still produce an
+incomplete edit if the target variable is used more than once in a
+function.
+
+**Verification performed:** real `pytest`/`git diff` output at every
+step; independent re-verification by code-reviewer (not trusting
+summaries) for `NEW-8`; live-verifier's actual `free -h`/`ps` output and
+transcript excerpts for `NEW-7`, not paraphrased; a fresh full-suite run
+(334/334) after each commit.
+
+**Outcome:** `NEW-8` fully resolved. `NEW-7` fully characterized but not
+yet fixed — ready for a root-cause + fix pass targeting
+`system_prompt.py`/`patch_tools.py`'s `old_str`-grounding instructions.
+`NEW-41`, `NEW-42`, `NEW-43` remain open, logged not fixed.
+
+**Next action:** either scope `NEW-7`'s actual fix (the docstring-
+insertion `old_str`-grounding gap), or continue with Track 2's remaining
+items (`NEW-12`/`NEW-22` residuals — better done alongside Phase 5a per
+the queue's own note — the security hardening backlog, `H-1` live
+verification, and the flagged-not-default-fixed `NEW-9`).
+
+---
+
 ## 2026-07-30 — NEW-25 and NEW-10 closed: daemon arg-forwarding fixed, SIGTERM handler installed
 
 **NEW-25** (commit `d60c0d3`): `codeyOS --daemon`'s `python3 "$TMPSCRIPT"
