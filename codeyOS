@@ -116,7 +116,7 @@ from main import main
 main()
 PYEOF
     
-    python3 "$TMPSCRIPT" "\$@"
+    python3 "$TMPSCRIPT" "$@"
     rm -f "$TMPSCRIPT"
     exit $?
 fi

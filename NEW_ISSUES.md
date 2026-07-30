@@ -423,6 +423,17 @@ corrected only, to keep IDs unique per the convention documented in
     spec doc).
 
 ### [NEW-25] `codeyOS --daemon` mode forwards a literal string `$@` instead of the actual arguments, due to a backslash-escape outside the heredoc
+- **Status: Resolved (2026-07-30), code-reviewer approved.** Removed the
+  stray backslash (`"\$@"` → `"$@"`), matching the already-correct
+  pattern in the file's direct-mode fallback branch. code-reviewer
+  independently confirmed: syntax valid (`bash -n codeyOS`), no `shift`
+  needed (verified `main.py`'s argparse genuinely expects `--daemon` in
+  its own args, unshifted, same as the direct-mode branch), grepped the
+  whole file for any other stray-backslash-before-`$@` instances (found
+  none), and confirmed nothing relies on the old broken behavior. No
+  live-verifier pass needed for this class of change (pure shell
+  argument-forwarding fix, not a runtime process-lifecycle behavior
+  change).
 - **Status: Confirmed, not fixed** (2026-07-30). Found while verifying a
   `docs/commands.md` claim during the Phase 3 entry-point cleanup round
   (not otherwise in scope). `codeyOS` line 119, inside the `--daemon`

@@ -204,12 +204,20 @@ gets logged, not silently fixed or dropped, even mid-queue-item.
       the transcript-persistence gap is tracked as `NEW-38` (not fixed),
       and the exact-repeat gap remains `NEW-36` (not fixed), both
       pre-existing/adjacent, not regressions from this round.**
-- [ ] `NEW-25` — `codeyOS --daemon` forwards a literal `$@` string
+- [x] `NEW-25` — `codeyOS --daemon` forwards a literal `$@` string
       instead of real args (backslash-escape bug outside the heredoc).
-      Process-lifecycle-adjacent → needs code-reviewer per CLAUDE.md
-      rule 4.
+      **Resolved 2026-07-30, code-reviewer approved** — 1-character fix
+      (removed stray backslash), matches the already-correct direct-mode
+      pattern elsewhere in the same file. See `NEW_ISSUES.md`'s `NEW-25`
+      entry for the review detail.
 - [ ] `NEW-10` — `main.py` has no `SIGTERM` handler at all; a direct
-      SIGTERM bypasses every existing guard. Rule 4 territory.
+      SIGTERM bypasses every existing guard. Rule 4 territory. **In
+      progress 2026-07-30** — implementer building a fix that installs a
+      `SIGTERM` handler raising `SystemExit`, reusing all 14 existing
+      `try/except (KeyboardInterrupt, SystemExit): shutdown()` guards
+      rather than adding new shutdown-calling logic inside the signal
+      handler itself (mirrors how `SIGINT` already works via Python's
+      default handler). Code-reviewer pass pending.
 - [ ] `NEW-12` residual items 2–4 (only item 1 was fixed in Round 11):
       no single named `SERVER_PORT` constant across
       `loader_v2.py`/`inference.py`/`inference_hybrid.py`; the 1.5B
