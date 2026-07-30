@@ -871,6 +871,67 @@ zero through mask-widening alone. Per CLAUDE.md's escalation rules,
 this is being brought to Ish directly for a decision on how to proceed
 — no third fix attempt has been scoped here.
 
+### Audit Remediation — Round 11 (NEW-12)
+**Status: code complete, code-reviewer approved, live-verified.**
+"Live-verified" here means confirmed via log-line/completion/teardown
+evidence (absence of a second spawn-attempt log line, a successful
+non-error inference result, and clean tracked-PID teardown), not a
+literal multi-checkpoint `ps` table — see caveat below.
+- [x] Fix: commit `59f4f69` removed `core/inference.py`'s independent,
+      uncoordinated `_start_server()` launcher (no port-in-use check, no
+      `os.setsid`, `stop_server()` never called from anywhere) and routed
+      its fallback path through `core.loader_v2.get_loader().ensure_model()`
+      instead — the same canonical, port-checked, singleton-guarded
+      launcher already used by the daemon and CLI.
+- [x] code-reviewer approved. Reviewer separately flagged, during that
+      same review (not in NEW-12's original scope), that removing
+      `core/inference.py`'s launcher orphaned `ThermalManager`'s
+      thread-reduction restart mechanism — logged as `NEW_ISSUES.md`
+      [NEW-13] in commit `6093696`, not silently fixed or dropped.
+- [x] live-verifier: `free -h` before — `4.5Gi` used, `2.9Gi` free,
+      `6.2Gi` available. Started the primary model via
+      `get_loader().ensure_model()` (llama-server PID 30405), then called
+      `core.inference.infer()` (the fallback path) in the same process.
+      No second `"Loading model:"`/`"Starting llama-server..."`/
+      `"llama-server PID:"` log line appeared — `ensure_model()`
+      short-circuited on its already-running check, no second `Popen()`
+      was invoked. The fallback call returned a real completion
+      (`'Hello'`), not an `[ERROR]` string. Teardown used the tracked PID
+      (30405) via `loader.unload()`. `free -h` after — `4.5Gi` used,
+      `3.2Gi` free, `6.1Gi` available — RAM recovered, no leak.
+- [x] **Honest caveat (per CLAUDE.md rule 5):** the verifier's own
+      in-script `ps` capture had a filter bug (matched on the literal
+      substring `"llama-server"`, but `ps`'s COMMAND column truncates to
+      `llama-serv`), so the in-script three-checkpoint `ps` table did not
+      actually confirm "exactly one llama-server process" via a literal
+      `ps` snapshot at each checkpoint. The verifier chose not to re-run a
+      second full model-load cycle just to fix this cosmetic script bug,
+      per the one-cycle-only RAM discipline rule (CLAUDE.md rule 2). The
+      verdict rests on (a) absence of a second spawn-attempt log line —
+      a direct, literal code-path artifact, not an inference — (b) the
+      successful non-error completion, and (c) confirmed clean teardown
+      with only the tracked primary PID remaining. This is solid
+      evidence but is not identical to a literal `ps`-table confirmation
+      at the "during fallback" moment.
+- [x] `NEW_ISSUES.md` [NEW-12] marked Resolved, citing `59f4f69`, with
+      the same precise live-verification description (not overclaimed).
+- [x] `NEW_ISSUES.md` [NEW-13] (thermal-restart regression, found outside
+      NEW-12's scope during code review) logged Confirmed in commit
+      `6093696` — not fixed here, per CLAUDE.md rule 8.
+
+**Round 11 (NEW-12) is closed: code complete, code-reviewer approved,
+and live-verified** (with the ps-filter-gap caveat above honestly
+recorded rather than rounded up to "ps confirmed"). Deferred, not
+scoped here: quarantining/deleting dead scaffolding, a single named
+`SERVER_PORT` constant across `loader_v2.py`/`inference.py`/
+`inference_hybrid.py`, wiring `PLANNER_MODEL_PATH`/`PLANND_SERVER_PORT`
+into an actual launcher, and a real cross-process flock/pidfile lock to
+close the daemon-vs-CLI port TOCTOU race (all noted as future candidates
+in `NEW_ISSUES.md` [NEW-12]'s own write-up). Remaining open items after
+this round: NEW-7 (recursive planner, hardest, deferred), NEW-9
+(deprioritized per user decision), NEW-11 (daemon watchdog stale-flag
+gap, logged only), NEW-13 (thermal-restart regression, logged only).
+
 ### Phase 4 — Self-improvement activation (deliberate, not automatic)
 Do NOT start this phase until Phases 1–3 are stable and you've watched the
 system run real coding tasks through the sandbox/safety-veto path for a

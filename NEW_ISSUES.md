@@ -367,6 +367,30 @@ own dedicated scoping pass, not yet queued for a fix.
      flock'd `.pid`/`.lock` file per port) before spawning, to close the
      daemon-vs-CLI TOCTOU race.
 
+**Status: Resolved (Round 11, commit `59f4f69`).** Fixed exactly item 1
+of the fix directions above: `core/inference.py`'s independent,
+uncoordinated `_start_server()`/`Popen` launcher was removed and its
+fallback path now delegates to `core.loader_v2.get_loader().ensure_model()`
+— the canonical, port-checked, singleton-guarded launcher. code-reviewer
+approved (and separately flagged a scope-adjacent regression, now logged
+as [NEW-13] below). Live-verified: `free -h` before (`4.5Gi` used,
+`2.9Gi` free) / after (`4.5Gi` used, `3.2Gi` free) showed no RAM leak;
+starting the primary model then calling the fallback `core.inference.infer()`
+in the same process produced no second `"Loading model:"`/`"Starting
+llama-server..."`/`"llama-server PID:"` log line (i.e. no second `Popen()`
+was invoked — `ensure_model()` short-circuited on its already-running
+check) and the fallback call returned a real completion (`'Hello'`), not
+an `[ERROR]` string; teardown used the single tracked PID. **Caveat:**
+this is verified via log-line-absence + successful-completion +
+clean-teardown evidence, not a literal multi-checkpoint `ps` snapshot —
+the verifier's in-script `ps` capture had a filter bug (`ps`'s COMMAND
+column truncates `llama-server` to `llama-serv`, so the substring match
+never actually confirmed "exactly one process" via a literal `ps` table
+at each checkpoint) and was not re-run, per the one-cycle-only RAM
+discipline rule. Items 2-4 of the fix directions above (a single named
+port constant, wiring the planner launcher, a real cross-process lock)
+remain open, deferred to a future round.
+
 ### [NEW-13] Removing `core/inference.py`'s independent launcher (Round 11, NEW-12 fix, commit `59f4f69`) orphaned `ThermalManager`'s thread-reduction restart mechanism
 - **Confidence: Confirmed** (found by code-reviewer during Round 11's
   NEW-12 review, verified via repo-wide grep, not inferred).

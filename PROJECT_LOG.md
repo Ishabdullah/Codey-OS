@@ -5,6 +5,107 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-30 — Round 11 (NEW-12): removed `core/inference.py`'s independent llama-server launcher, routed fallback through `loader_v2` — code complete, code-reviewer approved, live-verified
+
+**Fix (commit `59f4f69`):** removed `core/inference.py`'s independent,
+uncoordinated `_start_server()`/`Popen`-based `llama-server` launcher
+(no port-in-use check, no `os.setsid`/process-group teardown handle,
+`stop_server()` never called from anywhere in the repo) and replaced it
+with a delegation to `core.loader_v2.get_loader().ensure_model()` — the
+same canonical, port-checked, singleton-guarded launcher already used by
+the daemon and CLI. This closes the gap where a real failure of the
+primary chat backend (`core/inference_v2.py`'s fallback path) could spawn
+a second, untracked, never-torn-down `llama-server` process with no
+port-conflict check.
+
+**code-reviewer:** approved. Also flagged, outside NEW-12's stated scope,
+that removing `core/inference.py`'s launcher orphaned `ThermalManager`'s
+thread-reduction restart mechanism (`core/thermal.py`'s
+`restart_recommended` flag had exactly one consumer — the now-removed
+`_start_server()` — and nothing in `core/loader_v2.py` picks it up).
+Logged as `NEW_ISSUES.md` [NEW-13] in commit `6093696`, Confirmed, not
+silently fixed or dropped.
+
+**live-verifier's results (verbatim):**
+
+`free -h` before:
+```
+               total        used        free      shared  buff/cache   available
+Mem:            10Gi       4.5Gi       2.9Gi        27Mi       3.5Gi       6.2Gi
+Swap:           11Gi       1.9Gi        10Gi
+```
+
+Started the primary model via `core.loader_v2.get_loader().ensure_model()`
+(spawned llama-server PID 30405), then called `core.inference.infer()`
+(the fallback path) in the same process:
+```
+ℹ  Loading model: qwen2.5-coder-7b-instruct-q4_k_m.gguf
+ℹ  Starting llama-server...
+ℹ  7B model: mmap=enabled, mlock=disabled
+ℹ  llama-server PID: 30405, logging to /data/data/com.termux/files/home/.codeyOS/llama-server.log
+✓  llama-server started on port 8080
+✓  Loaded model (qwen2.5-coder-7b-instruct-q4_k_m.gguf)
+ensure_model() -> True in 17.5 s
+loader PID: 30405
+ℹ  Starting embed server (nomic) on port 8082...
+ℹ  Embed server PID: 2485, log: /data/data/com.termux/files/home/.codeyOS/embed-server.log
+✓  Embed server ready on port 8082
+FALLBACK INFER RESULT: 'Hello'
+fallback infer took 8.0 s
+Unloading via tracked PID: 30405
+ℹ  Stopping model server...
+```
+No second `"Loading model:"`/`"Starting llama-server..."`/`"llama-server
+PID:"` line appeared between the primary start and the fallback call —
+`core/inference.py`'s new `_start_server()` called
+`get_loader().ensure_model()`, which short-circuited on its first line
+(`if self._loaded and self._server and self._server.is_running(): return
+True`) since it's the same in-process singleton — no second `Popen()`
+was invoked. The fallback call returned a real completion (`'Hello'`),
+not an `[ERROR]` string, proving the reuse-path returns valid results
+end-to-end. Teardown used the tracked PID (30405) via `loader.unload()`;
+a separate, distinct embed-server process (PID 2485, unrelated to
+NEW-12's scope) was also cleanly torn down by its own explicitly-logged
+tracked PID.
+
+`free -h` after:
+```
+               total        used        free      shared  buff/cache   available
+Mem:            10Gi       4.5Gi       3.2Gi        28Mi       3.2Gi       6.1Gi
+Swap:           11Gi       1.3Gi        10Gi
+```
+RAM recovered, no leak.
+
+**Honest caveat (per CLAUDE.md rule 5, don't overclaim):** the
+verifier's own in-script `ps` capture had a filter bug — it matched on
+the literal substring `"llama-server"`, but `ps`'s COMMAND column
+truncates to `llama-serv`, so the in-script three-checkpoint `ps` table
+did not actually confirm "exactly one llama-server process" via a
+literal `ps` snapshot at each checkpoint. The verifier chose not to
+re-run a second full model-load cycle just to fix this cosmetic script
+bug, per the one-cycle-only RAM discipline rule (CLAUDE.md rule 2). The
+verdict instead rests on: (a) the absence of a second spawn-attempt log
+line (a direct, literal code-path artifact, not an inference), (b) the
+successful non-error completion, and (c) confirmed clean teardown with
+only the tracked primary PID remaining. This is solid evidence but not
+identical to a literal `ps`-table confirmation at the "during fallback"
+moment — recorded precisely as such, not rounded up to "ps confirmed."
+
+**Round 11 (NEW-12) is closed** — code complete, code-reviewer approved,
+and live-verified (with the ps-filter-gap caveat above). `NEW_ISSUES.md`
+[NEW-12] marked Resolved. `NEW_ISSUES.md` [NEW-13] (thermal-restart
+regression, found by code-reviewer outside this round's scope) remains
+open, logged only, not fixed here. Deferred, not scoped in this round:
+a single named port constant across `loader_v2.py`/`inference.py`/
+`inference_hybrid.py`, wiring the planner model's launcher, and a real
+cross-process flock/pidfile lock to close the daemon-vs-CLI port TOCTOU
+race. Remaining open items after this round: NEW-7 (recursive planner,
+hardest, deferred), NEW-9 (deprioritized per user decision), NEW-11
+(daemon watchdog stale-flag gap, logged only), NEW-13 (thermal-restart
+regression, logged only).
+
+---
+
 ## 2026-07-30 — Round 10 (NEW-9): widened pthread_sigmask window — code-reviewer approved, live-verification shows substantial improvement but does NOT fully close the bug — NOT RESOLVED
 
 **Fix attempt (commit `2aaabb1`):** based on Round 9's own root-cause
