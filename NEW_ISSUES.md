@@ -299,7 +299,7 @@
        live-verifier saw.
     4. The model retries and emits the **identical** `old_str: ""` call
        again (this is the actual planner/prompting gap — see the new
-       NEW-6-adjacent note below). `tool_patch_file` rejects it
+       NEW-7-adjacent note below). `tool_patch_file` rejects it
        identically.
     5. Second attempt: `auto_retries(1) >= max_retries(1)`, so
        `core/agent.py:1760-1787`'s `elif` branch fires instead of the
@@ -361,9 +361,9 @@
     limited to this surfacing gap — it does **not** include fixing why
     the `[Recursive]` planner keeps synthesizing `old_str: ""` with a
     whole duplicate function instead of a targeted edit; that is tracked
-    separately as NEW-6 below.
+    separately as NEW-7 below.
 
-### [NEW-6] `[Recursive]` planner path may be prompted to synthesize whole functions rather than targeted patches (Suspected, not yet fixed)
+### [NEW-7] `[Recursive]` planner path may be prompted to synthesize whole functions rather than targeted patches (Suspected, not yet fixed)
 - **Confidence: Suspected.** Observed once, in the same live session that
   reproduced NEW-2 above; not yet isolated from NEW-2's retry-surfacing
   gap or confirmed across multiple prompts.
