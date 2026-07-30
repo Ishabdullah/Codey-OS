@@ -556,9 +556,10 @@ class Daemon:
                             from core.loader_v2 import get_loader
 
                             _loader = get_loader()
-                            if not _loader.get_loaded_model():
+                            _server = _loader.get_model_instance()
+                            if not (_server and _server.is_running()):
                                 warning("7B model server died — restarting...")
-                                _loader.load_primary()
+                            _loader.ensure_model()
                         except Exception:
                             pass
                     # Embed server watchdog
