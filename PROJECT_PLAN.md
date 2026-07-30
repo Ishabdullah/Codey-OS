@@ -1118,6 +1118,33 @@ transcript marker distinct from `[EDIT NOT APPLIED]`. Does not address
 NEW-17/NEW-18 (still open, unscoped) or NEW-7 itself (still open,
 b3/b4 draws outstanding).
 
+### Round 17 (NEW-17)
+- [x] `core/githelper.py` — added `git_status_paths(paths)` and
+      `git_commit_paths(message, paths)`, mirroring
+      `core/checkpoint.py`'s already-reviewed scoped-staging pattern
+      (`git add -- <paths>`, never `-A`; pathspec on both `add` and
+      `commit`). `git_commit()`/`git_status()` themselves untouched.
+- [x] `core/agent.py` — `check_git_and_offer_commit()` now takes the
+      already-existing per-turn `files_touched` list and uses the
+      scoped functions; prompt text updated to honestly describe what
+      will be committed.
+- [x] Code-reviewer approved: independently traced `files_touched` as
+      genuine per-turn local state, ran its own adversarial
+      scratch-repo test (pre-staged unrelated file survived untouched
+      by the scoped commit — proving the commit-level pathspec is
+      load-bearing, not just the add-level one), reconfirmed the
+      existing `ccos` `git_integration` self-test passes unchanged.
+
+**Round 17 (NEW-17) is code complete, code-reviewer approved via direct
+scratch-repo verification (no live model session needed for this class
+of change).** Commit `f4f51fa`. One Suggestion accepted as a footnote,
+not spun off: `files_touched` includes paths from any tool call with a
+`path` arg (e.g. `read_file`), not strictly write/patch tools — harmless
+today since the scoped git functions no-op on unchanged files. Does not
+address NEW-18 (swap-thrashing recurrence, unscoped), NEW-19
+(PATCH_FAILED design question, unscoped), or NEW-7 itself (still open,
+b3/b4 draws outstanding).
+
 ### Phase 4 — Self-improvement activation (deliberate, not automatic)
 Do NOT start this phase until Phases 1–3 are stable and you've watched the
 system run real coding tasks through the sandbox/safety-veto path for a

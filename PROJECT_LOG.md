@@ -5,6 +5,83 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-30 — Round 17 (NEW-17): git auto-commit prompt scoped to only the current turn's touched files — code complete, code-reviewer approved via direct scratch-repo verification, no live model session needed
+
+**Root cause:** `core/agent.py`'s `check_git_and_offer_commit()` fired
+whenever `write_file`/`patch_file` was attempted this turn (success or
+failure), but the "Stage all and commit?" prompt, on "y", called
+`git_commit()` with its default `add_all=True` — a plain `git add -A`
+followed by `git commit`. That stages and commits the ENTIRE working
+tree, not just the current turn's edit. Confirmed in every draw of
+Round 14's NEW-7 investigation: the prompt fired against a pre-existing,
+unrelated dirty `NEW_ISSUES.md` already sitting in the working tree. A
+user reflexively answering "y" after an edit could commit unrelated
+in-progress work they didn't intend to commit yet.
+
+**Fix (commit `f4f51fa`, two files):**
+1. `core/githelper.py` — added `git_status_paths(paths)` and
+   `git_commit_paths(message, paths)`, mirroring `core/checkpoint.py`'s
+   already-reviewed scoped-staging pattern: `git add -- <paths>` (never
+   `-A`), then `git commit -m <message> -- <paths>` — the pathspec is on
+   both the `add` and the `commit` call. `git_commit()`/`git_status()`
+   themselves are completely untouched, still used as-is by `main.py`'s
+   intentionally-broad manual-commit flows.
+2. `core/agent.py` — `check_git_and_offer_commit()` now takes a new
+   `files_touched` parameter and uses `git_status_paths()`/
+   `git_commit_paths()` instead of the unscoped originals. `files_touched`
+   is not new state — it's an already-existing, already-populated
+   per-turn list local to `run_agent()`, threaded through to the two
+   existing call sites. Prompt text updated from "Stage all and commit
+   these changes?" to "Stage and commit ONLY the file(s) touched this
+   turn (shown above)?" to honestly describe what will actually happen.
+
+**Code-reviewer's verification was unusually rigorous for a
+straightforward-looking fix:**
+- Independently traced `files_touched`'s declaration inside
+  `run_agent()` to confirm it is genuine per-turn local state, not
+  module-level or session-persistent — ruling out a subtler version of
+  the same scope-bleed bug reappearing through stale accumulated state.
+- Ran its own adversarial scratch-repo test, not just re-running the
+  implementer's tests: created a scratch git repo, pre-staged an
+  unrelated file (`prestaged.txt`) with `git add` BEFORE calling the new
+  commit logic (simulating a real scenario where a user had already
+  staged unrelated work), then called `git_commit_paths()` with only the
+  current turn's file. Result: `prestaged.txt` remained staged and
+  untouched by the resulting commit — proving the trailing `--` pathspec
+  on the `git commit` call itself (not merely on the `git add` step) is
+  load-bearing. Without it, `git commit` with no pathspec commits
+  whatever is staged, which would have silently swept the pre-staged
+  file into the commit despite the scoped `add`. This is exactly the
+  real-world scenario NEW-17 was worried about, reproduced and confirmed
+  fixed.
+- Reconfirmed the existing `ccos` `git_integration` self-test still
+  passes unchanged, confirming `git_commit()`/`git_status()`'s original
+  callers (`main.py`'s manual-commit flows) are unaffected.
+- Approved, no Critical or Warning findings. One Suggestion:
+  `files_touched` accumulates paths from any tool call with a `path` arg,
+  including `read_file`, not strictly write/patch tools — harmless today
+  since `git_status_paths()`/`git_commit_paths()` no-op on files with no
+  actual working-tree changes, but flagged as a minor precision gap
+  worth tightening for clarity rather than correctness. Accepted as a
+  low-priority footnote on NEW-17 rather than spun off as its own
+  tracked issue — see `NEW_ISSUES.md`.
+
+**Why no live model session:** same reasoning class as Round 16 — this
+is a process-lifecycle-adjacent change (git staging/commit), but
+code-reviewer's own adversarial scratch-repo test directly exercised the
+exact failure mode NEW-17 described (pre-existing dirty/staged files
+present when the prompt fires) more rigorously than a live model session
+would have, since a live session can't reliably force that specific
+adversarial precondition on demand.
+
+**Status: code complete, code-reviewer approved via direct scratch-repo
+verification (no live model session needed for this class of change).**
+Scoped to `check_git_and_offer_commit()`'s auto-commit scope-bleed only.
+Does not touch NEW-18 (swap-thrashing recurrence, unscoped), NEW-19
+(PATCH_FAILED design question, unscoped), or NEW-7 itself (still open).
+
+---
+
 ## 2026-07-30 — Round 16 (NEW-16): `show_patch`/`show_file_write` no longer render a success-looking panel on failure — code complete, code-reviewer approved, no live model session (assessed unwarranted)
 
 **Root cause:** `core/agent.py`'s `execute_tool()` called `show_patch()`

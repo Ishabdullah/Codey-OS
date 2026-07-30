@@ -1311,6 +1311,10 @@ remain open, deferred to a future round.
 
 ### [NEW-17] The post-edit "offer to commit" prompt scopes to ALL current working-tree changes, not just the current turn's edit (Confirmed)
 
+- **Status: RESOLVED (commit `f4f51fa`), code-reviewer approved via
+  direct scratch-repo verification, 2026-07-30.** No live model session
+  needed for this class of change (see `PROJECT_LOG.md` Round 17 for
+  full details).
 - **Confidence: Confirmed** — observed in every draw of this
   investigation.
 - **Where found:** `core/agent.py`'s `check_git_and_offer_commit()`
@@ -1323,7 +1327,20 @@ remain open, deferred to a future round.
 - **Why this matters:** a real scope-bleed risk — a user reflexively
   answering "y" to this prompt after a failed edit attempt could commit
   unrelated in-progress work they didn't intend to commit yet.
-- **Not fixed here.**
+- **Fix:** added `git_status_paths()`/`git_commit_paths()` to
+  `core/githelper.py` (scoped `git add -- <paths>` / `git commit -- <paths>`,
+  never `-A`), threaded the already-existing per-turn `files_touched`
+  list into `check_git_and_offer_commit()`. `git_commit()`/`git_status()`
+  themselves untouched, still used by `main.py`'s intentionally-broad
+  manual-commit flows.
+- **Accepted low-priority footnote (not tracked as its own issue):**
+  code-reviewer noted `files_touched` accumulates paths from any tool
+  call with a `path` arg (including `read_file`), not strictly
+  write/patch tools. Harmless today — `git_status_paths()`/
+  `git_commit_paths()` no-op on files with no actual working-tree
+  changes — but slightly imprecise. Judged too minor to warrant a
+  dedicated NEW-2x entry; revisit only if `files_touched`'s population
+  logic is touched again for an unrelated reason.
 
 ### [NEW-18] A single lightweight REPL session (no daemon/plannd/embed stack) hit severe swap-thrashing after only 2 model calls with retries — swap pressure isn't limited to the full 3-model stack (Confirmed, possibly related to [NEW-14])
 
