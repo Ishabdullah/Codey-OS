@@ -171,6 +171,24 @@ def tool_write_file(path: str, content: str) -> str:
         except Exception:
             pass
 
+    # Block writes that would replace an existing .py file with content that
+    # has a syntax error — this usually indicates an incomplete or truncated
+    # reconstruction (e.g. after a failed patch_file falling back to write_file
+    # from stale/partial memory of the file's contents).
+    if file_exists and p.suffix == ".py":
+        try:
+            from core.linter import check_syntax
+
+            syn_err = check_syntax(content, str(p))
+            if syn_err:
+                return (
+                    f"[ERROR] Refusing to overwrite {p.name}: new content has a syntax error: {syn_err}\n"
+                    "This looks like an incomplete or truncated reconstruction. "
+                    "Re-read the file and try patch_file for a targeted edit instead."
+                )
+        except Exception:
+            pass  # linter unavailable — allow write (same fail-open behavior as patch_file)
+
     # Block writes to binary/non-text file types — these must be created by code.
     if p.suffix.lower() in BINARY_FILE_TYPES:
         hint = ""
