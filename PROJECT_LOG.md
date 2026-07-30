@@ -5,6 +5,60 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-30 — NEW-19 fully closed: implemented, code-reviewed, live-verified
+
+**What changed:** Ran the full implementer → code-reviewer → live-verifier
+pipeline on `NEW-19` (Track 2's first task, scoped and decided earlier
+this session). Repeated same-file `[PATCH_FAILED]` results within a turn
+now escalate to the existing peer-CLI path instead of bypassing
+retry/escalation forever; a new `[PATCH_FAILED, UNRESOLVED]` transcript
+marker records the unresolved case distinctly from NEW-2's
+`[EDIT NOT APPLIED]` (whose "after retries and escalation were
+exhausted" wording would be false here).
+
+**implementer** (commit `dfe7057`): added a per-turn `patch_failed_counts`
+dict to `core/agent.py`, a new escalation branch mirroring the existing
+exhausted-retries one, and the new marker. 5 new tests, 263/263 full
+suite passing. Self-caught two real bugs mid-task via its own advisor
+consultation (an empty-`error_log` bug and a false marker-wording case)
+before reporting done.
+
+**code-reviewer**: approved, independently re-verified scoping, key
+population, and elif-chain mutual exclusivity rather than trusting the
+summary; ran the tests live and confirmed the counts matched. Surfaced
+2 adjacent findings, logged not fixed: `NEW-36` (Confirmed — the
+pre-existing exact-duplicate-tool-call guard bypasses this fix entirely
+for identical-`old_str` retries, arguably the more common real-LLM
+failure mode) and `NEW-37` (Suspected — minor `peer_cli.py` wording/
+keyword-matching side effects from `error_log` now carrying
+`[PATCH_FAILED]` file-content text).
+
+**live-verifier** (commit `3f6e4d2`): drove the real `run_agent()`/
+`main._run_with_plan()` entry points with a scripted mocked `infer`
+(no model load; `ps aux | grep llama-server` empty throughout) and a
+real, unmocked `peer_cli.escalate()` call. Confirmed live: the
+escalation prompt fires on the 2nd/3rd same-path failure, declining
+falls through to the new marker (never NEW-2's), no crash/double-fire/
+infinite loop. Found one more real gap: the marker reaches the in-turn
+model context but doesn't survive into saved-session `history` — logged
+as `NEW-38` (Confirmed). Self-corrected an initial overclaim about
+history persistence mid-task per rule 6 rather than letting it stand.
+
+**Verification performed:** real `git diff` review before each handoff;
+real `pytest` output re-run independently, not just re-stated;
+live-verifier's actual terminal output (escalation prompt text, marker
+text) quoted verbatim in its report, not paraphrased.
+
+**Outcome:** `NEW-19` fully done for its scoped case (varied-`old_str`
+repeats). `NEW-36` and `NEW-38` remain open as separate, pre-existing/
+adjacent gaps — not regressions from this change.
+
+**Next action:** Track 2's remaining items — `NEW-25`/`NEW-10` next,
+both CLAUDE.md rule-4 territory (process-lifecycle, need code-reviewer
+regardless of size).
+
+---
+
 ## 2026-07-30 — Track 1 fully closed: interim-disabled skill_recombiner plugins, resolved recovery.py/strategy_tracker overlap, NEW-19 decided
 
 **Correction first (rule 6):** an earlier round this session reported
