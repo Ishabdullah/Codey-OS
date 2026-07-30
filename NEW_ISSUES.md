@@ -267,6 +267,126 @@
     verbatim before scoping an implementer task — not ready to hand off
     yet.
 
+- **Correction (2026-07-30, live-verifier reproduction with real 7B
+  model) — the Round 3 malformed-JSON hypothesis above does not hold up
+  either; correcting per CLAUDE.md rule 6, root cause now Confirmed by
+  direct live reproduction.**
+  - **What Round 3 believed:** that `parse_tool_call()` failed to parse
+    the model's `<tool>` JSON (a JSON-parse failure), and that this made
+    the user see raw broken text that "looks like" a false claim of
+    success.
+  - **What was actually observed live (single warm session, prompt "add
+    a docstring to the shutdown function in main.py", `[Recursive]`
+    planner path):** the model's JSON was **well-formed both times** —
+    `parse_tool_call()` succeeds and `tool_dict` is truthy on both
+    attempts. There is no JSON-parse failure anywhere in this trace. The
+    call was `{"name": "patch_file", "args": {"path": "main.py",
+    "old_str": "", "new_str": "<a whole duplicate shutdown() function>"}}`.
+  - **Confirmed actual mechanism, traced end-to-end:**
+    1. `execute_tool(tool_dict)` calls `tool_patch_file(path, old_str="",
+       new_str=...)`. `tools/patch_tools.py:21-22`'s empty-`old_str`
+       guard (present since commit `8ab96e1`, as Round 3 found) fires
+       and returns the string `"[ERROR] Invalid old_str: empty or not a
+       string"`. This is a normal, working rejection — not a no-op and
+       not swallowed.
+    2. `core/agent.py:480-488` (`is_error()`) sees the `[ERROR]` prefix
+       and returns `True`.
+    3. First attempt: `core/agent.py:1700-1702` — `auto_retries(0) <
+       max_retries(1)` (set at `core/agent.py:1434-1435`) — increments
+       `auto_retries` to 1 and prints exactly the observed `⚠ Error
+       detected — auto-retry 1/1`, then appends the raw `[ERROR]` text
+       to the conversation and `continue`s. This matches what
+       live-verifier saw.
+    4. The model retries and emits the **identical** `old_str: ""` call
+       again (this is the actual planner/prompting gap — see the new
+       NEW-6-adjacent note below). `tool_patch_file` rejects it
+       identically.
+    5. Second attempt: `auto_retries(1) >= max_retries(1)`, so
+       `core/agent.py:1760-1787`'s `elif` branch fires instead of the
+       retry branch: it calls `core/peer_cli.py:303 escalate()`. On this
+       device (no peer CLI configured / user did not opt in), `escalate()`
+       returns `None` (`core/peer_cli.py:318-320` prints its own "No peer
+       CLIs found" warning, or `mgr.confirm()` returns `False` and
+       `core/peer_cli.py:333-335` prints "Peer CLI escalation skipped." —
+       either way this is a *different* warning than the retry one, which
+       is why no second "Error detected — auto-retry" line appeared).
+    6. Falling through the `elif` (comment at `core/agent.py:1787`: "else:
+       user skipped escalation, fall through to normal handling") reaches
+       `core/agent.py:1788` unconditionally, then the `name ==
+       "write_file"` check at `1792` is `False` for `patch_file`, so
+       control lands in the `else` branch at `core/agent.py:1830-1841`:
+       it appends `"Tool result: [ERROR] Invalid old_str...\nNext action
+       or final answer:"` to `messages` and `continue`s the main loop —
+       i.e. the model is invoked a **third** time.
+    7. This third call is where the model, now holding the `[ERROR]`
+       text as context, gives up on re-emitting a tool call and instead
+       replies with plain text: *"Please provide the correct content for
+       the `old_str` argument in the patch_file call."* This is an
+       honest, if easy-to-miss, clarification request — **not** a false
+       claim of success, contrary to Round 1's original framing.
+    8. Because this third response contains no `<tool>` block,
+       `tool_dict` is falsy, `is_hallucination()` doesn't trigger (the
+       response isn't claiming a file/run happened), so execution falls
+       through to `core/agent.py:1869-1873` and returns this text as an
+       ordinary final answer — with no distinct ERROR-level surfacing
+       anywhere in this whole path that an edit was attempted twice and
+       both times rejected. This is the actual "silent" part of
+       "silent no-op": not silent in the sense of "no error was ever
+       produced" (two clear `[ERROR]` strings were produced, correctly,
+       by `patch_tools.py`), but silent in the sense that **neither
+       `[ERROR]` was ever escalated past ordinary conversational turns
+       into something the user is guaranteed to notice** before the
+       session moves on.
+  - **Confirmed via:** `git diff main.py` after the session was
+    completely empty; `main.py:125 def shutdown()` unmodified from HEAD.
+  - **Status: Confirmed root cause** (upgraded from Suspected). The
+    off-by-one retry-budget gating logic from Round 3's hypothesis
+    (`max_retries = 1` meaning only one retry is allowed) was correct in
+    spirit; what was wrong was believing the trigger was a JSON-parse
+    failure and that the user gets a "looks like success" message. The
+    actual trigger is a **failed tool-application** (empty `old_str`
+    rejected by `patch_tools.py`'s existing, correct guard), and the
+    actual user-visible result is an honest clarification question with
+    no explicit "your edit did not apply" error surfaced.
+  - **Scoped fix (handed to implementer):** when the tool-call/retry loop
+    exhausts retries on a `write_file`/`patch_file`/`append_file` call
+    that never produced a successful result (i.e. `is_error()` was still
+    `True` on the last attempt and peer-CLI escalation did not resolve
+    it), `core/agent.py`'s fallthrough at the `else` branch around
+    `core/agent.py:1830-1841` should surface a clear, distinct, ERROR-
+    level message/log stating that an edit was attempted and did **not**
+    apply, rather than silently reusing the generic "Tool result: ...
+    Next action or final answer:" framing that lets the loop end on an
+    ordinary-looking clarification question. Scope is intentionally
+    limited to this surfacing gap — it does **not** include fixing why
+    the `[Recursive]` planner keeps synthesizing `old_str: ""` with a
+    whole duplicate function instead of a targeted edit; that is tracked
+    separately as NEW-6 below.
+
+### [NEW-6] `[Recursive]` planner path may be prompted to synthesize whole functions rather than targeted patches (Suspected, not yet fixed)
+- **Confidence: Suspected.** Observed once, in the same live session that
+  reproduced NEW-2 above; not yet isolated from NEW-2's retry-surfacing
+  gap or confirmed across multiple prompts.
+- **Where found:** Same transcript as NEW-2. The `[Recursive] Draft` /
+  `[Recursive] Review (2/2)` / "Accepted — quality 8/10" path
+  (`core/agent.py:1462-1520`, backed by `core/recursive.py:326
+  recursive_infer()`) both times produced `old_str: ""` with `new_str`
+  containing a **complete duplicate `shutdown()` function** (docstring +
+  body), rather than a minimal patch to the real function at
+  `main.py:125`. `core/recursive.py`'s draft/critique/refine loop
+  (read `core/recursive.py:390-403`) re-invokes the same generic
+  `infer()` on the same message history with critique feedback — there
+  is no `patch_file`-specific prompt telling the model that `old_str`
+  must match existing file content verbatim; the model appears to be
+  treating "add a docstring" as "write a new function" instead of "find
+  and edit the existing one."
+- **Not investigated:** whether this is specific to the `[Recursive]`
+  path or would also happen on the plain (non-recursive) path; whether
+  it's specific to docstring-insertion requests; whether it happens
+  consistently or was one draw from the model. Needs a dedicated
+  scoping pass with multiple live reproductions before an implementer
+  task is written — deliberately not bundled into NEW-2's fix.
+
 ## Found during Round 1 (C-1/H-1/H-4) fix task, 2026-07-29 — NOT fixed, logged only
 
 ### [NEW-1] `pytest tests/` spawns a real 7B `llama-server` and orphans it — matches audit finding L-6
