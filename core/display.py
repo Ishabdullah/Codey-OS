@@ -26,7 +26,7 @@ def show_thinking():
     )
 
 
-def show_file_write(path, content, old_content=None):
+def show_file_write(path, content, old_content=None, error=False):
     """Show a file write as a syntax-highlighted panel.
 
     Memory-conscious: caps preview at 40 lines, diff at 60 lines.
@@ -71,9 +71,9 @@ def show_file_write(path, content, old_content=None):
                 else:
                     diff_text.append(line + "\n", style="dim")
                 shown += 1
-            console.print(
-                Panel(diff_text, title=f"Editing {fname}", border_style="yellow", box=box.ROUNDED)
-            )
+            title = f"WRITE FAILED: {fname}" if error else f"Editing {fname}"
+            border = "red" if error else "yellow"
+            console.print(Panel(diff_text, title=title, border_style=border, box=box.ROUNDED))
         return
     # New file — cap preview before passing to Syntax to avoid Pygments bloat
     if lines_count <= 40:
@@ -81,10 +81,12 @@ def show_file_write(path, content, old_content=None):
     else:
         preview = "\n".join(content.splitlines()[:40]) + f"\n... ({lines_count - 40} more lines)"
     syntax = Syntax(preview, lang, theme="monokai", line_numbers=True)
-    console.print(Panel(syntax, title=f"Creating {fname}", border_style="green", box=box.ROUNDED))
+    title = f"WRITE FAILED: {fname}" if error else f"Creating {fname}"
+    border = "red" if error else "green"
+    console.print(Panel(syntax, title=title, border_style=border, box=box.ROUNDED))
 
 
-def show_patch(path, old_str, new_str):
+def show_patch(path, old_str, new_str, error=False):
     """Show a patch operation as a mini diff."""
     fname = Path(path).name
     diff_text = Text()
@@ -92,9 +94,9 @@ def show_patch(path, old_str, new_str):
         diff_text.append(f"- {line}\n", style="red")
     for line in new_str.splitlines():
         diff_text.append(f"+ {line}\n", style="green")
-    console.print(
-        Panel(diff_text, title=f"Patching {fname}", border_style="yellow", box=box.ROUNDED)
-    )
+    title = f"PATCH FAILED: {fname}" if error else f"Patching {fname}"
+    border = "red" if error else "yellow"
+    console.print(Panel(diff_text, title=title, border_style=border, box=box.ROUNDED))
 
 
 def show_shell(command, output, error=False):

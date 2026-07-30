@@ -407,10 +407,21 @@ def execute_tool(tool_dict):
         # can reclaim it before linting/learning/memory-loading pile on.
         try:
             if _is_write:
-                show_file_write(args.get("path", ""), args.get("content", ""), old_content)
+                _is_err = is_error(result, name)
+                show_file_write(
+                    args.get("path", ""), args.get("content", ""), old_content, error=_is_err
+                )
                 del old_content  # release ~10-50KB before next steps
             elif _is_patch:
-                show_patch(args.get("path", ""), args.get("old_str", ""), args.get("new_str", ""))
+                _is_err = is_error(result, name) or (
+                    isinstance(result, str) and result.startswith("[PATCH_FAILED]")
+                )
+                show_patch(
+                    args.get("path", ""),
+                    args.get("old_str", ""),
+                    args.get("new_str", ""),
+                    error=_is_err,
+                )
             elif name == "shell":
                 is_err = is_error(result, "shell")
                 show_shell(args.get("command", ""), result, error=is_err)
