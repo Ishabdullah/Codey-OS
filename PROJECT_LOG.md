@@ -5,6 +5,99 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-30 — Round 7 (NEW-2): `[EDIT NOT APPLIED]` marker on exhausted retry/escalation, CODE COMPLETE, code-reviewer approved
+
+**Corrected root cause (per Ground Rule 6 — this is the second
+correction of this finding; see `NEW_ISSUES.md` [NEW-2] for the full
+history of both corrections):** live-verifier reproduced `NEW-2` live,
+in a single warm session with the real 7B model, using the same prompt
+that originally surfaced it ("add a docstring to the `shutdown`
+function in `main.py`," `[Recursive]` planner path). The bug is **not**
+a JSON-parse failure (Round 3's hypothesis) and does **not** produce a
+false "success" claim (the original Round 1 framing) — both are now
+retracted. The confirmed mechanism:
+
+1. The model emits a well-formed `patch_file` tool call:
+   `old_str=""`, `new_str=<a whole duplicate shutdown() function>`.
+2. `tools/patch_tools.py`'s existing empty-`old_str` guard (in place
+   since commit `8ab96e1`) correctly rejects it:
+   `"[ERROR] Invalid old_str: empty or not a string"`.
+3. First attempt: `core/agent.py`'s retry path fires —
+   `⚠ Error detected — auto-retry 1/1` — matching what was originally
+   observed.
+4. The model retries with an **identical** failing call. The second
+   rejection is identical, but `auto_retries(1) >= max_retries(1)`
+   (`core/agent.py:1434-1435`), so no second warning prints.
+5. Peer-CLI escalation (`core/peer_cli.py:303 escalate()`) is
+   attempted, returns `None` (no peer CLI configured on this device).
+6. Falling through both the retry and escalation branches lands in the
+   generic `else` fallback (previously `core/agent.py:1830-1841`),
+   which re-invokes the model a third time with the `[ERROR]` text as
+   context. The model responds with an honest but easy-to-miss
+   clarification question ("Please provide the correct content for the
+   `old_str` argument...") — not a false success claim.
+7. `git diff main.py` after the session was empty — `shutdown()` at
+   `main.py:125` was never modified, confirming the silent no-op.
+
+**Fix (commit `55e408c`):** `core/agent.py`'s fallthrough branch
+(~line 1831+) now checks whether the exhausted call was a
+`write_file`/`patch_file`/`append_file` still in an error state per
+`is_error(last_tool_result, name)`, and if so, logs and transcribes an
+explicit marker — `[EDIT NOT APPLIED] <tool> on <path> failed after
+retries and escalation were exhausted — no file was modified.` — before
+the generic fallback turn continues. Added
+`tests/test_new2_edit_not_applied.py`.
+
+**Code-reviewer's independent verification (static/control-flow +
+mocked-test, not a fresh live-model pass — see note below):**
+- Independently ran `git diff` and traced `last_tool_result`'s
+  per-iteration freshness — confirmed it is reassigned every loop
+  iteration from `execute_tool(tool_dict)` before any check, so no
+  staleness risk.
+- Confirmed the new test's `monkeypatch.setattr(agent, "infer",
+  fake_infer)` correctly targets the real module-level import at
+  `core/agent.py:9` — explicitly checked against the NEW-1
+  deferred-import-mismatch bug class and confirmed this is a different
+  situation (`infer` here is a module-level import, unlike
+  `core/memory_v2.py`'s local import that caused NEW-1).
+- Ran the targeted test itself: `1 passed in 0.19s`.
+- Ran the full suite itself: `1 failed, 321 passed, 67 warnings in
+  4.81s` — the one failure is `ccos/tests/test_ccos.py::test_sandbox`,
+  confirmed pre-existing and unrelated (an `echo` command
+  sandbox-path-allowlist issue, in a file this diff never touches).
+- Approved for commit. No Critical or Warning findings. One
+  non-blocking Suggestion: a pre-existing (untouched by this diff)
+  inconsistency at `core/agent.py:1671` where the working-memory-update
+  tuple `("write_file", "patch_file")` excludes `append_file`, unlike
+  the new marker code's three-tuple — logged as a future ticket, not
+  fixed here.
+
+**Verification status:** CODE COMPLETE, code-reviewer approved via
+static/control-flow analysis and pytest, **not** a fresh live-verifier
+pass with the real model against the post-fix code. Only the pre-fix
+bug reproduction was live; that live evidence is what pinned down the
+root cause the fix targets. A logging/control-flow change of this kind
+does not require live-verifier confirmation the way a process-lifecycle
+change would (Ground Rule 4) — the mocked-test + static review is the
+appropriate bar here, but per Ground Rule 7 this is explicitly NOT
+described as "live verified."
+
+**`NEW_ISSUES.md` updates:** [NEW-2] marked Resolved, citing `55e408c`.
+[NEW-7] (recursive planner synthesizing whole duplicate functions with
+`old_str=""` instead of targeted edits) remains open, Suspected,
+explicitly out of scope for this fix. A new Confirmed entry was added
+for `ccos/tests/test_ccos.py::test_sandbox`, a pre-existing test
+failure independently reproduced by both implementer and code-reviewer
+this round, in a file untouched by any of this round's changes.
+
+**This closes the final item of the user's original four-item punch
+list.** NEW-3, NEW-1, NEW-5, and NEW-2 are all now resolved. NEW-6
+(sibling `load_primary()` gap) and NEW-7 (recursive planner prompting)
+remain open — both discovered along the way during this work, not part
+of the original request.
+
+---
+
 ## 2026-07-30 — Round 6 (NEW-5) live-verification: genuine mid-load SIGINT confirmed handled, FULLY LIVE-VERIFIED
 
 **What was verified:** live-verifier independently reproduced a genuine

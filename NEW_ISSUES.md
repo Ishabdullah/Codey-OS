@@ -1,5 +1,17 @@
 # New Issues Found During V3 Overhaul
 
+## Milestone (2026-07-30): all four original punch-list items resolved
+
+The user's original four-item punch list — [NEW-3], [NEW-1], [NEW-5],
+and [NEW-2] — is now fully resolved (see each entry below for its own
+resolution evidence and commit). [NEW-6] (sibling `load_primary()`
+KeyboardInterrupt gap at three call sites in `main.py`) and [NEW-7]
+(the `[Recursive]` planner's tendency to synthesize whole duplicate
+functions with `old_str=""` instead of targeted patches) remain open,
+both rated Suspected — these were discovered incidentally while
+investigating punch-list items, not part of the original request, and
+have not been scoped into implementer tasks yet.
+
 ## Found during Round 3 (NEW-4) live-verification pass, 2026-07-29 — NOT fixed, logged only
 
 ### [NEW-5] `llama-server` child can outlive `gui/start.sh`'s (or any) parent process indefinitely on a TERM/Ctrl+C during mid-load, with no automatic recovery
@@ -190,6 +202,25 @@
 ## Found during H-4 self-race / C-1 short-prompt follow-up task, 2026-07-29 — NOT fixed, logged only
 
 ### [NEW-2] `patch_file` with `old_str: ""` silently no-ops instead of inserting or erroring
+- **Status: Resolved (2026-07-29/30, Round 7, commit `55e408c`).**
+  `core/agent.py`'s fallthrough branch (~line 1831+) now logs and
+  transcribes an explicit `[EDIT NOT APPLIED] <tool> on <path> failed
+  after retries and escalation were exhausted — no file was modified.`
+  marker when a `write_file`/`patch_file`/`append_file` call is still
+  in an error state after both retry and peer-CLI escalation are
+  exhausted, replacing the previous silent fallthrough to a generic
+  "Next action or final answer" turn. code-reviewer independently
+  traced `last_tool_result` freshness, ran the targeted test (`1 passed
+  in 0.19s`) and the full suite (`321 passed, 1 pre-existing unrelated
+  failure`), approved with no Critical/Warning findings. **Code
+  complete, code-reviewer approved — not live-verified against the
+  real model post-fix** (the pre-fix reproduction below was live; the
+  post-fix confirmation is static/control-flow analysis + mocked
+  tests, judged sufficient for this logging/control-flow change per
+  Ground Rule 4/7). See `PROJECT_LOG.md` 2026-07-30 Round 7 entry for
+  full detail. `NEW_ISSUES.md` [NEW-7] (the underlying planner
+  behavior of synthesizing whole duplicate functions instead of
+  targeted patches) remains open, unscoped, tracked separately.
 - **Confidence: Confirmed** (directly observed, not inferred).
 - **Where found:** Live verification of the C-1 short-QA-prompt fix. In a
   single warm `python3 main.py --no-resume` session, after two QA turns
@@ -466,6 +497,30 @@
   actually exercises the inference-unavailable branch it claims to test,
   without triggering a real model load. See fix task scoped in
   `PROJECT_PLAN.md` / handed to implementer.
+
+## Found during Round 7 (NEW-2) full-suite runs, 2026-07-29/30 — NOT fixed, logged only
+
+### [NEW-8] `ccos/tests/test_ccos.py::test_sandbox` fails on this device, pre-existing and unrelated to Round 7's changes
+- **Confidence: Confirmed** (independently reproduced twice — once by
+  implementer, once by code-reviewer running the full suite separately
+  — both during Round 7's NEW-2 work, in `ccos/tests/test_ccos.py`, a
+  file untouched by Round 7's diff).
+- **Where found:** `pytest tests/ ccos/... -q`-style full-suite runs
+  during Round 7 (NEW-2). Result both times: `321 passed, 1 failed`,
+  the failure being `ccos/tests/test_ccos.py::test_sandbox`.
+- **Likely cause (from code-reviewer's read, not yet root-caused in
+  depth):** an `echo` command sandbox-path-allowlist issue in
+  `ccos/core/sandbox.py`'s handling of the test's shell-command case,
+  not related to any file this round's diff touched.
+- **Impact:** cosmetic to Round 7 (doesn't affect its correctness
+  claim, since it's outside the diff), but represents a real,
+  reproducible environment/test gap worth its own investigation.
+- **Not fixed here:** out of scope for Round 7 (NEW-2), which only
+  touched `core/agent.py` and added
+  `tests/test_new2_edit_not_applied.py`. Needs a dedicated look at
+  `ccos/core/sandbox.py`'s `echo`-command allowlist logic and
+  `ccos/tests/test_ccos.py::test_sandbox`'s expectations before scoping
+  a fix.
 
 ## Pre-existing Test Failures (Not Introduced by V3 Changes)
 

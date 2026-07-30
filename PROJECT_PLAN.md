@@ -675,6 +675,60 @@ unguarded pattern at three sibling call sites: `args.init` ~line 1458,
 Suspected, unscoped — not fixed as part of this round. **NEW-2 remains
 as Round 7, the hardest and final item on the punch list.**
 
+### Audit Remediation — Round 7 (NEW-2)
+**Status: CODE COMPLETE, code-reviewer approved** (2026-07-29/30) — fix
+for `NEW_ISSUES.md` [NEW-2]. Root cause was corrected twice during
+investigation (per Ground Rule 6) before landing on the confirmed
+mechanism: live-verifier reproduced the bug live with the real 7B model
+and found it is **not** a JSON-parse failure and **not** a false
+success claim, but a **patch-application failure** — the `[Recursive]`
+planner emits a well-formed `patch_file` call with `old_str=""` and a
+whole duplicate `shutdown()` function as `new_str`; `tools/patch_tools.py`
+correctly rejects it (existing guard since commit `8ab96e1`); the retry
+budget (`max_retries(1)`) is exhausted on an identical second attempt
+with no second warning printed; peer-CLI escalation is unavailable and
+returns `None`; the loop falls through to a generic fallback that
+re-invokes the model, which then asks an honest clarification question
+instead of surfacing that the edit never applied. `git diff main.py`
+confirmed empty (`shutdown()` at `main.py:125` unmodified) — the
+silent no-op.
+- [x] `core/agent.py`'s fallthrough branch (~line 1831+, after retries
+      and escalation are both exhausted for a `write_file`/`patch_file`/
+      `append_file` call still in an error state per `is_error()`) now
+      logs and transcribes an explicit `[EDIT NOT APPLIED] <tool> on
+      <path> failed after retries and escalation were exhausted — no
+      file was modified.` marker before the generic fallback turn.
+      Added `tests/test_new2_edit_not_applied.py`. Commit `55e408c`.
+- [x] code-reviewer independently ran `git diff`, traced
+      `last_tool_result`'s per-iteration freshness (reassigned every
+      loop iteration — no staleness risk), confirmed the new test's
+      `infer` monkeypatch targets the real module-level import at
+      `core/agent.py:9` (explicitly checked against — and confirmed
+      distinct from — the NEW-1 deferred-import-mismatch bug class),
+      ran the targeted test itself (`1 passed in 0.19s`) and the full
+      suite itself (`321 passed, 1 failed` — the one failure being the
+      pre-existing, unrelated `ccos/tests/test_ccos.py::test_sandbox`,
+      in a file this diff never touches). Approved, no Critical or
+      Warning findings. One non-blocking Suggestion logged (pre-existing
+      `("write_file", "patch_file")` tuple at `core/agent.py:1671`
+      excludes `append_file`, unlike the new marker code's three-tuple —
+      not fixed here, own future ticket).
+- [ ] **Not live-verified with the real model post-fix.** The pre-fix
+      bug reproduction was live (real 7B model); the post-fix
+      confirmation is via code-reviewer's static/control-flow analysis
+      plus mocked-test verification only, which is the appropriate bar
+      for a logging/control-flow change (not a process-lifecycle
+      change requiring live-verifier per Ground Rule 4/7). Not marked
+      "live verified" per Ground Rule 7.
+
+**Round 7 (NEW-2) is code complete and code-reviewer-approved — this
+closes the final item of the user's original four-item punch list
+(NEW-3, NEW-1, NEW-5, NEW-2), all now resolved.** `NEW_ISSUES.md`
+[NEW-6] (sibling `load_primary()` gap) and [NEW-7] (recursive planner
+synthesizing whole functions instead of targeted patches) remain open,
+both Suspected/unscoped, discovered along the way but not originally
+requested.
+
 ### Phase 4 — Self-improvement activation (deliberate, not automatic)
 Do NOT start this phase until Phases 1–3 are stable and you've watched the
 system run real coding tasks through the sandbox/safety-veto path for a
