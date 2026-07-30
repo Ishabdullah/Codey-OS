@@ -1,5 +1,78 @@
 # New Issues Found During V3 Overhaul
 
+## Found during root-level/docs UNCLEAR-files cleanup, 2026-07-30 — NOT fixed, logged only
+
+### [NEW-27] Root-level/docs orphaned-markdown audit: discoverability gaps (Confirmed) and two ambiguous files (Suspected)
+- **Status: Confirmed (discoverability gaps), Suspected (AUDIT_REPORT.md
+  disposition, docs/TODO2.md staleness) — not fixed, logged only.** Found
+  while executing the paused WORK_QUEUE.md Track 0 item to resolve
+  `CODEY_OS_MASTER_VISION.md` Section 8's "Root-level and docs/ UNCLEAR
+  files" bullet.
+  - **Confirmed — README doc-table gap:** `MODEL_COMPARISON.md`,
+    `PRIVACY.md`, and `docs/importantdoc.md` all have real, current
+    content but zero inbound links from `README.md`'s docs table (verified
+    via `grep -n "docs/" README.md` and separate greps for each filename —
+    none appear). `Codey-OS-audit.md` is likewise absent from that table,
+    though it is well-referenced elsewhere (`.claude/agents/project-architect.md`,
+    code-reviewer memory, `PROJECT_PLAN.md`, `PROJECT_LOG.md`). Low-severity
+    discoverability issue; a future docs pass could add these to the table.
+  - **Confirmed — QWEN.md stale tree, only partially fixed:** its
+    directory-tree section listed `TODO.md` and `test_patch.txt`, both
+    already gone (`test_patch.txt` confirmed absent via `ls`; `TODO.md`
+    deleted this round) — those two entries were removed this round. The
+    tree remains materially incomplete beyond that: it omits `CLAUDE.md`,
+    `Codey-OS-audit.md`, `PENDING_ISH_DECISIONS.md`, `PROJECT_LOG.md`,
+    `PROJECT_PLAN.md`, `QWEN.md` itself, and `WORK_QUEUE.md` — all
+    current root-level files. Since QWEN.md is read at the start of every
+    Qwen session, a full tree refresh is worth a small follow-up task.
+  - **Suspected — `AUDIT_REPORT.md` disposition unresolved:** read in
+    full (351 lines). It is a June-13-2026 "Codey-V3" era
+    architecture/feature-inventory + investor-pitch document — confirmed
+    NOT a duplicate of `Codey-OS-audit.md` (a July-29 severity-rated bug
+    audit; different purpose entirely). Content is stale (predates CCOS
+    and the Codey-OS rename) but not a clean duplicate, so it wasn't
+    deleted unilaterally per CLAUDE.md rule 8's "flag rather than delete
+    anything ambiguous." Needs Ish's call: archive vs. delete outright.
+  - **Suspected — `docs/TODO2.md` staleness unverified:** a 2026-03-29
+    (v2.7.2-era) deferred-items list, not linked from README, not
+    re-verified against current code. One item is already contradicted:
+    it claims `validate_command_structure` was "removed in v2.7.1," but
+    `grep -rl validate_command_structure --include="*.py" .` shows it
+    still present in `tools/shell_tools.py` and
+    `tests/security/test_shell_injection.py`. Other referenced symbols
+    (`plannd`, `peer_shell`, `_is_review`, `SECONDARY_MODEL_PATH`) do
+    still exist, so the file isn't wholesale dead either. A note was
+    added to the file itself; a scoped re-verification pass of its 10
+    items is needed before deciding keep/archive/delete — not adjudicated
+    here.
+
+## Found during dynamic model-tier routing architecture exploration, 2026-07-30 — NOT fixed, logged only
+
+### [NEW-24] `core/lora_import.py:336` calls `loader.load_secondary()`, which doesn't exist on `ModelLoader`
+- **Status: Confirmed, not fixed.** Found while exploring the model
+  loader (`core/loader_v2.py`) during the PENDING_ISH_DECISIONS /
+  master-vision architecture round for dynamic model-tier routing.
+  `core/loader_v2.py`'s `ModelLoader` class implements only
+  `load_primary()` and `unload()` — no `load_secondary()` method exists
+  anywhere on the class. `core/lora_import.py:336` calls
+  `loader.load_secondary()` regardless, as part of
+  `swap_to_finetuned_model`'s reload-after-swap logic.
+  - **Why this matters:** this is a latent `AttributeError` waiting to
+    fire the first time `swap_to_finetuned_model` actually runs through
+    that code path — `SECONDARY_MODEL_PATH` (Qwen2.5-Coder-1.5B) is
+    configured in `utils/config.py` and clearly intended to be loadable,
+    but the loader method it depends on was never written.
+  - **Out of scope for this round** — found during read-only exploration
+    for an architecture-planning session (updating
+    `CODEY_OS_MASTER_VISION.md` Section 7), not during implementation.
+    Logging per CLAUDE.md rule 8 rather than silently fixing it.
+  - Likely relevant to Section 7.4's planned slot-aware loader API
+    (`acquire`/`release`), which would need to properly support a second
+    concurrently-loadable model anyway — worth resolving as part of that
+    work rather than as an isolated patch, since a one-off
+    `load_secondary()` method would just be superseded by the slot API
+    shortly after.
+
 ## Found during Phase 3 entry-point scoping pass, 2026-07-30 — NOT fixed, logged only
 
 ### [NEW-22] `README.md:53` misdescribes `gui/start.sh` as something `codey-start` orchestrates, and three independent copies of "start gui/server.py + PID file + trap-kill" logic exist
@@ -68,7 +141,12 @@
   - **Not fixed this round** — flagged for Ish's decision alongside the
     Phase 3 entry-point checklist.
 
-### [NEW-24] `CODEY_OS_MASTER_VISION.md` Section 6a and `QWEN.md`'s tree listing still name `codey3`/`codeyd3` as the fragmented entry points being replaced, but the actual files in the repo are `codeyOS`/`codeydOS` — `codey3`/`codeyd3` don't exist on disk
+### [NEW-26] `CODEY_OS_MASTER_VISION.md` Section 6a and `QWEN.md`'s tree listing still name `codey3`/`codeyd3` as the fragmented entry points being replaced, but the actual files in the repo are `codeyOS`/`codeydOS` — `codey3`/`codeyd3` don't exist on disk
+
+**(Renumbered from a duplicate NEW-24 to NEW-26 on 2026-07-30 — two
+unrelated issues had been assigned the same ID; content unchanged, ID
+corrected only, to keep IDs unique per the convention documented in
+`WORK_QUEUE.md`.)**
 - **Status: Suspected, not fixed** (2026-07-30). Found while executing
   the Phase 3 entry-point cleanup round (NEW-22/NEW-23/main.py doc
   task). `ls codey3 codeyd3` at repo root returns "No such file or

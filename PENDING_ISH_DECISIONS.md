@@ -94,10 +94,66 @@ whatever comes next — flagging here so it doesn't get lost again.
 
 ---
 
-## Decisions needed from Ish
+## Decisions — resolved 2026-07-30
 
-For each of sections 1–3: wrap now, wrap later with a redesigned
-consent/safety mechanism, or leave manual-only indefinitely? No urgency —
-these are all working fine as manual-only paths today.
+### 1. Fine-tuning / model swapping — **manual-only indefinitely**
+No further work. Stays reachable only via `main.py --import-lora`.
 
-For section 4: schedule `observability.py`'s wrap.
+### 2. Daemon control — **wrap now, redesigned** (in progress)
+Not a straight wrap of the existing functions — Ish specified a new design:
+
+- `daemon_shutdown` is repurposed from a directly-callable kill into an
+  autonomous safety tripwire: the daemon self-terminates if it detects
+  ~20 minutes of sustained severe thermal + >90% CPU usage. Not agent- or
+  user-triggered; a condition the daemon watches for itself.
+- `command` (socket handler) is no longer a direct "run this now" entry
+  point — it becomes queue-only. Callers enqueue work; the daemon pulls
+  from the queue on its own schedule.
+- The daemon must never do work while the user has the TUI or GUI open
+  (mutual exclusion between daemon activity and interactive use).
+- The daemon must only pull from the queue when resources actually allow
+  it — RAM, battery, CPU, and temperature all gate whether/how often it
+  runs anything, not just "is the queue non-empty." This is explicitly
+  forward-looking: more models running concurrently are expected later,
+  so the gating needs to be resource-aware now, not just model-count-aware.
+- Queue semantics for now: simple FIFO add/delete. Reordering
+  (moving items within the list) is a known, explicitly deferred future
+  feature — not in scope for this round.
+- `core/observability.py` (see item 4 below) is folded into this same
+  round, since the resource-gating logic needs exactly the introspection
+  (CPU/mem/temp/queue depth) that module already provides but was never
+  wired up.
+
+This is a process-lifecycle change (daemon start/stop, kill/shutdown
+logic) — per CLAUDE.md rule 4, requires code-reviewer's explicit approval
+before commit regardless of size.
+
+### 3. Peer CLI escalation — **wrap later, with a redesigned consent
+mechanism** (not started — design only, captured here)
+
+Ish's direction for the redesign: if a daemon-queued item needs peer CLI
+escalation, the daemon does not block waiting for human consent. Instead
+it:
+1. Pulls that item out of the main work queue,
+2. Adds it to a separate "needs escalation review" list,
+3. Sends the user a notification that an item is waiting on their review,
+4. Continues working the rest of the main queue in the meantime.
+
+The escalation-review list is only acted on when the user is ready to
+review/approve those specific items — it's a decoupled, async,
+human-gated queue distinct from the main work queue. This is a real
+design task in its own right (new consent mechanism), not yet scoped
+into implementation work.
+
+### 4. `core/observability.py` — **folded into item 2's work**, not a
+standalone task. The daemon-control redesign's resource-gating logic is
+exactly what needs to read from this module, so wiring it up happens as
+part of that round rather than separately.
+
+---
+
+## Status
+
+Only item 2 (daemon control redesign, with item 4 folded in) is queued
+as active work. Items 1 and 3 have decisions recorded above but no
+further action pending.

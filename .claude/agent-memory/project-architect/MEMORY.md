@@ -1,0 +1,15 @@
+- [C-2 GUI security status](project_c2_gui_security_status.md) — FULLY LIVE-VERIFIED 2026-07-29 via real gui/start.sh launch; Round 2 closed
+- [Verification wording precision](feedback_verification_wording_precision.md) — use exact tier user specifies (code-complete / scratch-verified / fully live-verified), don't collapse to a binary
+- [Punch list closed Round 7](project_punch_list_closed_round7.md) — NEW-3/1/5/2 resolved (55e408c); NEW-6 resolved Round 8 (435c120); NEW-7/8/9 open, NEW-9 new
+- [NEW-9 atfork race status](project_new9_atfork_race_status.md) — 2 consecutive fix attempts (1a1c0b7, 2aaabb1) live-verified incomplete; still open, escalated to Ish twice
+- [Round 11 (NEW-12) closed](project_round11_new12_closed.md) — dual-launcher fix (59f4f69) live-verified 2026-07-30 via log/completion/teardown evidence, not literal ps; NEW-13 spun off, open
+- [Round 12 (NEW-13) closed](project_round12_new13_closed.md) — thermal-restart wired into loader_v2 (0935cbd), fully live-verified 2026-07-30 (811209c); NEW-7/9/11 + NEW-12 deferred items remain open
+- [Round 13 (NEW-11) closed](project_round13_new11_closed.md) — watchdog real-liveness fix (ab13a8d) fully live-verified 2026-07-30 (0c2635b) after 2 full-stack crashes + 1 self-abort; succeeded via lighter daemon-only harness
+- [NEW-14 swap-pressure finding](project_new14_swap_pressure_finding.md) — full codeydOS start (3 concurrent models) hits 7.5-8.5Gi swap in ~40s on this device; observational, not a bug, prefer daemon-only harness for future live-verifies
+- [Round 14 (NEW-7) scoping](project_round14_new7_scoping.md) — desk-only pass, no live session; CODEY_RECURSIVE env toggle + /clear command enable a clean 2-session x 4-prompt repro plan, not yet run
+- [Round 14 (NEW-7) results](project_round14_new7_results.md) — 6/8 draws run (f1a9896): NOT recursion-specific, 67% fail rate; spawned NEW-15 (severe write_file escalation), NEW-16, NEW-17, NEW-18
+- [Round 15 (NEW-15) closed](project_round15_new15_closed.md) — write_file syntax-check guardrail (7756581) code complete, reviewer live-behavior-verified, docs closeout 7599a65; NEW-16/17/18 + NEW-7 still open
+- [Round 16 (NEW-16) closed](project_round16_new16_closed.md) — show_patch/show_file_write error styling (99d922f) code complete, reviewer-approved, no live session needed; NEW-19 opened, NEW-7/9/17/18 still open
+- [Round 17 (NEW-17) closed](project_round17_new17_closed.md) — scoped git auto-commit fix (f4f51fa) code complete, reviewer ran own adversarial pre-staged-file test, docs closeout c23003d; NEW-7/9/18/19 + NEW-12 deferred items still open
+- [Round 18 (NEW-18/20/21)](project_round18_new18_new20_new21.md) — inconclusive investigation (c266e85), no code changed; NEW-18 corrected (still open), NEW-20 (stdin spin-loop, good next-round fix candidate) and NEW-21 (load-time swap spike) newly Confirmed
+- [Phase 3 closed](project_phase3_closed.md) — commit 0c6c7d7/63ab3df; NEW-22 only resolved in part (gui/start.sh gone, duplication remains); NEW-23 resolved

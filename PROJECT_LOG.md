@@ -5,6 +5,221 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-30 — Root-level/`docs/` UNCLEAR-files cleanup (Track 0): TODO.md deleted, three files flagged for Ish, discoverability gap logged
+
+Executed the `WORK_QUEUE.md` Track 0 item to resolve `CODEY_OS_MASTER_VISION.md`
+Section 8's "Root-level and docs/ UNCLEAR files" bullet, paused since the
+2026-07-27 repo audit and never itemized. Reviewed all root-level and
+`docs/` markdown files not already part of the active tracking-doc set;
+the 12 `docs/*.md` files linked from `README.md`'s doc table (all touched
+2026-07-29/30) needed no action.
+
+Of the 8 flagged-suspicious files:
+- **`TODO.md` — deleted.** Its checked items are historical (preserved in
+  `CHANGELOG.md`); every unchecked item (74 `== False`, 129 F401, 1343
+  E501, etc.) is already tracked at `NEW_ISSUES.md:1813-1823` and
+  `WORK_QUEUE.md:208-209`. `docs/TODO2.md` (which describes itself as
+  deferred from `TODO.md`) updated with a note pointing to the deletion
+  and its replacement trackers.
+- **`Codey-OS-audit.md`, `MODEL_COMPARISON.md`, `PRIVACY.md`,
+  `docs/importantdoc.md` — kept, active/current content.** None appear in
+  README's docs table (confirmed via grep) — a discoverability gap, not a
+  staleness problem. Logged as NEW-27.
+- **`QWEN.md` — kept**, active (equivalent to `CLAUDE.md` for the Qwen CLI
+  tool). Its directory-tree section referenced the now-deleted `TODO.md`
+  and the already-deleted `test_patch.txt`; those two entries removed, but
+  the tree still omits 7 other current root-level files — not fully
+  fixed, logged as part of NEW-27.
+- **`CHANGELOG.md` — kept, active**, linked from `README.md` and
+  `docs/version-history.md`.
+- **`AUDIT_REPORT.md` — not deleted, read in full.** Confirmed it is not a
+  duplicate of `Codey-OS-audit.md` (different purpose: June-13 "Codey-V3"
+  architecture/investor-pitch snapshot vs. July-29 severity-rated bug
+  audit). Stale but not a clean duplicate — per CLAUDE.md rule 8, flagged
+  rather than deleted. Needs Ish: archive or delete.
+- **`docs/TODO2.md` — kept, staleness unverified.** 2026-03-29/v2.7.2-era
+  deferred-items list; at least one claim already contradicted by current
+  code (`validate_command_structure` described as removed, still present
+  in `tools/shell_tools.py`). Needs a scoped re-verification pass.
+
+`CODEY_OS_MASTER_VISION.md` Section 8's bullet rewritten with the full
+itemized breakdown above. `NEW_ISSUES.md` NEW-27 logs the two remaining
+open items (Suspected) and the discoverability gap (Confirmed). Not
+committed by project-architect — files staged individually, `WORK_QUEUE.md`
+left untouched for Ish/the calling agent to update.
+
+---
+
+## 2026-07-30 — `WORK_QUEUE.md` created: single ordered worklist consolidating all open items across every tracking doc, plus two new agent-review tasks
+
+Ish asked for one consolidated, ordered list covering everything still
+outstanding across `PENDING_ISH_DECISIONS.md`, `PROJECT_PLAN.md`,
+`NEW_ISSUES.md`, and `CODEY_OS_MASTER_VISION.md`, plus two new review
+passes (agent-tool-designer over CCOS's capability manifests,
+prompt-engineer over the planner/coder prompts), plus a stated convention
+for logging future issues in a consistent place as work proceeds.
+
+**Inventory pass** (via project-architect, full read of all four docs,
+not skimmed) surfaced several things worth recording here directly:
+- Two unrelated `NEW_ISSUES.md` entries had collided on the same ID
+  (`NEW-24` used twice). Fixed this round: the `codey3`/`codeyd3`
+  naming-drift issue renumbered to **NEW-26**; content unchanged, ID
+  corrected only.
+- Confirmed live (not from memory) that `PENDING_ISH_DECISIONS.md` item 2
+  (daemon control redesign) is **100% decisions-on-paper** —
+  `ccos/plugins/system/daemon_control/manifest.json` on disk still shows
+  the pre-decision Phase 2 shape, no tripwire/queue-only/resource-gating
+  code exists anywhere.
+- Several older residual/deferred items were confirmed still genuinely
+  open and not just stale bookkeeping: `NEW-22`'s GUI-launch-duplication
+  residual, `NEW-12`'s three remaining sub-items, `NEW-7`'s incomplete
+  characterization, `NEW-9`'s twice-escalated atfork race, Round 1's
+  never-live-verified H-1 fallback path, and both paused cleanup lists
+  from the original repo audit (paused "until sign-off," which happened
+  2026-07-27 and was never revisited).
+- Two Phase 0/Section 5 checkboxes were found stale — the underlying
+  questions were already answered, the boxes just never got ticked.
+
+**`WORK_QUEUE.md` created** with five tracks, in dependency order:
+- **Track 0** — hygiene (stale checkboxes, paused cleanup lists, the
+  ID-collision fix above).
+- **Track 1** — the two new audits (agent-tool-designer over
+  `ccos/plugins/*/manifest.json`; prompt-engineer over
+  `prompts/system_prompt.py`/`layered_prompt.py`/`critique_prompts.py`
+  and `core/plannd.py`'s `PLANNER_PROMPT`), sequenced *before* Phase 5b/5c
+  so that work builds on an audited baseline instead of retrofitting it
+  later.
+- **Track 2** — independent bugs/security items not blocked by Phase 5
+  (`NEW-25`, `NEW-10`, `NEW-12` residuals, `NEW-22` residual, `NEW-8`,
+  `NEW-7`, the unassigned security-hardening backlog, Round 1's H-1
+  live-verify gap). `NEW-9` explicitly flagged as "get Ish's call,"
+  not "attempt a third fix by default," per its two prior escalations.
+- **Track 3** — Phase 5's six sub-phases (5a–5f), now explicitly
+  interleaved with `PENDING_ISH_DECISIONS.md` items 2 and 3 rather than
+  tracked as separate efforts, since item 2 shares 5a's resource-gate
+  foundation and item 3's design directly reuses item 2's queue plus
+  5d's task-context blackboard.
+- **Track 4** — docs and lower-priority cleanup, explicitly no hard
+  blockers on the earlier tracks.
+- **Parked** — Phase 4 (self-improvement activation), unchanged: gated
+  on explicit sign-off and an observation period, not something this
+  queue reaching its end unlocks by itself.
+
+Also established the ongoing convention (stated in `WORK_QUEUE.md`
+directly): new issues found during any of this work still go into
+`NEW_ISSUES.md` with the next sequential ID (next free: NEW-27) — this
+file doesn't duplicate that log, it just adds cross-references both ways
+when a new issue touches an active queue item.
+
+**Status: planning/consolidation only, no code changes.** Next actionable
+step is `WORK_QUEUE.md` Track 0's remaining items, then Track 1's two
+audits.
+
+---
+
+## 2026-07-30 — PENDING_ISH_DECISIONS.md resolved (4 items) + dynamic model-tier routing & cross-plugin orchestration architecture round (doc-only, no code)
+
+**Part 1 — PENDING_ISH_DECISIONS.md decisions (all four items resolved):**
+1. Fine-tuning/model-swap capabilities (`swap_to_finetuned_model`,
+   `merge_lora_with_llama_cpp`, `import_lora_adapter`) — **manual-only
+   indefinitely**, no further work.
+2. Daemon control (`daemon_shutdown`, `command`) — **wrap now, redesigned**:
+   `daemon_shutdown` becomes an autonomous thermal/CPU safety tripwire
+   (self-terminate after ~20 min sustained >90% CPU + severe thermal, not
+   directly callable); `command` becomes queue-only; daemon never runs
+   while TUI/GUI is active; queue consumption gated on live RAM/battery/
+   CPU/temp headroom, not just queue non-emptiness; FIFO add/delete now,
+   reordering explicitly deferred. `core/observability.py`'s wrap (the
+   fourth pending item) folds into this same round, since the resource-
+   gating logic needs exactly the introspection it provides.
+3. Peer CLI escalation — **wrap later, redesigned consent**: a
+   daemon-queued item needing escalation is pulled out, parked on a
+   separate review list, triggers a user notification, and the daemon
+   continues the main queue; the review list is worked only when the
+   user is ready.
+4. `core/observability.py` — folded into item 2, not standalone.
+
+Full detail recorded in `PENDING_ISH_DECISIONS.md`'s "Decisions — resolved
+2026-07-30" section. **Status: decisions logged only — no implementation
+yet.** Only item 2 (+ item 4 folded in) is queued as active future work;
+items 1 and 3 have no further action pending.
+
+**Part 2 — Dynamic model-tier routing & cross-plugin orchestration
+(architecture round, `CODEY_OS_MASTER_VISION.md` Section 7 added):**
+
+Ish's direction: the coding capability (and future capability domains —
+research, a "secretary"-type plugin) should classify task difficulty and
+route to a fast/heavy model tier instead of running one fixed model pair
+always; Codey-OS as an OS should also be able to split one request across
+multiple capability domains (e.g. research → coding) with real context
+handoff between them, reachable identically from CLI/TUI/GUI/daemon.
+
+Explored and confirmed via direct code inspection (not assumed) before
+writing anything: `capability_registry`/`tool_router` do lexical
+keyword-matching only, no semantic classification; `agent_orchestrator`'s
+5-agent deliberation loop is fully implemented but never called at
+runtime; no model-tier routing exists anywhere today (fixed 7B coder /
+1.5B planner); the coding agent (`core/agent.py`) is not itself a CCOS
+capability and is reached via two independently-diverging call paths
+(CLI/GUI via `main.py`, daemon via `core/task_executor.py` with its own
+permission overrides); the daemon already has **three** direct
+`get_loader()` call sites (`core/daemon.py:509,556,587`) independent of
+any future resource gate — confirmed live via `grep`, this is the
+project's concrete repeat-crash risk, not theoretical; no shared
+cross-plugin memory exists (`ccos_memory` has zero plugin consumers); one
+compound skill (`skill_camera_capture_tts`) genuinely sequences capability
+calls across two plugin categories but silently discards each step's
+computed data instead of passing it to the next step.
+
+**Design decisions made with Ish:**
+- Planner model family (stay on Qwen2.5 vs. adopt a different family)
+  explicitly **deferred** until resource-aware loading infrastructure
+  exists and can be validated on-device — not decided this round.
+- Resource policy: **adaptive, not fixed-rule** single-slot swapping.
+  A single resource-gate authority checks live headroom (device_manager +
+  sysmon/thermal/observability) minus a safety margin and decides
+  load/unload/keep-resident dynamically — expressed device-agnostically
+  since this is expected to run on higher-RAM hardware later, not just
+  today's ~12GB device.
+- Cross-plugin memory: **not** a general shared-memory grant (rejected
+  after discussion — would create a single point of failure across every
+  plugin and undercut the existing rationale for keeping the coding
+  agent's memory private). Landed on a narrower design instead: each
+  capability domain keeps its own private memory exactly as isolated as
+  today; a new, purpose-built **task-context blackboard**, keyed by
+  task/step ID, holds only what a capability explicitly publishes for a
+  later step to read — never ambient access to another domain's private
+  memory. Reuses `ccos_memory`'s SQLite/event-log machinery for
+  implementation convenience but as a distinct table/namespace, not a
+  repurposing of `ccos_memory`'s existing skills/workflows/configs tables.
+
+**Deliverables this round (doc-only, no implementation):**
+- `CODEY_OS_MASTER_VISION.md` Section 7 added ("Planned Architecture:
+  Dynamic Model-Tier Routing & Cross-Plugin Orchestration"), explicitly
+  marked planned/not-built; Section 6 (non-goals) and Section 3's coding-
+  agent capability row updated to cross-reference it; sections renumbered
+  (old 7→8, old 8→9) to make room.
+- A six-phase, dependency-ordered rollout plan recorded in Section 7.6:
+  (1) resource gate + slot-aware loader, including migrating the daemon's
+  existing direct loader calls onto it; (2) task classifier + tier config
+  for the coding domain; (3) wrap `core/agent.py` as a real capability and
+  unify its two existing call paths onto that boundary; (4) in-flight
+  context-passing fix + task-context blackboard, designed together;
+  (5) wire `agent_orchestrator`'s deliberation to real execution;
+  (6) multi-domain request splitting. Full plan preserved at
+  `~/.claude/plans/so-codey-os-is-an-hidden-turing.md`.
+- `NEW_ISSUES.md` [NEW-24] logged: `core/lora_import.py:336` calls
+  `loader.load_secondary()`, which doesn't exist on `ModelLoader` — a
+  latent bug found during exploration, out of this round's scope,
+  likely worth resolving as part of rollout phase 1's slot-aware loader
+  API rather than as an isolated patch.
+
+**Status: architecture/doc round only.** No code changes. Next actionable
+step is handing rollout phase 1 (resource gate + slot-aware loader) to
+project-architect for concrete task scoping in a future round.
+
+---
+
 ## 2026-07-30 — Phase 3 CLOSED: entry-point cleanup decisions executed (commit `63ab3df`) — `gui/start.sh` and `ccos_main.py` deleted, `main.py` documented as-is, docs/spec corrected throughout
 
 Phase 3's final checklist item — the three remaining Phase 3 loose ends

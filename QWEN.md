@@ -174,9 +174,7 @@ Codey-OS/
 ├── README.md
 ├── requirements.txt                  # Core + pipeline dependencies
 ├── setup.sh
-├── setup_repo.sh
-├── test_patch.txt
-└── TODO.md
+└── setup_repo.sh
 
 ## Ground rules for working in this repo
 

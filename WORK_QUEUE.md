@@ -1,0 +1,244 @@
+# Work Queue — One Ordered List, Everything Outstanding
+
+**Purpose:** every other tracking doc (`PENDING_ISH_DECISIONS.md`,
+`PROJECT_PLAN.md`, `PROJECT_LOG.md`, `NEW_ISSUES.md`,
+`CODEY_OS_MASTER_VISION.md`) still holds its own detail and stays the
+source of truth for that detail — this file doesn't duplicate it. What
+this file adds is the thing none of them have: **one sequence to actually
+work through**, across all of them, so a session can start here instead
+of re-deriving order from four separate documents each time.
+
+Built 2026-07-30 from a full read-through of all four tracking docs
+(see `PROJECT_LOG.md`'s 2026-07-30 entry for the inventory this was based
+on). Update this file's checkboxes and "Currently here" pointer as items
+close — don't let it go stale the way a couple of the source docs' own
+checkboxes had (Phase 0's `symbolic_graph` box, Section 5's Open Question
+#3 — both already resolved in substance, never ticked).
+
+---
+
+## How new issues get logged as we go
+
+Keep using `NEW_ISSUES.md` exactly as it already works — next sequential
+`NEW-##` ID (currently next free: **NEW-28**, after `NEW-27` was logged
+this round from the UNCLEAR-files audit below), rated Confirmed or
+Suspected, same format as existing entries.
+The only addition: if a newly-found issue blocks or changes a specific
+item in this queue, **cross-reference the queue item's name/number
+inline** in both directions — a line in the `NEW_ISSUES.md` entry pointing
+at the queue item, and a note added under that queue item here pointing
+at the new `NEW-##`. That's the "logical place" — new issues don't get a
+separate log; they get a normal `NEW_ISSUES.md` entry plus a two-way
+pointer if they touch active queue work.
+
+Per CLAUDE.md rule 8, anything found outside a task's current scope still
+gets logged, not silently fixed or dropped, even mid-queue-item.
+
+---
+
+## Track 0 — Hygiene (do first; cheap, no dependencies, clears noise)
+
+- [x] Fix `NEW-24` ID collision (two unrelated issues shared one ID) —
+      done this round: renumbered the `codey3`/`codeyd3` naming-drift
+      issue to **NEW-26**.
+- [x] Tick `PROJECT_PLAN.md` Phase 0's stale `core/symbolic_graph.py`
+      checkbox — the underlying question was answered 2026-07-27
+      (Section 5, Open Question 1), the box was just never checked.
+- [x] Close `PROJECT_PLAN.md` Section 5, Open Question 3 ("confirm Phase
+      1's pilot choice") — moot in practice (Phase 1 shipped and
+      downstream work already built on it); struck through rather than
+      left looking open.
+- [x] Revisit the paused "small cleanup list" (6 confirmed-safe-to-delete
+      files from the original repo audit) — 5 of 6 were already deleted
+      in commit `dd49c1d`; the 6th (`ccos/plugins/research/__init__.py`)
+      turned out to be a required package marker, not actually
+      safe-to-delete (the original audit's UNUSED classification was
+      wrong — it's structurally identical to the equally-empty
+      `__init__.py` in every sibling plugin dir). `CODEY_OS_MASTER_VISION.md`
+      Section 8 corrected to reflect this.
+- [x] Revisit the paused root-level/`docs/` UNCLEAR files from the same
+      audit — handed to `project-architect`: `TODO.md` deleted (fully
+      superseded by `NEW_ISSUES.md`/`WORK_QUEUE.md`), `QWEN.md`'s stale
+      tree partially fixed, everything else kept. Two items need Ish's
+      input (logged as `NEW-27`, Suspected): `AUDIT_REPORT.md`'s
+      archive-vs-delete disposition, and `docs/TODO2.md`'s staleness
+      needing scoped re-verification. Also surfaced a Confirmed
+      discoverability gap (three real docs missing from README's docs
+      table) — also under `NEW-27`.
+
+## Track 1 — Audits (new this round; do before deeper Phase 5 work since findings feed into it)
+
+- [ ] **Tool/capability audit** — hand to `agent-tool-designer`: review
+      every `ccos/plugins/*/manifest.json` against what its
+      `implementation` function actually does; flag stale descriptions,
+      under-declared `hardware_requirements`/`dependencies`, and any
+      capability that should be added, split, or removed. Do this before
+      Phase 5c (wrapping `core/agent.py` as a capability) so that new
+      capability is designed against a clean baseline, not an unaudited
+      one.
+- [ ] **Prompt audit** — hand to `prompt-engineer`: review
+      `prompts/system_prompt.py`, `prompts/layered_prompt.py`,
+      `prompts/critique_prompts.py`, and `core/plannd.py`'s
+      `PLANNER_PROMPT` for the 7B coder / 1.5B planner. Do this before
+      Phase 5b (task classifier + tier config), since 5b's tier-specific
+      prompting work will build directly on top of whatever these look
+      like — better to fix known issues once than fix them, then retrofit
+      tier variants of the broken version.
+- [ ] Compare `core/recovery.py`'s built-in success-rate tracking against
+      `core/strategy_tracker.py` (flagged possible duplicate tracking,
+      `CODEY_OS_MASTER_VISION.md` Section 8) — resolve before `recovery.py`
+      is wired up any further.
+- [ ] Scope `NEW-19` (design question: is `[PATCH_FAILED]`'s bypass of
+      retry/escalation logic correct, does it need its own transcript
+      marker) — a design decision, not a fix; needs a decision recorded
+      before it can become a task.
+
+## Track 2 — Independent bug/security fixes (real risk exposure now; not blocked by Phase 5, can run in parallel with Track 1/3)
+
+- [ ] `NEW-25` — `codeyOS --daemon` forwards a literal `$@` string
+      instead of real args (backslash-escape bug outside the heredoc).
+      Process-lifecycle-adjacent → needs code-reviewer per CLAUDE.md
+      rule 4.
+- [ ] `NEW-10` — `main.py` has no `SIGTERM` handler at all; a direct
+      SIGTERM bypasses every existing guard. Rule 4 territory.
+- [ ] `NEW-12` residual items 2–4 (only item 1 was fixed in Round 11):
+      no single named `SERVER_PORT` constant across
+      `loader_v2.py`/`inference.py`/`inference_hybrid.py`; the 1.5B
+      planner's config (`PLANNER_MODEL_PATH`/`PLANND_SERVER_PORT`) is
+      defined but never wired into any launcher, and `docs/configuration.md`
+      documents the wrong default; no real cross-process flock/pidfile
+      lock closes the daemon-vs-CLI port race (only an HTTP probe exists).
+      Worth doing alongside Phase 5a below since 5a is also touching the
+      loader/config surface.
+- [ ] `NEW-22` residual — `codey-start` and `codeyOS` each still
+      independently reimplement the same GUI-launch/PID-file/trap-kill
+      pattern (confirmed still present at HEAD). Adjacent to `NEW-12`'s
+      dual-launcher class.
+- [ ] `NEW-8` — `ccos/tests/test_ccos.py::test_sandbox` fails on this
+      device (pre-existing, unrelated to any round's changes) — likely a
+      sandbox path-allowlist issue for `echo`; needs its own investigation.
+- [ ] `NEW-7` — `[Recursive]` planner synthesizes whole duplicate
+      functions instead of targeted patches (Confirmed, ~67% failure
+      rate, not recursion-specific). Characterization is incomplete —
+      the b3/b4 draws (loader_v2 error-handling and patch_tools rename
+      prompts on the plain path) were never finished. Finish
+      characterizing, then fix.
+- [ ] Security hardening backlog (from `NEW_ISSUES.md`'s bottom section,
+      never assigned NEW-IDs — give them IDs when picked up):
+      command-injection-via-filename in `agent.py:863-865` (partially
+      addressed, finish it); daemon shell allowlist too broad in
+      `task_executor.py:47-52` (documented, not changed); Unix socket
+      auth in `core/daemon.py` (peer-UID check exists, token-based auth
+      recommended as a real enhancement, not yet built).
+- [ ] `PROJECT_PLAN.md` Round 1's H-1 fallback path — mechanism-verified
+      only, never live-triggered. Finish the live verification (rule 5:
+      no claim stands on mechanism-verification alone).
+- [ ] **Flag to Ish, don't default-fix:** `NEW-9`'s residual atfork race
+      has already been escalated twice (Rounds 9 and 10, each an improvement
+      but neither a full close, per CLAUDE.md's stop-and-escalate rule).
+      This queue item is "get Ish's call on accept-residual-risk vs. a
+      third attempt with a new angle," not "attempt fix #3" by default.
+
+## Track 3 — Foundational architecture (the big one; strictly sequential, each step depends on the last)
+
+This is `PROJECT_PLAN.md` Phase 5 (5a–5f) plus the two related
+`PENDING_ISH_DECISIONS.md` items that share its foundation — sequenced
+together here because building them separately would duplicate the
+resource-awareness work twice.
+
+1. [ ] **Phase 5a — Resource gate + slot-aware loader.** Foundation;
+       everything below depends on it. Give `loader_v2` a slot concept;
+       build the single resource-gate authority (device_manager + live
+       sysmon/thermal/observability, headroom-minus-margin, never a
+       hardcoded number); migrate `core/daemon.py`'s three existing
+       direct `get_loader()` calls onto it. Fold in `NEW-24`
+       (`load_secondary()` doesn't exist) as part of this work. Use
+       `NEW-14`/`NEW-18`/`NEW-21`'s swap/RAM observations as validation
+       data for the safety-margin sizing.
+2. [ ] **`PENDING_ISH_DECISIONS.md` item 2 — daemon control redesign.**
+       Sequence directly alongside/after 5a since it needs the same
+       resource-gate authority: `daemon_shutdown` becomes an autonomous
+       thermal/CPU tripwire, `command` becomes queue-only, daemon never
+       runs while TUI/GUI is active, queue consumption gated on the same
+       live headroom check 5a builds. `core/observability.py`'s wrap
+       (item 4) folds in here. **Status: currently 100% decisions-on-paper,
+       zero implementation** (confirmed by inspecting the live
+       `daemon_control/manifest.json` — still pre-decision shape).
+3. [ ] **Phase 5b — Task classifier + tier config**, coding domain only.
+       Reconcile with (don't duplicate) `core/orchestrator.py:is_complex()`
+       and the daemon's separate `planner_client`/`planner_v2`/
+       `planner_service` paths. Planner model family choice stays
+       deferred to this phase's on-device validation. Benefits directly
+       from Track 1's prompt audit having already landed.
+4. [ ] **Phase 5c — Wrap `core/agent.py` as a real CCOS capability**,
+       migrating both existing call paths (`main.py` for CLI/GUI,
+       `core/task_executor.py` for the daemon) onto one boundary, with
+       the wrapper owning its own permission surface explicitly. This
+       is also where Phase 2 item 7's deferred work (wrapping recursive
+       self-refinement) gets picked back up — same capability boundary.
+       Benefits from Track 1's tool audit having already landed.
+5. [ ] **Phase 5d — In-flight context-passing fix + task-context
+       blackboard**, designed together: `plugin_manager.call_capability`
+       gets a threaded context argument (fixing `skill_recombiner.py`'s
+       generator, not hand-patching generated files); new scoped
+       task-context table for durable cross-step handoffs — not a
+       general shared-memory grant, not a repurposing of `ccos_memory`'s
+       existing tables.
+6. [ ] **`PENDING_ISH_DECISIONS.md` item 3 — peer CLI escalation redesign.**
+       Sequence here, after item 2's queue and 5d's blackboard exist,
+       since its design (daemon pulls an item needing escalation out of
+       the main queue, parks it on a separate review list, notifies the
+       user, keeps working the rest of the queue) directly reuses both.
+       Currently 100% design-only, zero implementation.
+7. [ ] **Phase 5e — Wire `agent_orchestrator`'s deliberation to real
+       execution.** Cheap (heuristic, not model-backed) but the Safety
+       Agent's veto becomes live against real actions for the first
+       time — treat that as a behavior change to flag, not just a wiring
+       task. Depends on 5c (coding agent must be a capability to be a
+       routing target).
+8. [ ] **Phase 5f — Multi-domain request splitting** (e.g. "research X,
+       then implement it"). Depends on 5c, 5d, and 5e — first point
+       where capability-as-plugin, context-passing, and the durable
+       blackboard all compose.
+
+## Track 4 — Docs & lower-priority cleanup (interleave anytime; no hard blockers on Tracks 0–3)
+
+- [ ] `docs/architecture.md` rewrite — best done after Phase 5c lands, so
+      it can describe the coding agent as an actual CCOS capability
+      instead of describing a pre-Phase-5 state that's already stale by
+      then.
+- [ ] `docs/commands.md` gaps — 12 missing slash commands, ~13 missing
+      CLI flags, one possibly-stale flag (`--rollback`).
+- [ ] `ccos/core/telemetry_engine.py` dedup-key collision bug (uses
+      timestamp+id() instead of uuid4()/an atomic counter) — real,
+      pre-existing, causes intermittent test flakiness. Found during an
+      unrelated rename-verification pass; still not fixed.
+- [ ] TTS — both `core/voice.py` and `ccos/plugins/speech/tts_speech` are
+      confirmed broken. Get one working, verify it, remove the other.
+      STT has no CCOS equivalent at all regardless of the TTS outcome.
+- [ ] Code quality backlog: unused imports (129 F401), line length
+      (1343 E501), comparison style (74 E712) — none addressed yet.
+- [ ] Testing gaps: no daemon-mode integration tests, no path-traversal
+      tests.
+- [ ] Security guide docs — unclear whether they reflect recent changes;
+      needs a read-through to confirm.
+
+## Parked — gated, not part of the active sequence
+
+- **`PROJECT_PLAN.md` Phase 4 — self-improvement activation**
+  (`auto_improvement_loop`, `capability_optimizer`, `skill_recombiner`,
+  `goal_engine`). Per CLAUDE.md rule 1 and the phase's own gate: do not
+  start until Phases 1–3 (done) plus a meaningful period of observed
+  real-task operation through the sandbox/safety-veto path has actually
+  elapsed, and Ish gives explicit, direct, in-session sign-off — not
+  inferred from this queue reaching the end of Track 3. Revisit the
+  activation criteria themselves (compound-skill approval gate, goal
+  approval gate) when that time comes; don't pre-decide them here.
+
+---
+
+## Currently here
+
+**Track 0 fully done (2026-07-30).** Next up: Track 1's two audits
+(tool/capability audit via `agent-tool-designer`, prompt audit via
+`prompt-engineer`) before Phase 5 work begins in earnest.

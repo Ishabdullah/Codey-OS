@@ -106,9 +106,10 @@ resource limits).
 - [x] Confirm `ccos/` and `core/` are currently unconnected
 - [x] Decide: build forward from v3+CCOS, retire v4
 - [x] New repo `Codey-OS` created, seeded from Codey-v3, remote repointed
-- [ ] Confirm disposition of `core/symbolic_graph.py` — exists in v3, was
+- [x] Confirm disposition of `core/symbolic_graph.py` — exists in v3, was
       dropped in v4. Ask Ish whether this was intentional before deciding
-      whether to keep it in the merged base.
+      whether to keep it in the merged base. **Resolved 2026-07-27**
+      (Section 5, Open Question 1): keep it, it's load-bearing.
 - [ ] Migrate any still-accurate doc/changelog history from v4 into this
       project's docs (not a priority; do after Phase 1 stabilizes)
 
@@ -1278,6 +1279,56 @@ meaningful period.
       initially
 - [ ] Only after explicit sign-off, wire these into the live execution path
 
+### Phase 5 — Dynamic model-tier routing & cross-plugin orchestration
+(architecture round complete 2026-07-30; implementation not started)
+
+Full architecture recorded in `CODEY_OS_MASTER_VISION.md` Section 7 and
+`PROJECT_LOG.md`'s 2026-07-30 entry. Six-phase, dependency-ordered rollout
+— each sub-phase needs its own project-architect scoping pass before
+implementation starts:
+
+- [ ] **5a** — Resource gate + slot-aware loader API. Give `loader_v2` a
+      slot concept (acquire/release/list current slots); build a single
+      resource-gate authority (device_manager + live sysmon/thermal/
+      observability signals, "headroom minus safety margin," never a
+      hardcoded number); migrate `core/daemon.py`'s three existing direct
+      `get_loader()` calls (lines 509, 556, 587) onto it. Foundation —
+      must land first.
+- [ ] **5b** — Task classifier + tier config, coding domain only.
+      Non-LLM heuristic classifier; `(domain, role, tier) → model`
+      config; must reconcile with (not duplicate) the coding plugin's
+      existing separate planner-invocation paths
+      (`core/orchestrator.py:is_complex()` vs. the daemon's
+      `planner_client`/`planner_v2`/`planner_service`). Planner model
+      family choice explicitly deferred to this phase's on-device
+      validation, not decided in the architecture round.
+- [ ] **5c** — Wrap `core/agent.py` as a real CCOS capability, migrating
+      both existing call paths (`main.py` for CLI/GUI, `core/task_executor.py`
+      for the daemon) onto that one boundary rather than adding a third
+      path. Capability wrapper must own its own permission surface
+      (confirm_shell/confirm_write) explicitly, not inherit the calling
+      context's overrides.
+- [ ] **5d** — In-flight context-passing fix (`plugin_manager.call_capability`
+      gets a threaded context argument, fixing `skill_recombiner.py`'s
+      generator so all three existing compound skills regenerate
+      correctly) + task-context blackboard (new, scoped table — not a
+      general shared-memory grant, not a repurposing of `ccos_memory`'s
+      existing tables). Designed together.
+- [ ] **5e** — Wire `agent_orchestrator`'s 5-agent deliberation to real
+      execution. Cheap (heuristic, not model-backed) but the Safety
+      Agent's veto becomes live against real actions for the first time —
+      flag as a behavior change, not just a wiring task. Depends on 5c
+      (coding agent must be a capability to be a routing target).
+- [ ] **5f** — Multi-domain request splitting (e.g. "research X, then
+      implement it"). Depends on 5c, 5d, and 5e — first point where
+      capability-as-plugin, context-passing, and the durable blackboard
+      all compose.
+
+Related, logged separately: `NEW_ISSUES.md` [NEW-24]
+(`core/lora_import.py:336` calls a nonexistent `loader.load_secondary()`)
+— worth folding into 5a's slot-aware loader work rather than patching in
+isolation.
+
 ---
 
 ## 5. Open Questions (need your input before proceeding)
@@ -1292,8 +1343,11 @@ meaningful period.
    file-by-file deletion carefully rather than by inference.
 2. ~~Do we rename the project?~~ **Resolved 2026-07-27:** new repo created
    as `Codey-OS`.
-3. Confirm Phase 1's pilot choice (RAG retrieval) makes sense to you, or
-   would you rather pilot with something else first?
+3. ~~Confirm Phase 1's pilot choice (RAG retrieval) makes sense to you, or
+   would you rather pilot with something else first?~~ **Moot as of
+   2026-07-30:** Phase 1 shipped (COMPLETE 2026-07-28) and downstream work
+   already built on top of it — striking rather than leaving it looking
+   open.
 
 ---
 

@@ -3,9 +3,20 @@
 **Created:** 2026-03-29
 **Version:** v2.7.2
 
-Items in this file are deferred from TODO.md. Each entry explains **why** it
-was deferred, the **recommended implementation approach**, and the **risk**
-if left unaddressed.
+Items in this file were originally deferred from TODO.md (deleted 2026-07-30
+as fully superseded by `WORK_QUEUE.md`/`NEW_ISSUES.md` — its unchecked
+lint-debt items live at `NEW_ISSUES.md:1813-1823` and `WORK_QUEUE.md:208-209`).
+Each entry explains **why** it was deferred, the **recommended
+implementation approach**, and the **risk** if left unaddressed.
+
+**Note (2026-07-30):** this file itself predates the Codey-OS rename/CCOS
+unification (created 2026-03-29, v2.7.2) and has not been re-verified
+against the current codebase — some referenced symbols still exist
+unchanged (`plannd`, `peer_shell`, `_is_review`), but at least one claim is
+already contradicted (`validate_command_structure` is described as
+"removed in v2.7.1" yet is still present in `tools/shell_tools.py` and
+`tests/security/test_shell_injection.py`). Treat individual items as
+unverified until re-checked, not as confirmed-current backlog.
 
 ---
 

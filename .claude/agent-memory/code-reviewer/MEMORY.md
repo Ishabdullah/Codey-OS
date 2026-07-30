@@ -1,0 +1,20 @@
+- [Working tree accumulates unstaged cross-round changes](working_tree_cross_round_bleed.md) — check `git status` scope before approving a "submitted in isolation" sub-task
+- [GUI/C-2 remediation is a 3-part sequence](gui_c2_remediation_sequence.md) — bind-host, WS Origin allowlist, session token; review each in isolation, don't assume later parts fix earlier gaps
+- [daemon check_pid_file self-PID guard verified/approved](daemon_self_pid_check_verified.md) — how to re-check codeydOS's PID pre-write premise if this logic changes again
+- [WS Origin missing-header bypass — RESOLVED](ws_origin_missing_header_bypass.md) — fixed & approved in gui/server.py; re-check only if sub-task 3 (session token) touches this guard
+- [C-2 sub-task 3/3 session token — APPROVED](gui_c2_session_token_sub3_approved.md) — closes 3-part sequence; access-log token-leak caveat logged to NEW_ISSUES, not blocking
+- [gui/start.sh --dashboard-only (NEW-4) — APPROVED](start_sh_dashboard_only_approved.md) — single trap/PID reused correctly; latent last-positional-arg-wins gotcha noted, not blocking
+- [gui/server.py NEW-3 access_log=None — APPROVED](gui_new3_access_log_disabled_approved.md) — closes token-in-logs caveat from C-2 sub3; verified real aiohttp kwarg
+- [main.py NEW-5 KeyboardInterrupt/SystemExit fix — APPROVED](main_py_new5_keyboardinterrupt_fix_approved.md) — static analysis of get_pid/unload null-safety + singleton reuse
+- [Termux signal delivery unreliable in Bash-tool sandbox](termux_signal_delivery_unreliable_in_sandbox.md) — SIG_IGN on backgrounded jobs + variable latency; don't trust live-repro of SIGINT this way
+- [NEW-2 EDIT NOT APPLIED marker — APPROVED](new2_edit_not_applied_approved.md) — verified is_error/last_tool_result timing, real infer() patch site, live 321/1 suite run
+- [main.py NEW-6 KeyboardInterrupt fix (3 CLI sites) — APPROVED](main_py_new6_keyboardinterrupt_fix_approved.md) — same pattern as NEW-5, verified return-exits-main and no double-shutdown
+- [loader_v2.py NEW-9 pthread_sigmask fix — APPROVED](loader_v2_new9_sigmask_approved.md) — closes SIGINT-during-fork swallow bug; Warning: child inherits blocked-SIGINT mask across fork+exec, not currently exploitable
+- [NEW-12 inference.py launcher delegation — APPROVED](new12_inference_launcher_delegation_approved.md) — dupe llama-server launcher removed; Warning: orphaned thermal restart_recommended flag now has no consumer
+- [NEW-13 thermal restart_recommended re-consumer — APPROVED](new13_thermal_restart_reconsumer_approved.md) — closes NEW-12 warning; loader_v2.ensure_model() re-wires flag via unload()+load_primary(), verified thread count picked up fresh
+- [NEW-11 daemon watchdog liveness check — APPROVED](new11_daemon_watchdog_liveness_check.md) — stale get_loaded_model() replaced with real is_running(); flags idle-time thermal-restart cadence change as non-blocking
+- [NEW-15 write_file syntax guard — APPROVED](new15_write_file_syntax_guard_approved.md) — live-verified fail-open matches patch_tools's own precedent; no unit test for new path (Suggestion, not blocking)
+- [NEW-16 show_patch/show_file_write error display — APPROVED](new16_show_patch_write_error_display_approved.md) — [PATCH_FAILED] inline check scoped correctly, isinstance guard load-bearing (bare except swallows AttributeError), retry sites untouched
+- [NEW-17 scoped git commit staging — APPROVED](new17_git_commit_scoped_staging_approved.md) — trailing `-- <paths>` on `git commit` (not just `git add`) is load-bearing; verified via scratch-repo pre-staged-file test
+- [NEW-20 main.py isatty() paste guard — APPROVED](new20_main_isatty_paste_guard_approved.md) — piped-stdin select() hang fixed; pty-verified TTY paste-glue still works; live-verifier pass still recommended
+- [NEW-22/23 entry-point cleanup (gui/start.sh, ccos_main.py deletion) — APPROVED](new22_23_entrypoint_cleanup_approved.md) — independent grep confirmed zero live refs; PROJECT_PLAN.md checklist closeout still pending (non-blocking, follow-up commit expected)
