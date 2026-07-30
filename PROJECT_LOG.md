@@ -5,6 +5,72 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-30 — NEW-25 and NEW-10 closed: daemon arg-forwarding fixed, SIGTERM handler installed
+
+**NEW-25** (commit `d60c0d3`): `codeyOS --daemon`'s `python3 "$TMPSCRIPT"
+"\$@"` had a stray backslash outside the heredoc, causing the outer
+shell to pass the literal two-character string `$@` to `main.py` instead
+of real arguments — `codeyOS --daemon --threads 4` silently dropped
+`--threads 4`. One-character fix, matches the already-correct
+direct-mode branch elsewhere in the same file. code-reviewer approved:
+verified syntax, confirmed no `shift` was needed, grepped for other
+instances of the same bug class (none found), confirmed nothing depends
+on the old behavior.
+
+**NEW-10** (commit `720ee81`): `main.py` installed no `SIGTERM` handler
+at all, so `SIGTERM` had `SIG_DFL` disposition — immediate kernel-level
+termination bypassing every `try/except (KeyboardInterrupt, SystemExit):
+shutdown()` guard, including mid-model-load, where an orphaned
+`llama-server` child is the real cost. Installed a module-level
+`_sigterm_handler` that only `raise SystemExit(128 + signum)` (no
+I/O/cleanup inside the handler itself — mirrors CPython's own
+`SIGINT`→`KeyboardInterrupt` default handling), registered as the first
+statement in `main()`. Reuses the 4 real exception-guarded
+`shutdown()` call sites with zero new shutdown-calling logic.
+
+code-reviewer independently verified placement, guard reuse,
+`shutdown()`/`SIGINT` untouched, the daemon-mode handoff (`core/daemon.py`
+installs its own `SIGTERM` handler shortly after), and reproduced real
+`kill -TERM` → `SystemExit(143)` delivery independently rather than
+trusting the implementer's claim.
+
+**Correction applied before commit (rule 6):** the implementer's own
+self-flagged follow-up (`NEW-40`) initially claimed the REPL's
+`input()`-wait guard behaved "same as SIGINT already does today" —
+code-reviewer found this false: that guard genuinely catches and cleans
+up `SIGINT` today, so `SIGTERM` is newly asymmetric there, not at
+parity. Corrected in both `NEW_ISSUES.md` and the code comment before
+commit — caught a second overgeneralization in my own first-pass fix
+(claiming the SAME asymmetry applied to the initial-prompt branch too,
+which doesn't call `shutdown()` for `SIGINT` there either) and corrected
+that as well before finalizing.
+
+**New adjacent issues logged, not fixed:** `NEW-39` (pre-existing,
+unrelated test fragility — 3 of `NEW-19`'s tests fail with a stdin
+`OSError` when `main.py` has a dirty git tree, since `core/agent.py`'s
+auto-commit prompt isn't mocked in those tests; reproduced by
+`git stash`/`pop`) and `NEW-40` (two REPL code paths outside the 4
+model-load guards still don't run `shutdown()` on `SIGTERM` — not a
+regression, but a real, live gap for a future scoped task).
+
+**Verification performed:** real `git diff`/`pytest` output at every
+handoff; code-reviewer's independent re-verification (not trusting
+summaries) of placement, guard reuse, daemon interaction, and signal
+delivery; full suite re-run after commit confirmed 266/266 passing
+(dirty-tree test fragility from `NEW-39` cleared once `main.py`'s
+changes were committed, as expected).
+
+**Outcome:** Track 2's `NEW-19`, `NEW-25`, and `NEW-10` are all now
+fully closed for this session. `NEW-36`, `NEW-37`, `NEW-38`, `NEW-39`,
+`NEW-40` remain open as separate, adjacent, not-regressions.
+
+**Next action:** Track 2's remaining items — `NEW-12` residual (2-4),
+`NEW-22` residual, `NEW-8`, `NEW-7`, the security hardening backlog,
+`H-1` live verification, and the flagged-not-default-fixed `NEW-9`
+atfork item.
+
+---
+
 ## 2026-07-30 — NEW-19 fully closed: implemented, code-reviewed, live-verified
 
 **What changed:** Ran the full implementer → code-reviewer → live-verifier
