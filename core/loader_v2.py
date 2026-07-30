@@ -385,6 +385,21 @@ class ModelLoader:
     def ensure_model(self, model_type: str = "primary") -> bool:
         """Ensure the model is loaded and running."""
         if self._loaded and self._server and self._server.is_running():
+            try:
+                from core.thermal import get_thermal_manager
+
+                tm = get_thermal_manager()
+                if tm.restart_recommended:
+                    info(f"Thermal: restarting server with {tm.current_threads} threads...")
+                    self.unload()
+                    tm.restart_recommended = False
+                    return self.load_primary()
+            except Exception:
+                # Thermal check is best-effort only — any failure here (import
+                # error, unexpected attribute, etc.) must never block normal
+                # model loading/inference, so we fail open and keep the
+                # server running on its current thread count.
+                pass
             return True
         return self.load_primary()
 
