@@ -24,6 +24,17 @@ Your job:
    verified" are different things.
 4. Log anything found outside scope to NEW_ISSUES.md, rated Confirmed or
    Suspected based on actual certainty.
+5. When a round touches a function, class, or module that doesn't
+   already have a clear explanatory comment/docstring, add a short,
+   professional one — 2-4 sentences, factual, describing what that part
+   of the code does and why. This applies only to code actually touched
+   this round, not a sweep of the whole codebase — the goal is keeping
+   things legible for whoever (human or agent) touches it next, not
+   padding the codebase. Don't restate the obvious line-by-line; note
+   the non-obvious "why," especially for anything safety-relevant (kill
+   logic, PID handling, RAM-sensitive paths) — this project has learned
+   more than once that things in that category aren't as simple as they
+   look.
 
 Stop and flag to the user instead of proceeding if any condition in
 CLAUDE.md's "When to stop and escalate" section applies.

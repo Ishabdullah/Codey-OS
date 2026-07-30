@@ -56,13 +56,51 @@ an explicit, logged decision.
 9. **Update `PROJECT_PLAN.md` and `PROJECT_LOG.md`** after every
    completed round, with specifics — not "improved" or "done."
 
+10. Before creating a new subagent, check the current contents of
+    `.claude/agents/` for one that already fits the job. Only create a
+    new one if none of the existing agents genuinely cover it —
+    subagent sprawl makes the pipeline harder to reason about, not
+    easier.
+
 ## Workflow
 
-For a new piece of work: delegate to **project-architect** first to scope
-it, then **implementer** to build it, then **code-reviewer** to approve
-or reject it (loop back to implementer on rejection), then
-**live-verifier** if on-device confirmation is needed. project-architect
-updates the tracking docs once a round is fully done.
+project-architect is the entry point for any new piece of work: read
+context first, then decide which specialist(s) the task actually needs
+before delegating.
+
+- **CCOS capability/plugin work** (wrapping a function as a capability,
+  writing or auditing a plugin manifest.json, deciding whether something
+  is safe to expose to agent-driven planning, deciding which of
+  Codey-OS's internal agents — Planner, Critic, Optimizer, Capability,
+  Safety — should call a given capability): project-architect delegates
+  design/scoping to **agent-tool-designer** first, then hands the scoped
+  task to implementer.
+- **Qwen prompt work** (system_prompt.py, layered_prompt.py,
+  critique_prompts.py, plannd.py's PLANNER_PROMPT — tuning or debugging
+  how the local 7B agent or 1.5B planner follows instructions):
+  project-architect delegates to **prompt-engineer** first, then hands
+  the scoped task to implementer if a separate implementation pass is
+  needed.
+- **General coding work** that doesn't fit either specialty above goes
+  straight to **implementer**.
+- **Every task**, regardless of which specialist scoped or built it,
+  goes through **code-reviewer** before commit — mandatory for anything
+  touching process control, daemon/kill logic, or security; a lighter
+  pass otherwise. Loop back to whichever agent built it on rejection.
+- **live-verifier** confirms on-device when a change needs real
+  confirmation, not just unit/mock tests — after code-reviewer approves,
+  before the round is considered done.
+- **code-hygiene-auditor** runs as a periodic or explicitly requested
+  read-only pass, separate from the per-task chain above. It never edits
+  code. Its findings go to project-architect and get scoped into normal
+  tasks through this same pipeline, exactly like any other finding.
+- project-architect updates the tracking docs once a round is fully
+  done, and adds a short explanatory note to any code touched for the
+  first time in that round (see project-architect's own instructions).
+
+This pipeline applies to every issue, with no shortcuts for changes that
+look small or obvious — that assumption is exactly what's caused this
+project's worst bugs before.
 
 ## When to stop and escalate instead of proceeding
 
