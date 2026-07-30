@@ -1025,6 +1025,51 @@ not scoped as a fix), plus the two earlier-deferred items from NEW-12
 (cross-process port lock, planner auto-launcher). Next round to be
 decided with the user.
 
+### Audit Remediation — Round 14 (NEW-7)
+**Status: investigation-complete but partial (6 of 8 planned draws) —
+NOT a fix round. No code changed. No implementer task scoped this
+round, per explicit instruction.**
+- [x] Desk scoping pass (mechanism re-verification, reproduction plan
+      design) — no live session.
+- [x] Live-reproduction pass: two sequential single-model-load REPL
+      sessions (Session A recursive/default env, Session B
+      `CODEY_RECURSIVE=0`/plain, confirmed via absent `[Recursive]`
+      labels), 4 prompts planned per session (8 draws total).
+- [x] 6 of 8 draws completed; stopped early at genuine swap-thrashing
+      (swap 8.9Gi, `llama-server` RSS collapsed to ~2MB) per CLAUDE.md
+      rule 2's explicit instability instruction — a safe, correct stop.
+- [x] Settled the open "is it recursion-specific" question: **no** — the
+      literal `old_str: ""` bug reproduced once on each path (a2
+      recursive, b1 plain); a related hallucinated-`old_str` variant
+      reproduced twice more (a1, b2). Combined 4/6 completed draws (67%)
+      failed the docstring-insertion prompt.
+- [ ] Not yet run: b3/b4 (loader_v2 error-handling and patch_tools
+      rename prompts on the plain path) — needed for a clean same-path
+      comparison across all 3 prompt styles before NEW-7 can be called
+      fully characterized. Deferred to a future round.
+- [x] `NEW_ISSUES.md` [NEW-7] updated: status upgraded from Suspected to
+      Confirmed, reproducible, ~67% failure rate on the docstring
+      prompt, confirmed not recursion-specific — still open, still
+      unfixed.
+- [x] Four additional structural findings logged (none fixed, no
+      implementer task scoped): `NEW_ISSUES.md` [NEW-15] (a
+      `write_file` full-file-reconstruction escalation after
+      `patch_file` failure, placed in the wrong location in one draw —
+      flagged as likely higher priority than NEW-7 itself given its
+      full-file-data-loss potential), [NEW-16] (the patch-preview UI
+      panel renders as success even when the underlying patch failed,
+      in all 4 failed draws), [NEW-17] (the post-edit commit offer
+      scopes to all working-tree changes, not just the current turn's),
+      [NEW-18] (a single lightweight REPL session hit the same severe
+      swap-thrashing as the full 3-model stack, after only 2 model calls
+      with retries).
+
+**Round 14 (NEW-7) is NOT closed — investigation-complete-but-partial,
+not a completed fix.** NEW-7 itself remains open/unfixed (much better
+characterized now). NEW-15 through NEW-18 are newly open, unfixed, with
+no implementer tasks scoped. Next round (continue NEW-7's remaining 2
+draws vs. prioritize NEW-15's severity) to be decided with the user.
+
 ### Phase 4 — Self-improvement activation (deliberate, not automatic)
 Do NOT start this phase until Phases 1–3 are stable and you've watched the
 system run real coding tasks through the sandbox/safety-veto path for a

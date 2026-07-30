@@ -5,6 +5,88 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-30 — Round 14 (NEW-7): live-reproduction/investigation pass, 6 of 8 planned draws — NOT a fix round; 4 new structural issues logged (NEW-15 through NEW-18)
+
+**This was an investigation round, not an implementation round** — no
+code changes, no implementer task scoped, per the round's explicit
+"investigation/logging only" instruction.
+
+**What was tested:** two sequential single-model-load
+`python3 main.py --no-resume` REPL sessions, testing whether NEW-7's
+`old_str: ""` planner bug is recursion-specific: Session A (recursive
+path, default env) and Session B (`CODEY_RECURSIVE=0`, plain path —
+confirmed via absence of `[Recursive]` labels in the transcript, not
+just assumed from the env var). Plan called for 4 prompts per session
+(8 draws total); 6 completed before the live-verifier stopped early at
+genuine swap-thrashing, per CLAUDE.md rule 2's explicit instability
+instruction — a safe, correct stop, not a failure.
+
+**Result — settles the open "is it recursion-specific" question (answer:
+no), correcting NEW-7's prior "Suspected... observed once" status:**
+- The literal `old_str: ""` bug reproduced in 2/6 completed draws (a2 —
+  recursive, repeat docstring prompt; b1 — plain, first docstring
+  prompt), one on EACH path.
+- A related variant — non-empty but hallucinated `old_str` (assuming
+  `shutdown()` is a one-line `pass` stub instead of its real ~15-line
+  body) — occurred in 2 more draws (a1, b2).
+- Combined: **4 of 6 completed draws (67%) failed** to produce a valid
+  patch on the "add a docstring to `shutdown()`" prompt, split evenly
+  between the two failure variants.
+- The two other prompt styles tried (loader_v2 error-handling; a
+  patch_tools rename) did not reproduce any variant in the draws that
+  ran (a3, a4) — a4 in particular produced a correct, real `old_str`
+  substring match. Not fully confirmed as prompt-specific since the
+  plain-path versions of these two prompts (b3, b4) were never run
+  (stopped for swap-thrashing) — flagged in `NEW_ISSUES.md` [NEW-7] as
+  the remaining gap for a follow-up round.
+
+**RAM discipline evidence (real, verbatim, all clean teardowns by
+tracked PID):**
+```
+Pre-Session-A:        4.9Gi free / 7.0Gi available, swap 1.6Gi
+Mid-Session-A:        163Mi free / 2.0Gi available, swap 3.6Gi
+Post-Session-A:       4.8Gi free / 6.8Gi available, swap 1.6Gi
+Mid-Session-B (b1):   653Mi free / 2.0Gi available, swap 2.2Gi
+After b2:             swap 8.9Gi used, llama-server RSS ~2MB (nearly
+                      fully swapped out), CPU 113% — genuine
+                      swap-thrashing, stopped immediately
+Post-forced-teardown: 4.8Gi free / 7.0Gi available, swap 1.9Gi
+```
+Full recovery confirmed, no orphaned processes.
+
+**Four additional, distinct structural findings surfaced beyond NEW-7
+itself, logged per CLAUDE.md rule 8 (none fixed this round):**
+- **`NEW_ISSUES.md` [NEW-15]** (Confirmed, likely highest-priority
+  finding of this round) — after `patch_file` failed in both plain-path
+  draws (b1, b2), the model autonomously escalated to a `write_file`
+  call attempting to reconstruct the ENTIRE `main.py` (62,975 chars)
+  from its own context, mid-generation when the turn ended; in b1 the
+  reconstructed function was placed in the wrong location entirely. Only
+  `AGENT_CONFIG["confirm_write"] = True` prevented actual data loss.
+- **`NEW_ISSUES.md` [NEW-16]** (Confirmed) — `core/agent.py`'s
+  `show_patch()` renders the "Patching `<file>`" UI panel unconditionally,
+  regardless of whether the patch actually succeeded; observed in all 4
+  failed draws, each confirmed via `git diff` showing no actual change.
+- **`NEW_ISSUES.md` [NEW-17]** (Confirmed) — `core/agent.py`'s
+  `check_git_and_offer_commit()` offers to commit ALL working-tree
+  changes (not just the current turn's), and fired against a
+  pre-existing unrelated dirty `NEW_ISSUES.md` in every draw this round.
+- **`NEW_ISSUES.md` [NEW-18]** (Confirmed) — the lightweight
+  daemon-free REPL harness (previously assumed low-risk per NEW-13's
+  live-verification) hit the same severe swap-thrashing (8.9Gi swap)
+  after just 2 model calls with retries — swap-pressure risk is not
+  limited to the full 3-model `codeydOS start` stack (NEW-14).
+
+**Status: Round 14 is investigation-complete but partial (6/8 draws).**
+NEW-7 remains open/unfixed, now much better characterized. NEW-15
+through NEW-18 are newly logged, all open/unfixed, no implementer task
+scoped for any of them yet — next-round prioritization to be decided
+with the user (NEW-15 in particular looks like it may warrant more
+urgency than completing NEW-7's remaining 2 draws, given its
+full-file-data-loss potential).
+
+---
+
 ## 2026-07-30 — Round 13 (NEW-11): daemon watchdog checks real process liveness, not a stale flag — code complete, code-reviewer approved, fully live-verified (after a crash-strewn path to get there)
 
 **Fix (commit `ab13a8d`):** `core/daemon.py`'s 30s periodic watchdog

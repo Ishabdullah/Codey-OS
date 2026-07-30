@@ -1003,7 +1003,7 @@ remain open, deferred to a future round.
     whole duplicate function instead of a targeted edit; that is tracked
     separately as NEW-7 below.
 
-### [NEW-7] `[Recursive]` planner path may be prompted to synthesize whole functions rather than targeted patches (Suspected, not yet fixed)
+### [NEW-7] `[Recursive]` planner path may be prompted to synthesize whole functions rather than targeted patches (Confirmed, reproducible, ~67% failure rate on the docstring-insertion prompt style — NOT recursion-specific — still not fixed)
 - **Confidence: Suspected.** Observed once, in the same live session that
   reproduced NEW-2 above; not yet isolated from NEW-2's retry-surfacing
   gap or confirmed across multiple prompts.
@@ -1026,6 +1026,288 @@ remain open, deferred to a future round.
   consistently or was one draw from the model. Needs a dedicated
   scoping pass with multiple live reproductions before an implementer
   task is written — deliberately not bundled into NEW-2's fix.
+
+- **Round 14 (2026-07-30) — desk scoping pass, no live session run.**
+  Mechanism re-verified against current code (line numbers below refreshed
+  from Round 1's citation, which had drifted). No fix or reproduction was
+  attempted this round — this only refines the reproduction plan handed to
+  the next live-verification round.
+  - `core/agent.py:1467` — `_use_recursive = step == 1 and not is_qa and
+    RECURSIVE_CONFIG.get("enabled", True)`. `RECURSIVE_CONFIG["enabled"]`
+    (`core/recursive.py:111-118`) is controlled by the `CODEY_RECURSIVE`
+    env var: `1` forces on, `0` forces off, unset defaults to on for the
+    local backend (which is what this device uses). **This is a clean,
+    already-existing knob to isolate recursive vs. plain path across two
+    separate sessions** — no code change needed to test both paths.
+  - Even when `_use_recursive` is `True`, `core/agent.py:1477-1485` calls
+    `classify_breadth_need()` (`core/recursive.py:138-165`) first; a
+    "minimal" classification (short Q&A-shaped messages) still takes the
+    plain `infer()` call, not `recursive_infer()`. "Add a docstring to the
+    shutdown function in main.py" (10 words, contains the action keyword
+    "add") classifies as "standard" → `max_depth=1` → one real
+    draft/critique/refine cycle through `recursive_infer()`
+    (`core/agent.py:1487-1496`), matching the originally observed
+    `[Recursive] Draft (1/2)` → `[Recursive] Review (2/2)` transcript.
+  - **New structural finding, relevant to root-causing (not yet a fix):**
+    the draft-phase system prompt (`build_recursive_prompt(phase="draft")`,
+    aliased as `core/agent.py:614 build_system_prompt()`) is IDENTICAL
+    between the plain and recursive paths — both are seeded with the same
+    system prompt before the step loop (`core/agent.py:1402`). This means
+    if the `old_str: ""` behavior originates in the draft call itself, it
+    is not a recursion-specific prompting gap and should reproduce on the
+    plain path too. The recursive path's only structural difference is the
+    critique+refine loop that runs *after* the draft.
+  - **Second structural finding:** the critique phase's system prompt
+    (`_build_critique_prompt()`, `prompts/layered_prompt.py:352-382`)
+    deliberately drops repo/file context — the critique model only sees
+    the critique instructions (`CRITIQUE_CODE`,
+    `prompts/critique_prompts.py:23-38`), the original user request, and
+    the prior draft text, never the real file content. `CRITIQUE_CODE`'s
+    7 checklist items (syntax, logic bugs, missing imports, task
+    completeness, security, uncertain APIs, multi-action completeness)
+    contain nothing that would catch "does `old_str` actually match real
+    file content" — the critique model has no ground truth to check that
+    against even if it wanted to. This means the observed "quality 8/10,
+    Accepted" outcome is not surprising: the critique step is structurally
+    incapable of catching this class of bug, independent of whether the
+    draft-generation bug itself is recursion-specific. This is a candidate
+    explanation for *why* recursion didn't self-correct the problem, but
+    does not by itself explain why the draft was wrong in the first place
+    — still needs live evidence.
+  - Confirmed `tools/patch_tools.py:14-22` (`tool_patch_file`) and
+    `prompts/system_prompt.py:90,163,174,192` (the `patch_file` tool
+    documentation shown to the model) contain no instruction that
+    `old_str` must be a verbatim substring of the real file, nor any
+    warning against using an empty `old_str` to mean "insert new content."
+    This is a real gap in the prompt but not yet confirmed as *the* cause
+    of the observed behavior — could equally be a base-model tendency
+    unrelated to prompt wording.
+  - Also confirmed `main.py:396-406` (`/clear` REPL command) resets
+    conversation history/context/undo/session **without** reloading the
+    model — usable to run multiple independent draws in one model-load
+    cycle for a same-prompt consistency check, per CLAUDE.md rule 2's
+    batching guidance.
+  - **Reproduction task designed and handed to the next live-verification
+    round** (not run this round): two short, sequential, single-model-load
+    `python3 main.py --no-resume` REPL sessions (never both processes
+    live at once — confirm teardown between them per CLAUDE.md rule 2),
+    testing the same 3 edit-style prompts in each:
+    1. Session A — recursive path (default env, no override):
+       `python3 main.py --no-resume`
+    2. Session B — plain path forced: `CODEY_RECURSIVE=0 python3 main.py
+       --no-resume`
+    - In each session, send in order, with `/clear` between each prompt
+      (resets context without a reload) to avoid cross-contaminating the
+      model's context with its own prior attempt:
+      a. "Add a docstring to the shutdown function in main.py." (exact
+         repeat of the original Round 1 prompt — direct reproducibility
+         check)
+      b. `/clear`, then the same prompt again — consistency/sampling-
+         variance check on an identical prompt within the same path.
+      c. `/clear`, then "Add error handling to the load_primary function
+         in core/loader_v2.py." — different verb ("add error handling"
+         vs. "add a docstring"), different target function
+         (`core/loader_v2.py:337 def load_primary(self)`), to check
+         whether the bug is docstring-specific or broader.
+      d. `/clear`, then "Rename the variable `p` to `file_path` in
+         tool_patch_file in tools/patch_tools.py." (`tools/patch_tools.py:
+         14,28 p = Path(path).expanduser()`) — a rename-style edit, the
+         third distinct prompt style, on a third distinct target file.
+    - After each prompt, capture verbatim: the full `<tool>` call emitted
+      (or lack thereof), whether `old_str` is empty vs. a real substring
+      of the target file, and `git diff <target file>` immediately after
+      the turn to confirm whether the edit actually landed. Reset
+      (`git checkout -- <file>`) between prompts if a patch does land, so
+      each prompt starts from a clean baseline.
+    - Confirm process teardown between Session A and Session B (`ps -eo
+      pid,ppid,comm | grep -E "python|llama"` showing nothing but the
+      grep itself, per the project's established non-`pgrep -af` pattern)
+      and run `free -h` before Session A, between sessions, and after
+      Session B per CLAUDE.md rule 2.
+    - This 2-session x 4-prompt design (8 draws total) directly answers
+      all three open questions: (a) reproducibility/consistency, via the
+      repeated identical prompt in each session; (b) recursive-specific
+      vs. plain-path, via the `CODEY_RECURSIVE` env toggle across the two
+      sessions; (c) docstring-specific vs. broader, via the 3 distinct
+      prompt styles/targets. No code changes required to run this — it is
+      a live-reproduction task only, not a fix.
+
+- **Round 14 (2026-07-30) — live-reproduction pass, 6 of 8 planned draws
+  completed; stopped early at swap-thrashing, per CLAUDE.md rule 2's
+  instability instruction (a safe, correct stop, not a failure).** Two
+  sessions run: Session A (recursive, default env) and Session B
+  (`CODEY_RECURSIVE=0`, plain path — confirmed via absence of
+  `[Recursive]` labels in the transcript, not just assumed from the env
+  var).
+
+  | # | Session | Prompt | `old_str` observed | Bug reproduced? |
+  |---|---|---|---|---|
+  | a1 | A (recursive) | docstring (1st) | `"def shutdown():\n    pass"` — non-empty but hallucinated/wrong stub | No (empty-string bug) — but a distinct hallucinated-`old_str` failure |
+  | a2 | A (recursive) | docstring (repeat) | `""` | **Yes** — exact reproduction of the original NEW-7 bug |
+  | a3 | A (recursive) | loader_v2 error handling | N/A — draft only issued a `read_file` call, no patch attempted; quality 3/10, hit low-confidence gate | No (different failure mode — no patch attempt) |
+  | a4 | A (recursive) | patch_tools rename | `"p = Path(path).expanduser()"` — real, correct substring | No — correctly targeted patch, no bug |
+  | b1 | B (plain, confirmed via absent `[Recursive]` labels) | docstring (1st) | Attempt 1: `""`; retry attempt 2 (same turn): `"\ndef shutdown():\n    pass"` (hallucinated) | **Yes** on attempt 1 |
+  | b2 | B (plain) | docstring (repeat) | `"def shutdown():\n    pass\n"` — non-empty, hallucinated stub | No (empty-string bug) — same hallucinated-stub variant as a1 |
+  | b3 | B (plain) | loader_v2 error handling | NOT RUN — stopped for swap thrashing | N/A |
+  | b4 | B (plain) | patch_tools rename | NOT RUN — stopped for swap thrashing | N/A |
+
+  **Conclusions this data supports — correcting the record per CLAUDE.md
+  rule 6 (this entry was previously "Suspected... observed once"):**
+  - The literal `old_str: ""` bug is real and reproducible: 2/6 completed
+    draws (a2, b1), one on EACH path (recursive and plain) —
+    **this settles the open question: the bug is NOT recursion-specific.**
+    The plain path's draft-phase system prompt is identical to the
+    recursive path's (per this round's earlier structural finding), so
+    this result is consistent with that prediction.
+  - A closely related variant (non-empty but hallucinated/wrong
+    `old_str`, assuming `shutdown()` is a one-line `pass` stub instead of
+    its real ~15-line body) occurred in 2 more draws (a1, b2) — same
+    underlying failure class (model doesn't ground `old_str` in real
+    file content), different surface symptom.
+  - Combined: **4 of 6 completed draws (67%) failed to produce a valid
+    patch on the "add a docstring to `shutdown()`" prompt**, split evenly
+    between the two `old_str`-grounding failure variants.
+  - Neither the loader_v2/error-handling style (a3) nor the
+    patch_tools/rename style (a4) reproduced any variant of the bug in
+    the draws that did run — a4 in particular got a real, correct
+    `old_str` substring match. This suggests the failure may correlate
+    with the specific "add a docstring" prompt style/target more than
+    with edit-requests broadly, though this is **not fully confirmed**
+    since only one of the two other styles ran per session before the
+    stop.
+  - **Not yet answered, needs a follow-up round:** b3 and b4 (the
+    loader_v2/patch_tools prompts on the PLAIN path) were never run, so
+    there is no clean same-path comparison for those two prompt styles.
+    A future round should complete these two draws (fresh model-load
+    cycle, fresh baseline) before this can be called fully characterized.
+  - This investigation also surfaced 4 additional, distinct structural
+    findings beyond NEW-7 itself, logged separately per CLAUDE.md rule 8:
+    [NEW-15] (a `write_file`-escalation path that can attempt to
+    reconstruct an entire file in the wrong location after `patch_file`
+    fails — the most severe finding of this round), [NEW-16] (the patch
+    UI panel renders as if successful even when the underlying patch
+    call failed), [NEW-17] (the post-edit commit offer can scope-bleed
+    into unrelated pre-existing dirty files), and [NEW-18] (a single
+    lightweight REPL session hit severe swap-thrashing after only 2
+    model calls with retries, independent of NEW-14's full 3-model-stack
+    finding).
+
+  **RAM discipline note (all real, verbatim, all clean teardowns by
+  tracked PID, never by pattern):**
+  - Pre-Session-A: 4.9Gi free / 7.0Gi available, swap 1.6Gi
+  - Mid-Session-A: 163Mi free / 2.0Gi available, swap 3.6Gi (high, not
+    thrashing)
+  - Post-Session-A teardown: 4.8Gi free / 6.8Gi available, swap 1.6Gi
+  - Mid-Session-B after b1: 653Mi free / 2.0Gi available, swap 2.2Gi
+  - **After b2: swap jumped to 8.9Gi used, `llama-server` RSS collapsed
+    to ~2MB (nearly fully swapped out), CPU 113% — genuine
+    swap-thrashing.** Live-verifier stopped immediately per CLAUDE.md
+    rule 2's explicit instability instruction.
+  - Post-forced-teardown: 4.8Gi free / 7.0Gi available, swap back to
+    1.9Gi — full recovery confirmed, no orphaned processes.
+
+  **Status after this round: Confirmed (upgraded from Suspected),
+  reproducible (4/6 completed draws on the docstring-insertion prompt,
+  67%), confirmed NOT recursion-specific. Not yet confirmed whether it
+  generalizes to other edit-request styles (b3/b4 outstanding). Still
+  open, still unfixed — no implementer task scoped this round
+  (investigation/logging only, per this round's explicit scope).**
+
+## Found during Round 14 (NEW-7) live-reproduction pass, 2026-07-30 — NOT fixed, logged only
+
+### [NEW-15] After `patch_file` fails, the model can autonomously escalate to reconstructing an ENTIRE file from memory via `write_file` — and place the edit in the wrong location (Confirmed, potentially the most severe finding of this investigation)
+
+- **Confidence: Confirmed** — directly observed twice, in both plain-path
+  draws (b1, b2) where `patch_file` failed.
+- **Where found:** Round 14 NEW-7 live-reproduction session B (plain
+  path, `CODEY_RECURSIVE=0`). In both b1 and b2, after `patch_file` was
+  rejected by `tools/patch_tools.py:56-61`'s `old_str` uniqueness
+  guardrail, the model autonomously escalated to a `write_file` call
+  attempting to reconstruct the ENTIRE 62,975-character `main.py` from
+  its own context — generation was still in progress (594-614 tokens in,
+  function body barely started) when the turn ended. In b1, the
+  reconstructed `shutdown()` was placed in the WRONG location (right
+  after the `BANNER` string near the top of the file, not its real
+  location at line 125).
+- **Why this is more severe than NEW-7 itself:** had
+  `AGENT_CONFIG["confirm_write"]` been `False` (e.g. a `--yolo`-style
+  mode) or a user reflexively accepted the write confirmation, this
+  escalation path could have TRUNCATED/DESTROYED the rest of `main.py`,
+  not just introduced a duplicate function. The confirmation gate is
+  what prevented actual damage in this investigation — it worked, but
+  shouldn't be relied on as the only safeguard against a
+  full-file-reconstruction escalation combined with a wrong-location
+  edit.
+- **Relevant code, not yet pinned down precisely:** `core/agent.py` (the
+  `write_file` escalation path taken after a `patch_file` failure —
+  live-verifier did not cite exact line numbers for this specific
+  escalation branch; a future investigation needs to pin down the exact
+  trigger logic). `core/peer_cli.py:223` ("Codey hit max retries"
+  escalation prompt — may be related, not yet confirmed).
+  `AGENT_CONFIG["confirm_write"]` (currently `True` by default in this
+  environment).
+- **Not fixed here** — flag as needing its own dedicated
+  investigation/scoping round, likely higher priority than NEW-7 itself
+  given the severity (potential for silent full-file data loss, not just
+  a bad edit).
+
+### [NEW-16] The "Patching `<file>`" diff-preview UI panel renders unconditionally, regardless of whether the underlying patch actually succeeded (Confirmed)
+
+- **Confidence: Confirmed** — observed in all 4 of 4 failed draws this
+  round (a1, a2, b1, b2).
+- **Where found:** `core/agent.py`'s `show_patch()` call (live-verifier
+  cited ~line 410-413; re-verify exact line numbers before scoping a
+  fix). It renders the green "Patching `main.py`" diff-preview panel
+  unconditionally, regardless of whether the underlying
+  `TOOLS[name](args)` patch call actually succeeded. In every one of the
+  4 failed draws this round, the UI showed a success-looking "Patching
+  main.py" panel that had nothing to do with what actually happened on
+  disk (confirmed via `git diff` showing no change in every single
+  failed draw).
+- **Why this matters:** a real UI-honesty gap, independent of NEW-7's
+  root cause — a user watching the terminal would see a success-looking
+  panel even when nothing was written to disk.
+- **Not fixed here.**
+
+### [NEW-17] The post-edit "offer to commit" prompt scopes to ALL current working-tree changes, not just the current turn's edit (Confirmed)
+
+- **Confidence: Confirmed** — observed in every draw of this
+  investigation.
+- **Where found:** `core/agent.py`'s `check_git_and_offer_commit()`
+  (live-verifier cited ~line 659-680; re-verify exact line numbers
+  before scoping a fix). It fires whenever `patch_file`/`write_file` was
+  ATTEMPTED this turn (success or failure), and offers to commit ALL
+  current working-tree changes, not just this turn's. In every draw of
+  this investigation it fired against a PRE-EXISTING, unrelated dirty
+  `NEW_ISSUES.md` already in the working tree.
+- **Why this matters:** a real scope-bleed risk — a user reflexively
+  answering "y" to this prompt after a failed edit attempt could commit
+  unrelated in-progress work they didn't intend to commit yet.
+- **Not fixed here.**
+
+### [NEW-18] A single lightweight REPL session (no daemon/plannd/embed stack) hit severe swap-thrashing after only 2 model calls with retries — swap pressure isn't limited to the full 3-model stack (Confirmed, possibly related to [NEW-14])
+
+- **Confidence: Confirmed** — directly observed once this round; not yet
+  investigated for root cause or reproducibility.
+- **Where found:** Round 14 NEW-7 live-reproduction, Session B. Swap
+  usage climbed to 8.9Gi (from a healthy ~1.6-2.2Gi baseline) within a
+  SINGLE REPL session after only 2 model calls with retries (b1, b2),
+  using the LIGHT harness (plain `main.py --no-resume`, no
+  daemon/plannd/embed server) — a harness previously assumed safe based
+  on NEW-13's earlier-this-session live-verification.
+- **Why this matters:** suggests swap-thrashing risk isn't limited to the
+  full 3-model `codeydOS start` stack ([NEW-14]) — it can also occur
+  within a single lightweight REPL session under retry-heavy/multi-turn
+  load.
+- **Open question:** whether this is inherent to sustained single-session
+  multi-turn agent use on this device, or specific to the
+  retry/escalation-heavy failure pattern this investigation was
+  triggering (multiple failed patch attempts + `write_file` escalation
+  attempts in the same session, as seen in [NEW-15]).
+- **Not fixed here** — flag as needing a dedicated investigation given
+  its implications for CLAUDE.md rule 2's RAM-discipline guidance (may
+  need updating to caution about sustained retry-heavy sessions, not
+  just concurrent multi-model stacks).
 
 ## Found during Round 1 (C-1/H-1/H-4) fix task, 2026-07-29 — NOT fixed, logged only
 
