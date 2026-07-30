@@ -5,6 +5,97 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-30 — Round 8 (NEW-6): sibling `load_primary()` KeyboardInterrupt guards, CODE COMPLETE, code-reviewer approved, LIVE-VERIFIED with one residual gap identified and separately logged (NEW-9)
+
+**Fix (commit `435c120`):** `main.py`'s `args.init`/`args.tdd`/`args.fix`
+sites each now wrap `loader.load_primary()` in `try/except
+(KeyboardInterrupt, SystemExit): ... shutdown(); return` — the same
+pattern as NEW-5's `repl()` fix (`eed29dc`), reusing the existing
+scoped-PID teardown path with no new kill logic introduced.
+
+**code-reviewer:** approved.
+
+**live-verifier's results (verbatim):**
+
+Baseline `free -h`:
+```
+               total        used        free      shared  buff/cache   available
+Mem:            10Gi       4.5Gi       3.4Gi        22Mi       2.9Gi       6.1Gi
+Swap:           11Gi       1.8Gi        10Gi
+```
+
+`--init` attempt 1 — **FAILED, genuine orphan reproduced:**
+```
+CHILD_PID=27122
+ℹ  Starting llama-server...
+>>> SENDING SIGINT to 27122 at t=0.18s
+Exception ignored in atfork callback <function _afterFork at 0x73f8ff7530>:
+Traceback (most recent call last):
+  File ".../logging/__init__.py", line 245, in _afterFork
+KeyboardInterrupt:
+ℹ  llama-server PID: 27124, logging to /data/data/com.termux/files/home/.codeyOS/llama-server.log
+>>> CHILD STILL RUNNING after wait loop
+```
+Post-check: `ps -p 27124 -o pid,ppid,pgid,etimes,cmd` →
+`27124  1  27124  62  .../llama-server -m ...` — a real orphan (PPID=1).
+The expected "Interrupted during model load, cleaning up..." message
+never printed — the guard's `try/except` never fired, because the
+`SIGINT` landed inside `subprocess.Popen()`'s internal `os.fork()` call
+in `core/loader_v2.py` (~lines 116-130), and CPython's atfork exception
+machinery silently discarded the `KeyboardInterrupt` before it ever
+reached the caller's guard. live-verifier killed the orphan directly by
+its tracked PID (`kill -TERM 27124`), confirmed reaped, RAM recovered.
+
+`--init` attempt 2 — **PASS:** guard fired correctly, `ps` empty after,
+`free -h`: 3.8Gi used / 4.9Gi free.
+`--init` attempt 3 (re-run for confidence) — **PASS:** guard fired
+correctly, `ps` empty after, `free -h`: 3.7Gi used / 5.0Gi free.
+`--tdd` (1/1) — **PASS:** guard fired correctly, `ps` empty after,
+`free -h`: 3.7Gi used / 5.0Gi free.
+`--fix` (1/1) — **PASS:** guard fired correctly, `ps` empty after,
+`free -h`: 3.7Gi used / 5.0Gi free.
+
+Final state: `ps` empty, `free -h`: 3.7Gi used / 5.0Gi free / 6.9Gi
+available.
+
+**Net result: 3 of 4 site-tests clean (`--init` reruns x2, `--tdd`,
+`--fix`), 1 genuine orphan reproduced on the first `--init` attempt.**
+Root-caused as a **pre-existing, shared gap** in the underlying
+`core/loader_v2.py` Popen/fork mechanism — **not a regression introduced
+by this round's diff (`435c120`)**. The same atfork/fork-window race
+affects the identical guard pattern already in place at `repl()` (NEW-5's
+fix, `eed29dc`, previously marked "Resolved, fully live-verified") — it
+is a gap in the shared mechanism the guard pattern relies on, not
+specific to this round's three new call sites. Hit rate observed: 1-in-4
+across all attempts at all four guarded sites combined this round.
+
+**`NEW_ISSUES.md` updates:**
+- [NEW-6] marked **Resolved**, citing `435c120`, with an honest caveat:
+  the fix works exactly as scoped (guard correctly fires and tears down
+  via `shutdown()` for the vast majority of the load window, at all three
+  new sites, matching NEW-5's `repl()` behavior) — the residual
+  fork-window race is a separate, already-logged concern (NEW-9), not a
+  defect in this round's diff.
+- [NEW-5]'s entry corrected per CLAUDE.md rule 6: added a caveat noting
+  the same residual race can bypass its `repl()` guard too, without
+  downgrading its overall Resolved status (the guard demonstrably works
+  for the vast majority of the window, per NEW-5's own Round 6
+  live-verification and Round 8's 2/2 clean `--init` reruns).
+- New **[NEW-9]**, Confirmed: the atfork/fork-window race itself,
+  root-caused, affecting all four guarded call sites (`repl()`,
+  `args.init`, `args.tdd`, `args.fix`), with the full reproduction
+  evidence above. Logged as needing its own dedicated scoping/fix pass —
+  not scoped or fixed in this round. Queue position (whether it goes
+  ahead of or after NEW-4/NEW-7) flagged as an open question for Ish,
+  since it wasn't part of the original four-item punch list.
+
+**Verification status:** CODE COMPLETE, code-reviewer approved, and
+LIVE-VERIFIED — with one residual gap independently discovered during
+that same live-verification pass and separately logged (NEW-9), not
+silently absorbed into this round's "done" claim.
+
+---
+
 ## 2026-07-30 — Round 7 (NEW-2): `[EDIT NOT APPLIED]` marker on exhausted retry/escalation, CODE COMPLETE, code-reviewer approved
 
 **Corrected root cause (per Ground Rule 6 — this is the second

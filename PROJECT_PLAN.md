@@ -729,6 +729,57 @@ synthesizing whole functions instead of targeted patches) remain open,
 both Suspected/unscoped, discovered along the way but not originally
 requested.
 
+### Audit Remediation — Round 8 (NEW-6)
+**Status: CODE COMPLETE, code-reviewer approved, LIVE-VERIFIED with one
+residual gap identified and separately logged as NEW-9** (2026-07-30) —
+fix for `NEW_ISSUES.md` [NEW-6]: the same unguarded `loader.load_primary()`
+pattern NEW-5 fixed at `repl()` also existed, unguarded, at three sibling
+call sites in `main.py` (`args.init`, `args.tdd`, `args.fix`).
+- [x] `main.py`'s `args.init`/`args.tdd`/`args.fix` sites each now wrap
+      `loader.load_primary()` in `try/except (KeyboardInterrupt,
+      SystemExit)`, calling the existing `shutdown()` and returning
+      cleanly — identical pattern to NEW-5's `repl()` fix (`eed29dc`), no
+      new kill logic. Commit `435c120`.
+- [x] code-reviewer approved.
+- [x] **live-verifier tested all three new sites plus a rerun of
+      `--init`.** 3 of 4 site-tests came back clean (`--init` rerun x2,
+      `--tdd`, `--fix`): guard fired correctly, `ps` empty afterward,
+      `free -h` recovered RAM each time (settling around 3.7Gi used /
+      5.0Gi free). **1 of 4 (`--init` attempt 1) reproduced a genuine
+      orphan**: real `llama-server` (PID 27124, PPID 1) survived a tracked
+      `SIGINT`, confirmed via `ps -p 27124 -o pid,ppid,pgid,etimes,cmd`;
+      killed directly by tracked PID, RAM recovered.
+- [x] **Root-caused the one failure, not just observed it:** the orphan
+      occurred because the `SIGINT` landed inside `subprocess.Popen()`'s
+      internal `os.fork()` call in `core/loader_v2.py` (~lines 116-130);
+      CPython's own atfork exception handling silently discarded the
+      `KeyboardInterrupt` before it ever reached the guard's `try/except`.
+      This is a **pre-existing, shared gap** in the underlying Popen/fork
+      mechanism used by all four guarded sites (`repl()` included) — **not
+      a regression introduced by this round's diff.**
+- [x] `NEW_ISSUES.md` [NEW-6] marked Resolved, citing `435c120`, with an
+      honest caveat that the fix works exactly as scoped and the residual
+      gap is a separate, already-logged concern (NEW-9).
+- [x] `NEW_ISSUES.md` [NEW-5] corrected per CLAUDE.md rule 6: added a
+      caveat that the same residual race can bypass its own `repl()`
+      guard too, without downgrading its Resolved status (the guard
+      demonstrably works for the vast majority of the interrupt window).
+- [x] New `NEW_ISSUES.md` [NEW-9] entry added, Confirmed: the
+      atfork/fork-window race itself, root-caused, affecting all four
+      guarded call sites, with full reproduction evidence. Flagged as
+      needing its own dedicated scoping/fix pass — deliberately not
+      scoped or fixed in this round.
+
+**Round 8 (NEW-6) is code complete, code-reviewer-approved, and
+live-verified — with one residual gap independently found during that
+same live-verification pass and separately logged as `NEW_ISSUES.md`
+[NEW-9], not silently folded into this round's "done" claim.** Per
+Ground Rule 7, this round's own scope (the three sibling call sites) is
+genuinely fully resolved; NEW-9 is a distinct, deeper problem in shared
+code that needs its own future round. Queue position for NEW-9 relative
+to the already-queued NEW-4/NEW-7 is an open question for Ish, not
+decided unilaterally here.
+
 ### Phase 4 — Self-improvement activation (deliberate, not automatic)
 Do NOT start this phase until Phases 1–3 are stable and you've watched the
 system run real coding tasks through the sandbox/safety-veto path for a

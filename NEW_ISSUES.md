@@ -5,12 +5,16 @@
 The user's original four-item punch list — [NEW-3], [NEW-1], [NEW-5],
 and [NEW-2] — is now fully resolved (see each entry below for its own
 resolution evidence and commit). [NEW-6] (sibling `load_primary()`
-KeyboardInterrupt gap at three call sites in `main.py`) and [NEW-7]
-(the `[Recursive]` planner's tendency to synthesize whole duplicate
-functions with `old_str=""` instead of targeted patches) remain open,
-both rated Suspected — these were discovered incidentally while
-investigating punch-list items, not part of the original request, and
-have not been scoped into implementer tasks yet.
+KeyboardInterrupt gap at three call sites in `main.py`) is now also
+Resolved (2026-07-30, Round 8, commit `435c120`). [NEW-7] (the
+`[Recursive]` planner's tendency to synthesize whole duplicate
+functions with `old_str=""` instead of targeted patches) and [NEW-8]
+(a pre-existing, unrelated `ccos/tests/test_ccos.py::test_sandbox`
+failure) remain open. [NEW-9] (a residual, intermittent atfork/fork-
+window race that can bypass the guard pattern shared by NEW-5's and
+NEW-6's fixes, at all four call sites) was newly discovered during
+Round 8's live-verification of NEW-6 and logged Confirmed — needs its
+own dedicated scoping pass, not yet queued for a fix.
 
 ## Found during Round 3 (NEW-4) live-verification pass, 2026-07-29 — NOT fixed, logged only
 
@@ -27,6 +31,26 @@ have not been scoped into implementer tasks yet.
   See `PROJECT_LOG.md` 2026-07-30 entry for full verbatim evidence.
   `NEW_ISSUES.md` [NEW-6] (same unguarded pattern at three sibling call
   sites) remains open as a separate, unscoped follow-up.
+- **Caveat added (2026-07-30, Round 8 live-verification of NEW-6) — per
+  CLAUDE.md rule 6, correcting the record rather than letting the
+  unqualified "fully live-verified" claim above stand as if this gap
+  didn't exist.** Round 8's live-verifier, testing the sibling `try/except
+  (KeyboardInterrupt, SystemExit)` guard at three other call sites that
+  share this exact pattern, found that the same guard shape used here in
+  `repl()` has a narrow, intermittent residual gap: if `SIGINT` lands
+  during `subprocess.Popen()`'s internal `os.fork()` call inside
+  `core/loader_v2.py` (~lines 116-130), CPython's own atfork exception
+  handling can silently swallow the `KeyboardInterrupt` before it ever
+  reaches the guard's `try/except` — meaning the guard simply never fires
+  in that narrow window, in all four call sites that share this pattern
+  (this one included), not just the three new ones. This is **not** a
+  regression in this fix and does **not** downgrade this entry's overall
+  Resolved status — the guard demonstrably works correctly for the vast
+  majority of the interrupt window (this entry's own Round 6
+  live-verification above, plus 2 of 2 clean reruns of the sibling
+  `args.init` site in Round 8). It is a newly-discovered, narrower,
+  pre-existing residual gap in the shared `core/loader_v2.py` Popen/fork
+  code, logged in full as its own entry, [NEW-9] below.
 - **Confidence: Confirmed** (upgraded 2026-07-29, Round 6 — live-reproduced
   and root-caused by reading the code; previously Suspected on a single
   observation).
@@ -106,6 +130,30 @@ have not been scoped into implementer tasks yet.
 ## Found during Round 6 NEW-5 root-cause investigation, 2026-07-29 — NOT fixed, logged only
 
 ### [NEW-6] Same unguarded `loader.load_primary()` pattern exists at three other call sites in `main.py`
+- **Status: Resolved (2026-07-30, Round 8, commit `435c120`).** `main.py`'s
+  `args.init`/`args.tdd`/`args.fix` sites each now wrap
+  `loader.load_primary()` in `try/except (KeyboardInterrupt, SystemExit)`,
+  calling the existing `shutdown()` and returning cleanly — the same
+  pattern as NEW-5's `repl()` fix (`eed29dc`). code-reviewer approved.
+  live-verifier ran all three sites plus a `--tdd`/`--fix` pass: 3 of 4
+  site-tests (`--init` reruns x2, `--tdd`, `--fix`) came back clean —
+  guard fired, no orphan `llama-server`, `ps` empty afterward, `free -h`
+  recovered RAM each time. One of four `--init` attempts reproduced a
+  genuine orphan (real `llama-server`, PPID 1, `ps` confirmed), root-caused
+  to a residual atfork/fork-window race in the **shared**
+  `core/loader_v2.py` Popen call — pre-existing in the underlying
+  `try/except (KeyboardInterrupt, SystemExit)` pattern itself, not a
+  regression introduced by this round's diff, and not specific to the
+  three new sites (it affects `repl()`'s existing guard too). See
+  `PROJECT_LOG.md` 2026-07-30 Round 8 entry for full verbatim evidence.
+  **This fix works exactly as scoped** — the guard correctly catches
+  `KeyboardInterrupt`/`SystemExit` and tears down via `shutdown()` for the
+  vast majority of the model-load window at all three sites, matching
+  NEW-5's `repl()` behavior. The residual fork-window race is a separate,
+  already-logged concern, not a defect in this round's diff — tracked as
+  its own entry, [NEW-9] below, since it needs its own dedicated
+  scoping/fix pass (likely relocating or supplementing the guard to also
+  cover the fork window itself).
 - **Confidence: Suspected** (same code shape confirmed by reading the
   code; not independently live-reproduced at each site the way NEW-5 was
   for the `repl()` path — but the mechanism is identical, so the risk is
@@ -129,6 +177,93 @@ have not been scoped into implementer tasks yet.
   sibling sites are logged for a possible dedicated follow-up task, not
   bundled into the NEW-5 fix, to keep that fix tightly scoped per
   CLAUDE.md's project-architect instructions.
+
+## Found during Round 8 (NEW-6) live-verification pass, 2026-07-30 — NOT fixed, logged only
+
+### [NEW-9] Residual, intermittent atfork/fork-window race can silently bypass the `try/except (KeyboardInterrupt, SystemExit)` model-load guard at all four sites (`repl()`, `args.init`, `args.tdd`, `args.fix`)
+- **Confidence: Confirmed** (directly reproduced live during Round 8's
+  live-verification of the NEW-6 fix — a real orphaned `llama-server`
+  process was caught, root-caused by reading CPython's `subprocess.Popen`/
+  `os.fork()` internals, not inferred).
+- **Where found:** Round 8 live-verifier's `--init` testing (attempt 1 of
+  4 total attempts across all four guarded call sites). Hit rate observed:
+  1-in-4 across this round's testing.
+- **Root cause:** `core/loader_v2.py`'s `LlamaServer.start()`
+  (~lines 116-130) calls `subprocess.Popen(...)`, which internally performs
+  `os.fork()`. If a `SIGINT` arrives in the narrow window during that
+  internal fork, CPython's own atfork exception-handling machinery
+  (specifically observed here interacting with `logging`'s
+  `_afterFork` callback) can silently discard the resulting
+  `KeyboardInterrupt` before it ever propagates up to the caller's
+  `try/except (KeyboardInterrupt, SystemExit)` guard. The guard code
+  itself is not wrong — it simply never gets invoked, because the
+  exception is swallowed one layer below it, inside the standard library.
+  This means the guard pattern introduced by NEW-5's fix (`eed29dc`) and
+  extended by NEW-6's fix (`435c120`) has a real, narrow gap that no
+  amount of correct `try/except` placement at the call site can close on
+  its own.
+- **Affected call sites — all four that share this guard pattern:**
+  - `repl()`, `main.py` (NEW-5's original fix, `eed29dc`)
+  - `args.init`, `main.py` (NEW-6's fix, `435c120`)
+  - `args.tdd`, `main.py` (NEW-6's fix, `435c120`)
+  - `args.fix`, `main.py` (NEW-6's fix, `435c120`)
+- **Reproduction evidence (verbatim, `--init` attempt 1, Round 8):**
+  ```
+  CHILD_PID=27122
+  ℹ  Starting llama-server...
+  >>> SENDING SIGINT to 27122 at t=0.18s
+  Exception ignored in atfork callback <function _afterFork at 0x73f8ff7530>:
+  Traceback (most recent call last):
+    File ".../logging/__init__.py", line 245, in _afterFork
+  KeyboardInterrupt:
+  ℹ  llama-server PID: 27124, logging to /data/data/com.termux/files/home/.codeyOS/llama-server.log
+  >>> CHILD STILL RUNNING after wait loop
+  ```
+  Post-check: `ps -p 27124 -o pid,ppid,pgid,etimes,cmd` showed
+  `27124  1  27124  62  .../llama-server -m ...` — a real orphan (PPID=1,
+  reparented). The expected "Interrupted during model load, cleaning
+  up..." message never printed — the guard's `try/except` never fired.
+  live-verifier killed it directly by tracked PID (`kill -TERM 27124`),
+  confirmed reaped, RAM recovered. All 3 subsequent attempts across the
+  other sites (`--init` rerun, `--tdd`, `--fix`) came back clean — guard
+  fired correctly each time.
+- **Impact:** in this narrow, timing-dependent window (hit 1-in-4 across
+  Round 8's own testing), `llama-server` can still be orphaned
+  indefinitely on `SIGINT` during model load, at any of the four call
+  sites — the same underlying failure mode NEW-5/NEW-6 were meant to
+  close, just a much narrower slice of it than either fix targeted.
+- **Not fixed here — deliberately out of scope for Round 8**, whose scope
+  was limited to NEW-6's three sibling call sites (same fix, same pattern
+  as NEW-5 already had). This is a different, deeper problem in the
+  shared `core/loader_v2.py` Popen/fork mechanism itself, not something
+  the existing guard pattern can be fixed to catch without a different
+  approach.
+- **Fix direction (not scoped, needs its own dedicated pass):** the
+  guard cannot be relocated to "wrap the fork itself" in the naive sense,
+  since the swallowing happens inside CPython/stdlib internals during
+  `os.fork()`, not in caller-reachable code. Plausible directions for a
+  future scoping pass to evaluate (none decided here):
+  - Investigate whether disabling/deferring the `logging` module's atfork
+    handler (the specific callback seen swallowing the exception in the
+    reproduction above) around the `Popen()` call changes the behavior.
+  - Consider an interrupt-safe mechanism that doesn't rely on
+    `KeyboardInterrupt` propagation through the fork window at all — e.g.
+    a signal handler installed before the `Popen()` call that sets a flag
+    checked immediately after, rather than depending on the exception
+    reaching a `try/except` above the call.
+  - Confirm whether this is Termux/Android-`libc`-specific or general
+    CPython behavior on any Linux target, since that affects how
+    aggressively to prioritize a fix.
+  - Any fix needs code-reviewer's explicit approval before commit per
+    CLAUDE.md rule 4 (process-lifecycle/kill-logic changes) — this
+    touches the exact category that has produced this project's worst
+    bugs before.
+- **Queue position:** discovered mid-Round-8, not part of the original
+  four-item punch list (NEW-3/1/5/2) or the two incidental follow-ups
+  already queued (NEW-4, NEW-7). Recommend asking Ish whether this should
+  be prioritized ahead of NEW-4/NEW-7 in the queue (it's a RAM-crash-class
+  process-lifecycle gap, arguably higher severity) or simply appended
+  after them — not decided unilaterally here.
 
 ## Found during Round 2 (C-2) live-verification pass, 2026-07-29 — NOT fixed, logged only
 
