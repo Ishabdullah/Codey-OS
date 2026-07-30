@@ -87,7 +87,38 @@ Loads external GGUF files; supports importing LoRA adapters.
 
 ---
 
-### 6. Android / Termux Constraints
+### 6. GUI / Dashboard Server
+
+`gui/server.py` serves a local web dashboard (metrics + a command console)
+over WebSocket, started via `gui/start.sh` (part of `codey-start`).
+
+**Risk:** A web server that accepts commands is a much larger attack
+surface than a CLI — if reachable from other devices on the network or by
+other local processes, it could allow unauthenticated command execution.
+
+**Mitigations:**
+- Binds to `127.0.0.1` (loopback-only) by default — not reachable from
+  other devices on the LAN. Override via `CODEY_GUI_HOST` only if you
+  understand the risk.
+- WebSocket (`/ws`) connections are rejected unless the `Origin` header
+  matches an allowlist of `http://localhost:<port>` / `http://127.0.0.1:<port>`.
+- A per-process session token (`secrets.token_urlsafe(32)`), generated
+  fresh on each server start and required as a query parameter on the
+  `/ws` upgrade, is checked with a timing-safe comparison
+  (`hmac.compare_digest`) independently of the Origin check — both must
+  pass before the connection is accepted.
+- The server's `access_log` is disabled (`access_log=None`) so the
+  session token embedded in the WebSocket URL is never written to disk
+  in an access log.
+
+**Recommendation:** Leave `CODEY_GUI_HOST` at its default (loopback-only)
+unless you have a specific, trusted reason to expose the dashboard on
+your LAN, and understand that doing so removes the loopback boundary
+(Origin/token checks remain, but are then your only protection).
+
+---
+
+### 7. Android / Termux Constraints
 
 Runs with Termux permissions (storage, potentially network if tools are expanded).
 
@@ -108,6 +139,8 @@ Runs with Termux permissions (storage, potentially network if tools are expanded
 - Opt-in self-modification with mandatory checkpoints
 - Workspace and file boundary enforcement
 - Socket permissions locked to owner-only (`0600`)
+- GUI dashboard binds loopback-only by default, enforces WebSocket Origin
+  allowlist + timing-safe session token, and disables access logging
 - Fully local — no network calls by default
 - Thermal throttling prevents sustained CPU abuse
 - Daemon mode shell allowlist (explicit prefix-based)

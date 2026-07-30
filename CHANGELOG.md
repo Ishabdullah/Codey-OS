@@ -35,6 +35,40 @@ coding agent plus the CCOS shell it now runs under).
   Codey-V3 wording, since they document what those versions actually were
   called at the time.
 
+### GUI Security Hardening + Bug Fix Rounds (audit remediation)
+
+Following an internal security audit (`Codey-OS-audit.md`), fixed a
+Critical finding in `gui/server.py` (unauthenticated command execution,
+bound to `0.0.0.0` by default, no WebSocket Origin check) plus a series
+of smaller bugs found during the fix/verification passes. See
+`PROJECT_LOG.md` for full round-by-round detail.
+
+- **GUI server security**: default bind changed `0.0.0.0` → `127.0.0.1`
+  (`CODEY_GUI_HOST` override preserved); WebSocket `/ws` connections now
+  require a matching `Origin` header plus a per-process session token
+  (`secrets.token_urlsafe`, timing-safe comparison); `access_log=None`
+  set on the aiohttp app so the session token can never leak into an
+  access log.
+- **`gui/start.sh`**: added an opt-in `--dashboard-only` /
+  `CODEY_GUI_DASHBOARD_ONLY=1` mode that serves the dashboard without
+  forcing a full 7B model load.
+- **Process-lifecycle fixes**: removed a duplicate/stray `llama-server`
+  launcher and centralized primary-model port configuration
+  (`CODEY_PRIMARY_PORT`); closed several orphaned-process and
+  double-launch races around daemon start/stop and model load/restart
+  (including wiring the thermal-throttling restart path back into
+  `core/loader_v2.py` after the duplicate-launcher removal orphaned it).
+- **Startup robustness**: guarded model load at `--init`/`--tdd`/`--fix`
+  against a `KeyboardInterrupt` during load leaving the loader in a bad
+  state.
+
+Most of the above were live-verified through the real `gui/start.sh` /
+daemon launch path, not just code review; see `PROJECT_LOG.md` and
+`PROJECT_PLAN.md` for verification detail per round. Two follow-ups
+remain open and tracked in `NEW_ISSUES.md` rather than closed here: a
+recursive-planner review (NEW-7) and a daemon-watchdog stale-flag gap
+(NEW-11).
+
 ## [v3.0.0] - 2026-06-13
 
 ### Security Overhaul
