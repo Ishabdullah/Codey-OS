@@ -1070,6 +1070,28 @@ characterized now). NEW-15 through NEW-18 are newly open, unfixed, with
 no implementer tasks scoped. Next round (continue NEW-7's remaining 2
 draws vs. prioritize NEW-15's severity) to be decided with the user.
 
+### Round 15 (NEW-15)
+- [x] `tools/file_tools.py`'s `tool_write_file()` — syntax-check
+      guardrail added, refusing to overwrite an existing `.py` file with
+      syntactically invalid content (via `core/linter.py`'s
+      `check_syntax()`); fails open if the linter import fails.
+- [x] `tools/patch_tools.py`'s `[PATCH_FAILED]` message reworded to
+      de-emphasize `write_file` and warn against partial-memory
+      reconstruction (`write_file` itself remains available).
+- [x] `tests/test_file_tools.py` (new) — 4 unit tests covering
+      blocked/allowed/new-file/fail-open behavior; full suite 258
+      passed.
+- [x] Code-reviewer approved: no Critical/Warning findings, one
+      Suggestion (test coverage) addressed in follow-up.
+
+**Round 15 (NEW-15) is code complete, code-reviewer approved with
+direct live-behavioral verification of the guardrail logic (not an
+on-device model session — reviewer explicitly assessed one wasn't
+warranted for this class of change), full unit test coverage added.**
+Commit `7756581`. Narrowly scoped to the `write_file`
+full-file-corruption risk; does not address NEW-16/NEW-17/NEW-18 (still
+open, unscoped) or NEW-7 itself (still open, b3/b4 draws outstanding).
+
 ### Phase 4 — Self-improvement activation (deliberate, not automatic)
 Do NOT start this phase until Phases 1–3 are stable and you've watched the
 system run real coding tasks through the sandbox/safety-veto path for a

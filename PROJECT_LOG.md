@@ -5,6 +5,64 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-30 — Round 15 (NEW-15): `write_file` guardrail against existing-file corruption — code complete, code-reviewer approved with live behavioral verification, full unit test coverage
+
+**Root cause:** after `patch_file` fails because `old_str` isn't found,
+the model could escalate to `write_file`, reconstructing an entire
+existing file from memory — observed once during Round 14's NEW-7
+investigation, placing a reconstructed function in the wrong location.
+Traced to two contributing factors: `tools/patch_tools.py`'s
+`[PATCH_FAILED]` message explicitly suggested `write_file` as a
+follow-up, and `core/agent.py` truncates the tool result the model sees
+(~2000/~400 chars), together nudging a whole-file rewrite while denying
+the information needed to do it correctly.
+
+**Fix (commit `7756581`, three files):**
+1. `tools/file_tools.py`'s `tool_write_file()` — new syntax-check
+   guardrail: refuses to overwrite an existing `.py` file with
+   syntactically invalid content, via `core/linter.py`'s
+   `check_syntax()`; fails open if the linter import itself fails
+   (matches `tools/patch_tools.py`'s own existing fail-open pattern).
+2. `tools/patch_tools.py`'s `[PATCH_FAILED]` message (old_str-not-found
+   case) reworded to de-emphasize `write_file` and warn against
+   partial-memory reconstruction — `write_file` itself remains
+   available; only the guidance text changed.
+3. `tests/test_file_tools.py` (new) — 4 unit tests: broken-syntax
+   overwrite blocked, valid-syntax overwrite allowed, new-file creation
+   with broken syntax allowed (confirms the guard is correctly scoped to
+   existing-file overwrites only, not new files), and fail-open
+   behavior confirmed via a simulated linter-import failure.
+
+**Code-reviewer's review was unusually thorough for this kind of
+change:** rather than reviewing the diff statically, it wrote and ran a
+live throwaway script directly exercising `tool_write_file()` to confirm
+all four behavioral claims (blocked / allowed / new-file / fail-open)
+against the actual running code, and separately read `core/linter.py` to
+verify `check_syntax()`'s real signature and return semantics before
+trusting the integration. Approved with no Critical or Warning findings;
+one Suggestion (add test coverage), addressed in a follow-up — the 4
+new tests, all passing, full suite **258 passed**.
+
+**Code-reviewer explicitly assessed that on-device live-verification (a
+real model session) was NOT warranted for this fix**, reasoning: this is
+a pure, deterministic tool-level guardrail with no process-lifecycle,
+network, or GUI surface, fully exhaustible via direct function calls
+(which it did); the remaining open question — whether the model actually
+follows the new wording rather than just being technically blocked from
+corrupting a file — is a probabilistic prompt-engineering question not
+reliably answerable in a single live session, and is better served by
+the unit tests already added than a live pass.
+
+**Status: code complete, code-reviewer approved with direct
+live-behavioral verification of the guardrail logic (not an on-device
+model session), full unit test coverage.** Narrowly scoped to the
+`write_file` full-file-corruption risk only — does not touch NEW-16,
+NEW-17, or NEW-18 (logged during the same Round 14 investigation, all
+still open and unscoped), nor NEW-7 itself (still open; Round 14's b3/b4
+reproduction draws remain outstanding).
+
+---
+
 ## 2026-07-30 — Round 14 (NEW-7): live-reproduction/investigation pass, 6 of 8 planned draws — NOT a fix round; 4 new structural issues logged (NEW-15 through NEW-18)
 
 **This was an investigation round, not an implementation round** — no

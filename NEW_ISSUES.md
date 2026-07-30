@@ -1215,7 +1215,28 @@ remain open, deferred to a future round.
 
 ## Found during Round 14 (NEW-7) live-reproduction pass, 2026-07-30 — NOT fixed, logged only
 
-### [NEW-15] After `patch_file` fails, the model can autonomously escalate to reconstructing an ENTIRE file from memory via `write_file` — and place the edit in the wrong location (Confirmed, potentially the most severe finding of this investigation)
+### [NEW-15] After `patch_file` fails, the model can autonomously escalate to reconstructing an ENTIRE file from memory via `write_file` — and place the edit in the wrong location (Resolved 2026-07-30, Round 15, commit `7756581`)
+
+- **Resolution:** `tools/file_tools.py`'s `tool_write_file()` now refuses
+  to overwrite an existing `.py` file with syntactically invalid content
+  (via `core/linter.py`'s `check_syntax()`, fail-open if the linter
+  import fails), and `tools/patch_tools.py`'s `[PATCH_FAILED]` message
+  was reworded to de-emphasize `write_file` and warn against
+  partial-memory reconstruction (the tool itself remains available).
+  Code-reviewer approved after directly exercising `tool_write_file()`
+  with a live throwaway script confirming blocked/allowed/new-file/
+  fail-open behavior against the running code, and explicitly assessed
+  that an on-device model session was not warranted for this
+  deterministic, tool-level guardrail. Full unit test coverage added
+  (`tests/test_file_tools.py`, 4 new tests; full suite 258 passed). See
+  `PROJECT_LOG.md`'s 2026-07-30 Round 15 entry for full detail.
+- **Scope note:** this fix addresses only the `write_file`
+  full-file-corruption risk. [NEW-16], [NEW-17], and [NEW-18] below —
+  logged during the same Round 14 investigation that found this issue —
+  remain open and unscoped, not addressed by this fix. NEW-7 itself
+  (the underlying planner behavior that triggers the `patch_file`
+  failures in the first place) also remains open — Round 14's b3/b4
+  reproduction draws were never completed.
 
 - **Confidence: Confirmed** — directly observed twice, in both plain-path
   draws (b1, b2) where `patch_file` failed.
