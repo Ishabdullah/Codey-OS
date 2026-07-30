@@ -18,7 +18,7 @@ import urllib.error
 import urllib.request
 from typing import Any, Dict, List, Optional
 
-from utils.config import MODEL_CONFIG
+from utils.config import MODEL_CONFIG, PRIMARY_SERVER_PORT
 from utils.logger import error, info, warning
 
 
@@ -31,7 +31,7 @@ class ChatCompletionBackend:
     on Termux/Android where llama-server runs on TCP port 8080.
     """
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 8080):
+    def __init__(self, host: str = "127.0.0.1", port: int = PRIMARY_SERVER_PORT):
         self._host = host
         self._port = port
         self._base_url = f"http://{host}:{port}"

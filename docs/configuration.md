@@ -152,7 +152,8 @@ Any model path or port can be overridden without editing `config.py`:
 |----------|---------|-------|
 | `CODEY_MODEL` | `~/models/qwen2.5-coder-7b/qwen2.5-coder-7b-instruct-q4_k_m.gguf` | |
 | `CODEY_EMBED_MODEL` | `~/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf` | |
-| `CODEY_PLANNER_MODEL` | `~/models/qwen2.5-0.5b/qwen2.5-0.5b-instruct-q8_0.gguf` | |
+| `CODEY_PLANNER_MODEL` | `~/models/qwen2.5-coder-1.5b/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf` | |
+| `CODEY_PRIMARY_PORT` | `8080` | |
 | `CODEY_EMBED_PORT` | `8082` | |
 | `CODEY_PLANND_PORT` | `8081` | |
 | `CODEY_LLAMA_SERVER` | Auto-detected from PATH or `~/llama.cpp/build/bin/llama-server` | |

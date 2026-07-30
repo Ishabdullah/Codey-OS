@@ -18,12 +18,18 @@ import urllib.request
 from pathlib import Path
 from typing import Optional
 
-from utils.config import CODEY_STATE_DIR, LLAMA_SERVER_BIN, MODEL_CONFIG, MODEL_PATH
+from utils.config import (
+    CODEY_STATE_DIR,
+    LLAMA_SERVER_BIN,
+    MODEL_CONFIG,
+    MODEL_PATH,
+    PRIMARY_SERVER_PORT,
+)
 from utils.logger import error, info, success, warning
 
 # llama-server configuration
 SERVER_HOST = "127.0.0.1"
-SERVER_PORT = 8080  # Default llama-server port
+SERVER_PORT = PRIMARY_SERVER_PORT
 
 
 class LlamaServer:

@@ -16,6 +16,9 @@ SECONDARY_MODEL_PATH = Path(
     )
 )
 
+# ── Primary 7B model server (port 8080) ─────────────────────────────────────
+PRIMARY_SERVER_PORT = int(os.environ.get("CODEY_PRIMARY_PORT", "8080"))
+
 # Dedicated embedding model — Option C (v2.6.6)
 # nomic-embed-text-v1.5: 80 MB Q4, 2048 ctx, 768-dim vectors.
 # Runs on port 8082, separate from the 7B generation server on 8080.
@@ -230,6 +233,9 @@ UNLIMITEDCLAUDE_BASE_URL = os.environ.get(
 # Qwen2.5-Coder-1.5B runs as a dedicated planning + summarization model on port 8081,
 # entirely separate from the 7B agent server on port 8080.
 # Upgraded from 0.5B for better code-aware planning and task decomposition.
+# NOTE: not currently read by any automatic launcher — the 1.5B planner
+# server must be started manually (see docs/configuration.md). Tracked in
+# NEW_ISSUES.md (NEW-12).
 PLANNER_MODEL_PATH = Path(
     os.environ.get(
         "CODEY_PLANNER_MODEL",

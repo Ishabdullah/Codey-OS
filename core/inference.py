@@ -1,6 +1,4 @@
 import json
-import os
-import subprocess
 import time
 
 last_tps = 0.0  # tokens per second from last inference
@@ -8,21 +6,12 @@ import sys
 import urllib.error
 import urllib.request
 
-from utils.config import LLAMA_LIB, LLAMA_SERVER_BIN, MODEL_CONFIG, MODEL_PATH
+from utils.config import MODEL_CONFIG, PRIMARY_SERVER_PORT
 from utils.logger import error, info
 
-SERVER_URL = "http://127.0.0.1:8080"  # 7B primary server (port 8081 = plannd)
+SERVER_URL = f"http://127.0.0.1:{PRIMARY_SERVER_PORT}"
 CHAT_URL = f"{SERVER_URL}/v1/chat/completions"
 HEALTH_URL = f"{SERVER_URL}/health"
-
-_server_proc = None
-
-
-def _get_env():
-    env = os.environ.copy()
-    ld = env.get("LD_LIBRARY_PATH", "")
-    env["LD_LIBRARY_PATH"] = f"{LLAMA_LIB}:{ld}" if ld else LLAMA_LIB
-    return env
 
 
 def _server_ready(retries=90, delay=1.0) -> bool:
@@ -38,61 +27,19 @@ def _server_ready(retries=90, delay=1.0) -> bool:
 
 
 def _start_server():
-    global _server_proc
-    if _server_proc and _server_proc.poll() is None:
-        # Check if thermal manager has requested a server restart (thread reduction)
-        try:
-            from core.thermal import get_thermal_manager
+    """Ensure the primary llama-server is running.
 
-            tm = get_thermal_manager()
-            if tm.restart_recommended:
-                info(f"Thermal: restarting server with {tm.current_threads} threads...")
-                _server_proc.terminate()
-                _server_proc.wait(timeout=10)
-                _server_proc = None
-                tm.restart_recommended = False
-        except Exception:
-            pass
-        if _server_proc and _server_proc.poll() is None:
-            return
+    Delegates to core.loader_v2's ModelLoader — the canonical launcher
+    (port-in-use check, os.setsid process-group, SIGINT-masked Popen,
+    log file). This module no longer spawns its own llama-server
+    subprocess; see NEW-12 in NEW_ISSUES.md for why the old independent
+    launcher here was removed.
+    """
+    from core.loader_v2 import get_loader
 
-    cfg = MODEL_CONFIG
-    cmd = [
-        LLAMA_SERVER_BIN,
-        "--model",
-        str(MODEL_PATH),
-        "--ctx-size",
-        str(cfg["n_ctx"]),
-        "--threads",
-        str(cfg["n_threads"]),
-        "--batch-size",
-        str(cfg["batch_size"]),
-        "--cache-type-k",
-        cfg["kv_type"],
-        "--cache-type-v",
-        cfg["kv_type"],
-        "--flash-attn",
-        "on",  # fused attention kernel, 10-20% faster prefill
-        "--port",
-        "8080",  # was 8081 — collided with plannd/summarizer
-        "--log-disable",
-    ]
-
-    info(
-        f"Starting llama-server (ctx={cfg['n_ctx']}, threads={cfg['n_threads']}, batch={cfg['batch_size']}, kv={cfg['kv_type']}, fa=on)..."
-    )
-    _server_proc = subprocess.Popen(
-        cmd,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        env=_get_env(),
-    )
-
-    if not _server_ready():
+    if not get_loader().ensure_model():
         error("llama-server failed to start.")
-        _server_proc.kill()
         raise RuntimeError("llama-server did not become ready.")
-    info("Server ready.")
 
     # Start dedicated embed server (nomic on port 8082) alongside generation server
     try:
@@ -101,13 +48,6 @@ def _start_server():
         start_embed_server()
     except Exception:
         pass  # embed server is optional — BM25 fallback remains active
-
-
-def stop_server():
-    global _server_proc
-    if _server_proc and _server_proc.poll() is None:
-        _server_proc.terminate()
-        _server_proc = None
 
 
 def infer(messages: list[dict], stream: bool = True, extra_stop: list = None) -> str:
