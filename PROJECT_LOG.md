@@ -5,6 +5,69 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-30 — Track 1 fully closed: interim-disabled skill_recombiner plugins, resolved recovery.py/strategy_tracker overlap, NEW-19 decided
+
+**Correction first (rule 6):** an earlier round this session reported
+"Tracks 0 and 1 fully done." That was wrong — Track 1 has 4 items and
+only the first 2 (tool audit, prompt audit) were complete at that point.
+Caught and corrected in `WORK_QUEUE.md` before further work built on the
+overclaim.
+
+**NEW-34 interim disable:** the tool audit had found 3 compound plugins
+(`skill_camera_capture_tts`, `skill_info_info`, `skill_info_processes`)
+that are live, agent-callable output of the permanently-gated
+`skill_recombiner`, sitting in the repo since the initial CCOS commit —
+the gate on the recombiner *engine* never stopped `plugin_manager`
+from auto-loading its *pre-existing output*. Ish asked for these turned
+off now, separate from any Phase 4 activation decision. Renamed the 3
+plugin directories with a leading `_` — `plugin_manager._discover()`
+(`ccos/core/plugin_manager.py:81,84`) already skips any dir starting
+with `_`, so this needed zero code changes, is fully reversible, and
+deletes nothing. Verified live: `PluginManager().list_plugins()` now
+returns 13 plugins, none matching `skill.*` (previously included the 3).
+Grepped first for any hardcoded reference to the old paths/names outside
+prose and gitignored runtime state — none found, safe to rename. Commit
+`81fd2ad`.
+
+**`recovery.py`/`strategy_tracker.py` comparison — already resolved:**
+turned out Phase 2 (commit `0132e0f`) already handled this exact overlap
+when `ccos/plugins/coding/error_recovery/error_recovery.py` was written —
+its module docstring documents routing outcome tracking through
+`strategy_tracker.py` (persisted, already the live path via
+`core/learning.py`) rather than `recovery.py`'s own in-memory tracking.
+`core/recovery.py` itself untouched. Updated `CODEY_OS_MASTER_VISION.md`
+Section 3/8 and `WORK_QUEUE.md` to reflect this — the "possible
+duplicate tracking" flag was stale, not actually resolved-in-docs.
+
+**NEW-19 — design decision recorded directly from Ish:** re-verified the
+underlying gap first (`core/agent.py:1715`'s retry gate still excludes
+`[PATCH_FAILED]`; the Round 16 fix's PATCH_FAILED check at lines 416-417
+is display-only, not the retry gate — so the question was still live,
+not stale). Presented the two open questions via `AskUserQuestion`.
+Decisions: (1) repeated `[PATCH_FAILED]` on the same file within a turn
+should escalate to the existing peer-CLI path rather than staying fully
+bypassed forever; (2) a new, distinct transcript marker is needed for
+the unresolved-within-turn case (NEW-2's `[EDIT NOT APPLIED]` marker
+would be factually wrong here). Recorded in `NEW_ISSUES.md`'s `NEW-19`
+entry; turned into a scoped `WORK_QUEUE.md` Track 2 task, not
+implemented yet.
+
+**Verification performed:** live `PluginManager().list_plugins()` call
+(not just code reasoning) to confirm the plugin rename actually removed
+the 3 from discovery; direct `grep`/read of `core/agent.py:1715`,
+`:492` (`is_error()`), and `:416-417` before treating NEW-19's premise as
+current; direct read of `error_recovery.py`'s existing docstring rather
+than assuming the comparison was unresolved.
+
+**Outcome:** Tracks 0 and 1 both genuinely complete. `WORK_QUEUE.md`
+"Currently here" updated.
+
+**Next action:** Track 2 — starting with the newly-scoped `NEW-19`
+implementation, then the process-lifecycle items (`NEW-25`, `NEW-10`)
+that need code-reviewer per rule 4.
+
+---
+
 ## 2026-07-30 — Track 1 audits complete: tool/capability audit + prompt audit, 8 new issues logged
 
 **What changed:** Ran `WORK_QUEUE.md` Track 1's two audits in parallel,

@@ -107,17 +107,41 @@ gets logged, not silently fixed or dropped, even mid-queue-item.
       doesn't enforce layer-name uniqueness, likely to bite Phase 5b's
       tier-specific layers). No live model-load test run (static analysis
       only, per rule 2).
-- [ ] Compare `core/recovery.py`'s built-in success-rate tracking against
+- [x] Compare `core/recovery.py`'s built-in success-rate tracking against
       `core/strategy_tracker.py` (flagged possible duplicate tracking,
-      `CODEY_OS_MASTER_VISION.md` Section 8) — resolve before `recovery.py`
-      is wired up any further.
-- [ ] Scope `NEW-19` (design question: is `[PATCH_FAILED]`'s bypass of
+      `CODEY_OS_MASTER_VISION.md` Section 8) — **already resolved**, found
+      2026-07-30: Phase 2 (commit `0132e0f`) already wrapped
+      `ccos/plugins/coding/error_recovery/error_recovery.py` with this
+      exact decision documented in its module docstring —
+      `recovery.py`'s own tracking is in-memory/non-persisted, while
+      `strategy_tracker.py` is the already-live, disk-persisted path
+      (imported by `core/learning.py`), so the plugin's
+      `recovery_record_outcome()` routes through `strategy_tracker.py`'s
+      `record_attempt()`, not `recovery.py`'s `record_error()`.
+      `core/recovery.py` itself is untouched. No further action needed;
+      the "Section 8" flag in `CODEY_OS_MASTER_VISION.md` predates this
+      plugin and is now stale — corrected there too.
+- [x] Scope `NEW-19` (design question: is `[PATCH_FAILED]`'s bypass of
       retry/escalation logic correct, does it need its own transcript
-      marker) — a design decision, not a fix; needs a decision recorded
-      before it can become a task.
+      marker) — **decision recorded 2026-07-30 (Ish, direct):** repeated
+      same-file `[PATCH_FAILED]` failures within a turn escalate to the
+      existing peer-CLI path; add a new distinct transcript marker for
+      the unresolved-within-turn case (not a reuse of NEW-2's marker).
+      Re-verified the underlying gap is still current before recording
+      (`core/agent.py:1715`). Now a scoped Track 2 task, see below.
 
 ## Track 2 — Independent bug/security fixes (real risk exposure now; not blocked by Phase 5, can run in parallel with Track 1/3)
 
+- [ ] `NEW-19` implementation — per the decision recorded above: add
+      repeated-same-file-`[PATCH_FAILED]`-in-a-turn escalation to the
+      existing peer-CLI path (`core/agent.py`, near the existing
+      exhausted-retries escalation at line ~1778-1781), plus a new
+      distinct transcript marker for the unresolved-within-turn case.
+      Touches the core tool-execution/retry loop in `agent.py` — not
+      process-lifecycle (rule 4 doesn't apply), but real behavior change
+      to the model's failure-handling path; code-reviewer pass
+      recommended given the class of change, live-verifier likely needed
+      to confirm the new escalation path actually fires.
 - [ ] `NEW-25` — `codeyOS --daemon` forwards a literal `$@` string
       instead of real args (backslash-escape bug outside the heredoc).
       Process-lifecycle-adjacent → needs code-reviewer per CLAUDE.md
@@ -277,9 +301,12 @@ resource-awareness work twice.
 
 ## Currently here
 
-**Tracks 0 and 1 fully done (2026-07-30).** Both audits surfaced real
-findings now logged as `NEW-28` through `NEW-35` (see Track 1 above for
-detail); none required stopping to escalate except `NEW-34`, which is
-flagged for Ish's call, not blocking further queue work. Next up:
-Track 2's independent bug/security fixes, which can run in parallel with
-starting Track 3's Phase 5a (Track 2 has no hard dependency on Track 3).
+**Tracks 0 and 1 are now genuinely fully done (2026-07-30)** — the
+earlier "fully done" claim was corrected mid-session per rule 6 when it
+turned out 2 of Track 1's 4 items were still open; both are now closed:
+the `recovery.py`/`strategy_tracker.py` comparison turned out to already
+be resolved in Phase 2 (just undocumented until now), and `NEW-19` got a
+direct decision from Ish, now a scoped Track 2 task. Next up: Track 2's
+independent bug/security fixes (starting with the freshly-scoped `NEW-19`
+implementation), which can run in parallel with starting Track 3's
+Phase 5a.

@@ -76,7 +76,7 @@ already wired to the OS shell or still needs wrapping.
 | **Recursive self-refinement** | Draft → critique → refine cycle before code hits disk | Inside `core/agent.py` / `core/recursive.py` | Needs wrapping |
 | **Error recovery / strategy switching** | Adaptive fallback when a tool fails (write→patch, import error→pip install, file-not-found→search, test failure→isolate and re-run) with confidence-based, history-adapting strategy selection | `core/recovery.py` — fully implemented, verified complete (classification, fallback trees, real recovery actions, success-rate tracking) | **Complete but disconnected** — needs one thing: a call site in `agent.py`'s tool-failure path. Treat as "wire up," not "build." |
 | **Self-status introspection (`/status`)** | Reports token usage, memory status, task queue depth, active model, temperature/context size, process CPU/memory usage, daemon uptime/PID, rolled-up health | `core/observability.py` — fully implemented, verified complete | **Complete but disconnected** — needs a `/status` CLI handler wired to call it. Treat as "wire up," not "build." |
-| **Learning / preference tracking** | Tracks user corrections and preferences, error-pattern learning over time | `core/learning.py`, `core/strategy_tracker.py`, `core/error_database.py` | Already active (imported by `agent.py`). **Note:** `strategy_tracker.py` may overlap with `recovery.py`'s own built-in success-rate tracking (`record_error`/`get_success_rate`) — worth a direct comparison when wiring `recovery.py` up, to avoid tracking the same thing twice in two places. |
+| **Learning / preference tracking** | Tracks user corrections and preferences, error-pattern learning over time | `core/learning.py`, `core/strategy_tracker.py`, `core/error_database.py` | Already active (imported by `agent.py`). **Resolved 2026-07-30:** `strategy_tracker.py`'s overlap with `recovery.py`'s own built-in success-rate tracking was already handled in Phase 2 (`ccos/plugins/coding/error_recovery/error_recovery.py`, commit `0132e0f`) — that plugin routes outcome tracking through `strategy_tracker.py` (the persisted, already-live path) rather than `recovery.py`'s own in-memory one; `recovery.py` itself is untouched. No duplicate tracking in practice. |
 | **Git integration** | Branch management, AI commit messages, conflict detection | `core/githelper.py` | Needs wrapping |
 | **Voice interface** | TTS output / STT input via Termux:API | `core/voice.py` | Needs wrapping |
 | **Static analysis** | Auto-lint on write, `/review` command | `core/linter.py` | Needs wrapping |
@@ -406,9 +406,11 @@ Building this is dependency-ordered, not parallelizable end to end:
   verify it, remove the other. STT (voice input) has no CCOS equivalent at
   all, so `core/voice.py` (or a rewrite) is needed regardless of the TTS
   outcome.
-- Possible duplicate tracking between `core/recovery.py`'s built-in
+- ~~Possible duplicate tracking between `core/recovery.py`'s built-in
   success-rate history and `core/strategy_tracker.py` — compare before
-  wiring `recovery.py` up, to avoid two systems tracking the same thing.
+  wiring `recovery.py` up, to avoid two systems tracking the same
+  thing.~~ **Resolved 2026-07-30:** already handled in Phase 2, see
+  Section 3's Learning/preference-tracking row.
 - ~~The small cleanup list (6 confirmed-safe-to-delete files from the repo
   audit) — paused per your instruction, revisit after this document is
   signed off.~~ **Resolved 2026-07-30:** 5 of the 6 (`test_optimize_me`

@@ -1725,6 +1725,29 @@ remain open, deferred to a future round.
   at the panel-rendering layer, not this deeper retry/escalation/
   transcript-marker question). Needs its own dedicated scoping pass in
   NEW-2/NEW-15 territory before any fix is attempted.
+- **Decisions recorded 2026-07-30 (Ish, direct):**
+  1. Keep single-failure `[PATCH_FAILED]` behavior as-is (full untruncated
+     file shown, no retry) — but if the SAME file fails with
+     `[PATCH_FAILED]` more than once in a turn, route it into the
+     existing peer-CLI escalation path (`core/peer_cli.py`'s `escalate()`,
+     already used at `core/agent.py:1781` for exhausted-retry cases)
+     instead of showing full content again indefinitely.
+  2. Add a new, distinct transcript marker for this case (not a reuse of
+     NEW-2's `[EDIT NOT APPLIED]`, since that marker's "after retries and
+     escalation were exhausted" wording would be false here) — fires when
+     a `[PATCH_FAILED]` case is never resolved within a turn.
+  3. **Verified still current as of 2026-07-30** (re-checked before
+     recording this decision, not assumed stale): `core/agent.py:1715`'s
+     actual retry gate (`is_error(last_tool_result, name) and
+     auto_retries < max_retries`) still excludes `[PATCH_FAILED]` —
+     confirmed `is_error()` (`core/agent.py:492`) only matches an
+     `[ERROR]` prefix or shell-specific traceback signals, neither of
+     which `[PATCH_FAILED]` is. The Round 16 fix's `_is_err` check for
+     `[PATCH_FAILED]` (`core/agent.py:416-417`) is display-only (feeds
+     `show_patch()`'s red-border styling), not this gate — so this
+     decision is scoping a real, still-open gap, not a stale one.
+  - **Status: scoped, decision recorded, not yet implemented.** Moved to
+    `WORK_QUEUE.md` Track 2 as its own task.
 
 ## Found during Round 18 (NEW-18 live-reproduction attempt), 2026-07-30 — NOT fixed, logged only
 
