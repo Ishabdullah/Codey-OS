@@ -780,6 +780,54 @@ code that needs its own future round. Queue position for NEW-9 relative
 to the already-queued NEW-4/NEW-7 is an open question for Ish, not
 decided unilaterally here.
 
+### Audit Remediation — Round 9 (NEW-9)
+**Status: NOT COMPLETE — NOT RESOLVED.** code-reviewer approved a fix
+that live-verification subsequently showed does not close the bug it
+targeted. `NEW_ISSUES.md` [NEW-9] remains open. A follow-up round is
+needed to widen the guarded window; do not proceed with a new fix
+attempt without Ish's direction (this is a CLAUDE.md "stop and
+escalate" situation — live-verifier showed the original symptom isn't
+actually resolved).
+- [x] Fix attempt: commit `1a1c0b7` wrapped `core/loader_v2.py`'s
+      `subprocess.Popen()` call in
+      `signal.pthread_sigmask(SIG_BLOCK/SIG_UNBLOCK)` around exactly
+      that call, based on project-architect's investigation of NEW-9's
+      root cause (the atfork/fork-window race).
+- [x] code-reviewer approved — correctly, based on the specific call
+      site it was asked to review. That approval is not itself in
+      question.
+- [ ] **live-verifier ran 16 valid, independent repeated-attempt tests
+      (one model-load cycle at a time, each confirmed unloaded before
+      the next, per CLAUDE.md rule 2) and reproduced the identical
+      orphan in 3/16 (~19%) — statistically indistinguishable from the
+      original ~1-in-4 rate this fix was supposed to close to ~0.**
+- [x] Root cause of the fix's incompleteness identified: the vulnerable
+      window starts ~70 lines earlier than where the mask was placed.
+      `"Starting llama-server..."` logs at `core/loader_v2.py` ~line 55;
+      `pthread_sigmask(SIG_BLOCK)` wasn't applied until ~line 125, right
+      before `Popen()`. Command-list construction, mmap/mlock config
+      lookup, and log-file open all happen in between, unguarded. A
+      `SIGINT` landing in that gap is delivered normally before the mask
+      is applied, and can still surface inside the forked child's atfork
+      callback, reproducing the exact original symptom.
+- [ ] `1a1c0b7` is **not** being reverted (it's a harmless partial
+      mitigation, not a regression) but must **not** be described as
+      having fixed NEW-9 anywhere in the docs.
+- [x] `NEW_ISSUES.md` [NEW-9] corrected per CLAUDE.md rule 6: a
+      "Status: STILL OPEN" block added explaining the fix attempt and
+      why it failed, with the 13/16 clean, 3/16 orphan aggregate and
+      root cause.
+
+**Round 9 (NEW-9) is NOT resolved.** The fix committed in `1a1c0b7` was
+reasoned soundly for the specific `Popen()` call site under review, but
+live-verification's 16-attempt aggregate shows the actual vulnerable
+window is wider than what got wrapped, and the bug's real-world hit
+rate is unchanged. Per CLAUDE.md rule 6, this is logged honestly rather
+than left as a false "done." Next step (widening the guarded window to
+start at or before the `"Starting llama-server..."` log line) needs its
+own dedicated scoping pass and is being brought to Ish for a decision on
+how to proceed, not unilaterally re-attempted here.
+
 ### Phase 4 — Self-improvement activation (deliberate, not automatic)
 Do NOT start this phase until Phases 1–3 are stable and you've watched the
 system run real coding tasks through the sandbox/safety-veto path for a

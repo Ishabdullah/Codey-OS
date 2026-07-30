@@ -5,6 +5,71 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-30 — Round 9 (NEW-9): pthread_sigmask fix around Popen() — code-reviewer approved, live-verification shows it does NOT close the bug — NOT RESOLVED
+
+**Fix attempt (commit `1a1c0b7`):** based on project-architect's own
+investigation of NEW-9's root cause (Round 8's discovery that a `SIGINT`
+landing inside `subprocess.Popen()`'s internal `os.fork()` in
+`core/loader_v2.py` can be silently discarded by CPython's atfork
+exception handling before it reaches the caller's
+`try/except (KeyboardInterrupt, SystemExit)` guard), `1a1c0b7` wrapped
+exactly the `subprocess.Popen()` call in
+`signal.pthread_sigmask(SIG_BLOCK)` / `SIG_UNBLOCK` — blocking `SIGINT`
+at the OS level for the duration of that call, then re-delivering it
+after, so the guard would have a chance to catch it.
+
+**code-reviewer:** approved. Its reasoning was correct for the specific
+call site it reviewed — blocking the signal mask around a `Popen()` call
+is a legitimate technique to prevent SIGINT-during-fork races, and the
+diff did that correctly at that exact line.
+
+**live-verifier's results (verbatim):** ran 16 valid, independent
+repeated-attempt tests of the `--init` path — one model-load cycle at a
+time, each confirmed unloaded (`ps aux | grep llama-server` empty)
+before starting the next, per CLAUDE.md rule 2. Aggregate: **13/16
+clean, 3/16 reproduced the identical orphan (~19%)** — statistically
+indistinguishable from the original, pre-fix ~1-in-4 (~25%) rate this
+fix was meant to close to ~0.
+
+Verbatim reproduction (attempt a9 of 16):
+```
+Exception ignored in atfork callback <function _afterFork at 0x...>
+Traceback (most recent call last):
+  File ".../logging/__init__.py", line 245, in _afterFork
+KeyboardInterrupt:
+```
+`"Interrupted during model load, cleaning up..."` never printed — the
+guard's `try/except` never fired. Post-check:
+`ps -p 14123 -o pid,ppid,pgid,etimes,cmd` →
+`14123  1  14123  13  .../llama-server ...` — a real orphan (PPID=1),
+identical in shape to Round 8's original finding.
+
+**Root cause of the fix's incompleteness (identified by reading the
+code, not just re-observing the symptom):** the vulnerable window
+actually starts ~70 lines earlier than where the mask was placed.
+`"Starting llama-server..."` logs at `core/loader_v2.py` ~line 55; the
+`pthread_sigmask(SIG_BLOCK)` call wasn't added until ~line 125, right
+before `Popen()`. Everything in between — command-list construction,
+mmap/mlock config lookup, log-file open — was left unguarded. A `SIGINT`
+landing in that gap is delivered normally by the OS (nothing blocks it
+yet), arms the interpreter's pending-interrupt flag, and can still
+surface inside the forked child's atfork callback exactly as before —
+the mask was simply placed too late to cover the real window.
+
+**Disposition, per CLAUDE.md rule 6:** `1a1c0b7` is not being reverted —
+code-reviewer's approval was sound reasoning about the exact call it was
+asked to review, and the change is a harmless partial mitigation, not a
+regression. But it must not be described anywhere as having resolved
+NEW-9. `NEW_ISSUES.md` [NEW-9] has been corrected with a "Status: STILL
+OPEN" block documenting this fix attempt and why it failed, and remains
+open. This round is **not** marked done or resolved in `PROJECT_PLAN.md`.
+Per CLAUDE.md's escalation rules (live-verifier showed the original
+symptom isn't actually resolved), this is being brought to Ish directly
+for a decision on how to proceed — no new fix attempt has been scoped
+here.
+
+---
+
 ## 2026-07-30 — Round 8 (NEW-6): sibling `load_primary()` KeyboardInterrupt guards, CODE COMPLETE, code-reviewer approved, LIVE-VERIFIED with one residual gap identified and separately logged (NEW-9)
 
 **Fix (commit `435c120`):** `main.py`'s `args.init`/`args.tdd`/`args.fix`

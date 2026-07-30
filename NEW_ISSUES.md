@@ -178,13 +178,78 @@ own dedicated scoping pass, not yet queued for a fix.
   bundled into the NEW-5 fix, to keep that fix tightly scoped per
   CLAUDE.md's project-architect instructions.
 
+## Found during Round 9 (NEW-9) scoping pass, 2026-07-30 — NOT fixed, logged only
+
+### [NEW-10] `main.py` has no `SIGTERM` handler at all — a direct `SIGTERM` during model load (or any point) terminates the process instantly, bypassing every existing `try/except (KeyboardInterrupt, SystemExit)` guard entirely
+- **Confidence: Suspected.** Confirmed via code-reading and a Python
+  semantics check (`signal.getsignal(signal.SIGTERM)` returns `SIG_DFL`
+  in a fresh interpreter; `grep -n "signal\." main.py` shows no
+  `signal.signal(signal.SIGTERM, ...)` call anywhere in `main.py`) —
+  not yet live-reproduced as an actual orphan from a direct `SIGTERM`
+  sent to the `main.py` process itself (distinct from NEW-5's Round 6
+  finding, which was about `gui/start.sh`'s bash wrapper not forwarding
+  `TERM` to its foreground child, a different mechanism).
+- **Where found:** while root-causing NEW-9's atfork/fork-window race
+  (Round 9 scoping pass), checked whether the same race applies to
+  `SIGTERM` as well as `SIGINT`. It does not apply in the same way —
+  it's worse. `SIGINT` has a default Python-level handler
+  (`signal.default_int_handler`) that raises `KeyboardInterrupt`, which
+  is what lets `try/except (KeyboardInterrupt, SystemExit)` guards catch
+  it at all (when the atfork race doesn't swallow it first). `SIGTERM`'s
+  disposition in `main.py` is unmodified `SIG_DFL`, whose default action
+  is immediate process termination at the kernel level — it never
+  reaches Python bytecode, never raises any exception, and cannot be
+  caught by any `try/except`, including the NEW-5/NEW-6 guards, at any
+  point in the model-load window (not just the narrow fork window NEW-9
+  describes).
+- **Impact if confirmed:** a direct `kill -TERM <main.py PID>` (as
+  opposed to sending TERM to `gui/start.sh`'s bash wrapper, which was
+  NEW-5's original scenario) during model load would orphan
+  `llama-server` unconditionally, 100% of the time, with none of the
+  NEW-5/NEW-6/NEW-9 guard work having any effect on this path.
+- **Not fixed here:** out of scope for NEW-9's scoping pass, which is
+  specifically about the `SIGINT`/`KeyboardInterrupt`/atfork race.
+  Needs its own dedicated scoping pass: likely direction is installing
+  an explicit `signal.signal(signal.SIGTERM, ...)` handler early in
+  `main.py` that translates `SIGTERM` into a controlled shutdown path
+  (e.g. raising `SystemExit` or directly invoking the existing
+  `shutdown()`), which is CLAUDE.md rule 4 territory and needs
+  code-reviewer's explicit approval before commit.
+
 ## Found during Round 8 (NEW-6) live-verification pass, 2026-07-30 — NOT fixed, logged only
 
 ### [NEW-9] Residual, intermittent atfork/fork-window race can silently bypass the `try/except (KeyboardInterrupt, SystemExit)` model-load guard at all four sites (`repl()`, `args.init`, `args.tdd`, `args.fix`)
+- **Status: STILL OPEN — Round 9 fix attempt (commit `1a1c0b7`) did NOT
+  close this**, corrected 2026-07-30 per CLAUDE.md rule 6 after Round 9's
+  own live-verification. `1a1c0b7` wrapped only the `subprocess.Popen(...)`
+  call itself in `signal.pthread_sigmask(SIG_BLOCK/SIG_UNBLOCK)`, but
+  live-verifier's repeated-attempt testing (16 valid independent attempts)
+  reproduced the identical orphan in 3/16 (~19%), statistically
+  indistinguishable from the original ~1-in-4 rate. Root cause of the
+  fix's failure: the vulnerable window starts far earlier than the
+  `Popen()` call — the `"Starting llama-server..."` log line fires at
+  `core/loader_v2.py` line ~55, roughly 70 lines before the
+  `pthread_sigmask(SIG_BLOCK)` call at line ~125 (command-list
+  construction, mmap/mlock config lookup, log-file open all happen in
+  between, unguarded). A `SIGINT` landing in that gap is delivered
+  normally by the OS before the mask is ever applied, arms the
+  interpreter's pending-interrupt flag, and can still surface inside the
+  forked child's atfork callback exactly as before — the mask was simply
+  placed too late to cover the real window. Verbatim reproduction
+  (attempt a9 of 16): `Exception ignored in atfork callback` printed,
+  `"Interrupted during model load, cleaning up..."` never printed, and
+  `ps -p 14123 -o pid,ppid,pgid,etimes,cmd` confirmed a real orphan
+  (`14123  1  14123  13  .../llama-server ...`). Do not consider `1a1c0b7`
+  a completed fix — it is a partial, insufficient mitigation left in
+  place (harmless, narrows nothing meaningfully, but not the fix). This
+  needs a fresh scoping pass that moves the block point up to cover the
+  full window from the log line (or earlier) through the `Popen()` call,
+  not just the call itself.
 - **Confidence: Confirmed** (directly reproduced live during Round 8's
   live-verification of the NEW-6 fix — a real orphaned `llama-server`
   process was caught, root-caused by reading CPython's `subprocess.Popen`/
-  `os.fork()` internals, not inferred).
+  `os.fork()` internals, not inferred). Reconfirmed as still-open via
+  Round 9's 16-attempt live-verification above.
 - **Where found:** Round 8 live-verifier's `--init` testing (attempt 1 of
   4 total attempts across all four guarded call sites). Hit rate observed:
   1-in-4 across this round's testing.
