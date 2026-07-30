@@ -367,6 +367,51 @@ own dedicated scoping pass, not yet queued for a fix.
      flock'd `.pid`/`.lock` file per port) before spawning, to close the
      daemon-vs-CLI TOCTOU race.
 
+### [NEW-13] Removing `core/inference.py`'s independent launcher (Round 11, NEW-12 fix, commit `59f4f69`) orphaned `ThermalManager`'s thread-reduction restart mechanism
+- **Confidence: Confirmed** (found by code-reviewer during Round 11's
+  NEW-12 review, verified via repo-wide grep, not inferred).
+- **Where:** `core/thermal.py`'s `ThermalManager` class sets
+  `self.restart_recommended = True` when `_reduce_threads()` fires
+  (sustained inference triggers a thread-count reduction to manage
+  device heat). The class's own comment states this flag exists so that
+  "inference.py checks this and restarts llama-server with the updated
+  thread count on next call." Before Round 11, `core/inference.py`'s
+  `_start_server()` was the ONLY consumer of `restart_recommended`
+  anywhere in the repo (confirmed via repo-wide grep for
+  `restart_recommended`/`ThermalManager`/`get_thermal_manager`) — it
+  checked the flag, terminated the old `_server_proc`, and restarted
+  `llama-server` with the reduced thread count.
+- **What changed:** Round 11's NEW-12 fix (commit `59f4f69`) removed
+  `core/inference.py`'s independent `_start_server()` entirely (it was
+  an uncoordinated, port-check-free llama-server launcher, correctly
+  removed for that reason) and replaced it with a delegation to
+  `core.loader_v2.get_loader().ensure_model()`. `core/loader_v2.py`'s
+  launcher has no equivalent thermal-restart check anywhere in its own
+  code path — it was never wired up there, since `core/inference.py`'s
+  fallback path was thermal.py's only consumer.
+- **Impact:** `ThermalManager` still detects sustained inference, still
+  warns, and still reduces `MODEL_CONFIG["n_threads"]` in memory — but
+  the actual server restart that was supposed to apply the new
+  (reduced) thread count to the already-running `llama-server` process
+  no longer fires from anywhere. This silently breaks the device-heat
+  mitigation `core/thermal.py`'s own module docstring advertises
+  (reducing threads after sustained inference to prevent thermal
+  throttling on this mobile device).
+- **Not fixed here** — logging only, per CLAUDE.md rule 8 (found outside
+  NEW-12's stated scope during its review, correctly not silently fixed
+  nor silently dropped). This is a real, if narrow, functional
+  regression, not just a maintainability note — flag it as Confirmed,
+  not Suspected.
+- Fix direction for a future dedicated pass (not scoped here): wire an
+  equivalent restart-recommended check into `core/loader_v2.py`'s
+  `ModelLoader`/`LlamaServer` (the now-canonical launcher), likely
+  inside `ensure_model()` or a periodic check point, so the mitigation
+  applies regardless of which code path (primary or fallback) is
+  currently in use. Needs its own scoping pass to decide exactly where
+  the check belongs given `loader_v2.py`'s different structure (e.g.
+  the NEW-9-hardened `pthread_sigmask` block around `Popen` — any
+  restart logic must not interfere with that).
+
 ## Found during Round 8 (NEW-6) live-verification pass, 2026-07-30 — NOT fixed, logged only
 
 ### [NEW-9] Residual, intermittent atfork/fork-window race can silently bypass the `try/except (KeyboardInterrupt, SystemExit)` model-load guard at all four sites (`repl()`, `args.init`, `args.tdd`, `args.fix`)
