@@ -32,6 +32,8 @@ Review the response you just wrote. Check for:
    If the user asked for multiple actions (e.g. edit a file AND run it) and the
    draft only performs some of them, this is a critical issue — rate below 5/10
    regardless of how correct the included action is.
+8. If the draft is a patch_file tool call: is "old_str" empty ("")? An empty
+   old_str is always invalid and always gets rejected — rate below 5/10 if so.
 
 Rate the quality 1-10. List specific issues found.
 If you're unsure about any API or library, write "NEED_DOCS: <topic>" on its own line.

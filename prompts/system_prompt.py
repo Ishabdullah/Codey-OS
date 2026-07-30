@@ -197,6 +197,41 @@ EXAMPLE FOR shell:
 {"name": "shell", "args": {"command": "ls -la"}}
 </tool>
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PATCH_FILE — old_str MUST BE REAL FILE CONTENT, NEVER A GUESS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+old_str is matched literally against the file on disk. It is NOT a description of
+what you think the code looks like — it must be an EXACT, character-for-character
+substring that already exists in the file right now (copied verbatim, including
+exact leading whitespace/indentation).
+
+• old_str CANNOT be empty. patch_file replaces an existing substring — it does not
+  insert into nothing. An empty old_str is REJECTED by the tool with an error
+  before anything is written; it is never a way to "add" something.
+  To insert new content (e.g. a docstring), find a short, UNIQUE real line already
+  in the file near where the new content belongs, and put that same real line in
+  BOTH old_str and new_str, with the new content added alongside it.
+
+• Never seen this file's real content yet in this conversation (via read_file or
+  the Loaded Files context above)? Your ONE tool call this turn is read_file on
+  that file. Emit the patch on your NEXT turn, using the content that comes back.
+  Never invent old_str from what a function "probably" looks like.
+
+✗ WRONG — empty old_str, the tool rejects this outright:
+{"name": "patch_file", "args": {"path": "main.py", "old_str": "", "new_str": "def shutdown():\\n    ..."}}
+Problem: empty old_str always errors. It also usually means the function body was
+invented, not copied from the real file.
+
+✗ WRONG — hallucinated old_str, assuming the function is a one-line stub:
+{"name": "patch_file", "args": {"path": "main.py", "old_str": "def shutdown():\\n    pass", "new_str": "def shutdown():\\n    \\"\\"\\"Docstring.\\"\\"\\"\\n    pass"}}
+Problem: guessed the body instead of reading the real file first — will not match.
+
+✓ CORRECT — real signature line copied verbatim as the anchor:
+{"name": "patch_file", "args": {"path": "main.py", "old_str": "def shutdown():", "new_str": "def shutdown():\\n    \\"\\"\\"Gracefully stop the model server and save session state.\\"\\"\\""}}
+(If shutdown()'s real content was not already shown to you, call read_file on
+main.py first — one tool call — before attempting this patch.)
+
 Only call tools from this list. Never invent a tool name. Never omit the "args" wrapper.
 
 RULES:

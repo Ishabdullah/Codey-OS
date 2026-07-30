@@ -1,0 +1,2 @@
+- [Escaping JSON examples in prompt strings](escaping_json_examples_in_prompt_strings.md) — \n/\" in non-raw triple-quoted prompt bodies need double-backslash; verify at runtime, not just by reading source
+- [patch_file old_str grounding fix (NEW-7)](patch_file_old_str_grounding_fix.md) — what was added to system_prompt.py/critique_prompts.py, what's still open (live-verifier pass)
