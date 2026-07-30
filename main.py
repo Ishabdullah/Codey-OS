@@ -1461,14 +1461,24 @@ def main():
 
     if args.init:
         loader = get_loader()
-        loader.load_primary()
+        try:
+            loader.load_primary()
+        except (KeyboardInterrupt, SystemExit):
+            console.print("\n[dim]Interrupted during model load, cleaning up...[/dim]")
+            shutdown()
+            return
         run_init()
         shutdown()
         return
 
     if args.tdd:
         loader = get_loader()
-        loader.load_primary()
+        try:
+            loader.load_primary()
+        except (KeyboardInterrupt, SystemExit):
+            console.print("\n[dim]Interrupted during model load, cleaning up...[/dim]")
+            shutdown()
+            return
         from core.tdd import find_test_file, run_tdd_loop
 
         test_file = args.tests or find_test_file(args.tdd)
@@ -1488,7 +1498,12 @@ def main():
 
     if args.fix:
         loader = get_loader()
-        loader.load_primary()
+        try:
+            loader.load_primary()
+        except (KeyboardInterrupt, SystemExit):
+            console.print("\n[dim]Interrupted during model load, cleaning up...[/dim]")
+            shutdown()
+            return
         from core.fixmode import fix_file
         # --fix is automated, always disable confirmations
         from utils import config
