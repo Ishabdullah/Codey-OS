@@ -216,6 +216,157 @@ own dedicated scoping pass, not yet queued for a fix.
   `shutdown()`), which is CLAUDE.md rule 4 territory and needs
   code-reviewer's explicit approval before commit.
 
+## Found during Round 10 NEW-9 follow-up discussion, 2026-07-30 — NOT fixed, logged only
+
+### [NEW-11] Daemon's 30s watchdog checks a stale in-memory flag, not real process liveness
+- **Confidence: Confirmed** (read directly from code, not inferred).
+- **Where:** `core/daemon.py:549-563`, the periodic (every 30s / 60 ticks
+  × 0.5s) watchdog inside `_main_loop`. It checks
+  `loader.get_loaded_model()` and, if falsy, logs `"7B model server
+  died — restarting..."` and calls `loader.load_primary()`.
+- **The gap:** `get_loaded_model()` (`core/loader_v2.py:382-384`) just
+  returns `"primary" if self._loaded else None` — an in-memory boolean
+  set once at load time. It does **not** call `self.process.poll()` or
+  otherwise check real process liveness. Once `self._loaded` becomes
+  `True`, it stays `True` forever (no periodic poll resets it), so this
+  watchdog only catches "the daemon never successfully loaded the model
+  in the first place" — it would **not** detect a genuine mid-session
+  crash of an already-successfully-loaded `llama-server` while the
+  daemon keeps running.
+- **Mitigating factor:** the daemon is not the only safety net.
+  `core/inference_v2.py:90-94` calls `loader.ensure_model()` on every
+  single inference request, and `ensure_model()`
+  (`core/loader_v2.py:376-380`) **does** check real liveness
+  (`is_running()` → `process.poll()`/HTTP health check) and will
+  respawn via `load_primary()` if genuinely dead. So a crash would
+  still self-heal on the next inference call, just not proactively via
+  the watchdog.
+- **Impact:** Low-to-medium. Not a process-orphaning bug itself
+  (opposite problem — it under-reacts, not over-spawns), but it means
+  the daemon's own dashboard/status data could show "model loaded" when
+  it's actually dead, for however long until the next real inference
+  request.
+- **Not fixed here** — logging only, per CLAUDE.md rule 8. Fix direction
+  for a future pass: change the watchdog's check to call
+  `loader._server.is_running()` (real liveness) instead of
+  `get_loaded_model()` (stale flag), or reset `self._loaded = False`
+  when `is_running()` becomes false.
+- **Relation to NEW-9:** separate, unrelated mechanism — **not** the
+  same bug. Confirmed by direct evidence: NEW-9's live-reproductions
+  all happened 2026-07-30 while `~/.codeyOS/codeyOS.log` shows the
+  daemon was only ever started once, on 2026-07-29 13:35, and never run
+  since (no PID file, no process currently alive). The daemon could not
+  have been involved in any NEW-9 reproduction.
+
+### [NEW-12] Duplicated/scattered model-launch configuration — a second, uncoordinated `llama-server` launcher exists with no port-conflict check
+- **Confidence: Confirmed** (read directly from code — exact file:line
+  citations below, not inferred).
+- **Where found:** investigating the user's report that changing which
+  model Codey-OS uses required updating the path in multiple locations.
+- **Core finding:** there are two independent places that build and
+  launch a `llama-server` subprocess command for the primary 7B model
+  on port 8080, not one:
+  1. `core/loader_v2.py:127` (`LlamaServer.start()`, in `LlamaServer`
+     class) — the canonical path used by daemon and CLI via
+     `get_loader()`. Command built at `core/loader_v2.py:58-110`. Uses
+     `os.setsid` (line 131) for clean process-group teardown via
+     `killpg` (line 179). Does check port-in-use before spawning
+     (`loader_v2.py:49-53`, `_is_port_in_use()` at 212-231) and reuses
+     an existing server if one answers instead of double-spawning.
+  2. `core/inference.py:40-103` (`_start_server()`) — a second, legacy
+     launcher with a different flag set (no `--host`, no `--embedding`,
+     no mmap/mlock handling; see `core/inference.py:60-79`). Has **no**
+     port-in-use check at all before `subprocess.Popen` (line 84) —
+     only skips spawning if its own module-global `_server_proc` is
+     already alive, which is irrelevant to whether some other process
+     already has port 8080 bound. No `os.setsid`/process-group
+     detachment — plain `Popen` with `stdout=DEVNULL, stderr=DEVNULL`
+     (no logs, no group-kill handle). Its `stop_server()`
+     (`core/inference.py:106-110`) is never called from anywhere in the
+     codebase (confirmed via grep, zero callers) — meaning if this path
+     spawns a server, nothing in the daemon's shutdown path
+     (`core/daemon.py:583-588`, which only knows about
+     `loader_v2.get_loader().unload()`) or anywhere else ever tears it
+     down.
+- **Is the legacy path reachable, or dead code? Reachable, not dead.**
+  `core/inference_v2.py:192-213` (`_infer_http`) imports and calls
+  `core.inference.infer` as a fallback (`core/inference_v2.py:196`),
+  triggered whenever the primary chat backend fails to initialize or
+  throws an exception (`core/inference_v2.py:59-61` init exception
+  path, `core/inference_v2.py:99-106` mid-request exception path). So
+  under a real, plausible failure condition, live code will call into
+  `core/inference.py`'s independent, no-port-check, never-torn-down
+  launcher.
+- Port 8080 has no single named config constant (unlike ports
+  8081/8082, which have `PLANND_SERVER_PORT`/`EMBED_SERVER_PORT` in
+  `utils/config.py`) — it's hardcoded independently in
+  `core/loader_v2.py:25` (`SERVER_PORT = 8080`),
+  `core/inference.py:14,77`, and `core/inference_hybrid.py:34`
+  (`port: int = 8080` default param).
+- **Separately (same investigation, related but distinct):**
+  `PLANNER_MODEL_PATH`/`PLANND_SERVER_PORT` are defined in
+  `utils/config.py:233-239` but never read by any process-launching
+  code anywhere in the repo (confirmed via grep) — the 1.5B planner
+  server is evidently expected to be started manually by the user via a
+  hand-typed shell command, completely disconnected from
+  `utils/config.py`. `docs/configuration.md:155` also documents the
+  wrong default model file for this (`~/models/qwen2.5-0.5b/...`) vs.
+  what `utils/config.py:236` actually defaults to
+  (`~/models/qwen2.5-coder-1.5b/...`), and `install.sh:36,41` builds/
+  downloads yet another value independently. This is very likely the
+  direct cause of the user's "had to update the model path in multiple
+  locations" experience for the planner model specifically (the
+  primary 7B model's path is properly centralized via `MODEL_PATH` in
+  `utils/config.py`, imported consistently by `core/loader_v2.py`,
+  `core/inference.py`, `core/lora_import.py`).
+- **Cross-process coordination:** within one Python process,
+  `get_loader()` is a true singleton (module-level,
+  `core/loader_v2.py:417-422`) so one process can't double-spawn via
+  `loader_v2` alone. But across processes (e.g. the daemon and a
+  separately/directly-run `python3 main.py` CLI invocation, each with
+  their own independent `ModelLoader` singleton), the only protection
+  is the `_is_port_in_use()` HTTP probe — a TOCTOU race, not a lock. If
+  both processes start near-simultaneously during the up-to-60s
+  health-check window (`loader_v2.py:139` polls up to 60s), both could
+  see port 8080 as free and both attempt to spawn. There is no
+  flock/pidfile-based mutex dedicated to the model-server port itself
+  (the daemon's own `fcntl.flock` at `core/daemon.py:55-93` only
+  prevents daemon-vs-daemon double-start, not daemon-vs-CLI).
+- **Impact/assessment:** this is a plausible, concrete contributing
+  factor to the broader family of process-lifecycle bugs already
+  tracked (NEW-5/NEW-6/NEW-9), not purely a maintainability nuisance —
+  specifically via (a) the untracked, no-port-check
+  `core/inference.py:_start_server()` fallback path, reachable in
+  production, capable of spawning an unmanaged second `llama-server`
+  with no cleanup hook, and (b) the TOCTOU race window in
+  `_is_port_in_use()` when a daemon and a CLI process start close
+  together. Not confirmed as the direct cause of any specific
+  already-reproduced NEW-5/6/9 orphan (those were traced to a
+  different, lower-level atfork/signal-timing mechanism, confirmed
+  unrelated to this in the NEW-11 write-up above) — this is a separate,
+  additional risk in the same problem family, not a re-explanation of
+  the already-diagnosed bugs.
+- **Not fixed here** — logging only, per CLAUDE.md rule 8. Fix
+  directions for a future dedicated pass (do not scope as a task yet,
+  just list as candidates):
+  1. Quarantine or delete `core/inference.py`'s independent
+     `_start_server()`/`Popen` launcher — route its fallback through
+     `core.loader_v2.get_loader()` instead of building its own command.
+  2. Add a single named `SERVER_PORT`/`PRIMARY_SERVER_PORT` constant in
+     `utils/config.py` that all three files (`loader_v2.py`,
+     `inference.py`, `inference_hybrid.py`) import, instead of each
+     hardcoding `8080` independently.
+  3. Either wire `PLANNER_MODEL_PATH`/`PLANND_SERVER_PORT` into an
+     actual launcher (so the 1.5B planner starts the same way the 7B
+     model does) or remove/clearly-mark them as unused-today in
+     `utils/config.py` and `docs/configuration.md`, and fix
+     `docs/configuration.md:155`'s wrong default to match
+     `utils/config.py:236`.
+  4. Consider replacing/augmenting the HTTP port-probe
+     (`_is_port_in_use()`) with a real cross-process lock (e.g. an
+     flock'd `.pid`/`.lock` file per port) before spawning, to close the
+     daemon-vs-CLI TOCTOU race.
+
 ## Found during Round 8 (NEW-6) live-verification pass, 2026-07-30 — NOT fixed, logged only
 
 ### [NEW-9] Residual, intermittent atfork/fork-window race can silently bypass the `try/except (KeyboardInterrupt, SystemExit)` model-load guard at all four sites (`repl()`, `args.init`, `args.tdd`, `args.fix`)
