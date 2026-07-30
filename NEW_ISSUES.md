@@ -1400,6 +1400,97 @@ remain open, deferred to a future round.
   transcript-marker question). Needs its own dedicated scoping pass in
   NEW-2/NEW-15 territory before any fix is attempted.
 
+## Found during Round 18 (NEW-18 live-reproduction attempt), 2026-07-30 — NOT fixed, logged only
+
+### [NEW-18] update — original question remains UNANSWERED after Round 18 attempt (correction per Ground Rule 6)
+
+- **Correction:** Round 18 attempted to reproduce and isolate NEW-18's
+  open question (whether swap-thrashing is driven by context SIZE or by
+  turn COUNT/retries) by comparing a small-file multi-turn session
+  against a one-large-file-read session. **The comparison could not be
+  run** — the test harness hit a distinct, unrelated bug in `main.py`'s
+  stdin handling (see [NEW-20] below) before either session produced any
+  model traffic. Zero requests reached `llama-server` in this attempt
+  (confirmed via `llama-server.log` showing no incoming requests after
+  the "listening on http://127.0.0.1:8080" line).
+- **This is not new evidence either way.** NEW-18's original open
+  question (size vs. count/retries as the driver) is still exactly as
+  open as it was when originally logged. Do not read this round as
+  confirming, refuting, or narrowing that question.
+- **For any future reproduction attempt:** the harness must be
+  TTY-backed (e.g. a `pty`, `script(1)`, or similar), not plain stdin
+  piping into `main.py --no-resume` — see [NEW-20] for why plain piping
+  doesn't work. The harness should also control for baseline free RAM
+  before model load, which varied meaningfully between the two runs
+  attempted so far (this run's baseline was 4.3Gi used/2.2Gi free vs.
+  the original NEW-7 run's baseline of 4.9Gi free) and is a likely
+  confound on severity, independent of the size-vs-count question.
+- **Not fixed here** — NEW-18 remains open, unresolved, unchanged in
+  substance from its original entry above.
+
+### [NEW-20] `main.py`'s paste-detection `select()` logic busy-loops at ~100% CPU and mis-concatenates input when stdin is a non-TTY file/pipe (Confirmed)
+
+- **Confidence: Confirmed** — directly reproduced this round, and
+  root-caused by reading the code and cross-referencing the session log
+  and `llama-server.log`.
+- **Where found:** `main.py:1337-1359`. The multi-line-paste-detection
+  code calls `select.select([sys.stdin], [], [], 0.02)` to decide whether
+  more input is immediately available (to distinguish a pasted
+  multi-line block from a single line typed interactively). When stdin is
+  a non-TTY file or pipe (e.g. a test harness piping a static input file
+  into `main.py --no-resume`'s stdin), `select()` always reports stdin as
+  "readable" — including once the file is at EOF. This caused two
+  distinct failures in sequence this round:
+  1. On the very first `input()` call, the paste-detection logic drained
+     the *entire* remaining input file in one pass, concatenating all of
+     it into a single garbled message instead of treating it as separate
+     turns.
+  2. After EOF, `readline()` returns `''` forever while `select()` keeps
+     reporting the descriptor as "ready" — so the loop spins indefinitely
+     with no forward progress and no way to exit. Observed at ~88% CPU on
+     a 13MB-RSS process, with the model loaded successfully but zero
+     requests ever reaching `llama-server` (confirmed via
+     `llama-server.log` showing no incoming requests after the "listening
+     on http://127.0.0.1:8080" line).
+- **Why this matters:** this is a real, distinct bug independent of
+  RAM/swap behavior — it currently blocks any automated/scripted testing
+  of the REPL via stdin redirection, and could plausibly affect any real
+  non-interactive invocation of `main.py` (e.g. piped input from another
+  script or process), not just test harnesses.
+- **Not fixed here** — flag as needing its own scoping/fix pass. This is
+  a clean, cheap, well-isolated candidate for a near-future round: the
+  root cause is already fully identified (the `select()`-based paste
+  heuristic is TTY-only-safe and needs an `os.isatty(sys.stdin.fileno())`
+  guard, or equivalent, before relying on `select()`'s readiness signal).
+
+### [NEW-21] Model load alone (before any inference) can drive swap from ~1.2Gi to ~5.6Gi within ~10 seconds when baseline free RAM is tight (Confirmed, related to [NEW-14])
+
+- **Confidence: Confirmed** — directly observed this round via
+  `llama-server.log` timestamps and `free -h` readings taken by the
+  live-verifier during the (otherwise inconclusive) Round 18 attempt.
+- **Where found:** Round 18 live-reproduction attempt, using the light
+  harness (plain `main.py --no-resume`, single model, no daemon/plannd/
+  embed stack). Swap climbed from ~1.2Gi to ~5.6Gi within roughly 10
+  seconds purely from the model load itself — confirmed via
+  `llama-server.log` timestamps that this happened before any turn could
+  possibly have been dispatched (and independently confirmed no requests
+  ever reached the server this run at all). `llama-server`'s own RSS was
+  subsequently squeezed from 5.6GB down to 1.26GB (partially swapped out),
+  with swap climbing further to 6.8Gi over the following minute.
+- **Baseline-dependency observation:** this run's baseline going into the
+  load was 4.3Gi used / 2.2Gi free — notably worse than the original
+  NEW-7 run's baseline of 4.9Gi free. Severity likely depends on how much
+  free RAM exists before load starts, not just on the load itself; this
+  is a relevant confound for any future comparison, not a fixed constant.
+- **Why this matters:** consistent with [NEW-14]'s underlying concern
+  (`n_ctx=32768`'s KV-cache reservation being large relative to this
+  device's RAM budget), but now confirmed to affect even a **single
+  lightweight model load**, not just the full 3-model
+  `codeydOS start` stack. Same observational character as NEW-14 — may
+  inform a future `n_ctx` tuning discussion, but no action is recommended
+  yet.
+- **Not fixed here** — observational only, logged for future reference.
+
 ## Found during Round 1 (C-1/H-1/H-4) fix task, 2026-07-29 — NOT fixed, logged only
 
 ### [NEW-1] `pytest tests/` spawns a real 7B `llama-server` and orphans it — matches audit finding L-6

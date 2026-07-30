@@ -1145,6 +1145,26 @@ address NEW-18 (swap-thrashing recurrence, unscoped), NEW-19
 (PATCH_FAILED design question, unscoped), or NEW-7 itself (still open,
 b3/b4 draws outstanding).
 
+### Round 18 (NEW-18 live-reproduction attempt) — inconclusive investigation, NOT a fix round
+- [ ] NEW-18's original question (context size vs. turn count/retries as
+      the swap-thrashing driver) — attempted live-reproduction via a
+      small-file-vs-large-file comparison harness. **No code changed
+      this round.**
+- [x] Comparison could not run: harness hit a new bug in `main.py`'s
+      stdin paste-detection (`select()` on non-TTY stdin), logged as
+      NEW-20 (Confirmed, not fixed).
+- [x] NEW-18 itself corrected per Ground Rule 6 — remains open/
+      unanswered, this round is not evidence either way.
+- [x] Incidental finding logged: model-load-alone swap spike, NEW-21
+      (Confirmed, observational, not fixed).
+
+**Round 18 is an inconclusive investigation round, not a fix round —
+no source files were modified.** NEW_ISSUES.md, PROJECT_LOG.md updated
+with the corrected NEW-18 status and the two new findings (NEW-20,
+NEW-21). NEW-20 is flagged as a clean, well-isolated candidate for a
+near-future fix round. NEW-7, NEW-9, NEW-17 (deferred item), NEW-18,
+NEW-19, NEW-20, and NEW-21 all remain open.
+
 ### Phase 4 — Self-improvement activation (deliberate, not automatic)
 Do NOT start this phase until Phases 1–3 are stable and you've watched the
 system run real coding tasks through the sandbox/safety-veto path for a

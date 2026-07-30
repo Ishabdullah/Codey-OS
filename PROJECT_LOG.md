@@ -5,6 +5,50 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-30 — Round 18 (NEW-18 live-reproduction attempt): inconclusive — original size-vs-count question unanswered, two new findings logged (NEW-20, NEW-21)
+
+**What was attempted:** a live-reproduction pass intended to isolate
+NEW-18's open question — whether swap-thrashing is driven by context
+SIZE or by turn COUNT/retries — by comparing a small-file multi-turn
+session against a one-large-file-read session.
+
+**Outcome: inconclusive.** The comparison could not be run. The harness
+piped a static input file into `main.py --no-resume`'s stdin, which hit a
+distinct, previously-unknown bug: `main.py:1337-1359`'s paste-detection
+`select()` logic always reports a non-TTY stdin as "readable" (even at
+EOF), so it drained the whole input file into one garbled message on the
+first `input()` call, then spun indefinitely at EOF (~88% CPU, no
+forward progress, zero requests ever reached `llama-server`). Live-
+verifier caught this via genuine instability symptoms (swap climbing to
+6.8Gi, `llama-server` RSS collapsing from 5.6GB to 1.26GB with no
+progress), stopped immediately per CLAUDE.md's instability rule, and
+killed only the two tracked PIDs it spawned — confirmed clean afterward
+(`free -h` recovered to 3.4Gi used / 2.1Gi swap, no orphans).
+
+**No code changed this round.** Three logging-only outcomes, all in
+`NEW_ISSUES.md`:
+- **[NEW-18] corrected (Ground Rule 6):** the original size-vs-count
+  question remains open/unanswered — this round is not evidence either
+  way, it just failed to test the question due to an unrelated harness
+  bug. Any future attempt needs a TTY-backed harness (pty/`script(1)`),
+  not plain stdin piping, and must control for baseline free RAM (which
+  varied meaningfully between this run's 2.2Gi-free baseline and the
+  original NEW-7 run's 4.9Gi-free baseline).
+- **[NEW-20] (new, Confirmed):** the stdin spin-loop/garbling bug itself
+  — `main.py:1337-1359`'s `select()`-based paste detection is unsafe on
+  non-TTY stdin, blocks any automated/scripted REPL testing via stdin
+  redirection, and could plausibly affect any real non-interactive
+  invocation of `main.py`. Root cause fully identified; not fixed here —
+  flagged as a clean, cheap candidate for a near-future round.
+- **[NEW-21] (new, Confirmed):** model load alone (before any inference)
+  drove swap from ~1.2Gi to ~5.6Gi within ~10 seconds this run, with
+  severity apparently dependent on baseline free RAM going into the
+  load. Consistent with NEW-14's `n_ctx=32768` KV-cache concern, now
+  confirmed to occur on a single lightweight model load, not just the
+  full 3-model stack. Observational only, no action recommended yet.
+
+---
+
 ## 2026-07-30 — Round 17 (NEW-17): git auto-commit prompt scoped to only the current turn's touched files — code complete, code-reviewer approved via direct scratch-repo verification, no live model session needed
 
 **Root cause:** `core/agent.py`'s `check_git_and_offer_commit()` fired
