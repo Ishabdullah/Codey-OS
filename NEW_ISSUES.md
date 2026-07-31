@@ -3135,10 +3135,13 @@ evidence to NEW-65/66/68.
     whole duplicate function instead of a targeted edit; that is tracked
     separately as NEW-7 below.
 
-### [NEW-7] `[Recursive]` planner path may be prompted to synthesize whole functions rather than targeted patches (Confirmed, reproducible, NOT recursion-specific — prompt fix landed `0026565`, Round 21 live-verified with mixed result: 67%→50% on the narrow old_str-grounding metric but 67%→67% (unchanged) on the baseline's own task-completion metric, n=6 small sample, plus a new uncharacterized wrong-function-targeting failure mode the fix does not address — still open)
-- **Confidence: Suspected.** Observed once, in the same live session that
-  reproduced NEW-2 above; not yet isolated from NEW-2's retry-surfacing
-  gap or confirmed across multiple prompts.
+### [NEW-7] `[Recursive]` planner path may be prompted to synthesize whole functions rather than targeted patches (Confirmed, reproducible, NOT recursion-specific — prompt fix landed `0026565`, Round 21 live-verified with mixed result: 67%→50% on the narrow old_str-grounding metric but 67%→67% (unchanged) on the baseline's own task-completion metric, n=6 small sample, plus a new uncharacterized wrong-function-targeting failure mode the fix does not address — still open. Round 22, 2026-07-31: scoped a pre-registered, two-fixture, taxonomy'd reproducibility re-run — see `WORK_QUEUE.md` for the full task; not yet run.)
+- **Confidence: Suspected** (history only — this is the original Round 1
+  bullet text, superseded by the header's Confirmed status above; kept
+  verbatim for the record, not current confidence). Observed once, in
+  the same live session that reproduced NEW-2 above; not yet isolated
+  from NEW-2's retry-surfacing gap or confirmed across multiple prompts
+  at the time this bullet was originally written.
 - **Where found:** Same transcript as NEW-2. The `[Recursive] Draft` /
   `[Recursive] Review (2/2)` / "Accepted — quality 8/10" path
   (`core/agent.py:1462-1520`, backed by `core/recursive.py:326
@@ -3719,15 +3722,227 @@ evidence to NEW-65/66/68.
     modes together) or a larger-sample re-run to firm up either signal.
     `WORK_QUEUE.md` updated accordingly.
 
+## Round 22 (`NEW-7`/`NEW-44`) pre-registered reproducibility pass, 2026-07-31 — live-verified, NOT fixed (no code change this round; verdict feeds the next decision)
+
+**Scope:** per `WORK_QUEUE.md`'s Round 22 scoping note under `NEW-7`, this
+was a pre-registered, no-code-change reproducibility re-run to answer one
+question — does Round 21's wrong-function-targeting observation (`NEW-44`,
+2/6 draws) reproduce as a stable failure mode across a second session and a
+second fixture — NOT a rate-estimate exercise, and NOT a prompt-iteration
+round.
+
+**Pre-registered 4-bucket taxonomy** (fixed in the driver script's docstring
+before any draw ran, to avoid the post-hoc metric drift that made Round 21
+confusing):
+  - (i) grounding-failure: `old_str` empty or zero real occurrences in the
+    file, regardless of which function name it references.
+  - (ii) wrong-target: `old_str` has >=1 real occurrence in the file but is
+    not inside `shutdown()`'s own source block.
+  - (iii) no-attempt: no `patch_file` call at all in the draw's tool trace.
+  - (iv) success: `patch_file` targets `shutdown()` with grounded `old_str`
+    and the file actually changed with a docstring inserted.
+
+**Two interleaved fixtures**, alternating A/B for all 12 draws (never
+all-of-A-then-all-of-B):
+  - **Fixture A**: the existing `main.py` (69307 chars pre-session; NOTE
+    this is the CURRENT size, larger than Round 21's cited 68174 — the file
+    has grown since Round 21, consistent with ongoing project work).
+    Prompt (identical wording to Round 20/21): "Add a docstring to the
+    shutdown function in main.py."
+  - **Fixture B**: new small 432-char, 4-function file
+    (`.live_verify_scratch/fixture_b_small.py` — `load_config`,
+    `start_worker`, `shutdown`, `parse_args`), added this round specifically
+    to separate fixture-complexity confound from base-model tendency.
+    Prompt: "Add a docstring to the shutdown function in
+    .live_verify_scratch/fixture_b_small.py."
+  - Both fixtures pre-verified to have `"def shutdown():"` occurring exactly
+    once (unique — `patch_tools.py`'s uniqueness guardrail will not
+    spuriously reject a correctly-targeted patch) and `"def parse_args():"`
+    also exactly once (used as part of the wrong-target check).
+
+**Harness / methodology — deliberately diverges from the spec's literal
+prescription (`--yolo` + scripted `n` answers for both confirms), and this
+divergence is disclosed here per the task's own instructions:**
+
+Instead of a scripted REPL/stdin session, this round ran all 12 draws
+through `core/task_executor.py`'s `TaskExecutor._execute_task()` directly
+(the same mechanism `.live_verify_scratch/driver.py`'s prior `NEW-30`
+live-verification pass used), which calls `run_agent(..., yolo=True,
+_in_subtask=True)` and forces `AGENT_CONFIG["confirm_write"] = False` for
+the call's duration. This makes BOTH of Round 21's problem confirms
+structurally unreachable rather than requiring the harness to answer them
+correctly:
+  - `patch_file`'s own "Apply patch?" confirm (`tools/patch_tools.py:75`) is
+    gated on `AGENT_CONFIG["confirm_write"]`, which is forced `False`.
+  - `core/agent.py`'s "Stage and commit" confirm
+    (`check_git_and_offer_commit()`, called at `agent.py:2007`/`2011`) is
+    only called `if not _in_subtask`; since every draw here runs with
+    `_in_subtask=True`, this function is never even entered, so no confirm
+    of any kind can fire and — critically — **no `git commit` can ever
+    happen from this harness, structurally, not just because no one
+    answered "y".** This is a stronger guarantee against Round 21's "3
+    unintended real commits" failure mode than scripting correct answers to
+    both prompts would have been.
+  - Verified empirically after the full 12-draw run: `git log --oneline -5`
+    unchanged (still `57c9ec9` at HEAD, no new commits), `git status --short
+    main.py` clean, `.live_verify_scratch/fixture_b_small.py` byte-identical
+    to its saved original copy (`diff` exit 0).
+  - Offline pre-flight checks (verbatim, run before any model load):
+    `is_complex(PROMPT_A) == is_complex(PROMPT_B) == False` (confirms
+    `no_plan=True` doesn't change which pipeline is exercised for these
+    prompts — the planner would never have fired on them anyway);
+    `tool_read_file()` succeeds on both fixture paths; `WORKSPACE_ROOT ==
+    Path("/data/data/com.termux/files/home/Codey-OS")` (repo root, matching
+    where the driver script was invoked from) — confirmed BOTH fixture
+    paths resolve inside `WORKSPACE_ROOT` per `core/filesystem.py`'s
+    `_validate_path()` before spending any inference budget, per blocker
+    (a). Neither prompt contains any of `_in_subtask`'s max-steps-raising
+    signal words (`agent.py:1465-1473`), so the step budget was unchanged
+    from a normal interactive turn for these specific prompts.
+  - Recoverability: `main.py` (a real tracked file) is hard-reverted via
+    `git checkout -- main.py` after every A draw; fixture B is restored
+    from a byte-identical backup copy after every B draw — regardless of
+    outcome, so no draw's edit (successful, failed, or a hypothetical full
+    file rewrite) could bleed into the next draw or survive the session.
+    Whole-repo `git status --short` was diffed before/after every draw to
+    catch a hypothetical edit to some OTHER tracked file; none occurred in
+    any of the 12 draws (`other_dirty_after: []` for all 12, confirmed in
+    the raw per-draw JSONL log).
+  - **Disclosed non-equivalence with Round 21's REPL session** (does not
+    invalidate the reproducibility verdict, but is a real methodological
+    difference): each draw here runs as a fully independent turn
+    (`history=[]`, `core/memory_v2.py`'s working memory cleared before every
+    draw), whereas Round 21's 6 draws ran inside one continuous REPL session
+    with history accumulating across draws 1-6. Also, `_in_subtask=True`
+    suppresses the auto-retry/escalation paths at `agent.py:1819`/`1846`
+    (peer-CLI escalation after repeated `patch_file` failures) — this
+    harness structurally cannot reproduce Round 21's draw 5 in-turn retry
+    behavior. Both differences are disclosed, not hidden, per the task's
+    instructions.
+  - RAM discipline (rule 2, all verbatim):
+    - Pre-load `free -h`: `total 10Gi, used 5.5Gi, free 716Mi, available
+      5.1Gi, swap used 1.0Gi/11Gi`. `ps aux | grep -i llama` empty before
+      load.
+    - Mid-run checks (verbatim): after draw 6, `total 10Gi, used 8.3Gi,
+      free 352Mi, available 2.2Gi, swap used 3.7Gi/8.3Gi` with
+      `llama-server` RSS 4.66GB, 192% CPU (actively computing, no
+      RSS-collapse-toward-zero thrashing signature). After draw 9: `used
+      8.0Gi, free 637Mi, available 2.5Gi, swap used 3.4Gi/8.6Gi`. Tighter
+      than Round 21's mid-session numbers but stable, not degrading further
+      across the run.
+    - Thermal system engaged mid-run exactly as designed: after ~13.0 min of
+      continuous inference (during draw 3/4), `THERMAL_CONFIG` reduced
+      threads 4→2 and the model server auto-restarted with a NEW PID
+      (6591→17729) — `loader.get_pid()`/`loader.unload()` correctly track
+      whichever server object is live, but the crash-safety PID file this
+      driver wrote at load time became stale after this auto-restart (noted
+      here as a minor, non-blocking harness gap — `loader.unload()` itself
+      does not depend on that file, it holds its own live process handle,
+      so final teardown was unaffected).
+    - One continuous model-load cycle for the whole round, 12 draws batched
+      into it as required. Total session wall-clock: sum of per-draw
+      durations below (~48 min of inference across all thermal states).
+    - Post-teardown: `ps aux | grep -i llama` → empty (verified). Final
+      `free -h`: `total 10Gi, used 3.7Gi, free 4.7Gi, available 6.8Gi, swap
+      used 1.8Gi/10Gi` — full clean recovery.
+
+**Results — verbatim, all 12 draws** (fixture, bucket, duration; full raw
+`old_str` values, tool-call JSON, diffs, and per-draw thermal/cycle logs
+preserved in `.live_verify_scratch/round22_results.jsonl` and
+`.live_verify_scratch/round22_full.log`, not reproduced verbatim in full
+here for length):
+
+| draw | fixture | bucket | duration | `old_str` emitted |
+|---|---|---|---|---|
+| 1 | A (main.py) | grounding_failure | 521.8s | `"def shutdown():\n  pass"` (hallucinated one-line stub — same variant as the original pre-`0026565` baseline bug, NOT wrong-targeting) |
+| 2 | B (fixture_b) | success | 61.4s | `"def shutdown():"` |
+| 3 | A (main.py) | grounding_failure | 194.1s | `"def shutdown():\n    pass\n"` (same hallucinated-stub variant) |
+| 4 | B (fixture_b) | success | 636.4s | `"def shutdown():\n    print(\"shutting down\")\n    return None\n"` |
+| 5 | A (main.py) | success | 155.7s | `"def shutdown():\n"` |
+| 6 | B (fixture_b) | success | 120.4s | `"def shutdown():\n    print(\"shutting down\")\n    return None\n"` |
+| 7 | A (main.py) | success | 157.3s | `"def shutdown():\n"` |
+| 8 | B (fixture_b) | success | 128.0s | `"def shutdown():\n    print(\"shutting down\")\n    return None\n"` |
+| 9 | A (main.py) | success | 160.5s | `"def shutdown():\n"` |
+| 10 | B (fixture_b) | success | 97.1s | `"def shutdown():\n    print(\"shutting down\")\n    return None\n"` |
+| 11 | A (main.py) | grounding_failure | 259.9s | `"def shutdown():\n  pass\n"` (same hallucinated-stub variant) |
+| 12 | B (fixture_b) | success | 104.0s | `"def shutdown():\n    print(\"shutting down\")\n    return None\n"` |
+
+**Bucket totals (n=12): grounding_failure=3 (25%), wrong_target=0 (0%),
+no_attempt=0 (0%), success=9 (75%).**
+  - **By fixture A (main.py, n=6):** grounding_failure=3 (50%),
+    wrong_target=0, no_attempt=0, success=3 (50%).
+  - **By fixture B (small fixture, n=6):** grounding_failure=0,
+    wrong_target=0, no_attempt=0, **success=6/6 (100%).**
+
+**Verdict on `NEW-44` reproducibility — the question this round was
+pre-registered to answer: wrong-function targeting did NOT reproduce.
+0/12 draws (0/6 on the SAME fixture/prompt Round 21 used) picked a
+different function than `shutdown`.** This is a real, disclosed
+contradiction of Round 21's own 2/6 observation, not a paraphrase-away —
+see the `NEW-44` entry above for the explicit downgrade. `no_attempt`
+(the separate loader_v2/a3-b3 finding) also did not occur in this
+sample (0/12) — every draw at minimum attempted a `patch_file` call.
+
+**What DID reproduce, confirming a real, distinct signal:** the original
+hallucinated-one-line-stub grounding failure (assuming `shutdown()` is a
+bare `pass` stub, when in this codebase's `main.py` it is an 8-line real
+function) recurred in exactly 3/6 fixture-A draws (draws 1, 3, 11) — the
+SAME failure signature Round 20/21 both saw, word-for-word matching the
+`"def shutdown():\n  pass"` pattern. This happened ZERO times on fixture B
+(0/6) despite fixture B's `shutdown()` also being short (3 lines) — so the
+hallucinated-stub bug does not correlate simply with "shutdown is short," it
+specifically recurred only on `main.py`, the larger/more complex fixture.
+This is suggestive (not conclusive at n=6 per fixture) that `main.py`'s size
+or the volume of other candidate patterns in it correlates with THIS
+specific grounding failure mode, even though it does NOT correlate with
+wrong-function-TARGETING (which didn't occur on either fixture at all this
+round).
+
+**Recommended next step, per the task's own framing:** since `NEW-44`
+(wrong-function targeting) did not reproduce at n=12, a target-function-
+identification prompt iteration (Round 22's option (a)) is **NOT
+justified as a priority right now** — there is no confirmed problem for it
+to fix. The narrow `old_str`-grounding hallucinated-stub failure (25% this
+round on the combined sample, 50% on `main.py` specifically) remains the
+one real, twice-reproduced (Round 20/21 baseline, and now Round 22) failure
+mode still open under `NEW-7` itself — a future round could reasonably
+prioritize strengthening the EXISTING `0026565` fix's grounding
+instructions (e.g., explicitly warning against assuming any function is a
+one-line `pass` stub without reading it) over adding wholly new
+target-identification instructions, since the latter would be solving a
+problem this larger sample did not confirm exists. `NEW-7` itself stays
+open, not closed, on this basis.
+
 ## Found during Round 21 (NEW-7) live-verification pass, 2026-07-30 — NOT fixed, logged only
 
-### [NEW-44] `patch_file` requests can target a plausible-but-wrong function instead of the one named in the user's prompt, even when `old_str` is a real, correctly-grounded substring of the file (Suspected)
+### [NEW-44] `patch_file` requests can target a plausible-but-wrong function instead of the one named in the user's prompt, even when `old_str` is a real, correctly-grounded substring of the file (Suspected — Round 22 did NOT reproduce it; see below, downgrading confidence in the underlying rate, not closing the finding)
 
-- **Confidence: Suspected.** Observed in 2 of 6 draws in a single live
-  session (Round 21, NEW-7 live-verification, 2026-07-30) — not yet
-  isolated across multiple sessions/prompts, and not yet confirmed
-  whether it correlates with `main.py`'s size/complexity or is a
-  broader base-model tendency.
+- **Round 22 update (2026-07-31, live-verified, n=12 pre-registered
+  reproducibility pass — see full write-up below under "Found during
+  Round 22"): 0/12 draws showed wrong-function targeting.** This
+  directly contradicts Round 21's 2/6 (33%) observation being a stable
+  rate — at n=12 with zero recurrences, a rate anywhere near 33% is very
+  unlikely (if the true rate were really ~33%, P(zero successes in 12
+  independent draws) ≈ 0.67^12 ≈ 0.8%). Per CLAUDE.md rule 6, this is
+  logged as a correction to the record: Round 21's 2/6 was NOT shown to
+  be a stable, reproducible failure mode by this larger sample — it may
+  have been noise, a session-specific artifact (Round 21 ran as one
+  continuous REPL session with accumulating history across draws 1-6,
+  vs. Round 22's fully independent per-draw execution — see the
+  methodology note below), or something specific to prompts/state that
+  did not recur here. **Confidence downgraded from "Suspected, plausibly
+  common" to "Suspected, NOT reproduced at n=12" — do not treat this as
+  a confirmed, ongoing failure mode requiring its own prompt fix
+  (option (a) from Round 22's scoping) until/unless it resurfaces.**
+  Original Round 21 finding preserved below unedited, per rule 6 (do not
+  silently overwrite an earlier finding — downgrade explicitly).
+
+- **Confidence: Suspected (as of Round 21 finding, below — NOT confirmed
+  by the larger Round 22 sample, see update above).** Observed in 2 of 6
+  draws in a single live session (Round 21, NEW-7 live-verification,
+  2026-07-30) — not yet isolated across multiple sessions/prompts, and
+  not yet confirmed whether it correlates with `main.py`'s size/complexity
+  or is a broader base-model tendency.
 - **Where found:** Both draws sent the identical prompt "Add a docstring
   to the shutdown function in main.py." (recursive path, default env,
   `python3 main.py --no-resume --yolo`). Draw 1 emitted `old_str:

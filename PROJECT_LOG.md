@@ -5,6 +5,120 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-31 — `NEW-7`/`NEW-44` Round 22: EXECUTED the pre-registered reproducibility pass live — `NEW-44` (wrong-function targeting) did NOT reproduce at n=12
+
+Executed the round scoped earlier the same day (see the entry immediately
+below). Ran 12 interleaved draws (fixture A = `main.py`, fixture B = new
+small 4-function scratch fixture) in one 7B model-load cycle via
+`core/task_executor.py`'s `TaskExecutor._execute_task()`, deliberately
+diverging from the spec's literal `--yolo` + scripted-confirm-answers
+harness prescription: `_execute_task` calls `run_agent(..., _in_subtask=True)`
+and forces `AGENT_CONFIG["confirm_write"]=False`, which makes BOTH of Round
+21's problem confirms (`patch_file`'s "Apply patch?" and `agent.py`'s
+"Stage and commit") structurally unreachable rather than requiring the
+script to answer them correctly — a stronger guarantee against Round 21's
+"3 unintended real commits" failure than the originally-specified mechanism.
+Verified after the run: no new commits (`git log` unchanged), `main.py`
+clean, fixture B byte-identical to its saved original. Full disclosure of
+this deviation and its rationale in `NEW_ISSUES.md`.
+
+**Result: 0/12 draws showed wrong-function targeting (`NEW-44`'s failure
+mode) — 0/6 even on the exact same fixture/prompt Round 21 observed 2/6 on.**
+This directly contradicts Round 21's rate as stable (P(0/12 | true rate
+33%) ≈ 0.8%). `NEW-44`'s confidence is downgraded in `NEW_ISSUES.md` per
+CLAUDE.md rule 6 — not closed, but explicitly marked "not reproduced,"
+Round 21's original finding preserved unedited alongside the correction.
+0/12 draws also showed the separate `no_patch_file`-attempt failure mode.
+3/12 (25%, all on `main.py`, none on the small fixture) reproduced the
+ORIGINAL hallucinated-one-line-`pass`-stub grounding failure from the
+pre-`0026565` baseline — the same failure signature Round 20/21 both saw.
+9/12 (75%) succeeded; fixture B alone was 6/6 (100%) success.
+
+**Recommendation, contradicting the queue's two candidate next steps as
+originally framed:** do not scope a target-function-identification prompt
+iteration now (option (a)) — no confirmed problem exists for it to solve at
+this sample size. If `NEW-7` is picked up again, the evidence points at
+reinforcing the grounding fix's coverage against the specific
+one-line-stub-assumption failure (recurred 3/3 times it occurred, always on
+`main.py`), not at adding new instructions for a targeting failure that
+didn't reproduce.
+
+RAM discipline (verbatim): pre-load `free -h` — `total 10Gi, used 5.5Gi,
+free 716Mi, available 5.1Gi, swap 1.0Gi/11Gi`; mid-run (draw 6) — `used
+8.3Gi, free 352Mi, available 2.2Gi, swap 3.7Gi/8.3Gi`, `llama-server` RSS
+4.66GB actively computing, no thrashing signature; post-teardown — `used
+3.7Gi, free 4.7Gi, available 6.8Gi, swap 1.8Gi/10Gi`, `ps aux | grep -i
+llama` empty. One continuous model-load cycle for all 12 draws, confirmed
+unloaded via tracked PID (`loader.get_pid()`/`loader.unload()`), never
+killed by bare pattern. Thermal auto-restart (4→2 threads after ~13 min
+continuous inference) correctly handled by the loader's own live process
+handle; noted a minor non-blocking harness gap where the driver's
+crash-safety PID file went stale after that auto-restart (does not affect
+`loader.unload()`'s correctness, which tracks its own object, not the file).
+
+Full per-draw table, raw `old_str` values, tool-call JSON, diffs, and
+methodology detail: `NEW_ISSUES.md`'s "Round 22 (`NEW-7`/`NEW-44`)
+pre-registered reproducibility pass" section and `WORK_QUEUE.md`'s `NEW-7`
+item. Driver scripts and raw logs preserved at
+`.live_verify_scratch/round22_new7_driver.py`,
+`.live_verify_scratch/round22_run_all.py`,
+`.live_verify_scratch/round22_results.jsonl`,
+`.live_verify_scratch/round22_full.log` (all gitignored, not committed).
+
+---
+
+## 2026-07-31 — `NEW-7` Round 22: scoped a pre-registered reproducibility re-run, decided against a further prompt iteration for now (no code changed, no live session run)
+
+Picked up `NEW-7` from `WORK_QUEUE.md` Track 2. Read the current state of
+`prompts/system_prompt.py`'s `PATCH_FILE` guidance block (unchanged since
+the `0026565` fix — verbatim-`old_str` instructions and worked
+wrong/correct examples still present, lines ~242-278) and
+`NEW_ISSUES.md`'s `NEW-7`/`NEW-43`/`NEW-44`/`NEW-45` entries in full to
+confirm current state before deciding between the queue's two candidate
+next steps: (a) a stronger prompt iteration adding explicit
+target-function-identification instructions, or (b) a larger-sample
+re-run to firm up whether Round 21's wrong-function-targeting signal
+(`NEW-44`, 2/6 draws) is real/stable.
+
+**Decision: (b) first, not (a) — and not both bundled together.** At
+n=6, a 2/6 observation carries a roughly 6%-71% confidence interval;
+landing a prompt fix now and re-verifying at n=6 again would produce an
+unfalsifiable result (a 2/6→1/6 draw is indistinguishable from noise),
+repeating exactly the metric-confusion that made Round 21's own result
+mixed and hard to act on. Writing the prompt fix first would also anchor
+the next test matrix to that fix's own theory rather than to the
+underlying question.
+
+Scoped a Round 22 live-verifier task into `WORK_QUEUE.md` (full detail
+there, not duplicated here): a pre-registered, no-code-change
+reproducibility pass with (1) a 4-bucket failure taxonomy per draw
+instead of pass/fail (grounding failure / wrong-target / no-attempt /
+success — Round 21's 4/6-vs-4/6 confusion came from two silently
+different metrics), (2) two interleaved fixtures (`main.py` and a new
+small few-function file) to separate fixture-complexity confound from
+base-model tendency, (3) an explicit statement that the achievable
+n (~12) licenses a yes/no reproducibility verdict on `NEW-44`, not a
+rate estimate, and (4) two pre-run blockers carried forward from prior
+rounds' own mistakes: fixture paths must resolve inside
+`WORKSPACE_ROOT` (two `NEW-30` passes were invalidated by exactly this),
+and the scripted harness must answer both `patch_file` confirms per
+`NEW-45` (a harness bug on this same issue produced 3 unintended real
+commits in Round 21) — code-reviewer should eye the harness script
+itself before it runs. Deliberately did not decide against option (a);
+deferred it to be scoped to prompt-engineer only after this
+reproducibility verdict lands.
+
+Also corrected a minor doc-hygiene inconsistency while in the entry:
+`NEW-7`'s header has read "Confirmed" since Round 14, but its original
+Round 1 bullet still said "Confidence: Suspected" with no marker — added
+a "history only" note so it's not mistaken for current confidence
+(rule 6).
+
+**Status: code-complete is not applicable here (no code changed) — this
+round is scoping only. The Round 22 live-verifier task itself has NOT
+been run.** No model load occurred this round; RAM discipline (rule 2)
+does not apply to a desk-only scoping pass.
+
 ## 2026-07-31 — `NEW-12` and `NEW-22` both fully closed: real cross-process model lock + planner launcher, GUI-launch duplication consolidated
 
 Ish asked to tackle both queued Track 2 items together. Before scoping,

@@ -20,17 +20,12 @@ checkboxes had (Phase 0's `symbolic_graph` box, Section 5's Open Question
 ## How new issues get logged as we go
 
 Keep using `NEW_ISSUES.md` exactly as it already works — next sequential
-`NEW-##` ID (currently next free: **NEW-60**, after `NEW-27` through
-`NEW-59` were logged across this session's hygiene, Track 1 audit,
-NEW-19, NEW-10, NEW-8, NEW-7, the 2026-07-31 1.5B-only planner
-live-test round, the 2026-07-31 7B-system-prompt-round desk scoping
-pass, the 2026-07-31 7B-system-prompt-round's first live pass, and the
-2026-07-31 desk investigation into the recursive critique/refine
-hypothesis (refuted, `NEW-57`/`NEW-58`/`NEW-59` logged instead) —
-`NEW-55` (unguarded `input()`/`EOFError` crash, `core/agent.py:1676`)
-and `NEW-56` (7B `write_file` wrong/fabricated-path + content-loss
-behavior on an Edit step)), rated Confirmed or Suspected, same format
-as existing entries.
+`NEW-##` ID (currently next free, re-grepped 2026-07-31 during `NEW-7`
+Round 22 scoping: **NEW-75**, the prior "NEW-60" note in this section
+had already gone stale by the time it was last read — always re-grep
+`NEW_ISSUES.md` for the actual current max rather than trusting a
+remembered number, per the lesson two paragraphs below), rated
+Confirmed or Suspected, same format as existing entries.
 **ID-collision note (2026-07-30):** an interrupted session's
 code-reviewer pass logged two NEW-8-adjacent findings under `NEW-24`
 and `NEW-25` — both already taken (by the `load_secondary()` bug and
@@ -222,10 +217,13 @@ gets logged, not silently fixed or dropped, even mid-queue-item.
       the transcript-persistence gap is tracked as `NEW-38` (not fixed),
       and the exact-repeat gap remains `NEW-36` (not fixed), both
       pre-existing/adjacent, not regressions from this round.**
-- [x] `PLANNER_PROMPT` rewrite (`core/plannd.py`) — **round done this
-      session (2026-07-31), CODE COMPLETE + LIVE-VERIFIED, UNCOMMITTED —
-      commit decision pending with Ish directly, not part of any agent's
-      task.** A live-verifier session ran a real, RAM-disciplined
+- [x] `PLANNER_PROMPT` rewrite (`core/plannd.py`) — **round done
+      2026-07-31, CODE COMPLETE + LIVE-VERIFIED, COMMITTED (`d674a0c`,
+      2026-07-30 22:29 local) — stale "UNCOMMITTED, pending Ish" note
+      corrected 2026-07-31 after verifying `git log -- core/plannd.py`
+      directly; the commit already matches this entry's description
+      verbatim, nothing was actually pending.** A live-verifier session
+      ran a real, RAM-disciplined
       1.5B-only planner test against port 8081 (2 clean model-load
       cycles, 7B never loaded), cross-referencing the Track 1 prompt
       audit above (`NEW-28`/`NEW-29`/`NEW-30`/`NEW-31`/`NEW-32`).
@@ -402,17 +400,94 @@ gets logged, not silently fixed or dropped, even mid-queue-item.
       one with a real/correctly-grounded `old_str` for the wrong
       function) — replaced one instance of the old grounding failure.
       The current fix's verbatim-`old_str` instructions do nothing for
-      wrong-function targeting even in principle. Still open — needs
-      either a stronger prompt iteration (e.g. explicit
-      target-function-identification instructions alongside the existing
-      verbatim-matching ones) or a larger-sample re-run to firm up either
-      signal before considering this closed. The loader_v2 prompt style
-      (a3, b3)'s distinct no-`patch_file`-attempt finding remains
+      wrong-function targeting even in principle. The loader_v2 prompt
+      style (a3, b3)'s distinct no-`patch_file`-attempt finding remains
       separately unresolved. Related, out-of-scope findings from Round
       20 logged separately as `NEW-43`; new findings from Round 21
       logged as `NEW-44` (wrong-function targeting) and `NEW-45`
       (undocumented second "Stage and commit" confirm, a test-harness
       gap).
+
+      **Round 22 scoped 2026-07-31 (project-architect, desk only, no
+      live session run this pass): decided (b) — a larger, pre-registered
+      sample re-run FIRST, not a prompt iteration.** At n=6 a 2/6
+      observation has a ~6%-71% confidence interval; landing a
+      target-identification prompt edit now and re-verifying at n=6
+      again would be unfalsifiable — a 2/6→1/6 result is indistinguishable
+      from noise. This round is a **live-verifier task, no code change**,
+      to be run before any further prompt edit. Task, handed to
+      live-verifier for the next live session:
+        1. **Pre-registered 4-bucket taxonomy per draw**, not pass/fail:
+           (i) grounding failure (empty/nonexistent `old_str`), (ii)
+           wrong-target (real `old_str`, wrong function — `NEW-44`),
+           (iii) no `patch_file` attempt at all (loader_v2's separate
+           finding — count, don't fold into "failure"), (iv) success.
+           Round 21's confusion came from two silently-different metrics.
+        2. **Two fixtures, interleaved draws** (not all-of-A-then-all-of-B,
+           so an inference-budget truncation mid-run — as already
+           happened to `NEW-30`'s pass — still leaves an interpretable
+           result): (a) the existing `main.py` (68174 chars, many
+           candidate `def`s — the current confound `NEW-44` flags), and
+           (b) one new small, few-function fixture file with an
+           unambiguous `shutdown`-style target, to separate fixture
+           complexity from base-model tendency.
+        3. **State the outcome's claim size up front, in the handoff and
+           in the log afterward**: if achievable n this cycle is ~12, the
+           round's claim is "does wrong-function-targeting reproduce
+           across a second session and a second fixture" (a yes/no
+           reproducibility verdict promoting `NEW-44` Suspected→Confirmed
+           or not) — NOT a rate estimate. Do not write a percentage into
+           `PROJECT_LOG.md`/`NEW_ISSUES.md` this sample can't support.
+        4. **Pre-run blockers, both must be verified before the model
+           loads:** (a) every fixture file path resolves inside
+           `WORKSPACE_ROOT`/passes `_validate_path()` — two prior live
+           passes (`NEW-30`) were invalidated by exactly this, don't
+           repeat it; (b) the scripted harness answers BOTH confirms per
+           `NEW-45` (`--yolo` to suppress `Apply patch?`, explicit `n`
+           answers to the "Stage and commit" confirm, `/undo <file>`
+           between draws instead of `git checkout`) — get code-reviewer
+           eyes on the harness script itself before running, since a
+           harness bug on this exact issue already produced 3 unintended
+           real commits in Round 21.
+        5. RAM discipline per CLAUDE.md rule 2: `free -h` before/after,
+           one model-load cycle, confirm unload via
+           `ps aux | grep llama-server` before considering the cycle
+           done.
+      Only after this reproducibility verdict lands should a
+      target-function-identification prompt iteration (option (a)) be
+      scoped to prompt-engineer — deliberately deferred, not decided
+      against.
+      **Minor doc-hygiene finding, logged not fixed:** `NEW_ISSUES.md`'s
+      `NEW-7` entry header says "(Confirmed...)" but its first bullet
+      still reads "**Confidence: Suspected.**" — original Round 1 text,
+      now stale/inconsistent with the header. Needs a "history only"
+      marker next time this entry is touched.
+
+      **Round 22 EXECUTED 2026-07-31 (live-verifier, real on-device
+      session) — verdict: `NEW-44` did NOT reproduce.** 12 draws (6
+      interleaved per fixture) run in one model-load cycle via
+      `core/task_executor.py`'s `TaskExecutor._execute_task` (harness
+      deviated from the literally-specified `--yolo`+scripted-confirms
+      mechanism — safer alternative, both confirms structurally
+      unreachable via `_in_subtask=True`; deviation and rationale fully
+      disclosed in `NEW_ISSUES.md`'s Round 22 write-up). Result: **0/12
+      wrong-target, 0/12 no-attempt, 3/12 (25%) grounding-failure — all 3
+      on `main.py`, all the same hallucinated one-line-`pass`-stub variant
+      seen in the original pre-`0026565` baseline — 9/12 (75%) success.**
+      Fixture B (new small fixture) was 6/6 success with zero failures of
+      any kind. Full per-draw table, raw `old_str` values, RAM numbers, and
+      methodology disclosure in `NEW_ISSUES.md`'s "Round 22 (`NEW-7`/
+      `NEW-44`) pre-registered reproducibility pass" section and
+      `NEW-44`'s entry (downgraded per CLAUDE.md rule 6, not closed).
+      **Recommended next step: do NOT scope the target-function-
+      identification prompt iteration (option (a)) now** — no confirmed
+      problem for it to fix at this sample size. If any future round wants
+      to strengthen `NEW-7` further, the evidence points at reinforcing the
+      EXISTING `0026565` grounding fix against the specific
+      hallucinated-one-line-stub assumption (recurred 3/3 times it
+      occurred, always on `main.py`, never on the small fixture), not at
+      adding new wrong-target-identification instructions. `NEW-7` stays
+      open on this narrower grounding-failure basis.
 - [ ] Security hardening backlog (from `NEW_ISSUES.md`'s bottom section,
       never assigned NEW-IDs — give them IDs when picked up):
       command-injection-via-filename in `agent.py:863-865` (partially
@@ -802,8 +877,8 @@ reviewed by code-reviewer and re-tested by live-verifier — **this round is
 now done: `NEW-28`/repeat-Run regression/`NEW-47` are code complete and
 live-verified, `NEW-46`'s original trigger is fixed (its 1/3 residual
 failure is now separately tracked as new open finding `NEW-50`). The
-entire rewrite is UNCOMMITTED — a commit decision is pending with Ish
-directly, not part of this pipeline.** Two new findings from this round's
+entire rewrite is COMMITTED (`d674a0c`) — the "UNCOMMITTED, pending Ish"
+note here was stale and corrected 2026-07-31.** Two new findings from this round's
 final regression testing remain open and unscoped: `NEW-50` (broader
 example-content leakage, not just violation-labeled examples) and `NEW-51`
 (Rule 9 peer-CLI delegation fails on a fresh untested phrasing, causal
