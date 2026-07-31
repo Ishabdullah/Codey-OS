@@ -244,8 +244,34 @@
   |delete|remove|ask|have|use|tell|call|let|get|initialize|init|commit|push`),
   contains `Run:`/`Verify`/`Check`, or names a peer CLI. `edit` is not in that
   list, so an `Edit foo.py: ...` step at position 2+ fails all three checks and
-  is dropped — unless the `len(kept) > 1` fallback (`steps[:2]`) happens to
-  retain it. Recommend adding `edit` to `_TOOL_VERBS` as a follow-up code fix.
+  is dropped — unless a fallback happens to retain it. Recommend adding
+  `edit` to `_TOOL_VERBS` as a follow-up code fix.
+- **Update 2026-07-31 (live-verifier, 1.5B-only planner session, mechanism
+  sharpened, status unchanged — still Confirmed, not fixed):** live-reproduced
+  via a direct test prompt requiring an Edit step at position 2 of a
+  Create → Edit → Run plan. The model correctly emitted
+  `Edit foo_utils.py: add a docstring...` at position 2; `filter_tool_steps`
+  dropped it. Traced the exact mechanism against the real code
+  (`core/plannd.py:162`, `return kept if len(kept) > 1 else steps[:2]`):
+  the Run step matches both the `_TOOL_VERBS` list (`run` is a listed
+  verb) and the separate `Run:` regex, and survives into `kept` alongside
+  the Create step, so `kept == [Create step, Run step]`, `len(kept) == 2`,
+  and the `len(kept) > 1` condition is **True** — meaning the function
+  returns `kept` itself (missing the Edit step), and the `steps[:2]`
+  fallback (the `else` branch) never runs. The fallback only rescues a
+  dropped step when *nothing else* survives (`len(kept) == 1`, i.e. only
+  the first/Create step). Consequence: **more complete, well-formed plans
+  (Create → Edit → Run) are the ones most likely to silently lose their
+  Edit step**, since it's precisely the Run step's own survival that
+  suppresses the one mechanism that would otherwise catch the loss.
+  **Repro-recipe caveat:** this round's repro prompt produced
+  `Edit foo_utils.py: add a docstring...` — phrasing close to the
+  `core/voice.py` few-shot example that `NEW-46` (below) identifies as a
+  source of leaked content. This doesn't weaken this finding (the filter
+  drops a well-formed Edit step regardless of why the model emitted that
+  particular wording), but if the planned `PLANNER_PROMPT` rewrite
+  changes or removes those few-shot examples, this exact repro prompt
+  may stop reproducing and would need re-deriving.
 
 ### [NEW-29] `orchestrator.py`'s `PLAN_PROMPT` diverges from `plannd.py`'s `PLANNER_PROMPT` on Edit-step format, and neither wires filenames/step verbs identically
 - **Status: Confirmed, not fixed (out of the 4-file audit scope; touching
@@ -293,6 +319,260 @@
   itself), but Phase 5b's stated plan of adding tier-specific prompt layers
   is exactly the kind of change that could introduce a name collision.
   Recommend `add()` raise or overwrite on duplicate `name` before 5b lands.
+
+## Found during live-verifier's 1.5B-only planner test session, 2026-07-31 — NOT fixed, logged only (cross-references the Track 1 prompt audit above, NEW-28/29/30/31/32)
+
+This round was read-only measurement of `core/plannd.py`'s `PLANNER_PROMPT`
+against the real 1.5B model on port 8081, reported as two clean
+model-load cycles with RAM tracked before/after and exact spawned PIDs
+killed per rule 3, 7B never loaded. (This logging pass did not itself
+witness the literal `free -h`/`ps aux` output — it is relaying the
+live-verifier's reported compliance, not reproducing verbatim numbers
+here.) No code or prompt text was touched this round — findings below
+are inputs to a same-session `PLANNER_PROMPT` rewrite about to be scoped
+to prompt-engineer.
+
+### [NEW-46] Planner few-shot content leakage on edit-only prompts that don't use the literal "Edit `<file>`: `<change>`" surface form from `PLANNER_PROMPT`'s STEP TEMPLATES (Confirmed)
+- **Status: Confirmed — live-verified 2026-07-31, discriminating repeat
+  test (3/3 vs. 3/3), not a one-off.** When a user's edit-only request is
+  phrased naturally instead of matching the template literally (test
+  prompt: "Fix the off-by-one error in the loop in `core/legacy_calc.py`"),
+  the 1.5B model does not reason about the actual request at all — it
+  fabricates an unrelated Create → Edit → Run → Verify plan, with step
+  content copied **verbatim** from `PLANNER_PROMPT`'s own embedded
+  few-shot examples: "prints each Fibonacci number" (from the fibonacci
+  example), "add a docstring to the speak function" (from the
+  `core/voice.py` example), and "tally.json contains exactly 2 entries
+  with timestamps" (from the `xform.py` example) — none of which appear
+  anywhere in the user's actual prompt.
+- **Not a filename-fidelity bug.** Filenames are still copied correctly
+  into the fabricated steps, including a `core/` subdirectory prefix —
+  the fabrication is specifically in step *content*, not filenames.
+- **Discriminator (why this is Confirmed, not Suspected):** the identical
+  underlying task phrased naturally produced this fabricated plan in 3/3
+  trials. The same task re-phrased to literally match the template
+  ("Edit `core/legacy_calc.py`: fix the off-by-one error in the loop")
+  produced a correct, minimal, single-step plan in 3/3 trials. This
+  isolates the trigger to the surface-form mismatch, not to the task
+  itself or to model noise.
+- **Why this matters — a real data-loss path, more severe than
+  [NEW-28]:** if the 7B agent executed the fabricated
+  "Create `core/legacy_calc.py`: ..." step as a Create/overwrite against
+  an *existing* repository file, it would destroy that file's real
+  content in service of what was actually a one-line bugfix request.
+  NEW-28's failure mode is a dropped step (an omission); this one is
+  active destructive fabrication.
+- **Not fixed here** — logged as the primary input to the planned
+  `PLANNER_PROMPT` rewrite (same session, prompt-engineer).
+- **2026-07-31 update (same session, later):** the specific trigger
+  described above — surface-form mismatch against the literal
+  "Edit `<file>`: `<change>`" template — is now fixed and live-verified
+  in the rewritten (still **uncommitted**) `PLANNER_PROMPT`: iteration 4's
+  regression guard re-ran this exact test prompt 3 times and got 2/3
+  pass. **However, the 1/3 failure was not a return of this same bug** —
+  it leaked verbatim content from a different, plain (non-labeled-wrong)
+  example elsewhere in the prompt. That is now tracked separately as
+  `NEW-50` (a broader leakage finding, not yet fixed). Do not mark this
+  entry fully closed on the strength of the 2/3 pass alone; see `NEW-50`
+  for the open remainder.
+
+### [NEW-47] Planner appends an unrequested `Run:` step, violating `PLANNER_PROMPT`'s own Rule 8 ("never invent capabilities") — RESOLVED for this decisive case, 5/5 live-verified 2026-07-31, uncommitted
+- **Original status (superseded, kept for history): ~~Confirmed as an
+  observation, but single-occurrence (n=1) — not yet repeat-tested, so
+  weight it below [NEW-46]'s 3-vs-3 discriminated result when
+  prioritizing the prompt rewrite.~~** Test prompt: "create a file, then
+  ask claude to review it." The model appended an unrequested
+  `Run: python report_gen.py data.json` step that the user never asked
+  for, directly contradicting `PLANNER_PROMPT` Rule 8 ("Never invent
+  capabilities. Only describe what the user explicitly stated.").
+- **Full oscillation history across this session's 4-iteration
+  `PLANNER_PROMPT` rewrite (rule 6 — recording so a future session doesn't
+  re-litigate from scratch):**
+  - Original finding: fail, 1/1 (n=1, above).
+  - Iteration 1: fail, 3/7 — attempted a fix, but the same change caused a
+    separate NEW regression (repeated-`Run` under-generation: "run it
+    three times" produced only 1 `Run` step, confirmed via live A/B
+    against pre-fix HEAD text).
+  - Iteration 2: pass, 3/3 — but this pass was measured under
+    `max_tokens=512`, not the real/pinned `max_tokens=1024` used
+    elsewhere, so it is **not a fully comparable measurement** to the
+    other rounds. (Iteration 2 also separately fixed the repeated-`Run`
+    regression, live-confirmed 3/3, and found the unrelated sole-step
+    peer-CLI delegation truncation bug fixed in iteration 3.)
+  - Iteration 3: fail, 3/3, deterministic — re-tested with the properly
+    pinned config this time (`max_tokens=1024`, `temp=0.2`) and failed
+    every run. Traced to the model copying a VIOLATION (✗-labeled)
+    example's own spelled-out wrong transcript verbatim into the plan — a
+    content-leakage mechanism, not a logic failure.
+  - Iteration 4 (pure deletion, no additions): removed that specific
+    leaking VIOLATION example and its paired correct example. Final
+    live-verify on this decisive case: **5/5 pass**, pinned config
+    (`max_tokens=1024`, `temp=0.2`). Caveat: the 5 outputs were
+    byte-identical — one dominant decode mode being sampled repeatedly,
+    not five fully independent draws — so treat this as a clean flip from
+    deterministic-fail to deterministic-pass-on-this-decode-path, not as
+    5 independent confirmations.
+- **Current state:** this specific decisive case is resolved — code
+  complete and live-verified 5/5 — but **uncommitted**; the fix sits in
+  the working tree pending a commit decision from Ish. The underlying
+  leakage *mechanism* (verbatim copying from worked examples) is
+  understood and was fixed here by deletion for this one example, but a
+  **broader form of the same mechanism, sourced from a different, plain
+  example, was found in this same round's regression testing** — see
+  `NEW-50`. Do not read this entry as closing that broader class; it
+  closes only this specific `Run:`-step case.
+
+### [NEW-48] `parse_steps()`'s truncation-warning heuristic false-positives on well-formed, correct plans (Confirmed, code not prompt)
+- **Status: Confirmed — 8/8 test prompts in the live-verifier's first run
+  tripped this warning, including plans independently judged clean and
+  correct.** `core/plannd.py`'s `parse_steps()` flags possible truncation
+  by checking whether the last step's final character is alphabetic and
+  not in `.!?)"`. This trips on any well-formed `Run:`/`Verify:` step that
+  happens to end in a lowercase noun — e.g. `Run: python dice_roller.py`
+  (ends in "y") and `Verify: counter.py printed exactly 10 lines` (ends
+  in "s") both tripped it despite being complete, correct steps with
+  nothing actually truncated.
+- **This is code, not `PLANNER_PROMPT` text** — out of the planned prompt
+  rewrite's scope. Recommend a follow-up code task loosen or drop this
+  heuristic rather than continuing to chase it as a real truncation
+  signal; at an 8/8 false-positive rate on this sample it is not
+  distinguishing truncated from complete output.
+- **Not fixed here.**
+
+### [NEW-49] `daemon.py` step-1 plan enrichment hardcodes Create/full-rewrite semantics regardless of the step's actual verb (Suspected)
+- **Status: Suspected — code-reviewer's own confidence level, from static
+  analysis and logical inference only, not live-reproduced.** Found during
+  code-reviewer's review of this session's `core/plannd.py`
+  `PLANNER_PROMPT` rewrite (targeting [NEW-46]/[NEW-47]) and `_TOOL_VERBS`
+  regex fix ([NEW-28]).
+- **Location:** `core/daemon.py`, lines ~166-194 — the
+  `if steps and len(steps) > 1:` branch's `else` clause, specifically the
+  `for i, step in enumerate(steps): if i == 0: ...` block.
+- **Mechanism:** the branch keys purely on position (`i == 0`), not on the
+  step's actual verb. Its own comment says "Step 1: full context — the
+  executor needs all requirements to write the code," assuming step 1 of
+  any multi-step plan is always a Create. Regardless of what `steps[0]`
+  actually is, a 2+-step plan always gets step 0 rewritten to append:
+  "Write the COMPLETE file with ALL features described above. Do not skip
+  any requirement." That is a full-file-overwrite directive — correct for
+  a genuine Create step, but actively harmful if `steps[0]` is really an
+  Edit step, since it tells the 7B executor to rewrite the entire file
+  from scratch instead of making a targeted change (the same
+  overwrite/data-loss shape [NEW-46] fixed at the planner-prompt level).
+- **Why newly reachable / relevant now:** before this session's
+  `PLANNER_PROMPT` rewrite, the 1.5B planner rarely produced faithful
+  multi-step Edit-first plans (it tended to hallucinate steps or add
+  spurious ones instead — see [NEW-46]/[NEW-47]). The rewrite specifically
+  fixes the planner to produce correct multi-step plans including
+  Edit-first ones (e.g. "Edit foo.py to add X, then run the tests") —
+  meaning this `daemon.py` code path, previously rarely exercised with an
+  Edit-first plan, is now the common path for that request shape.
+- **Suggested fix direction (not done here):** branch the step-1
+  enrichment text on the step's actual verb (detect Create vs Edit vs
+  Run/Verify per step) instead of assuming position 0 is always Create. A
+  live test with an Edit-first 2-step plan should confirm the executor no
+  longer receives full-rewrite instructions for an edit task before this
+  is marked resolved.
+- **Not fixed here.**
+
+## Found during the 2026-07-31 `PLANNER_PROMPT` 4-iteration rewrite + live-verify round (prompt text changed, uncommitted)
+
+The section above (`NEW-46`/`NEW-47`/`NEW-48`) came from a read-only
+live-verifier pass with no code or prompt text touched. This section is
+different: prompt-engineer went through 4 iterations of edits to
+`core/plannd.py`'s `PLANNER_PROMPT` this same session (targeting
+`NEW-46`/`NEW-47`, plus an implementer fix to `_TOOL_VERBS` for `NEW-28`),
+each followed by code-reviewer review and a live-verifier re-test.
+**As of this entry, none of these edits are committed** — the diff sits
+uncommitted in the working tree, and the commit decision is pending with
+Ish directly. Treat "live-verified" below as verified against the current
+uncommitted working-tree prompt text, not against `HEAD`.
+
+### [NEW-50] `PLANNER_PROMPT`'s worked examples leak verbatim content into unrelated user requests regardless of ✓/✗ labeling — confirmed from a plain correct example, not just violation-labeled ones (Confirmed; mechanism verbatim-traced; frequency 1/3 on this prompt)
+
+- **Status:** Confirmed. Not deterministic at the frequency observed —
+  1 failure in 3 trials on the exact regression-guard prompt that
+  iteration 4 was believed to have fixed (`NEW-46`'s original test
+  prompt: "Fix the off-by-one error in the loop in
+  `core/legacy_calc.py`").
+- **Relationship to `NEW-46`:** `NEW-46` (above) identified the first
+  confirmed instance of this leak pattern — verbatim step content copied
+  from `PLANNER_PROMPT`'s embedded few-shot examples into a plan for an
+  unrelated real request. Iteration 3 of this session's rewrite traced a
+  failure of the fix-in-progress to the model copying a **VIOLATION
+  (✗-labeled)** example's own spelled-out wrong transcript verbatim, and
+  iteration 4 fixed that specific instance by deleting the leaking
+  VIOLATION example and its paired correct example (see the corrected
+  `NEW-47` entry below for the full oscillation history — same rewrite,
+  different specific bug). The final iteration-4 live-verify re-ran
+  `NEW-46`'s original regression-guard prompt 3 times as a guard against
+  reintroducing that fixed leak, and got 2/3 pass, 1/3 fail — but the
+  1 failing run leaked from a **different, plain (non-labeled-wrong)**
+  example elsewhere in the prompt, not the one that was just deleted.
+- **Mechanism (verbatim-traced):** the failing output's fabricated step
+  content is a byte-for-byte verbatim match to `PLANNER_PROMPT`'s
+  fibonacci example (around lines ~127-128 of the current uncommitted
+  prompt text), welded onto the user's real filename
+  (`core/legacy_calc.py`) with an unrequested prepended `Create` step —
+  i.e. structurally identical to `NEW-46`'s original failure mode, just
+  sourced from a different, correctly-labeled example instead of a
+  ✗-labeled VIOLATION example.
+- **Why this is a distinct, broader finding, not the same bug as
+  `NEW-46`/iteration-4's fix:** iteration 4's fix (deleting one leaking
+  VIOLATION example) closed that specific leak source and is itself
+  live-verified clean on its own decisive test (see corrected `NEW-47`
+  entry, 5/5). But this same round's regression guard shows the
+  underlying leakage mechanism — the 1.5B model pattern-matching and
+  copying literal content from *any* worked example in the prompt,
+  regardless of ✓/✗ labeling, when it should be reasoning about the
+  actual request — is a general property of this prompt's structure
+  (many long, content-rich worked examples), not something fixed by
+  removing one example. Deleting every individual leak source found this
+  way does not scale; the prompt's example-density/structure is the
+  likely real lever.
+- **Not fixed here.** Logged as a new, separate open issue from the
+  now-closed (for its own specific case) `NEW-47`. A future prompt round
+  should treat "does this new edit leak content from an unrelated
+  example" as a standing regression class to test for, not a one-off.
+
+### [NEW-51] Rule 9 peer-CLI delegation format fails entirely (0/3, no delegation step emitted) on a fresh phrasing not matching prior tested patterns (Confirmed; deterministic; causal link to this session's changes not established)
+
+- **Status:** Confirmed — deterministic, 0/3 across 3 trials. Explicitly
+  **not** claimed as a regression from this session's `PLANNER_PROMPT`
+  edits: this exact prompt was never tested before this round, so there
+  is no pre-session baseline to compare against, and no causal link to
+  this session's changes should be inferred from this entry alone.
+- **Test prompt (verbatim):** "Have gemini check payment_processor.py
+  for race conditions."
+- **Result:** the planner produced no delegation step at all (no
+  `Ask gemini ...`-shaped step per `PLANNER_PROMPT`'s Rule 9). Instead it
+  treated the request as a Create task, fabricating a plan to create
+  `payment_processor.py` from scratch — the request was to have a peer
+  CLI *check* an existing file, not create one.
+- **Contrast — phrasing that does work:** iteration 3 of this session's
+  rewrite (STEP TEMPLATES addition, aimed at fixing sole-step delegation
+  truncation) confirmed 3/3 that a peer-CLI delegation as the sole plan
+  step is emitted correctly for phrasing matching the templates tested
+  that round (e.g. requests structured closer to "ask `<cli>` to
+  <task>"). This session never tested the "Have `<cli>` check `<file>`
+  for `<issue>`" surface form specifically before this failure was found
+  — the gap is in phrasing coverage, not a known-good case regressing.
+- **Open question this entry flags, not answers:** whether this failure
+  mode pre-dates this session's `PLANNER_PROMPT` edits (a pre-existing
+  gap only now discovered because it was never tested) or was introduced
+  by one of the 4 iterations. **The test that would settle this:** run
+  the identical prompt ("Have gemini check payment_processor.py for race
+  conditions") against the pre-session `HEAD` version of `PLANNER_PROMPT`
+  (before any of this round's 4 iterations) and compare. Not done as
+  part of this documentation-only task.
+- **Possible relation to `NEW-50`'s leak pattern (hypothesis, not a
+  finding):** a Create-task fabrication in response to a delegation
+  request has surface similarity to `NEW-46`/`NEW-50`'s pattern of
+  fabricating an unrelated Create plan instead of correctly reasoning
+  about the actual request. This is noted as a hypothesis worth checking
+  in a future round, not established here — no shared verbatim-content
+  trace was found linking the two.
+- **Not fixed here.**
 
 ## Found during Track 1 tool/capability audit (ccos/plugins/*/manifest.json vs. implementation), 2026-07-30 — NOT fixed, logged only
 

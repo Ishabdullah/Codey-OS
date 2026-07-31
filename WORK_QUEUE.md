@@ -20,10 +20,11 @@ checkboxes had (Phase 0's `symbolic_graph` box, Section 5's Open Question
 ## How new issues get logged as we go
 
 Keep using `NEW_ISSUES.md` exactly as it already works — next sequential
-`NEW-##` ID (currently next free: **NEW-46**, after `NEW-27` through
-`NEW-45` were logged across this session's hygiene, Track 1 audit,
-NEW-19, NEW-10, NEW-8, and NEW-7 rounds), rated Confirmed or Suspected,
-same format as existing entries.
+`NEW-##` ID (currently next free: **NEW-49**, after `NEW-27` through
+`NEW-48` were logged across this session's hygiene, Track 1 audit,
+NEW-19, NEW-10, NEW-8, NEW-7, and the 2026-07-31 1.5B-only planner
+live-test rounds), rated Confirmed or Suspected, same format as existing
+entries.
 **ID-collision note (2026-07-30):** an interrupted session's
 code-reviewer pass logged two NEW-8-adjacent findings under `NEW-24`
 and `NEW-25` — both already taken (by the `load_secondary()` bug and
@@ -214,6 +215,70 @@ gets logged, not silently fixed or dropped, even mid-queue-item.
       the transcript-persistence gap is tracked as `NEW-38` (not fixed),
       and the exact-repeat gap remains `NEW-36` (not fixed), both
       pre-existing/adjacent, not regressions from this round.**
+- [x] `PLANNER_PROMPT` rewrite (`core/plannd.py`) — **round done this
+      session (2026-07-31), CODE COMPLETE + LIVE-VERIFIED, UNCOMMITTED —
+      commit decision pending with Ish directly, not part of any agent's
+      task.** A live-verifier session ran a real, RAM-disciplined
+      1.5B-only planner test against port 8081 (2 clean model-load
+      cycles, 7B never loaded), cross-referencing the Track 1 prompt
+      audit above (`NEW-28`/`NEW-29`/`NEW-30`/`NEW-31`/`NEW-32`).
+      Live-confirmed `NEW-28` with a sharpened mechanism (traced to
+      `core/plannd.py:162`'s `return kept if len(kept) > 1 else
+      steps[:2]` — a well-formed Create → Edit → Run plan is exactly the
+      shape where the surviving Run step suppresses the `steps[:2]`
+      fallback that would otherwise rescue the dropped Edit step; status
+      unchanged, still Confirmed/not fixed). prompt-engineer then went
+      through 4 iterations of `PLANNER_PROMPT` edits (plus one implementer
+      fix to `_TOOL_VERBS` for `NEW-28`), each reviewed by code-reviewer
+      and re-tested by live-verifier. Resolved this session, live-verified
+      against the current **uncommitted** prompt text:
+      - `NEW-28` (`_TOOL_VERBS` regex fix) — supported/confirmed fixed.
+      - Repeated-`Run` under-generation regression (introduced by iter 1,
+        fixed by iter 2) — live-confirmed 3/3.
+      - `NEW-47` (unrequested `Run:` step) — its decisive case now
+        **5/5 pass** after iter 4 (pinned config, deletion-only fix); see
+        `NEW_ISSUES.md`'s corrected `NEW-47` entry for the full
+        4-iteration oscillation history before landing here.
+      - `NEW-46` (few-shot content leakage on edit-only prompts) — its
+        specific original trigger (surface-form mismatch vs. the
+        `Edit <file>:` template) is fixed, 2/3 pass on the regression
+        guard. **The 1/3 failure was a different leak source, not a
+        return of the same bug — now tracked as new finding `NEW-50`,
+        still open. Do not read `NEW-46` as fully closed.**
+      New findings surfaced and left open this session (see
+      `NEW_ISSUES.md`'s new 2026-07-31 "`PLANNER_PROMPT` 4-iteration
+      rewrite" section):
+      - [ ] `NEW-50` (Confirmed, mechanism verbatim-traced, 1/3 on this
+            prompt) — worked examples leak verbatim content into
+            unrelated requests regardless of ✓/✗ labeling; broader than
+            the specific instance `NEW-46` fixed. Not yet scoped to an
+            implementer.
+      - [ ] `NEW-51` (Confirmed, deterministic 0/3; causal link to this
+            session's changes NOT established) — Rule 9 peer-CLI
+            delegation format fails entirely on a fresh, previously
+            untested phrasing ("Have gemini check payment_processor.py
+            for race conditions") — no delegation step emitted at all,
+            treated as a Create task instead. Open question: pre-existing
+            gap vs. this session's regression — settling test (run same
+            prompt against pre-session `HEAD`) not yet done.
+      - `NEW-48` (Confirmed, code not prompt — `parse_steps()`'s
+        truncation-warning heuristic false-positived 8/8 times on
+        well-formed plans) remains open, out of this rewrite's scope.
+- [ ] `NEW-48` — `core/plannd.py`'s `parse_steps()` truncation-warning
+      heuristic (last-step-final-character check) false-positived on
+      8/8 test prompts during the same 2026-07-31 live-verifier session,
+      including plans independently judged clean/correct. Code, not
+      prompt text — separate from the `PLANNER_PROMPT` rewrite above.
+      Recommend loosening or dropping the heuristic; not yet scoped to
+      an implementer.
+- [ ] `NEW-49` — new Suspected finding from code-reviewer's review of the
+      same session's `PLANNER_PROMPT`/`_TOOL_VERBS` fix: `core/daemon.py`
+      lines ~166-194 hardcode step-1 = Create/full-rewrite semantics by
+      position (`i == 0`) regardless of the step's actual verb, so an
+      Edit-first multi-step plan (now more reachable thanks to the
+      `NEW-46`/`NEW-47` planner-prompt rewrite) gets told to overwrite the
+      whole file instead of making a targeted edit. Not live-reproduced;
+      not yet scoped to an implementer. See `NEW_ISSUES.md`.
 - [x] `NEW-25` — `codeyOS --daemon` forwards a literal `$@` string
       instead of real args (backslash-escape bug outside the heredoc).
       **Resolved 2026-07-30, code-reviewer approved** — 1-character fix
@@ -448,7 +513,20 @@ earlier "fully done" claim was corrected mid-session per rule 6 when it
 turned out 2 of Track 1's 4 items were still open; both are now closed:
 the `recovery.py`/`strategy_tracker.py` comparison turned out to already
 be resolved in Phase 2 (just undocumented until now), and `NEW-19` got a
-direct decision from Ish, now a scoped Track 2 task. Next up: Track 2's
-independent bug/security fixes (starting with the freshly-scoped `NEW-19`
-implementation), which can run in parallel with starting Track 3's
-Phase 5a.
+direct decision from Ish, now a scoped Track 2 task (since fully
+live-verified, see above). **In progress now (2026-07-31):** a
+live-verifier session ran a real 1.5B-only planner test (RAM-disciplined,
+7B never loaded), live-confirmed `NEW-28` with a sharpened mechanism, and
+surfaced `NEW-46`/`NEW-47`/`NEW-48`. prompt-engineer then ran a
+4-iteration rewrite of `PLANNER_PROMPT` in `core/plannd.py`, each iteration
+reviewed by code-reviewer and re-tested by live-verifier — **this round is
+now done: `NEW-28`/repeat-Run regression/`NEW-47` are code complete and
+live-verified, `NEW-46`'s original trigger is fixed (its 1/3 residual
+failure is now separately tracked as new open finding `NEW-50`). The
+entire rewrite is UNCOMMITTED — a commit decision is pending with Ish
+directly, not part of this pipeline.** Two new findings from this round's
+final regression testing remain open and unscoped: `NEW-50` (broader
+example-content leakage, not just violation-labeled examples) and `NEW-51`
+(Rule 9 peer-CLI delegation fails on a fresh untested phrasing, causal
+link to this session not established). See the updated Track 2 entry
+above.

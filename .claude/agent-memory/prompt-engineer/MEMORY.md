@@ -1,2 +1,3 @@
 - [Escaping JSON examples in prompt strings](escaping_json_examples_in_prompt_strings.md) — \n/\" in non-raw triple-quoted prompt bodies need double-backslash; verify at runtime, not just by reading source
 - [patch_file old_str grounding fix (NEW-7)](patch_file_old_str_grounding_fix.md) — what was added to system_prompt.py/critique_prompts.py, what's still open (live-verifier pass)
+- [PLANNER_PROMPT Create-vs-Edit rewrite (NEW-46/47/28)](planner_prompt_create_vs_edit_rewrite.md) — lexical trigger gate fixed fabrication; NEW-28 (_TOOL_VERBS regex) still needs a code fix

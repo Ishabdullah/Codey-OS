@@ -5,6 +5,140 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-31 — `PLANNER_PROMPT` 4-iteration rewrite round closed out; documentation only, no code touched this round
+
+**What happened:** Closing out the same-session `PLANNER_PROMPT` rewrite
+(`core/plannd.py`) that ran through 4 iterations (prompt-engineer, each
+reviewed by code-reviewer and re-tested by live-verifier), targeting
+`NEW-46`/`NEW-47`/`NEW-28`. This task itself touched no code — `NEW_ISSUES.md`
+and `WORK_QUEUE.md` only.
+
+**Status of the rewrite: code complete + live-verified, UNCOMMITTED.**
+The diff sits in the working tree; the commit decision is pending with
+Ish directly, separate from this pipeline.
+
+- `NEW-28` (`_TOOL_VERBS` regex fix) — confirmed fixed.
+- Repeated-`Run` under-generation (introduced by iteration 1, fixed by
+  iteration 2) — live-confirmed 3/3.
+- `NEW-47` (unrequested `Run:` step) — decisive case now 5/5 pass after
+  iteration 4 (deletion-only fix, pinned config). Full 4-iteration
+  oscillation history (fail 1/1 → fail 3/7 → pass 3/3 under an
+  uncontrolled max_tokens=512 → fail 3/3 deterministic → pass 5/5)
+  recorded in `NEW_ISSUES.md`'s corrected `NEW-47` entry per rule 6.
+- `NEW-46` (few-shot content leakage on edit-only prompts) — its
+  original trigger (surface-form mismatch vs. the template) is fixed,
+  2/3 pass on the regression guard. The 1/3 failure is a **different**
+  leak source (a plain, correctly-labeled example, not the VIOLATION
+  example iteration 4 removed) — **not treated as closed**; spun off as
+  new open finding `NEW-50`.
+
+**Two new findings logged to `NEW_ISSUES.md` (next-free IDs re-verified
+by grep before assignment — highest existing was `NEW-49`):**
+- **`NEW-50`** (Confirmed, mechanism verbatim-traced; frequency 1/3 on
+  this prompt) — `PLANNER_PROMPT`'s worked examples leak verbatim
+  content into unrelated user requests regardless of ✓/✗ labeling; a
+  broader, still-open issue than the specific instance `NEW-46` fixed.
+  Not yet scoped to an implementer.
+- **`NEW-51`** (Confirmed, deterministic 0/3; causal link to this
+  session's changes explicitly NOT established) — Rule 9 peer-CLI
+  delegation format ("Have `<cli>` check `<file>` for `<issue>`" phrasing)
+  produces no delegation step at all on a prompt never tested before this
+  session; treated as a Create task instead. Open question flagged, not
+  answered: whether this pre-dates this session's edits — the settling
+  test (same prompt against pre-session `HEAD`) was not run as part of
+  this documentation-only task.
+
+**Docs updated:** `NEW_ISSUES.md` (new dated section for `NEW-50`/`NEW-51`,
+corrected `NEW-46` and `NEW-47` entries per rule 6), `WORK_QUEUE.md`
+(Track 2 `PLANNER_PROMPT` entry checked off with the uncommitted/pending-
+commit caveat spelled out, two new unchecked items added, "Currently
+here" pointer updated). `PROJECT_PLAN.md` not touched — out of this
+task's scope.
+
+---
+
+## 2026-07-31 — code-reviewer's review of `PLANNER_PROMPT` rewrite + `_TOOL_VERBS` fix surfaced one new Suspected finding (`NEW-49`); documentation only, no code touched
+
+**What happened:** During code-reviewer's review of this session's
+`core/plannd.py` `PLANNER_PROMPT` rewrite (targeting `NEW-46`/`NEW-47`)
+and `_TOOL_VERBS` regex fix (`NEW-28`), code-reviewer flagged a related
+issue in `core/daemon.py` and this was logged per rule 8. `core/daemon.py`
+and `core/plannd.py` were not touched by this logging task.
+
+**Finding logged to `NEW_ISSUES.md`:**
+- **`NEW-49`** (new, Suspected — static analysis/logical inference only,
+  not live-reproduced) — `core/daemon.py` lines ~166-194 hardcode
+  step-1 = Create/full-rewrite semantics purely by position (`i == 0`),
+  regardless of the step's actual verb. A 2+-step plan always has its
+  first step enriched with "Write the COMPLETE file... Do not skip any
+  requirement," which is correct for a genuine Create step but tells the
+  7B executor to overwrite the whole file if step 1 is actually an Edit —
+  the same overwrite/data-loss shape `NEW-46` fixed at the planner-prompt
+  level. Newly relevant because this session's `PLANNER_PROMPT` rewrite
+  makes faithful Edit-first multi-step plans more common, exercising this
+  previously-rare `daemon.py` code path more often. Not fixed here;
+  suggested fix direction and live-test recommendation recorded in
+  `NEW_ISSUES.md`. One-line pointer added to `WORK_QUEUE.md`'s Track 2
+  section alongside `NEW-46`/`NEW-47`/`NEW-48`.
+
+---
+
+## 2026-07-31 — Live-verifier ran real 1.5B-only planner test (`core/plannd.py`'s `PLANNER_PROMPT`); read-only, no code touched
+
+**What happened:** Not a fix task. live-verifier ran a real, on-device
+test of the 1.5B planner (`core/plannd.py`'s `PLANNER_PROMPT`) against
+the local model on port 8081, reported as two clean model-load cycles
+with `free -h` tracked before/after each, exact spawned PIDs killed per
+rule 3, and the 7B model never loaded (single-model-cycle-at-a-time per
+rule 2). **Caveat on this claim (rule 5):** this is what was reported to
+this logging task, not literal output witnessed directly here — the
+actual `free -h`/`ps aux` text from that session was not relayed into
+this task's transcript, so it is not reproduced verbatim in this entry.
+No code or prompt file was edited this round.
+
+**Findings, logged to `NEW_ISSUES.md`:**
+- **`NEW-28` updated** (not newly opened) — live-reproduced with a
+  sharpened mechanism. Traced to `core/plannd.py:162`'s exact line,
+  `return kept if len(kept) > 1 else steps[:2]`: a well-formed
+  Create → Edit → Run plan has its Run step independently survive the
+  `_TOOL_VERBS`/`Run:` checks, making `len(kept) == 2` and suppressing
+  the `steps[:2]` fallback that would otherwise rescue a dropped Edit
+  step — so more complete plans are paradoxically the ones most likely
+  to silently lose their Edit step. Status unchanged: Confirmed, not
+  fixed.
+- **`NEW-46`** (new, Confirmed) — planner few-shot content leakage:
+  edit-only prompts that don't match `PLANNER_PROMPT`'s literal
+  `Edit <file>: <change>` template cause the model to fabricate an
+  unrelated Create → Edit → Run → Verify plan with step content copied
+  verbatim from the prompt's own embedded few-shot examples. Confirmed
+  via a 3/3-vs-3/3 discriminating repeat test (natural phrasing fails
+  3/3, template-matching phrasing succeeds 3/3). Flagged as a real
+  data-loss path — a fabricated Create/overwrite step against an
+  existing file for what was really a one-line bugfix request — more
+  severe than `NEW-28`.
+- **`NEW-47`** (new, Confirmed, n=1) — planner appended an unrequested
+  `Run:` step, violating `PLANNER_PROMPT`'s own Rule 8 ("never invent
+  capabilities"). Single observation, not yet repeat-tested.
+- **`NEW-48`** (new, Confirmed, code not prompt) — `parse_steps()`'s
+  truncation-warning heuristic (checks whether the last step's final
+  character is alphabetic) false-positived on 8/8 test prompts,
+  including plans independently judged clean/correct. Out of this
+  round's prompt-only scope; recommend loosening or dropping the
+  heuristic in a separate code task.
+
+**Tracking docs updated:** `NEW_ISSUES.md` (NEW-28 update + NEW-46/47/48
+new entries, dated 2026-07-31 subsection cross-referencing the Track 1
+prompt audit), `WORK_QUEUE.md` (new unchecked Track 2 entry for the
+planned `PLANNER_PROMPT` rewrite, next-free counter bumped to NEW-49,
+"Currently here" pointer updated). `PROJECT_PLAN.md` not touched — this
+round moved nothing from code-complete to live-verified; it was
+read-only measurement feeding a not-yet-started rewrite.
+
+**Next step (same session):** `PLANNER_PROMPT` rewrite in
+`core/plannd.py`, going to prompt-engineer, primarily targeting `NEW-46`.
+
+---
+
 ## 2026-07-30 — NEW-7 fix attempt: prompt change landed, live-verified as a mixed (not full) result
 
 **What changed:** Attempted a fix for `NEW-7`'s characterized root
