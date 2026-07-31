@@ -5,6 +5,63 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-31 — `NEW-30` third live pass: FIXED on its actual mechanism (read-before-patch), live-verified A/B 3/3 vs 0/3; one new finding `NEW-61`
+
+Ish greenlit a third live-verifier pass on the uncommitted `NEW-30` fix
+in `prompts/system_prompt.py` after the first two passes were invalidated
+by the `NEW-60` workspace-boundary bug. Both required corrections applied
+this time: scratch fixtures moved inside `WORKSPACE_ROOT`
+(`.live_verify_scratch/`, gitignored), plus a hard precondition gate
+confirming each `read_file` call actually succeeded before spending
+inference budget. RAM discipline clean throughout (`free -h` recorded
+before/after both model-load cycles, PIDs tracked, confirmed unloaded;
+one cycle hit the codebase's own thermal-triggered auto-restart, not a
+manual kill).
+
+Decisive result: a same-session A/B test (3 draws with the fix, 3 with
+pre-fix `system_prompt.py`, same running server) showed **3/3
+read-before-patch with the fix, 0/3 without** — pre-fix draws skipped
+straight to a guessed `patch_file` call, succeeding only by luck on a
+generic fixture (the same ungrounded-`old_str` pattern already tracked as
+`NEW-7`/`NEW-44`). This is the mechanism the fix targets, and it flipped
+cleanly. `NEW-30` is now FIXED on this mechanism, not on the broader
+old_str-grounding question (still `NEW-7`'s open scope).
+
+One "fixed" draw still failed to apply its patch, but from a newly-found,
+unrelated bug: `NEW-61` — `core/agent.py:280-303`'s `_fix_unquoted_values()`
+JSON-repair regex corrupts `old_str`/`new_str` when the model emits a
+single-quoted (Python-style, invalid-JSON) value, live-reproduced.
+`NEW-49` (daemon step-0 full-rewrite hint on an Edit step) refuted at
+n=1 — real evidence, not a closed finding. The control case (file content
+pre-injected) showed the model reading anyway, an unresolved deviation
+noted but not chased further this round.
+
+`prompts/system_prompt.py`'s diff remains uncommitted — commit decision
+still pending directly with Ish. `NEW_ISSUES.md` (`NEW-30` third-pass
+entry + new `NEW-61` entry) and `WORK_QUEUE.md`'s "Currently here"
+section updated.
+
+---
+
+## 2026-07-31 — `NEW-34` closed: 3 broken `skill_recombiner`-output compound plugins permanently deleted on Ish's direct instruction
+
+Ish reviewed the interim-disabled (`_`-prefix renamed, 2026-07-30) compound
+plugins and, after confirming their origin/purpose, gave a direct
+instruction to delete them permanently rather than keep-and-fix. `git rm -r`
+on `ccos/plugins/compound/_skill_camera_capture_tts`,
+`_skill_info_info`, `_skill_info_processes` — all were pre-generated,
+never-fixed output of `skill_recombiner` (broken pipeline argument-passing,
+`skill_info_info`/`skill_info_processes` throwaway pattern-mining
+artifacts), sitting live/agent-callable in the repo since the initial CCOS
+commit until the 2026-07-30 interim disable. Deletion is unrelated to Phase
+4 self-improvement activation itself, which stays gated per CLAUDE.md rule
+1 exactly as before — only the pre-existing recombiner *output* was
+removed, no engine was activated or touched. `NEW_ISSUES.md`'s `NEW-34`
+entry and `WORK_QUEUE.md`'s Track 1 + Parked sections updated to reflect
+closure.
+
+---
+
 ## 2026-07-31 — Correction (rule 6): both 7B coder system-prompt live passes this session invalidated by workspace-boundary contamination; new Confirmed finding `NEW-60`, no code/prompt touched
 
 **What happened:** a second live pass ran this session, targeting

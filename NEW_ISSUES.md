@@ -1025,6 +1025,73 @@ not folded into this count. **Status: needs a proper re-test with valid
 file access before this can be called fixed, partially fixed, or
 unfixed.**
 
+### [NEW-30] third pass, 2026-07-31 — FIXED on its actual mechanism, live-verified
+A fourth live-verifier session re-ran the test with both required fixes
+applied: scratch fixtures moved inside `WORKSPACE_ROOT`
+(`.live_verify_scratch/`, gitignored) instead of `/usr/tmp`, and a hard
+precondition gate confirming each `read_file` call actually returned real
+content (not `[ERROR]`) before spending inference budget on a trial. RAM
+discipline: `free -h` recorded before/after both model-load cycles (no
+crash, no swap thrashing), PIDs tracked, `ps aux | grep llama-server`
+clean after both — one cycle hit the codebase's own thermal-triggered
+auto-restart mid-run (device thermal-management code stopping/reloading
+the server itself, not a manual kill), unaffected by CLAUDE.md rule 3.
+
+**Case 1 (anchor, single draw):** correct two-turn behavior — `read_file`
+turn 1, `patch_file` turn 2 with a correctly-grounded `old_str`, `Done.`
+turn 3; on-disk change verified (30→60).
+
+**A/B cycle (decisive test, 3 draws per arm, same running server, fixture
+reset between every draw):** with the fix, **3/3** draws called
+`read_file` before attempting `patch_file`. Without the fix (pre-fix
+`system_prompt.py`, same session), **0/3** draws read first — all three
+skipped straight to a guessed `patch_file` call that happened to match
+the real content by luck on a generic fixture (the classic
+ungrounded-`old_str` failure mode this project tracks separately as
+`NEW-7`/`NEW-44`). **This is the discriminating result: the fix changes
+the read-before-patch behavior 0/3 → 3/3.**
+
+One of the three "fixed" draws (`fixed-1`) still failed to apply its
+patch — but for an unrelated, newly-found reason (see `NEW-61` below),
+not a recurrence of "Done. right after read_file." The raw
+patch-application success rate (2/3 fixed vs. 3/3 pre-fix-by-luck) is
+explicitly **not** the right metric here; the mechanism the fix targets
+is read-before-patch, and that flipped cleanly.
+
+**Case 2 (control, file content pre-injected into the prompt):** the
+model called `read_file` anyway before `patch_file`, a real deviation
+from the fix's intended behavior — but the injection went into the user
+message text via `_execute_task` (which always clears memory and passes
+`history=[]`), not the real system-prompt "Loaded Files" layer, so this
+may not be a fair test of the fix's actual target condition. Reported
+as-is, not resolved either way.
+
+**`NEW-49` (daemon step-0 "Write the COMPLETE file" enrichment on an
+Edit-verb step):** refuted at n=1 — model read then patched correctly,
+did not rewrite the whole file — real evidence against the hypothesis,
+but a single draw doesn't close a Suspected finding.
+
+**Verdict: `NEW-30` is FIXED on its actual mechanism (read-before-patch
+on a genuinely unread file), live-verified 3/3 vs. 0/3 in a same-session
+A/B test. It is NOT fixed on the broader old_str-grounding/guessing
+question — that remains `NEW-7`'s open scope, now with additional A/B
+corroboration that the pre-fix prompt reproduces the guessing behavior
+reliably (3/3).** The `prompts/system_prompt.py` diff (code-reviewer
+approved, now live-verified) remains uncommitted — commit decision
+pending directly with Ish.
+
+### [NEW-61] `core/agent.py`'s JSON-repair regex corrupts `old_str`/`new_str` when the model emits single-quoted string values (Confirmed, live-reproduced)
+`_fix_unquoted_values()` (`core/agent.py:280-303`) only treats a value as
+"already quoted" if it starts with `"` — a Python-style single-quoted
+value (`'return 30'`, invalid JSON but a plausible LLM output) is
+misclassified as unquoted, and the repair wraps the literal single-quote
+characters into the resulting double-quoted string, corrupting the
+`old_str`/`new_str` value it was supposed to fix. Live-reproduced during
+the `NEW-30` third-pass A/B cycle (draw `fixed-1`): the model emitted a
+single-quoted `old_str`, the repair regex mangled it, `patch_file` failed
+to match, and the model gave up with "Done." after a corrective re-read
+rather than retrying correctly. Not yet scoped to an implementer.
+
 ### [NEW-56] correction — downgraded, cause reattributed
 The specific observed behavior (wrong paths, dropped content, both
 documented above with real inspected tool-call sequences) is real and
@@ -1201,6 +1268,12 @@ tool call.
   noted in `WORK_QUEUE.md`'s Parked section. Reversible: strip the `_`
   prefix to re-enable. Still needs Ish's permanent call on final
   disposition.
+- **RESOLVED 2026-07-31 — permanently deleted, direct instruction from
+  Ish.** `git rm -r` on all 3 renamed dirs
+  (`_skill_camera_capture_tts`/`_skill_info_info`/`_skill_info_processes`
+  under `ccos/plugins/compound/`) — manifest/pipeline/test files gone
+  from the working tree, git history preserved. Not restaged from the
+  interim `_`-prefix disable; a clean removal. This closes NEW-34.
 
 ### [NEW-35] `vision.camera_capture`'s default output path (`camera.py:53`, `f"/tmp/ccos_capture_{...}.jpg"`) is likely wrong on Termux (Suspected)
 - Termux's writable temp dir is `$PREFIX/tmp`, not `/tmp` — bare `/tmp`

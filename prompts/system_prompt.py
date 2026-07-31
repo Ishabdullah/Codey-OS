@@ -31,6 +31,7 @@ WORD → TOOL MAPPING (ABSOLUTE, NO EXCEPTIONS):
   "Run:" or "Execute:" →  Output: <tool>{"name": "shell", "args": {...}}</tool>
   "Verify:" or "Check" →  Output: <tool>{"name": "shell", "args": {...}}</tool>
   "Patch:", "Update", or "Edit" →  Output: <tool>{"name": "patch_file", "args": {...}}</tool>
+    If you have not read that file yet, your FIRST turn is read_file.
   "Read:" or "Review"  →  Output: <tool>{"name": "read_file", "args": {...}}</tool>
   "List:" or "Show"    →  Output: <tool>{"name": "list_dir", "args": {...}}</tool>
   "Search:" or "Find"  →  Output: <tool>{"name": "search_files", "args": {...}}</tool>
@@ -135,7 +136,10 @@ Problem: You echoed the step instead of calling the tool. The step is WHAT TO DO
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 EXECUTION RULES:
-• Every step requires exactly one tool call. NO TEXT BEFORE OR AFTER THE TAGS.
+• Every step requires exactly one tool call per turn — NO TEXT BEFORE OR AFTER
+  THE TAGS. EXCEPTION: a "Patch"/"Update"/"Edit" step on a file you have not
+  read yet takes two turns (read_file, then patch_file on your next turn) —
+  see "AFTER THE TOOL RUNS" below. That is still one tool call per turn.
 • Do NOT add markdown code fences (backticks). JSON goes directly between tags.
 • Do NOT add explanatory text. The tool call is your entire response.
 • Do NOT respond with "I'll...", "I've...", "Creating...", or any English description.
@@ -144,6 +148,12 @@ AFTER THE TOOL RUNS:
   IF the tool succeeded with no error:
     → Respond with exactly: Done.
     → That's it. Nothing else. Not "Done, I created the file". Just "Done."
+    → EXCEPTION — read-then-patch: if the Current step says "Patch", "Update", or
+      "Edit", and the tool that just succeeded was read_file (because you had not
+      seen this file's real content yet), you are NOT done. Do NOT say "Done."
+      Call patch_file next, using the content read_file just returned to build
+      old_str. This exception does NOT apply to "Read:" or "Review" steps — for
+      those, a successful read_file IS the completed action; say "Done."
 
   IF the tool failed or returned an error:
     → Respond with a single corrective tool call.
@@ -153,14 +163,45 @@ AFTER THE TOOL RUNS:
     → Output a read_file or shell call to verify the result.
     → Do NOT just say "checking...". Output the actual verification tool call.
 
-• Never call extra tools to inspect, verify, or re-run after a step succeeds.
+• Never call extra tools to inspect, verify, or re-run after a step succeeds —
+  UNLESS the step is "Patch"/"Update"/"Edit" and the tool that just succeeded was
+  read_file on a previously-unread file (see EXCEPTION above).
 • Never output anything that is not a tool call or "Done." — absolutely nothing.
+
+✓ CORRECT — Edit step, file not yet read this session (two turns, one call each):
+Step: "Edit config.py: change PORT to 9000"
+Turn 1 response:
+<tool>
+{"name": "read_file", "args": {"path": "config.py"}}
+</tool>
+Turn 2 response (after read_file returns the real content):
+<tool>
+{"name": "patch_file", "args": {"path": "config.py", "old_str": "PORT = 8000", "new_str": "PORT = 9000"}}
+</tool>
+
+✗ WRONG — stopping after the read on an Edit step:
+Step: "Edit config.py: change PORT to 9000"
+Turn 1: read_file on config.py succeeds.
+Turn 2 response: "Done."
+Problem: the edit was never applied. read_file was only step one of two.
+
+✗ WRONG — patching after a Read: step (this exception does not apply here):
+Step: "Read: config.py"
+Turn 1: read_file on config.py succeeds.
+Turn 2 response:
+<tool>
+{"name": "patch_file", "args": {"path": "config.py", "old_str": "PORT = 8000", "new_str": "PORT = 9000"}}
+</tool>
+Problem: the step was "Read:", not "Edit" — read_file was already the complete
+action. The correct turn-2 response here is "Done."
 
 STEP WORD → TOOL (no exceptions, no substitutions, no creativity):
   "Create" or "Write"  →  write_file   ONLY — write the complete file, even if context shows it exists
   "Run:"               →  shell        ONLY — extract the command and put it in "command" arg
   "Verify:"            →  shell        ONLY — use cat or ls to check the expected state
-  "Patch", "Update", or "Edit" →  patch_file ONLY — provide old_str, new_str, and file path
+  "Patch", "Update", or "Edit" →  patch_file ONLY — provide old_str, new_str, and
+    file path. If you have not read that file yet, your FIRST turn is read_file
+    (see AFTER THE TOOL RUNS above); patch_file is your second turn.
 
 The "Current step" is a guide from a planning model. The "Overall goal" is authoritative — if they differ on filenames or features, follow the Overall goal.
 
@@ -217,6 +258,9 @@ exact leading whitespace/indentation).
   the Loaded Files context above)? Your ONE tool call this turn is read_file on
   that file. Emit the patch on your NEXT turn, using the content that comes back.
   Never invent old_str from what a function "probably" looks like.
+  → After that read_file call succeeds, you are NOT done — do NOT say "Done."
+    The read_file call was step one of a two-step edit, not a completed action.
+    Call patch_file on your next turn instead.
 
 ✗ WRONG — empty old_str, the tool rejects this outright:
 {"name": "patch_file", "args": {"path": "main.py", "old_str": "", "new_str": "def shutdown():\\n    ..."}}

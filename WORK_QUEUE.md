@@ -89,14 +89,15 @@ gets logged, not silently fixed or dropped, even mid-queue-item.
 - [x] **Tool/capability audit** — done 2026-07-30 via `agent-tool-designer`.
       Fixed 3 stale/wrong manifest descriptions (`coding.finetune_rollback_backup`,
       `coding.git_commit`, `peer_escalation`'s stale call-site citations).
-      Logged `NEW-34` (Confirmed, needs Ish's call): the 3 `skill_*`
-      compound plugins under `ccos/plugins/compound/` are broken by
-      construction (no data piped between pipeline steps) **and** are
-      live, agent-callable output of the permanently-gated
-      `skill_recombiner` — the recombiner engine being gated doesn't stop
-      `plugin_manager._discover()` from auto-loading its pre-generated
-      output. This is a rule-1-adjacent question, not resolved
-      unilaterally. Also logged `NEW-35` (Suspected): `vision.camera_capture`'s
+      Logged `NEW-34` (Confirmed): the 3 `skill_*` compound plugins under
+      `ccos/plugins/compound/` were broken by construction (no data piped
+      between pipeline steps) **and** were live, agent-callable output of
+      the permanently-gated `skill_recombiner` — the recombiner engine
+      being gated didn't stop `plugin_manager._discover()` from
+      auto-loading its pre-generated output. Interim-disabled via `_`-prefix
+      rename 2026-07-30, then **permanently deleted 2026-07-31 on Ish's
+      direct instruction** (`git rm -r`) — NEW-34 closed. Also logged
+      `NEW-35` (Suspected): `vision.camera_capture`'s
       default `/tmp/...` output path likely wrong under Termux.
       Recommendations (not executed): add `coding.git_commit_paths` as a
       safer sibling; wrap `static_analysis`'s read-only linter functions;
@@ -746,10 +747,12 @@ resource-awareness work twice.
   measure, separate from any Phase 4 activation decision: renamed the 3
   directories with a leading `_` (an existing, already-supported
   exclusion path in `_discover()`, zero code changes, fully reversible,
-  nothing deleted). Their final disposition — permanently remove, or
-  keep and fix the broken pipeline-argument-passing bug — is still open
-  and deferred to whenever Phase 4 activation is actually taken up; see
-  `NEW-34` for full detail and the verification performed.
+  nothing deleted). **Update 2026-07-31: final disposition decided — Ish
+  asked for permanent removal.** All 3 dirs `git rm -r`'d (see `NEW-34`'s
+  closing entry in `NEW_ISSUES.md`). This is unrelated to Phase 4
+  activation itself, which stays gated per rule 1 exactly as before —
+  only the pre-existing recombiner *output* was removed, not any
+  activation decision on the engine.
 
 ---
 
@@ -839,19 +842,34 @@ a denied read is on record, with pass 2's trials relayed only (see
 production-reachable independent of `NEW-30`/`NEW-56` regardless, and
 the actual cause of both contaminated passes.
 
-**Next action — decision point for Ish, not to be executed
-automatically:** the first two passes cost roughly 40 and 70 minutes of
-wall-clock model time each with zero valid data recovered on the
-anchor questions. A third pass is the obvious next step, but should not
-be started without Ish's sign-off given that cost. If greenlit, the
-concrete fix for next time is: (1) place scratch test files in a
-gitignored in-repo subdirectory (inside `WORKSPACE_ROOT`, not
-`/usr/tmp`), and (2) add a driver precondition check — assert the
-`read_file` call actually succeeds (no `[ERROR]` prefix) before running
-the real trial — so a workspace-boundary miss fails loudly and
-immediately instead of silently contaminating the whole pass. The
-desk-only recursive-critique/refine investigation referenced in the
-prior version of this entry is already done and its refutation still
-stands (see `NEW_ISSUES.md`'s `NEW-56` correction chain) — it is not
-part of this next action. A separate fix task for `NEW-55` (the crash)
-is still being scoped independently, not part of this round.
+**Third pass run 2026-07-31, Ish-greenlit — `NEW-30` is FIXED on its
+actual mechanism, live-verified.** Both required fixes applied (scratch
+fixtures moved inside `WORKSPACE_ROOT`, hard read-success precondition
+gate before spending inference budget on a trial) and confirmed working.
+RAM discipline clean (`free -h` before/after both cycles, PIDs tracked,
+`ps aux | grep llama-server` clean after — one cycle hit the codebase's
+own thermal-triggered auto-restart mid-run, not a manual kill, per rule
+3). **Decisive A/B result:** same running server, 3 draws with the fix
+vs. 3 with pre-fix `system_prompt.py`, fixture reset between draws —
+**3/3 read-before-patch with the fix, 0/3 without** (pre-fix draws
+skipped straight to a guessed `patch_file`, succeeding only by luck on a
+generic fixture — the `NEW-7`/`NEW-44` ungrounded-`old_str` pattern).
+One "fixed" draw still failed to apply, but from an unrelated newly-found
+bug (`NEW-61`, JSON-repair regex mangles single-quoted values), not a
+recurrence of the original "Done. after read" behavior. `NEW-49`
+refuted at n=1 (real evidence, not yet a closed Suspected finding). Case
+2 (control) showed the model reading anyway even with content
+pre-injected — reported, not resolved either way; injection mechanism
+caveat noted in `NEW_ISSUES.md`. See `NEW_ISSUES.md`'s new "`NEW-30`
+third pass" and `NEW-61` entries for full detail.
+
+**Status: the `prompts/system_prompt.py` diff (code-reviewer approved,
+now live-verified on its anchor mechanism) remains uncommitted — commit
+decision pending directly with Ish, not part of this pipeline.** This
+closes out the live-verification blocker on the 7B coder system-prompt
+round for its anchor question. Remaining open items from this round,
+unscoped: `NEW-49` (needs more than n=1 to close), `NEW-52` (deferred,
+`orchestrator.py` write_file-hint hardcoding), `NEW-53`/`NEW-54`
+(tool-completeness gaps), `NEW-61` (new, JSON-repair single-quote bug),
+Case 2's control deviation (unresolved). `NEW-55` (the crash) was already
+fixed and committed separately (commit `6859745`).
