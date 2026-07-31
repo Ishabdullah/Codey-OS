@@ -13,3 +13,6 @@
 - [Round 17 (NEW-17) closed](project_round17_new17_closed.md) — scoped git auto-commit fix (f4f51fa) code complete, reviewer ran own adversarial pre-staged-file test, docs closeout c23003d; NEW-7/9/18/19 + NEW-12 deferred items still open
 - [Round 18 (NEW-18/20/21)](project_round18_new18_new20_new21.md) — inconclusive investigation (c266e85), no code changed; NEW-18 corrected (still open), NEW-20 (stdin spin-loop, good next-round fix candidate) and NEW-21 (load-time swap spike) newly Confirmed
 - [Phase 3 closed](project_phase3_closed.md) — commit 0c6c7d7/63ab3df; NEW-22 only resolved in part (gui/start.sh gone, duplication remains); NEW-23 resolved
+- [NEW-30 first live pass bigger than scoped](project_new30_first_live_pass_bigger_than_scoped.md) — SUPERSEDED, see workspace-boundary correction entry below; history only
+- [NEW-56 recursive hypothesis refuted](project_new56_recursive_hypothesis_refuted.md) — step==1/max_depth gates rule out recursive.py as mechanism; NEW-57/58/59 logged; check reachability gates before scoping against a handed-down hypothesis
+- [NEW-30 workspace-boundary correction](project_new30_workspace_boundary_correction.md) — both live passes invalidated, scratch files sat outside WORKSPACE_ROOT; NEW-60 opened; ALWAYS verify fixture paths resolve inside workspace before trusting a live pass

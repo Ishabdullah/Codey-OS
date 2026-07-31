@@ -320,6 +320,23 @@ def _log_phase(label: str, pass_num: int, max_depth: int) -> None:
     info(f"[Recursive] {label} ({pass_num}/{max_depth})")
 
 
+def _extract_tool_name(text: str) -> Optional[str]:
+    """
+    Best-effort extraction of a tool call's "name" field from response text,
+    for attribution-logging purposes only. This is intentionally a lighter
+    regex than core/agent.py's parse_tool_call() — it exists only to answer
+    "what tool (if any) did this turn produce" in the log line, not to
+    actually dispatch a tool call. core/agent.py's own parser remains the
+    sole source of truth for real tool execution.
+    """
+    if not text:
+        return None
+    m = re.search(r"<tool>\s*\{.*?[\"']name[\"']\s*:\s*[\"']([^\"']+)[\"']", text, re.DOTALL)
+    if m:
+        return m.group(1)
+    return None
+
+
 # ── Main API ──────────────────────────────────────────────────────────────────
 
 
@@ -361,7 +378,24 @@ def recursive_infer(
         normal infer() contract.
     """
 
-    def _finish(text, low_confidence=False, quality=None):
+    # Sub-task 1 (attribution logging, WORK_QUEUE.md "7B coder system-prompt
+    # round"): tracks how many critique/refine cycles this call actually ran,
+    # so the final log line can tell a future live-verifier pass whether a
+    # given turn's tool call came from the recursive draft/critique/refine
+    # path (this module) or, for the config-disabled fallback below, from a
+    # plain infer() call made through this same function. Note: this module
+    # has no visibility into core/agent.py's *other* plain-infer() branch
+    # (the `step != 1` case that bypasses recursive_infer() entirely) — that
+    # branch is out of this task's file scope (core/agent.py), so it produces
+    # no log line here at all; its absence is itself the signal.
+    _cycles_run = 0
+
+    def _finish(text, low_confidence=False, quality=None, path="recursive"):
+        tool_name = _extract_tool_name(text)
+        info(
+            f"[Recursive] Turn attribution: path={path} cycles={_cycles_run} "
+            f"tool={tool_name or 'none'}"
+        )
         if return_confidence:
             return text, low_confidence, quality
         return text
@@ -373,7 +407,8 @@ def recursive_infer(
         return _finish(
             infer(
                 messages, stream=stream, extra_stop=extra_stop or ["</tool>"], show_thinking=True
-            )
+            ),
+            path="plain-infer(recursive-disabled)",
         )
 
     cfg = RECURSIVE_CONFIG
@@ -432,16 +467,24 @@ def recursive_infer(
     low_confidence = False
     final_quality = None
     for cycle in range(1, max_depth + 1):
+        _cycles_run = cycle
 
         # ── Phase 3: Critique phase — lean layered prompt ─────────────────────
         # The prior draft is embedded in the system prompt (not the user turn).
         # This keeps the critique call well within the context budget and avoids
         # duplicating context across system + user messages.
-        draft_preview = draft[:2000]
+        #
+        # NEW-59 fix: the full draft is passed through unsliced now — the old
+        # `draft[:2000]` cut here, stacked on top of layered_prompt.py's own
+        # `prior_draft[:1500]` cut, was a double truncation that could split a
+        # <tool>{...}</tool> JSON block mid-string (a real patch_file call's
+        # old_str/new_str can easily exceed 1500-2000 chars). The single
+        # remaining truncation point (layered_prompt.py's
+        # _safe_truncate_draft()) is tool-block-aware and never does this.
         critique_system = build_recursive_prompt(
             user_message=user_message,
             phase="critique",
-            prior_draft=draft_preview,
+            prior_draft=draft,
         )
         critique_msgs = [
             {"role": "system", "content": critique_system},
@@ -513,9 +556,19 @@ def recursive_infer(
         # History is dropped to free ~1000 tokens.  The critique summary in the
         # system prompt replaces history as the "memory" of what went wrong.
         # Targeted retrieved context (NEED_DOCS) is injected here if available.
+        #
+        # NEW-58 fix: pass the current `draft` (the actual proposal critique
+        # just reviewed, including any real <tool>{...}</tool> call) forward
+        # as prior_draft, so refine can see and revise its own prior proposal
+        # instead of regenerating the entire response from scratch with zero
+        # memory of what it originally proposed (e.g. a patch_file call's
+        # exact old_str/new_str). layered_prompt.py applies the same
+        # tool-block-aware truncation used by critique (NEW-59), so this
+        # doesn't reintroduce a mid-JSON-split bug in a new location.
         refine_system = build_recursive_prompt(
             user_message=user_message,
             phase="refine",
+            prior_draft=draft,
             prior_critique=critique,
             retrieved_context=extra_context,
         )

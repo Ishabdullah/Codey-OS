@@ -5,6 +5,188 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-31 — Correction (rule 6): both 7B coder system-prompt live passes this session invalidated by workspace-boundary contamination; new Confirmed finding `NEW-60`, no code/prompt touched
+
+**What happened:** a second live pass ran this session, targeting
+`NEW-49`'s never-reached case 3 and a `NEW-30` follow-up, using the same
+hand-crafted-scratch-file approach as the first pass (logged below). A
+third live-verifier session discovered that every scratch test file
+used in both passes lived under `/data/data/com.termux/files/usr/tmp/
+claude-10247/.../scratchpad/...` — entirely outside
+`core/filesystem.py:79-127`'s `_validate_path()` boundary
+(`WORKSPACE_ROOT`/`CODE_DIR`, both `/data/data/com.termux/files/home/
+Codey-OS` here). Independently re-verified with a direct Python check
+against the live `Filesystem` instance (literal output in
+`NEW_ISSUES.md`'s new `NEW-60` entry). Every `read_file` call in case 1
+of both passes returned `[ERROR] Access denied`, not real content —
+everything measured downstream in case 1 was the model's denied-read
+recovery behavior, not the read-then-edit contradiction `NEW-30`
+targets. **No valid data exists this session on case 1's read-then-edit
+question or `NEW-49`'s planned test.** Case 2 (the control, file
+content pre-injected into the prompt rather than read via `read_file`)
+is not explained by this mechanism at all — no read was attempted there
+— but its own outcomes still don't confirm or refute `NEW-56`'s
+original framing either.
+
+**Corrected status (full detail in `NEW_ISSUES.md`'s new correction
+section, inserted after `NEW-59`):** `NEW-30`'s fix stays code-complete,
+uncommitted, and now genuinely untested (one bounded positive signal
+survives: correct turn-1 `read_file` targeting in 2 of 3 first-pass
+case-1 trials, before denial). `NEW-56` downgraded — behavior real,
+cause reattributed to `NEW-60`, not confirmed as a normal-conditions
+bug. `NEW-55` kept Confirmed as-is with a provenance note added (the
+crash doesn't depend on the denial). `NEW-49` unchanged, still
+Suspected. `NEW-57` unchanged, its held-pending condition restated as
+still fully open (the premise it was waiting on never held this
+session).
+
+**New Confirmed finding:** `NEW-60` — a workspace-access-denied
+`read_file` call sends the 7B agent into an unbounded, unrecoverable
+failure spiral (wrong-path writes, blocked shell, wandering unrelated
+reads, premature "Done."). Confirmed by code read
+(`filesystem.py:79-127` → `agent.py:489/492-521/1748`) plus a direct
+literal reproduction; live failure-shape corroboration documented for 2
+case-1 trials of the first pass specifically (pass 2's trials relayed
+only — see `NEW_ISSUES.md` for exact accounting). Real and
+production-reachable independent of `NEW-30`/`NEW-56` regardless — any
+daemon-queued step naming a path outside the workspace root hits this
+same behavior live.
+
+**Not touched:** no code or prompt file edited this round — documentation
+only (`NEW_ISSUES.md`, `WORK_QUEUE.md`, this entry, agent memory). Note
+for the record: `core/agent.py`, `core/recursive.py`, and
+`prompts/layered_prompt.py` also currently show as modified-uncommitted
+in the working tree (from the earlier `NEW-55`/`NEW-58`/`NEW-59` fix
+work, code-reviewer-approved per prior entries) — observed tree state,
+not something this round changed or investigated further.
+
+**Next action:** decision point for Ish, not automatic — a third live
+pass (scratch files inside `WORKSPACE_ROOT` in a gitignored
+subdirectory, plus a driver precondition check asserting the read
+actually succeeds before running the real trial) is the obvious next
+step, but the first two passes cost ~40 and ~70 minutes of wall-clock
+model time each with zero valid data recovered; see `WORK_QUEUE.md`'s
+updated "7B coder system-prompt round" entry.
+
+## 2026-07-31 — 7B coder system-prompt round: first live pass, result bigger than scoped, `NEW-30` still open, 2 new Confirmed findings (`NEW-55` crash, `NEW-56` data-loss)
+
+**What happened:** live-verifier ran the first live pass on the scoped
+`NEW-30` test (below), 7B-only, port 8080, one clean load/unload cycle,
+PID-tracked. Hand-crafted `core/daemon.py`-style step-enrichment strings
+fed to `TaskExecutor._execute_task`'s real entry point (`run_agent(...,
+no_plan=True, _in_subtask=True, yolo=True)`). 5 of 6 attempted trials
+across 2 cases reached a terminal state before an inference-time budget
+(~260-450s/trial) forced a stop before a planned case 3.
+
+**Result, and why the round isn't done:** `NEW-30`'s original hypothesis
+("Done." immediately after `read_file`, leaving the edit never applied)
+did NOT reproduce. But `patch_file` was also never called in any
+completed trial — including a control case that should have needed no
+read-then-edit ambiguity resolved at all. `NEW-30` is **NOT fixed**; the
+6-site prompt diff stays code-reviewer-approved but held back, unstaged
+and uncommitted. Suspected (not confirmed) root cause: the recursive
+critique/refine layer may be converting/discarding a correct draft
+`patch_file` proposal on this call path, or the composed prompt may not
+even carry the fix due to `layered_prompt.py`'s layer eviction — a
+desk-only follow-up investigation (no model load) is now in progress as
+a sub-item of this round. `NEW-49`'s planned test (case 3) was never
+reached — remains Suspected, undetermined.
+
+**Two new Confirmed findings, logged not fixed:** `NEW-55` —
+`core/agent.py:1676`'s low-confidence retry gate calls a plain,
+unguarded `input()` with no `EOFError` handling, live-reproduced as a
+crash in headless/non-interactive contexts (the real daemon path,
+confirmed not gated by `yolo`/`_in_subtask`/any `TaskExecutor`
+override) — a real production crash risk, higher severity than the
+prompt-quality work this round was chasing; a fix task is being scoped
+separately. `NEW-56` — on an Edit-step task, the 7B coder produced
+`write_file` calls at wrong/fabricated paths instead of `patch_file`,
+with one trial silently dropping the target file's existing content —
+live-reproduced data loss, distinct from `NEW-44` (wrong function, right
+file) and `NEW-46` (1.5B planner leakage). (Whether the recursive
+critique/refine layer caused this is the same unconfirmed hypothesis as
+`NEW-30`'s, not established by this finding alone.)
+
+**Not touched:** `prompts/system_prompt.py`, `core/agent.py`,
+`core/daemon.py`, `core/recursive.py` — no code or prompt file edited or
+committed this round; the held-back `system_prompt.py` diff remains
+exactly as code-reviewer approved it. See `NEW_ISSUES.md`'s corrected
+`NEW-30` entry and new `NEW-55`/`NEW-56` entries, and `WORK_QUEUE.md`'s
+updated "7B coder system-prompt round" item, for full detail.
+
+## 2026-07-31 — 7B coder system-prompt round scoped (`prompts/system_prompt.py`); desk-only, no code/prompt touched, no model loaded
+
+**What happened:** Ish asked for a round targeting the 7B coder's own
+system prompt, analogous to the just-closed 1.5B `PLANNER_PROMPT` round
+above — only the 7B model ever loaded, hand-crafted plans standing in
+for what the 1.5B planner would now emit fed directly to the 7B's real
+entry point, `NEW-30` as the anchor finding, plus a distinct
+tool-completeness accounting. This task was scoping only: read
+`prompts/system_prompt.py`, `prompts/layered_prompt.py`,
+`core/agent.py`'s `run_agent()`, `core/orchestrator.py`'s `run_queue`,
+`core/daemon.py`'s `_handle_command`, and `core/task_executor.py`'s
+`TaskExecutor._execute_task`, then wrote the scoped task into
+`WORK_QUEUE.md`'s Track 2 and logged findings to `NEW_ISSUES.md`. No
+code or prompt text changed; no live test run.
+
+**Mechanism pinned down (not assumed):** production plan steps reach
+the 7B via one of two differently-built prompt strings —
+`core/daemon.py`'s step enrichment (feeds `TaskExecutor._execute_task` →
+`run_agent(..., no_plan=True, _in_subtask=True, yolo=True)`), or
+`core/orchestrator.py`'s `run_queue` (`"Overall goal: ...\n\nCurrent
+step: ..."`, feeds `run_agent` directly, no daemon involved). Decided to
+test via the daemon-enrichment string templates and
+`TaskExecutor._execute_task` entry point — the path the 1.5B planner's
+real output actually feeds into — without starting the daemon or plannd
+processes themselves; hand-craft the enriched strings verbatim instead.
+
+**Anchor finding corrected (rule 6):** `NEW-30`'s original "needs a
+design decision" framing is now stale — a two-call exception for unread
+files already exists in `system_prompt.py` (~lines 216-219), landed
+incidentally via the `NEW-7` fix (commit `0026565`), not as a deliberate
+`NEW-30` fix. The contradiction is relocated, not resolved:
+`:143-146`/`:156` ("Respond with exactly: Done." / "never call extra
+tools after a step succeeds") still conflict with `:218`'s "emit the
+patch on your next turn" after a successful `read_file` on an unread-file
+Edit step. This sharper framing is the live-test round's discriminating
+hypothesis, not yet live-validated.
+
+**Three new findings logged (next-free ID re-verified by grep before
+assignment — highest existing was `NEW-51`):**
+- **`NEW-52`** (Suspected, same class as `NEW-49`) — `orchestrator.py`'s
+  `run_queue` hardcodes a "use write_file... COMPLETE code" hint whenever
+  a filename is found in the goal/step text, regardless of the step's
+  actual verb; deliberately routed around (not fixed) by testing via
+  `task_executor` instead of `run_queue`.
+- **`NEW-53`** (Confirmed by direct text read) — `append_file` and
+  `note_forget` are listed in `system_prompt.py`'s AVAILABLE TOOLS table
+  with no word→tool trigger anywhere in the prompt, unreachable via the
+  documented step-word protocol.
+- **`NEW-54`** (Confirmed by direct code/text read) — peer-CLI delegation
+  is advertised in `CAPABILITIES_PROMPT` but has no tool-dispatch entry
+  in `agent.py`'s `TOOL_MAP`; it's decided entirely by a regex on the raw
+  message before the 7B's tool-calling turn even runs, meaning any
+  "Ask-peer-CLI" test scenario measures that regex, not
+  `system_prompt.py`'s own instructions.
+
+**Scope decisions made explicit:** `NEW-49` pulled fully into scope (test
+via daemon.py's real step-0 enrichment text against an Edit-first plan,
+in the same 7B-only load cycle as the NEW-30 tests, at negligible extra
+cost). `NEW-52` deferred (routed around, not fixed, this round). Starting
+the daemon/plannd processes themselves is explicitly out of scope — only
+the 7B model loads. `NEW-31`/`NEW-32` (critique-prompt wiring,
+layered-prompt layer-name collisions) out of scope — unrelated surface,
+not exercised by a single-step `run_agent()` draft-phase call anyway. A
+tool-completeness sub-task (distinct from prompt-quality testing, desk-only,
+no model load) is scoped separately: confirm the existing Track 1 CCOS
+audit did not cover `agent.py`'s own `TOOL_MAP` (it didn't — different
+layer), and close the delta found here (`NEW-53`/`NEW-54`).
+
+**Status: scoped only, not started.** Next action per `WORK_QUEUE.md`:
+hand to prompt-engineer for the `system_prompt.py` text work, then
+code-reviewer, then live-verifier under the same RAM-discipline (rule 2)
+and single-model-load-cycle (rule 3) constraints as the 1.5B round.
+
 ## 2026-07-31 — `PLANNER_PROMPT` 4-iteration rewrite round closed out; documentation only, no code touched this round
 
 **What happened:** Closing out the same-session `PLANNER_PROMPT` rewrite

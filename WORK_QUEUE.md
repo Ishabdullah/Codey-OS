@@ -20,11 +20,17 @@ checkboxes had (Phase 0's `symbolic_graph` box, Section 5's Open Question
 ## How new issues get logged as we go
 
 Keep using `NEW_ISSUES.md` exactly as it already works — next sequential
-`NEW-##` ID (currently next free: **NEW-49**, after `NEW-27` through
-`NEW-48` were logged across this session's hygiene, Track 1 audit,
-NEW-19, NEW-10, NEW-8, NEW-7, and the 2026-07-31 1.5B-only planner
-live-test rounds), rated Confirmed or Suspected, same format as existing
-entries.
+`NEW-##` ID (currently next free: **NEW-60**, after `NEW-27` through
+`NEW-59` were logged across this session's hygiene, Track 1 audit,
+NEW-19, NEW-10, NEW-8, NEW-7, the 2026-07-31 1.5B-only planner
+live-test round, the 2026-07-31 7B-system-prompt-round desk scoping
+pass, the 2026-07-31 7B-system-prompt-round's first live pass, and the
+2026-07-31 desk investigation into the recursive critique/refine
+hypothesis (refuted, `NEW-57`/`NEW-58`/`NEW-59` logged instead) —
+`NEW-55` (unguarded `input()`/`EOFError` crash, `core/agent.py:1676`)
+and `NEW-56` (7B `write_file` wrong/fabricated-path + content-loss
+behavior on an Edit step)), rated Confirmed or Suspected, same format
+as existing entries.
 **ID-collision note (2026-07-30):** an interrupted session's
 code-reviewer pass logged two NEW-8-adjacent findings under `NEW-24`
 and `NEW-25` — both already taken (by the `load_secondary()` bug and
@@ -393,6 +399,247 @@ gets logged, not silently fixed or dropped, even mid-queue-item.
       This queue item is "get Ish's call on accept-residual-risk vs. a
       third attempt with a new angle," not "attempt fix #3" by default.
 
+- [ ] **7B coder system-prompt round (`prompts/system_prompt.py` +
+      `prompts/layered_prompt.py`) — scoped 2026-07-31; first live pass
+      done 2026-07-31, result bigger than scoped, round NOT done.**
+      **CORRECTION, 2026-07-31 (rule 6): a second live pass also ran this
+      session and BOTH passes are now invalidated by a workspace-boundary
+      contamination bug (scratch test files placed outside
+      `_validate_path()`'s allowed root) — see the "Currently here"
+      section below and `NEW_ISSUES.md`'s new `NEW-30`/`NEW-56`/`NEW-60`
+      correction section for the corrected, current status. The
+      "first live pass" detail retained just below this line is history,
+      not current status.**
+      Analogous to the just-completed 1.5B `PLANNER_PROMPT` round above,
+      but targets the 7B coder's own prompt, with only the 7B model ever
+      loaded. Full scope, mechanism, test matrix, and explicit
+      in-scope/deferred decisions below. Anchor finding: `NEW-30`
+      (corrected framing, see `NEW_ISSUES.md`). Adjacent findings pulled
+      in from this round's desk scoping: `NEW-49`, `NEW-52`, `NEW-53`,
+      `NEW-54`.
+      **First live pass (2026-07-31, 7B-only port 8080, one clean
+      load/unload cycle, PID-tracked):** ran `NEW-30`'s test — hand-crafted
+      `daemon.py`-style step-enrichment strings fed to
+      `TaskExecutor._execute_task`'s real entry point. 5 of 6 attempted
+      trials reached a terminal state before an inference-time budget
+      forced a stop before the planned case 3. Result: `NEW-30`'s original
+      hypothesis ("Done." right after `read_file`) did NOT reproduce, but
+      `patch_file` was also never called in any completed trial —
+      including a control case needing no read-then-edit resolution at
+      all — so the intended fix outcome didn't occur either. **`NEW-30` is
+      NOT fixed; the prompt diff stays code-reviewer-approved but held
+      back, unstaged/uncommitted.** A recursive critique/refine layer
+      (`core/recursive.py`) hypothesis was raised and has since been
+      **investigated and refuted for the observed trials** (see the
+      desk-investigation note directly below) — do not read the phrase
+      "root cause suspected" as still live; the corrected next steps are
+      below. `NEW-49`'s planned test (case 3) was
+      never reached — still Suspected, undetermined, needs its own load
+      cycle. Two new Confirmed findings surfaced and logged, not fixed:
+      `NEW-55` (unguarded `input()`/`EOFError` crash at
+      `core/agent.py:1676`, a real production daemon-path crash risk,
+      being scoped as its own fix task separately) and `NEW-56` (7B
+      `write_file` calls at wrong/fabricated paths on an Edit step, with
+      one trial silently dropping the target file's existing content —
+      distinct from `NEW-44`/`NEW-46`). See `NEW_ISSUES.md`'s corrected
+      `NEW-30` entry and new `NEW-55`/`NEW-56` entries for full detail.
+      **Desk investigation into the recursive critique/refine hypothesis
+      (2026-07-31, project-architect, no code changed): hypothesis
+      REFUTED for the observed trials, not confirmed.** Two gates rule
+      it out: (1) `agent.py:1489`'s `_use_recursive = step == 1 and
+      not is_qa` only fires on the agent loop's first turn — NEW-56's bad
+      `write_file` calls were the loop's 5th turn (trial 1) and 2nd turn
+      (trial 2), both plain `infer()` with full history, not recursion;
+      (2) even on turn 1, `recursive.py`'s refine phase is unreachable
+      for a standard single-file Edit message — `classify_breadth_need()`
+      returns `"standard"` (not `"deep"`) absent long/complex messages,
+      giving `max_depth=1`, and the `cycle >= max_depth` break
+      (`recursive.py:485-498`) fires before refine's code
+      (`:512-532`) ever runs. `recursive.py:388`'s
+      `get_adaptive_depth(max_depth)` can additionally force `max_depth`
+      to 0 under thermal-critical/battery-critical device state
+      (`:171-220`), which would make even critique's own loop
+      (`range(1, max_depth+1)`) empty — sharpening how reachability-gated
+      this whole layer is. **`NEW-30`/`NEW-56`'s true mechanism is still
+      unestablished.** Two real-but-latent bugs were found and logged
+      anyway (`NEW-58` refine-blindness, `NEW-59` critique
+      double-truncation) — worth fixing as hardening, NOT claimed to fix
+      NEW-56. A third candidate, `NEW-57` (a context-surfacing gap in
+      `agent.py`'s `read_file` handling), was initially framed as a
+      `write_file`/`read_file` asymmetry and had to be corrected on a
+      second pass — `core/memory_v2.py`'s store (used by `write_file`)
+      and `core.context`'s store (used by the layered prompt's "files"
+      block) turned out to be separate systems, and neither branch
+      populates the latter in `agent.py`'s normal tool loop. `NEW-57` is
+      now Suspected, not Confirmed — see the corrected entry.
+      **Scoped next sub-tasks (implementer, in this order — reordered
+      2026-07-31 after the recursive-hypothesis refutation left no
+      established mechanism for NEW-56):**
+        1. **Attribution logging (do this first, before any of the fixes
+           below).** Log, per agent-loop turn, whether that turn's
+           response came from recursion (draft/critique/refine) or plain
+           `infer()`, and which tool name (not content) it produced.
+           `_log_phase` already exists as a pattern to extend. With the
+           anchor hypothesis refuted and no confirmed mechanism for
+           NEW-56, this is the only item with a known payoff right now —
+           spending a live-verifier cycle (260-450s/trial, this device)
+           testing 2-3 speculative fixes blind would reproduce exactly
+           the ambiguity that made the first live pass uninterpretable.
+        2. `NEW-59` fix — remove `recursive.py:440`'s dead outer
+           `draft[:2000]` truncation and raise/replace
+           `layered_prompt.py:378`'s binding `prior_draft[:1500]` cut so
+           a `<tool>{...}</tool>` JSON block isn't split mid-string
+           (exempt the tool-call span from truncation, or truncate only
+           surrounding prose). Cheap, contained, real even though latent.
+        3. `NEW-58` fix — thread a `prior_draft` parameter through
+           `_build_refine_prompt`/`build_recursive_prompt`'s refine
+           dispatch (mirroring critique's existing `prior_draft` path),
+           so refine can see and revise its own actual proposal instead
+           of blind regeneration if/when refine is ever reached.
+           Docstrings on `_build_refine_prompt` (`:390-409`),
+           `_build_critique_prompt` (`:353-365`), and
+           `build_recursive_prompt` (`:460-461`) must be updated to
+           match once any of these land — they currently state priority
+           maps and char caps that a fix would change.
+        4. `NEW-57` — **held, not yet a fix task.** Needs the two-store
+           question (`core.memory_v2` vs. `core.context`) reconciled
+           first, and ideally one attribution-logged live pass (item 1)
+           showing whether a read file's content is actually still
+           attended to/reflected correctly at the turn a bad `write_file`
+           occurs, before committing implementer time here. If a fix is
+           later scoped, it must account for `core.context.load_file()`'s
+           recurring prompt-budget cost (persistent re-injection at
+           priority 4 into every later prompt, `layered_prompt.py:338`/
+           `:432`), not just wire the call in.
+      **Live-verifier pass after 1-3 land should re-run NEW-56's exact
+      two cases** (genuinely-unread-file Edit step; control with file
+      content already in prompt context) **plus read the new attribution
+      log as the primary read-out**, not just the final tool call.
+      Success criterion is unchanged from the last pass: `patch_file`
+      actually gets called end-to-end on both cases — a pass that
+      doesn't reach it is a failed fix, not inconclusive, per the
+      already-established 4/4 no-`patch_file` baseline.
+
+  **Mechanical definition of "act as the planner" (traced from code, not
+  assumed):** production plan steps reach the 7B coder by exactly one of
+  two paths, and they build the step prompt differently —
+    1. `core/daemon.py`'s `_handle_command` (~lines 156-194) enriches each
+       plannd step into a string (step 0: `"User's full request: {prompt}
+       \n\nYour task (step 1/N): {step}\n\nWrite the COMPLETE file with ALL
+       features described above. Do not skip any requirement."`; step
+       i>0: `"Previous context: {prompt[:200]}\n\nYour task (step {i+1}/
+       {total}): {step}\n\nComplete only this step."`), queues it as a
+       task, and the daemon's task loop hands that exact string to
+       `core/task_executor.py`'s `TaskExecutor._execute_task(prompt)`,
+       which calls `run_agent(prompt, history=[], yolo=True,
+       no_plan=True, _in_subtask=True)` after temporarily overriding
+       `AGENT_CONFIG` (`_shell_fn`, `confirm_shell`, `confirm_write`) for
+       the daemon shell allowlist.
+    2. `core/orchestrator.py`'s `run_queue` (~lines 550-602) builds a
+       different string (`"Overall goal: {original}\n\n{context_prefix}
+       {file_context}{guidance}Current step: {task.description}"`, plus
+       the `NEW-52` write_file-hint injection) and calls
+       `run_agent(prompt, history=[], yolo=yolo, _in_subtask=True)`
+       directly (no daemon involved) — this is `is_complex()`'s in-process
+       planning path, not the plannd/daemon path.
+  **Decision:** test via path 1's exact string templates and entry point
+  (`TaskExecutor._execute_task`, or equivalently `run_agent` called with
+  the same `no_plan=True, _in_subtask=True, yolo=True` flags and the same
+  daemon `AGENT_CONFIG` overrides) — this is the path the just-fixed 1.5B
+  `PLANNER_PROMPT` round's output actually feeds into for real plan
+  execution, and it's the path both `NEW-30` and `NEW-49` concern. Do
+  **not** start `core/daemon.py` or `plannd`'s HTTP server as processes —
+  hand-craft the enriched strings ourselves, verbatim in daemon.py's
+  format, standing in for what the 1.5B planner would now emit (per
+  Ish's request), and call `TaskExecutor()._execute_task(prompt)` (or the
+  equivalent direct `run_agent()` call) with only the 7B model loaded on
+  its usual port. This isolates the 7B `system_prompt.py` measurement
+  from both 1.5B planner noise and the `orchestrator.py` path's separate
+  `NEW-52` contamination.
+
+  **In scope:**
+  - `NEW-30` (anchor): construct an Edit-step test where the target file
+    has genuinely never been read this session (no prior step created or
+    read it) — per daemon.py's own template this is a step i>0 case
+    (`"Previous context: ...\n\nYour task: Edit <file> to <change>\n\n
+    Complete only this step."`) or a single-step Edit plan. Discriminating
+    test per this round's scoping: after the model's first-turn
+    `read_file` succeeds, does it correctly emit `patch_file` on the
+    *next* turn (per `system_prompt.py:216-219`), or does it say "Done."
+    and stop (per `:143-146`/`:156`), leaving the edit never applied?
+    Also run a **control** case — Edit on a file already shown in context
+    from an earlier step (`run_queue`-style `file_context`, or daemon's
+    same-session file already read) — where one `patch_file` call should
+    suffice and NEW-30's contradiction should not fire. Both cases needed
+    to isolate the bug from ordinary Edit-step behavior.
+  - `NEW-49`: within the same model-load cycle, run one Edit-first
+    2-step plan through daemon.py's real step-0 enrichment text
+    (verbatim, "Write the COMPLETE file... Do not skip any requirement"
+    applied to an Edit step) to see whether the 7B actually rewrites the
+    whole file instead of editing it — converts NEW-49 from Suspected to
+    Confirmed/Refuted using the real 7B, at negligible extra cost since
+    the model is already loaded for the NEW-30 tests.
+  - Full step-shape matrix, mirroring the shapes already live-validated
+    on the 1.5B planner side: multi-step Create→Edit→Run, edit-only
+    single-step, repeat-Run (e.g. run tests twice), and one
+    Ask-peer-CLI-shaped step (see deferred note below on how to interpret
+    that result).
+  - Tool-completeness delta pass (see separate sub-task below) —
+    desk-only, do first, no model load required.
+  - Correct `NEW-30`'s status wording in `NEW_ISSUES.md` once a fix
+    direction is chosen and live-tested (rule 7: code-complete vs.
+    live-verified are different).
+
+  **Deferred / explicitly out of scope for this round:**
+  - `NEW-52` (`orchestrator.py`'s own write_file-hint hardcoding) — not
+    fixed here; only used as a reason to prefer the `task_executor`
+    path over `run_queue` for the hand-crafted tests, so it doesn't
+    contaminate NEW-30/NEW-49 results. Left open for its own future round.
+  - Actually starting `core/daemon.py` or `plannd`'s server process — the
+    whole point of this round is 7B-only; daemon.py's *code* (its
+    enrichment string templates) is used as a template to hand-craft
+    prompts, but the daemon process itself is never started.
+  - `NEW-54` (peer-CLI delegation has no tool-call surface, decided by
+    regex on raw text before the system prompt applies): the
+    Ask-peer-CLI test scenario should be run and reported, but its
+    result tests `agent.py`'s `_detect_peer_delegation` regex matching
+    against the enriched step string, **not** `system_prompt.py`'s own
+    tool-calling instructions — report it as such, don't conflate it with
+    a system_prompt.py finding.
+  - `NEW-31`/`NEW-32` (critique-prompt template wiring, layered-prompt
+    layer-name collisions) — out of scope, unrelated prompt-quality
+    surface; not touched by hand-crafted single-step plan execution
+    anyway (draft phase only, no critique/refine phase exercised by a
+    single `run_agent` call per step).
+
+  **Tool-completeness sub-task (separate from prompt-quality testing, per
+  Ish's explicit ask) — desk-only, run first, no model load:**
+  - Confirm whether the existing Track 1 CCOS plugin/capability audit
+    (2026-07-30, `NEW-34`-`NEW-37` etc.) covered the tool set exposed to
+    `core/agent.py`'s own tool-calling loop (the `TOOL_MAP` at
+    `agent.py:49-70`: `read_file`/`write_file`/`patch_file`/
+    `append_file`/`list_dir`/`shell`/`search_files`/`note_save`/
+    `note_forget`) as opposed to the broader CCOS plugin surface — it did
+    not; that audit's scope was `ccos/plugins/*/manifest.json` vs.
+    implementation, a different layer. This round's delta, already found
+    during scoping and logged (not yet fixed): `NEW-53` (`append_file`/
+    `note_forget` unreachable — no word→tool trigger for either) and
+    `NEW-54` (peer-CLI delegation not a real tool at all). Confirm no
+    further gaps once the live test matrix above surfaces any (e.g. a
+    tool the 7B tries to call that isn't in `TOOL_MAP` at all).
+
+  **Pipeline:** prompt-engineer scopes/edits `system_prompt.py` text (this
+  is prompt work, same as last round) → code-reviewer approves →
+  live-verifier confirms with the 7B-only, single-model-load-cycle
+  discipline (rule 2/3: `free -h` before, track the spawned PID, confirm
+  unloaded after, one load cycle at a time, batch all test messages into
+  one session). If a fix direction requires touching `daemon.py` or
+  `agent.py` code (not just prompt text) — e.g. if the NEW-30 fix chosen
+  is "orchestrator/daemon pre-injects file content" rather than a prompt
+  wording change — hand that specific piece to implementer first, mirroring
+  last round's `_TOOL_VERBS` implementer fix, then back through
+  code-reviewer/live-verifier.
+
 ## Track 3 — Foundational architecture (the big one; strictly sequential, each step depends on the last)
 
 This is `PROJECT_PLAN.md` Phase 5 (5a–5f) plus the two related
@@ -530,3 +777,81 @@ example-content leakage, not just violation-labeled examples) and `NEW-51`
 (Rule 9 peer-CLI delegation fails on a fresh untested phrasing, causal
 link to this session not established). See the updated Track 2 entry
 above.
+
+**7B coder system-prompt round — scoped 2026-07-31, TWO live passes run
+2026-07-31, BOTH INVALIDATED by a workspace-boundary contamination bug,
+round NOT done.** Anchors on the corrected `NEW-30` framing (see
+`NEW_ISSUES.md`) plus `NEW-49`; a desk-only tool-completeness delta pass
+found two gaps this same scoping session, `NEW-53` and `NEW-54`; a third
+finding, `NEW-52`, is `orchestrator.py`'s own version of the `NEW-49`
+hardcoding bug, deliberately routed around (not fixed) by testing via
+the `task_executor` path instead.
+
+**First live pass** (7B-only, port 8080, one clean load/unload cycle,
+PID-tracked) ran `NEW-30`'s test via hand-crafted `daemon.py`-style
+step-enrichment strings fed to `TaskExecutor._execute_task`. **Second
+live pass** (this session, trial detail relayed from that
+live-verifier's own report, not independently re-derived here) targeted
+`NEW-49`'s never-reached case 3 plus a `NEW-30` follow-up, using the
+same hand-crafted-scratch-file approach.
+
+**Correction, 2026-07-31 (rule 6, project-architect, no code/prompt
+touched):** a third live-verifier session discovered that every scratch
+test file used in BOTH passes lived under
+`/data/data/com.termux/files/usr/tmp/claude-10247/.../scratchpad/...` —
+entirely outside `core/filesystem.py:79-127`'s `_validate_path()`
+boundary (`WORKSPACE_ROOT`/`CODE_DIR`, both
+`/data/data/com.termux/files/home/Codey-OS` on this device).
+Independently re-verified via a direct Python check against the live
+`Filesystem` instance — see `NEW_ISSUES.md`'s new `NEW-60` entry for the
+literal output. **Every `read_file` call in case 1 of both passes
+returned `[ERROR] Access denied`, not real file content — everything
+downstream in case 1 (wrong-path `write_file` guesses, dropped/
+fabricated content, blocked-`shell` attempts, premature "Done."
+responses) measured the model's denied-read recovery behavior, not the
+read-then-edit contradiction `NEW-30` targets.** No valid data exists
+this session on case 1's read-then-edit question or `NEW-49`'s planned
+test (same case-1-shaped fixture). Case 2 (the control, file content
+pre-injected into the prompt rather than read via `read_file`) is not
+explained by this mechanism — no read was attempted there to deny — but
+its own outcomes still don't confirm or refute `NEW-56`'s original
+framing either, per `NEW_ISSUES.md`'s corrected entry. Full corrected
+status
+of each affected finding is in `NEW_ISSUES.md`'s new correction section
+(inserted directly after `NEW-59`, before the Track 1 tool-audit
+section): `NEW-30` stays NOT fixed and now genuinely untested (one
+narrow, bounded positive signal survives — correct turn-1 `read_file`
+targeting in 2 of 3 first-pass case-1 trials, before denial); `NEW-56`
+downgraded (behavior real, cause reattributed to `NEW-60`, not
+confirmed as a normal-conditions patch-vs-write bug); `NEW-55` kept
+Confirmed with a provenance note added (the crash itself doesn't depend
+on the denial); `NEW-49` unchanged, still Suspected; `NEW-57` unchanged,
+its held-pending condition restated as still fully open. One new
+Confirmed finding, `NEW-60`: a workspace-access-denied `read_file` call
+sends the 7B agent into an unbounded, unrecoverable failure spiral
+(wrong-path writes, blocked shell, wandering unrelated reads, premature
+"Done."). Confirmed by code read (`filesystem.py:79-127` →
+`agent.py:489/492-521/1748`) plus a direct literal reproduction; live
+failure-shape corroboration is narrower than the full trial count —
+documented specifically for the 2 case-1 trials of the first pass where
+a denied read is on record, with pass 2's trials relayed only (see
+`NEW_ISSUES.md`'s `NEW-60` entry for the exact accounting). Real and
+production-reachable independent of `NEW-30`/`NEW-56` regardless, and
+the actual cause of both contaminated passes.
+
+**Next action — decision point for Ish, not to be executed
+automatically:** the first two passes cost roughly 40 and 70 minutes of
+wall-clock model time each with zero valid data recovered on the
+anchor questions. A third pass is the obvious next step, but should not
+be started without Ish's sign-off given that cost. If greenlit, the
+concrete fix for next time is: (1) place scratch test files in a
+gitignored in-repo subdirectory (inside `WORKSPACE_ROOT`, not
+`/usr/tmp`), and (2) add a driver precondition check — assert the
+`read_file` call actually succeeds (no `[ERROR]` prefix) before running
+the real trial — so a workspace-boundary miss fails loudly and
+immediately instead of silently contaminating the whole pass. The
+desk-only recursive-critique/refine investigation referenced in the
+prior version of this entry is already done and its refutation still
+stands (see `NEW_ISSUES.md`'s `NEW-56` correction chain) — it is not
+part of this next action. A separate fix task for `NEW-55` (the crash)
+is still being scoped independently, not part of this round.

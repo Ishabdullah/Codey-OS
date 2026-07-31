@@ -1673,9 +1673,14 @@ def run_agent(
                 from utils.logger import confirm as ask_confirm
 
                 if not ask_confirm("Proceed with this tool call anyway?"):
-                    guidance = input(
-                        "Type guidance to correct it (or press Enter to just retry): "
-                    ).strip()
+                    try:
+                        guidance = input(
+                            "Type guidance to correct it (or press Enter to just retry): "
+                        ).strip()
+                    except EOFError:
+                        # stdin closed (e.g. headless/non-interactive daemon context)
+                        # — same fallback as an empty Enter press: no guidance given.
+                        guidance = ""
                     messages.append(
                         {"role": "assistant", "content": _format_tool_for_history(tool_dict)}
                     )

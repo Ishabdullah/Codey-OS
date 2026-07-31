@@ -295,6 +295,102 @@
   or having the orchestrator pre-inject the target file's content into Edit
   step context so a single `patch_file` call suffices. Needs live-verifier
   confirmation once a fix is chosen.
+- **Correction (rule 6), 2026-07-31 desk review for the 7B system-prompt
+  scoping round:** the "needs a design decision" framing above is now
+  partially stale — a documented two-call exception for unread files
+  already exists in the current `system_prompt.py` text (the "PATCH_FILE —
+  old_str MUST BE REAL FILE CONTENT" section, ~lines 216-219: "Never seen
+  this file's real content yet ... Your ONE tool call this turn is
+  `read_file` ... Emit the patch on your NEXT turn"). That text appears to
+  have landed incidentally via the `NEW-7` old_str-grounding fix (commit
+  `0026565`), not as a deliberate NEW-30 fix. **The contradiction is not
+  resolved, only relocated**: `:143-146` ("AFTER THE TOOL RUNS: IF the tool
+  succeeded with no error → Respond with exactly: Done.") and `:156`
+  ("Never call extra tools to inspect, verify, or re-run after a step
+  succeeds") both still instruct the model to end the step after a
+  successful `read_file`, directly conflicting with ":218"'s "emit the
+  patch on your NEXT turn" — i.e. the model has two contradictory
+  instructions for what to do immediately after a successful `read_file`
+  on an unread-file Edit step. This sharper framing (not the original
+  "make a design decision" framing) is the anchor hypothesis for the
+  live-test round scoped below; still Confirmed by static read, not yet
+  live-model-validated.
+- **Correction (rule 6), 2026-07-31, first live pass (7B-only, port 8080,
+  one clean load/unload cycle, PID-tracked — RAM/PID compliance relayed
+  from live-verifier's report, not independently witnessed here):** the
+  static contradiction identified above is still real by direct text
+  read (`:143-146`/`:156` vs. `:216-219` remain unchanged, uncommitted).
+  What the live pass actually tested — whether the model says "Done."
+  immediately after a successful `read_file` on an unread-file Edit step
+  — did **not** reproduce in any completed trial. **Exact accounting:**
+  6 trials attempted total. Case 1 (genuinely-unread-file Edit step): 3
+  trials, all reached a terminal state — trial 3's terminal state was a
+  crash (see new `NEW-55` below), not a model-chosen ending. Case 2
+  (control — file content already in prompt context, no read-then-edit
+  ambiguity should have existed at all): 3 trials attempted, only 2
+  reached a terminal state (trial 3 was cut off by the test harness's own
+  timeout, not a model-chosen ending). **Of the 4 trials that ran to a
+  model-chosen ending (2 from case 1, 2 from case 2), `patch_file` was
+  never called in any of them**; it also did not appear in case 1's
+  crashed trial before it crashed. Specifically: one trial called
+  `write_file` at a wrong path with the file's existing functions dropped
+  from the written content (see new `NEW-56` below), one called
+  `write_file` at a completely fabricated path, one gave up with "Done."
+  after a blocked `shell` call, and one produced zero tool calls at all.
+  **This means the fix's hypothesis is not supported as stated — the
+  predicted symptom didn't occur, but neither did the intended fixed
+  behavior (read_file → patch_file), including in the control case that
+  needed no fix at all.** The live-verifier's own hypothesis (not yet
+  confirmed, separate desk investigation in progress, not established by
+  this pass) is that these trials ran through `core/recursive.py`'s
+  critique/refine layer, meaning the observed tool sequences would be
+  post-critique output rather than the model's raw draft; the
+  critique/refine layer may be converting or discarding a
+  correct draft `patch_file` proposal, or `layered_prompt.py`'s
+  priority-based layer eviction may be dropping the identity layer
+  carrying this round's fix from the composed prompt on this path
+  entirely. **Status: NOT fixed. The prompt diff remains
+  code-reviewer-approved but held back, unstaged and uncommitted,
+  pending the separate desk investigation into recursive-critique/
+  prompt-composition behavior — do not read this correction as either
+  confirming or refuting the fix.**
+- **Correction (rule 6), 2026-07-31, desk investigation into the
+  recursive critique/refine hypothesis (project-architect, no code
+  changed):** the "recursive critique/refine layer discarded the draft's
+  `patch_file` proposal" hypothesis from the correction above does
+  **not** survive verification and should not be treated as NEW-56's
+  mechanism. Two independent gates rule it out for the trials actually
+  observed:
+  1. `core/agent.py:1489`'s `_use_recursive = step == 1 and not is_qa
+     ...` — `step` is the agent's own tool-execution turn counter
+     (incremented once per `while step < max_steps` iteration,
+     `agent.py:1477-1478`), not the plan-step number. Recursion (draft +
+     critique + optional refine) only ever runs on the **first turn** of
+     a `run_agent` call. NEW-56's trial 1 sequence was `read_file` →
+     `shell` → `shell` → `note_save` → `write_file` — the bad
+     `write_file` was the agent loop's **5th** turn; trial 2's bad
+     `write_file` was its **2nd**. Neither ran through recursion at all —
+     both went through plain `infer()` with full conversation history,
+     per the `else` branch at `agent.py:1528-1535`.
+  2. Even on turn 1, `core/recursive.py`'s refine phase (`:512-532`) is
+     unreachable for a normal single-file Edit task. `classify_breadth_need()`
+     (`recursive.py:138-165`) returns `"standard"` (not `"deep"`) unless
+     the message is >50 words or hits ≥3 deep-complexity signals, and
+     `agent.py:1509` sets `max_depth = 1` for anything other than
+     `"deep"`. With `max_depth=1`, `recursive_infer`'s loop
+     (`recursive.py:434`, `range(1, max_depth+1)`) runs exactly one
+     critique pass; the `if cycle >= max_depth:` branch (`:485-498`,
+     which sits **above** the refine block at `:516`) always fires first
+     and breaks before refine ever executes. Refine only becomes
+     reachable at all when the user message classifies as `"deep"`.
+  **Net effect: the anchor hypothesis handed into this round's desk
+  investigation is refuted for the specific trials that produced
+  NEW-56.** The refine-blindness bug described in the prior correction
+  is still real by code read (see new `NEW-58` below) but is latent —
+  not the cause of what was actually observed live. See new `NEW-57` for
+  the more promising candidate mechanism (an `agent.py` gap, not a
+  `recursive.py` one), and `WORK_QUEUE.md`'s "7B coder system-prompt
+  round" entry for the corrected next steps.
 
 ### [NEW-31] `CRITIQUE_TOOL` and `CRITIQUE_PLAN` templates in `prompts/critique_prompts.py` are defined but never invoked — `select_critique_prompt()` has no callers
 - **Status: Confirmed, not fixed (wiring it up is a behavior change beyond
@@ -474,6 +570,13 @@ to prompt-engineer.
   longer receives full-rewrite instructions for an edit task before this
   is marked resolved.
 - **Not fixed here.**
+- **Update, 2026-07-31, first live pass of the 7B system-prompt round:**
+  the planned live test (daemon step-0 Create-style enrichment applied to
+  an actual Edit-verb step, "case 3" of the test matrix) was never
+  reached — the pass ran out of its inference-time budget (7B is slow on
+  this device, ~260-450s/trial) partway through case 2. **Still
+  Suspected, neither confirmed nor refuted this round; needs its own
+  dedicated model-load cycle.**
 
 ## Found during the 2026-07-31 `PLANNER_PROMPT` 4-iteration rewrite + live-verify round (prompt text changed, uncommitted)
 
@@ -573,6 +676,470 @@ uncommitted working-tree prompt text, not against `HEAD`.
   in a future round, not established here — no shared verbatim-content
   trace was found linking the two.
 - **Not fixed here.**
+
+## Found during desk-only scoping of the 7B system-prompt test round, 2026-07-31 — read-only, no code/prompt touched, no model loaded
+
+This section came from grounding a request to scope a 7B-only,
+hand-planned-input test round (analogous to the just-completed 1.5B
+`PLANNER_PROMPT` round). All three entries below were found by reading
+`core/orchestrator.py`, `core/daemon.py`, `core/task_executor.py`,
+`core/agent.py`, and `prompts/system_prompt.py` together — none are
+live-reproduced, all rated per rule 8 on static-analysis confidence only,
+consistent with how `NEW-49` (same class of finding, different file) was
+rated.
+
+### [NEW-52] `core/orchestrator.py`'s `run_queue` appends a hardcoded "use write_file... COMPLETE code" tool hint whenever a filename is found in the goal/step text, regardless of the step's actual verb (Suspected)
+- **Location:** `core/orchestrator.py:583-591`. When `_FILE_RE` finds a
+  filename in `original` (the overall goal) or, failing that, in
+  `task.description`, the code unconditionally appends: `"\n\nUse
+  write_file to create {fname} with the COMPLETE code. Output ONLY:
+  <tool>...write_file...`" — with no check of whether `task.description`
+  is actually a Create step or an Edit/Patch step.
+- **Why this matters:** this is the same shape as the already-logged
+  `NEW-49` (`core/daemon.py`'s step-1 enrichment hardcoding Create/
+  full-rewrite semantics by position), but on a different code path
+  (`orchestrator.run_queue`, used by `is_complex()`'s in-process planning,
+  not `daemon.py`'s plannd-fed task queue). An Edit step whose goal/step
+  text happens to name the target file gets told to `write_file` the
+  "COMPLETE code" — a full-rewrite directive — even though the step is a
+  targeted edit. Not live-reproduced; rated Suspected on the same basis
+  `NEW-49` was.
+- **Not fixed here.** Flagged so the 7B system-prompt test round scoped
+  below can either avoid this contamination in its Edit-step test prompts
+  (drive the model via `task_executor`'s path instead, which does not
+  have this injection) or deliberately include one variant that exercises
+  it, to convert this from Suspected to Confirmed/Refuted alongside
+  `NEW-49`.
+
+### [NEW-53] `append_file` and `note_forget` are listed in `system_prompt.py`'s AVAILABLE TOOLS table but have no corresponding word→tool trigger anywhere in the prompt text, making them unreachable via the documented step-word protocol (Confirmed)
+- **Location:** `prompts/system_prompt.py:171-181` (AVAILABLE TOOLS table,
+  lists `append_file` and `note_forget` as valid tools with required args)
+  vs. both word→tool mapping blocks (`:29-37` and `:159-163`), neither of
+  which maps any step word to `append_file` or to `note_forget`. `:37`
+  maps "Save:"/"Remember" to `note_save` only — there is no corresponding
+  word for "forget"/"remove note."
+- **Confirmed by direct text read** (no live test needed to establish the
+  gap exists — it is an objective absence in the prompt text itself). Not
+  yet confirmed whether this causes real failures in practice (e.g.
+  whether the 7B ever needs to call these tools and cannot find a
+  documented trigger word) — that would need a live scenario, which is a
+  candidate test case for the round scoped below.
+- **Not fixed here.**
+
+### [NEW-54] Peer-CLI delegation is advertised in `CAPABILITIES_PROMPT` as an agent capability, but is not an available tool in `system_prompt.py`'s AVAILABLE TOOLS list nor in `core/agent.py`'s tool-dispatch table (`TOOL_MAP`, `agent.py:49-70`) — it is decided entirely upstream via regex on the raw message, before the 7B ever sees a tool-calling turn (Confirmed)
+- **Location:** `prompts/system_prompt.py:257-260`
+  (`CAPABILITIES_PROMPT`: "...delegate to peer CLIs (Claude, Gemini, Qwen)
+  for second opinions") vs. `core/agent.py:49-70` (the tool dispatch
+  table — no `peer_cli`/`delegate` entry) vs. `core/agent.py:739`
+  (`_detect_peer_delegation(user_message)`, a regex-based detector run
+  against the raw `user_message` at `agent.py:991-993`, before
+  `system_prompt.py`'s tool-calling protocol is even invoked for that
+  turn).
+- **Why this matters for the round scoped below:** the 7B coder itself
+  never chooses to delegate via a tool call — delegation is fully decided
+  before the model runs, by pattern-matching the incoming text. This means
+  an "Ask-peer-CLI" plan step's behavior is NOT a test of
+  `system_prompt.py`'s tool-calling instructions at all; it is a test of
+  whether the *enriched step string* (built by whichever caller feeds the
+  step to `run_agent`) happens to match `_detect_peer_delegation`'s regex.
+  Any peer-CLI-delegation test scenario in the round below needs to be
+  understood and reported as testing that regex/step-string interaction,
+  not as testing `system_prompt.py`'s own instructions — a real
+  tool-completeness gap relative to the "does the 7B coder have all the
+  tools it needs" question Ish asked, since delegation isn't something
+  the model can invoke on its own via the documented tool-call protocol.
+- **Confirmed by direct text/code read** (dispatch table and prompt table
+  both directly inspectable; the absence is objective). **Not fixed
+  here.**
+
+## Found during the 2026-07-31 7B coder system-prompt round's first live pass (NEW-30 test, 7B-only, port 8080, one clean load/unload cycle, PID-tracked; RAM/PID compliance relayed from live-verifier's report, not independently witnessed here) — no code or prompt text touched, `system_prompt.py`'s diff stays uncommitted
+
+Test setup: hand-crafted `core/daemon.py`-style step-enrichment strings
+(mimicking the 1.5B planner's real output format, without starting the
+daemon or plannd processes) fed to `core/agent.run_agent(prompt,
+history=[], yolo=True, no_plan=True, _in_subtask=True)` — the same flags
+`TaskExecutor._execute_task` uses. 2 cases, 6 trials attempted, 5 reached
+a terminal state (3 in case 1, genuinely-unread-file; 2 of 3 in case 2,
+the control with content already in context) before an inference-time
+budget (7B is slow on this device, ~260-450s/trial) forced a stop before
+a planned case 3. See the corrected `NEW-30` entry above for the
+full result this pass produced against its original hypothesis.
+
+### [NEW-55] `core/agent.py:1676`'s low-confidence retry gate calls a plain, unguarded `input()` with no `EOFError` handling, crashing the whole task in headless/non-interactive contexts (Confirmed, live-reproduced)
+- **Location:** `core/agent.py`, inside the low-confidence gate (`if
+  _low_confidence:` block, ~lines 1672-1689). The line immediately after
+  `ask_confirm(...)` — which does safely handle `EOFError`, returning
+  `False` — is a plain `input("Type guidance to correct it...")` call
+  with no `try/except EOFError` around it at all.
+- **Confidence: Confirmed, live-reproduced, not a static hypothesis.**
+  Reproduced live in trial 3 of case 1 (the genuinely-unread-file Edit
+  case) of this round's first live pass: the task crashed with an
+  unhandled `EOFError` at this exact line.
+- **Why it matters:** the real daemon (`core/task_executor.py`'s
+  `TaskExecutor._execute_task`, the actual production entry point for
+  plan-step execution) runs headless, with no TTY — any `input()` call
+  reads from a closed/empty stdin and raises `EOFError` immediately.
+  Confirmed by direct code read that this gate is **not** conditioned on
+  `yolo`, `_in_subtask`, or any of `TaskExecutor`'s daemon overrides
+  (`confirm_write`/`confirm_shell`/`_shell_fn` don't touch this code
+  path) — so any daemon task that triggers a low-confidence
+  recursive-critique result hits this same crash, unconditionally.
+- **Severity note:** likely higher severity than the prompt-quality work
+  this round was scoped to chase (`NEW-30`) — this is a real, unguarded
+  crash risk on the production daemon path, not a prompt-wording issue.
+  A code-reviewer/implementer fix task is being scoped separately; this
+  entry logs the finding only, not a fix.
+- **Cross-reference:** found during the `NEW-30` live-test round (see
+  `WORK_QUEUE.md`'s "7B coder system-prompt round" entry); not itself a
+  `NEW-30` finding, an adjacent crash bug surfaced by the same test
+  session.
+
+### [NEW-56] On an Edit-step task, the 7B coder produced `write_file` calls at wrong/hallucinated/truncated paths instead of `patch_file`, and in one case silently dropped the target file's existing content (Confirmed, live-reproduced)
+- **Location:** observed in case 1 (genuinely-unread-file Edit step) of
+  this round's first live pass (see the corrected `NEW-30` entry above
+  for the full test setup). **Mechanism not established here** — the
+  live-verifier's hypothesis (not confirmed) is that these trials ran
+  through `core/agent.run_agent`'s recursive critique/refine layer,
+  meaning the observed sequences would be post-critique output rather
+  than the model's raw draft; that attribution is a separate, ongoing
+  desk investigation and should not be read as settled by this entry.
+- **Trial 1:** `read_file` → `shell` → `shell` → `note_save` →
+  `write_file` to a **wrong path** (`target1.py`, dropping the real
+  scratchpad path prefix from the intended target). The written content
+  contained only the new function requested — the file's **existing**
+  functions (`add`/`subtract`) were silently dropped from the write,
+  i.e. real, live-reproduced data loss, not just a wrong destination.
+- **Trial 2:** `read_file` → `write_file` to a **completely fabricated,
+  unrelated path** (`ccos/core/math_utility.py`), never touching the
+  real target file at all.
+- **Trial 3:** crashed before completing a `write_file`/`patch_file`
+  decision — see `NEW-55` (a separate, unrelated bug hit mid-trial).
+- **Distinct from prior related findings:** not the same as `NEW-44`
+  (which is about the 7B choosing the *wrong function within the
+  correct file*, `old_str` still real/grounded) — this finding is about
+  the wrong/fabricated *file path* entirely, plus outright content loss
+  on the one trial that did write to something resembling the correct
+  file. Also distinct from `NEW-46` (1.5B planner few-shot leakage) —
+  this is 7B-coder behavior downstream of a correctly-formed
+  single-step Edit prompt, not a planner-generation bug.
+- **Confidence: Confirmed** — live-reproduced with real tool-call
+  sequences and real written file content inspected directly (not
+  inferred), not a one-off guess; both of the 2 non-crashed, non-timed-out
+  trials in this case showed this shape (wrong path in trial 1,
+  fabricated path in trial 2). Sample size is small (2 trials) — pattern
+  is confirmed to exist, but its frequency across more prompts/trials is
+  not yet established.
+- **Not fixed here.** Root cause (recursive critique/refine layer vs.
+  prompt composition) is under the same separate desk investigation
+  referenced in the corrected `NEW-30` entry — do not scope a fix to this
+  entry alone until that investigation lands.
+- **Correction (rule 6), 2026-07-31, desk investigation (project-architect,
+  no code changed):** the recursive critique/refine layer is now ruled
+  out as the mechanism for both trials described above — see the
+  corrected `NEW-30` entry's two-gate argument (`agent.py:1489`'s
+  `step==1`-only gate, plus `classify_breadth_need`/`max_depth=1` making
+  `recursive.py`'s refine phase unreachable for a standard single-file
+  Edit task). Both trials' bad `write_file` calls happened on agent-loop
+  turns that ran plain `infer()` with full conversation history intact
+  (turn 5 for trial 1, turn 2 for trial 2), not through recursion. The
+  true mechanism is still unestablished — see new `NEW-57` for a
+  candidate found so far (a context-surfacing gap in `agent.py`'s own
+  tool-execution loop, unrelated to `recursive.py`) — **downgraded to
+  Suspected on a second pass, see the entry itself; its original
+  "read_file vs. write_file asymmetry" framing did not survive a check
+  of what `_mem.load_file` actually is**.
+
+### [NEW-57] A file read via `read_file` is only ever surfaced to the model as raw conversation-history text, never as a labeled "Loaded Files" context block — but this is NOT an asymmetry with `write_file`/`patch_file` as first framed (Suspected, downgraded from an incorrect Confirmed claim)
+- **Location:** `core/agent.py:1710-1716` (the `read_file` branch, only
+  calls `_get_learning().learn_from_file`, pattern-mining) vs.
+  `:1693-1709` (the `write_file`/`patch_file` branch, calls
+  `_mem.load_file(fpath, _wcontent)`).
+- **Correction to this entry's own first draft:** the first pass of this
+  entry claimed `write_file`/`patch_file` "mirrors" into the layered
+  prompt's "files" context block and `read_file` should do the same.
+  That is wrong. `_mem` at `agent.py:1701` is `core.memory_v2.memory` —
+  a different store from `core.context`, which is what
+  `prompts/layered_prompt.py:196-198`'s `_get_file_block` actually reads
+  via `core.context.build_file_context_block()`/`list_loaded()`.
+  Grepping the codebase for callers of `core.context.load_file()` found
+  exactly two: `core/fixmode.py:45` and `core/tdd.py:106` — **not**
+  `agent.py`'s normal tool-execution path at all, for either `read_file`
+  or `write_file`/`patch_file`. So there is no asymmetry to fix by
+  "mirroring" — neither branch populates the layered-prompt "files"
+  layer today. The real, narrower, still-real finding: a file's content
+  reaches the model via `messages` history (confirmed — `agent.py`'s
+  `messages.append(...)` calls, e.g. `:1656-1682`/`:1860`, do carry tool
+  results forward, and no message-trimming logic exists in `agent.py` to
+  drop them within a handful of turns) but never via the clearly-labeled
+  "Loaded Files" block a fresh system prompt would otherwise show.
+  Whether that surfacing difference (raw history text vs. a labeled
+  context block) measurably affects a 7B model's attention on a later
+  turn is genuinely unknown — this entry does not establish that it
+  does.
+- **Confidence: Suspected, not Confirmed.** The code-read facts above
+  (two separate stores; only 2 callers of `core.context.load_file()`,
+  neither in `agent.py`'s tool loop; history does carry content forward
+  with no trimming) are all directly verified. What is NOT established:
+  whether this surfacing gap has any measurable effect on NEW-56's
+  observed wrong-path/dropped-content `write_file` calls. Do not treat
+  this as NEW-56's root cause without a live pass that specifically
+  checks whether the read file's content is still attended to/reflected
+  correctly at the turn the bad `write_file` occurs.
+- **Cost note for whoever scopes a fix:** `core.context.load_file()`
+  adds the file to the *persistent* loaded set — it would then be
+  re-injected into every later prompt at priority 4 (`layered_prompt.py:338`/
+  `:432`, lowest priority, first evicted under budget pressure) and
+  would participate in `_files_hash()`'s cache-invalidation check on
+  every subsequent draft-prompt build. That is a real, recurring
+  prompt-budget cost on this token-constrained device, not a free
+  one-line add — any fix task must weigh that explicitly, not just wire
+  the call in.
+- **Not fixed here.** Held pending the two-store question above being
+  fully reconciled with `core/memory_v2.py`'s own role, and ideally one
+  attribution-logged live pass (see `WORK_QUEUE.md`) showing whether
+  content is actually still attended to at the bad-write turn, before
+  committing implementer time to a fix here.
+
+### [NEW-58] `core/recursive.py`'s refine phase has no path to see the draft's actual proposed tool call, forcing blind regeneration if refine is ever reached — real by code read, but currently latent (Confirmed, not currently triggerable in the observed NEW-56 trials)
+- **Location:** `recursive.py:516-532` — the refine call passes
+  `user_message`, `prior_critique`, and `retrieved_context` but never the
+  draft's own text/tool-call JSON. `_build_refine_prompt`
+  (`layered_prompt.py:385-409`) and the `build_recursive_prompt`
+  dispatcher (`:441-476`) have no `prior_draft` parameter on the refine
+  path at all, unlike critique (`recursive.py:440-445`,
+  `layered_prompt.py:352-382`, which does receive `prior_draft`).
+  Conversation history is also explicitly dropped for refine
+  (`recursive.py:512-514`, "History is dropped to free ~1000 tokens").
+  If critique rejects a draft that contained a correct `patch_file` call
+  (real `old_str`/`new_str` file excerpts), refine has to regenerate the
+  entire response, including exact file content, from nothing but a
+  critique summary — the most plausible way this bug *would* manifest as
+  hallucinated/wrong-path `write_file` output, if and when it fires.
+- **Confidence: Confirmed as a real code gap by direct read.
+  NOT confirmed as active in the NEW-56 trials** — see the corrected
+  `NEW-30`/`NEW-56` entries above: refine is only reachable when
+  `classify_breadth_need()` returns `"deep"` (`max_depth=2`), which a
+  normal single-file Edit-step message is unlikely to trigger
+  (`recursive.py:138-165`), and even then only for turn-1 responses
+  (`agent.py:1489`). This is a latent bug worth closing, not an
+  established root cause.
+- **Not fixed here.** See `WORK_QUEUE.md`'s updated "7B coder
+  system-prompt round" entry for the scoped fix (threading a
+  `prior_draft` parameter through the refine path, tool-call-boundary-
+  aware truncation) — scoped as hardening, explicitly not claimed to fix
+  NEW-56.
+
+### [NEW-59] `core/recursive.py`'s critique phase double-truncates the draft preview (`recursive.py:440`'s `draft[:2000]`, then `layered_prompt.py:378`'s `prior_draft[:1500]` again), and the binding 1500-char cut can split a `patch_file` call's JSON mid-string (Confirmed, not currently triggerable in the observed NEW-56 trials)
+- **Location:** `recursive.py:440` truncates the draft to 2000 chars
+  before passing it as `prior_draft` to `build_recursive_prompt(...,
+  phase="critique", ...)`; `layered_prompt.py:378` truncates again to
+  1500 chars inside `_build_critique_prompt`, making the outer 2000-char
+  cut dead code in practice (the inner 1500-char cut is always the
+  binding one). A real `patch_file` call's JSON, containing verbatim
+  `old_str`/`new_str` file excerpts, can easily exceed 1500 chars and get
+  cut mid-string, which could make a legitimately correct draft tool
+  call look syntactically broken to the critique model and trigger a
+  spurious rejection — pushing the draft into a refine cycle
+  unnecessarily (see `NEW-58`).
+- **Confidence: Confirmed as a real code gap by direct read.
+  NOT confirmed as active in the NEW-56 trials** — same reachability
+  caveat as `NEW-58`: critique itself only runs on turn-1 responses for
+  non-`"minimal"`-breadth messages, and NEW-56's bad `write_file` calls
+  did not occur on turn 1. Reachability is narrower still:
+  `recursive.py:388`'s `get_adaptive_depth()` (`:171-220`) can force
+  `max_depth` to 0 under thermal-critical or battery-critical device
+  state, which would make even the single critique pass's loop
+  (`range(1, max_depth+1)`, `:434`) empty. Budget headroom exists to fix
+  this cheaply, on the occasions critique does run:
+  critique's overall budget is 8000 chars (`layered_prompt.py:368`)
+  against `CRITIQUE_CODE` + a 1000-char request block + the 1500-char
+  draft — there is room to raise the draft cap and/or exempt a
+  `<tool>{...}</tool>` block from truncation entirely.
+- **Not fixed here.** See `WORK_QUEUE.md`'s updated "7B coder
+  system-prompt round" entry for the scoped fix — a small, contained
+  change, explicitly not claimed to fix NEW-56, but worth doing since
+  it's real and cheap.
+
+## Correction round, 2026-07-31 — both live passes on the 7B coder system-prompt round invalidated by a workspace-boundary contamination bug; one new Confirmed finding (`NEW-60`), no code/prompt touched
+
+**What happened:** a second live pass ran this session (after the first
+pass documented above), targeting `NEW-49`'s never-reached case 3 and a
+`NEW-30` follow-up, using the same hand-crafted-scratch-file test
+approach as the first pass. Its own trial count and detail are relayed
+from that live-verifier's report, not independently re-derived by this
+correction round. A third live-verifier session, checking why both
+passes kept producing wrong-path/blocked/give-up outcomes, discovered
+that **every scratch test file used in both passes lived under
+`/data/data/com.termux/files/usr/tmp/claude-10247/.../scratchpad/...` —
+entirely outside `core/filesystem.py`'s `_validate_path()` boundary
+(`WORKSPACE_ROOT`/`CODE_DIR`, both `/data/data/com.termux/files/home/
+Codey-OS` on this device).** Confirmed independently (not just relayed)
+by a direct Python check against the live `Filesystem` instance:
+
+```
+WORKSPACE_ROOT: /data/data/com.termux/files/home/Codey-OS
+CODE_DIR: /data/data/com.termux/files/home/Codey-OS
+target: /data/data/com.termux/files/usr/tmp/claude-10247/-data-data-com-termux-files-home-Codey-OS/d4d9925f-0066-4a40-a815-b3799c069c66/scratchpad/new30_files/target1.py
+EXC: Access denied: /data/data/com.termux/files/usr/tmp/claude-10247/-data-data-com-termux-files-home-Codey-OS/d4d9925f-0066-4a40-a815-b3799c069c66/scratchpad/new30_files/target1.py is outside workspace (/data/data/com.termux/files/home/Codey-OS)
+```
+
+Every `read_file` call against those scratch files in both passes
+therefore returned `[ERROR] Access denied: ...`, not real file content.
+Everything measured downstream in case 1 of both passes — wrong-path
+`write_file` guesses, dropped/fabricated content, blocked-`shell`
+attempts, premature "Done." responses — was the model's recovery
+behavior after a denied read, not a measurement of the read-then-patch
+instruction or of `NEW-30`/`NEW-56`'s originally-hypothesized bugs. **No
+valid data exists this session on case 1's read-then-edit question, or
+on `NEW-49`'s planned test (same case-1-shaped fixture).** Case 2's
+outcomes (the control, file content pre-injected into the prompt
+directly rather than read via `read_file`) cannot be cleanly attributed
+either way: a denied read does not explain them (no read was denied,
+because none was attempted for that fixture), but neither does anything
+else established this session — they remain data with an unestablished
+cause, not evidence for or against `NEW-56`'s original framing.
+
+### [NEW-30] correction — both live passes invalidated; fix remains untested
+`NEW-30`'s 6-site `prompts/system_prompt.py` fix (code-reviewer approved,
+still uncommitted) has **not been meaningfully live-tested at all this
+session** — both live-test attempts tested error-recovery behavior after
+a denied read, not the read-then-edit contradiction the fix targets.
+One narrower, verifiable positive signal survives the contamination and
+should be kept, clearly bounded: in case 1 of the first pass (the
+genuinely-unread-file scenario, where a correct turn-1 `read_file` was
+actually called for), the 2 of 3 trials that produced a first tool call
+at all (see the corrected `NEW-30` entry above, "Exact accounting")
+targeted `read_file` at the **correct real file path** before being
+denied — i.e. the fix's "read first" instruction is being followed at
+least that far. The third case-1 trial crashed later in its sequence
+(`NEW-55`); this correction round did not re-derive whether its own
+turn-1 call was also a correctly-targeted `read_file`, so it is not
+counted either way. Case 2's trials (the control, file already in
+context) are not counted toward this signal at all — a turn-1
+`read_file` was never the expected first action there in the first
+place. This does **not** confirm or refute the fix's actual target
+behavior — does the model correctly proceed to `patch_file` after a
+**successful** read. Pass 2's trial outcomes are relayed from the third
+live-verifier's report only (not independently re-derived here) and are
+not folded into this count. **Status: needs a proper re-test with valid
+file access before this can be called fixed, partially fixed, or
+unfixed.**
+
+### [NEW-56] correction — downgraded, cause reattributed
+The specific observed behavior (wrong paths, dropped content, both
+documented above with real inspected tool-call sequences) is real and
+reproduced twice in the first pass. Its cause is now understood to be a
+workspace-access-denial recovery failure (see new `NEW-60` below), **not
+necessarily** evidence of a `patch_file`-vs-`write_file` decision bug
+under normal (valid-access) conditions. The prior desk-investigation
+correction (recursive critique/refine hypothesis refuted — see above)
+still stands on its own evidence and is not affected by this
+correction; only the underlying premise that these were genuine
+patch-vs-write decisions is now superseded. Whether the 7B model *also*
+has a normal-conditions `patch_file`-avoidance problem, independent of
+denied-read recovery, remains untested and open.
+
+### [NEW-55] correction — provenance note added, finding NOT downgraded
+`NEW-55` (unguarded `input()`/`EOFError` crash at `core/agent.py:1676`)
+stays Confirmed and live-reproduced — this correction does not touch
+that status. Provenance note: the trial it reproduced in (case 1,
+trial 3 of the first pass) ran under the same workspace-denial
+conditions described above. This does not affect the finding's
+validity: the `input()` call at `agent.py:1676` has no `EOFError` guard
+regardless of what routed the task into the low-confidence retry gate
+that reaches it — a denied-read-driven low-confidence result crashes it
+exactly the same way a legitimately low-confidence result would. Kept
+Confirmed, not reopened.
+
+### [NEW-49] — no change, second attempt also inconclusive
+Still Suspected, undetermined. The second pass's attempt to test case 3
+(an Edit-first plan through `daemon.py`'s real step-0 enrichment text)
+also never reached a genuine write-vs-patch decision point — it got
+stuck in the same denied-read recovery loop described above, per the
+third live-verifier session's report (relayed, not independently
+re-derived here).
+
+### [NEW-57] — held-pending condition restated, not re-rated
+Stays Suspected — its code-read facts (`core.memory_v2` vs.
+`core.context` being separate stores, neither populated by `agent.py`'s
+normal tool loop) are independently verified and unaffected by this
+correction. Its held-pending condition (`WORK_QUEUE.md`'s "one
+attribution-logged live pass showing whether a read file's content is
+actually still attended to at the turn a bad `write_file` occurs")
+is now understood to rest on a premise that never held this session: no
+valid-access bad-write turn was ever actually observed to check
+attention against. The question NEW-57 was meant to help answer is
+therefore still fully open, not partially answered by anything logged
+this session.
+
+### [NEW-60] Workspace-access-denied `read_file` calls send the 7B agent into an unrecoverable, unbounded failure spiral with no reliable path to a correct outcome (Confirmed by code read + literal reproduction; failure-shape sample is 2 trials, not the full 8)
+- **Location:** `core/filesystem.py:79-127`'s `_validate_path()` denies
+  any `read_file`/`write_file`/`patch_file` call outside
+  `WORKSPACE_ROOT`/`CODE_DIR` (both resolve to
+  `/data/data/com.termux/files/home/Codey-OS` on this device), returning
+  a `FilesystemAccessError` that `core/agent.py`'s tool-dispatch wraps as
+  `"[ERROR] " + error_msg` (`agent.py:489`). `core/agent.py:492-521`'s
+  `is_error()` correctly detects the `[ERROR]` prefix and
+  `agent.py:1748`'s `if is_error(last_tool_result, name) and
+  auto_retries < max_retries:` triggers an automatic retry — the gate
+  itself works as designed. What is not reliable is the model's own
+  recovery behavior on that retry.
+- **Confidence: Confirmed — by direct code read (`filesystem.py:79-127`
+  → `agent.py:489` → `is_error` at `:492-521` → retry at `:1748`) plus
+  an independent literal Python check reproducing the exact denial (see
+  the block above). The mechanism itself is code-verified, not just
+  trial-counted, which is the stronger evidence here.** Live
+  failure-shape corroboration is narrower than "8 trials" — it is
+  documented specifically for the 2 case-1 (genuinely-unread-file)
+  trials of the first pass, where a denied `read_file` is directly on
+  record (`NEW-56`'s trial 1/2 detail: wrong-path `write_file` guesses,
+  mangled paths, a dropped directory prefix, a fabricated unrelated
+  filename). Case-1 trial 3 (first pass) crashed via `NEW-55` before
+  showing further spiral behavior; that crash trial did include one
+  unrelated wandering read of `core/agent.py` itself (~84KB) per the
+  third live-verifier's relayed report — not independently re-measured
+  here, and notably that particular read succeeded (it's inside
+  `WORKSPACE_ROOT`), so the spiral is "denied reads produce unreliable
+  recovery," not "every subsequent read is also denied." Case 2's 2
+  completed trials (blocked `shell`, zero tool calls) are **not**
+  attributed to this mechanism at all — that fixture pre-injected the
+  target file's content directly into the prompt, so no `read_file`
+  denial was in play there; see the `NEW-30` correction above for why
+  case 2 is excluded. Pass 2's 2 trials are relayed from the third
+  live-verifier's report only, not independently re-derived, and are
+  not counted as confirmed reproductions here — only as consistent with
+  the same reported shape.
+- **Why it matters — production-reachable, not test-artifact-only:**
+  any daemon-queued task step naming a path outside the workspace root
+  (a path genuinely outside the repo, a typo'd path, or a path built
+  from a stale/relative reference) hits this exact same denial-then-
+  spiral behavior in production, independent of anything `NEW-30`/
+  `NEW-56`-specific. This is the actual bug that produced both
+  contaminated live passes, and it is real regardless of the
+  `NEW-30`/`NEW-56` question.
+- **Not fixed here.** Logged only. A fix would need to bound the
+  model's retry behavior on an access-denial specifically (e.g. a
+  clearer recovery instruction in the retry prompt, or a hard stop
+  instead of an open-ended retry) — out of scope for this
+  documentation-only correction round.
+
+### Also logged (Confirmed, related, smaller) — attribution logging still only covers turn 1
+`core/recursive.py`'s `[Recursive] Turn attribution` log line (added
+during the `NEW-58`/`NEW-59` fix round, `recursive.py:393-398`) only
+fires for calls that go through `recursive_infer()` at all — turns
+where `core/agent.py:1489`'s `step==1` gate is false skip this function
+entirely and produce no attribution line (this is the same "own plain
+infer() branch has no log line here" limitation the code comment at
+`recursive.py:381-390` already self-discloses, not a newly discovered
+gap; not assigned a new `NEW-##`). This directly blocked getting a
+clean per-turn read on turns 2+ in both this session's live passes too
+— the companion log line in `core/agent.py`'s own plain-`infer()` loop
+(`WORK_QUEUE.md`'s "7B coder system-prompt round," sub-task 1) is still
+needed before a future live pass can cleanly attribute which turn/path
+produced a given tool call, and is now doubly important given `NEW-60`:
+a future pass needs to distinguish "model ignored the fix" from "model
+was recovering from a denied read" turn-by-turn, not just at the final
+tool call.
 
 ## Found during Track 1 tool/capability audit (ccos/plugins/*/manifest.json vs. implementation), 2026-07-30 — NOT fixed, logged only
 

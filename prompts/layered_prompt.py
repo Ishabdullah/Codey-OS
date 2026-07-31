@@ -33,19 +33,23 @@ Usage:
     # Main agent loop (replaces build_system_prompt)
     sys_prompt = build_recursive_prompt(user_message, phase="draft")
 
-    # Critique pass (recursive.py)
+    # Critique pass (recursive.py) — pass the full draft; truncation that
+    # never splits a <tool>...</tool> block happens inside build_recursive_prompt
     crit_prompt = build_recursive_prompt(
-        user_message, phase="critique", prior_draft=draft[:1500]
+        user_message, phase="critique", prior_draft=draft
     )
 
-    # Refine pass (recursive.py)
+    # Refine pass (recursive.py) — prior_draft (NEW-58) lets refine see and
+    # revise its own actual proposal instead of regenerating blind
     ref_prompt = build_recursive_prompt(
         user_message, phase="refine",
+        prior_draft=draft,
         prior_critique=critique[:800],
         retrieved_context=extra_kb_context,
     )
 """
 
+import re
 import time
 from dataclasses import dataclass
 
@@ -349,6 +353,74 @@ def _build_draft_prompt(user_message: str, plan_rag_block: str = "", lightweight
     return result
 
 
+_TOOL_BLOCK_RE = re.compile(r"<tool>.*?</tool>", re.DOTALL)
+# core/recursive.py's draft infer() call is stop-sequenced on "</tool>"
+# (extra_stop default), and llama.cpp elides the stop string from returned
+# text — so a real draft containing a tool call very often ends with the
+# raw JSON and NO closing "</tool>" tag at all (confirmed by core/agent.py's
+# own parse_tool_call(), which matches `<tool>\s*(\{.*)` with no closing-tag
+# requirement, and by _format_tool_for_history() re-adding "</tool>" only
+# when re-serializing the *parsed* dict for history — never present on the
+# raw model output it's replacing). _TOOL_BLOCK_RE alone would silently miss
+# this common case and fall through to the naive char-count cut it exists to
+# avoid, so this second pattern catches an unterminated "<tool>" run to the
+# end of the string.
+_UNTERMINATED_TOOL_RE = re.compile(r"<tool>.*\Z", re.DOTALL)
+
+
+def _safe_truncate_draft(text: str, limit: int) -> str:
+    """
+    Truncate a prior draft to ``limit`` chars WITHOUT ever splitting a
+    <tool>...</tool> JSON block mid-string (NEW-59 fix).
+
+    A raw ``text[:limit]`` cut can land inside a real patch_file tool call's
+    JSON (whose old_str/new_str fields embed verbatim file excerpts, easily
+    exceeding a char cap), producing syntactically-broken JSON that makes a
+    legitimately correct, complete tool call look broken to the critique/
+    refine model — causing a spurious rejection or a blind, tool-call-less
+    revision.
+
+    Strategy: if the text contains a <tool>...</tool> block (terminated OR
+    — the common real case, see _UNTERMINATED_TOOL_RE's comment — an
+    unterminated "<tool>" run to the end of the string), that block is
+    NEVER truncated, no matter how large — only the surrounding prose
+    (reasoning before/after the tool call) is cut to fit the remaining
+    budget. If there's no tool block at all, falls back to a plain
+    char-count truncation (safe, since there's no JSON to split).
+    """
+    if not text or len(text) <= limit:
+        return text
+
+    m = _TOOL_BLOCK_RE.search(text) or _UNTERMINATED_TOOL_RE.search(text)
+    if not m:
+        return text[:limit] + "\n...[truncated]"
+
+    block = m.group(0)
+    before = text[: m.start()]
+    after = text[m.end() :]
+
+    # The tool block itself is never cut. Whatever budget remains (if any)
+    # goes to the prose immediately preceding it (most relevant context for
+    # judging the call), truncated from the front so the tail nearest the
+    # tool call survives. Trailing prose after the tool call is dropped
+    # first since it's rarely load-bearing for critique/refine.
+    remaining = limit - len(block)
+    if remaining <= 0:
+        # Block alone already exceeds the limit — keep it whole and drop
+        # all surrounding prose rather than split the JSON.
+        return block
+
+    if len(before) > remaining:
+        before = "...[truncated]...\n" + before[-remaining:]
+        after = ""
+    else:
+        after_budget = remaining - len(before)
+        if len(after) > after_budget:
+            after = after[:after_budget] + "\n...[truncated]"
+
+    return before + block + after
+
+
 def _build_critique_prompt(user_message: str, prior_draft: str) -> str:
     """
     Lean system prompt for the self-critique phase.
@@ -362,6 +434,17 @@ def _build_critique_prompt(user_message: str, prior_draft: str) -> str:
       0 Critique instructions — required
       1 Original request — required (so completeness can be judged)
       1 Prior draft to review — required
+
+    NEW-59 fix: prior_draft is no longer cut with a raw char-count slice
+    (which could split a <tool>{...}</tool> JSON block mid-string, making a
+    correct/complete patch_file call look syntactically broken to the
+    critique model). It's now passed through _safe_truncate_draft(), which
+    never cuts inside a tool block. The cap is also raised from 1500 to
+    4000 chars — this budget (8000 total) has headroom: CRITIQUE_CODE is
+    ~1.2k chars and original_request is capped at 1000, both required, so
+    even a full 4000-char prior_draft leaves ~1.8k chars of margin before
+    the nominal 8000-char budget (which required layers can exceed anyway —
+    see LayeredPrompt.build()).
     """
     from prompts.critique_prompts import CRITIQUE_CODE
 
@@ -375,7 +458,8 @@ def _build_critique_prompt(user_message: str, prior_draft: str) -> str:
     if prior_draft:
         draft_block = (
             "\n## Output to Review\n"
-            "(The text you wrote that needs to be critiqued)\n\n" + prior_draft[:1500]
+            "(The text you wrote that needs to be critiqued)\n\n"
+            + _safe_truncate_draft(prior_draft, 4000)
         )
         p.add("prior_draft", draft_block, priority=1, required=True)
 
@@ -386,6 +470,7 @@ def _build_refine_prompt(
     user_message: str,
     prior_critique: str,
     retrieved_context: str,
+    prior_draft: str = "",
 ) -> str:
     """
     Full-context system prompt for the refine phase.
@@ -397,12 +482,22 @@ def _build_refine_prompt(
       sees what it must fix
     - Targeted retrieved context for NEED_DOCS gaps replaces normal RAG
       (fresh RAG already ran in the draft phase — no need to repeat)
+    - NEW-58 fix: the draft's own actual prior proposal (including any real
+      <tool>{...}</tool> call, e.g. a patch_file with verbatim old_str/
+      new_str) is now also included at high priority (required), so refine
+      can see and revise what it actually proposed instead of blindly
+      regenerating the entire response from scratch with zero memory of the
+      original tool-call content. Mirrors critique's existing prior_draft
+      path. Same NEW-59 tool-block-aware truncation is applied here too
+      (via _safe_truncate_draft()) so this doesn't reintroduce the same
+      mid-JSON-split bug in a new location.
 
     Priority map:
       0 SYSTEM_PROMPT   — required
       1 User prefs
       2 Project memory
       2 Issues to Fix (critique summary) — required
+      2 Your prior proposal (draft to revise) — required
       3 Repo map
       3 Targeted retrieved docs (NEED_DOCS)
       4 Loaded files
@@ -422,6 +517,19 @@ def _build_refine_prompt(
             "address ALL of these in your revised output)\n\n" + prior_critique[:800]
         )
         p.add("critique", critique_block, priority=2, required=True)
+
+    # Prior draft — the actual proposal (including any tool call) being
+    # revised. Required so refine always has it, tool-block-aware truncated
+    # so a real patch_file JSON call is never split mid-string (NEW-58/59).
+    if prior_draft:
+        draft_block = (
+            "\n## Your Prior Proposal (revise this)\n"
+            "(What you actually wrote/called last turn, before critique — "
+            "revise it to fix the Issues to Fix above; do not restart from "
+            "scratch or invent a different approach)\n\n"
+            + _safe_truncate_draft(prior_draft, 4000)
+        )
+        p.add("prior_draft", draft_block, priority=2, required=True)
 
     p.add("repo_map", _get_repo_map_block(), priority=3)
 
@@ -457,7 +565,12 @@ def build_recursive_prompt(
                                          judge task completeness, not just correctness
                            - "refine":   drives file relevance scoring
         phase:             "draft" | "critique" | "refine"
-        prior_draft:       Output to critique (critique phase only, max 1500 chars)
+        prior_draft:       Output to review/revise — used by BOTH "critique"
+                           (what to critique) and "refine" (NEW-58: the
+                           actual prior proposal to revise, not regenerate
+                           blind). Tool-block-aware truncated to 4000 chars
+                           via _safe_truncate_draft() in both phases (NEW-59)
+                           — never splits a <tool>{...}</tool> JSON block.
         prior_critique:    Critique text to fix (refine phase only, max 800 chars)
         retrieved_context: Pre-fetched KB docs for NEED_DOCS gaps (refine only)
         lightweight:       "draft" phase only — QA/smalltalk messages skip
@@ -471,6 +584,8 @@ def build_recursive_prompt(
     if phase == "critique":
         return _build_critique_prompt(user_message, prior_draft)
     if phase == "refine":
-        return _build_refine_prompt(user_message, prior_critique, retrieved_context)
+        return _build_refine_prompt(
+            user_message, prior_critique, retrieved_context, prior_draft=prior_draft
+        )
     # default: "draft"
     return _build_draft_prompt(user_message, plan_rag_block=plan_rag_block, lightweight=lightweight)
