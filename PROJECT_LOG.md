@@ -5,6 +5,67 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-30 — NEW-7 fix attempt: prompt change landed, live-verified as a mixed (not full) result
+
+**What changed:** Attempted a fix for `NEW-7`'s characterized root
+cause (the local Qwen2.5-Coder-7B model frequently fails to ground
+`patch_file`'s `old_str` in real file content). `prompt-engineer` added
+explicit verbatim-`old_str` instructions and worked wrong/correct JSON
+examples to `prompts/system_prompt.py`, plus an empty-`old_str`
+critique-checklist item to `prompts/critique_prompts.py` (commit
+`0026565`). code-reviewer approved after verifying the JSON-escaping
+renders correctly at runtime (a real bug class it specifically checked
+for, given the examples are JSON embedded in a Python triple-quoted
+string), the tool-rejection claim is accurate against
+`tools/patch_tools.py`, and no conflict with Track 1's earlier prompt
+edits.
+
+**Live-verification result (commit `a8a4c2d`) — mixed, not a clean
+win, reported honestly rather than oversold:** re-ran the same
+docstring-insertion prompt that had a 67% (4/6) failure baseline, 6
+more times against the new prompt. The narrow `old_str`-grounding
+failure rate did drop, 67% → 50% (3/6) — a real but modest effect on a
+small sample. But the baseline's own originally-stated metric (valid
+patch produced or not) stayed at 67% (4/6) unchanged, because a new
+failure mode appeared — the model targeting the wrong function entirely
+(editing `run_agent`/`parse_args` instead of `shutdown`), which the
+verbatim-matching fix doesn't address even in principle since it can
+apply verbatim-grounding correctly to the wrong target. `NEW-7` stays
+open, not closed — this is a partial, real improvement on one dimension
+of the bug, not a full fix.
+
+**Incident during live-verification, caught and handled correctly:** an
+undocumented second confirmation prompt in `core/agent.py`
+("Stage and commit", separate from `patch_file`'s own "Apply patch?"
+confirm) caused the live-verifier's scripted session to produce 3
+accidental real commits before being caught. Recovered via
+`git reset --hard` back to the last legitimate commit (`0026565`) —
+verified via `git reflog` before trusting the reset that nothing else
+was lost (the reflog showed exactly the 3 accidental commits sitting
+between the legitimate commit and the reset point, nothing else).
+Logged as `NEW-45` (Confirmed) so future scripted live-verification
+sessions account for both confirms. A second finding, `NEW-44`
+(Suspected), logged the new wrong-function-targeting failure mode
+itself.
+
+**Verification performed:** confirmed live that the new prompt text was
+actually rendered into the real draft/critique prompts the model saw
+(not a null test); real `git diff`/`git reflog`/`ps`/`free -h` output
+throughout, not paraphrased; full suite (266/266) re-run clean after
+the reset.
+
+**Outcome:** `NEW-7` has a partial, live-verified improvement shipped,
+but remains open. `NEW-44` and `NEW-45` logged, not fixed.
+
+**Next action:** either a stronger prompt iteration adding explicit
+target-function-identification instructions (a second, larger-sample
+live-verification round would also help distinguish real signal from
+noise at n=6), or move on to Track 2's remaining items (`NEW-12`/`NEW-22`
+residuals, security hardening backlog, `H-1` live verification, and the
+flagged-not-default-fixed `NEW-9`) and revisit `NEW-7` later.
+
+---
+
 ## 2026-07-30 — NEW-8 fixed, NEW-7 fully characterized; caught and fixed a second NEW-24/NEW-25-class ID collision
 
 **NEW-8** (commit `746ff60`): `ccos/tests/test_ccos.py::test_sandbox`
