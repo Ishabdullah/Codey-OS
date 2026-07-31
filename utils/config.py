@@ -233,9 +233,10 @@ UNLIMITEDCLAUDE_BASE_URL = os.environ.get(
 # Qwen2.5-Coder-1.5B runs as a dedicated planning + summarization model on port 8081,
 # entirely separate from the 7B agent server on port 8080.
 # Upgraded from 0.5B for better code-aware planning and task decomposition.
-# NOTE: not currently read by any automatic launcher — the 1.5B planner
-# server must be started manually (see docs/configuration.md). Tracked in
-# NEW_ISSUES.md (NEW-12).
+# Launched automatically by core/planner_loader.py (PlannerLoader.ensure_planner(),
+# called from core/plannd.py:get_plan()) — sequential swap with the primary 7B
+# model, never both resident at once. Fixed as part of NEW-12's remaining items;
+# see NEW_ISSUES.md.
 PLANNER_MODEL_PATH = Path(
     os.environ.get(
         "CODEY_PLANNER_MODEL",

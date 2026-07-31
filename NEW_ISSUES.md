@@ -1002,6 +1002,199 @@ fix itself (approved to land as-is) but recommends a size cap on
 `read_file`'s registration as a follow-up. Not yet scoped to an
 implementer.
 
+### [NEW-65] `LlamaServer.start()`'s 7B-only mmap/mlock flags (`QWEN_7B_MMAP`/`QWEN_7B_MLOCK`) are applied unconditionally to every `LlamaServer` instance, including the new planner (1.5B) launcher (Confirmed, found while implementing NEW-12's remaining items)
+`core/loader_v2.py:LlamaServer.start()` (the try/except around
+`QWEN_7B_MMAP`/`QWEN_7B_MLOCK` import and the `--mmap`/`--no-mmap`/`--mlock`
+flag-building block) is not gated on which model is being started — it runs
+for every `LlamaServer(...)` instance regardless of `model_path`/`port`,
+despite `utils/config.py`'s own comment on those two settings stating
+"These settings apply ONLY to the Qwen 7B model." Same class of issue for
+`MODEL_CONFIG` generally: `n_ctx` (32768), `n_threads`, `temperature`,
+`top_p`, `top_k`, `repeat_penalty`, `--n-predict` are all a single global
+dict sized for the 7B model, and `LlamaServer.start()`'s command-building
+has no per-model override — the new planner launcher (`core/planner_loader.py`,
+this round's NEW-12 fix) inherits all of these as-is. In practice this is
+likely benign for the planner today (mmap-on/mlock-off are sane defaults
+for any model; `core/plannd.py:get_plan()`'s per-request payload already
+overrides `temperature`/`max_tokens` for actual generation, so the
+server-level defaults mostly only matter as a fallback), but it is a real
+naming/scoping mismatch between the code and its own comments, not
+verified harmless in all cases (e.g. `n_ctx: 32768` reserves more KV-cache
+RAM for the 1.5B planner than a value sized for it would). Not fixed here —
+out of NEW-12's explicit scope (task said not to change `MODEL_CONFIG`/
+model generation parameters for either model). Fix direction for a future
+round: either parameterize `LlamaServer` by a per-model config dict, or
+gate the mmap/mlock block on `self.port == PRIMARY_SERVER_PORT` (or
+equivalent) so it stops silently applying to non-7B instances.
+- **Code-reviewer note (2026-07-31):** the `--mmap`/`--mlock` half of this
+  is reasonably out-of-scope as filed, but `n_ctx: 32768` reserving 7B-sized
+  KV-cache RAM for the 1.5B planner is a real RAM claim on a device with a
+  documented OOM history — exactly what NEW-12's sequential-swap
+  requirement exists to protect. Needs `free -h` + actual planner RSS
+  recorded at live-verify time, not accepted as "likely benign" without
+  measurement.
+
+### [NEW-66] `core/daemon.py`'s 30s watchdog tick unconditionally calls `ModelLoader.ensure_model()` for the primary 7B model, which (after NEW-12's sequential-swap fix) will now evict a planner load that is genuinely still resident and in active use — not just an in-flight-swap race (Suspected, reasoned from code read, not live-reproduced)
+`core/daemon.py:549-564`'s watchdog block runs every ~30s and always calls
+`get_loader().ensure_model()` for the primary model when not running
+remote, regardless of whether the planner (1.5B) is the model currently
+intended to be loaded. This round's NEW-12 sequential-swap fix
+(`core/loader_v2.py`'s `SWAP_GUARD`, `ensure_model()`/
+`PlannerLoader.ensure_planner()`) only protects the narrow in-flight-swap
+race (the watchdog firing *during* `get_plan()`'s own swap, via the
+non-blocking `SWAP_GUARD`) — deliberately in scope for NEW-12, since it's
+mutual exclusion, not resource-gating. It does NOT stop the watchdog from
+evicting the planner on its very next tick (≤30s) once a `get_plan()` call
+has *finished* and released `SWAP_GUARD`, even if the planner is still the
+"correct" model to have loaded (e.g. multiple planning calls in quick
+succession, or a slow single planning call whose own HTTP round-trip
+outlives 30s). This is by design for NEW-12's stated sequential-swap
+contract — "swap, don't add concurrency-awareness" — and the watchdog
+reloading the primary shortly after planning finishes is the intended
+self-healing restore path, not a bug in the swap logic itself. But it
+means: (a) back-to-back planning calls within a ~30s window may each pay a
+fresh 7B-unload + 1.5B-cold-start cost if the watchdog reclaims the
+primary in between, and (b) RAM churn from repeated 7B/1.5B load/unload
+cycles on a device that has OOM-crashed before is a real cost even though
+each individual swap is now race-free. Not fixed here — resolving it
+would mean either making the watchdog aware of "planner intentionally
+loaded, don't evict yet" (a form of the resource/intent-awareness NEW-12
+explicitly deferred to Track 3 Phase 5a) or debouncing the watchdog's
+primary-reload after a planning call, both out of NEW-12's scope. Flagged
+for a future round; live-verification of NEW-12's swap should specifically
+check whether this watchdog interaction is observed as thrashing, not
+just whether a single swap cycle is race-free.
+
+### [NEW-68] `ModelLoader.ensure_model()`'s non-blocking `SWAP_GUARD` acquisition means any caller can now get a transient `False`/failure during the narrow window a planner swap is in flight, not just the daemon watchdog (Confirmed by code read, not live-reproduced)
+`ensure_model()` (`core/loader_v2.py`) is called from more places than the
+daemon watchdog this round's NEW-12 fix was primarily reasoned about:
+`core/daemon.py:512` (pre-load at daemon startup — already handles `False`
+gracefully, logs a warning and lazy-loads on first request) and, more
+significantly, `core/inference.py:_start_server()` (line 40), which is the
+legacy-HTTP fallback path `core/inference_v2.py:_infer_http()` calls when
+the hybrid chat-completions backend is unavailable — this is the exact
+fallback path NEW-12's original Round 11 fix routed through
+`get_loader().ensure_model()` instead of an independent launcher. That
+function currently does `if not get_loader().ensure_model(): raise
+RuntimeError(...)` with no retry — previously this would only return
+`False` on genuine load failure (missing model file, binary, or spawn
+timeout); after this round's sequential-swap fix, it can also return
+`False` transiently whenever `SWAP_GUARD` is held by an in-flight
+`get_plan()` planner-load in the same process (bounded by
+`LlamaServer.start()`'s own timeouts — lock-contention poll + spawn
+health-wait, up to ~60s each). Traced the propagation: the `RuntimeError`
+is not caught in `core/inference.py`/`core/inference_v2.py`, but IS caught
+generically by `core/task_executor.py:_execute_task()`'s `except Exception`
+(re-raised) and then by `core/daemon.py`'s task-dispatch `except Exception`
+(`~line 654`/`~680`), which marks the task `failed` with the error message
+rather than crashing the daemon — so this is NOT a daemon-crash risk, only
+a possible extra task failure in the rare case a planning request and a
+7B-inference request needing a fresh (not-already-running) primary load
+race within the same narrow window. Not fixed here — the non-blocking
+design is required for `core/daemon.py:562`'s watchdog call (which runs
+directly on the event loop; blocking there would stall the whole daemon),
+so a caller-specific retry/backoff would need to distinguish call contexts,
+which edges toward the concurrency-awareness work this round's task
+explicitly deferred to Track 3 Phase 5a. Flagged for a future round to
+decide whether `core/inference.py:_start_server()` specifically should
+retry a bounded few times before raising, given it runs off the event loop
+(inside `run_in_executor`) and can afford a short bounded wait that the
+watchdog cannot.
+
+**Severity correction, 2026-07-31 (code-reviewer, rule 6):** the ~180s
+worst-case timing this entry's neighboring `NEW-12` writeup used
+(lock-contention poll ≤60s + cold-start health-wait ≤60s + HTTP timeout
+≤60s) undercounts real worst case — it omits `LlamaServer.stop()`'s
+`wait(timeout=8)`+SIGKILL path, `probe_port_health`'s 2s timeout, and
+`_is_port_in_use()`'s socket+HTTP checks (run twice on the
+lock-contention branch). Real worst case is ~190s+, which **exceeds**
+`core/daemon.py:164`'s `asyncio.wait_for(get_plan..., timeout=180.0)`.
+This means a cold planner swap under lock contention is a **plausible,
+not rare**, way to blow the daemon's own plan-request timeout — and when
+it does, the orphaned executor thread can still be holding `SWAP_GUARD`
+after the daemon has already given up and fallen back to unplanned
+execution, so the fallback's own `ensure_model()` call (via
+`core/inference.py:_start_server()`, this entry's own traced mechanism)
+can also transiently fail. Do not read this finding as "rare race" —
+read it as a real, currently-reachable timeout-budget mismatch. Not
+fixed here; needs either a shorter internal timeout budget on the
+lock/swap path or a longer `asyncio.wait_for` on the daemon side,
+decided together, not independently.
+
+**Fix-up round impact, 2026-07-31 (implementer):** fixing Bug 1 of the
+code-reviewer's rejection (thermal-restart branch bypassing
+`SWAP_GUARD`) required widening `SWAP_GUARD` to cover `ensure_model()`'s
+*entire* body, not just the cold-load branch — so `ensure_model()` now
+always acquires the guard first, even when the primary is already loaded
+and healthy with no thermal restart pending. Previously that case never
+touched `SWAP_GUARD` at all and could not fail from contention. Now it
+can: a concurrent `ensure_planner()` swap holding the guard can make
+`ensure_model()` return `False` purely from timing, even though the
+primary was already fine. Traced the consumer: `core/inference.py:
+_start_server()`'s `if not get_loader().ensure_model(): raise
+RuntimeError(...)` (no retry) turns this into a task failure. **This is
+worse-but-bounded, not a new unbounded risk** — same class of failure
+this entry already describes, same ~60-190s timeout bound, just now also
+reachable from a case that used to be immune. No fix required beyond
+what this entry already recommends (a future round deciding on retry/
+backoff, or the timeout-budget reconciliation the severity correction
+above calls for).
+
+### [NEW-70] `ModelLoader.ensure_model()`'s thermal-restart branch swallows any exception from `unload()`/`load_primary()` and unconditionally reports success anyway (Suspected, found during NEW-12's fix-up round, pre-existing before this round's changes)
+In `ensure_model()`'s "already loaded" fast path, the thermal-restart
+check is `try: ... tm.restart_recommended ... except Exception: pass`
+immediately followed by `return True` — if `self.unload()` or the
+subsequent `self.load_primary()` raises partway through a thermal
+restart, the exception is silently swallowed and the method still
+reports the model as loaded/healthy, even though the restart may have
+left no server running at all. Found by the implementer while fixing
+NEW-12's Bug 1 (restructuring this same branch to close the `SWAP_GUARD`
+gap) — pre-existing before this round, not introduced by it. Not fixed
+here, out of the 3-bug rejection's scope. Flagged for a future round:
+the `except Exception: pass` should at minimum distinguish "thermal
+check itself failed" (fine to fail open, matches the existing comment's
+intent) from "the restart's own unload/reload failed" (should not report
+success).
+
+### [NEW-69] Interactive-CLI direct model loads (`main.py`) bypass the NEW-12 sequential-swap arbiter entirely — the primary and planner can end up resident together via this path, and a naive fix would break normal CLI usage (Confirmed by code read, needs a project-architect scoping decision, not a quick patch)
+`main.py:1271/1552/1564/1589` call `core.loader_v2`'s `load_primary()`
+directly, never `ensure_model()` — so none of `NEW-12`'s new
+`_evict_planner_and_confirm_free()` eviction logic runs on this path.
+`codeyOS:370-371`'s own comment confirms this is a real, designed-for
+scenario, not a rare edge case: "All other prompts always run
+interactively via direct Python (even when the daemon is running)." So a
+user with the daemon running (planner possibly loaded from a recent
+`core/plannd.py:get_plan()` call) launching an interactive `codeyOS`
+prompt can spawn the 7B directly on top of it — violating the hard
+"never both resident" requirement `NEW-12`'s swap logic exists to
+enforce, just from an untouched call site.
+- **Do NOT fix by routing these calls through `ensure_model()`.** In a
+  fresh CLI process, `core.planner_loader.get_planner_loader()` is a
+  brand-new singleton with `is_loaded() == False` (it has no memory of
+  what the separate daemon process has loaded), so `ensure_model()`'s
+  eviction step would see "nothing to evict" and fall through to
+  `probe_port_health(PLANND_SERVER_PORT)` alone deciding the outcome —
+  and since CLAUDE.md rule 3 forbids killing a process this loader
+  didn't spawn, it cannot evict the daemon's planner even if it detects
+  it. Net effect of the naive fix: the CLI would fail-closed and refuse
+  to load the 7B at all whenever the daemon happens to have a planner up
+  — a real regression to ordinary interactive use, not a fix.
+- **This needs a real cross-process signal or arbitration mechanism**
+  (the daemon evicting its own planner on request, a shared lock file
+  richer than a simple flock, or similar) to resolve correctly — which
+  is architecturally adjacent to Track 3 Phase 5a's planned
+  resource-gate authority, not a quick patch to `main.py`. Flagged for
+  Ish/project-architect to decide: accept this as a known residual risk
+  for now (interactive CLI use during an active daemon session already
+  carried some risk before this round; this doesn't make an
+  already-safe path newly unsafe, it just means the new swap guarantee
+  has a real gap), or prioritize a cross-process fix ahead of Phase 5a.
+- **Not fixed here.** Logged per CLAUDE.md rule 8, found by code-reviewer
+  during `NEW-12`'s review pass, not introduced by this round (the
+  underlying direct-`load_primary()`-call pattern in `main.py` predates
+  `NEW-12`'s work — this round's swap logic just makes the gap concrete
+  and newly relevant).
+
 ### [NEW-67] `codey-stop` has its own third, independent block that reads/writes `$DAEMON_DIR/gui-server.pid` — adjacent to the NEW-22 start-side duplication just fixed, but a different (stop-by-PID-file) pattern, not touched this round (Suspected, out of this round's scope)
 - Found while fixing NEW-22's residual "GUI-launch/PID-file/trap-kill"
   duplication in `codey-start` and `codeyOS` (2026-07-31), which was
@@ -2145,6 +2338,37 @@ at each checkpoint) and was not re-run, per the one-cycle-only RAM
 discipline rule. Items 2-4 of the fix directions above (a single named
 port constant, wiring the planner launcher, a real cross-process lock)
 remain open, deferred to a future round.
+
+**Correction, 2026-07-31 (rule 6):** re-checked all three residual items
+before scoping a fix round. **Item 2 is already done** — `utils/config.py:20`
+defines `PRIMARY_SERVER_PORT`, and `loader_v2.py`, `inference.py`, and
+`inference_hybrid.py` all already import and use it (confirmed via grep,
+zero remaining hardcoded `8080` literals in those three files). Unclear
+which prior round did this: not mentioned in any `PROJECT_LOG.md` entry
+found by title/topic search, and not previously reflected here or in
+`WORK_QUEUE.md` — likely landed as a side effect of other work without
+being logged against this finding. **Item 3's docs/install.sh mismatch
+sub-part is also already fixed** — `docs/configuration.md:155` and
+`install.sh:36/41` both already state `qwen2.5-coder-1.5b`, matching
+`utils/config.py:242`'s actual default; the originally-cited wrong
+default no longer exists in either file. **Item 3's actual core ask (wire
+`PLANNER_MODEL_PATH`/`PLANND_SERVER_PORT` into a real launcher) and item
+4 (real cross-process lock) remain genuinely open** — scoped as a Track 2
+task, see `WORK_QUEUE.md`.
+
+**Fix round in progress, 2026-07-31.** Implemented a real cross-process
+flock lock for the model-server port (Item 4) and a real sequential-swap
+planner launcher (`core/planner_loader.py`, Item 3 — planner and primary
+never resident at once, per Ish's decision). **First pass REJECTED by
+code-reviewer**: 3 required bugs (thermal-restart branch bypasses
+`SWAP_GUARD`; `PlannerLoader`'s eviction check isn't actually symmetric
+with `ModelLoader`'s — missing exception handling; a lock-contention unit
+test could spawn a real 7B model, no `Popen` mock) plus a 4th finding
+logged separately and deferred (`NEW-69` — interactive-CLI direct loads
+in `main.py` bypass the swap arbiter entirely; needs a real architectural
+decision, not a quick patch). Fix-up round in progress; not yet
+committed, not yet live-verified. See `NEW-65`/`NEW-66`/`NEW-68`/`NEW-69`
+above for adjacent findings surfaced along the way.
 
 ### [NEW-13] Removing `core/inference.py`'s independent launcher (Round 11, NEW-12 fix, commit `59f4f69`) orphaned `ThermalManager`'s thread-reduction restart mechanism
 - **Status: Resolved (Round 12, commit `0935cbd`).** Wired an equivalent

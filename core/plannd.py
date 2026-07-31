@@ -4,6 +4,14 @@ plannd — Task planner for Codey-OS
 Provides get_plan(): sends a user prompt to the 1.5B model on port 8081
 and returns a numbered step list for the 7B agent to execute.
 
+get_plan() ensures the local 1.5B planner server is loaded before calling
+it, via core/planner_loader.py's PlannerLoader.ensure_planner() — this
+performs a sequential swap with the primary 7B model (core/loader_v2.py):
+the two are never resident at the same time on this device. See
+core/planner_loader.py and core/loader_v2.py's SWAP_GUARD docstring for the
+swap mechanics. Skipped entirely when a remote planner backend
+(CODEY_BACKEND_P / CODEY_BACKEND) is configured — no local server needed.
+
 Port assignments:
   8080 — Qwen2.5-Coder-7B  (agent execution only)
   8081 — Qwen2.5-1.5B       (planning + summarization)
@@ -347,6 +355,25 @@ def get_plan(prompt: str) -> Optional[List[str]]:
             return _get_plan_remote(prompt)
     except ImportError:
         pass
+
+    # ── Ensure the local 1.5B planner is loaded (sequential swap) ─────────
+    # Only reached for the local-backend path (remote returns above). This
+    # unloads the primary 7B model first if needed — see
+    # core/planner_loader.py. Any failure (model file missing, spawn
+    # timeout, a cross-process conflict we can't safely resolve) means no
+    # local planner is available right now: return None immediately so the
+    # caller falls back to unplanned single-task execution
+    # (core/daemon.py's existing fallback, ~line 212), rather than making
+    # the HTTP call below against a server that was never started.
+    try:
+        from core.planner_loader import get_planner_loader
+
+        if not get_planner_loader().ensure_planner():
+            print("[plannd] planner model unavailable — falling back to unplanned execution", flush=True)
+            return None
+    except Exception as e:
+        print(f"[plannd] planner load failed: {e}", flush=True)
+        return None
 
     try:
         from utils.config import PLANNER_MAX_TOKENS, PLANNER_TEMPERATURE
