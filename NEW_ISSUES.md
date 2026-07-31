@@ -2366,9 +2366,198 @@ with `ModelLoader`'s — missing exception handling; a lock-contention unit
 test could spawn a real 7B model, no `Popen` mock) plus a 4th finding
 logged separately and deferred (`NEW-69` — interactive-CLI direct loads
 in `main.py` bypass the swap arbiter entirely; needs a real architectural
-decision, not a quick patch). Fix-up round in progress; not yet
-committed, not yet live-verified. See `NEW-65`/`NEW-66`/`NEW-68`/`NEW-69`
-above for adjacent findings surfaced along the way.
+decision, not a quick patch). See `NEW-65`/`NEW-66`/`NEW-68`/`NEW-69`
+above for adjacent findings surfaced along the way. **Correction (rule 6):
+the fix-up round is committed as `ea14d7f` and has now been live-verified —
+see the block immediately below, which supersedes the "not yet committed,
+not yet live-verified" status this paragraph originally carried.**
+
+**Live-verified, 2026-07-31 (commit `ea14d7f`).** Real, non-mocked, on-device
+test — no `Popen`/`ensure_model` mocking, real 7B and real 1.5B `llama-server`
+processes on this Samsung S24 Ultra device. Full protocol and verbatim output
+in the live-verification session; summary below.
+
+`free -h` before: `total 10Gi, used 4.4Gi, free 244Mi, available 6.1Gi, swap
+used 1.2Gi`. `ps aux | grep llama-server` before: no server process running
+(only the grep itself). After the full test sequence (all phases below plus
+the cross-process contention test), `free -h`: `total 10Gi, used 3.9Gi, free
+2.7Gi, available 6.7Gi, swap used 1.6Gi` and `ps aux | grep llama-server`
+showed nothing but the grep — fully torn down, all three PIDs spawned during
+the session (2680, 2847, 5829) tracked and killed via `.unload()`, none by
+bare `pkill`.
+
+- **Sequential swap (Item 3), single-process, real production call path:**
+  `core.loader_v2.get_loader().ensure_model()` cold-loaded the primary
+  (11.1s) → `core.plannd.get_plan(...)` (the real daemon call path, not a
+  direct `ensure_planner()` call) evicted the primary, cold-loaded the
+  planner, and returned a real plan (`['Create add.py: accepts two
+  arguments, adds them, and prints the result']`) in 35.2s total →
+  `ensure_model()` called again (simulating the daemon's watchdog tick,
+  NEW-66) evicted the planner and reloaded the primary in 10.4s. A
+  0.5s-resolution background sampler (`ps -eo pid,ppid,rss,etime,args`)
+  running continuously through the whole sequence recorded the primary
+  (port 8080) present from t=373.7 to t=385.0, then the planner (port 8081)
+  present from t=385.6 to t=420.0, then the primary again from t=420.6 to
+  t=430.6 — no sample at any 0.5s tick showed both ports bound
+  simultaneously; the gaps between one disappearing and the other appearing
+  are each exactly one sample interval (0.6s), consistent with strict
+  sequential unload-then-load. This is the first live-verification of this
+  NEW-12 round to positively validate its own `ps` filter (confirmed it
+  actually matches a running `llama-server` process, not just an empty
+  grep) rather than repeat the prior round's unproven-filter caveat.
+- **NEW-66 (watchdog eviction), confirmed as documented, not stress-tested:**
+  calling `ensure_model()` shortly (~immediately) after a `get_plan()` call
+  finishes does evict the still-resident planner and reload the primary
+  (10.4s, `ensure_model() -> True`, planner port health-probe `False`
+  afterward) — the mechanism behaves exactly as NEW-66 describes. This
+  single manually-triggered cycle does not confirm or rule out thrashing
+  under NEW-66's actual concern (repeated/back-to-back planning calls under
+  the daemon's real ~30s watchdog); that remains untested.
+- **NEW-68 timing, cross-process flock contention branch specifically
+  tested (this had NOT been exercised in the code-reviewer's unit-test
+  pass) — the largest single term in the ~190s estimate:** a second,
+  separate Python process opened `~/.codeyOS/llama-server-8081.lock` and
+  held `flock(LOCK_EX)` for 70s while, in the test process,
+  `get_planner_loader().ensure_planner()` was called. Verbatim: `"Another
+  process is starting llama-server on port 8081; waiting for it instead of
+  double-spawning..."` → `"Timeout waiting for another process's
+  llama-server on port 8081"` → `ensure_planner() under lock contention ->
+  False, took 60.8s`. No `llama-server` process was spawned during this
+  (confirmed via `ps aux`, zero RAM cost) — the mechanism fails closed
+  under real cross-process lock contention exactly as designed, and the
+  measured ~60.8s matches NEW-68's assumed ~60s ceiling for this term
+  almost exactly (not an overestimate). `ls -la ~/.codeyOS/llama-server-*.lock`
+  confirmed both per-port lock files exist and were created by real spawns
+  during this session, i.e. the flock code path is confirmed to actually
+  execute, not just present in code.
+- **NEW-68 timing, uncontended path — corrected verdict (do not read as
+  "large headroom" in general, see below):** the uncontended `get_plan()`
+  call (35.2s total) is within the 180s daemon budget at the prompt size
+  actually measured. Breaking it down from the planner's own log
+  timestamps: the 1.5B model reached `"listening on
+  http://127.0.0.1:8081"` ~2.1s after process spawn (cold-load-to-health-pass
+  is fast, nowhere near its 60s ceiling) — but of the 35.2s total, 30.7s
+  was prompt eval alone (`prompt eval time = 30678.59 ms / 2465 tokens`),
+  and this is NOT a fixed/small cost: `core/plannd.py`'s `PLANNER_PROMPT`
+  system prompt itself is 9,786 chars (~2,446 tokens at ~4 chars/token),
+  i.e. essentially the entire 2,465-token prompt eval is the fixed system
+  prompt, independent of the actual user request. Separately, the
+  planner's own log shows `"embeddings enabled with n_batch (2048) >
+  n_ubatch (512)"` → `"setting n_batch = n_ubatch = 512 to avoid assertion
+  failure"` — the inherited `--embedding --pooling mean` flag (same
+  unconditional-scope issue as NEW-65) forces the planner's batch size down
+  from 2048 to 512, directly slowing prompt eval to the observed 80.35
+  tokens/sec. **This means every planning call pays a real, non-trivial,
+  largely-fixed ~30s prompt-eval floor (scales further with any additional
+  user-prompt/context length), inflated by a live-reproduced,
+  NEW-65-scoped cause (forced `n_batch` reduction), not swap mechanics.**
+  `get_plan()`'s own HTTP call uses `timeout=60` (`core/plannd.py:414`) —
+  confirmed by reading the constant, not assumed.
+- **Revised verdict on NEW-68:** the uncontended path is within budget at
+  the measured prompt size (35.2s vs 180s), but "large headroom" was an
+  overstatement in an earlier draft of this entry — the dominant term
+  (prompt eval) scales with prompt/context length and is already inflated
+  by the `--embedding`-forced `n_batch=512` cap, so headroom shrinks for
+  any longer planning prompt, independent of contention. Separately, the
+  cross-process lock-contention term (measured live this session, see
+  below) is ~60.8s, matching NEW-68's assumed ~60s ceiling almost exactly
+  (not an overestimate). Combining a live-measured ~60.8s contention-wait
+  with a worst-case-not-observed cold spawn (~60s ceiling) and a
+  longer-than-tested HTTP round-trip (up to the 60s timeout just confirmed
+  above) still plausibly approaches/exceeds the 180s budget under
+  contention plus a longer prompt — this session did not reproduce that
+  full combined worst case (doing so would require two concurrent live
+  model loads, which CLAUDE.md rule 2's one-cycle-at-a-time discipline
+  forbids), so the full ~190s combined scenario remains a code-reasoned,
+  not fully live-reproduced, worst case — but its largest individual term
+  (lock contention) is now live-confirmed at ~60.8s rather than assumed,
+  and the uncontended-path term is now known to be prompt-size-dependent
+  rather than a fixed small cost, which if anything makes the ~190s
+  estimate look less conservative than the original entry implied, not
+  more. **Branch attribution (derived from this session's measurements plus
+  a code read of `start()`'s three contention-branch exits):** of the three
+  ways `start()`'s lock-contention branch can resolve — (a) poll exhausts,
+  return False, ~61s total, under budget (this session's measured path);
+  (b) poll succeeds via reuse mid-wait, True with no spawn, ≤60s HTTP on
+  top, ~120s max, under budget; (c) the lock is released mid-poll
+  (`loader_v2.py:141-144`'s `break`), falls through to a fresh spawn+health-wait
+  (≤60s) *on top of* the poll time already spent, then the HTTP call
+  (≤60s) — only branch (c) can stack past the 180s budget, and it is
+  exactly the branch this session did not exercise live (see the
+  reuse-path scoping note above). NEW-68's ~190s worst case is reachable
+  specifically through branch (c), not through (a) or (b).
+- **Failure-path / fail-closed check (item 4, timeout branch):** a stray
+  HTTP server (not spawned by our loader) answering `GET /health` with 200
+  on the planner's port caused `ensure_model()` to correctly refuse to load
+  the primary (`ensure_model() with stray planner health-responder present
+  -> False`, logged: `"Planner still answering on port 8081 after eviction
+  attempt — not loading primary (would violate sequential-swap)"`) —
+  fail-closed confirmed. Separately (see NEW-71 below), a bare TCP listener
+  on the same port that accepts connections but never answers HTTP did NOT
+  block the primary load — `probe_port_health()` is HTTP-health-based, not
+  bind-based.
+- **Reuse-path check (item 4, precise scope):** with the port-8081 lock
+  held by a separate process AND that same process serving a real `GET
+  /health` 200 responder on 8081, `get_planner_loader().ensure_planner()`
+  returned `True` in 0.0s with the log line `"llama-server already running
+  on port 8081, using existing server"` — i.e. this exercised
+  `LlamaServer.start()`'s early, *unlocked* `_is_port_in_use()` reuse check
+  (`loader_v2.py:96-99`), which succeeded before the flock was ever
+  touched, not the *post-lock-acquisition* "waiting for it instead of
+  double-spawning... Reusing llama-server started by another process"
+  branch (`loader_v2.py:129-140`). That specific branch — reuse after
+  actually waiting on the lock — was not exercised live in this session;
+  triggering it live would require timing a real spawning process's window
+  between lock-acquisition and its own health-check passing, which was not
+  attempted (would need a real concurrent model spawn, one live-load-cycle
+  discipline doesn't easily accommodate a precise race window). Scoping the
+  claim: the *timeout* half of the lock-contention branch (no reuse, fails
+  closed after ~60s) is live-verified this session; the *reuse-after-lock-wait*
+  half of that same branch is not — it remains unit-test-only.
+- **In-process `SWAP_GUARD` contention: not exercised live.** Every phase
+  run this session was single-threaded/sequential in one process — the
+  actual scenario `SWAP_GUARD` exists for (the daemon's event-loop watchdog
+  calling `ensure_model()` while a `run_in_executor` thread is mid-`ensure_planner()`
+  in the *same* process) was never triggered. This remains unit-test-only,
+  not live-verified.
+- **NEW-65 RAM and now performance evidence, measured (code-reviewer's
+  specific ask):** peak RSS observed during this session — primary (7B) max
+  7,471,720 KB (~7.30GB), planner (1.5B) max 2,909,256 KB (~2.84GB). Since
+  these are never resident together, peak combined exposure is bounded to
+  the larger figure — but the planner's own 2.84GB RSS for a ~1GB-on-disk
+  1.5B q4_k_m model is a real, now-measured data point (not "likely
+  benign") for NEW-65's flagged concern about the inherited `n_ctx: 32768`
+  (7B-sized KV-cache) reserving more RAM for the planner than a value sized
+  for it would; the planner's own log also printed the verbatim `"7B model:
+  mmap=enabled, mlock=disabled"` label during its own (1.5B) spawn,
+  live-confirming the mislabeled/unconditional-scope half of NEW-65 too.
+  **New in this session:** the same unconditional-scope root cause also has
+  a measured *performance* cost, not just a memory-labeling one — the
+  inherited `--embedding` flag forces `n_batch` down from 2048 to 512 for
+  the planner (see NEW-68 discussion above), directly slowing every
+  planning call's prompt-eval phase. Not fixed here (still out of this
+  round's scope per NEW-65's own writeup) — this entry upgrades the
+  code-reviewer's "not accepted as likely benign without measurement" note
+  to measured-and-confirmed-non-trivial on both RAM and performance axes,
+  still deferred.
+
+**Verdict: the sequential-swap arbiter (Item 3) and the real cross-process
+flock lock (Item 4) work as designed under real, non-mocked conditions for
+every branch actually exercised** — cold-load swap in both directions, the
+watchdog-eviction simulation (NEW-66's mechanism), the lock-contention
+timeout/fail-closed branch (measured ~60.8s, no double-spawn, zero RAM
+cost), and the early unlocked reuse-before-lock branch. **Two branches
+remain unit-test-only, not live-verified: the post-lock-wait
+"Reusing..."-after-contention branch, and in-process `SWAP_GUARD`
+contention (the daemon-watchdog-vs-executor-thread race this guard exists
+for).** NEW-12 is **code-complete and live-verified for the branches listed
+above**; the two remaining branches are a real, narrow residual gap in live
+verification, not a known failure — flagging them explicitly rather than
+implying full coverage. Adjacent findings (NEW-65/66/68/69/70, plus
+NEW-71/72/73 below) remain open/deferred exactly as previously logged —
+this live-verification session did not close any of them, only added live
+evidence to NEW-65/66/68.
+
 
 ### [NEW-13] Removing `core/inference.py`'s independent launcher (Round 11, NEW-12 fix, commit `59f4f69`) orphaned `ThermalManager`'s thread-reduction restart mechanism
 - **Status: Resolved (Round 12, commit `0935cbd`).** Wired an equivalent
@@ -4366,3 +4555,147 @@ above for adjacent findings surfaced along the way.
   it asked for already exists. Confirmed by directly reading the file,
   not inferred.
 - **Original issue (for history)**: No explicit privacy policy document
+
+## Found during NEW-12 live-verification session, 2026-07-31 — NOT fixed, logged only
+
+### [NEW-71] `probe_port_health()` (and by extension both `_evict_*_and_confirm_free()` eviction checks) is HTTP-health-based, not bind-based — a non-HTTP-responding process holding the other model's port does not block a load (Confirmed, live-reproduced)
+- **Where found:** NEW-12 live-verification session, failure-path sanity
+  check (task item 4).
+- **Core finding:** `core/loader_v2.py:probe_port_health()` determines
+  "is the other model's server actually gone" purely via `GET /health`
+  returning 200. A bare TCP listener bound to the planner's port
+  (`socket.bind()` + `listen()`, accepting connections but never speaking
+  HTTP) does NOT register as "still there": `probe_port_health(planner
+  port) = False` even while the port is genuinely bound by something else.
+  Consequence, live-reproduced: with that bare listener bound to port 8081,
+  `get_loader().ensure_model()` proceeded to load the primary 7B anyway —
+  `ensure_model() with bare TCP listener (non-HTTP) on planner port ->
+  True`. Contrast case (also live-tested, same session): a stray process
+  that *does* answer `GET /health` with 200 correctly blocks the load
+  (`ensure_model() with stray planner health-responder present -> False`).
+- **Impact:** low-likelihood in practice (a real `llama-server` always
+  answers `/health` once up; this requires something else entirely — a
+  half-started process, a different service, a manual `nc -l` — to be
+  squatting on 8080/8081 without speaking HTTP), but it is a real gap in
+  the "never both resident" guarantee's own verification step: the check
+  can be fooled by exactly the kind of half-alive process state this
+  sequential-swap mechanism exists to guard against (e.g. a `llama-server`
+  that has bound its port but not yet reached its HTTP-serving stage during
+  its own startup window would also read as `probe_port_health() == False`
+  and NOT block a concurrent load on the other model's side — a narrower,
+  real version of the same gap, not just the contrived bare-socket case).
+- **Not fixed here.** Logged per CLAUDE.md rule 8, found during live
+  verification (not part of NEW-12's fix scope). Fix direction for a future
+  round: layer a plain TCP-connect check ("is anything bound to this port
+  at all") ahead of/alongside the HTTP-health check in `probe_port_health()`
+  callers that need "confirm truly free" semantics (the eviction-confirm
+  methods), distinct from callers that need "confirm truly healthy and
+  serving" semantics (existing health-check use elsewhere) — conflating the
+  two into one function name is part of why this gap exists.
+
+### [NEW-72] `LlamaServer._spawn_locked()`'s log file (`CODEY_STATE_DIR/llama-server.log`) is a single shared path for both the primary (8080) and planner (8081) servers — each spawn truncates (`open(log_file, "w")`) the other's log (Confirmed, live-reproduced)
+- **Where found:** NEW-12 live-verification session, while snapshotting
+  logs between swap phases for evidence.
+- **Core finding:** `core/loader_v2.py:_spawn_locked()` (~line 252) always
+  writes to `CODEY_STATE_DIR / "llama-server.log"`, with no per-port
+  suffix, regardless of whether the instance is the primary (port 8080,
+  `core/loader_v2.py`) or the planner (port 8081,
+  `core/planner_loader.py`, which reuses `LlamaServer`). Live-reproduced:
+  copying this log file immediately after each of the three load phases in
+  this session (primary cold-load, planner cold-load, primary reload)
+  showed each snapshot's first lines were the *most recent* spawn's command
+  line only — the primary's phase-1 log was fully overwritten by the
+  planner's phase-2 spawn, and the planner's phase-2 log was fully
+  overwritten by the primary's phase-3 reload. Under the sequential-swap
+  design this NEW-12 round introduces, this now happens on *every single
+  swap*, not just incidentally — meaning post-mortem debugging a failed
+  swap (e.g. "why did the cold load hang/fail") can no longer rely on this
+  log once the *next* swap has occurred.
+- **Suspected, not live-reproduced (separate from the Confirmed finding
+  above):** during the failure-diagnosis window inside `_spawn_locked()`
+  itself (it reads back this same log file on a startup timeout to include
+  in its own error message, ~line 280-286) there is a plausible,
+  reasoned-from-code risk of reading the wrong model's partial log if a
+  concurrent process/lock-contention retry is spawning on the other port
+  at the same moment — this specific race was not actually triggered or
+  observed in this session, only the always-happens truncation-on-every-
+  swap finding above was.
+- **Not fixed here.** Logged per CLAUDE.md rule 8, found during live
+  verification (not part of NEW-12's fix scope). Fix direction for a future
+  round: suffix the log filename by port (`llama-server-{port}.log`),
+  mirroring the lock file's own already-correct per-port naming
+  (`llama-server-{port}.lock`, this same round's NEW-12 fix) — the log file
+  should have gotten the same treatment and evidently didn't.
+
+### [NEW-73] `core/plannd.py`'s "plan may be truncated" warning heuristic (last step doesn't end in punctuation) fires on a real, live-observed plan that was NOT actually token-limit truncated (Suspected — plausible false positive, live-observed once, not exhaustively tested)
+- **Where found:** NEW-12 live-verification session, `get_plan()` call in
+  the swap-test sequence.
+- **Core finding:** `core/plannd.py:~205-211` prints `"[plannd] plan may be
+  truncated — consider increasing max_tokens"` whenever the last parsed
+  step doesn't end in `.!?)` and its last character is alphabetic. Live
+  run: `get_plan("Write a one-line python function that adds two
+  numbers.")` returned `['Create add.py: accepts two arguments, adds them,
+  and prints the result']` and printed this exact warning — but the
+  server's own timing log for that same completion shows `eval time =
+  803.68 ms / 18 tokens`, i.e. generation stopped after only 18 tokens
+  against `PLANNER_MAX_TOKENS = 1024` (`utils/config.py:259`) — nowhere
+  near the configured token budget, meaning this was very likely a normal
+  stop-token/natural-completion end, not truncation. The heuristic
+  (ends-in-punctuation) doesn't actually check token count against the
+  budget, so it can't distinguish "stopped early because the model just
+  didn't add a trailing period" from "stopped because it ran out of
+  tokens" — the warning's own suggested remedy ("consider increasing
+  max_tokens") would not have helped in this observed case.
+- **Not fixed here.** Logged per CLAUDE.md rule 8, found incidentally
+  during NEW-12 live-verification (unrelated to the swap mechanism itself
+  — the plan's content/generation was correct, only the diagnostic warning
+  around it looks like a plausible false positive). Only observed once in
+  this session — filed as Suspected, not Confirmed, since a single
+  instance doesn't establish the heuristic is wrong in general, just that
+  it produced a misleading warning in this specific real case. Fix
+  direction for a future round: compare the actual completion token count
+  returned by the server against `max_tokens`/`PLANNER_MAX_TOKENS` directly
+  instead of inferring truncation from trailing punctuation.
+
+### [NEW-74] `PlannerLoader`/`ModelLoader` report `is_loaded()`/`get_status()` as `True`/"loaded" for a server they adopted via the early port-reuse check, not one they spawned — and `LlamaServer.stop()` silently no-ops on that adopted state (Confirmed, live-reproduced)
+- **Where found:** NEW-12 live-verification session, the reuse-path check
+  (see the NEW-12 write-up above).
+- **Core finding:** when `LlamaServer.start()` hits its early, unlocked
+  `_is_port_in_use()` reuse branch (`loader_v2.py:96-99` — "port already in
+  use, reuse the existing server"), it sets `self._started = True` and
+  returns `True` without ever setting `self.process` (no `Popen` call
+  happened, since it adopted someone else's already-healthy server).
+  Live-reproduced: after this branch fired (a separate process's server
+  answering `/health` on port 8081), `get_planner_loader().is_loaded()` ->
+  `True` and `get_planner_loader().get_pid()` -> `None`, and the loader's
+  own log line read `"✓ Loaded planner model
+  (qwen2.5-coder-1.5b-instruct-q4_k_m.gguf)"` — success-logged and
+  status-reported as loaded, for a process this loader did not spawn and
+  cannot identify. Traced the consequence: `LlamaServer.stop()`
+  (`loader_v2.py:307-336`) is `if self.process: ... finally: self.process =
+  None; self._started = False` — with `self.process is None` in this
+  adopted state, the entire method body (including the `finally` clause)
+  is skipped, so calling `unload()` on a loader in this state is a silent
+  no-op: `_loaded` stays `True`, the adopted server keeps running, and the
+  caller gets no error or signal that nothing happened.
+- **Not a live safety hole in the sequential-swap guarantee itself** — the
+  swap arbiter's actual eviction-confirmation step is
+  `probe_port_health()`, not this loader's own `_loaded`/`is_loaded()`
+  flag (see `_evict_planner_and_confirm_free()`/
+  `_evict_primary_and_confirm_free()` in `core/loader_v2.py`/
+  `core/planner_loader.py`), and this session's own Test A already showed
+  that check correctly fails closed when something is genuinely still
+  answering on the other port. This finding is about the loader's own
+  self-reported status/unload semantics being wrong in this specific
+  adopted-server state, not about the swap decision itself being wrong.
+- **Not fixed here.** Logged per CLAUDE.md rule 8, found during live
+  verification (not part of NEW-12's fix scope). Adjacent to NEW-69's
+  cross-process/foreign-server theme, but distinct: NEW-69 is about a
+  bypass path never touching the arbiter at all, this is about the
+  arbiter's own port-reuse branch producing a loader whose own
+  status/unload methods lie about what it actually controls. Fix
+  direction for a future round: either don't set `_started = True`/report
+  `is_loaded() == True` for an adopted-not-spawned server (track "adopted"
+  as a distinct state from "spawned by us"), or make `stop()`/`unload()`
+  at least log a warning when asked to stop a loader that has no
+  `self.process` to act on, instead of a silent no-op.
