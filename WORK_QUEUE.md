@@ -863,13 +863,48 @@ pre-injected — reported, not resolved either way; injection mechanism
 caveat noted in `NEW_ISSUES.md`. See `NEW_ISSUES.md`'s new "`NEW-30`
 third pass" and `NEW-61` entries for full detail.
 
-**Status: the `prompts/system_prompt.py` diff (code-reviewer approved,
-now live-verified on its anchor mechanism) remains uncommitted — commit
-decision pending directly with Ish, not part of this pipeline.** This
-closes out the live-verification blocker on the 7B coder system-prompt
-round for its anchor question. Remaining open items from this round,
-unscoped: `NEW-49` (needs more than n=1 to close), `NEW-52` (deferred,
+**Status: COMMITTED 2026-07-31 (`d410b38`), on Ish's direct instruction,
+bundled with `NEW-34`'s plugin deletion in one commit.** This closes out
+the live-verification blocker on the 7B coder system-prompt round for
+its anchor question. Remaining open items from this round, unscoped:
+`NEW-49` (needs more than n=1 to close), `NEW-52` (deferred,
 `orchestrator.py` write_file-hint hardcoding), `NEW-53`/`NEW-54`
 (tool-completeness gaps), `NEW-61` (new, JSON-repair single-quote bug),
 Case 2's control deviation (unresolved). `NEW-55` (the crash) was already
 fixed and committed separately (commit `6859745`).
+
+**Follow-up round, 2026-07-31 — `NEW-57`/`NEW-62` fixed, committed
+(`4625e43`).** Ish asked for a desk investigation into whether a
+mechanism exists that loads file content directly into the model's
+context and retains it for a few turns before releasing it (motivated by
+the `NEW-30` third pass's case 2 control behaving unexpectedly). Found:
+yes, `core/memory_v2.py`'s `WorkingMemory` does exactly that
+(`LRU_EVICT_AFTER = 3` "turns" — but a "turn" there means one
+`run_agent()` call, i.e. one plan step, not one model response within a
+step's read/patch/done loop). Tracing who populates it surfaced two real
+bugs:
+- `NEW-57` **re-corrected back to Confirmed** — an earlier correction
+  claiming `core.context` and `core.memory_v2` are separate stores was
+  itself wrong; `core/context.py:11` imports the identical
+  `core.memory_v2.memory` singleton. So `write_file`/`patch_file` DID
+  already register into the same store `_get_file_block()` reads from —
+  `read_file` was the only branch that didn't. Fixed: `read_file` now
+  mirrors the write branch's `_mem.load_file()`/`_mem.touch_file()` calls.
+- `NEW-62` (new) — `detect_filenames()`'s regex silently stripped the
+  leading dot off dot-prefixed path segments (e.g.
+  `.live_verify_scratch/case1_anchor.py`, the very scratch dir the
+  `NEW-30` third pass used), failing the existence check and silently
+  skipping auto-load — meaning that pass's "genuinely unread file" framing
+  held only by accident of this bug, not by design. Fixed, plus a
+  bonus pre-existing bug the implementer caught along the way (`json`/`js`
+  extension-alternation shadowing in the same regex).
+
+Both fixes implementer-built, code-reviewer-approved (one non-blocking
+warning turned into a new finding, `NEW-64` — `read_file`'s registration
+has no size cap unlike the write branch, could evict more-useful resident
+files on a large read), full suite green (271/271) before and after, no
+model load needed (pure deterministic code, not model-behavior-dependent).
+One more residual finding logged, not fixed: `NEW-63` (regex still can't
+handle a mid-segment dot like Android's own `com.termux` path segment —
+confirmed not a regression, pre-existing pattern fails identically).
+Committed together with the `NEW_ISSUES.md` updates as `4625e43`.

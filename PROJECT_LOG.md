@@ -5,6 +5,59 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-31 — `NEW-57`/`NEW-62` fixed and committed (`4625e43`): read_file now feeds working memory; detect_filenames handles dot-prefixed paths
+
+Ish asked for a desk investigation (no coding yet) into whether a
+mechanism exists that loads a file's content directly into the model's
+context and keeps it there for a few turns before releasing it —
+motivated by the `NEW-30` third pass's control case behaving
+unexpectedly. Investigation confirmed the mechanism is real
+(`core/memory_v2.py`'s `WorkingMemory`, `LRU_EVICT_AFTER = 3`, where one
+"turn" = one `run_agent()` call = one plan step, not one model response
+within a step), and tracing who populates it surfaced two real bugs.
+
+**`NEW-57` re-corrected back to Confirmed.** An earlier same-day
+correction had claimed `core.context` and `core.memory_v2` are separate
+stores, and that neither `read_file` nor `write_file`/`patch_file`
+populate the layered-prompt "Loaded Files" block. That claim was itself
+wrong — `core/context.py:11` imports the identical `core.memory_v2.memory`
+singleton (`get_memory()` is idempotent, `memory = get_memory()` binds it
+once at import). `write_file`/`patch_file` already registered into this
+exact store (`core/agent.py:1699-1706`); `read_file` was the only branch
+that didn't. The original asymmetry framing was right all along.
+
+**`NEW-62` (new).** `core/context.py`'s `detect_filenames()` regex
+silently stripped the leading dot off dot-prefixed path segments (e.g.
+`.config/settings.json`), failing the subsequent existence check and
+silently skipping auto-load. Notably, this is the same bug that made the
+`NEW-30` third pass's own `.live_verify_scratch/` fixture directory dodge
+auto-load — meaning that pass's "genuinely unread file" framing held by
+accident of this bug, not by design.
+
+Ish asked for both to be fixed, not just logged. Delegated to
+implementer → code-reviewer per the normal pipeline (pure deterministic
+code, no model-behavior dependency, so no live-verifier pass needed).
+implementer fixed both, plus caught and fixed a third, independent
+pre-existing bug in the same regex (`json`/`js` extension-alternation
+shadowing — `settings.json` was matching as `settings.js`). Full test
+suite green (271/271) before and after both fixes. code-reviewer
+independently re-ran every regex test case and the full suite rather
+than trusting the implementer's report, approved with one non-blocking
+warning (`read_file`'s new registration has no size cap unlike the write
+branch it mirrors — file reads can be up to 10MB vs. the write branch's
+small model-generated content, risking eviction of more-useful resident
+files). Logged that warning as `NEW-64`. One more residual finding
+logged, not fixed: `NEW-63` (the fixed regex still can't handle a
+mid-segment dot like Android's own `com.termux` path segment — confirmed
+not a regression, the pre-existing pattern fails identically on the same
+input).
+
+Committed as `4625e43`, bundled with the `NEW_ISSUES.md` doc updates
+(`NEW-57` correction, `NEW-62`/`NEW-63`/`NEW-64` new entries) and the
+code-reviewer's own agent-memory note.
+
+---
+
 ## 2026-07-31 — `NEW-30` third live pass: FIXED on its actual mechanism (read-before-patch), live-verified A/B 3/3 vs 0/3; one new finding `NEW-61`
 
 Ish greenlit a third live-verifier pass on the uncommitted `NEW-30` fix
