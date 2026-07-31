@@ -1572,7 +1572,7 @@ remain open, deferred to a future round.
     whole duplicate function instead of a targeted edit; that is tracked
     separately as NEW-7 below.
 
-### [NEW-7] `[Recursive]` planner path may be prompted to synthesize whole functions rather than targeted patches (Confirmed, reproducible, ~67% failure rate on the docstring-insertion prompt style — NOT recursion-specific — still not fixed)
+### [NEW-7] `[Recursive]` planner path may be prompted to synthesize whole functions rather than targeted patches (Confirmed, reproducible, NOT recursion-specific — prompt fix landed `0026565`, Round 21 live-verified with mixed result: 67%→50% on the narrow old_str-grounding metric but 67%→67% (unchanged) on the baseline's own task-completion metric, n=6 small sample, plus a new uncharacterized wrong-function-targeting failure mode the fix does not address — still open)
 - **Confidence: Suspected.** Observed once, in the same live session that
   reproduced NEW-2 above; not yet isolated from NEW-2's retry-surfacing
   gap or confirmed across multiple prompts.
@@ -1946,6 +1946,288 @@ remain open, deferred to a future round.
   out-of-scope findings surfaced this round (a `NEW-16` coverage gap on
   cancelled patches, and a Suspected edit-completeness issue on the
   rename prompt).
+
+- **Round 21 (2026-07-30) — live-verification pass of the `old_str`
+  prompt fix committed at `0026565` (`prompts/system_prompt.py`,
+  `prompts/critique_prompts.py`), code-reviewer-approved on static
+  grounds only. This round re-ran the exact same "Add a docstring to the
+  shutdown function in main.py." prompt against the NEW prompt to
+  compare against the pre-fix 67% (4/6) baseline.**
+  - **Record correction (CLAUDE.md rule 6):** `main.py` has grown
+    substantially since Round 14/20 (this session's NEW-10/NEW-25 work
+    touched it) — now 68174 chars vs. the smaller file the original
+    baseline was drawn against. `shutdown()` itself is now ~33 lines
+    (`main.py:126-158`, includes a daemon-aware early return and a
+    fallback PID-scoped kill path), not the ~15-line body Round 14/20
+    described. `def shutdown():` remains a real, unique substring
+    (`grep -c` = 1), so the fix's own worked example (which uses this
+    exact string) is still valid against current file content.
+  - **Confirmed the fix text was actually exercised on the tested path
+    (closes a gap the original round plan didn't cover):** direct static
+    checks, no model load — `python3 -c "from prompts.system_prompt
+    import get_system_prompt; print('old_str MUST BE REAL FILE CONTENT'
+    in get_system_prompt())"` → `True`; and, more importantly, calling
+    the actual function the recursive draft phase uses,
+    `prompts.layered_prompt._build_draft_prompt('Add a docstring to the
+    shutdown function in main.py.')`, and confirming the same string is
+    present in its returned 12494-char output → `True`. So the new
+    PATCH_FILE instructions were genuinely present in the system prompt
+    sent to the model on every one of this round's 6 draws, not just in
+    the underlying constant — the "50%" result below reflects the fix
+    being exercised, not a false read of a prompt path that never
+    reached the model. The critique-phase half of the same commit
+    (`prompts/critique_prompts.py`'s new checklist item #8, "is old_str
+    empty?") was independently confirmed present too — calling
+    `prompts.layered_prompt._build_critique_prompt()` directly with a
+    sample empty-`old_str` `patch_file` draft shows the item rendered
+    verbatim in the critique prompt. So both halves of `0026565` were
+    live-exercised on every draw, not just the draft-phase half — which
+    sharpens draw 3's significance: the critique model saw the new
+    "rate below 5/10 if old_str is empty" instruction and still rated
+    that turn "Accepted — quality 8/10," i.e. the critique-side guard
+    the fix added did not catch the exact failure it was designed to
+    catch, in this instance.
+  - **Per-draw write/no-write independently confirmed via the session's
+    own `/undo main.py` output** (not just the final `git status`):
+    `/undo` returned `[ERROR] No history for main.py. Was it edited this
+    session?` after draws 1, 3, and 5 (confirming no write occurred —
+    consistent with each of their `patch_file` calls being rejected by
+    the tool before ever reaching disk), and returned `Restored main.py
+    to version from <timestamp>` (confirming a write DID occur) after
+    draws 2, 4, and 6 — exactly matching the table's grounding-failure
+    column and independently corroborating that draw 4 (wrong function)
+    really did land a file change, distinct from draws 1/3/5 which
+    never touched disk at all.
+  - **Methodology note — two harness gaps found and corrected before
+    valid data could be collected, both logged here for future rounds:**
+    1. A first attempt (6 draws, `/clear` between each, single `y`
+       answer per draw for the anticipated `Apply patch?` confirm)
+       produced only 3 completed draws before hitting stdin EOF. Cause:
+       every successful patch triggers a SECOND, previously
+       undocumented confirm — `core/agent.py:694`'s
+       "Stage and commit ONLY the file(s) touched this turn?" — which
+       consumed subsequent scripted lines out of order, cascading
+       misalignment. It also caused 3 unintended real commits
+       (`608d2d5`, `6026e84`, `840a436`) of accumulating duplicate
+       docstrings in `shutdown()`, since draws also weren't reset
+       between each other. These 3 commits were verified to touch only
+       `main.py` (`git diff 0026565..HEAD --stat`) and were cleanly
+       reverted via `git reset --hard 0026565` before re-running.
+    2. Corrected second attempt used `--yolo` (disables the `Apply
+       patch?` confirm entirely, a documented CLI flag, not a
+       process-lifecycle change) plus `/undo main.py` after each draw
+       (verified no-confirm-required, per `core/filehistory.py:49
+       undo()`) to reset file state between draws within the single
+       model-load session, and answered `n` to the remaining
+       "Stage and commit" confirm to avoid creating unwanted commits.
+       This ran cleanly to completion; `git status --short main.py` was
+       empty after the session, confirming `/undo` fully reset the file
+       each time.
+  - **6 of 6 planned draws completed, single model-load session
+    (`python3 main.py --no-resume --yolo`, default env = recursive
+    path), verbatim `old_str` observed per draw (via clean-log
+    extraction) and independently confirmed against real `main.py`
+    content with a direct Python substring-count check:**
+
+    | # | `old_str` emitted | Real substring of `main.py`? | Grounding failure? | Notes |
+    |---|---|---|---|---|
+    | 1 | `"def run_agent():"` | **No — 0 occurrences anywhere in main.py** (`run_agent` is only imported/called there, never defined in that file) | **Yes** — hallucinated, non-existent string | Also targeted the wrong function entirely (not `shutdown`) |
+    | 2 | `"def shutdown():"` | Yes — real, unique (count=1) | No | Correct patch, correct target, applied cleanly |
+    | 3 | `""` (empty) | N/A | **Yes** — classic empty-`old_str` bug, exact reproduction | `new_str` attempted to reconstruct nearly the whole file from memory via `patch_file` (NEW-15-adjacent escalation pattern, but through `patch_file` not `write_file`) |
+    | 4 | `"def parse_args():"` | Yes — real, unique (count=1) | No (grounding is correct) | But wrong target function (not `shutdown`) — a distinct failure mode, see below |
+    | 5 | `"def shutdown():\n    pass"` (attempt 1); retry in same turn: `"def shutdown():\n    \"\"\"Gracefully stop the model server and save session state.\"\"\"\n    pass\n"` (attempt 2) | No — 0 occurrences, both attempts | **Yes** — hallucinated one-line-stub assumption, same variant as original Round 14's a1/b2, and the retry compounds the hallucination rather than correcting it | |
+    | 6 | `"def shutdown():"` | Yes — real, unique (count=1) | No | Correct patch, correct target, applied cleanly |
+
+  - **Two different metrics give two different before/after readings —
+    both are reported here, per CLAUDE.md rule 6 (do not lead with only
+    the favorable one):**
+    - **Narrow `old_str`-grounding-only metric** (is `old_str`
+      empty/hallucinated vs. real file content, NEW-7's own stated
+      definition): **3/6 (50%)** this round — draws 1, 3, 5 — vs. the
+      pre-fix baseline's **4/6 (67%)** (Round 14+20 combined). On this
+      narrow metric there is a modest reduction.
+    - **The baseline's own actually-stated metric** — "failed to
+      produce a valid patch on the docstring-insertion prompt" (Round
+      14's exact wording) — i.e. did the turn produce the requested
+      docstring edit to `shutdown()` at all: **4/6 (67%)** this round —
+      draws 1, 3, 4, 5 (draw 4 produced a valid, correctly-grounded
+      patch, but to the wrong function, so it still failed to deliver
+      the requested edit) — **identical to the pre-fix 67% baseline, no
+      measurable improvement on this reading.**
+    - The two metrics coincided in the original baseline (every
+      grounding failure was also a task failure, and vice versa) but
+      diverge post-fix because of the new wrong-function-targeting mode
+      (draw 4). **Bottom line: improved on the narrow grounding metric
+      (67%→50%, n=6, small sample); unchanged on the task-completion
+      metric the baseline itself was originally stated in (67%→67%).**
+      This is a genuinely mixed result, not a clean before/after win —
+      the specific grounding bug the fix targets (empty `old_str`, or
+      hallucinated-stub `old_str` for `shutdown()` itself) still
+      reproduced in half of this round's draws, including one case (draw
+      3) that is arguably a more severe variant than anything in the
+      original baseline — an empty-`old_str` `patch_file` call whose
+      `new_str` attempts a near-complete file reconstruction.
+  - **New failure mode surfaced this round, NOT part of the original
+    67% baseline or its two grounding-failure variants: wrong-function
+    targeting.** Draws 1 and 4 (2/6, 33%) picked an entirely different
+    function (`run_agent`, `parse_args`) instead of `shutdown` — draw 4
+    did so with a real, correctly-grounded `old_str` (so it does not
+    count as a grounding failure by NEW-7's own definition), meaning
+    **NOT ALL failures this round were addressed even in principle by
+    this fix**, since the fix's instructions are entirely about
+    `old_str` verbatim-matching, not about correctly identifying which
+    function the user meant. This is logged as a new, distinct
+    Suspected finding (see `NEW-7`-adjacent note below) — plausibly
+    correlated with `main.py`'s substantial growth since the original
+    baseline (more candidate functions to confuse with `shutdown`), but
+    not confirmed against a controlled comparison this round.
+  - **Sample size caveat:** 6 draws (this round) vs. 6 draws (Round
+    14+20 combined baseline) is a small sample either side — a
+    17-percentage-point difference (67% → 50%) on n=6 is directionally
+    suggestive of improvement but not statistically strong. Do not
+    overclaim a confirmed fix from this alone.
+  - **`--yolo` harness-difference caveat, checked and confirmed benign
+    for prompt content (not fully equivalent for retry dynamics):** the
+    pre-fix 67% baseline (Round 14+20) ran WITHOUT `--yolo`; all 6 of
+    this round's draws ran WITH it (adopted to fix the confirm-cascade
+    harness gap — see methodology note above and `NEW-45`). Checked
+    `grep -n "yolo" core/agent.py`: the `yolo` flag is threaded only
+    into `shell()` calls and recursive `run_agent()` follow-up calls
+    (auto-fix-and-retry paths) and `run_queue()` — it is never passed
+    into `build_recursive_prompt()`/`build_system_prompt()` or any
+    prompt-construction call, so it does not alter what the model is
+    shown. It is NOT apples-to-apples in one respect, though: under the
+    baseline's confirm-gated config, a patch reaching the `Apply patch?`
+    confirm could be `[CANCELLED]` by a lost/EOF-defaulted answer (the
+    exact harness gap NEW-7's own Round 20 addendum documents for `b4`),
+    which could provoke a different retry pattern than `--yolo`'s
+    immediate-apply. This round's draws never hit that ambiguity since
+    `--yolo` applies successful patches immediately — a real, disclosed
+    procedural difference from the baseline, though not one expected to
+    change whether `old_str` itself is grounded correctly.
+  - **Path coverage:** only the recursive (default env) path was run
+    this round, per this task's instructions (the recursive-vs-plain
+    question was already settled as "not recursion-specific" in Round
+    14). The plain path (`CODEY_RECURSIVE=0`) was not re-tested against
+    the new prompt this round — if a future round wants a stronger
+    signal, running plain-path draws too would help, but is not required
+    to close this task.
+  - **RAM discipline note (all real, verbatim):**
+    - Pre-session-A (first, discarded due to methodology gap #1 above):
+      884Mi free / 4.3Gi available, swap 3.0Gi used / 9.0Gi free.
+    - Post-teardown after discarded attempt: 4.8Gi free / 7.1Gi
+      available, swap 1.8Gi used / 10Gi free — full clean recovery, `ps
+      -eo pid,ppid,comm | grep -E "python|llama"` empty.
+    - Pre-session-A2 (corrected `--yolo` run): 4.5Gi free / 7.0Gi
+      available, swap 1.7Gi used / 10Gi free.
+    - Mid-session-A2 (sustained across all 6 draws): free RAM oscillated
+      77Mi–399Mi, available 1.8Gi–2.3Gi, swap 2.9Gi–4.0Gi used
+      throughout — elevated and tight but `llama-server` RSS stayed in
+      the multi-GB range the whole time (checked directly via `ps aux`,
+      RSS 3.8GB at one check, CPU 343%, actively computing) — **no
+      RSS-collapse-toward-zero thrashing signature observed at any check
+      point**, unlike Round 14's b2. Session ran to completion without
+      intervention.
+    - Post-teardown after session-A2: 4.8Gi free / 6.5Gi available, swap
+      2.0Gi used / 9Gi free. `ps -eo pid,ppid,comm | grep -E
+      "python|llama"` → empty. Full clean recovery, no orphaned
+      processes.
+  - **Status after this round: mixed result, not a confirmed fix —
+    inconclusive-to-negative on the metric the baseline itself was
+    stated in.** The fix's PATCH_FILE instructions were confirmed
+    present in the actual rendered draft prompt sent to the model on
+    every draw (see above), so this is a genuine measurement of the
+    fix, not a null test. On the narrow `old_str`-grounding-only metric,
+    failure rate dropped from 67% to 50% (small-sample, directionally
+    positive, not statistically strong). But on the baseline's own
+    originally-stated metric — "failed to produce a valid patch on the
+    docstring-insertion prompt" — the rate is unchanged at 67%, because
+    a new failure mode (wrong-function targeting, draws 1 and 4) that
+    the fix does not address even in principle replaced one instance of
+    the old failure mode. The fix's specific worked example
+    (`shutdown()` as a real, unique substring) remains valid against
+    current `main.py`, and the fix did not eliminate the grounding bug
+    it targets (draws 1, 3, 5 still failed, including a more severe
+    near-full-file-reconstruction variant in draw 3). `NEW-7` should
+    **stay open** — not marked fully done — pending either a stronger
+    prompt-engineering iteration (e.g., explicitly instructing the model
+    to `read_file` and locate the exact target function by name before
+    drafting, addressing both the grounding and wrong-target failure
+    modes together) or a larger-sample re-run to firm up either signal.
+    `WORK_QUEUE.md` updated accordingly.
+
+## Found during Round 21 (NEW-7) live-verification pass, 2026-07-30 — NOT fixed, logged only
+
+### [NEW-44] `patch_file` requests can target a plausible-but-wrong function instead of the one named in the user's prompt, even when `old_str` is a real, correctly-grounded substring of the file (Suspected)
+
+- **Confidence: Suspected.** Observed in 2 of 6 draws in a single live
+  session (Round 21, NEW-7 live-verification, 2026-07-30) — not yet
+  isolated across multiple sessions/prompts, and not yet confirmed
+  whether it correlates with `main.py`'s size/complexity or is a
+  broader base-model tendency.
+- **Where found:** Both draws sent the identical prompt "Add a docstring
+  to the shutdown function in main.py." (recursive path, default env,
+  `python3 main.py --no-resume --yolo`). Draw 1 emitted `old_str:
+  "def run_agent():"` — a string that does not exist anywhere in
+  `main.py` (confirmed via direct Python `content.count()`, 0
+  occurrences; `run_agent` is only imported/called in that file, never
+  defined there). Draw 4 emitted `old_str: "def parse_args():"` — a
+  real, unique substring of `main.py` (`main.py:30`), so `patch_file`
+  would have applied it cleanly, but `parse_args` is not the function
+  the user asked to edit.
+- **Why this is distinct from NEW-7's own `old_str`-grounding
+  definition:** NEW-7 (see above) is specifically about whether
+  `old_str` is empty/hallucinated vs. real file content. Draw 4's
+  `old_str` is real and correctly grounded by that definition — the
+  model successfully quoted real file content verbatim, it just quoted
+  the wrong function's real content. This means the `0026565` prompt
+  fix (which only instructs verbatim-matching, not target-function
+  identification) does nothing for this failure mode, even in
+  principle.
+- **Not yet investigated:** whether this correlates with `main.py`
+  having grown substantially since NEW-7's original baseline (68174
+  chars now, many more candidate function definitions for the model to
+  confuse with `shutdown`), whether it's specific to this prompt style,
+  or how often it happens on smaller/simpler files. Needs a dedicated
+  scoping pass with multiple live reproductions, similar to how NEW-7
+  itself was characterized, before a fix is scoped.
+
+### [NEW-45] `core/agent.py:694`'s post-edit "Stage and commit" confirm is a second, undocumented confirmation beyond `patch_file`'s own "Apply patch?" confirm — non-interactive/scripted test sessions that only account for the first confirm will misalign and can produce unintended real commits (Confirmed)
+
+- **Confidence: Confirmed.** Directly reproduced and root-caused during
+  Round 21 (NEW-7 live-verification, 2026-07-30).
+- **Where found:** A scripted 6-draw REPL session (piped stdin, one `y`
+  answer per draw for the anticipated `Apply patch?` confirm) only
+  completed 3 of 6 planned draws before hitting stdin EOF. Root cause:
+  every turn where a `patch_file`/`write_file` call actually changed a
+  tracked file triggers `check_git_and_offer_commit()`
+  (`core/agent.py:671-701`), which calls `ask_confirm("\nStage and
+  commit ONLY the file(s) touched this turn (shown above)?")`
+  unconditionally, independent of `AGENT_CONFIG["confirm_write"]` (i.e.
+  `--yolo` does NOT suppress it). A scripted session that only answers
+  the first (`Apply patch?`) confirm has its next scripted line consumed
+  by this second confirm instead, cascading misalignment through the
+  rest of the script. In this instance it produced 3 unintended real
+  commits (`608d2d5`, `6026e84`, `840a436` — all reverted via `git reset
+  --hard` to the pre-session commit after confirming via `git diff
+  --stat` that only `main.py` was touched) before the script's input
+  lines ran out and the session exited via `EOFError`.
+- **Why this matters beyond NEW-7's own scope:** this is the same class
+  of harness gap NEW-7's own Round 20 addendum already documented once
+  (the `Apply patch?` confirm itself causing a false negative on `b4`)
+  — this is a SECOND, distinct confirm with the same footgun, now
+  confirmed to exist independently of `--yolo`. Any future live-testing
+  round that scripts multi-turn edit sessions via piped stdin needs to
+  account for both confirms, not just one. Round 21's corrected
+  methodology (`--yolo` to suppress `Apply patch?`, explicit `n` answers
+  for the "Stage and commit" confirm, `/undo <file>` between draws
+  instead of relying on `git checkout`) worked cleanly and is the
+  reusable pattern for future rounds.
+- **Not fixed here** — this is a test-harness/methodology finding, not a
+  product bug per se (the double-confirm behavior itself may be
+  intentional UX — asking separately about writing the patch and about
+  committing it). Logged for future live-verification rounds' benefit,
+  not scoped as an implementer task.
 
 ## Found during Round 14 (NEW-7) live-reproduction pass, 2026-07-30 — NOT fixed, logged only
 
