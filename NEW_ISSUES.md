@@ -1002,6 +1002,44 @@ fix itself (approved to land as-is) but recommends a size cap on
 `read_file`'s registration as a follow-up. Not yet scoped to an
 implementer.
 
+### [NEW-67] `codey-stop` has its own third, independent block that reads/writes `$DAEMON_DIR/gui-server.pid` — adjacent to the NEW-22 start-side duplication just fixed, but a different (stop-by-PID-file) pattern, not touched this round (Suspected, out of this round's scope)
+- Found while fixing NEW-22's residual "GUI-launch/PID-file/trap-kill"
+  duplication in `codey-start` and `codeyOS` (2026-07-31), which was
+  extracted into `lib/gui_launch.sh`. `codey-stop:20-33` independently
+  reads `$DAEMON_DIR/gui-server.pid`, checks liveness with `kill -0`,
+  sends `SIGTERM` then `SIGKILL` after a 0.5s grace period, and removes
+  the PID file — plus a `pkill -9 -f "gui/server.py"` safety sweep for
+  any untracked process. This is a genuinely different pattern from the
+  *start*+trap logic just deduplicated (it's a *stop* path, invoked by a
+  completely separate script, not something a caller `source`s alongside
+  `gui_launch_ensure_running`), so it was explicitly left alone — the
+  NEW-22 task instructions named only `codey-start` and `codeyOS`'s
+  start-side blocks in scope, and this task's "what NOT to do" said not
+  to touch `codeydOS`'s or the daemon's own separate PID-file logic;
+  `codey-stop`'s block, while not literally `codeydOS`, is the same kind
+  of separate-script PID-file logic and extending scope to it without
+  being asked risked exactly the kind of unscoped change CLAUDE.md rule
+  8 says to log instead of silently act on.
+  - **Why "Suspected" not "Confirmed" as an actual problem:** the
+    stop-side and start-side logic serve different purposes (kill vs.
+    launch) and don't have to be literally the same code to avoid
+    duplication-as-a-bug-source — three places knowing the PID-file path
+    (`$DAEMON_DIR/gui-server.pid`) and format (bare PID, one line) is a
+    much smaller shape of duplication than three places reimplementing
+    the full launch+trap sequence was. No live symptom observed from
+    this; flagging for a project-architect scoping decision on whether
+    it's worth a small follow-up (e.g. a `GUI_PID_FILE` path constant
+    shared via `lib/gui_launch.sh`, or leaving it as-is since it's a
+    single `cat`+`kill -0`, low duplication cost) rather than assuming it
+    needs the same treatment as the just-fixed start-side pattern.
+  - **Also noted (code-reviewer, review pass):** `codey-stop`'s
+    `pkill -9 -f "llama-server"` / `pkill -9 -f "gui/server.py"` blanket
+    sweep is the exact bare-pattern-kill shape CLAUDE.md rule 3 warns
+    against — pre-existing, untouched by this round, not blocking this
+    review, but worth its own `NEW_ISSUES.md` entry in a future round if
+    one doesn't already exist for it specifically (this entry is about
+    the PID-read block, not the sweep).
+
 ### [NEW-58] `core/recursive.py`'s refine phase has no path to see the draft's actual proposed tool call, forcing blind regeneration if refine is ever reached — real by code read, but currently latent (Confirmed, not currently triggerable in the observed NEW-56 trials)
 - **Location:** `recursive.py:516-532` — the refine call passes
   `user_message`, `prior_critique`, and `retrieved_context` but never the
@@ -1461,6 +1499,96 @@ tool call.
 ## Found during Phase 3 entry-point scoping pass, 2026-07-30 — NOT fixed, logged only
 
 ### [NEW-22] `README.md:53` misdescribes `gui/start.sh` as something `codey-start` orchestrates, and three independent copies of "start gui/server.py + PID file + trap-kill" logic exist
+- **Status: Residual fixed, 2026-07-31, code-reviewer approved.**
+  Extracted the shared "start `gui/server.py` in background, write PID
+  file, trap-kill only if started here" pattern out of `codey-start`
+  (was lines 55-75) and `codeyOS` (was lines 397-411) into a new sourced
+  library, `lib/gui_launch.sh`, with a single function
+  `gui_launch_ensure_running`. Both scripts now `source
+  "$CODEY_OS_DIR/lib/gui_launch.sh"` and call the function instead of
+  reimplementing the block. Verified `CODEY_OS_DIR`/`DAEMON_DIR` are
+  already defined identically in both scripts before this point, *and*
+  that `CODEY_OS_DIR` resolves correctly even when the scripts are
+  invoked via `PATH` from an unrelated `cwd` — checked `install.sh`/
+  `setup.sh`: they add the repo directory itself to `PATH`
+  (`export PATH="$CODEY_OS_DIR:$PATH"`), not a symlink or copy into a
+  separate bin directory, and `type codeyOS`/`type codey-start` on this
+  device both resolve to the actual repo-root files — so
+  `$(dirname "${BASH_SOURCE[0]}")` inside either script always lands on
+  the repo root regardless of invocation `cwd`. Confirmed with a real
+  `PATH`-based invocation from `/tmp` (see live-verification note below).
+  - **Trap-signal convergence — converged on `EXIT` only, not
+    `EXIT INT TERM`.** The two copies differed (`codey-start` trapped
+    `EXIT` only; `codeyOS` trapped `EXIT INT TERM`). Grepped both files —
+    neither has any other `trap` call, so this was drift, not an
+    intentional per-script difference. An earlier draft of this fix
+    converged on `EXIT INT TERM`, reasoning it would give more prompt
+    cleanup; that reasoning was wrong on two counts, found by testing and
+    by reading `main.py`, and was reverted before this fix was
+    considered final (rather than left standing, per the project's
+    "correct the record" rule):
+    1. **No promptness benefit.** `kill -INT` sent to a real wrapper PID
+       while blocked on a synchronous foreground child (tested against
+       both a plain `sleep` stand-in and the real `python3 ... main.py`)
+       did not run the trap until the foreground child exited on its
+       own — identical to plain `EXIT`'s behavior in the same scenario.
+    2. **Trapping INT is actively wrong for this codebase's real Ctrl+C
+       path.** `main.py` catches `KeyboardInterrupt` in 10+ places (e.g.
+       lines 527, 949, 1314, 1335, 1423) and *continues* its interactive
+       loop — Ctrl+C there commonly cancels one in-flight generation, not
+       the session. A real terminal Ctrl+C delivers SIGINT to the whole
+       foreground process group (wrapper + `python3` child together). If
+       the wrapper trapped INT, that keystroke would tear the GUI down
+       immediately while `main.py` absorbs the same signal and keeps
+       running — the user would lose the GUI mid-session without the
+       wrapper actually exiting, and (a trap without an explicit `exit`
+       does not terminate the shell — verified directly) nothing would
+       re-arm it afterward. `EXIT`-only does not have this failure mode:
+       it only fires when the wrapper itself is actually exiting.
+       Real termination in actual usage happens via either the foreground
+       child genuinely dying (child doesn't catch the signal, or normal
+       completion) — `wait` returns and the wrapper's own exit runs the
+       `EXIT` trap — or `codey-stop` (out of this file's scope), which
+       kills the GUI server's own recorded PID directly and never signals
+       the wrapper's PID at all.
+  - **Live-verified, real command output (implementer + independently
+    re-verified by code-reviewer):** (1) direct
+    `gui_launch_ensure_running` calls under each script's exact
+    preceding `CODEY_OS_DIR`/`DAEMON_DIR` setup start the GUI, write
+    `$DAEMON_DIR/gui-server.pid`, and the EXIT trap kills the process and
+    removes the PID file on normal exit; (2) the "already running"
+    short-circuit was verified with a GUI server started independently
+    of the test invocation — the second invocation printed "(already
+    running)", did not start a duplicate, and on its own exit did NOT
+    kill the pre-existing GUI server (the safety property this code
+    exists for); (3) a real `bash codeyOS` invocation exercised the
+    sourced library end-to-end, including trap cleanup on `SIGINT`, with
+    no leaked `gui/server.py` process or stale PID file afterward
+    (confirmed via `ps aux` / PID-file check post-exit); (4) a real
+    `codeyOS` invocation via `PATH` from `/tmp` (not the repo root)
+    correctly located and sourced `lib/gui_launch.sh`, started the GUI,
+    and cleaned it up on interrupt with no leaked `llama-server` or
+    `gui/server.py` process afterward. Did not run `codey-start`'s
+    daemon-start path end-to-end (would trigger a second 7B model load
+    beyond the ones already incurred verifying `codeyOS` directly — out
+    of scope for this task per its own instructions, and
+    avoided per CLAUDE.md rule 2's single-model-load-cycle discipline);
+    equivalence of `codey-start`'s setup was instead confirmed by
+    invoking the extracted function directly under `codey-start`'s exact
+    `CODEY_OS_DIR`/`DAEMON_DIR` values. **Code-reviewer note:** bash's own
+    "EXIT trap fires on SIGTERM" claim was independently re-tested (not
+    just accepted) via a minimal `trap ... EXIT; sleep &` + `kill -TERM`
+    repro, confirmed firing with no leaked process; the SIGINT case
+    specifically was not independently re-tested by the reviewer (a known
+    sandbox limitation — backgrounded children get `SIGINT=SIG_IGN` here,
+    making `kill -INT` an unreliable signal in this environment), so that
+    half of the trap-signal claim rests on the implementer's own
+    `main.py`-reading-based reasoning, not a second independent live
+    reproduction.
+  - **Found but not fixed, logged separately:** `codey-stop` has its own
+    third, related-but-not-identical block that reads/writes
+    `$DAEMON_DIR/gui-server.pid` (a *stop*-by-PID-file block, not the
+    *start*+trap pattern this finding was scoped to) — see NEW-67.
 - **Status: Resolved in part (commit `63ab3df`, 2026-07-30).** Ish decided
   to delete `gui/start.sh` outright and fix `README.md`'s wording rather
   than make the launchers call it — this closes the README-misdescription
