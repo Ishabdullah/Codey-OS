@@ -322,19 +322,48 @@ gets logged, not silently fixed or dropped, even mid-queue-item.
       reproduced by both implementer and code-reviewer without a model
       load, per rule 2) — the model-load window itself remains
       reasoned-not-live-exercised, consistent with RAM discipline.
-- [ ] `NEW-12` residual items 2–4 (only item 1 was fixed in Round 11):
-      no single named `SERVER_PORT` constant across
-      `loader_v2.py`/`inference.py`/`inference_hybrid.py`; the 1.5B
-      planner's config (`PLANNER_MODEL_PATH`/`PLANND_SERVER_PORT`) is
-      defined but never wired into any launcher, and `docs/configuration.md`
-      documents the wrong default; no real cross-process flock/pidfile
-      lock closes the daemon-vs-CLI port race (only an HTTP probe exists).
-      Worth doing alongside Phase 5a below since 5a is also touching the
-      loader/config surface.
-- [ ] `NEW-22` residual — `codey-start` and `codeyOS` each still
-      independently reimplement the same GUI-launch/PID-file/trap-kill
-      pattern (confirmed still present at HEAD). Adjacent to `NEW-12`'s
-      dual-launcher class.
+- [x] `NEW-12` — **fully closed 2026-07-31.** Items 2 (named port
+      constant) and the docs/install.sh mismatch part of item 3 turned
+      out to already be fixed in an earlier, unlogged round — corrected
+      the record (rule 6) before starting. Items 3's core ask (real
+      planner launcher) and 4 (real cross-process lock) implemented:
+      `core/loader_v2.py`'s `LlamaServer.start()` now takes an flock'd
+      per-port lock closing the daemon-vs-CLI TOCTOU race; a new
+      `core/planner_loader.py` gives the 1.5B planner a real launcher,
+      wired into `core/plannd.py:get_plan()`, with a `SWAP_GUARD`-backed
+      sequential swap ensuring the primary 7B and planner are never both
+      resident (Ish's direct decision — sequential-only, not concurrent,
+      deferring true resource-gating to Track 3 Phase 5a). First
+      code-reviewer pass rejected 3 real bugs (thermal-restart bypassing
+      the swap guard; asymmetric fail-open eviction; a test that could
+      spawn a real model); all fixed and independently re-verified
+      (reviewer hand-reverted the fix to prove the regression test
+      actually catches it). Committed `ea14d7f`. **Live-verified on real
+      hardware** (`cea15a6`) — full round-trip 7B↔1.5B swap, no
+      double-residency at any sampled checkpoint, the flock
+      contention/timeout branch exercised live for the first time (unit
+      tests only, before). `NEW-68`'s ~190s timing estimate held up
+      under real measurement. 4 new minor findings logged along the way
+      (`NEW-71`–`NEW-74`), none blocking. One deliberately-deferred gap,
+      not fixed: `NEW-69` — interactive-CLI direct loads (`main.py`)
+      bypass the swap arbiter entirely; a naive fix would break normal
+      CLI use whenever the daemon has a planner loaded, so this needs a
+      real cross-process arbitration mechanism, not a quick patch —
+      flagged for Ish/project-architect, adjacent to Track 3 Phase 5a.
+- [x] `NEW-22` — **fully closed 2026-07-31.** `codey-start` and `codeyOS`
+      each independently reimplemented the GUI-launch/PID-file/trap-kill
+      pattern; extracted into a shared `lib/gui_launch.sh`, sourced by
+      both. Also converged a real drift between the two (trap signal set:
+      `EXIT`-only vs `EXIT INT TERM`) onto `EXIT`-only, after live-testing
+      showed no promptness benefit and that trapping INT was actively
+      wrong given how `main.py` catches `KeyboardInterrupt` and keeps
+      running. Code-reviewer approved after independently re-testing the
+      fresh-start, already-running short-circuit, and SIGTERM-trap paths
+      directly. Committed `caf83f1`. No model load involved, so no
+      live-verifier pass needed for this one. `NEW-67` logged, not
+      fixed: `codey-stop` has its own third, separate stop-by-PID-file
+      block for the same PID file — a project-architect scoping call for
+      a future round, not part of this fix.
 - [x] `NEW-8` — `ccos/tests/test_ccos.py::test_sandbox` fails on this
       device. **Resolved 2026-07-30, code-reviewer approved.** Root
       cause: `ccos/core/sandbox.py`'s `ALLOWED_DIRS` hardcoded `"/tmp"`,

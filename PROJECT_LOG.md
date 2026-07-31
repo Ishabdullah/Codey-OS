@@ -5,6 +5,68 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-07-31 — `NEW-12` and `NEW-22` both fully closed: real cross-process model lock + planner launcher, GUI-launch duplication consolidated
+
+Ish asked to tackle both queued Track 2 items together. Before scoping,
+re-checked `NEW-12`'s residual items and found 2 of the original 4 (the
+named port constant, and the docs/install.sh default mismatch) were
+already fixed in some earlier, unlogged round — corrected the record
+(rule 6) rather than redoing work.
+
+**`NEW-22`** (commit `caf83f1`): extracted `codey-start`/`codeyOS`'s
+duplicated GUI-launch/PID-file/trap-kill logic into a shared
+`lib/gui_launch.sh`. Along the way corrected a real behavioral drift
+between the two originals (trap signal set) after live-testing
+disproved the implementer's own first-draft reasoning for keeping the
+broader signal set — documented as a self-correction, not left standing.
+Code-reviewer independently re-tested the fresh-start, already-running,
+and SIGTERM-trap paths directly rather than trusting the report. No
+model load involved, no live-verifier pass needed.
+
+**`NEW-12`** (commits `ea14d7f`, `cea15a6`): built a real flock'd
+cross-process lock for the model-server port (closing a TOCTOU race
+between the daemon and a separately-invoked CLI process), and a real
+launcher for the 1.5B planner model, wired into `core/plannd.py`'s
+`get_plan()`. Ish decided up front: sequential-swap only, primary and
+planner never resident together, no concurrent-capacity awareness (that
+part is explicitly Track 3 Phase 5a's future job). First code-reviewer
+pass rejected the implementation with 3 real bugs: a thermal-restart
+branch that bypassed the new swap guard, an eviction check that wasn't
+actually symmetric between the two loaders (one could raise instead of
+failing closed), and a unit test that could have spawned a real 7B
+model. All three fixed; code-reviewer re-verified independently,
+including hand-reverting the fix to prove the new regression test
+actually catches the bug it's meant to catch. Along the way, two
+separate real-model-spawn incidents happened during test authoring
+(mocking gaps, not production bugs) — both caught immediately and
+cleaned up by tracked PID, never a bare `pkill`, per rule 3; disclosed
+transparently in both cases per rule 5.
+
+After code-reviewer's second approval, live-verifier ran a real,
+non-mocked 7B↔1.5B swap on-device: cold-load primary, `get_plan()`
+evicting the primary and loading the planner, then evicting the planner
+and reloading the primary. No checkpoint showed both models resident.
+This also exercised the flock contention/timeout branch live for the
+first time (previously unit-test-only only) — correctly waited, then
+failed closed with no double-spawn. `NEW-68`'s ~190s worst-case timing
+estimate held up under real measurement, though the dominant real cost
+turned out to be prompt-eval of the planner's system prompt rather than
+lock contention itself (feeds into `NEW-65`, already logged).
+
+Deliberately deferred, not fixed: `NEW-69` — `main.py`'s direct
+interactive-CLI model loads bypass the new swap arbiter entirely. A
+naive fix (routing through `ensure_model()`) would make the CLI
+fail-closed whenever the daemon has a planner loaded — a real regression
+to ordinary use, not a fix — so this needs genuine cross-process
+arbitration, flagged for a future round or Track 3 Phase 5a, not a quick
+patch. Four smaller findings also logged during live-verification
+(`NEW-71`–`NEW-74`), none blocking.
+
+`WORK_QUEUE.md`'s Track 2 entries for both items marked done with full
+detail.
+
+---
+
 ## 2026-07-31 — `NEW-57`/`NEW-62` fixed and committed (`4625e43`): read_file now feeds working memory; detect_filenames handles dot-prefixed paths
 
 Ish asked for a desk investigation (no coding yet) into whether a
