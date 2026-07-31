@@ -1713,7 +1713,17 @@ def run_agent(
                         pass
                 del _wcontent  # release content ref
             elif name == "read_file":
+                from core.memory_v2 import memory as _mem
+
                 fpath = args.get("path", "")
+                if fpath and not last_tool_result.startswith("[ERROR]"):
+                    # Register the successfully-read content into working memory
+                    # so it persists into the "Loaded Files" prompt block, same
+                    # as write_file/patch_file do above (previously only
+                    # write_file/patch_file did this, so a plain read_file's
+                    # content never showed up for subsequent turns).
+                    _mem.load_file(fpath, last_tool_result)
+                    _mem.touch_file(fpath)
                 if fpath.endswith(".py") and not last_tool_result.startswith("[ERROR]"):
                     try:
                         _get_learning().learn_from_file(fpath, last_tool_result)

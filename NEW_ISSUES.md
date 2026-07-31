@@ -900,6 +900,108 @@ full result this pass produced against its original hypothesis.
   content is actually still attended to at the bad-write turn, before
   committing implementer time to a fix here.
 
+### [NEW-57] second correction, 2026-07-31 — the "two-store" downgrade above was itself wrong; UPGRADED back to Confirmed
+A desk investigation into a separate question (why a live-test control
+case behaved unexpectedly) re-traced this exact code path and found the
+prior correction's central claim is false: `core.context` is **not** a
+separate store from `core.memory_v2`. `core/context.py:11` reads
+`from core.memory_v2 import memory as _mem` — the identical module-level
+singleton (`core/memory_v2.py:713-728`: `_memory` is a single global,
+`get_memory()` returns it idempotently, `memory = get_memory()` binds it
+once at import time). `core/context.py:175-176`'s
+`build_file_context_block()` is a one-line passthrough to
+`_mem.build_file_block(message)` on that same singleton — which is
+exactly what `prompts/layered_prompt.py`'s `_get_file_block()` calls to
+build the "files" priority-4 layer. So `core/agent.py:1699-1706`'s
+`write_file`/`patch_file` branch, which already calls
+`_mem.load_file(fpath, _wcontent)` on this same singleton, **does**
+populate the layered-prompt "Loaded Files" block — the original
+asymmetry framing was correct all along. `read_file` (`agent.py:1715-1721`)
+is the only branch that doesn't register its content into this store.
+**Status: Confirmed** (verified by direct code read of the singleton
+wiring, not inference). A fix (mirror `write_file`/`patch_file`'s
+`_mem.load_file()`/`_mem.touch_file()` calls into the `read_file` branch)
+is in progress this round — see `WORK_QUEUE.md`. The cost note above
+(recurring prompt-budget cost, `_files_hash()` cache-invalidation
+participation) still applies and was factored into the fix's scope. The
+open question of whether this gap specifically caused `NEW-56`'s observed
+bad `write_file` calls remains unestablished — this correction confirms
+the architectural gap exists, not that it's NEW-56's root cause.
+
+### [NEW-62] `detect_filenames()`'s regex drops the leading dot on dot-prefixed path segments, silently failing the existence check (Confirmed by manual trace, fix in progress)
+`core/context.py`'s `detect_filenames()` pattern
+(`r"(?:\.{0,2}/)?[\w\-/]+\.(?:py|js|ts|...)"`) matches a path like
+`.live_verify_scratch/case1_anchor.py` WITHOUT its leading dot — the
+character class `[\w\-/]` excludes `.`, and the optional
+`(?:\.{0,2}/)?` prefix only absorbs a dot immediately followed by `/` at
+the very start of the match, not a dot inside a path segment.
+`re.findall()` returns `"live_verify_scratch/case1_anchor.py"` (dot
+silently dropped), which then fails `Path(m).exists()` even when the
+real file exists at the dotted path — so `auto_load_from_prompt()`
+(`core/context.py:220`) never preloads such files, silently. Found
+incidentally during the `NEW-30` third live pass: the test's own
+`.live_verify_scratch/` scratch directory (created to fix `NEW-60`'s
+workspace-boundary bug) happened to dodge auto-load entirely because of
+this bug, not by test design — meaning that pass's "genuinely unread
+file" framing held only by accident. Fix in progress this round — see
+`WORK_QUEUE.md`.
+
+### [NEW-63] `detect_filenames()`'s fixed regex still drops the path prefix before a directory segment with an embedded (non-leading) dot, e.g. `com.termux` — Confirmed by direct regex test, found while live-verifying the NEW-62 fix
+While live-verifying the NEW-62 fix (leading-dot path segments,
+e.g. `.config/settings.json`), tested the new pattern against this
+device's own actual absolute repo path,
+`/data/data/com.termux/files/home/Codey-OS/core/agent.py`. Both the old
+pattern and the NEW-62-fixed pattern truncate the match to
+`.termux/files/home/Codey-OS/core/agent.py` (or `termux/...` for the old
+pattern) — losing the `/data/data/com` prefix entirely, because
+`com.termux` is a single path segment with a dot in the middle
+(not at the start), and neither `[\w\-/]` (old char class) nor
+`(?:\.?[\w\-]+/)*` (NEW-62's per-segment leading-dot allowance) can
+consume a mid-segment dot — the task's own NEW-62 fix instructions
+explicitly excluded that, to avoid the regex swallowing sentence
+punctuation (e.g. "...section 2. Then edit main.py"), and that
+exclusion is the right call in general. This is not a regression
+from the NEW-62 fix — verified the pre-existing (old) pattern fails
+identically on this exact path, just truncating to a different (also
+wrong) substring. Confirmed via direct `re.findall()` comparison:
+- old pattern on `/data/data/com.termux/files/home/Codey-OS/core/agent.py`
+  gives `['termux/files/home/Codey-OS/core/agent.py']`
+- NEW-62-fixed pattern on the same string
+  gives `['.termux/files/home/Codey-OS/core/agent.py']`
+- both fail `Path(m).exists()` and the `os.getcwd()`-join fallback, so
+  `detect_filenames()` silently fails to recognize this device's own
+  absolute repo path whenever a mid-segment dot like `com.termux`
+  appears before the target file. Confirmed against a clean absolute
+  path without an embedded-dot segment (e.g.
+  `/home/user/project/core/agent.py`) which both old and new patterns
+  match correctly in full — so the failure is specifically tied to
+  mid-segment dots like Android's `com.termux`, not absolute paths in
+  general. Left unfixed and out of scope for the NEW-62 round per the
+  task's explicit instruction not to open dots up anywhere inside the
+  character class. A real fix would need a different strategy entirely
+  (e.g. a broader "looks like an absolute/relative path with no spaces"
+  heuristic, or checking `Path(m).exists()` against progressively
+  shorter/longer candidate substrings) — scope for a future round.
+
+### [NEW-64] `read_file`'s new working-memory registration (this round's fix) has no size cap, unlike the write_file/patch_file registration it mirrors (Suspected, flagged by code-reviewer, non-blocking)
+Fix for the `read_file`/working-memory asymmetry (see `NEW-57`'s
+correction above) registers `last_tool_result` — the full file content
+returned by `tool_read_file()` → `Filesystem.read()`, capped at 10MB —
+into `core.memory_v2`'s `WorkingMemory` on every successful read,
+unconditionally. The `write_file`/`patch_file` branch it mirrors only
+ever registers small, model-generated content (`args["content"]`/
+`args["new_str"]`), so this is a new, much larger worst-case input to the
+same code path (~1000x larger than anything previously stored there).
+`WorkingMemory._evict_by_tokens()` skips files touched this turn and
+`break`s early once under budget, so one large read can push total
+tokens over `MAX_FILE_CONTEXT_TOKENS` (12,000) while evicting *other,
+more-useful* resident files, and — unlike a transient read — this
+content now persists across up to `LRU_EVICT_AFTER` (3) further steps.
+Code-reviewer flagged this as non-blocking for the `NEW-57`/read-registration
+fix itself (approved to land as-is) but recommends a size cap on
+`read_file`'s registration as a follow-up. Not yet scoped to an
+implementer.
+
 ### [NEW-58] `core/recursive.py`'s refine phase has no path to see the draft's actual proposed tool call, forcing blind regeneration if refine is ever reached — real by code read, but currently latent (Confirmed, not currently triggerable in the observed NEW-56 trials)
 - **Location:** `recursive.py:516-532` — the refine call passes
   `user_message`, `prior_critique`, and `retrieved_context` but never the

@@ -177,7 +177,16 @@ def build_file_context_block(message=""):
 
 
 def detect_filenames(text):
-    pattern = r"(?:\.{0,2}/)?[\w\-/]+\.(?:py|js|ts|sh|json|yaml|yml|toml|txt|md|html|css|cpp|c|h|rs|go|rb|java)"
+    # Each path segment (including the final filename) may optionally start
+    # with a single leading dot (e.g. ".config/settings.json",
+    # ".live_verify_scratch/case1_anchor.py") without opening up dots
+    # anywhere else in the character class — that would risk matching across
+    # sentence punctuation (e.g. "...section 2. Then edit main.py").
+    # Extension alternatives are ordered so more specific ones (e.g. "json")
+    # are tried before shorter ones they'd otherwise be shadowed by (e.g.
+    # "js", which is a literal character-prefix of "json" and would
+    # otherwise match first and truncate the extension).
+    pattern = r"(?:\.{0,2}/)?(?:\.?[\w\-]+/)*\.?[\w\-]+\.(?:py|json|js|ts|sh|yaml|yml|toml|txt|md|html|css|cpp|c|h|rs|go|rb|java)"
     matches = re.findall(pattern, text)
     existing = []
     for m in matches:

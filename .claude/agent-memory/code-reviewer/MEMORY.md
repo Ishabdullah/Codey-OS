@@ -28,3 +28,4 @@
 - [NEW-30 system_prompt.py Done-vs-patch fix — APPROVED (all 6 sites)](system_prompt_new30_top_table_gap.md) — top-table gap closed, verified only 2 mapping tables exist and both now match; still pending live-verifier
 - [NEW-55 agent.py input() EOF fix — CHANGES REQUESTED](new55_agent_input_eof_fix_ki_scope_creep.md) — bundled KeyboardInterrupt clause has inverted semantics vs cited precedent; delete it, don't convert to return
 - [NEW-58/59 recursive.py+layered_prompt.py fix — APPROVED w/ 2 warnings](new58_59_recursive_layered_prompt_approved.md) — new required refine layer crowds NEED_DOCS retrieval budget; attribution regex blind to rogue-tag tool calls
+- [read_file WorkingMemory + regex leading-dot fix — APPROVED w/ 1 warning](read_file_working_memory_and_regex_leading_dot_fix.md) — always trace execute_tool's actual dispatch, not just the tool fn; new read_file path can register 10MB vs write's KB-scale content, RAM/eviction risk noted not blocking
