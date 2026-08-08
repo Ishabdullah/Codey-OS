@@ -169,6 +169,19 @@ class ThermalManager:
         """Check if thermal throttling is active."""
         return self._current_threads < THERMAL_CONFIG.get("original_threads", 4)
 
+    def get_current_temp_c(self) -> Optional[float]:
+        """
+        Public accessor for the current peak CPU temperature (°C), or None if
+        unreadable. Thin wrapper around the existing private `_read_cpu_temp()`
+        — added (Track 3 Phase 5a / 7.4 sub-task 1) so `core/resource_gate.py`
+        has a live thermal signal to compose without depending on this class's
+        internal inference-duration bookkeeping (`_check_thermal_status()`'s
+        3s/10s sampling guards are specific to that bookkeeping, not to a
+        general "give me the current temperature" query). Does not touch or
+        require `start_inference()`/`end_inference()` to have been called.
+        """
+        return self._read_cpu_temp()
+
 
 # Global thermal manager instance
 _thermal: Optional[ThermalManager] = None
@@ -213,3 +226,8 @@ def is_throttled() -> bool:
 def get_current_threads() -> int:
     """Get current thread count (may be thermally reduced)."""
     return get_thermal_manager().current_threads
+
+
+def get_current_temp_c() -> Optional[float]:
+    """Module-level convenience wrapper for ThermalManager.get_current_temp_c()."""
+    return get_thermal_manager().get_current_temp_c()

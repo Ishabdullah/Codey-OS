@@ -1,0 +1,729 @@
+"""
+Tests for core/resource_gate.py — Track 3 Phase 5a / CODEY_OS_MASTER_VISION.md
+Section 7.4 (2026-08-08 amendment), sub-task 1.
+
+All tests use synthetic /proc/meminfo content, explicit ModelSpec sizes, and
+a stubbed thermal reader (`read_temp_fn=lambda: None` unless a test is
+specifically exercising the thermal check) — no real model file is read, no
+llama-server (or any other) subprocess is spawned, and no test depends on
+this device's real live memory/thermal state, matching this project's
+history around hidden model loads in the test suite (NEW-1) and this
+sub-task's own "no dependency on real live system state" requirement.
+
+Includes the NEW-21 regression case (NEW_ISSUES.md): baseline 4.3Gi used /
+2.2Gi free, single primary-model load drove swap from 1.2Gi to 5.6Gi in
+~10s. Asserts the gate would reject that load given a correctly-computed
+cost estimate (model size + n_ctx-driven KV cache) plus the module's
+documented conservative headroom margin — not a bare headroom check.
+"""
+
+import os
+import subprocess
+import tempfile
+import threading
+import time
+from multiprocessing import Process
+from pathlib import Path
+
+import pytest
+
+import core.resource_gate as rg
+
+GIB = 1024**3
+MIB = 1024**2
+
+NO_THERMAL = lambda: None  # noqa: E731 — stub for read_temp_fn in every test that doesn't test thermal itself
+
+
+def meminfo_bytes(mem_total_gib, mem_free_gib, mem_available_gib, swap_total_gib=0, swap_free_gib=0):
+    """Build a synthetic meminfo dict (already in bytes, matching
+    read_meminfo()'s return shape) without touching a real file."""
+    return {
+        "MemTotal": int(mem_total_gib * GIB),
+        "MemFree": int(mem_free_gib * GIB),
+        "MemAvailable": int(mem_available_gib * GIB),
+        "Buffers": 0,
+        "Cached": 0,
+        "SwapTotal": int(swap_total_gib * GIB),
+        "SwapFree": int(swap_free_gib * GIB),
+    }
+
+
+# ── read_meminfo() parsing ───────────────────────────────────────────────────
+
+
+def test_read_meminfo_parses_fixture_file(tmp_path):
+    fixture = tmp_path / "meminfo"
+    fixture.write_text(
+        "MemTotal:       11324620 kB\n"
+        "MemFree:         2306867 kB\n"
+        "MemAvailable:    6979321 kB\n"
+        "Buffers:           10240 kB\n"
+        "Cached:          4194304 kB\n"
+        "SwapTotal:       8388608 kB\n"
+        "SwapFree:        7130317 kB\n"
+        "SomeOtherField:        1 kB\n"
+    )
+    result = rg.read_meminfo(str(fixture))
+    assert result["MemTotal"] == 11324620 * 1024
+    assert result["MemFree"] == 2306867 * 1024
+    assert result["MemAvailable"] == 6979321 * 1024
+    assert result["SwapFree"] == 7130317 * 1024
+    # Pass-through field also present, in bytes.
+    assert result["SomeOtherField"] == 1024
+
+
+def test_read_meminfo_missing_file_raises():
+    with pytest.raises(OSError):
+        rg.read_meminfo("/nonexistent/path/meminfo")
+
+
+# ── headroom / ceiling computation ───────────────────────────────────────────
+
+
+def test_compute_headroom_uses_memavailable():
+    # MemAvailable (kernel-computed reclaimable estimate) is the headroom
+    # signal, NOT MemFree — MemFree alone runs near-zero on a healthy,
+    # idle Linux/Termux system by design (page cache absorbs the rest), so
+    # a MemFree-only definition would reject every load unconditionally
+    # (see test_primary_model_admitted_under_idle_conditions below, which
+    # would fail under a MemFree-only definition).
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=0.25, mem_available_gib=6.5)
+    headroom = rg.compute_headroom_bytes(mi)
+    assert headroom == int(6.5 * GIB)
+
+
+def test_compute_headroom_subtracts_reserved():
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=0.25, mem_available_gib=6.5)
+    headroom = rg.compute_headroom_bytes(mi, reserved_bytes=int(1 * GIB))
+    assert headroom == int(5.5 * GIB)
+
+
+def test_compute_headroom_never_negative():
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=0.25, mem_available_gib=1.0)
+    headroom = rg.compute_headroom_bytes(mi, reserved_bytes=int(5 * GIB))
+    assert headroom == 0
+
+
+def test_compute_device_ceiling_uses_memtotal_only():
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=0.1, mem_available_gib=0.1)
+    ceiling = rg.compute_device_ceiling_bytes(mi, usable_fraction=0.85)
+    assert ceiling == int(10.8 * GIB * 0.85)
+
+
+# ── model cost estimation ────────────────────────────────────────────────────
+
+
+def test_estimate_kv_cache_bytes_qwen7b():
+    # 28 layers * 2 (K+V) * 4 kv_heads * 128 head_dim * 32768 ctx * 2 bytes
+    expected = 28 * 2 * 4 * 128 * 32768 * 2
+    assert rg.estimate_kv_cache_bytes(rg.QWEN25_7B_ARCH, n_ctx=32768) == expected
+
+
+def test_estimate_model_load_cost_uses_explicit_size_and_arch():
+    spec = rg.ModelSpec(
+        model_id="test-7b",
+        size_bytes=4_683_073_536,
+        n_ctx=32768,
+        arch=rg.QWEN25_7B_ARCH,
+    )
+    cost = rg.estimate_model_load_cost(spec)
+    assert cost.model_bytes == 4_683_073_536
+    assert cost.kv_cache_bytes == 28 * 2 * 4 * 128 * 32768 * 2
+    assert cost.overhead_bytes == rg.DEFAULT_COMPUTE_OVERHEAD_BYTES
+    assert cost.total_bytes == cost.model_bytes + cost.kv_cache_bytes + cost.overhead_bytes
+
+
+def test_estimate_model_load_cost_unknown_arch_omits_kv_term():
+    spec = rg.ModelSpec(model_id="mystery-model", size_bytes=1_000_000_000, n_ctx=8192)
+    cost = rg.estimate_model_load_cost(spec)
+    assert cost.kv_cache_bytes == 0
+    assert cost.model_bytes == 1_000_000_000
+
+
+def test_estimate_model_load_cost_no_size_or_path_raises():
+    spec = rg.ModelSpec(model_id="broken")
+    with pytest.raises(ValueError):
+        rg.estimate_model_load_cost(spec)
+
+
+def test_estimate_model_load_cost_applies_mmap_fraction_with_explicit_size():
+    # Regression: an earlier version of this module only applied
+    # mmap_resident_fraction when size came from path.stat(), silently
+    # ignoring it whenever size_bytes was supplied explicitly (which every
+    # other test in this file does) — fixed so it applies uniformly.
+    spec = rg.ModelSpec(model_id="partial-resident", size_bytes=1_000_000_000, n_ctx=1024, mmap_resident_fraction=0.5)
+    cost = rg.estimate_model_load_cost(spec)
+    assert cost.model_bytes == 500_000_000
+
+
+def test_estimate_model_load_cost_applies_mmap_fraction_from_path(tmp_path):
+    fake_model = tmp_path / "fake.gguf"
+    fake_model.write_bytes(b"\x00" * 1000)
+    spec = rg.ModelSpec(model_id="from-path", path=fake_model, n_ctx=1024, mmap_resident_fraction=0.25)
+    cost = rg.estimate_model_load_cost(spec)
+    assert cost.model_bytes == 250
+
+
+def test_known_model_archs_resolved_by_path():
+    from utils.config import MODEL_PATH, PLANNER_MODEL_PATH
+
+    spec = rg.ModelSpec(model_id="primary", path=MODEL_PATH, size_bytes=1, n_ctx=1024)
+    assert rg._resolve_model_arch(spec) is rg.QWEN25_7B_ARCH
+
+    spec2 = rg.ModelSpec(model_id="planner", path=PLANNER_MODEL_PATH, size_bytes=1, n_ctx=1024)
+    assert rg._resolve_model_arch(spec2) is rg.QWEN25_1_5B_ARCH
+
+
+# ── NEW-21 regression: real numbers, correctly-computed cost estimate ───────
+
+
+def _new21_primary_spec():
+    # Real on-disk file size, per `ls -la ~/models/qwen2.5-coder-7b/` at the
+    # time this module was built: 4683073536 bytes. n_ctx from
+    # utils/config.py's MODEL_CONFIG["n_ctx"] (32768) — the same config both
+    # the primary and planner llama-server invocations use today (checked in
+    # core/loader_v2.py:_spawn_locked()).
+    return rg.ModelSpec(
+        model_id="primary-7b",
+        size_bytes=4_683_073_536,
+        n_ctx=32768,
+        arch=rg.QWEN25_7B_ARCH,
+    )
+
+
+def _new21_meminfo(mem_available_gib):
+    # NEW-21 itself only reports used/free (4.3Gi used / 2.2Gi free), not
+    # MemAvailable. Rather than invent one specific MemAvailable value, this
+    # is parametrized (see test_new21_regression_rejects_load below) across
+    # the full plausible range: MemFree itself (2.2GiB — the floor; what
+    # MemAvailable equals if there's no meaningfully reclaimable cache) up
+    # through the mathematical UPPER BOUND implied by used/free (`free -h`'s
+    # "used" column already excludes reclaimable buffers/cache, so
+    # MemAvailable can be at most total - used = 10.8 - 4.3 = 6.5GiB at that
+    # moment). Rejection must hold across that entire range for this test to
+    # actually validate the gate rather than one convenient number. SwapFree
+    # reflects ~1.2Gi already in use before this load, matching NEW-21's
+    # "swap climbed from 1.2Gi" starting point.
+    return meminfo_bytes(
+        mem_total_gib=10.8,
+        mem_free_gib=2.2,
+        mem_available_gib=mem_available_gib,
+        swap_total_gib=8.0,
+        swap_free_gib=6.8,
+    )
+
+
+@pytest.mark.parametrize("mem_available_gib", [2.2, 3.5, 5.0, 6.5])
+def test_new21_regression_rejects_load(mem_available_gib):
+    spec = _new21_primary_spec()
+    mi = _new21_meminfo(mem_available_gib)
+    decision = rg.can_admit(spec, meminfo=mi, read_temp_fn=NO_THERMAL)
+    assert decision.admitted is False
+    # Rejected via the live budget check (cost * margin > headroom), not the
+    # absolute per-model ceiling — a 7B model is NOT too big for this device
+    # outright (it's this project's normal single-model case); it's too big
+    # given what's already resident/used at that moment. Confirms the gate
+    # is doing the intended "cost vs. live headroom" comparison, not
+    # silently rejecting every load via the hard ceiling instead.
+    assert decision.hard_reject is False
+    assert decision.estimated_cost_bytes * rg.REQUIRED_HEADROOM_FACTOR > decision.headroom_bytes
+
+
+def test_new21_naive_check_without_margin_would_have_admitted():
+    """
+    Pins the actual bug NEW-21 exposed, at the upper-bound (most favorable)
+    endpoint of the plausible MemAvailable range above (6.5GiB): a
+    "cost <= headroom" check with NO conservative margin (headroom_factor=1.0)
+    would have approved this load. Deliberately only tested at this one
+    endpoint (unlike test_new21_regression_rejects_load's full range) — at
+    the lower end of the range (2.2-5.0GiB) the raw cost estimate alone
+    already exceeds headroom with no margin needed, so headroom_factor's
+    effect isn't observable there; 6.5GiB is the only point where the
+    naive-vs-real comparison is meaningful. This test fails (loudly) if a
+    future change removes/weakens REQUIRED_HEADROOM_FACTOR's effect without
+    updating this test to match — that's the intended tripwire.
+    """
+    spec = _new21_primary_spec()
+    mi = _new21_meminfo(mem_available_gib=6.5)
+    naive = rg.can_admit(spec, meminfo=mi, headroom_factor=1.0, read_temp_fn=NO_THERMAL)
+    assert naive.admitted is True, (
+        "fixture no longer demonstrates the NEW-21 naive-check failure mode — "
+        "adjust the 6.5GiB endpoint so cost < MemAvailable (no margin) still holds"
+    )
+    # ...yet the real gate, with its default conservative margin, correctly
+    # rejects the same load:
+    real = rg.can_admit(spec, meminfo=mi, read_temp_fn=NO_THERMAL)
+    assert real.admitted is False
+
+
+def test_new21_reserved_bytes_from_other_slot_also_rejects():
+    # Even a smaller candidate model must be rejected if another slot's
+    # already-declared cost accounts for most of the live headroom — this is
+    # what reserved_bytes/total_reserved_bytes exists for (racing/concurrent
+    # admissions in the cross-process case).
+    spec = rg.ModelSpec(model_id="small", size_bytes=int(1.5 * GIB), n_ctx=4096)
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=0.2, mem_available_gib=2.0)
+    decision = rg.can_admit(spec, meminfo=mi, reserved_bytes=int(1.8 * GIB), read_temp_fn=NO_THERMAL)
+    assert decision.admitted is False
+
+
+def test_primary_model_admitted_under_idle_conditions():
+    # Regression for the reviewed-and-reverted MemFree-only design: on an
+    # otherwise-idle device (most of RAM genuinely free), the gate MUST
+    # admit the project's own normal single-model case, not reject
+    # everything unconditionally.
+    spec = _new21_primary_spec()
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=8.5, mem_available_gib=9.0)
+    decision = rg.can_admit(spec, meminfo=mi, read_temp_fn=NO_THERMAL)
+    assert decision.admitted is True
+    assert decision.hard_reject is False
+
+
+# ── hard ceiling (absolute, independent of live headroom) ──────────────────
+
+
+def test_hard_reject_even_with_generous_headroom():
+    # System otherwise idle: lots of free RAM — the hard ceiling must still
+    # fire for a model too big for the device outright.
+    spec = rg.ModelSpec(model_id="too-big", size_bytes=50 * GIB, n_ctx=4096)
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=8.0, mem_available_gib=9.0)
+    decision = rg.can_admit(spec, meminfo=mi, read_temp_fn=NO_THERMAL)
+    assert decision.admitted is False
+    assert decision.hard_reject is True
+
+
+def test_hard_ceiling_boundary_flips_hard_reject():
+    # Idle device (generous headroom) so only the ceiling check can be
+    # responsible for a rejection here — proves the boundary is exactly
+    # where compute_device_ceiling_bytes() says it is, and that a model
+    # just below it is NOT hard-rejected while one just above it IS.
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=8.0, mem_available_gib=9.0)
+    ceiling = rg.compute_device_ceiling_bytes(mi)
+    overhead = rg.DEFAULT_COMPUTE_OVERHEAD_BYTES
+
+    just_under = rg.ModelSpec(model_id="just-under", size_bytes=ceiling - overhead - MIB, n_ctx=1024)
+    just_over = rg.ModelSpec(model_id="just-over", size_bytes=ceiling - overhead + MIB, n_ctx=1024)
+
+    under_decision = rg.can_admit(just_under, meminfo=mi, read_temp_fn=NO_THERMAL)
+    over_decision = rg.can_admit(just_over, meminfo=mi, read_temp_fn=NO_THERMAL)
+
+    assert under_decision.hard_reject is False
+    assert under_decision.admitted is True
+    assert over_decision.hard_reject is True
+    assert over_decision.admitted is False
+
+
+def test_would_model_fit_wraps_can_admit():
+    spec = rg.ModelSpec(model_id="ok", size_bytes=int(0.5 * GIB), n_ctx=2048)
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=5.0, mem_available_gib=7.0)
+    assert rg.would_model_fit(spec, meminfo=mi, read_temp_fn=NO_THERMAL) is True
+
+    big = rg.ModelSpec(model_id="too-big", size_bytes=50 * GIB, n_ctx=4096)
+    assert rg.would_model_fit(big, meminfo=mi, read_temp_fn=NO_THERMAL) is False
+
+
+# ── thermal signal ────────────────────────────────────────────────────────
+
+
+def test_can_admit_rejects_when_temperature_critical():
+    spec = rg.ModelSpec(model_id="ok", size_bytes=int(0.5 * GIB), n_ctx=2048)
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=5.0, mem_available_gib=7.0)
+    decision = rg.can_admit(spec, meminfo=mi, read_temp_fn=lambda: 95.0)
+    assert decision.admitted is False
+    assert decision.hard_reject is False
+    assert "temperature" in decision.reason.lower()
+
+
+def test_can_admit_allows_when_temperature_below_critical():
+    spec = rg.ModelSpec(model_id="ok", size_bytes=int(0.5 * GIB), n_ctx=2048)
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=5.0, mem_available_gib=7.0)
+    decision = rg.can_admit(spec, meminfo=mi, read_temp_fn=lambda: 40.0)
+    assert decision.admitted is True
+
+
+def test_can_admit_treats_unreadable_temperature_as_no_objection():
+    spec = rg.ModelSpec(model_id="ok", size_bytes=int(0.5 * GIB), n_ctx=2048)
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=5.0, mem_available_gib=7.0)
+    decision = rg.can_admit(spec, meminfo=mi, read_temp_fn=lambda: None)
+    assert decision.admitted is True
+
+
+def test_can_admit_treats_temp_read_exception_as_no_objection():
+    def _raises():
+        raise RuntimeError("thermal zone unreadable")
+
+    spec = rg.ModelSpec(model_id="ok", size_bytes=int(0.5 * GIB), n_ctx=2048)
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=5.0, mem_available_gib=7.0)
+    decision = rg.can_admit(spec, meminfo=mi, read_temp_fn=_raises)
+    assert decision.admitted is True
+
+
+def test_read_current_temp_c_mocked_float_and_none(monkeypatch):
+    # Never touches the real device — mocks core.thermal.get_current_temp_c
+    # directly, per this module's "no dependency on real live system state"
+    # contract.
+    import core.thermal as thermal_mod
+
+    monkeypatch.setattr(thermal_mod, "get_current_temp_c", lambda: 42.5)
+    assert rg.read_current_temp_c() == 42.5
+
+    monkeypatch.setattr(thermal_mod, "get_current_temp_c", lambda: None)
+    assert rg.read_current_temp_c() is None
+
+    def _raises():
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(thermal_mod, "get_current_temp_c", _raises)
+    assert rg.read_current_temp_c() is None  # best-effort: exception -> None, never raises
+
+
+# ── CPU thread/core allocation ───────────────────────────────────────────────
+
+
+def test_allocate_threads_even_split():
+    assert rg.allocate_threads(n_models=2, total_cores=8) == [4, 4]
+
+
+def test_allocate_threads_uneven_split_gives_remainder_to_first():
+    assert rg.allocate_threads(n_models=3, total_cores=8) == [3, 3, 2]
+
+
+def test_allocate_threads_zero_models():
+    assert rg.allocate_threads(n_models=0, total_cores=8) == []
+
+
+def test_allocate_threads_oversubscribes_rather_than_zero():
+    # 5 models, 4 cores, min_threads=1 — each still gets >= 1, even though
+    # that sums to more than total_cores.
+    allocation = rg.allocate_threads(n_models=5, total_cores=4, min_threads=1)
+    assert allocation == [1, 1, 1, 1, 1]
+    assert sum(allocation) > 4
+
+
+def test_allocate_threads_respects_thermal_cap():
+    allocation = rg.allocate_threads(n_models=1, total_cores=8, thermal_cap=2)
+    assert allocation == [2]
+
+
+def test_allocate_threads_thermal_cap_never_below_min():
+    allocation = rg.allocate_threads(n_models=4, total_cores=4, min_threads=1, thermal_cap=0)
+    assert allocation == [1, 1, 1, 1]
+
+
+def test_get_cpu_core_count_positive():
+    assert rg.get_cpu_core_count() >= 1
+
+
+# ── cross-process residency state store ──────────────────────────────────────
+
+
+def test_register_list_release_slot_roundtrip(tmp_path):
+    slot_id = rg.register_slot("primary-7b", cost_bytes=6 * GIB, port=8080, state_dir=tmp_path)
+    slots = rg.list_slots(state_dir=tmp_path)
+    assert len(slots) == 1
+    assert slots[0]["slot_id"] == slot_id
+    assert slots[0]["model_id"] == "primary-7b"
+    assert slots[0]["cost_bytes"] == 6 * GIB
+    assert slots[0]["pid"] == os.getpid()
+
+    assert rg.total_reserved_bytes(state_dir=tmp_path) == 6 * GIB
+
+    removed = rg.release_slot(slot_id, state_dir=tmp_path)
+    assert removed is True
+    assert rg.list_slots(state_dir=tmp_path) == []
+
+
+def test_release_unknown_slot_returns_false(tmp_path):
+    assert rg.release_slot("does-not-exist", state_dir=tmp_path) is False
+
+
+def test_list_slots_reaps_dead_pid(tmp_path):
+    # Spawn and immediately finish a real subprocess so its PID is
+    # guaranteed to be a real-but-now-dead PID, not a guessed number.
+    proc = subprocess.Popen(["true"])
+    dead_pid = proc.pid
+    proc.wait()
+
+    rg.register_slot("stale", cost_bytes=1 * GIB, pid=dead_pid, state_dir=tmp_path)
+    slots = rg.list_slots(state_dir=tmp_path, reap_dead=True)
+    assert slots == []
+
+
+def test_list_slots_reap_dead_false_keeps_stale_entry(tmp_path):
+    proc = subprocess.Popen(["true"])
+    dead_pid = proc.pid
+    proc.wait()
+
+    rg.register_slot("stale", cost_bytes=1 * GIB, pid=dead_pid, state_dir=tmp_path)
+    slots = rg.list_slots(state_dir=tmp_path, reap_dead=False)
+    assert len(slots) == 1
+
+
+def _cross_process_writer(state_dir_str, done_flag_path):
+    import core.resource_gate as rg_child
+
+    rg_child.register_slot("from-child", cost_bytes=2 * GIB, port=9999, state_dir=Path(state_dir_str))
+    Path(done_flag_path).write_text("done")
+
+
+def test_cross_process_write_visible_to_reader(tmp_path):
+    """
+    Write from one process, read from another (this test process), confirm
+    consistency — per this sub-task's requirement that the residency-state
+    primitive be usable across processes (daemon + main.py CLI), not just
+    threads within one process.
+    """
+    done_flag = tmp_path / "done_flag"
+    p = Process(target=_cross_process_writer, args=(str(tmp_path), str(done_flag)))
+    p.start()
+    p.join(timeout=10)
+    assert p.exitcode == 0
+    assert p.is_alive() is False
+
+    # The child process has already exited by the time we read here (its own
+    # PID was the slot's registered owner) — reap_dead=False first, to prove
+    # the write really landed on disk and is visible to this separate
+    # process's read, independent of liveness reaping.
+    slots = rg.list_slots(state_dir=tmp_path, reap_dead=False)
+    assert len(slots) == 1
+    assert slots[0]["model_id"] == "from-child"
+    assert slots[0]["cost_bytes"] == 2 * GIB
+
+    # Now confirm reaping also works correctly across the pid boundary in
+    # the cross-process case: since the registering (child) process is gone,
+    # a reap pass removes it.
+    reaped = rg.list_slots(state_dir=tmp_path, reap_dead=True)
+    assert reaped == []
+
+
+# ── slot lifecycle status (PENDING vs RESIDENT) ──────────────────────────────
+
+
+def test_register_slot_defaults_to_pending_status(tmp_path):
+    slot_id = rg.register_slot("m", cost_bytes=1 * GIB, state_dir=tmp_path)
+    slots = rg.list_slots(state_dir=tmp_path)
+    assert slots[0]["slot_id"] == slot_id
+    assert slots[0]["status"] == rg.SLOT_STATUS_PENDING
+
+
+def test_mark_resident_transitions_status(tmp_path):
+    slot_id = rg.register_slot("m", cost_bytes=1 * GIB, state_dir=tmp_path)
+    assert rg.mark_resident(slot_id, state_dir=tmp_path) is True
+    slots = rg.list_slots(state_dir=tmp_path)
+    assert slots[0]["status"] == rg.SLOT_STATUS_RESIDENT
+
+
+def test_mark_resident_unknown_slot_returns_false(tmp_path):
+    assert rg.mark_resident("does-not-exist", state_dir=tmp_path) is False
+
+
+def test_total_reserved_bytes_excludes_resident_slots(tmp_path):
+    # Contract fix (code-reviewer finding): total_reserved_bytes() must
+    # match compute_headroom_bytes()'s documented meaning of reserved_bytes
+    # ("concurrently being admitted/loaded but haven't yet shown up in a
+    # fresh /proc/meminfo read") — a RESIDENT slot's memory is already
+    # reflected in a fresh meminfo read, so it must NOT also be counted
+    # here, or headroom gets double-counted/undercounted.
+    pending_id = rg.register_slot("pending-model", cost_bytes=2 * GIB, state_dir=tmp_path)
+    resident_id = rg.register_slot("resident-model", cost_bytes=3 * GIB, state_dir=tmp_path)
+    rg.mark_resident(resident_id, state_dir=tmp_path)
+
+    assert rg.total_reserved_bytes(state_dir=tmp_path) == 2 * GIB
+
+    rg.release_slot(pending_id, state_dir=tmp_path)
+    rg.release_slot(resident_id, state_dir=tmp_path)
+
+
+def test_total_reserved_bytes_treats_missing_status_as_pending(tmp_path):
+    # Legacy/pre-status-field entries (or any entry missing the key) must
+    # still be counted — conservative default, not silently excluded.
+    state_path = tmp_path / "resource_gate_state.json"
+    import json as _json
+
+    state_path.write_text(
+        _json.dumps(
+            [
+                {
+                    "slot_id": "legacy",
+                    "model_id": "legacy-model",
+                    "cost_bytes": 1 * GIB,
+                    "pid": None,
+                    "port": None,
+                    "threads": None,
+                    "registered_at": 0.0,
+                    # deliberately no "status" key
+                }
+            ]
+        )
+    )
+    assert rg.total_reserved_bytes(state_dir=tmp_path) == 1 * GIB
+
+
+# ── reserve_slot(): atomic check-and-register (TOCTOU fix) ──────────────────
+
+
+def test_reserve_slot_admits_and_registers_when_room(tmp_path):
+    spec = rg.ModelSpec(model_id="ok", size_bytes=int(0.5 * GIB), n_ctx=2048, compute_overhead_bytes=0)
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=5.0, mem_available_gib=5.0)
+    decision, slot_id = rg.reserve_slot(spec, meminfo=mi, read_temp_fn=NO_THERMAL, state_dir=tmp_path)
+    assert decision.admitted is True
+    assert slot_id is not None
+    slots = rg.list_slots(state_dir=tmp_path)
+    assert len(slots) == 1
+    assert slots[0]["slot_id"] == slot_id
+    assert slots[0]["status"] == rg.SLOT_STATUS_PENDING
+    assert slots[0]["cost_bytes"] == decision.estimated_cost_bytes
+
+
+def test_reserve_slot_refuses_and_does_not_register_when_no_room(tmp_path):
+    spec = rg.ModelSpec(model_id="too-big", size_bytes=50 * GIB, n_ctx=4096)
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=8.0, mem_available_gib=9.0)
+    decision, slot_id = rg.reserve_slot(spec, meminfo=mi, read_temp_fn=NO_THERMAL, state_dir=tmp_path)
+    assert decision.admitted is False
+    assert slot_id is None
+    assert rg.list_slots(state_dir=tmp_path) == []
+
+
+def test_reserve_slot_accounts_for_prior_pending_reservation(tmp_path):
+    # A second call must see the first call's reservation via the store
+    # itself (not require the caller to separately track/pass
+    # reserved_bytes) — this is the whole point of folding the read into
+    # the same locked operation as the check.
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=2.5, mem_available_gib=2.5)
+    spec = rg.ModelSpec(model_id="m", size_bytes=int(1.5 * GIB), n_ctx=1024, compute_overhead_bytes=0)
+
+    first = rg.reserve_slot(spec, meminfo=mi, read_temp_fn=NO_THERMAL, state_dir=tmp_path)
+    assert first[0].admitted is True  # cost*1.25 = 1.875GiB <= 2.5GiB headroom
+
+    second = rg.reserve_slot(spec, meminfo=mi, read_temp_fn=NO_THERMAL, state_dir=tmp_path)
+    # headroom for the second call = 2.5GiB - 1.5GiB reserved = 1.0GiB,
+    # required = 1.875GiB > 1.0GiB -> refused.
+    assert second[0].admitted is False
+    assert second[1] is None
+    assert rg.total_reserved_bytes(state_dir=tmp_path) == int(1.5 * GIB)
+
+
+# Budget shared by both the real test and its negative control below.
+# cost * REQUIRED_HEADROOM_FACTOR(1.25) = 2.25GiB required per admission.
+# Deterministic arithmetic (every candidate has identical cost/threshold):
+#   1st: headroom=5.0GiB, required=2.25GiB -> admit, reserved=1.8GiB
+#   2nd: headroom=5.0-1.8=3.2GiB, required=2.25GiB -> admit, reserved=3.6GiB
+#   3rd+: headroom=5.0-3.6=1.4GiB, required=2.25GiB -> refuse
+# So a correct, single-lock-acquisition implementation admits exactly 2, no
+# matter how many callers race or in what order they acquire the lock.
+_RACE_COST = int(1.8 * GIB)
+_RACE_MEMINFO = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=5.0, mem_available_gib=5.0)
+_RACE_N_THREADS = 12
+
+
+def _reserve_unsafe(model_id, state_dir):
+    """
+    The exact three-separate-flock-acquisitions pattern `reserve_slot()`
+    replaces (read reserved total, check admission, register) — used ONLY
+    as a negative control in test_reserve_unsafe_pattern_over_admits below,
+    to prove the concurrency test actually discriminates safe from unsafe
+    behavior. Deliberately NOT added to core/resource_gate.py itself — it's
+    a known-bad pattern, not a primitive worth offering callers.
+    """
+    spec = rg.ModelSpec(model_id=model_id, size_bytes=_RACE_COST, n_ctx=1024, compute_overhead_bytes=0)
+    reserved = rg.total_reserved_bytes(state_dir=state_dir)
+    decision = rg.can_admit(spec, meminfo=_RACE_MEMINFO, reserved_bytes=reserved, read_temp_fn=NO_THERMAL)
+    if not decision.admitted:
+        return decision, None
+    # Widens the window that already exists between the read above and the
+    # write below (three separate flock acquisitions with no lock held
+    # across them) — does not create a race that wasn't already there.
+    time.sleep(0.01)
+    slot_id = rg.register_slot(model_id, cost_bytes=decision.estimated_cost_bytes, state_dir=state_dir)
+    return decision, slot_id
+
+
+def _run_race(reserve_fn, tmp_path):
+    """Fire _RACE_N_THREADS threads at `reserve_fn` simultaneously (via a
+    Barrier, so we have actual evidence they overlapped rather than just
+    hoping thread scheduling interleaved them) and return the list of
+    (admitted, slot_id) results."""
+    barrier = threading.Barrier(_RACE_N_THREADS)
+    results = []
+    results_lock = threading.Lock()
+
+    def worker(i):
+        barrier.wait(timeout=10)  # all threads hit the check together
+        decision, slot_id = reserve_fn(f"race-{i}", tmp_path)
+        with results_lock:
+            results.append((decision.admitted, slot_id))
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(_RACE_N_THREADS)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+    for t in threads:
+        assert not t.is_alive(), "worker thread failed to complete — possible deadlock"
+    assert len(results) == _RACE_N_THREADS
+    return results
+
+
+def test_reserve_unsafe_pattern_over_admits(tmp_path):
+    """
+    Negative control: proves the concurrency test below actually
+    discriminates safe from unsafe behavior, rather than passing
+    unconditionally because a tiny critical section never gets interleaved
+    in practice. Drives the exact three-separate-flock-acquisitions pattern
+    `reserve_slot()` replaces through the same racing-threads harness and
+    asserts it DOES over-admit beyond the fixed budget (more than the 2
+    slots the budget arithmetic allows).
+    """
+    results = _run_race(lambda model_id, sd: _reserve_unsafe(model_id, sd), tmp_path)
+    admitted = [r for r in results if r[0]]
+    assert len(admitted) > 2, (
+        "expected the known-unsafe three-lock-acquisition pattern to over-admit "
+        f"beyond the 2-slot budget under contention, but only {len(admitted)} were "
+        "admitted — this harness may not actually be exercising the race; "
+        "re-check timing/Barrier before trusting the real reserve_slot() test above"
+    )
+
+
+def test_reserve_slot_concurrent_does_not_over_admit(tmp_path):
+    """
+    Regression for the TOCTOU race a code-reviewer pass found in the
+    reserve-then-register flow (three separate flock acquisitions, with a
+    window between the admission check and the write where two racing
+    callers could both pass the check). Spawns many threads all trying to
+    reserve a slot against a fixed, tight memory budget simultaneously
+    (synchronized via a Barrier so they're proven to overlap — see
+    test_reserve_unsafe_pattern_over_admits above for confirmation this
+    harness actually catches the race it's designed to catch), and asserts
+    the store never ends up holding more reservations than the budget
+    arithmetic allows for a single-lock-acquisition, non-racing sequence of
+    the same calls.
+    """
+
+    def reserve_fn(model_id, sd):
+        spec = rg.ModelSpec(model_id=model_id, size_bytes=_RACE_COST, n_ctx=1024, compute_overhead_bytes=0)
+        return rg.reserve_slot(spec, meminfo=_RACE_MEMINFO, read_temp_fn=NO_THERMAL, state_dir=sd)
+
+    results = _run_race(reserve_fn, tmp_path)
+    admitted = [r for r in results if r[0]]
+    assert len(admitted) == 2, (
+        f"expected exactly 2 admissions given the fixed budget, got {len(admitted)} — "
+        "over-admission indicates the check-then-write race reopened"
+    )
+    # Cross-check against the actual store contents, not just the in-memory
+    # decisions collected above — confirms the persisted state itself never
+    # exceeds the budget, which is the property that actually matters.
+    stored = rg.list_slots(state_dir=tmp_path)
+    assert len(stored) == 2
+    assert rg.total_reserved_bytes(state_dir=tmp_path) == 2 * _RACE_COST
+
+
+def test_state_dir_defaults_to_codey_state_dir(monkeypatch):
+    # Confirm the default path resolution uses CODEY_STATE_DIR without
+    # actually touching it — redirect CODEY_STATE_DIR itself to a temp dir
+    # for the duration of this one test.
+    with tempfile.TemporaryDirectory() as d:
+        monkeypatch.setattr(rg, "CODEY_STATE_DIR", Path(d))
+        slot_id = rg.register_slot("x", cost_bytes=1, state_dir=None)
+        assert (Path(d) / "resource_gate_state.json").exists()
+        rg.release_slot(slot_id, state_dir=None)

@@ -5,6 +5,105 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-08-08 (round 4) — 7.4 sub-task 1 (resource gate module) built, reviewed twice, approved
+
+`implementer` built `core/resource_gate.py` (new, standalone — not wired
+into `core/daemon.py`/`core/loader_v2.py`/`core/planner_loader.py`/
+`main.py`) plus `tests/test_resource_gate.py` and a small additive
+`core/thermal.py` public accessor (`get_current_temp_c()`, wraps the
+existing private `_read_cpu_temp()`). Public API: `read_meminfo`,
+`compute_headroom_bytes` (MemAvailable-based, not MemFree — MemFree runs
+near-zero on a healthy idle system and rejected every load unconditionally
+in the first draft, caught via a live sanity check, not the unit tests),
+`compute_device_ceiling_bytes`, `ModelSpec`/`CostEstimate`/
+`estimate_kv_cache_bytes`/`estimate_model_load_cost`, `can_admit`/
+`would_model_fit`, `allocate_threads`, and a cross-process JSON+flock
+residency store (`reserve_slot`/`mark_resident`/`release_slot`/
+`list_slots`/`total_reserved_bytes`). `NEW-21`'s real incident numbers
+(4.3Gi used/2.2Gi free baseline, swap 1.2Gi→5.6Gi in ~10s) used as a
+regression-test fixture. Surfaced `NEW-79` (Confirmed): `utils/config.py`'s
+`kv_type: "q4_0"` is never actually passed to `llama-server` — KV cache
+runs fp16 regardless; the gate's cost model was written to match observed
+reality (fp16), not the aspirational config.
+
+**First `code-reviewer` pass: changes requested.** Found a data-model gap
+(slot records had no field distinguishing "pending load" from "already
+resident," so `total_reserved_bytes()` contradicted its own documented
+contract — the same self-referential-guard bug class this project has
+been bitten by before, in memory-accounting form) and a real TOCTOU
+across three separate flock acquisitions in the reserve-then-register
+flow, untested. `implementer` fixed both: added `SLOT_STATUS_PENDING`/
+`SLOT_STATUS_RESIDENT` + `mark_resident()`, and `reserve_slot()` doing
+reap→check→write inside one atomic critical section. Added a genuine
+negative-control test proving the harness discriminates safe from unsafe
+behavior (asserted to over-admit when run against the old unsafe
+pattern). Logged three deferred, correctly-out-of-scope gaps: `NEW-80`
+(lock-fd leak on `flock()` failure), `NEW-81` (no PID rebinding at
+PENDING→RESIDENT), `NEW-82` (no TTL on abandoned PENDING reservations) —
+all real but unreachable while the module has zero live callers.
+
+**Second `code-reviewer` pass: approved.** Independently re-verified every
+claim (re-ran the negative control by hand against the old pattern,
+confirmed 12/12 over-admission; ran the concurrency test 6x; confirmed no
+tearing on the PENDING→RESIDENT transition since both paths share one
+flock). No new findings.
+
+Sub-task 1 is **code-complete, not live-verified** — correctly so per its
+own scope: no process-lifecycle risk, nothing wired into a running path
+yet, so there's nothing live to verify. `TODO.md` marked accordingly.
+Full suite: 399/399 passing (`tests/test_resource_gate.py`: 51/51).
+Sub-tasks 2-5 (slot concept in the actual loader, daemon migration,
+slot-release socket command, `main.py` CLI integration) remain, each
+requiring a mandatory `code-reviewer` pass since they touch
+process-lifecycle code, unlike this one.
+
+---
+
+## 2026-08-08 (round 3) — Start item 7.4 (resource gate): scoped, amended per Ish's explicit decision, sub-task 1 next
+
+Ish said "begin" to start `TODO.md` Phase 1 item 7.4. Rather than implement
+directly, dispatched `project-architect` for a planning-only pass first
+(no code changes) given 7.4 touches process-lifecycle/model-loading code
+and has a flagged open dependency (NEW-69). That pass verified real call
+sites (`core/daemon.py` 509-517/556-564/587-589, `main.py` 1269-1271/
+1550-1552/1561-1564/1586-1589), corrected NEW-24 (two broken
+`load_secondary()` sites, not one, `core/lora_import.py:336,424`), found
+that none of Section 7.4's four named signal sources work as literally
+described (needs real correction, not composition, of `sysmon`/
+`observability`/`thermal`/`device_manager`), and showed via `NEW-21`'s
+real numbers that a bare headroom-minus-margin formula would have
+wrongly approved a load that then drove swap 1.2Gi→5.6Gi in ~10s.
+
+**Ish's explicit decision, given directly in this session, amending
+`CODEY_OS_MASTER_VISION.md` Section 7.4** (full text in the doc itself):
+the "never both models resident" constraint the code currently treats as
+hard (`planner_loader.py`'s docstring: "Ish's decision, not negotiable
+here") is superseded — **no fixed concurrency ceiling**. The gate admits
+as many concurrently-resident models as live RAM/swap/thermal/telemetry
+headroom actually supports, and also owns CPU thread/core allocation per
+model as residency changes. The one absolute that remains: a single
+model must never load if it alone exceeds what the device can handle.
+Ish also flagged future direction (explicitly out of this round's scope):
+task-appropriate fallback to a smaller model when it can do the job
+correctly — noted so the gate doesn't foreclose it, not built now.
+
+On NEW-69 (interactive-CLI loads bypassing the swap arbiter): Ish
+confirmed the recommended resolution — the gate's residency model is
+cross-process-aware (daemon + CLI) from sub-task 1, but enforcement
+against the CLI waits until sub-task 4 (daemon-side slot-release command)
+exists, so the CLI can't be blocked with no way to free a slot.
+
+`TODO.md`'s 7.4 entry updated with the verified call sites, the amendment
+summary, and the five-sub-task build order (sub-tasks 2-5 each need a
+mandatory `code-reviewer` pass per rule 4; sub-task 1 is pure gate logic
+and unit tests, no model load). Marked in-progress, not done — nothing
+implemented yet as of this entry. Full planning-pass detail:
+`docs/agent-plugin-blueprint.md`-adjacent scratchpad plan (not committed;
+summarized into `TODO.md`/this entry instead, per rule 7 — a scratchpad
+file isn't durable project record).
+
+---
+
 ## 2026-08-08 (round 2) — Begin working `TODO.md`: 3 decisions/investigations resolved, U.18 fixed and verified, `LIVE_TEST_QUEUE.md` created
 
 Ish asked to start working through `TODO.md` in order, checking items off

@@ -25,24 +25,66 @@ track noted inline.
 
 Everything else below depends on this existing. Nothing here is started.
 
-- [ ] 7.4 (WQ Track 3 item 1, "Phase 5a") — Build the resource gate +
-      slot-aware loader: give `loader_v2` a slot concept
-      (acquire/release/list current slots); build the single resource-gate
-      authority (`device_manager`'s hardware inventory + live
-      `sysmon`/`thermal`/`observability` signals, expressed as "current
-      headroom minus a safety margin," never a hardcoded number); migrate
-      `core/daemon.py`'s three existing direct `get_loader()` calls
-      (~lines 509, 556, 587) onto it as a client, not a second authority.
-      This is the direct fix for the project's known concurrent-model-load
-      crash pattern. Fold in NEW-24 (`core/lora_import.py:336` calls a
-      nonexistent `loader.load_secondary()`) as part of this work. Use
-      NEW-14/NEW-18/NEW-21's prior swap/RAM observations as validation
-      data for safety-margin sizing. **Note:** NEW-69 (interactive-CLI
-      direct loads in `main.py` bypass the swap arbiter entirely) is
-      adjacent to this item and constrains its design — a naive fix would
-      break normal CLI use whenever the daemon has a planner loaded; this
-      needs a real cross-process arbitration mechanism, not a quick patch.
-      Flagged for Ish/project-architect input before or during this item.
+- [ ] 7.4 (WQ Track 3 item 1, "Phase 5a") — **In progress, started
+      2026-08-08.** Build the resource gate + slot-aware loader, per
+      `CODEY_OS_MASTER_VISION.md` Section 7.4's 2026-08-08 amendment:
+      **no fixed concurrency ceiling** — the gate admits as many
+      concurrently-resident models (daemon + CLI) as live RAM/swap
+      headroom, thermal state, and telemetry actually support, and also
+      owns CPU thread/core allocation per model as residency changes.
+      The one hard admission check that remains: a single model must
+      never load if it alone exceeds what the device can handle.
+      Future (not this round): task-appropriate fallback to a smaller
+      model when it can correctly do the job — a routing concern (7.3),
+      not part of the gate's own admission logic; the gate should expose
+      "would a smaller model fit right now" as an answerable question
+      without implementing the routing itself.
+      **NEW-69 resolved into scope, not deferred**: the gate's residency
+      data model is cross-process-aware (daemon + `main.py`'s CLI loads)
+      from sub-task 1, not daemon-only-first — but *enforcement* against
+      the CLI waits until sub-task 4 (daemon-side slot-release command)
+      exists, so the CLI can't get blocked with no way to free a slot.
+      Verified real call sites (confirmed by direct code read,
+      2026-08-08): `core/daemon.py` 509-517 (startup preload), 556-564
+      (watchdog), 587-589 (shutdown unload); `main.py` 1269-1271,
+      1550-1552, 1561-1564, 1586-1589 (four direct CLI loads, none go
+      through `ensure_model()`). NEW-24 corrected: **two** broken
+      `loader.load_secondary()` call sites in `core/lora_import.py`
+      (lines 336 and 424, not just 336). NEW-21's real numbers (baseline
+      4.3Gi used/2.2Gi free, single load drove swap 1.2Gi→5.6Gi in ~10s)
+      are used as a regression-test case — a bare headroom-minus-margin
+      formula would have wrongly approved that load, so the gate needs a
+      per-load cost estimate (model size + `n_ctx`-driven KV cache), not
+      headroom alone. Signal sourcing needed real correction too: none of
+      Section 7.4's four named sources work as-is —
+      `ccos/core/device_manager.py` (not `core/`) is a cached static
+      scan, not live; `core/sysmon.py`'s monitoring thread is never
+      started by the daemon; `core/observability.py`'s memory figure is
+      per-process RSS, not system headroom; `core/thermal.py` has no
+      public current-temperature accessor. Five-sub-task build order
+      (each of 2-5 touches process-lifecycle code — mandatory
+      `code-reviewer` pass per CLAUDE.md rule 4):
+      1. **[x] Code-complete, 2026-08-08.** Gate module + real signal
+         sourcing (no model load; unit-testable with synthetic
+         `/proc/meminfo` fixtures, NEW-21's numbers as a regression case).
+         Built as `core/resource_gate.py` (new module, not wired into any
+         running path — `core/daemon.py`/`core/loader_v2.py`/
+         `core/planner_loader.py`/`main.py` untouched, per this sub-task's
+         explicit scope) plus a minimal additive public accessor,
+         `ThermalManager.get_current_temp_c()` /
+         `core.thermal.get_current_temp_c()`, wrapping the existing private
+         `_read_cpu_temp()`. Tests: `tests/test_resource_gate.py` (41
+         tests, all passing; full suite `pytest tests/ -q` — 321 passed).
+         No process-lifecycle risk, so no live-verification needed for this
+         sub-task per its own scope note — code-complete is the correct
+         status here, not a stand-in for live-verified.
+      2. Slot concept in `loader_v2`/`planner_loader`; NEW-24's two sites
+         fixed; embed server registered as accounted-but-exempt.
+      3. Migrate `daemon.py`'s three confirmed call sites onto the gate.
+      4. Daemon-side slot-release socket command (the real NEW-69
+         prerequisite).
+      5. Bring `main.py`'s four CLI load sites + `shutdown()` under the
+         gate — observe-only until sub-task 4 lands, then enforce.
 
 ## Phase 2: Parallel design work (does not touch running code — can run alongside Phase 1)
 

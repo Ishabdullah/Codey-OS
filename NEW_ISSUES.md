@@ -4993,3 +4993,67 @@ open, not closed, on this basis.
   (always constructs a fresh `ExecutionRecord`), so no confirmed live
   caller triggers this today — flagged in case future callers use
   `record_execution()` directly.
+
+## Found while building `core/resource_gate.py` (7.4 sub-task 1), 2026-08-08 — NOT fixed, logged only
+
+### [NEW-79] `utils/config.py`'s `MODEL_CONFIG["kv_type"] = "q4_0"` is configured but never passed to `llama-server` — KV cache actually runs fp16, not the quantized type the config implies
+
+- **Status: Confirmed** — `utils/config.py:54` sets `"kv_type": "q4_0"`, but
+  `core/loader_v2.py`'s `_spawn_locked()` command-line construction for
+  `llama-server` never references `kv_type` at all (verified: no match for
+  `kv_type`/`kv-type`/`q4_0` anywhere in `core/loader_v2.py`). The server
+  actually runs with the llama.cpp default fp16 (2 bytes/element) KV cache
+  regardless of this config value — the config is aspirational, not wired
+  up. Real effect: any future memory-budget calculation (including
+  `core/resource_gate.py`'s KV-cache cost estimate, built this round) that
+  assumed q4_0's cost must use fp16's actual 2-byte-per-element cost
+  instead, or it will underestimate real memory usage. `resource_gate.py`
+  was written to default `ModelArch.kv_bytes_per_element` to 2 (fp16) to
+  match observed reality, not the config's stated intent — noted there,
+  logged here as the root cause. Fix direction: either wire `kv_type`
+  into `_spawn_locked()`'s actual `llama-server` invocation (`--cache-type-k`/
+  `--cache-type-v` flags), or remove the config value if quantized KV
+  cache was never actually intended to ship, so the config doesn't keep
+  misleading future readers/calculations.
+
+## Found while fixing `core/resource_gate.py`'s residency-store defects (7.4 sub-task 1, second pass), 2026-08-08 — NOT fixed, logged only
+
+### [NEW-80] `_LockedState.__enter__` leaks the lock file descriptor if `flock()` raises
+
+- **Status: Confirmed, pre-existing** (not introduced by this round's
+  fix). `core/resource_gate.py`'s `_LockedState.__enter__` opens the lock
+  file before calling `flock()`; if `flock()` itself raises, `__exit__`
+  never runs (the `with` block's context manager protocol only calls
+  `__exit__` after a successful `__enter__`), so the opened fd is never
+  closed. Low likelihood in practice (`flock()` on a local file rarely
+  raises) but a real leak path. Fix direction: wrap the `flock()` call in
+  a `try`/`except` inside `__enter__` that closes the fd and re-raises on
+  failure.
+
+### [NEW-81] `core/resource_gate.py`'s slot records have no way to rebind `pid` at the PENDING→RESIDENT transition
+
+- **Status: Confirmed by design gap**, not yet a live bug (module is
+  still unwired). A daemon reserving a slot under its own PID before
+  spawning the actual `llama-server` subprocess has no mechanism to
+  update that slot's `pid` to the subprocess's real PID when calling
+  `mark_resident()`. If the subprocess later dies while the daemon
+  itself stays alive, PID-liveness-based reaping would never notice,
+  since it's still checking the daemon's (still-alive) PID. Natural fix
+  is adding an optional `pid` parameter to `mark_resident()` — flagged
+  as sub-task 3's problem (daemon integration), not sub-task 1's.
+
+### [NEW-82] `core/resource_gate.py`'s PENDING slot reservations have no expiry/TTL — a failed load whose caller stays alive leaks the reservation indefinitely
+
+- **Status: Confirmed by design gap**, not yet a live bug (module is
+  still unwired). If a caller reserves a slot (`reserve_slot()`,
+  PENDING status), the underlying model load then fails, and the caller
+  doesn't call `release_slot()` on that failure path, the reservation
+  stays counted in `total_reserved_bytes()` forever — PID-liveness
+  reaping only helps if the *process* dies, not if it lives on without
+  cleaning up after a failed load. Fix direction: either a TTL on
+  PENDING slots (auto-expire after N seconds without a `mark_resident()`
+  call) or a documented hard requirement that every `reserve_slot()`
+  caller wrap the actual load in a `try`/`finally` that calls
+  `release_slot()` on any failure path. Flagged for sub-task 2/3 (loader
+  and daemon integration), where the actual call-and-release pattern
+  gets written.

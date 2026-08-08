@@ -332,6 +332,55 @@ it must replace both with one.
 - The model loader itself needs a slot concept (acquire/release/list
   current slots) to support this; it does not have one today.
 
+**Amendment (2026-08-08, Ish): no fixed concurrency ceiling.** The
+original framing above (built during 7.4's first scoping pass) treated
+"never both the 7B and 1.5B resident at once" as effectively hard —
+`core/loader_v2.py`/`core/planner_loader.py`'s own code and docstrings
+currently encode it that way, and `planner_loader.py`'s docstring
+explicitly calls it "Ish's decision, not negotiable here." That's
+superseded as of this amendment:
+
+- **There is no hardcoded cap on how many models may be resident.** The
+  gate admits as many concurrently-resident models — across the daemon
+  and any CLI process, per 9.2/9.3's multi-agent direction — as the live
+  system budget and telemetry actually support at that moment. This
+  replaces a fixed invariant with a computed one: the real limits are
+  RAM/swap headroom (per 8's `NEW-21` correction — a per-load cost
+  estimate compared against headroom, not headroom-minus-margin alone),
+  thermal state, and whatever `telemetry_engine`/`observability` signals
+  indicate about current system load — not a hardcoded "two models max"
+  or "never both" rule.
+- **The gate also owns CPU core/thread allocation for inference, not
+  just admission.** As the number of concurrently-resident models
+  changes, the gate is responsible for adjusting how many CPU
+  threads/cores each running model's inference is allowed, so total
+  compute demand stays inside what the device can sustain — this is a
+  second axis the gate arbitrates, not a separate mechanism bolted on
+  later.
+- **One ceiling remains absolute and is not negotiable by the gate**:
+  a single model must never be admitted if it alone exceeds what the
+  system can handle, regardless of what else is or isn't resident. The
+  removed constraint was the "only one at a time" rule between models
+  that individually fit; "don't load something too big for this device
+  at all" stays a hard admission check.
+- **Future direction, not this round's scope**: Ish anticipates multiple
+  small models running concurrently becoming the normal case (see 9.3's
+  model-size-class declarations), and wants task-appropriate fallback —
+  if a smaller/cheaper model can correctly handle a given task, prefer
+  it over a larger resident one. That's a routing decision (closer to
+  7.3's `ModelTierRouter`, and to task-capability matching, than to the
+  gate's own admission logic) and is **not** part of 7.4's build — noted
+  here so 7.4's gate is designed to not foreclose it (e.g. the gate
+  should expose "would this smaller model fit right now" as an
+  answerable question), not so it gets built now.
+- This does not relax RAM discipline (CLAUDE.md rule 2) — it replaces a
+  blunt binary rule with a computed one that's supposed to be *more*
+  accurate about real headroom, not looser. Given `NEW-21`'s
+  demonstrated case where a naive headroom check would have approved a
+  load that then drove swap from 1.2GB to 5.6GB in ~10 seconds, the
+  budget computation itself needs to stay conservative in practice even
+  though the ceiling is no longer a fixed model count.
+
 ### 7.5 Cross-plugin request splitting and context handoff
 
 Decomposing one user request into an ordered sequence of capability calls
