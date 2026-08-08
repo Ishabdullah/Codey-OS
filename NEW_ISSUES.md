@@ -1641,14 +1641,20 @@ tool call.
     `PROJECT_PLAN.md`, `QWEN.md` itself, and `WORK_QUEUE.md` — all
     current root-level files. Since QWEN.md is read at the start of every
     Qwen session, a full tree refresh is worth a small follow-up task.
-  - **Suspected — `AUDIT_REPORT.md` disposition unresolved:** read in
-    full (351 lines). It is a June-13-2026 "Codey-V3" era
-    architecture/feature-inventory + investor-pitch document — confirmed
-    NOT a duplicate of `Codey-OS-audit.md` (a July-29 severity-rated bug
-    audit; different purpose entirely). Content is stale (predates CCOS
-    and the Codey-OS rename) but not a clean duplicate, so it wasn't
-    deleted unilaterally per CLAUDE.md rule 8's "flag rather than delete
-    anything ambiguous." Needs Ish's call: archive vs. delete outright.
+    **Resolved-by-deletion 2026-08-08:** `QWEN.md` was merged into
+    `CLAUDE.md` and `git rm`'d on Ish's explicit instruction (Qwen CLI
+    sessions are no longer part of the active workflow) — the stale-tree
+    problem no longer applies to a file that doesn't exist. `CLAUDE.md`'s
+    new structure section is directory-level, not per-file, specifically
+    to avoid recreating this same drift.
+  - **Resolved 2026-08-08 (Ish's explicit decision: archive) —
+    `AUDIT_REPORT.md` disposition:** read in full (351 lines). It is a
+    June-13-2026 "Codey-V3" era architecture/feature-inventory +
+    investor-pitch document — confirmed NOT a duplicate of
+    `Codey-OS-audit.md` (a July-29 severity-rated bug audit; different
+    purpose entirely). Content is stale (predates CCOS and the Codey-OS
+    rename). Moved to `docs/archive/AUDIT_REPORT.md` (`git mv`) with an
+    archival header added noting its historical-only status.
   - **Suspected — `docs/TODO2.md` staleness unverified:** a 2026-03-29
     (v2.7.2-era) deferred-items list, not linked from README, not
     re-verified against current code. One item is already contradicted:
@@ -4914,3 +4920,76 @@ open, not closed, on this basis.
   as a distinct state from "spawned by us"), or make `stop()`/`unload()`
   at least log a warning when asked to stop a loader that has no
   `self.process` to act on, instead of a silent no-op.
+
+## Found during CLAUDE.md/QWEN.md consolidation and TODO.md build, 2026-08-08 — NOT fixed, logged only
+
+### [NEW-75] Stray root-level file `=3.9.0` — pip-invocation-typo artifact (Suspected safe to delete)
+- **Status: Suspected, not fixed.** Found during a repo-structure walk for
+  `CLAUDE.md`'s consolidated directory map. `/data/data/com.termux/files/home/Codey-OS/=3.9.0`
+  (~1.7KB) contains `pip` install output (`Collecting aiohttp`,
+  `Downloading aiohttp-3.14.3-...`, etc.) — the classic artifact of running
+  `pip install package>=3.9.0` without quoting the version constraint,
+  which causes the shell to interpret `>=3.9.0` as a redirect and create a
+  file literally named `=3.9.0`.
+- Not referenced by `install.sh`, `requirements.txt`, or any code path
+  (not grepped exhaustively this round, but the content and filename shape
+  make the cause unambiguous). Logged per CLAUDE.md rule 8 rather than
+  deleted unilaterally, since this was found outside this round's scope
+  (documentation consolidation, not a cleanup task) — flagged for a
+  future hygiene pass to confirm-and-delete.
+
+## Found while beginning `TODO.md` execution, 2026-08-08 — NOT fixed, logged only
+
+### [NEW-76] `CHANGELOG.md:33` says "`TODO.md`... intentionally retains original Codey-V2/Codey-V3 wording" — refers to a file that no longer exists, and the name now points at an unrelated current file (Suspected, low-severity)
+- **Status: Suspected, not fixed.** Found while archiving `AUDIT_REPORT.md`
+  (`NEW-27`). `CHANGELOG.md:33` ("Historical entries below, `TODO.md`,
+  `AUDIT_REPORT.md`, and `docs/version-history.md` intentionally retain
+  their original Codey-V2/Codey-V3 wording...") refers to the *original*
+  `TODO.md`, which `CODEY_OS_MASTER_VISION.md` Section 8 confirms was
+  deleted 2026-07-30 (superseded by `NEW_ISSUES.md`/`WORK_QUEUE.md`). A
+  brand-new, unrelated `TODO.md` (the ordered outstanding-work checklist)
+  was created 2026-08-08. `CHANGELOG.md:33`'s sentence now reads as if the
+  *current* `TODO.md` retains old Codey-V2/V3 wording, which is false and
+  could mislead a future reader. Low severity (historical changelog
+  section, not a live-behavior claim); logged per CLAUDE.md rule 8 rather
+  than fixed here (out of this round's scope). Fix direction: either
+  strike `TODO.md` from that sentence with a note that it was deleted and
+  a differently-scoped file now has that name, or leave the line as pure
+  historical record with a short parenthetical.
+
+## Found during code-reviewer pass on the U.18 (`TODO.md`) telemetry dedup-key fix, 2026-08-08 — NOT fixed, logged only
+
+### [NEW-77] `TelemetryEngine._flush_buffer`'s lock scope lets a concurrent `record_execution` append get silently dropped by `self._buffer.clear()`
+
+- **Status: Confirmed** — read directly, `ccos/core/telemetry_engine.py`.
+  `record_execution` appends to `self._buffer` **without** holding
+  `self._lock` (line ~177). `_flush_buffer` checks `if not self._buffer`
+  **outside** the lock, then iterates and writes under the lock, then
+  calls `self._buffer.clear()` still inside the lock's `with` block. A
+  record appended by another thread *during* that iteration is included
+  in neither the write loop (already past it) nor safe from the trailing
+  `clear()` — it gets wiped from the buffer without ever reaching the DB.
+  Same externally-visible symptom as the `record_id` collision the
+  U.18 fix addressed (a missing telemetry row), but a fully
+  independent mechanism, untouched by that fix.
+- Also present in the same method: the `except Exception: pass` around
+  the per-record `INSERT` swallows any write failure silently, with no
+  log — relevant to the same "records go missing with no trace" pattern.
+- Not yet reproduced under real concurrent load; the code-path reasoning
+  above is what makes this Confirmed rather than Suspected (the race
+  condition itself, not a live observation of it firing). Recommend
+  fixing by appending under `self._lock` too, and either logging
+  (not silently passing) on insert failure or counting/reporting a
+  dropped-record metric.
+
+### [NEW-78] `TelemetryEngine.record_execution` reuses a pre-set `record_id` across multiple calls with the same `ExecutionRecord` object, silently no-op'ing the second write via `INSERT OR IGNORE`
+
+- **Status: Suspected, not Confirmed** — the `if not record.record_id:`
+  guard means a caller that calls `record_execution()` twice on the same
+  `ExecutionRecord` instance (first call assigns an id, second call skips
+  reassignment) gets a second `INSERT OR IGNORE` that's ignored as a
+  duplicate of the first, silently dropping whatever changed between the
+  two calls. Not reachable through the convenience `record()` method
+  (always constructs a fresh `ExecutionRecord`), so no confirmed live
+  caller triggers this today — flagged in case future callers use
+  `record_execution()` directly.

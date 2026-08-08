@@ -1,3 +1,12 @@
+**ARCHIVED 2026-08-08 (Ish's explicit decision, per `NEW_ISSUES.md` NEW-27):**
+this is a June-13-2026 "Codey-V3"-era architecture/feature-inventory +
+investor-pitch document, predating CCOS and the Codey-OS rename. Kept for
+historical reference only — nothing in it reflects the current
+architecture. Moved here from the repo root; see `CODEY_OS_MASTER_VISION.md`
+Section 8 and `TODO.md` for the disposition decision.
+
+---
+
 # Codey-V3: Comprehensive Audit Report
 
 **Date:** June 13, 2026

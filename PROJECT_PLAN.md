@@ -1329,6 +1329,47 @@ Related, logged separately: `NEW_ISSUES.md` [NEW-24]
 — worth folding into 5a's slot-aware loader work rather than patching in
 isolation.
 
+### Phase 5.5 — Multi-agent platform direction (new 2026-08-05, Ish)
+**Status: documented direction/vision only. No implementation started —
+this is a doc-only round, verified: `git diff --stat` for this round
+touches only `.md` files.**
+
+Explicit, direct, in-session decision from Ish, dated 2026-08-05 (not
+inferred): Codey-OS's confirmed product direction is a multi-agent
+platform, not a single coding-agent product. Full amendment recorded in
+`CODEY_OS_MASTER_VISION.md` Section 9; developer-facing integration
+blueprint at `docs/agent-plugin-blueprint.md`; follow-up work items
+tracked in `WORK_QUEUE.md`'s new Track 3.5. Summary:
+
+- Multi-agent platform confirmed as the direction; coding agent is the
+  first domain agent, not the whole system.
+- Concurrency model: a future scheduler/resource-bus gates model
+  execution by live RAM/thermal state, queuing work when resources
+  aren't available — this is the resource-safety mechanism, and it
+  reinforces (does not relax) CLAUDE.md rule 2. Generalizes, rather than
+  replaces, Phase 5a's coding-domain resource gate above.
+- Not every agent needs the 7B — smaller models (e.g. the 4B Qwen3 model
+  Ish already runs in the separate Aigentik-CLI project) are expected to
+  be the norm for most domain agents. Plugin/agent manifests will need a
+  model-size-class/resource-footprint declaration — proposed schema in
+  `docs/agent-plugin-blueprint.md` Section 3, not implemented.
+- `ccos/core/capability_registry.py`/`ccos/core/plugin_manager.py`
+  confirmed as the substrate an eventual Agent Registry builds on —
+  verified by direct code read, cited by real class/function names in
+  the blueprint doc, not invented ones.
+- Aigentik-CLI (`~/Aigentik-CLI`, a fully separate repo/process/model —
+  Node.js, own `llama-server` running Qwen3-4B, own IMAP-IDLE event loop,
+  own JSON data store) used as the worked integration example in the
+  blueprint doc — requirements only, no integration plan or code yet.
+- **Explicitly does not touch the self-improvement gate** (Section 5 of
+  this plan / Section 5 of the vision doc). `goal_engine`,
+  `auto_improvement_loop`, `capability_optimizer`, `skill_recombiner`
+  remain gated off per CLAUDE.md rule 1 — this amendment authorizes the
+  platform vision, not activation.
+- [ ] Design and build the scheduler/resource-bus (Track 3.5, WORK_QUEUE.md)
+- [ ] Design and implement the manifest schema extension (Track 3.5)
+- [ ] Scope actual Aigentik-CLI integration (Track 3.5) — not started
+
 ---
 
 ## 5. Open Questions (need your input before proceeding)

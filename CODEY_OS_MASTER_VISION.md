@@ -27,6 +27,12 @@ unified system via `codey-start` / `codey-stop` (Section 6a), with a TUI
 and GUI that can run simultaneously and always show the same live system
 state.
 
+**Confirmed direction (Ish, 2026-08-05):** Codey-OS's product scope is a
+**multi-agent platform**, not a single coding-agent product — the coding
+agent is the first and most mature domain agent, not the whole system.
+See Section 9 for the full, dated amendment; this is a deliberate,
+explicit, logged scope expansion, not an inference.
+
 **The core relationship:** the OS shell doesn't replace the coding agent —
 it governs and exposes it. Every real thing Codey can already do becomes a
 registered *capability* the OS shell can discover, route to, monitor, and
@@ -441,19 +447,24 @@ Building this is dependency-ordered, not parallelizable end to end:
     materially incomplete (omits `CLAUDE.md`, `Codey-OS-audit.md`,
     `PENDING_ISH_DECISIONS.md`, `PROJECT_LOG.md`, `PROJECT_PLAN.md`,
     `QWEN.md` itself, `WORK_QUEUE.md`). Not fully fixed this round —
-    logged as part of NEW-27.
+    logged as part of NEW-27. **Superseded 2026-08-08 (explicit
+    instruction from Ish):** `QWEN.md` merged into `CLAUDE.md` and
+    deleted — Qwen CLI sessions are no longer part of this project's
+    active workflow, so a separate file (and its stale-tree problem) no
+    longer applies. `CLAUDE.md` now carries an accurate, directory-level
+    (not per-file) structure map instead, deliberately avoiding the
+    per-file-inventory approach that caused this staleness in the first
+    place.
   - `CHANGELOG.md` — **keep, active.** Linked from `README.md:177` and
     `docs/version-history.md`; most recently touched 2026-07-30. No
     action needed.
-  - `AUDIT_REPORT.md` — **not deleted, disposition still open.** Read in
-    full: it is not a duplicate of `Codey-OS-audit.md` (that's a
-    severity-rated bug audit; this is a June-13 "Codey-V3" era
+  - `AUDIT_REPORT.md` — **Resolved 2026-08-08 (Ish's explicit decision:
+    archive).** Not a duplicate of `Codey-OS-audit.md` (that's a
+    severity-rated bug audit; this was a June-13 "Codey-V3" era
     architecture/feature-inventory + investor-pitch document with no
-    current equivalent). Content is stale (predates CCOS, predates the
-    Codey-OS rename, doesn't reflect current architecture) but not a
-    clean duplicate, so per CLAUDE.md rule 8 it wasn't deleted
-    unilaterally. Needs Ish's call: archive or delete. Logged as NEW-27
-    in `NEW_ISSUES.md`.
+    current equivalent, content stale, predates CCOS and the Codey-OS
+    rename). Moved to `docs/archive/AUDIT_REPORT.md` with an archival
+    header noting its historical-only status; not deleted.
   - `docs/TODO2.md` — **ambiguous, not resolved.** Old (2026-03-29,
     v2.7.2-era) deferred-items list; not linked from README, not fully
     re-verified against the current codebase. At least one item is
@@ -463,7 +474,159 @@ Building this is dependency-ordered, not parallelizable end to end:
 
 ---
 
-## 9. This Document's Role
+## 9. Amendment (2026-08-05, Ish): Multi-Agent Platform Direction
+
+**Status: documented direction only.** This section records an explicit,
+direct, in-session decision from Ish, dated 2026-08-05, per CLAUDE.md
+rules 1 and 8's requirement that scope changes of this kind be logged,
+not inferred. It is a deliberate amendment to this already-signed-off
+document — see PROJECT_LOG.md's 2026-08-05 entry for the log record. As
+of this amendment, **no code has changed** — the scheduler/resource-bus,
+the plugin-manifest extensions, and any Aigentik-CLI integration
+described below are all future work, tracked in `WORK_QUEUE.md`, not
+built. Do not read this section as describing current running behavior.
+
+### 9.1 The decision
+
+Codey-OS is confirmed as a **multi-agent platform**: an OS shell (CCOS)
+that runs multiple domain agents — the existing coding agent, and future
+domain agents (e.g. a personal-assistant/communications agent, a research
+agent) — side by side, each registered as a capability/plugin the shell
+can discover, route to, monitor, and gate resource access for. This is a
+scope expansion of Section 1's original framing, not a contradiction of
+it: Section 1 already described the coding agent as "the first" capability
+inside a shell "built to register, run, monitor, and eventually extend
+capabilities beyond coding." This amendment makes explicit what was
+previously only implied — that "beyond coding" means genuinely independent
+domain agents, potentially with their own process, own model, and own
+event loop, not just auxiliary tool-plugins around the coding agent (the
+shape everything in Section 3 currently has).
+
+### 9.2 Concurrency model — the resource-safety answer
+
+Multiple domain agents will **not** all run local models concurrently by
+default. A scheduling/resource-bus layer gates which models actually run,
+based on live hardware state (RAM headroom, thermal/CPU headroom) and
+event triggers — when resources aren't available, work **queues** rather
+than running. This is a hard design constraint, not a nice-to-have.
+
+This directly reinforces, and does not relax, CLAUDE.md rule 2's RAM
+discipline. It is also not a new concept invented by this amendment —
+Section 7.4's "resource gate" (a single authority for load/unload/keep-
+resident decisions, composing `device_manager`'s hardware inventory with
+live `sysmon`/`thermal`/`observability` signals) is exactly this
+mechanism. What this amendment changes is scope: Section 7.4 was written
+assuming one process (Codey-OS's own daemon) and one domain (coding).
+Under the multi-agent direction, the same resource-gate concept must
+eventually arbitrate across **multiple agent processes**, potentially
+including agents that are not Codey-OS subprocesses at all (see 9.4's
+Aigentik-CLI example, which runs its own independent `llama-server`).
+That generalization is not designed yet — Section 7.4/7.6's existing
+rollout order (resource gate first, coding-domain-only) is still the
+correct starting point; the multi-agent case is documented here as the
+direction that work must not be built in a way that forecloses.
+
+### 9.3 Per-agent model-size-class declaration
+
+Not every domain agent needs the 7B coding model. Ish is already running
+a 4B model (Qwen3-4B via `llama.cpp`) as a working example, in a separate
+project, Aigentik-CLI (see 10.4). Smaller models are the expected norm
+for most domain/plugin agents, not an exception. Concretely, this means
+the plugin/agent manifest shape must eventually declare a model-size
+class or resource footprint per agent — extending Section 7.3's
+`(domain, role, tier)` tiering concept and the existing
+`hardware_requirements` manifest field's pattern (see
+`ccos/core/capability_registry.py`'s `Capability.hardware_requirements`)
+with a parallel declaration, rather than assuming one shared 7B model
+across every agent. The concrete manifest schema for this is scoped in
+the new blueprint document, `docs/agent-plugin-blueprint.md` — that
+document also states plainly that today's real `manifest.json`/
+`Capability`/`Plugin` schema does not yet have these fields; they are
+proposed, not implemented.
+
+### 9.4 Aigentik-CLI as the motivating example
+
+Aigentik-CLI (`~/Aigentik-CLI`, a fully separate git repo, not part of
+Codey-OS) is an existing, already-functional local AI communications
+assistant: a standalone Node.js process (`index.js`) that watches Gmail
+via IMAP IDLE and handles Google Voice SMS (forwarded as email), running
+its own `llama-server` instance serving Qwen3-4B on `127.0.0.1:8080`,
+with its own JSON-file data store (`data/*.json` — contacts, calendar,
+rules, profile) and its own natural-language owner-command interface.
+It is the concrete shape of "an existing agent with its own process, own
+model, own event loop, own data store" that the multi-agent direction
+needs to be able to integrate. Ish wants to understand what integrating
+it into Codey-OS would concretely require — this amendment scopes that
+question; it does not answer or implement it. See
+`docs/agent-plugin-blueprint.md` for the worked-example writeup, and
+`WORK_QUEUE.md` for the follow-up item to actually scope an integration
+plan.
+
+### 9.5 The Agent Registry substrate already exists, in seed form
+
+`ccos/core/capability_registry.py`'s `CapabilityRegistry` (register/
+query/find-by-task/performance-tracking over `Capability` records) and
+`ccos/core/plugin_manager.py`'s `PluginManager` (disk discovery under
+`ccos/plugins/<category>/<name>/manifest.json`, dynamic `importlib`
+loading, capability registration from a manifest's `capabilities` list)
+are the seed of what a multi-agent "Agent Registry"/"Plugin System" needs
+— they are not being replaced by a new system. What they don't do today,
+and would need extending for genuinely independent domain agents (as
+opposed to today's in-process tool-plugins): register something that
+isn't a Python module loaded via `importlib` into the same process (e.g.
+Aigentik-CLI's separate Node.js process), and carry a model-size-class/
+resource-footprint declaration (9.3) that a future resource gate (9.2)
+can act on. Both are scoped as design work in `docs/agent-plugin-blueprint.md`,
+not built here.
+
+### 9.6 What this amendment does NOT change
+
+The self-improvement gate (Section 5) is untouched. Ish authorized the
+multi-agent platform **vision**, not activation of `goal_engine`,
+`auto_improvement_loop`, `capability_optimizer`, or `skill_recombiner`.
+Those remain gated off from live execution exactly as Section 5
+describes, per CLAUDE.md rule 1 — nothing in this amendment constitutes
+the explicit, direct, in-session activation instruction that rule
+requires, and this amendment should not be read or cited as one.
+
+### 9.7 Rollout order
+
+This amendment does not replace Section 7.6's build order — it joins
+onto it at a specific point, rather than running in parallel end to end:
+
+1. **Build the resource gate for the coding domain only** (7.6 step 1,
+   unchanged). This has to exist first regardless of the multi-agent
+   direction — it's the direct fix for the daemon's live concurrent-load
+   bug (7.4), and there is nothing to generalize until a single-domain
+   gate is real.
+2. **Design work that doesn't touch running code can proceed in
+   parallel with step 1**: the manifest schema extension (9.3 —
+   `agent_type`, `model_tiers`, `resource_footprint`, `event_triggers`,
+   `permissions`, `data_store`) and the Aigentik-CLI integration scoping
+   (9.4). Neither depends on the gate existing, since neither is being
+   implemented against it yet — both are recorded in
+   `docs/agent-plugin-blueprint.md` and `WORK_QUEUE.md` as design-only.
+3. **Only after step 1 is real** does it make sense to generalize the
+   resource gate to arbitrate across multiple agent processes (9.2),
+   because that generalization is designed against the gate's actual
+   API and behavior, not a hypothetical one. Implementing the manifest
+   fields from step 2 against the gate, and any actual Aigentik-CLI
+   integration work, both wait for this step — building either earlier
+   would mean coding against an interface that doesn't exist yet.
+4. Steps 2–6 of Section 7.6 (tier classifier, coding-as-capability,
+   context passing, orchestrator wiring, request splitting) are
+   unaffected by this amendment and keep their existing order; the
+   multi-agent generalization (this section's step 3) can happen
+   alongside them once step 1 is done, since neither depends on the
+   other.
+
+In short: **one resource gate, built once, for one domain, first —
+design the multi-agent extensions in parallel on paper, but don't build
+against the gate's multi-agent API until the gate itself exists.**
+
+---
+
+## 10. This Document's Role
 
 Once you sign off, this is the spec every future Qwen prompt gets checked
 against. If a restructuring step would contradict something here (e.g.
@@ -471,4 +634,4 @@ drop a capability from Section 3 without a logged reason, or activate
 self-improvement without the Section 5 gate being met), that's a stop-and-
 flag moment, not something to proceed through quietly.
 
-Signed Off by Ish.
+Signed Off by Ish. Amended 2026-08-05 (Ish) — see Section 9.

@@ -20,6 +20,7 @@ import json
 import sqlite3
 import threading
 import time
+import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -159,7 +160,14 @@ class TelemetryEngine:
         Record a real-world execution. Buffered for performance.
         """
         if not record.record_id:
-            record.record_id = f"exec_{int(time.time() * 1000)}_{id(record) % 10000}"
+            # record_id is the DB's UNIQUE key and writes go through
+            # INSERT OR IGNORE (_flush_buffer), so a collision silently
+            # drops a record rather than erroring — uuid4 keeps that
+            # probability negligible regardless of timing or object-identity
+            # reuse. Suspected, not confirmed, contributor to the observed
+            # flakiness — see NEW-77/NEW-78 in NEW_ISSUES.md for the two
+            # other silent-drop mechanisms in this class found nearby.
+            record.record_id = f"exec_{int(time.time() * 1000)}_{uuid.uuid4().hex[:12]}"
 
         self._buffer.append(record)
 

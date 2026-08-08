@@ -5,6 +5,247 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-08-08 (round 2) — Begin working `TODO.md`: 3 decisions/investigations resolved, U.18 fixed and verified, `LIVE_TEST_QUEUE.md` created
+
+Ish asked to start working through `TODO.md` in order, checking items off
+as completed. Per CLAUDE.md rule 2/Ish's clarification this session:
+Claude does not run any live model-load test itself (the device's
+documented crash history comes from Claude running *concurrently* with
+the 7B/1.5B/embed models, not from the three models alone) — all
+model-load-dependent verification is deferred to Ish running it himself
+later, tracked in the new `LIVE_TEST_QUEUE.md`.
+
+**U.23 (`AUDIT_REPORT.md` disposition) — done, Ish's call: archive.**
+`git mv AUDIT_REPORT.md docs/archive/AUDIT_REPORT.md`, archival header
+added noting its historical-only status. Updated
+`CODEY_OS_MASTER_VISION.md` Section 8, `NEW_ISSUES.md`'s NEW-27 entry, and
+`CLAUDE.md`'s structure map to reflect the move.
+
+**U.10 (attribution logging status) — investigated, per Ish's ask ("do an
+investigation and let me know"), not fixed.** It did land: found in
+`core/recursive.py:318-401` (`_log_phase`/`_finish`'s
+`[Recursive] Turn attribution: path=... cycles=... tool=...` log line),
+inside commit `6859745` alongside sub-tasks 2/3 rather than as its own
+commit. Confirmed a self-documented gap in the same code
+(`recursive.py:386-390`'s own comment): it has no visibility into
+`core/agent.py`'s separate plain-`infer()` branch (`step != 1`, which
+bypasses `recursive_infer()` entirely) — that branch still produces no
+attribution log line. Reported to Ish with the open question of whether
+to extend coverage or accept the gap as documented; not yet decided.
+
+**U.18 (`ccos/core/telemetry_engine.py` dedup-key collision) — code-complete,
+one plausible collision source closed; NOT confirmed as the root cause of
+the observed test flakiness.** `record_execution()` (`telemetry_engine.py:157-174`)
+generated `record_id` (the DB's `UNIQUE` key, written via `INSERT OR IGNORE`)
+from `timestamp-ms + id(record) % 10000` — a real, reasoned collision risk
+under concurrent load (CPython can reuse a truncated object-identity value
+after GC), since a collision doesn't error, it silently drops the execution
+record. Replaced with `timestamp-ms + uuid4().hex[:12]`. Deterministic, no
+model load required: `ccos/tests/test_telemetry.py` 12/12 passing, full
+suite 348/348 passing before and after — but no test in that suite exercises
+the actual collision scenario (all 12 are single-threaded, well under
+buffer size), so this is evidence the change didn't break anything, not
+evidence it fixed the flakiness it was filed against.
+
+This fix was first made by an agent working outside the normal pipeline
+(self-reviewed, not `code-reviewer`-approved) — per Ish's direction, sent
+through `code-reviewer` after the fact rather than committed as-is. Verdict:
+request changes, applied — trimmed an overclaiming inline comment, downgraded
+this log entry's original "fixed and verified" claim per CLAUDE.md rules 6/7,
+and logged two independent silent-drop mechanisms the reviewer found nearby
+that this fix does NOT address: `NEW-77` (Confirmed — `_flush_buffer`'s lock
+scope lets a concurrent `record_execution` append get wiped by
+`self._buffer.clear()`, plus a bare `except Exception: pass` around the
+insert) and `NEW-78` (Suspected — a reused `ExecutionRecord` object with a
+pre-set `record_id` silently no-ops its second write). Neither is fixed here;
+both are open follow-ups.
+
+**`LIVE_TEST_QUEUE.md` (new file):** created per Ish's instruction — a
+running list of exactly which live model-load verification steps are
+needed once code-complete work reaches that point, for Ish to run himself
+without Claude active, logging any issue found back to `NEW_ISSUES.md`.
+Currently empty; will populate once Phase 1/4 items touching
+`core/loader_v2.py`/`core/daemon.py` reach code-complete status.
+
+`TODO.md` updated: U.23, U.10, U.18 all checked off with notes (U.10 as
+"investigated," not "fixed," since that's what was asked). No other
+tracking-doc claims changed. Not committed — no commit requested this
+round.
+
+---
+
+## 2026-08-08 — Doc consolidation: QWEN.md merged into CLAUDE.md and deleted, TODO.md created
+
+**Explicit instruction from Ish, given directly in this live session:**
+consolidate the repo's "read this first" docs and build a master
+checklist. Ish confirmed via an explicit choice (not inferred) that
+`QWEN.md` should be merged into `CLAUDE.md` and then deleted — Qwen CLI
+sessions are no longer part of this project's active workflow.
+
+**This round is documentation-only.** `git diff --stat` for this round
+touches only `.md` files (`CLAUDE.md`, `TODO.md` [new], `QWEN.md`
+[deleted], `CODEY_OS_MASTER_VISION.md`, `NEW_ISSUES.md`) plus this log —
+no file under `core/`, `ccos/core/`, or any process-lifecycle/daemon/
+kill/PID code was touched. Per CLAUDE.md rule 4, code-reviewer's mandatory
+sign-off was correctly not invoked, since nothing in that category
+changed. `PROJECT_PLAN.md` state is unchanged this round — nothing here
+was marked done that wasn't already recorded as done in `PROJECT_PLAN.md`
+itself.
+
+**`CLAUDE.md`:** rebuilt as the single consolidated ground-rules doc.
+Kept the existing numbered rules 1-10 verbatim and in order (they're cited
+by number in dozens of places across `NEW_ISSUES.md`/`WORK_QUEUE.md`/
+`PROJECT_LOG.md` — renumbering would have broken those references), and
+appended `QWEN.md`'s install.sh-currency rule as new **rule 11**.
+`QWEN.md`'s softer conventions (read-before-write, follow existing
+conventions, don't over-build, verify before claiming success) went into
+a new, deliberately unnumbered "Working conventions" section rather than
+being folded into the numbered list, to avoid diluting what "non-
+negotiable" means. Added a new "Start here" section at the top, ahead of
+even the "What this project is" section, naming `TODO.md` first, then
+`CODEY_OS_MASTER_VISION.md`, then `WORK_QUEUE.md` — explicit and
+unmissable, per Ish's requirement, not buried. Regenerated the repo
+structure section from a live directory walk (not copied from `QWEN.md`'s
+stale 2026-07-27 tree) — directory-level with purpose notes, not a
+per-file inventory, specifically because the per-file approach is what
+caused `QWEN.md`'s tree to go stale in the first place (`NEW-26`/`NEW-27`).
+Carried forward the 2026-08-05 multi-agent-platform-direction note.
+
+**`TODO.md` (new file):** single ordered, numbered, checkbox checklist of
+every real open item currently tracked across `CODEY_OS_MASTER_VISION.md`
+Sections 7.6/8/9.7, a full read-through of `WORK_QUEUE.md` (1047 lines),
+`PROJECT_PLAN.md`'s open items, and `docs/agent-plugin-blueprint.md`
+Section 6. No new work items invented — every line traces to an existing
+unchecked box or open bullet in those source docs. Structured in
+dependency-ordered phases (Phase 1: resource gate, coding domain only →
+Phase 2: parallel design work not touching running code → Phase 3:
+multi-agent generalization, only after Phase 1 is real → Phase 4: the
+remaining coding-domain architecture steps), an "Unblocked / can run any
+time" section for the independent bug-fix and docs-cleanup backlog (Track
+2/4 items, which are NOT phase-gated and would have been mis-scoped by
+forcing them into the numbered sequence), and a "Parked — gated" section
+for Phase 4/self-improvement activation specifically formatted as
+non-checkable prose rather than a tickable box, per CLAUDE.md rule 1's
+gate. Numbered against `CODEY_OS_MASTER_VISION.md`'s own section numbers
+where an item corresponds directly to one, plain sequential otherwise.
+Carried forward several items' open caveats verbatim rather than
+collapsing them to a plain checkbox: `NEW-7` is open only on a narrowed
+grounding-failure basis (Round 22 explicitly recommends against a
+target-identification prompt iteration); `NEW-46` is not fully closed
+(residual is `NEW-50`); `NEW-49` was refuted at n=1, still Suspected;
+`NEW-9`'s atfork race needs Ish's explicit call before a third fix
+attempt, not a default pickup.
+
+**`QWEN.md`:** deleted (`git rm -f`, since it had local uncommitted
+modifications from an earlier session). Grepped the repo for other
+references before deleting: `CHANGELOG.md`, `NEW_ISSUES.md`,
+`CODEY_OS_MASTER_VISION.md`, `WORK_QUEUE.md`, `PROJECT_PLAN.md`, and one
+`.claude/agent-memory/code-reviewer/` file all reference `QWEN.md` by
+name, but every hit outside `CODEY_OS_MASTER_VISION.md`'s Section 8 and
+`NEW_ISSUES.md`'s NEW-27 entry is a past-tense historical record (what a
+prior round found or did), left untouched. `CODEY_OS_MASTER_VISION.md`
+Section 8 and `NEW_ISSUES.md`'s NEW-27 entry each had a present-tense
+claim that `QWEN.md` is "kept, active" / has an incomplete tree — both
+now carry a dated 2026-08-08 correction noting the file's deletion
+supersedes that disposition, rather than rewriting the original text.
+
+**Also logged, not fixed (CLAUDE.md rule 8):** a stray root-level file
+`=3.9.0` (a `pip install package>=3.9.0`-without-quoting artifact,
+containing captured pip output) found during the repo-structure walk —
+logged as `NEW-75`, Suspected safe to delete, left in place since
+deleting it was outside this round's documentation-only scope.
+
+---
+
+## 2026-08-05 — Explicit direction decision (Ish): Codey-OS is a multi-agent platform — vision/blueprint docs only, no code changed
+
+**Explicit, direct, in-session decision from Ish, dated 2026-08-05, not
+inferred** — per CLAUDE.md rules 1 and 8's requirement that a scope
+change of this kind be logged as such. Ish confirmed Codey-OS's product
+direction is a **multi-agent platform**, not a single coding-agent
+product: an OS shell running multiple domain agents (the existing coding
+agent, plus future ones — e.g. a personal-assistant/communications agent)
+side by side, each gated onto shared device resources by a future
+scheduler/resource-bus rather than all running concurrently. This is a
+deliberate, authorized scope expansion of `CODEY_OS_MASTER_VISION.md`,
+not a silent drift.
+
+**This round is documentation-only.** Verified: this round's changes
+touch only `.md` files (`CODEY_OS_MASTER_VISION.md`, `README.md`,
+`docs/agent-plugin-blueprint.md` [new], `WORK_QUEUE.md`,
+`PROJECT_PLAN.md`, this log). No file under `core/`, `ccos/core/`, or any
+process-lifecycle/daemon/kill/PID code was touched — code-reviewer's
+mandatory sign-off (CLAUDE.md rule 4) was correctly not invoked, since
+nothing in that category changed. Per CLAUDE.md rule 7, nothing here is
+"done" beyond doc/vision work — the scheduler/resource-bus, the manifest
+schema extension, and any Aigentik-CLI integration do not exist in
+running code.
+
+**Files changed and what each now says:**
+- `CODEY_OS_MASTER_VISION.md` — new Section 9 (dated/attributed
+  amendment: multi-agent platform confirmed; concurrency model via a
+  future resource-gate/scheduler that generalizes Section 7.4; per-agent
+  model-size-class declarations, not every agent needs the 7B; existing
+  `capability_registry`/`plugin_manager` as the Agent Registry substrate;
+  Aigentik-CLI as the motivating integration example; explicit statement
+  that the Section 5 self-improvement gate is untouched). Section 1's
+  opening paragraph now points to Section 9. The old Section 9 ("This
+  Document's Role") is now Section 10; its closing sign-off line now
+  also notes the 2026-08-05 amendment.
+- `README.md` — new paragraph under the intro confirming the multi-agent
+  platform direction and pointing at the vision doc's Section 9 and the
+  new blueprint doc; added the blueprint doc to the docs table.
+- `docs/agent-plugin-blueprint.md` (**new file**) — developer-facing
+  blueprint for designing/integrating a domain agent: what exists today
+  in `CapabilityRegistry`/`PluginManager` (cited by real class/function
+  names, verified by direct code read), a proposed (not implemented)
+  manifest schema extension (`agent_type`, `model_tiers`,
+  `resource_footprint`, `event_triggers`, `permissions`, `data_store`), a
+  worked example using Aigentik-CLI's actual architecture (own Node.js
+  process, own `llama-server` running Qwen3-4B, own IMAP-IDLE event loop,
+  own JSON data store — read directly from its `README.md`/`CLAUDE.md`/
+  `docs/architecture.md`, not secondhand), a mermaid diagram, and a
+  summary table separating what's real from what's proposed.
+- `WORK_QUEUE.md` — new Track 3.5 (multi-agent platform direction, none
+  started): build the scheduler/resource-bus (generalizing Phase 5a's
+  coding-domain resource gate, not duplicating it), design + implement
+  the manifest schema extension, scope actual Aigentik-CLI integration.
+- `PROJECT_PLAN.md` — new "Phase 5.5" subsection under Phase 5, recording
+  the decision, summarizing the vision-doc amendment, and listing the
+  same three unchecked follow-up items as `WORK_QUEUE.md`'s Track 3.5,
+  explicitly marked doc-only/nothing implemented.
+- `QWEN.md` — one-line pointer added under the existing project summary,
+  confirming the multi-agent direction and pointing at Section 9/the
+  blueprint doc, since `QWEN.md` is the first-read file for future Qwen
+  sessions and its prior wording (while not contradictory) didn't name
+  the direction explicitly.
+- `.github/REPOSITORY_DESCRIPTION.md` — one-line GitHub repo description
+  updated from "a persistent, fully local AI coding agent" to "a
+  persistent, fully local AI agent operating system... built to host
+  multiple domain agents," found via a broad `grep -rl "coding agent"
+  --include="*.md"` sweep across the repo rather than assuming the
+  earlier edits caught everything.
+
+Searched broadly (`command grep -rln "coding agent" --include="*.md" .`)
+for other stale product-scope framing rather than assuming README.md and
+the vision doc were the only hits. Reviewed every match:
+`AUDIT_REPORT.md`, `CHANGELOG.md`, `Codey-OS-audit.md` are historical
+records, correctly left as-is (not product-scope claims about current
+direction). `docs/security.md`, `.claude/agents/agent-tool-designer.md`,
+`.claude/agents/code-hygiene-auditor.md` reference "the coding agent" as
+one component/domain, not as a claim that it's the whole product —
+correctly left as-is. `QWEN.md` and `.github/REPOSITORY_DESCRIPTION.md`
+were the two genuine gaps, both fixed above.
+
+**What's still just "documented direction" (everything in this round):**
+the scheduler/resource-bus, the manifest schema extension
+(`agent_type`/`model_tiers`/`resource_footprint`/`event_triggers`/
+`permissions`/`data_store`), and any actual Aigentik-CLI integration.
+**What changed in actual running code: nothing** — confirmed by this
+round touching only `.md` files.
+
+---
+
 ## 2026-07-31 — `NEW-7`/`NEW-44` Round 22: EXECUTED the pre-registered reproducibility pass live — `NEW-44` (wrong-function targeting) did NOT reproduce at n=12
 
 Executed the round scoped earlier the same day (see the entry immediately

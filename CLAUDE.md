@@ -1,9 +1,100 @@
 # Codey-OS — Project Ground Rules
 
+## Start here (read in this order, every new chat/context window)
+
+1. **`TODO.md`** — the single ordered checklist of everything left to do,
+   in dependency order. Check this first for current outstanding work and
+   where it sits in sequence, before starting anything new.
+2. **`CODEY_OS_MASTER_VISION.md`** — the canonical spec for what Codey-OS
+   is and will be when finished. Don't contradict it without an explicit,
+   logged decision.
+3. **`WORK_QUEUE.md`** — the same ordered sequence as `TODO.md`, but with
+   full evidence/history behind each item (why it's scoped the way it is,
+   what's already been tried, live-verification detail). `TODO.md` is
+   what to check off; `WORK_QUEUE.md` is what to read when you need the
+   reasoning behind a `TODO.md` line.
+
 ## What this project is
 Local-first AI agent OS for Android/Termux (Samsung S24 Ultra). Canonical
 spec: `CODEY_OS_MASTER_VISION.md` — read it, don't contradict it without
 an explicit, logged decision.
+
+Codey-OS unifies two previously-separate codebases — the **Codey-OS core
+coding agent** (`core/`, `tools/`, `utils/`, `main.py`) and the
+**Cognitive OS layer (CCOS)** (`ccos/`) — into a single system governed
+by one OS shell (`codey-start` / `codey-stop`). The OS shell discovers,
+routes, monitors, and eventually self-improves capabilities; the coding
+agent remains the primary capability, wrapped and registered as one.
+
+**Confirmed direction (Ish, 2026-08-05):** the product scope is a
+**multi-agent platform** — the coding agent is the first domain agent,
+not the whole system. See `CODEY_OS_MASTER_VISION.md` Section 9 and
+`docs/agent-plugin-blueprint.md`; this is documented direction, not yet
+implemented (see `TODO.md`'s Phase 3 for the rollout order).
+
+## Current repo structure
+
+A directory-level map with purpose notes — deliberately not a per-file
+inventory (that level of detail goes stale fast and has produced repeat
+findings, `NEW-26`/`NEW-27`, when it did). For exact file lists, list the
+directory directly rather than trusting a cached tree here.
+
+```
+Codey-OS/
+├── .github/            GitHub workflows + repo description
+├── assets/             Static assets (mascot image, demo GIF)
+├── ccos/                Cognitive OS layer (the OS shell)
+│   ├── core/            OS shell modules: capability_registry, plugin_manager,
+│   │                    agent_orchestrator, device_manager, sandbox,
+│   │                    tool_router, telemetry_engine, performance_tracker,
+│   │                    lifecycle_manager, planner, reflection_engine,
+│   │                    memory/ (ccos_memory), plus the gated
+│   │                    self-improvement modules (goal_engine,
+│   │                    auto_improvement_loop, capability_optimizer,
+│   │                    skill_recombiner — see rule 1)
+│   ├── data/            Persistent CCOS state (capabilities, goals, projects, memory DB)
+│   ├── demo_*.py        Demo scripts for each CCOS subsystem
+│   ├── plugins/          Plugin system: compound/, research/, speech/, system/, vision/
+│   └── tests/            CCOS test suite
+├── core/                 Codey-OS coding agent: agent.py (main loop), daemon.py,
+│   │                    loader_v2.py (model loading), memory_v2.py (five-tier
+│   │                    memory), orchestrator.py, plannd.py/planner*.py,
+│   │                    recursive.py (self-refinement), symbolic_graph.py,
+│   │                    inference*.py, checkpoint.py, thermal.py, sysmon.py,
+│   │                    observability.py, recovery.py, githelper.py,
+│   │                    peer_cli.py/peer_shell.py, voice.py (TTS/STT, broken),
+│                        and other coding-agent internals
+├── docs/                 Documentation (installation, commands, configuration,
+│   │                    architecture, security, fine-tuning, pipeline,
+│   │                    knowledge-base, troubleshooting, version-history,
+│   │                    agent-plugin-blueprint, TODO2 [old, needs re-verification])
+├── gui/                  Browser-based GUI: index.html + server.py (WebSocket server)
+├── lib/                  Shared shell-script helpers (e.g. gui_launch.sh, sourced
+│                        by both codey-start and codeyOS)
+├── pipeline/             Training data pipeline: ingestion, normalization,
+│                        transformation, embedding, storage, export, run.py
+├── prompts/              Prompt templates: system_prompt.py, layered_prompt.py,
+│                        critique_prompts.py
+├── tests/                Codey-OS test suite, including tests/security/
+├── tools/                Agent tools: file_tools, patch_tools, shell_tools,
+│                        kb_scraper, kb_semantic, setup_skills.sh
+├── utils/                config.py, file_utils.py, logger.py
+├── codey-start / codey-stop   Unified entry points (current, not legacy)
+├── codeyOS / codeydOS         CLI / daemon launcher scripts
+├── install.sh            Installation script — must stay current (see
+│                        Working conventions below)
+├── main.py               Codey-OS CLI entry point
+├── CODEY_OS_MASTER_VISION.md   ← AUTHORITATIVE SPEC
+├── TODO.md                     ← ordered outstanding-work checklist, read first
+├── WORK_QUEUE.md               Same order as TODO.md, with full evidence/history
+├── PROJECT_PLAN.md / PROJECT_LOG.md   Phase tracking / reverse-chronological log
+├── NEW_ISSUES.md               Findings log (Confirmed/Suspected), rule 8
+├── LIVE_TEST_QUEUE.md           Model-load verification steps deferred for
+│                              Ish to run himself (not run by Claude live)
+├── Codey-OS-audit.md / MODEL_COMPARISON.md / PRIVACY.md
+│   (docs/archive/AUDIT_REPORT.md — archived, June-2026 pre-CCOS era)
+└── README.md / CHANGELOG.md
+```
 
 ## Non-negotiable rules
 
@@ -61,6 +152,32 @@ an explicit, logged decision.
     new one if none of the existing agents genuinely cover it —
     subagent sprawl makes the pipeline harder to reason about, not
     easier.
+
+11. **Keep `install.sh` current with anything we add.** Any time a task
+    adds a new dependency (a pip package, a `pkg install` requirement, a
+    new system binary) or changes a setup step, `install.sh` must be
+    updated in the same task to reflect it — not left for later, and not
+    installed ad hoc on the device without also being captured in the
+    script. A fresh clone of this repo should be able to run `install.sh`
+    once and end up with a fully working system, matching whatever the
+    current state actually requires. If a task can't determine the right
+    place to add something to `install.sh`, flag it rather than skipping
+    the update silently.
+
+## Working conventions (not numbered "non-negotiable" rules, but expected)
+
+- **Read before you write.** Before modifying any file, read it first.
+  Before adding a dependency, check `requirements.txt` and `install.sh`.
+  Before changing architecture, re-read `CODEY_OS_MASTER_VISION.md`.
+- **Follow existing conventions.** Match the style, naming, imports,
+  typing, and patterns already in the file or module you're editing.
+  Don't introduce new patterns without a reason.
+- **Don't add features, abstractions, or error handling that wasn't asked
+  for.** Three similar lines beat a premature abstraction. Only validate
+  at system boundaries (user input, external APIs).
+- **Verify before claiming success.** Run the project's test suite,
+  linter, and type checker before claiming a task is done. If you can't
+  run them, say so explicitly.
 
 ## Workflow
 

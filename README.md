@@ -19,6 +19,19 @@ OS shell doesn't replace the coding agent — it governs and exposes it.
 Coding is the first and most mature capability domain; the shell is built
 to register, route to, and eventually extend well beyond it.
 
+**Product direction (confirmed 2026-08-05):** Codey-OS is a **multi-agent
+platform**, not a single coding-agent product — the coding agent is the
+first domain agent, not the whole system. Future domain agents are
+expected to have their own model (not necessarily the 7B — smaller
+models, e.g. 4B, are the norm for most agents) and, in some cases, their
+own process, gated onto shared hardware by a not-yet-built scheduler/
+resource-bus layer rather than all running concurrently. This is
+documented direction, not yet built — see
+[`CODEY_OS_MASTER_VISION.md`](CODEY_OS_MASTER_VISION.md) Section 9 and
+[`docs/agent-plugin-blueprint.md`](docs/agent-plugin-blueprint.md) for
+the full amendment and the developer-facing blueprint for integrating a
+new domain agent.
+
 Formerly developed as separate Codey-v2/v3 and CCOS codebases — now
 unified as **Codey-OS**, started and stopped as one system.
 
@@ -174,6 +187,7 @@ be rolled back.
 | [docs/fine-tuning-kaggle.md](docs/fine-tuning-kaggle.md) | Fine-tuning via Kaggle |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Common issues |
 | [docs/security.md](docs/security.md) | Threat model and mitigations |
+| [docs/agent-plugin-blueprint.md](docs/agent-plugin-blueprint.md) | Blueprint for designing/integrating a new domain agent (multi-agent platform direction) |
 | [docs/version-history.md](docs/version-history.md) / [CHANGELOG.md](CHANGELOG.md) | Release history |
 
 `CODEY_OS_MASTER_VISION.md` in the repo root is the authoritative,

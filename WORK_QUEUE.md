@@ -15,6 +15,11 @@ close — don't let it go stale the way a couple of the source docs' own
 checkboxes had (Phase 0's `symbolic_graph` box, Section 5's Open Question
 #3 — both already resolved in substance, never ticked).
 
+**As of 2026-08-08, `TODO.md` is the plain-checkbox view of this same
+sequence** — start a new session there for "what's left and in what
+order" without the evidence/history; come back to this file for the "why"
+behind any specific `TODO.md` line.
+
 ---
 
 ## How new issues get logged as we go
@@ -806,6 +811,39 @@ resource-awareness work twice.
        then implement it"). Depends on 5c, 5d, and 5e — first point
        where capability-as-plugin, context-passing, and the durable
        blackboard all compose.
+
+## Track 3.5 — Multi-agent platform direction (new 2026-08-05, Ish; scoped only, none started)
+
+New track from `CODEY_OS_MASTER_VISION.md` Section 9's 2026-08-05
+amendment (multi-agent platform direction, confirmed by Ish — see
+`PROJECT_LOG.md`'s 2026-08-05 entry) and its companion doc,
+`docs/agent-plugin-blueprint.md`. Everything below is design/vision work
+only — no code exists yet for any of these. Not strictly sequential with
+Track 3, but the resource-gate item (first below) should follow Track
+3's Phase 5a (coding-domain resource gate) rather than duplicate it —
+generalize, don't rebuild.
+
+- [ ] **Design and build the scheduler/resource-bus** that gates model
+      execution across multiple agents/processes by live RAM/thermal
+      state, queuing work when resources aren't available. Builds on
+      (does not replace) Phase 5a's coding-domain resource gate — see
+      `CODEY_OS_MASTER_VISION.md` Section 9.2 and
+      `docs/agent-plugin-blueprint.md` Section 5. Must handle push-driven
+      agents (e.g. IMAP-IDLE-triggered) as well as pull-driven ones —
+      open design question, not answered yet.
+- [ ] **Design the plugin/agent manifest schema extension** — `agent_type`,
+      `model_tiers`, `resource_footprint`, `event_triggers`,
+      `permissions`, `data_store` (proposed in
+      `docs/agent-plugin-blueprint.md` Section 3, not read by any code
+      today). Needs an actual implementation pass in
+      `ccos/core/capability_registry.py`/`ccos/core/plugin_manager.py`
+      once designed.
+- [ ] **Scope actual Aigentik-CLI integration** (`~/Aigentik-CLI`, a
+      separate repo/process/model — not part of Codey-OS). Requirements
+      are worked through at a design level in
+      `docs/agent-plugin-blueprint.md` Section 4; no implementation plan
+      exists yet, and this item should produce one before any code is
+      written against Aigentik-CLI.
 
 ## Track 4 — Docs & lower-priority cleanup (interleave anytime; no hard blockers on Tracks 0–3)
 
