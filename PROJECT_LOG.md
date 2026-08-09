@@ -5,6 +5,59 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-08-09 (round 14) — U.27 and U.28 fixed: both gaps live-testing found are closed
+
+Fixed both follow-up items from round 13's live-verification session, in
+parallel (different files, no conflict).
+
+**U.27/`NEW-96`** (committed separately, `a578318`): `core/daemon.py`'s
+startup preload and watchdog now name `LOAD_OUTCOME_EVICTION_FAILED`
+explicitly instead of falling through to a generic message that falsely
+promised a future retry would succeed. `code-reviewer` approved after
+verifying branch precedence with a real test.
+
+**U.28/`NEW-97`**: `codeydOS`'s `start_plannd()` now registers `plannd`
+with `resource_gate.register_slot(status=RESIDENT)` — accounting-only,
+same pattern already reviewed for the embed server — so the gate's
+residency store can finally see this always-on process. `plannd`'s
+unconditional startup is unchanged; this doesn't gate it, only makes it
+visible. `stop_plannd()` releases the slot at all three exit paths via a
+new `_release_plannd_slot()` helper, matching on both `model_id` and
+`pid` specifically to guard against PID recycling — the implementer
+checked this against `core/embed_server.py`'s own precedent for treating
+that risk as real for this store, rather than relying on eventual reap
+alone.
+
+`code-reviewer` required one fix before approving: a comment implying
+RESIDENT-status registration feeds `total_reserved_bytes()`'s admission
+math — it doesn't, that function deliberately excludes RESIDENT slots,
+this is visibility-only. Corrected directly. Reviewer otherwise verified,
+not just trusted: shell-injection safety of the bash-to-Python bridge
+(env-var passing, no string interpolation of config-sourced paths),
+`set -e` correctly neutralized so a registration/release failure can
+never change `start_plannd()`/`stop_plannd()`'s exit codes, and traced
+every real `list_slots()` consumer in the codebase to confirm none of
+them can act on or kill `plannd`'s PID via the new slot entry.
+
+**Two findings surfaced, not fixed**: `NEW-100` — fixing this exposed a
+pre-existing contradiction: `core/daemon.py`'s `release_model_slot`
+handler for the planner role operates on an in-process singleton that
+usually isn't the process actually holding `plannd`'s slot, so it can
+now report "nothing to free" while the gate's own store still shows
+`plannd` resident. Not new behavior, just newly *visible* now that
+`plannd` has any gate presence at all. `NEW-101` — a bounded,
+low-severity duplicate-registration case if `plannd` crashes without
+`stop_plannd()` running.
+
+Both fixes are code-complete and code-reviewer-approved. Neither has
+been re-live-verified yet — that's the next 7.4 live-test round, and
+this round's whole point was clearing the path for it: with both fixed,
+the daemon's startup preload should now actually reach
+`resource_gate.can_admit()` for the primary model even while `plannd` is
+running, which round 13 found it never did.
+
+---
+
 ## 2026-08-09 (round 13) — First live verification of 7.4 (resource gate): substitute model hard-rejected by design; found real gaps in the default runtime shape
 
 Ran the first real on-device test of `TODO.md` item 7.4 (all five

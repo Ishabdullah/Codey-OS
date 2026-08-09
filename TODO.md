@@ -675,17 +675,31 @@ above; interleave them whenever convenient (WQ Tracks 2 and 4).
       `U.28` still blocks reaching this path in the default runtime
       shape) — code-complete, live-verification pending the next 7.4
       test round.
-- [ ] U.28 (`NEW-97`, found live-verifying 7.4, 2026-08-09) — Confirmed:
-      `plannd` (`codeydOS`'s bash-launched planner daemon, port 8081)
-      spawns `llama-server` directly via `nohup`, entirely bypassing
-      `resource_gate.reserve_slot()`/`register_slot()` — the gate's
-      residency model (built in 7.4 sub-task 1 to be cross-process-aware)
-      can't see it. Fix direction: either route `plannd`'s startup
-      through `core/planner_loader.py`'s existing gate-aware
-      `PlannerLoader.load()`, or have `codeydOS`'s `start_plannd()` call
-      `register_slot()` directly (the same accounted-but-exempt pattern
-      `core/embed_server.py` already uses after `NEW-83`'s fix). Worth
-      fixing alongside U.27 before another live-verification round.
+- [x] U.28 (`NEW-97`) — **Fixed and code-reviewer-approved, 2026-08-09.**
+      `codeydOS`'s `start_plannd()` now registers `plannd`'s process with
+      `resource_gate.register_slot(model_id="planner", ..., status=RESIDENT)`
+      after confirming it's alive — accounting-only, same
+      accounted-but-exempt pattern `core/embed_server.py` already uses;
+      `plannd` still starts unconditionally, never subject to
+      `can_admit()` denial. `stop_plannd()` releases the slot at all
+      three of its exit paths via a new `_release_plannd_slot()` helper,
+      matching on both `model_id` and `pid` to guard against PID
+      recycling (a real risk the implementer checked against
+      `core/embed_server.py`'s own precedent for this store).
+      Shell-injection safety of the bash-to-Python bridge verified
+      directly by the reviewer (env-var passing, no interpolation into
+      the Python source string); `set -e` correctly neutralized around
+      both calls so a registration/release failure can never change
+      `start_plannd()`/`stop_plannd()`'s exit codes. One misleading
+      comment (implied RESIDENT registration feeds admission math; it
+      doesn't — `total_reserved_bytes()` deliberately excludes RESIDENT
+      slots, visibility only) corrected before commit. Surfaced `NEW-100`
+      (a newly-observable contradiction: `release_model_slot` can report
+      `already_unloaded` for the planner while the gate's own store still
+      shows `plannd` RESIDENT) and `NEW-101` (bounded, low-severity
+      duplicate-registration on an unclean `plannd` crash) — neither
+      fixed, both logged. Not yet re-live-verified — `U.27`+`U.28`
+      together are what the next 7.4 live-test round needs.
 - [ ] U.29 (`NEW-98`, Suspected, low severity) — `resource_gate.py`'s
       `DEVICE_CEILING_USABLE_FRACTION`/`REQUIRED_HEADROOM_FACTOR`
       calibration comment overstates the real margin — live-measured at

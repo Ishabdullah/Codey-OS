@@ -5516,3 +5516,47 @@ finding for the same bug. See `NEW-39`.)*
   project, not because it fired incorrectly during this session.
 - **Not fixed** — pre-existing code, out of this live-verification
   task's scope to touch.
+
+## Found while fixing U.28/NEW-97 (registering `plannd` with the gate), 2026-08-09 — NOT fixed, logged only
+
+### [NEW-100] `core/daemon.py`'s `release_model_slot` handler for `model_id="planner"` can report `already_unloaded` while `resource_gate.list_slots()` simultaneously shows a RESIDENT `"planner"` slot actually holding real memory — a contradiction newly *observable* now that `plannd` has any gate presence at all
+
+- **Status: Confirmed by design, not yet a live-observed failure.** The
+  `release_model_slot` handler operates on the in-process
+  `PlannerLoader` singleton (`core/planner_loader.py`), which — per that
+  handler's own pre-existing docstring — usually isn't the process
+  actually holding `plannd`'s slot, since `plannd` is a separate,
+  bash-`nohup`-launched process (see `NEW-97`, now fixed for
+  registration/accounting but not for this). Before `U.28`'s fix,
+  `plannd` had zero gate presence, so there was nothing to contradict.
+  Now that `codeydOS`'s `start_plannd()` registers a RESIDENT
+  `"planner"` slot for the real process, a caller using
+  `release_model_slot(model_id="planner")` to try to free planner memory
+  can be told "nothing to free" (`already_unloaded`, correct from the
+  in-process loader's own point of view) while the gate's own residency
+  store still shows real memory held by `plannd`, unaffected.
+- **Not fixed** — out of `U.28`'s scope (that task's job was making
+  `plannd` visible to the gate, not reconciling two independent code
+  paths that both claim the `"planner"` role). Fix direction: either
+  make `release_model_slot`'s handler aware of `plannd`'s registered
+  slot too (e.g. check `resource_gate.list_slots()` for a RESIDENT
+  `"planner"` entry not owned by the in-process loader, and report
+  accurately that a release isn't possible via this command for a
+  gate-visible-but-not-loader-owned process), or clarify in that
+  handler's docstring/response that it can only ever affect the
+  in-process loader's own model, never `plannd`.
+
+### [NEW-101] (Suspected, low severity, bounded) A `plannd` crash without `stop_plannd()` running (e.g. OOM-killed) leaves its RESIDENT gate slot un-released until the next reap; the following `start_plannd()` registers a second `"planner"` slot before that happens
+
+- **Status: Suspected**, bounded impact — RESIDENT slots are excluded
+  from `total_reserved_bytes()`'s admission-relevant sum (see `NEW-100`
+  above), so this doesn't affect admission math, and the dead slot
+  self-heals via existing PID-liveness reaping (`reap_dead=True`) the
+  next time anything calls `list_slots()`/`reserve_slot()` elsewhere.
+  In the meantime it's duplicate-registration noise in `list_slots()`'s
+  observability output, not a resource leak in the RAM-usage sense.
+- **Not fixed** — out of `U.28`'s scope. Fix direction, if the gate's
+  observability accuracy matters enough to warrant it: dedupe on
+  `(model_id, port)` at registration time in `start_plannd()` — release
+  any existing `"planner"` slot on port 8081 before registering a new
+  one, rather than relying solely on eventual reap.

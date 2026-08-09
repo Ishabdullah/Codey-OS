@@ -298,6 +298,43 @@ print(LLAMA_SERVER_BIN)
         echo "Planner started (PID: $PLANND_PID)"
         echo "Log: $PLANND_LOG_FILE"
         echo "Note: 1.5B model loading in background (~30-60 s)."
+
+        # Resource gate: accounted-but-exempt (TODO.md 7.4 sub-task 2 /
+        # U.28, NEW-97). plannd is spawned directly above via raw `nohup`,
+        # entirely outside the gate-aware PlannerLoader.load() path, so
+        # without this the gate's residency store has no visibility into
+        # this always-on ~1GB process at all. register_slot() (unconditional,
+        # no admission check) with status=RESIDENT makes it visible in
+        # list_slots() for observability — RESIDENT slots are deliberately
+        # excluded from total_reserved_bytes() (see resource_gate.py), so
+        # this does NOT feed the admission math or change any future
+        # can_admit() decision; it's visibility only, not accounting toward
+        # a budget. plannd's startup is never subject to a
+        # can_admit()/reserve_slot() denial or to the gated loaders'
+        # eviction logic — plannd must keep starting unconditionally,
+        # exactly as today. Same posture as core/embed_server.py's own
+        # already-reviewed accounted-but-exempt registration. Registration
+        # is accounting-only, not gating: a failure here (import error,
+        # corrupt state file, etc.) must never stop plannd itself from
+        # starting or change this function's exit code, so it's wrapped in
+        # a try/except that only warns.
+        CODEY_OS_DIR="$CODEY_OS_DIR" PLANND_MODEL_FILE="$MODEL_FILE" PLANND_PID="$PLANND_PID" \
+            /data/data/com.termux/files/usr/bin/python3 -c "
+import os
+import sys
+sys.path.insert(0, os.environ['CODEY_OS_DIR'])
+try:
+    import core.resource_gate as rg
+    rg.register_slot(
+        model_id='planner',
+        cost_bytes=os.path.getsize(os.environ['PLANND_MODEL_FILE']),
+        pid=int(os.environ['PLANND_PID']),
+        port=8081,
+        status=rg.SLOT_STATUS_RESIDENT,
+    )
+except Exception as e:
+    print(f'WARNING: resource_gate: failed to register plannd slot: {e}')
+" || echo "WARNING: resource_gate: plannd slot registration call failed to run"
     else
         echo "WARNING: Planner failed to start. Check: $PLANND_LOG_FILE"
         echo "         Main daemon will use fallback planning."
@@ -305,6 +342,42 @@ print(LLAMA_SERVER_BIN)
     fi
 
     return 0
+}
+
+# Resource gate: release the "planner" slot registered by start_plannd()'s
+# accounted-but-exempt registration above (TODO.md 7.4 sub-task 2 / U.28,
+# NEW-97). bash can't carry the register_slot()-returned slot_id across
+# separate script invocations the way Python could hold onto it in-process,
+# so this looks the slot up by (model_id="planner", pid=$1) instead — using
+# reap_dead=False so the lookup still finds the slot even when called with
+# an already-dead PID (the two early-return paths below). Matching on PID
+# and not just model_id matters: list_slots()'s own reap-dead-PIDs pass
+# would eventually clean up a slot whose PID died, but only once something
+# else happens to call list_slots()/reserve_slot() with reap_dead=True in
+# the meantime, and only as long as that PID hasn't been recycled by an
+# unrelated process first (core/embed_server.py's own PID-scan code treats
+# that exact recycling risk as real — same store, same risk class). An
+# explicit release here closes that gap immediately instead of leaving a
+# stale RESIDENT entry to rot in the store. Accounting-only, so a release
+# failure (import error, corrupt state file, etc.) must never change
+# stop_plannd()'s own exit code or block the actual kill — wrapped so it
+# only warns.
+_release_plannd_slot() {
+    local pid="$1"
+    CODEY_OS_DIR="$CODEY_OS_DIR" PLANND_RELEASE_PID="$pid" \
+        /data/data/com.termux/files/usr/bin/python3 -c "
+import os
+import sys
+sys.path.insert(0, os.environ['CODEY_OS_DIR'])
+try:
+    import core.resource_gate as rg
+    target_pid = int(os.environ['PLANND_RELEASE_PID'])
+    for s in rg.list_slots(reap_dead=False):
+        if s.get('model_id') == 'planner' and s.get('pid') == target_pid:
+            rg.release_slot(s['slot_id'])
+except Exception as e:
+    print(f'WARNING: resource_gate: failed to release plannd slot: {e}')
+" || echo "WARNING: resource_gate: plannd slot release call failed to run"
 }
 
 stop_plannd() {
@@ -315,6 +388,9 @@ stop_plannd() {
     PID=$(cat "$PLANND_PID_FILE" 2>/dev/null || echo "")
 
     if [ -z "$PID" ] || ! kill -0 "$PID" 2>/dev/null; then
+        if [ -n "$PID" ]; then
+            _release_plannd_slot "$PID"
+        fi
         rm -f "$PLANND_PID_FILE"
         return 0
     fi
@@ -327,6 +403,7 @@ stop_plannd() {
         if ! kill -0 "$PID" 2>/dev/null; then
             echo "Planner daemon stopped"
             rm -f "$PLANND_PID_FILE"
+            _release_plannd_slot "$PID"
             pkill -9 -f "llama-server.*8081" 2>/dev/null || true
             return 0
         fi
@@ -335,6 +412,7 @@ stop_plannd() {
 
     kill -9 "$PID" 2>/dev/null || true
     rm -f "$PLANND_PID_FILE"
+    _release_plannd_slot "$PID"
     pkill -9 -f "llama-server.*8081" 2>/dev/null || true
     echo "Planner daemon stopped (forced)"
     return 0
