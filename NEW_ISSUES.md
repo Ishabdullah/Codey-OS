@@ -5423,13 +5423,22 @@ finding for the same bug. See `NEW-39`.)*
   "first request" while `plannd` is up — the message is actively
   misleading for this device's actual default runtime shape, not just
   technically imprecise.
-- **Not fixed** — found live, outside this live-verification task's own
-  scope (which was to observe, not patch, process-lifecycle code).
-  Fix direction: either add `eviction_failed` as a fourth explicitly-named
-  outcome with its own accurate message at both call sites (matching the
-  pattern already used for the other three), or make the message
-  generic-but-honest ("primary not loaded — see next attempt") at both
-  sites instead of only the watchdog's.
+- **Fixed 2026-08-09** (`TODO.md` `U.27`). `core/daemon.py`'s startup
+  preload (extracted into a new `_preload_primary_model()` method,
+  mirroring the same extraction sub-task 3 already did for the watchdog)
+  and the watchdog (`_watchdog_check_model()`) both now handle
+  `LOAD_OUTCOME_EVICTION_FAILED` (a pre-existing `core/loader_v2.py`
+  constant, not newly added) as a fourth explicitly-named outcome,
+  correctly taking precedence over the generic "died"/fallback branch.
+  Neither message now promises a retry will succeed. Code-reviewer
+  approved, verifying the precedence ordering with a real test (a mocked
+  server whose `is_running()` returns `False` — the exact condition that
+  would otherwise fall into the "died" branch — confirming eviction-failed
+  genuinely pre-empts it). 8 new tests (not 9, corrected per a reviewer
+  note); full suite 501/501 passing. `NEW-97` (the actual architectural
+  gap — `plannd` bypassing the gate's accounting entirely, which is *why*
+  this denial class fires at all in the default runtime configuration —
+  remains open, tracked separately as `U.28`).
 
 ### [NEW-97] `plannd` (`codeydOS:239-309`, the bash-script-managed planner daemon on port 8081, distinct from `core/planner_loader.py`'s gate-aware `PlannerLoader`) spawns `llama-server` directly via `nohup`, entirely bypassing `resource_gate.reserve_slot()`/`register_slot()` — the gate under-counts real resident RAM whenever `plannd` is running, on every subsequent admission decision
 

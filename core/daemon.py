@@ -739,6 +739,7 @@ class Daemon:
         """
         try:
             from core.loader_v2 import (LOAD_OUTCOME_DEFERRED,
+                                         LOAD_OUTCOME_EVICTION_FAILED,
                                          LOAD_OUTCOME_GATE_DENIED,
                                          LOAD_OUTCOME_GATE_DENIED_HARD,
                                          get_loader)
@@ -768,6 +769,16 @@ class Daemon:
                 # SWAP_GUARD busy (planner mid-swap) — expected, benign,
                 # self-resolves on the next tick. Not worth a warning.
                 info(f"7B model watchdog: {reason}")
+            elif outcome == LOAD_OUTCOME_EVICTION_FAILED:
+                # The sequential-swap guard couldn't confirm the planner
+                # (1.5B, port 8081) freed its port — this never even reached
+                # can_admit(). Under this project's actual default runtime
+                # (`codeydOS start`, which always keeps `plannd` up as a
+                # separate always-on process), nothing about a future
+                # watchdog tick makes this self-resolve, so this is NOT
+                # phrased as transient/self-resolving like DEFERRED above
+                # (see NEW-96/U.27) — just state the fact.
+                warning(f"7B model not loaded — the planner hasn't freed its port ({reason})")
             elif was_running is False and server is None:
                 # Never successfully loaded in the first place (e.g. startup
                 # preload failed) — "died" would misdescribe this.
@@ -783,6 +794,79 @@ class Daemon:
             # again with no trace, so this is logged (not a bare `pass`)
             # before being swallowed.
             warning(f"7B model watchdog check failed: {e}")
+
+    def _preload_primary_model(self):
+        """
+        Attempt to pre-load the 7B primary model (llama-server on port 8080)
+        at daemon startup, and log an outcome-accurate message on failure.
+
+        Extracted out of `_main_loop()` (mirrors the `_watchdog_check_model()`
+        extraction from TODO.md 7.4 sub-task 3, for the same reason: a plain
+        synchronous method with no `self` dependency is independently
+        testable, where the equivalent block inline in the async main loop
+        — which also starts the socket server and embed server — is not).
+
+        `ensure_model()` is gate-aware (7.4 sub-tasks 2/3): a `False` return
+        here can mean several distinct things, and logging them all as "will
+        load on first request" is wrong for at least the gate-denial and
+        eviction-failed cases below — none of those will actually resolve on
+        a first-request retry. See `core/loader_v2.py`'s `LOAD_OUTCOME_*`
+        constants.
+        """
+        try:
+            from core.loader_v2 import (LOAD_OUTCOME_EVICTION_FAILED,
+                                         LOAD_OUTCOME_GATE_DENIED,
+                                         LOAD_OUTCOME_GATE_DENIED_HARD,
+                                         get_loader)
+
+            loader = get_loader()
+            if loader.ensure_model():
+                info("7B model pre-loaded (port 8080)")
+            else:
+                # Distinguish a resource-gate denial (real 7.4 outcome —
+                # the gate refused admission, nothing "failed") from an
+                # actual load failure. "Will load on first request" is a
+                # false promise under a denial: the same gate will deny
+                # that first-request load too unless headroom changes, or
+                # (hard_reject) will never admit this model on this
+                # device at all — say so instead of implying the retry
+                # will just work.
+                outcome = loader.get_last_ensure_outcome()
+                reason = loader.get_last_ensure_reason()
+                if outcome == LOAD_OUTCOME_GATE_DENIED_HARD:
+                    warning(
+                        "7B model pre-load denied by resource gate — model "
+                        f"exceeds this device's ceiling, will never be admitted: {reason}"
+                    )
+                elif outcome == LOAD_OUTCOME_GATE_DENIED:
+                    warning(
+                        f"7B model pre-load denied by resource gate (transient — "
+                        f"{reason}); will retry on the next watchdog tick"
+                    )
+                elif outcome == LOAD_OUTCOME_EVICTION_FAILED:
+                    # Same rationale as the watchdog's EVICTION_FAILED branch
+                    # (see NEW-96/U.27): under the default `codeydOS start`
+                    # runtime, `plannd` stays up as a separate always-on
+                    # process, so nothing about a "first request" makes this
+                    # self-resolve — don't promise it will. "pre-load:" kept
+                    # in the message (unlike the watchdog's) so a log reader
+                    # can tell which call site produced it — NEW-96's own
+                    # diagnosis depended on distinguishing the startup line
+                    # from the 30s-tick line.
+                    warning(
+                        f"7B model pre-load: not loaded — the planner hasn't freed its port ({reason})"
+                    )
+                else:
+                    warning(
+                        f"7B model pre-load failed ({outcome}: {reason}) — "
+                        "will load on first request"
+                    )
+        except Exception as _e:
+            # Pre-load is best-effort: startup must not fail the daemon
+            # over a model-load problem the watchdog will keep observing/
+            # retrying anyway — but the failure is still logged (not a
+            # bare `pass`) so it isn't silently lost.
+            warning(f"7B model pre-load skipped: {_e}")
 
     async def _main_loop(self):
         """Main daemon event loop."""
@@ -805,42 +889,7 @@ class Daemon:
         from utils.config import is_remote_backend as _is_remote
 
         if not _is_remote():
-            try:
-                from core.loader_v2 import (LOAD_OUTCOME_GATE_DENIED,
-                                             LOAD_OUTCOME_GATE_DENIED_HARD,
-                                             get_loader)
-
-                loader = get_loader()
-                if loader.ensure_model():
-                    info("7B model pre-loaded (port 8080)")
-                else:
-                    # Distinguish a resource-gate denial (real 7.4 outcome —
-                    # the gate refused admission, nothing "failed") from an
-                    # actual load failure. "Will load on first request" is a
-                    # false promise under a denial: the same gate will deny
-                    # that first-request load too unless headroom changes, or
-                    # (hard_reject) will never admit this model on this
-                    # device at all — say so instead of implying the retry
-                    # will just work.
-                    outcome = loader.get_last_ensure_outcome()
-                    reason = loader.get_last_ensure_reason()
-                    if outcome == LOAD_OUTCOME_GATE_DENIED_HARD:
-                        warning(
-                            "7B model pre-load denied by resource gate — model "
-                            f"exceeds this device's ceiling, will never be admitted: {reason}"
-                        )
-                    elif outcome == LOAD_OUTCOME_GATE_DENIED:
-                        warning(
-                            f"7B model pre-load denied by resource gate (transient — "
-                            f"{reason}); will retry on the next watchdog tick"
-                        )
-                    else:
-                        warning(
-                            f"7B model pre-load failed ({outcome}: {reason}) — "
-                            "will load on first request"
-                        )
-            except Exception as _e:
-                warning(f"7B model pre-load skipped: {_e}")
+            self._preload_primary_model()
         else:
             info(f"Backend: {_backend} — skipping local 7B and 1.5B server startup")
 

@@ -664,17 +664,17 @@ above; interleave them whenever convenient (WQ Tracks 2 and 4).
       root-level file `=3.9.0` (a pip-invocation-typo artifact, ~1.7KB,
       contains pip install output) — Suspected safe to delete, not
       deleted here per CLAUDE.md rule 8.
-- [ ] U.27 (`NEW-96`, found live-verifying 7.4, 2026-08-09) — Confirmed:
-      `core/daemon.py`'s startup preload says "will load on first
-      request" on an `eviction_failed` outcome (planner hasn't freed its
-      port), which is a false promise in the default `codeydOS start`
-      runtime shape (`plannd` never frees the port under that
-      configuration). Fix direction: name `eviction_failed` as a fourth
-      explicit outcome (alongside `GATE_DENIED`/`GATE_DENIED_HARD`/
-      `DEFERRED`) with an accurate message at both the startup-preload and
-      watchdog call sites, matching the pattern sub-task 3 already used
-      for the other three. Worth fixing before another live-verification
-      round of 7.4 — it's what a real user would actually see most often.
+- [x] U.27 (`NEW-96`) — **Fixed and code-reviewer-approved, 2026-08-09.**
+      `core/daemon.py`'s startup preload (`_preload_primary_model()`) and
+      watchdog (`_watchdog_check_model()`) both now name
+      `LOAD_OUTCOME_EVICTION_FAILED` explicitly, correctly taking
+      precedence over the generic fallback (verified by a real test with
+      a mocked non-running server — the exact condition that would
+      otherwise fall into "died"). No message promises a retry will
+      succeed. Full suite 501/501. Not yet re-live-verified (`NEW-97`/
+      `U.28` still blocks reaching this path in the default runtime
+      shape) — code-complete, live-verification pending the next 7.4
+      test round.
 - [ ] U.28 (`NEW-97`, found live-verifying 7.4, 2026-08-09) — Confirmed:
       `plannd` (`codeydOS`'s bash-launched planner daemon, port 8081)
       spawns `llama-server` directly via `nohup`, entirely bypassing

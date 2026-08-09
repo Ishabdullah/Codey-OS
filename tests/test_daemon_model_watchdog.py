@@ -1,20 +1,37 @@
 """
-core/daemon.py's `Daemon._watchdog_check_model()` — TODO.md 7.4 sub-task 3.
+core/daemon.py's `Daemon._watchdog_check_model()` (TODO.md 7.4 sub-task 3)
+and `Daemon._preload_primary_model()` (TODO.md U.27 / NEW-96) — the two call
+sites that turn `ensure_model()`'s outcome into a log message at daemon
+startup and on the 30s watchdog tick, respectively.
 
 `ensure_model()` (core/loader_v2.py) already routes through the resource
 gate as of sub-task 2 (both its branches end in `load_primary()`, which
 reserves/confirms/releases a slot) — there is no bypass to close here. What
-this sub-task closes is that daemon.py previously discarded `ensure_model()`'s
+sub-task 3 closed is that daemon.py previously discarded `ensure_model()`'s
 return value entirely (a bare `_loader.ensure_model()` call whose result was
 never read) and unconditionally logged "died — restarting" on any falsy
 `get_model_instance()`, including "never loaded at all" and "the resource
 gate denied a reservation" — neither of which is a crash.
 
-`_watchdog_check_model()` is a plain method with no dependency on `Daemon`
-instance state (`self` is unused inside it), so these tests call it via
-`Daemon.__new__(Daemon)` rather than running `Daemon.__init__()`'s full
-state-store/planner/background-manager/signal-handler setup, which is far
-more than this narrow behavior needs.
+U.27/NEW-96 closed a follow-on gap: `LOAD_OUTCOME_EVICTION_FAILED` (the
+sequential-swap guard failing to confirm the planner freed port 8081 before
+the primary's cold-load, which happens BEFORE `can_admit()` is ever reached)
+wasn't one of the outcomes either call site named explicitly, so both fell
+through to their generic fallback branch. The watchdog's generic fallback is
+honest ("attempted load, still not running") and was left alone. The
+startup-preload's generic fallback said "will load on first request" — a
+false promise under `codeydOS start`'s default runtime, where `plannd` stays
+up as a separate always-on process and never frees the port on its own, so
+that "first request" retry could never actually succeed. Both call sites now
+name `LOAD_OUTCOME_EVICTION_FAILED` explicitly with the same accurate,
+non-promising message.
+
+`_watchdog_check_model()` and `_preload_primary_model()` are both plain
+methods with no dependency on `Daemon` instance state (`self` is unused
+inside either), so these tests call them via `Daemon.__new__(Daemon)` rather
+than running `Daemon.__init__()`'s full state-store/planner/background-
+manager/signal-handler setup, which is far more than this narrow behavior
+needs.
 
 No real llama-server subprocess is spawned anywhere in this file (CLAUDE.md
 rule 2 RAM discipline) — `core.loader_v2.get_loader()`'s singleton is reset
@@ -128,6 +145,53 @@ def test_watchdog_deferred_logs_info_not_warning():
     mock_info.assert_called()
 
 
+def test_watchdog_eviction_failed_names_the_outcome_and_does_not_promise_retry():
+    """U.27/NEW-96: eviction_failed must be its own named branch (not the
+    generic fallback), logged as a warning (not self-resolving like
+    DEFERRED), and must not claim the server "died" -- it never got past
+    the sequential-swap guard to attempt a real load."""
+    fake = FakeLoader(
+        ensure_result=False,
+        outcome=lv.LOAD_OUTCOME_EVICTION_FAILED,
+        reason="could not confirm the planner (1.5B) freed its port before "
+        "loading the primary (7B) — sequential-swap guard",
+        instance=None,
+    )
+    with patch.object(daemon_mod, "warning") as mock_warning:
+        _run_watchdog_with_fake_loader(fake)
+
+    assert mock_warning.call_count == 1
+    msg = mock_warning.call_args[0][0]
+    assert "died" not in msg
+    assert "planner hasn't freed its port" in msg
+    assert "will load on first request" not in msg
+
+
+def test_watchdog_eviction_failed_takes_precedence_over_died_branch():
+    """If the primary WAS running and then a cold-load retry hits a failed
+    eviction (e.g. the planner started re-occupying the port after a
+    restart), the named EVICTION_FAILED branch must still win over the
+    generic "server died" fallback -- same precedence the other three named
+    outcomes (GATE_DENIED_HARD/GATE_DENIED/DEFERRED) already have above it,
+    intentional per the outcome-naming pattern this task follows."""
+    server = MagicMock()
+    server.is_running.return_value = False
+    fake = FakeLoader(
+        ensure_result=False,
+        outcome=lv.LOAD_OUTCOME_EVICTION_FAILED,
+        reason="could not confirm the planner (1.5B) freed its port before "
+        "loading the primary (7B) — sequential-swap guard",
+        instance=server,
+    )
+    with patch.object(daemon_mod, "warning") as mock_warning:
+        _run_watchdog_with_fake_loader(fake)
+
+    assert mock_warning.call_count == 1
+    msg = mock_warning.call_args[0][0]
+    assert "died" not in msg
+    assert "planner hasn't freed its port" in msg
+
+
 def test_watchdog_never_loaded_says_not_loaded_not_died():
     """No server instance at all (e.g. startup preload never succeeded) --
     must not claim the server "died"; it never came up in the first place."""
@@ -178,6 +242,121 @@ def test_watchdog_swallows_and_logs_unexpected_exception_not_bare_pass():
         daemon_mod, "warning"
     ) as mock_warning:
         d._watchdog_check_model()  # must not raise
+
+    assert mock_warning.call_count == 1
+    assert "boom" in mock_warning.call_args[0][0]
+
+
+# ── _preload_primary_model() (startup call site) ────────────────────────
+#
+# U.27/NEW-96: this call site had the false "will load on first request"
+# promise for eviction_failed; the other outcomes (GATE_DENIED,
+# GATE_DENIED_HARD) were already handled correctly by sub-task 3 and are
+# re-checked here only enough to confirm the extraction into
+# `_preload_primary_model()` didn't change their behavior.
+
+
+def _run_preload_with_fake_loader(fake_loader):
+    d = _bare_daemon()
+    with patch.object(lv, "get_loader", return_value=fake_loader):
+        d._preload_primary_model()
+
+
+def test_preload_success_logs_info_not_warning():
+    fake = FakeLoader(ensure_result=True, outcome=lv.LOAD_OUTCOME_OK, reason="", instance=None)
+    with patch.object(daemon_mod, "warning") as mock_warning, patch.object(
+        daemon_mod, "info"
+    ) as mock_info:
+        _run_preload_with_fake_loader(fake)
+    mock_warning.assert_not_called()
+    mock_info.assert_called()
+
+
+def test_preload_gate_denied_hard_says_will_never_be_admitted():
+    fake = FakeLoader(
+        ensure_result=False,
+        outcome=lv.LOAD_OUTCOME_GATE_DENIED_HARD,
+        reason="model exceeds device ceiling",
+        instance=None,
+    )
+    with patch.object(daemon_mod, "warning") as mock_warning:
+        _run_preload_with_fake_loader(fake)
+
+    assert mock_warning.call_count == 1
+    msg = mock_warning.call_args[0][0]
+    assert "will never be admitted" in msg
+    assert "will load on first request" not in msg
+
+
+def test_preload_gate_denied_transient_says_will_retry():
+    fake = FakeLoader(
+        ensure_result=False,
+        outcome=lv.LOAD_OUTCOME_GATE_DENIED,
+        reason="no headroom",
+        instance=None,
+    )
+    with patch.object(daemon_mod, "warning") as mock_warning:
+        _run_preload_with_fake_loader(fake)
+
+    assert mock_warning.call_count == 1
+    msg = mock_warning.call_args[0][0]
+    assert "will retry on the next watchdog tick" in msg
+    assert "will load on first request" not in msg
+
+
+def test_preload_eviction_failed_does_not_promise_first_request_retry():
+    """U.27/NEW-96: this is the core regression case -- eviction_failed at
+    the startup-preload call site must not say "will load on first
+    request", which is a false promise under codeydOS start's default
+    runtime (plannd stays up and never frees the port on its own)."""
+    fake = FakeLoader(
+        ensure_result=False,
+        outcome=lv.LOAD_OUTCOME_EVICTION_FAILED,
+        reason="could not confirm the planner (1.5B) freed its port before "
+        "loading the primary (7B) — sequential-swap guard",
+        instance=None,
+    )
+    with patch.object(daemon_mod, "warning") as mock_warning:
+        _run_preload_with_fake_loader(fake)
+
+    assert mock_warning.call_count == 1
+    msg = mock_warning.call_args[0][0]
+    assert "will load on first request" not in msg
+    assert "planner hasn't freed its port" in msg
+
+
+def test_preload_generic_fallback_still_says_will_load_on_first_request():
+    """An outcome with no dedicated branch (e.g. SPAWN_FAILED/ERROR) still
+    falls through to the unchanged generic message -- U.27/NEW-96's scope
+    was the eviction-failed denial specifically; whether "will load on
+    first request" is itself accurate for spawn/error outcomes was not
+    assessed by this task and is out of scope here. This test only confirms
+    the new named branches didn't accidentally swallow the fallback."""
+    fake = FakeLoader(
+        ensure_result=False,
+        outcome=lv.LOAD_OUTCOME_SPAWN_FAILED,
+        reason="llama-server process failed to start",
+        instance=None,
+    )
+    with patch.object(daemon_mod, "warning") as mock_warning:
+        _run_preload_with_fake_loader(fake)
+
+    assert mock_warning.call_count == 1
+    msg = mock_warning.call_args[0][0]
+    assert "will load on first request" in msg
+
+
+def test_preload_swallows_and_logs_unexpected_exception_not_bare_pass():
+    """Pre-load must never crash daemon startup, but an unexpected
+    exception must be LOGGED, not silently swallowed (CLAUDE.md: exception
+    handling around safety-relevant code must not silently swallow
+    failures without a comment explaining why that's safe -- this path's
+    comment explains it's best-effort, and it does log)."""
+    d = _bare_daemon()
+    with patch.object(lv, "get_loader", side_effect=RuntimeError("boom")), patch.object(
+        daemon_mod, "warning"
+    ) as mock_warning:
+        d._preload_primary_model()  # must not raise
 
     assert mock_warning.call_count == 1
     assert "boom" in mock_warning.call_args[0][0]
