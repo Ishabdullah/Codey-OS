@@ -18,11 +18,39 @@ normal convention (Confirmed/Suspected, next `NEW-##` ID).
 
 ---
 
-## Queue (empty so far — populated as model-load-dependent items are code-completed)
+## Queue
 
-*(No entries yet as of 2026-08-08. This file will fill in as Phase 1/4
-items that touch `core/loader_v2.py`/`core/daemon.py`'s model-loading
-paths reach code-complete status.)*
+### [NEW-83] `core/embed_server.py`'s port-occupant kill logic — confirm real PID identification works on-device
+
+- **What was built and reviewed:** `_kill_port_occupant()`'s bare `pkill
+  -9 llama-server` (a CLAUDE.md rule 3 violation) replaced with
+  positively-identified PID killing: `_find_port_occupant_pid()` (parses
+  `/proc/net/tcp`+`tcp6`) as primary, `_find_pid_via_registered_slot()`
+  (checks `resource_gate`'s residency store) as secondary fallback, fails
+  loudly if neither identifies a PID. Code-reviewer-approved (round 6,
+  2026-08-09). 14/14 new tests pass, but one self-skips because
+  `/proc/net/tcp` returned `PermissionError` in the dev sandbox — this is
+  suspected to match a real Android/Termux restriction on that path for
+  unprivileged apps.
+- **What the live test should do:** on the actual device, deliberately
+  occupy the embed server's port (8082) with a foreign process, then start
+  `embed_server` and confirm: (1) it correctly identifies and kills the
+  right PID (not a bare-name kill of anything else running), (2) it
+  actually starts successfully afterward, (3) if `/proc/net/tcp` really is
+  unreadable here, confirm the registered-slot fallback path is what's
+  actually firing (add temporary logging if needed to see which path
+  succeeded) — this determines whether the "secondary fallback" is
+  actually the primary real-world mechanism, which matters for how
+  seriously to take `NEW-86`'s residual PID-recycling race.
+- **RAM discipline reminder:** this test only needs the embed server
+  itself running, not the full 7B/1.5B stack — keep it isolated, run
+  `free -h` before/after per rule 2 regardless.
+- **What to log back and where if it fails:** if `/proc/net/tcp` is
+  confirmed unreadable on-device and the registered-slot fallback also
+  fails to identify the occupant in some real scenario, log a new
+  Confirmed `NEW-##` finding — this would mean the fix's "fail loudly
+  instead of killing blind" behavior could produce real, repeating
+  startup failures on this device, not just a theoretical edge case.
 
 ## Format for future entries
 

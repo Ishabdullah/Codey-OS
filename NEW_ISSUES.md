@@ -5057,3 +5057,108 @@ open, not closed, on this basis.
   `release_slot()` on any failure path. Flagged for sub-task 2/3 (loader
   and daemon integration), where the actual call-and-release pattern
   gets written.
+
+## Found while implementing `core/resource_gate.py` sub-task 2 (slot-aware loaders), 2026-08-09 — NOT fixed, logged only
+
+### [NEW-83] `core/embed_server.py:253` calls `pkill -9 llama-server` — a direct violation of CLAUDE.md rule 3 ("never kill processes by bare name pattern")
+
+- **Status: Confirmed** — read directly, `core/embed_server.py:253`,
+  inside `_kill_port_occupant()`'s fallback path (method 2, invoked when
+  a more targeted approach fails). This is the exact bug pattern
+  CLAUDE.md rule 3 exists to prevent — a blanket kill-by-name that can
+  hit unrelated `llama-server` processes this project doesn't own or
+  intend to touch, not a PID this code itself spawned. Pre-existing, not
+  introduced by the sub-task 2 slot-awareness work; found incidentally
+  while reading `embed_server.py`'s lifecycle to add slot registration.
+  Fix direction: track the actual spawned PID (the same pattern
+  `core/loader_v2.py`/`core/resource_gate.py` now use for the 7B/1.5B)
+  and kill that specific PID, never a bare name match.
+- **Severity note:** this rule has a specific, named prior incident
+  behind it (a blanket `pkill -f llama-server` that killed unrelated
+  model servers) — this isn't a hypothetical risk category, it's the
+  same failure mode recurring in a code path sub-task 2 didn't touch.
+  Recommend prioritizing this over some of the other open `NEW-##`
+  items given the rule-3 severity, though the call is Ish's.
+
+### [NEW-84] Hot-swapping to a fine-tuned model (`lora_import.py`'s `swap_to_finetuned_model`/`rollback_to_backup`) reports success but silently reloads the original weights, for both the primary and secondary model paths
+
+- **Status: Confirmed** — `core/loader_v2.py` does `from utils.config
+  import MODEL_PATH` and `core/planner_loader.py` does `from utils.config
+  import ... PLANNER_MODEL_PATH` — both are plain module-level names
+  bound once at import time. `lora_import.py`'s swap functions mutate
+  `cfg.MODEL_PATH`/`cfg.SECONDARY_MODEL_PATH` on the `utils.config`
+  module object, but `loader_v2.py`/`planner_loader.py` never re-read
+  `cfg.MODEL_PATH` after their own import — they keep using the name
+  they bound at their own import time, which never changes. Found while
+  fixing `NEW-24` (the nonexistent `loader.load_secondary()` calls) —
+  fixing `NEW-24`'s `AttributeError` made these call sites reach real
+  code for the first time, which is what exposed this separate,
+  pre-existing gap; NEW-24's own fix (routing to
+  `core.planner_loader.get_planner_loader()`) is correct and complete on
+  its own terms, this is a different bug found adjacent to it.
+- Concrete effect: `swap_to_finetuned_model()` (and `rollback_to_backup()`)
+  report success, but the actual model weights loaded afterward are still
+  the original ones, for both the primary and secondary/planner variants
+  — the fine-tuning swap feature does not currently work end-to-end.
+  Fix direction: either have the loaders read `cfg.MODEL_PATH`/
+  `cfg.PLANNER_MODEL_PATH` fresh at load time (via `utils.config` module
+  access, e.g. `cfg.MODEL_PATH`, not an imported local name bound at
+  import time) instead of importing a static name, or have
+  `lora_import.py` pass the swapped path explicitly into the load call
+  rather than mutating shared config state the loader never re-reads.
+- **Extra consequence found during sub-task 2's code-reviewer pass,
+  2026-08-09**: `core/resource_gate.py`'s `KNOWN_MODEL_ARCHS` dict is
+  also keyed on these same import-time path strings — so even after a
+  re-read fix lands, a post-swap load would still miss the arch lookup
+  and silently drop the KV-cache cost term to 0 in the gate's admission
+  math. That's not just "wrong weights loaded" but an admission-safety
+  angle too: an underestimated cost could let the gate over-admit a load
+  it would otherwise have correctly rejected. Whoever fixes this needs to
+  address both the loader's stale path and the gate's arch-lookup keying
+  together, or the fix will look complete while still being wrong.
+
+### [NEW-85] `codeydOS` and `codey-stop` shell scripts still do bare `pkill -f "llama-server..."`/`pkill -9 -f "llama-server"` — same CLAUDE.md rule 3 violation as `NEW-83`, wider blast radius (9 call sites across 2 files)
+
+- **Status: Confirmed** — found while fixing `NEW-83`
+  (`core/embed_server.py`'s bare `pkill`), whose own module docstring
+  pointed at these two scripts as doing the same thing. Verified
+  directly: `codeydOS:152,203,212,224,233` (`pkill -9 -f
+  "llama-server.*8080"`), `codeydOS:261,330,338` (`...8081`), and
+  `codey-stop:36` (`pkill -9 -f "llama-server"`, no port qualifier at
+  all — the broadest of all of them) plus `codey-stop:32` (`pkill -9 -f
+  "gui/server.py"`, same pattern, different target). This is the exact
+  bug class CLAUDE.md rule 3 names a specific prior incident for (a
+  blanket `pkill -f llama-server` killing unrelated model servers) —
+  `codey-stop:36`'s unqualified version is the most literal match to
+  that incident's description of all the sites found so far.
+- Out of scope for `NEW-83`'s fix (that was `core/embed_server.py`
+  only). Not fixed here. Given the rule-3 severity and that this is
+  9 separate call sites rather than 1, this is a real candidate for its
+  own dedicated round rather than a quick patch — the fix pattern
+  (`core/loader_v2.py`/`core/resource_gate.py`'s tracked-PID convention,
+  now also used by `NEW-83`'s fix in `core/embed_server.py`) needs to be
+  ported into shell-script form for these two files, which is a
+  different implementation shape than the Python fix.
+
+### [NEW-86] `core/embed_server.py`'s `_kill_port_occupant()` (post-`NEW-83`-fix) still has a narrow PID-recycling race the post-kill verification doesn't catch
+
+- **Status: Suspected, low severity** — found by `code-reviewer` during
+  the `NEW-83` fix's review pass. The fix's `_port_is_bound()` re-check
+  after a kill looks like it closes the PID-recycling TOCTOU window, but
+  traced precisely, it doesn't: if the real occupant exits naturally
+  (freeing the port) between identification and kill, the OS can recycle
+  that PID to an unrelated new process before our delayed `os.kill(pid,
+  9)` executes — hitting the unrelated process — and the port is already
+  free by then anyway (the real occupant exited on its own), so the
+  post-kill check reports success and never notices anything wrong. This
+  is a real, narrow residual race, not fully closed by the `NEW-83` fix.
+- **Not blocking `NEW-83`'s approval** — this fix already narrows the
+  blast radius from "any process anywhere named llama-server" to "one
+  specific, positively-identified PID," which is a real improvement over
+  the bare `pkill` it replaced, even though this specific race remains.
+  Fix direction for a future round, if pursued: re-verify the target
+  PID's identity (e.g. re-check `/proc/<pid>/cmdline` immediately before
+  the kill, not just at identification time) to shrink the window
+  further — full elimination of PID-recycling races generally requires
+  OS-level pidfd support, which may be worth checking for availability
+  on this device rather than assuming.

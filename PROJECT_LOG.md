@@ -5,6 +5,111 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-08-09 (round 6) — NEW-83 fixed and code-reviewer-approved: `core/embed_server.py`'s bare `pkill` replaced with positively-identified PID kill
+
+Ish asked for `NEW-83` and `NEW-84` next, alongside sub-task 2's in-progress
+leak fix (separate files, run in parallel; `NEW-84` queued behind the leak
+fix since both touch `loader_v2.py`/`planner_loader.py`).
+
+`core/embed_server.py:253`'s `_kill_port_occupant()` fallback used to call
+a bare `pkill -9 llama-server` — a live CLAUDE.md rule 3 violation (this
+project's named prior incident: a blanket `pkill -f llama-server` killed
+unrelated model servers). Replaced with PID-specific identification and
+kill: `_find_port_occupant_pid()` parses `/proc/net/tcp`+`tcp6` for the
+actual bound PID (preferring LISTEN rows, scanning all candidates, not
+just the first match); a secondary `_find_pid_via_registered_slot()`
+fallback checks `resource_gate`'s cross-process residency store for a PID
+this code itself previously registered, verifies it's alive, and confirms
+`/proc/<pid>/cmdline` actually names `llama-server` (guards PID recycling)
+before trusting it. If neither path identifies a PID, the code now fails
+loudly (logs error, `start()` returns `False`) instead of killing anything
+unidentified — a real, intentional behavior change: a persistent
+unidentifiable occupant now produces a repeating failure loop (daemon
+watchdog restarts every 30s) instead of blind automatic recovery.
+
+**`code-reviewer` approved**, with two things worth recording:
+- **Live-verification recommended, not yet done.** One test self-skips on
+  `PermissionError` reading `/proc/net/tcp` in the dev sandbox this was
+  built in — confirmed to match Android/Termux's known restriction on that
+  path for unprivileged apps. If that holds on the real device, the
+  primary identification path may rarely fire there, making the
+  registered-slot fallback the real load-bearing mechanism in practice,
+  not just a secondary path as designed. Code-complete, not live-verified
+  — added to `LIVE_TEST_QUEUE.md`.
+- **`NEW-86` logged** (Suspected, low severity, found by the reviewer): a
+  narrow PID-recycling race remains — if the real occupant exits naturally
+  right after identification, the OS can recycle that PID to an unrelated
+  process before the delayed kill executes, and the post-kill port-free
+  check wouldn't catch it (the port really is free by then, just not
+  because of anything this code did). Not blocking — this fix still
+  narrows the blast radius from "any process named llama-server" to "one
+  specific PID," a real improvement over what it replaced.
+
+**`NEW-85` found and logged while fixing `NEW-83`** (not fixed): the same
+bare-`pkill` pattern exists 9 more times across `codeydOS` (8 sites,
+`llama-server.*8080`/`*8081`) and `codey-stop` (1 site, no port qualifier
+at all — the closest match yet to the rule's own named incident, plus one
+more at `gui/server.py`). Real candidate for its own dedicated round —
+shell-script form needs a different implementation than the Python fix
+here.
+
+Full suite (excluding `tests/test_loader_resource_gate.py`, which belongs
+to sub-task 2's separate, still-in-progress leak fix and currently has 2
+expected failures there, not here): 413/413 passing, 1 self-skip
+(`tests/test_new83_embed_server_kill.py`: 14/14, the skip explained
+above). Confirmed `core/loader_v2.py`/`core/planner_loader.py`/
+`core/resource_gate.py` untouched by this fix.
+
+## 2026-08-09 (round 5) — 7.4 sub-task 2 (slot-aware loaders): code-complete, code-reviewer pass pending
+
+`implementer` wired `core/loader_v2.py`'s `ModelLoader.load_primary()`/
+`unload()` and `core/planner_loader.py`'s `PlannerLoader.load()`/`unload()`
+to actually acquire/release slots via `core/resource_gate.py`'s
+`reserve_slot`/`mark_resident`/`release_slot` (module itself unmodified,
+already reviewed/approved in sub-task 1). A reservation denial now
+produces a real failure — no spawn — instead of proceeding regardless.
+Added `confirm_resident_and_mark_slot()`, a shared helper that does a
+bounded `/proc/meminfo`-drop poll before calling `mark_resident()`, per
+that function's documented precondition (don't mark resident just
+because a health endpoint answered). `core/embed_server.py` now registers
+its own slot directly as `SLOT_STATUS_RESIDENT` (never goes through
+`reserve_slot()`/`can_admit()` — accounted for in budget math, exempt
+from gating/eviction, matching `TODO.md`'s "accounted-but-exempt" note).
+
+**`NEW-24` fixed**: both `core/lora_import.py` call sites
+(`swap_to_finetuned_model`, `rollback_to_backup`) that called the
+nonexistent `loader.load_secondary()` now route to the real
+`core.planner_loader.get_planner_loader()`; also fixed a pre-existing bug
+where `rollback_to_backup()` called `loader.unload()` (primary)
+unconditionally even on the secondary branch. Fixing this exposed a
+**separate, still-open bug**, logged as `NEW-84` (Confirmed, not fixed):
+`loader_v2.py`/`planner_loader.py` import `MODEL_PATH`/
+`PLANNER_MODEL_PATH` as static names bound at their own import time;
+`lora_import.py`'s swap functions mutate `cfg.MODEL_PATH` on the config
+module, which the loaders never re-read — hot-swapping to a fine-tuned
+model currently reports success but silently keeps loading the original
+weights, for both variants. NEW-24's own fix is correct and complete on
+its own terms; NEW-84 is a different, adjacent bug it exposed.
+
+**Also logged, not fixed (`NEW-83`, found incidentally while reading
+`embed_server.py`'s lifecycle)**: `core/embed_server.py:253`'s fallback
+kill path calls `pkill -9 llama-server` — a live violation of CLAUDE.md
+rule 3 (never kill by bare name pattern), the exact failure mode this
+project has a named prior incident for. Pre-existing, not introduced by
+this round; flagged as worth prioritizing given the rule's severity.
+
+Tests: `tests/test_loader_resource_gate.py` (new, 15 tests) +
+`tests/test_resource_gate.py` + `tests/test_new12_launcher_lock_and_swap.py`
+(patched with an autouse gate-mocking fixture to stay deterministic) all
+passing; full suite re-run independently: **414/414 passing**. No live
+model-load testing performed in this pass (per RAM-discipline rules,
+that's `live-verifier`'s job, after `code-reviewer` approves) — all
+spawn/health-check paths mocked. `core/daemon.py` (sub-task 3) and
+`main.py`'s CLI load sites (sub-task 5) untouched, confirmed. `TODO.md`
+marked sub-task 2 code-complete, not live-verified. Routing to
+`code-reviewer` next — mandatory per rule 4, this is process-lifecycle
+code.
+
 ## 2026-08-08 (round 4) — 7.4 sub-task 1 (resource gate module) built, reviewed twice, approved
 
 `implementer` built `core/resource_gate.py` (new, standalone — not wired
