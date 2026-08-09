@@ -5310,3 +5310,13 @@ open, not closed, on this basis.
 issue during this round — merged into `NEW-39`'s existing entry above
 as a "Reconfirmed, 2026-08-09" note instead of kept as a second, separate
 finding for the same bug. See `NEW-39`.)*
+
+## Found while adding the test-only model-arch override to `core/resource_gate.py`, 2026-08-09 — NOT fixed, logged only
+
+### [NEW-94] `tests/test_resource_gate.py::test_known_model_archs_resolved_by_path` has a stale name — it actually resolves by `model_id`, not by path (cosmetic, no behavior bug)
+
+- **Status: Confirmed, cosmetic only.** Left over from the `NEW-84` fix
+  that moved `KNOWN_MODEL_ARCHS` from path-keyed to `model_id`-keyed —
+  the test's assertions were updated to match the new behavior at the
+  time, but its name wasn't. No fix needed beyond a rename whenever
+  someone's next in that file; not worth a standalone task.

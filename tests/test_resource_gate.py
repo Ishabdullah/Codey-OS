@@ -175,6 +175,134 @@ def test_known_model_archs_resolved_by_path():
     assert rg._resolve_model_arch(spec2) is rg.QWEN25_1_5B_ARCH
 
 
+# ── CODEY_TEST_PRIMARY_ARCH / CODEY_TEST_PLANNER_ARCH override ──────────────
+# Env-var-gated architecture substitution for a documented live-test session
+# (swapping smaller models in via CODEY_MODEL/CODEY_PLANNER_MODEL for
+# RAM-safe on-device gate/loader/daemon verification — see
+# core/resource_gate.py's "Test-only architecture substitutes" section).
+
+
+def test_test_arch_override_unset_matches_current_default_behavior(monkeypatch):
+    # Regression: with both env vars unset (the default, normal case),
+    # resolution must be byte-for-byte identical to today — including the
+    # object identity the pre-existing test above already pins.
+    monkeypatch.delenv(rg.CODEY_TEST_PRIMARY_ARCH_ENV, raising=False)
+    monkeypatch.delenv(rg.CODEY_TEST_PLANNER_ARCH_ENV, raising=False)
+
+    spec = rg.ModelSpec(model_id="primary", size_bytes=1, n_ctx=1024)
+    assert rg._resolve_model_arch(spec) is rg.QWEN25_7B_ARCH
+
+    spec2 = rg.ModelSpec(model_id="planner", size_bytes=1, n_ctx=1024)
+    assert rg._resolve_model_arch(spec2) is rg.QWEN25_1_5B_ARCH
+
+    # KNOWN_MODEL_ARCHS's committed default entries themselves are untouched
+    # (this mechanism is a lookup-time override, never a mutation of the dict).
+    assert rg.KNOWN_MODEL_ARCHS["primary"] is rg.QWEN25_7B_ARCH
+    assert rg.KNOWN_MODEL_ARCHS["planner"] is rg.QWEN25_1_5B_ARCH
+
+
+def test_test_arch_override_primary_set_selects_qwen3_4b(monkeypatch):
+    monkeypatch.setenv(rg.CODEY_TEST_PRIMARY_ARCH_ENV, "qwen3-4b")
+    monkeypatch.delenv(rg.CODEY_TEST_PLANNER_ARCH_ENV, raising=False)
+
+    spec = rg.ModelSpec(model_id="primary", size_bytes=1, n_ctx=1024)
+    assert rg._resolve_model_arch(spec) is rg.QWEN3_4B_ARCH
+
+    # KNOWN_MODEL_ARCHS's committed default entry is still untouched even
+    # while the override is active — this is a lookup-time override, not a
+    # mutation, so nothing else reading the dict directly is affected.
+    assert rg.KNOWN_MODEL_ARCHS["primary"] is rg.QWEN25_7B_ARCH
+
+
+def test_test_arch_override_planner_set_selects_qwen25_0_5b(monkeypatch):
+    monkeypatch.delenv(rg.CODEY_TEST_PRIMARY_ARCH_ENV, raising=False)
+    monkeypatch.setenv(rg.CODEY_TEST_PLANNER_ARCH_ENV, "qwen2.5-0.5b-planner")
+
+    spec = rg.ModelSpec(model_id="planner", size_bytes=1, n_ctx=1024)
+    assert rg._resolve_model_arch(spec) is rg.QWEN25_0_5B_PLANNER_ARCH
+    assert rg.KNOWN_MODEL_ARCHS["planner"] is rg.QWEN25_1_5B_ARCH
+
+
+def test_test_arch_override_does_not_preempt_explicit_spec_arch(monkeypatch):
+    # Explicit spec.arch always wins over the env-var test override — an env
+    # var silently preempting a caller's explicit, already-correct
+    # declaration would itself be a wrong-arch bug.
+    monkeypatch.setenv(rg.CODEY_TEST_PRIMARY_ARCH_ENV, "qwen3-4b")
+    spec = rg.ModelSpec(model_id="primary", size_bytes=1, n_ctx=1024, arch=rg.QWEN25_7B_ARCH)
+    assert rg._resolve_model_arch(spec) is rg.QWEN25_7B_ARCH
+
+
+def test_test_arch_override_scoped_to_primary_and_planner_only(monkeypatch):
+    # Same "primary-7b" model_id used by the NEW-21 regression fixtures below
+    # (not the bare "primary"/"planner" role identifiers) must be unaffected
+    # by the override, WITHOUT an explicit spec.arch short-circuiting the
+    # check (an explicit arch would resolve at the earlier branch in
+    # _resolve_model_arch() regardless of scoping, so it wouldn't actually
+    # exercise/discriminate this env-var-scoping behavior at all) —
+    # otherwise there's no way to distinguish "the override works" from "the
+    # override is too broad and catches unrelated ids."
+    monkeypatch.setenv(rg.CODEY_TEST_PRIMARY_ARCH_ENV, "qwen3-4b")
+    unknown_spec = rg.ModelSpec(model_id="primary-7b", size_bytes=1, n_ctx=1024)
+    assert rg._resolve_model_arch(unknown_spec) is None
+
+
+def test_test_arch_override_invalid_value_raises_valueerror(monkeypatch):
+    monkeypatch.setenv(rg.CODEY_TEST_PRIMARY_ARCH_ENV, "not-a-real-arch")
+    spec = rg.ModelSpec(model_id="primary", size_bytes=1, n_ctx=1024)
+    with pytest.raises(ValueError):
+        rg._resolve_model_arch(spec)
+
+
+def test_test_arch_override_cross_role_value_rejected(monkeypatch):
+    # A value that's valid for the OTHER role's env var (e.g. the planner
+    # substitute's key used for CODEY_TEST_PRIMARY_ARCH) must be rejected
+    # loudly, not silently accepted — a flat, role-agnostic registry would
+    # have let this through and produced a WORSE under-estimate (0.5B arch
+    # used for the primary/7B slot) than the bug this feature exists to fix.
+    monkeypatch.setenv(rg.CODEY_TEST_PRIMARY_ARCH_ENV, "qwen2.5-0.5b-planner")
+    spec = rg.ModelSpec(model_id="primary", size_bytes=1, n_ctx=1024)
+    with pytest.raises(ValueError):
+        rg._resolve_model_arch(spec)
+
+    monkeypatch.delenv(rg.CODEY_TEST_PRIMARY_ARCH_ENV, raising=False)
+    monkeypatch.setenv(rg.CODEY_TEST_PLANNER_ARCH_ENV, "qwen3-4b")
+    spec2 = rg.ModelSpec(model_id="planner", size_bytes=1, n_ctx=1024)
+    with pytest.raises(ValueError):
+        rg._resolve_model_arch(spec2)
+
+
+def test_test_arch_override_invalid_value_propagates_through_can_admit(monkeypatch):
+    # A bad override must fail loudly all the way through the real call path
+    # a caller actually uses (can_admit()), not just at _resolve_model_arch()
+    # directly — this is what makes the failure mode fail-closed (refusing
+    # admission) rather than silently admitting on a wrong/omitted estimate.
+    monkeypatch.setenv(rg.CODEY_TEST_PRIMARY_ARCH_ENV, "not-a-real-arch")
+    spec = rg.ModelSpec(model_id="primary", size_bytes=int(1 * GIB), n_ctx=4096)
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=8.5, mem_available_gib=9.0)
+    with pytest.raises(ValueError):
+        rg.can_admit(spec, meminfo=mi, read_temp_fn=NO_THERMAL)
+
+
+def test_qwen3_4b_arch_kv_estimate_is_larger_than_qwen25_7b():
+    # Pins the actual arithmetic this feature exists to fix: if the 7B arch
+    # were wrongly used for a resident Qwen3-4B-Instruct model, the KV cache
+    # cost would be under-estimated (7B factor: 28*4*128=14336) relative to
+    # Qwen3-4B's real factor (36*8*128=36864, ~2.6x larger) — the dangerous
+    # direction for a resource gate. Confirms QWEN3_4B_ARCH actually produces
+    # the larger, correct estimate once selected via the override.
+    n_ctx = 4096
+    qwen3_4b_kv = rg.estimate_kv_cache_bytes(rg.QWEN3_4B_ARCH, n_ctx=n_ctx)
+    qwen25_7b_kv = rg.estimate_kv_cache_bytes(rg.QWEN25_7B_ARCH, n_ctx=n_ctx)
+    assert qwen3_4b_kv > qwen25_7b_kv
+    expected = 36 * 2 * 8 * 128 * n_ctx * 2
+    assert qwen3_4b_kv == expected
+
+
+def test_qwen25_0_5b_planner_arch_kv_estimate():
+    expected = 24 * 2 * 2 * 64 * 4096 * 2
+    assert rg.estimate_kv_cache_bytes(rg.QWEN25_0_5B_PLANNER_ARCH, n_ctx=4096) == expected
+
+
 # ── NEW-21 regression: real numbers, correctly-computed cost estimate ───────
 
 
@@ -583,6 +711,29 @@ def test_reserve_slot_refuses_and_does_not_register_when_no_room(tmp_path):
     assert decision.admitted is False
     assert slot_id is None
     assert rg.list_slots(state_dir=tmp_path) == []
+
+
+def test_reserve_slot_bad_test_arch_override_raises_and_registers_nothing(monkeypatch, tmp_path):
+    # The ValueError from a bad CODEY_TEST_*_ARCH override is raised from
+    # inside can_admit(), which reserve_slot() calls WHILE holding
+    # _LockedState's flock (see reserve_slot()'s docstring on why live
+    # signals are read before the lock, but can_admit() itself runs inside
+    # it). Confirms the exception still propagates cleanly out of
+    # reserve_slot() with no slot registered and no leaked/held lock — the
+    # one path in this module where the new raise crosses a flock, which
+    # matters given this module's history of process-lifecycle bugs.
+    monkeypatch.setenv(rg.CODEY_TEST_PRIMARY_ARCH_ENV, "not-a-real-arch")
+    spec = rg.ModelSpec(model_id="primary", size_bytes=int(0.5 * GIB), n_ctx=2048)
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=5.0, mem_available_gib=5.0)
+    with pytest.raises(ValueError):
+        rg.reserve_slot(spec, meminfo=mi, read_temp_fn=NO_THERMAL, state_dir=tmp_path)
+    assert rg.list_slots(state_dir=tmp_path) == []
+    # Lock released cleanly despite the exception: a second, unrelated call
+    # against the same state_dir must not hang/deadlock on a stuck flock.
+    ok_spec = rg.ModelSpec(model_id="ok", size_bytes=int(0.1 * GIB), n_ctx=1024, compute_overhead_bytes=0)
+    decision, slot_id = rg.reserve_slot(ok_spec, meminfo=mi, read_temp_fn=NO_THERMAL, state_dir=tmp_path)
+    assert decision.admitted is True
+    assert slot_id is not None
 
 
 def test_reserve_slot_accounts_for_prior_pending_reservation(tmp_path):

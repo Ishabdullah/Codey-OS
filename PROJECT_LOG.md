@@ -5,6 +5,64 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-08-09 (round 12) — Test-only model-arch override for the upcoming live-verification run
+
+Ish asked to substitute smaller models for the 7.4 live test (a smaller
+coding model in place of the 7B, an even smaller one for the planner if
+needed), and to document the substitution thoroughly. Identified real,
+already-downloaded substitutes: `~/models/qwen3-4b-instruct/
+Qwen3-4B-Instruct-2507-Q4_K_M.gguf` (2.50GB, vs. the 7B's 4.68GB) and
+`~/models/qwen2.5-0.5b/planner-codey.gguf` (398MB, a 494M-param Qwen2
+model, vs. the 1.5B planner's 1.12GB). Both swappable via `utils/config.py`'s
+existing `CODEY_MODEL`/`CODEY_PLANNER_MODEL` env var overrides — no
+source changes needed for the path swap itself.
+
+**Caught before running anything**: `core/resource_gate.py`'s
+`KNOWN_MODEL_ARCHS` is keyed by role (`"primary"`/`"planner"`), not file —
+correct for a same-family LoRA swap (`NEW-84`'s reasoning), wrong for a
+genuinely different model family. Extracted real architecture parameters
+directly from each GGUF file's own header metadata (wrote a minimal GGUF
+parser rather than trust memory/published specs): Qwen3-4B-Instruct-2507
+is `n_layers=36, n_kv_heads=8, head_dim=128`; the 0.5B planner substitute
+is `n_layers=24, n_kv_heads=2, head_dim=64`. Computed the actual risk: the
+gate's admission math using the 7B's architecture values (`n_layers=28,
+n_kv_heads=4, head_dim=128` → cost factor 14336) to estimate Qwen3-4B's
+real KV-cache cost (factor 36864) would under-estimate by ~2.6x — the
+dangerous direction on a device with a documented crash history. Not an
+acceptable "test anyway and note the caveat" situation.
+
+Added a small, env-var-gated architecture override to
+`core/resource_gate.py` (`CODEY_TEST_PRIMARY_ARCH`/`CODEY_TEST_PLANNER_ARCH`),
+read lazily inside `_resolve_model_arch()`, never at import time. The
+implementer's own advisor check caught a real design flaw before it
+shipped: a single flat, cross-role registry would let a misconfigured
+session accidentally resolve the planner override to the much larger
+primary architecture, producing an even worse (~4.7x) under-estimate than
+the problem being fixed — tightened to per-role-scoped registries so a
+planner key can't resolve under the primary env var or vice versa,
+verified by `code-reviewer` with an actual cross-role rejection test, not
+just a design read-through. Unset (the default): behavior is byte-for-byte
+identical to before — `KNOWN_MODEL_ARCHS` itself is never mutated,
+pinned by an `is`-identity test. Invalid override value raises loudly
+(`ValueError`), verified to clean up the gate's cross-process lock
+correctly on that path (a real regression test proves `list_slots() == []`
+after the raise, not just an assumption).
+
+`code-reviewer` approved with real independent verification: recomputed
+the arithmetic directly, confirmed the per-role structural enforcement
+(not just documentation) via the actual dict shape, traced the
+exception-through-flock cleanup path line-by-line (the same class of bug
+a real fix caught earlier in this sequence), and confirmed the unset-case
+identity test actually pins production behavior. Full suite: 493 passed,
+1 skipped — consistent with the known pre-existing pattern from prior
+rounds. `NEW-94` logged separately (cosmetic test-name leftover from the
+`NEW-84` keying fix, not a behavior bug).
+
+Code-complete, code-reviewer-approved. The actual on-device live-test
+session using this override — the real point of this round — is next.
+
+---
+
 ## 2026-08-09 (round 11) — 7.4 sub-task 5 approved: all five sub-tasks of the resource gate are now code-complete
 
 Final sub-task of `TODO.md` item 7.4. Since `load_primary()` already

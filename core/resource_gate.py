@@ -254,8 +254,14 @@ class ModelArch:
     """
     Minimal transformer architecture parameters needed to estimate KV cache
     size. Values come from each model family's published config (Qwen2.5
-    architecture docs), not from parsing the GGUF file — narrowly scoped to
-    what this gate needs, not a general GGUF-metadata reader.
+    architecture docs) for QWEN25_7B_ARCH/QWEN25_1_5B_ARCH. QWEN3_4B_ARCH and
+    QWEN25_0_5B_PLANNER_ARCH (below) instead come from reading each real
+    GGUF file's own header metadata directly on-device, because those two
+    are test-only substitute models with no corresponding "published config"
+    reference to cite (see each constant's own comment for the exact fields
+    read). Neither provenance parses the GGUF file at estimate time — this
+    dataclass stays narrowly scoped to what this gate needs, not a general
+    GGUF-metadata reader.
     """
 
     n_layers: int
@@ -301,6 +307,117 @@ KNOWN_MODEL_ARCHS: Dict[str, ModelArch] = {
     "planner": QWEN25_1_5B_ARCH,
 }
 
+# ── Test-only architecture substitutes (Qwen3-4B / Qwen2.5-0.5B planner) ────
+# These two constants exist ONLY to support a documented, deliberate live-test
+# session (Ish swapping in smaller models via utils/config.py's existing
+# CODEY_MODEL / CODEY_PLANNER_MODEL env-var overrides, for RAM-safe on-device
+# gate/loader/daemon verification) — never for any non-test purpose. They are
+# NOT added to KNOWN_MODEL_ARCHS's committed default entries, and by
+# themselves do nothing: see CODEY_TEST_PRIMARY_ARCH / CODEY_TEST_PLANNER_ARCH
+# below for the only mechanism that activates them, and note its own "unset
+# means byte-for-byte unchanged" contract.
+#
+# Values below were read directly from each real GGUF file's own header
+# metadata on this device (not published specs, not guessed) — see the task
+# that added this section for the exact `gguf`/metadata dump this was
+# extracted from.
+
+# Qwen3-4B-Instruct-2507 (~/models/qwen3-4b-instruct/
+# Qwen3-4B-Instruct-2507-Q4_K_M.gguf). GGUF header: qwen3.block_count=36,
+# qwen3.attention.head_count_kv=8, qwen3.attention.key_length=128.
+QWEN3_4B_ARCH = ModelArch(n_layers=36, n_kv_heads=8, head_dim=128)
+
+# 0.5B planner substitute (~/models/qwen2.5-0.5b/planner-codey.gguf, Qwen2
+# architecture, general.size_label="494M"). GGUF header: qwen2.block_count=24,
+# qwen2.attention.head_count_kv=2; this GGUF has no separate
+# qwen2.attention.key_length field, so head_dim is derived the standard way
+# for this architecture family: qwen2.embedding_length=896 /
+# qwen2.attention.head_count=14 = 64.
+QWEN25_0_5B_PLANNER_ARCH = ModelArch(n_layers=24, n_kv_heads=2, head_dim=64)
+
+# String keys accepted by CODEY_TEST_PRIMARY_ARCH / CODEY_TEST_PLANNER_ARCH
+# below, mapped to the constants above. A small registry (rather than
+# accepting a raw "n_layers,n_kv_heads,head_dim" triple) so a typo produces a
+# loud, enumerable error instead of a silently-plausible wrong triple — see
+# _resolve_model_arch()'s use of this dict.
+#
+# Deliberately PER-ROLE (a registry keyed by model_id, not one flat registry
+# shared across both env vars): if a single flat registry accepted either key
+# from either env var, e.g. `CODEY_TEST_PRIMARY_ARCH=qwen2.5-0.5b-planner`
+# would be silently accepted and would set the *primary* role's KV factor to
+# 24*2*64=3072 against the real 7B's 14336 — a ~4.7x under-estimate, worse
+# than the 2.6x under-estimate this whole feature exists to fix, and with no
+# loud failure at all. Splitting the registry by role means the wrong-role
+# value simply isn't a recognized key for that role's env var, so it hits the
+# same loud ValueError path as any other typo. Cross-role substitution
+# (deliberately putting the 0.5B arch in the primary slot, or vice versa) is
+# NOT supported by this mechanism — if a future live test genuinely needs
+# that, it should be a documented, explicit extension, not a side effect of
+# a shared flat registry.
+_TEST_ARCH_REGISTRY_BY_ROLE: Dict[str, Dict[str, ModelArch]] = {
+    "primary": {"qwen3-4b": QWEN3_4B_ARCH},
+    "planner": {"qwen2.5-0.5b-planner": QWEN25_0_5B_PLANNER_ARCH},
+}
+
+# Env vars read LAZILY (inside _resolve_model_arch(), not at module import)
+# so: (1) a test process can set/unset them per-test without needing
+# importlib.reload (which would rebind this module's ModelArch constants and
+# break identity checks elsewhere, e.g.
+# tests/test_resource_gate.py::test_known_model_archs_resolved_by_path's `is`
+# assertion); (2) the override can never outlive the env var — unset always
+# means immediately, byte-for-byte back to today's KNOWN_MODEL_ARCHS lookup,
+# with no risk of a stale in-process cache silently persisting an override
+# into what's meant to be a normal production run.
+#
+# Scoped to model_id "primary"/"planner" ONLY, and only consulted AFTER the
+# existing `spec.arch is not None` explicit-override check in
+# _resolve_model_arch() — a caller (or test) that explicitly passes `arch=`
+# always wins; these env vars must never silently preempt an explicit,
+# already-correct caller declaration. Precedence, in order: explicit
+# `spec.arch` > this env-var test override > KNOWN_MODEL_ARCHS default.
+CODEY_TEST_PRIMARY_ARCH_ENV = "CODEY_TEST_PRIMARY_ARCH"
+CODEY_TEST_PLANNER_ARCH_ENV = "CODEY_TEST_PLANNER_ARCH"
+
+_TEST_ARCH_ENV_BY_MODEL_ID = {
+    "primary": CODEY_TEST_PRIMARY_ARCH_ENV,
+    "planner": CODEY_TEST_PLANNER_ARCH_ENV,
+}
+
+
+def _resolve_test_arch_override(model_id: str) -> Optional[ModelArch]:
+    """
+    Return the env-var-selected test-only architecture override for
+    `model_id` ("primary"/"planner" only), or None if no applicable env var
+    is set or the env var is set to the empty string (treated as unset,
+    matching this project's `os.environ.get(NAME, default)` convention
+    elsewhere — e.g. utils/config.py's CODEY_MODEL override — where an empty
+    value is not a meaningful distinct case worth its own error). Raises
+    ValueError (loud, not a silent bad fallback) if the env var is set to a
+    non-empty value not present in that role's entry in
+    _TEST_ARCH_REGISTRY_BY_ROLE — this gate's entire purpose is preventing an
+    under-estimated cost from silently admitting a load it shouldn't, so a
+    typo'd override value (INCLUDING a value valid for the *other* role, per
+    the per-role registry split above) must fail admission outright rather
+    than quietly falling back to the wrong architecture (or to "no
+    architecture", which would silently zero the KV term — see
+    estimate_model_load_cost()'s unknown-arch branch).
+    """
+    env_name = _TEST_ARCH_ENV_BY_MODEL_ID.get(model_id)
+    if env_name is None:
+        return None
+    raw = os.environ.get(env_name)
+    if not raw:
+        return None
+    role_registry = _TEST_ARCH_REGISTRY_BY_ROLE.get(model_id, {})
+    try:
+        return role_registry[raw]
+    except KeyError:
+        raise ValueError(
+            f"{env_name}={raw!r} is not a recognized test architecture override "
+            f"for model_id {model_id!r}; valid values: {sorted(role_registry)}"
+        ) from None
+
+
 # Flat allowance for compute buffers (batch/context scratch space, etc.)
 # beyond weights + KV cache. Conservative default; not derived from a
 # specific measurement, so it's a named constant rather than buried in the
@@ -315,13 +432,17 @@ class ModelSpec:
 
     `size_bytes` and `arch` may both be supplied explicitly (this is how
     tests avoid depending on real model files on disk); if `size_bytes` is
-    omitted, it's read from `path.stat().st_size` at estimate time. If
-    `arch` is omitted and `model_id` isn't one of `KNOWN_MODEL_ARCHS`, the KV
-    cache term is estimated as 0 and a warning is logged — the cost estimate
-    degrades to "weights + overhead only", which is a known-incomplete (not
-    silently-wrong-in-the-safe-direction) estimate for unknown model
-    families; callers passing genuinely unknown models should supply `arch`
-    explicitly wherever possible.
+    omitted, it's read from `path.stat().st_size` at estimate time. Arch
+    resolution (see `_resolve_model_arch()`) checks, in order: explicit
+    `arch` on this spec, then (for `model_id` "primary"/"planner" only) the
+    CODEY_TEST_PRIMARY_ARCH/CODEY_TEST_PLANNER_ARCH test-only env-var
+    override (see that section's header comment in this module — unset by
+    default, never active in a normal run), then `KNOWN_MODEL_ARCHS`. If none
+    of those resolve, the KV cache term is estimated as 0 and a warning is
+    logged — the cost estimate degrades to "weights + overhead only", which
+    is a known-incomplete (not silently-wrong-in-the-safe-direction) estimate
+    for unknown model families; callers passing genuinely unknown models
+    should supply `arch` explicitly wherever possible.
     """
 
     model_id: str
@@ -368,8 +489,19 @@ def estimate_kv_cache_bytes(arch: ModelArch, n_ctx: int) -> int:
 
 
 def _resolve_model_arch(spec: ModelSpec) -> Optional[ModelArch]:
+    """
+    Precedence, in order: explicit `spec.arch` > CODEY_TEST_PRIMARY_ARCH /
+    CODEY_TEST_PLANNER_ARCH env-var test override (see that section's header
+    comment above) > KNOWN_MODEL_ARCHS default. The env-var check can raise
+    ValueError if set to an unrecognized value — deliberately not caught
+    here; see _resolve_test_arch_override()'s docstring for why a bad
+    override must fail loudly rather than silently falling back.
+    """
     if spec.arch is not None:
         return spec.arch
+    override = _resolve_test_arch_override(spec.model_id)
+    if override is not None:
+        return override
     if spec.model_id in KNOWN_MODEL_ARCHS:
         return KNOWN_MODEL_ARCHS[spec.model_id]
     return None
