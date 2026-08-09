@@ -40,8 +40,31 @@ LLAMA_SERVER_BIN = (
 )
 LLAMA_LIB = os.environ.get("CODEY_LLAMA_LIB") or str(_HOME_LLAMA)
 
+# Context window (n_ctx) — overridable via CODEY_N_CTX for substitute/smaller
+# models that can't handle the production default (e.g. NEW-95's resource-gate
+# live-verification round). This is the single source of truth read by both
+# core/loader_v2.py (the real llama-server -c flag it spawns with) and the
+# resource_gate.ModelSpec cost estimate (core/loader_v2.py, core/planner_loader.py)
+# — overriding only one of those would desync the gate's admission math from what
+# actually gets spawned (the NEW-84 class of bug). Fails loudly on a bad value
+# rather than silently falling back, since a silent fallback here could hide a
+# gate/spawn mismatch instead of preventing one.
+_n_ctx_env = os.environ.get("CODEY_N_CTX")
+if _n_ctx_env is None:
+    _n_ctx = 32768
+else:
+    try:
+        _n_ctx = int(_n_ctx_env)
+        if _n_ctx <= 0:
+            raise ValueError("must be a positive integer")
+    except ValueError as e:
+        raise ValueError(
+            f"CODEY_N_CTX={_n_ctx_env!r} is not a valid n_ctx ({e}). "
+            "Unset it to use the default (32768) or set it to a positive whole number."
+        ) from e
+
 MODEL_CONFIG = {
-    "n_ctx": 32768,
+    "n_ctx": _n_ctx,
     "n_threads": 4,
     "n_gpu_layers": 0,
     "verbose": False,

@@ -5,6 +5,42 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-08-09 (round 17) — U.31: `CODEY_N_CTX` override built and approved, unblocks the next 7.4 live-test round
+
+Corrected the original `TODO.md` framing before building: a gate-only
+`n_ctx` override (mirroring `CODEY_TEST_PRIMARY_ARCH`) would have been
+unsafe — the real `llama-server -c` spawn and the gate's admission cost
+estimate both read `MODEL_CONFIG["n_ctx"]`, so overriding only the
+gate's copy could let it approve a load based on a smaller context size
+than what the server actually spawns with, the same class of bug as
+`NEW-84`. Built at the single shared source instead: `utils/config.py`'s
+`MODEL_CONFIG["n_ctx"]` is now overridable via `CODEY_N_CTX`, matching
+the existing `CODEY_MODEL`/`CODEY_PLANNER_MODEL` pattern, flowing
+through consistently to both by construction. Zero/negative values
+rejected loudly at import time — verified during review that a negative
+`n_ctx` actually *subtracts* from the gate's cost estimate (a real
+over-admit risk, not just a milder zero case), not just theorized.
+
+`code-reviewer` requested one change before approving: an out-of-scope
+finding the implementer had only described in prose (not logged) needed
+to be in `NEW_ISSUES.md` per rule 8, and on tracing the import chain
+directly, the reviewer found it was worse than "Suspected" — `NEW-102`
+(Confirmed): `main.py`'s `--ctx` CLI flag never actually reaches
+`core/memory_v2.py`'s `CTX_TOTAL`, since that module-level constant
+binds at import time, before `--ctx`'s handling runs; `--ctx` also lacks
+the positive-value guard `CODEY_N_CTX` has. Neither fixed — logged,
+explicitly out of `U.31`'s scope. Full suite independently re-verified:
+505/505 passing (437 + `ccos/tests`).
+
+With `U.27`, `U.28`, and now `U.31` all done, the path to a real
+end-to-end 7.4 live test is clear: `plannd` no longer blocks the
+daemon's preload from reaching the gate, the messaging is honest, and a
+substitute model can now be tested at a reduced `n_ctx` instead of only
+the full production value that hard-rejected the previous attempt. Live
+test next.
+
+---
+
 ## 2026-08-09 (round 16) — Vision elaboration: OpenRouter as a configurable orchestrator tier (Ish, explicit decision)
 
 Ish gave a further architectural note: OpenRouter should be turnable on

@@ -736,20 +736,35 @@ above; interleave them whenever convenient (WQ Tracks 2 and 4).
       same class, not confirmed to have misfired. Natural companion fix
       to `NEW-85` (the wider `codeydOS`/`codey-stop` pkill sweep already
       queued).
-- [ ] U.31 (`NEW-95`'s own stated fix direction / vision Section 11.9's
-      narrow actionable slice) — Add a documented, env-var-gated `n_ctx`
-      test override to `core/resource_gate.py`, mirroring the exact
-      pattern already built and code-reviewer-approved for
-      `CODEY_TEST_PRIMARY_ARCH`/`CODEY_TEST_PLANNER_ARCH` (lazy read, no
-      effect on production when unset, loud failure on a bad value). This
-      is deliberately narrow — a fixed override for one test run, not
-      11.9's full "search/negotiate over a range of `n_ctx` values"
-      vision — but it's what the next 7.4 live-verification round
-      actually needs: round 13's substitute model was hard-rejected only
-      because it was tested at the full production `n_ctx=32768`, and
-      `MODEL_CONFIG["n_ctx"]` has no override today. Do this before the
-      next live-test attempt, alongside picking (or re-verifying) a
-      substitute whose real KV-cache shape is smaller than the 7B's.
+- [x] U.31 (`NEW-95`'s own stated fix direction / vision Section 11.9's
+      narrow actionable slice) — CODE COMPLETE (not yet live-verified).
+      Added a documented `CODEY_N_CTX` env-var override for
+      `utils/config.py`'s `MODEL_CONFIG["n_ctx"]` itself (default `32768`
+      unchanged when unset), not a gate-only override on
+      `core/resource_gate.py` as originally scoped above — a gate-only
+      override would have desynced the gate's admission cost estimate
+      from the real `llama-server -c` flag both `core/loader_v2.py` and
+      `core/planner_loader.py` derive from this same
+      `MODEL_CONFIG["n_ctx"]` value (the `NEW-84` class of bug). Follows
+      the exact `os.environ.get(...)`-at-import-time pattern already used
+      for `MODEL_PATH`/`PLANNER_MODEL_PATH`/`SECONDARY_MODEL_PATH` in the
+      same file, since `n_ctx` (unlike a test-only model architecture
+      override) is a legitimately production-tunable value. A non-integer
+      or non-positive (0/negative) `CODEY_N_CTX` raises `ValueError` at
+      import time (loud failure, not a silent fallback) — non-positive is
+      checked explicitly since `int()` alone accepts 0/-1 and either
+      would flow into `resource_gate`'s KV-cache cost estimate as a
+      zero/negative term, causing the gate to under-estimate cost and
+      over-admit. Verified every reader of `MODEL_CONFIG["n_ctx"]` in the
+      repo (`core/loader_v2.py`, `core/planner_loader.py`,
+      `core/lora_import.py`, `core/memory_v2.py`, `core/observability.py`,
+      `core/summarizer.py`, `core/tokens.py`, `main.py`'s `--ctx` CLI
+      override) reads the same dict key — no independent hardcoded
+      `32768` elsewhere that this override would miss. Test coverage:
+      `tests/test_u31_n_ctx_override.py` (unset → 32768, valid override
+      used, non-numeric value raises, 0/-1 raise). Full suite: 437
+      passed, 1 skipped. Still needed: the actual 7.4 live-verification
+      round using this override with a substitute model.
 
 ## Parked — gated, do not start without Ish's explicit sign-off
 

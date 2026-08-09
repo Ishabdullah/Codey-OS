@@ -5560,3 +5560,40 @@ finding for the same bug. See `NEW-39`.)*
   `(model_id, port)` at registration time in `start_plannd()` — release
   any existing `"planner"` slot on port 8081 before registering a new
   one, rather than relying solely on eventual reap.
+
+## Found during `code-reviewer`'s pass on `U.31` (`CODEY_N_CTX` override), 2026-08-09 — NOT fixed, logged only
+
+### [NEW-102] `main.py`'s `--ctx` CLI flag never actually reaches `core/memory_v2.py`'s `CTX_TOTAL` — import order means the module-level constant is always bound before the flag is applied; the flag also lacks the positive-value validation the new `CODEY_N_CTX` env var has
+
+- **Status: Confirmed** (upgraded from the implementer's original
+  "Suspected" — `code-reviewer` traced the actual import chain rather
+  than reasoning about it abstractly). `main.py:9` (`from core import
+  context as ctx`, module-level) imports `core/context.py:11`
+  (`from core.memory_v2 import memory as _mem`, also module-level),
+  which executes `core/memory_v2.py:38`'s `CTX_TOTAL =
+  MODEL_CONFIG["n_ctx"]` — all of this runs at Python import time,
+  before `main.py:113`'s `config.MODEL_CONFIG["n_ctx"] = args.ctx` (the
+  actual `--ctx` flag handling) ever executes. `CTX_TOTAL` is therefore
+  always bound to whatever `n_ctx` was before `--ctx` was applied — the
+  flag has no effect on `memory_v2.py`'s notion of total context, only
+  on whatever reads `MODEL_CONFIG["n_ctx"]` live afterward
+  (`core/summarizer.py`, `core/tokens.py`, which re-read the dict on
+  each call rather than caching it at import time).
+- **Second, related gap**: `main.py:37`'s `--ctx` argument (`type=int`)
+  has no positive-value guard — unlike the new `CODEY_N_CTX` env var
+  (`utils/config.py`, `U.31`), which explicitly rejects zero/negative
+  values because they'd flow into `resource_gate.py`'s KV-cache cost
+  estimate as a zero/negative term and cause the gate to under-estimate
+  real cost (verified: a negative `n_ctx` actually *subtracts* from the
+  computed cost, a real over-admit risk, not just a milder zero-case).
+  `--ctx 0` or `--ctx -1` on the command line hits this same door,
+  unvalidated.
+- **Not fixed** — found and confirmed during `U.31`'s review, explicitly
+  out of that task's scope (which was adding the `CODEY_N_CTX` env-var
+  override, not auditing every existing `n_ctx` mutation path). Fix
+  direction: either make `core/memory_v2.py`'s `CTX_TOTAL` a live
+  re-read (matching `summarizer.py`/`tokens.py`'s pattern) instead of an
+  import-time constant, or move `--ctx`'s handling earlier in `main.py`
+  before `memory_v2` is imported; separately, add the same
+  positive-value guard `CODEY_N_CTX` already has to `--ctx`'s argparse
+  definition or its handling at `main.py:113`.
