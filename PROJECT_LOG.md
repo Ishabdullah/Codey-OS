@@ -5,6 +5,91 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-08-09 (round 13) — First live verification of 7.4 (resource gate): substitute model hard-rejected by design; found real gaps in the default runtime shape
+
+Ran the first real on-device test of `TODO.md` item 7.4 (all five
+sub-tasks, code-complete/code-reviewer-approved, never live-tested)
+using the substitute models from round 12 (`CODEY_MODEL` → Qwen3-4B,
+`CODEY_TEST_PRIMARY_ARCH=qwen3-4b`; planner also swapped to the 0.5B
+substitute, `CODEY_PLANNER_MODEL` + `CODEY_TEST_PLANNER_ARCH=qwen2.5-0.5b-planner`,
+since `plannd` auto-loads unconditionally and the production 1.5B
+alongside a 4B primary attempt was too tight against ~4.6GB observed
+available RAM).
+
+**The planned "load then unload cleanly" happy-path test could not run**:
+the substitute Qwen3-4B, despite being a smaller *file* (2.50GB vs. the
+7B's 4.68GB), has more layers and KV heads (36/8 vs. 28/4) — its real
+KV-cache cost at this project's actual production `n_ctx` (32768, no env
+override exists for it) is ~2.57x the 7B's, computed to 7246MiB against
+a 6651MiB device ceiling. The gate hard-rejected it, correctly, by
+design — logged as `NEW-95`. This is the gate doing its job, not a bug,
+but it means Stage 1's intended positive-path confirmation didn't happen
+this round.
+
+**What the run found instead is real and worth prioritizing over another
+live-test attempt:**
+
+- **`NEW-96` (Confirmed)**: the daemon's real startup preload never even
+  reaches `can_admit()` — a pre-existing "sequential-swap eviction" check
+  (unrelated to 7.4, checks whether the planner has freed its port) fails
+  first because `plannd` (the bash-launched planner daemon `codeydOS
+  start` always runs) never releases port 8081. The resulting outcome,
+  `eviction_failed`, isn't one of the three outcomes sub-task 3's fix
+  explicitly named — so it falls through to the generic branch, which at
+  the startup call site still says **"will load on first request"**, the
+  exact false-promise wording sub-task 3 set out to eliminate. In the
+  default `codeydOS start` configuration (which is the actual normal
+  runtime shape, not an edge case), this message is not just imprecise —
+  nothing will ever cause a first-request load to succeed while `plannd`
+  is up, so the message actively misleads.
+- **`NEW-97` (Confirmed)**: `plannd` spawns `llama-server` directly via a
+  bash `nohup`, entirely outside `resource_gate.reserve_slot()`/
+  `register_slot()`. Verified live: a real `plannd` process (~757MB RSS)
+  was running throughout the session, but `resource_gate.list_slots()`
+  showed zero entries for it — only the `embed` slot. The gate's
+  residency model, built in sub-task 1 specifically to be
+  "cross-process-aware," is silently incomplete for this always-running
+  process. Mostly self-corrects today (`MemAvailable` already reflects
+  `plannd`'s real usage), but nothing querying the gate for "what's
+  resident and why" can see it, and nothing can ask the gate to manage it.
+- **`NEW-98` (Suspected)**: the production 7B itself clears the device
+  ceiling by only 137MiB (6651MiB ceiling vs. 6514MiB real cost) —
+  sub-task 1's own comment already flagged `DEVICE_CEILING_USABLE_FRACTION`
+  as an un-calibrated first default needing real validation; this is that
+  validation, and the margin is thinner than the code's own comment
+  ("comfortably admits") implies.
+- **`NEW-99` (Suspected)**: `codeydOS`'s own process-clearing (`pkill -9
+  -f "llama-server.*8080"` / `*8081`) is port-scoped, so less severe than
+  the bare-name `NEW-83` bug already fixed, but still pattern-based
+  rather than a tracked PID — same class, not confirmed to have misfired
+  this session.
+
+**RAM discipline**: `free -h` recorded at every checkpoint (baseline
+10Gi total/5.6Gi used/5.0Gi available; drifted to ~5.9-6.3Gi used/
+4.2-4.7Gi available before this session's own activity, unrelated
+background load, not caused by this test). `ps aux | grep llama-server`
+confirmed empty before start and after every stop. No orphaned
+processes, no leaked slots, single model-load cycle at a time throughout.
+
+**Net assessment**: the CLI path (`main.py --init`) independently reached
+the real gate and reported the hard denial with byte-for-byte matching
+figures across two separate runs — live confirmation the
+`CODEY_TEST_PRIMARY_ARCH` override genuinely works inside a real load
+path, and sub-task 5's `GATE_DENIED_HARD` skip-daemon-contact branch is
+now live-verified. What's still unverified: an actual successful
+load-through-the-gate cycle, `release_model_slot` (sub-task 4) actually
+firing, and the transient-`GATE_DENIED`-then-retry path — all need
+either a real substitute with a genuinely smaller KV-cache shape, or a
+documented way to vary `n_ctx` for a test run (neither exists yet).
+
+`TODO.md`/`LIVE_TEST_QUEUE.md` updated to reflect exactly what's now
+verified vs. still open, per CLAUDE.md rule 7 — this round moved the
+resource gate from "code-complete, unverified" to "code-complete,
+partially live-verified, two real gaps found in its interaction with the
+existing (pre-7.4) `plannd` process."
+
+---
+
 ## 2026-08-09 (round 12) — Test-only model-arch override for the upcoming live-verification run
 
 Ish asked to substitute smaller models for the 7.4 live test (a smaller

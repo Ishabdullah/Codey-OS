@@ -148,6 +148,13 @@ normal convention (Confirmed/Suspected, next `NEW-##` ID).
 
 ### [TODO.md 7.4 sub-task 5, and 7.4 as a whole] CLI gate-recovery path + full end-to-end resource gate — real on-device confirmation
 
+**Status: attempted 2026-08-09 (round 13), partially resolved — see
+`PROJECT_LOG.md` round 13 and `NEW-95` through `NEW-99` for full detail.
+Re-reading this entry before the next attempt: some of the "what to test"
+below is now done; some is newly blocked on two found-live gaps
+(`NEW-96`/`NEW-97`, tracked as `TODO.md` `U.27`/`U.28`) that are worth
+fixing first.**
+
 - **What was built and reviewed:** `main.py`'s four CLI load sites
   (`repl()`, `args.init`, `args.tdd`, `args.fix`) now recover from a
   transient gate denial by asking the daemon to release a slot and
@@ -155,25 +162,36 @@ normal convention (Confirmed/Suspected, next `NEW-##` ID).
   sub-tasks — the resource gate (sub-task 1), slot-aware loaders
   (sub-task 2), daemon migration (sub-task 3), the daemon-side release
   command (sub-task 4), and this CLI recovery wiring (sub-task 5) are all
-  code-complete and code-reviewer-approved, but **none have been tested
-  against a real model load yet** — every test across all five sub-tasks
-  mocks the actual spawn/health-check/`/proc/meminfo` behavior.
-- **What the live test should do:** this is the integration test that
-  actually matters, more than any of the individual per-sub-task entries
-  above (though those still call out specific things worth checking in
-  isolation). With the daemon running and a model already loaded, run a
-  CLI command (`--init`/`--tdd`/`--fix`, or start a `repl()` session)
-  that would need to load the 7B while it's already resident elsewhere,
-  and confirm: (1) the CLI gets a real gate denial, not a crash; (2) it
-  successfully asks the daemon to release the slot; (3) the retry
-  succeeds and the CLI's own load proceeds; (4) `resource_gate.list_slots()`
-  reflects reality throughout — no double-counted or orphaned slots at
-  any point in the sequence. Also worth confirming the hard-denial case
-  doesn't happen unexpectedly on this device (the 7B alone shouldn't
-  exceed device capacity) and that a normal single-process load (no
-  contention) still works exactly as before this whole item was built —
-  i.e. confirm zero regression to the common case, not just the new
-  recovery path.
+  code-complete and code-reviewer-approved.
+- **What round 13 actually confirmed live**: the CLI path
+  (`main.py --init` → `load_primary()`) genuinely reaches
+  `can_admit()` and reports a real hard denial with byte-exact figures,
+  confirmed across two separate runs; sub-task 5's
+  `LOAD_OUTCOME_GATE_DENIED_HARD` skip-daemon-contact branch, live, for
+  the first time; the gate correctly refusing to spawn a model whose real
+  KV-cache shape doesn't fit, with zero crash/hang/orphan.
+- **What's still not confirmed, and why**: (1) An actual successful
+  load-through-the-gate-then-unload cycle — every substitute tried so far
+  either doesn't fit (round 13's Qwen3-4B) or wasn't tried; needs a
+  substitute with a genuinely smaller real KV-cache footprint than the
+  production 7B at `n_ctx=32768` (not just a smaller file — the file size
+  and the KV-cache cost don't track each other across model families;
+  round 13's substitute was a *smaller file* with a *larger* KV-cache
+  shape), or a documented way to vary `n_ctx` for a test run (no env
+  override exists for `n_ctx` today). (2) `release_model_slot` (sub-task
+  4) actually firing on a real request — never reached, because round
+  13's daemon-side attempt never got past the pre-existing, unrelated
+  `eviction_failed` check (`NEW-96`) to reach the gate at all. (3) The
+  transient-`GATE_DENIED`-then-retry path (as opposed to the hard-denial
+  path, which IS now confirmed) — also not reached.
+- **Recommended before the next attempt**: fix `U.27`/`U.28`
+  (`NEW-96`/`NEW-97`) first — as long as `plannd` runs outside the gate's
+  accounting and the daemon's own eviction check blocks it from ever
+  reaching `can_admit()`, the daemon-side half of this test can't
+  meaningfully proceed regardless of which model is substituted. Also
+  pick (or add an env override for) a substitute whose real KV-cache
+  shape (verify via GGUF header, don't assume from file size) is smaller
+  than the 7B's at production `n_ctx`.
 - **RAM discipline reminder:** this is the real deal — one model-load
   cycle at a time, `free -h` before/after every step, confirm fully
   unloaded between attempts. This test deliberately creates resource
@@ -181,10 +199,7 @@ normal convention (Confirmed/Suspected, next `NEW-##` ID).
   just the gate's reported outcome.
 - **What to log back and where if it fails:** any real crash, orphaned
   process, leaked slot, or incorrect admission decision is a Confirmed
-  finding — this is the test that validates whether five rounds of
-  reviewed-but-unverified work actually holds up against real device
-  behavior, so treat any surprise here seriously rather than as a minor
-  edge case.
+  finding.
 
 ## Format for future entries
 

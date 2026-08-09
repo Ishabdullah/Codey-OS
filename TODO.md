@@ -26,12 +26,39 @@ track noted inline.
 Everything else below depends on this existing. Nothing here is started.
 
 - [ ] 7.4 (WQ Track 3 item 1, "Phase 5a") — **All five sub-tasks
-      code-complete as of 2026-08-09; NOT yet live-verified as a whole
-      (real on-device model-load testing queued in `LIVE_TEST_QUEUE.md`),
-      and sub-task 5 still needs its mandatory `code-reviewer` pass before
-      commit — leaving this top-level box unchecked per this file's own
-      "nothing checked off unless `PROJECT_LOG.md`/`PROJECT_PLAN.md`
-      already records it complete" rule until those land.** Build the
+      code-complete and code-reviewer-approved as of 2026-08-09. First
+      live-verification attempt run 2026-08-09 (round 13) — partially
+      verified, two real gaps found, top-level box stays unchecked.**
+      What's now live-confirmed: the gate's hard-ceiling denial actually
+      firing with no spawn (`NEW-95`); the CLI path
+      (`main.py --init`/`load_primary()`) genuinely reaching
+      `can_admit()` and reporting a real denial with byte-exact figures;
+      sub-task 5's `GATE_DENIED_HARD` skip-daemon-contact branch, live,
+      for the first time. What's still unverified: an actual successful
+      load-through-the-gate-then-unload cycle (the substitute model's
+      real KV-cache shape, 36 layers/8 KV heads, made it cost MORE than
+      the 7B at production `n_ctx=32768` despite being a smaller file —
+      hard-rejected, correctly, but this means no substitute has
+      successfully exercised the positive admission path yet);
+      `release_model_slot` (sub-task 4) actually firing on a real
+      request; the transient-`GATE_DENIED`-then-retry path. Needs either
+      a genuinely smaller-KV-footprint substitute, or a documented
+      `n_ctx` override for test runs (neither exists today — flagged in
+      `NEW-95`). **Two real gaps found in 7.4's interaction with the
+      pre-existing `plannd` process** (not part of 7.4 itself, but
+      block it in the default runtime configuration): `NEW-96` — the
+      daemon's startup preload never reaches `can_admit()` at all while
+      `plannd` is running (blocked earlier by an unrelated sequential-swap
+      eviction check), and the resulting message still says "will load on
+      first request" — a false promise in the actual default runtime
+      shape, since nothing will ever free `plannd`'s port under this
+      configuration; `NEW-97` — `plannd` bypasses
+      `reserve_slot()`/`register_slot()` entirely (bash `nohup`, not
+      routed through the gate-aware `PlannerLoader`), so the gate's
+      residency model — built in sub-task 1 to be cross-process-aware —
+      can't see it. Both worth fixing before another live-test round;
+      neither was in this round's scope to patch (live-verification
+      observes, doesn't fix). Build the
       resource gate + slot-aware loader, per
       `CODEY_OS_MASTER_VISION.md` Section 7.4's 2026-08-08 amendment:
       **no fixed concurrency ceiling** — the gate admits as many
@@ -637,6 +664,42 @@ above; interleave them whenever convenient (WQ Tracks 2 and 4).
       root-level file `=3.9.0` (a pip-invocation-typo artifact, ~1.7KB,
       contains pip install output) — Suspected safe to delete, not
       deleted here per CLAUDE.md rule 8.
+- [ ] U.27 (`NEW-96`, found live-verifying 7.4, 2026-08-09) — Confirmed:
+      `core/daemon.py`'s startup preload says "will load on first
+      request" on an `eviction_failed` outcome (planner hasn't freed its
+      port), which is a false promise in the default `codeydOS start`
+      runtime shape (`plannd` never frees the port under that
+      configuration). Fix direction: name `eviction_failed` as a fourth
+      explicit outcome (alongside `GATE_DENIED`/`GATE_DENIED_HARD`/
+      `DEFERRED`) with an accurate message at both the startup-preload and
+      watchdog call sites, matching the pattern sub-task 3 already used
+      for the other three. Worth fixing before another live-verification
+      round of 7.4 — it's what a real user would actually see most often.
+- [ ] U.28 (`NEW-97`, found live-verifying 7.4, 2026-08-09) — Confirmed:
+      `plannd` (`codeydOS`'s bash-launched planner daemon, port 8081)
+      spawns `llama-server` directly via `nohup`, entirely bypassing
+      `resource_gate.reserve_slot()`/`register_slot()` — the gate's
+      residency model (built in 7.4 sub-task 1 to be cross-process-aware)
+      can't see it. Fix direction: either route `plannd`'s startup
+      through `core/planner_loader.py`'s existing gate-aware
+      `PlannerLoader.load()`, or have `codeydOS`'s `start_plannd()` call
+      `register_slot()` directly (the same accounted-but-exempt pattern
+      `core/embed_server.py` already uses after `NEW-83`'s fix). Worth
+      fixing alongside U.27 before another live-verification round.
+- [ ] U.29 (`NEW-98`, Suspected, low severity) — `resource_gate.py`'s
+      `DEVICE_CEILING_USABLE_FRACTION`/`REQUIRED_HEADROOM_FACTOR`
+      calibration comment overstates the real margin — live-measured at
+      137MiB (not "comfortable") for the production 7B on this device.
+      No action required unless the thinness itself is judged a problem;
+      logged per sub-task 1's own stated intent to validate these
+      constants against real behavior.
+- [ ] U.30 (`NEW-99`, Suspected, same class as `NEW-83`) — `codeydOS`'s
+      port-scoped `pkill -9 -f "llama-server.*8080"`/`*8081` pattern-kills
+      rather than tracking a specific PID — less severe than the bare-name
+      `NEW-83` bug already fixed (port-scoped narrows the blast radius),
+      same class, not confirmed to have misfired. Natural companion fix
+      to `NEW-85` (the wider `codeydOS`/`codey-stop` pkill sweep already
+      queued).
 
 ## Parked — gated, do not start without Ish's explicit sign-off
 

@@ -5320,3 +5320,190 @@ finding for the same bug. See `NEW-39`.)*
   the test's assertions were updated to match the new behavior at the
   time, but its name wasn't. No fix needed beyond a rename whenever
   someone's next in that file; not worth a standalone task.
+
+## Found during first real on-device live-verification of TODO.md 7.4 (resource gate), 2026-08-09 — daemon started with substitute Qwen3-4B (`CODEY_TEST_PRIMARY_ARCH=qwen3-4b`) + substitute 0.5B planner (`CODEY_TEST_PLANNER_ARCH=qwen2.5-0.5b-planner`), NOT fixed, logged only
+
+### [NEW-95] Substitute primary model (Qwen3-4B) is hard-rejected by `resource_gate`'s device ceiling at this project's real production `n_ctx` (32768) — the happy-path "model actually loads and occupies a slot" scenario could not be live-exercised at all with the requested substitute file
+
+- **Status: Confirmed**, by direct live `can_admit()` call (no spawn) and
+  by the daemon's own real preload/watchdog/CLI behavior, all agreeing.
+  `utils/config.py:44`'s `MODEL_CONFIG["n_ctx"] = 32768` is the real
+  value `core/loader_v2.py:296` passes to `llama-server -c` and
+  `core/loader_v2.py:627` puts into the `ModelSpec` used for admission —
+  there is no env override for `n_ctx`, so this is not a test artifact.
+- Live numbers (`core/resource_gate.can_admit()`, real `/proc/meminfo`,
+  `CODEY_TEST_PRIMARY_ARCH=qwen3-4b` set): substitute 4B cost estimate =
+  7597552800 bytes (7246MiB) vs. device ceiling 6973867622 bytes
+  (6651MiB, `DEVICE_CEILING_USABLE_FRACTION=0.60 * MemTotal`) →
+  `hard_reject=True`. Cause: the substitute's real GGUF-header
+  architecture (36 layers, 8 KV heads, head_dim 128) has a KV-cache
+  footprint ~2.57x the production 7B's (28 layers, 4 KV heads, head_dim
+  128) at the same `n_ctx` — so despite being a smaller-parameter,
+  smaller-file model (2.50GB vs 4.68GB), its *total* estimated cost
+  (7.60GB) at production `n_ctx` exceeds the *production 7B's* own
+  estimated cost (6.83GB, computed cleanly with no arch-override
+  contamination — see below) and the device ceiling both.
+- For comparison, the production 7B itself at the same real `n_ctx`
+  (32768, no substitution) was NOT hard-rejected: cost 6830557184 bytes
+  (6514MiB) is under the 6973867622-byte (6651MiB) ceiling, but was
+  soft-denied on this run's actual headroom (6514MiB * 1.25
+  `REQUIRED_HEADROOM_FACTOR` = 8143MiB required vs. 4707MiB headroom
+  available at that moment) — a real, correct, transient
+  `LOAD_OUTCOME_GATE_DENIED`, not a hard denial. The 7B clears the
+  ceiling by only 137MiB (6651-6514) on this device's real `MemTotal`,
+  a much thinner margin than `resource_gate.py:171-172`'s own comment
+  ("~6.4GiB... comfortably admits") implies — see NEW-97 below.
+- **Practical effect on this task**: Stage 1's "does the daemon actually
+  load the substitute primary through the full gate/slot-aware path and
+  unload cleanly" could not be observed as a genuine load-then-unload
+  cycle, because the substitute file was never admitted in the first
+  place. What WAS observed and is real, useful verification: the gate
+  correctly refuses to spawn `llama-server` on 8080 for a model whose
+  real KV-cache shape doesn't fit, at every layer that was actually
+  reached: the daemon's own startup preload/watchdog never got this far
+  (blocked earlier by a different check — see NEW-96 below), but the
+  CLI's direct `main.py --init` invocation (`loader.load_primary()`,
+  which skips the sequential-swap eviction check `ensure_model()` does)
+  DID reach `can_admit()` and reported the hard ceiling denial verbatim,
+  with the exact byte figures (7246MiB / 6651MiB) matching this entry's
+  offline `can_admit()` computation precisely — live confirmation the
+  `CODEY_TEST_PRIMARY_ARCH` override was genuinely active inside a real
+  load path, not just in an offline check.
+- **Not fixed** — this is a real device/config interaction, not a code
+  bug in the gate; flagged here because a future live-verification round
+  aiming for a full load cycle will need either a genuinely smaller-KV
+  substitute model, or a documented (not silently hand-edited) way to
+  vary `n_ctx` for a test run, since `MODEL_CONFIG["n_ctx"]` has no env
+  override today.
+
+### [NEW-96] `core/daemon.py`'s startup preload / 30s watchdog never reach `resource_gate.can_admit()` for the primary model as long as `plannd` (the separate, bash-script-managed 1.5B/substitute planner on port 8081, started by `codeydOS start`/`codeydOS:280`) is running — a pre-admission "sequential-swap eviction" check fails first with `eviction_failed`, and the resulting log message ("will load on first request") is the exact false promise TODO.md 7.4 sub-task 3 was built to eliminate, just for a denial class that fix didn't cover
+
+- **Status: Confirmed**, by direct live observation, `~/.codeyOS/codeyOS.log`
+  (verbatim): `"Planner still answering on port 8081 after eviction
+  attempt — not loading primary (would violate sequential-swap)"`
+  followed by `"7B model pre-load failed (eviction_failed: could not
+  confirm the planner (1.5B) freed its port before loading the primary
+  (7B) — sequential-swap guard) — will load on first request"` at
+  startup, then on each subsequent 30s watchdog tick (observed twice,
+  ~65s apart): `"7B model not loaded (eviction_failed: ...) — attempted
+  load, still not running"`.
+- Root cause (by direct code read): both `core/daemon.py:805-845`
+  (startup preload) and `:726-786` (watchdog) call
+  `core/loader_v2.py:ModelLoader.ensure_model()`, whose cold-load branch
+  (`:822-830`) calls `self._evict_planner_and_confirm_free()` at line 823
+  and only reaches `load_primary()` (line 830, where `reserve_slot()`/
+  `can_admit()` actually live) if that eviction check succeeds — so the
+  sequential-swap eviction genuinely runs, and can genuinely block
+  admission, BEFORE `can_admit()` is ever called, confirmed by reading
+  `ensure_model()`'s body directly, not inferred from log strings alone.
+  `ensure_model()`'s gate-aware outcome tracking has exactly three explicitly-handled
+  denial branches — `LOAD_OUTCOME_GATE_DENIED_HARD`,
+  `LOAD_OUTCOME_GATE_DENIED`, `LOAD_OUTCOME_DEFERRED` — plus a generic
+  fallback for everything else. `eviction_failed` (the real outcome
+  observed live) is NOT one of the three named constants, so both call
+  sites fall through to their generic branch. The watchdog's generic
+  branch (`:774`, "attempted load, still not running") is honest and
+  fine. The startup-preload's generic branch (`:838-841`) is NOT: it
+  unconditionally says **"will load on first request"** — the identical
+  false-promise wording sub-task 3's own scope note (TODO.md 7.4
+  sub-task 3, "7B model pre-load failed... would be a false promise
+  under a denial") explicitly set out to eliminate for gate denials, but
+  `eviction_failed` (a distinct pre-gate denial reached via the
+  primary/planner sequential-swap guard, not `can_admit()` itself)
+  wasn't in scope of that fix and still carries the old message.
+- **Why this isn't cosmetic**: in the configuration actually exercised
+  live (default `codeydOS start`, which always launches `plannd` as a
+  separate always-on process on port 8081, per `codeydOS:239-309`),
+  `eviction_failed` is not transient in practice — `plannd`'s
+  llama-server is spawned directly by a bash `nohup` call, entirely
+  outside `resource_gate`'s `reserve_slot()`/`register_slot()`
+  accounting (see NEW-97 immediately below) and outside the daemon's own
+  `release_model_slot` command's reach for that process. Nothing in a
+  normal `codeydOS start` session will ever cause the primary to load on
+  "first request" while `plannd` is up — the message is actively
+  misleading for this device's actual default runtime shape, not just
+  technically imprecise.
+- **Not fixed** — found live, outside this live-verification task's own
+  scope (which was to observe, not patch, process-lifecycle code).
+  Fix direction: either add `eviction_failed` as a fourth explicitly-named
+  outcome with its own accurate message at both call sites (matching the
+  pattern already used for the other three), or make the message
+  generic-but-honest ("primary not loaded — see next attempt") at both
+  sites instead of only the watchdog's.
+
+### [NEW-97] `plannd` (`codeydOS:239-309`, the bash-script-managed planner daemon on port 8081, distinct from `core/planner_loader.py`'s gate-aware `PlannerLoader`) spawns `llama-server` directly via `nohup`, entirely bypassing `resource_gate.reserve_slot()`/`register_slot()` — the gate under-counts real resident RAM whenever `plannd` is running, on every subsequent admission decision
+
+- **Status: Confirmed**, by direct live observation: after `codeydOS
+  start` (which starts `plannd` unconditionally, no gate involvement),
+  `ps aux` showed a live `llama-server` process on port 8081 (PID 15050,
+  the substitute 0.5B `planner-codey.gguf`, ~757MB RSS observed), but
+  `core/resource_gate.list_slots(reap_dead=False)` and `list_slots(reap_dead=True)`
+  both returned only the `embed` slot (registered separately via
+  `core/embed_server.py`'s `register_slot()`) — zero entries for
+  `plannd`'s process, at any point during the whole live session.
+- **Effect**: any future `can_admit()` call for the primary (or anything
+  else) computes headroom from live `/proc/meminfo` `MemAvailable` minus
+  `reserved_bytes` (declared, gate-tracked reservations only) — it has
+  no way to know `plannd`'s real resident RAM is already spoken for
+  beyond whatever `MemAvailable` already reflects at read time. In
+  practice this mostly self-corrects because `MemAvailable` is a live
+  kernel figure that already accounts for `plannd`'s actual RSS — but it
+  means the gate's own residency model (`list_slots()`, the very
+  structure TODO.md 7.4 sub-task 1 built to be "cross-process-aware") is
+  silently incomplete for this specific, always-running process: nothing
+  querying `list_slots()` for "what's resident and why" can see `plannd`
+  at all, and nothing can ask the gate to admit/evict it since it was
+  never `reserve_slot()`'d in the first place.
+- Distinct from (but same general shape as) the already-logged
+  `core/lora_import.py` bare-`pkill` issues and `NEW-83`'s embed-server
+  fix — this is an accounting gap, not a process-kill-safety bug. Also
+  distinct from `core/planner_loader.py`'s `PlannerLoader`, which IS
+  gate-aware (`reserve_slot()`, confirmed via `release_model_slot`'s
+  `model_id="planner"` routing in `core/daemon.py` — see that handler)
+  — `plannd` (bash-script-launched, port 8081, always-on) and
+  `PlannerLoader` (gate-aware, on-demand, same port) are two independent
+  code paths that happen to target the same port, which is itself worth
+  someone confirming isn't its own latent conflict (not confirmed as a
+  bug here — out of this task's scope to chase further).
+- **Not fixed** — found live, out of scope for this verification task.
+  Fix direction: either route `plannd`'s startup through
+  `core/planner_loader.py`'s existing gate-aware `PlannerLoader.load()`
+  instead of a raw bash `nohup`, or have `codeydOS`'s `start_plannd()`
+  call `resource_gate.register_slot()` directly (the same
+  accounted-but-exempt pattern `core/embed_server.py` already uses)
+  after confirming the process is up.
+
+### [NEW-98] (Suspected, low severity — calibration-comment drift, not a code bug) `resource_gate.py:171-172`'s comment claims the production 7B's cost estimate "comfortably admits" under the 0.60 `DEVICE_CEILING_USABLE_FRACTION` ceiling — live measurement on this exact device shows a 137MiB margin (6651MiB ceiling vs. 6514MiB actual cost at production `n_ctx=32768`), not "comfortable"
+
+- **Status: Suspected** (framing/comment accuracy issue, not incorrect
+  behavior — the ceiling check still correctly admits the 7B by the
+  actual numbers). Live-measured via `core/resource_gate.can_admit()`
+  with a real `ModelSpec` matching `core/loader_v2.py`'s actual call
+  site (`model_id="primary"`, real 7B file path,
+  `n_ctx=MODEL_CONFIG["n_ctx"]=32768`, no arch override): cost estimate
+  6830557184 bytes (6514MiB) vs. device ceiling 6973867622 bytes
+  (6651MiB) — a 137MiB margin, i.e. the 7B clears the hard ceiling by
+  ~2%, not the "comfortable" margin the comment (written when
+  `DEVICE_CEILING_USABLE_FRACTION` was set) implies. Sub-task 1's own
+  comment says the 0.60 value is "an un-calibrated first default... not
+  confirmed against real on-device load behavior" — this is exactly
+  that calibration check, now done, showing the margin is thin.
+- **Not fixed** — flagging for whoever next tunes
+  `DEVICE_CEILING_USABLE_FRACTION`/`REQUIRED_HEADROOM_FACTOR` against
+  real behavior, per that comment's own stated intent; no action needed
+  unless the margin's thinness is itself judged a problem (e.g. minor
+  `MemTotal` reporting variance across boots could flip the 7B from
+  admitted to hard-rejected).
+
+### [NEW-99] (Suspected, same class as `NEW-83`) `codeydOS:151` and `codeydOS:261` use pattern-based `pkill -9 -f "llama-server.*8080"` / `"llama-server.*8081"` to clear orphaned processes before starting the main daemon / `plannd` respectively
+
+- **Status: Suspected** — port-scoped (not a bare `pkill -f llama-server`,
+  so less severe than the bug `NEW-83`/commit `09aec66` already fixed in
+  `core/embed_server.py`), but still a pattern-based process kill rather
+  than a specific tracked PID, the exact class CLAUDE.md rule 3 and this
+  project's history (the original blanket-`pkill` incident) both warn
+  against. Not confirmed to have caused a real incident here — flagged
+  because it's the same code shape already fixed once elsewhere in this
+  project, not because it fired incorrectly during this session.
+- **Not fixed** — pre-existing code, out of this live-verification
+  task's scope to touch.
