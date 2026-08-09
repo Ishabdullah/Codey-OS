@@ -123,6 +123,122 @@ def _daemon_is_running() -> bool:
         return False
 
 
+# Bounded above core.daemon's own worst-case `release_model_slot` latency
+# (RELEASE_CONFIRM_TIMEOUT_S's confirm poll plus LlamaServer.stop()'s
+# internal `process.wait(timeout=8)`, see core/daemon.py's
+# `_handle_release_model_slot`/`_release_model_slot_sync`) rather than
+# `send_command()`'s generic 60s default — this call sits in the CLI's own
+# model-load path, so it should time out close to the daemon's own real
+# worst case (~11s), not silently inherit an unrelated default.
+_RELEASE_SLOT_TIMEOUT_S = 20.0
+
+
+def _load_primary_with_gate_recovery(loader) -> bool:
+    """
+    Load the primary model via `loader.load_primary()`, and — only if the
+    resource gate denied the reservation for a TRANSIENT reason
+    (`LOAD_OUTCOME_GATE_DENIED`, not `_HARD`) — ask a running daemon (if
+    any) to free a slot via the `release_model_slot` socket command, then
+    retry the load exactly once. TODO.md 7.4 sub-task 5 / NEW-69.
+
+    Single retry only: never loops even if the daemon keeps declining
+    (busy/cooldown) or the retried load is denied again. Any failure that
+    ISN'T a transient gate denial (missing model file, spawn failure, a
+    HARD gate denial no release can fix) is returned as-is with no daemon
+    contact at all — callers keep today's existing behavior for those
+    (`core/inference_v2.py`'s own `ensure_model()` call already retries at
+    actual inference time; this project already treats those outcomes as
+    lazy-retryable, not something to hard-fail the CLI on at preload
+    time — see `_is_unrecovered_gate_denial()` below for the check callers
+    use to distinguish "bail now" from "let it lazy-retry").
+
+    Never raises for daemon-communication problems (socket error, no
+    daemon running, timeout, or the daemon's own "error" status, which
+    `send_command()` turns into a `RuntimeError`) — all of those are
+    treated identically to "no daemon to ask": report the ORIGINAL gate
+    denial, don't crash on this secondary failure.
+
+    `loader.get_last_ensure_outcome()`/`get_last_ensure_reason()` reflect
+    whichever attempt actually ran last (the only attempt, if no retry
+    happened; the retry, if one did) — callers should read them AFTER this
+    returns, not assume the original denial is still current.
+    """
+    from core.loader_v2 import LOAD_OUTCOME_GATE_DENIED
+
+    if loader.load_primary():
+        return True
+
+    if loader.get_last_ensure_outcome() != LOAD_OUTCOME_GATE_DENIED:
+        return False
+
+    original_reason = loader.get_last_ensure_reason()
+
+    if not _daemon_is_running():
+        error(
+            "Resource gate denied the model load and no daemon is running "
+            f"to free a slot: {original_reason}"
+        )
+        return False
+
+    info("Resource gate denied the model load — asking the daemon to free a slot...")
+
+    from core.daemon import (
+        RELEASE_OUTCOME_ALREADY_UNLOADED,
+        RELEASE_OUTCOME_RELEASED,
+        send_command,
+    )
+
+    try:
+        response = send_command(
+            "release_model_slot",
+            {"model_id": "primary"},
+            timeout=_RELEASE_SLOT_TIMEOUT_S,
+        )
+    except Exception as e:
+        # Daemon unreachable / socket error / timeout / the daemon's own
+        # "error" status (send_command() raises RuntimeError for that) —
+        # all treated the same as "no daemon to ask": report the ORIGINAL
+        # gate denial, not this secondary communication failure.
+        error(
+            "Resource gate denied the model load; could not get the daemon "
+            f"to free a slot ({e}). Original denial: {original_reason}"
+        )
+        return False
+
+    outcome = response.get("outcome")
+    if outcome not in (RELEASE_OUTCOME_RELEASED, RELEASE_OUTCOME_ALREADY_UNLOADED):
+        # busy_task_running / busy_swap_in_flight / cooldown /
+        # unload_attempted_unconfirmed (or an unrecognized value) — the
+        # daemon did NOT actually free anything, so retrying the load has
+        # no reason to succeed differently. Report the ORIGINAL gate
+        # denial as the real failure, not this decline.
+        error(
+            "Resource gate denied the model load; the daemon declined to "
+            f"free a slot ({outcome}: {response.get('message', '')}). "
+            f"Original denial: {original_reason}"
+        )
+        return False
+
+    info("Daemon freed a slot — retrying the model load once.")
+    return loader.load_primary()
+
+
+def _is_unrecovered_gate_denial(loader) -> bool:
+    """
+    True if `loader`'s most recent `load_primary()` outcome is a gate
+    denial that `_load_primary_with_gate_recovery()` either couldn't
+    recover from (no daemon / daemon declined) or that a retry could never
+    fix (`_HARD`). Callers use this to decide whether to bail out with a
+    clear failure instead of letting the CLI proceed with no model loaded.
+    """
+    from core.loader_v2 import LOAD_OUTCOME_GATE_DENIED, LOAD_OUTCOME_GATE_DENIED_HARD
+
+    return loader.get_last_ensure_outcome() in (
+        LOAD_OUTCOME_GATE_DENIED,
+        LOAD_OUTCOME_GATE_DENIED_HARD,
+    )
+
+
 def shutdown():
     # Stop system monitor
     try:
@@ -1268,9 +1384,16 @@ def repl(
     if not is_remote_backend():
         loader = get_loader()
         try:
-            loader.load_primary()
+            ok = _load_primary_with_gate_recovery(loader)
         except (KeyboardInterrupt, SystemExit):
             console.print("\n[dim]Interrupted during model load, cleaning up...[/dim]")
+            shutdown()
+            return
+        if not ok and _is_unrecovered_gate_denial(loader):
+            error(
+                "Model could not be loaded: the resource gate denied the "
+                f"reservation and no recovery was possible ({loader.get_last_ensure_reason()})."
+            )
             shutdown()
             return
 
@@ -1443,12 +1566,14 @@ def _sigterm_handler(signum, frame):
     does: raise, and let the call stack unwind through whatever
     try/except is active. That's what lets this reuse the 4 existing
     `except (KeyboardInterrupt, SystemExit): ... shutdown()` guards around
-    each `loader.load_primary()` call in main.py (repl() line ~1271,
-    args.init/--tdd/--fix branches ~1467/1479/1504) unchanged -- SIGTERM
-    becomes just another case they already catch during model load, with
-    zero new shutdown-calling logic. Doing real work directly inside a
-    signal handler (which can fire mid-syscall or mid-bytecode) is the
-    kind of thing CLAUDE.md rule 4 exists to avoid.
+    each model-load call site in main.py (repl(), args.init/--tdd/--fix
+    branches — each now calls `_load_primary_with_gate_recovery()` rather
+    than `loader.load_primary()` directly as of TODO.md 7.4 sub-task 5,
+    but that call still sits inside the same try/except shape) unchanged
+    -- SIGTERM becomes just another case they already catch during model
+    load, with zero new shutdown-calling logic. Doing real work directly
+    inside a signal handler (which can fire mid-syscall or mid-bytecode)
+    is the kind of thing CLAUDE.md rule 4 exists to avoid.
 
     NOT fully general: the REPL's steady-state input() wait
     (~line 1362, `except (KeyboardInterrupt, EOFError):`) has no
@@ -1549,9 +1674,16 @@ def main():
     if args.init:
         loader = get_loader()
         try:
-            loader.load_primary()
+            ok = _load_primary_with_gate_recovery(loader)
         except (KeyboardInterrupt, SystemExit):
             console.print("\n[dim]Interrupted during model load, cleaning up...[/dim]")
+            shutdown()
+            return
+        if not ok and _is_unrecovered_gate_denial(loader):
+            error(
+                "Model could not be loaded: the resource gate denied the "
+                f"reservation and no recovery was possible ({loader.get_last_ensure_reason()})."
+            )
             shutdown()
             return
         run_init()
@@ -1561,9 +1693,16 @@ def main():
     if args.tdd:
         loader = get_loader()
         try:
-            loader.load_primary()
+            ok = _load_primary_with_gate_recovery(loader)
         except (KeyboardInterrupt, SystemExit):
             console.print("\n[dim]Interrupted during model load, cleaning up...[/dim]")
+            shutdown()
+            return
+        if not ok and _is_unrecovered_gate_denial(loader):
+            error(
+                "Model could not be loaded: the resource gate denied the "
+                f"reservation and no recovery was possible ({loader.get_last_ensure_reason()})."
+            )
             shutdown()
             return
         from core.tdd import find_test_file, run_tdd_loop
@@ -1586,9 +1725,16 @@ def main():
     if args.fix:
         loader = get_loader()
         try:
-            loader.load_primary()
+            ok = _load_primary_with_gate_recovery(loader)
         except (KeyboardInterrupt, SystemExit):
             console.print("\n[dim]Interrupted during model load, cleaning up...[/dim]")
+            shutdown()
+            return
+        if not ok and _is_unrecovered_gate_denial(loader):
+            error(
+                "Model could not be loaded: the resource gate denied the "
+                f"reservation and no recovery was possible ({loader.get_last_ensure_reason()})."
+            )
             shutdown()
             return
         from core.fixmode import fix_file

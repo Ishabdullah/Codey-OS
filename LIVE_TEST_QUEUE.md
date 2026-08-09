@@ -146,6 +146,46 @@ normal convention (Confirmed/Suspected, next `NEW-##` ID).
   severity finding — it would mean the busy-check that's supposed to
   protect in-flight work doesn't actually work under real conditions.
 
+### [TODO.md 7.4 sub-task 5, and 7.4 as a whole] CLI gate-recovery path + full end-to-end resource gate — real on-device confirmation
+
+- **What was built and reviewed:** `main.py`'s four CLI load sites
+  (`repl()`, `args.init`, `args.tdd`, `args.fix`) now recover from a
+  transient gate denial by asking the daemon to release a slot and
+  retrying once; a hard denial doesn't retry. This is the last of five
+  sub-tasks — the resource gate (sub-task 1), slot-aware loaders
+  (sub-task 2), daemon migration (sub-task 3), the daemon-side release
+  command (sub-task 4), and this CLI recovery wiring (sub-task 5) are all
+  code-complete and code-reviewer-approved, but **none have been tested
+  against a real model load yet** — every test across all five sub-tasks
+  mocks the actual spawn/health-check/`/proc/meminfo` behavior.
+- **What the live test should do:** this is the integration test that
+  actually matters, more than any of the individual per-sub-task entries
+  above (though those still call out specific things worth checking in
+  isolation). With the daemon running and a model already loaded, run a
+  CLI command (`--init`/`--tdd`/`--fix`, or start a `repl()` session)
+  that would need to load the 7B while it's already resident elsewhere,
+  and confirm: (1) the CLI gets a real gate denial, not a crash; (2) it
+  successfully asks the daemon to release the slot; (3) the retry
+  succeeds and the CLI's own load proceeds; (4) `resource_gate.list_slots()`
+  reflects reality throughout — no double-counted or orphaned slots at
+  any point in the sequence. Also worth confirming the hard-denial case
+  doesn't happen unexpectedly on this device (the 7B alone shouldn't
+  exceed device capacity) and that a normal single-process load (no
+  contention) still works exactly as before this whole item was built —
+  i.e. confirm zero regression to the common case, not just the new
+  recovery path.
+- **RAM discipline reminder:** this is the real deal — one model-load
+  cycle at a time, `free -h` before/after every step, confirm fully
+  unloaded between attempts. This test deliberately creates resource
+  contention on purpose, so watch actual system behavior closely, not
+  just the gate's reported outcome.
+- **What to log back and where if it fails:** any real crash, orphaned
+  process, leaked slot, or incorrect admission decision is a Confirmed
+  finding — this is the test that validates whether five rounds of
+  reviewed-but-unverified work actually holds up against real device
+  behavior, so treat any surprise here seriously rather than as a minor
+  edge case.
+
 ## Format for future entries
 
 ```

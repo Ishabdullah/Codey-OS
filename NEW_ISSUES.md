@@ -48,6 +48,21 @@
   `core.peer_cli.escalate`, or have those tests operate on a scratch
   file instead of the live `main.py` so a dirty tree on the real
   `main.py` can't leak into `git_status_paths(files_touched)`.
+- **Reconfirmed, 2026-08-09** (`TODO.md` 7.4 sub-task 5 round; originally
+  logged separately as a duplicate, `NEW-93`, before being merged in
+  here): same 3 tests, same failure mode, hit again by an unrelated
+  uncommitted `main.py` diff during that round's full-suite run.
+  Independently traced to the same call chain, named more precisely this
+  time: `core/agent.py`'s `check_git_and_offer_commit()` (called after
+  any turn using `patch_file`/`write_file`) shells out to
+  `core/githelper.py`'s `git_status_paths()`, and if that's non-empty,
+  calls `utils.logger.confirm()` — same real-stdin-read-under-pytest-
+  capture crash. Re-reproduced via the same `git stash`/pop method
+  (3/5 failing with the diff present, 5/5 clean with it stashed). Still
+  not fixed — this is now the second round to hit it; worth prioritizing
+  the actual fix (mock `check_git_and_offer_commit()`/its dependencies in
+  those 3 tests) rather than re-discovering and re-reproducing it a third
+  time.
 
 ### [NEW-40] NEW-10's new SIGTERM handler covers the 4 model-load `try/except (KeyboardInterrupt, SystemExit)` guards in `main.py`, but the REPL's steady-state `input()` wait has an existing SIGINT-only guard that does NOT catch the new SystemExit — a real asymmetry, not parity with SIGINT
 
@@ -5264,3 +5279,34 @@ open, not closed, on this basis.
   intended rollback semantics, back up the fine-tuned file itself before
   overwriting it, so a rollback doesn't permanently destroy a checkpoint
   the user might want back.
+
+### [NEW-92] `main.py`'s `args.init`/`args.tdd`/`args.fix` branches call `loader.load_primary()` unconditionally, with no `is_remote_backend()` guard — a remote-backend user still spawns a local 7B on these three paths (Confirmed by code read, found while wiring TODO.md 7.4 sub-task 5's gate-denial recovery path, not fixed)
+
+- **Location:** `main.py`'s `args.init`/`args.tdd`/`args.fix` branches
+  (each starts with `loader = get_loader(); ... loader.load_primary()`,
+  now `_load_primary_with_gate_recovery(loader)` as of sub-task 5 — the
+  gap predates and is untouched by that change). `repl()`, right above
+  them, explicitly wraps its own equivalent call in
+  `if not is_remote_backend(): ...`, but none of the other three do —
+  found by direct comparison while touching all four call sites in this
+  round.
+- **Effect:** a user running with a remote backend configured
+  (`CODEY_BACKEND`/`is_remote_backend()` true) who runs `codeyOS --init`,
+  `--tdd`, or `--fix` still triggers a real local 7B load attempt (and,
+  as of sub-task 5, a real resource-gate reservation / daemon
+  release-and-retry dance on denial) that serves no purpose for a remote
+  backend — wasted RAM/spawn time at best, a spurious failure/error
+  message at worst if the local model file isn't even present on a
+  remote-only setup.
+- **Not fixed here** — out of this sub-task's scope (sub-task 5 is about
+  the gate-denial recovery path on the CLI's existing four call sites,
+  not about whether those call sites should fire at all under a remote
+  backend). A real fix would wrap each of these three call sites in the
+  same `is_remote_backend()` guard `repl()` already uses, but that's a
+  small independent behavior change worth its own scoped task/review
+  rather than folding it silently into this one.
+
+*(A duplicate entry, originally NEW-93, was logged here for this exact
+issue during this round — merged into `NEW-39`'s existing entry above
+as a "Reconfirmed, 2026-08-09" note instead of kept as a second, separate
+finding for the same bug. See `NEW-39`.)*

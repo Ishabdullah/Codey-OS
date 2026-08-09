@@ -5,6 +5,61 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-08-09 (round 11) — 7.4 sub-task 5 approved: all five sub-tasks of the resource gate are now code-complete
+
+Final sub-task of `TODO.md` item 7.4. Since `load_primary()` already
+routes through the gate internally (sub-tasks 1-2), this sub-task's real
+job was the recovery path: `main.py`'s four direct CLI load sites
+(`repl()`, `args.init`, `args.tdd`, `args.fix`) now call a new
+`_load_primary_with_gate_recovery()` helper. On a transient gate denial,
+it asks the daemon (via sub-task 4's `release_model_slot` command) to
+free a slot and retries the load exactly once; on a hard denial (model
+alone exceeds device capacity), it doesn't bother — retrying can't help.
+Every `RELEASE_OUTCOME_*` value from sub-task 4 is handled distinctly:
+`released`/`already_unloaded` → retry; `busy_task_running`/
+`busy_swap_in_flight`/`cooldown`/`unload_attempted_unconfirmed` → don't
+retry, report the original denial. No daemon running, or the socket call
+itself failing, is treated the same as "can't recover" — reports the
+original denial, doesn't crash. `shutdown()` was read in full and left
+unchanged, correctly — its existing guards already make it safe for a
+bailed-out CLI invocation that never loaded anything.
+
+**`code-reviewer` approved**, with real independent verification: traced
+the retry path directly to confirm it's a bare single retry, not a loop
+(and the new test suite has a negative control — a `FakeLoader` that
+raises `AssertionError` on an unscripted third call — proving this, not
+just asserting it); cross-checked all 8 `RELEASE_OUTCOME_*` values
+against `core/daemon.py`'s actual constants rather than trusting the
+mapping; specifically checked a real crash risk (a variable-scoping
+question at the `repl()` call site) directly in the diff rather than
+skipping it; independently verified the `shutdown()` "no change needed"
+claim by reading `load_primary()`'s gate-denial return path to confirm
+`self._server`/`self._slot_id` are genuinely never set before that early
+return.
+
+**Two findings surfaced, not fixed**: `NEW-92` (three of the four CLI
+call sites lack the `is_remote_backend()` guard `repl()`'s equivalent
+already has — pre-existing, just newly visible from touching all four
+sites in one pass). A duplicate finding (originally logged as `NEW-93`,
+a re-discovery of `NEW-39`'s already-known test-isolation gap in an
+unrelated test file) was caught and merged into `NEW-39`'s existing
+entry as a "Reconfirmed" note rather than left as two separate entries
+for the same bug — `code-reviewer` spot-checked the merge was coherent.
+
+Full suite: 479 passed, 1 skipped, 3 failed — the 3 failures are
+`NEW-39`'s known dirty-working-tree pattern (this round's own
+uncommitted `main.py` diff triggers it), reconfirmed by restoring
+`main.py` to `HEAD` and re-running that file alone clean (5/5), not a
+regression.
+
+**All five sub-tasks of `TODO.md` item 7.4 are now code-complete.** The
+top-level 7.4 checkbox stays unchecked, correctly, per CLAUDE.md rule
+7 — none of the five sub-tasks have been live-verified against a real
+model load yet; that's the real next step, queued across five entries in
+`LIVE_TEST_QUEUE.md`.
+
+---
+
 ## 2026-08-09 (round 10) — 7.4 sub-task 4 (daemon slot-release command) approved and committed; implementer session-limit recovery
 
 The implementer building sub-task 4 hit a session usage limit mid-task

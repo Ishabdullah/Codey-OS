@@ -25,8 +25,14 @@ track noted inline.
 
 Everything else below depends on this existing. Nothing here is started.
 
-- [ ] 7.4 (WQ Track 3 item 1, "Phase 5a") — **In progress, started
-      2026-08-08.** Build the resource gate + slot-aware loader, per
+- [ ] 7.4 (WQ Track 3 item 1, "Phase 5a") — **All five sub-tasks
+      code-complete as of 2026-08-09; NOT yet live-verified as a whole
+      (real on-device model-load testing queued in `LIVE_TEST_QUEUE.md`),
+      and sub-task 5 still needs its mandatory `code-reviewer` pass before
+      commit — leaving this top-level box unchecked per this file's own
+      "nothing checked off unless `PROJECT_LOG.md`/`PROJECT_PLAN.md`
+      already records it complete" rule until those land.** Build the
+      resource gate + slot-aware loader, per
       `CODEY_OS_MASTER_VISION.md` Section 7.4's 2026-08-08 amendment:
       **no fixed concurrency ceiling** — the gate admits as many
       concurrently-resident models (daemon + CLI) as live RAM/swap
@@ -287,8 +293,85 @@ Everything else below depends on this existing. Nothing here is started.
          category, and the implementer's own design reasoning (busy/
          cooldown/guard handling) hasn't had independent review yet, only
          my own read-through while fixing the tests.
-      5. Bring `main.py`'s four CLI load sites + `shutdown()` under the
-         gate — observe-only until sub-task 4 lands, then enforce.
+      5. **[x] Code-complete, 2026-08-09 (not live-verified — mocked/unit
+         tests only, per this sub-task's own scope).** `main.py`'s four
+         direct `loader.load_primary()` CLI call sites (`repl()`,
+         `args.init`/`args.tdd`/`args.fix`) already went through the gate's
+         admission check (via `load_primary()`'s own `reserve_slot()` call,
+         sub-tasks 1-2) — what this sub-task actually closed, per its own
+         scope note, is the missing recovery path for what happens on a
+         DENIED reservation: no way for the CLI to free up room, just a
+         load that fails with nothing to try next. Added
+         `main.py:_load_primary_with_gate_recovery(loader)`: calls
+         `loader.load_primary()`; if it fails with
+         `LOAD_OUTCOME_GATE_DENIED` (transient, from
+         `get_last_ensure_outcome()`/`get_last_ensure_reason()`, sub-task
+         3's getters) and a daemon is running (`_daemon_is_running()`),
+         asks it to free a slot via `core/daemon.py`'s
+         `release_model_slot` socket command
+         (`send_command("release_model_slot", {"model_id": "primary"},
+         timeout=_RELEASE_SLOT_TIMEOUT_S)`, `_RELEASE_SLOT_TIMEOUT_S = 20.0`
+         — bounded above the daemon's own worst-case release latency
+         (~11s: `RELEASE_CONFIRM_TIMEOUT_S` poll + `process.wait(timeout=8)`)
+         rather than `send_command()`'s generic 60s default, since this
+         call sits in the CLI's own model-load path) and retries the load
+         exactly once if the outcome is `released` or `already_unloaded`.
+         Every other case reports the ORIGINAL gate denial, not a
+         secondary failure, with no retry: `LOAD_OUTCOME_GATE_DENIED_HARD`
+         (retrying can never help) skips daemon contact entirely; no
+         daemon running skips it too; `send_command()` raising (socket
+         error/timeout/unreachable, or the daemon's own `status: "error"`,
+         which `send_command()` turns into a `RuntimeError`) is caught and
+         treated identically to "no daemon"; a decline
+         (`busy_task_running`/`busy_swap_in_flight`/`cooldown`/
+         `unload_attempted_unconfirmed`, or any unrecognized outcome
+         string) is reported as the original denial with no retry
+         attempted. A second retry-side denial (the daemon released, but
+         the retried load is ALSO gate-denied) is not retried again —
+         single retry only, matching the sub-task's explicit "don't loop"
+         requirement. A second new helper, `_is_unrecovered_gate_denial(loader)`,
+         lets each of the four call sites distinguish "bail with a clear
+         failure" (an unrecovered `GATE_DENIED`/`GATE_DENIED_HARD` — the
+         reservation was genuinely and permanently denied) from "let it
+         lazy-retry" (`SPAWN_FAILED`/`ERROR` etc. — `core/inference_v2.py`'s
+         own `ensure_model()` call already retries these at actual
+         inference time, so the CLI proceeding into the REPL/`run_init()`/
+         etc. with no model loaded was already this project's existing,
+         deliberate degradation path for those outcomes, left unchanged).
+         `shutdown()` was read in full and found already correct for this
+         sub-task's purposes — it already checks `if _daemon_is_running():
+         return` before touching `loader.unload()`, leaving a
+         daemon-owned model alone; no change needed. `_sigterm_handler`'s
+         docstring (which named the exact `load_primary()` call pattern
+         being replaced) updated so it still describes reality post-edit.
+         Tests: new `tests/test_main_gate_recovery.py` (16 tests —
+         first-try success, non-gate failures untouched/no daemon contact,
+         no-daemon-running, daemon-releases-retry-succeeds,
+         already-unloaded-retries-too, three decline outcomes all report
+         the original denial with no retry, `send_command()` raising
+         treated like no daemon, a second gate denial on the retry isn't
+         retried again, the bounded timeout is actually passed, and
+         `_is_unrecovered_gate_denial()`'s five outcome cases) using a
+         scripted `FakeLoader` (`load_primary()` raises if called more
+         times than scripted, directly enforcing "at most one retry").
+         Full suite `pytest tests/ -q` — 411 passed, 1 skipped, 3
+         deselected (see `NEW-93`: a pre-existing, unrelated test-isolation
+         gap in `tests/test_new19_patch_failed_repeat_escalation.py` that
+         fails any time `main.py` has an uncommitted working-tree diff
+         when the suite runs, reproduced with/without this round's diff
+         present to confirm it's not this round's logic). **Findings
+         outside this sub-task's scope, logged not fixed** (see
+         `NEW_ISSUES.md`): `NEW-92` (the `args.init`/`args.tdd`/`args.fix`
+         branches call `load_primary()` unconditionally, with no
+         `is_remote_backend()` guard, unlike `repl()` right above them —
+         a remote-backend user still spawns a local 7B on those three
+         paths); `NEW-93` (the test-isolation gap above). **This closes
+         all five sub-tasks of TODO.md 7.4** — the item as a whole is
+         code-complete but NOT live-verified (none of the five sub-tasks
+         have had a real on-device model-load test yet; real device
+         testing is queued separately in `LIVE_TEST_QUEUE.md`, not claimed
+         done here). Still needs its mandatory `code-reviewer` pass before
+         commit (CLAUDE.md rule 4 — process-lifecycle-adjacent CLI code).
 
 ## Phase 2: Parallel design work (does not touch running code — can run alongside Phase 1)
 
