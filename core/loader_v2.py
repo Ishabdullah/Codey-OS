@@ -20,6 +20,7 @@ import urllib.request
 from pathlib import Path
 from typing import Optional
 
+import core.resource_gate as rg
 from utils.config import (
     CODEY_STATE_DIR,
     LLAMA_SERVER_BIN,
@@ -69,6 +70,85 @@ def probe_port_health(port: int) -> bool:
         # health probe, "can't tell if it's healthy" must mean "not healthy",
         # never an uncaught exception (see NEW-12 fix-up round 2, Bug 2).
         return False
+
+
+# ── Resource-gate residency confirmation (Track 3 Phase 5a / 7.4 sub-task 2) ─
+# core/resource_gate.py's mark_resident() docstring is explicit: it must not
+# be called merely because a health endpoint answered — llama.cpp/mmap pages
+# a model's weights in over time (see resource_gate.ModelSpec.
+# mmap_resident_fraction's own docstring), so "server answers /health" and
+# "this model's real memory footprint is reflected in a fresh /proc/meminfo
+# read" are two different moments. This polls MemAvailable for a bounded
+# window after a health-confirmed spawn, looking for a drop consistent with
+# (a fraction of) the reserved cost estimate, before actually calling
+# mark_resident() — a best-effort confirmation, not a guarantee: other
+# concurrent processes on the device can also move MemAvailable during the
+# same window, so a false positive/negative here is possible and accepted
+# (see docstring below for the timeout tradeoff).
+#
+# Like resource_gate.py's REQUIRED_HEADROOM_FACTOR / DEVICE_CEILING_USABLE_
+# FRACTION, these are uncalibrated first defaults reasoned from NEW-21's
+# swap-growth observation, not derived from controlled on-device
+# measurements — retune against real observed load behavior once this is
+# live-verified, not treated as settled here.
+CONFIRM_RESIDENT_FRACTION = 0.5
+CONFIRM_RESIDENT_TIMEOUT_S = 10.0
+CONFIRM_RESIDENT_POLL_INTERVAL_S = 0.5
+
+
+def confirm_resident_and_mark_slot(
+    slot_id: str,
+    baseline_meminfo: dict,
+    estimated_cost_bytes: int,
+    timeout_s: float = CONFIRM_RESIDENT_TIMEOUT_S,
+    poll_interval_s: float = CONFIRM_RESIDENT_POLL_INTERVAL_S,
+) -> None:
+    """
+    Poll /proc/meminfo (bounded by `timeout_s`) for a MemAvailable drop
+    consistent with `estimated_cost_bytes` actually having landed, then call
+    resource_gate.mark_resident(slot_id) — see this section's header comment
+    for why "health endpoint answered" alone isn't sufficient per
+    mark_resident()'s documented precondition. Shared by
+    core/loader_v2.py:ModelLoader.load_primary() and
+    core/planner_loader.py:PlannerLoader.load() so both loaders apply the
+    same confirmation policy rather than each reimplementing it.
+
+    On timeout (no confirming drop observed within `timeout_s`): marks the
+    slot resident anyway, with a logged warning, rather than leaving it
+    PENDING forever. A permanently-PENDING slot for a model that is actually
+    loaded would keep counting against total_reserved_bytes() (see its
+    docstring) on top of that SAME memory already being reflected in every
+    subsequent live meminfo read — double-counting a live, correctly-loaded
+    model's cost, which would incorrectly refuse most/all later admissions
+    on this device. A late/never-detected drop (which can happen even for a
+    genuinely successful load, e.g. if unrelated memory pressure/reclaim
+    from other processes confounds the delta during the poll window) is the
+    worse-in-the-common-case failure to guard against here, not the rarer
+    case this leaves imperfectly guarded (marking resident slightly before
+    the OS fully reflects the new load).
+    """
+    threshold = int(estimated_cost_bytes * CONFIRM_RESIDENT_FRACTION)
+    baseline_available = baseline_meminfo.get("MemAvailable", 0)
+    deadline = time.time() + timeout_s
+    confirmed = False
+    while time.time() < deadline:
+        current = rg.read_meminfo()
+        drop = baseline_available - current.get("MemAvailable", 0)
+        if drop >= threshold:
+            confirmed = True
+            break
+        time.sleep(poll_interval_s)
+
+    if not confirmed:
+        warning(
+            f"resource_gate: could not confirm a MemAvailable drop for slot "
+            f"{slot_id} within {timeout_s}s (threshold "
+            f"{threshold / 1024 / 1024:.0f}MiB) — marking resident anyway "
+            "rather than leaving it permanently PENDING (see "
+            "confirm_resident_and_mark_slot()'s docstring)"
+        )
+
+    rg.mark_resident(slot_id)
 
 
 class LlamaServer:
@@ -463,6 +543,7 @@ class ModelLoader:
         self._server: Optional[LlamaServer] = None
         self._loaded_at: float = 0
         self._load_failures: int = 0
+        self._slot_id: Optional[str] = None
 
     def load_primary(self) -> bool:
         """Load the primary (7B) model."""
@@ -482,16 +563,105 @@ class ModelLoader:
                 self._load_failures += 1
                 return False
 
-            # Start server
-            self._server = LlamaServer(MODEL_PATH)
-            if not self._server.start():
+            # ── Resource gate: reserve a slot before actually spawning ──────
+            # Per CODEY_OS_MASTER_VISION.md 7.4 (2026-08-08 amendment) / TODO.md
+            # 7.4 sub-task 2: the gate is the sole admission authority. A
+            # denied reservation is a real, surfaced failure, not something
+            # this method proceeds past.
+            spec = rg.ModelSpec(
+                model_id="primary", path=MODEL_PATH, n_ctx=MODEL_CONFIG.get("n_ctx", 4096)
+            )
+            decision, slot_id = rg.reserve_slot(spec)
+            if not decision.admitted:
+                error(f"Resource gate denied primary model load: {decision.reason}")
                 self._load_failures += 1
                 return False
 
-            self._loaded = True
-            self._loaded_at = time.time()
-            success(f"Loaded model ({MODEL_PATH.name})")
-            return True
+            # Captured before spawn so confirm_resident_and_mark_slot() has a
+            # true "before" baseline to compare a post-spawn read against.
+            baseline_meminfo = rg.read_meminfo()
+
+            # ── Structural reserve→spawn→confirm cleanup guarantee ──────────
+            # Everything below (spawn through confirm_resident_and_mark_slot())
+            # is wrapped in this try/finally, not just the two failure
+            # branches this method explicitly checks (start() returning
+            # False; the reuse-without-spawn branch). If ANYTHING in this
+            # window raises — including confirm_resident_and_mark_slot()
+            # itself, whose rg.mark_resident() does a blocking flock() +
+            # atomic os.replace() write, both of which can raise under fd
+            # exhaustion/disk pressure (realistic on this device) — the
+            # spawned process must be stopped and the reservation released,
+            # not silently leaked while the outer except below swallows the
+            # exception and returns False. `loaded_ok` is only set True on
+            # the genuine success return; every other exit from this block
+            # (an explicit `return False` OR an exception propagating to the
+            # outer handler) is treated identically by the finally clause.
+            # See .claude/agent-memory/code-reviewer/
+            # resource_gate_subtask2_confirm_mark_slot_leak.md — this
+            # replaces exactly the gap documented there.
+            self._server = LlamaServer(MODEL_PATH)
+            loaded_ok = False
+            try:
+                if not self._server.start():
+                    self._load_failures += 1
+                    return False
+
+                if self._server.process is None:
+                    # start() reused a server this loader did NOT spawn (its
+                    # "already running on this port" / "reuse another process's
+                    # in-flight start" branches both return True with
+                    # self.process left None — see LlamaServer.start()). We don't
+                    # own that process's residency accounting, so release our own
+                    # reservation instead of double-registering it: the process
+                    # that actually spawned it owns its slot, and our unload()
+                    # must not free a slot for a model we didn't load and isn't
+                    # ours to declare gone.
+                    info(
+                        "Reusing an existing llama-server not spawned by this loader — "
+                        "releasing this loader's own gate reservation, not double-accounting "
+                        "its residency."
+                    )
+                    rg.release_slot(slot_id)
+                    self._slot_id = None
+                else:
+                    confirm_resident_and_mark_slot(
+                        slot_id, baseline_meminfo, decision.estimated_cost_bytes
+                    )
+                    self._slot_id = slot_id
+
+                self._loaded = True
+                self._loaded_at = time.time()
+                success(f"Loaded model ({MODEL_PATH.name})")
+                loaded_ok = True
+                return True
+            finally:
+                if not loaded_ok:
+                    if self._server is not None and self._server.process is not None:
+                        # We actually spawned this process (a reused server
+                        # has self.process left None and must never be
+                        # stop()'d here — not ours to kill, CLAUDE.md rule 3)
+                        # — tear it down so nothing is left orphaned with no
+                        # tracking reference to it.
+                        self._server.stop()
+                    self._server = None
+                    self._loaded = False
+                    try:
+                        rg.release_slot(slot_id)
+                    except Exception as e:
+                        # release_slot() itself failing here is the same
+                        # class of flock()/os.replace() failure this whole
+                        # block guards against — must not mask the original
+                        # failure that got us into this cleanup path, so log
+                        # and continue; the outer except below still returns
+                        # False either way. release_slot() is safe to call
+                        # even if the slot was already released above (the
+                        # reuse branch) — it's a no-op lookup-miss, not an
+                        # error, in that case.
+                        warning(
+                            f"resource_gate: failed to release slot {slot_id} during "
+                            f"load_primary() cleanup: {e}"
+                        )
+                    self._slot_id = None
 
         except Exception as e:
             error(f"Failed to load model: {e}")
@@ -505,6 +675,16 @@ class ModelLoader:
             self._server.stop()
             self._server = None
             self._loaded = False
+        if self._slot_id:
+            try:
+                rg.release_slot(self._slot_id)
+            except Exception as e:
+                # The underlying process is already stopped above regardless
+                # of this outcome — a failure to update gate accounting here
+                # is a (logged) accounting bug, not a reason to make the
+                # caller think unload() itself failed.
+                warning(f"resource_gate: failed to release slot {self._slot_id}: {e}")
+            self._slot_id = None
 
     def get_pid(self) -> Optional[int]:
         """Return the PID of the llama-server process this loader spawned, if any."""

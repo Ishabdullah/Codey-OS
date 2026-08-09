@@ -5162,3 +5162,18 @@ open, not closed, on this basis.
   further — full elimination of PID-recycling races generally requires
   OS-level pidfd support, which may be worth checking for availability
   on this device rather than assuming.
+
+### [NEW-87] `core/loader_v2.py`'s `ModelLoader.load_primary()` unconditionally overwrites `self._server` on repeated calls without an intervening `unload()`, dropping the reference to any prior `LlamaServer`/process
+
+- **Status: Suspected, pre-existing** — found by `code-reviewer` during
+  sub-task 2's leak-fix review pass, not introduced by that fix.
+  `self._server = LlamaServer(MODEL_PATH)` runs unconditionally each call,
+  so if `load_primary()` is somehow called twice without an `unload()` in
+  between (the normal call pattern shouldn't do this, but nothing
+  currently prevents it), the reference to whatever `LlamaServer`/process
+  the first call created is dropped, not cleaned up — a potential
+  orphaned-process/leaked-reference path distinct from the one sub-task
+  2's fix just closed. Not yet confirmed reachable through any real
+  current call path; flagged for whoever next touches `load_primary()`'s
+  call sites (sub-tasks 3/5, `core/daemon.py`/`main.py` integration) to
+  check whether their new call patterns could actually trigger this.

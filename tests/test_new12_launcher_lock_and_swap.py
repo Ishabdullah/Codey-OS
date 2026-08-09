@@ -30,6 +30,7 @@ import pytest
 
 import core.loader_v2 as lv
 import core.planner_loader as pl
+import core.resource_gate as rg
 
 
 class FakeServer:
@@ -57,6 +58,26 @@ def reset_singletons():
     yield
     lv._loader = None
     pl._planner_loader = None
+
+
+@pytest.fixture(autouse=True)
+def fake_resource_gate(monkeypatch):
+    """
+    This file's own concern is the sequential-swap lock/arbiter, not the
+    resource gate (that's tests/test_loader_resource_gate.py) — patch
+    core.resource_gate's slot functions to fixed, fast, always-admitting
+    stand-ins so these tests stay deterministic and don't touch a real
+    /proc/meminfo read, a real cross-process state file, or the (up to 10s)
+    confirm_resident_and_mark_slot() polling loop. `lv.rg` and `pl.rg` are
+    the same module object (both do `import core.resource_gate as rg`), so
+    patching the attributes on `rg` here covers both call sites.
+    """
+    fake_decision = MagicMock(admitted=True, estimated_cost_bytes=1024, reason="ok")
+    monkeypatch.setattr(rg, "reserve_slot", lambda *a, **k: (fake_decision, "fake-slot-id"))
+    monkeypatch.setattr(rg, "mark_resident", lambda *a, **k: True)
+    monkeypatch.setattr(rg, "release_slot", lambda *a, **k: True)
+    monkeypatch.setattr(rg, "read_meminfo", lambda *a, **k: {"MemAvailable": 10**10})
+    yield
 
 
 # ── Part 1: cross-process lock ──────────────────────────────────────────────

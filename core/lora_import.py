@@ -326,14 +326,36 @@ def swap_to_finetuned_model(model_path: str, model_variant: str = "primary") -> 
             return False, "Failed to load fine-tuned model, rolled back"
 
     else:
-        # Secondary model
+        # Secondary model — SECONDARY_MODEL_PATH is the same 1.5B model file
+        # core/planner_loader.py's PlannerLoader manages (default paths for
+        # both are identical in utils/config.py); ModelLoader (the `loader`
+        # bound above) has no such thing as a "secondary" model of its own —
+        # NEW-24 (NEW_ISSUES.md): this branch called a nonexistent
+        # `loader.load_secondary()`, which would have raised AttributeError
+        # the first time this code path actually ran. Fixed to route through
+        # the existing planner loader instead of inventing a new method.
+        # NOTE (found while fixing NEW-24, not itself in this sub-task's
+        # scope — see handoff report): setting `cfg.SECONDARY_MODEL_PATH`
+        # here does not actually change what gets loaded — PlannerLoader.load()
+        # reads the module-level `PLANNER_MODEL_PATH` name bound at import
+        # time, not `cfg.SECONDARY_MODEL_PATH`, so this still loads the
+        # *original* planner weights, not the fine-tuned file, even though it
+        # now calls a real method instead of raising. The identical gap
+        # exists on the "primary" branch above via `cfg.MODEL_PATH` vs.
+        # `core.loader_v2.MODEL_PATH`. Hot-swapping to an arbitrary on-disk
+        # file is a missing loader capability (neither loader accepts a path
+        # override), not a wrong-method-name bug — out of this sub-task's
+        # scope to add.
         original = SECONDARY_MODEL_PATH
         import utils.config as cfg
 
         cfg.SECONDARY_MODEL_PATH = model_file
 
-        loader.unload()
-        if loader.load_secondary():
+        from core.planner_loader import get_planner_loader
+
+        planner = get_planner_loader()
+        planner.unload()
+        if planner.load():
             success(f"Swapped to fine-tuned secondary model: {model_path}")
             return True, f"Swapped to fine-tuned model"
         else:
@@ -412,16 +434,29 @@ def rollback_to_backup(backup_path: str, model_variant: str) -> Tuple[bool, str]
         # Remove backup marker
         backup.unlink()
 
-        # Reload model
-        from core.loader_v2 import get_loader
-
-        loader = get_loader()
-        loader.unload()
-
+        # Reload model. NEW-24 (NEW_ISSUES.md): the "secondary" branch below
+        # used to call `loader.load_secondary()`, which does not exist on
+        # `ModelLoader` (an unconditional `loader.unload()` was also called
+        # for BOTH branches, which is itself wrong for the secondary case —
+        # it stopped the primary's server, not the planner's). Fixed to use
+        # the correct existing loader for each variant: `core.loader_v2`'s
+        # `ModelLoader` for "primary", `core.planner_loader`'s
+        # `PlannerLoader` for "secondary" (the same underlying 1.5B model —
+        # see swap_to_finetuned_model()'s matching comment for why, and for
+        # the still-open "loader can't target an arbitrary file" gap this
+        # does not resolve).
         if model_variant == "primary":
+            from core.loader_v2 import get_loader
+
+            loader = get_loader()
+            loader.unload()
             loader.load_primary()
         else:
-            loader.load_secondary()
+            from core.planner_loader import get_planner_loader
+
+            planner = get_planner_loader()
+            planner.unload()
+            planner.load()
 
         success("Rolled back to original model")
         return True, "Rolled back successfully"

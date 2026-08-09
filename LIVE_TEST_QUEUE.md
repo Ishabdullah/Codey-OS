@@ -52,6 +52,42 @@ normal convention (Confirmed/Suspected, next `NEW-##` ID).
   instead of killing blind" behavior could produce real, repeating
   startup failures on this device, not just a theoretical edge case.
 
+### [TODO.md 7.4 sub-task 2] Slot-aware loaders — confirm the real `/proc/meminfo` residency-confirmation poll works against an actual model load
+
+- **What was built and reviewed:** `core/loader_v2.py`'s
+  `ModelLoader.load_primary()` and `core/planner_loader.py`'s
+  `PlannerLoader.load()` now reserve a slot via `resource_gate.reserve_slot()`
+  before spawning `llama-server`, and confirm residency via a bounded
+  `/proc/meminfo`-drop poll (`confirm_resident_and_mark_slot()`) before
+  marking the slot resident — not just a health-endpoint answer. A
+  structural try/finally (added in a follow-up fix, both
+  code-reviewer-approved) guarantees the spawned process is stopped and
+  the reservation released on any exception in the reserve→spawn→confirm
+  window. Every test so far drives `confirm_resident_and_mark_slot()`'s
+  poll via a patched `read_meminfo` — the real `/proc/meminfo`-drop
+  detection logic has never executed against an actual model load.
+- **What the live test should do:** load the real 7B model via
+  `load_primary()` (and separately, the 1.5B planner via
+  `PlannerLoader.load()`) on-device and confirm: (1) the slot gets marked
+  resident only after real memory usage actually reflects the load, not
+  prematurely off a health-check response; (2) the poll's bound is long
+  enough to reliably detect a real load's memory-usage rise without
+  false-negatively timing out; (3) `resource_gate.list_slots()` shows
+  exactly one resident slot per loaded model, no leaks, after a normal
+  successful load-then-unload cycle.
+- **RAM discipline reminder:** this is a real model-load test — run
+  `free -h` before and after per rule 2, one model-load cycle at a time,
+  confirm fully unloaded (`ps aux | grep llama-server` showing nothing
+  but the grep) before running the second (planner) case.
+- **What to log back and where if it fails:** if the poll times out on a
+  real load, or marks a slot resident before memory usage actually rose,
+  log a new Confirmed `NEW-##` finding — either would mean the gate's
+  admission math (built in sub-task 1, validated only against synthetic
+  fixtures) is unsafe against real load behavior, which is exactly what
+  sub-task 1's un-calibrated `REQUIRED_HEADROOM_FACTOR`/
+  `DEVICE_CEILING_USABLE_FRACTION` constants were flagged as needing this
+  kind of validation for.
+
 ## Format for future entries
 
 ```

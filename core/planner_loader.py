@@ -23,7 +23,8 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from utils.config import LLAMA_SERVER_BIN, PLANND_SERVER_PORT, PLANNER_MODEL_PATH
+import core.resource_gate as rg
+from utils.config import LLAMA_SERVER_BIN, MODEL_CONFIG, PLANND_SERVER_PORT, PLANNER_MODEL_PATH
 from utils.logger import error, info, success, warning
 
 
@@ -35,11 +36,14 @@ class PlannerLoader:
         self._server = None  # Optional[core.loader_v2.LlamaServer]
         self._loaded_at: float = 0
         self._load_failures: int = 0
+        self._slot_id: Optional[str] = None
 
     def load(self) -> bool:
         """Load the planner (1.5B) model. Does NOT itself handle the swap — see ensure_planner()."""
         try:
-            from core.loader_v2 import LlamaServer  # local import: avoid import-time cycle
+            # local import: avoid import-time cycle (matches this module's
+            # existing convention for loader_v2 imports).
+            from core.loader_v2 import LlamaServer, confirm_resident_and_mark_slot
 
             info(f"Loading planner model: {PLANNER_MODEL_PATH.name}")
 
@@ -54,15 +58,87 @@ class PlannerLoader:
                 self._load_failures += 1
                 return False
 
-            self._server = LlamaServer(PLANNER_MODEL_PATH, port=PLANND_SERVER_PORT)
-            if not self._server.start():
+            # ── Resource gate: reserve a slot before actually spawning ──────
+            # Same pattern/contract as core/loader_v2.py:ModelLoader.load_primary()
+            # — see that method's matching comments for the full reasoning.
+            # n_ctx uses MODEL_CONFIG (not a planner-specific ctx setting):
+            # core/loader_v2.py:LlamaServer._spawn_locked() passes
+            # MODEL_CONFIG["n_ctx"] to `-c` for every server it spawns,
+            # including this one via port parameterization — matching that
+            # real invoked value here, not a value this loader wishes it used.
+            spec = rg.ModelSpec(
+                model_id="planner",
+                path=PLANNER_MODEL_PATH,
+                n_ctx=MODEL_CONFIG.get("n_ctx", 4096),
+            )
+            decision, slot_id = rg.reserve_slot(spec)
+            if not decision.admitted:
+                error(f"Resource gate denied planner model load: {decision.reason}")
                 self._load_failures += 1
                 return False
 
-            self._loaded = True
-            self._loaded_at = time.time()
-            success(f"Loaded planner model ({PLANNER_MODEL_PATH.name})")
-            return True
+            baseline_meminfo = rg.read_meminfo()
+
+            # ── Structural reserve→spawn→confirm cleanup guarantee ──────────
+            # Mirrors core/loader_v2.py:ModelLoader.load_primary() exactly —
+            # see that method's matching comment for the full reasoning. Any
+            # exception in this window (spawn, or
+            # confirm_resident_and_mark_slot()'s rg.mark_resident() raising
+            # under fd exhaustion/disk pressure) must stop whatever process
+            # was actually spawned and release the reservation, not just the
+            # two explicitly-checked failure branches.
+            self._server = LlamaServer(PLANNER_MODEL_PATH, port=PLANND_SERVER_PORT)
+            loaded_ok = False
+            try:
+                if not self._server.start():
+                    self._load_failures += 1
+                    return False
+
+                if self._server.process is None:
+                    # Reused a server this loader did not spawn — see
+                    # ModelLoader.load_primary()'s matching branch for the full
+                    # reasoning. Release our own reservation, don't mark resident.
+                    info(
+                        "Reusing an existing planner llama-server not spawned by this loader — "
+                        "releasing this loader's own gate reservation, not double-accounting "
+                        "its residency."
+                    )
+                    rg.release_slot(slot_id)
+                    self._slot_id = None
+                else:
+                    confirm_resident_and_mark_slot(
+                        slot_id, baseline_meminfo, decision.estimated_cost_bytes
+                    )
+                    self._slot_id = slot_id
+
+                self._loaded = True
+                self._loaded_at = time.time()
+                success(f"Loaded planner model ({PLANNER_MODEL_PATH.name})")
+                loaded_ok = True
+                return True
+            finally:
+                if not loaded_ok:
+                    if self._server is not None and self._server.process is not None:
+                        # Actually spawned by us (a reused server leaves
+                        # self.process None and must never be stop()'d —
+                        # CLAUDE.md rule 3) — tear it down rather than leave
+                        # it orphaned.
+                        self._server.stop()
+                    self._server = None
+                    self._loaded = False
+                    try:
+                        rg.release_slot(slot_id)
+                    except Exception as e:
+                        # Same posture as ModelLoader.load_primary()'s matching
+                        # cleanup: a failure here must not mask the original
+                        # failure that got us into cleanup, so log and
+                        # continue — safe to call even if already released
+                        # above (reuse branch), a no-op lookup-miss there.
+                        warning(
+                            f"resource_gate: failed to release slot {slot_id} during "
+                            f"load() cleanup: {e}"
+                        )
+                    self._slot_id = None
 
         except Exception as e:
             error(f"Failed to load planner model: {e}")
@@ -76,6 +152,16 @@ class PlannerLoader:
             self._server.stop()
             self._server = None
             self._loaded = False
+        if self._slot_id:
+            try:
+                rg.release_slot(self._slot_id)
+            except Exception as e:
+                # Same posture as ModelLoader.unload()'s matching block: the
+                # process is already stopped above regardless of this
+                # outcome, so a gate-accounting failure here must not make
+                # the caller think unload() itself failed.
+                warning(f"resource_gate: failed to release slot {self._slot_id}: {e}")
+            self._slot_id = None
 
     def get_pid(self) -> Optional[int]:
         """Return the PID of the llama-server process this loader spawned, if any."""

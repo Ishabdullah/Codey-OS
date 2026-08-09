@@ -78,8 +78,81 @@ Everything else below depends on this existing. Nothing here is started.
          No process-lifecycle risk, so no live-verification needed for this
          sub-task per its own scope note — code-complete is the correct
          status here, not a stand-in for live-verified.
-      2. Slot concept in `loader_v2`/`planner_loader`; NEW-24's two sites
-         fixed; embed server registered as accounted-but-exempt.
+      2. **[x] Code-complete, 2026-08-09 (not live-verified — mocked/unit
+         tests only, per this sub-task's own scope).** Slot concept wired
+         into `core/loader_v2.py:ModelLoader.load_primary()`/`unload()` and
+         `core/planner_loader.py:PlannerLoader.load()`/`unload()`: each
+         reserves a slot via `resource_gate.reserve_slot()` before spawning,
+         surfaces a denied reservation as a real load failure (no spawn), and
+         calls a new shared `core/loader_v2.py:confirm_resident_and_mark_slot()`
+         (bounded `/proc/meminfo`-drop poll, not just a health-endpoint
+         answer — matches `mark_resident()`'s documented precondition) before
+         marking the slot resident; `unload()` releases it. A reuse case
+         (`LlamaServer.start()` returning `True` via one of its no-spawn
+         reuse branches, `self.process` still `None`) releases the loader's
+         own reservation instead of double-accounting a process it doesn't
+         own. `core/embed_server.py` registers/releases a slot via
+         `register_slot()`/`release_slot()` directly (never
+         `reserve_slot()`/`can_admit()`) — accounted-but-exempt, never
+         blocks or gets evicted. NEW-24 fixed at both call sites in
+         `core/lora_import.py` (`swap_to_finetuned_model`,
+         `rollback_to_backup`): routed the "secondary" branch to
+         `core.planner_loader.get_planner_loader()` instead of the
+         nonexistent `loader.load_secondary()` (also fixed
+         `rollback_to_backup`'s unconditional `loader.unload()`, which was
+         unloading the *primary* even for the secondary branch). **Residual
+         gap found while fixing NEW-24, not itself in this sub-task's
+         scope**: hot-swapping to an arbitrary fine-tuned file still doesn't
+         work for either variant — both loaders read a module-level path
+         constant bound at import time, not `cfg.MODEL_PATH`/
+         `cfg.SECONDARY_MODEL_PATH`, so `swap_to_finetuned_model()` reloads
+         the *original* weights while reporting success. Tests:
+         `tests/test_loader_resource_gate.py` (new, 15 tests — reservation/
+         denial/spawn-failure/reuse/release paths for both loaders, the
+         confirm-resident poll logic, embed-server accounting, and two tests
+         against the real (unmocked) `resource_gate` module with synthetic
+         meminfo); `tests/test_new12_launcher_lock_and_swap.py` updated with
+         an autouse fixture patching the gate so its swap-lock tests stay
+         deterministic. Full suite `pytest tests/ -q` — 346 passed.
+         `core/daemon.py`/`main.py` untouched, per this sub-task's explicit
+         scope (sub-tasks 3/5).
+
+         **Round 2 fix, 2026-08-09 (code-complete, not live-verified —
+         real-`resource_gate` + real-spawned-subprocess unit tests only):**
+         code-reviewer round-1 review (`.claude/agent-memory/code-reviewer/
+         resource_gate_subtask2_confirm_mark_slot_leak.md`) live-reproduced
+         a leak: only the two explicit failure branches (`start()` returning
+         `False`; the reuse-without-spawn branch) released the reservation —
+         if `confirm_resident_and_mark_slot()` itself raised (its
+         `rg.mark_resident()` does a blocking `flock()` + atomic
+         `os.replace()`, both of which can raise under fd exhaustion/disk
+         pressure), the spawned process and the PENDING reservation both
+         leaked with no cleanup path. Fixed in both
+         `core/loader_v2.py:ModelLoader.load_primary()` and
+         `core/planner_loader.py:PlannerLoader.load()` by wrapping the whole
+         spawn→confirm sequence in a structural try/finally: a `loaded_ok`
+         flag is only set `True` on the genuine success path; the `finally`
+         clause stops the spawned process (only if this call actually
+         spawned it — `self._server.process is not None` — never a reused
+         server, CLAUDE.md rule 3) and releases the reservation on every
+         other exit, explicit `return False` or a propagating exception
+         alike. Tests: two new regression tests added to
+         `tests/test_loader_resource_gate.py` (17 total now) that force
+         `rg.mark_resident()` to raise against the REAL `resource_gate`
+         module (tmp_path-backed state store) with a REAL (but harmless,
+         no-model, RAM-discipline-safe) spawned `sleep 300` subprocess in
+         place of llama-server — asserting via `rg.list_slots()` that no
+         slot leaks and via `proc.poll()` that no process is left orphaned.
+         Verified red-before-green: both new tests fail against the
+         pre-fix code (real reproduction of the leak, including two
+         genuinely orphaned `sleep 300` processes observed via `ps aux`
+         until manually killed) and pass against the fix. Full suite
+         `pytest tests/ -q` — 362 passed, 1 skipped. `NEW-81` (slot `pid`
+         defaults to the caller's own PID, not the spawned subprocess's)
+         deliberately left deferred — no existing `resource_gate.py` API to
+         update a slot's `pid` post-reservation, and adding one is out of
+         this fix's scope (task explicitly said not to touch
+         `resource_gate.py` unless an actual bug was found there; none was).
       3. Migrate `daemon.py`'s three confirmed call sites onto the gate.
       4. Daemon-side slot-release socket command (the real NEW-69
          prerequisite).

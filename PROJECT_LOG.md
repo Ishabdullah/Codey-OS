@@ -5,6 +5,59 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-08-09 (round 7) — 7.4 sub-task 2 leak fix approved on second review pass; sub-task 2 ready to commit
+
+Round 5's first `code-reviewer` pass on sub-task 2 (slot-aware loaders)
+requested changes: a live-reproduced slot+process leak when
+`confirm_resident_and_mark_slot()` raises after a model server was
+already spawned (`.claude/agent-memory/code-reviewer/resource_gate_subtask2_confirm_mark_slot_leak.md`).
+`implementer` fixed it: `ModelLoader.load_primary()`
+(`core/loader_v2.py`) and `PlannerLoader.load()`
+(`core/planner_loader.py`) now wrap the full reserve→spawn→confirm
+sequence in a structural try/finally, guarded by a `loaded_ok` flag set
+`True` only on genuine success. Any exception in that window now stops
+the spawned process (only if genuinely spawned by this call, per
+`self._server.process is not None` — never touches a reused server, and
+kills via the existing tracked-PID/`os.killpg` mechanism, not a bare name
+pattern, so this fix doesn't reproduce the `NEW-83` bug class it's
+adjacent to) and releases the reservation (itself wrapped in try/except
+with a logged warning, not silent).
+
+Two new regression tests added against the REAL `resource_gate` module
+(not mocked) with a real, harmless `sleep 300` subprocess standing in for
+llama-server (no model loaded, RAM-safe) forcing `mark_resident()` to
+raise. `implementer` did a genuine red-before-green check (temporarily
+reverted just the fix, confirmed both tests fail and reproduce the exact
+leak plus real orphaned processes visible in `ps aux`, restored, confirmed
+green) — independently re-verified myself (430/430 full suite, no orphan
+processes left running afterward).
+
+**Second `code-reviewer` pass: approved.** Went further than trusting the
+report — ran their own red/green check twice (once gutting the whole
+finally block, once disabling only `stop()` while leaving `release_slot()`
+intact, to prove the orphan-process assertion specifically depends on the
+`stop()` call and not just the release-slot half), audited the kill logic
+for rule-3 compliance directly (`LlamaServer.stop()` operates strictly on
+a tracked `Popen` handle), traced `loaded_ok`'s correctness on every exit
+path, and confirmed `release_slot()`'s own failure inside cleanup degrades
+sensibly rather than masking the original error. Found and logged one
+new, non-blocking finding: `NEW-87` (Suspected, pre-existing) —
+`load_primary()` unconditionally overwrites `self._server` on a
+hypothetical repeated call without an intervening `unload()`, which would
+drop the prior reference; not confirmed reachable through any current
+call path, flagged for whoever wires sub-tasks 3/5's new call patterns in.
+`core/lora_import.py`'s bundled `NEW-24` fix reconfirmed real and honestly
+self-documents its own remaining gap (same root cause as `NEW-84`).
+
+**Sub-task 2 is code-complete and code-reviewer-approved, not yet
+live-verified** — `confirm_resident_and_mark_slot()`'s real `/proc/meminfo`
+polling logic has never executed against an actual model load in any
+test; every test drives it via a patched `read_meminfo`. Added to
+`LIVE_TEST_QUEUE.md`. `core/daemon.py`/`main.py` confirmed untouched
+(sub-tasks 3/5). Ready to commit.
+
+---
+
 ## 2026-08-09 (round 6) — NEW-83 fixed and code-reviewer-approved: `core/embed_server.py`'s bare `pkill` replaced with positively-identified PID kill
 
 Ish asked for `NEW-83` and `NEW-84` next, alongside sub-task 2's in-progress
