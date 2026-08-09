@@ -26,9 +26,14 @@ track noted inline.
 Everything else below depends on this existing. Nothing here is started.
 
 - [ ] 7.4 (WQ Track 3 item 1, "Phase 5a") — **All five sub-tasks
-      code-complete and code-reviewer-approved as of 2026-08-09. First
-      live-verification attempt run 2026-08-09 (round 13) — partially
-      verified, two real gaps found, top-level box stays unchecked.**
+      code-complete and code-reviewer-approved as of 2026-08-09. Round 18
+      (2026-08-09) achieved the first full live confirmation of the core
+      admission→load→CLI-recovery path end to end — a real milestone —
+      but three new real gaps were found live in supporting mechanisms
+      (kill-by-pattern, slot pid/port binding, confirmation-poll
+      accuracy). Top-level box stays unchecked: genuinely live-verified
+      for the core path now, not "fully done." See the round 18 summary
+      below the round 13 one for what changed.**
       What's now live-confirmed: the gate's hard-ceiling denial actually
       firing with no spawn (`NEW-95`); the CLI path
       (`main.py --init`/`load_primary()`) genuinely reaching
@@ -58,8 +63,41 @@ Everything else below depends on this existing. Nothing here is started.
       residency model — built in sub-task 1 to be cross-process-aware —
       can't see it. Both worth fixing before another live-test round;
       neither was in this round's scope to patch (live-verification
-      observes, doesn't fix). Build the
-      resource gate + slot-aware loader, per
+      observes, doesn't fix).
+
+      **Round 18 update (2026-08-09), after `U.27`/`U.28`/`U.31` were
+      fixed**: real dry-run against the live gate found `n_ctx=2048` was
+      needed (not 8192 — `32768` hard-rejected, `8192` denied on real
+      headroom, `4096` admitted with only a 76MiB margin, judged too
+      thin). **Stage 1 succeeded for the first time**: startup preload
+      still hit `eviction_failed` (confirms `U.28` only fixed `plannd`'s
+      *accounting* visibility, not the eviction check's actual pass/fail
+      logic — verified directly this round, not assumed); killing
+      `plannd` by tracked PID let the next watchdog tick reach
+      `can_admit()` for real — admitted, spawned, exactly one resident
+      slot, cost matching the estimate. Live correction to
+      `core/daemon.py`'s own comment: `eviction_failed` does self-resolve
+      once `plannd` actually exits, contrary to what that comment claims.
+      **Stage 2 succeeded for the first time**: CLI hit a real transient
+      headroom denial, asked the daemon to release its slot, got it,
+      retried, spawned its own server, completed real inference —
+      sub-tasks 4/5's actual reason for existing, confirmed working end
+      to end. Three new Confirmed findings, not fixed (verification-only
+      round): `NEW-103` (`codeydOS` teardown actually cleans up via a
+      bare `pkill -f`, not any PID-tracked path — confirmed as the real
+      live mechanism, not theoretical); `NEW-104` (gate slots key to the
+      *caller's* PID, not the spawned child's — live-reproduced
+      accounting blindness after the CLI's release-then-retry cycle;
+      accounting/observability impact, not admission-safety, since
+      `can_admit()` reads real `/proc/meminfo` directly); `NEW-105`
+      (`confirm_resident_and_mark_slot()`'s `MemAvailable`-delta
+      confirmation never actually confirmed either successful load this
+      round, falling through to its own "mark resident anyway" fallback
+      both times — not a safety regression, but its actual job never
+      once succeeded). See `U.32`/`U.33`/`U.34` below for these as
+      tracked follow-ups.
+
+      Build the resource gate + slot-aware loader, per
       `CODEY_OS_MASTER_VISION.md` Section 7.4's 2026-08-08 amendment:
       **no fixed concurrency ceiling** — the gate admits as many
       concurrently-resident models (daemon + CLI) as live RAM/swap
@@ -763,8 +801,56 @@ above; interleave them whenever convenient (WQ Tracks 2 and 4).
       `32768` elsewhere that this override would miss. Test coverage:
       `tests/test_u31_n_ctx_override.py` (unset → 32768, valid override
       used, non-numeric value raises, 0/-1 raise). Full suite: 437
-      passed, 1 skipped. Still needed: the actual 7.4 live-verification
-      round using this override with a substitute model.
+      passed, 1 skipped. **Live-verified 2026-08-09 (round 18)**:
+      `CODEY_N_CTX=2048` was used for a real successful admitted load,
+      chosen via a real dry-run against the live gate at four candidate
+      values — done, no longer outstanding.
+- [ ] U.32 (`NEW-103`, Confirmed, live-reproduced round 18) — `codeydOS`'s
+      `stop_daemon()`/`start_plannd()` clean up orphaned/existing
+      `llama-server` processes via bare `pkill -9 -f "llama-server.*8080"`/
+      `*8081` — confirmed this round as the *actual* live cleanup
+      mechanism, not just a theoretical risk (it's what genuinely cleaned
+      up round 18's model on teardown). Same class as `NEW-83`/`NEW-99`,
+      now with live confirmation it's load-bearing in normal operation,
+      not dead code. Fix direction: track each spawned server's PID at
+      spawn time and kill only that specific PID, matching the discipline
+      `core/daemon.py`'s `check_pid_file()`/`resource_gate.py`'s
+      `_pid_alive()` already use elsewhere in this codebase. Natural
+      companion to `U.30`/`NEW-99` (same files, same pattern) — worth
+      doing together.
+- [ ] U.33 (`NEW-104`, Confirmed, live-reproduced round 18) —
+      `resource_gate.reserve_slot()`/`register_slot()` slots key to the
+      *calling* process's PID by default, never the spawned
+      `llama-server` child's — live-reproduced: after a CLI
+      release-then-retry cycle, `list_slots()` showed zero `primary`
+      entries while a real, healthy `llama-server` was still running
+      (the CLI's own short-lived PID died on exit, taking its slot's
+      identity with it). Mirrors on the daemon's own side too (slot `pid`
+      is the daemon process, not its `llama-server` child; `port` is
+      never set) — a code-read consequence, not separately reproduced.
+      Impact is accounting/observability, not admission-safety (the live
+      headroom check reads real `/proc/meminfo` directly, unaffected).
+      Fix direction: at both `reserve_slot()`/`mark_resident()` call
+      sites in `core/loader_v2.py`/`core/planner_loader.py`, once the
+      actual spawned child's PID/port are known, update the slot's
+      `pid`/`port` fields to the real process — `register_slot()`'s own
+      docstring already anticipates exactly this usage, neither call site
+      uses it yet.
+- [ ] U.34 (`NEW-105`, Confirmed, live-reproduced round 18) —
+      `core/loader_v2.py`'s `confirm_resident_and_mark_slot()` (a
+      `MemAvailable`-delta poll) never actually confirmed either
+      successful load in round 18, despite real RSS matching the cost
+      estimate almost exactly both times — fell through to its own
+      documented "mark resident anyway" fallback every time. Not a safety
+      regression (the fallback correctly avoids a worse failure mode, a
+      permanently-stuck PENDING slot) — but the confirmation mechanism's
+      actual job (distinguishing "genuinely landed" from "still just
+      declared") never once succeeded. Reasoned cause, not separately
+      instrumented: `mmap`'d weight pages may not produce a clean
+      `MemAvailable` drop the way fresh anonymous allocation would.
+      Retuning candidate: a different signal (e.g. RSS-based rather than
+      `MemAvailable`-delta-based) may be the right fix, but that needs
+      real investigation, not a guess.
 
 ## Parked — gated, do not start without Ish's explicit sign-off
 

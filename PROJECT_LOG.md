@@ -5,6 +5,86 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-08-09 (round 18) — First full live confirmation of 7.4's resource gate, including the CLI gate-recovery cycle end to end
+
+Second live-verification round, following `U.27`/`U.28`/`U.31`. This one
+succeeded at both stages the first round couldn't reach.
+
+**`n_ctx=2048` was needed, not 8192.** A real dry-run against the live
+gate (not a desk estimate) checked four values against actual
+`/proc/meminfo` before touching a real process: `32768` hard-rejected
+(exceeds device ceiling), `8192` denied on real headroom, `4096`
+admitted with only a 76MiB margin (judged too thin to survive the
+daemon's own startup overhead), `2048` admitted with a 553MiB margin —
+chosen.
+
+**Stage 1 — real load, first time ever.** Startup preload still hit
+`eviction_failed` immediately (`plannd` was up, as expected — `U.28`
+made `plannd` visible to the gate for *accounting*, it did not change
+`_evict_planner_and_confirm_free()`'s actual pass/fail logic, confirmed
+directly this round rather than assumed). Killing `plannd` by its
+tracked PID let the next 30s watchdog tick reach `can_admit()` for real:
+admitted, spawned, `list_slots()` showed exactly one resident `primary`
+slot with cost matching the estimate. **Real correction to
+`core/daemon.py`'s own comment**: it claims `eviction_failed` "won't
+self-resolve" — live-observed this round that it does, once `plannd`
+actually exits.
+
+**Stage 2 — the full CLI recovery cycle, live, for the first time.**
+With the daemon holding the primary slot, `main.py --init` hit a real
+transient headroom denial (not hard-reject, not a slot-accounting
+artifact) — asked the daemon via `release_model_slot`, the daemon
+genuinely released its slot, the CLI's retry spawned its own server and
+completed real inference (594 tokens, 60.9s). This is sub-tasks 4 and
+5's actual reason for existing, confirmed working end to end for the
+first time since they were built.
+
+**Three real findings, all Confirmed, all logged (not fixed — verification-only round):**
+
+- **`NEW-103`**: teardown (`codeydOS stop`) revealed that cleanup
+  actually happened via a bare `pkill -9 -f "llama-server.*8080"`, not
+  any PID-tracked path — the exact rule-3 anti-pattern, and it's what
+  genuinely cleaned up this round's model. Same class as `NEW-83`/
+  `NEW-99`, now confirmed as the actual live cleanup mechanism, not a
+  theoretical risk.
+- **`NEW-104`**: `resource_gate.reserve_slot()`/`register_slot()` slots
+  are keyed to the *calling* process's PID, never the spawned
+  `llama-server` child's — live-reproduced: after the CLI's
+  release-then-retry cycle, `list_slots()` showed zero `primary` entries
+  while a real, healthy 4.4GB `llama-server` was still running (the
+  CLI's own short-lived PID died on exit, taking its slot's identity
+  with it, since `main.py`'s `shutdown()` correctly leaves the model
+  running for the daemon). Same root cause mirrors on the daemon's own
+  side (slot `pid` is the daemon process, not its `llama-server` child;
+  `port` is never set either) — a code-read consequence, not separately
+  reproduced this round. Impact is accounting/observability, not
+  admission-safety — `can_admit()` reads real `/proc/meminfo` directly,
+  unaffected by this gap.
+- **`NEW-105`**: `confirm_resident_and_mark_slot()`'s residency
+  confirmation (a `MemAvailable`-delta poll) never actually confirmed
+  either successful load this round — fell through to its own
+  documented "mark resident anyway" fallback both times, despite real
+  RSS matching the cost estimate almost exactly. Reasoned cause:
+  `mmap`'d weight pages don't necessarily produce a clean `MemAvailable`
+  drop the signal is looking for. Not a safety regression (the fallback
+  correctly avoids the worse failure mode, a permanently-stuck PENDING
+  slot) — but the confirmation mechanism's actual job never once
+  succeeded, which is its own retuning trigger.
+
+**RAM discipline maintained**: `free -h` at every checkpoint, one load
+cycle at a time, orphaned PID cleaned up by specific tracked PID before
+continuing. Baseline and final both confirmed clean.
+
+**Honest status update for `TODO.md`'s top-level 7.4 item**: the core
+admission → load → CLI-recovery path is now live-verified end to end for
+the first time — a real milestone. It is not "fully done": three real
+gaps in supporting mechanisms (kill-by-pattern in `codeydOS`, slot
+pid/port binding, the confirmation poll's actual signal accuracy) were
+found live this round and remain open. Marking this honestly rather than
+checking the box.
+
+---
+
 ## 2026-08-09 (round 17) — U.31: `CODEY_N_CTX` override built and approved, unblocks the next 7.4 live-test round
 
 Corrected the original `TODO.md` framing before building: a gate-only

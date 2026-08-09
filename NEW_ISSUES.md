@@ -5597,3 +5597,159 @@ finding for the same bug. See `NEW-39`.)*
   before `memory_v2` is imported; separately, add the same
   positive-value guard `CODEY_N_CTX` already has to `--ctx`'s argparse
   definition or its handling at `main.py:113`.
+
+## Found during live-verification of `TODO.md` 7.4 (resource gate happy-path round 2), 2026-08-09 — NOT fixed, logged only
+
+### [NEW-103] `codeydOS`'s `start_plannd()` / `stop_daemon()` kill llama-server by bare name pattern (`pkill -9 -f "llama-server.*8081"` / `"llama-server.*8080"`), the exact anti-pattern CLAUDE.md rule 3 forbids
+
+- **Status: Confirmed** — direct code read (`codeydOS:261` inside
+  `start_plannd()`; `codeydOS:203,212,224,233` inside `stop_daemon()`)
+  plus live confirmation during this round: `stop_daemon()`'s
+  `pkill -9 -f "llama-server.*8080"` is what actually cleaned up an
+  orphaned primary-model `llama-server` process this round (PID 26007,
+  spawned by a `main.py --init` CLI invocation and left running
+  intentionally for the daemon to adopt — see `NEW-104` below) — not
+  any PID-tracked kill path. It worked here because the pattern
+  happened to match only the intended target, but it is the same class
+  of bug CLAUDE.md rule 3 cites as having already caused a real
+  incident on this project (a blanket `pkill -f llama-server` killing
+  unrelated model servers). Any process whose command line happens to
+  contain `llama-server.*8080`/`llama-server.*8081` — including a
+  future second Codey-OS instance, a manual debug invocation, or an
+  unrelated tool — would be silently killed by these calls.
+- **Not fixed** — out of this live-verification round's scope (verification-only, per this round's instructions). Fix direction: track
+  each spawned server's PID at spawn time (`plannd.pid`, and a new
+  equivalent PID file/lookup for whatever `llama-server` ends up
+  running on 8080, including ones adopted via `core/loader_v2.py`'s
+  "reuse an existing server" branch) and kill only that specific PID,
+  matching the discipline `core/daemon.py`'s own `check_pid_file()`/
+  `resource_gate.py`'s `_pid_alive()` already use elsewhere in this
+  codebase.
+
+### [NEW-104] `resource_gate.reserve_slot()`/`register_slot()` slots are keyed to the *calling process's* PID, never the spawned `llama-server` child's PID/port — causes premature reaping when a short-lived `main.py` CLI process loads/adopts a model while the daemon is running, and a mirror stale-slot risk on the daemon's own side
+
+- **Status: Confirmed**, live-reproduced this round (the CLI-side
+  premature-reaping half; the daemon-side stale-slot half is a direct
+  code-read consequence of the same root cause, not separately
+  reproduced this round — see below for what's directly observed vs.
+  inferred). Sequence observed: (1) with the daemon already holding a
+  `"primary"` slot, `main.py --init` was gate-denied, asked the daemon
+  to `release_model_slot`, the daemon stopped its own copy and released
+  the slot; (2) the CLI's retried `load_primary()` spawned a *new*
+  `llama-server` (PID 26007) and called `resource_gate.reserve_slot()`
+  with the default `pid=os.getpid()` — i.e. the **CLI's own,
+  short-lived** PID, not the spawned child's PID
+  (`core/loader_v2.py:629`, `rg.reserve_slot(spec)` with no `pid=`/
+  `port=` override — the same call site, not just the CLI's usage of
+  it); (3) `main.py`'s `shutdown()` (`main.py:242-274`) deliberately
+  does *not* unload/release when a daemon is running (correct — the
+  model should stay up for the daemon to use), so the CLI process
+  exits with the slot still owned by its own now-dead PID.
+  **Directly observed**: at that point `resource_gate.list_slots()`
+  showed zero `"primary"` entries while `ps` confirmed `llama-server`
+  PID 26007 was still running, healthy, and consuming ~4.4GB RSS — a
+  real, resident, healthy model the gate's own accounting is blind to.
+  **Inferred, not directly observed**: the CLI's own slot registration
+  in step (2) — `list_slots()` was not queried while the CLI process
+  was still alive, so its existence is inferred from `reserve_slot()`
+  having returned `admitted=True` on the successful retry, not
+  observed directly in the store. The daemon's own subsequent watchdog
+  tick correctly avoided a double-spawn (its `load_primary()` detected
+  the port already answering and took the existing "reuse an existing
+  server" branch, per `core/loader_v2.py:679-694`), but that reuse
+  branch does not register a replacement slot either — it explicitly
+  releases its own fresh reservation instead (by design, to avoid
+  double-accounting) — so no code path ever re-establishes gate
+  visibility for this now-daemon-adopted model.
+- **Root cause is broader than the CLI case**: this is not specific to
+  `main.py`. The *daemon's own* slot for a model it spawns itself has
+  the identical shape — e.g. this round's daemon-spawned slot read
+  back as `{'model_id': 'primary', 'cost_bytes': 3067704480, 'pid':
+  21550, 'port': None, ...}` — `pid: 21550` is the **daemon process**,
+  not `llama-server` child PID 21908, and `port` is `None` (never
+  passed at the `core/loader_v2.py:629` call site either). This is the
+  mirror failure mode: if `llama-server` dies unexpectedly while the
+  daemon process itself keeps running, the slot has no way to be
+  reaped (the daemon PID is still alive) and would persist as
+  `RESIDENT` forever with nothing to correct it, and the slot isn't
+  discoverable by port (`port: None`) either. `register_slot()`'s own
+  docstring already anticipates the correct usage: *"callers may pass a
+  different PID if the actual model server subprocess's PID is known
+  and different from the caller's own (e.g. the daemon registering on
+  behalf of a spawned llama-server)"* — the API supports this; neither
+  call site in `core/loader_v2.py` actually uses it.
+- **Impact is observability/accounting, not admission-safety**: the
+  live headroom check in `can_admit()` reads real `/proc/meminfo`
+  (`MemAvailable`) directly, which already reflects a resident
+  process's true RAM cost regardless of
+  `list_slots()`/`total_reserved_bytes()` — so this round did not find
+  a case where the gate over-admitted because of this gap. The risk is
+  that anything relying on `list_slots()`/`total_reserved_bytes()` to
+  know "is a primary model genuinely resident right now" (current or
+  future code) would incorrectly conclude none is (CLI-handoff case) or
+  incorrectly conclude one still is after it's actually died
+  (daemon-side stale-slot case).
+- **Not fixed** — found live during this verification round, out of
+  its scope. Fix direction: at both `reserve_slot()`/`mark_resident()`
+  call sites in `core/loader_v2.py` (and the equivalent in
+  `core/planner_loader.py`), once the actual server child PID is known
+  (`self._server.process.pid`) and its port is known, update the slot's
+  `pid`/`port` fields to the real spawned process — not the caller's
+  own PID — before or when marking it `RESIDENT`. This alone would also
+  make the "reuse an existing server" branch capable of re-registering
+  a `RESIDENT` slot for the adopted process (mirroring how
+  `codeydOS`'s `start_plannd()` already does an unconditional
+  `register_slot(..., status=RESIDENT, pid=<child PID>, port=8081)` for
+  the process it spawns outside the gate-aware loader path) — fixing
+  the reuse branch alone, without fixing the underlying pid/port
+  binding, would leave the daemon-side stale-slot mirror case broken.
+
+### [NEW-105] `core/loader_v2.py`'s `confirm_resident_and_mark_slot()` resident-confirmation window (10s, 0.5x cost threshold, `MemAvailable`-delta based) did not confirm a genuine, correctly-sized, successful primary-model load this round — fell through to the "mark resident anyway" timeout fallback every time
+
+- **Status: Confirmed**, live-reproduced on both admitted loads this
+  round (the daemon's startup-adjacent watchdog-tick load, and,
+  implicitly, the CLI's retried load). Log line, verbatim:
+  `resource_gate: could not confirm a MemAvailable drop for slot
+  231dc93a1adb46589557745fdb5ec0ed within 10.0s (threshold 1463MiB) —
+  marking resident anyway rather than leaving it permanently PENDING`.
+  This fired on a load that was NOT actually a failure — `ps` showed
+  `llama-server` PID 21908 at RSS 3062140 KB (~2.99GB) immediately
+  after, matching the gate's own cost estimate (2926MiB) almost
+  exactly — yet the confirmation mechanism never saw the drop it was
+  looking for (`CONFIRM_RESIDENT_FRACTION=0.5` × 2926MiB ≈ 1463MiB
+  required `MemAvailable` drop within `CONFIRM_RESIDENT_TIMEOUT_S=10.0`
+  seconds) and fell through to its own documented "mark resident
+  anyway" fallback instead of a true positive confirmation.
+- **Likely cause** (reasoned from the observed numbers, not separately
+  instrumented this round): `core/loader_v2.py`'s own file-header
+  comment already flags `mmap`'d weights as paged in over time rather
+  than all at once, and pages that were already resident in the page
+  cache before this load (or reclaimed/paged back in from swap) don't
+  necessarily show up as a `MemAvailable` drop the same way fresh
+  anonymous allocation would — `MemAvailable` is a kernel estimate of
+  reclaimable memory, not a 1:1 mirror of any one process's RSS. A
+  `MemAvailable`-delta-based signal appears to be the wrong shape for
+  confirming an `mmap`-backed load's residency, even though it's a
+  real, successful, correctly-estimated load by every other measure
+  available this round (RSS match to the cost estimate).
+- **Consequence of the fallback, not a masked failure**: per this
+  function's own docstring, the fallback correctly avoids the worse
+  failure mode (a permanently-PENDING slot double-counting a
+  genuinely-loaded model's cost) — so this is not a safety regression
+  this round found. But it does mean the confirmation mechanism's
+  *actual* job (distinguishing "genuinely landed" from "not yet
+  landed, still declared cost") never executed successfully on either
+  observed load, which is exactly the retuning trigger
+  `core/loader_v2.py:99-103`'s own comment names: *"uncalibrated first
+  defaults reasoned from NEW-21's swap-growth observation... retune
+  against real observed load behavior once this is live-verified"* —
+  this round is that live verification, and the result is a 0-for-2
+  confirmation rate on this device, not a confirmed-working mechanism.
+- **Not fixed** — found live during this verification round, out of
+  its scope. Fix direction: retune the signal, not just the numbers —
+  consider a process-RSS-based confirmation (`/proc/<pid>/status`
+  `VmRSS`, matching the ~2.99GB observed here almost exactly against
+  the 2926MiB estimate) instead of/alongside a system-wide
+  `MemAvailable` delta, since RSS is a direct per-process measurement
+  that isn't confounded by other processes' concurrent page-cache
+  activity the way a system-wide `MemAvailable` reading is.

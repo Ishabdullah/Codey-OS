@@ -148,55 +148,41 @@ normal convention (Confirmed/Suspected, next `NEW-##` ID).
 
 ### [TODO.md 7.4 sub-task 5, and 7.4 as a whole] CLI gate-recovery path + full end-to-end resource gate — real on-device confirmation
 
-**Status: attempted 2026-08-09 (round 13), partially resolved — see
-`PROJECT_LOG.md` round 13 and `NEW-95` through `NEW-99` for full detail.
-Re-reading this entry before the next attempt: some of the "what to test"
-below is now done; some is newly blocked on two found-live gaps
-(`NEW-96`/`NEW-97`, tracked as `TODO.md` `U.27`/`U.28`) that are worth
-fixing first.**
+**Status: SUCCEEDED 2026-08-09 (round 18), after `U.27`/`U.28`/`U.31`
+were fixed following round 13's partial attempt.** The core
+admission→load→CLI-recovery path is now live-confirmed end to end for
+the first time — see `PROJECT_LOG.md` round 18 for the full narrative.
+This specific test is done; three new findings from that round
+(`NEW-103`/`104`/`105`, tracked as `U.32`/`U.33`/`U.34`) are their own
+separate open items now, not blockers to re-running *this* test.
 
-- **What was built and reviewed:** `main.py`'s four CLI load sites
-  (`repl()`, `args.init`, `args.tdd`, `args.fix`) now recover from a
-  transient gate denial by asking the daemon to release a slot and
-  retrying once; a hard denial doesn't retry. This is the last of five
-  sub-tasks — the resource gate (sub-task 1), slot-aware loaders
-  (sub-task 2), daemon migration (sub-task 3), the daemon-side release
-  command (sub-task 4), and this CLI recovery wiring (sub-task 5) are all
-  code-complete and code-reviewer-approved.
-- **What round 13 actually confirmed live**: the CLI path
-  (`main.py --init` → `load_primary()`) genuinely reaches
-  `can_admit()` and reports a real hard denial with byte-exact figures,
-  confirmed across two separate runs; sub-task 5's
-  `LOAD_OUTCOME_GATE_DENIED_HARD` skip-daemon-contact branch, live, for
-  the first time; the gate correctly refusing to spawn a model whose real
-  KV-cache shape doesn't fit, with zero crash/hang/orphan.
-- **What's still not confirmed, and why**: (1) An actual successful
-  load-through-the-gate-then-unload cycle — every substitute tried so far
-  either doesn't fit (round 13's Qwen3-4B) or wasn't tried; needs a
-  substitute with a genuinely smaller real KV-cache footprint than the
-  production 7B at `n_ctx=32768` (not just a smaller file — the file size
-  and the KV-cache cost don't track each other across model families;
-  round 13's substitute was a *smaller file* with a *larger* KV-cache
-  shape), or a documented way to vary `n_ctx` for a test run (no env
-  override exists for `n_ctx` today). (2) `release_model_slot` (sub-task
-  4) actually firing on a real request — never reached, because round
-  13's daemon-side attempt never got past the pre-existing, unrelated
-  `eviction_failed` check (`NEW-96`) to reach the gate at all. (3) The
-  transient-`GATE_DENIED`-then-retry path (as opposed to the hard-denial
-  path, which IS now confirmed) — also not reached.
-- **Recommended before the next attempt**: fix `U.27`/`U.28`
-  (`NEW-96`/`NEW-97`) first — as long as `plannd` runs outside the gate's
-  accounting and the daemon's own eviction check blocks it from ever
-  reaching `can_admit()`, the daemon-side half of this test can't
-  meaningfully proceed regardless of which model is substituted. Also
-  pick (or add an env override for) a substitute whose real KV-cache
-  shape (verify via GGUF header, don't assume from file size) is smaller
-  than the 7B's at production `n_ctx`.
-- **RAM discipline reminder:** this is the real deal — one model-load
-  cycle at a time, `free -h` before/after every step, confirm fully
-  unloaded between attempts. This test deliberately creates resource
-  contention on purpose, so watch actual system behavior closely, not
-  just the gate's reported outcome.
+- **What was confirmed, round 18**: `n_ctx=2048` (chosen via a real
+  dry-run against the live gate, not a guess) let the substitute primary
+  model actually get admitted. Startup preload still hit
+  `eviction_failed` while `plannd` was up (confirming `U.28` fixed
+  `plannd`'s gate *visibility*, not the eviction check's own pass/fail
+  logic) — killing `plannd` by tracked PID let the next watchdog tick
+  reach `can_admit()` for real: admitted, spawned, exactly one resident
+  slot, cost matching the estimate. With the daemon holding that slot,
+  `main.py --init` hit a real transient headroom denial, asked the
+  daemon to release it via `release_model_slot`, got it released,
+  retried, spawned its own server, and completed real inference. Zero
+  crash, zero hang. Teardown (`codeydOS stop`) did clean up the orphaned
+  process, but via a bare `pkill -f` pattern rather than any PID-tracked
+  path (`NEW-103`) — worth knowing before treating "it cleaned up" as
+  proof the mechanism is sound.
+- **What a future round should still check**: whether the confirmation
+  poll (`NEW-105`) can be retuned to actually succeed rather than always
+  falling through to its fallback; whether fixing `NEW-104`'s pid/port
+  binding changes anything observable about a subsequent test's
+  `list_slots()` output; a run where the daemon-side eviction check is
+  allowed to resolve on its own (without manually killing `plannd`) to
+  time how long that actually takes in practice, since round 18 forced
+  it rather than waiting it out.
+- **RAM discipline reminder:** one model-load cycle at a time, `free -h`
+  before/after every step, confirm fully unloaded between attempts —
+  round 18 maintained this throughout, including cleaning up an
+  intentionally-orphaned test PID by its tracked ID before finishing.
 - **What to log back and where if it fails:** any real crash, orphaned
   process, leaked slot, or incorrect admission decision is a Confirmed
   finding.
