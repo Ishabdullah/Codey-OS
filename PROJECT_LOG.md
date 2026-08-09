@@ -5,6 +5,44 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-08-09 (round 16) — Vision elaboration: OpenRouter as a configurable orchestrator tier (Ish, explicit decision)
+
+Ish gave a further architectural note: OpenRouter should be turnable on
+or off per agent/domain (not just globally), with model choice either
+per domain or shared across all, and three usage modes — cloud-only,
+local-only, and automatic (cloud used only when local genuinely can't
+handle it, either because no viable local model exists for the task, or
+because the device currently can't run one).
+
+Verified real, existing infrastructure before writing anything: `utils/config.py`'s
+`CODEY_BACKEND`/`CODEY_BACKEND_P` already let local-vs-OpenRouter be
+chosen per role (coder/planner independently), and
+`OPENROUTER_MODEL`/`OPENROUTER_PLANNER_MODEL` already let a specific
+OpenRouter model be chosen per role — but all of this is a static choice
+fixed at process startup via env vars, not a runtime, per-domain,
+orchestrator-driven decision.
+
+Written into `CODEY_OS_MASTER_VISION.md` as Section 11.13, extending
+11.10's per-domain approved-model-list concept: OpenRouter becomes an
+available tier in a domain's list, not a separate local/cloud toggle.
+Explicitly distinguishes automatic mode's two distinct triggers
+(capability-triggered: no local model in the domain's list can do the
+task, vs. resource-triggered: the device can't currently run one) rather
+than conflating them. Named a real tension rather than glossing over it:
+Section 1's "no cloud dependency required" framing is consistent with
+optional/automatic cloud fallback, but a domain opting into cloud-only
+is a deliberate choice to send that domain's data off-device — any
+implementation should make the active mode genuinely visible to the
+user, not silently decided.
+
+Inserted as 11.13, after the closing 11.12 subsection, to avoid the
+9.x→10.x renumbering bug from the 2026-08-05 round — checked first that
+nothing referenced 11.12 by number elsewhere in the doc. `TODO.md`'s
+parked 11.x item updated to reference it. No code changed — documentation
+only, explicitly marked "not built."
+
+---
+
 ## 2026-08-09 (round 15) — Vision elaboration: adaptive `n_ctx`/CPU allocation, per-domain model tiers, confidence-gated escalation (Ish, explicit decision)
 
 Ish gave further explicit architectural direction, elaborating Section

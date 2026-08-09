@@ -414,15 +414,15 @@ Everything else below depends on this existing. Nothing here is started.
       `docs/agent-plugin-blueprint.md` Section 4; produce an actual
       integration plan before any code is written against it.
 - [ ] 11.x (`CODEY_OS_MASTER_VISION.md` Section 11, 2026-08-09 amendment,
-      elaborated same-day with 11.9-11.11) — **Not yet actionable as a
-      whole; parked until a domain agent that needs it is actually
-      scoped** (one narrow slice of 11.9 is an exception — see `U.31`
-      below, split out because it's immediately useful, not because the
-      broader vision is ready to build). Names the Model Orchestrator
-      layer above the resource gate (7.4): models as ephemeral
-      load→work→unload workers, structured stage-to-stage handoff
-      (extends 7.5's context-passing work with a compact-record shape
-      instead of full context), a fuller resource profile than 7.4
+      elaborated same-day with 11.9-11.11, then 11.13) — **Not yet
+      actionable as a whole; parked until a domain agent that needs it is
+      actually scoped** (one narrow slice of 11.9 is an exception — see
+      `U.31` below, split out because it's immediately useful, not
+      because the broader vision is ready to build). Names the Model
+      Orchestrator layer above the resource gate (7.4): models as
+      ephemeral load→work→unload workers, structured stage-to-stage
+      handoff (extends 7.5's context-passing work with a compact-record
+      shape instead of full context), a fuller resource profile than 7.4
       currently computes (GPU/NPU utilization, battery/charging state,
       model load time, estimated inference cost — none of this exists in
       `core/resource_gate.py` today), and per-model requirement
@@ -436,8 +436,19 @@ Everything else below depends on this existing. Nothing here is started.
       per-domain approved model lists spanning largest→medium→smallest,
       extending 9.3; confidence-gated escalation to a larger model when a
       smaller one's result confidence is too low, making 11.7's
-      illustrative `request_second_pass()` line concrete. Explicitly
-      illustrated with a future Android-control/vision-agent example — 
+      illustrative `request_second_pass()` line concrete. **11.13 (added
+      same round)**: OpenRouter as a configurable, orchestrator-selectable
+      tier in 11.10's per-domain approved lists, not just today's static
+      startup-time `CODEY_BACKEND`/`CODEY_BACKEND_P` env-var choice —
+      per-domain enable/disable, per-domain model selection (or one
+      shared model for all domains), and three usage modes (cloud-only,
+      local-only, automatic — with automatic explicitly distinguishing
+      "no viable local model" from "device can't currently run one" as
+      two different triggers). Names a real tension worth surfacing to
+      the user, not silently deciding: this project's local-first framing
+      (Section 1: "no cloud dependency required") vs. a domain opting
+      into cloud-only, which sends that domain's data off-device by
+      choice. Explicitly illustrated with a future Android-control/vision-agent example — 
       describes target architecture shape, not a commitment to build
       Gmail/Android-automation capability now. Do not start building any
       of this (except `U.31`) until a concrete domain agent needing it is

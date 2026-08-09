@@ -922,10 +922,70 @@ This amendment does not modify `core/resource_gate.py`'s existing,
 twice-reviewed, approved admission logic (Section 7.4) — it names the
 layer above it (scheduling/orchestration) and the layer's future inputs
 (11.4's fuller resource profile, 11.9's adaptive `n_ctx`/CPU allocation,
-11.10's approved-list selection, 11.11's confidence-gated escalation),
-without requiring any change to what's already built. It does not commit
-to building vision or Android-control capability now — Section 9's
-multi-agent direction already establishes that future domain agents are
-in scope; this amendment describes what their *scheduling* should look
-like once they exist, not a decision to build them yet. It does not
-change Section 5's self-improvement gate.
+11.10's approved-list selection, 11.11's confidence-gated escalation,
+11.13's OpenRouter tiering), without requiring any change to what's
+already built. It does not commit to building vision or Android-control
+capability now — Section 9's multi-agent direction already establishes
+that future domain agents are in scope; this amendment describes what
+their *scheduling* should look like once they exist, not a decision to
+build them yet. It does not change Section 5's self-improvement gate.
+
+### 11.13 OpenRouter as a configurable, orchestrator-selectable tier — not just a static startup choice
+
+Real, existing infrastructure to build on (verify directly, don't take
+this as aspirational): `utils/config.py`'s `CODEY_BACKEND`/
+`CODEY_BACKEND_P` env vars already let local-vs-OpenRouter be chosen
+per role (coder vs. planner independently — `CODEY_BACKEND_P` defaults to
+`CODEY_BACKEND` but can override it), and `OPENROUTER_MODEL`/
+`OPENROUTER_PLANNER_MODEL` already let a specific OpenRouter model be
+chosen per role. This is real and works today — but it's a **static
+choice fixed at process startup via environment variables**, not a
+runtime, per-agent, per-task decision.
+
+Direction: extend this into something the orchestrator can decide
+dynamically, per 11.10's per-domain approved-list concept — OpenRouter
+becomes an available tier in a domain's approved model list (typically
+above the largest local option, though not necessarily always), not a
+separate, parallel local/cloud toggle. Concretely:
+
+- **Per-agent-type enable/disable**, not just a global switch — some
+  agents/domains may be allowed to use OpenRouter, others may be
+  restricted to local-only (e.g. for privacy-sensitive domains), decided
+  independently per domain rather than one flag for the whole system.
+- **Model choice per agent type, or one shared model for all** — the
+  user should be able to either pick a specific OpenRouter model per
+  domain (extending today's `OPENROUTER_MODEL`/`OPENROUTER_PLANNER_MODEL`
+  pattern to every domain, not just coder/planner) or set one shared
+  model used across every domain that has OpenRouter enabled.
+- **Three usage modes, user-selectable**: (1) **cloud-only** — no local
+  models at all for a given domain (today's `CODEY_BACKEND=openrouter`
+  already does this, just not per-domain-selectable at runtime); (2)
+  **local-only** — OpenRouter never used, even if local can't handle the
+  task (today's default); (3) **automatic** — OpenRouter is used only
+  when needed, for either of two distinct reasons that should be
+  distinguished, not conflated: **(a) capability-triggered** — no viable
+  local model in the domain's approved list (11.10) can perform the task
+  at an acceptable confidence (11.11's escalation logic runs out of local
+  tiers to escalate to), or **(b) resource-triggered** — the device
+  currently can't run a suitable local model at all (per the resource
+  gate, 7.4/11.4/11.9), even though one exists in the approved list.
+  Mode (3) is what makes "Codey-OS could always have a way to run" true
+  in practice — a resource-constrained moment doesn't have to mean total
+  failure if cloud fallback is permitted for that domain.
+
+**Tension worth naming, not glossing over**: Section 1 already frames
+this project as "No cloud dependency required; optional cloud fallback
+(OpenRouter) available" — automatic/always-available OpenRouter usage is
+consistent with "optional... available," but a user choosing cloud-only
+for a domain is a deliberate opt-in to sending that domain's data
+off-device, which this project's local-first identity has otherwise been
+built around avoiding by default. Any implementation of this should make
+the mode/tier a domain is running in genuinely visible to the user
+(not silently decided), not just technically correct.
+
+**Not built**: no per-domain OpenRouter enable/disable, no per-domain
+OpenRouter model selection beyond coder/planner, and no automatic
+capability-triggered-vs-resource-triggered cloud fallback logic exists
+today. `CODEY_BACKEND`/`CODEY_BACKEND_P` and `OPENROUTER_MODEL`/
+`OPENROUTER_PLANNER_MODEL` are the real, existing, narrower substrate
+this would extend.
