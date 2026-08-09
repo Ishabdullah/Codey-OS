@@ -63,6 +63,24 @@ class ThermalManager:
         self._start_time = time.time()
         self._last_start_time = self._start_time
 
+    def is_inference_active(self) -> bool:
+        """
+        True while a `start_inference()`/`end_inference()` bracket is open —
+        i.e. an inference call is actually in flight right now.
+
+        Additive accessor (7.4 sub-task 4), same pattern as
+        `get_current_temp_c()` (sub-task 1): wraps existing private state
+        (`_start_time`) instead of adding a new counter elsewhere. Used as
+        the daemon's "don't release a model slot out from under an
+        in-flight task" busy signal — `core/task_executor.py`'s
+        `_execute_task()` already brackets the entire `run_agent()` call
+        with `start_inference()`/`end_inference()` in a try/finally, so this
+        is process-local, self-resetting state (unlike the SQLite task
+        `running` status, which can stay stuck if the daemon dies mid-task
+        without running its shutdown path).
+        """
+        return self._start_time is not None
+
     def end_inference(self):
         """Mark the end of an inference and check thermal status."""
         if self._start_time is None:
@@ -216,6 +234,11 @@ def end_inference():
 def get_thermal_status() -> dict:
     """Get thermal status."""
     return get_thermal_manager().get_status()
+
+
+def is_inference_active() -> bool:
+    """Module-level convenience wrapper for `ThermalManager.is_inference_active()`."""
+    return get_thermal_manager().is_inference_active()
 
 
 def is_throttled() -> bool:

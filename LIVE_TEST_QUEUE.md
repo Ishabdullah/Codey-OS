@@ -118,6 +118,34 @@ normal convention (Confirmed/Suspected, next `NEW-##` ID).
   misclassifies a real outcome, or a hard-denied reservation somehow
   still causes a restart loop, log a new Confirmed `NEW-##` finding.
 
+### [TODO.md 7.4 sub-task 4] Daemon `release_model_slot` command — confirm real busy/release behavior against a live daemon
+
+- **What was built and reviewed:** `core/daemon.py`'s new
+  `release_model_slot` Unix-socket command lets an external process ask
+  the daemon to unload a model (`"primary"` or `"planner"`) and free its
+  resource-gate slot. Declines cleanly if a task is actively inferring or
+  a swap is in flight, no-ops cleanly if already unloaded, otherwise
+  unloads and confirms via a bounded port-health poll. Not yet called by
+  anything real — `main.py`'s CLI integration is sub-task 5.
+- **What the live test should do:** with the daemon actually running and
+  the 7B model loaded, send a real `release_model_slot` request (via
+  `core/daemon.py`'s existing `send_command()` socket client) and
+  confirm: (1) the model actually unloads and the port stops answering;
+  (2) sending it again immediately gets a `cooldown` decline, not a
+  second unload; (3) sending it while a real task is actively running
+  gets a `busy_task_running` decline, not an unload mid-task — this is
+  the one that most needs real confirmation, since it was only tested
+  against a mocked thermal manager, never a genuinely in-flight
+  inference call.
+- **RAM discipline reminder:** one model-load cycle at a time, `free -h`
+  before/after, confirm the model actually stops (`ps aux | grep
+  llama-server`) after a confirmed release before considering the test
+  done.
+- **What to log back and where if it fails:** if a release happens while
+  a real task is genuinely mid-inference, that's a Confirmed, high-
+  severity finding — it would mean the busy-check that's supposed to
+  protect in-flight work doesn't actually work under real conditions.
+
 ## Format for future entries
 
 ```

@@ -5,6 +5,64 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-08-09 (round 10) — 7.4 sub-task 4 (daemon slot-release command) approved and committed; implementer session-limit recovery
+
+The implementer building sub-task 4 hit a session usage limit mid-task
+(a platform-level rate limit, not a code issue) — it had already written
+the actual `core/daemon.py`/`core/thermal.py` implementation in full
+before being cut off partway through writing tests. Rather than discard
+that work or wait indefinitely, I read the partial state directly,
+confirmed the implementation itself was complete and well-reasoned, and
+fixed the two things the cutoff left broken myself: 2 of the 13 new
+tests referenced `daemon_mod.SWAP_GUARD`, which doesn't exist
+(`SWAP_GUARD` is imported locally inside the handler from
+`core.loader_v2`, not re-exported at the `core.daemon` module level) —
+fixed to reference `core.loader_v2.SWAP_GUARD` directly — plus a
+placeholder no-op assertion in an autouse fixture and one unused import.
+No change to `core/daemon.py`/`core/thermal.py`'s actual logic, only the
+test file. Verified 466/466 full suite passing myself before routing to
+`code-reviewer`, and explicitly flagged my own fix for the reviewer to
+verify rather than just trust.
+
+**What was built**: `core/daemon.py` gains a new `release_model_slot`
+Unix-socket command (registered on the existing `DaemonServer` handler
+pattern) — the actual prerequisite `NEW-69` needs: a way for an external
+process (the CLI, sub-task 5) to ask the running daemon to free a model
+slot instead of being denied a reservation with no way to recover.
+Declines (not errors) if a task is actively inferring
+(`core/thermal.py`'s new `is_inference_active()` accessor — process-local
+state, can't stay stuck if the daemon dies mid-task, unlike the SQLite
+task `running` status) or if `SWAP_GUARD` is already held elsewhere
+(non-blocking acquire, held across the whole unload once acquired, same
+pattern `ensure_model()` already uses). Already-unloaded is a clean
+no-op success. A per-`model_id` 5-second cooldown, armed only on a
+confirmed release, prevents this command being used to force
+unload/reload thrashing against the daemon's own model. Release is
+confirmed via a bounded `probe_port_health()` poll before being reported
+as actually freed; thermal-check exceptions fail closed to "busy."
+
+**`code-reviewer` approved**, with real independent verification, not a
+rubber stamp: traced `task_executor.py`'s `_execute_task()` to confirm
+the busy-detection premise actually holds; traced `SWAP_GUARD`'s use in
+both `ensure_model()` and the new handler to confirm no deadlock and
+correct serialization of concurrent same-model requests; confirmed
+fail-closed behavior on a thermal-check exception; confirmed
+`release_model_slot` goes through the same peer-credential authorization
+as every other daemon command, no bypass. **Independently re-verified my
+test fix** by hand-breaking a scratch copy (removing the guard-release
+the fixture depends on) and confirming the fixture's assertion actually
+catches the leak — not just trusting the fix was probably fine. One
+cosmetic, non-blocking note: `RELEASE_OUTCOME_BUSY_TASK` is reused for
+both a genuine busy-task decline and a thermal-check-exception decline;
+not distinguishable by outcome alone, low stakes since both correctly
+decline either way.
+
+Sub-task 4 is code-complete, code-reviewer-approved, not yet
+live-verified — added to `LIVE_TEST_QUEUE.md`. Does not yet wire
+`main.py` to actually call this command — that's sub-task 5, next.
+
+---
+
 ## 2026-08-09 (round 9) — 7.4 sub-task 3 + NEW-84 both approved, committed together (interleaved working-tree edits)
 
 Sub-task 3 (migrate `core/daemon.py`'s three model-loader call sites onto

@@ -233,8 +233,60 @@ Everything else below depends on this existing. Nothing here is started.
          gate denial, which could poison a "model is broken" failure
          counter if anything ever escalates on it (nothing currently does —
          `get_load_failures()`/`reset_failures()` have no other consumers).
-      4. Daemon-side slot-release socket command (the real NEW-69
-         prerequisite).
+      4. **[x] Code-complete, 2026-08-09 (not live-verified — mocked/unit
+         tests only). Code-reviewer pass still pending** (implementer
+         agent hit a session usage limit mid-task before requesting
+         review; I finished the small remainder myself directly — see
+         below — rather than leave it half-done). Daemon-side slot-release
+         socket command (the real NEW-69 prerequisite): new
+         `release_model_slot` command registered on `core/daemon.py`'s
+         existing `DaemonServer` handler pattern (`{"model_id": "primary"
+         | "planner"}` → `{"status", "released", "outcome", "message"}`).
+         Declines (not errors) if a task is actively inferring
+         (`core/thermal.py`'s new `is_inference_active()` accessor, same
+         additive pattern as sub-task 1's `get_current_temp_c()` —
+         process-local, can't stay stuck if the daemon dies mid-task,
+         unlike the SQLite task `running` status) or if `SWAP_GUARD` is
+         already held elsewhere (non-blocking acquire, held across the
+         whole unload once acquired — same reasoning as `ensure_model()`
+         holding it for its entire body). Already-unloaded is a clean
+         no-op success, not an error. A per-`model_id` cooldown
+         (`RELEASE_SLOT_COOLDOWN_S = 5.0`) prevents this command being used
+         to force rapid unload/reload thrashing against the daemon's own
+         model — armed only on a confirmed release, never on a busy/
+         cooldown decline, so a legitimate retry right after a decline
+         isn't punished. `unload()` runs via `run_in_executor` (can block
+         on `process.wait(timeout=8)`) and the release is confirmed via a
+         bounded poll of `probe_port_health()` before being reported as
+         actually freed. Thermal-check exceptions fail closed to "busy"
+         rather than risking a release mid-inference. Explicitly does NOT
+         wire `main.py` to call this yet (sub-task 5). Tests:
+         `tests/test_daemon_release_model_slot.py` (13 tests — invalid
+         input, busy-task decline, thermal-check-fails-closed,
+         swap-guard-busy decline, already-unloaded no-op, successful
+         release, planner routing, exception-releases-guard, unconfirmed
+         release reported distinctly, cooldown enforcement, busy-decline-
+         doesn't-arm-cooldown, handler registration). Full suite `pytest
+         tests/ -q` — 466 passed, 1 skipped. **What I fixed myself after
+         the session-limit cutoff** (implementer had already written and
+         committed-to-working-tree the actual `core/daemon.py`/
+         `core/thermal.py` logic before being cut off mid-test-writing):
+         2 of the new tests referenced `daemon_mod.SWAP_GUARD`, which
+         doesn't exist (`SWAP_GUARD` is imported locally inside the
+         handler from `core.loader_v2`, not re-exported at
+         `core.daemon` module level) — fixed both to reference
+         `core.loader_v2.SWAP_GUARD` directly, fixed a placeholder no-op
+         assertion in the autouse fixture (`assert X if False else True`,
+         clearly an unfinished stub) into a real pre/post-test guard-state
+         check, and removed one unused `threading` import. No change to
+         the actual `core/daemon.py`/`core/thermal.py` implementation
+         logic itself — only the test file. **Still needs a real
+         `code-reviewer` pass before commit** — this is daemon/
+         process-control code that lets an external process trigger
+         daemon-side unloading, exactly CLAUDE.md rule 4's mandatory
+         category, and the implementer's own design reasoning (busy/
+         cooldown/guard handling) hasn't had independent review yet, only
+         my own read-through while fixing the tests.
       5. Bring `main.py`'s four CLI load sites + `shutdown()` under the
          gate — observe-only until sub-task 4 lands, then enforce.
 

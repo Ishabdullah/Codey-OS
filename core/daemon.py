@@ -29,6 +29,44 @@ from utils.config import CODEY_STATE_DIR, DAEMON_LOG_FILE, DAEMON_PID_FILE, DAEM
 from utils.logger import (error, info, set_log_level, setup_file_logging,
                           warning)
 
+# ==================== Resource-gate slot-release outcomes ====================
+# 7.4 sub-task 4 (NEW-69 prerequisite): `release_model_slot` command outcomes.
+# String constants (not an enum) to match the existing LOAD_OUTCOME_*
+# convention in core/loader_v2.py.
+RELEASE_OUTCOME_RELEASED = "released"
+RELEASE_OUTCOME_ALREADY_UNLOADED = "already_unloaded"
+RELEASE_OUTCOME_BUSY_TASK = "busy_task_running"
+RELEASE_OUTCOME_BUSY_SWAP = "busy_swap_in_flight"
+RELEASE_OUTCOME_COOLDOWN = "cooldown"
+RELEASE_OUTCOME_INVALID_MODEL = "invalid_model_id"
+RELEASE_OUTCOME_UNCONFIRMED = "unload_attempted_unconfirmed"
+RELEASE_OUTCOME_ERROR = "error"
+
+# Minimum seconds between two successful releases of the SAME model_id via
+# this command. Only armed on an actual confirmed release (not on a busy/
+# cooldown decline, and not on an "already unloaded" no-op) — a decline
+# must not burn a legitimate retry's budget. This is deliberately narrow:
+# it prevents THIS command from being used to force rapid repeated
+# unload/reload thrashing against the daemon's own model, but it does NOT
+# prevent a slower unload -> 30s-watchdog-reload -> ask-again cycle: that
+# would need the watchdog itself to back off, which is out of this
+# sub-task's scope (daemon-side release command only, not CLI/watchdog
+# interaction — see TODO.md 7.4 sub-task 5).
+RELEASE_SLOT_COOLDOWN_S = 5.0
+
+# Bounded poll: after unload() returns, how long to wait for the model's
+# health port to actually stop answering before reporting the release as
+# confirmed. unload() itself already blocks on the subprocess actually
+# exiting when this loader owns the process (core/loader_v2.py
+# LlamaServer.stop() -> process.wait(timeout=8)), so this is normally
+# near-instant; it exists for the "reused, not spawned by this loader"
+# edge case where stop() has nothing of its own to wait on. Mirrors the
+# load-direction confirm (`confirm_resident_and_mark_slot()`) and the
+# eviction-direction confirm (`_evict_planner_and_confirm_free()`'s
+# `probe_port_health()`) already established in sub-tasks 2/3.
+RELEASE_CONFIRM_TIMEOUT_S = 3.0
+RELEASE_CONFIRM_POLL_INTERVAL_S = 0.3
+
 # ==================== Configuration ====================
 
 # Daemon directory — defined at module level so check_pid_file / is_daemon_running
@@ -115,6 +153,9 @@ class DaemonServer:
         self.running = False
         self._handlers: Dict[str, Callable] = {}
         self._shutdown_callback = shutdown_callback
+        # Per-model_id monotonic timestamp of the last CONFIRMED release via
+        # release_model_slot — see RELEASE_SLOT_COOLDOWN_S above.
+        self._release_slot_last_release: Dict[str, float] = {}
         self._register_default_handlers()
 
     def _register_default_handlers(self):
@@ -126,6 +167,7 @@ class DaemonServer:
         self.register_handler("task", self._handle_task)
         self.register_handler("cancel", self._handle_cancel)
         self.register_handler("shutdown", self._handle_shutdown)
+        self.register_handler("release_model_slot", self._handle_release_model_slot)
 
     def register_handler(self, cmd: str, handler: Callable):
         """Register a command handler."""
@@ -308,6 +350,203 @@ class DaemonServer:
         if self._shutdown_callback:
             self._shutdown_callback()
         return {"status": "ok", "message": "Shutting down"}
+
+    @staticmethod
+    def _release_model_slot_sync(loader, port: int):
+        """
+        Blocking body of a release attempt — run via `run_in_executor` since
+        `unload()` can block on `process.wait(timeout=8)` (core/loader_v2.py
+        `LlamaServer.stop()`), and must never stall the daemon's asyncio
+        event loop (same reasoning as `_execute_task()`'s use of
+        `run_in_executor` for `run_agent()`).
+
+        Returns (did_unload: bool, confirmed_freed: bool). `did_unload` is
+        False only when the model was already not loaded (clean no-op).
+        `confirmed_freed` is True once the model's health port stops
+        answering, polled for up to RELEASE_CONFIRM_TIMEOUT_S — unload()
+        itself already blocks on process exit when this loader owns the
+        spawned process, so this is normally immediate; it exists for the
+        edge case where the loader's `_server` was a reused reference to a
+        process this loader didn't spawn (nothing for `stop()` to wait on
+        there).
+        """
+        if not loader.is_loaded():
+            return False, True
+
+        loader.unload()
+
+        from core.loader_v2 import probe_port_health
+
+        deadline = time.monotonic() + RELEASE_CONFIRM_TIMEOUT_S
+        while True:
+            if not probe_port_health(port):
+                return True, True
+            if time.monotonic() >= deadline:
+                return True, False
+            time.sleep(RELEASE_CONFIRM_POLL_INTERVAL_S)
+
+    async def _handle_release_model_slot(self, data: Dict) -> Dict:
+        """
+        Release (unload) a model this DAEMON's own loader holds a
+        resource-gate slot for, on request from an external caller.
+
+        Built for NEW-69 / TODO.md 7.4 sub-task 4: interactive CLI
+        (`main.py`) invocations will (sub-task 5, separate/later) be able to
+        ask the running daemon to free a slot so the CLI's own reservation
+        can be admitted, instead of being denied with no way to recover.
+
+        Request: {"model_id": "primary" | "planner"}
+        Response (all well-formed requests return status "ok"; only an
+        invalid model_id or an unexpected exception during unload returns
+        "error"):
+            {"status": "ok"|"error", "released": bool,
+             "outcome": <RELEASE_OUTCOME_* constant>, "message": str}
+
+        Busy handling (deliberately conservative — this command exists so a
+        different, unprivileged, potentially adversarial-by-accident
+        process can ask the daemon to give up a resource it may be using
+        mid-inference):
+          - If a task is actively executing right now (`ThermalManager`'s
+            `is_inference_active()` — the same in-flight bracket
+            `core/task_executor.py`'s `_execute_task()` already sets around
+            every `run_agent()` call; process-local, so unlike the SQLite
+            task `running` status it can never stay stuck if the daemon
+            dies mid-task), the request is declined as busy. Releasing a
+            model out from under an in-flight task would corrupt that
+            task's response, not just be wasteful.
+          - If `core.loader_v2.SWAP_GUARD` can't be acquired non-blocking, a
+            primary/planner swap is already in flight elsewhere in this
+            process — declined as busy rather than racing it. The guard is
+            then HELD across the unload (not probed-and-dropped), for the
+            same reason `ensure_model()` holds it for its entire body: the
+            loaded/not-loaded transition window is exactly the race the
+            guard exists to prevent.
+          - Already-not-loaded is a clean success no-op (`released: False`,
+            `outcome: already_unloaded`), not an error — the caller's goal
+            (a free slot) is already satisfied.
+          - A confirmed release only counts toward the per-model_id cooldown
+            (RELEASE_SLOT_COOLDOWN_S) — a busy/cooldown decline never arms
+            the cooldown itself, so a legitimate retry right after a decline
+            clears isn't punished for the decline.
+
+        NOTE (per this sub-task's own scope, not a bug): for `model_id ==
+        "planner"`, this will almost always be the `already_unloaded`
+        no-op in practice. `plannd` (the 1.5B planner) runs as a genuinely
+        separate OS process (see codeydOS) with its OWN
+        `core.planner_loader` singleton — this daemon process's own
+        planner-loader singleton is only ever loaded here indirectly, via
+        `ModelLoader._evict_planner_and_confirm_free()`'s in-process
+        eviction check, and is not the process actually holding the
+        planner's slot in the common case. Implemented generically per this
+        sub-task's instructions regardless, since a future in-process
+        planner load path isn't ruled out.
+        """
+        model_id = data.get("model_id")
+        if model_id not in ("primary", "planner"):
+            return {
+                "status": "error",
+                "released": False,
+                "outcome": RELEASE_OUTCOME_INVALID_MODEL,
+                "message": f"model_id must be 'primary' or 'planner', got {model_id!r}",
+            }
+
+        now = time.monotonic()
+        last_release = self._release_slot_last_release.get(model_id)
+        if last_release is not None and (now - last_release) < RELEASE_SLOT_COOLDOWN_S:
+            remaining = RELEASE_SLOT_COOLDOWN_S - (now - last_release)
+            return {
+                "status": "ok",
+                "released": False,
+                "outcome": RELEASE_OUTCOME_COOLDOWN,
+                "message": f"released {model_id!r} too recently — retry in {remaining:.1f}s",
+            }
+
+        try:
+            from core.thermal import get_thermal_manager
+
+            if get_thermal_manager().is_inference_active():
+                return {
+                    "status": "ok",
+                    "released": False,
+                    "outcome": RELEASE_OUTCOME_BUSY_TASK,
+                    "message": "a task is actively executing — declined to avoid "
+                    "releasing a model out from under in-flight inference",
+                }
+        except Exception as e:
+            # Fail closed: if we can't confirm the daemon is idle, treat it
+            # as busy rather than risk releasing a model mid-inference.
+            warning(f"release_model_slot: thermal busy-check failed ({e}) — declining as busy")
+            return {
+                "status": "ok",
+                "released": False,
+                "outcome": RELEASE_OUTCOME_BUSY_TASK,
+                "message": "could not confirm daemon idle state — declined",
+            }
+
+        from core.loader_v2 import SWAP_GUARD, get_loader
+        from core.planner_loader import get_planner_loader
+        from utils.config import PLANND_SERVER_PORT, PRIMARY_SERVER_PORT
+
+        if not SWAP_GUARD.acquire(blocking=False):
+            return {
+                "status": "ok",
+                "released": False,
+                "outcome": RELEASE_OUTCOME_BUSY_SWAP,
+                "message": "a primary/planner swap is already in flight — declined",
+            }
+
+        try:
+            if model_id == "primary":
+                loader = get_loader()
+                port = PRIMARY_SERVER_PORT
+            else:
+                loader = get_planner_loader()
+                port = PLANND_SERVER_PORT
+
+            loop = asyncio.get_event_loop()
+            try:
+                did_unload, confirmed = await loop.run_in_executor(
+                    None, self._release_model_slot_sync, loader, port
+                )
+            except Exception as e:
+                error(f"release_model_slot: unload of {model_id!r} raised: {e}")
+                return {
+                    "status": "error",
+                    "released": False,
+                    "outcome": RELEASE_OUTCOME_ERROR,
+                    "message": str(e),
+                }
+        finally:
+            SWAP_GUARD.release()
+
+        if not did_unload:
+            return {
+                "status": "ok",
+                "released": False,
+                "outcome": RELEASE_OUTCOME_ALREADY_UNLOADED,
+                "message": f"{model_id!r} was not loaded — nothing to release",
+            }
+
+        if confirmed:
+            self._release_slot_last_release[model_id] = time.monotonic()
+            info(f"release_model_slot: released {model_id!r} on external request")
+            return {
+                "status": "ok",
+                "released": True,
+                "outcome": RELEASE_OUTCOME_RELEASED,
+                "message": f"{model_id!r} released and confirmed freed",
+            }
+
+        warning(
+            f"release_model_slot: unload of {model_id!r} issued but not confirmed "
+            f"freed within {RELEASE_CONFIRM_TIMEOUT_S}s"
+        )
+        return {
+            "status": "ok",
+            "released": False,
+            "outcome": RELEASE_OUTCOME_UNCONFIRMED,
+            "message": f"unload of {model_id!r} issued but not confirmed freed in time",
+        }
 
     async def _handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         """Handle incoming client connection with peer credential verification."""
