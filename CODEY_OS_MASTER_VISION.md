@@ -579,7 +579,7 @@ direction that work must not be built in a way that forecloses.
 
 Not every domain agent needs the 7B coding model. Ish is already running
 a 4B model (Qwen3-4B via `llama.cpp`) as a working example, in a separate
-project, Aigentik-CLI (see 10.4). Smaller models are the expected norm
+project, Aigentik-CLI (see 9.4). Smaller models are the expected norm
 for most domain/plugin agents, not an exception. Concretely, this means
 the plugin/agent manifest shape must eventually declare a model-size
 class or resource footprint per agent — extending Section 7.3's
@@ -683,4 +683,178 @@ drop a capability from Section 3 without a logged reason, or activate
 self-improvement without the Section 5 gate being met), that's a stop-and-
 flag moment, not something to proceed through quietly.
 
-Signed Off by Ish. Amended 2026-08-05 (Ish) — see Section 9.
+Signed Off by Ish. Amended 2026-08-05 (Ish) — see Section 9. Amended
+2026-08-09 (Ish) — see Section 11.
+
+---
+
+## 11. Amendment (2026-08-09, Ish): Model Orchestrator Architecture — models as ephemeral workers
+
+**Status: documented direction, ties existing planned work (7.3, 7.4,
+9.2, 9.3) into one coherent picture and adds new specifics (structured
+handoff, a fuller resource profile, per-model requirement declarations).
+Nothing here is built. `core/resource_gate.py` (Section 7.4, built and
+code-reviewer-approved as of 2026-08-09) already implements the
+admission-math slice of this — the RAM/swap/thermal-based "can this be
+admitted right now" question — but does not yet implement the fuller
+resource profile, structured handoff, or per-model declarations
+described below. This section describes where that work is headed, not
+what exists.**
+
+### 11.1 The mental model: Codey is the manager, models are employees
+
+Models are not permanently-resident intelligence — they're **ephemeral
+workers**: loaded when a specific job needs them, performing that job,
+passing a result onward, and getting unloaded when the orchestrator
+decides the resources are better used elsewhere. Accessibility services,
+shell, filesystem, vision, browser, and similar system-level facilities
+are **tools**, not models — many steps in a task need no model at all.
+The **Model Orchestrator** sits above all of this: it decides which
+model (if any) needs to run, when, what information it receives, and
+when it's done. This generalizes Section 7.3's `ModelTierRouter` concept
+and Section 7.4's resource gate into one named architectural layer,
+rather than introducing a third mechanism alongside them.
+
+### 11.2 Structured handoff between stages, not context-dumping
+
+When one stage's output feeds the next (e.g. a reasoning step decides
+what to do, then a tool executes it, then a vision step interprets the
+result), the orchestrator passes a small structured record between
+stages — not the entire prior conversation. Illustrative shape (not a
+finalized schema):
+
+```json
+{
+  "task": "Find John's latest Gmail message",
+  "current_app": "com.google.android.gm",
+  "screen_state": {
+    "description": "Gmail inbox",
+    "relevant_elements": [{"text": "John Smith", "type": "email_row"}]
+  },
+  "next_action": "open_email",
+  "confidence": 0.94
+}
+```
+
+This is a concrete instance of Section 7.5's in-flight context-passing
+fix and durable task-context blackboard — 7.5 already commits to
+threading context between capability calls instead of discarding it;
+this amendment specifies that the threaded content should be a compact
+structured record scoped to what the next stage actually needs, not a
+full conversation dump. Smaller handoffs mean less has to stay in
+context (and, where relevant, less has to stay resident in RAM) between
+stages.
+
+### 11.3 Concurrency is an economic decision layered on top of admission, not a fixed rule
+
+Section 7.4's 2026-08-08 amendment already removed the fixed
+concurrency ceiling — the resource gate answers "**can** this be
+admitted right now" from live budget, not a hardcoded model count. This
+amendment adds a distinct layer on top: even when the gate *would*
+admit a second model, the orchestrator may still choose to unload the
+current model and load the next one sequentially, because a stage's
+output was already reduced to a small structured handoff (11.2) that
+doesn't need the prior model resident to be useful. **Admission
+("can we") and scheduling ("should we, right now, for this task") are
+two different questions** — 7.4's gate answers the first; the
+orchestrator (not yet built) answers the second, using the gate's
+answer as one input alongside sequencing/handoff efficiency. On today's
+device this mostly means sequential load→work→unload→load-next; on
+higher-RAM hardware the same orchestrator logic can choose to keep
+several models resident, because the same computed-budget question
+returns a different answer — same code, different hardware, different
+execution strategy, which is the point of building this as a computed
+decision rather than a hardcoded one.
+
+### 11.4 A fuller resource profile than 7.4 currently computes
+
+Section 7.4 (as built, sub-tasks 1-2) computes admission from RAM/swap
+headroom, a per-load memory cost estimate, and CPU thread allocation.
+This amendment names a fuller profile the orchestrator should eventually
+draw on, extending 7.4 rather than replacing it:
+
+- RAM available, RAM pressure (already in 7.4)
+- CPU utilization, CPU temperature/thermal throttling state (already in
+  7.4, via `core/thermal.py`)
+- GPU utilization, NPU availability — **not yet in 7.4's scope**, no
+  current code path measures either on this device
+- Battery level, charging state — **not yet in 7.4's scope**
+- Model load time, model memory requirement, context requirement,
+  estimated inference cost — load time and inference cost are **not
+  yet in 7.4's scope**; memory/context requirement are partially
+  covered by `resource_gate.py`'s existing `ModelSpec`/`CostEstimate`
+
+Building out GPU/NPU/battery/charging/load-time/inference-cost signals
+is new, unscoped work — not a correction to 7.4, which was scoped and
+built against what this device's coding-domain use case actually needs
+today. Track as a future sub-task when a domain agent that actually
+needs these signals (e.g. a vision or Android-control agent, see 11.6)
+is scoped.
+
+### 11.5 Per-model requirement declarations
+
+Extending Section 9.3's proposed manifest fields (`model_tiers`,
+`resource_footprint`) with the additional per-model attributes implied
+above: a priority class (e.g. "vision," "tool/function routing"), an
+estimated load time, and whether a given capability (e.g. vision) is
+required versus optional for a given model. Illustrative, not a
+finalized schema:
+
+```
+Qwen3-VL-4B      — RAM: ~3.5GB+, vision: required, CPU: moderate/high,
+                    priority: vision, load time: medium
+FunctionGemma-270M — RAM: low, vision: no, CPU: low,
+                    priority: tool/function routing, load time: very low
+```
+
+This is additive to 9.3's proposed schema, not a separate one — same
+status as 9.3 itself: proposed, not read by any code today.
+
+### 11.6 Worked example (illustrative — describes a future domain agent, not current Codey-OS scope)
+
+A request like "Open Gmail and find the latest email from John" would,
+under this architecture, decompose as: (1) a reasoning stage (e.g.
+Qwen3-4B) determines the steps, then unloads; (2) an Android-control
+stage executes via the accessibility tree — no model required for this
+step if the tree is sufficient; (3) only if the accessibility tree can't
+adequately describe what's on screen does a vision stage load (e.g.
+Qwen3-VL-4B), analyze a screenshot, return a structured result (11.2),
+and unload; (4) the orchestrator reloads the reasoning stage only if
+needed for a next step. **This describes a future Android-control/vision
+domain agent that does not exist in Codey-OS today** — Codey-OS
+currently has one domain agent (coding). This example illustrates the
+target architecture's shape, per Section 9's multi-agent direction; it
+is not a commitment to build Gmail/Android-automation capability in the
+near term.
+
+### 11.7 Decision logic should be deterministic-first, not "ask a model"
+
+Much of the orchestrator's decision-making should be ordinary,
+deterministic software — not a model call for every routing decision.
+Illustrative:
+
+```
+if available_ram < required_ram: unload_idle_models()
+if thermal_state == CRITICAL: reduce_concurrency()
+if task.requires_vision: schedule(vision_model)
+if accessibility_tree_sufficient: skip_vision()
+if confidence < threshold: request_second_pass()
+```
+
+This matches Section 7.3's existing design intent for the task
+classifier (explicitly a "non-LLM heuristic classifier," not a model
+call) — this amendment generalizes that same deterministic-first
+principle to the orchestrator's broader scheduling/handoff decisions,
+not just task-tier classification.
+
+### 11.8 What this does not change
+
+This amendment does not modify `core/resource_gate.py`'s existing,
+twice-reviewed, approved admission logic (Section 7.4) — it names the
+layer above it (scheduling/orchestration) and the layer's future inputs
+(11.4's fuller resource profile), without requiring any change to what's
+already built. It does not commit to building vision or Android-control
+capability now — Section 9's multi-agent direction already establishes
+that future domain agents are in scope; this amendment describes what
+their *scheduling* should look like once they exist, not a decision to
+build them yet. It does not change Section 5's self-improvement gate.

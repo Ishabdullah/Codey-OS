@@ -88,6 +88,36 @@ normal convention (Confirmed/Suspected, next `NEW-##` ID).
   `DEVICE_CEILING_USABLE_FRACTION` constants were flagged as needing this
   kind of validation for.
 
+### [TODO.md 7.4 sub-task 3] Daemon watchdog outcome handling — confirm gate-denial vs. genuine-crash distinction behaves correctly on-device
+
+- **What was built and reviewed:** `core/daemon.py`'s 30s model watchdog
+  (`Daemon._watchdog_check_model()`) now distinguishes a gate-denied
+  reservation (transient or hard), `SWAP_GUARD`-deferred, never-loaded,
+  and a genuine process crash, instead of treating all of them as "died —
+  restarting." Startup preload and shutdown unload are similarly
+  outcome-aware. Also folds in `NEW-84`'s fix (loaders now read
+  `cfg.MODEL_PATH`/`cfg.PLANNER_MODEL_PATH` fresh per call instead of a
+  stale import-time binding), reviewed together since both changes ended
+  up in the same files.
+- **What the live test should do:** on-device, deliberately create a
+  real resource-pressure scenario (e.g. constrain available RAM some
+  other way, or trigger it naturally under real load) so the gate
+  actually denies a daemon reservation at least once, and confirm: (1)
+  the watchdog logs it as a gate-denial, not "died — restarting"; (2) the
+  daemon doesn't spin retrying pointlessly on a hard denial; (3) once
+  headroom returns, the model actually loads successfully on a later
+  watchdog tick without needing a daemon restart. Also confirm a normal
+  successful startup/watchdog/shutdown cycle behaves identically to
+  before this change (no regression in the common case).
+- **RAM discipline reminder:** this may involve deliberately inducing
+  memory pressure — do this carefully, one model-load cycle at a time,
+  `free -h` before/after, and be ready to intervene if the device
+  actually approaches its real crash threshold rather than just the
+  gate's conservative admission threshold.
+- **What to log back and where if it fails:** if the watchdog
+  misclassifies a real outcome, or a hard-denied reservation somehow
+  still causes a restart loop, log a new Confirmed `NEW-##` finding.
+
 ## Format for future entries
 
 ```

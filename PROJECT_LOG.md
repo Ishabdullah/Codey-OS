@@ -5,6 +5,118 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-08-09 (round 9) — 7.4 sub-task 3 + NEW-84 both approved, committed together (interleaved working-tree edits)
+
+Sub-task 3 (migrate `core/daemon.py`'s three model-loader call sites onto
+the gate) and `NEW-84`'s fix (stale import-time `MODEL_PATH`/
+`PLANNER_MODEL_PATH` binding) were built by two parallel agents that both
+ended up editing `core/loader_v2.py`. Held off committing sub-task 3 alone
+once this was noticed, since a review of it in isolation wouldn't reflect
+NEW-84's still-in-flight changes to the same file — got both `code-reviewer`
+passes done separately, then a third **consolidated** pass covering the
+final combined state of `core/loader_v2.py`/`core/planner_loader.py`/
+`core/lora_import.py`/`core/resource_gate.py` together, before committing
+either.
+
+**Sub-task 3**: `daemon.py`'s three call sites already routed through
+`ensure_model()`/`unload()`, which already used the gate-aware
+`load_primary()` from sub-task 2 — no call-site restructuring needed. The
+actual gap: `ensure_model()`'s `False` return was undifferentiated, and
+the watchdog treated "gate correctly denied a load under resource
+pressure" identically to "the process crashed." Added `LOAD_OUTCOME_*`
+constants + `get_last_ensure_outcome()`/`get_last_ensure_reason()`, set at
+every return point (not just the denial path, to avoid a stale-value
+trap); `daemon.py`'s watchdog now distinguishes gate-denied-hard/transient,
+`SWAP_GUARD`-deferred, never-loaded, and genuine-crash; shutdown's
+`unload()` failure is now logged instead of silently possibly leaking a
+process + gate slot.
+
+**NEW-84**: `core/resource_gate.py`'s `KNOWN_MODEL_ARCHS` re-keyed from
+the mutable, import-time-bound model path to a stable role identifier
+(`"primary"`/`"planner"`) — a LoRA-merged model keeps its base
+architecture, so this is both correct and swap-proof. `loader_v2.py`/
+`planner_loader.py` now read `cfg.MODEL_PATH`/`cfg.PLANNER_MODEL_PATH`
+fresh via `import utils.config as cfg`, snapshotted exactly once per call
+(not re-read at each use site) — explicitly reasoned in-code as avoiding
+a self-race (CLAUDE.md rule 4 territory): a swap landing mid-call could
+otherwise gate on one file and spawn a different one.
+
+**Consolidated review, approved.** Verified directly: no bare
+`MODEL_PATH`/`PLANNER_MODEL_PATH` names remain anywhere in code; every
+use site within `load_primary()`/`load()` reads the local snapshot, none
+re-read `cfg.*` after it; `model_id` values passed to `ModelSpec`
+literally match `KNOWN_MODEL_ARCHS`'s new keys; admission logic
+unaffected by the re-keying (values/consumers unchanged, only the lookup
+key). `tests/test_new84_stale_model_path.py` (9 tests) genuinely
+exercises the swap scenario end-to-end, including a negative-control test
+pinning that the *other* model's path is left untouched by a one-sided
+swap. Full suite independently re-run: 453/453 passing, 1 skip
+(unchanged from before this round).
+
+**`NEW-91` found and logged during review, not fixed**: fixing `NEW-84`
+made `lora_import.py`'s secondary/planner rollback path newly *reachable*
+for the first time (previously dead from `SECONDARY_MODEL_PATH`
+mismatch + `NEW-24`'s `AttributeError`) — and that path overwrites the
+on-disk fine-tuned `.gguf` file in place with backed-up base weights
+rather than resetting the config pointer, destroying the fine-tuned
+checkpoint irrecoverably on rollback. Same pattern pre-existed dormant on
+the primary branch; new exposure only on the secondary branch, only
+because two other bugs got fixed first.
+
+Both sub-task 3 and NEW-84 are code-complete and code-reviewer-approved,
+committed together (couldn't cleanly separate at the file level given the
+interleaved edits). `core/daemon.py`'s changes are not yet live-verified —
+same status as sub-tasks 1-2, added to `LIVE_TEST_QUEUE.md`.
+
+---
+
+## 2026-08-09 (round 8) — Model Orchestrator architecture amendment (Ish, explicit decision): models as ephemeral workers
+
+Ish gave a detailed architectural direction: models are ephemeral
+workers (loaded for a job, produce a result, unloaded when the
+orchestrator decides resources are better used elsewhere) coordinated by
+a Model Orchestrator sitting above device resource state (RAM, CPU, GPU,
+thermal, battery, storage) and below Codey OS itself. Key ideas:
+structured stage-to-stage handoff instead of full-context dumping;
+concurrency as an economic scheduling decision layered on top of (not a
+replacement for) the resource gate's admission math; a fuller resource
+profile than 7.4 currently computes (GPU/NPU, battery/charging,
+model load time, inference cost); per-model requirement/priority
+declarations extending 9.3's proposed manifest fields; deterministic-
+first decision logic rather than an LLM deciding every routing choice;
+and the "Codey is the manager, models are employees, accessibility/
+shell/filesystem/vision/browser are tools" mental model. Illustrated
+with a future Android-control/vision-agent worked example (Gmail/John
+scenario) — explicitly a description of target architecture shape, not
+a commitment to build that capability now (Codey-OS currently has one
+domain agent: coding).
+
+Written into `CODEY_OS_MASTER_VISION.md` as Section 11 (new, placed
+after Section 10 rather than renumbering it, since nothing else in the
+doc references Section 10 by number — avoids repeating the broken
+9.x→10.x cross-reference bug from the 2026-08-05 amendment round). Also
+fixed one leftover instance of that same bug found while editing (9.3's
+"see 10.4" → "see 9.4").
+
+Explicitly ties into, rather than contradicts, what's already built:
+Section 7.4's resource gate (`core/resource_gate.py`, built and
+code-reviewer-approved) already implements the admission-math slice —
+"can this be admitted right now" from live RAM/swap/thermal budget, no
+fixed ceiling (the 2026-08-08 amendment). This round's Section 11 names
+the layer *above* that — "should we, right now, for this task" — as a
+distinct scheduling/economic question, and does not require any change
+to the gate itself. `TODO.md` updated with an explicitly-parked item
+(11.x) under Phase 2: not actionable until a concrete domain agent
+needing this (e.g. a future Android-control/vision agent) is scoped
+through the normal pipeline. Nothing built this round — documentation
+only.
+
+Continuing to `TODO.md` 7.4 sub-task 3 (migrate `core/daemon.py`'s three
+direct loader calls onto the gate) next, per Ish's explicit instruction,
+informed by but not blocked on this architectural framing.
+
+---
+
 ## 2026-08-09 (round 7) — 7.4 sub-task 2 leak fix approved on second review pass; sub-task 2 ready to commit
 
 Round 5's first `code-reviewer` pass on sub-task 2 (slot-aware loaders)

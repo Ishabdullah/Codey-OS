@@ -31,6 +31,7 @@ import pytest
 import core.loader_v2 as lv
 import core.planner_loader as pl
 import core.resource_gate as rg
+import utils.config as cfg
 
 
 class FakeServer:
@@ -84,9 +85,9 @@ def fake_resource_gate(monkeypatch):
 
 
 def test_llama_server_accepts_explicit_port_defaulting_to_server_port():
-    s1 = lv.LlamaServer(lv.MODEL_PATH)
+    s1 = lv.LlamaServer(cfg.MODEL_PATH)
     assert s1.port == lv.SERVER_PORT
-    s2 = lv.LlamaServer(lv.MODEL_PATH, port=9999)
+    s2 = lv.LlamaServer(cfg.MODEL_PATH, port=9999)
     assert s2.port == 9999
 
 
@@ -105,7 +106,7 @@ def test_start_reuses_existing_server_when_lock_held_by_another_process(tmp_path
     fcntl.flock(held_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
     try:
-        server = lv.LlamaServer(lv.MODEL_PATH, port=port)
+        server = lv.LlamaServer(cfg.MODEL_PATH, port=port)
         # Patch subprocess.Popen too, matching the sibling test below — the
         # lock in this test is held by an fd this test itself opened (never
         # released within the test), so start() should never reach _spawn_locked()
@@ -129,7 +130,7 @@ def test_start_reuses_existing_server_when_lock_held_by_another_process(tmp_path
 def test_start_spawns_normally_when_lock_is_free(tmp_path, monkeypatch):
     monkeypatch.setattr(lv, "CODEY_STATE_DIR", tmp_path)
     port = 18082
-    server = lv.LlamaServer(lv.MODEL_PATH, port=port)
+    server = lv.LlamaServer(cfg.MODEL_PATH, port=port)
 
     fake_process = MagicMock()
     fake_process.poll.return_value = None

@@ -21,14 +21,24 @@ from pathlib import Path
 from typing import Optional
 
 import core.resource_gate as rg
+import utils.config as cfg
 from utils.config import (
     CODEY_STATE_DIR,
     LLAMA_SERVER_BIN,
     MODEL_CONFIG,
-    MODEL_PATH,
     PRIMARY_SERVER_PORT,
 )
 from utils.logger import error, info, success, warning
+
+# NOTE: MODEL_PATH is intentionally NOT imported as a bound name above (no
+# `from utils.config import MODEL_PATH`). core/lora_import.py's
+# swap_to_finetuned_model()/rollback_to_backup() mutate `cfg.MODEL_PATH` on
+# the live `utils.config` module object at runtime; a name bound once here
+# at import time would never see that mutation, so a hot-swap would report
+# success while this loader kept spawning the original weights
+# (NEW_ISSUES.md NEW-84). load_primary() below reads `cfg.MODEL_PATH` fresh,
+# once per call, into a local — see that method for why "once per call" and
+# not "read cfg.MODEL_PATH at each of several use sites in the method".
 
 # llama-server configuration
 SERVER_HOST = "127.0.0.1"
@@ -531,6 +541,32 @@ class LlamaServer:
         return False
 
 
+# ── ensure_model()/load_primary() outcome tracking (Track 3 Phase 5a / 7.4
+# sub-task 3) ─────────────────────────────────────────────────────────────
+# Both methods have always returned a plain bool, and every existing caller
+# (core/inference.py, core/inference_v2.py, main.py, core/lora_import.py)
+# depends on that — this sub-task does not change either return type. What
+# was missing is a way for a caller that DOES care (core/daemon.py's
+# watchdog) to distinguish *why* a `False`/failed-restart happened, in
+# particular "the resource gate denied a reservation" (a real, expected
+# outcome under the 7.4 amendment — no fixed ceiling, but headroom/thermal/
+# device-ceiling checks still exist and can legitimately refuse admission)
+# from "the process crashed" or "spawn timed out" — those need different
+# daemon-side handling (see daemon.py's watchdog comment). These constants
+# are set at every return point in ensure_model()/load_primary() (not just
+# on the gate-denial path) so a stale value from a PRIOR call is never
+# misread as this call's outcome — see the deferred/SWAP_GUARD-busy case in
+# ensure_model(), which returns False without ever reaching load_primary().
+LOAD_OUTCOME_OK = "ok"
+LOAD_OUTCOME_ALREADY_LOADED = "already_loaded"
+LOAD_OUTCOME_DEFERRED = "deferred"  # SWAP_GUARD busy — retry next tick, not a failure
+LOAD_OUTCOME_GATE_DENIED = "gate_denied"  # transient: headroom/thermal — may succeed on retry
+LOAD_OUTCOME_GATE_DENIED_HARD = "gate_denied_hard"  # permanent: model alone exceeds device ceiling
+LOAD_OUTCOME_EVICTION_FAILED = "eviction_failed"  # couldn't confirm planner freed its port
+LOAD_OUTCOME_SPAWN_FAILED = "spawn_failed"  # llama-server process failed to start/health-check
+LOAD_OUTCOME_ERROR = "error"  # missing model file/binary, or an unexpected exception
+
+
 class ModelLoader:
     """
     Manages model loading via llama-server.
@@ -544,16 +580,33 @@ class ModelLoader:
         self._loaded_at: float = 0
         self._load_failures: int = 0
         self._slot_id: Optional[str] = None
+        # See LOAD_OUTCOME_* constants above this class.
+        self._last_ensure_outcome: str = LOAD_OUTCOME_OK
+        self._last_ensure_reason: str = ""
 
     def load_primary(self) -> bool:
         """Load the primary (7B) model."""
         try:
-            info(f"Loading model: {MODEL_PATH.name}")
+            # Snapshot cfg.MODEL_PATH ONCE, into a local, at the top of this
+            # call — not re-read at each use site below. cfg.MODEL_PATH can
+            # be mutated concurrently by core/lora_import.py's
+            # swap_to_finetuned_model()/rollback_to_backup(); reading it
+            # fresh at every one of this method's several use sites (the
+            # exists() check, the ModelSpec passed to the resource gate, the
+            # LlamaServer that actually spawns, and the log lines) would let
+            # a swap landing mid-call gate on one file and spawn a different
+            # one — the same self-race class CLAUDE.md rule 4 warns about.
+            # One snapshot means this call is internally consistent even if
+            # cfg.MODEL_PATH changes again before it returns.
+            model_path = cfg.MODEL_PATH
+            info(f"Loading model: {model_path.name}")
 
             # Check if model file exists
-            if not MODEL_PATH.exists():
-                error(f"Model file not found: {MODEL_PATH}")
+            if not model_path.exists():
+                error(f"Model file not found: {model_path}")
                 self._load_failures += 1
+                self._last_ensure_outcome = LOAD_OUTCOME_ERROR
+                self._last_ensure_reason = f"model file not found: {model_path}"
                 return False
 
             # Check if llama-server binary exists
@@ -561,6 +614,8 @@ class ModelLoader:
             if not llama_bin.exists():
                 error(f"llama-server not found: {LLAMA_SERVER_BIN}")
                 self._load_failures += 1
+                self._last_ensure_outcome = LOAD_OUTCOME_ERROR
+                self._last_ensure_reason = f"llama-server binary not found: {LLAMA_SERVER_BIN}"
                 return False
 
             # ── Resource gate: reserve a slot before actually spawning ──────
@@ -569,12 +624,22 @@ class ModelLoader:
             # denied reservation is a real, surfaced failure, not something
             # this method proceeds past.
             spec = rg.ModelSpec(
-                model_id="primary", path=MODEL_PATH, n_ctx=MODEL_CONFIG.get("n_ctx", 4096)
+                model_id="primary", path=model_path, n_ctx=MODEL_CONFIG.get("n_ctx", 4096)
             )
             decision, slot_id = rg.reserve_slot(spec)
             if not decision.admitted:
                 error(f"Resource gate denied primary model load: {decision.reason}")
                 self._load_failures += 1
+                # hard_reject means this model alone exceeds the device
+                # ceiling — retrying later cannot change that outcome (the
+                # 2026-08-08 amendment's one non-negotiable admission check).
+                # Any other denial (headroom/thermal) is transient and worth
+                # retrying — see daemon.py's watchdog, which treats these two
+                # outcomes differently rather than both as "died, restart".
+                self._last_ensure_outcome = (
+                    LOAD_OUTCOME_GATE_DENIED_HARD if decision.hard_reject else LOAD_OUTCOME_GATE_DENIED
+                )
+                self._last_ensure_reason = decision.reason
                 return False
 
             # Captured before spawn so confirm_resident_and_mark_slot() has a
@@ -599,11 +664,16 @@ class ModelLoader:
             # See .claude/agent-memory/code-reviewer/
             # resource_gate_subtask2_confirm_mark_slot_leak.md — this
             # replaces exactly the gap documented there.
-            self._server = LlamaServer(MODEL_PATH)
+            self._server = LlamaServer(model_path)
             loaded_ok = False
             try:
                 if not self._server.start():
                     self._load_failures += 1
+                    self._last_ensure_outcome = LOAD_OUTCOME_SPAWN_FAILED
+                    self._last_ensure_reason = (
+                        "llama-server process failed to start or answer /health "
+                        "in time (see core/state/llama-server.log)"
+                    )
                     return False
 
                 if self._server.process is None:
@@ -631,8 +701,10 @@ class ModelLoader:
 
                 self._loaded = True
                 self._loaded_at = time.time()
-                success(f"Loaded model ({MODEL_PATH.name})")
+                success(f"Loaded model ({model_path.name})")
                 loaded_ok = True
+                self._last_ensure_outcome = LOAD_OUTCOME_OK
+                self._last_ensure_reason = ""
                 return True
             finally:
                 if not loaded_ok:
@@ -666,6 +738,8 @@ class ModelLoader:
         except Exception as e:
             error(f"Failed to load model: {e}")
             self._load_failures += 1
+            self._last_ensure_outcome = LOAD_OUTCOME_ERROR
+            self._last_ensure_reason = str(e)
             return False
 
     def unload(self):
@@ -714,6 +788,13 @@ class ModelLoader:
         """
         if not SWAP_GUARD.acquire(blocking=False):
             info("Primary load/restart deferred — planner swap in flight")
+            # Not load_primary()'s job to set this (it never runs on this
+            # path) — every return point in THIS method sets the outcome
+            # itself precisely so a stale value from a previous call can
+            # never be misread as this call's result (see LOAD_OUTCOME_*
+            # comment above the ModelLoader class).
+            self._last_ensure_outcome = LOAD_OUTCOME_DEFERRED
+            self._last_ensure_reason = "planner swap in flight (SWAP_GUARD busy) — retry next tick"
             return False
         try:
             if self._loaded and self._server and self._server.is_running():
@@ -734,10 +815,17 @@ class ModelLoader:
                     # model loading/inference, so we fail open and keep the
                     # server running on its current thread count.
                     pass
+                self._last_ensure_outcome = LOAD_OUTCOME_ALREADY_LOADED
+                self._last_ensure_reason = ""
                 return True
 
             # ── Sequential swap (cold load) ────────────────────────────
             if not self._evict_planner_and_confirm_free():
+                self._last_ensure_outcome = LOAD_OUTCOME_EVICTION_FAILED
+                self._last_ensure_reason = (
+                    "could not confirm the planner (1.5B) freed its port before "
+                    "loading the primary (7B) — sequential-swap guard"
+                )
                 return False
             return self.load_primary()
         finally:
@@ -803,6 +891,24 @@ class ModelLoader:
     def get_load_failures(self) -> int:
         """Get count of consecutive load failures."""
         return self._load_failures
+
+    def get_last_ensure_outcome(self) -> str:
+        """
+        One of the `LOAD_OUTCOME_*` constants above this class, describing
+        WHY the most recent `ensure_model()`/`load_primary()` call returned
+        what it returned — set at every return point in both methods (see
+        their docstrings), never stale from an unrelated earlier call.
+        `ensure_model()`'s/`load_primary()`'s own return value stays a plain
+        bool for existing callers (core/inference.py, core/inference_v2.py,
+        main.py, core/lora_import.py); this is an additive getter for a
+        caller that needs to distinguish denial reasons, e.g. core/daemon.py's
+        watchdog treating a gate denial differently from a process crash.
+        """
+        return self._last_ensure_outcome
+
+    def get_last_ensure_reason(self) -> str:
+        """Human-readable detail for `get_last_ensure_outcome()`'s value."""
+        return self._last_ensure_reason
 
     def reset_failures(self):
         """Reset failure count (call after successful load)."""

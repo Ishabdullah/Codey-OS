@@ -259,6 +259,148 @@ def test_unload_releases_slot(monkeypatch):
     assert released == ["slot-4"]
 
 
+# ── ensure_model()/load_primary() outcome tracking (TODO.md 7.4 sub-task 3) ──
+# core/daemon.py's watchdog/preload/shutdown call sites need to distinguish a
+# gate denial (real, expected 7.4 outcome) from a process crash or spawn
+# failure -- these tests cover get_last_ensure_outcome()/get_last_ensure_reason()
+# at every return point, including the "stale value from a prior call" trap
+# (deferred/eviction-failed paths that never reach load_primary()).
+
+
+def test_load_primary_gate_denied_transient_sets_outcome(monkeypatch):
+    fake_decision = MagicMock(
+        admitted=False, hard_reject=False, estimated_cost_bytes=0, reason="no headroom"
+    )
+    monkeypatch.setattr(rg, "reserve_slot", lambda spec, **k: (fake_decision, None))
+
+    with patch.object(lv, "LlamaServer") as MockServer, patch(
+        "pathlib.Path.exists", return_value=True
+    ):
+        loader = lv.get_loader()
+        result = loader.load_primary()
+
+    assert result is False
+    MockServer.assert_not_called()
+    assert loader.get_last_ensure_outcome() == lv.LOAD_OUTCOME_GATE_DENIED
+    assert loader.get_last_ensure_reason() == "no headroom"
+
+
+def test_load_primary_gate_denied_hard_sets_outcome(monkeypatch):
+    fake_decision = MagicMock(
+        admitted=False, hard_reject=True, estimated_cost_bytes=0, reason="model too big for device"
+    )
+    monkeypatch.setattr(rg, "reserve_slot", lambda spec, **k: (fake_decision, None))
+
+    with patch.object(lv, "LlamaServer") as MockServer, patch(
+        "pathlib.Path.exists", return_value=True
+    ):
+        loader = lv.get_loader()
+        result = loader.load_primary()
+
+    assert result is False
+    MockServer.assert_not_called()
+    assert loader.get_last_ensure_outcome() == lv.LOAD_OUTCOME_GATE_DENIED_HARD
+    assert loader.get_last_ensure_reason() == "model too big for device"
+
+
+def test_load_primary_spawn_failure_sets_outcome(monkeypatch):
+    fake_decision = MagicMock(admitted=True, hard_reject=False, estimated_cost_bytes=1024, reason="ok")
+    monkeypatch.setattr(rg, "reserve_slot", lambda spec, **k: (fake_decision, "slot-x"))
+    monkeypatch.setattr(rg, "release_slot", lambda *a, **k: True)
+    monkeypatch.setattr(rg, "read_meminfo", lambda *a, **k: {"MemAvailable": 10**10})
+
+    with patch.object(lv, "LlamaServer", FakeServerSpawnFails), patch(
+        "pathlib.Path.exists", return_value=True
+    ):
+        loader = lv.get_loader()
+        result = loader.load_primary()
+
+    assert result is False
+    assert loader.get_last_ensure_outcome() == lv.LOAD_OUTCOME_SPAWN_FAILED
+
+
+def test_load_primary_success_sets_ok_outcome(monkeypatch):
+    fake_decision = MagicMock(admitted=True, hard_reject=False, estimated_cost_bytes=1024, reason="ok")
+    monkeypatch.setattr(rg, "reserve_slot", lambda spec, **k: (fake_decision, "slot-y"))
+    monkeypatch.setattr(rg, "mark_resident", lambda *a, **k: True)
+    monkeypatch.setattr(rg, "release_slot", lambda *a, **k: True)
+    monkeypatch.setattr(rg, "read_meminfo", _meminfo_with_drop_after(1))
+
+    with patch.object(lv, "LlamaServer", FakeServerSpawned), patch(
+        "pathlib.Path.exists", return_value=True
+    ):
+        loader = lv.get_loader()
+        assert loader.load_primary() is True
+
+    assert loader.get_last_ensure_outcome() == lv.LOAD_OUTCOME_OK
+    assert loader.get_last_ensure_reason() == ""
+
+
+def test_ensure_model_deferred_outcome_not_stale_from_prior_gate_denial(monkeypatch):
+    """
+    Regression for the staleness trap: a prior call denied by the gate must
+    not leak its outcome into a LATER call that's deferred by SWAP_GUARD for
+    an unrelated reason (planner mid-swap) -- ensure_model() must overwrite
+    the outcome at every one of its own return points, not just inside
+    load_primary().
+    """
+    fake_decision = MagicMock(
+        admitted=False, hard_reject=False, estimated_cost_bytes=0, reason="no headroom"
+    )
+    monkeypatch.setattr(rg, "reserve_slot", lambda spec, **k: (fake_decision, None))
+
+    with patch.object(lv, "LlamaServer") as MockServer, patch(
+        "pathlib.Path.exists", return_value=True
+    ):
+        loader = lv.get_loader()
+        assert loader.ensure_model() is False
+        assert loader.get_last_ensure_outcome() == lv.LOAD_OUTCOME_GATE_DENIED
+
+        lv.SWAP_GUARD.acquire()
+        try:
+            assert loader.ensure_model() is False
+        finally:
+            lv.SWAP_GUARD.release()
+
+    assert loader.get_last_ensure_outcome() == lv.LOAD_OUTCOME_DEFERRED
+
+
+def test_ensure_model_eviction_failed_sets_outcome(monkeypatch):
+    fake_decision = MagicMock(admitted=True, hard_reject=False, estimated_cost_bytes=1024, reason="ok")
+    monkeypatch.setattr(rg, "reserve_slot", lambda spec, **k: (fake_decision, "slot-z"))
+    monkeypatch.setattr(rg, "release_slot", lambda *a, **k: True)
+
+    with patch.object(lv, "LlamaServer", FakeServerSpawned), patch(
+        "pathlib.Path.exists", return_value=True
+    ), patch.object(lv, "probe_port_health", return_value=True):  # planner port still answering
+        loader = lv.get_loader()
+        result = loader.ensure_model()
+
+    assert result is False
+    assert loader.get_last_ensure_outcome() == lv.LOAD_OUTCOME_EVICTION_FAILED
+
+
+def test_ensure_model_already_loaded_sets_outcome(monkeypatch):
+    fake_decision = MagicMock(admitted=True, hard_reject=False, estimated_cost_bytes=1024, reason="ok")
+    monkeypatch.setattr(rg, "reserve_slot", lambda spec, **k: (fake_decision, "slot-w"))
+    monkeypatch.setattr(rg, "mark_resident", lambda *a, **k: True)
+    monkeypatch.setattr(rg, "release_slot", lambda *a, **k: True)
+    monkeypatch.setattr(rg, "read_meminfo", _meminfo_with_drop_after(1))
+
+    with patch.object(lv, "LlamaServer", FakeServerSpawned), patch(
+        "pathlib.Path.exists", return_value=True
+    ):
+        loader = lv.get_loader()
+        assert loader.load_primary() is True
+        # Second call: already loaded and running, no thermal restart --
+        # thermal import will raise inside the try/except (no core.thermal
+        # module state mocked) which is fine, that branch fails open.
+        result = loader.ensure_model()
+
+    assert result is True
+    assert loader.get_last_ensure_outcome() == lv.LOAD_OUTCOME_ALREADY_LOADED
+
+
 # ── PlannerLoader (1.5B) ─────────────────────────────────────────────────────
 
 

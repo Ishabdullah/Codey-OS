@@ -24,8 +24,17 @@ from pathlib import Path
 from typing import Optional
 
 import core.resource_gate as rg
-from utils.config import LLAMA_SERVER_BIN, MODEL_CONFIG, PLANND_SERVER_PORT, PLANNER_MODEL_PATH
+import utils.config as cfg
+from utils.config import LLAMA_SERVER_BIN, MODEL_CONFIG, PLANND_SERVER_PORT
 from utils.logger import error, info, success, warning
+
+# NOTE: PLANNER_MODEL_PATH is intentionally NOT imported as a bound name
+# above (no `from utils.config import PLANNER_MODEL_PATH`) — same reasoning
+# as core/loader_v2.py's matching note for MODEL_PATH (NEW_ISSUES.md
+# NEW-84): core/lora_import.py mutates `cfg.PLANNER_MODEL_PATH` on the live
+# module object at swap time, which a name bound once here at import time
+# would never observe. load() below reads `cfg.PLANNER_MODEL_PATH` fresh,
+# once per call, into a local.
 
 
 class PlannerLoader:
@@ -45,10 +54,17 @@ class PlannerLoader:
             # existing convention for loader_v2 imports).
             from core.loader_v2 import LlamaServer, confirm_resident_and_mark_slot
 
-            info(f"Loading planner model: {PLANNER_MODEL_PATH.name}")
+            # Snapshot cfg.PLANNER_MODEL_PATH ONCE, into a local — same
+            # reasoning as core/loader_v2.py:ModelLoader.load_primary()'s
+            # matching comment (NEW_ISSUES.md NEW-84): cfg.PLANNER_MODEL_PATH
+            # can be mutated concurrently by core/lora_import.py's swap
+            # functions, and re-reading it at each of this method's several
+            # use sites could gate on one file and spawn a different one.
+            planner_model_path = cfg.PLANNER_MODEL_PATH
+            info(f"Loading planner model: {planner_model_path.name}")
 
-            if not PLANNER_MODEL_PATH.exists():
-                error(f"Planner model file not found: {PLANNER_MODEL_PATH}")
+            if not planner_model_path.exists():
+                error(f"Planner model file not found: {planner_model_path}")
                 self._load_failures += 1
                 return False
 
@@ -68,7 +84,7 @@ class PlannerLoader:
             # real invoked value here, not a value this loader wishes it used.
             spec = rg.ModelSpec(
                 model_id="planner",
-                path=PLANNER_MODEL_PATH,
+                path=planner_model_path,
                 n_ctx=MODEL_CONFIG.get("n_ctx", 4096),
             )
             decision, slot_id = rg.reserve_slot(spec)
@@ -87,7 +103,7 @@ class PlannerLoader:
             # under fd exhaustion/disk pressure) must stop whatever process
             # was actually spawned and release the reservation, not just the
             # two explicitly-checked failure branches.
-            self._server = LlamaServer(PLANNER_MODEL_PATH, port=PLANND_SERVER_PORT)
+            self._server = LlamaServer(planner_model_path, port=PLANND_SERVER_PORT)
             loaded_ok = False
             try:
                 if not self._server.start():
@@ -113,7 +129,7 @@ class PlannerLoader:
 
                 self._loaded = True
                 self._loaded_at = time.time()
-                success(f"Loaded planner model ({PLANNER_MODEL_PATH.name})")
+                success(f"Loaded planner model ({planner_model_path.name})")
                 loaded_ok = True
                 return True
             finally:

@@ -5177,3 +5177,90 @@ open, not closed, on this basis.
   current call path; flagged for whoever next touches `load_primary()`'s
   call sites (sub-tasks 3/5, `core/daemon.py`/`main.py` integration) to
   check whether their new call patterns could actually trigger this.
+
+## Found while implementing `core/resource_gate.py` sub-task 3 (daemon migration), 2026-08-09 — NOT fixed, logged only
+
+### [NEW-88] `core/daemon.py`'s embed-server watchdog block has a bare `except Exception: pass` (~line 652), adjacent to the three call sites sub-task 3 fixed
+
+- **Status: Suspected, pre-existing.** Corrected file attribution
+  (2026-08-09, caught by `code-reviewer` during sub-task 3's review):
+  this is in `core/daemon.py`'s own watchdog loop — the block that
+  imports and calls `core.embed_server.get_embed_server()`/
+  `start_embed_server()` — not inside `core/embed_server.py` itself.
+  Found while fixing `daemon.py`'s 30s *model*-loader watchdog to stop
+  discarding `ensure_model()`'s return value and logging a bare `pass`
+  on its own exceptions. The embed-server watchdog block sits right next
+  to it (same `try`/`except` pattern, same watchdog loop) but was not in
+  this sub-task's scope (`core/daemon.py`'s three *model-loader* call
+  sites specifically, not the adjacent embed-server watchdog block) and
+  was left untouched — but it has the same class of problem: an
+  exception there is silently swallowed with no log, same as the
+  model-loader watchdog had before
+  this sub-task's fix. Flagged for a future round; not fixed here.
+
+### [NEW-89] A detached daemon-crash scenario can leave a `resource_gate` slot accounted for a process the daemon itself no longer knows about, with no current API to reconcile it
+
+- **Status: Suspected** — `core/daemon.py`'s shutdown path's `finally`
+  block is what calls `unload()`/releases the gate slot on a clean
+  shutdown. If the daemon process dies without running that `finally`
+  (e.g. `SIGKILL`, a crash that bypasses normal Python exception
+  unwinding), the already-spawned llama-server process can be left
+  running detached while the gate's residency record for it never gets
+  released — a different leak shape than `NEW-82`'s "caller stays alive
+  but doesn't release" case; this is "caller is gone entirely." PID-
+  liveness reaping in `list_slots()`/`reserve_slot()` only helps if the
+  slot's recorded `pid` is the daemon's own PID (per `NEW-81`, still
+  deferred) — if it were ever set to the actual llama-server subprocess
+  PID instead, reaping wouldn't fire at all since that process is still
+  genuinely alive and doing real work. Reconciling this properly needs a
+  `resource_gate.py` API addition (e.g. a way to detect and re-adopt an
+  orphaned-but-still-running resident process) — out of scope for
+  sub-task 3, and arguably contingent on how `NEW-81` eventually gets
+  resolved, since the two are related.
+
+### [NEW-90] `ModelLoader.load_primary()` increments an internal `_load_failures` counter on a gate-denied reservation, same as a genuine spawn failure — no current consumer distinguishes them, but a future one might mis-escalate
+
+- **Status: Suspected, low severity** — found while adding outcome
+  tracking (`LOAD_OUTCOME_*` constants) in sub-task 3. `_load_failures`
+  (used elsewhere, e.g. for retry/backoff logic in code not touched by
+  this sub-task) increments identically whether a load failed because
+  the gate correctly denied it (expected, healthy behavior under real
+  resource pressure) or because the actual spawn genuinely crashed
+  (a real fault). No current consumer of `_load_failures` treats these
+  differently, so this isn't causing a live bug today — but any future
+  code that escalates or alerts based on `_load_failures` crossing a
+  threshold would conflate "the gate is correctly protecting the device
+  under load" with "something is actually broken." Fix direction: either
+  don't increment `_load_failures` on a gate-denial outcome specifically
+  (distinguishable now via the new `LOAD_OUTCOME_*` constants this
+  sub-task added), or give gate-denial its own separate counter.
+
+## Found while fixing `NEW-84` (stale model-path binding), 2026-08-09 — NOT fixed, logged only
+
+### [NEW-91] `core/lora_import.py`'s `rollback_to_backup()`, secondary/planner branch, now newly reachable — overwrites the on-disk fine-tuned `.gguf` file in place with backed-up base weights, instead of resetting the config pointer back to the original base path
+
+- **Status: Suspected** (design-quirk, not obviously a bug, but real
+  data-loss-on-rollback behavior). Found by `code-reviewer` while
+  reviewing `NEW-84`'s fix. `rollback_to_backup()`
+  (`core/lora_import.py` ~L418-473) does `shutil.copy2(backup,
+  original_path)`, where `original_path = cfg.PLANNER_MODEL_PATH` — after
+  a successful swap, that now points at the fine-tuned file's path, not
+  the pre-swap base path. So rolling back a secondary/planner swap
+  overwrites the fine-tuned checkpoint file irrecoverably rather than
+  just pointing the config back at the original base file. Functionally
+  the outcome is still correct (the planner reloads base weights), but
+  the fine-tuned artifact itself is destroyed in the process, with no
+  way to get it back afterward.
+- This exact pattern already existed for the **primary** branch before
+  `NEW-84`'s fix (pre-existing, dormant) — not a new bug in that half.
+  What's new: the **secondary** branch is newly *reachable* for the
+  first time (previously dead due to a `SECONDARY_MODEL_PATH`/
+  `PLANNER_MODEL_PATH` mismatch, compounded by `NEW-24`'s
+  `AttributeError`), so this is genuinely new exposure created by fixing
+  those two issues, not something that shipped with this round. Fix
+  direction: `rollback_to_backup()` should restore the config pointer to
+  the original base path rather than overwriting whatever file the
+  pointer currently references — or, if overwriting-in-place is the
+  intended rollback semantics, back up the fine-tuned file itself before
+  overwriting it, so a rollback doesn't permanently destroy a checkpoint
+  the user might want back.

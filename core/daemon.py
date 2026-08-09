@@ -484,6 +484,67 @@ class Daemon:
         info("SIGUSR1 received, reload requested")
         self._reload_requested = True
 
+    def _watchdog_check_model(self):
+        """
+        30s watchdog for the 7B primary model server — extracted out of
+        `_main_loop()` (Track 3 Phase 5a / 7.4 sub-task 3) so the gate-denial
+        vs. crash distinction below is independently testable, and so this
+        block reads as one named unit instead of being buried inline in the
+        90-line async main loop.
+
+        `ensure_model()` is gate-aware (7.4 sub-tasks 2/3): a `False` return
+        here can mean several distinct things, and treating them all as "the
+        process died, log a restart" is wrong for at least the gate-denial
+        cases — a denial isn't a crash, and a hard denial will never resolve
+        by retrying. See `core/loader_v2.py`'s `LOAD_OUTCOME_*` constants.
+        """
+        try:
+            from core.loader_v2 import (LOAD_OUTCOME_DEFERRED,
+                                         LOAD_OUTCOME_GATE_DENIED,
+                                         LOAD_OUTCOME_GATE_DENIED_HARD,
+                                         get_loader)
+
+            loader = get_loader()
+            server = loader.get_model_instance()
+            was_running = bool(server and server.is_running())
+
+            if loader.ensure_model():
+                return  # loaded/still running/restarted cleanly — nothing to report
+
+            outcome = loader.get_last_ensure_outcome()
+            reason = loader.get_last_ensure_reason()
+
+            if outcome == LOAD_OUTCOME_GATE_DENIED_HARD:
+                # Not a crash, and retrying every 30s forever cannot help —
+                # this model alone exceeds the device ceiling. Still retried
+                # (no gate-side "give up" state to persist against, and this
+                # sub-task's scope doesn't extend to adding one), but logged
+                # accurately instead of as a restart.
+                warning(f"7B model: resource gate permanently denies this load — {reason}")
+            elif outcome == LOAD_OUTCOME_GATE_DENIED:
+                # Transient — headroom/thermal. Not a crash; will keep
+                # retrying on subsequent ticks as conditions change.
+                warning(f"7B model load denied by resource gate (transient) — {reason}")
+            elif outcome == LOAD_OUTCOME_DEFERRED:
+                # SWAP_GUARD busy (planner mid-swap) — expected, benign,
+                # self-resolves on the next tick. Not worth a warning.
+                info(f"7B model watchdog: {reason}")
+            elif was_running is False and server is None:
+                # Never successfully loaded in the first place (e.g. startup
+                # preload failed) — "died" would misdescribe this.
+                warning(f"7B model not loaded ({outcome}: {reason}) — attempted load, still not running")
+            else:
+                # The process really was running and now isn't — this is the
+                # "died, restarting" case the original message described.
+                warning(f"7B model server died ({outcome}: {reason}) — restart attempt failed")
+        except Exception as e:
+            # Watchdog itself must never crash the daemon's main loop — but
+            # unlike a truly best-effort signal read, a swallowed exception
+            # here would silently stop the 7B model from ever being retried
+            # again with no trace, so this is logged (not a bare `pass`)
+            # before being swallowed.
+            warning(f"7B model watchdog check failed: {e}")
+
     async def _main_loop(self):
         """Main daemon event loop."""
         info("Daemon started")
@@ -506,13 +567,39 @@ class Daemon:
 
         if not _is_remote():
             try:
-                from core.loader_v2 import get_loader
+                from core.loader_v2 import (LOAD_OUTCOME_GATE_DENIED,
+                                             LOAD_OUTCOME_GATE_DENIED_HARD,
+                                             get_loader)
 
                 loader = get_loader()
                 if loader.ensure_model():
                     info("7B model pre-loaded (port 8080)")
                 else:
-                    warning("7B model pre-load failed — will load on first request")
+                    # Distinguish a resource-gate denial (real 7.4 outcome —
+                    # the gate refused admission, nothing "failed") from an
+                    # actual load failure. "Will load on first request" is a
+                    # false promise under a denial: the same gate will deny
+                    # that first-request load too unless headroom changes, or
+                    # (hard_reject) will never admit this model on this
+                    # device at all — say so instead of implying the retry
+                    # will just work.
+                    outcome = loader.get_last_ensure_outcome()
+                    reason = loader.get_last_ensure_reason()
+                    if outcome == LOAD_OUTCOME_GATE_DENIED_HARD:
+                        warning(
+                            "7B model pre-load denied by resource gate — model "
+                            f"exceeds this device's ceiling, will never be admitted: {reason}"
+                        )
+                    elif outcome == LOAD_OUTCOME_GATE_DENIED:
+                        warning(
+                            f"7B model pre-load denied by resource gate (transient — "
+                            f"{reason}); will retry on the next watchdog tick"
+                        )
+                    else:
+                        warning(
+                            f"7B model pre-load failed ({outcome}: {reason}) — "
+                            "will load on first request"
+                        )
             except Exception as _e:
                 warning(f"7B model pre-load skipped: {_e}")
         else:
@@ -552,16 +639,7 @@ class Daemon:
                     _watchdog_ticks = 0
                     # 7B model server watchdog (local only)
                     if not _is_remote():
-                        try:
-                            from core.loader_v2 import get_loader
-
-                            _loader = get_loader()
-                            _server = _loader.get_model_instance()
-                            if not (_server and _server.is_running()):
-                                warning("7B model server died — restarting...")
-                            _loader.ensure_model()
-                        except Exception:
-                            pass
+                        self._watchdog_check_model()
                     # Embed server watchdog
                     try:
                         from core.embed_server import get_embed_server
@@ -583,12 +661,19 @@ class Daemon:
 
             # Stop 7B model server (llama-server) — it runs detached (os.setsid)
             # so it survives daemon exit unless explicitly unloaded here.
+            # unload() releases the resource-gate slot as its last step
+            # (core/loader_v2.py) — a failure here can leave BOTH an orphaned
+            # detached llama-server process AND a leaked gate slot, which
+            # would wrongly count against every future admission decision on
+            # this device, so this is logged rather than silently swallowed
+            # (unlike the embed-server shutdown right below, which has no
+            # comparable gate-accounting side effect).
             try:
                 from core.loader_v2 import get_loader
 
                 get_loader().unload()
-            except Exception:
-                pass
+            except Exception as e:
+                warning(f"7B model unload during shutdown failed: {e}")
 
             # Stop embed server
             try:

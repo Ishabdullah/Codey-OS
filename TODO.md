@@ -153,7 +153,86 @@ Everything else below depends on this existing. Nothing here is started.
          update a slot's `pid` post-reservation, and adding one is out of
          this fix's scope (task explicitly said not to touch
          `resource_gate.py` unless an actual bug was found there; none was).
-      3. Migrate `daemon.py`'s three confirmed call sites onto the gate.
+      3. **[x] Code-complete, 2026-08-09 (not live-verified — mocked/unit
+         tests only, per this sub-task's own scope).** Found (per this
+         sub-task's own instructions, before changing anything): all three
+         of `daemon.py`'s call sites already call `ensure_model()`/
+         `unload()`, and `ensure_model()` already routes through the
+         gate-aware `load_primary()` on both its branches (cold load at its
+         tail call, and the thermal-restart branch via `unload()` +
+         `load_primary()`) — sub-task 2 already closed the bypass gap. **No
+         call-site restructuring needed.** The actual gap, exactly as this
+         sub-task's own scope note anticipated: `ensure_model()`'s `False`
+         return was a single undifferentiated signal, and `daemon.py`
+         treated every failure as a process crash — the watchdog discarded
+         `ensure_model()`'s return value entirely and unconditionally
+         logged "died — restarting" on any falsy `get_model_instance()`,
+         including "never loaded at all" and "the gate denied a
+         reservation" (a real, expected 7.4 outcome, not a crash). Fixed by
+         adding an additive outcome-tracking surface to
+         `core/loader_v2.py:ModelLoader` — `LOAD_OUTCOME_*` constants
+         (`ok`/`already_loaded`/`deferred`/`gate_denied`/
+         `gate_denied_hard`/`eviction_failed`/`spawn_failed`/`error`) plus
+         `get_last_ensure_outcome()`/`get_last_ensure_reason()` getters, set
+         at EVERY return point in both `ensure_model()` and `load_primary()`
+         (not just the gate-denial path) so a stale value from a prior,
+         unrelated call is never misread as the current call's outcome —
+         e.g. a `SWAP_GUARD`-deferred call must never inherit a previous
+         call's `gate_denied` outcome. `ensure_model()`'s/`load_primary()`'s
+         own return type is unchanged (still plain `bool`) — the four
+         existing external callers (`core/inference.py`,
+         `core/inference_v2.py`, `main.py`, `core/lora_import.py`) are
+         untouched. `decision.hard_reject` (already returned by
+         `resource_gate.can_admit()`, not a new field) is surfaced through
+         this so `gate_denied_hard` (this model alone exceeds the device
+         ceiling — retrying can never help) is distinguished from
+         `gate_denied` (transient headroom/thermal — worth retrying).
+         `daemon.py`'s three sites updated to consume this: (1) startup
+         preload's failure message no longer says "will load on first
+         request" under a gate denial, which would be a false promise — it
+         distinguishes hard/transient denial from a genuine load failure;
+         (2) the 30s watchdog's inline block extracted into a new
+         `Daemon._watchdog_check_model()` method (independently testable)
+         that reports gate denial (hard and transient), `SWAP_GUARD`-deferred
+         (logged at `info`, not `warning` — benign, self-resolves next tick),
+         "never loaded" vs. genuine "died, restart failed" as distinct
+         outcomes instead of one "died — restarting" message for all of
+         them, and its own `except Exception` is now logged (with the
+         exception text) rather than a bare `pass` — CLAUDE.md's rule
+         against silently swallowing exceptions around safety-relevant code
+         without a justifying comment applies directly to a model-loader
+         call site; (3) shutdown's `unload()` `except Exception: pass`
+         changed to a logged warning, since a failure there can leave BOTH
+         an orphaned detached llama-server process and a leaked gate slot
+         (the latter wrongly counts against every future admission decision
+         on this device) — left the neighboring embed-server shutdown's own
+         bare `except: pass` alone, out of scope, no comparable
+         gate-accounting side effect. Tests: 8 new tests appended to
+         `tests/test_loader_resource_gate.py` covering
+         `get_last_ensure_outcome()`/`get_last_ensure_reason()` at every
+         `load_primary()`/`ensure_model()` return point, including the
+         staleness-regression case (a gate-denied call followed by an
+         unrelated `SWAP_GUARD`-deferred call must report `deferred`, not a
+         leftover `gate_denied`); new `tests/test_daemon_model_watchdog.py`
+         (7 tests, `Daemon.__new__(Daemon)` to skip `__init__`'s heavy
+         state-store/planner/signal-handler setup since
+         `_watchdog_check_model()` doesn't use `self`) covering all six
+         watchdog branches (success, gate-denied hard/transient, deferred,
+         never-loaded, genuine-crash) plus the exception-is-logged-not-
+         swallowed case. Full suite `pytest tests/ -q` — 385 passed, 1
+         skipped. **Findings outside this sub-task's scope, logged not
+         fixed** (see `NEW_ISSUES.md`): the embed-server watchdog's own
+         bare `except Exception: pass` (immediately adjacent to the fixed
+         model watchdog, not one of this sub-task's three named sites); a
+         detached-server-vs-`reap_dead` accounting hole (if the daemon dies
+         without running its shutdown `finally`, `list_slots(reap_dead=True)`
+         can reap a slot for an llama-server that's still resident and
+         running detached, under-counting real RAM — needs a
+         `resource_gate.py` API change, explicitly out of this sub-task's
+         scope); `load_primary()` incrementing `self._load_failures` on a
+         gate denial, which could poison a "model is broken" failure
+         counter if anything ever escalates on it (nothing currently does —
+         `get_load_failures()`/`reset_failures()` have no other consumers).
       4. Daemon-side slot-release socket command (the real NEW-69
          prerequisite).
       5. Bring `main.py`'s four CLI load sites + `shutdown()` under the
@@ -172,6 +251,27 @@ Everything else below depends on this existing. Nothing here is started.
       Codey-OS). Requirements are worked through at a design level in
       `docs/agent-plugin-blueprint.md` Section 4; produce an actual
       integration plan before any code is written against it.
+- [ ] 11.x (`CODEY_OS_MASTER_VISION.md` Section 11, 2026-08-09 amendment)
+      — **Not yet actionable; parked until a domain agent that needs it
+      is actually scoped.** Names the Model Orchestrator layer above the
+      resource gate (7.4): models as ephemeral load→work→unload workers,
+      structured stage-to-stage handoff (extends 7.5's context-passing
+      work with a compact-record shape instead of full context), a
+      fuller resource profile than 7.4 currently computes (GPU/NPU
+      utilization, battery/charging state, model load time, estimated
+      inference cost — none of this exists in `core/resource_gate.py`
+      today), and per-model requirement declarations (extends 9.3's
+      proposed manifest fields with priority class + load-time
+      estimate). Explicitly illustrated with a future
+      Android-control/vision-agent example (accessibility tree first,
+      vision model only if the tree is insufficient) — that example
+      describes target architecture shape, not a commitment to build
+      Gmail/Android-automation capability now. Do not start building any
+      of this until a concrete domain agent needing it is scoped through
+      the normal pipeline (project-architect → implementer →
+      code-reviewer). `core/resource_gate.py`'s existing admission logic
+      (7.4) is unchanged by this — this section names the layer *above*
+      it, not a revision to what's already built and approved.
 
 ## Phase 3: Multi-agent generalization — only after Phase 1 is real
 

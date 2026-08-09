@@ -54,7 +54,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from utils.config import CODEY_STATE_DIR, MODEL_PATH, PLANNER_MODEL_PATH
+from utils.config import CODEY_STATE_DIR
 from utils.logger import warning
 
 # ── Signal source 1: live system RAM/swap headroom, via /proc/meminfo ───────
@@ -280,11 +280,25 @@ QWEN25_7B_ARCH = ModelArch(n_layers=28, n_kv_heads=4, head_dim=128)
 # num_attention_heads=12, num_key_value_heads=2 (GQA), head_dim=128.
 QWEN25_1_5B_ARCH = ModelArch(n_layers=28, n_kv_heads=2, head_dim=128)
 
-# Keyed by the model file path this project already uses as identity
-# (utils/config.py's MODEL_PATH / PLANNER_MODEL_PATH), not a free-form name.
+# Keyed by ModelSpec.model_id, NOT by the model's file path. This dict used
+# to be keyed by str(MODEL_PATH)/str(PLANNER_MODEL_PATH) — both bound once
+# at this module's import time — which meant a hot-swap to a fine-tuned
+# model (core/lora_import.py's swap_to_finetuned_model(), which mutates
+# utils.config.MODEL_PATH/PLANNER_MODEL_PATH on the live module object, not
+# this frozen import-time snapshot) silently missed the lookup after the
+# swap and dropped the KV-cache cost term to 0 in the gate's admission math
+# (NEW_ISSUES.md NEW-84 addendum — an admission-safety bug: an
+# underestimated cost could let the gate over-admit a load it would
+# otherwise correctly reject). core/loader_v2.py and core/planner_loader.py
+# both always pass a fixed model_id of "primary"/"planner" respectively
+# regardless of which file is actually being loaded (see their
+# rg.ModelSpec(...) call sites) — a LoRA-merged model keeps the same
+# architecture (n_layers/n_kv_heads/head_dim) as its base, so keying on the
+# stable role identifier instead of the mutable path is both correct and
+# swap-proof.
 KNOWN_MODEL_ARCHS: Dict[str, ModelArch] = {
-    str(MODEL_PATH): QWEN25_7B_ARCH,
-    str(PLANNER_MODEL_PATH): QWEN25_1_5B_ARCH,
+    "primary": QWEN25_7B_ARCH,
+    "planner": QWEN25_1_5B_ARCH,
 }
 
 # Flat allowance for compute buffers (batch/context scratch space, etc.)
@@ -302,7 +316,7 @@ class ModelSpec:
     `size_bytes` and `arch` may both be supplied explicitly (this is how
     tests avoid depending on real model files on disk); if `size_bytes` is
     omitted, it's read from `path.stat().st_size` at estimate time. If
-    `arch` is omitted and `path` isn't one of `KNOWN_MODEL_ARCHS`, the KV
+    `arch` is omitted and `model_id` isn't one of `KNOWN_MODEL_ARCHS`, the KV
     cache term is estimated as 0 and a warning is logged — the cost estimate
     degrades to "weights + overhead only", which is a known-incomplete (not
     silently-wrong-in-the-safe-direction) estimate for unknown model
@@ -356,8 +370,8 @@ def estimate_kv_cache_bytes(arch: ModelArch, n_ctx: int) -> int:
 def _resolve_model_arch(spec: ModelSpec) -> Optional[ModelArch]:
     if spec.arch is not None:
         return spec.arch
-    if spec.path is not None and str(spec.path) in KNOWN_MODEL_ARCHS:
-        return KNOWN_MODEL_ARCHS[str(spec.path)]
+    if spec.model_id in KNOWN_MODEL_ARCHS:
+        return KNOWN_MODEL_ARCHS[spec.model_id]
     return None
 
 

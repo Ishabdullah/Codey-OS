@@ -18,8 +18,27 @@ import subprocess
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
-from utils.config import MODEL_CONFIG, MODEL_PATH, SECONDARY_MODEL_PATH
+import utils.config as cfg
+from utils.config import MODEL_CONFIG
 from utils.logger import info, success, warning
+
+# NOTE (NEW_ISSUES.md NEW-84): MODEL_PATH/SECONDARY_MODEL_PATH are
+# intentionally NOT imported as bound names above. This module's own
+# swap_to_finetuned_model()/rollback_to_backup()/create_backup_before_import()
+# mutate `cfg.MODEL_PATH`/`cfg.PLANNER_MODEL_PATH` (see below) on the live
+# `utils.config` module object — a name bound once at this module's own
+# import time would go stale after the FIRST swap, so a second swap or a
+# rollback would read/backup/restore the wrong path. Every use below reads
+# `cfg.MODEL_PATH`/`cfg.PLANNER_MODEL_PATH` fresh at the point of use.
+#
+# Also note: the "secondary"/planner branches below read and write
+# `cfg.PLANNER_MODEL_PATH`, NOT `cfg.SECONDARY_MODEL_PATH` — see
+# swap_to_finetuned_model()'s "secondary" branch comment for why: those are
+# two DIFFERENT config names (identical only by coincidence of default
+# value), and core/planner_loader.py's PlannerLoader — the loader that
+# actually spawns the 1.5B server — only ever reads `PLANNER_MODEL_PATH`.
+# Mutating `SECONDARY_MODEL_PATH` alone (the pre-fix behavior) had no effect
+# on what actually got loaded.
 
 # =============================================================================
 # LoRA Adapter Validation
@@ -308,14 +327,13 @@ def swap_to_finetuned_model(model_path: str, model_variant: str = "primary") -> 
     # For now, we need to update the config to point to new model
     # In a full implementation, this would use the loader's hot-swap
     if model_variant == "primary":
-        # Backup original path
-        original = MODEL_PATH
-        # Update config (this is temporary, would need persistence)
-        import utils.config as cfg
-
+        # Backup original path (read fresh — see module-level NOTE above)
+        original = cfg.MODEL_PATH
         cfg.MODEL_PATH = model_file
 
-        # Reload
+        # Reload. core/loader_v2.py:ModelLoader.load_primary() reads
+        # cfg.MODEL_PATH fresh (NEW_ISSUES.md NEW-84 fix), so this mutation
+        # now actually takes effect.
         loader.unload()
         if loader.load_primary():
             success(f"Swapped to fine-tuned primary model: {model_path}")
@@ -326,30 +344,23 @@ def swap_to_finetuned_model(model_path: str, model_variant: str = "primary") -> 
             return False, "Failed to load fine-tuned model, rolled back"
 
     else:
-        # Secondary model — SECONDARY_MODEL_PATH is the same 1.5B model file
-        # core/planner_loader.py's PlannerLoader manages (default paths for
-        # both are identical in utils/config.py); ModelLoader (the `loader`
-        # bound above) has no such thing as a "secondary" model of its own —
-        # NEW-24 (NEW_ISSUES.md): this branch called a nonexistent
-        # `loader.load_secondary()`, which would have raised AttributeError
-        # the first time this code path actually ran. Fixed to route through
-        # the existing planner loader instead of inventing a new method.
-        # NOTE (found while fixing NEW-24, not itself in this sub-task's
-        # scope — see handoff report): setting `cfg.SECONDARY_MODEL_PATH`
-        # here does not actually change what gets loaded — PlannerLoader.load()
-        # reads the module-level `PLANNER_MODEL_PATH` name bound at import
-        # time, not `cfg.SECONDARY_MODEL_PATH`, so this still loads the
-        # *original* planner weights, not the fine-tuned file, even though it
-        # now calls a real method instead of raising. The identical gap
-        # exists on the "primary" branch above via `cfg.MODEL_PATH` vs.
-        # `core.loader_v2.MODEL_PATH`. Hot-swapping to an arbitrary on-disk
-        # file is a missing loader capability (neither loader accepts a path
-        # override), not a wrong-method-name bug — out of this sub-task's
-        # scope to add.
-        original = SECONDARY_MODEL_PATH
-        import utils.config as cfg
-
-        cfg.SECONDARY_MODEL_PATH = model_file
+        # Secondary/planner model. NEW-24 (NEW_ISSUES.md): this branch used
+        # to call a nonexistent `loader.load_secondary()`, which would have
+        # raised AttributeError the first time this code path actually ran.
+        # Fixed to route through the existing planner loader instead of
+        # inventing a new method.
+        #
+        # NEW-84 (NEW_ISSUES.md): this branch used to mutate
+        # `cfg.SECONDARY_MODEL_PATH`, but core/planner_loader.py's
+        # PlannerLoader.load() has never read that name — it reads
+        # `PLANNER_MODEL_PATH` (they're two distinct config keys, only
+        # coincidentally identical by default). Mutating
+        # SECONDARY_MODEL_PATH alone had zero effect on what actually got
+        # loaded; the fine-tuned file was never used. Fixed to mutate
+        # `cfg.PLANNER_MODEL_PATH`, the name PlannerLoader.load() actually
+        # reads (now freshly, per its own NEW-84 fix).
+        original = cfg.PLANNER_MODEL_PATH
+        cfg.PLANNER_MODEL_PATH = model_file
 
         from core.planner_loader import get_planner_loader
 
@@ -359,7 +370,7 @@ def swap_to_finetuned_model(model_path: str, model_variant: str = "primary") -> 
             success(f"Swapped to fine-tuned secondary model: {model_path}")
             return True, f"Swapped to fine-tuned model"
         else:
-            cfg.SECONDARY_MODEL_PATH = original
+            cfg.PLANNER_MODEL_PATH = original
             return False, "Failed to load fine-tuned model, rolled back"
 
 
@@ -378,12 +389,12 @@ def create_backup_before_import(model_variant: str) -> Optional[str]:
     Returns:
         Path to backup, or None if failed
     """
-    import utils.config as cfg
-
     if model_variant == "primary":
         original = cfg.MODEL_PATH
     else:
-        original = cfg.SECONDARY_MODEL_PATH
+        # PLANNER_MODEL_PATH, not SECONDARY_MODEL_PATH — see module-level
+        # NOTE at the top of this file (NEW_ISSUES.md NEW-84).
+        original = cfg.PLANNER_MODEL_PATH
 
     original_path = Path(original)
     if not original_path.exists():
@@ -419,12 +430,12 @@ def rollback_to_backup(backup_path: str, model_variant: str) -> Tuple[bool, str]
     if not backup.exists():
         return False, f"Backup not found: {backup_path}"
 
-    import utils.config as cfg
-
     if model_variant == "primary":
         original = cfg.MODEL_PATH
     else:
-        original = cfg.SECONDARY_MODEL_PATH
+        # PLANNER_MODEL_PATH, not SECONDARY_MODEL_PATH — see module-level
+        # NOTE at the top of this file (NEW_ISSUES.md NEW-84).
+        original = cfg.PLANNER_MODEL_PATH
 
     original_path = Path(original)
 
@@ -511,10 +522,12 @@ def import_lora_adapter(
     if merge_on_device:
         # Full merge on-device (requires llama.cpp, lots of RAM)
         if model_variant == "primary":
-            base_model = str(MODEL_PATH)
+            base_model = str(cfg.MODEL_PATH)
             output_name = "codeyOS-finetuned-7b.gguf"
         else:
-            base_model = str(SECONDARY_MODEL_PATH)
+            # PLANNER_MODEL_PATH, not SECONDARY_MODEL_PATH — see module-level
+            # NOTE at the top of this file (NEW_ISSUES.md NEW-84).
+            base_model = str(cfg.PLANNER_MODEL_PATH)
             output_name = "codeyOS-finetuned-1.5b.gguf"
 
         output_path = Path.home() / "models" / "codey-finetuned" / output_name
