@@ -847,14 +847,85 @@ call) — this amendment generalizes that same deterministic-first
 principle to the orchestrator's broader scheduling/handoff decisions,
 not just task-tier classification.
 
-### 11.8 What this does not change
+### 11.9 Adaptive `n_ctx` and CPU allocation, computed alongside the rest of the resource profile
+
+The first live-verification round of Section 7.4's resource gate
+(`PROJECT_LOG.md`, round 13, 2026-08-09) found a concrete case this
+direction addresses: a substitute model was hard-rejected not because it
+was fundamentally too large for the device, but because its KV-cache
+cost was computed at a fixed, unconditional `n_ctx` — `utils/config.py`'s
+`MODEL_CONFIG["n_ctx"]` is a single global constant today (`32768`), with
+no env override and no per-model or per-condition adjustment. The same
+model at a smaller `n_ctx` would very plausibly have been admitted.
+
+Direction: `n_ctx` — and CPU thread/core allocation, which
+`core/resource_gate.py`'s `allocate_threads()` already computes per
+number of resident models but not yet per available context budget —
+should become a **computed output of the resource-aware decision, not a
+fixed input supplied to it**. Given a model and current conditions (RAM/
+swap headroom, thermal state, how many other models are or need to be
+resident), the orchestrator should be able to search or negotiate over a
+range of `n_ctx` values before concluding a model can't be admitted at
+all — try a reduced context window first, not just accept the first
+computed cost as pass/fail. This generalizes 11.4's "fuller resource
+profile" direction: `n_ctx` joins CPU allocation as something the system
+decides per load attempt, not a constant every model shares regardless
+of fit.
+
+**Not built**: `core/resource_gate.py`'s admission math (Section 7.4
+sub-tasks 1-5, already built and code-reviewer-approved) takes `n_ctx` as
+a fixed input via `ModelSpec`, sourced once from `MODEL_CONFIG["n_ctx"]`
+— it does not search or negotiate over a range of values today. This is
+new, unscoped work.
+
+### 11.10 Per-domain, per-size-tier approved model lists
+
+Extends 9.3's per-agent model-size-class declaration into an explicit
+registry: each capability domain (coding, chat/conversation, planning,
+and — once other agents are integrated, e.g. Aigentik-CLI's
+communications domain, per Section 9.4 — their own domain) gets an
+**approved list of models spanning from the largest single model that
+domain would ever use down through a medium tier to the smallest capable
+model**, rather than today's shape of one fixed model per domain (one 7B
+for coding, one 1.5B for planning, no alternatives). The orchestrator
+selects from within a domain's approved list using the same
+resource-profile factors (11.4, 11.9) plus the model's actual suitability
+for the task at hand — "what fits AND is appropriate," not just "what
+fits."
+
+**Not built**: no such registry exists today. `KNOWN_MODEL_ARCHS`
+(`core/resource_gate.py`) and the manifest fields proposed in 9.3 are the
+nearest existing/proposed structures this would extend, not replace.
+
+### 11.11 Confidence-gated escalation to a larger model
+
+When a smaller/cheaper model handles a task but its own reported
+confidence falls below a threshold, the system should not simply accept
+the low-confidence result — it should queue the task and wait for a
+larger model from the same domain's approved list (11.10) to become
+available (per the resource-aware scheduling in 11.3/11.9), then retry
+with that larger model. This makes concrete Section 11.7's illustrative
+`if confidence < threshold: request_second_pass()` line: the "second
+pass" specifically means escalating up the approved-model-list tier, not
+just re-running the same model again and hoping for a different result.
+
+**Not built**: no confidence-threshold escalation logic exists in any
+current capability. This depends on 11.10's approved-list concept
+existing first, and on models actually emitting a usable, structured
+confidence signal — not yet verified whether either the 7B or planner
+models currently do; worth checking before this is scoped as real work,
+not assumed.
+
+### 11.12 What this does not change
 
 This amendment does not modify `core/resource_gate.py`'s existing,
 twice-reviewed, approved admission logic (Section 7.4) — it names the
 layer above it (scheduling/orchestration) and the layer's future inputs
-(11.4's fuller resource profile), without requiring any change to what's
-already built. It does not commit to building vision or Android-control
-capability now — Section 9's multi-agent direction already establishes
-that future domain agents are in scope; this amendment describes what
-their *scheduling* should look like once they exist, not a decision to
-build them yet. It does not change Section 5's self-improvement gate.
+(11.4's fuller resource profile, 11.9's adaptive `n_ctx`/CPU allocation,
+11.10's approved-list selection, 11.11's confidence-gated escalation),
+without requiring any change to what's already built. It does not commit
+to building vision or Android-control capability now — Section 9's
+multi-agent direction already establishes that future domain agents are
+in scope; this amendment describes what their *scheduling* should look
+like once they exist, not a decision to build them yet. It does not
+change Section 5's self-improvement gate.

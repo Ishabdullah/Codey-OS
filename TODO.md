@@ -413,27 +413,38 @@ Everything else below depends on this existing. Nothing here is started.
       Codey-OS). Requirements are worked through at a design level in
       `docs/agent-plugin-blueprint.md` Section 4; produce an actual
       integration plan before any code is written against it.
-- [ ] 11.x (`CODEY_OS_MASTER_VISION.md` Section 11, 2026-08-09 amendment)
-      — **Not yet actionable; parked until a domain agent that needs it
-      is actually scoped.** Names the Model Orchestrator layer above the
-      resource gate (7.4): models as ephemeral load→work→unload workers,
-      structured stage-to-stage handoff (extends 7.5's context-passing
-      work with a compact-record shape instead of full context), a
-      fuller resource profile than 7.4 currently computes (GPU/NPU
-      utilization, battery/charging state, model load time, estimated
-      inference cost — none of this exists in `core/resource_gate.py`
-      today), and per-model requirement declarations (extends 9.3's
-      proposed manifest fields with priority class + load-time
-      estimate). Explicitly illustrated with a future
-      Android-control/vision-agent example (accessibility tree first,
-      vision model only if the tree is insufficient) — that example
+- [ ] 11.x (`CODEY_OS_MASTER_VISION.md` Section 11, 2026-08-09 amendment,
+      elaborated same-day with 11.9-11.11) — **Not yet actionable as a
+      whole; parked until a domain agent that needs it is actually
+      scoped** (one narrow slice of 11.9 is an exception — see `U.31`
+      below, split out because it's immediately useful, not because the
+      broader vision is ready to build). Names the Model Orchestrator
+      layer above the resource gate (7.4): models as ephemeral
+      load→work→unload workers, structured stage-to-stage handoff
+      (extends 7.5's context-passing work with a compact-record shape
+      instead of full context), a fuller resource profile than 7.4
+      currently computes (GPU/NPU utilization, battery/charging state,
+      model load time, estimated inference cost — none of this exists in
+      `core/resource_gate.py` today), and per-model requirement
+      declarations (extends 9.3's proposed manifest fields with priority
+      class + load-time estimate). **11.9-11.11 (added after round 13's
+      live-verification found the concrete problem)**: adaptive `n_ctx`
+      and CPU allocation computed per load attempt instead of a fixed
+      global constant (`utils/config.py`'s `MODEL_CONFIG["n_ctx"]` today
+      has no override and no per-model/per-condition adjustment — this is
+      literally why round 13's substitute model got hard-rejected);
+      per-domain approved model lists spanning largest→medium→smallest,
+      extending 9.3; confidence-gated escalation to a larger model when a
+      smaller one's result confidence is too low, making 11.7's
+      illustrative `request_second_pass()` line concrete. Explicitly
+      illustrated with a future Android-control/vision-agent example — 
       describes target architecture shape, not a commitment to build
       Gmail/Android-automation capability now. Do not start building any
-      of this until a concrete domain agent needing it is scoped through
-      the normal pipeline (project-architect → implementer →
-      code-reviewer). `core/resource_gate.py`'s existing admission logic
-      (7.4) is unchanged by this — this section names the layer *above*
-      it, not a revision to what's already built and approved.
+      of this (except `U.31`) until a concrete domain agent needing it is
+      scoped through the normal pipeline. `core/resource_gate.py`'s
+      existing admission logic (7.4) is unchanged by this — this section
+      names the layer *above* it, not a revision to what's already built
+      and approved.
 
 ## Phase 3: Multi-agent generalization — only after Phase 1 is real
 
@@ -714,6 +725,20 @@ above; interleave them whenever convenient (WQ Tracks 2 and 4).
       same class, not confirmed to have misfired. Natural companion fix
       to `NEW-85` (the wider `codeydOS`/`codey-stop` pkill sweep already
       queued).
+- [ ] U.31 (`NEW-95`'s own stated fix direction / vision Section 11.9's
+      narrow actionable slice) — Add a documented, env-var-gated `n_ctx`
+      test override to `core/resource_gate.py`, mirroring the exact
+      pattern already built and code-reviewer-approved for
+      `CODEY_TEST_PRIMARY_ARCH`/`CODEY_TEST_PLANNER_ARCH` (lazy read, no
+      effect on production when unset, loud failure on a bad value). This
+      is deliberately narrow — a fixed override for one test run, not
+      11.9's full "search/negotiate over a range of `n_ctx` values"
+      vision — but it's what the next 7.4 live-verification round
+      actually needs: round 13's substitute model was hard-rejected only
+      because it was tested at the full production `n_ctx=32768`, and
+      `MODEL_CONFIG["n_ctx"]` has no override today. Do this before the
+      next live-test attempt, alongside picking (or re-verifying) a
+      substitute whose real KV-cache shape is smaller than the 7B's.
 
 ## Parked — gated, do not start without Ish's explicit sign-off
 

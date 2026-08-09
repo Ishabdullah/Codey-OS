@@ -5,6 +5,50 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-08-09 (round 15) — Vision elaboration: adaptive `n_ctx`/CPU allocation, per-domain model tiers, confidence-gated escalation (Ish, explicit decision)
+
+Ish gave further explicit architectural direction, elaborating Section
+11's Model Orchestrator amendment with three new pieces, directly
+motivated by round 13's live-verification finding (a substitute model
+was hard-rejected only because `n_ctx` is a fixed global constant with
+no per-model/per-condition adjustment):
+
+- **Adaptive `n_ctx` and CPU allocation** — should become a computed
+  output of the resource-aware decision (given a model and current
+  RAM/thermal/residency state), not a fixed input every model shares
+  regardless of fit. Written as `CODEY_OS_MASTER_VISION.md` Section 11.9.
+- **Per-domain, per-size-tier approved model lists** — each capability
+  domain (coding, chat, planning, and future agents' own domains, e.g.
+  Aigentik-CLI) gets a list spanning largest→medium→smallest capable
+  model, rather than today's one-fixed-model-per-domain shape. The
+  orchestrator selects based on the same resource factors plus task
+  suitability. Section 11.10.
+- **Confidence-gated escalation** — a smaller model's low-confidence
+  result should queue the task and wait for a larger model from the same
+  domain's approved list to become available, then retry, rather than
+  accepting the weak result. Makes Section 11.7's illustrative
+  `request_second_pass()` line concrete. Section 11.11.
+
+Old Section 11.8 ("What this does not change") renumbered to 11.12,
+updated to reference all three new subsections — checked for stale
+cross-references this time (learned from the 9.x→10.x renumbering bug
+in the 2026-08-05 round); none found, since nothing else in the doc
+referenced 11.8 by number.
+
+All three explicitly marked "not built" — this is documented direction,
+consistent with Section 11's own framing, not implementation. `TODO.md`
+updated: the broader vision stays parked (needs a concrete domain agent
+scoped first), but one narrow, immediately-useful slice was split out as
+**`U.31`** — a documented, env-var-gated `n_ctx` test override for
+`core/resource_gate.py`, mirroring the exact pattern already built and
+approved for `CODEY_TEST_PRIMARY_ARCH`/`CODEY_TEST_PLANNER_ARCH`. This
+isn't 11.9's full adaptive-search vision, just what the next 7.4
+live-verification round actually needs to get past `NEW-95`'s blocker.
+
+No code changed this round — documentation only.
+
+---
+
 ## 2026-08-09 (round 14) — U.27 and U.28 fixed: both gaps live-testing found are closed
 
 Fixed both follow-up items from round 13's live-verification session, in
