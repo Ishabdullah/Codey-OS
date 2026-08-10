@@ -161,12 +161,11 @@ class DaemonServer:
     to appropriate handlers.
     """
 
-    def __init__(self, state: StateStore, shutdown_callback=None):
+    def __init__(self, state: StateStore):
         self.state = state
         self.server: Optional[asyncio.Server] = None
         self.running = False
         self._handlers: Dict[str, Callable] = {}
-        self._shutdown_callback = shutdown_callback
         # Per-model_id monotonic timestamp of the last CONFIRMED release via
         # release_model_slot — see RELEASE_SLOT_COOLDOWN_S above.
         self._release_slot_last_release: Dict[str, float] = {}
@@ -180,7 +179,6 @@ class DaemonServer:
         self.register_handler("health", self._handle_health)
         self.register_handler("task", self._handle_task)
         self.register_handler("cancel", self._handle_cancel)
-        self.register_handler("shutdown", self._handle_shutdown)
         self.register_handler("release_model_slot", self._handle_release_model_slot)
 
     def register_handler(self, cmd: str, handler: Callable):
@@ -355,13 +353,6 @@ class DaemonServer:
             if task:
                 return {"status": "error", "message": f"Task {task_id} already {task['status']}"}
             return {"status": "error", "message": f"Task {task_id} not found"}
-
-    async def _handle_shutdown(self, data: Dict) -> Dict:
-        """Handle shutdown request — triggers the daemon's main loop to exit."""
-        info("Shutdown requested via socket")
-        if self._shutdown_callback:
-            self._shutdown_callback()
-        return {"status": "ok", "message": "Shutting down"}
 
     @staticmethod
     def _release_model_slot_sync(loader, port: int):
@@ -675,7 +666,7 @@ class Daemon:
         LOG_FILE = Path(log_file_path)
 
         self.state = get_state_store()
-        self.server = DaemonServer(self.state, shutdown_callback=self._trigger_shutdown)
+        self.server = DaemonServer(self.state)
         self.executor = TaskExecutor(self.state, self._config)
         from core.planner_v2 import get_planner
 
@@ -724,8 +715,26 @@ class Daemon:
             warning(f"ProjectMemory initialization skipped: {_e}")
 
     def _trigger_shutdown(self):
-        """Called by DaemonServer when a socket shutdown command is received."""
-        info("Daemon shutdown triggered via socket command")
+        """
+        Trigger a graceful daemon exit. Sole live caller (as of 7.4 sub-task
+        D): `_main_loop()`'s watchdog tick, when `should_trip_shutdown()`
+        decides a sustained-severe-thermal (and, on hardware where CPU is
+        genuinely measurable, CPU) condition warrants an autonomous shutdown.
+        There is no socket-triggerable path to this anymore — the
+        `shutdown` command handler and the module-level `daemon_shutdown()`
+        helper that used to route here were retired in the same sub-task
+        (confirmed zero live callers repo-wide beforehand); a client that
+        still sends `{"cmd": "shutdown"}` now gets the dispatcher's existing
+        generic "Unknown command" response instead.
+
+        Setting `self.running = False` and closing the socket server here is
+        what lets `_main_loop()`'s `while self.running:` loop exit on its own
+        next iteration and fall into its `finally:` block, which is what
+        actually calls `get_loader().unload()` to stop the detached
+        `llama-server` process — this function must never be bypassed with a
+        raw `sys.exit()`/`os._exit()`, or that unload never runs.
+        """
+        info("Daemon shutdown triggered")
         self.running = False
         if self.server.server:
             self.server.server.close()
@@ -959,6 +968,64 @@ class Daemon:
                         # sampling failure must not stop the model/embed
                         # watchdogs that follow it in this same tick.
                         warning(f"resource_gate CPU sample failed: {e}")
+                    # Rolling thermal sample, same placement/reasoning as the
+                    # CPU sample immediately above (7.4 sub-task D) — also
+                    # outside the `if not _is_remote()` guard, since thermal
+                    # state is backend-independent and should_trip_shutdown()
+                    # needs an unbroken history regardless of local/remote
+                    # backend.
+                    _sampled_temp_c = None
+                    try:
+                        from core.resource_gate import sample_temperature_c
+
+                        _sampled_temp_c = sample_temperature_c()
+                    except Exception as e:
+                        # Same best-effort posture as the CPU sample above —
+                        # a read failure here must not stop the watchdogs
+                        # that follow it in this same tick.
+                        warning(f"resource_gate temperature sample failed: {e}")
+                    # Autonomous shutdown tripwire (7.4 sub-task D) — see the
+                    # except: clause below for why this is not the same
+                    # best-effort "log and continue silently" posture as the
+                    # sampling calls above.
+                    try:
+                        from core.resource_gate import should_trip_shutdown
+                        from utils.config import THERMAL_CONFIG as _tc
+
+                        _trip = should_trip_shutdown()
+                        _temp_critical = _tc.get("temp_critical", 90)
+                        if _trip.should_trip:
+                            warning(f"Autonomous shutdown tripwire fired: {_trip.reason}")
+                            self._trigger_shutdown()
+                        elif _sampled_temp_c is not None and _sampled_temp_c >= _temp_critical:
+                            # Log at warning (not the routine info/debug level
+                            # below) whenever THIS tick's own reading is
+                            # already at/above the critical threshold, even
+                            # though the sustained window isn't satisfied yet
+                            # — this is what lets a live-verification session
+                            # watch the per-tick progress toward a trip in the
+                            # log, without every routine cool tick logging a
+                            # warning line in normal operation.
+                            warning(f"resource_gate shutdown-tripwire check: {_trip.reason}")
+                        else:
+                            info(f"resource_gate shutdown-tripwire check: {_trip.reason}")
+                    except Exception as e:
+                        # Deliberately NOT the same best-effort "log and
+                        # move on unremarked" posture as the sampling
+                        # try/excepts above: should_trip_shutdown() is a
+                        # safety-relevant decision (CLAUDE.md's exception-
+                        # handling rule applies), so a failure evaluating it
+                        # must be visible at warning level, distinguishable
+                        # from a plain sample-read failure. Still caught
+                        # (rather than left to propagate and kill this
+                        # watchdog tick / the main loop entirely) because a
+                        # bug in the trip-check itself must not prevent the
+                        # model/embed watchdogs immediately below from
+                        # running this tick — the daemon keeps running and
+                        # re-evaluates next tick, which is the safe direction
+                        # here (see should_trip_shutdown()'s docstring on
+                        # fail-safe-toward-not-killing).
+                        warning(f"resource_gate shutdown-tripwire check failed (daemon NOT stopped, will re-evaluate next tick): {e}")
                     # 7B model server watchdog (local only)
                     if not _is_remote():
                         self._watchdog_check_model()
@@ -1298,11 +1365,6 @@ def daemon_health() -> Dict:
 def daemon_ping() -> Dict:
     """Ping the daemon."""
     return send_command("ping")
-
-
-def daemon_shutdown():
-    """Request daemon shutdown."""
-    return send_command("shutdown")
 
 
 # ==================== Entry Point ====================

@@ -1191,28 +1191,285 @@ resource-awareness work twice.
           one tick, with verbatim log/`--status`/DB-row evidence — not a
           paraphrase.
        4. **Sub-task D — `daemon_shutdown` autonomous tripwire; retire
-          the socket-triggerable path.** Watchdog-tick check (reusing
-          sub-task A's rolling CPU sampler and `thermal.get_current_temp_c()`)
-          for ~20 min sustained severe-thermal + >90% CPU
-          (config-driven thresholds, `THERMAL_CONFIG`-style — not
-          hardcoded, or this sub-task can never be live-verified and
-          sits at code-complete indefinitely per rule 7); on trip, calls
-          the daemon's existing internal `_trigger_shutdown()` path only
-          (`core/daemon.py:709-714`) — **never** a raw `sys.exit()`/
-          `os._exit()`/self-signal, because `_main_loop()`'s `finally:`
-          block is what actually calls `get_loader().unload()`
-          (`core/daemon.py:950-964`) to stop the detached
-          (`os.setsid`'d) `llama-server` process; bypassing it would
-          orphan a real model process holding real RAM while its gate
-          slot gets reaped as dead, which is worse than today's leaked-slot
-          cases. Live-verification for this sub-task must confirm `ps
-          aux | grep llama-server` is clean after a tripwire fire, not
-          just that the daemon process exited. Since no current script
-          calls the socket `shutdown` handler (see correction above),
-          retiring it as an externally-triggerable action is safe to do
-          in the same sub-task — one reviewer pass over the whole
-          shutdown surface (autonomous trip + retired external trigger)
-          rather than two.
+          the socket-triggerable path.** Scoped 2026-08-10, following
+          sub-tasks A-C's design conventions (`core/resource_gate.py`
+          module-level rolling-history pattern, config-driven thresholds
+          with an env override, explicit-reason dataclasses). Re-verified
+          against current committed code (post B/C landing) before
+          writing this: `_trigger_shutdown()` is now at
+          `core/daemon.py:726-731` (moved from the :709-714 cited in the
+          prior scoping pass — two sub-tasks have landed lines above it
+          since), and its routing through `_main_loop()`'s `finally:`
+          block (now `core/daemon.py:980-1013`, `get_loader().unload()`
+          call at :994-998) to actually stop the detached `llama-server`
+          process is unchanged and still correct.
+
+          **BLOCKING OPEN QUESTION — needs Ish's direct decision, not
+          implementer's, before this sub-task can be built:**
+          `PENDING_ISH_DECISIONS.md` item 2 specifies the trip condition
+          as "~20 minutes of sustained severe thermal + >90% CPU usage"
+          — an AND of two legs. `NEW-108` (Confirmed, sub-task A)
+          established `/proc/stat` is `Permission denied` on this actual
+          device, so `sample_cpu_percent()`/`get_current_cpu_percent()`
+          return `None` unconditionally, always — this round re-confirmed
+          the same is true of `/proc/loadavg` and `os.getloadavg()`
+          (`Permission denied` / `AttributeError`, checked live on-device
+          2026-08-10), so there is no readable substitute CPU/load signal
+          available on this hardware, not even a coarser proxy. If the
+          CPU leg is kept as a strict `>90%` requirement, it can **never**
+          be true on this device, meaning the whole tripwire can never
+          fire here — code-complete forever, unlive-verifiable by
+          construction, exactly what rule 7 exists to catch.
+
+          This is deliberately NOT resolved the way sub-task C resolved
+          its own CPU-None question (treat `None` as "unmeasured, don't
+          refuse solely on it"). That precedent is directional and this
+          is the opposite direction: `can_dispatch_task()`'s CPU-None
+          fail-open makes an "allow work" decision more permissive on a
+          missing signal — the safe direction for a false negative there
+          is bounded (a dispatch that maybe shouldn't have happened).
+          Here, a CPU-None fail-open on the *kill* condition would make
+          an "end an autonomous safety trip" decision LESS likely to fire
+          on a missing signal — a false negative here means the device
+          keeps running hot for longer, unsupervised, which is the exact
+          failure mode this tripwire exists to catch. Reusing C's
+          precedent mechanically in the opposite-consequence direction
+          would be deciding the policy question by analogy instead of by
+          its own merits, so it isn't done here.
+
+          Three options, presented to Ish rather than picked
+          unilaterally:
+          1. **Thermal-only fail path**: drop the CPU leg from the trip
+             condition when unmeasurable (which is always, on this
+             device), tripping on ~20 min sustained severe thermal alone.
+             This changes the actual runtime behavior of the autonomous
+             tripwire from the AND policy `PENDING_ISH_DECISIONS.md`
+             describes to an effectively thermal-only policy on this
+             specific hardware — a safety-relevant behavior change, not
+             an implementation detail.
+          2. **Keep the strict AND**, accept it is genuinely
+             unlive-verifiable on today's device (document that
+             explicitly as its own status, distinct from "not yet
+             live-verified" — it would become verifiable on different
+             hardware, with root, or with `psutil` available), and treat
+             this sub-task as permanently code-complete-only until one of
+             those changes.
+          3. **AND with CPU-as-veto-only-when-measurable**: trip on
+             sustained severe thermal alone whenever CPU is unmeasured
+             (today, always, on this device), but require the real
+             `>90%` CPU reading too on any future device/environment
+             where the signal IS readable — same code path, condition
+             degrades gracefully instead of picking one behavior forever.
+          Recommendation, offered but not acted on unilaterally: option 3
+          — it preserves the AND as the intended real-hardware behavior
+          (matching the decision text) while still being buildable and
+          live-verifiable on this device today, and it doesn't silently
+          commit this codebase to "thermal-only" as if that were always
+          the design intent. The asymmetry that makes this genuinely
+          Ish's call and not implementer's: unlike sub-task C's dispatch
+          gate (fail-open toward permitting work), this is a fail-open-
+          toward-NOT-killing-the-daemon decision on a device's own
+          overheat-protection mechanism — a false negative here changes
+          how long the device is allowed to run hot unsupervised, which
+          is exactly the class of call CLAUDE.md's "ambiguous product
+          direction" escalation clause exists for.
+
+          **Decided by Ish, 2026-08-10: option 3 (CPU-as-veto-only-when-
+          measurable).** `should_trip_shutdown()` trips on sustained
+          severe thermal alone whenever `cpu_percent is None` (today,
+          always, on this device); on hardware/environment where a real
+          CPU reading becomes available, the `>90%` requirement applies
+          as a genuine second leg of the AND. Implementer builds this
+          version of the predicate, not the strict-AND or thermal-only-
+          permanent alternatives.
+
+          **Everything below this point is implementer-ready regardless
+          of which of the three options Ish picks** — only the body of
+          one predicate function (`should_trip_shutdown()`, see below)
+          waits on that answer; the surrounding structure, config,
+          history-tracking, shutdown routing, and retirement of the
+          external trigger do not change based on the answer.
+
+          - **Thermal history — net new, does not exist today.**
+            Sub-task A's `_cpu_history`/`sample_cpu_percent()`/
+            `get_cpu_history()` (`core/resource_gate.py:270-353`) has no
+            thermal equivalent: `core/thermal.py`'s
+            `get_current_temp_c()` is a one-shot point read, and its
+            private `_last_temp_snapshot` is inference-duration
+            bookkeeping local to `ThermalManager`, not a queryable
+            history. Build `sample_temperature_c()` / `get_temp_history()`
+            / `reset_temp_sampler()` in `core/resource_gate.py`,
+            mirroring `sample_cpu_percent()`/`get_cpu_history()`/
+            `reset_cpu_sampler()` exactly: module-level `_temp_history:
+            List[Tuple[float, float]]`, a `TEMP_HISTORY_MAX_AGE_SEC`
+            pruning window (reuse or mirror `CPU_HISTORY_MAX_AGE_SEC`'s
+            30-minute value — same 20-minute-window-plus-margin
+            reasoning applies unchanged), and the same "None on read
+            failure, never a fabricated 0.0" sentinel contract (a
+            None thermal read must not look like "confirmed cool" any
+            more than a None CPU read should look like "confirmed
+            idle" — see `sample_cpu_percent()`'s own docstring for why).
+            Unlike the CPU sampler, `read_current_temp_c()` is already a
+            live, working signal on this device (confirmed: thermal
+            reads succeed elsewhere in this codebase today) — this
+            history-tracker will actually accumulate real samples here,
+            unlike `_cpu_history`, which stays permanently empty on this
+            device (state this explicitly in code comments so a future
+            reader doesn't conclude the CPU leg "just hasn't tripped
+            yet" — it structurally cannot populate on this hardware; see
+            `sample_cpu_percent()`'s existing None-before-append
+            behavior on read failure).
+          - **Tick location**: the existing 30s watchdog block in
+            `_main_loop()` (`core/daemon.py:941-975`), immediately after
+            the existing `sample_cpu_percent()` call at :952-961, still
+            **outside** the `if not _is_remote()` guard — the comment
+            already at :945-951 justifying that placement
+            ("CPU/thermal state is backend-independent, and 7.4 sub-task
+            D's future 20-minute sustained-CPU tripwire needs an
+            unbroken history regardless of local/remote backend") was
+            written for exactly this sub-task and still applies
+            unchanged to the new `sample_temperature_c()` call.
+          - **Sustained-window check**: a new `should_trip_shutdown()`
+            predicate in `core/resource_gate.py` (next to
+            `can_dispatch_task()`, same `@dataclass(frozen=True)
+            TripDecision(should_trip: bool, reason: str)` style),
+            checking `get_temp_history()` (and, depending on Ish's
+            answer above, `get_cpu_history()`) for both (a) a run of
+            samples at/above threshold that (b) actually *spans* the
+            required duration — not just N samples above threshold,
+            which a freshly-started daemon with a couple of hot ticks
+            right after boot could otherwise satisfy trivially. At the
+            30s tick rate, ~20 minutes is ~40 samples; require the
+            oldest-to-newest span of the qualifying run to be ≥ the
+            configured duration AND a minimum fraction of ticks within
+            that span to qualify (guards against one cool blip inside an
+            otherwise-sustained run resetting the whole window to zero,
+            which a naive "must be unbroken" check would do). A daemon
+            restart clears both `_cpu_history` and the new
+            `_temp_history` (process-global, matching sub-task A's
+            existing behavior) — meaning no trip is possible for the
+            first ~20 minutes after any daemon restart. This is intended
+            (there's no persisted history across restarts to trip on,
+            and a freshly-restarted daemon has no basis for concluding
+            "sustained"), not a gap; state this in the docstring so it
+            isn't mistaken for one later.
+          - **Config**: `THERMAL_CONFIG` already has the right threshold
+            for the thermal leg — `temp_critical` (90°C, the highest
+            existing tier; there is no separate "severe" tier above it
+            in `core/thermal.py`'s `_check_thermal_status()`, confirmed
+            by reading it directly this round) is the correct value to
+            reuse, not a new number. What's genuinely new: a duration key
+            (e.g. `THERMAL_CONFIG["shutdown_trip_after_sec"]`, default
+            1200 = 20 min) and, if Ish's answer keeps a CPU threshold in
+            any form, a CPU percentage key (e.g.
+            `THERMAL_CONFIG["shutdown_cpu_pct"]`, default 90). Both need
+            an env-var override (precedent: `CODEY_N_CTX`, commit
+            `0ae2690`; `CODEY_TEST_PRIMARY_ARCH`,
+            `core/resource_gate.py:657-663`) so live-verification can run
+            with a drastically lowered duration (e.g. 20 seconds instead
+            of 20 minutes) without editing a committed default —
+            otherwise this sub-task is unlive-verifiable in any
+            practical session length, the same unlive-verifiable trap
+            rule 7 exists to catch, just via a different mechanism than
+            the CPU-signal question above. State explicitly in the
+            module docstring that these thresholds must never be
+            *permanently* lowered by committing a config edit — only
+            overridden transiently via the env var for a live-test
+            session.
+          - **Shutdown routing**: on trip, `should_trip_shutdown()`
+            itself does nothing but decide — the watchdog-tick call site
+            in `_main_loop()` calls the daemon's existing
+            `_trigger_shutdown()` (`core/daemon.py:726-731`) directly,
+            never a raw `sys.exit()`/`os._exit()`/self-signal, so
+            `_main_loop()`'s `finally:` block (`core/daemon.py:980-1013`)
+            still runs and still calls `get_loader().unload()` to stop
+            the detached (`os.setsid`'d) `llama-server` process —
+            bypassing it would orphan a real model process holding real
+            RAM while its gate slot gets reaped as dead, worse than
+            today's already-known leaked-slot cases. **New risk this
+            sub-task surfaces, not previously exercised**:
+            `_trigger_shutdown()` calls `self.server.server.close()`
+            directly; since (confirmed this round, via grep across the
+            whole repo) nothing calls the socket `shutdown` handler in
+            production today, this exact code path inside
+            `_trigger_shutdown()` has plausibly never actually executed
+            on a live daemon before. `_main_loop()`'s `finally:` block
+            separately calls `await self.server.stop()`
+            (`core/daemon.py:1009`) — sub-task D makes
+            `_trigger_shutdown()` the *only* live way that combination
+            gets exercised (autonomous trip -> `_trigger_shutdown()`'s
+            explicit `.close()` -> loop exit -> `finally:`'s
+            `.stop()`), so implementer must confirm no double-close
+            traceback and a clean exit; this is now part of the
+            live-verification criterion below, not assumed safe by
+            inspection alone.
+          - **No new "already tripped" persistence needed**: a concern
+            that occurred during scoping — could a still-hot device
+            immediately reload the model and re-trip in a loop right
+            after an autonomous shutdown? — is already covered by
+            existing machinery: `can_admit()`'s thermal check
+            (`core/resource_gate.py:915-931`) denies any new model load
+            while `current_temp >= temp_critical`, so a still-hot device
+            cannot immediately reload the primary model regardless of
+            this sub-task. No new "tripped" flag/cooldown file is
+            needed; do not build one.
+          - **Retire the socket-triggerable path.** Confirmed again this
+            round (fresh grep across the whole repo, not trusting the
+            prior pass's note): no shipped script calls the socket
+            `shutdown` handler — `codey-stop`/`codeydOS` both use direct
+            `kill -TERM`/`kill -9` on tracked PIDs, never the daemon's
+            own socket protocol, and
+            `ccos/plugins/system/daemon_control/daemon_control.py`
+            explicitly declines to wrap it (its own docstring already
+            states why, citing the same
+            `PENDING_ISH_DECISIONS.md` item 2 this sub-task implements).
+            "Retire" means: remove `self.register_handler("shutdown",
+            self._handle_shutdown)` (`core/daemon.py:183`) and delete
+            `_handle_shutdown()` (`core/daemon.py:359-364`) outright —
+            not a no-op-with-log-line. Ish's own decision wording
+            ("`daemon_shutdown` is **repurposed** from a directly-
+            callable kill into an autonomous safety tripwire") describes
+            a replacement, not a still-present-but-inert path; leaving a
+            dead-but-registered handler around is exactly the kind of
+            "restorable by accident" surface this project has been bitten
+            by before. Also delete the module-level `daemon_shutdown()`
+            helper (`core/daemon.py:1303-1305`) — confirmed this round
+            (repo-wide grep) it has zero callers anywhere already, so
+            there's nothing this deletion could break. After removal, a
+            client that still sends `{"cmd": "shutdown"}` over the socket
+            gets the dispatcher's existing generic
+            `{"status": "error", "message": "Unknown command: shutdown"}`
+            response (`core/daemon.py:594`) — an already-existing, clear
+            failure path, not a new one this sub-task needs to design.
+          - **Live-verification criterion** (mirroring sub-task C's
+            concrete evidence bar, not "tests pass"): with the duration
+            env-override set to a short test value (seconds, not
+            minutes) and, if applicable per Ish's answer, thermal state
+            genuinely elevated or the CPU condition satisfied per
+            whichever option was chosen, on a **daemon-only harness**
+            (per this project's own NEW-14 swap-pressure finding —
+            do not run this alongside other concurrent model-load
+            testing), capture verbatim: `free -h` immediately before and
+            after the trip (rule 2); the accumulating per-tick warning
+            log lines as the sustained window builds; the trip-fired log
+            line itself with its `reason`; the daemon process exiting
+            with **no traceback** (covers the `_trigger_shutdown()`
+            double-close risk noted above); `ps aux | grep llama-server`
+            showing only the grep itself afterward (not just "daemon
+            process exited" — this is the whole point per the original
+            spec); the daemon's PID file removed; and
+            `resource_gate_state.json` showing no leaked slot for the
+            unloaded model (directly implied by the `finally:` block's
+            own existing comment about leaked slots wrongly counting
+            against every future admission decision — this sub-task is
+            the first to actually exercise that shutdown path for real).
+          - This is a process-lifecycle change (kill logic, the daemon's
+            only real shutdown-trigger surface) — mandatory code-reviewer
+            approval per CLAUDE.md rule 4 regardless of size, covering
+            both the autonomous trip logic and the retired external
+            trigger in one pass (still true, unchanged from the prior
+            scoping note) — plus live-verifier per the criterion above,
+            not code-complete alone.
        5. **Sub-task E — `daemon_control` plugin/manifest update.** Low
           risk, docs-adjacent: `manifest.json` and `daemon_control.py`'s
           docstring both still describe the pre-decision reasoning

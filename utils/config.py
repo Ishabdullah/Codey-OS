@@ -1,6 +1,7 @@
 import os
 import shutil
 from pathlib import Path
+from typing import Optional
 
 CODEY_DIR = Path(os.environ.get("CODEY_DIR", Path.home() / "Codey-OS"))
 MODEL_PATH = Path(
@@ -109,6 +110,138 @@ THERMAL_CONFIG = {
 
 # Initialize original_threads from MODEL_CONFIG
 THERMAL_CONFIG["original_threads"] = MODEL_CONFIG.get("n_threads", 4)
+
+# ── Autonomous shutdown tripwire config (7.4 sub-task D) ────────────────────
+# core/resource_gate.py's should_trip_shutdown() reads these two keys.
+# `shutdown_trip_after_sec` (default 1200 = 20 min) is the sustained-window
+# duration; `shutdown_cpu_pct` (default 90) is only used on the rare
+# hardware/environment where a real CPU% reading is actually available (see
+# should_trip_shutdown()'s own docstring for why this device's CPU leg is
+# always skipped instead of gating on this value — NEW-108).
+#
+# Both are overridable via env var (CODEY_SHUTDOWN_TRIP_AFTER_SEC /
+# CODEY_SHUTDOWN_CPU_PCT), same precedent as CODEY_N_CTX above and
+# core/resource_gate.py's CODEY_TEST_PRIMARY_ARCH: fail loudly on a bad
+# value rather than silently falling back, so a broken override can't
+# masquerade as "just using the default." These env vars exist ONLY so a
+# live-verification session can run with a drastically shortened duration
+# (e.g. 20 seconds instead of 20 minutes) without ever needing a practically
+# multi-hour session to observe a real trip — the committed default below
+# must NEVER be permanently lowered to make live-testing more convenient;
+# any lower value must come from the env var, set transiently for that one
+# test session, never from editing this file.
+
+
+def _thermal_int_env_override(env_name: str, default: int, max_value: Optional[int] = None) -> int:
+    raw = os.environ.get(env_name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+        if value <= 0:
+            raise ValueError("must be a positive integer")
+        if max_value is not None and value > max_value:
+            raise ValueError(f"must be <= {max_value}")
+    except ValueError as e:
+        raise ValueError(
+            f"{env_name}={raw!r} is not valid ({e}). Unset it to use the "
+            f"default ({default}) or set it to a valid positive whole number."
+        ) from e
+    return value
+
+
+THERMAL_CONFIG["shutdown_trip_after_sec"] = _thermal_int_env_override(
+    "CODEY_SHUTDOWN_TRIP_AFTER_SEC", 1200
+)
+# max_value=100: a CPU percentage above 100 would silently make the CPU leg
+# of should_trip_shutdown()'s AND unsatisfiable on any hardware where CPU is
+# actually measurable — fail loudly on that instead of accepting a value
+# that quietly defeats the check it's supposed to gate.
+THERMAL_CONFIG["shutdown_cpu_pct"] = _thermal_int_env_override(
+    "CODEY_SHUTDOWN_CPU_PCT", 90, max_value=100
+)
+
+# `CODEY_SHUTDOWN_TRIP_AFTER_SEC`/`CODEY_SHUTDOWN_CPU_PCT` above shorten the
+# tripwire's *duration*, but do nothing about the fixed 90°C threshold
+# itself — meaning a live-verification session that wants to observe a real
+# trip still needs to drive the device to a genuinely sustained 90°C, which
+# may not be practical in a short test session (code-reviewer follow-up,
+# 4.1 sub-task D). `CODEY_TEMP_CRITICAL_C` lets a live-verification session
+# temporarily lower the threshold to something the device's real ambient/
+# inference-load temperature can actually reach (e.g. 45°C), same
+# "transient, for one test session, never edited into the committed
+# default" posture as the two overrides above. `temp_critical` is also read
+# by `core/resource_gate.py`'s `can_admit()`/`can_dispatch_task()`
+# (model-admission and task-dispatch thermal checks), by
+# `core/recursive.py`'s `get_adaptive_depth()` (forces recursion depth to 0
+# once temp >= temp_critical — this one is the most surprising consumer,
+# since it silently changes agent behavior/output quality via
+# draft/critique/refine depth, not just a resource-gating decision), and by
+# `core/thermal.py`'s `ThermalManager._check_thermal_status()` (log-level
+# only, lower stakes) — this override affects all of those too, not just
+# the shutdown tripwire, since it's one shared threshold, not a separate
+# copy per consumer. That's expected for a live-test session (a lowered
+# threshold should make the whole thermal-gated stack behave
+# consistently), but is worth knowing before setting it during any session
+# that's also exercising admission/dispatch/recursion behavior.
+#
+# max_value=120: mirrors shutdown_cpu_pct's own max_value=100 guard
+# immediately above, for the same reason but a worse failure direction if
+# left unguarded — an unbounded-high override here wouldn't just defeat one
+# leg of one check (the CPU leg), it would silently make the ENTIRE thermal
+# stack unsatisfiable at once: can_admit()'s thermal check,
+# can_dispatch_task()'s thermal check, and the shutdown tripwire all stop
+# firing together, get_adaptive_depth()'s force-to-0 branch never fires
+# either, and ThermalManager's log-level reporting goes quiet too — since
+# all of these read this one shared key, not a separate copy per consumer.
+# This guard only rejects absurd/mistyped values (e.g. an accidental extra
+# digit) — it does NOT, by itself, catch a plausible-but-wrong value that
+# RAISES the threshold within range (e.g. 95, comfortably under 120, which
+# would still quietly disarm the tripwire relative to the committed 90).
+# That case is covered by the load-time warning below instead, which fires
+# on ANY active override, in either direction, not just an out-of-range
+# one.
+#
+# This override is also logged (not just silently applied) whenever it's
+# active and different from the committed default — unlike the two
+# duration-only overrides above, a LOWERED temp_critical arms the shutdown
+# tripwire (the admission/dispatch thermal checks, and
+# get_adaptive_depth()'s force-to-0 branch) at a temperature this device
+# can plausibly reach under ordinary inference load, not just under a
+# genuine overheat condition. A stray export left in a shell profile after
+# a live-test session should be visible in the logs on every subsequent
+# run, not a silent, easy-to-forget landmine.
+#
+# Captured BEFORE the override call, not hardcoded as a literal `90` in the
+# comparison below — this is the same value THERMAL_CONFIG["temp_critical"]
+# was set to a few lines above, so if that committed default is ever
+# retuned, the "is the override actually active?" comparison and the
+# warning message stay correct automatically instead of silently firing a
+# false "overriding to N (committed default is 90)" warning on every run
+# with no env var set at all.
+_temp_critical_default = THERMAL_CONFIG["temp_critical"]
+THERMAL_CONFIG["temp_critical"] = _thermal_int_env_override(
+    "CODEY_TEMP_CRITICAL_C", _temp_critical_default, max_value=120
+)
+if THERMAL_CONFIG["temp_critical"] != _temp_critical_default:
+    # Lazy import: utils.logger doesn't import utils.config, so this isn't a
+    # circular-import risk, but keeping it lazy (rather than a top-of-file
+    # import) matches this module's existing posture of not adding new
+    # unconditional imports for a rarely-exercised branch.
+    from utils.logger import warning as _warn_temp_critical_override
+
+    _warn_temp_critical_override(
+        f"utils.config: CODEY_TEMP_CRITICAL_C is overriding temp_critical to "
+        f"{THERMAL_CONFIG['temp_critical']}°C (committed default is "
+        f"{_temp_critical_default}°C) — this changes can_admit()/"
+        "can_dispatch_task()'s thermal checks, the autonomous shutdown "
+        "tripwire's trip point, core/recursive.py's get_adaptive_depth() "
+        "(forces recursion depth to 0 once temp >= temp_critical, silently "
+        "degrading agent output quality, not just resource gating), AND "
+        "core/thermal.py's ThermalManager log-level reporting — not just "
+        "live-verification timing. Unset it once the live-test session "
+        "that needs it is done."
+    )
 
 CODE_DIR = Path(__file__).parent.parent.resolve()
 WORKSPACE_ROOT = Path(os.getcwd()).resolve()

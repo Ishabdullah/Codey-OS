@@ -403,6 +403,105 @@ def reset_cpu_sampler() -> None:
     _cpu_history.clear()
 
 
+# ── Signal source 4: rolling thermal history (7.4 sub-task D) ───────────────
+# Mirrors the CPU sampler immediately above exactly (module-level rolling
+# history, "None on read failure, never a fabricated cool value" sentinel
+# contract) — built for should_trip_shutdown()'s sustained-window check,
+# same reason get_cpu_history() carries timestamps rather than just values.
+#
+# UNLIKE _cpu_history (which, per NEW-108, stays permanently EMPTY on this
+# device because /proc/stat is permission-denied here — see
+# sample_cpu_percent()'s docstring), read_current_temp_c() is already a
+# live, working signal on this device today. This history WILL actually
+# accumulate real samples here. State this explicitly so a future reader
+# does not conclude the CPU leg of should_trip_shutdown() "just hasn't
+# tripped yet" the way this thermal history has — it structurally cannot
+# populate on this hardware, full stop, not a timing accident.
+
+_temp_history: List[Tuple[float, float]] = []
+
+
+def _temp_history_max_age_sec() -> float:
+    """
+    How long a sample stays in `_temp_history` before being pruned by
+    `sample_temperature_c()`. Deliberately NOT a fixed module constant like
+    CPU_HISTORY_MAX_AGE_SEC — it's derived from
+    THERMAL_CONFIG["shutdown_trip_after_sec"] (read lazily, so it always
+    reflects any live CODEY_SHUTDOWN_TRIP_AFTER_SEC override) so this
+    pruning window can never be shorter than the tripwire's own configured
+    duration. Without this, an env-var override that RAISES the duration
+    (or a future committed default increase) could silently prune away the
+    exact history should_trip_shutdown()'s sustained-window check needs,
+    turning the tripwire into a permanent no-op with no error anywhere.
+    Floors at 30 minutes (matching CPU_HISTORY_MAX_AGE_SEC's own margin
+    reasoning) so a drastically-shortened live-test duration doesn't shrink
+    the retained history to something impractically small either.
+    """
+    from utils.config import THERMAL_CONFIG
+
+    duration = THERMAL_CONFIG.get("shutdown_trip_after_sec", 1200)
+    return max(CPU_HISTORY_MAX_AGE_SEC, duration * 1.5)
+
+
+def sample_temperature_c(read_temp_fn=None) -> Optional[float]:
+    """
+    Take one rolling temperature sample and append it to `_temp_history`,
+    returning the sampled value, or None if unreadable. Meant to be called
+    once per daemon watchdog tick (~30s apart), same cadence as
+    `sample_cpu_percent()`.
+
+    `read_temp_fn` defaults to this module's `read_current_temp_c` (a live
+    thermal read) if not supplied — same injectable-callable convention as
+    `get_resource_snapshot()`'s own `read_temp_fn` parameter, so tests never
+    need to touch real hardware or monkeypatch a module-level name.
+
+    None (not some fabricated "cool" value like 0.0) is returned on a read
+    failure, and no history entry is recorded for it — same sentinel
+    contract as `sample_cpu_percent()`'s own docstring explains: a caller
+    (`should_trip_shutdown()`) must not read a failed read as "confirmed
+    cool" any more than a failed CPU read should look like "confirmed
+    idle."
+    """
+    if read_temp_fn is None:
+        read_temp_fn = read_current_temp_c
+    try:
+        temp = read_temp_fn()
+    except Exception as e:
+        warning(f"resource_gate: temperature sample read failed, treating as unavailable: {e}")
+        return None
+    if temp is None:
+        return None
+    _temp_history.append((time.time(), temp))
+    cutoff = time.time() - _temp_history_max_age_sec()
+    _temp_history[:] = [(t, v) for t, v in _temp_history if t >= cutoff]
+    return temp
+
+
+def get_temp_history(max_age_sec: Optional[float] = None) -> List[Tuple[float, float]]:
+    """
+    Return `(timestamp, temperature_c)` samples recorded by
+    `sample_temperature_c()`, most-recent last. Mirrors `get_cpu_history()`
+    exactly — see its docstring for why timestamps (not just values) are
+    kept.
+
+    `max_age_sec`, if given, filters to samples newer than `now - max_age_sec`
+    (in addition to the unconditional pruning `sample_temperature_c()`
+    already applies on every call, via `_temp_history_max_age_sec()`).
+    """
+    if max_age_sec is None:
+        return list(_temp_history)
+    cutoff = time.time() - max_age_sec
+    return [(t, v) for t, v in _temp_history if t >= cutoff]
+
+
+def reset_temp_sampler() -> None:
+    """
+    Reset the rolling thermal sampler's process-global history. Test-only
+    convenience, same precedent as `reset_cpu_sampler()` immediately above.
+    """
+    _temp_history.clear()
+
+
 # ── Snapshot composer ────────────────────────────────────────────────────────
 # "Single resource-gate authority" (per this module's own module docstring
 # and WORK_QUEUE.md's Phase 1 framing): composes every live signal this
@@ -1105,6 +1204,278 @@ def can_dispatch_task(
         )
 
     return DispatchDecision(allowed=True, reason="within resource limits")
+
+
+# ── Autonomous shutdown tripwire (7.4 sub-task D) ────────────────────────────
+# `should_trip_shutdown()` decides whether core/daemon.py's `_main_loop()`
+# watchdog tick should call `_trigger_shutdown()` — a fully autonomous,
+# process-internal decision with no socket-triggerable equivalent (the old
+# `shutdown` socket command / `daemon_shutdown()` helper were retired in this
+# same sub-task; see core/daemon.py). Implements Ish's 2026-08-10 decision on
+# PENDING_ISH_DECISIONS.md item 2 (option 3, "CPU-as-veto-only-when-
+# measurable" — see WORK_QUEUE.md Track 3 item 2 sub-task D for the full
+# three-option writeup this resolves; options 1 "thermal-only-permanent" and
+# 2 "strict AND, unlive-verifiable-forever-on-this-device" were both
+# explicitly NOT chosen).
+
+DEFAULT_MIN_QUALIFYING_FRACTION = 0.8
+
+# Expected spacing between samples under normal operation — matches the
+# daemon's own 30s watchdog tick (core/daemon.py's `_main_loop()`, which
+# calls `sample_temperature_c()`/`sample_cpu_percent()` once per tick; see
+# that module's own `_watchdog_ticks >= 60` comment at a 0.5s per-tick
+# sleep). Used only to compute how many samples a genuinely-sustained
+# trailing window *should* contain, for `_sustained_trailing_run()`'s
+# density check below — not to reject any individual sample's timing.
+EXPECTED_SAMPLE_INTERVAL_SEC = 30.0
+
+# Minimum fraction of the *expected* tick count for a trailing window's span
+# that must actually be present, in addition to (not instead of) the
+# existing "fraction of present samples above threshold" check. Guards
+# against a sparse-history false-trip: e.g. two samples 25 minutes apart
+# (a real reachable case — a run of failed thermal reads, per
+# `sample_temperature_c()`'s "append nothing on a None read" contract,
+# followed by one hot sample after the gap) satisfies the span check and a
+# 100%-qualifying-fraction check with only 2 of the ~50 samples a genuinely
+# 25-minute-sustained run at the normal 30s tick rate would contain. 0.5 is
+# a deliberately generous floor (comfortably tolerant of missed/failed
+# reads and real tick jitter) that still rejects a history this sparse by
+# roughly an order of magnitude.
+#
+# Live-verification caveat: with `duration_sec` shortened to something on
+# the order of `EXPECTED_SAMPLE_INTERVAL_SEC` (30s) or less — e.g. a
+# live-verification session using `CODEY_SHUTDOWN_TRIP_AFTER_SEC=20` to
+# observe a real trip without a multi-hour session — the backward walk in
+# `_sustained_trailing_run()` below always stops at the FIRST window whose
+# span first reaches `duration_sec`, which at the daemon's normal ~30s tick
+# cadence is a 2-sample, ~30s-span window. At that span, `expected_count =
+# max(1.0, span / EXPECTED_SAMPLE_INTERVAL_SEC)` floors at 1.0, so density
+# is always >= 1.0 there and this branch never rejects. (The floor does NOT
+# make the guard vacuous in general — e.g. 2 samples 25 minutes apart still
+# computes density ~0.04 and correctly rejects; it only fails to bind at
+# the specific short spans a shortened live-test duration produces.) A
+# live-verification session run this way will therefore NOT exercise this
+# rejecting branch at all — only the unit tests do. Do not treat "sub-task
+# D was live-verified" as evidence this density-guard fix specifically was
+# live-verified; those are separate claims.
+MIN_QUALIFYING_DENSITY_FRACTION = 0.5
+
+
+def _sustained_trailing_run(
+    history: List[Tuple[float, float]],
+    threshold: float,
+    duration_sec: float,
+    min_fraction: float = DEFAULT_MIN_QUALIFYING_FRACTION,
+    min_density_fraction: float = MIN_QUALIFYING_DENSITY_FRACTION,
+) -> Tuple[bool, str]:
+    """
+    Shared "is this signal sustained above threshold" check for
+    `should_trip_shutdown()`'s thermal (and, when measurable, CPU) legs.
+    `history` must be the FULL retained history (e.g. `get_temp_history()`/
+    `get_cpu_history()` called with no `max_age_sec`, or an equivalent
+    synthetic list in tests) — NOT pre-filtered to `duration_sec`, since
+    filtering first would make the span check below trivially always pass
+    or always fail regardless of the real data (the filtered window's own
+    span is bounded above by the filter itself).
+
+    Two independently-required conditions, not one "N samples above
+    threshold" check:
+      (a) the MOST RECENT sample must itself be at/above `threshold` — a run
+          that was hot for most of the window but has already cooled off by
+          the latest tick must not still read as "currently sustained": by
+          the time this is evaluated, that condition has already passed.
+      (b) walking back from the most recent sample to the oldest sample
+          within `duration_sec` of it (the "trailing window"), that window
+          must (b1) actually *span* `duration_sec` (oldest-to-newest gap in
+          the trailing window, not just "some samples exist somewhere in
+          history") — a freshly-restarted daemon (history starts empty on
+          every restart — see `should_trip_shutdown()`'s own docstring) with
+          only a couple of hot ticks must not trivially satisfy this — and
+          (b2) at least `min_fraction` of samples within that window must be
+          at/above `threshold` — guards against one cool blip inside an
+          otherwise-sustained run resetting a naive "must be unbroken" check
+          to zero, and (b3) the window must actually be DENSELY sampled —
+          at least `min_density_fraction` of the sample count a genuinely
+          continuous run at `EXPECTED_SAMPLE_INTERVAL_SEC` spacing would
+          have produced over that span must actually be present. Without
+          this, a sparse history (e.g. two samples 25 minutes apart, both
+          above threshold — reachable via a run of failed reads that append
+          nothing, per `sample_temperature_c()`'s sentinel contract,
+          followed by one hot sample after the gap) would satisfy both the
+          span check (b1) and a 100%-qualifying-fraction check (b2) despite
+          reflecting almost no actual sustained observation.
+
+    Returns `(satisfied, detail)`; `detail` explains the verdict either way,
+    for `should_trip_shutdown()`'s own `reason` string.
+    """
+    if not history:
+        return False, "no samples recorded yet"
+
+    newest_ts, newest_val = history[-1]
+    if newest_val < threshold:
+        return False, (
+            f"most recent sample ({newest_val:.1f}) is below threshold "
+            f"({threshold}) — not currently sustained regardless of earlier history"
+        )
+
+    # Walk backward from the most recent sample, accumulating the qualifying
+    # count as we go, and stop at the FIRST (i.e. smallest, most-recent-
+    # weighted) window whose span reaches `duration_sec`. This is
+    # deliberately NOT "pre-filter to samples newer than `now - duration_sec`,
+    # then check that slice's own span" — at a jittery real tick rate
+    # (30s +/- loop overhead), a duration-bounded filter's own span can only
+    # ever be <= duration_sec, so a `span >= duration_sec` check against it
+    # can (almost) never pass in production, only in a hand-placed test with
+    # samples at an exact synthetic interval landing precisely on the
+    # boundary. Walking the full, unfiltered history and stopping once the
+    # accumulated span first reaches `duration_sec` (which, with real
+    # jittery ticks, will be slightly ABOVE duration_sec, not exactly equal
+    # to it) is what makes this actually satisfiable outside a contrived
+    # exact-interval test.
+    qualifying = 0
+    for offset, (ts, val) in enumerate(reversed(history)):
+        if val >= threshold:
+            qualifying += 1
+        span = newest_ts - ts
+        count = offset + 1
+        if span >= duration_sec:
+            expected_count = max(1.0, span / EXPECTED_SAMPLE_INTERVAL_SEC)
+            density = count / expected_count
+            if density < min_density_fraction:
+                return False, (
+                    f"only {count} sample(s) present in the {span:.0f}s trailing "
+                    f"window (expected ~{expected_count:.0f} at "
+                    f"{EXPECTED_SAMPLE_INTERVAL_SEC:.0f}s spacing, density "
+                    f"{density:.0%} < required {min_density_fraction:.0%}) — too "
+                    "sparse to conclude sustained"
+                )
+            fraction = qualifying / count
+            if fraction < min_fraction:
+                return False, (
+                    f"only {fraction:.0%} of samples in the {span:.0f}s trailing "
+                    f"window are at/above {threshold} (need >= {min_fraction:.0%})"
+                )
+            return True, (
+                f"{fraction:.0%} of samples over a {span:.0f}s trailing window "
+                f"at/above {threshold} (most recent sample {newest_val:.1f})"
+            )
+
+    # Exhausted the full retained history without ever reaching the required
+    # span — insufficient history to conclude sustained (expected for the
+    # first ~duration_sec after any daemon restart, since history is
+    # process-global and starts empty; see should_trip_shutdown()'s
+    # docstring).
+    span = newest_ts - history[0][0]
+    return False, (
+        f"trailing window only spans {span:.0f}s of the required "
+        f"{duration_sec:.0f}s — insufficient history to conclude sustained "
+        "(expected for the first ~duration after any daemon restart, since "
+        "history is process-global and starts empty)"
+    )
+
+
+@dataclass(frozen=True)
+class TripDecision:
+    should_trip: bool
+    reason: str
+
+
+def should_trip_shutdown(
+    temp_history: Optional[List[Tuple[float, float]]] = None,
+    cpu_history: Optional[List[Tuple[float, float]]] = None,
+) -> TripDecision:
+    """
+    Decide whether the daemon should autonomously trigger its own shutdown.
+
+    Thermal leg (always evaluated): a sustained run of temperature samples
+    at/above `THERMAL_CONFIG["temp_critical"]` (90°C — the same threshold
+    `can_admit()`/`can_dispatch_task()` already use, not a new number)
+    spanning at least `THERMAL_CONFIG["shutdown_trip_after_sec"]` (default
+    1200s/20min, env-overridable via CODEY_SHUTDOWN_TRIP_AFTER_SEC — see
+    utils/config.py). See `_sustained_trailing_run()`'s own docstring for
+    exactly what "sustained" requires here.
+
+    CPU leg (conditionally evaluated — Ish's option 3, decided 2026-08-10):
+    on THIS device, `get_cpu_history()` is confirmed (NEW-108) to NEVER
+    accumulate any samples — `/proc/stat` is permission-denied under
+    Termux, and `sample_cpu_percent()` only ever appends a value when it
+    actually measured one (see its own docstring), so an EMPTY
+    `cpu_history` reliably means "CPU unmeasurable here," not "hasn't
+    tripped yet." Whenever `cpu_history` is empty, the thermal leg alone is
+    sufficient to trip. This is Ish's explicit, direct decision, not a
+    default implementer chose by analogy: the opposite fail-open direction
+    (refusing to ever trip because CPU can't be confirmed) would mean a
+    genuinely overheating, unsupervised device keeps running hot for
+    longer — the exact failure mode this tripwire exists to catch — whereas
+    `can_dispatch_task()`'s own CPU-None fail-open (a different function,
+    a different consequence direction) only ever makes an "allow new work"
+    decision more permissive on a missing signal. On hardware/environment
+    where CPU IS actually measurable (`cpu_history` non-empty), the same
+    sustained-run check is ALSO required against
+    `THERMAL_CONFIG["shutdown_cpu_pct"]` (default 90, env-overridable via
+    CODEY_SHUTDOWN_CPU_PCT) as a genuine second leg of the AND — this
+    predicate degrades gracefully rather than being permanently
+    thermal-only by construction.
+
+    Both `_temp_history` and `_cpu_history` are process-global module state
+    (see `sample_temperature_c()`/`sample_cpu_percent()`) — a daemon
+    restart clears both, so no trip is possible for at least
+    `shutdown_trip_after_sec` after any daemon restart. This is intended,
+    not a gap: there is no history persisted across restarts to trip on,
+    and a freshly-restarted daemon has no basis for concluding "sustained."
+
+    `temp_history`/`cpu_history` default to reading live module state
+    (`get_temp_history()`/`get_cpu_history()`, with no `max_age_sec` filter
+    — see `_sustained_trailing_run()`'s docstring for why the FULL history
+    must be passed in, not a pre-filtered slice) but are independently
+    injectable, matching `can_dispatch_task()`'s own "inject everything"
+    test convention — tests should always pass synthetic histories rather
+    than depending on this process's real accumulated state. Passing
+    `cpu_history=[]` explicitly (as opposed to leaving it `None`, which
+    reads live module state) is how a test deterministically exercises the
+    "CPU unmeasurable" branch regardless of what this process has actually
+    sampled.
+    """
+    from utils.config import THERMAL_CONFIG
+
+    temp_critical = THERMAL_CONFIG.get("temp_critical", 90)
+    duration_sec = THERMAL_CONFIG.get("shutdown_trip_after_sec", 1200)
+    cpu_pct_threshold = THERMAL_CONFIG.get("shutdown_cpu_pct", 90)
+
+    if temp_history is None:
+        temp_history = get_temp_history()
+    if cpu_history is None:
+        cpu_history = get_cpu_history()
+
+    thermal_ok, thermal_detail = _sustained_trailing_run(temp_history, temp_critical, duration_sec)
+    if not thermal_ok:
+        return TripDecision(should_trip=False, reason=f"thermal leg not satisfied: {thermal_detail}")
+
+    if not cpu_history:
+        return TripDecision(
+            should_trip=True,
+            reason=(
+                f"sustained thermal trip ({thermal_detail}); CPU unmeasurable on "
+                "this device (NEW-108) — thermal alone sufficient per Ish's "
+                "2026-08-10 option-3 decision"
+            ),
+        )
+
+    cpu_ok, cpu_detail = _sustained_trailing_run(cpu_history, cpu_pct_threshold, duration_sec)
+    if not cpu_ok:
+        return TripDecision(
+            should_trip=False,
+            reason=(
+                f"thermal leg satisfied ({thermal_detail}) but CPU leg not satisfied: "
+                f"{cpu_detail} — CPU is measurable here, so both legs of the AND are "
+                "required"
+            ),
+        )
+
+    return TripDecision(
+        should_trip=True,
+        reason=f"sustained thermal+CPU trip — thermal: {thermal_detail}; CPU: {cpu_detail}",
+    )
 
 
 # ── CPU thread/core allocation ───────────────────────────────────────────────

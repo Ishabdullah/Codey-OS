@@ -584,8 +584,39 @@ both would mean coding against an interface that doesn't exist yet.
       in the codebase to recover an orphaned row — a genuine new gap this
       sub-task's restructuring introduces). **Not live-verified** — live-
       verification is being deliberately held until Ish gives explicit
-      go-ahead, not assumed to follow automatically. Sub-tasks D-E not
-      started.
+      go-ahead, not assumed to follow automatically. **Sub-task D
+      (`should_trip_shutdown` autonomous tripwire + retire the socket
+      `shutdown` handler) — code-complete, pending code-reviewer
+      approval.** `PENDING_ISH_DECISIONS.md` item 2's CPU-signal question
+      (strict AND vs. thermal-only vs. CPU-as-veto-only-when-measurable —
+      see WQ Track 3 item 2 sub-task D for the full three-option writeup)
+      was **decided by Ish, 2026-08-10: option 3 (CPU-as-veto-only-when-
+      measurable)** — `should_trip_shutdown()` trips on sustained severe
+      thermal alone whenever CPU is unmeasurable (always, on this device,
+      per `NEW-108`), and additionally requires a genuine `>90%` CPU leg
+      on any future hardware/environment where CPU IS readable. Implemented
+      in `core/resource_gate.py`: rolling thermal-history sampler
+      (`sample_temperature_c()`/`get_temp_history()`/
+      `reset_temp_sampler()`, mirroring sub-task A's CPU sampler),
+      `should_trip_shutdown()`/`_sustained_trailing_run()`, watchdog-tick
+      wiring in `core/daemon.py`'s `_main_loop()`, `THERMAL_CONFIG`
+      duration/threshold keys with `CODEY_SHUTDOWN_TRIP_AFTER_SEC`/
+      `CODEY_SHUTDOWN_CPU_PCT` env overrides for live-verification,
+      routing exclusively through the existing `_trigger_shutdown()`
+      (never a raw exit), and full removal (not a no-op) of the socket
+      `shutdown` handler and the now-unused `daemon_shutdown()` helper.
+      A sparse-history false-trip bug (`_sustained_trailing_run()`
+      checking only the *fraction* of present samples above threshold,
+      never their density, so e.g. two samples 25 minutes apart could
+      trip the daemon) was found and fixed in code-reviewer's first pass
+      — a minimum sample-density check was added alongside the existing
+      span + fraction checks, with a regression test for the exact
+      reviewer-reproduced case. **Not live-verified** — live-verification
+      for sub-tasks C and D is being deliberately batched and held for
+      Ish's explicit go-ahead, per the note above. Sub-task E (update
+      `ccos/plugins/system/daemon_control/daemon_control.py`'s manifest/
+      docstring, which still describe the now-retired `shutdown` socket
+      handler) not started.
 - [ ] 7.3 (WQ Track 3 item 3, "Phase 5b") — Task classifier + tier
       config, coding domain only: non-LLM heuristic classifier;
       `(domain, role, tier) → model` config; reconcile with (don't

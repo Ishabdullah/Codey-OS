@@ -1443,3 +1443,238 @@ def test_can_dispatch_task_priority_interactive_over_thermal():
     decision = rg.can_dispatch_task(snap, interactive_active=True)
     assert decision.allowed is False
     assert "interactive" in decision.reason.lower()
+
+
+# ── Rolling thermal sampler (7.4 sub-task D) ─────────────────────────────────
+# Mirrors the CPU sampler tests above exactly — see that section's own
+# comments for the reasoning; this one differs only in that a real
+# read_temp_fn stub (not a synthetic /proc/stat file) is injected, matching
+# sample_temperature_c()'s own read_temp_fn parameter.
+
+
+@pytest.fixture(autouse=False)
+def _clean_temp_sampler():
+    rg.reset_temp_sampler()
+    yield
+    rg.reset_temp_sampler()
+
+
+def test_sample_temperature_c_records_history_and_returns_value(_clean_temp_sampler):
+    pct = rg.sample_temperature_c(read_temp_fn=lambda: 42.5)
+    assert pct == pytest.approx(42.5)
+    history = rg.get_temp_history()
+    assert len(history) == 1
+    ts, recorded = history[0]
+    assert recorded == pytest.approx(42.5)
+    assert ts <= time.time()
+
+
+def test_sample_temperature_c_unreadable_returns_none_and_no_history(_clean_temp_sampler):
+    # None (not a fabricated "cool" value): a failed/unavailable read must
+    # not be indistinguishable from a genuinely cool reading — same
+    # sentinel contract as sample_cpu_percent().
+    assert rg.sample_temperature_c(read_temp_fn=lambda: None) is None
+    assert rg.get_temp_history() == []
+
+
+def test_sample_temperature_c_raising_read_fn_returns_none_and_no_history(_clean_temp_sampler):
+    def _raise():
+        raise OSError("no thermal zone")
+
+    assert rg.sample_temperature_c(read_temp_fn=_raise) is None
+    assert rg.get_temp_history() == []
+
+
+def test_get_temp_history_filters_by_max_age(_clean_temp_sampler):
+    rg.sample_temperature_c(read_temp_fn=lambda: 50.0)
+    # Backdate the one recorded sample beyond any reasonable max_age filter.
+    rg._temp_history[:] = [(time.time() - 3600, v) for _, v in rg._temp_history]
+    assert rg.get_temp_history(max_age_sec=60) == []
+    assert len(rg.get_temp_history()) == 1  # unfiltered call still sees it
+
+
+def test_reset_temp_sampler_clears_history(_clean_temp_sampler):
+    rg.sample_temperature_c(read_temp_fn=lambda: 60.0)
+    assert rg.get_temp_history() != []
+    rg.reset_temp_sampler()
+    assert rg.get_temp_history() == []
+
+
+# ── should_trip_shutdown() (7.4 sub-task D) ──────────────────────────────────
+# Every test builds synthetic (timestamp, value) histories directly and
+# passes them via temp_history=/cpu_history= — matching this module's
+# "inject everything" test convention (see can_dispatch_task()'s own tests
+# above) — no real thermal/CPU state or reset-sampler fixtures needed here.
+
+_TEMP_CRITICAL = 90  # THERMAL_CONFIG["temp_critical"], unmodified
+_DURATION_SEC = 1200  # THERMAL_CONFIG["shutdown_trip_after_sec"] default
+_CPU_THRESHOLD = 90  # THERMAL_CONFIG["shutdown_cpu_pct"] default
+
+
+def _synthetic_history(values, interval_sec=30.0, end_ts=None):
+    """Build an ascending (timestamp, value) history, `interval_sec` apart,
+    ending at `end_ts` (default: now) — values[-1] is the most recent
+    sample."""
+    if end_ts is None:
+        end_ts = time.time()
+    n = len(values)
+    return [(end_ts - (n - 1 - i) * interval_sec, values[i]) for i in range(n)]
+
+
+def test_should_trip_shutdown_no_trip_on_short_insufficient_run():
+    # All samples above threshold, but the run doesn't span the required
+    # duration — a freshly-started daemon with only a few hot ticks must
+    # not trivially trip this.
+    history = _synthetic_history([95.0] * 10, interval_sec=30.0)  # spans 270s < 1200s
+    decision = rg.should_trip_shutdown(temp_history=history, cpu_history=[])
+    assert decision.should_trip is False
+    assert "insufficient" in decision.reason.lower() or "spans" in decision.reason.lower()
+
+
+def test_should_trip_shutdown_trips_on_genuinely_sustained_run():
+    # 41 samples 30s apart spans exactly 1200s (~20 minutes at the daemon's
+    # 30s tick rate) — the minimum genuinely-sustained case.
+    history = _synthetic_history([95.0] * 41, interval_sec=30.0)
+    decision = rg.should_trip_shutdown(temp_history=history, cpu_history=[])
+    assert decision.should_trip is True
+    assert "thermal" in decision.reason.lower()
+
+
+def test_should_trip_shutdown_no_trip_if_most_recent_sample_has_cooled():
+    # Hot for the whole window except the very latest tick — by the time
+    # this is evaluated, the condition has already passed; must not still
+    # read as "currently sustained."
+    values = [95.0] * 40 + [50.0]
+    history = _synthetic_history(values, interval_sec=30.0)
+    decision = rg.should_trip_shutdown(temp_history=history, cpu_history=[])
+    assert decision.should_trip is False
+
+
+def test_should_trip_shutdown_single_cool_blip_does_not_reset_window():
+    # One cool sample in the middle of an otherwise-sustained run must not
+    # reset the whole window to zero (naive "must be unbroken" check).
+    values = [95.0] * 41
+    values[20] = 50.0  # one blip well inside the window, not the latest sample
+    history = _synthetic_history(values, interval_sec=30.0)
+    decision = rg.should_trip_shutdown(temp_history=history, cpu_history=[])
+    assert decision.should_trip is True
+
+
+def test_should_trip_shutdown_too_many_cool_samples_breaks_qualifying_fraction():
+    # Half the window below threshold — fraction (~50%) is well under the
+    # 80% qualifying floor, even though the most recent sample is hot.
+    values = [95.0 if i % 2 == 0 else 50.0 for i in range(41)]
+    values[-1] = 95.0  # ensure the most-recent-sample check isn't what fails this
+    history = _synthetic_history(values, interval_sec=30.0)
+    decision = rg.should_trip_shutdown(temp_history=history, cpu_history=[])
+    assert decision.should_trip is False
+
+
+def test_should_trip_shutdown_cpu_none_means_thermal_alone_suffices():
+    # cpu_history=[] mirrors get_cpu_history()'s real, always-empty return
+    # on this device (NEW-108: sample_cpu_percent() never appends when
+    # unmeasurable) — thermal-alone must be sufficient per Ish's
+    # 2026-08-10 option-3 decision.
+    history = _synthetic_history([95.0] * 41, interval_sec=30.0)
+    decision = rg.should_trip_shutdown(temp_history=history, cpu_history=[])
+    assert decision.should_trip is True
+    assert "unmeasurable" in decision.reason.lower() or "unmeasured" in decision.reason.lower()
+
+
+def test_should_trip_shutdown_cpu_measurable_and_genuinely_enforced():
+    # Synthetic case where CPU IS measurable (non-empty cpu_history) — the
+    # AND must be genuinely enforced: thermal alone is no longer enough.
+    temp_history = _synthetic_history([95.0] * 41, interval_sec=30.0)
+    cpu_history_low = _synthetic_history([10.0] * 41, interval_sec=30.0)  # well under 90%
+    decision = rg.should_trip_shutdown(temp_history=temp_history, cpu_history=cpu_history_low)
+    assert decision.should_trip is False
+    assert "cpu" in decision.reason.lower()
+
+    cpu_history_high = _synthetic_history([95.0] * 41, interval_sec=30.0)  # sustained >90%
+    decision2 = rg.should_trip_shutdown(temp_history=temp_history, cpu_history=cpu_history_high)
+    assert decision2.should_trip is True
+    assert "cpu" in decision2.reason.lower()
+
+
+def test_should_trip_shutdown_trips_with_jittered_real_tick_spacing():
+    # Regression case for a bug caught in review: an earlier implementation
+    # pre-filtered history to a `duration_sec`-wide window and then required
+    # THAT window's own span to be >= duration_sec — which, at a real
+    # 30s-ish tick rate, made the check unsatisfiable outside an exact,
+    # hand-placed synthetic boundary sample (span is bounded above by the
+    # filter itself). 45 samples at a jittered 30.4s interval span ~1338s
+    # (comfortably past the 1200s duration, the way real ticks with loop
+    # overhead actually would) — this must still trip.
+    history = _synthetic_history([95.0] * 45, interval_sec=30.4)
+    decision = rg.should_trip_shutdown(temp_history=history, cpu_history=[])
+    assert decision.should_trip is True
+
+
+def test_should_trip_shutdown_no_trip_on_sparse_history_false_trip():
+    # Regression case (code-reviewer, reproduced live): two samples 25
+    # minutes apart, both above threshold, satisfy the naive span +
+    # fraction-above-threshold checks (2/2 = 100% qualifying, span = 1500s
+    # >= 1200s) despite reflecting almost no actual sustained observation.
+    # Reachable in production via a run of failed thermal reads (each of
+    # which appends nothing, per sample_temperature_c()'s sentinel
+    # contract) followed by one hot sample after the gap. Must NOT trip.
+    now = time.time()
+    history = [(now - 1500, 95.0), (now, 95.0)]
+    decision = rg.should_trip_shutdown(temp_history=history, cpu_history=[])
+    assert decision.should_trip is False
+
+
+def test_should_trip_shutdown_trips_at_half_density_boundary():
+    # Pins MIN_QUALIFYING_DENSITY_FRACTION's own boundary: a 1200s window
+    # with every-other-30s-tick read dropped (60s effective spacing, ~50%
+    # of the ~40 samples a fully-populated window would have) is the
+    # accepted tradeoff this constant deliberately allows through — a
+    # plausible real-world case (intermittent thermal-read failures during
+    # a genuinely hot period, e.g. Android doze or thermal-driver
+    # contention) must still trip, not silently stop working. If this test
+    # starts failing after a change to MIN_QUALIFYING_DENSITY_FRACTION,
+    # that's a deliberate tradeoff to re-justify, not a regression to
+    # silently "fix" by loosening the assertion. The boundary itself is
+    # `density < min_density_fraction` (strict) in
+    # _sustained_trailing_run() — exactly 50% density trips, it does not
+    # fail; the precondition assert below pins that against the real
+    # constant rather than a hardcoded 0.5 literal, so a future change to
+    # MIN_QUALIFYING_DENSITY_FRACTION produces a failure that names the
+    # constant instead of a mysterious sample-count mismatch.
+    expected_count = 1200.0 / rg.EXPECTED_SAMPLE_INTERVAL_SEC  # 40
+    assert 21 / expected_count >= rg.MIN_QUALIFYING_DENSITY_FRACTION
+    history = _synthetic_history([95.0] * 21, interval_sec=60.0)  # spans 1200s, 21 samples
+    decision = rg.should_trip_shutdown(temp_history=history, cpu_history=[])
+    assert decision.should_trip is True
+
+
+def test_should_trip_shutdown_no_trip_just_below_density_boundary():
+    # Two fewer samples than the half-density case above, spanning the same
+    # 1200s window — must NOT trip. Paired with the test above to pin both
+    # sides of the boundary; see that test's docstring for the strict `<`
+    # boundary semantics this precondition assert pins against the real
+    # constant.
+    expected_count = 1200.0 / rg.EXPECTED_SAMPLE_INTERVAL_SEC  # 40
+    n = 19
+    assert n / expected_count < rg.MIN_QUALIFYING_DENSITY_FRACTION
+    now = time.time()
+    history = [(now - (n - 1 - i) * (1200.0 / (n - 1)), 95.0) for i in range(n)]
+    decision = rg.should_trip_shutdown(temp_history=history, cpu_history=[])
+    assert decision.should_trip is False
+    assert "sparse" in decision.reason.lower() or "density" in decision.reason.lower()
+
+
+def test_should_trip_shutdown_no_trip_on_empty_temp_history():
+    decision = rg.should_trip_shutdown(temp_history=[], cpu_history=[])
+    assert decision.should_trip is False
+
+
+def test_should_trip_shutdown_default_args_read_live_module_state(monkeypatch):
+    # Confirm the None-default path actually reads get_temp_history()/
+    # get_cpu_history() rather than only ever being exercised via explicit
+    # injection in the tests above.
+    history = _synthetic_history([95.0] * 41, interval_sec=30.0)
+    monkeypatch.setattr(rg, "get_temp_history", lambda: list(history))
+    monkeypatch.setattr(rg, "get_cpu_history", lambda: [])
+    decision = rg.should_trip_shutdown()
+    assert decision.should_trip is True

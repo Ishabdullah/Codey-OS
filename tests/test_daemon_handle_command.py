@@ -54,3 +54,41 @@ def test_no_prompt_is_error(tmp_path):
     server, _ = _server(tmp_path / "state.db")
     resp = _run(server._handle_command({}))
     assert resp["status"] == "error"
+
+
+# ── Retired socket-triggerable shutdown path (TODO.md 4.1 sub-task D) ───────
+# `daemon_shutdown` is repurposed from a directly-callable socket kill into
+# an autonomous thermal tripwire (core/resource_gate.py's
+# should_trip_shutdown() / core/daemon.py's _trigger_shutdown()) — there is
+# no live production caller of the old socket path left (confirmed via
+# repo-wide grep during scoping), so it is fully removed, not left
+# registered-but-inert.
+
+
+def test_shutdown_handler_no_longer_registered(tmp_path):
+    server, _ = _server(tmp_path / "state.db")
+    assert "shutdown" not in server._handlers
+    # Mirrors _handle_client()'s own dispatch logic
+    # (core/daemon.py:~581-585): an unregistered cmd falls through to the
+    # dispatcher's existing generic "Unknown command" response — nothing
+    # new needed for this, it's already the fallback behavior.
+    cmd = "shutdown"
+    handler = server._handlers.get(cmd)
+    assert handler is None
+    response = (
+        {"status": "ok"}
+        if handler
+        else {"status": "error", "message": f"Unknown command: {cmd}"}
+    )
+    assert response == {"status": "error", "message": "Unknown command: shutdown"}
+
+
+def test_handle_shutdown_method_removed(tmp_path):
+    server, _ = _server(tmp_path / "state.db")
+    assert not hasattr(server, "_handle_shutdown")
+
+
+def test_daemon_shutdown_module_helper_removed():
+    import core.daemon as daemon_mod
+
+    assert not hasattr(daemon_mod, "daemon_shutdown")

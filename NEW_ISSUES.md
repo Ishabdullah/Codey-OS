@@ -6064,3 +6064,79 @@ finding for the same bug. See `NEW-39`.)*
   any task today, not just this path) or a narrower fix reordering the
   two writes so the raw row is marked `done` atomically with (or before)
   `add_tasks()`, whichever a later round decides is the right shape.
+
+### [NEW-115] `core/resource_gate.py`'s module docstring still claims the module is "NOT wired into `core/daemon.py`... yet" — stale after 7.4 sub-tasks A/C/D all landed and wired it in
+
+- **Status: Confirmed** by direct code read during 4.1 sub-task D. The
+  module docstring (`core/resource_gate.py:6-13`) reads: "This module is
+  the 'single authority' for model-load admission decisions... It is
+  NOT wired into `core/daemon.py`, `core/loader_v2.py`,
+  `core/planner_loader.py`, or `main.py` yet — that migration is
+  sub-tasks 2-5..." and closes with "Nothing in this module is wired
+  into a live process yet." Both statements are wrong as of this round:
+  sub-task A's CPU/thermal sampling is ticked from `core/daemon.py`'s
+  `_main_loop()` watchdog, sub-task C's `can_dispatch_task()` gates
+  `_process_planner_tasks()`, and sub-task D's `should_trip_shutdown()`
+  drives `_trigger_shutdown()` from the same watchdog tick — all three
+  are live in the daemon process today.
+- **Impact:** cosmetic/maintainability only — a future reader trusting
+  this docstring could wrongly conclude the gate has no live-process
+  effect and skip the mandatory code-reviewer/live-verifier scrutiny
+  this category of change actually requires (CLAUDE.md rule 4).
+- **Not fixed** — out of scope for 4.1 sub-task D (this round's
+  reviewer-requested scope is the sparse-history trip bug fix only);
+  flagging per CLAUDE.md rule 8. Fixing this is a small, self-contained
+  doc update whenever `core/resource_gate.py` is next touched.
+
+### [NEW-116] `ccos/plugins/system/daemon_control/daemon_control.py`'s module docstring miscounts the socket protocol's handler total and cites a `daemon_shutdown()` helper that no longer exists
+
+- **Status: Confirmed** by direct code read during 4.1 sub-task D. The
+  docstring (`ccos/plugins/system/daemon_control/daemon_control.py:5-17`)
+  says "core/daemon.py's socket protocol registers 7 handlers total; two
+  are deliberately left unwrapped here" and names `shutdown`
+  (`core/daemon.py's daemon_shutdown()`) as one of them. Sub-task D
+  retired the socket `shutdown` command entirely and deleted the
+  `daemon_shutdown()` helper (the daemon now shuts itself down only via
+  the autonomous `should_trip_shutdown()` tripwire, routed through
+  `_trigger_shutdown()`), so both the "7 handlers" count and the
+  `daemon_shutdown()` reference are now wrong — the protocol registers 6
+  handlers, and the `{"cmd": "shutdown"}` case now falls through to the
+  socket's generic "Unknown command" response rather than reaching a
+  named handler.
+- **Impact:** cosmetic/maintainability only today (no code here calls
+  the retired handler), but is exactly the kind of stale capability-
+  surface description this plugin's own manifest/docstring exists to
+  keep accurate for agent-driven planning — a future reader or an
+  agent-tool-designer pass could reasonably (and wrongly) plan around a
+  `shutdown` capability that no longer has anything behind it.
+- **Not fixed** — out of scope for 4.1 sub-task D; the correct scope is
+  sub-task E (updating this plugin/manifest to reflect the socket
+  protocol's retirement of `shutdown`), which has not started yet.
+  Flagging per CLAUDE.md rule 8 rather than fixing ad hoc here.
+
+### [NEW-117] `core/recursive.py`'s `get_adaptive_depth()` has a stale `temp_critical` fallback/docstring (80°C) that no longer matches the real committed default (90°C) in `utils/config.py`'s `THERMAL_CONFIG`
+
+- **Status: Confirmed** by direct code read while fixing the
+  `CODEY_TEMP_CRITICAL_C` warning-text consumer list (4.1 sub-task D,
+  code-reviewer round-2 finding). `core/recursive.py:176`'s docstring
+  reads "temp >= temp_critical (80°C) → force depth 0 (no recursion)"
+  and its actual code at line 188, `cfg.get("temp_critical", 80)`, uses
+  `80` as the fallback default if the key were ever missing from
+  `THERMAL_CONFIG`. `utils/config.py:105` sets the real committed default
+  to `90`, not `80` — both the documented number and the code's own
+  fallback disagree with the config value that is actually in effect on
+  every normal run (the `.get()` fallback only matters if the key is
+  ever absent, but the docstring's `80°C` is unconditionally wrong/
+  misleading regardless).
+- **Impact:** low under normal operation (the real `THERMAL_CONFIG`
+  dict always has the `temp_critical` key set, so `cfg.get(...)`'s stale
+  `80` fallback is never actually exercised) but directly misleading to
+  a reader — including a reader following the `CODEY_TEMP_CRITICAL_C`
+  override warning in `utils/config.py`, which now explicitly names
+  `get_adaptive_depth()` as a consumer to check. The first thing such a
+  reader sees there is the wrong number.
+- **Not fixed** — out of scope for this round (a comment/warning-text
+  fix only); the correct fix is updating both the docstring and the
+  `.get()` fallback in `core/recursive.py` to `90` (or better, importing
+  the real default rather than hardcoding either number a second time).
+  Flagging per CLAUDE.md rule 8 rather than fixing ad hoc here.
