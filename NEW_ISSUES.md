@@ -6370,3 +6370,197 @@ finding for the same bug. See `NEW-39`.)*
   - Flagging both explicitly per CLAUDE.md rule 8 rather than silently
     leaving them unmentioned in this round's write-up, even though
     neither required a code change here.
+
+### [NEW-124] `core/planner_service.py`'s module docstring/comments say the daemon planner is "0.5B or remote" — the actual model is 1.5B (upgraded from 0.5B per `utils/config.py:407`'s own comment)
+
+- **Status:** Confirmed, found during 7.3 scoping (task classifier + tier
+  config), not fixed — doc-only, outside that scoping pass's no-code-
+  changes mandate.
+- **Evidence:** `core/planner_service.py:7` ("Daemon planner (0.5B or
+  remote) via Unix socket") and `:23` (matching comment) both say 0.5B.
+  `core/planner_client.py:4` correctly says "1.5B model on port 8081."
+  `utils/config.py:405-411`'s comment block on `PLANNER_MODEL_PATH` is
+  explicit: "Qwen2.5-Coder-1.5B runs as a dedicated planning +
+  summarization model on port 8081 ... Upgraded from 0.5B for better
+  code-aware planning and task decomposition." `planner_service.py` was
+  not updated when that upgrade landed.
+- **Impact:** cosmetic/maintainability only — doesn't affect behavior,
+  since no code branches on the string, but it's exactly the kind of
+  stale-model-size doc that 7.3's new `(domain, role, tier) → model`
+  config table needs to get right the first time (it will need to name
+  this model precisely). Worth fixing in the same pass that adds the
+  tier config table, not before.
+
+### [NEW-125] The 7B coder model and the planner's "large tier" escalation path are the same physical model today — a role/tier overlap worth naming before 7.3's tier config formalizes roles
+
+- **Status:** Suspected (architecturally implied by existing code, not
+  independently load-tested this pass).
+- **Evidence:** `core/planner_service.py:get_plan()`'s fallback ladder
+  attempt 2 calls `core.orchestrator.plan_tasks()`, which drives planning
+  through `recursive_infer()` — the same 7B coder model
+  (`MODEL_PATH`/`PRIMARY_SERVER_PORT`) used for the `coder` role's actual
+  execution, not a distinct "planner-large" model. So today, informally,
+  the coding domain's `planner` role has two tiers (1.5B on port 8081;
+  7B-as-planner via the orchestrator fallback) and the second of those is
+  physically identical to the `coder` role's model.
+- **Impact:** not a bug — it's intentional fallback behavior — but 7.3's
+  `(domain, role, tier) → model` config table will need to either (a)
+  represent this literally (planner's large tier and coder's tier both
+  point at the same model reference, which is fine and should just be
+  written that way, not treated as an error), or (b) decide the fallback
+  ladder becomes tier escalation instead and collapse the redundancy.
+  Logged so 7.3's implementation sub-tasks don't quietly paper over which
+  of those two it's choosing.
+
+### [NEW-126] `classify_tier()` resolves to "large" for substantially all realistic planner prompts under current `_action_kws` — its log-only output will disagree with the executed ladder by default
+
+- **Status:** Confirmed (direct code read + interactive check of
+  `core.model_tiers.classify_tier()`'s decision rule against
+  `core.orchestrator._action_kws`/`COMPLEX_SIGNALS`).
+- **Evidence:** `classify_tier()`'s heuristic (TODO.md 7.3 sub-task C,
+  `core/model_tiers.py`) is `needs_large = score.has_action or
+  score.length > 150 or score.signal_count >= 2`. `_action_kws`
+  (`core/orchestrator.py`) includes common verbs any real coding request
+  is likely to contain — create, write, fix, run, add, update, check,
+  read, show me, and more. In practice this means `has_action` is true for
+  nearly any genuine planning prompt, so `classify_tier()` returns
+  `"large"` for nearly all traffic. Meanwhile `planner_service.get_plan()`'s
+  existing fallback ladder (unchanged by sub-task C) always tries the
+  small/daemon 1.5B planner first regardless of the classifier's answer.
+- **Impact:** not a defect in sub-task C's own scope — C is decide-and-log
+  only, and threshold tuning is explicitly sub-task E's job, blocked on
+  7.4. But it does mean the log line's practical signal is weak as
+  currently thresholded: it will say "would select 'large'" next to a
+  ladder that ran the 1.5B on nearly every request, so logs collected
+  under C's current thresholds alone won't be sufficient evidence for
+  choosing E's real thresholds later. Mitigated partially in this same
+  round by having the log line also emit `score.has_action`/`length`/
+  `signal_count`, so the raw signal is still recoverable from the logs
+  even though the derived tier string itself is close to constant.
+  Flagged for whoever tunes E's thresholds, not fixed here.
+- **Second, structurally distinct gap (added on code-reviewer's pass):**
+  `classify_tier()`'s planner branch can only ever return `"large"` or
+  `"small"` — there is no code path that returns `"remote"`, even when
+  `CODEY_BACKEND_P` is set to a remote backend and
+  `tiers_for_role("coding", "planner")` includes a `"remote"` entry.
+  `planner_service.py:_request_daemon_plan()` DOES actually route to the
+  remote backend under that config (see its `is_remote_planner_backend()`
+  branch). So under a remote-planner setup this isn't just "weak
+  discriminating value" as the paragraph above states for the
+  small-vs-large case — the logged tier structurally cannot ever describe
+  what's executing, because `"remote"` is not a reachable return value at
+  all today. Whoever extends `classify_tier()` for sub-task E needs to add
+  a remote-aware branch (e.g. checking `cfg.is_remote_planner_backend()`
+  before the small/large heuristic), not just retune the existing
+  thresholds. `tests/test_planner_service_classify_tier.py`'s use of
+  `"remote"` as one of three mocked return values in
+  `TestDaemonPlanPathUnaffectedByClassifier` exercises `get_plan()`'s
+  indifference to whatever `classify_tier()` returns — it is not evidence
+  that `"remote"` is a real output of today's `classify_tier()`.
+
+### [NEW-127] `core/agent.py`'s inline `_action_kws` list has already drifted out of sync with `core/orchestrator.py`'s module-level `_action_kws`, despite the "keep in sync" comment on both — 7.3 sub-task A left this untouched by design, logging per CLAUDE.md rule 8 since it wasn't otherwise tracked as a Confirmed finding
+
+- **Status:** Confirmed (direct read of both lists).
+- **Where found:** while doing TODO.md 7.3 sub-task D (test-coverage-gap
+  pass over sub-tasks A/B/C's combined surface). Sub-task A
+  (`core/orchestrator.py`) extracted `_score_message()`/`ScoreResult` out
+  of `is_complex()`, and both its own docstring/comment and
+  WORK_QUEUE.md's Track 3 item 3 sub-task A scope note explicitly left
+  `core/agent.py`'s separate, pre-existing duplicate `_action_kws` list
+  untouched as out of scope, on the assumption the two lists were "kept
+  in sync" per the comment above `core/orchestrator.py`'s copy
+  (`# Action keywords that indicate a task (not a question) / # Keep in
+  sync with _action_kws in core/agent.py`). Checking directly during D
+  shows that assumption no longer holds: `core/agent.py`'s inline copy
+  (`core/agent.py:1309-1373`, inside `run_agent()`) has six entries not
+  present in `core/orchestrator.py`'s module-level `_action_kws`
+  (`core/orchestrator.py:92-145`) — `"verify"`, `"test"`, `"validate"`,
+  `"confirm"`, `"complete"`, `"finish"` — added under a comment there
+  ("Planner step verbs — daemon steps like 'verify the output' must use
+  shell, not return plain text answers") with no corresponding update
+  ever made to `orchestrator.py`'s list.
+- **Impact:** `core.orchestrator._score_message()`'s `has_action` field —
+  now also consumed by `core.model_tiers.classify_tier()` (sub-task C) as
+  one of three signals routing a message to the "large" tier — will
+  disagree with `core/agent.py`'s own QA/smalltalk `_has_action` gate on
+  any message containing one of the six drifted words and nothing else
+  from either list. Verified directly, not assumed — a first attempted
+  example ("test the output") turned out to score `True` on both lists
+  because "output" independently appears in `orchestrator.py`'s own list,
+  so it was discarded as not actually demonstrating divergence. Confirmed
+  real examples:
+  ```
+  >>> from core.orchestrator import _score_message
+  >>> _score_message("verify the results").has_action
+  False
+  >>> _score_message("test the login flow").has_action
+  False
+  ```
+  `core/agent.py`'s `_has_action` would be `True` for both (via its
+  `"verify"`/`"test"` entries), while `orchestrator.py`'s
+  `_score_message()` — and therefore `classify_tier()` — scores both
+  `False`. This was already latent
+  before 7.3 (the two lists backed unrelated decisions — QA/smalltalk
+  gating in `agent.py` vs. orchestration-need in `orchestrator.py`), but
+  7.3 sub-task C gave `orchestrator.py`'s copy a second consumer
+  (tier classification) without addressing the drift, so the blast radius
+  of the two lists disagreeing is larger now than when the "keep in sync"
+  comment was written.
+- **Not fixed here:** collapsing the two lists into one shared list would
+  pull `core/agent.py` into a refactor sub-task A explicitly scoped out
+  ("A does not attempt to collapse that pre-existing two-copy
+  duplication... a separate, larger refactor not asked for here"), and
+  this task (sub-task D) is unit-tests-only per its own scope. Logged per
+  CLAUDE.md rule 8 rather than silently left untracked, since it was
+  previously mentioned only in TODO.md/WORK_QUEUE.md's sub-task-A scope
+  notes ("left untouched, out of this sub-task's one-file scope") — a
+  scoping note about what wasn't done, not a Confirmed/Suspected finding
+  in this log — and not as a discovered divergence with a measured
+  behavioral impact until this check.
+
+### [NEW-128] `is_complex()`'s `length > 300` branch is unreachable-as-distinct — it has the exact same body as the `elif length > 150` branch immediately below it
+
+- **Status:** Confirmed (direct code read + reproduced).
+- **Where found:** while adding `is_complex()` threshold-boundary tests
+  for TODO.md 7.3 sub-task D (test-coverage-gap pass over sub-tasks
+  A/B/C). Pre-existing — not introduced by sub-task A's `_score_message()`
+  extraction, confirmed by the fact that A's refactor preserved
+  `is_complex()`'s control flow verbatim (per its own scope: "`is_complex()`
+  itself keeps its exact current behavior and return type").
+- **Evidence:** `core/orchestrator.py`'s `is_complex()`:
+  ```python
+  if score.length > 300:
+      return score.signal_count >= 2
+  elif score.length > 150:
+      return score.signal_count >= 2
+  else:
+      return score.signal_count >= 3
+  ```
+  Both the `if` and first `elif` branches evaluate `score.signal_count >=
+  2` — identical bodies — so the `length > 300` branch can never produce a
+  result the `elif length > 150` branch wouldn't already produce for the
+  same input (any message with `length > 300` also satisfies `length >
+  150`). Reproduced directly:
+  ```
+  >>> from core.orchestrator import is_complex
+  >>> is_complex("x"*301 + " create build")   # length > 300, 2 signals
+  True
+  >>> is_complex("x"*151 + " create build")   # length > 150, 2 signals
+  True
+  ```
+  Both return the same result for every signal_count value — the `if`
+  branch is dead code in the sense that no test or caller can distinguish
+  it from the `elif` branch.
+- **Impact:** not a functional bug (the two branches happening to agree
+  means no wrong answers result), but it reads as though `length > 300`
+  was meant to have its own threshold (e.g. a looser one, `signal_count >=
+  1`) and was never filled in, or as though the branch is dead weight left
+  over from an earlier version of the thresholds. Either way it's
+  misleading to a future reader tuning these thresholds (e.g. for 7.3
+  sub-task E's tier-threshold work) who might assume the `> 300` split is
+  doing something the code doesn't actually do.
+- **Not fixed here:** this task (sub-task D) is unit-tests-only, no
+  production-logic changes permitted per its own scope, and CLAUDE.md rule
+  8 requires logging rather than silently fixing. Whoever next touches
+  `is_complex()`'s thresholds should either give the `> 300` branch a
+  distinct condition or collapse it into the `> 150` branch explicitly.

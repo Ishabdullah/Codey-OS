@@ -11,8 +11,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.orchestrator import (CONVERSATIONAL_PATTERNS, _postprocess_plan,
-                               is_complex)
+from core.orchestrator import (CONVERSATIONAL_PATTERNS, ScoreResult,
+                               _postprocess_plan, _score_message, is_complex)
 
 
 class TestOrchestrationHeuristics:
@@ -158,6 +158,162 @@ class TestOrchestrationHeuristics:
         assert is_complex("Hi") == False
         assert is_complex("Hello") == False
         assert is_complex("Test") == False
+
+
+class TestScoreMessage:
+    """
+    Direct unit tests for `_score_message()`/`ScoreResult` — TODO.md 7.3
+    sub-task A extracted this out of `is_complex()` as a reusable helper
+    (now also consumed by `core.model_tiers.classify_tier()`, sub-task C).
+    `is_complex()`'s existing tests above only exercise `_score_message()`
+    indirectly through its combined boolean result; these tests check the
+    raw `ScoreResult` fields themselves so a future change to the scoring
+    logic that happens to preserve `is_complex()`'s boolean outputs (but
+    breaks `classify_tier()`, which reads different fields) would still be
+    caught here.
+    """
+
+    def test_returns_score_result_instance(self):
+        assert isinstance(_score_message("hello"), ScoreResult)
+
+    def test_msg_is_lowercased(self):
+        result = _score_message("Create A File")
+        assert result.msg == "create a file"
+
+    def test_length_is_len_of_original_message_not_lowercased_copy(self):
+        # Same length either way, but confirms `length` is computed from
+        # the original argument, not incidentally from something else.
+        message = "Create a Flask App"
+        assert _score_message(message).length == len(message)
+
+    def test_has_action_true_for_action_keyword(self):
+        assert _score_message("please fix the bug").has_action is True
+
+    def test_has_action_false_with_no_action_keyword(self):
+        assert _score_message("the weather today").has_action is False
+
+    def test_has_action_matches_whole_word_only(self):
+        # "add" must not match inside "address" — word-boundary regex.
+        assert _score_message("what is my address").has_action is False
+
+    def test_is_question_true_for_question_mark(self):
+        assert _score_message("Is this right?").is_question is True
+
+    def test_is_question_true_for_question_starter(self):
+        assert _score_message("What is a decorator").is_question is True
+
+    def test_is_question_true_for_qa_phrase(self):
+        assert _score_message("tell me about Python").is_question is True
+
+    def test_is_question_false_for_plain_statement(self):
+        assert _score_message("create a new file called app.py").is_question is False
+
+    def test_is_conversational_true_for_conversational_pattern(self):
+        assert _score_message("How do I create a file?").is_conversational is True
+
+    def test_is_conversational_false_without_pattern(self):
+        assert _score_message("Create a file").is_conversational is False
+
+    def test_signal_count_counts_complex_signals(self):
+        # "create" and "and then" and "also" -> 3 COMPLEX_SIGNALS hits.
+        result = _score_message("create the module and then also add tests")
+        assert result.signal_count >= 3
+
+    def test_signal_count_zero_when_no_signals_present(self):
+        assert _score_message("the weather today").signal_count == 0
+
+    def test_empty_message(self):
+        result = _score_message("")
+        assert result.msg == ""
+        assert result.length == 0
+        assert result.has_action is False
+        assert result.signal_count == 0
+        # "".startswith(_question_starters) is False for every starter, and
+        # "" doesn't end with "?" or match any _qa_phrases word-boundary
+        # search, so is_question is False for the empty string.
+        assert result.is_question is False
+
+
+class TestIsComplexThresholdBoundaries:
+    """
+    Boundary tests for `is_complex()`'s length/signal_count thresholds —
+    the existing 41-test corpus above is all natural-language strings and
+    doesn't sit exactly on a branch edge, so a threshold accidentally
+    shifted by one (e.g. sub-task A's refactor swapping `>` for `>=`)
+    wouldn't be caught by it. `is_complex()`'s branches:
+        length <  50            -> always False
+        length >  300           -> signal_count >= 2
+        length >  150 (<= 300)  -> signal_count >= 2
+        length <= 150           -> signal_count >= 3
+    Messages here are built to hit an exact length with a controlled
+    signal_count, using "create" (1 COMPLEX_SIGNALS hit, also an
+    _action_kws hit) repeated and padded with non-signal filler so the
+    signal count is exact and deliberate.
+    """
+
+    @staticmethod
+    def _pad_to_length(prefix: str, length: int) -> str:
+        """Pad *prefix* out to exactly *length* chars with non-signal 'z'
+        filler, preserving *prefix*'s leading signal words."""
+        assert len(prefix) <= length
+        return prefix + "z" * (length - len(prefix))
+
+    def test_length_49_always_false_regardless_of_signals(self):
+        msg = self._pad_to_length("create build implement refactor rewrite add", 49)
+        assert len(msg) == 49
+        assert is_complex(msg) is False
+
+    def test_length_50_with_enough_signals_can_be_true(self):
+        # length==50 is not <50, so it proceeds to the else branch
+        # (length<=150 -> signal_count>=3).
+        msg = self._pad_to_length("create build implement refactor rewrite add", 50)
+        assert len(msg) == 50
+        assert _score_message(msg).signal_count >= 3
+        assert is_complex(msg) is True
+
+    def test_length_150_needs_3_signals_not_2(self):
+        """length==150 falls in the `else` branch (signal_count>=3), NOT
+        the `elif length>150` branch (signal_count>=2) — exactly 2 signals
+        at this boundary must stay False."""
+        msg = self._pad_to_length("create build", 150)
+        assert len(msg) == 150
+        assert _score_message(msg).signal_count == 2
+        assert is_complex(msg) is False
+
+    def test_length_150_with_3_signals_is_true(self):
+        msg = self._pad_to_length("create build implement", 150)
+        assert len(msg) == 150
+        assert _score_message(msg).signal_count == 3
+        assert is_complex(msg) is True
+
+    def test_length_151_only_needs_2_signals(self):
+        """length==151 crosses into the `elif length>150` branch
+        (signal_count>=2) — 2 signals here (not enough at 150) is now
+        enough."""
+        msg = self._pad_to_length("create build", 151)
+        assert len(msg) == 151
+        assert _score_message(msg).signal_count == 2
+        assert is_complex(msg) is True
+
+    def test_length_300_still_only_needs_2_signals(self):
+        """length==300 is still in the `elif length>150` branch (not yet
+        `>300`) — signal_count>=2 applies."""
+        msg = self._pad_to_length("create build", 300)
+        assert len(msg) == 300
+        assert _score_message(msg).signal_count == 2
+        assert is_complex(msg) is True
+
+    def test_length_301_crosses_into_over_300_branch_same_threshold(self):
+        """length==301 crosses into the `if length>300` branch — per
+        NEW-128 (logged, not fixed by this test-only sub-task) that branch
+        has the exact same body as the `elif length>150` branch
+        (signal_count>=2), so this assertion is identical to the length-151
+        case above. The test exists to pin that documented behavior, not
+        to imply the `>300` split does something distinct."""
+        msg = self._pad_to_length("create build", 301)
+        assert len(msg) == 301
+        assert _score_message(msg).signal_count == 2
+        assert is_complex(msg) is True
 
 
 class TestConversationalPatterns:

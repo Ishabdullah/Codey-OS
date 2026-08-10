@@ -1299,9 +1299,16 @@ implementation starts:
       config; must reconcile with (not duplicate) the coding plugin's
       existing separate planner-invocation paths
       (`core/orchestrator.py:is_complex()` vs. the daemon's
-      `planner_client`/`planner_v2`/`planner_service`). Planner model
+      `planner_client`/`planner_service` — `planner_v2` is a task-queue/
+      retry bookkeeping class, not a planning path, corrected out of
+      this grouping during 2026-08-10 scoping). Planner model
       family choice explicitly deferred to this phase's on-device
-      validation, not decided in the architecture round.
+      validation, not decided in the architecture round. **Detailed
+      scoping pass complete 2026-08-10** (project-architect, desk-only,
+      no code changed) — see `TODO.md` 7.3 / `WORK_QUEUE.md` Track 3
+      item 3 for the full sub-task breakdown (A-D decide-half buildable
+      now, A independently unblocked; E act-half blocked on 5a/7.4
+      closing) and the two findings logged (`NEW-124`, `NEW-125`).
 - [ ] **5c** — Wrap `core/agent.py` as a real CCOS capability, migrating
       both existing call paths (`main.py` for CLI/GUI, `core/task_executor.py`
       for the daemon) onto that one boundary rather than adding a third

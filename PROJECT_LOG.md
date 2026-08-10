@@ -5,6 +5,111 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-08-10 (round 21) — 7.3 (WQ Track 3 item 3, "Phase 5b") scoped: task classifier + tier config, coding domain only
+
+Desk-only scoping pass (project-architect), no code changed. 7.3 was the
+next unstarted item on `TODO.md` after 4.1 closed out; it had never been
+broken into sub-tasks before this round. Read `CODEY_OS_MASTER_VISION.md`
+§7 (in full, including §7.2/7.3/7.6/9.3/11.10/11.13), `core/orchestrator.py`'s
+`is_complex()` in full, `core/planner_client.py`/`planner_service.py`/
+`planner_v2.py` in full, and `utils/config.py`'s model/backend config in
+full before writing the plan.
+
+Expanded `TODO.md`'s 7.3 line and `WORK_QUEUE.md`'s Track 3 item 3 entry
+in place (matching 4.1's dense evidence-based style) with a five-sub-task
+breakdown: **A** — extract a shared signal-scoring helper from
+`is_complex()` (scoring only, keyword lists stay put) so the new
+classifier doesn't add a third drifting keyword-list copy; **B** — new
+`core/model_tiers.py` config table, `(domain, role, tier) →
+{model_ref, backend, port}`, coding domain only, with a backend field so
+Vision §11.13's later OpenRouter-as-tier work extends the schema rather
+than replacing it; **C** — `classify_tier()` (pure, non-LLM) wired into
+`planner_service.get_plan()` to log its decision alongside the existing
+fallback ladder, not yet switch which model loads; **D** — unit tests,
+no live model loads. **E** (actually switching which model loads) is
+explicitly out of scope this round — Vision §7.6 item 1 requires the
+resource gate (7.4) to exist before tier logic can safely *act*, and
+7.4's own status (`TODO.md`'s 7.4 entry) confirms the gate has not yet
+completed a real load-through-gate-then-unload cycle. A-D are the
+decide-half (pure functions/config, never act) and were assessed as
+compliant with that §7.6 constraint, but that's this scoping pass's
+interpretation, not an explicit instruction — flagged to Ish as a
+confirm-not-guess item before implementer starts on B/C/D specifically;
+A is a pure `is_complex()`-preserving refactor with no tier logic on any
+reading, so it's independently unblocked and handable now regardless of
+that answer.
+
+Three corrections made during this pass, per CLAUDE.md rule 6/rule 8:
+(1) the original WQ/TODO line grouped `planner_client`/`planner_v2`/
+`planner_service` as if all three were tier-relevant planning paths —
+`planner_v2.py`'s `Planner` class is a SQLite task-queue/retry
+bookkeeping class, not a plan-generation or model-selection path, and
+was removed from that grouping. (2) Vision §7.2 characterizes
+`SECONDARY_MODEL_PATH` as "exercised by the finetune/LoRA-swap path" —
+checked directly against `core/lora_import.py`'s own `NEW-84` comment
+block (lines 25-41) and found false: the swap functions mutate
+`cfg.PLANNER_MODEL_PATH`, never `cfg.SECONDARY_MODEL_PATH`; the two
+config names share an identical default path only by coincidence.
+`SECONDARY_MODEL_PATH` is dead config today, not a usable "coder-small"
+tier — sub-task B's config table gives the coder role exactly one local
+tier (7B), not two, correcting what the original brief would have
+produced. (3) Confirmed the manifest-extension route (`hardware_requirements`
+→ `model_tiers`, per Vision §7.3/§9.3) is not available for this first
+cut, since the coding agent isn't a CCOS capability until 4.3/Phase 5c
+(which comes after 7.3) — checked import direction (`core/` imports
+`ccos/` in exactly one place, `ccos/plugins/*` imports `core/`
+extensively) and put the new classifier/config under `core/`, not
+`ccos/core/`, to match the established edge direction rather than add a
+new reverse one.
+
+Two findings logged, not fixed (desk-only pass): `NEW-124` (stale "0.5B"
+comment in `planner_service.py` — actual planner model is 1.5B per
+`utils/config.py`), `NEW-125` (the 7B coder model and the planner's
+large-tier fallback are the same physical model today — B's table needs
+to represent that honestly). `PROJECT_PLAN.md`'s Phase 5/5b entry was
+also updated with a pointer to this round's detailed scoping, since
+Track 3's own header states it corresponds to `PROJECT_PLAN.md` Phase 5
+(5a-5f) — unlike round 20's 4.1 (which uses a different numbering scheme
+`PROJECT_PLAN.md` doesn't track at that granularity), 5b has a direct
+line there.
+
+---
+
+## 2026-08-10 (round 20) — Phase 4.1 sub-task E committed; 4.1 closed out; doc-currency correction
+
+Sub-task E (`daemon_control` plugin/manifest docs-only update) was
+committed as `b37d17f`, code-reviewer-approved, closing out all five
+sub-tasks of Phase 4.1 (WQ Track 3 item 2 / `PENDING_ISH_DECISIONS.md`
+item 2): A `c48f77b`, B `a4eb77b`, C `d8bcaa7`, D `696aafe`, E `b37d17f`.
+C and D are also live-verified (round 19, `96b6ea1`); A and E touched no
+process-lifecycle/dispatch behavior, so code-complete is their correct
+final status.
+
+That commit's own message (and its detailed WQ Track 3 item 2 sub-task 5
+write-up) already stated sub-task E as done and approved, but two
+higher-level status lines were left stale by the same commit: `TODO.md`'s
+4.1 line still read "scoped and text written 2026-08-10, pending
+code-reviewer approval," and `WORK_QUEUE.md`'s item-2 summary block still
+read "Sub-task E remains 100% unstarted." Both were doc-lag from the
+commit updating its own detailed sub-task-5 section but not the separate
+top-level summary lines that referenced it. This round corrects both,
+checks off `TODO.md` 4.1 and `WORK_QUEUE.md` item 2's checkboxes, and adds
+a closing note to each recording all five sub-tasks' final commit hashes.
+Two further doc-lag spots were caught in the same pass, both pre-existing
+and not introduced by this round: `WORK_QUEUE.md`'s sub-task B paragraph
+still read "Not yet committed" despite B being committed as `a4eb77b`
+back in round with sub-task B's own approval — corrected, with an
+explicit note that B's PID-file/lock mechanism was only live-exercised
+indirectly (as a side effect of round 19's sub-task C test), never given
+its own dedicated live-verification pass. `PENDING_ISH_DECISIONS.md`
+item 2's own status line still read "(in progress)" / "queued as active
+work" — corrected to closed. No code changed this round — pure doc
+correction, per CLAUDE.md rule 9. `PROJECT_PLAN.md` was checked and
+intentionally not touched: it doesn't track 4.1's TODO.md/WORK_QUEUE.md
+numbering at this granularity (its own Phase 4/5 sections are a
+different scheme), consistent with rounds 18 and 19 (`aa18b7a`,
+`96b6ea1`), neither of which touched it either.
+
 ## 2026-08-10 (round 19) — First live confirmation of Phase 4.1 sub-tasks C and D (docs-only round, no implementation code touched)
 
 Sub-tasks C and D were both code-reviewer-approved but never live-verified

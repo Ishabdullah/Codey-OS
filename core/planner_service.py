@@ -35,6 +35,36 @@ def get_plan(prompt: str, no_plan: bool = False, project_context: str = ""):
     if no_plan:
         return None
 
+    # ── Tier classification (log-only) ──────────────────────────────────────
+    # TODO.md 7.3 sub-task C: decide, don't act. classify_tier()'s answer is
+    # observed here for visibility into what a future tier-aware dispatch
+    # (sub-task E, blocked on 7.4's resource gate closing) would choose — it
+    # must NOT influence which model path/port the fallback ladder below
+    # actually uses. Any failure to classify must not affect planning, so
+    # this is best-effort and swallows its own exceptions.
+    #
+    # NOTE (NEW-126, logged not fixed): under current
+    # core.orchestrator._action_kws, almost every realistic coding prompt
+    # matches at least one action keyword, so this will log 'large' for
+    # substantially all traffic while the ladder below still tries the
+    # small/daemon planner first — the log disagrees with the executed path
+    # by default. The raw signal breakdown is included below specifically so
+    # these logs remain useful evidence for tuning sub-task E's thresholds
+    # later, rather than being a string of "large" with no discriminating
+    # detail.
+    try:
+        from core.model_tiers import classify_tier
+        from core.orchestrator import _score_message
+
+        tier = classify_tier("coding", "planner", prompt)
+        score = _score_message(prompt)
+        info(
+            f"classify_tier: would select '{tier}' tier for coding/planner (log-only, not acted on) "
+            f"(has_action={score.has_action}, length={score.length}, signal_count={score.signal_count})"
+        )
+    except Exception as _e:
+        info(f"classify_tier unavailable ({type(_e).__name__}) — continuing with existing fallback ladder")
+
     # ── Attempt 1: daemon planner ─────────────────────────────────────────────
     plan = _request_daemon_plan(prompt)
     if plan:

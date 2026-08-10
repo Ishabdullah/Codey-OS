@@ -766,7 +766,7 @@ resource-awareness work twice.
        (`load_secondary()` doesn't exist) as part of this work. Use
        `NEW-14`/`NEW-18`/`NEW-21`'s swap/RAM observations as validation
        data for the safety-margin sizing.
-2. [ ] **`PENDING_ISH_DECISIONS.md` item 2 — daemon control redesign.**
+2. [x] **`PENDING_ISH_DECISIONS.md` item 2 — daemon control redesign.**
        Sequence directly alongside/after 5a since it needs the same
        resource-gate authority: `daemon_shutdown` becomes an autonomous
        thermal/CPU tripwire, `command` becomes queue-only, daemon never
@@ -792,10 +792,16 @@ resource-awareness work twice.
        count, not GUI-process-liveness, is the signal, cross-checked
        against the GUI server's own PID file so a crash-while-clients-
        connected doesn't strand a false-positive "someone's watching."
-       Not live-verified — this sub-task touches PID-file/lock logic per
-       CLAUDE.md rule 4 (mandatory review, two rounds to converge) but no
-       daemon dispatch/shutdown behavior actually changed yet (sub-tasks
-       C/D). Not yet committed. **Sub-task C (gate queue dispatch on A+B,
+       Not independently live-verified — this sub-task touches
+       PID-file/lock logic per CLAUDE.md rule 4 (mandatory review, two
+       rounds to converge) but no daemon dispatch/shutdown behavior
+       actually changed yet (sub-tasks C/D). **Committed as `a4eb77b`,
+       2026-08-10** (corrects this paragraph's earlier "not yet
+       committed" — round 19's sub-task C live-verification did
+       exercise B's per-session lock file mechanism live, under
+       `~/.codeyOS/tui-sessions/`, but that's B exercised indirectly via
+       C's test, not an independent live-verification pass against B's
+       own criterion). **Sub-task C (gate queue dispatch on A+B,
        move planning to the pull side) is code-complete and
        code-reviewer-approved as of 2026-08-10** — claim-order (gate
        check before `try_claim_task()` in both branches), the `no_plan`
@@ -834,9 +840,12 @@ resource-awareness work twice.
        rest of that same tick, so the model-load watchdog still runs
        immediately afterward (harmless in this run only because the
        resource gate independently denied that load). **Sub-task E
-       remains 100% unstarted** (confirmed by inspecting the live
-       `daemon_control/manifest.json` — still pre-decision shape) — the
-       only piece of this round not yet begun.
+       (`daemon_control` plugin/manifest update) is committed
+       (`b37d17f`, 2026-08-10) and code-reviewer-approved** — pure
+       docs/description text, no capability-registration change; see
+       the sub-task 5 write-up below for the full accounting. **This
+       closes out all five sub-tasks of item 2 — A-E all committed and
+       code-reviewer-approved, C and D also live-verified.**
 
        **Scoping pass complete, 2026-08-09 (project-architect, desk-only,
        no code changed).** Two premises in the original decision text
@@ -1639,10 +1648,11 @@ resource-awareness work twice.
             (docstring only, no code change), `ccos/plugins/system/daemon_control/manifest.json`
             (top-level `description` only — every capability's `name`/
             `implementation` is byte-identical to before). Pure
-            text/docs; still routed through code-reviewer per this
-            project's standard pipeline before commit, per this round's
-            own established precedent that "docs-adjacent" work has
-            caught real issues before.
+            text/docs; routed through code-reviewer per this project's
+            standard pipeline before commit, per this round's own
+            established precedent that "docs-adjacent" work has caught
+            real issues before — **code-reviewer-approved and committed
+            as `b37d17f`, 2026-08-10.**
 
        Findings logged this scoping pass, not part of this round's
        fix scope: `NEW-106` (`observability.State.temperature` returns
@@ -1650,11 +1660,220 @@ resource-awareness work twice.
        (`observability.State.cpu_usage`/`memory_usage` are per-process,
        not system-wide).
 3. [ ] **Phase 5b — Task classifier + tier config**, coding domain only.
-       Reconcile with (don't duplicate) `core/orchestrator.py:is_complex()`
-       and the daemon's separate `planner_client`/`planner_v2`/
-       `planner_service` paths. Planner model family choice stays
-       deferred to this phase's on-device validation. Benefits directly
-       from Track 1's prompt audit having already landed.
+       **Scoped 2026-08-10 (project-architect, desk-only, no code
+       changed).** Reconcile with (don't duplicate)
+       `core/orchestrator.py:is_complex()` and the daemon's planning
+       paths. Planner model family choice stays deferred to this phase's
+       on-device validation. Benefits directly from Track 1's prompt
+       audit having already landed.
+
+       **Correction to the original brief:** it grouped
+       `planner_client`/`planner_v2`/`planner_service` together as if
+       all three were tier-relevant planning paths. Read in full during
+       scoping — only two are: `planner_client.py` (async wrapper that
+       calls `core/plannd.py:get_plan()`, the daemon's 1.5B-on-port-8081
+       planner) and `planner_service.py` (the unified entry point
+       `main.py`/`core/agent.py` both go through, with a fallback ladder:
+       daemon 1.5B/remote planner → `core/orchestrator.py:plan_tasks()`
+       7B-recursive planner, escalating on exception/empty-result).
+       `core/planner_v2.py`'s `Planner` class is a SQLite task
+       queue/dependency-tracker with retry/adaptation bookkeeping — it
+       does not generate plans or select models at all, so it is not a
+       tier-relevant path and should not be reconciled against; the
+       original WQ/TODO line's grouping was wrong and is corrected here
+       per CLAUDE.md rule 6.
+
+       **What already exists, read in full during scoping:**
+       - `core/orchestrator.py:is_complex()` (lines 90-225) answers "does
+         this need multi-step orchestration" — a boolean, via
+         `_action_kws` (kept in sync, per its own comment, with a
+         *second* copy in `core/agent.py`), `_question_starters`/
+         `_qa_phrases`, `CONVERSATIONAL_PATTERNS`, message length, and a
+         length-scaled `COMPLEX_SIGNALS` keyword count. This is a
+         planning-need decision, not a model-size decision — Vision
+         §7.2 already states the two "must stay conceptually separate,"
+         confirmed correct by reading the function.
+       - `planner_service.py:get_plan()` (read in full) already contains
+         a de facto tier ladder in everything but name: try the small/
+         remote daemon planner first, fall back to the 7B on failure.
+         7.3's classifier converts this from exception-driven fallback
+         into an up-front `(domain, role) → tier` decision — that
+         reframing, not a new capability from nothing, is the sharpest
+         description of what 7.3 actually adds.
+       - `utils/config.py` (read in full): today's model selection is
+         one fixed model per role via env vars — `MODEL_PATH` (7B
+         coder), `PLANNER_MODEL_PATH` (1.5B planner, port 8081,
+         upgraded from 0.5B per its own comment — `planner_service.py`'s
+         docstring still says "0.5B," logged as `NEW-124`),
+         `SECONDARY_MODEL_PATH` (checked directly, correcting Vision
+         §7.2's characterization — it is **not** even exercised by the
+         finetune/LoRA-swap path today: `core/lora_import.py`'s own
+         `NEW-84` comment block, lines 25-41, states plainly that its
+         swap functions mutate `cfg.PLANNER_MODEL_PATH`, never
+         `cfg.SECONDARY_MODEL_PATH`, and that mutating
+         `SECONDARY_MODEL_PATH` alone "had no effect on what actually
+         got loaded" — the two names share an identical default value
+         only by coincidence (both default to
+         `~/models/qwen2.5-coder-1.5b/...`), not because
+         `SECONDARY_MODEL_PATH` names a real, distinct "coder-small"
+         model. Nothing in the codebase reads `SECONDARY_MODEL_PATH`
+         except that same dead LoRA branch and its regression test
+         (`tests/test_new84_stale_model_path.py`). **B's config table
+         must not list a "coder-small" tier backed by
+         `SECONDARY_MODEL_PATH`** — there is no working small-coder tier
+         today; the coding domain's `coder` role has exactly one working
+         tier (7B, `MODEL_PATH`) plus whatever remote backend tier
+         `CODEY_BACKEND` selects. A real small-coder local tier would be
+         new work (sourcing/validating an actual smaller coder model),
+         out of scope for this round — B should represent today's coder
+         role honestly as single-tier-plus-remote, not manufacture a
+         second local tier from unused config.),
+         `EMBED_MODEL_PATH` (embedding, not tiered — single fixed
+         purpose, out of scope), and `CODEY_BACKEND`/`CODEY_BACKEND_P`
+         with `OPENROUTER_MODEL`/`OPENROUTER_PLANNER_MODEL`/
+         `UNLIMITEDCLAUDE_MODEL`/`UNLIMITEDCLAUDE_PLANNER_MODEL` (backend
+         selectable per-role, but fixed at process startup — this is
+         exactly Vision §11.13's "static choice," not yet the runtime
+         per-task decision §11.13 wants OpenRouter to become).
+       - `ccos/core/capability_registry.py`'s `Capability.hardware_requirements`
+         (a bare `List[str]`) is the field Vision §7.3/§9.3 says a future
+         `model_tiers` manifest declaration would extend — but the
+         coding agent isn't a CCOS capability yet (that's 4.3/Phase 5c,
+         which comes *after* this item), so the manifest route is not
+         available for this first cut. Confirmed by checking import
+         direction: `core/` imports from `ccos/` in exactly one place
+         today (`core/dashboard_data.py:31`, a lazy import), while
+         `ccos/plugins/*` import from `core/` extensively — the
+         established dependency edge runs ccos→core, not core→ccos.
+         Putting the new router under `ccos/core/` and importing it from
+         `core/planner_service.py` would introduce a new, atypical
+         reverse edge. **Decision: the classifier and tier config live
+         under `core/` for this first cut**, not `ccos/core/`, matching
+         the existing edge direction and the fact that coding isn't a
+         capability yet; revisit the location when 4.3 wraps the coding
+         agent as a capability and the manifest route becomes real.
+       - Vision §11.10/§11.13 (read in full during scoping, not just
+         grepped): §11.10 wants each domain's tier config to eventually
+         be an *approved list* spanning largest→smallest, with the
+         orchestrator selecting by resource profile + task suitability,
+         not just "one model per tier slot." §11.13 wants OpenRouter to
+         become an available tier within that list, selected at runtime,
+         not a separate static toggle. Both are explicitly **not**
+         required for 7.3's first cut (11.10/11.13 are their own later
+         amendment items), but the tier-config schema chosen now must
+         not foreclose them — concretely, each `(domain, role, tier)`
+         entry needs a **backend field alongside the model reference**
+         (local vs. openrouter vs. unlimitedclaude), not a bare model
+         path/name, so §11.13's later work extends the schema instead of
+         replacing it.
+
+       **Sub-task breakdown** (A-D are the decide-half: pure functions
+       and config, zero loader/process calls, buildable now; E is the
+       act-half, blocked — see below):
+       - **A — Extract a shared signal-scoring helper.** Refactor
+         `core/orchestrator.py` so `is_complex()`'s internal signal-
+         counting (currently inline: action-keyword match, question-
+         pattern match, length, `COMPLEX_SIGNALS` count) is exposed as a
+         reusable function (e.g. `_score_message(message) ->
+         ScoreResult` with the raw signals, not just the final boolean).
+         `is_complex()` itself keeps its exact current behavior and
+         return type — this is a pure refactor, verified by the existing
+         orchestrator test suite passing unchanged. The new tier
+         classifier (sub-task C) imports this helper rather than
+         re-implementing its own keyword lists, which is what "reconcile
+         with, don't duplicate `is_complex()`" concretely requires — a
+         third independent copy of `_action_kws`-style lists is exactly
+         the drift CLAUDE.md rule 6/the WQ line was warning against
+         (there are already two: `orchestrator.py` and `core/agent.py`).
+         **Scope boundary, stated explicitly so implementer doesn't
+         expand it:** A extracts the *scoring logic* only — the
+         `_action_kws` keyword list itself stays exactly where it is in
+         `orchestrator.py` (and its already-duplicated twin in
+         `core/agent.py` is untouched). A does not attempt to collapse
+         that pre-existing two-copy duplication; doing so would pull
+         `core/agent.py` into this sub-task's scope and invalidate its
+         own "kept in sync" comment, which is a separate, larger
+         refactor not asked for here. **A contains no tier logic on any
+         reading — it's a pure `is_complex()`-preserving refactor — so
+         it is not gated by the §7.6 act/decide question below and can
+         be handed to implementer immediately, independent of Ish's
+         answer on B/C/D's sequencing.**
+       - **B — `core/model_tiers.py` config table, coding domain only.**
+         A `(domain, role, tier) → {model_ref, backend, port}` dict,
+         `domain` fixed to `"coding"` for this cut, `role` in
+         `{"planner", "coder"}` (embedding excluded — not tiered, see
+         above). Planner gets two tiers: `"small"` (1.5B local,
+         `PLANNER_MODEL_PATH`, port 8081) and `"large"` (7B via
+         `core/orchestrator.py:plan_tasks()`'s existing fallback — see
+         `NEW-125`, this is the same physical model as the coder role's
+         entry, and B's table must say so explicitly rather than imply
+         two different models). Coder gets exactly **one local tier**
+         (7B, `MODEL_PATH`) — **not two.** `SECONDARY_MODEL_PATH` does
+         **not** belong in this table: verified directly (not assumed
+         from Vision §7.2's characterization, which this scoping pass
+         corrects) that it is dead config today — `core/lora_import.py`'s
+         own `NEW-84` comment block (lines 25-41) states its swap
+         functions mutate `cfg.PLANNER_MODEL_PATH`, never
+         `cfg.SECONDARY_MODEL_PATH`, and that mutating
+         `SECONDARY_MODEL_PATH` alone "had no effect on what actually
+         got loaded"; the two names share an identical default path only
+         by coincidence, not because `SECONDARY_MODEL_PATH` names a real
+         distinct small-coder model. Nothing else in the codebase reads
+         it except that same dead branch and its regression test. Both
+         roles additionally get a `"remote"` tier wherever
+         `CODEY_BACKEND(_P)` is set, carrying the backend field discussed
+         above. This sub-task is pure data plus a lookup function — it
+         formalizes today's existing fixed assignments honestly
+         (single-tier-plus-remote for coder, two-tier-plus-remote for
+         planner), it does not change what actually loads, and it does
+         not manufacture a second local coder tier that doesn't exist.
+         A real small-coder local tier (sourcing and validating an
+         actual smaller coder model) would be new work, out of scope for
+         this round.
+       - **C — `classify_tier(domain, role, message) -> tier` +
+         `planner_service.get_plan()` integration.** Pure, non-LLM
+         heuristic (reuses A's shared scorer plus length/pattern rules
+         specific to tier, not planning-need), looks up B's config
+         table, returns a tier. Wire it into `get_plan()` so it computes
+         and logs (`utils.logger.info`, matching this module's existing
+         logging style) which tier it *would* choose, alongside the
+         existing fallback ladder unchanged — the classifier's answer is
+         observable but not yet load-bearing. This is the explicit
+         decide/act boundary: C decides, nothing acts on the decision
+         yet.
+       - **D — Unit tests.** Deterministic input-message → tier mapping
+         for the coding domain, plus a regression test asserting A's
+         refactor didn't change `is_complex()`'s behavior on the
+         existing test corpus. No live model loads required — this is a
+         pure-function test suite, not a live-verifier task.
+       - **E — Switch `planner_service`/`core/task_executor.py` to
+         actually load per the classifier's chosen tier — NOT part of
+         this round, blocked.** Vision §7.6 item 1: "the resource gate
+         and slot-aware loader (7.4) ... has to exist before any tier
+         logic can safely act on a tier decision." `TODO.md`'s 7.4 entry
+         confirms the gate has not yet
+         completed a real load-through-gate-then-unload cycle and
+         `release_model_slot` has never fired on a real request — the
+         positive admission path is unverified, only the hard-denial
+         path is. E stays unscoped until 7.4 closes that gap.
+
+       **Flagged to Ish, not a blocker:** A-D (decide, log, never act)
+       read as compliant with §7.6's "before any tier logic can safely
+       *act*" wording, since they don't act — but this is project-
+       architect's interpretation of that sentence, not an explicit
+       instruction, and CLAUDE.md's escalation rule covers "anything
+       genuinely ambiguous about product direction." Confirm before
+       implementer starts on A-D that building 7.3's decide-half ahead
+       of 7.4's full close-out is the intended reading, not a
+       reordering that should wait.
+
+       Findings logged during this scoping pass, not fixed (desk-only,
+       no code changed): `NEW-124` (stale "0.5B" doc comment in
+       `planner_service.py`, actual model is 1.5B per
+       `utils/config.py:405-411`), `NEW-125` (the 7B coder model and the
+       planner's large-tier fallback are the same physical model today —
+       B's config table needs to represent that honestly rather than
+       implying two distinct models).
 4. [ ] **Phase 5c — Wrap `core/agent.py` as a real CCOS capability**,
        migrating both existing call paths (`main.py` for CLI/GUI,
        `core/task_executor.py` for the daemon) onto one boundary, with

@@ -3,6 +3,7 @@ Orchestrator — plans complex tasks into subtask queues and executes them.
 """
 
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 from core.taskqueue import TaskQueue
@@ -86,6 +87,162 @@ CONVERSATIONAL_PATTERNS = [
     "how do you",
 ]
 
+# Action keywords that indicate a task (not a question)
+# Keep in sync with _action_kws in core/agent.py
+_action_kws = [
+    "create",
+    "write",
+    "make",
+    "build",
+    "edit",
+    "fix",
+    "run",
+    "execute",
+    "install",
+    "add",
+    "delete",
+    "remove",
+    "update",
+    "patch",
+    "refactor",
+    "implement",
+    "generate",
+    "rewrite",
+    "deploy",
+    "setup",
+    "configure",
+    "review",
+    "analyze",
+    "analyse",
+    "audit",
+    "examine",
+    "inspect",
+    "assess",
+    "read",
+    "look at",
+    "show me",
+    "check",
+    "replace",
+    "rename",
+    "swap",
+    "convert",
+    "change",
+    "append",
+    "insert",
+    "move",
+    "copy",
+    "print",
+    "output",
+    "display",
+    "open",
+    "remember",
+    "don't forget",
+    "forget",
+    "ask gemini",
+    "ask claude",
+    "call gemini",
+    "call claude",
+]
+
+# Question starters that indicate Q&A (not a task)
+_question_starters = (
+    "what",
+    "why",
+    "how",
+    "when",
+    "where",
+    "who",
+    "which",
+    "is ",
+    "are ",
+    "do ",
+    "does ",
+    "can ",
+    "could ",
+    "would ",
+    "should ",
+    "will ",
+    "was ",
+    "were ",
+    "has ",
+    "have ",
+)
+_qa_phrases = [
+    "tell me",
+    "tell me about",
+    "explain",
+    "help me understand",
+    "what can you",
+    "hello",
+    "hi",
+    "hey",
+    "thanks",
+    "thank you",
+]
+
+
+@dataclass
+class ScoreResult:
+    """Raw complexity signals for a message.
+
+    Shared output of `_score_message()`, consumed by `is_complex()` today
+    and, per WORK_QUEUE.md Track 3 item 3 sub-task C, intended to be reused
+    by a future `classify_tier()` instead of re-implementing a third,
+    independent keyword-matching pass that would drift out of sync with
+    `is_complex()` over time.
+    """
+
+    msg: str  # lowercased message
+    has_action: bool  # matched an action keyword (_action_kws)
+    is_question: bool  # looks like a question (ends with "?", question
+    # starter, or a Q&A phrase like "tell me")
+    is_conversational: bool  # matched a CONVERSATIONAL_PATTERNS entry
+    length: int  # len(original message)
+    signal_count: int  # COMPLEX_SIGNALS keyword hits
+
+
+def _score_message(message):
+    """
+    Score a message's raw complexity signals.
+
+    Pure function: computes the same signals `is_complex()` has always
+    combined into its boolean result (action-keyword match, question-
+    pattern match, conversational-pattern match, message length,
+    COMPLEX_SIGNALS count). Extracted out of `is_complex()` so other
+    callers can reuse the scoring without re-implementing it — the keyword
+    lists themselves (`_action_kws`, `COMPLEX_SIGNALS`,
+    `CONVERSATIONAL_PATTERNS`, `_question_starters`, `_qa_phrases`) are
+    unchanged, still defined in this module.
+
+    Args:
+        message: User's request text
+
+    Returns:
+        ScoreResult with the raw signals for the caller to combine.
+    """
+    msg = message.lower()
+
+    has_action = any(re.search(r"\b" + re.escape(k) + r"\b", msg) for k in _action_kws)
+
+    is_question = bool(
+        msg.endswith("?")
+        or msg.startswith(_question_starters)
+        or any(re.search(r"\b" + re.escape(k) + r"\b", msg) for k in _qa_phrases)
+    )
+
+    is_conversational = any(pattern in msg for pattern in CONVERSATIONAL_PATTERNS)
+
+    signal_count = sum(1 for s in COMPLEX_SIGNALS if s in msg)
+
+    return ScoreResult(
+        msg=msg,
+        has_action=has_action,
+        is_question=is_question,
+        is_conversational=is_conversational,
+        length=len(message),
+        signal_count=signal_count,
+    )
+
 
 def is_complex(message):
     """
@@ -100,129 +257,28 @@ def is_complex(message):
     Returns:
         True if request should be orchestrated, False otherwise
     """
-    msg = message.lower()
-
-    # Action keywords that indicate a task (not a question)
-    # Keep in sync with _action_kws in core/agent.py
-    _action_kws = [
-        "create",
-        "write",
-        "make",
-        "build",
-        "edit",
-        "fix",
-        "run",
-        "execute",
-        "install",
-        "add",
-        "delete",
-        "remove",
-        "update",
-        "patch",
-        "refactor",
-        "implement",
-        "generate",
-        "rewrite",
-        "deploy",
-        "setup",
-        "configure",
-        "review",
-        "analyze",
-        "analyse",
-        "audit",
-        "examine",
-        "inspect",
-        "assess",
-        "read",
-        "look at",
-        "show me",
-        "check",
-        "replace",
-        "rename",
-        "swap",
-        "convert",
-        "change",
-        "append",
-        "insert",
-        "move",
-        "copy",
-        "print",
-        "output",
-        "display",
-        "open",
-        "remember",
-        "don't forget",
-        "forget",
-        "ask gemini",
-        "ask claude",
-        "call gemini",
-        "call claude",
-    ]
-    _has_action = any(re.search(r"\b" + re.escape(k) + r"\b", msg) for k in _action_kws)
-
-    # Question starters that indicate Q&A (not a task)
-    _question_starters = (
-        "what",
-        "why",
-        "how",
-        "when",
-        "where",
-        "who",
-        "which",
-        "is ",
-        "are ",
-        "do ",
-        "does ",
-        "can ",
-        "could ",
-        "would ",
-        "should ",
-        "will ",
-        "was ",
-        "were ",
-        "has ",
-        "have ",
-    )
-    _qa_phrases = [
-        "tell me",
-        "tell me about",
-        "explain",
-        "help me understand",
-        "what can you",
-        "hello",
-        "hi",
-        "hey",
-        "thanks",
-        "thank you",
-    ]
+    score = _score_message(message)
 
     # If no action keyword AND looks like a question, NOT complex
-    if not _has_action and (
-        msg.endswith("?")
-        or msg.startswith(_question_starters)
-        or any(re.search(r"\b" + re.escape(k) + r"\b", msg) for k in _qa_phrases)
-    ):
+    if not score.has_action and score.is_question:
         return False
 
     # Check for conversational patterns (even with action keywords)
-    if any(pattern in msg for pattern in CONVERSATIONAL_PATTERNS):
+    if score.is_conversational:
         return False
 
     # Short messages are rarely complex
-    if len(message) < 50:
+    if score.length < 50:
         return False
-
-    # Count positive signals
-    signals = sum(1 for s in COMPLEX_SIGNALS if s in msg)
 
     # Scale threshold by message length
     # Longer messages need fewer signals to be considered complex
-    if len(message) > 300:
-        return signals >= 2
-    elif len(message) > 150:
-        return signals >= 2
+    if score.length > 300:
+        return score.signal_count >= 2
+    elif score.length > 150:
+        return score.signal_count >= 2
     else:
-        return signals >= 3
+        return score.signal_count >= 3
 
 
 def parse_task_list(model_output):

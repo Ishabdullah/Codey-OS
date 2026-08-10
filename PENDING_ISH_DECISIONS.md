@@ -125,7 +125,9 @@ whatever comes next — flagging here so it doesn't get lost again.
 ### 1. Fine-tuning / model swapping — **manual-only indefinitely**
 No further work. Stays reachable only via `main.py --import-lora`.
 
-### 2. Daemon control — **wrap now, redesigned** (in progress)
+### 2. Daemon control — **wrap now, redesigned** (closed 2026-08-10 —
+see `TODO.md` 4.1 / `WORK_QUEUE.md` Track 3 item 2 for the 5-sub-task
+build-and-verification record)
 Not a straight wrap of the existing functions — Ish specified a new design:
 
 - `daemon_shutdown` is repurposed from a directly-callable kill into an
@@ -180,6 +182,9 @@ part of that round rather than separately.
 
 ## Status
 
-Only item 2 (daemon control redesign, with item 4 folded in) is queued
-as active work. Items 1 and 3 have decisions recorded above but no
-further action pending.
+Item 2 (daemon control redesign, with item 4 folded in) is closed as of
+2026-08-10 — all five sub-tasks (A-E) committed and code-reviewer-
+approved, sub-tasks C and D also live-verified; see `TODO.md` 4.1 /
+`WORK_QUEUE.md` Track 3 item 2 for the full record. Items 1 and 3 have
+decisions recorded above but no further action pending. No item from
+this file is currently queued as active work.

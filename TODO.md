@@ -511,7 +511,7 @@ both would mean coding against an interface that doesn't exist yet.
 
 ## Phase 4: Coding-domain architecture rollout (vision 7.6 steps 2-6) — proceeds alongside Phase 3 once Phase 1 is done
 
-- [ ] 4.1 (WQ Track 3 item 2, "PENDING_ISH_DECISIONS.md item 2") — Daemon
+- [x] 4.1 (WQ Track 3 item 2, "PENDING_ISH_DECISIONS.md item 2") — Daemon
       control redesign, sequenced directly alongside/after Phase 1's
       resource gate (7.4) since it needs that same authority:
       `daemon_shutdown` becomes an autonomous thermal/CPU tripwire,
@@ -675,8 +675,8 @@ both would mean coding against an interface that doesn't exist yet.
       immediately after the trip decision in the same tick; harmless in
       this run only because the resource gate independently denied that
       load attempt. **Sub-task E (`daemon_control` plugin/manifest
-      update) — scoped and text written 2026-08-10, pending
-      code-reviewer approval.** Pure docs/description text, no
+      update) — committed (`b37d17f`, 2026-08-10), code-reviewer-
+      approved.** Pure docs/description text, no
       capability-registration change: every capability's `name`/
       `implementation` in `manifest.json` is byte-identical to before;
       only the module docstring and the top-level manifest
@@ -701,14 +701,103 @@ both would mean coding against an interface that doesn't exist yet.
       `daemon_status`/`daemon_health` remain the right capabilities for
       daemon state. `NEW-113`/`NEW-115` re-confirmed still open but
       outside this sub-task's two-file scope — see `NEW-123`. See WQ
-      Track 3 item 2 sub-task 5 for the full accounting.
-- [ ] 7.3 (WQ Track 3 item 3, "Phase 5b") — Task classifier + tier
-      config, coding domain only: non-LLM heuristic classifier;
-      `(domain, role, tier) → model` config; reconcile with (don't
-      duplicate) `core/orchestrator.py:is_complex()` and the daemon's
-      separate `planner_client`/`planner_v2`/`planner_service` paths.
-      Planner model-family choice stays deferred to this phase's
-      on-device validation.
+      Track 3 item 2 sub-task 5 for the full accounting. **4.1 as a
+      whole is now closed: sub-tasks A-E all committed and
+      code-reviewer-approved (A `c48f77b`, B `a4eb77b`, C `d8bcaa7`, D
+      `696aafe`, E `b37d17f`), with C and D also live-verified
+      (`96b6ea1`); A and E carried no process-lifecycle/dispatch
+      behavior change so code-complete is their correct final status,
+      not a stand-in for live-verified. B is not independently
+      live-verified either — it touches PID-file/lock logic (CLAUDE.md
+      rule 4) but round 19's sub-task C live-verification did exercise
+      B's per-session `~/.codeyOS/tui-sessions/` lock mechanism live as
+      a side effect of testing C, not as B's own dedicated pass.**
+- [ ] 7.3 (WQ Track 3 item 3, "Phase 5b") — **Scoped 2026-08-10
+      (project-architect, desk-only, no code changed).** Task classifier
+      + tier config, coding domain only. Full sub-task breakdown (A-D
+      decide-half, buildable now; E act-half, blocked on 7.4) in
+      `WORK_QUEUE.md`'s Track 3 item 3 entry — read that before starting
+      implementation. Short version: A extracts a shared signal-scoring
+      helper from `core/orchestrator.py:is_complex()` (scoring logic
+      only, keyword lists stay put) so the new classifier reuses it
+      instead of a third drifting keyword list. **Sub-task A: done,
+      code-reviewer-approved, uncommitted** — `_score_message()` +
+      `ScoreResult` dataclass added to `core/orchestrator.py`,
+      `_action_kws`/`_question_starters`/`_qa_phrases` moved to module
+      level (not duplicated, not moved to a new module),
+      `is_complex()` rewritten to call the new helper with identical
+      control flow/thresholds — confirmed behaviorally equivalent
+      (`tests/test_orchestration.py`: 41 passed; full suite: 522
+      passed, 1 skipped). `core/agent.py`'s separate duplicate
+      `_action_kws` list was left untouched, out of this sub-task's
+      one-file scope. **Sub-task B: done, code-reviewer-approved,
+      uncommitted** — new `core/model_tiers.py` (`MODEL_TIERS: Dict[
+      (domain, role, tier), ModelTierEntry]`, `ModelTierEntry` =
+      `{model_ref, backend, port}`, `get_tier()`/`tiers_for_role()`
+      helpers, values sourced from `utils/config.py` not re-hardcoded),
+      coding domain only, coder role's single local tier (`SECONDARY_
+      MODEL_PATH` / `NEW-84` deliberately excluded), planner's `large`
+      tier and coder's `large` tier both point at the same physical 7B
+      per `NEW-125`, remote tier entries populated only when
+      `CODEY_BACKEND`/`CODEY_BACKEND_P` is actually set remote at
+      import time (`get_tier()` raises `KeyError` on a missing key,
+      matching this project's fail-loud config convention) — not
+      wired into any loader/dispatch path yet (confirmed via grep).
+      24 new unit tests, no live model loads; full suite 611 passed, 1
+      skipped. **Sub-task C: done, code-reviewer-approved, uncommitted** —
+      `classify_tier(domain, role, message) -> str` added to
+      `core/model_tiers.py` (reuses `core.orchestrator._score_message()`
+      rather than a third keyword list; coder role always returns
+      `"large"`, its only local tier; planner role picks `"small"`/`"large"`
+      via `has_action`/`length`/`signal_count`), wired into
+      `planner_service.get_plan()` to *log* its decision (and the raw
+      signal breakdown) alongside the existing fallback ladder, which is
+      unchanged — confirmed log-only both by code trace and by tests that
+      run `get_plan()` with the real (unmocked) `classify_tier()` and
+      assert its return value is untouched. 15 new unit tests
+      (`tests/test_model_tiers.py`'s `TestClassifyTier`,
+      `tests/test_planner_service_classify_tier.py`), full suite 630
+      passed, 1 skipped. Findings from this sub-task: `NEW-126` (current
+      thresholds resolve to `"large"` for nearly all prompts, and
+      `classify_tier()` has no `"remote"`-tier code path at all today even
+      though `_request_daemon_plan()` does route to a remote backend when
+      configured — both flagged for sub-task E to address, not fixed here).
+      **Sub-task D: done, code-reviewer-approved, uncommitted** — direct
+      unit coverage for `_score_message()`/`ScoreResult`
+      (`tests/test_orchestration.py`'s new `TestScoreMessage`, 15 tests)
+      and for `is_complex()`'s exact branch thresholds
+      (`TestIsComplexThresholdBoundaries`, 7 tests, pinning
+      `core/orchestrator.py:276-281`'s length 49/50/150/151/300/301
+      edges); `MODEL_TIERS`/`get_tier()`/`classify_tier()` edge cases
+      (empty message, unknown domain/role, `length`/`signal_count`
+      boundary values) and a full-chain integration sweep across every
+      `(domain, role)` pair in `MODEL_TIERS` were already covered by
+      sub-tasks B/C's own `tests/test_model_tiers.py` (39 tests) —
+      verified directly, no gap remained to fill there. Two new
+      findings logged, not fixed: `NEW-127` (`core/agent.py`'s inline
+      `_action_kws` list has drifted 6 words out of sync with
+      `core/orchestrator.py`'s module-level copy — verify/test/
+      validate/confirm/complete/finish — with a reproduced case where
+      the two disagree on `has_action`) and `NEW-128` (`is_complex()`'s
+      `length > 300` branch is byte-identical to the `elif length > 150`
+      branch below it — dead-code duplication, not a functional bug).
+      Full suite: 659 passed, 1 skipped. **E (actually switching
+      which model loads based on the classifier's tier) is out of scope
+      for this round** — Vision §7.6 item 1 requires the resource gate to
+      exist before tier logic can safely *act*, and 7.4's positive
+      admission path (a real load-through-gate-then-unload cycle) is
+      still unverified per 7.4's own status above. **Ish confirmed
+      2026-08-10: proceed with A-D now, ahead of 7.4 closing** — C only
+      logs `classify_tier()`'s decision, never dispatches on it, so no
+      real load/act risk exists yet; E stays blocked on 7.4 as scoped.
+      Planner model-family choice stays deferred to
+      this phase's on-device validation, unchanged from the original
+      scope note. Two findings logged during scoping, not fixed:
+      `NEW-124` (stale "0.5B" doc comment in `planner_service.py`,
+      actual model is 1.5B), `NEW-125` (the 7B coder model and the
+      planner's large-tier fallback are the same physical model today —
+      the tier config table needs to represent that honestly, not paper
+      over it).
 - [ ] 4.3 (WQ Track 3 item 4, "Phase 5c") — Wrap `core/agent.py` as a
       real CCOS capability, migrating both existing call paths (`main.py`
       for CLI/GUI, `core/task_executor.py` for the daemon) onto one
