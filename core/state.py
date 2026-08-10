@@ -81,13 +81,20 @@ class StateStore:
                     started_at INTEGER,
                     completed_at INTEGER,
                     dependencies TEXT DEFAULT '[]',
-                    retry_count INTEGER DEFAULT 0
+                    retry_count INTEGER DEFAULT 0,
+                    needs_planning INTEGER DEFAULT 0
                 )
             """)
             # Add columns to existing DBs that predate this schema version
             for col, defn in [
                 ("dependencies", "TEXT DEFAULT '[]'"),
                 ("retry_count", "INTEGER DEFAULT 0"),
+                # 7.4 sub-task C: set to 1 only by _handle_command's raw,
+                # plan_only=False enqueue path (core/daemon.py); every
+                # existing/other caller's rows default to 0, i.e. "already
+                # concrete" — preserves current behavior for both
+                # _process_planner_tasks() branches untouched by this flag.
+                ("needs_planning", "INTEGER DEFAULT 0"),
             ]:
                 try:
                     cur.execute(f"ALTER TABLE task_queue ADD COLUMN {col} {defn}")
@@ -182,15 +189,22 @@ class StateStore:
 
     # ==================== Task Queue ====================
 
-    def add_task(self, description: str, dependencies: list = None) -> int:
-        """Add a task to the queue. Returns task ID."""
+    def add_task(self, description: str, dependencies: list = None, needs_planning: int = 0) -> int:
+        """Add a task to the queue. Returns task ID.
+
+        `needs_planning` (default 0, "already concrete") is set to 1 only by
+        the daemon's raw, plan_only=False enqueue path (core/daemon.py
+        `_handle_command`) — a signal for `_process_planner_tasks()` to plan
+        this row on the pull side (7.4 sub-task C) before dispatching it.
+        """
         import json
 
         deps = json.dumps(dependencies or [])
         with self._lock:
             cur = self._conn.execute(
-                "INSERT INTO task_queue (description, status, created_at, dependencies) VALUES (?, 'pending', ?, ?)",
-                (description, int(time.time()), deps),
+                "INSERT INTO task_queue (description, status, created_at, dependencies, needs_planning)"
+                " VALUES (?, 'pending', ?, ?, ?)",
+                (description, int(time.time()), deps, needs_planning),
             )
             self._conn.commit()
             return cur.lastrowid
@@ -284,6 +298,21 @@ class StateStore:
         with self._lock:
             self._conn.execute(
                 "UPDATE task_queue SET retry_count = retry_count + 1 WHERE id = ?",
+                (task_id,),
+            )
+            self._conn.commit()
+
+    def clear_needs_planning(self, task_id: int):
+        """Clear the needs_planning flag on a task (7.4 sub-task C).
+
+        Called by `_process_planner_tasks()` once a claimed raw task has
+        either been expanded into an enriched multi-step plan (replaced by
+        `add_tasks()`'s rows) or has fallen back to direct single-task
+        execution — either way, this row itself no longer needs planning.
+        """
+        with self._lock:
+            self._conn.execute(
+                "UPDATE task_queue SET needs_planning = 0 WHERE id = ?",
                 (task_id,),
             )
             self._conn.commit()

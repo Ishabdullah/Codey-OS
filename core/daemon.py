@@ -67,6 +67,20 @@ RELEASE_SLOT_COOLDOWN_S = 5.0
 RELEASE_CONFIRM_TIMEOUT_S = 3.0
 RELEASE_CONFIRM_POLL_INTERVAL_S = 0.3
 
+# 7.4 sub-task C: cadence for `Daemon._cached_read_battery_fn()`'s refresh,
+# matching the existing 30s watchdog tick (`_main_loop()`'s `_watchdog_ticks
+# >= 60` at a 0.5s per-tick sleep). `get_resource_snapshot()`'s own
+# docstring (core/resource_gate.py) warns that its default `read_battery_fn`
+# shells out to `termux-battery-status` with a 2s subprocess timeout on
+# every call, and that a hot, frequently-ticking caller (this one —
+# `_process_planner_tasks()` runs every ~0.5s) must supply a cached/
+# rate-limited reader instead. No such cache existed anywhere in this
+# codebase at a compatible cadence (core/sysmon.py's SystemMonitor caches on
+# its own background thread, but that thread is never started in the
+# daemon process and pulls in `rich` at import time — not worth adding for
+# this alone), so this is a new, daemon-local cache.
+DISPATCH_BATTERY_CACHE_INTERVAL_S = 30.0
+
 # ==================== Configuration ====================
 
 # Daemon directory — defined at module level so check_pid_file / is_daemon_running
@@ -180,13 +194,23 @@ class DaemonServer:
     async def _handle_command(self, data: Dict) -> Dict:
         """Handle a user command (prompt).
 
-        The 1.5B model on port 8081 plans the task into numbered steps.
-        Each step is added as a dependent task so the 7B agent works through
-        them one at a time.
+        Two distinct contracts, selected by `plan_only` (7.4 sub-task C,
+        NEW-112): repo-wide search found exactly one live caller of this
+        handler — `core/planner_service.py`'s `_request_daemon_plan()`,
+        always sending `plan_only: True` — a synchronous planning-oracle RPC
+        used by the interactive CLI to get plan text back for local,
+        step-by-step `run_agent()` execution. That path's behavior below is
+        UNCHANGED from before this sub-task, and is deliberately exempt from
+        the daemon's interactive-session dispatch gate: the caller of this
+        RPC *is* the interactive session asking on its own behalf, not the
+        daemon doing background work while a user is looking away.
 
-        If the planner is unavailable, times out, or returns fewer than 2 steps,
-        the prompt is queued as a single direct task.  Planner failure is always
-        silent (logged only) and never surfaces as an error.
+        `plan_only` falsy is the real, currently-unused-in-production
+        "submit a new prompt for the daemon to execute" entry point (per
+        `daemon_control.py`'s own docstring) — this now just enqueues the
+        raw prompt and returns immediately; planning (if any) happens later
+        on the pull side, in `_process_planner_tasks()`, gated by
+        `can_dispatch_task()` like any other dispatch.
         """
         prompt = data.get("prompt", "")
         if not prompt:
@@ -195,7 +219,22 @@ class DaemonServer:
         # Log to episodic log
         self.state.log_action("command_received", prompt[:200])
 
-        # ── plannd integration (Change 1) ────────────────────────────────────
+        if not data.get("plan_only", False):
+            # Real "submit a new prompt for the daemon to execute" path —
+            # no live caller today (NEW-112), but real intended-future
+            # functionality. No synchronous planning here: this returns
+            # immediately, and needs_planning=1 tells the pull side
+            # (_process_planner_tasks()) to plan this row before dispatch.
+            # `no_plan` (same flag the old code checked before this sub-task)
+            # is still honored here — it means "do not plan this at all,"
+            # not just "don't plan it synchronously at enqueue time," so a
+            # caller that explicitly asked to skip planning must not have
+            # needs_planning set for it on the pull side either.
+            needs_planning = 0 if data.get("no_plan", False) else 1
+            task_id = self.state.add_task(prompt, needs_planning=needs_planning)
+            return {"status": "ok", "message": "Task queued", "task_id": task_id}
+
+        # ── plan_only=True: synchronous planning-oracle RPC (unchanged) ──────
         no_plan = data.get("no_plan", False)
         if not no_plan:
             try:
@@ -206,38 +245,11 @@ class DaemonServer:
                     timeout=180.0,
                 )
                 if steps and len(steps) > 1:
-                    if data.get("plan_only", False):
-                        task_ids = []
-                        info(f"plannd: returned {len(steps)}-step plan (plan_only)")
-                    else:
-                        # Inject original prompt into step 1 (the create step)
-                        # so the executor has full requirements context.
-                        # Later steps (run/verify) are usually self-contained
-                        # and don't need the full prompt — just the step.
-                        total = len(steps)
-                        enriched = []
-                        for i, step in enumerate(steps):
-                            if i == 0:
-                                # Step 1: full context — the executor needs
-                                # all requirements to write the code
-                                enriched.append(
-                                    f"User's full request: {prompt}\n\n"
-                                    f"Your task (step {i+1}/{total}): {step}\n\n"
-                                    "Write the COMPLETE file with ALL features "
-                                    "described above. Do not skip any requirement."
-                                )
-                            else:
-                                enriched.append(
-                                    f"Previous context: {prompt[:200]}\n\n"
-                                    f"Your task (step {i+1}/{total}): {step}\n\n"
-                                    "Complete only this step."
-                                )
-                        task_ids = self.planner.add_tasks(enriched)
-                        info(f"plannd: queued {len(steps)}-step plan")
+                    info(f"plannd: returned {len(steps)}-step plan (plan_only)")
                     return {
                         "status": "ok",
                         "message": f"Plan created: {len(steps)} steps",
-                        "task_ids": task_ids,
+                        "task_ids": [],
                         "plan": steps,
                     }
                 # plannd returned ≤1 step — fall through to single-task path
@@ -678,6 +690,11 @@ class Daemon:
         self.running = True
         self._reload_requested = False
 
+        # 7.4 sub-task C: cache for _cached_read_battery_fn() — see
+        # DISPATCH_BATTERY_CACHE_INTERVAL_S's comment above.
+        self._dispatch_battery_cache_ts = 0.0
+        self._dispatch_battery_cache_value = (None, False)
+
         # Register signal handlers
         signal.signal(signal.SIGTERM, self._handle_sigterm)
         signal.signal(signal.SIGUSR1, self._handle_sigusr1)
@@ -995,6 +1012,72 @@ class Daemon:
             self.state.log_action("daemon_stopped", f"PID {os.getpid()}")
             info("Daemon stopped")
 
+    def _cached_read_battery_fn(self):
+        """
+        Cached/rate-limited battery reader for `can_dispatch_task()`'s
+        per-tick `ResourceSnapshot` in `_process_planner_tasks()` — see
+        `DISPATCH_BATTERY_CACHE_INTERVAL_S`'s module-level comment.
+
+        On a read failure, the last-known value is kept (not clobbered to
+        None) and the failure is logged — a transient
+        `termux-battery-status` failure shouldn't make the gate suddenly
+        treat battery state as unknown when a perfectly good cached value
+        already exists; `get_resource_snapshot()`'s own per-call wrapper
+        still applies its own "unavailable" handling on top of whatever
+        this returns.
+        """
+        now = time.monotonic()
+        if now - self._dispatch_battery_cache_ts >= DISPATCH_BATTERY_CACHE_INTERVAL_S:
+            self._dispatch_battery_cache_ts = now
+            try:
+                from core.sysmon import read_battery_status
+
+                self._dispatch_battery_cache_value = read_battery_status()
+            except Exception as e:
+                warning(f"resource_gate: cached battery read failed, keeping last-known value: {e}")
+        return self._dispatch_battery_cache_value
+
+    def _check_dispatch_gate(self):
+        """
+        Build a `ResourceSnapshot` (with the cached battery reader above)
+        and the current interactive-session signal, and run
+        `can_dispatch_task()` — the 7.4 sub-task C pre-claim gate check.
+
+        Returns the `DispatchDecision` (`allowed`, `reason`). Callers must
+        consult this BEFORE `state.try_claim_task()` — claiming first and
+        gating after would strand a refused task in `running` status with
+        no executor ever picking it back up.
+        """
+        from core.resource_gate import can_dispatch_task, get_resource_snapshot, is_interactive_session_active
+
+        snapshot = get_resource_snapshot(read_battery_fn=self._cached_read_battery_fn)
+        interactive_active = is_interactive_session_active()
+        return can_dispatch_task(snapshot, interactive_active)
+
+    async def _plan_claimed_task(self, prompt: str):
+        """
+        Pull-side planning step for a claimed `needs_planning=1` direct-
+        command task (7.4 sub-task C) — relocated from `_handle_command`'s
+        old synchronous enqueue-time planning call, same 180s timeout and
+        fallback-to-single-task semantics as before. Returns the step list
+        (possibly None/empty) or None on any failure; planner unavailability
+        is always silent (logged only), matching the original behavior this
+        replaces.
+        """
+        try:
+            from core.planner_client import send_plan_request_async
+
+            steps = await asyncio.wait_for(send_plan_request_async(prompt), timeout=180.0)
+            return steps
+        except asyncio.TimeoutError:
+            warning("plannd request timed out after 180s — falling back to direct task")
+        except ConnectionRefusedError:
+            # plannd not running — silent fallback
+            pass
+        except Exception as _e:
+            warning(f"plannd unavailable ({_e}) — falling back to direct task")
+        return None
+
     async def _process_planner_tasks(self):
         """Dispatch one ready task per main-loop tick.
 
@@ -1013,6 +1096,16 @@ class Daemon:
         # ── 1. Try a planner task first (respects dependency ordering) ──────────
         planner_task = self.planner.get_next_task()
         if planner_task:
+            # 7.4 sub-task C: gate check BEFORE try_claim_task() — claiming
+            # first and gating after would strand a refused task in
+            # 'running' status with no executor ever picking it back up.
+            # planner.get_next_task() is a pure in-memory peek (no state
+            # mutation), so it was safe to call before this check.
+            decision = self._check_dispatch_gate()
+            if not decision.allowed:
+                info(f"Daemon: dispatch deferred (planner task {planner_task.id}) — {decision.reason}")
+                return
+
             # Atomically claim in SQLite before any yield point.
             if not self.state.try_claim_task(planner_task.id):
                 # Already claimed by a previous tick that somehow didn't clean up.
@@ -1054,13 +1147,58 @@ class Daemon:
         if db_task["id"] in self.planner._tasks:
             return  # planner will handle it next tick
 
+        # 7.4 sub-task C: gate check BEFORE try_claim_task() — same
+        # claim-order requirement as the planner-task branch above.
+        decision = self._check_dispatch_gate()
+        if not decision.allowed:
+            info(f"Daemon: dispatch deferred (direct task {db_task['id']}) — {decision.reason}")
+            return
+
         if not self.state.try_claim_task(db_task["id"]):
             return  # lost the race — another path claimed it
 
-        info(f"Daemon: executing direct task {db_task['id']}: {db_task['description'][:50]}...")
+        # 7.4 sub-task C: pull-side planning for a raw task enqueued via
+        # _handle_command's plan_only=False path (needs_planning=1) — moved
+        # here from the old synchronous enqueue-time send_plan_request_async
+        # call, same 180s timeout and fallback-to-single-task semantics.
+        description = db_task["description"]
+        if db_task.get("needs_planning"):
+            steps = await self._plan_claimed_task(description)
+            if steps and len(steps) > 1:
+                total = len(steps)
+                enriched = []
+                for i, step in enumerate(steps):
+                    if i == 0:
+                        enriched.append(
+                            f"User's full request: {description}\n\n"
+                            f"Your task (step {i+1}/{total}): {step}\n\n"
+                            "Write the COMPLETE file with ALL features "
+                            "described above. Do not skip any requirement."
+                        )
+                    else:
+                        enriched.append(
+                            f"Previous context: {description[:200]}\n\n"
+                            f"Your task (step {i+1}/{total}): {step}\n\n"
+                            "Complete only this step."
+                        )
+                task_ids = self.planner.add_tasks(enriched)
+                info(f"plannd: expanded queued task {db_task['id']} into {total}-step plan {task_ids}")
+                # The original raw row is superseded by the new enriched
+                # tasks above — mark it done (not left 'running' forever
+                # with nothing to execute it) rather than dispatching it.
+                self.state.complete_task(
+                    db_task["id"], f"Expanded into {total}-step plan: task_ids={task_ids}"
+                )
+                self.state.clear_needs_planning(db_task["id"])
+                return
+            if steps:
+                info(f"plannd returned only 1 step for task {db_task['id']} — using single-task path")
+            self.state.clear_needs_planning(db_task["id"])
+
+        info(f"Daemon: executing direct task {db_task['id']}: {description[:50]}...")
         try:
             result = await asyncio.wait_for(
-                self.executor._execute_task(db_task["description"]),
+                self.executor._execute_task(description),
                 timeout=timeout,
             )
             self.state.complete_task(db_task["id"], result)

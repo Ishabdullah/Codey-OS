@@ -5954,3 +5954,113 @@ finding for the same bug. See `NEW-39`.)*
   `if __name__ == "__main__":` (or read only from `CODEY_GUI_PORT`, with
   the positional-argv override moved to the `__main__` block) rather than
   running at module import time. Flagging per CLAUDE.md rule 8.
+
+### [NEW-112] `core/daemon.py`'s `_handle_command`'s actual enqueue branches (`self.planner.add_tasks(enriched)` for a multi-step plan, `self.state.add_task(prompt)` for the single-task fallback) have zero live callers today — the socket `command` handler's only real caller anywhere in the shipped system is `core/planner_service.py:_request_daemon_plan()`, and it always sends `{"plan_only": True}`, which takes an early `return` (`core/daemon.py:209-242`) before either enqueue branch ever runs
+
+- **Status: Confirmed**, found scoping 4.1 sub-task C. Repo-wide search
+  for every caller of the daemon's `"command"` socket cmd:
+  `core/planner_service.py:84-88` (`send_command("command", {"prompt":
+  prompt, "no_plan": False, "plan_only": True}, timeout=185)`) is the
+  only live call site. `gui/server.py`'s WebSocket `"command"` message
+  type (`gui/server.py:275-278`) is unrelated — it spawns a `main.py`
+  subprocess (`run_codey()`) directly, never touching the daemon socket
+  at all. `codeyOS`'s own `send_command()` helper is only ever invoked
+  with `"task"` (read-only lookup) and `"cancel"`. `ccos/plugins/system/
+  daemon_control/daemon_control.py` deliberately does not wrap `command`
+  at all (its own docstring already says why). No test exercises
+  `_handle_command`'s enqueue branches either.
+- **Impact:** in the *live* system, `_handle_command`'s prompt goes to
+  the daemon socket exactly once per interactive-CLI prompt, purely as a
+  synchronous planning-oracle RPC (get plan text back for `main.py`'s
+  `_run_with_plan()` to execute locally step-by-step via `run_agent()`)
+  — never to genuinely enqueue work onto the daemon's own SQLite task
+  queue for the daemon itself to execute later. The "queue-only" framing
+  in `PENDING_ISH_DECISIONS.md` item 2 (`"command" becomes queue-only`)
+  assumed `command` was live's actual "submit work to the daemon" path;
+  it isn't, today. It's real, intended-future functionality per
+  `daemon_control.py`'s own docstring ("the real 'submit a new prompt
+  for the daemon to execute' entry point... genuinely useful"), just not
+  wired to any current caller.
+- **Not a blocker, reshapes 4.1 sub-task C's scope rather than being
+  fixed standalone** — see WORK_QUEUE.md Track 3 item 2, sub-task C: the
+  `plan_only=True` synchronous RPC path is kept as-is (exempt from the
+  new interactive-session-active gate, since the caller of that RPC IS
+  the interactive session asking on its own behalf, not the daemon doing
+  unrelated background work); the enqueue branches are stripped of their
+  synchronous planner call and made to enqueue the raw prompt, with
+  planning deferred to the pull side (`_process_planner_tasks`) so a
+  future live caller of the enqueue path benefits from the intended
+  "queue-only" behavior once one exists.
+
+### [NEW-113] `Daemon.__init__`'s `self.server.planner = self.planner` (`core/daemon.py:684`) is dead code — its comment says "so `_handle_command` can queue steps," but `_handle_command` (post-4.1-sub-task-C restructuring) no longer reads `self.planner`/`server.planner` at all
+
+- **Status: Confirmed** by direct code read. `DaemonServer` (the class
+  `_handle_command` actually belongs to) spans `core/daemon.py:156-620`.
+  Every use of the bare name `self.planner` in the file — lines 682/684
+  (the assignment itself, inside `Daemon.__init__`, a *different* class)
+  and lines 1097-1184 (`_process_planner_tasks()`, also on `Daemon`, e.g.
+  `self.planner.get_next_task()`, `self.planner.add_tasks()`) — falls
+  outside `DaemonServer`'s line range entirely; there are zero `self.
+  planner` references inside `DaemonServer` itself. A repo-wide search
+  for `server.planner` (`grep -rn "server\.planner" --include=*.py`)
+  finds exactly one hit in the whole repo — the assignment at line 684 —
+  and zero reads anywhere. `_handle_command` (`core/daemon.py:194-272`,
+  the method the stale comment names) only touches `self.state` and, on
+  the `plan_only=True` path, calls `send_plan_request_async()` directly;
+  it never references `self.planner` or `server.planner` in any form.
+  The attribute is assigned once at daemon startup and never consulted
+  again by anything.
+- **Impact:** cosmetic/maintainability only — a future reader following
+  the comment would look for `_handle_command` using `self.planner` and
+  not find it, and could waste time either reverse-engineering why the
+  wiring exists or (worse) assuming it still matters and preserving it
+  across a later refactor that has no reason to.
+- **Not fixed** — out of scope for 4.1 sub-task C (docs-only round per
+  code-reviewer's request); flagging per CLAUDE.md rule 8. Removing the
+  dead assignment (and its comment) is a trivial follow-up whenever
+  `core/daemon.py` is next touched for something in this area.
+
+### [NEW-114] 4.1 sub-task C's new "expand a queued task into an N-step plan" path (`_process_planner_tasks()`, `core/daemon.py:~1166-1193`) has a crash window between `add_tasks()` creating the new multi-step rows and `complete_task()` marking the superseded raw row `done`, with no reaper/watchdog anywhere in the codebase to recover an orphaned `running` row if the daemon dies in that gap
+
+- **Status: Confirmed** by direct code read, raised by code-reviewer
+  building on this sub-task's own flagged concern. Sequence at
+  `core/daemon.py:1157-1192`: `try_claim_task()` first sets the raw row's
+  status to `running` (line 1157); then, if `needs_planning`, planning
+  runs and — when it yields >1 step — `self.planner.add_tasks(enriched)`
+  (line 1184) creates the new expanded rows; only *after* that does
+  `self.state.complete_task(db_task["id"], ...)` (line 1189) mark the
+  original raw row `done`. A daemon crash between those two calls leaves
+  the raw row permanently `running` with the new rows already created and
+  eligible for normal dispatch — i.e. real work is not lost, but the
+  stale raw row itself is never cleaned up. Verified no reaper exists:
+  `core/daemon.py`'s only code that inspects `running`-status age is
+  `_handle_health()` (lines 302-308), which computes a `stuck_tasks` list
+  purely for read-only reporting in the `/health` response — it never
+  resets, re-queues, or otherwise acts on a stuck row. `core/state.py`
+  has no method that updates a `running` row back to `pending`/`done` on
+  a timeout basis at all (its only status-transition writes are the
+  `pending`-scoped claim update and the explicit `complete_task()`
+  `done`-write). No watchdog tick in `_main_loop()`
+  (`core/daemon.py:927-969`, the same loop that runs the 7B model and
+  embed-server watchdogs) touches task-queue rows either.
+- **Impact:** bounded but real — an orphaned `running` raw row is inert
+  (nothing dispatches it, nothing marks it failed) and permanently
+  visible as "stuck" in `/health`'s reporting with no automated recovery;
+  a human has to notice and manually intervene (e.g. via a direct DB
+  fix) to clear it. The *absence of any stale-`running` reaper* is
+  pre-existing and not specific to this path — a crash mid-`_execute_task()`
+  for an ordinary (non-expanded) task already strands a `running` row the
+  same way, with nothing in the codebase to recover it either. What this
+  sub-task's restructuring newly introduces is the *specific crash
+  window*: before this sub-task, a raw task's `running` state was always
+  cleared by the same code path that executed it (no separate step in
+  between); now there's a distinct "supersede and mark done" step
+  (`add_tasks()` then `complete_task()`) that a crash can land inside,
+  making this the first dispatch path whose correctness actually depends
+  on a reaper that doesn't exist.
+- **Not fixed** — out of scope for 4.1 sub-task C (docs-only round per
+  code-reviewer's request); flagging per CLAUDE.md rule 8. A future fix
+  would need a general stale-`running`-row reaper (there isn't one for
+  any task today, not just this path) or a narrower fix reordering the
+  two writes so the raw row is marked `done` atomically with (or before)
+  `add_tasks()`, whichever a later round decides is the right shape.

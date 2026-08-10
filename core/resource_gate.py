@@ -975,6 +975,138 @@ def would_model_fit(
     ).admitted
 
 
+# ── Task-dispatch gate (7.4 sub-task C) ──────────────────────────────────────
+# `can_dispatch_task()` is a coarse pre-check for `core/daemon.py`'s
+# `_process_planner_tasks()` loop, deciding whether to claim (via
+# `state.try_claim_task()`) and dispatch the next queued task at all — NOT a
+# model-admission re-check. `_execute_task()` (core/task_executor.py:96)
+# already runs through `run_agent()` -> the model-loading path, which already
+# calls `can_admit()` with a real ModelSpec before any model loads.
+# `can_dispatch_task()` must not re-simulate that decision; its only job is to
+# avoid claiming a task the executor would immediately fail on for a resource
+# reason, and to enforce the interactive-lock rule `can_admit()` knows nothing
+# about (never do daemon-initiated background work while a human is watching
+# the TUI/GUI — see `is_interactive_session_active()` above).
+#
+# Both inputs (`snapshot`, `interactive_active`) are passed in rather than
+# read internally, matching `can_admit()`'s own inject-everything test
+# convention, so this function stays synchronous and trivially testable with
+# synthetic ResourceSnapshots.
+
+# RAM headroom floor below which task dispatch is refused outright, regardless
+# of what a model's own admission check would later say. This is the one leg
+# of can_dispatch_task() with no existing project constant to reuse (unlike
+# the thermal/battery legs below, which reuse THERMAL_CONFIG). Grounded in
+# this project's own swap-pressure evidence rather than picked arbitrarily:
+# NEW-14/NEW-18/NEW-21 (NEW_ISSUES.md) all observed swap onset with as little
+# as ~1.2GiB of free RAM before a model load, with severe swap pressure
+# (1.2Gi -> 5.6Gi in ~10s) within seconds once it started under a full
+# 3-model stack. 1GiB sits just below that observed onset point, so it acts
+# as an early-warning floor for *dispatching new work* — well before
+# `can_admit()`'s own, separately-computed per-model headroom_factor check
+# would run against a real ModelSpec at load time. It is deliberately not
+# "0 bytes" (any headroom at all): NEW-21's whole lesson is that a bare
+# "nonzero headroom" check is not conservative enough on this device.
+DISPATCH_MIN_HEADROOM_BYTES = 1 * 1024 * 1024 * 1024  # 1 GiB
+
+
+@dataclass(frozen=True)
+class DispatchDecision:
+    allowed: bool
+    reason: str
+
+
+def can_dispatch_task(
+    snapshot: "ResourceSnapshot", interactive_active: bool
+) -> DispatchDecision:
+    """
+    Decide whether `_process_planner_tasks()` should claim and dispatch the
+    next queued task right now, given a pre-composed `snapshot` (see
+    `get_resource_snapshot()`) and `interactive_active` (see
+    `is_interactive_session_active()`).
+
+    Checks, in this exact priority order (first match wins):
+      1. `interactive_active` True -> refuse. The rule `can_admit()` has no
+         equivalent of: never do daemon-initiated background work while a
+         human is watching the TUI/GUI.
+      2. `temperature_c is not None and temperature_c >=
+         THERMAL_CONFIG["temp_critical"]` -> refuse. Same threshold
+         `can_admit()` already uses — one authority, not a second number to
+         keep in sync.
+      3. `battery_percent is not None and not battery_charging and
+         battery_percent <= THERMAL_CONFIG["batt_critical"]` -> refuse.
+         Mirrors `core/recursive.py:get_adaptive_depth()`'s existing
+         "not charging AND at/below batt_critical -> treat as most
+         restrictive" convention exactly (same config keys, same
+         not-charging gate).
+      4. `ram_headroom_bytes < DISPATCH_MIN_HEADROOM_BYTES` -> refuse.
+      5. `cpu_percent is None` -> this signal is IGNORED, not a refusal
+         reason (NEW-108 confirms `/proc/stat` is permission-denied on this
+         device, so `cpu_percent` reads `None` unconditionally, regardless
+         of actual load — treating `None` as "fail closed" would
+         permanently wedge dispatch on this exact device, mirroring
+         `can_admit()`'s own existing precedent for an unreadable
+         temperature: "An unreadable temperature (None) is treated as 'no
+         thermal objection'"). When every other check passes and
+         `cpu_percent is None`, the returned `reason` says so explicitly so
+         a live-verifier reading dispatch-decision logs can't mistake "gate
+         open" for "CPU confirmed low."
+
+    A real, measured `cpu_percent` value is not itself gated on by this
+    sub-task (see WORK_QUEUE.md's note on this leg) — it is read into the
+    snapshot but not compared against a threshold here.
+    """
+    if interactive_active:
+        return DispatchDecision(
+            allowed=False,
+            reason="interactive TUI/GUI session active — deferring background dispatch",
+        )
+
+    from utils.config import THERMAL_CONFIG
+
+    temp_critical = THERMAL_CONFIG.get("temp_critical", 90)
+    if snapshot.temperature_c is not None and snapshot.temperature_c >= temp_critical:
+        return DispatchDecision(
+            allowed=False,
+            reason=(
+                f"current CPU temperature ({snapshot.temperature_c:.1f}°C) at/above "
+                f"critical threshold ({temp_critical}°C) — deferring dispatch"
+            ),
+        )
+
+    batt_critical = THERMAL_CONFIG.get("batt_critical", 5)
+    if (
+        snapshot.battery_percent is not None
+        and not snapshot.battery_charging
+        and snapshot.battery_percent <= batt_critical
+    ):
+        return DispatchDecision(
+            allowed=False,
+            reason=(
+                f"battery critical ({snapshot.battery_percent}%, not charging) — "
+                "deferring dispatch"
+            ),
+        )
+
+    if snapshot.ram_headroom_bytes < DISPATCH_MIN_HEADROOM_BYTES:
+        return DispatchDecision(
+            allowed=False,
+            reason=(
+                f"RAM headroom ({snapshot.ram_headroom_bytes / _KB / _KB:.0f}MiB) below "
+                f"dispatch floor ({DISPATCH_MIN_HEADROOM_BYTES / _KB / _KB:.0f}MiB) — "
+                "deferring dispatch"
+            ),
+        )
+
+    if snapshot.cpu_percent is None:
+        return DispatchDecision(
+            allowed=True,
+            reason="within resource limits (CPU unmeasurable on this device, NEW-108 — not evaluated)",
+        )
+
+    return DispatchDecision(allowed=True, reason="within resource limits")
+
+
 # ── CPU thread/core allocation ───────────────────────────────────────────────
 # Per the 2026-08-08 amendment, the gate also owns per-model thread/core
 # allocation as concurrently-resident model count changes — a second axis it

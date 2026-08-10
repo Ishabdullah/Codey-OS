@@ -795,10 +795,36 @@ resource-awareness work twice.
        Not live-verified — this sub-task touches PID-file/lock logic per
        CLAUDE.md rule 4 (mandatory review, two rounds to converge) but no
        daemon dispatch/shutdown behavior actually changed yet (sub-tasks
-       C/D). Not yet committed. Sub-tasks C-E remain 100%
+       C/D). Not yet committed. **Sub-task C (gate queue dispatch on A+B,
+       move planning to the pull side) is code-complete and
+       code-reviewer-approved as of 2026-08-10** — claim-order (gate
+       check before `try_claim_task()` in both branches), the `no_plan`
+       inversion, `plan_only=True` path preservation, the `needs_planning`
+       column migration, and `can_dispatch_task()`'s gate logic were all
+       independently re-verified by code-reviewer, including a
+       negative-control test proving the claim-order regression test
+       actually catches a real regression if the ordering is reverted.
+       Full suite verified at 496 passed, 1 skipped. Review also surfaced
+       two findings logged to `NEW_ISSUES.md`: `NEW-113` (the
+       `self.server.planner = self.planner` wiring in `Daemon.__init__`
+       is now dead code — `_handle_command` no longer reads
+       `self.planner`/`server.planner` post-restructuring) and `NEW-114`
+       (a crash window between `add_tasks()` creating the new expanded
+       multi-step rows and `complete_task()` marking the superseded raw
+       row `done`, with no stale-`running` reaper anywhere in the
+       codebase to recover an orphaned raw row if the daemon dies in that
+       gap — a genuine new gap this sub-task's restructuring introduces,
+       not a pre-existing one). Neither finding is fixed; both are
+       explicitly out of scope for this sub-task per code-reviewer's own
+       docs-only scoping of this round. **Not live-verified** — the live-
+       verification criterion documented below (real TUI session file,
+       observed refusal-then-dispatch across watchdog ticks with verbatim
+       log/DB evidence) is being deliberately held until Ish gives
+       explicit go-ahead; it is not expected to happen automatically as a
+       follow-on to this round. Sub-tasks D-E remain 100%
        decisions-on-paper, zero implementation** (confirmed by inspecting
        the live `daemon_control/manifest.json` — still pre-decision shape
-       for everything sub-tasks A/B don't cover).
+       for everything sub-tasks A/B/C don't cover).
 
        **Scoping pass complete, 2026-08-09 (project-architect, desk-only,
        no code changed).** Two premises in the original decision text
@@ -894,19 +920,276 @@ resource-awareness work twice.
           deferred — do not substitute GUI-process-alive as a stand-in
           for this signal.
        3. **Sub-task C — gate queue dispatch on A+B, move planning to the
-          pull side.** `Daemon._process_planner_tasks()`
-          (`core/daemon.py:981-1054`) checks a new predicate — belongs
-          next to `can_admit()` in `core/resource_gate.py`, not
-          duplicated into `observability.py`, per WORK_QUEUE's own
-          "single resource-gate authority" framing — composing sub-task
-          A's live RAM/CPU/temp/battery snapshot and sub-task B's
-          interactive-lock check before claiming/dispatching a task.
-          Also moves `_handle_command`'s synchronous `send_plan_request_async`
-          call off the socket handler and onto the pull side, so
-          planning inference itself becomes gated too, not just
-          execution. This is the sub-task with the actual behavior
-          change (daemon may now sit idle on a non-empty queue) —
-          mandatory code-reviewer AND live-verifier.
+          pull side.** **Scoped 2026-08-10 (project-architect, desk-only
+          — that scoping pass itself changed no code). Code-complete and
+          code-reviewer-approved
+          2026-08-10 — see the round-level status note above for the
+          verified specifics (496 passed/1 skipped, NEW-113/NEW-114
+          logged, not fixed) and the deliberate hold on live-verification
+          pending Ish's go-ahead.** Mandatory code-reviewer AND
+          live-verifier — this is the first sub-task where daemon
+          dispatch behavior actually changes (the daemon may now sit idle
+          on a non-empty queue).
+
+          **Finding that reshapes this sub-task's scope, logged as
+          `NEW-112` (Confirmed):** `_handle_command`'s two enqueue
+          branches (`self.planner.add_tasks(enriched)` for a multi-step
+          plan, `self.state.add_task(prompt)` single-task fallback) have
+          **zero live callers today**. Repo-wide search for every caller
+          of the daemon's `"command"` socket cmd found exactly one:
+          `core/planner_service.py:84-88`
+          (`send_command("command", {"prompt": prompt, "no_plan": False,
+          "plan_only": True}, timeout=185)`), called from
+          `main.py`'s `_run_with_plan()` — and `plan_only=True` takes an
+          early `return` (`core/daemon.py:209-242`) before either enqueue
+          branch runs. `gui/server.py`'s WebSocket `"command"` message
+          is unrelated (spawns a `main.py` subprocess directly, never
+          touches the daemon socket). `codeyOS`'s own `send_command()`
+          helper is only ever invoked with `"task"`/`"cancel"`.
+          `daemon_control.py` deliberately doesn't wrap `command` at all.
+          No test exercises the enqueue branches either. Practically,
+          `command` today is a synchronous **planning-oracle RPC** used
+          by the interactive CLI to get plan text back for local,
+          step-by-step `run_agent()` execution — never a "hand this to
+          the daemon's own queue" path. This makes the original
+          response-contract worry (would callers relying on `"Plan
+          created: N steps"`/`task_ids` in the immediate socket response
+          break?) **moot**: `_request_daemon_plan()` reads only
+          `response.get("plan")`; nothing anywhere reads `message`,
+          `task_ids`, or `task_id`. No poll/notify replacement path is
+          needed.
+
+          **Resulting design, response-contract question resolved:**
+          - **Keep the `plan_only=True` RPC path exactly as it behaves
+            today** — synchronous, up to the existing 180s
+            `asyncio.wait_for` timeout, returning `{"status": "ok",
+            "plan": steps}` (or falling through to a plan-less response
+            when the planner is unavailable/times out/returns ≤1 step,
+            same as today). **This path is explicitly exempt from the
+            new interactive-session gate** (sub-task B's
+            `is_interactive_session_active()`): the caller of this RPC
+            *is* the interactive session asking on its own behalf, not
+            the daemon doing background work while a user is looking
+            away. Gating it would make the daemon refuse to plan for the
+            exact session that's asking — a self-deadlock, not a safety
+            win. Do not apply the new predicate here.
+          - **Strip the synchronous `send_plan_request_async` call out of
+            the enqueue branches.** When `plan_only` is falsy (today
+            dead in production, but per `daemon_control.py`'s own
+            docstring this is real, intended-future functionality —
+            "the real 'submit a new prompt for the daemon to execute'
+            entry point"), `_handle_command` should just enqueue the raw
+            prompt (`self.state.add_task(prompt, ...)`, one row, no
+            planning, no enrichment) and return an immediate
+            `{"status": "ok", "message": "Task queued", "task_id":
+            <id>}` — the multi-step enrichment/`task_ids` shape goes
+            away for this path because there is no plan yet at enqueue
+            time. Add a way to mark a queued row as "raw, needs
+            planning" vs. "already a concrete step" — the cleanest,
+            smallest-diff option is a new nullable `task_queue` column
+            (e.g. `needs_planning INTEGER DEFAULT 0`, set to 1 only by
+            this raw-enqueue path; every existing/other caller's rows
+            default to 0, i.e. "already concrete," preserving current
+            behavior for both `_process_planner_tasks` branches
+            untouched by this flag). Do not repurpose `dependencies` or
+            any existing column for this signal.
+          - **Move planning to the pull side.**
+            `Daemon._process_planner_tasks()` (`core/daemon.py:998-1054`)
+            gets a new step, before dispatch: for a claimed direct-command
+            task with `needs_planning=1`, call `send_plan_request_async`
+            there (same 180s timeout, same fallback-to-single-task
+            semantics as today's socket-handler code, just relocated) —
+            on ≥2 steps, replace the one raw row with the existing
+            enriched multi-step `add_tasks()` shape (dependent tasks,
+            same enrichment text as today) and clear `needs_planning`
+            without executing anything this tick; on ≤1 step/timeout/
+            unavailable, clear `needs_planning` and execute the raw
+            prompt directly as today's single-task path already does.
+            This is what makes "queue-only" (`PENDING_ISH_DECISIONS.md`
+            item 2) real for whenever a future live caller uses the
+            enqueue path, rather than fixing a path nothing currently
+            calls.
+
+          **The gating predicate.** New function `can_dispatch_task()`
+          in `core/resource_gate.py`, named to parallel `can_admit()`
+          (which it complements, not replaces — see relationship below),
+          living next to it per WORK_QUEUE's "single resource-gate
+          authority" framing, not duplicated into `observability.py`.
+          Signature/shape: takes a `ResourceSnapshot` (sub-task A's
+          `get_resource_snapshot()`) and an `interactive_active: bool`
+          (sub-task B's `is_interactive_session_active()`) — both passed
+          in, not read internally, so this function stays synchronous
+          and trivially testable with synthetic snapshots, matching
+          `can_admit()`'s own inject-everything test convention. Returns
+          a decision with at least `allowed: bool` and `reason: str`
+          (a small dataclass mirroring `GateDecision`'s naming, e.g.
+          `DispatchDecision`, is fine, but doesn't need `GateDecision`'s
+          cost/headroom/ceiling fields — those are model-admission-
+          specific and don't apply to this coarse pre-check).
+
+          **`can_dispatch_task()` vs. `can_admit()`:** `_execute_task()`
+          (`core/task_executor.py:96`) already runs through `run_agent()`
+          → the model-loading path, which already calls `can_admit()`
+          with a real `ModelSpec` before any model loads. `can_dispatch_task()`
+          must NOT re-simulate that admission decision — it's a cheap,
+          coarse pre-check whose only job is to avoid claiming
+          (`try_claim_task()`) a task the executor would immediately fail
+          on for a resource reason, and to enforce the interactive-lock
+          rule that `can_admit()` knows nothing about. Checks:
+            1. `interactive_active` is `True` → refuse (this is the rule
+               `can_admit()` has no equivalent of: never do daemon-
+               initiated background work while a human is watching the
+               TUI/GUI).
+            2. `temperature_c is not None and temperature_c >=
+               THERMAL_CONFIG["temp_critical"]` → refuse. Same threshold
+               `can_admit()` already uses (`THERMAL_CONFIG["temp_critical"]`,
+               currently 90°C) — one authority, not a second number to
+               keep in sync.
+            3. `battery_percent is not None and not battery_charging and
+               battery_percent <= THERMAL_CONFIG["batt_critical"]` (5%)
+               → refuse. Mirrors `core/recursive.py:get_adaptive_depth()`'s
+               existing "not charging AND at/below batt_critical → treat
+               as most-restrictive" convention exactly (same config keys,
+               same not-charging gate) — reuse, don't reinvent.
+            4. RAM: `ram_headroom_bytes` below a new named constant in
+               `core/resource_gate.py` (e.g. `DISPATCH_MIN_HEADROOM_BYTES`)
+               → refuse. This is the one leg with no existing project
+               constant to reuse — pick a conservative, clearly-commented
+               default grounded in this project's own swap-pressure
+               evidence (`NEW-14`/`NEW-18`/`NEW-21`: swap onset observed
+               as low as ~1.2GiB free before a load, severe pressure
+               within seconds under a full 3-model stack) rather than an
+               arbitrary number; something on the order of 1GiB is
+               defensible from that evidence, but the exact value is
+               implementer's to justify in the PR description and
+               code-reviewer's to sanity-check — not a product decision
+               requiring Ish.
+            5. `cpu_percent is None` → **ignore this signal; do not
+               refuse solely because of it.** Reason: `NEW-108` confirms
+               `/proc/stat` is `Permission denied` on this device, so
+               `cpu_percent` reads `None` unconditionally, always,
+               regardless of actual load. Treating `None` as "fail
+               closed" would permanently wedge dispatch on this exact
+               device — the sub-task would be uncompletable and
+               unlive-verifiable by construction, not merely degraded.
+               This mirrors `can_admit()`'s own existing precedent for
+               an unreadable temperature (`core/resource_gate.py:877-879`,
+               "An unreadable temperature (None) is treated as 'no
+               thermal objection'"): an unmeasurable signal is not
+               evidence of a problem. When `cpu_percent` is a real float
+               ≥ some high-load threshold, a future round MAY choose to
+               gate on it (not scoped here — this sub-task's own CPU leg
+               is effectively a no-op on this device today); if
+               implemented, do not invent a new threshold — ask whether
+               reusing `THERMAL_CONFIG["temp_critical"]`-style single
+               ownership makes sense, or defer to sub-task D's own
+               >90%-CPU tripwire work, which faces the identical
+               NEW-108 constraint. **The returned reason string when
+               `cpu_percent is None` and the decision is otherwise
+               `allowed=True` must say the CPU leg was unmeasured**
+               (e.g. `"within resource limits (CPU unmeasurable on this
+               device, NEW-108 — not evaluated)"`), so a live-verifier
+               reading dispatch-decision logs doesn't mistake "gate
+               open" for "CPU confirmed low."
+          - Battery-read caching, mandatory, not optional:
+            `get_resource_snapshot()`'s own docstring
+            (`core/resource_gate.py:460-470`) already flags that its
+            default `read_battery_fn` shells out to
+            `termux-battery-status` with a 2s subprocess timeout on every
+            call, and warns a "hot, frequently-ticking loop" caller (this
+            one — every `_process_planner_tasks()` tick) must supply a
+            `read_battery_fn` that reads a slower-cadence cached value
+            instead of the default. Do not wire the default battery
+            reader directly into this dispatch loop; reuse whatever
+            cached/rate-limited battery read this codebase already has
+            for its 30s watchdog tick (same one sub-task A's rolling CPU
+            sampler ticks on), or add a comparable cache if none exists
+            yet — this is a hard requirement for this sub-task, not an
+            optional optimization, or every tick pays an avoidable 2s
+            subprocess cost.
+          - **Claim-order requirement:** `can_dispatch_task()` must be
+            consulted **before** `state.try_claim_task()` in *both*
+            branches of `_process_planner_tasks()` (the planner-task
+            branch, currently ~line 1017, and the direct-command-task
+            branch, currently ~line 1057). Claiming first and gating
+            after would strand a refused task in `running` status with
+            no executor ever picking it back up. `planner.get_next_task()`
+            (`core/planner_v2.py:160`) is confirmed side-effect-free (a
+            pure peek over the in-memory dict, no state mutation) so
+            calling it before the gate check is safe.
+
+          **Sequenced build steps for implementer:**
+            1. `core/resource_gate.py`: add `DISPATCH_MIN_HEADROOM_BYTES`
+               constant (commented with its NEW-14/18/21 justification)
+               and `can_dispatch_task(snapshot, interactive_active) ->
+               DispatchDecision` per the checks above, in that priority
+               order (interactive lock → thermal → battery → RAM →
+               CPU-if-measurable), each independently unit-testable with
+               synthetic `ResourceSnapshot`s (mirror `tests/
+               test_resource_gate.py`'s existing convention).
+            2. `core/state.py`: add the `needs_planning` column (default
+               0) to `task_queue`'s schema + the same
+               `ALTER TABLE ... ADD COLUMN` migration pattern already
+               used for `dependencies`/`retry_count`
+               (`core/state.py:87-95`); add whatever minimal accessor
+               `_process_planner_tasks()` needs to read/clear the flag
+               (a `state.get_task(id)["needs_planning"]` read plus a new
+               `state.clear_needs_planning(id)` or equivalent — match
+               existing method-per-mutation style in this file, don't
+               overload `complete_task`/`fail_task` for this).
+            3. `core/daemon.py` `_handle_command`: keep the
+               `plan_only=True` branch's existing behavior unchanged;
+               for the non-`plan_only` path, delete the
+               `send_plan_request_async` call and the
+               enrichment/`add_tasks` logic, replace with a single
+               `state.add_task(prompt, needs_planning=1)`-style raw
+               enqueue, return the new minimal response shape described
+               above.
+            4. `core/daemon.py` `_process_planner_tasks()`: before each of
+               the two `try_claim_task()` calls, build a
+               `ResourceSnapshot` (cached/rate-limited per the battery
+               note above — do not call `get_resource_snapshot()` fresh
+               every tick if that reintroduces the 2s battery subprocess
+               cost; reuse/extend whatever cached snapshot sub-task A's
+               `/status` wiring already produces if it's on a compatible
+               cadence, or build a new lower-frequency cache specific to
+               this loop if not) and `interactive_active` value, call
+               `can_dispatch_task()`, and `return` (skip this tick,
+               exactly like today's "nothing to do" early returns) when
+               `allowed=False`. Log the decision's `reason` at `info`
+               level on refusal so a live-verifier can see why the
+               daemon is idling without needing to read source.
+               Add the `needs_planning` pre-dispatch planning step for
+               the direct-command branch as described above, before it
+               falls through to `executor._execute_task()`.
+            5. Tests: unit tests for `can_dispatch_task()`'s five checks
+               (synthetic snapshots, no real hardware/model reads);
+               a `_process_planner_tasks()`-level test that a refused
+               dispatch decision leaves a task `pending` (never
+               `running`) — this is the regression test for the
+               claim-order requirement above; a test that a
+               `needs_planning=1` task gets planned and expanded (or
+               falls back to single-task) on the pull side, mocking
+               `send_plan_request_async`.
+
+          **Nothing in this sub-task requires Ish's direct input** — the
+          response-contract question the parent task raised is resolved
+          by NEW-112's evidence (no live caller depends on the removed
+          synchronous response fields), and the CPU-None handling follows
+          existing in-module precedent (`can_admit()`'s temperature
+          fail-open) rather than inventing new policy. The one number
+          without a reusable existing constant (`DISPATCH_MIN_HEADROOM_BYTES`)
+          is implementer's/code-reviewer's call, not a product decision.
+
+          **Live-verification criterion for this sub-task** (not just
+          "tests pass"): with a real TUI session file present
+          (`is_tui_session_active()` true) and a non-empty queue, observe
+          via verbatim daemon log output that `_process_planner_tasks()`
+          logs a refusal reason and the queued task's status stays
+          `pending` across multiple ticks; then remove the session file
+          and observe the same task get claimed and dispatched within
+          one tick, with verbatim log/`--status`/DB-row evidence — not a
+          paraphrase.
        4. **Sub-task D — `daemon_shutdown` autonomous tripwire; retire
           the socket-triggerable path.** Watchdog-tick check (reusing
           sub-task A's rolling CPU sampler and `thermal.get_current_temp_c()`)

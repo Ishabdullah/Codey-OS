@@ -1328,3 +1328,118 @@ def test_is_interactive_session_active_true_when_only_gui_active(tmp_path):
         )
         is True
     )
+
+
+# ── can_dispatch_task() (7.4 sub-task C) ─────────────────────────────────────
+# Every check below uses a synthetic ResourceSnapshot built directly — no real
+# hardware/model reads, matching this module's existing test convention.
+
+
+def _snapshot(
+    cpu_percent=10.0,
+    ram_headroom_bytes=4 * GIB,
+    temperature_c=40.0,
+    battery_percent=80,
+    battery_charging=False,
+    queue_pending=0,
+    queue_running=0,
+):
+    return rg.ResourceSnapshot(
+        cpu_percent=cpu_percent,
+        ram_headroom_bytes=ram_headroom_bytes,
+        ram_total_bytes=12 * GIB,
+        temperature_c=temperature_c,
+        queue_pending=queue_pending,
+        queue_running=queue_running,
+        battery_percent=battery_percent,
+        battery_charging=battery_charging,
+        timestamp=time.time(),
+    )
+
+
+def test_can_dispatch_task_allows_within_all_limits():
+    decision = rg.can_dispatch_task(_snapshot(), interactive_active=False)
+    assert decision.allowed is True
+
+
+def test_can_dispatch_task_refuses_when_interactive_active():
+    # Interactive-lock check takes priority over everything else — even a
+    # snapshot that would otherwise be fully fine.
+    decision = rg.can_dispatch_task(_snapshot(), interactive_active=True)
+    assert decision.allowed is False
+    assert "interactive" in decision.reason.lower()
+
+
+def test_can_dispatch_task_refuses_at_critical_temperature():
+    snap = _snapshot(temperature_c=91.0)  # THERMAL_CONFIG["temp_critical"] == 90
+    decision = rg.can_dispatch_task(snap, interactive_active=False)
+    assert decision.allowed is False
+    assert "temperature" in decision.reason.lower()
+
+
+def test_can_dispatch_task_allows_below_critical_temperature():
+    snap = _snapshot(temperature_c=89.0)
+    decision = rg.can_dispatch_task(snap, interactive_active=False)
+    assert decision.allowed is True
+
+
+def test_can_dispatch_task_treats_unreadable_temperature_as_no_objection():
+    snap = _snapshot(temperature_c=None)
+    decision = rg.can_dispatch_task(snap, interactive_active=False)
+    assert decision.allowed is True
+
+
+def test_can_dispatch_task_refuses_on_critical_battery_not_charging():
+    snap = _snapshot(battery_percent=5, battery_charging=False)  # batt_critical == 5
+    decision = rg.can_dispatch_task(snap, interactive_active=False)
+    assert decision.allowed is False
+    assert "battery" in decision.reason.lower()
+
+
+def test_can_dispatch_task_allows_critical_battery_while_charging():
+    # Mirrors core/recursive.py:get_adaptive_depth()'s "not charging AND
+    # critical" convention — charging exempts the battery check entirely.
+    snap = _snapshot(battery_percent=5, battery_charging=True)
+    decision = rg.can_dispatch_task(snap, interactive_active=False)
+    assert decision.allowed is True
+
+
+def test_can_dispatch_task_allows_low_but_not_critical_battery_not_charging():
+    snap = _snapshot(battery_percent=6, battery_charging=False)
+    decision = rg.can_dispatch_task(snap, interactive_active=False)
+    assert decision.allowed is True
+
+
+def test_can_dispatch_task_refuses_below_ram_headroom_floor():
+    snap = _snapshot(ram_headroom_bytes=rg.DISPATCH_MIN_HEADROOM_BYTES - MIB)
+    decision = rg.can_dispatch_task(snap, interactive_active=False)
+    assert decision.allowed is False
+    assert "ram" in decision.reason.lower() or "headroom" in decision.reason.lower()
+
+
+def test_can_dispatch_task_allows_at_ram_headroom_floor_boundary():
+    snap = _snapshot(ram_headroom_bytes=rg.DISPATCH_MIN_HEADROOM_BYTES)
+    decision = rg.can_dispatch_task(snap, interactive_active=False)
+    assert decision.allowed is True
+
+
+def test_can_dispatch_task_allows_but_flags_unmeasured_cpu():
+    # NEW-108: cpu_percent is always None on this device (/proc/stat
+    # permission-denied). This must not refuse dispatch, but the reason
+    # string must say the CPU leg was unmeasured — otherwise a
+    # live-verifier reading logs could mistake "gate open" for "CPU
+    # confirmed low."
+    snap = _snapshot(cpu_percent=None)
+    decision = rg.can_dispatch_task(snap, interactive_active=False)
+    assert decision.allowed is True
+    assert "cpu" in decision.reason.lower()
+    assert "unmeasur" in decision.reason.lower()
+
+
+def test_can_dispatch_task_priority_interactive_over_thermal():
+    # Interactive lock refuses even when thermal is also critical — priority
+    # order matters for which reason string callers see.
+    snap = _snapshot(temperature_c=95.0)
+    decision = rg.can_dispatch_task(snap, interactive_active=True)
+    assert decision.allowed is False
+    assert "interactive" in decision.reason.lower()

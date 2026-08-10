@@ -542,8 +542,50 @@ both would mean coding against an interface that doesn't exist yet.
       code-complete/mock-and-real-subprocess-unit-tested only; this sub-
       task touches PID-file/lock logic per CLAUDE.md rule 4 so it had a
       mandatory (two-round) review, but no daemon dispatch/shutdown
-      behavior actually changed yet (that's sub-tasks C/D). Sub-tasks
-      C-E not started.
+      behavior actually changed yet (that's sub-tasks C/D). **Sub-task C
+      (gate queue dispatch on A+B, move planning to the pull side)
+      scoped 2026-08-10** — see WQ Track 3 item 2 for the full build
+      order; code-complete, see status further below. Scoping surfaced
+      `NEW-112` (Confirmed):
+      `_handle_command`'s enqueue branches have zero live callers today
+      (the only live caller of the `command` socket cmd always sends
+      `plan_only: True`, a synchronous planning-oracle RPC that returns
+      before either enqueue branch runs) — resolves the response-contract
+      question the parent decision raised (no live caller depends on the
+      fields a deferred-planning response would drop) and reshapes the
+      sub-task: the `plan_only` RPC path stays as-is and is explicitly
+      exempt from the new interactive-session gate (its caller IS the
+      interactive session asking on its own behalf); the enqueue branches
+      get a new `needs_planning` task-queue flag and planning moves to
+      `_process_planner_tasks()`. New predicate `can_dispatch_task()`
+      (`core/resource_gate.py`, next to `can_admit()`) composes sub-task
+      A's snapshot + sub-task B's interactive-lock signal; `cpu_percent
+      is None` (confirmed always true on this device per `NEW-108`) is
+      treated as "signal unmeasured, don't refuse solely on it," mirroring
+      `can_admit()`'s existing temperature-None fail-open precedent — the
+      alternative (fail-closed) would permanently wedge dispatch on this
+      hardware. Nothing in this sub-task needs Ish's direct input. Still
+      mandatory code-reviewer AND live-verifier — first sub-task where
+      daemon dispatch behavior actually changes. **Sub-task C
+      code-reviewer-approved 2026-08-10**: claim-order fix (gate check
+      before `try_claim_task()` in both branches), the `no_plan`
+      inversion fix, `plan_only=True` path preservation, the
+      `needs_planning` column migration, and the gate logic itself were
+      all independently re-verified, including a negative-control test
+      proving the claim-order regression test actually catches a real
+      regression. Full suite verified at 496 passed, 1 skipped. Two
+      findings surfaced by review were logged (not fixed, out of scope
+      for this sub-task): `NEW-113` (`Daemon.__init__`'s
+      `self.server.planner = self.planner` wiring is now dead code —
+      `_handle_command` no longer reads `self.planner`/`server.planner`)
+      and `NEW-114` (a crash window between `add_tasks()` creating
+      expanded multi-step rows and `complete_task()` marking the
+      superseded raw row `done`, with no stale-`running` reaper anywhere
+      in the codebase to recover an orphaned row — a genuine new gap this
+      sub-task's restructuring introduces). **Not live-verified** — live-
+      verification is being deliberately held until Ish gives explicit
+      go-ahead, not assumed to follow automatically. Sub-tasks D-E not
+      started.
 - [ ] 7.3 (WQ Track 3 item 3, "Phase 5b") — Task classifier + tier
       config, coding domain only: non-LLM heuristic classifier;
       `(domain, role, tier) → model` config; reconcile with (don't
