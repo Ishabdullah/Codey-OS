@@ -674,10 +674,34 @@ both would mean coding against an interface that doesn't exist yet.
       (`core/daemon.py`'s `_watchdog_check_model()`) still ran
       immediately after the trip decision in the same tick; harmless in
       this run only because the resource gate independently denied that
-      load attempt. Sub-task E (update
-      `ccos/plugins/system/daemon_control/daemon_control.py`'s manifest/
-      docstring, which still describe the now-retired `shutdown` socket
-      handler) not started — the only unstarted piece of this round.
+      load attempt. **Sub-task E (`daemon_control` plugin/manifest
+      update) — scoped and text written 2026-08-10, pending
+      code-reviewer approval.** Pure docs/description text, no
+      capability-registration change: every capability's `name`/
+      `implementation` in `manifest.json` is byte-identical to before;
+      only the module docstring and the top-level manifest
+      `description` changed. Corrected: handler count is 7 post-D (not
+      6 as an earlier pass of `NEW-116` itself miscounted — see
+      `NEW-122`); `shutdown` is now "nothing left to wrap" rather than
+      "deliberately unwrapped"; `command` stays unwrapped on updated
+      reasoning (item 2's decision resolved HOW it behaves, not whether
+      the resulting real-inference side effect is safe to expose,
+      determined by re-reading `PENDING_ISH_DECISIONS.md` item 2
+      directly); `release_model_slot` — previously omitted from the
+      "2 unwrapped" count entirely — added with its own distinct
+      reasoning (internal CLI-to-daemon coordination primitive, wrong
+      audience for agent capabilities, not a risk-tier case). `/status`
+      deliberately NOT newly wrapped here: verified
+      `core/observability.py`'s `status()` is already exposed as
+      `system.observability_full_status` in the separate, pre-existing
+      `ccos/plugins/system/observability/` plugin, and that its `State`
+      singleton is never populated by `core/daemon.py` (cross-`core/`/
+      `tools/`/`gui/` grep) — a fresh capability call would read the
+      calling process's own empty state, not the daemon's, so
+      `daemon_status`/`daemon_health` remain the right capabilities for
+      daemon state. `NEW-113`/`NEW-115` re-confirmed still open but
+      outside this sub-task's two-file scope — see `NEW-123`. See WQ
+      Track 3 item 2 sub-task 5 for the full accounting.
 - [ ] 7.3 (WQ Track 3 item 3, "Phase 5b") — Task classifier + tier
       config, coding domain only: non-LLM heuristic classifier;
       `(domain, role, tier) → model` config; reconcile with (don't

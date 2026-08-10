@@ -1582,15 +1582,67 @@ resource-awareness work twice.
             tripwire) that did not exist before this sub-task. Not fixed
             this round (docs/logging-only); see NEW-118 for the
             described shape of a fix.
-       5. **Sub-task E — `daemon_control` plugin/manifest update.** Low
-          risk, docs-adjacent: `manifest.json` and `daemon_control.py`'s
-          docstring both still describe the pre-decision reasoning
-          ("deliberately does NOT expose... pending Ish's explicit
-          decision") — update to the post-decision reality once B–D
-          land (enqueue/cancel wrapped as today, `/status` from sub-task
-          A exposed, `daemon_shutdown` documented as autonomous-only and
-          deliberately never wrapped as a callable capability, not
-          "pending a decision" that's now made).
+       5. **Sub-task E — `daemon_control` plugin/manifest update. Done
+          (2026-08-10), pure text — no capability-registration change.**
+          Both files corrected to post-decision reality:
+          - `shutdown`: no longer "deliberately unwrapped pending a
+            decision" — the socket handler and `daemon_shutdown()` were
+            both deleted by sub-task D. Nothing left to wrap; the daemon
+            shuts itself down only via the autonomous thermal/CPU
+            tripwire, no agent/user trigger exists.
+          - `command`: item 2's decision IS resolved (queue-only
+            redesign, sub-task C), but that resolved HOW the handler
+            behaves, not whether it's safe to expose as a capability —
+            the real 7B inference/tool execution it eventually causes
+            still happens, just deferred to pull-side dispatch, as an
+            unreviewed side effect of whichever agent enqueues it.
+            Stays unwrapped on the same risk-tier reasoning as
+            `coding.finetune`'s `swap_to_finetuned_model`, not because a
+            decision is still pending.
+          - `release_model_slot`: this handler was never actually
+            covered by the "2 deliberately unwrapped" accounting at all
+            (a genuine miscount, separate from what sub-task D changed —
+            see `NEW-122`/original prompt's own catch of this). Verified
+            it's a live, used internal CLI-to-daemon resource-
+            coordination primitive (`main.py`'s
+            `_load_primary_with_gate_recovery()`, 7.4 sub-task 5) with
+            no use case for any of the five deliberation-loop agents or
+            the coding agent — left unwrapped as a scope call (wrong
+            audience), not a risk-tier decision needing Ish's sign-off.
+          - `/status`: NOT newly wrapped here — verified
+            `core/observability.py`'s `status()` is already a CCOS
+            capability (`system.observability_full_status`, pre-existing
+            in the separate `ccos/plugins/system/observability/`
+            plugin), so wrapping it again in `daemon_control` would be
+            redundant. Also verified (cross-`core/`/`tools/`/`gui/`
+            grep) that `core/daemon.py` never populates that module's
+            per-process `State` singleton, so a capability call to it
+            would read the calling process's own (mostly-empty) state,
+            never the running daemon's — `daemon_status`/`daemon_health`
+            (real socket round-trips) remain the correct capabilities
+            for daemon state. `core/resource_gate.py`'s system-wide
+            snapshot (the other half of `main.py --status`'s payload) is
+            not wrapped anywhere yet, and doesn't belong in
+            `daemon_control` if it ever is (it's not daemon state) —
+            noted as an open gap, not this sub-task's job.
+          - Handler-count correction: 7 socket handlers post-D (not 6,
+            correcting `NEW-116`'s own replacement figure — see
+            `NEW-122`), 5 wrapped as handler-backed capabilities, 2
+            (`command`, `release_model_slot`) deliberately not, plus 2
+            non-handler capabilities (`daemon_check_pid_file`,
+            `daemon_is_running`) that call `core.daemon` functions
+            directly.
+          - `NEW-113`/`NEW-115` re-confirmed still open but out of this
+            sub-task's two-file scope (`core/daemon.py`,
+            `core/resource_gate.py` respectively) — see `NEW-123`.
+          - Files touched: `ccos/plugins/system/daemon_control/daemon_control.py`
+            (docstring only, no code change), `ccos/plugins/system/daemon_control/manifest.json`
+            (top-level `description` only — every capability's `name`/
+            `implementation` is byte-identical to before). Pure
+            text/docs; still routed through code-reviewer per this
+            project's standard pipeline before commit, per this round's
+            own established precedent that "docs-adjacent" work has
+            caught real issues before.
 
        Findings logged this scoping pass, not part of this round's
        fix scope: `NEW-106` (`observability.State.temperature` returns

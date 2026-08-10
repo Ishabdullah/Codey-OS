@@ -6326,3 +6326,47 @@ finding for the same bug. See `NEW-39`.)*
   subcommand that calls `start_daemon()` without `start_plannd()`,
   formalizing the harness this project has now hand-built at least
   twice. Flagging per CLAUDE.md rule 8.
+
+### [NEW-122] Correction to `NEW-116`: the socket protocol registers 7 handlers post-sub-task-D, not 6 as `NEW-116` stated
+
+- **Status: Confirmed** by direct read of `core/daemon.py`'s
+  `_register_default_handlers()` (lines 176-182) during 4.1 sub-task E.
+  `NEW-116` correctly identified that the stale docstring's "7 handlers"
+  count and `daemon_shutdown()` reference were wrong after sub-task D,
+  but its own replacement figure ("the protocol registers 6 handlers")
+  is also wrong — it undercounts by one. The actual registration list is
+  `ping`, `command`, `status`, `health`, `task`, `cancel`,
+  `release_model_slot` — 7 handlers today (`shutdown` retired, dropping
+  the pre-D total of 8 to 7, not 6). `release_model_slot` (registered at
+  `core/daemon.py:182`, added for 7.4 sub-task 4/NEW-69 well before this
+  round) appears to be what `NEW-116`'s count missed.
+- **Impact:** cosmetic/maintainability only — same category as `NEW-116`
+  itself; correcting per CLAUDE.md rule 6 rather than letting a wrong
+  replacement number stand once `NEW-116`'s underlying doc gets fixed.
+- **Fixed** as part of 4.1 sub-task E
+  (`ccos/plugins/system/daemon_control/daemon_control.py`'s docstring and
+  `manifest.json`'s description now state the count as 7, spell out
+  which 5 of the 7 handlers this plugin wraps vs. which 2
+  (`command`, `release_model_slot`) it deliberately doesn't, and
+  distinguish those 2 non-handler capabilities
+  (`daemon_check_pid_file`/`daemon_is_running`) that call `core.daemon`
+  functions directly rather than going through a socket handler at all).
+
+### [NEW-123] Sub-task E disposition for `NEW-113` and `NEW-115`: confirmed still open, out of `daemon_control` plugin's two files, not touched by this round
+
+- **Status:** both re-confirmed accurate during 4.1 sub-task E's file
+  reads, not fixed by this round because both live outside
+  `ccos/plugins/system/daemon_control/`'s two files (the plugin module
+  and its manifest), which is this sub-task's actual scope.
+  - `NEW-113` (`Daemon.__init__`'s `self.server.planner = self.planner`
+    wiring, `core/daemon.py:684` — dead code post sub-task C's
+    `_handle_command` restructuring): still present, unchanged. A
+    one-line removal (or comment correction) whenever `core/daemon.py`
+    is next touched for an unrelated reason.
+  - `NEW-115` (`core/resource_gate.py`'s module docstring still claiming
+    the module "is NOT wired into `core/daemon.py`... yet"): still
+    present, unchanged. Same disposition — a small, self-contained
+    doc-only fix whenever that module is next touched.
+  - Flagging both explicitly per CLAUDE.md rule 8 rather than silently
+    leaving them unmentioned in this round's write-up, even though
+    neither required a code change here.
