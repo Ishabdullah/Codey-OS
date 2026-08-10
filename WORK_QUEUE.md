@@ -816,15 +816,27 @@ resource-awareness work twice.
        gap — a genuine new gap this sub-task's restructuring introduces,
        not a pre-existing one). Neither finding is fixed; both are
        explicitly out of scope for this sub-task per code-reviewer's own
-       docs-only scoping of this round. **Not live-verified** — the live-
-       verification criterion documented below (real TUI session file,
-       observed refusal-then-dispatch across watchdog ticks with verbatim
-       log/DB evidence) is being deliberately held until Ish gives
-       explicit go-ahead; it is not expected to happen automatically as a
-       follow-on to this round. Sub-tasks D-E remain 100%
-       decisions-on-paper, zero implementation** (confirmed by inspecting
-       the live `daemon_control/manifest.json` — still pre-decision shape
-       for everything sub-tasks A/B/C don't cover).
+       docs-only scoping of this round. **Sub-task C is now genuinely
+       live-verified, 2026-08-10** (replaces the earlier held-pending-
+       Ish's-go-ahead status — Ish's go-ahead was given and the
+       live-verification criterion documented below was met in full; see
+       the sub-task C section below for the verbatim evidence). **Sub-
+       task D (`should_trip_shutdown` tripwire + retired socket
+       `shutdown` handler) is code-complete, code-reviewer-approved, and
+       also now live-verified 2026-08-10**, with one scope caveat on the
+       slot-release evidence (it's confirmed only for the embed-server
+       model, not the primary model, for a structural reason — see the
+       sub-task D section below) and one evidence item
+       (`free -h` before/after) not captured in this pass. One new
+       finding surfaced live during this round's verification, not
+       previously known: `NEW-118` (Confirmed) — the watchdog tick that
+       fires the autonomous shutdown tripwire doesn't short-circuit the
+       rest of that same tick, so the model-load watchdog still runs
+       immediately afterward (harmless in this run only because the
+       resource gate independently denied that load). **Sub-task E
+       remains 100% unstarted** (confirmed by inspecting the live
+       `daemon_control/manifest.json` — still pre-decision shape) — the
+       only piece of this round not yet begun.
 
        **Scoping pass complete, 2026-08-09 (project-architect, desk-only,
        no code changed).** Two premises in the original decision text
@@ -925,11 +937,11 @@ resource-awareness work twice.
           code-reviewer-approved
           2026-08-10 — see the round-level status note above for the
           verified specifics (496 passed/1 skipped, NEW-113/NEW-114
-          logged, not fixed) and the deliberate hold on live-verification
-          pending Ish's go-ahead.** Mandatory code-reviewer AND
-          live-verifier — this is the first sub-task where daemon
-          dispatch behavior actually changes (the daemon may now sit idle
-          on a non-empty queue).
+          logged, not fixed). Genuinely live-verified 2026-08-10 — see
+          this sub-task's own live-verification criterion and evidence
+          below.** Mandatory code-reviewer AND live-verifier — this is
+          the first sub-task where daemon dispatch behavior actually
+          changes (the daemon may now sit idle on a non-empty queue).
 
           **Finding that reshapes this sub-task's scope, logged as
           `NEW-112` (Confirmed):** `_handle_command`'s two enqueue
@@ -1190,6 +1202,34 @@ resource-awareness work twice.
           and observe the same task get claimed and dispatched within
           one tick, with verbatim log/`--status`/DB-row evidence — not a
           paraphrase.
+
+          **Live-verified 2026-08-10 — criterion met in full.** With a
+          real PID-bearing TUI session lock file written to
+          `~/.codeyOS/tui-sessions/` and a task inserted directly via
+          `state.add_task()`, the daemon logged a real refusal
+          repeatedly across ~40+ seconds and many ticks — verbatim
+          `Daemon: dispatch deferred (direct task 1) — interactive
+          TUI/GUI session active — deferring background dispatch` — and
+          the DB row stayed `status=pending` throughout. After removing
+          the TUI session file, the very next tick claimed and dispatched
+          the task (`Daemon: executing direct task 1: echo
+          LIVE_VERIFY_SUBTASK_C_MARKER...`, `started_at` populated in the
+          DB). The task itself then failed at the model-load step
+          because the resource gate independently denied the 7B load for
+          its own reasons (headroom/thermal) — expected, and not a
+          sub-task C bug; the dispatch-gating behavior under test worked
+          exactly as designed. Daemon stopped cleanly afterward via its
+          tracked PID, no traceback, `llama-server` confirmed clean
+          (`ps aux | grep llama-server` showing only the grep), PID file
+          removed. One test artifact was left behind in the real
+          `~/.codeyOS/state.db` as a byproduct of this run: task id=1
+          (`echo LIVE_VERIFY_SUBTASK_C_MARKER...`), `status=done` — see
+          `NEW-120` (new finding, this round) for why a task that failed
+          at the model-load step persists as `done` rather than `failed`
+          (a pre-existing `_process_planner_tasks()` behavior, not
+          introduced by this sub-task); this row is a test artifact, not
+          production data, and was not cleaned up by this
+          verification-only pass.
        4. **Sub-task D — `daemon_shutdown` autonomous tripwire; retire
           the socket-triggerable path.** Scoped 2026-08-10, following
           sub-tasks A-C's design conventions (`core/resource_gate.py`
@@ -1203,6 +1243,10 @@ resource-awareness work twice.
           block (now `core/daemon.py:980-1013`, `get_loader().unload()`
           call at :994-998) to actually stop the detached `llama-server`
           process is unchanged and still correct.
+
+          **RESOLVED 2026-08-10 — Ish chose option 3; implemented,
+          code-reviewer-approved, and now live-verified. Retained below
+          for the decision record and the full reasoning trail.**
 
           **BLOCKING OPEN QUESTION — needs Ish's direct decision, not
           implementer's, before this sub-task can be built:**
@@ -1470,6 +1514,74 @@ resource-awareness work twice.
             trigger in one pass (still true, unchanged from the prior
             scoping note) — plus live-verifier per the criterion above,
             not code-complete alone.
+
+          **Live-verified 2026-08-10 — most of the criterion met, one
+          item not supplied, one scope caveat on the slot-release
+          claim.** With `CODEY_SHUTDOWN_TRIP_AFTER_SEC=70` and
+          `CODEY_TEMP_CRITICAL_C=36` (real ambient measured at 37.0°C on
+          this device), a fresh daemon accumulated the sustained-window
+          history tick by tick — verbatim warning lines confirmed the
+          window growing 0s → 30s → 60s of the required 70s ("insufficient
+          history to conclude sustained... expected for the first
+          ~duration after any daemon restart") — then fired: `Autonomous
+          shutdown tripwire fired: sustained thermal trip (100% of
+          samples over a 91s trailing window at/above 36 (most recent
+          sample 37.0)); CPU unmeasurable on this device (NEW-108) —
+          thermal alone sufficient per Ish's 2026-08-10 option-3
+          decision`. The daemon exited cleanly with no traceback in the
+          full log (confirms the double-close risk flagged above did not
+          materialize — `_trigger_shutdown()`'s `self.server.server
+          .close()` followed by `finally:`'s `await self.server.stop()`
+          both ran without error), `ps aux | grep llama-server` showed
+          only the grep afterward, the PID file was removed, and
+          `resource_gate_state.json` showed `[]`.
+          - **Evidence items supplied**: accumulating per-tick warning
+            log lines, the trip-fired log line with its `reason`, clean
+            no-traceback exit, clean `llama-server`/PID-file state,
+            `resource_gate_state.json` showing no leaked entry.
+          - **Evidence item NOT supplied this pass**: `free -h`
+            immediately before and after the trip (rule 2), which the
+            criterion above explicitly requires — not captured in this
+            run's report. Stated here as unsupplied rather than assumed
+            or inferred.
+          - **Scope caveat on the `[]`/no-leaked-slot claim**: the
+            primary 7B model never actually held a gate slot during this
+            specific run — it was independently denied admission, both
+            by the same `THERMAL_CONFIG["temp_critical"]` threshold this
+            test had to lower to make the tripwire reachable at all
+            (`can_admit()` and `should_trip_shutdown()` deliberately
+            share this one threshold, per this sub-task's own design)
+            and by real headroom pressure left over from an earlier
+            harness mistake in this session. So `[]` genuinely proves
+            slot-release only for the embed-server model (which WAS
+            resident and released silently-on-success, as designed by
+            this codebase's existing convention) — it does **not**
+            re-verify slot-release for the primary model, and cannot be
+            made to under the current design, since lowering
+            `temp_critical` enough to make the tripwire reachable
+            necessarily also denies the primary model's own admission
+            through the same threshold. Decoupling the two thresholds
+            (or finding another way to get a resident primary model into
+            a tripwire-reachable test) would be required to close this
+            gap in a future round; not scoped here.
+          - **New finding surfaced live this round, not previously
+            known**: `NEW-118` (Confirmed) — `_trigger_shutdown()`
+            (`core/daemon.py:717-740`) only sets `self.running = False`;
+            it does not `return`/`raise`/otherwise interrupt its caller,
+            so the same watchdog tick that calls it continues running
+            afterward, including `_watchdog_check_model()`
+            (`core/daemon.py:1031`), which attempted a real 7B model
+            load in the same ~1-second span as the trip firing (verbatim
+            log evidence in NEW-118's write-up). Harmless in this run
+            only because the resource gate independently denied that
+            load attempt; on a device/config where it were admitted, the
+            daemon would load a model and then immediately unload it via
+            the same shutdown's `finally:` block — the exact leaked-slot
+            failure class that block's own comment already warns about,
+            now demonstrated reachable via a path (the shutdown
+            tripwire) that did not exist before this sub-task. Not fixed
+            this round (docs/logging-only); see NEW-118 for the
+            described shape of a fix.
        5. **Sub-task E — `daemon_control` plugin/manifest update.** Low
           risk, docs-adjacent: `manifest.json` and `daemon_control.py`'s
           docstring both still describe the pre-decision reasoning

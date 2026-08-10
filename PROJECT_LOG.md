@@ -5,6 +5,81 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-08-10 (round 19) — First live confirmation of Phase 4.1 sub-tasks C and D (docs-only round, no implementation code touched)
+
+Sub-tasks C and D were both code-reviewer-approved but never live-verified
+until this round. Live-verification for both was deliberately held for
+Ish's go-ahead per the prior round's note; that go-ahead was given, and
+this round ran the live-verification criterion each sub-task's own
+scoping already specified (`WORK_QUEUE.md` Track 3 item 2, sub-tasks C
+and D).
+
+**Sub-task C (gate queue dispatch on the interactive-session lock):
+criterion met in full.** With a real PID-bearing TUI session lock file
+under `~/.codeyOS/tui-sessions/` and a task inserted directly via
+`state.add_task()`, the daemon logged a real refusal repeatedly across
+~40+ seconds/many ticks — verbatim `Daemon: dispatch deferred (direct
+task 1) — interactive TUI/GUI session active — deferring background
+dispatch` — with the DB row staying `status=pending` throughout. Removing
+the TUI session file caused the very next tick to claim and dispatch the
+task (`started_at` populated in the DB). The task then failed at the
+model-load step because the resource gate independently denied the 7B
+load for its own reasons (headroom/thermal) — expected, not a sub-task C
+bug; the dispatch-gating behavior under test worked as designed. Daemon
+stopped cleanly via its tracked PID, no traceback, `llama-server`
+confirmed clean, PID file removed.
+
+**Sub-task D (autonomous thermal shutdown tripwire): criterion mostly
+met, one scope caveat, one evidence item not supplied.** With
+`CODEY_SHUTDOWN_TRIP_AFTER_SEC=70` and `CODEY_TEMP_CRITICAL_C=36` (real
+ambient measured at 37.0°C), a fresh daemon accumulated the sustained-
+window history tick by tick, then fired: `Autonomous shutdown tripwire
+fired: sustained thermal trip (100% of samples over a 91s trailing
+window at/above 36 (most recent sample 37.0)); CPU unmeasurable on this
+device (NEW-108) — thermal alone sufficient per Ish's 2026-08-10
+option-3 decision`. Daemon exited cleanly, no traceback (confirms no
+double-close issue between `_trigger_shutdown()`'s explicit
+`.close()` and `finally:`'s `.stop()`), `llama-server` confirmed clean,
+PID file removed, `resource_gate_state.json` showed `[]`. **Scope
+caveat**: the primary 7B model never actually held a gate slot during
+this run — independently denied admission by the same
+`THERMAL_CONFIG["temp_critical"]` threshold the test had to lower to
+make the tripwire reachable at all (`can_admit()` and
+`should_trip_shutdown()` deliberately share this one threshold) — so the
+`[]`/no-leaked-slot result is confirmed only for the embed-server model,
+not re-verified for the primary model, and can't be under the current
+shared-threshold design without a future round decoupling the two.
+**Not supplied this pass**: `free -h` immediately before/after the trip,
+which the sub-task's own live-verification criterion requires — noted as
+unsupplied, not inferred.
+
+**New finding from this round's live-verification, not previously
+known: `NEW-118` (Confirmed).** `_trigger_shutdown()` only sets
+`self.running = False`; it doesn't `return`/`raise`/otherwise interrupt
+its caller, so the watchdog tick that fires the trip keeps running
+afterward — verbatim log evidence showed `_watchdog_check_model()`
+attempting a real 7B model load in the same ~1-second span as the trip
+firing. Harmless in this run only because the resource gate
+independently denied that load; on a config where it were admitted, the
+daemon would load a model and immediately unload it via the same
+shutdown's `finally:` block — the leaked-slot failure class that block's
+own comment already warns about, now demonstrated reachable via a path
+that didn't exist before sub-task D. Also logged this round: `NEW-119`
+(the resource gate's cold-start CPU-sample-failure warning fires up to
+twice per ~0.5s dispatch tick, not once per 30s watchdog cycle, once
+sub-task C's dispatch gate started calling that code path), `NEW-120` (a
+task that fails at the model-load step is persisted `status=done`, not
+`failed`, because `complete_task()` fires on any non-raising return from
+`_execute_task()`), and `NEW-121` (`codeydOS` has no daemon-only startup
+mode — `start` always launches `plannd` and the daemon together, the
+same swap-pressure pattern as `NEW-14`/`NEW-18`/`NEW-21`).
+
+`TODO.md`'s 4.1 entry and `WORK_QUEUE.md`'s Track 3 item 2 sub-task C/D
+sections updated to record both as live-verified with the caveats above.
+Sub-task E (`daemon_control` plugin/manifest update) remains the only
+unstarted piece of this round. No implementation code was touched this
+round — docs/logging only, per this round's own scope.
+
 ## 2026-08-09 (round 18) — First full live confirmation of 7.4's resource gate, including the CLI gate-recovery cycle end to end
 
 Second live-verification round, following `U.27`/`U.28`/`U.31`. This one

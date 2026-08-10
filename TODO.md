@@ -582,12 +582,33 @@ both would mean coding against an interface that doesn't exist yet.
       expanded multi-step rows and `complete_task()` marking the
       superseded raw row `done`, with no stale-`running` reaper anywhere
       in the codebase to recover an orphaned row — a genuine new gap this
-      sub-task's restructuring introduces). **Not live-verified** — live-
-      verification is being deliberately held until Ish gives explicit
-      go-ahead, not assumed to follow automatically. **Sub-task D
+      sub-task's restructuring introduces). **Sub-task C: genuinely
+      live-verified, 2026-08-10** (replaces the earlier held-pending-
+      Ish's-go-ahead status). With a real TUI session made active (a PID-bearing
+      lock file under `~/.codeyOS/tui-sessions/`) and a task inserted
+      directly via `state.add_task()`, the daemon logged a real refusal
+      repeatedly across ~40+ seconds/many ticks — verbatim `Daemon:
+      dispatch deferred (direct task 1) — interactive TUI/GUI session
+      active — deferring background dispatch` — with the DB row staying
+      `status=pending` throughout. Removing the TUI session file caused
+      the very next tick to claim and dispatch the task (`Daemon:
+      executing direct task 1: echo LIVE_VERIFY_SUBTASK_C_MARKER...`,
+      `started_at` populated). The task itself then failed at the
+      model-load step because the resource gate independently denied
+      the 7B load for its own reasons (headroom/thermal) — expected, not
+      a sub-task C bug. Daemon stopped cleanly afterward via its tracked
+      PID, no traceback, `llama-server` confirmed clean, PID file
+      removed — satisfies the sub-task's own live-verification criterion
+      in full (WQ Track 3 item 2 sub-task C). One test artifact was left
+      in the real `~/.codeyOS/state.db` as a side effect of this run:
+      task id=1 (`echo LIVE_VERIFY_SUBTASK_C_MARKER...`), `status=done`
+      (see new finding `NEW-120` on why a model-load failure like this
+      one persists as `done` rather than `failed`) — not production
+      data, not cleaned up by this verification-only round. **Sub-task D
       (`should_trip_shutdown` autonomous tripwire + retire the socket
-      `shutdown` handler) — code-complete, pending code-reviewer
-      approval.** `PENDING_ISH_DECISIONS.md` item 2's CPU-signal question
+      `shutdown` handler) — code-reviewer-approved, and now live-
+      verified 2026-08-10, with one scope caveat** (see below).
+      `PENDING_ISH_DECISIONS.md` item 2's CPU-signal question
       (strict AND vs. thermal-only vs. CPU-as-veto-only-when-measurable —
       see WQ Track 3 item 2 sub-task D for the full three-option writeup)
       was **decided by Ish, 2026-08-10: option 3 (CPU-as-veto-only-when-
@@ -611,12 +632,52 @@ both would mean coding against an interface that doesn't exist yet.
       trip the daemon) was found and fixed in code-reviewer's first pass
       — a minimum sample-density check was added alongside the existing
       span + fraction checks, with a regression test for the exact
-      reviewer-reproduced case. **Not live-verified** — live-verification
-      for sub-tasks C and D is being deliberately batched and held for
-      Ish's explicit go-ahead, per the note above. Sub-task E (update
+      reviewer-reproduced case. **Sub-task D: live-verified, 2026-08-10**
+      (replaces the earlier held-pending-Ish's-go-ahead status). With
+      `CODEY_SHUTDOWN_TRIP_AFTER_SEC=70` and
+      `CODEY_TEMP_CRITICAL_C=36` (real ambient measured at 37.0°C), a
+      fresh daemon accumulated the sustained-window history tick by
+      tick — verbatim warning lines confirmed the window growing 0s →
+      30s → 60s of the required 70s — then fired:
+      `Autonomous shutdown tripwire fired: sustained thermal trip (100%
+      of samples over a 91s trailing window at/above 36 (most recent
+      sample 37.0)); CPU unmeasurable on this device (NEW-108) —
+      thermal alone sufficient per Ish's 2026-08-10 option-3 decision`.
+      The daemon exited cleanly (no traceback in the full log — confirms
+      no double-close issue from `_trigger_shutdown()`'s direct
+      `self.server.server.close()` call), `ps aux | grep llama-server`
+      showed only the grep, the PID file was removed, and
+      `resource_gate_state.json` showed `[]` (no leaked slot). **Scope
+      caveat, stated plainly rather than glossed over:** the primary 7B
+      model never actually held a gate slot during this run — it was
+      independently denied admission by the same
+      `THERMAL_CONFIG["temp_critical"]` threshold the test had to lower
+      to make the tripwire reachable at all (`can_admit()` and
+      `should_trip_shutdown()` deliberately share this one threshold),
+      plus leftover headroom pressure from an earlier harness mistake in
+      this session. So the `[]`/no-leaked-slot result is confirmed only
+      for the embed-server model (which WAS resident and released
+      silently-on-success, as designed) — **not re-verified for the
+      primary model**, and structurally can't be with the two thresholds
+      sharing one value; decoupling them would be required to close that
+      gap in a future round. Also not captured in this pass: the
+      `free -h` immediately-before/after evidence the sub-task's own
+      live-verification criterion (WQ Track 3 item 2 sub-task D)
+      enumerates — this run supplied every other enumerated evidence
+      item (accumulating warning lines, trip-fired line with reason,
+      no-traceback exit, clean `llama-server`/PID-file state,
+      `resource_gate_state.json`) but not that one; note it as
+      unsupplied rather than inferring it. One new finding surfaced live
+      this round, not previously known: `NEW-118` (Confirmed) —
+      `_trigger_shutdown()` doesn't short-circuit the rest of the
+      watchdog tick that calls it, so the model-load watchdog
+      (`core/daemon.py`'s `_watchdog_check_model()`) still ran
+      immediately after the trip decision in the same tick; harmless in
+      this run only because the resource gate independently denied that
+      load attempt. Sub-task E (update
       `ccos/plugins/system/daemon_control/daemon_control.py`'s manifest/
       docstring, which still describe the now-retired `shutdown` socket
-      handler) not started.
+      handler) not started — the only unstarted piece of this round.
 - [ ] 7.3 (WQ Track 3 item 3, "Phase 5b") — Task classifier + tier
       config, coding domain only: non-LLM heuristic classifier;
       `(domain, role, tier) → model` config; reconcile with (don't

@@ -6140,3 +6140,189 @@ finding for the same bug. See `NEW-39`.)*
   `.get()` fallback in `core/recursive.py` to `90` (or better, importing
   the real default rather than hardcoding either number a second time).
   Flagging per CLAUDE.md rule 8 rather than fixing ad hoc here.
+
+## Found during live-verification of Phase 4.1 sub-tasks C and D, 2026-08-10 — docs/logging-only round, NOT fixed
+
+### [NEW-118] `core/daemon.py`'s watchdog tick does not short-circuit after `_trigger_shutdown()` fires — the same tick that decides to shut down still runs the model-load watchdog immediately afterward
+
+- **Status: Confirmed**, found live during 4.1 sub-task D live-verification
+  and confirmed by direct code read afterward. `_trigger_shutdown()`
+  (`core/daemon.py:717-740`) only sets `self.running = False` (line 738)
+  and closes the socket server; it does not raise, `return`, or otherwise
+  interrupt the caller. `_main_loop()`'s `while self.running:` guard
+  (line 938) is only re-evaluated at the *top of the next* iteration —
+  so calling `_trigger_shutdown()` from inside a watchdog tick (line 999)
+  does not stop the rest of that same tick from executing. Verbatim log
+  evidence from the live-verification run, all within roughly one second:
+  ```
+  08:32:48,116 - WARNING - Autonomous shutdown tripwire fired: ...
+  08:32:48,117 - INFO - Daemon shutdown triggered
+  08:32:48,119 - INFO - Loading model: qwen2.5-coder-7b-instruct-q4_k_m.gguf
+  08:32:48,158 - ERROR - Resource gate denied primary model load: ...
+  08:32:48,698 - INFO - Embed server stopped
+  ```
+  After the trip fires at line 999, execution falls through to the 7B
+  model watchdog (`self._watchdog_check_model()`, line 1031) and the
+  embed-server watchdog (lines 1033-1042) in the *same* tick, both of
+  which run unconditionally regardless of the trip decision just made.
+  In this run it was harmless only because the resource gate
+  independently denied the 7B load attempt for its own reasons.
+- **Impact:** on a device/config where that post-trip load attempt were
+  instead *admitted* (e.g. thermal already cooling by the time
+  `_watchdog_check_model()` runs, or a config where the shutdown and
+  admission thresholds diverge), the daemon would start loading a model
+  after already deciding to shut down, then unload it moments later via
+  `_main_loop()`'s `finally:` block (`core/daemon.py:980-1013`) as part
+  of the same shutdown sequence — the exact "orphaned process holding
+  real RAM, gate slot reaped as dead" failure class that the `finally:`
+  block's own existing comment already warns about, now demonstrated as
+  reachable through a path (the autonomous shutdown tripwire) that did
+  not exist before 4.1 sub-task D. This round's live-verification run
+  did not hit the bad outcome, so this is not itself a regression in
+  sub-task D's own live-verification criterion — it's a gap the new
+  tripwire code path exposes in the surrounding loop structure, not in
+  `should_trip_shutdown()`/`_trigger_shutdown()` themselves.
+- **Shape of a fix (described, not implemented — left for whoever picks
+  this up):** `break`, `return`, or `continue` immediately after the
+  `self._trigger_shutdown()` call at `core/daemon.py:999` would all
+  correctly skip the remainder of the tick while still reaching
+  `_main_loop()`'s `finally:` block on the way out — `finally:` blocks
+  run regardless of which of these three exits a loop iteration via, so
+  the choice among them is a style/clarity call for the implementing
+  round, not a correctness one.
+- **Not fixed** — this was a docs/logging-only verification round per
+  the task's own scope; no implementation code was touched. Flagging per
+  CLAUDE.md rule 8.
+
+### [NEW-119] The resource gate's cold-start CPU-sample-failure warning (`core/resource_gate.py:382`) fires roughly twice per ~0.5s daemon tick on this device, not once per 30s watchdog cycle — a much higher log-volume cost than the existing NEW-108 finding described
+
+- **Status: Confirmed** by direct code read of `core/resource_gate.py`
+  and `core/daemon.py`, not just log-volume inference. The message text
+  observed live (`resource_gate: cold-start CPU sample failed...
+  Permission denied: '/proc/stat'`) matches
+  `core/resource_gate.py:382` inside `get_current_cpu_percent()`, which
+  is distinct from the already-known, lower-frequency CPU-sample warning
+  at `core/daemon.py:970` (`"resource_gate CPU sample failed: {e}"`)
+  that fires once per 30s watchdog cycle. `get_current_cpu_percent()`
+  only takes its "cold-start" branch (lines 374-386) when
+  `get_cpu_history()` is empty; tracing why it's always empty on this
+  device: `sample_cpu_percent()` (`core/resource_gate.py:296-334`, the
+  function the 30s watchdog tick calls) reads `/proc/stat` at line 316
+  and, on this device, that always raises (`NEW-108`, `Permission
+  denied` unconditionally) — the `except` branch at line 317-319 returns
+  `None` immediately, before line 331's `_cpu_history.append(...)` is
+  ever reached. So `_cpu_history` never gets a single entry on this
+  device, meaning `get_current_cpu_percent()` takes the cold-start
+  branch (and re-attempts, and re-fails, and re-warns) on every call,
+  forever — "cold-start" here does not mean "only until the first
+  reading," it means "every call, permanently," on this specific
+  hardware. Call-site trace: `get_current_cpu_percent()` is called from
+  `get_resource_snapshot()` (`core/resource_gate.py:587`), which
+  `core/daemon.py`'s new `_check_dispatch_gate()` (`core/daemon.py:1107-
+  1122`) calls once per invocation; `_check_dispatch_gate()` itself is
+  called twice per `_process_planner_tasks()` iteration — once from the
+  planner-task branch (`core/daemon.py:1171`) and once from the direct-
+  command branch (`core/daemon.py:1219`) — so up to 2 of these WARNING
+  lines can fire per ~0.5s main-loop tick, consistent with the observed
+  live-verification volume: 112 WARNING lines and 114 INFO
+  ("dispatch deferred") lines separately counted in ~40s of one test
+  (~80 ticks at 0.5s), i.e. roughly 1.4-2 WARNING lines/tick, not a
+  single combined 112 total as an earlier draft of this entry implied.
+  `/proc/stat` being unconditionally unreadable on this device is the
+  already-Confirmed `NEW-108`; this finding is specifically about the
+  *frequency* at which that already-known condition now gets re-logged
+  at WARNING level, now that 4.1 sub-task C's per-task dispatch gate
+  calls the CPU-sampling code path on this cadence — a new consumer of
+  an old, already-known-unreadable signal, not a new unreadability.
+- **Impact:** log-volume/noise concern, not a correctness bug — up to
+  two WARNING lines per ~0.5s main-loop tick, forever on this device,
+  for a condition (`/proc/stat` unreadable) that is permanent and
+  already known — a cadence roughly 60-120x higher than the pre-existing
+  30s watchdog-cycle CPU sample. Makes real daemon logs harder to scan
+  for actually-actionable warnings.
+- **Not fixed** — out of scope for this docs-only verification round.
+  A future fix could downgrade this specific message to `debug`-level
+  after the first occurrence per daemon run, or cache the "CPU
+  unmeasurable on this device" fact once (module-level, similar to how
+  `NEW-108` is already documented as a permanent condition) rather than
+  re-attempting and re-warning every tick. Flagging per CLAUDE.md rule 8.
+
+### [NEW-120] A task that fails at the model-load step is persisted with `status=done`, not `status=failed`, because `run_agent()` returns an error string instead of raising
+
+- **Status: Confirmed** by direct code read, newly observed during 4.1
+  sub-task C live-verification (pre-existing behavior, not introduced by
+  sub-task C's diff). `core/daemon.py:1266-1271`:
+  ```python
+  result = await asyncio.wait_for(
+      self.executor._execute_task(description),
+      timeout=timeout,
+  )
+  self.state.complete_task(db_task["id"], result)
+  ```
+  `_execute_task()` (`core/task_executor.py:96`) delegates to
+  `run_agent()` (`core/agent.py:951`). The daemon-side half of this is
+  independently confirmed by direct code read: `core/daemon.py:1266-1271`
+  awaits `_execute_task()` and, on any normal (non-exception) return,
+  unconditionally calls `self.state.complete_task(db_task["id"], result)`
+  — the `except asyncio.TimeoutError` / `except Exception` branches at
+  lines 1272-1275 (which route to `self.state.fail_task(...)`) only run
+  if `_execute_task()`/`run_agent()` actually raises. Confirmed live:
+  the sub-task C verification task (`echo
+  LIVE_VERIFY_SUBTASK_C_MARKER...`, chained to a model-load step that the
+  resource gate denied) ended up `status=done` in the real
+  `~/.codeyOS/state.db`, not `status=failed` — meaning whatever
+  `run_agent()` did on that resource-gate denial did not raise all the
+  way up through `_execute_task()`, matching the pattern already
+  observed elsewhere in this module of in-band failures being returned
+  as strings rather than raised (e.g. `core/agent.py:489`'s `return
+  "[ERROR] " + error_msg` convention). This round did not trace the
+  exact line inside `run_agent()`'s model-load path that produces that
+  non-raising behavior for this specific denial — the daemon-side
+  consequence (that `complete_task()` fires regardless) is the
+  independently-confirmed part of this finding; the precise mechanism
+  inside `run_agent()` is inferred from the observed outcome plus this
+  module's general error-string convention, not read line-by-line for
+  this exact path.
+- **Impact:** anything that inspects `task_queue.status` to decide
+  whether a task genuinely succeeded (a future retry/alerting mechanism,
+  `/health`, a human skimming task history) cannot distinguish a real
+  success from an in-band agent failure without also parsing the
+  `result` text for error markers — `status=done` alone is not reliable
+  evidence of success for any task that goes through this path.
+- **Not fixed** — out of scope for this docs-only verification round;
+  predates 4.1 sub-task C and is not something that sub-task's diff
+  introduced. A future fix would need `_process_planner_tasks()` (or
+  `run_agent()` itself) to distinguish an in-band failure result from a
+  genuine success before choosing `complete_task()` vs. `fail_task()` —
+  not scoped here. Flagging per CLAUDE.md rule 8.
+
+### [NEW-121] `codeydOS` has no daemon-only startup mode — `start` always launches both `plannd` and the main daemon together, forcing concurrent multi-model RAM/swap pressure even for tests that only need the daemon
+
+- **Status: Confirmed** by direct code read. `codeydOS`'s dispatcher
+  (`codeydOS:453-458`) unconditionally calls `start_plannd() ||
+  true` followed by `start_daemon()` for the `start` subcommand — there
+  is no flag or subcommand to launch the daemon alone. During this
+  round's live-verification of sub-tasks C and D, this forced the
+  verifier to hand-build a daemon-only harness by manually copying
+  `start_daemon()`'s exact commands out of the script rather than using
+  `./codeydOS start` directly, after an earlier attempt in this same
+  session using the real `start` subcommand caused real concurrent-
+  model-load RAM pressure. This is the same underlying pattern already
+  Confirmed in `NEW-14` (full 3-model `codeydOS start` stack pushes this
+  ~10.8GB device into severe swap pressure within seconds) and
+  `NEW-18`/`NEW-21` — `NEW-14`'s own write-up already floated "consider
+  whether the daemon-only / plannd-optional lighter path used
+  successfully here should become a documented, supported 'lite' mode"
+  as a candidate follow-up, but no prior entry names the *absence of a
+  daemon-only launch mode* as its own finding; this one does.
+- **Impact:** reproducibility/testing-ergonomics gap, not a production
+  bug — every live-verification session that only needs the daemon
+  (not the full stack) currently has to either accept the RAM risk of
+  the full `codeydOS start`, or hand-roll a harness by reading and
+  copying script internals, which is easy to get subtly wrong and has
+  to be redone from scratch each time the script's internals change.
+- **Not fixed** — out of scope for this docs-only verification round.
+  A future fix could add a `codeydOS start --daemon-only` (or similar)
+  subcommand that calls `start_daemon()` without `start_plannd()`,
+  formalizing the harness this project has now hand-built at least
+  twice. Flagging per CLAUDE.md rule 8.
