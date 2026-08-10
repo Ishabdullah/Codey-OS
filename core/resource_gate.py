@@ -1385,6 +1385,193 @@ def list_slots(state_dir: Optional[Path] = None, reap_dead: bool = True) -> List
         return list(slots)
 
 
+# ── Signal source 5: interactive-session activity (TUI + GUI) ───────────────
+# Track 3 Phase 5a / 7.4 sub-task B. "Is a human actively watching a TUI or
+# GUI session right now" — a distinct question from "is the GUI SERVER
+# PROCESS alive": the GUI server can run for an entire codey-start session
+# with no browser tab ever opened (or since closed), and treating server-
+# liveness as this signal would leave the daemon silently blocked from any
+# background work for the whole session regardless of whether anyone's
+# actually watching (explicitly flagged as the wrong substitution in
+# WORK_QUEUE.md's 7.4 sub-task B scoping).
+#
+# Only the signal/predicate itself is built here — NOT wired into any
+# daemon dispatch decision (that's 7.4 sub-task C, out of scope for this
+# sub-task, mirroring how get_resource_snapshot() above was built without
+# being wired into admission/gating).
+
+
+def is_tui_session_active(sessions_dir: Optional[Path] = None) -> bool:
+    """
+    True if any per-session file under main.py's interactive-session
+    directory (utils.config.TUI_SESSIONS_DIR — one file per PID, written
+    as `_write_tui_pid_file()`'s `TUI_SESSIONS_DIR / f"{pid}.pid"`, called
+    around `main()`'s `repl(...)` call site, and removed by that same PID's
+    `_remove_tui_pid_file()` in that call site's `finally`) currently names
+    a still-live PID.
+
+    One file per session, not one shared file, is deliberate: two
+    concurrent interactive sessions are a normal, supported case here
+    (e.g. two terminals — see `_write_tui_pid_file()`'s docstring), and a
+    single shared file cannot hold two sessions' presence at once —
+    whichever session wrote (or crashed, or was reaped as stale) last
+    would silently erase the other session's still-live signal. Per-PID
+    filenames make ownership structural instead: a session can only ever
+    write/remove its own path, so no read-back-and-compare ownership check
+    is needed anywhere in this signal.
+
+    Reaping still mirrors core/daemon.py:check_pid_file()'s staleness-check
+    intent (os.kill(pid, 0) liveness check, self-healing removal of a
+    stale/corrupt entry) — just applied per-entry across every file in the
+    directory instead of a single path. One difference from
+    check_pid_file(): there is no "this is my own PID, that's expected"
+    special case, because this function's only real caller (the daemon, in
+    a later sub-task) is always a different process than the TUI
+    session(s) it's checking on. No flock is taken on read here (unlike
+    check_pid_file()'s shared-lock read): `_write_tui_pid_file()` writes
+    each entry via a temp file + os.replace() in the same directory, which
+    is atomic, so a reader here can never observe a partially-written
+    entry to lock against in the first place — an entry either doesn't
+    exist yet, or is fully written.
+    """
+    if sessions_dir is None:
+        from utils.config import TUI_SESSIONS_DIR
+
+        sessions_dir = TUI_SESSIONS_DIR
+
+    if not sessions_dir.exists():
+        return False
+
+    try:
+        entries = list(sessions_dir.iterdir())
+    except OSError:
+        # Could not even list the directory — fail closed toward "treat as
+        # active" (the safe direction for a caller deciding whether to
+        # defer background work), same fail-closed posture as the
+        # per-entry read-failure branch below.
+        return True
+
+    any_live = False
+    for entry in entries:
+        # Skip _write_tui_pid_file()'s own in-progress/orphaned temp files
+        # (".{pid}.tmp") — either not yet renamed into place via
+        # os.replace(), or an orphan left behind by a SIGKILL between the
+        # temp write and that rename (see _write_tui_pid_file()'s
+        # docstring for why that's bounded to one file per PID and
+        # self-corrects on that PID's next write, rather than something
+        # this function needs to reap). Either way, not yet a real entry.
+        if not entry.is_file() or entry.name.startswith("."):
+            continue
+        try:
+            raw = entry.read_text().strip()
+        except OSError:
+            # Could not even open this entry to check it — fail closed
+            # toward "treat as active" for this entry, the safe direction
+            # for a caller deciding whether to defer background work.
+            # Note this is a weaker guarantee than "transient" for a lone
+            # orphaned entry (e.g. permissions changed on a dead session's
+            # file after the fact, with no writer left to ever fix it):
+            # such an entry can never be reaped via this branch, since
+            # reaping requires a successful read. In practice this signal
+            # is only ever consulted live rather than cached, so a wedged
+            # entry here means one specific stale file is over-counted as
+            # active, not that the whole signal is stuck — other entries
+            # are still evaluated normally, and a genuinely dead PID with
+            # a readable entry is still reaped below.
+            any_live = True
+            continue
+
+        try:
+            pid = int(raw)
+        except ValueError:
+            warning(f"resource_gate: TUI session file {entry} unreadable, treating as stale")
+            entry.unlink(missing_ok=True)
+            continue
+
+        if _pid_alive(pid):
+            any_live = True
+        else:
+            warning(f"resource_gate: removing stale TUI session file {entry}")
+            entry.unlink(missing_ok=True)
+
+    return any_live
+
+
+def is_gui_client_connected(
+    clients_file: Optional[Path] = None, gui_pid_file: Optional[Path] = None
+) -> bool:
+    """
+    True if gui/server.py's live client-count file (written by
+    gui/server.py's `_write_gui_clients_count()` whenever its `clients`
+    websocket set changes) currently records at least one connected
+    browser session.
+
+    Also cross-checks the GUI server's own PID file (existing convention,
+    `lib/gui_launch.sh`'s `gui-server.pid` / `utils.config.GUI_PID_FILE`):
+    if that PID is no longer alive, a nonzero count is treated as stale
+    (0) rather than trusted, because a crashed/killed GUI server process
+    has no further opportunity to write a fresh "0" itself — without this
+    check, a crash while clients were connected would leave the count file
+    reporting a false-positive "someone's watching" forever. This mirrors
+    this module's existing self-healing posture (`list_slots()`'s
+    PID-liveness reaping) rather than inventing new machinery.
+    """
+    if clients_file is None:
+        from utils.config import GUI_CLIENTS_FILE
+
+        clients_file = GUI_CLIENTS_FILE
+    if gui_pid_file is None:
+        from utils.config import GUI_PID_FILE
+
+        gui_pid_file = GUI_PID_FILE
+
+    if not clients_file.exists():
+        return False
+    try:
+        with open(clients_file, "r") as f:
+            count = int(f.read().strip())
+    except (OSError, ValueError):
+        # Unreadable/corrupt count file — fail closed toward "don't block
+        # background work on a signal that isn't legible", matching this
+        # module's existing best-effort posture for auxiliary signals
+        # (get_resource_snapshot()'s thermal/battery/queue-depth reads).
+        return False
+    if count <= 0:
+        return False
+
+    if gui_pid_file.exists():
+        try:
+            with open(gui_pid_file, "r") as f:
+                gui_pid = int(f.read().strip())
+        except (OSError, ValueError):
+            # Can't confirm the GUI server's PID either — fail open toward
+            # trusting the count file rather than discarding a real signal
+            # over an unrelated read failure.
+            return True
+        return _pid_alive(gui_pid)
+
+    # No GUI PID file at all: nothing to cross-check against, so trust the
+    # count file as-is rather than assuming stale.
+    return True
+
+
+def is_interactive_session_active(
+    tui_sessions_dir: Optional[Path] = None,
+    gui_clients_file: Optional[Path] = None,
+    gui_pid_file: Optional[Path] = None,
+) -> bool:
+    """
+    Composed "is a human actively using Codey-OS's TUI or GUI right now"
+    signal: any TUI session active OR at least one connected GUI client.
+    Consumed by 7.4 sub-task C (not built here — see this section's header
+    comment) to decide whether the daemon should defer background work
+    while a user is actively watching.
+    """
+    return is_tui_session_active(tui_sessions_dir) or is_gui_client_connected(
+        gui_clients_file, gui_pid_file
+    )
+
+
 def total_reserved_bytes(state_dir: Optional[Path] = None, reap_dead: bool = True) -> int:
     """
     Sum of declared cost_bytes across currently-registered, live,

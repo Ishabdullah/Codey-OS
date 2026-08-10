@@ -1093,3 +1093,238 @@ def test_get_resource_snapshot_queue_read_failure_does_not_blank_other_signals()
     assert snap.queue_running == 0
     assert snap.temperature_c == 30.0
     assert snap.battery_percent == 99
+
+
+# ── is_tui_session_active / is_gui_client_connected / is_interactive_session_active ──
+# Track 3 Phase 5a / 7.4 sub-task B. Synthetic fixtures throughout (tmp_path
+# directories/files, subprocess.Popen(["true"]) for a real-but-dead PID) —
+# no dependency on a real running main.py/gui/server.py instance, matching
+# this module's existing test convention. TUI sessions live one-per-file
+# under a directory (TUI_SESSIONS_DIR / f"{pid}.pid"), not a single shared
+# file, so two concurrent sessions can never overwrite each other's entry.
+
+
+def test_is_tui_session_active_missing_dir_is_false(tmp_path):
+    assert rg.is_tui_session_active(sessions_dir=tmp_path / "tui-sessions") is False
+
+
+def test_is_tui_session_active_empty_dir_is_false(tmp_path):
+    sessions_dir = tmp_path / "tui-sessions"
+    sessions_dir.mkdir()
+    assert rg.is_tui_session_active(sessions_dir=sessions_dir) is False
+
+
+def test_is_tui_session_active_live_pid_is_true(tmp_path):
+    sessions_dir = tmp_path / "tui-sessions"
+    sessions_dir.mkdir()
+    pid = os.getpid()
+    (sessions_dir / f"{pid}.pid").write_text(str(pid))
+    assert rg.is_tui_session_active(sessions_dir=sessions_dir) is True
+
+
+def test_is_tui_session_active_stale_pid_is_false_and_self_heals(tmp_path):
+    proc = subprocess.Popen(["true"])
+    dead_pid = proc.pid
+    proc.wait()
+
+    sessions_dir = tmp_path / "tui-sessions"
+    sessions_dir.mkdir()
+    session_file = sessions_dir / f"{dead_pid}.pid"
+    session_file.write_text(str(dead_pid))
+
+    assert rg.is_tui_session_active(sessions_dir=sessions_dir) is False
+    # Self-healing: the stale entry is removed as a side effect of the
+    # check, matching core/daemon.py:check_pid_file()'s same behavior.
+    assert not session_file.exists()
+
+
+def test_is_tui_session_active_unreadable_file_fails_closed_to_true(tmp_path):
+    # A permission-denied (existing but unopenable) entry must fail closed
+    # toward "treat as active" — the safe direction for a caller deciding
+    # whether to defer background work — rather than being silently
+    # indistinguishable from "no session". See is_tui_session_active()'s
+    # own comment on this branch for why this is transient in practice,
+    # not a permanent wedge.
+    sessions_dir = tmp_path / "tui-sessions"
+    sessions_dir.mkdir()
+    session_file = sessions_dir / f"{os.getpid()}.pid"
+    session_file.write_text(str(os.getpid()))
+    session_file.chmod(0o000)
+    try:
+        assert rg.is_tui_session_active(sessions_dir=sessions_dir) is True
+    finally:
+        session_file.chmod(0o644)
+
+
+def test_is_tui_session_active_corrupt_pid_file_is_false_and_removed(tmp_path):
+    sessions_dir = tmp_path / "tui-sessions"
+    sessions_dir.mkdir()
+    session_file = sessions_dir / "not-a-pid.pid"
+    session_file.write_text("not-a-pid")
+    assert rg.is_tui_session_active(sessions_dir=sessions_dir) is False
+    assert not session_file.exists()
+
+
+def test_is_tui_session_active_two_concurrent_sessions_survive_one_exiting(tmp_path):
+    # The regression this fix is for: a second session's write/removal
+    # must not destroy a first, still-live session's entry, and the
+    # composed signal must correctly track each session independently.
+    sessions_dir = tmp_path / "tui-sessions"
+    sessions_dir.mkdir()
+    pid_a = os.getpid()
+    proc_b = subprocess.Popen(["sleep", "30"])
+    pid_b = proc_b.pid
+    try:
+        session_a = sessions_dir / f"{pid_a}.pid"
+        session_b = sessions_dir / f"{pid_b}.pid"
+        session_a.write_text(str(pid_a))
+        session_b.write_text(str(pid_b))
+
+        assert rg.is_tui_session_active(sessions_dir=sessions_dir) is True
+
+        # B exits and removes its own entry — A's presence must still be
+        # correctly reported.
+        session_b.unlink()
+        assert session_a.exists()
+        assert rg.is_tui_session_active(sessions_dir=sessions_dir) is True
+
+        # A exits too — now nothing is left.
+        session_a.unlink()
+        assert rg.is_tui_session_active(sessions_dir=sessions_dir) is False
+    finally:
+        proc_b.kill()
+        proc_b.wait()
+
+
+def test_is_tui_session_active_crashed_session_is_reaped_without_hiding_live_one(tmp_path):
+    # B is SIGKILL'd (crash, not a clean exit) — its dead PID is left
+    # behind in its OWN file. Self-healing must reap only B's entry, and
+    # must not touch A's still-live entry in the process.
+    sessions_dir = tmp_path / "tui-sessions"
+    sessions_dir.mkdir()
+    pid_a = os.getpid()
+
+    proc_b = subprocess.Popen(["true"])
+    dead_pid_b = proc_b.pid
+    proc_b.wait()
+
+    session_a = sessions_dir / f"{pid_a}.pid"
+    session_b = sessions_dir / f"{dead_pid_b}.pid"
+    session_a.write_text(str(pid_a))
+    session_b.write_text(str(dead_pid_b))
+
+    assert rg.is_tui_session_active(sessions_dir=sessions_dir) is True
+    assert not session_b.exists()
+    assert session_a.exists()
+
+
+def test_is_gui_client_connected_missing_file_is_false(tmp_path):
+    assert (
+        rg.is_gui_client_connected(
+            clients_file=tmp_path / "gui-clients.count",
+            gui_pid_file=tmp_path / "gui-server.pid",
+        )
+        is False
+    )
+
+
+def test_is_gui_client_connected_zero_count_is_false(tmp_path):
+    clients_file = tmp_path / "gui-clients.count"
+    clients_file.write_text("0")
+    assert (
+        rg.is_gui_client_connected(
+            clients_file=clients_file, gui_pid_file=tmp_path / "gui-server.pid"
+        )
+        is False
+    )
+
+
+def test_is_gui_client_connected_positive_count_no_pid_file_is_true(tmp_path):
+    # No GUI PID file to cross-check against at all — nothing to invalidate
+    # the count with, so it's trusted as-is.
+    clients_file = tmp_path / "gui-clients.count"
+    clients_file.write_text("2")
+    assert (
+        rg.is_gui_client_connected(
+            clients_file=clients_file, gui_pid_file=tmp_path / "gui-server.pid"
+        )
+        is True
+    )
+
+
+def test_is_gui_client_connected_positive_count_live_gui_pid_is_true(tmp_path):
+    clients_file = tmp_path / "gui-clients.count"
+    clients_file.write_text("1")
+    gui_pid_file = tmp_path / "gui-server.pid"
+    gui_pid_file.write_text(str(os.getpid()))
+    assert (
+        rg.is_gui_client_connected(clients_file=clients_file, gui_pid_file=gui_pid_file) is True
+    )
+
+
+def test_is_gui_client_connected_positive_count_dead_gui_pid_is_stale(tmp_path):
+    # A GUI server that crashed while clients were connected must not leave
+    # a false-positive "someone's watching" signal behind forever.
+    proc = subprocess.Popen(["true"])
+    dead_pid = proc.pid
+    proc.wait()
+
+    clients_file = tmp_path / "gui-clients.count"
+    clients_file.write_text("3")
+    gui_pid_file = tmp_path / "gui-server.pid"
+    gui_pid_file.write_text(str(dead_pid))
+
+    assert (
+        rg.is_gui_client_connected(clients_file=clients_file, gui_pid_file=gui_pid_file) is False
+    )
+
+
+def test_is_gui_client_connected_corrupt_count_file_is_false(tmp_path):
+    clients_file = tmp_path / "gui-clients.count"
+    clients_file.write_text("not-a-count")
+    assert (
+        rg.is_gui_client_connected(
+            clients_file=clients_file, gui_pid_file=tmp_path / "gui-server.pid"
+        )
+        is False
+    )
+
+
+def test_is_interactive_session_active_false_when_neither_active(tmp_path):
+    assert (
+        rg.is_interactive_session_active(
+            tui_sessions_dir=tmp_path / "tui-sessions",
+            gui_clients_file=tmp_path / "gui-clients.count",
+            gui_pid_file=tmp_path / "gui-server.pid",
+        )
+        is False
+    )
+
+
+def test_is_interactive_session_active_true_when_only_tui_active(tmp_path):
+    tui_sessions_dir = tmp_path / "tui-sessions"
+    tui_sessions_dir.mkdir()
+    (tui_sessions_dir / f"{os.getpid()}.pid").write_text(str(os.getpid()))
+    assert (
+        rg.is_interactive_session_active(
+            tui_sessions_dir=tui_sessions_dir,
+            gui_clients_file=tmp_path / "gui-clients.count",
+            gui_pid_file=tmp_path / "gui-server.pid",
+        )
+        is True
+    )
+
+
+def test_is_interactive_session_active_true_when_only_gui_active(tmp_path):
+    clients_file = tmp_path / "gui-clients.count"
+    clients_file.write_text("1")
+    gui_pid_file = tmp_path / "gui-server.pid"
+    gui_pid_file.write_text(str(os.getpid()))
+    assert (
+        rg.is_interactive_session_active(
+            tui_sessions_dir=tmp_path / "tui-sessions",
+            gui_clients_file=clients_file,
+            gui_pid_file=gui_pid_file,
+        )
+        is True
+    )

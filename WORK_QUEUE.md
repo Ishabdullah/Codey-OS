@@ -772,12 +772,33 @@ resource-awareness work twice.
        thermal/CPU tripwire, `command` becomes queue-only, daemon never
        runs while TUI/GUI is active, queue consumption gated on the same
        live headroom check 5a builds. `core/observability.py`'s wrap
-       (item 4) folds in here. **Status (updated 2026-08-09): sub-task A
-       (resource snapshot + `/status` wiring, see build order below) is
-       code-complete, pending code-reviewer approval — not live-verified.
-       Sub-tasks B-E remain 100% decisions-on-paper, zero implementation**
-       (confirmed by inspecting the live `daemon_control/manifest.json` —
-       still pre-decision shape for everything sub-task A doesn't cover).
+       (item 4) folds in here. **Status (updated 2026-08-10): sub-task A
+       (resource snapshot + `/status` wiring) code-reviewer-approved and
+       committed (`c48f77b`) — no process-lifecycle risk, code-complete
+       is its correct final status. Sub-task B (TUI/GUI interactive-
+       session signal, both halves in scope) code-reviewer-approved
+       2026-08-10 after a round-1 rejection: a single shared
+       `TUI_PID_FILE` let one TUI session's write, crash, or clean exit
+       silently erase a different still-live session's presence (three
+       distinct reproduced paths — overwrite, stale-reap, and a
+       truncate-before-flock race); fixed by moving to one atomically-
+       (`os.replace()`-)written file per session under `TUI_SESSIONS_DIR`
+       instead of one shared file, ownership now structural rather than
+       content-compared, with a real `os.fork()`-based two-distinct-PID
+       test covering it (the first draft of that test would have passed
+       even with the bug — hand-placed file, not a real second PID —
+       caught before hand-off, not by review). GUI half approved
+       unchanged in round 1: `gui/server.py`'s live `clients` websocket
+       count, not GUI-process-liveness, is the signal, cross-checked
+       against the GUI server's own PID file so a crash-while-clients-
+       connected doesn't strand a false-positive "someone's watching."
+       Not live-verified — this sub-task touches PID-file/lock logic per
+       CLAUDE.md rule 4 (mandatory review, two rounds to converge) but no
+       daemon dispatch/shutdown behavior actually changed yet (sub-tasks
+       C/D). Not yet committed. Sub-tasks C-E remain 100%
+       decisions-on-paper, zero implementation** (confirmed by inspecting
+       the live `daemon_control/manifest.json` — still pre-decision shape
+       for everything sub-tasks A/B don't cover).
 
        **Scoping pass complete, 2026-08-09 (project-architect, desk-only,
        no code changed).** Two premises in the original decision text

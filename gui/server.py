@@ -20,6 +20,8 @@ GUI_DIR = Path(__file__).parent
 
 sys.path.insert(0, str(CODEY_DIR))
 
+from utils.config import GUI_CLIENTS_FILE
+
 # Port/host the server is (or will be) bound to. Computed at import time so
 # both the WebSocket Origin check and the __main__ entry point agree on the
 # same value — do not hardcode a port anywhere else in this module.
@@ -120,6 +122,28 @@ async def get_model_status() -> Dict:
 # ─── WebSocket hub ────────────────────────────────────────────────────────────
 
 clients: Set[web.WebSocketResponse] = set()
+
+
+def _write_gui_clients_count() -> None:
+    """
+    Persist the current size of `clients` to utils.config.GUI_CLIENTS_FILE
+    so a separate process (the daemon; see core/resource_gate.py's
+    is_gui_client_connected()) can tell "is anyone actually looking at the
+    GUI right now" — `clients` itself is this process's own in-memory
+    state, invisible cross-process. Called on every change to `clients`
+    (connect/disconnect), not on a timer. Deliberately NOT a substitute for
+    (or replacement of) `lib/gui_launch.sh`'s existing gui-server.pid
+    convention — see is_gui_client_connected()'s own docstring for why
+    "server process alive" and "client connected" are different signals.
+
+    Best-effort only: a write failure here (e.g. ~/.codeyOS unwritable)
+    must not interrupt handling the websocket connection itself.
+    """
+    try:
+        GUI_CLIENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        GUI_CLIENTS_FILE.write_text(str(len(clients)))
+    except OSError:
+        pass
 
 
 async def broadcast(msg: dict) -> None:
@@ -238,6 +262,7 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
     ws = web.WebSocketResponse(heartbeat=30)
     await ws.prepare(request)
     clients.add(ws)
+    _write_gui_clients_count()
 
     try:
         async for msg in ws:
@@ -265,6 +290,7 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
         raise
     finally:
         clients.discard(ws)
+        _write_gui_clients_count()
 
     return ws
 
@@ -273,6 +299,11 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
 
 
 async def on_startup(app: web.Application) -> None:
+    # Reset the client-count file to 0 on a fresh server start — clears out
+    # any stale nonzero count left behind by a previous crashed/killed
+    # instance (this process holds no clients yet regardless of what an
+    # old file says).
+    _write_gui_clients_count()
     asyncio.create_task(metrics_loop())
 
 
@@ -282,6 +313,7 @@ async def on_shutdown(app: web.Application) -> None:
             await ws.close(code=1001, message=b"server shutdown")
         except Exception:
             pass
+    _write_gui_clients_count()
 
 
 def make_app() -> web.Application:

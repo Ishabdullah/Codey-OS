@@ -5926,3 +5926,31 @@ finding for the same bug. See `NEW-39`.)*
   test-design flaw: this file should mock `git status`/`git diff`
   and the `confirm()` call rather than depending on live repo/tree state
   at all). Flagging per CLAUDE.md rule 8.
+
+## Found while implementing Phase 4.1 sub-task B (interactive-session TUI+GUI signal), 2026-08-10 — NOT fixed, logged only
+
+### [NEW-111] `gui/server.py`'s module-level `PORT = int(sys.argv[1]) if len(sys.argv) > 1 else int(os.environ.get("CODEY_GUI_PORT", "8888"))` reads `sys.argv[1]` unconditionally at import time and raises an uncaught `ValueError` if argv[1] isn't an integer — makes the module unimportable from any context that has its own argv (e.g. `pytest tests/`, whose `sys.argv[1]` is `"tests/"`)
+
+- **Status: Confirmed** by direct reproduction while writing this
+  sub-task's `tests/test_gui_clients_signal.py` (which needs to import
+  `gui/server.py` to test `_write_gui_clients_count()`):
+  ```
+  $ python3 -m pytest tests/test_gui_clients_signal.py -q
+  gui/server.py:28: in <module>
+      PORT = int(sys.argv[1]) if len(sys.argv) > 1 else int(os.environ.get("CODEY_GUI_PORT", "8888"))
+  ValueError: invalid literal for int() with base 10: 'tests/'
+  ```
+- **Impact:** `gui/server.py` can only ever be imported (not just run as
+  `__main__`) from a process whose own `sys.argv[1]`, if present, happens
+  to be a valid integer — this is surprising for a module that otherwise
+  looks like ordinary importable code (its actual entry point is guarded
+  by `if __name__ == "__main__":` further down, but the argv read at line
+  28 is not). Worked around in this sub-task's own test file by
+  save/restoring `sys.argv` around the import rather than fixing the
+  module itself (out of scope for this sub-task — signal-sourcing/testing
+  only, no daemon/process-lifecycle logic touched in `gui/server.py`
+  beyond the new `_write_gui_clients_count()` addition).
+- **Not fixed** — the port-override read should be gated behind
+  `if __name__ == "__main__":` (or read only from `CODEY_GUI_PORT`, with
+  the positional-argv override moved to the `__main__` block) rather than
+  running at module import time. Flagging per CLAUDE.md rule 8.

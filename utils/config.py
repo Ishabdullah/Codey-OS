@@ -128,6 +128,22 @@ PLANND_PID_FILE = CODEY_STATE_DIR / "plannd.pid"        # unchanged, already gen
 PLANND_LOG_FILE = CODEY_STATE_DIR / "plannd.log"        # unchanged, already generic
 GUI_PID_FILE = CODEY_STATE_DIR / "gui-server.pid"       # unchanged, already generic
 
+# Track 3 Phase 5a / 7.4 sub-task B: the "is a user actively using the TUI or
+# GUI right now" interactive-session signal (core/resource_gate.py's
+# is_interactive_session_active()). TUI_SESSIONS_DIR holds one per-session
+# file per interactive main.py process (TUI_SESSIONS_DIR / f"{pid}.pid"),
+# written/removed around main()'s repl(...) call site (see main.py's
+# _write_tui_pid_file()/_remove_tui_pid_file()) — a directory of per-PID
+# files, not a single shared file, because two concurrent interactive
+# sessions are a normal, supported case here and a single shared file
+# cannot hold two sessions' presence at once (a second session's write, or
+# even its crash, would silently erase the first session's signal).
+# GUI_CLIENTS_FILE is written by gui/server.py whenever its `clients`
+# websocket set changes. Neither is a single-instance-enforcement lock like
+# DAEMON_PID_FILE — see each writer's own docstring.
+TUI_SESSIONS_DIR = CODEY_STATE_DIR / "tui-sessions"
+GUI_CLIENTS_FILE = CODEY_STATE_DIR / "gui-clients.count"
+
 # Recursive Inference — Phase 2 (v2.6.2)
 # Controls the draft → critique → refine self-improvement loop.
 # CODEY_RECURSIVE=1  — force on   (even for remote backends)

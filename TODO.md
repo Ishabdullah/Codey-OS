@@ -527,11 +527,23 @@ both would mean coding against an interface that doesn't exist yet.
       socket-triggerable shutdown path; E: `daemon_control` plugin/
       manifest update) and two doc corrections (`daemon_shutdown` lives
       in `core/daemon.py`, not the plugin; no shipped script calls the
-      socket `shutdown` handler today). Sub-task A (resource snapshot +
-      `/status` wiring) is code-complete, pending code-reviewer approval —
-      not live-verified (no process-lifecycle risk needing
-      live-verification per the original scoping, but not yet reviewed/
-      committed either). Sub-tasks B-E not started.
+      socket `shutdown` handler today). **Sub-task A (resource snapshot +
+      `/status` wiring) code-reviewer-approved and committed (`c48f77b`,
+      2026-08-09)** — no process-lifecycle risk, so code-complete is its
+      correct final status, not a stand-in for live-verified. **Sub-task
+      B (TUI/GUI interactive-session signal) code-reviewer-approved
+      2026-08-10, both TUI and GUI halves in scope per Ish's call**: a
+      round-1 bug (single shared `TUI_PID_FILE` let one TUI session's
+      write/crash/exit silently erase a different live session's
+      presence — three distinct paths, all reproduced) was fixed by
+      switching to one atomically-written file per session
+      (`TUI_SESSIONS_DIR`) instead of one shared file; a real
+      `os.fork()`-based two-PID test now covers it. Not live-verified —
+      code-complete/mock-and-real-subprocess-unit-tested only; this sub-
+      task touches PID-file/lock logic per CLAUDE.md rule 4 so it had a
+      mandatory (two-round) review, but no daemon dispatch/shutdown
+      behavior actually changed yet (that's sub-tasks C/D). Sub-tasks
+      C-E not started.
 - [ ] 7.3 (WQ Track 3 item 3, "Phase 5b") — Task classifier + tier
       config, coding domain only: non-LLM heuristic classifier;
       `(domain, role, tier) → model` config; reconcile with (don't

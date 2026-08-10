@@ -277,6 +277,91 @@ def shutdown():
         pass
 
 
+def _write_tui_pid_file():
+    """
+    Write this process's PID into its own per-session file under
+    utils.config.TUI_SESSIONS_DIR (TUI_SESSIONS_DIR / f"{pid}.pid") — the
+    PID-bearing, self-healing lock file that lets a separate process (the
+    daemon; see core/resource_gate.py's is_tui_session_active()) tell
+    whether an interactive main.py session is currently running. Called
+    around main()'s repl(...) call site (not from inside repl() itself —
+    see that call site's own comment for why: repl()'s ~200-line body
+    already has several internal early-return/break paths, each calling
+    shutdown() directly, and wrapping the call site in try/finally covers
+    all of them without restructuring that existing control flow).
+
+    Not a single-instance-enforcement lock like DAEMON_PID_FILE: two
+    concurrent interactive sessions (e.g. two terminals) are a normal,
+    supported case here, unlike the daemon. One file per PID (not one
+    shared file for all sessions) is what makes that safe: a second
+    session's write can never overwrite/truncate a first session's own
+    file, because they never share a path. See _remove_tui_pid_file()'s
+    docstring for the matching removal side.
+
+    Written via a fixed per-PID temp file in the same directory +
+    os.replace(), matching core/resource_gate.py's own
+    _write_state_locked() atomic-replace convention, rather than
+    open(path, "w") + flock: open(path, "w") truncates BEFORE the lock is
+    acquired, so a concurrent reader (is_tui_session_active(), a separate
+    process, not this session) can observe an empty file in that window
+    and reap this brand-new session's own file as "corrupt" before this
+    write ever completes — os.replace() is atomic, so no reader can ever
+    observe a partial/empty file for this path.
+
+    Deliberately a FIXED name (TUI_SESSIONS_DIR / f".{pid}.tmp"), not
+    tempfile.mkstemp()'s randomly-suffixed name: this function's only
+    caller for a given PID is this same process, so there's never a
+    collision to avoid, and a fixed name means a crash between opening
+    this temp file and the os.replace() below (e.g. SIGKILL, which this
+    function cannot catch to clean up after) leaves at most one orphaned
+    temp file per PID rather than an ever-growing set of uniquely-named
+    ones with no reaper — a future session reusing that same (recycled)
+    PID overwrites it via O_TRUNC on the next write.
+    """
+    from utils.config import TUI_SESSIONS_DIR
+
+    session_file = TUI_SESSIONS_DIR / f"{os.getpid()}.pid"
+    tmp_file = TUI_SESSIONS_DIR / f".{os.getpid()}.tmp"
+    try:
+        TUI_SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
+        with open(tmp_file, "w") as f:
+            f.write(str(os.getpid()))
+            f.flush()
+        os.replace(tmp_file, session_file)
+    except OSError:
+        # Best-effort signal only — a write failure here (e.g. ~/.codeyOS
+        # unwritable) must not block the interactive session itself from
+        # starting; the daemon will simply not see this session as active.
+        pass
+
+
+def _remove_tui_pid_file():
+    """
+    Remove this process's own per-session file under
+    utils.config.TUI_SESSIONS_DIR (TUI_SESSIONS_DIR / f"{pid}.pid").
+
+    Because each session's filename is namespaced by its own PID (see
+    _write_tui_pid_file()'s docstring), ownership is structural: this
+    process can only ever name its own path here, so — unlike an earlier
+    single-shared-file design — there is no read-back-and-compare check
+    needed to avoid deleting a different, still-live session's entry. A
+    second concurrent session's write/crash/exit can never touch this
+    file, by construction, because it never shares this path.
+    """
+    from utils.config import TUI_SESSIONS_DIR
+
+    session_file = TUI_SESSIONS_DIR / f"{os.getpid()}.pid"
+    try:
+        session_file.unlink(missing_ok=True)
+    except OSError:
+        # Best-effort cleanup only, called from a `finally` block around
+        # repl() — a removal failure here (e.g. permissions changed
+        # mid-session) must not raise out of session teardown; at worst
+        # is_tui_session_active() reaps this entry itself once the PID is
+        # confirmed dead on its own next check.
+        pass
+
+
 def run_init():
     from core.codeymd import find_codeymd, get_init_prompt, write_codeymd
     from core.inference_v2 import infer
@@ -1827,16 +1912,28 @@ def main():
             info(f"Resuming: {matches[0].name}")
 
     one_shot = bool(args.prompt and not args.chat)
-    repl(
-        initial_prompt=args.prompt,
-        yolo=args.yolo,
-        one_shot=one_shot,
-        preload=args.read,
-        session_path=resolved_session,
-        plan=args.plan,
-        no_plan=args.no_plan,
-        no_resume=args.no_resume,
-    )
+    # Track 3 Phase 5a / 7.4 sub-task B: mark this interactive session live
+    # for the whole span of repl() (start -> every return/break inside it,
+    # any uncaught exception, or normal completion) so
+    # core/resource_gate.py's is_tui_session_active() can see it from a
+    # separate process. try/finally here — not inside repl() itself — keeps
+    # this additive to repl()'s existing multi-path control flow (several
+    # early returns/breaks already call shutdown() internally; see
+    # CLAUDE.md rule 4) rather than restructuring it.
+    _write_tui_pid_file()
+    try:
+        repl(
+            initial_prompt=args.prompt,
+            yolo=args.yolo,
+            one_shot=one_shot,
+            preload=args.read,
+            session_path=resolved_session,
+            plan=args.plan,
+            no_plan=args.no_plan,
+            no_resume=args.no_resume,
+        )
+    finally:
+        _remove_tui_pid_file()
 
 
 if __name__ == "__main__":
