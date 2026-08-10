@@ -84,7 +84,11 @@ install_system_deps() {
             # pyarrow & pandas must come from pkg on Termux (pip wheels fail on aarch64)
             pkg install -y python-pyarrow python-pandas 2>/dev/null \
                 || print_warning "python-pyarrow/pandas pkg install failed — pipeline features may not work"
-            # espeak (offline TTS engine) + termux-api (TTS/STT via Termux:API) — voice interface
+            # espeak (offline TTS engine) + termux-api (TTS/STT via Termux:API,
+            # also the live path for core/sysmon.py's battery read — the
+            # /sys/class/power_supply/battery/ sysfs path is permission-denied
+            # under Termux without root, confirmed on-device Track 3 Phase 5a
+            # / 7.4 sub-task A) — voice interface
             pkg install -y espeak termux-api 2>/dev/null \
                 || print_warning "espeak/termux-api pkg install failed — voice interface may not work"
         fi

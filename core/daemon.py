@@ -925,6 +925,23 @@ class Daemon:
                 _watchdog_ticks += 1
                 if _watchdog_ticks >= 60:
                     _watchdog_ticks = 0
+                    # Rolling system-wide CPU% sample for
+                    # core/resource_gate.py's snapshot composer (Track 3
+                    # Phase 5a / 7.4 sub-task A). Deliberately OUTSIDE the
+                    # `if not _is_remote()` guard below — CPU/thermal state
+                    # is backend-independent, and 7.4 sub-task D's future
+                    # 20-minute sustained-CPU tripwire needs an unbroken
+                    # history regardless of local/remote backend.
+                    try:
+                        from core.resource_gate import sample_cpu_percent
+
+                        sample_cpu_percent()
+                    except Exception as e:
+                        # Best-effort signal only (same posture as this
+                        # module's other watchdog sub-checks below) — a
+                        # sampling failure must not stop the model/embed
+                        # watchdogs that follow it in this same tick.
+                        warning(f"resource_gate CPU sample failed: {e}")
                     # 7B model server watchdog (local only)
                     if not _is_remote():
                         self._watchdog_check_model()

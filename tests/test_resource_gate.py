@@ -878,3 +878,218 @@ def test_state_dir_defaults_to_codey_state_dir(monkeypatch):
         slot_id = rg.register_slot("x", cost_bytes=1, state_dir=None)
         assert (Path(d) / "resource_gate_state.json").exists()
         rg.release_slot(slot_id, state_dir=None)
+
+
+# ── Rolling CPU% sampler (Track 3 Phase 5a / 7.4 sub-task A) ────────────────
+
+
+@pytest.fixture(autouse=False)
+def _clean_cpu_sampler():
+    """Reset the module-global rolling CPU sampler before and after each
+    test that uses it, so ordered test runs can't leak history/seed state
+    between tests (same precedent as core/thermal.py's reset_thermal())."""
+    rg.reset_cpu_sampler()
+    yield
+    rg.reset_cpu_sampler()
+
+
+def _write_stat_line(path: Path, idle: int, total_minus_idle: int):
+    """Write a synthetic /proc/stat first line with a controlled
+    idle/non-idle split. Field order: user nice system idle iowait ...
+    Only `idle` (index 3) and the sum of all fields matter to
+    _read_proc_stat_cpu_line(), so the other non-idle time is dumped into
+    the first field."""
+    path.write_text(f"cpu  {total_minus_idle} 0 0 {idle} 0 0 0 0 0 0\n")
+
+
+def test_sample_cpu_percent_first_call_seeds_and_returns_none(tmp_path, _clean_cpu_sampler):
+    stat = tmp_path / "stat"
+    _write_stat_line(stat, idle=1000, total_minus_idle=1000)
+    # None (not 0.0): the seed call has nothing to diff against yet, so it
+    # hasn't actually measured anything — 0.0 would be indistinguishable
+    # from a genuinely idle reading.
+    assert rg.sample_cpu_percent(str(stat)) is None
+    assert rg.get_cpu_history() == []  # seed call records no history entry
+
+
+def test_sample_cpu_percent_computes_delta_and_records_history(tmp_path, _clean_cpu_sampler):
+    stat = tmp_path / "stat"
+    _write_stat_line(stat, idle=1000, total_minus_idle=1000)
+    rg.sample_cpu_percent(str(stat))  # seed
+
+    # Second sample: total ticks advance by 200 (100 idle, 100 busy) -> 50% busy
+    _write_stat_line(stat, idle=1100, total_minus_idle=1100)
+    pct = rg.sample_cpu_percent(str(stat))
+    assert pct == pytest.approx(50.0)
+
+    history = rg.get_cpu_history()
+    assert len(history) == 1
+    ts, recorded_pct = history[0]
+    assert recorded_pct == pytest.approx(50.0)
+    assert ts <= time.time()
+
+
+def test_sample_cpu_percent_fully_idle_delta_is_zero(tmp_path, _clean_cpu_sampler):
+    stat = tmp_path / "stat"
+    _write_stat_line(stat, idle=1000, total_minus_idle=1000)
+    rg.sample_cpu_percent(str(stat))
+    _write_stat_line(stat, idle=1100, total_minus_idle=1000)  # only idle advances
+    assert rg.sample_cpu_percent(str(stat)) == pytest.approx(0.0)
+
+
+def test_sample_cpu_percent_unreadable_file_returns_none_and_no_history(_clean_cpu_sampler):
+    # None (not 0.0): a read failure must not be indistinguishable from a
+    # genuinely idle reading — see sample_cpu_percent()'s docstring.
+    assert rg.sample_cpu_percent("/nonexistent/proc/stat") is None
+    assert rg.get_cpu_history() == []
+
+
+def test_get_cpu_history_filters_by_max_age(tmp_path, _clean_cpu_sampler):
+    stat = tmp_path / "stat"
+    _write_stat_line(stat, idle=0, total_minus_idle=0)
+    rg.sample_cpu_percent(str(stat))
+    _write_stat_line(stat, idle=100, total_minus_idle=100)
+    rg.sample_cpu_percent(str(stat))
+    # Backdate the one recorded sample beyond any reasonable max_age filter.
+    rg._cpu_history[:] = [(time.time() - 3600, p) for _, p in rg._cpu_history]
+    assert rg.get_cpu_history(max_age_sec=60) == []
+    assert len(rg.get_cpu_history()) == 1  # unfiltered call still sees it
+
+
+def test_get_current_cpu_percent_uses_last_history_sample_when_available(tmp_path, _clean_cpu_sampler):
+    stat = tmp_path / "stat"
+    _write_stat_line(stat, idle=0, total_minus_idle=0)
+    rg.sample_cpu_percent(str(stat))
+    _write_stat_line(stat, idle=0, total_minus_idle=100)  # 100% busy delta
+    rg.sample_cpu_percent(str(stat))
+    assert rg.get_current_cpu_percent() == pytest.approx(100.0)
+
+
+def test_get_current_cpu_percent_cold_start_falls_back_to_fresh_sample(_clean_cpu_sampler):
+    # No prior sample_cpu_percent() call in this process (history empty) —
+    # must fall back to a real (mocked, no real sleep) cold-start read
+    # instead of silently returning a meaningless 0.0.
+    calls = iter([(1000, 2000), (1050, 2100)])  # (idle, total) pairs
+
+    def fake_stat_line(path="/proc/stat"):
+        idle_total = next(calls)
+        return idle_total
+
+    import core.resource_gate as _rg
+
+    orig = _rg._read_proc_stat_cpu_line
+    _rg._read_proc_stat_cpu_line = fake_stat_line
+    try:
+        pct = rg.get_current_cpu_percent(cold_start_sample_sec=0.0)
+    finally:
+        _rg._read_proc_stat_cpu_line = orig
+    # d_idle=50, d_total=100 -> 50% busy
+    assert pct == pytest.approx(50.0)
+
+
+def test_reset_cpu_sampler_clears_seed_and_history(tmp_path, _clean_cpu_sampler):
+    stat = tmp_path / "stat"
+    _write_stat_line(stat, idle=0, total_minus_idle=0)
+    rg.sample_cpu_percent(str(stat))
+    _write_stat_line(stat, idle=0, total_minus_idle=100)
+    rg.sample_cpu_percent(str(stat))
+    assert rg.get_cpu_history() != []
+
+    rg.reset_cpu_sampler()
+    assert rg.get_cpu_history() == []
+    # After reset, the next call re-seeds (returns None, no history entry)
+    # exactly like a fresh process would.
+    assert rg.sample_cpu_percent(str(stat)) is None
+    assert rg.get_cpu_history() == []
+
+
+# ── Snapshot composer (get_resource_snapshot) ────────────────────────────────
+
+
+class _FakeStateStore:
+    def __init__(self, pending=0, running=0):
+        self._pending = pending
+        self._running = running
+
+    def get_tasks_by_status(self, status):
+        if status == "pending":
+            return list(range(self._pending))
+        if status == "running":
+            return list(range(self._running))
+        return []
+
+
+class _RaisingStateStore:
+    def get_tasks_by_status(self, status):
+        raise RuntimeError("db unavailable")
+
+
+def test_get_resource_snapshot_composes_all_injected_signals():
+    meminfo = meminfo_bytes(mem_total_gib=11, mem_free_gib=2, mem_available_gib=6)
+    snap = rg.get_resource_snapshot(
+        meminfo=meminfo,
+        read_temp_fn=lambda: 42.5,
+        read_battery_fn=lambda: (77, True),
+        state_store=_FakeStateStore(pending=3, running=1),
+        cpu_percent=12.5,
+    )
+    assert snap.cpu_percent == 12.5
+    assert snap.ram_headroom_bytes == rg.compute_headroom_bytes(meminfo)
+    assert snap.ram_total_bytes == meminfo["MemTotal"]
+    assert snap.temperature_c == 42.5
+    assert snap.queue_pending == 3
+    assert snap.queue_running == 1
+    assert snap.battery_percent == 77
+    assert snap.battery_charging is True
+    assert snap.timestamp <= time.time()
+
+
+def test_get_resource_snapshot_thermal_failure_does_not_blank_other_signals():
+    meminfo = meminfo_bytes(mem_total_gib=11, mem_free_gib=2, mem_available_gib=6)
+
+    def raising_temp():
+        raise RuntimeError("no sensor")
+
+    snap = rg.get_resource_snapshot(
+        meminfo=meminfo,
+        read_temp_fn=raising_temp,
+        read_battery_fn=lambda: (50, False),
+        state_store=_FakeStateStore(pending=1, running=0),
+        cpu_percent=5.0,
+    )
+    assert snap.temperature_c is None
+    assert snap.battery_percent == 50
+    assert snap.queue_pending == 1
+
+
+def test_get_resource_snapshot_battery_failure_does_not_blank_other_signals():
+    meminfo = meminfo_bytes(mem_total_gib=11, mem_free_gib=2, mem_available_gib=6)
+
+    def raising_battery():
+        raise RuntimeError("termux-battery-status unavailable")
+
+    snap = rg.get_resource_snapshot(
+        meminfo=meminfo,
+        read_temp_fn=lambda: 30.0,
+        read_battery_fn=raising_battery,
+        state_store=_FakeStateStore(pending=0, running=0),
+        cpu_percent=5.0,
+    )
+    assert snap.battery_percent is None
+    assert snap.battery_charging is False
+    assert snap.temperature_c == 30.0
+
+
+def test_get_resource_snapshot_queue_read_failure_does_not_blank_other_signals():
+    meminfo = meminfo_bytes(mem_total_gib=11, mem_free_gib=2, mem_available_gib=6)
+    snap = rg.get_resource_snapshot(
+        meminfo=meminfo,
+        read_temp_fn=lambda: 30.0,
+        read_battery_fn=lambda: (99, False),
+        state_store=_RaisingStateStore(),
+        cpu_percent=5.0,
+    )
+    assert snap.queue_pending == 0
+    assert snap.queue_running == 0
+    assert snap.temperature_c == 30.0
+    assert snap.battery_percent == 99

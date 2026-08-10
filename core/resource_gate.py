@@ -240,6 +240,285 @@ def read_current_temp_c() -> Optional[float]:
         return None
 
 
+# ── Signal source 3: rolling system-wide CPU% ────────────────────────────────
+# Track 3 Phase 5a / 7.4 sub-task A. Reuses core/sysmon.py's own /proc/stat
+# delta math (same fields, same formula) rather than reinventing it, but as
+# a ROLLING sampler fed by the daemon's existing 30s watchdog tick
+# (core/daemon.py's `_main_loop()`), not a one-shot cold-read helper: 7.4
+# sub-task D (later, out of scope here) needs CPU *history* for a 20-minute
+# sustained-threshold tripwire check, so this module keeps enough history
+# now for D to consume without redesigning the sampler.
+#
+# core/sysmon.py's own SystemMonitor is NOT used as the sampling engine
+# here — confirmed by reading every call site (core/daemon.py never imports
+# core.sysmon at all; only main.py's TUI, core/recursive.py, and the CCOS
+# thermal_monitor plugin do, each starting/using their own instance) that
+# its background thread has never been started by the daemon (matching
+# 7.4's own scoping note that it historically was dead code from the
+# daemon's perspective). Starting a new persistent thread inside the daemon
+# process to fix that would be a process-lifecycle change requiring a
+# mandatory code-reviewer pass under CLAUDE.md rule 4; calling a plain
+# function directly from the watchdog tick that already exists (and already
+# runs every 30s) avoids that question entirely, so that's what this does.
+#
+# Module-level (not a class instance) to match this module's existing
+# process-global posture (residency state store, KNOWN_MODEL_ARCHS, etc.) —
+# there is exactly one daemon process per device, and /status (a separate,
+# short-lived CLI process) never shares this history with it (see
+# `get_current_cpu_percent()`'s cold-start fallback for that case).
+
+_cpu_prev_idle: int = 0
+_cpu_prev_total: int = 0
+_cpu_seeded: bool = False
+_cpu_history: List[Tuple[float, float]] = []
+
+# How long a sample stays in _cpu_history before being pruned. 30 minutes
+# comfortably covers 7.4 sub-task D's stated 20-minute sustained-CPU
+# tripwire window with margin, without keeping this list growing forever
+# (60 samples/hour at the daemon's 30s tick rate).
+CPU_HISTORY_MAX_AGE_SEC = 30 * 60
+
+
+def _read_proc_stat_cpu_line(path: str = "/proc/stat") -> Tuple[int, int]:
+    """
+    Read the aggregate `cpu` line of `/proc/stat` and return (idle, total)
+    tick counts — the same two fields core/sysmon.py's `_read_cpu_proc()`
+    computes deltas from. Kept as its own function (mockable via `path`)
+    for the same reason `read_meminfo()` takes a `path` argument.
+    """
+    with open(path, "r") as f:
+        fields = list(map(int, f.readline().split()[1:]))
+    idle = fields[3] + (fields[4] if len(fields) > 4 else 0)
+    total = sum(fields)
+    return idle, total
+
+
+def sample_cpu_percent(path: str = "/proc/stat") -> Optional[float]:
+    """
+    Take one rolling CPU% sample and append it to `_cpu_history`, returning
+    the sampled value, or None if unmeasurable (unreadable `/proc/stat`, or
+    this is the very first call in the process — see below). Meant to be
+    called once per daemon watchdog tick (~30s apart) — at that interval the
+    delta is always large enough that core/sysmon.py's own "delta too small,
+    do a mini 250ms re-sample" correction isn't needed here (unlike sysmon's
+    2s-interval background thread, which does need it).
+
+    None (not 0.0) is returned both when the read itself fails AND on the
+    very first call in a process, which only seeds the previous-tick
+    idle/total counters (nothing to diff against yet) — no history entry is
+    recorded for either case. 0.0 would be wrong in the dangerous direction
+    here: it's indistinguishable from a genuinely idle reading, but actually
+    means "couldn't measure" — a caller (e.g. a future >90%-CPU shutdown
+    tripwire) must not read either case as "device is idle."
+    """
+    global _cpu_prev_idle, _cpu_prev_total, _cpu_seeded
+    try:
+        idle, total = _read_proc_stat_cpu_line(path)
+    except Exception as e:
+        warning(f"resource_gate: CPU sample read failed, treating as unavailable: {e}")
+        return None
+
+    if not _cpu_seeded:
+        _cpu_prev_idle, _cpu_prev_total = idle, total
+        _cpu_seeded = True
+        return None
+
+    d_idle = idle - _cpu_prev_idle
+    d_total = total - _cpu_prev_total
+    _cpu_prev_idle, _cpu_prev_total = idle, total
+
+    pct = 0.0 if d_total <= 0 else max(0.0, min(100.0, 100.0 * (1.0 - d_idle / d_total)))
+    _cpu_history.append((time.time(), pct))
+    cutoff = time.time() - CPU_HISTORY_MAX_AGE_SEC
+    _cpu_history[:] = [(t, p) for t, p in _cpu_history if t >= cutoff]
+    return pct
+
+
+def get_cpu_history(max_age_sec: Optional[float] = None) -> List[Tuple[float, float]]:
+    """
+    Return `(timestamp, cpu_percent)` samples recorded by `sample_cpu_percent()`,
+    most-recent last. Timestamps are kept (not just the values) so a future
+    consumer (7.4 sub-task D) can check that a run of high readings actually
+    *spans* its required duration, rather than just counting samples — a
+    freshly-started daemon with only one or two ticks under a high-CPU
+    reading must not look identical to a genuinely sustained condition.
+
+    `max_age_sec`, if given, filters to samples newer than `now - max_age_sec`
+    (in addition to the unconditional `CPU_HISTORY_MAX_AGE_SEC` pruning
+    `sample_cpu_percent()` already applies on every call).
+    """
+    if max_age_sec is None:
+        return list(_cpu_history)
+    cutoff = time.time() - max_age_sec
+    return [(t, p) for t, p in _cpu_history if t >= cutoff]
+
+
+def get_current_cpu_percent(cold_start_sample_sec: float = 0.25) -> Optional[float]:
+    """
+    Best available "current" CPU% reading: the most recent rolling-sampler
+    value if this process has already been ticking `sample_cpu_percent()`
+    (true for the daemon, which calls it every 30s watchdog tick), otherwise
+    a self-contained cold-start sample. Returns None if unmeasurable
+    (unreadable `/proc/stat`) — see `sample_cpu_percent()`'s docstring for
+    why None, not 0.0, is the correct "couldn't measure" sentinel here.
+
+    This distinction matters because `_cpu_history`/`_cpu_prev_*` are
+    process-global: a short-lived process that never called
+    `sample_cpu_percent()` before (e.g. the `--status` CLI command, which
+    runs in its own separate process from the daemon) would otherwise only
+    ever see an empty history or a meaningless first-call reading. The
+    cold-start path mirrors core/sysmon.py's own `_read_cpu_proc()`
+    "delta too small -> take a fresh mini-sleep sample" trick so a one-shot
+    caller still gets a real reading instead of a fabricated default.
+    """
+    history = get_cpu_history()
+    if history:
+        return history[-1][1]
+    try:
+        idle1, total1 = _read_proc_stat_cpu_line()
+        time.sleep(cold_start_sample_sec)
+        idle2, total2 = _read_proc_stat_cpu_line()
+    except Exception as e:
+        warning(f"resource_gate: cold-start CPU sample failed, treating as unavailable: {e}")
+        return None
+    d_idle = idle2 - idle1
+    d_total = total2 - total1
+    return 0.0 if d_total <= 0 else max(0.0, min(100.0, 100.0 * (1.0 - d_idle / d_total)))
+
+
+def reset_cpu_sampler() -> None:
+    """
+    Reset the rolling CPU sampler's process-global state (seed flag,
+    previous-tick counters, and history). Test-only convenience, same
+    precedent as `core/thermal.py`'s `reset_thermal()` /
+    `core/state.py`'s `reset_state_store()` — without this, ordered test
+    runs would leak sampler state (in particular, prior history entries and
+    the seeded previous-tick counters) between tests that otherwise use
+    disjoint fixtures.
+    """
+    global _cpu_prev_idle, _cpu_prev_total, _cpu_seeded
+    _cpu_prev_idle = 0
+    _cpu_prev_total = 0
+    _cpu_seeded = False
+    _cpu_history.clear()
+
+
+# ── Snapshot composer ────────────────────────────────────────────────────────
+# "Single resource-gate authority" (per this module's own module docstring
+# and WORK_QUEUE.md's Phase 1 framing): composes every live signal this
+# sub-task adds (rolling CPU%, RAM headroom, temperature, queue depth,
+# battery) into one object, here rather than duplicated into
+# core/observability.py. Not wired into any admission/gating decision by
+# this sub-task — that's 7.4 sub-task C's job; this is signal-sourcing only.
+
+
+@dataclass(frozen=True)
+class ResourceSnapshot:
+    cpu_percent: Optional[float]
+    ram_headroom_bytes: int
+    ram_total_bytes: int
+    temperature_c: Optional[float]
+    queue_pending: int
+    queue_running: int
+    battery_percent: Optional[int]
+    battery_charging: bool
+    timestamp: float
+
+
+def _default_read_battery_fn() -> Tuple[Optional[int], bool]:
+    """
+    Lazy-imports core.sysmon so importing core.resource_gate never pulls in
+    `rich` (core/sysmon.py's only import-time dependency beyond the
+    standard library) — matches this module's existing "import-safe, no
+    surprise dependencies" posture for `read_current_temp_c()`.
+    """
+    from core.sysmon import read_battery_status
+
+    return read_battery_status()
+
+
+def get_resource_snapshot(
+    meminfo: Optional[Dict[str, int]] = None,
+    read_temp_fn=None,
+    read_battery_fn=None,
+    state_store=None,
+    cpu_percent: Optional[float] = None,
+) -> ResourceSnapshot:
+    """
+    Compose the current CPU%, RAM headroom, temperature, queue depth, and
+    battery state into one `ResourceSnapshot`.
+
+    Every signal is independently injectable/overridable so tests never
+    need to depend on this device's real live state (matching this module's
+    existing test convention — see tests/test_resource_gate.py's module
+    docstring): `meminfo` a synthetic dict, `read_temp_fn`/`read_battery_fn`
+    stub callables, `state_store` a fake object exposing
+    `get_tasks_by_status(status) -> list`, `cpu_percent` a fixed float (or
+    None, matching `get_current_cpu_percent()`'s own "unmeasurable" case —
+    see its docstring for why None, not 0.0, is used).
+
+    `read_battery_fn` defaults to `core.sysmon.read_battery_status()`, whose
+    fallback path (confirmed live on this device — the
+    `/sys/class/power_supply/battery/` sysfs path is permission-denied
+    under Termux without root) shells out to `termux-battery-status` with a
+    2s timeout. That's fine for this sub-task's own use (a one-shot
+    `--status` CLI read), but a future caller invoking this composer from a
+    hot, frequently-ticking loop (e.g. 7.4 sub-task C's per-task-dispatch
+    check, which runs far more often than this module's own 30s CPU tick)
+    should pass a `read_battery_fn` that reads a value cached/refreshed on
+    a slower cadence instead of taking the default here directly — this
+    function does not itself add any such caching.
+
+    Each signal's read is independently wrapped so one failing signal
+    (e.g. no thermal zone on a non-Android host, a corrupt state DB) can't
+    blank out the others — same best-effort posture as this module's
+    existing `can_admit()`/`reserve_slot()` thermal-read handling.
+    """
+    if meminfo is None:
+        meminfo = read_meminfo()
+    if read_temp_fn is None:
+        read_temp_fn = read_current_temp_c
+    if read_battery_fn is None:
+        read_battery_fn = _default_read_battery_fn
+    if state_store is None:
+        from core.state import get_state_store
+
+        state_store = get_state_store()
+    if cpu_percent is None:
+        cpu_percent = get_current_cpu_percent()
+
+    try:
+        temperature_c = read_temp_fn()
+    except Exception as e:
+        warning(f"resource_gate: snapshot thermal read failed, treating as unavailable: {e}")
+        temperature_c = None
+
+    try:
+        battery_percent, battery_charging = read_battery_fn()
+    except Exception as e:
+        warning(f"resource_gate: snapshot battery read failed, treating as unavailable: {e}")
+        battery_percent, battery_charging = None, False
+
+    try:
+        queue_pending = len(state_store.get_tasks_by_status("pending"))
+        queue_running = len(state_store.get_tasks_by_status("running"))
+    except Exception as e:
+        warning(f"resource_gate: snapshot queue-depth read failed, treating as unavailable: {e}")
+        queue_pending, queue_running = 0, 0
+
+    return ResourceSnapshot(
+        cpu_percent=cpu_percent,
+        ram_headroom_bytes=compute_headroom_bytes(meminfo),
+        ram_total_bytes=meminfo.get("MemTotal", 0),
+        temperature_c=temperature_c,
+        queue_pending=queue_pending,
+        queue_running=queue_running,
+        battery_percent=battery_percent,
+        battery_charging=battery_charging,
+        timestamp=time.time(),
+    )
+
+
 # ── Model cost estimation ────────────────────────────────────────────────────
 # NEW-21 (NEW_ISSUES.md): a run with baseline 4.3Gi used / 2.2Gi free saw
 # swap climb 1.2Gi -> 5.6Gi in ~10s from a single primary-model load, before

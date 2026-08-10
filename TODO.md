@@ -517,8 +517,21 @@ both would mean coding against an interface that doesn't exist yet.
       `daemon_shutdown` becomes an autonomous thermal/CPU tripwire,
       `command` becomes queue-only, daemon never runs while TUI/GUI is
       active, queue consumption gated on the same live headroom check.
-      `core/observability.py`'s wrap folds in here. Currently 100%
-      decisions-on-paper, zero implementation.
+      `core/observability.py`'s wrap folds in here. **Scoping pass
+      complete, 2026-08-09** — see WQ Track 3 item 2 for the full
+      5-sub-task build order (A: resource snapshot + `/status` wiring,
+      no daemon behavior change; B: TUI/GUI interactive-session signal,
+      GUI half pending an open question to Ish; C: gate queue dispatch +
+      move planning off the socket handler, mandatory code-reviewer +
+      live-verifier; D: autonomous shutdown tripwire + retire the unused
+      socket-triggerable shutdown path; E: `daemon_control` plugin/
+      manifest update) and two doc corrections (`daemon_shutdown` lives
+      in `core/daemon.py`, not the plugin; no shipped script calls the
+      socket `shutdown` handler today). Sub-task A (resource snapshot +
+      `/status` wiring) is code-complete, pending code-reviewer approval —
+      not live-verified (no process-lifecycle risk needing
+      live-verification per the original scoping, but not yet reviewed/
+      committed either). Sub-tasks B-E not started.
 - [ ] 7.3 (WQ Track 3 item 3, "Phase 5b") — Task classifier + tier
       config, coding domain only: non-LLM heuristic classifier;
       `(domain, role, tier) → model` config; reconcile with (don't

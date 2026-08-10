@@ -36,6 +36,9 @@ def parse_args():
     parser.add_argument("--threads", type=int)
     parser.add_argument("--ctx", type=int)
     parser.add_argument("--version", action="store_true")
+    parser.add_argument(
+        "--status", action="store_true", help="Print current daemon/agent status and exit"
+    )
     parser.add_argument("--chat", action="store_true")
     parser.add_argument("--read", nargs="+", metavar="FILE")
     parser.add_argument("--init", action="store_true", help="Generate CODEY.md")
@@ -1650,6 +1653,31 @@ def main():
     if args.version:
         print(f"Codey-OS v{CODEY_VERSION}")
         sys.exit(0)
+
+    if args.status:
+        # PENDING_ISH_DECISIONS.md item 4: core/observability.py's status()
+        # was complete but never wired to a CLI command. Display-only —
+        # reads existing state (SQLite task queue, loader's in-memory
+        # "is a model loaded" flag, etc.) and prints it; does not load a
+        # model or change any daemon state.
+        #
+        # Also surfaces core/resource_gate.py's snapshot composer (Track 3
+        # Phase 5a / 7.4 sub-task A) under its own "resources" key, next to
+        # observability's figures — that's the live, system-wide CPU/RAM
+        # counterpart to observability's own per-process cpu/memory numbers
+        # (see NEW-107), and the only way to observe the rolling CPU
+        # sampler's cold-start path without babysitting the daemon for 60+
+        # seconds.
+        import dataclasses
+        import json
+
+        from core.observability import status as _observability_status
+        from core.resource_gate import get_resource_snapshot
+
+        payload = _observability_status()
+        payload["resources"] = dataclasses.asdict(get_resource_snapshot())
+        print(json.dumps(payload, indent=2, default=str))
+        return
 
     apply_overrides(args)
 

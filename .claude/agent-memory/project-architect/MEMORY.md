@@ -17,3 +17,4 @@
 - [NEW-56 recursive hypothesis refuted](project_new56_recursive_hypothesis_refuted.md) — step==1/max_depth gates rule out recursive.py as mechanism; NEW-57/58/59 logged; check reachability gates before scoping against a handed-down hypothesis
 - [NEW-30 workspace-boundary correction](project_new30_workspace_boundary_correction.md) — both live passes invalidated, scratch files sat outside WORKSPACE_ROOT; NEW-60 opened; ALWAYS verify fixture paths resolve inside workspace before trusting a live pass
 - [Round 22 (NEW-7) scoping](project_round22_new7_scoping.md) — decided pre-registered repro re-run (taxonomy+2 fixtures) BEFORE prompt iteration; n=6 too thin to verify a fix; desk only, not yet run
+- [4.1 daemon-control-redesign scoping](project_round_daemon_control_4_1_scoping.md) — 5-sub-task order (A-E) written to WORK_QUEUE.md/TODO.md 2026-08-09; sub-task A ready; GUI mutual-exclusion signal open question to Ish; NEW-106/107 logged

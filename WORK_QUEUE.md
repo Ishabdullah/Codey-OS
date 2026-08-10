@@ -772,9 +772,158 @@ resource-awareness work twice.
        thermal/CPU tripwire, `command` becomes queue-only, daemon never
        runs while TUI/GUI is active, queue consumption gated on the same
        live headroom check 5a builds. `core/observability.py`'s wrap
-       (item 4) folds in here. **Status: currently 100% decisions-on-paper,
-       zero implementation** (confirmed by inspecting the live
-       `daemon_control/manifest.json` — still pre-decision shape).
+       (item 4) folds in here. **Status (updated 2026-08-09): sub-task A
+       (resource snapshot + `/status` wiring, see build order below) is
+       code-complete, pending code-reviewer approval — not live-verified.
+       Sub-tasks B-E remain 100% decisions-on-paper, zero implementation**
+       (confirmed by inspecting the live `daemon_control/manifest.json` —
+       still pre-decision shape for everything sub-task A doesn't cover).
+
+       **Scoping pass complete, 2026-08-09 (project-architect, desk-only,
+       no code changed).** Two premises in the original decision text
+       don't match the live code and are corrected here:
+       - `daemon_shutdown` is **not** in
+         `ccos/plugins/system/daemon_control/` — it's `core/daemon.py:1148`
+         (calling the socket `"shutdown"` cmd, handled by
+         `DaemonServer._handle_shutdown` at `core/daemon.py:347-352`). The
+         plugin (`daemon_control.py`) explicitly does **not** wrap it
+         today — the plugin's own docstring already documents this
+         correctly, pending exactly this decision.
+       - Nothing in the shipped scripts calls the socket `shutdown`
+         handler. `codeydOS stop` → `stop_daemon()` uses `kill -TERM
+         $PID` (tracked PID) against the daemon's existing
+         `_handle_sigterm`, not `send_command("shutdown")`. So retiring
+         the socket path as a directly-triggerable action (sub-task D)
+         breaks no current operational flow.
+
+       `_handle_command` (`core/daemon.py:180-260`) already enqueues and
+       returns immediately (`state.add_task`/`planner.add_tasks`) — it is
+       *not* today's "direct run now" problem. The real "queue-only"
+       violation is one line up: it runs the 1.5B planner
+       (`send_plan_request_async`, up to a 180s `asyncio.wait_for`)
+       **synchronously inside the socket handler**, at enqueue time,
+       completely outside any resource gate. "Callers enqueue; the
+       daemon pulls on its own schedule" means moving planning to the
+       pull side (sub-task C), not building a new queue engine — the
+       existing SQLite task queue (`core/state.py`'s `add_task`/
+       `get_next_pending`/`cancel_task`, consumed by
+       `Daemon._process_planner_tasks`) already is a plain FIFO
+       add/delete-only queue, matching the decision's stated semantics
+       as-is.
+
+       No existing signal distinguishes "TUI/GUI process is up" from
+       "a user is actually interacting" — the GUI's own `clients: Set[
+       web.WebSocketResponse]` (`gui/server.py:122`) already tracks real
+       connected browser sessions and is the correct signal to key
+       mutual exclusion off; the GUI server *process* being alive
+       (`codey-stop`'s `gui-server.pid`) is not, and using it would
+       silently make the daemon do zero background work for the entire
+       life of a `codey-start` session regardless of whether anyone is
+       looking at the page. See `NEW-106`/`NEW-107`: `core/observability.py`'s
+       `temperature`/`cpu_usage`/`memory_usage` properties are
+       per-process/wrong-signal and must not be used as this round's
+       thermal/CPU/RAM source — real signals already exist in
+       `core/thermal.py`, `core/resource_gate.py`, and `core/sysmon.py`
+       (whose `/proc/stat`-delta CPU sampler is never started by the
+       daemon today).
+
+       **Sub-task build order** (mirrors 7.4's 5-sub-task pattern,
+       safest/no-daemon-behavior-change first; B–E all touch
+       process-lifecycle-adjacent code and require code-reviewer
+       approval per CLAUDE.md rule 4):
+       1. **Sub-task A — resource snapshot + `/status` wiring (no daemon
+          behavior change).** Add a rolling system-wide CPU% sampler
+          (reuse `core/sysmon.py`'s `/proc/stat`-delta approach; a single
+          rolling sampler updated on the existing 30s watchdog tick,
+          not a duplicate cold-read helper, since sub-task D's 20-minute
+          sustained-CPU tripwire needs the same history) plus real
+          RAM headroom (`core/resource_gate.py`'s
+          `read_meminfo`/`compute_headroom_bytes`) and real temperature
+          (`thermal.get_current_temp_c()`), composed with existing
+          queue-depth (`state.get_tasks_by_status`) into one snapshot.
+          Confirm which battery source actually reads on-device
+          (`core/sysmon.py:_read_battery()`'s two paths:
+          `/sys/class/power_supply/battery/` first, `termux-battery-status`
+          subprocess fallback — the fallback is a `termux-api` runtime
+          dependency; if it's the one actually exercised, `install.sh`
+          needs it per CLAUDE.md rule 11). Wire `core/observability.py`'s
+          existing (but currently unwired) `status()` to a `/status` CLI
+          handler in `main.py` (`PENDING_ISH_DECISIONS.md` item 4) —
+          display-only, no daemon behavior change. No model load, no
+          kill/PID/lock logic — the one sub-task of this round that
+          plausibly doesn't require a mandatory code-reviewer pass under
+          rule 4's own wording, though a lighter review is still
+          expected per the normal pipeline.
+       2. **Sub-task B — interactive-session signal (TUI confirmed in
+          scope; GUI scope depends on one open question).** A
+          PID-bearing, self-healing lock file for the TUI
+          (`main.py`'s interactive session), written on start and
+          removed on clean exit, stale-checked with `os.kill(pid, 0)` —
+          same shape as `core/daemon.py:86-118`'s `check_pid_file()`,
+          reused as the direct reference rather than inventing a new
+          pattern. A bare flag file with no liveness check would leave
+          the daemon permanently blocked after any TUI crash — same
+          failure class this project has hit before with PID files.
+          For the GUI: `gui/server.py`'s `clients` set already tracks
+          real connected sessions; before implementing, confirm with
+          Ish (or flag as a separate decision) whether the GUI half
+          ships in this sub-task (server exposes a small "any clients
+          connected" signal the daemon can read cross-process — e.g. a
+          count written alongside the existing `gui-server.pid`) or is
+          deferred — do not substitute GUI-process-alive as a stand-in
+          for this signal.
+       3. **Sub-task C — gate queue dispatch on A+B, move planning to the
+          pull side.** `Daemon._process_planner_tasks()`
+          (`core/daemon.py:981-1054`) checks a new predicate — belongs
+          next to `can_admit()` in `core/resource_gate.py`, not
+          duplicated into `observability.py`, per WORK_QUEUE's own
+          "single resource-gate authority" framing — composing sub-task
+          A's live RAM/CPU/temp/battery snapshot and sub-task B's
+          interactive-lock check before claiming/dispatching a task.
+          Also moves `_handle_command`'s synchronous `send_plan_request_async`
+          call off the socket handler and onto the pull side, so
+          planning inference itself becomes gated too, not just
+          execution. This is the sub-task with the actual behavior
+          change (daemon may now sit idle on a non-empty queue) —
+          mandatory code-reviewer AND live-verifier.
+       4. **Sub-task D — `daemon_shutdown` autonomous tripwire; retire
+          the socket-triggerable path.** Watchdog-tick check (reusing
+          sub-task A's rolling CPU sampler and `thermal.get_current_temp_c()`)
+          for ~20 min sustained severe-thermal + >90% CPU
+          (config-driven thresholds, `THERMAL_CONFIG`-style — not
+          hardcoded, or this sub-task can never be live-verified and
+          sits at code-complete indefinitely per rule 7); on trip, calls
+          the daemon's existing internal `_trigger_shutdown()` path only
+          (`core/daemon.py:709-714`) — **never** a raw `sys.exit()`/
+          `os._exit()`/self-signal, because `_main_loop()`'s `finally:`
+          block is what actually calls `get_loader().unload()`
+          (`core/daemon.py:950-964`) to stop the detached
+          (`os.setsid`'d) `llama-server` process; bypassing it would
+          orphan a real model process holding real RAM while its gate
+          slot gets reaped as dead, which is worse than today's leaked-slot
+          cases. Live-verification for this sub-task must confirm `ps
+          aux | grep llama-server` is clean after a tripwire fire, not
+          just that the daemon process exited. Since no current script
+          calls the socket `shutdown` handler (see correction above),
+          retiring it as an externally-triggerable action is safe to do
+          in the same sub-task — one reviewer pass over the whole
+          shutdown surface (autonomous trip + retired external trigger)
+          rather than two.
+       5. **Sub-task E — `daemon_control` plugin/manifest update.** Low
+          risk, docs-adjacent: `manifest.json` and `daemon_control.py`'s
+          docstring both still describe the pre-decision reasoning
+          ("deliberately does NOT expose... pending Ish's explicit
+          decision") — update to the post-decision reality once B–D
+          land (enqueue/cancel wrapped as today, `/status` from sub-task
+          A exposed, `daemon_shutdown` documented as autonomous-only and
+          deliberately never wrapped as a callable capability, not
+          "pending a decision" that's now made).
+
+       Findings logged this scoping pass, not part of this round's
+       fix scope: `NEW-106` (`observability.State.temperature` returns
+       the LLM sampling temperature, not device heat), `NEW-107`
+       (`observability.State.cpu_usage`/`memory_usage` are per-process,
+       not system-wide).
 3. [ ] **Phase 5b — Task classifier + tier config**, coding domain only.
        Reconcile with (don't duplicate) `core/orchestrator.py:is_complex()`
        and the daemon's separate `planner_client`/`planner_v2`/

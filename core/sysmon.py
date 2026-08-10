@@ -266,6 +266,21 @@ class SystemMonitor:
         return None, False
 
 
+def read_battery_status() -> Tuple[Optional[int], bool]:
+    """
+    Public accessor for live battery percentage/charging state, added
+    (Track 3 Phase 5a / 7.4 sub-task A) so `core/resource_gate.py`'s
+    snapshot composer has a battery signal to compose without needing a
+    running `SystemMonitor` background thread — same "thin public wrapper
+    around an existing private read" pattern as
+    `core/thermal.py`'s `ThermalManager.get_current_temp_c()` around its
+    own private `_read_cpu_temp()`. `SystemMonitor._read_battery()` doesn't
+    use any instance state, so calling it via `get_monitor()` here neither
+    starts nor depends on that singleton's background thread.
+    """
+    return get_monitor()._read_battery()
+
+
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 

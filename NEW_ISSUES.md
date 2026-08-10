@@ -5753,3 +5753,176 @@ finding for the same bug. See `NEW-39`.)*
   `MemAvailable` delta, since RSS is a direct per-process measurement
   that isn't confounded by other processes' concurrent page-cache
   activity the way a system-wide `MemAvailable` reading is.
+
+### [NEW-106] `core/observability.py`'s `State.temperature` property returns the LLM sampling temperature (`MODEL_CONFIG["temperature"]`, default 0.2), not device CPU/SoC temperature — a naming collision that will silently produce a wildly wrong thermal reading for any caller that expects "observability's temperature" to mean device heat
+
+- **Status: Confirmed** by direct code read, `core/observability.py:114-117`:
+  `@property def temperature(self) -> float: """Get current temperature
+  (from model config)."""; return MODEL_CONFIG.get("temperature", 0.2)`.
+  Found while scoping TODO.md 4.1 (daemon control redesign /
+  `PENDING_ISH_DECISIONS.md` item 2), which folds in item 4
+  (`core/observability.py`'s wrap) specifically because the new
+  resource-gating logic needs real CPU/mem/temp/queue-depth
+  introspection — this property returns 0.2 regardless of actual
+  device state, which would silently defeat any thermal gate built on
+  top of it without a caller happening to notice the value never
+  changes.
+- **Not fixed** — out of this scoping pass's scope (read-only
+  investigation, no code changes made). The real device-temperature
+  accessors already exist and are correctly named:
+  `core/thermal.py`'s `get_current_temp_c()` /
+  `ThermalManager.get_current_temp_c()` (built in 7.4 sub-task 1) and
+  `core/resource_gate.py`'s `read_current_temp_c()`. 4.1's
+  implementation must source thermal state from one of those, never
+  from `observability.State.temperature` — flagged explicitly in the
+  4.1 sub-task A handoff below so this isn't rediscovered mid-build.
+
+### [NEW-107] `core/observability.py`'s `State.cpu_usage` and `State.memory_usage` report this process's own per-process figures (`psutil.Process(os.getpid())` / `/proc/<pid>/status` `VmRSS`), not system-wide CPU% or RAM headroom — same "sounds like a system reading, isn't one" shape as `NEW-106`, on the two other signals 4.1's resource gating needs
+
+- **Status: Confirmed** by direct code read, `core/observability.py:147-155`
+  (`cpu_usage`, via `self._process.cpu_percent()`) and `:124-145`
+  (`memory_usage`, via `self._process.memory_info()`/`/proc/<pid>/status`
+  fallback) — both scoped to `os.getpid()`, i.e. whatever process
+  imports `observability` (the daemon, a CLI invocation, a test), never
+  the whole device. TODO.md's 7.4 entry already flagged this exact
+  pattern for observability's memory figure specifically ("per-process
+  RSS, not system headroom") when sourcing 7.4's own gate signals;
+  this generalizes the same finding to `cpu_usage` and confirms it's
+  still true as of this round.
+- **Not fixed** — out of this scoping pass's scope. Real system-wide
+  signals already exist and should be reused rather than duplicated:
+  `core/resource_gate.py`'s `read_meminfo()`/`compute_headroom_bytes()`
+  for RAM, and `core/sysmon.py`'s `SystemMonitor` (`/proc/stat`-delta
+  CPU%, already used by the TUI) for system-wide CPU — `sysmon`'s
+  sampler thread is never started by the daemon today, which is itself
+  part of 4.1 sub-task A's scope (a rolling sampler, not a cold
+  instantaneous read, since `/proc/stat` CPU% requires two samples over
+  time).
+
+## Found during Track 3 Phase 5a / 7.4 sub-task A (rolling CPU sampler + resource snapshot + `/status` wiring), 2026-08-09 — NOT fixed, logged only
+
+### [NEW-108] `/proc/stat` (and `/proc/uptime`, `/proc/loadavg`) are `Permission denied` for a non-root Termux process on this specific device/Android build — `core/sysmon.py`'s pre-existing `_read_cpu_proc()` (and now `core/resource_gate.py`'s new rolling CPU sampler, built to the same `/proc/stat`-delta approach per this sub-task's own spec) silently return `0.0` for CPU% unconditionally, with no way to get a real reading unless `psutil` is installed (it currently is not)
+
+- **Status: Confirmed** by direct on-device reproduction, independent of
+  any code from this sub-task:
+  ```
+  $ cat /proc/stat
+  cat: /proc/stat: Permission denied
+  $ cat /proc/uptime
+  cat: /proc/uptime: Permission denied
+  $ cat /proc/loadavg
+  cat: /proc/loadavg: Permission denied
+  $ python3 -c "from core.sysmon import SystemMonitor; m = SystemMonitor(); print(m._read_cpu_proc())"
+  0.0
+  $ python3 -c "import psutil"
+  ModuleNotFoundError: No module named 'psutil'
+  ```
+  `core/resource_gate.py`'s new `sample_cpu_percent()`/`get_current_cpu_percent()`
+  hit the identical `PermissionError` from the identical `open("/proc/stat")`
+  call (this sub-task's spec explicitly required reusing `core/sysmon.py`'s
+  existing `/proc/stat`-delta approach rather than inventing a different
+  one). **Correction (code-review, 2026-08-09):** this entry originally
+  claimed the two functions "correctly log-and-degrade to `0.0` rather than
+  raising or silently returning a wrong non-zero value" — that overclaimed;
+  `0.0` is itself a wrong value in this situation, indistinguishable from a
+  genuinely idle reading when it actually means "couldn't measure," which
+  is the dangerous direction for a signal later consumed by dispatch gating
+  (sub-task C) and a >90%-CPU shutdown tripwire (sub-task D). This has now
+  been fixed in the same round: `sample_cpu_percent()`/
+  `get_current_cpu_percent()`/`ResourceSnapshot.cpu_percent` all return/type
+  `Optional[float]`, returning `None` (not `0.0`) whenever the read fails or
+  is otherwise unmeasurable — matching the existing `Optional[...]`/`None`
+  pattern this same snapshot already used for `temperature_c`/
+  `battery_percent`. Confirmed live via `python main.py --status`, which
+  printed
+  `⚠  resource_gate: cold-start CPU sample failed, treating as unavailable: [Errno 13] Permission denied: '/proc/stat'`
+  and now `"resources": {"cpu_percent": null, ...}`.
+- **Impact:** on this device, system-wide CPU% is not obtainable via the
+  `/proc/stat` approach at all — not a bug introduced by this round, but a
+  pre-existing limitation of `core/sysmon.py`'s CPU-reading strategy that
+  this round's rolling sampler (built to the same approach, per its own
+  spec) necessarily inherits. `core/resource_gate.py`'s CPU% signal will
+  read `None` on this device today regardless of actual load (previously
+  read a misleading `0.0`, now fixed per the correction above); the RAM,
+  temperature, queue-depth, and battery signals in the same snapshot are
+  unaffected and read real values (confirmed in the same `--status` run:
+  `ram_headroom_bytes`, `temperature_c: 37.0`, `battery_percent: 74` all
+  populated). 7.4 sub-task D's planned 20-minute sustained->90%-CPU
+  tripwire (Track 3 Phase 5a) cannot fire on this device as specified
+  until the underlying `/proc/stat` permission restriction is resolved —
+  its CPU leg would never see a real reading to trip on (it will now
+  correctly see `None`/"unmeasurable" rather than a misleading `0.0`,
+  which at least prevents it from misreading "unmeasurable" as "idle").
+- **Not fixed** (the underlying `/proc/stat` permission restriction) — out
+  of this sub-task's scope (signal-sourcing/wiring only, no new
+  CPU-reading strategy). Two directions worth considering
+  when this is picked up: (1) install `psutil` (`pip install psutil`) and
+  confirm whether it can obtain CPU% on this device through a different
+  syscall path than a direct `/proc/stat` open (untested this round —
+  `psutil` is not currently installed, and adding it wasn't in this
+  sub-task's scope); (2) if `psutil` hits the same restriction, some other
+  Android-specific CPU-load signal (e.g. `dumpsys cpuinfo` via
+  `termux-api`/`sh -c`, similar in shape to the `termux-battery-status`
+  fallback this same sub-task's battery signal already depends on) would
+  need to be evaluated as a replacement/supplement to the `/proc/stat`
+  approach specifically for this class of device.
+
+### [NEW-109] `main.py --status` (this sub-task's new CLI wire-up) surfaces two pre-existing `core/observability.py` bugs to a user-facing command for the first time: `daemon.pid` is `null` while `daemon.uptime_seconds` simultaneously reports a large non-zero value, and `memory.usage`/`health.memory_usage` report the *CLI process's own* RSS, not the daemon's
+
+- **Status: Confirmed** by direct live output, `python main.py --status`
+  run with no daemon running:
+  ```
+  "daemon": {
+    "pid": null,
+    "uptime_seconds": 3713
+  },
+  ...
+  "memory": {
+    "usage": { "rss_mb": 38.9, "vms_mb": 0 },
+    ...
+  }
+  ```
+  Root cause (by code read): `State.daemon_pid` (`core/observability.py`)
+  returns `self._process.pid` only when `HAS_PSUTIL` is true; `psutil` is
+  not installed on this device (see NEW-108), so `self._process` is
+  `None`, the attribute access raises `AttributeError`, and the broad
+  `except (ImportError, AttributeError, TypeError, ValueError)` swallows
+  it back to `None` — silently, with no indication anywhere in the output
+  that this is "psutil absent" rather than "no daemon running".
+  Meanwhile `State.uptime` reads `daemon_started_at` directly from the
+  SQLite state store, which is stale from a previous daemon run and never
+  cleared, so it keeps reporting an old uptime figure indefinitely after
+  that daemon has exited. `State.memory_usage`/`State.cpu_usage` are the
+  same per-process (`os.getpid()`) figures NEW-107 already flagged —
+  this finding just notes that wiring `status()` to a real CLI command
+  (this sub-task's own change) is what makes that pre-existing confusion
+  reachable by a user for the first time, not something introduced by
+  this round's `get_resource_snapshot()` addition (which reports true
+  system-wide figures alongside it, under a separate `"resources"` key,
+  specifically to give a correct point of comparison).
+- **Not fixed** — out of this sub-task's scope (`--status` was required
+  to be display-only, wiring an existing `status()` method, not a bug-fix
+  pass over `core/observability.py`'s own logic). Flagging per CLAUDE.md
+  rule 8.
+
+### [NEW-110] `tests/test_new19_patch_failed_repeat_escalation.py` calls real, unmocked `git status`/`git diff` against the live repo and hits a genuine interactive `confirm()` prompt whenever the working tree has any uncommitted changes — 3 spurious failures/hangs under pytest's captured stdin, unrelated to whatever change actually dirtied the tree
+
+- **Status: Confirmed** by code-reviewer during Phase 4.1 sub-task A's
+  review, via bisection: the full test suite is green on a clean working
+  tree, and the same 3 tests in
+  `tests/test_new19_patch_failed_repeat_escalation.py` start
+  failing/hanging as soon as ANY file (not specific to sub-task A's own
+  changes) is modified and left uncommitted — the tests are exercising
+  real `git status`/`git diff` output against whatever the actual repo
+  state happens to be, and that code path includes an interactive
+  `confirm()` call that pytest's captured stdin can't answer, so it hangs
+  rather than failing cleanly.
+- **Impact:** any task's working tree being dirty at test-run time
+  (normal mid-task state — uncommitted changes are the expected condition
+  right up until a commit) produces 3 spurious failures in this file that
+  have nothing to do with the actual change under test, and can look like
+  a real regression to whoever is running the suite.
+- **Not fixed** — out of scope for Phase 4.1 sub-task A (a pre-existing
+  test-design flaw: this file should mock `git status`/`git diff`
+  and the `confirm()` call rather than depending on live repo/tree state
+  at all). Flagging per CLAUDE.md rule 8.
