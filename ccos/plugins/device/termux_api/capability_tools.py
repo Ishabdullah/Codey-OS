@@ -1,6 +1,7 @@
 """CCOS capability entry points for the Termux API tool registry."""
 
 from .termux_api import get_termux_api
+from . import extended_api
 
 
 def device_battery(**kwargs): return get_termux_api().execute("device.battery", **kwargs)
@@ -44,3 +45,24 @@ def network_open_url(**kwargs): return get_termux_api().execute("network.open_ur
 def hardware_ir_transmit(**kwargs): return get_termux_api().execute("hardware.ir_transmit", **kwargs)
 def speech_to_text(**kwargs): return get_termux_api().execute("speech.to_text", **kwargs)
 def device_notification_list(**kwargs): return get_termux_api().execute("device.notification_list", **kwargs)
+
+# Additional official Termux:API surfaces.
+audio_info = extended_api.audio_info
+call_log = extended_api.call_log
+fingerprint = extended_api.fingerprint
+infrared_frequencies = extended_api.infrared_frequencies
+keystore = extended_api.keystore
+media_player = extended_api.media_player
+media_scan = extended_api.media_scan
+nfc = extended_api.nfc
+toast = extended_api.toast
+saf_dirs = extended_api.saf_dirs
+saf_managedir = extended_api.saf_managedir
+saf_ls = extended_api.saf_ls
+saf_mkdir = extended_api.saf_mkdir
+saf_create = extended_api.saf_create
+saf_read = extended_api.saf_read
+saf_write = extended_api.saf_write
+saf_rm = extended_api.saf_rm
+saf_stat = extended_api.saf_stat
+notification_channel = extended_api.notification_channel
