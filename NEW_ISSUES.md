@@ -6923,6 +6923,20 @@ finding for the same bug. See `NEW-39`.)*
 
 ### [NEW-135] `compute_swap_assisted_headroom_bytes()` has no `reserved_bytes`-style deduction — two concurrently-pending swap-assisted admissions can each independently claim the same 768MiB `MAX_SWAP_ASSIST_BYTES` cap against the same live `SwapFree` figure
 
+- **Status update, 2026-08-11 (same session as TODO.md 7.4a sub-item F) —
+  still Confirmed, blast radius widens with the F recalibration.** This
+  finding's worst-case double-count was bounded by whatever
+  `MAX_SWAP_ASSIST_BYTES` is at the time — today (768MiB) that's a ≤768MiB
+  overlap; if `can_admit()`'s cap is raised to 10GiB per 7.4a-F, the same
+  structural gap allows a ≤10GiB overlap between two racing PENDING
+  admissions. `can_dispatch_task()`'s side of this is unaffected by F (its
+  own `DISPATCH_MAX_SWAP_ASSIST_BYTES` stays at 768MiB per F's explicit
+  dispatch/admission split), but `can_admit()`'s side is not — this is not
+  a new bug introduced by F, but F meaningfully changes how much this
+  existing gap can actually cost if it fires. Not fixed as part of F
+  (same reasoning as this entry's own "not a same-day fix" note below);
+  flagged so whoever eventually revisits `reserve_slot()`'s concurrency
+  handling has the current real number, not the stale 768MiB one.
 - **Status: Confirmed** — verified directly against `core/resource_gate.py`.
   `compute_headroom_bytes(meminfo, reserved_bytes=0)` accepts a
   `reserved_bytes` parameter specifically so a second concurrent admission
@@ -6987,3 +7001,243 @@ finding for the same bug. See `NEW-39`.)*
   are the natural homes), and have `reserve_slot()` pass its own
   `GateDecision.admitted_via_swap` result through to `register_slot()`/
   `mark_resident()` at the point it already has that decision in hand.
+
+### [NEW-137] Sub-task E live pass: real production `n_ctx=32768` never actually reaches the swap-assisted admission branch at any live headroom observed this session — `MAX_SWAP_ASSIST_BYTES=768MiB` is too small to close the observed deficit at the shipped default
+
+- **Status update, 2026-08-11 (same day, later session) — Confirmed,
+  superseded by TODO.md 7.4a sub-item F (recalibration), pending live
+  verification, NOT resolved.** Ish increased this device's real swap
+  capacity to ~16.0GiB (`SwapTotal`, confirmed via
+  `/sys/block/zram0/disksize`=17,179,869,184 bytes) and directly decided
+  to raise `MAX_SWAP_ASSIST_BYTES` close to the formula's live-computed
+  ceiling (~10.69GiB this session) rather than just patch this finding's
+  gap. Project-architect scoped a recommended new value,
+  `MAX_SWAP_ASSIST_BYTES = 10GiB` for `can_admit()` (see TODO.md 7.4a-F
+  for the full derivation) — by arithmetic, this should make the real
+  `n_ctx=32768` case reachable at essentially any live `MemAvailable`
+  this device currently shows (`headroom_bytes + min(10GiB,
+  gated_swap_free) >= required_bytes` holds even at `headroom_bytes=0`,
+  since `gated_swap_free`≈10.69GiB already exceeds the 10GiB cap and
+  `required`≈8143MiB is well under 10GiB). **This is arithmetic, not a
+  live observation — this finding stays Confirmed/open until a fresh
+  live-verification pass actually re-runs sub-task E's procedure at
+  `n_ctx=32768` with the new cap in place and reports a real
+  `admitted=True, admitted_via_swap=True` result, not an assumed one.**
+  Not implemented yet as of this note — `core/resource_gate.py` still
+  reads `MAX_SWAP_ASSIST_BYTES=768MiB` on disk; the recalibration is
+  scoping only pending implementer + code-reviewer + live-verifier per
+  TODO.md 7.4a-F's explicit follow-up plan.
+- **Status: Confirmed**, live-measured 2026-08-11. At the real, unmodified
+  production default (`n_ctx=32768`, `CODEY_N_CTX` unset), a live dry-run
+  of `can_admit()` against the real primary `ModelSpec` and live
+  `/proc/meminfo` on this device (`MemAvailable` ranging ~6.6-6.8GiB
+  across several samples this session) computed `required≈8143MiB` vs.
+  `headroom≈6761-6787MiB` (deficit ≈1356-1382MiB). Swap-assist can only
+  ever contribute `MAX_SWAP_ASSIST_BYTES=768MiB` at most (`combined
+  headroom≈7517-7555MiB`), which is still short of `required` by
+  ~600-650MiB — `can_admit()` returns `admitted=False,
+  admitted_via_swap=False` at 32768 in every live sample taken this
+  session, i.e. the swap-assist path is reached (correctly, since
+  `required > headroom` on RAM alone) but never actually flips the
+  outcome at this device's currently-observed memory conditions.
+  Verbatim: `GateDecision(admitted=False, hard_reject=False, reason="model
+  'primary' cost estimate (6514MiB) x headroom_factor (1.25) = 8143MiB,
+  which exceeds current headroom (6761MiB)", estimated_cost_bytes=
+  6830557184, headroom_bytes=7089922048, device_ceiling_bytes=6973870080,
+  budget_ceiling_exceeded=False, admitted_via_swap=False)`.
+- **What this means for sub-task E's mandate:** the live pass could not
+  exercise swap-assisted admission at the real 32768 default without
+  either (a) waiting for a more favorable natural memory state that never
+  occurred during this session's observation window, or (b) an env-var
+  deviation. `CODEY_N_CTX=16384` was used instead (explicitly permitted by
+  this pass's own instructions as a config-override lever) — confirmed via
+  live dry-run to land in the swap-admitted band
+  (`admitted=True, admitted_via_swap=True`, `required=7023MiB` vs.
+  `headroom≈6378-6521MiB`, `combined_headroom≈7146-7289MiB`) and used for
+  the actual spawn. **This means sub-task E's live pass validates the
+  swap-assisted-admission *mechanism* end-to-end (real gate, real spawn,
+  real inference, real teardown) but NOT the production `n_ctx=32768`
+  case specifically** — that combination was not reachable this session.
+  See TODO.md 7.4a sub-task E's own write-up for the full run.
+- **Fix direction, if picked up later:** either accept `MAX_SWAP_ASSIST_BYTES=768MiB`
+  as deliberately conservative (it only ever closes gaps up to ~750MiB,
+  which this session's data suggests is smaller than the typical deficit
+  at 32768 on this device under normal load), or revisit the constant with
+  this session's real deficit figures in hand (Ish's call, not assumed
+  here — this is exactly the kind of calibration TODO.md's own C2 write-up
+  said sub-task E's live pass should inform). Not fixed here — this entry
+  is the calibration data point, not a proposed new value.
+
+### [NEW-138] (RE-REVISED after a second advisor review, same session — see history below) Live-observed llama-server RSS (~6.58-6.96GiB at `n_ctx=16384`, once tracking began) exceeds the gate's own declared cost estimate (5.6GiB); the file/anon RSS split is UNMEASURED, not quantifiable from this run's data
+
+- **Status: Confirmed** for the raw RSS-vs-declared-cost gap; **the
+  anon/file split figure in an earlier draft of this entry was withdrawn
+  — do not use it.** This entry has now been corrected twice in the same
+  session (rule 6): first for a unit-conversion error (kB vs GiB), then
+  for an unsupported subtraction assuming full weight-file residency.
+  Both corrections are recorded here rather than silently overwritten.
+- **The measured facts**: `cost = estimate_model_load_cost(spec)` at
+  `n_ctx=16384` returned `model_bytes=4683073536` (4.36GiB),
+  `kv_cache_bytes=939524096` (0.94GiB), `overhead_bytes=268435456`
+  (0.27GiB) → total 5891033088 bytes (5.6GiB). The spawned
+  `llama-server` process (PID 513, launched with `--mmap`, confirmed via
+  this run's own driver output: `mmap=enabled, mlock=disabled`) reported
+  `VmRSS=7300956 kB` at first sample (correctly converted: 7,300,956 KiB
+  × 1024 = 7,476,178,944 bytes ≈ **6.96GiB**, NOT the ~7.13GiB an earlier
+  draft of this entry stated from a bad kB→GiB conversion), settling to
+  a **~6.58-6.96GiB** range for the rest of the observed window (see
+  TODO.md 7.4a sub-task E's own corrected step 6 for the full sample
+  list and the separate finding that RSS sampling itself only began
+  ~22s into the load, missing the earliest and riskiest part of the
+  window).
+- **Why the file/anon split cannot be quantified from this run**: an
+  earlier draft of this entry subtracted the full 4.36GiB `model_bytes`
+  (weight file size) from peak RSS to estimate an anon-memory residual —
+  this assumes the entire weight file was resident, which this run's own
+  data contradicts. Baseline `/proc/meminfo` `Cached: 5662696 kB`
+  (5.40GiB); `free -h` during/after the load showed `buff/cache` at only
+  ~2.8-3.0GiB — **below the 4.36GiB weight-file size**, meaning at most
+  ~2.8-3.0GiB of the mmap'd file (and every other cached file on the
+  system, further reducing the true figure) was actually resident, not
+  the full 4.36GiB. This implies the true anonymous-memory share of RSS
+  is LARGER than a naive "peak minus model_bytes" subtraction would
+  suggest, not smaller — but this run's monitor sampled only aggregate
+  `VmRSS` (via `/proc/<pid>/status`'s `VmRSS:` line), not the
+  `RssAnon`/`RssFile`/`RssShmem` breakdown the same file also exposes,
+  and the process is gone — **this cannot be reconstructed after the
+  fact for this run.** The correct, honest statement is: **a real RSS
+  gap above the gate's declared cost exists and is measured; how much of
+  it is anonymous (unreclaimable, budget-relevant) vs. file-backed
+  (reclaimable) is NOT measured and remains open.**
+- **Candidate cause, not verified**: `--embedding --pooling mean` present
+  on this run's actual launch command line (visible in the live `ps aux`
+  capture) — an internal embedding-batch allocation not represented at
+  all in `estimate_model_load_cost()`'s three-term model.
+- **Fix direction, if picked up later**: a future harness sampling
+  `/proc/<pid>/status`'s `RssAnon`/`RssFile`/`RssShmem` lines (not just
+  `VmRSS`) during a load would directly answer the anon/file split this
+  run could not. Separately, `NEW-138`'s underlying harness gap (PID only
+  available after `load_primary()` returns, so RSS tracking necessarily
+  starts late) is worth fixing for any future live pass that wants full
+  load-window coverage — `LlamaServer.start()`'s own log line
+  (`llama-server PID: N`) prints before health-check completes and could
+  be scraped earlier, or the harness could poll for the child process by
+  other means.
+- **Where found:** sub-task E's live monitor and its two-pass advisor
+  review, same session, 2026-08-11.
+
+### [NEW-139] `--mmap` on the spawned `llama-server` process means quantized-weight zram-compression ratio is structurally unmeasurable via this project's current live-test harness — the question `can_admit()`'s own docstring poses about weight-page compression remains open, not answered by sub-task E's live pass
+
+- **Status: Confirmed**, discovered on advisor review of sub-task E's live
+  pass (2026-08-11), before the pass's first-draft write-up (which
+  incorrectly claimed the ~3.6:1 zram ratio observed during the run
+  "carries over to quantized 7B model weight pages") shipped — corrected
+  in place per CLAUDE.md rule 6, this entry records the underlying
+  structural finding separately so it isn't lost inside E's own
+  corrected write-up.
+- **The finding**: `core/loader_v2.py`'s `LlamaServer` launches
+  `llama-server` with `--mmap` (confirmed live this session:
+  `7B model: mmap=enabled, mlock=disabled`, both this run's driver
+  output and the live `ps aux` command-line capture). Under `--mmap`,
+  GGUF weight pages are file-backed mappings — clean pages reclaimed
+  directly back to the model file on disk under memory pressure, never
+  written to swap/zram (this is standard Linux VM behavior for
+  file-backed vs. anonymous pages, not something specific to this
+  codebase). This means **the entire model-weight-compression question
+  `compute_swap_assisted_headroom_bytes()`'s own docstring and TODO.md
+  7.4a's scoping text raised — "quantized weight pages may compress far
+  less favorably than the ~4:1 idle-anon-page ratio" — cannot be
+  answered by observing zram `mm_stat` during a normal `--mmap` load at
+  all**, regardless of how careful the sampling is. Any zram delta
+  observed during such a load is necessarily some other anonymous
+  memory (other processes, or the server's own non-weight allocations)
+  being swapped under the pressure the load creates, not weight pages.
+- **Where found:** cross-referencing this run's own driver output/`ps
+  aux` capture (`--mmap` flag) against `core/resource_gate.py`'s
+  docstring language about the open compression-ratio question, during
+  advisor review of sub-task E's first-draft results.
+- **Fix direction, if picked up later:** answering the original question
+  would need a launch configuration where weight pages are anonymous —
+  not `--mlock` alone (mlock just pins file-backed pages resident, it
+  doesn't make them anonymous/swap-eligible), but genuinely disabling
+  the mmap load path if `llama-server`/`llama.cpp` exposes one, or
+  accepting the question as effectively moot for this project's actual
+  shipped configuration (if `--mmap` is permanently how this project
+  loads models, quantized weight pages structurally never reach zram
+  under normal operation, making the original compression-ratio concern
+  inapplicable to this codebase's real behavior rather than merely
+  unmeasured). Ish's call on which framing to adopt — not decided here.
+
+### [NEW-140] TODO.md 7.4a sub-task F's 10GiB `MAX_SWAP_ASSIST_BYTES` recalibration makes the exact historical `NEW-21` SINGLE-MODEL swap-distress device state admissible again via swap-assist at the real production `can_admit()` call shape — not previously flagged, only the concurrent 3-model consequence was
+
+- **Status: Confirmed** — found during code-reviewer's mandatory pass on
+  sub-task F (CLAUDE.md rule 4), independently re-derived, not just taken
+  from the implementer's own disclosure (which correctly flagged it in
+  `tests/test_resource_gate.py`'s `test_new21_production_call_shape_
+  swap_assist_may_now_admit`, but had no tool to log it here itself —
+  logging it is this review's job per rule 8).
+- **The finding**: at the exact `NEW-21` fixture shape (`SwapTotal=8.0GiB`,
+  `SwapFree=6.8GiB`, `MemTotal=10.8GiB`, `MemFree=2.2GiB`, primary 7B at
+  the real production `n_ctx=32768` default) and `reserve_slot()`'s real
+  call shape (`enable_swap_assist` left unset, resolving to the
+  default-ON path), `can_admit()` now ADMITS via swap-assist at 3 of the
+  4 `MemAvailable` points in `NEW-21`'s own plausible range
+  (3.5/5.0/6.5GiB), and only denies at the 2.2GiB floor (`MemAvailable
+  == MemFree`, i.e. no reclaimable cache at all). Independently
+  re-verified live against the real `can_admit()`/`_new21_meminfo()`/
+  `_new21_primary_spec()` code (not just trusting the test's own
+  assertions):
+  ```
+  2.2 admitted=False via_swap=False cost=6830557184 headroom=2362232012
+      reason: cost 8143MiB exceeds current headroom (2253MiB)
+  3.5 admitted=True  via_swap=True  cost=6830557184 headroom=3758096384
+      reason: 8143MiB exceeds RAM-only headroom (3584MiB), but covered by
+      RAM + swap-assisted headroom (8909MiB, of which 5325MiB is
+      swap-assisted) — admitted via swap assist
+  5.0 admitted=True  via_swap=True  ... swap-assisted headroom 10445MiB,
+      5325MiB swap-assisted
+  6.5 admitted=True  via_swap=True  ... swap-assisted headroom 11981MiB,
+      5325MiB swap-assisted
+  ```
+  The 5325MiB swap contribution at every admitted point matches the
+  fixture's own `gated_swap_free = SwapFree - 2*slmk_floor = 6.8 -
+  2*0.8 = 5.2GiB` term (the `min(10GiB, 5.2GiB)` operand binding, not the
+  10GiB cap itself) — confirms this isn't an artifact of the new 10GiB
+  ceiling alone, but of the combination of the raised ceiling with a
+  `SwapFree`/`SwapTotal` ratio this device's real swap increase now
+  produces routinely.
+- **Why this is a genuine gap in TODO.md 7.4a sub-task F's own
+  follow-up live-verification plan, not just a restatement of an
+  already-flagged risk**: sub-task F's write-up (TODO.md, "Concurrent-
+  admission consequence" paragraph) explicitly worked through and
+  flagged the analogous consequence for a SECOND, concurrently-admitted
+  model (primary already resident, planner reserving next) reaching
+  `NEW-14`/`NEW-21`-shaped conditions, and its "Required follow-up" item
+  3(b) mandates a fresh live-verification pass specifically covering
+  that concurrent case at `n_ctx=32768`. It does NOT separately call out
+  that the SAME `NEW-21` device state is now also admissible for a
+  SINGLE model load with nothing else resident — item 3(a)'s
+  "single primary-model load" case, as written, does not specify testing
+  it under low-swap-headroom conditions; a live-verifier following that
+  item literally could satisfy it entirely under a healthy `MemAvailable`
+  state (as sub-task E's own 16384 run happened to be) and never actually
+  exercise the low-headroom branch this finding identifies, even though
+  it is a single-model scenario within scope of item 3(a)'s own stated
+  purpose.
+- **Required addition to the live-verification plan** (not fixed here —
+  this is a finding, not a redesign; TODO.md 7.4a-F's own instruction
+  was "do not change either ceiling" as part of this pass): item 3(a)'s
+  "single primary-model load ... at the REAL production `n_ctx=32768`
+  default" case must explicitly include a run where the device's live
+  `SwapFree`/`MemAvailable` are LOW at the moment of the load — not just
+  a healthy-state confirmation that the mechanism works, the way sub-task
+  E's 16384 run was. If this device's real live state doesn't naturally
+  present a low-swap-headroom moment during that pass (as was already
+  true for sub-task E's 32768 attempt, per `NEW-137`), the live-verifier
+  must say so explicitly and not silently substitute a healthy-state run
+  as if it covered the same case — same honesty standard `NEW-137`/
+  `NEW-138` already held themselves to.
+- **Where found:** code-reviewer's mandatory sub-task F review,
+  2026-08-11, cross-checking `test_new21_production_call_shape_swap_
+  assist_may_now_admit` (`tests/test_resource_gate.py`) against a live
+  Python re-run of the same fixture through the real `can_admit()`.

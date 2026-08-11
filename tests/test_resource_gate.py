@@ -343,10 +343,18 @@ def _new21_meminfo(mem_available_gib):
 
 
 @pytest.mark.parametrize("mem_available_gib", [2.2, 3.5, 5.0, 6.5])
-def test_new21_regression_rejects_load(mem_available_gib):
+def test_new21_regression_rejects_load_on_ram_margin_alone(mem_available_gib):
+    # RAM-margin invariant NEW-21 actually pinned (cost * margin > RAM-only
+    # headroom across the full plausible MemAvailable range) — unaffected by
+    # TODO.md 7.4a sub-task F's swap-cap recalibration below, verified here
+    # with `enable_swap_assist=False` so this stays a pure regression test
+    # of REQUIRED_HEADROOM_FACTOR, not entangled with the separate swap-
+    # assist mechanism (see test_new21_production_call_shape_swap_assist_may_
+    # now_admit below for that mechanism's own, now-different, effect on
+    # this exact fixture at the real production call shape).
     spec = _new21_primary_spec()
     mi = _new21_meminfo(mem_available_gib)
-    decision = rg.can_admit(spec, meminfo=mi, read_temp_fn=NO_THERMAL)
+    decision = rg.can_admit(spec, meminfo=mi, read_temp_fn=NO_THERMAL, enable_swap_assist=False)
     assert decision.admitted is False
     # Rejected via the live budget check (cost * margin > headroom), not the
     # absolute per-model ceiling — a 7B model is NOT too big for this device
@@ -358,13 +366,47 @@ def test_new21_regression_rejects_load(mem_available_gib):
     assert decision.estimated_cost_bytes * rg.REQUIRED_HEADROOM_FACTOR > decision.headroom_bytes
 
 
+# TODO.md 7.4a sub-task F (2026-08-11 recalibration) consequence, verified
+# directly against this exact NEW-21 fixture, NOT assumed: reserve_slot()'s
+# real, production can_admit() call shape leaves `enable_swap_assist` unset,
+# resolving to the default-ON swap-assist path (sub-task C2). At this
+# fixture's swap terms (SwapTotal=8.0GiB, SwapFree=6.8GiB -> slmk_floor =
+# 0.8GiB, gated_swap_free = 6.8 - 2*0.8 = 5.2GiB), the raised 10GiB
+# MAX_SWAP_ASSIST_BYTES cap (min(10GiB, 5.2GiB) = 5.2GiB swap contribution)
+# now covers the RAM deficit at 3 of the 4 MemAvailable points in NEW-21's
+# own plausible range (3.5/5.0/6.5GiB) — only the 2.2GiB floor (MemAvailable
+# == MemFree, no reclaimable cache at all) still denies outright: its
+# ~5.9GiB deficit (8143MiB required - 2253MiB RAM headroom) exceeds even the
+# 5.2GiB gated swap contribution. This is the single-model instance of the
+# same "a device state that previously caused real swap distress is now
+# admissible" consequence TODO.md 7.4a sub-task F's own write-up already
+# flagged for the concurrent 3-model case — NOT previously flagged there for
+# the single-model NEW-21 state itself. Logged to NEW_ISSUES.md per rule 8;
+# not fixed here (out of scope — see TODO.md 7.4a sub-task F's explicit "do
+# not change either ceiling" instruction).
+@pytest.mark.parametrize(
+    "mem_available_gib,expect_admitted,expect_via_swap",
+    [(2.2, False, False), (3.5, True, True), (5.0, True, True), (6.5, True, True)],
+)
+def test_new21_production_call_shape_swap_assist_may_now_admit(
+    mem_available_gib, expect_admitted, expect_via_swap
+):
+    spec = _new21_primary_spec()
+    mi = _new21_meminfo(mem_available_gib)
+    decision = rg.can_admit(spec, meminfo=mi, read_temp_fn=NO_THERMAL)
+    assert decision.admitted is expect_admitted
+    assert decision.admitted_via_swap is expect_via_swap
+    assert decision.hard_reject is False
+    assert decision.budget_ceiling_exceeded is False
+
+
 def test_new21_naive_check_without_margin_would_have_admitted():
     """
     Pins the actual bug NEW-21 exposed, at the upper-bound (most favorable)
     endpoint of the plausible MemAvailable range above (6.5GiB): a
     "cost <= headroom" check with NO conservative margin (headroom_factor=1.0)
     would have approved this load. Deliberately only tested at this one
-    endpoint (unlike test_new21_regression_rejects_load's full range) — at
+    endpoint (unlike the RAM-margin regression's full range above) — at
     the lower end of the range (2.2-5.0GiB) the raw cost estimate alone
     already exceeds headroom with no margin needed, so headroom_factor's
     effect isn't observable there; 6.5GiB is the only point where the
@@ -379,10 +421,24 @@ def test_new21_naive_check_without_margin_would_have_admitted():
         "fixture no longer demonstrates the NEW-21 naive-check failure mode — "
         "adjust the 6.5GiB endpoint so cost < MemAvailable (no margin) still holds"
     )
-    # ...yet the real gate, with its default conservative margin, correctly
-    # rejects the same load:
+    # ...at the real production call shape (enable_swap_assist left unset),
+    # the gate's default conservative margin still correctly rejects this
+    # load on RAM alone — but, as of TODO.md 7.4a sub-task F's 2026-08-11
+    # recalibration, the same call now admits it anyway via the raised
+    # 10GiB MAX_SWAP_ASSIST_BYTES cap (see
+    # test_new21_production_call_shape_swap_assist_may_now_admit above for
+    # the full derivation on this exact fixture) — no longer a bare denial.
     real = rg.can_admit(spec, meminfo=mi, read_temp_fn=NO_THERMAL)
-    assert real.admitted is False
+    assert real.admitted is True
+    assert real.admitted_via_swap is True
+    # ...while the RAM-only path (swap-assist explicitly off) still denies,
+    # confirming REQUIRED_HEADROOM_FACTOR's own effect is intact and it is
+    # specifically the swap-assist mechanism, not a weakened margin, that
+    # changed this outcome:
+    real_ram_only = rg.can_admit(
+        spec, meminfo=mi, read_temp_fn=NO_THERMAL, enable_swap_assist=False
+    )
+    assert real_ram_only.admitted is False
 
 
 def test_new21_reserved_bytes_from_other_slot_also_rejects():
@@ -2096,7 +2152,17 @@ def test_reserve_slot_admits_when_committed_sum_stays_under_ceiling(tmp_path):
 
 
 def test_max_swap_assist_bytes_value():
-    assert rg.MAX_SWAP_ASSIST_BYTES == 805_306_368
+    # TODO.md 7.4a sub-task F (2026-08-11 recalibration): can_admit()'s own
+    # cap was raised to 10GiB; see DISPATCH_MAX_SWAP_ASSIST_BYTES below for
+    # the deliberately-unchanged, decoupled can_dispatch_task() cap.
+    assert rg.MAX_SWAP_ASSIST_BYTES == 10_737_418_240
+
+
+def test_dispatch_max_swap_assist_bytes_value():
+    # TODO.md 7.4a sub-task F: can_dispatch_task()'s own cap stays at the
+    # original 768MiB value, deliberately decoupled from the can_admit()-
+    # only 10GiB raise above.
+    assert rg.DISPATCH_MAX_SWAP_ASSIST_BYTES == 805_306_368
 
 
 # Realistic fixture for the exact-byte boundary tests below: SwapTotal=12GiB,
@@ -2117,8 +2183,10 @@ def test_swap_assist_admits_when_ram_alone_would_deny():
     # NEW-21-shaped fixture (real numbers, not the isolated-arithmetic
     # fixture above): baseline 2.2GiB MemAvailable, ~10.8GiB SwapFree.
     # required=2.5GiB > headroom=2.2GiB (RAM alone denies), but
-    # combined = 2.2GiB + 768MiB (the default MAX_SWAP_ASSIST_BYTES cap,
-    # gated SwapFree of 8.4GiB comfortably covers it) = 2.95GiB >= 2.5GiB.
+    # combined = 2.2GiB + min(10GiB, 8.4GiB gated SwapFree) (the default
+    # MAX_SWAP_ASSIST_BYTES cap as of TODO.md 7.4a sub-task F's 2026-08-11
+    # recalibration; the 8.4GiB gated SwapFree term binds here, not the
+    # 10GiB cap itself) = 10.6GiB >= 2.5GiB.
     spec = rg.ModelSpec(model_id="x", size_bytes=2 * GIB, n_ctx=1024, compute_overhead_bytes=0)
     mi = meminfo_bytes(
         mem_total_gib=10.8, mem_free_gib=2.2, mem_available_gib=2.2,
@@ -2482,7 +2550,9 @@ def _swap_snapshot(
 
 def test_can_dispatch_task_swap_assist_admits_when_ram_alone_would_refuse():
     # RAM headroom just under the 1GiB floor; generous SwapFree comfortably
-    # covers the gap via the default MAX_SWAP_ASSIST_BYTES cap.
+    # covers the gap via the default DISPATCH_MAX_SWAP_ASSIST_BYTES cap
+    # (768MiB — can_dispatch_task()'s own, decoupled from can_admit()'s
+    # MAX_SWAP_ASSIST_BYTES per TODO.md 7.4a sub-task F).
     snap = _swap_snapshot(ram_headroom_bytes=rg.DISPATCH_MIN_HEADROOM_BYTES - MIB)
     ram_only = rg.can_dispatch_task(snap, interactive_active=False, enable_swap_assist=False)
     assert ram_only.allowed is False
@@ -2496,8 +2566,9 @@ def test_can_dispatch_task_swap_assist_admits_when_ram_alone_would_refuse():
 
 def test_can_dispatch_task_swap_assist_capped_still_refuses_when_gap_too_large():
     # Proves swap-assist can't buy arbitrary headroom: RAM headroom 2GiB
-    # below the floor, but MAX_SWAP_ASSIST_BYTES (768MiB default) can't
-    # cover a gap that large even with enormous SwapFree available.
+    # below the floor, but DISPATCH_MAX_SWAP_ASSIST_BYTES (768MiB default,
+    # unchanged by TODO.md 7.4a sub-task F) can't cover a gap that large
+    # even with enormous SwapFree available.
     snap = _swap_snapshot(
         ram_headroom_bytes=rg.DISPATCH_MIN_HEADROOM_BYTES - 2 * GIB,
         swap_total_bytes=100 * GIB,
@@ -2527,7 +2598,7 @@ def test_can_dispatch_task_swap_assist_gated_near_slmk_floor_still_refuses():
         assert (
             rg.compute_swap_assisted_headroom_bytes(
                 {"SwapFree": snap.swap_free_bytes, "SwapTotal": snap.swap_total_bytes},
-                rg.MAX_SWAP_ASSIST_BYTES,
+                rg.DISPATCH_MAX_SWAP_ASSIST_BYTES,
             )
             == 0
         )

@@ -1175,6 +1175,270 @@ Everything else below depends on this existing. Nothing here is started.
            delegate it, same reasoning as this project's existing
            `LIVE_TEST_QUEUE.md` deferrals.
 
+      **E — RUN 2026-08-11, Ish's explicit direct authorization to
+      delegate to an agent rather than run himself (overriding item 8
+      above's default suggestion).** Real outcome, honest and complete —
+      **PARTIAL PASS**: swap-assisted admission mechanism validated
+      end-to-end (real gate → real spawn → real inference → real clean
+      teardown), but NOT at the real production `n_ctx=32768` default —
+      see `NEW-137` (logged, not silently noted). Full verbatim evidence:
+
+      **1. Pre-load baseline** (`free -h` + `mm_stat`, before anything):
+      ```
+                     total        used        free      shared  buff/cache   available
+      Mem:            10Gi       4.2Gi       1.0Gi        14Mi       5.6Gi       6.4Gi
+      Swap:           15Gi       1.6Gi        14Gi
+      mm_stat: 1702944768 432669351 451792896 0 1035563008 56138 70796 15783 51887
+      ```
+      `getprop ro.slmk.swap_free_low_percentage` = `10` (confirmed live,
+      matches TODO's documented constant). Live `SwapTotal` on this device
+      this session = 17,179,865,088 bytes (16.0GiB, not the ~12GiB figure
+      TODO.md's earlier text used as an example) → live slmk floor =
+      1,717,986,509 bytes (~1.6GiB), used as this run's actual abort floor
+      in place of the stale ~1.2GiB example figure.
+
+      **2. Confirmed no `llama-server`/`plannd` resident** before start —
+      `ps aux | grep llama-server` / `grep plannd` showed nothing but the
+      grep itself.
+
+      **3. `n_ctx=32768` dry-run of the real gate, before any spawn**
+      (no code modified — a synthetic-free, live `/proc/meminfo` call
+      against the real `ModelSpec`/`estimate_model_load_cost()`):
+      ```
+      GateDecision(admitted=False, hard_reject=False, reason="model
+      'primary' cost estimate (6514MiB) x headroom_factor (1.25) =
+      8143MiB, which exceeds current headroom (6761MiB)",
+      estimated_cost_bytes=6830557184, headroom_bytes=7089922048,
+      device_ceiling_bytes=6973870080, budget_ceiling_exceeded=False,
+      admitted_via_swap=False)
+      swap_headroom = 768.0 MiB; combined_headroom ≈ 7517.8 MiB;
+      required ≈ 8143 MiB → still refused even WITH swap-assist.
+      ```
+      **This device's live headroom this session never once put the real
+      32768 case inside the swap-admittable band** — deficit
+      (~1356-1382MiB across several samples) consistently exceeded
+      `MAX_SWAP_ASSIST_BYTES` (768MiB) by ~600-650MiB. Per this pass's own
+      instructions ("use your judgement... a specific `CODEY_N_CTX`" is an
+      explicitly permitted lever), `CODEY_N_CTX=16384` was used instead,
+      confirmed via the same live dry-run methodology to land inside the
+      swap-admitted band immediately before spawn:
+      ```
+      GateDecision(admitted=True, hard_reject=False, reason="model
+      'primary' cost estimate (5618MiB) x headroom_factor (1.25) =
+      7023MiB exceeds RAM-only headroom (6378MiB), but is covered by RAM
+      + swap-assisted headroom (7146MiB, of which 768MiB is
+      swap-assisted) — admitted via swap assist", estimated_cost_bytes=
+      5891033088, headroom_bytes=6687719424, device_ceiling_bytes=
+      6973870080, budget_ceiling_exceeded=False, admitted_via_swap=True)
+      ```
+      **This is a real, honest limitation of this run, logged as
+      `NEW-137`: the production `n_ctx=32768` default was not reachable
+      inside the swap-assisted admission band at any live memory state
+      observed this session** — the mechanism is validated at 16384, not
+      32768.
+
+      **4. Live spawn via the real `core/loader_v2.py` `ModelLoader.
+      load_primary()`** (not a mock — a dedicated harness script
+      instrumented the real module in-process, per this project's
+      existing daemon-only-harness precedent for reaching `can_admit()`
+      without full daemon mode), tracked PID captured immediately:
+      ```
+      Loading model: qwen2.5-coder-7b-instruct-q4_k_m.gguf
+      GATE_DECISION: admitted=True, admitted_via_swap=True (as above)
+      Starting llama-server...
+      llama-server PID: 513
+      llama-server started on port 8080
+      Loaded model (qwen2.5-coder-7b-instruct-q4_k_m.gguf)
+      LOAD_PRIMARY_RESULT: ok=True elapsed=11.21s
+      ```
+      **Load completed successfully in 11.21s wall-clock** — admitted via
+      swap, spawned, and passed its own `/health` check without stalling.
+
+      **5. `/proc/meminfo` + `/sys/block/zram0/mm_stat` sampled at 3s
+      cadence during the load** (full log in this session's scratchpad;
+      key trajectory, confirming `NEW-21`'s rate phenomenon reproduces
+      here too):
+      ```
+      t+0s   MemAvailable=6418MiB SwapFree=14776MiB
+      t+9s   MemAvailable=6390MiB SwapFree=14799MiB
+      t+12s  MemAvailable=7116MiB SwapFree=14923MiB   (brief pre-spawn spike)
+      t+15s  MemAvailable=5481MiB SwapFree=14456MiB
+      t+18s  MemAvailable=4426MiB SwapFree=13620MiB
+      t+21s  MemAvailable=3013MiB SwapFree=13628MiB
+      t+24s  MemAvailable=2880MiB SwapFree=13830MiB   rss=7129.8MiB (pid acquired)
+      t+30s  MemAvailable=2814MiB SwapFree=13909MiB   rss=7129.8MiB
+      t+36s  MemAvailable=2858MiB SwapFree=13922MiB   rss=7070.6MiB
+      t+42s  MemAvailable=2827MiB SwapFree=13937MiB   rss=7070.6MiB (steady state)
+      ```
+      `MemAvailable` fell ~6.4GiB→~2.7-2.9GiB over ~25-40s (a real,
+      substantial rate phenomenon, consistent with `NEW-21`'s ~10s-scale
+      finding), then plateaued — it did NOT continue collapsing toward
+      zero. `SwapFree` fell from ~14.8GiB to a ~13.6-13.9GiB range
+      (a real but modest ~900MiB-1.2GiB drop from the ~14.8GiB baseline),
+      **never approaching the ~1.6GiB live slmk abort floor** (stayed
+      >12GiB above it throughout).
+
+      **Correction, caught on this pass's own advisor review, before
+      first-draft overclaim shipped — the model-weight zram-compression
+      question this item posed (`can_admit()`'s own docstring, "quantized
+      model weight pages may compress far less favorably...unverified
+      until sub-task E's live pass") is STILL UNANSWERED, not resolved by
+      this run.** The spawn command line captured in this run's own
+      driver output reads `7B model: mmap=enabled, mlock=disabled` —
+      `--mmap` means the model's weight pages are file-backed (clean,
+      reclaimable directly back to the GGUF file on disk), not anonymous
+      memory, and file-backed pages under Linux are never written to
+      swap/zram regardless of memory pressure. The zram `mm_stat` delta
+      observed during this run (`orig_data_size` baseline 1,702,944,768 →
+      steady-state 2,483,011,584, a ~780MB rise; ratio moved from a
+      baseline ~3.94:1 to ~3.59:1, i.e. the same largely-pre-existing
+      anon pool slightly diluted, not a fresh weight-page population)
+      **cannot be model weight pages under this launch configuration** —
+      it is some other process's/subsystem's anonymous memory being
+      swapped under the pressure this load created, not evidence about
+      quantized-weight compression ratio one way or the other. Separately
+      corroborating this reading: `buff/cache` fell from 5.6GiB (baseline)
+      to ~3.0GiB (during/after load per the `free -h` samples below) —
+      a page-cache-reclaim signature (mmap'd file pages being dropped
+      from cache under pressure, then re-faulted from disk as needed),
+      not a swap-growth signature, and consistent with `SwapFree`'s
+      comparatively modest ~900MiB-1.2GiB movement against a ~7GiB RSS
+      process. **Measuring the actual model-weight-page compression
+      ratio this item's docstring asks about would require a launch
+      configuration where weight pages are anonymous (`--mlock` alone
+      does not achieve this — it pins file-backed pages resident, it
+      does not make them anonymous/swap-eligible; a genuinely non-mmap
+      load path, if `llama-server` exposes one, would be needed) — not
+      attempted this run, flagged for whichever future pass revisits
+      this question specifically, or for accepting the question as moot
+      given `--mmap` is this project's actual shipped configuration (see
+      `NEW-139`).** For completeness, the incremental zram ratio on just
+      the pages that entered zram during this run (delta
+      orig_data_size=780,066,816 / delta compr_data_size=258,305,272 ≈
+      **3.02:1**) is recorded here but is NOT load-bearing for the
+      weight-compression question — per the above, those pages are not
+      weight pages under `--mmap` regardless of their own ratio.
+
+      **6. Server RSS — tracked only from ~22-24s after spawn onward, a
+      real gap in this run's own coverage, corrected here.** The harness's
+      `get_pid()` (and therefore the monitor's ability to read
+      `/proc/<pid>/status`) is only reachable AFTER `ModelLoader.
+      load_primary()` returns — the monitor log shows `rss=NAMiB` for
+      every sample from t+0 through t+21s, with `pid acquired: 513` only
+      logged after that. **This means the RSS-collapse abort criterion
+      was structurally inoperative for the entire ~22s load window** —
+      exactly the window `NEW-21`'s original 1.2→5.6GiB-in-~10s
+      phenomenon occurred in. Only the `SwapFree`-floor trip was live
+      during that riskiest part of the run; this is a real limitation of
+      this run's safety envelope, not a clean "no collapse observed
+      throughout," and is stated honestly here rather than glossed over.
+      Once tracking began (first sample `VmRSS=7300956 kB`, correctly
+      converted: 7,300,956 KiB × 1024 = 7,476,178,944 bytes ≈ **6.96GiB**
+      — the original write-up's "7129.8MiB...~7.1-7.3GiB" language
+      mis-stated this as a GiB figure without the KiB→byte conversion;
+      corrected throughout this entry), RSS held in a **~6.58-6.96GiB
+      range** for the rest of the load+inference window (steady-state
+      low ~6733.7MiB/6.58GiB, high ~7129.8MiB/6.96GiB) — a single
+      observed value at first-contact, not an observed rise, since no
+      earlier sample exists to compare it against. This RSS range is
+      still clearly above the gate's own declared cost estimate for this
+      spec (5.6GiB total at n_ctx=16384) — see `NEW-138` for the
+      corrected, honestly-scoped write-up of that gap (the file/anon
+      split this session's data cannot actually support quantifying — do
+      not read the peak-minus-model_bytes subtraction from an earlier
+      draft of this entry as a real number; it was withdrawn, see
+      `NEW-138`). No RSS value observed (from the point tracking began)
+      dropped anywhere near the pre-declared 20%-of-model_bytes collapse
+      floor (~892MiB).
+
+      **7. Real inference request issued and timed** (`/health` returned
+      `{"status":"ok"}` first): a single chat-completion request (43
+      prompt tokens, `max_tokens=80`) returned HTTP 200 in **8.25s
+      wall-clock**, generating 52 completion tokens
+      (`predicted_per_second=8.27` per the server's own `timings` block;
+      `prompt_per_second=22.49`). **Compared against the one other
+      throughput figure in this project's live-test history**
+      (`PROJECT_LOG.md` round 18, 2026-08-09: 594 tokens in 60.9s ≈ 9.75
+      tok/s) — relabeled here, not called a "non-swapped baseline": that
+      round used `n_ctx=2048` (this run used `16384`, an 8x difference),
+      and that round's own log entry does not record a `free -h`/swap
+      state alongside the figure, so whether swap was involved that time
+      is genuinely unknown, not confirmed absent. **8.27 tok/s vs. 9.75
+      tok/s from a differently-configured prior run is weak evidence at
+      best** — reported as the only two data points this project has,
+      not as a controlled swapped-vs-non-swapped comparison. What this
+      run does support directly: **a real inference request against a
+      swap-admitted load completed in single-digit seconds and returned
+      a coherent, complete response — not a stall, not a timeout, not a
+      degraded/garbled output** (the actual question `NEW-21` left
+      unanswered).
+
+      **8. Pre-declared abort criterion: never fired.** `SwapFree` stayed
+      >12GiB above the live ~1.6GiB slmk floor throughout: no trip. RSS
+      never collapsed below the pre-declared 20%-of-`model_bytes`
+      (~892MiB) floor after crossing the 2GiB high-watermark: no trip.
+      Teardown was via the normal (non-abort) path: `loader.unload()` →
+      `LlamaServer.stop()`, called on the tracked `subprocess.Popen`
+      object captured at spawn time (process-group SIGTERM, not
+      `pkill -f` — CLAUDE.md rule 3 honored throughout).
+
+      **9. Post-teardown baseline** (`free -h` + `mm_stat`, after full
+      teardown):
+      ```
+                     total        used        free      shared  buff/cache   available
+      Mem:            10Gi       3.0Gi       4.9Gi        10Mi       2.9Gi       7.5Gi
+      Swap:           15Gi       2.2Gi        13Gi
+      mm_stat: 2402484224 659497933 716546048 0 1035563008 72102 86703 23324 89264
+      ```
+      `ps aux | grep llama-server` after teardown showed nothing but the
+      grep itself — full one-model-load-cycle-at-a-time discipline
+      honored (CLAUDE.md rule 2).
+
+      **Additional correction, also caught on advisor review before this
+      write-up shipped**: at the moment of spawn, `estimated_cost_bytes`
+      (5,891,033,088 = 5618MiB) was itself LESS than `headroom_bytes`
+      (6,687,719,424 = 6378MiB) — the model's raw declared cost fit
+      inside real RAM headroom on its own. Only `required` (cost ×
+      `REQUIRED_HEADROOM_FACTOR`=1.25 = 7023MiB) exceeded headroom. **This
+      means the swap-assist branch was triggered by the 25% safety
+      margin, not by the model physically failing to fit in available
+      RAM** — a materially different claim than "this device was out of
+      real RAM for this model and swap rescued it." What real, physical
+      memory pressure DID occur during the run (`MemAvailable` falling to
+      ~2.7-2.9GiB, `buff/cache` falling ~2.6GiB, total system `used`
+      rising to ~7.6-7.9GiB) came from the load actually running at its
+      real ~7.1GiB RSS footprint once spawned, not from the admission
+      decision itself being marginal.
+
+      **Honest bottom line, per CLAUDE.md rule 5/6 — not overclaimed:**
+      this run validates the swap-assisted-admission DECISION BRANCH
+      end-to-end at `n_ctx=16384` — real gate call, real spawn (11.21s),
+      real stable residency (no RSS collapse, `SwapFree` >12GiB above its
+      kill floor throughout), and a real inference request that completed
+      in 8.25s with a coherent response, not a stall or garbled output.
+      **It does NOT demonstrate a load that is physically dependent on
+      zram/swap to function** — the swap-assist branch fired because of
+      `REQUIRED_HEADROOM_FACTOR`'s margin, not a genuine RAM shortfall for
+      this spec, and this run's own launch configuration (`--mmap`)
+      structurally could not exercise the quantized-model-weight
+      zram-compression question this item's docstring originally posed
+      (weight pages are file-backed, not swap-eligible, under `--mmap`;
+      see step 5's correction above). **This does NOT confirm any of the
+      above at the real production `n_ctx=32768` default either** — this
+      device's live headroom never once put that specific case inside the
+      swap-admittable band this session (`NEW-137`); a future live pass at
+      a moment when `MemAvailable` sits within ~768MiB of `required` at
+      32768 would be needed to close that gap. Also newly logged:
+      `NEW-138` (revised — an unexplained ~1.56GiB anon-RSS gap after
+      accounting for the mmap'd weight file, with `--embedding
+      --pooling mean` flagged as an unverified candidate cause). **Sub-
+      task E is NOT marked fully "done"/"passed" as a blanket claim** —
+      the admission mechanism itself was exercised successfully end-to-end
+      at a reduced n_ctx, but neither the production n_ctx=32768 case nor
+      the original model-weight-compression question this item was meant
+      to answer were actually resolved by this run; both remain open for
+      a future pass.
+
       **Ish's decisions (2026-08-11, given directly in-session — resolves
       all three open questions below, verbatim, not paraphrased)**:
       1. **Default on or off: ON by default.** Swap-assisted admission
@@ -1302,6 +1566,269 @@ Everything else below depends on this existing. Nothing here is started.
       package or `pkg install` requirement) — if a sub-task turns out to
       need one, `install.sh` must be updated in that same task per rule
       11, not deferred.
+
+      **F — Recalibration of `MAX_SWAP_ASSIST_BYTES`, scoped by
+      project-architect 2026-08-11. Implemented and code-reviewer-approved
+      (one round, after a stale-status line in this entry was caught and
+      fixed — see below); uncommitted as of this writing, pending the
+      required live-verification pass (single-model 32768, concurrent
+      primary+planner 32768, and now also the `NEW-21`-shaped low-swap-
+      headroom single-model case per `NEW-140`) before this is trusted.**
+      New context
+      since B/C2 were written above (which derived 768MiB from an
+      un-calibrated first-pass posture): (1) Ish increased this device's
+      real swap capacity — `SwapTotal` is now ~16.0GiB zram (confirmed
+      `/sys/block/zram0/disksize` = 17,179,869,184 bytes), not the
+      ~12GiB the 768MiB derivation assumed. (2) Sub-task E's 2026-08-11
+      live pass (above) proved the swap-assisted mechanism genuinely
+      works end-to-end at `n_ctx=16384` (real admission, 11.21s spawn,
+      stable ~6.58-6.96GiB RSS, an 8.25s real inference request, `SwapFree`
+      staying >12GiB above the ~1.6GiB live slmk floor throughout). (3)
+      That same pass found the real production default, `n_ctx=32768`,
+      NOT reachable — `NEW-137` — because the deficit (~1356-1382MiB that
+      session) exceeded the 768MiB cap by ~600-650MiB.
+
+      **Ish's explicit direct decision, given 2026-08-11**: raise
+      `MAX_SWAP_ASSIST_BYTES` close to the formula's own live-computed
+      ceiling on this device, not just far enough to patch the one known
+      32768 gap (a more conservative ~2GiB alternative was offered and
+      explicitly declined) — he wants to use most of the real capacity
+      the swap increase provides.
+
+      **Live arithmetic this pass (fresher than the brief handed to this
+      task, which used a slightly earlier sample — re-verify at
+      implementation/live-verification time, this drifts sample to
+      sample):**
+      ```
+      /proc/meminfo:  SwapTotal=16,777,212 kB (17,179,865,088 B, ~16.00GiB)
+                      SwapFree =14,562,300 kB (14,911,795,200 B, ~13.89GiB)
+                      MemAvailable = 6,410,892 kB (6,564,753,408 B, ~6261MiB)
+      slmk_floor_bytes = SwapTotal * 0.10 = 1,717,986,508.8 B (~1.60GiB)
+      gated_swap_free  = SwapFree - 2.0 * slmk_floor_bytes
+                       = 14,911,795,200 - 3,435,973,017.6
+                       = 11,475,822,182.4 B  ≈ 10.69GiB  (the formula's own
+                         uncapped ceiling — compute_swap_assisted_headroom_
+                         bytes()'s `min(max_swap_usage_bytes, gated_swap_free)`
+                         term, right operand)
+      n_ctx=32768 deficit TODAY: required (6514MiB * 1.25 = 8143MiB) -
+        headroom (6261MiB) = ~1882MiB — worse than sub-task E's
+        1356-1382MiB sample, itself a real illustration of how much this
+        drifts sample to sample (~500-900MiB swing observed across two
+        reads in this task alone).
+      ```
+
+      **Recommendation: `MAX_SWAP_ASSIST_BYTES = 10 * 1024**3` =
+      10,737,418,240 bytes (10.00GiB)** — for `can_admit()` only (see the
+      dispatch-side split below, a new consideration this recalibration
+      surfaces). Reasoning:
+      - Deliberately NOT set to literally equal the live-computed ceiling
+        (~10.69GiB) — kept as a genuine outer sanity ceiling (per this
+        task's own framing of that option), ~0.69GiB below it, larger
+        than the ~500-900MiB sample-to-sample drift observed just this
+        session. A cap that exactly tracks the formula's own SwapFree
+        term at all times would make the fixed constant meaningless (the
+        `min()` would never select it) — 10GiB stays a real, binding
+        outer bound that only stops binding if `gated_swap_free` itself
+        drops below 10GiB (e.g. a future lower-swap device, or this
+        device's swap becoming genuinely more pressured than observed
+        today).
+      - **This does make `can_admit()`'s plain-`MemAvailable`-only check
+        effectively non-binding for any single admissible model whenever
+        `gated_swap_free >= 10GiB` (true at every sample taken this
+        session)**: `hard_reject` bounds any single model's cost at
+        `compute_device_ceiling_bytes()` (~6.49GiB, `DEVICE_CEILING_
+        USABLE_FRACTION=0.60` unchanged), so the largest possible
+        `required` after `REQUIRED_HEADROOM_FACTOR` (1.25) is
+        ~8.11GiB — below the 10GiB cap regardless of live `MemAvailable`,
+        including at `MemAvailable=0`. **This is the exact outcome C2's
+        own derivation comment above warned against** ("enough to admit
+        nearly any load at near-zero MemAvailable, contradicting this
+        feature's own framing") — stated here explicitly, not silently
+        left standing: that warning was written when `SwapTotal` was
+        ~12GiB and the cap was being derived independently from Ish's
+        raw-capacity intent. Ish's 2026-08-11 direction supersedes it for
+        `can_admit()` specifically — with 16GiB of real swap now
+        available, "trust swap as real, usable capacity, bounded by the
+        slmk-floor-anchored formula's own 2x-floor buffer rather than by
+        an artificially small byte cap" is now the deliberate policy, not
+        an oversight. The residual value the 10GiB ceiling still buys:
+        protection against a transient anomalous `SwapFree` read, and a
+        real (if generous) bound on future lower-swap hardware this
+        module is meant to also run on (per `compute_device_ceiling_
+        bytes()`'s own "intended to run on higher-RAM hardware too"
+        framing, mirrored here for swap).
+      - Predicate for a future live-verifier to dry-run before spawning
+        anything (do not assume — check this live against real
+        `/proc/meminfo` immediately before any 32768 attempt): admission
+        via swap requires `headroom_bytes + min(10GiB, gated_swap_free)
+        >= required_bytes`. At today's `required=8143MiB` for the primary
+        7B at `n_ctx=32768`, and `gated_swap_free` (~10.69GiB) exceeding
+        the 10GiB cap, swap contributes the full 10GiB (10240MiB)
+        regardless of `headroom_bytes` — so 32768 SHOULD now admit at
+        essentially any live `MemAvailable` this device is likely to show,
+        but this is arithmetic, not yet a live observation — see the
+        live-verification requirement below.
+
+      **New split this recalibration surfaces, not previously
+      considered**: `MAX_SWAP_ASSIST_BYTES` is currently a single
+      constant shared by BOTH `can_admit()` (one-shot, explicit,
+      human/loader-initiated model loads) and `can_dispatch_task()`
+      (runs unguarded on EVERY tick of the daemon's autonomous,
+      unattended dispatch loop, gating `DISPATCH_MIN_HEADROOM_BYTES` —
+      1GiB, chosen specifically as an early-warning floor "well before
+      `can_admit()`'s own...check would run," per that constant's own
+      comment). Raising the shared constant to 10GiB would make
+      `can_dispatch_task()`'s RAM-headroom check ALSO effectively
+      non-binding whenever swap is healthy — combined headroom would
+      reach the 1GiB dispatch floor from `ram_headroom_bytes=0` alone
+      (10GiB swap contribution vastly exceeds the 1GiB floor), collapsing
+      the deliberate early-warning gap between "dispatch refuses" and
+      "admission refuses" that constant's own comment describes as the
+      point of a *flat, lower, task-agnostic* floor. Ish's 2026-08-11
+      direction was given in the context of the 32768 model-load gap
+      (`NEW-137`) — nothing in it addresses the autonomous per-tick
+      dispatch loop's own, separate risk profile, and collapsing that
+      gap is a real behavior change to unattended background dispatch,
+      not just to one-shot model admission. **Scoping call made here
+      (implementation-mechanics detail, not a further Ish round-trip,
+      per this task's own instructions): decouple the two.** Keep
+      `can_admit()`'s default at the new `MAX_SWAP_ASSIST_BYTES` (10GiB)
+      above; add a new, separate constant
+      `DISPATCH_MAX_SWAP_ASSIST_BYTES = 768 * 1024 * 1024` (unchanged
+      from today's value, same derivation/comment already in place for
+      it) as `can_dispatch_task()`'s own default for its
+      `max_swap_usage_bytes` parameter, so the dispatch loop's
+      swap-assisted band stays exactly where sub-task D2 originally set
+      it. If Ish later wants the dispatch floor raised too, that is a
+      separate, explicit decision — not a side effect of this
+      recalibration.
+
+      **Test-fixture consequence for whoever implements this — verified
+      directly against `tests/test_resource_gate.py`, not assumed from a
+      comment.** `test_compute_swap_assisted_headroom_new21_fixture_
+      pre_registered_case` (and every other `compute_swap_assisted_
+      headroom_bytes()` boundary test in that section) passes
+      `max_swap_usage_bytes` EXPLICITLY as an argument on every call — it
+      does not read the module-level `MAX_SWAP_ASSIST_BYTES` default at
+      all, so raising the constant does NOT change that test's expected
+      value; no update needed there. What DOES need updating:
+      - `test_max_swap_assist_bytes_value` (asserts
+        `rg.MAX_SWAP_ASSIST_BYTES == 805_306_368` directly) — must become
+        `10_737_418_240`, since this recalibration changes exactly that
+        constant.
+      - A new equivalent assertion should be added for
+        `DISPATCH_MAX_SWAP_ASSIST_BYTES == 805_306_368` (the new,
+        decoupled dispatch-side constant), mirroring the existing test's
+        pattern.
+      - `test_can_dispatch_task_swap_assist_capped_still_refuses_when_
+        gap_too_large` (RAM headroom 2GiB below the dispatch floor, huge
+        `SwapFree`, asserts refusal) and
+        `test_can_dispatch_task_swap_assist_gated_near_slmk_floor_still_
+        refuses` both rely on `can_dispatch_task()`'s DEFAULT
+        `max_swap_usage_bytes` staying at 768MiB to pass — these are the
+        concrete regression tests that would have SILENTLY FLIPPED to
+        asserting the wrong thing (a 2GiB gap being covered) had the
+        shared constant been raised without the admission/dispatch split
+        above. Confirm both still pass unchanged once
+        `DISPATCH_MAX_SWAP_ASSIST_BYTES` (768MiB) is wired in as
+        `can_dispatch_task()`'s new default — this is direct evidence the
+        split is necessary, not just defensive.
+      - `test_swap_assist_admits_when_ram_alone_would_deny` and
+        `test_can_dispatch_task_swap_assist_admits_when_ram_alone_would_
+        refuse` only assert `admitted`/`allowed`/`*_via_swap` booleans and
+        a `"swap" in reason.lower()` substring — no exact byte figure — so
+        both remain valid at either cap value with no change needed.
+
+      **Concurrent-admission consequence, not previously flagged in this
+      item — read before live-verifying.** A 10GiB `MAX_SWAP_ASSIST_BYTES`
+      does not just unlock the single-model 32768 case — worked through
+      against `reserve_slot()`'s real mechanics (`core/resource_gate.py`,
+      confirmed by direct read): for a SECOND concurrent load (e.g. the
+      1.5B planner reserved while the 7B primary is already
+      PENDING/RESIDENT), `reserved_bytes` (or the live `MemAvailable`
+      drop from an already-resident primary) can push RAM-only headroom
+      to ~0, but the 10GiB swap-assist cap will still cover essentially
+      any second or third model's `required` on its own (the planner's
+      required at 32768 is ~2.71GiB, the embed model's is smaller still —
+      both far under 10GiB). **This means the swap-assisted admission
+      cap, not `MAX_CONCURRENT_MODEL_BUDGET_BYTES` (8.90GiB) or RAM
+      headroom, becomes the practical constraint that used to stop a
+      3-model concurrent stack from being admitted at low `MemAvailable`
+      — and 8.90GiB was deliberately computed to admit exactly that full
+      3-model stack (see decision 2 above).** Net effect: this
+      recalibration, combined with the already-existing 8.90GiB budget
+      ceiling, now permits admitting up to ~8.9GiB of declared model cost
+      on a ~10.83GiB `MemTotal` device at arbitrarily low live
+      `MemAvailable` — the exact device state `NEW-14`/`NEW-21` already
+      observed causing real swap distress (`NEW-14`: 3 concurrent models
+      hit 7.5-8.5GiB swap in ~40s). This is a real, load-bearing
+      consequence of Ish's "use most of the real capacity" direction, not
+      an oversight — but it is a SIDE EFFECT beyond the single-model
+      32768 case this item's evidence base (sub-task E) actually covers,
+      and it is UNVERIFIED. `NEW-135` (updated this session) already
+      documents a related, narrower gap — two racing PENDING admissions
+      each independently claiming the same swap cap — whose blast radius
+      also now scales from ≤768MiB to ≤10GiB. **The live-verification
+      requirement below is expanded accordingly: it must cover a
+      concurrent (primary + planner, sequential `reserve_slot()` calls)
+      case at `n_ctx=32768`, not only the single primary-model case
+      sub-task E already ran at `n_ctx=16384`.**
+
+      **Required follow-up, explicit, not to be skipped:**
+      1. **Implementer**: change `MAX_SWAP_ASSIST_BYTES` to
+         10,737,418,240 (10GiB) at its `can_admit()` call site only; add
+         `DISPATCH_MAX_SWAP_ASSIST_BYTES = 805,306,368` (768MiB,
+         unchanged) and rewire `can_dispatch_task()`'s default parameter
+         onto it; update `test_max_swap_assist_bytes_value`'s expected
+         value (805,306,368 → 10,737,418,240) and add the equivalent
+         assertion for the new `DISPATCH_MAX_SWAP_ASSIST_BYTES` constant,
+         per the test-fixture section above (confirm the two
+         `can_dispatch_task()` cap-enforcement tests named there still
+         pass unchanged — they should, since dispatch's own default isn't
+         moving); update every docstring/comment in
+         `core/resource_gate.py` that currently cites "768MiB" as
+         `MAX_SWAP_ASSIST_BYTES`'s value to instead describe the split
+         (admission 10GiB / dispatch 768MiB unchanged) — do not leave
+         stale comments contradicting the new constants.
+      2. **Mandatory `code-reviewer` pass** (CLAUDE.md rule 4 — this
+         touches admission-behavior in `core/resource_gate.py`, same
+         category as every other change to this module). Reviewer should
+         specifically check the concurrent-admission consequence above is
+         addressed by whatever the live-verification pass (item 3) is
+         actually scoped to cover, not silently left as an unverified
+         side effect.
+      3. **Mandatory fresh live-verification pass, TWO cases, not one:**
+         (a) single primary-model load, re-running sub-task E's exact
+         procedure (RAM-discipline rules 2/3, pre/post `free -h` +
+         `mm_stat`, tracked-PID teardown, a real inference request timed)
+         at the REAL production `n_ctx=32768` default with the new 10GiB
+         cap — NOT assumed from the arithmetic above. Real evidence so
+         far (sub-task E) only covers ~900MiB-1.2GiB of actual swap
+         movement at `n_ctx=16384`; a 10GiB cap could in principle
+         authorize a much larger swap reliance for the bigger
+         `n_ctx=32768` load (larger KV cache: 1.750GiB vs. 0.875GiB),
+         which has never been observed live. (b) **concurrent case, newly
+         required by this recalibration's own consequence above**:
+         primary + planner loaded sequentially via real `reserve_slot()`
+         calls at `n_ctx=32768`, observing whether the second load is
+         actually admitted via swap-assist at low real `MemAvailable` (as
+         the arithmetic above predicts) and, if so, what real swap/RSS
+         behavior that produces — this is the case that risks recreating
+         `NEW-14`'s "3 concurrent models hit 7.5-8.5GiB swap in ~40s"
+         condition, and sub-task E's single-model run does not cover it.
+         Per advisor review of this scoping: also close, or explicitly
+         document as still-open, the RSS-collapse abort-criterion gap
+         `NEW-138` recorded (the harness's `get_pid()` — and therefore the
+         abort-on-RSS-collapse check — was structurally inoperative for
+         the entire ~22s load window in the 16384 run, since it can only
+         resolve after `load_primary()` returns) before running this at
+         32768, where the KV-cache jump means expected RSS is higher
+         (~7.5-7.9GiB against `MemTotal`~10.83GiB with ~4.5GiB already in
+         use per this session's own `free -h`) — either fix the
+         PID-acquisition gap first, or state explicitly in that pass's
+         write-up that only the `SwapFree`-floor abort trip was armed
+         during the load window, same honesty standard sub-task E's own
+         write-up already held itself to.
 
 ## Phase 2: Parallel design work (does not touch running code — can run alongside Phase 1)
 

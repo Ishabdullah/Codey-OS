@@ -59,8 +59,11 @@ docstring) so a future routing caller can distinguish a budget-ceiling
 swap-assisted one. (D2, Ish's direct 2026-08-11 decision)
 `can_dispatch_task()`'s `DISPATCH_MIN_HEADROOM_BYTES` floor is now
 swap-aware too, via the same `compute_swap_assisted_headroom_bytes()`
-mechanism and `MAX_SWAP_ASSIST_BYTES`/`CODEY_SWAP_ASSIST_ADMISSION`
-conventions C2 established, reported via
+mechanism and `CODEY_SWAP_ASSIST_ADMISSION` on/off convention C2
+established (its own swap-usage cap, `DISPATCH_MAX_SWAP_ASSIST_BYTES`, was
+deliberately decoupled from `can_admit()`'s `MAX_SWAP_ASSIST_BYTES` by
+sub-task F's 2026-08-11 recalibration — see that constant's own comment),
+reported via
 `DispatchDecision.dispatched_via_swap` — see `can_dispatch_task()`'s own
 docstring for the full wiring and its one deliberate difference from
 `can_admit()`'s swap-assist error handling (a malformed
@@ -312,8 +315,10 @@ def compute_swap_assisted_headroom_bytes(
     default — sub-task B (this function) deliberately took it as a required
     parameter (see this section's header comment) rather than blessing a
     module-level constant; sub-task C2 is the caller that supplies the real
-    default (`MAX_SWAP_ASSIST_BYTES`, 768MiB — see `can_admit()`'s own
-    swap-assist section below for that constant's derivation).
+    default (`MAX_SWAP_ASSIST_BYTES`, 10GiB as of sub-task F's 2026-08-11
+    recalibration — see `can_admit()`'s own swap-assist section below for
+    that constant's derivation; `can_dispatch_task()` uses its own,
+    deliberately unchanged, `DISPATCH_MAX_SWAP_ASSIST_BYTES`, 768MiB).
 
     Callers must NOT treat the returned bytes as 1:1 usable headroom in the
     same sense as real free RAM: zram is a compressed block device living
@@ -1283,7 +1288,7 @@ MAX_CONCURRENT_MODEL_BUDGET_BYTES = int(8.90 * (1024 ** 3))  # 9,556,302,233 byt
 # authorizes `10.8 - 2*1.2 = 8.4GiB` of swap-assist — enough to admit nearly
 # any load at near-zero MemAvailable, contradicting this feature's own
 # "capped well under the ~1.2GiB slmk floor, not up against it" framing.
-# 768MiB is a new, named, documented, un-calibrated first default — well
+# 768MiB was this constant's original, un-calibrated first default — well
 # under the ~1.2GiB slmk floor per the same asymmetry REQUIRED_HEADROOM_
 # FACTOR/DEVICE_CEILING_USABLE_FRACTION already document (under-estimating
 # just reproduces today's status quo; over-estimating risks slmk killing
@@ -1291,11 +1296,75 @@ MAX_CONCURRENT_MODEL_BUDGET_BYTES = int(8.90 * (1024 ** 3))  # 9,556,302,233 byt
 # written here, per sub-task B's own "expected value in the test first"
 # rule: min(768MiB, 8.4GiB) = 768MiB (see
 # tests/test_resource_gate.py::test_compute_swap_assisted_headroom_new21_fixture_pre_registered_case,
-# already pinning this exact number from sub-task B). Sub-task E's live
-# pass is what actually calibrates this value, not this sub-task's
-# synthetic fixtures — same status as every other un-calibrated knob in
-# this module.
-MAX_SWAP_ASSIST_BYTES = 768 * 1024 * 1024  # 805,306,368 bytes
+# already pinning this exact number from sub-task B).
+#
+# TODO.md 7.4a sub-task F (2026-08-11 recalibration, Ish's explicit direct
+# decision, NOT an implementation-mechanics call like the paragraph above):
+# sub-task E's live pass proved the swap-assisted mechanism genuinely works
+# end-to-end at n_ctx=16384, but found the real production default,
+# n_ctx=32768, refused — its deficit (~1356-1382MiB that session) exceeded
+# the 768MiB cap by ~600-650MiB (NEW-137). Separately, Ish increased this
+# device's real swap capacity — SwapTotal is now ~16.0GiB zram (confirmed
+# `/sys/block/zram0/disksize` = 17,179,869,184 bytes), not the ~12GiB the
+# 768MiB derivation above assumed. Ish's explicit instruction: raise this
+# cap close to the formula's own live-computed ceiling on this device, not
+# just far enough to patch the one known 32768 gap (a more conservative
+# ~2GiB alternative was offered and explicitly declined) — use most of the
+# real capacity the swap increase provides. Live arithmetic backing the new
+# value (2026-08-11 session, drifts sample to sample — re-verify live
+# before relying on it):
+#   SwapTotal = 16,777,212 kB (~16.00GiB); SwapFree = 14,562,300 kB (~13.89GiB)
+#   slmk_floor_bytes = SwapTotal * 0.10 = 1,717,986,508.8 B (~1.60GiB)
+#   gated_swap_free  = SwapFree - 2.0 * slmk_floor_bytes
+#                    = 14,911,795,200 - 3,435,973,017.6 = 11,475,822,182.4 B
+#                    ≈ 10.69GiB (the formula's own uncapped ceiling —
+#                      compute_swap_assisted_headroom_bytes()'s own
+#                      min(max_swap_usage_bytes, gated_swap_free) term,
+#                      right operand)
+# New value: 10 * 1024**3 = 10,737,418,240 bytes (10.00GiB) — for
+# can_admit() only (see DISPATCH_MAX_SWAP_ASSIST_BYTES below for the
+# decoupled, unchanged dispatch-side cap). Deliberately NOT set to exactly
+# the live-computed ceiling (~10.69GiB) — kept ~0.69GiB below it as a real,
+# binding outer sanity ceiling (larger than the ~500-900MiB sample-to-
+# sample SwapFree drift observed in this same session) rather than a cap
+# that would never actually bind. This does make can_admit()'s plain-
+# MemAvailable-only check effectively non-binding for any single
+# admissible model whenever gated_swap_free >= 10GiB (true at every sample
+# taken 2026-08-11): hard_reject bounds any single model's cost at
+# compute_device_ceiling_bytes() (~6.49GiB), so the largest possible
+# `required` after REQUIRED_HEADROOM_FACTOR (1.25) is ~8.11GiB — below the
+# 10GiB cap regardless of live MemAvailable, including at MemAvailable=0.
+# This is a deliberate, accepted consequence of Ish's "trust swap as real,
+# usable capacity" direction, not an oversight — see TODO.md 7.4a sub-task
+# F's own write-up for the full reasoning, including the known,
+# accepted-for-now concurrent-admission consequence (combined with the
+# existing MAX_CONCURRENT_MODEL_BUDGET_BYTES ceiling, this can admit up to
+# ~8.9GiB of declared model cost at arbitrarily low live MemAvailable —
+# flagged there for a separate live-verification pass, not addressed by
+# changing either ceiling).
+MAX_SWAP_ASSIST_BYTES = 10 * 1024 ** 3  # 10,737,418,240 bytes (10.00GiB)
+
+# TODO.md 7.4a sub-task F: `can_dispatch_task()`'s own default cap,
+# deliberately DECOUPLED from `MAX_SWAP_ASSIST_BYTES` above (which sub-task
+# F raised to 10GiB for `can_admit()` — one-shot, explicit, human/loader-
+# initiated model loads). `can_dispatch_task()` runs unguarded on EVERY
+# tick of the daemon's autonomous, unattended dispatch loop, gating
+# `DISPATCH_MIN_HEADROOM_BYTES` (1GiB, chosen specifically as an
+# early-warning floor "well before can_admit()'s own...check would run,"
+# per that constant's own comment). Raising the shared constant to 10GiB
+# would have made that RAM-headroom check ALSO effectively non-binding
+# whenever swap is healthy (10GiB swap contribution vastly exceeds the
+# 1GiB dispatch floor), collapsing the deliberate early-warning gap between
+# "dispatch refuses" and "admission refuses" that DISPATCH_MIN_HEADROOM_
+# BYTES's own comment describes as the point of a flat, lower,
+# task-agnostic floor. Ish's 2026-08-11 direction was given in the context
+# of the 32768 model-load gap (NEW-137) — nothing in it addresses the
+# autonomous per-tick dispatch loop's own, separate risk profile, so this
+# constant stays at 768MiB, exactly `can_dispatch_task()`'s value before
+# this recalibration (sub-task D2's own original derivation, unchanged). If
+# Ish later wants the dispatch floor raised too, that is a separate,
+# explicit decision — not a side effect of this recalibration.
+DISPATCH_MAX_SWAP_ASSIST_BYTES = 805_306_368  # 768MiB, unchanged from pre-F
 
 # Env var to DISABLE swap-assisted admission (C2) — the shipped default is
 # ON with no opt-in required, per Ish's explicit 2026-08-11 decision (TODO.md
@@ -1433,7 +1502,8 @@ def can_admit(
     `_resolve_swap_assist_enabled_default()` — see
     `CODEY_SWAP_ASSIST_ADMISSION`'s own comment) controls TODO.md 7.4a
     sub-task C2, ON by default per Ish's 2026-08-11 direct decision.
-    `max_swap_usage_bytes` (default `MAX_SWAP_ASSIST_BYTES`, 768MiB) and
+    `max_swap_usage_bytes` (default `MAX_SWAP_ASSIST_BYTES`, 10GiB as of
+    sub-task F's 2026-08-11 recalibration) and
     `slmk_floor_gate_multiplier` (default `SLMK_FLOOR_GATE_MULTIPLIER`, 2.0)
     are passed straight through to `compute_swap_assisted_headroom_bytes()`
     — see that function's own docstring and `MAX_SWAP_ASSIST_BYTES`'s own
@@ -1502,8 +1572,9 @@ def can_admit(
         (unlike `compute_headroom_bytes()`, which does subtract
         `reserved_bytes`) — two concurrently-pending swap-assisted
         admissions can each independently lean on the same live `SwapFree`
-        figure and the same 768MiB cap, rather than the second one seeing
-        the first one's claim already spent. Not fixed here (would change
+        figure and the same `MAX_SWAP_ASSIST_BYTES` cap (10GiB as of
+        sub-task F), rather than the second one seeing the first one's
+        claim already spent. Not fixed here (would change
         sub-task B's own function signature, out of scope for C2's mandate
         of wiring, not redesigning, that function) — flagged for whichever
         later sub-task revisits concurrent-admission accounting for the
@@ -1817,7 +1888,7 @@ def can_dispatch_task(
     snapshot: "ResourceSnapshot",
     interactive_active: bool,
     enable_swap_assist: Optional[bool] = None,
-    max_swap_usage_bytes: int = MAX_SWAP_ASSIST_BYTES,
+    max_swap_usage_bytes: int = DISPATCH_MAX_SWAP_ASSIST_BYTES,
     slmk_floor_gate_multiplier: float = SLMK_FLOOR_GATE_MULTIPLIER,
 ) -> DispatchDecision:
     """
@@ -1863,20 +1934,24 @@ def can_dispatch_task(
     **TODO.md 7.4a sub-task D2 (Ish's direct decision, 2026-08-11)**: check
     4's RAM-headroom floor is now swap-aware, using the exact same
     `compute_swap_assisted_headroom_bytes()` mechanism and
-    `MAX_SWAP_ASSIST_BYTES`/`CODEY_SWAP_ASSIST_ADMISSION` on/off-switch
-    conventions `can_admit()`'s own C2 swap-assist branch already
-    established — not a second, parallel swap-assist mechanism with
-    different defaults. Only evaluated when `ram_headroom_bytes` alone is
-    already below `DISPATCH_MIN_HEADROOM_BYTES`; a snapshot that already
-    passes on RAM alone never reaches this branch and its `DispatchDecision`
-    is byte-for-byte unchanged by this sub-task. `enable_swap_assist`
-    (default `None`, resolving lazily to
+    `CODEY_SWAP_ASSIST_ADMISSION` on/off-switch convention `can_admit()`'s
+    own C2 swap-assist branch already established — not a second, parallel
+    swap-assist mechanism with different defaults. Only evaluated when
+    `ram_headroom_bytes` alone is already below `DISPATCH_MIN_HEADROOM_
+    BYTES`; a snapshot that already passes on RAM alone never reaches this
+    branch and its `DispatchDecision` is byte-for-byte unchanged by this
+    sub-task. `enable_swap_assist` (default `None`, resolving lazily to
     `_resolve_swap_assist_enabled_default()`, same as `can_admit()`) and
-    `max_swap_usage_bytes`/`slmk_floor_gate_multiplier` (defaults
-    `MAX_SWAP_ASSIST_BYTES`/`SLMK_FLOOR_GATE_MULTIPLIER`) are the exact same
-    parameters `can_admit()` exposes, passed straight through to
-    `compute_swap_assisted_headroom_bytes()` — see that function's and
-    `MAX_SWAP_ASSIST_BYTES`'s own comments for the full derivation.
+    `slmk_floor_gate_multiplier` (default `SLMK_FLOOR_GATE_MULTIPLIER`) are
+    the same shared parameters `can_admit()` exposes. `max_swap_usage_bytes`
+    is the one deliberate exception, per TODO.md 7.4a sub-task F's
+    2026-08-11 recalibration: this function's own default is
+    `DISPATCH_MAX_SWAP_ASSIST_BYTES` (768MiB, unchanged), NOT
+    `MAX_SWAP_ASSIST_BYTES` (raised to 10GiB, `can_admit()`-only by that
+    same recalibration) — see `DISPATCH_MAX_SWAP_ASSIST_BYTES`'s own
+    comment for why the two caps were deliberately decoupled. Both are
+    passed straight through to `compute_swap_assisted_headroom_bytes()` —
+    see that function's own comments for the full derivation.
     `ResourceSnapshot.swap_free_bytes`/`swap_total_bytes` (sub-task A) are
     synthesized into a small meminfo-shaped dict here rather than
     re-plumbing sub-task B's own `compute_swap_assisted_headroom_bytes()`
@@ -1896,15 +1971,22 @@ def can_dispatch_task(
     `compute_swap_assisted_headroom_bytes()` reads raw `SwapFree` with no
     `reserved_bytes`-style deduction for other in-flight consumers of the
     same swap budget. This sub-task adds a SECOND independent consumer of
-    that same 768MiB cap (a dispatch decision, alongside `can_admit()`'s
-    own model-admission decision) — widening `NEW-135`'s blast radius
-    rather than introducing a new gap: a concurrently in-flight
-    swap-assisted admission and a concurrently swap-assisted dispatch
-    decision can each independently claim the same live `SwapFree` figure
-    and the same cap, neither aware of the other's claim. Not fixed here
-    (fixing it means changing sub-task B's own function signature,
-    out of scope for this sub-task's mandate of wiring, not redesigning,
-    that function — same reasoning C2 used to decline the same fix).
+    the same live `SwapFree` figure (a dispatch decision, alongside
+    `can_admit()`'s own model-admission decision) — widening `NEW-135`'s
+    blast radius rather than introducing a new gap: a concurrently
+    in-flight swap-assisted admission and a concurrently swap-assisted
+    dispatch decision can each independently claim the same live
+    `SwapFree` figure, neither aware of the other's claim. As of TODO.md
+    7.4a sub-task F's 2026-08-11 recalibration, the two consumers no
+    longer share the SAME numeric cap (`can_admit()` now defaults to
+    `MAX_SWAP_ASSIST_BYTES`, 10GiB; this function still defaults to the
+    unchanged `DISPATCH_MAX_SWAP_ASSIST_BYTES`, 768MiB) — `NEW-135`'s core
+    gap (no cross-consumer accounting of the shared `SwapFree` pool) is
+    unaffected by that split and remains exactly as unfixed as before. Not
+    fixed here (fixing it means changing sub-task B's own function
+    signature, out of scope for this sub-task's mandate of wiring, not
+    redesigning, that function — same reasoning C2 used to decline the
+    same fix).
     """
     if interactive_active:
         return DispatchDecision(
