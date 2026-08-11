@@ -646,6 +646,33 @@ def test_mark_resident_unknown_slot_returns_false(tmp_path):
     assert rg.mark_resident("does-not-exist", state_dir=tmp_path) is False
 
 
+def test_mark_resident_pid_arg_rebinds_slot_pid(tmp_path):
+    # NEW-81 fix: reserve_slot()/register_slot() register a slot under the
+    # CALLING process's own PID (there's no real model subprocess yet at
+    # admission time) -- mark_resident()'s optional `pid` lets a caller that
+    # later learns the real spawned subprocess's PID rebind the slot to it,
+    # so PID-liveness reaping tracks the process that should actually free
+    # the slot, not the (possibly long-lived) caller.
+    slot_id = rg.register_slot("m", cost_bytes=1 * GIB, pid=os.getpid(), state_dir=tmp_path)
+    assert rg.list_slots(state_dir=tmp_path)[0]["pid"] == os.getpid()
+
+    real_child_pid = 999999  # doesn't need to be alive for this assertion
+    assert rg.mark_resident(slot_id, state_dir=tmp_path, pid=real_child_pid) is True
+
+    slots = rg.list_slots(state_dir=tmp_path, reap_dead=False)
+    assert slots[0]["pid"] == real_child_pid
+    assert slots[0]["status"] == rg.SLOT_STATUS_RESIDENT
+
+
+def test_mark_resident_without_pid_arg_leaves_pid_unchanged(tmp_path):
+    # Default (pid=None) must be a no-op on the pid field -- existing
+    # callers that don't pass it keep today's behavior exactly.
+    slot_id = rg.register_slot("m", cost_bytes=1 * GIB, pid=12345, state_dir=tmp_path)
+    assert rg.mark_resident(slot_id, state_dir=tmp_path) is True
+    slots = rg.list_slots(state_dir=tmp_path, reap_dead=False)
+    assert slots[0]["pid"] == 12345
+
+
 def test_total_reserved_bytes_excludes_resident_slots(tmp_path):
     # Contract fix (code-reviewer finding): total_reserved_bytes() must
     # match compute_headroom_bytes()'s documented meaning of reserved_bytes
@@ -1678,3 +1705,375 @@ def test_should_trip_shutdown_default_args_read_live_module_state(monkeypatch):
     monkeypatch.setattr(rg, "get_cpu_history", lambda: [])
     decision = rg.should_trip_shutdown()
     assert decision.should_trip is True
+
+
+# ── TODO.md 7.4a sub-task A: read_zram_stats() / ResourceSnapshot fields ────
+
+
+def test_read_zram_stats_parses_fixture_files(tmp_path):
+    disksize = tmp_path / "disksize"
+    disksize.write_text("12884901888\n")
+    mm_stat = tmp_path / "mm_stat"
+    # Real on-device sample shape (2026-08-11 live read, 9 whitespace-
+    # separated fields): orig_data_size, compr_data_size, mem_used_total,
+    # mem_limit, mem_used_max, same_pages, pages_compacted, huge_pages,
+    # huge_pages_since.
+    mm_stat.write_text(
+        "2989174784 794678314 835547136        0 1057902592    88831   216694    23428   108007\n"
+    )
+    stats = rg.read_zram_stats(disksize_path=str(disksize), mm_stat_path=str(mm_stat))
+    assert stats["disksize_bytes"] == 12884901888
+    assert stats["orig_data_size_bytes"] == 2989174784
+    assert stats["compr_data_size_bytes"] == 794678314
+    assert stats["mem_used_total_bytes"] == 835547136
+
+
+def test_read_zram_stats_missing_files_returns_none():
+    # Non-Android host / no zram device: fail-soft (None), never raise —
+    # unlike read_meminfo()'s fail-loud posture (this signal is additive/
+    # optional, no existing check depends on it).
+    stats = rg.read_zram_stats(
+        disksize_path="/nonexistent/disksize", mm_stat_path="/nonexistent/mm_stat"
+    )
+    assert stats is None
+
+
+def test_compute_zram_compression_ratio_none_input():
+    assert rg.compute_zram_compression_ratio(None) is None
+
+
+def test_compute_zram_compression_ratio_zero_compressed_bytes_is_none():
+    # Idle/unused zram device: compr_data_size == 0 must not raise
+    # ZeroDivisionError, and must not be misread as "infinite compression."
+    stats = {"orig_data_size_bytes": 0, "compr_data_size_bytes": 0}
+    assert rg.compute_zram_compression_ratio(stats) is None
+
+
+def test_compute_zram_compression_ratio_computed_from_live_sample_shape():
+    stats = {"orig_data_size_bytes": 2989174784, "compr_data_size_bytes": 794678314}
+    ratio = rg.compute_zram_compression_ratio(stats)
+    assert ratio == pytest.approx(2989174784 / 794678314)
+    assert ratio == pytest.approx(3.76, abs=0.01)
+
+
+def test_resource_snapshot_defaults_swap_fields_to_zero_and_none():
+    # Every existing keyword-only ResourceSnapshot construction elsewhere in
+    # this test module (e.g. _snapshot() below) must keep working unchanged
+    # — confirms the new fields are safely defaulted.
+    snap = rg.ResourceSnapshot(
+        cpu_percent=10.0,
+        ram_headroom_bytes=1 * GIB,
+        ram_total_bytes=10 * GIB,
+        temperature_c=40.0,
+        queue_pending=0,
+        queue_running=0,
+        battery_percent=80,
+        battery_charging=False,
+        timestamp=time.time(),
+    )
+    assert snap.swap_total_bytes == 0
+    assert snap.swap_free_bytes == 0
+    assert snap.zram_compression_ratio is None
+
+
+def test_get_resource_snapshot_composes_swap_and_zram_signals():
+    mi = meminfo_bytes(
+        mem_total_gib=10.8, mem_free_gib=0.25, mem_available_gib=2.2,
+        swap_total_gib=12.0, swap_free_gib=1.2,
+    )
+    zram_stats = {"orig_data_size_bytes": 4000, "compr_data_size_bytes": 1000}
+    snap = rg.get_resource_snapshot(
+        meminfo=mi,
+        read_temp_fn=NO_THERMAL,
+        read_battery_fn=lambda: (80, False),
+        state_store=_FakeStateStore(pending=0, running=0),
+        cpu_percent=10.0,
+        read_zram_fn=lambda: zram_stats,
+    )
+    assert snap.swap_total_bytes == int(12.0 * GIB)
+    assert snap.swap_free_bytes == int(1.2 * GIB)
+    assert snap.zram_compression_ratio == pytest.approx(4.0)
+
+
+def test_get_resource_snapshot_zram_read_failure_does_not_blank_other_signals():
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=0.25, mem_available_gib=2.2)
+
+    def _raising_zram():
+        raise OSError("boom")
+
+    snap = rg.get_resource_snapshot(
+        meminfo=mi,
+        read_temp_fn=NO_THERMAL,
+        read_battery_fn=lambda: (80, False),
+        state_store=_FakeStateStore(pending=0, running=0),
+        cpu_percent=10.0,
+        read_zram_fn=_raising_zram,
+    )
+    assert snap.zram_compression_ratio is None
+    assert snap.battery_percent == 80
+    assert snap.cpu_percent == 10.0
+
+
+def test_get_resource_snapshot_default_read_zram_fn_is_read_zram_stats(monkeypatch):
+    # Confirms the None-default path actually wires up read_zram_stats(),
+    # not just the injectable path exercised by every other test above.
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=0.25, mem_available_gib=2.2)
+    monkeypatch.setattr(rg, "read_zram_stats", lambda: None)
+    snap = rg.get_resource_snapshot(
+        meminfo=mi,
+        read_temp_fn=NO_THERMAL,
+        read_battery_fn=lambda: (80, False),
+        state_store=_FakeStateStore(pending=0, running=0),
+        cpu_percent=10.0,
+    )
+    assert snap.zram_compression_ratio is None
+
+
+# ── TODO.md 7.4a sub-task B: compute_swap_assisted_headroom_bytes() ─────────
+
+
+def test_compute_swap_assisted_headroom_new21_fixture_pre_registered_case():
+    # Pre-registered per TODO.md 7.4a's own scoping call: NEW-21's baseline
+    # (SwapTotal~12GiB, SwapFree consistent with ~1.2GiB already used, i.e.
+    # SwapFree~10.8GiB), K=2.0, cap=768MiB -> min(768MiB, 10.8 - 2*1.2) =
+    # min(768MiB, 8.4GiB) = 768MiB. Written BEFORE any tuning, per sub-task
+    # B's own "expected value in the test first" rule.
+    mi = meminfo_bytes(
+        mem_total_gib=10.8, mem_free_gib=2.2, mem_available_gib=2.2,
+        swap_total_gib=12.0, swap_free_gib=10.8,
+    )
+    result = rg.compute_swap_assisted_headroom_bytes(
+        mi, max_swap_usage_bytes=768 * MIB, slmk_floor_gate_multiplier=2.0
+    )
+    assert result == 768 * MIB
+
+
+def test_compute_swap_assisted_headroom_capped_by_gated_swap_free_not_just_cap():
+    # A generous cap (larger than what the gated SwapFree actually allows)
+    # must not authorize more than the gated figure — the cap and the
+    # gated-SwapFree term are independently binding (min of both).
+    mi = meminfo_bytes(
+        mem_total_gib=10.8, mem_free_gib=2.2, mem_available_gib=2.2,
+        swap_total_gib=12.0, swap_free_gib=10.8,
+    )
+    result = rg.compute_swap_assisted_headroom_bytes(
+        mi, max_swap_usage_bytes=100 * GIB, slmk_floor_gate_multiplier=2.0
+    )
+    # gated = 10.8GiB - 2*1.2GiB = 8.4GiB
+    assert result == pytest.approx(int(8.4 * GIB), abs=MIB)
+
+
+def test_compute_swap_assisted_headroom_clamps_to_zero_near_slmk_floor():
+    # SwapFree sitting right at (or below) the gated floor must clamp to 0,
+    # never go negative.
+    mi = meminfo_bytes(
+        mem_total_gib=10.8, mem_free_gib=0.1, mem_available_gib=0.1,
+        swap_total_gib=12.0, swap_free_gib=1.0,
+    )
+    # slmk_floor = 12.0 * 0.10 = 1.2GiB; gate = 2 * 1.2 = 2.4GiB > 1.0GiB SwapFree.
+    result = rg.compute_swap_assisted_headroom_bytes(
+        mi, max_swap_usage_bytes=768 * MIB, slmk_floor_gate_multiplier=2.0
+    )
+    assert result == 0
+
+
+def test_compute_swap_assisted_headroom_zero_max_swap_usage_is_zero():
+    mi = meminfo_bytes(
+        mem_total_gib=10.8, mem_free_gib=2.2, mem_available_gib=2.2,
+        swap_total_gib=12.0, swap_free_gib=10.8,
+    )
+    result = rg.compute_swap_assisted_headroom_bytes(mi, max_swap_usage_bytes=0)
+    assert result == 0
+
+
+def test_compute_swap_assisted_headroom_no_swap_configured_is_zero():
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=2.2, mem_available_gib=2.2)
+    result = rg.compute_swap_assisted_headroom_bytes(mi, max_swap_usage_bytes=768 * MIB)
+    assert result == 0
+
+
+def test_compute_swap_assisted_headroom_is_pure_no_side_effects():
+    mi = meminfo_bytes(
+        mem_total_gib=10.8, mem_free_gib=2.2, mem_available_gib=2.2,
+        swap_total_gib=12.0, swap_free_gib=10.8,
+    )
+    mi_copy = dict(mi)
+    rg.compute_swap_assisted_headroom_bytes(mi, max_swap_usage_bytes=768 * MIB)
+    assert mi == mi_copy
+
+
+def test_compute_swap_assisted_headroom_not_wired_into_can_admit():
+    # Sub-task B builds this function standalone only — can_admit() must not
+    # reference SwapFree/swap at all yet (that's sub-task C2).
+    import inspect
+
+    src = inspect.getsource(rg.can_admit)
+    assert "SwapFree" not in src
+    assert "compute_swap_assisted_headroom_bytes" not in src
+
+
+# ── TODO.md 7.4a sub-task C1: MAX_CONCURRENT_MODEL_BUDGET_BYTES ─────────────
+
+# Real, exact bytes from TODO.md 7.4a's own derivation — used directly
+# (not re-derived here) so these tests pin the actual documented numbers.
+_SEVENB_COST_BYTES = 6_830_557_184
+_ONE_POINT_FIVEB_COST_BYTES = 2_325_280_320
+_EMBED_COST_BYTES = 352_563_303
+
+
+def test_max_concurrent_model_budget_bytes_value():
+    assert rg.MAX_CONCURRENT_MODEL_BUDGET_BYTES == 9_556_302_233
+
+
+def test_three_model_concurrent_case_is_admissible_new133_regression(tmp_path):
+    # NEW-133's exact regression case: the full 3-model-concurrent scenario
+    # this ceiling was derived from must itself be ADMISSIBLE, not refused
+    # by a rounding error (the failure mode the 8.80GiB->8.90GiB correction
+    # fixed). Two slots pre-registered (7B + 1.5B), candidate is the embed
+    # model — sum of all three equals the raw 9,508,400,807-byte sum, well
+    # under the 9,556,302,233-byte ceiling.
+    rg.register_slot("primary", cost_bytes=_SEVENB_COST_BYTES, state_dir=tmp_path, status=rg.SLOT_STATUS_RESIDENT)
+    rg.register_slot("planner", cost_bytes=_ONE_POINT_FIVEB_COST_BYTES, state_dir=tmp_path, status=rg.SLOT_STATUS_RESIDENT)
+
+    embed_spec = rg.ModelSpec(model_id="embed", size_bytes=_EMBED_COST_BYTES, n_ctx=2048, compute_overhead_bytes=0)
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=5.0, mem_available_gib=5.0)
+    decision, slot_id = rg.reserve_slot(embed_spec, meminfo=mi, read_temp_fn=NO_THERMAL, state_dir=tmp_path)
+    assert decision.admitted is True
+    assert decision.budget_ceiling_exceeded is False
+    assert slot_id is not None
+
+
+def test_can_admit_denies_over_ceiling_with_retryable_not_hard_reject():
+    spec = rg.ModelSpec(model_id="x", size_bytes=1 * GIB, n_ctx=1024, compute_overhead_bytes=0)
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=8.0, mem_available_gib=8.0)
+    already_committed = rg.MAX_CONCURRENT_MODEL_BUDGET_BYTES - int(0.5 * GIB)
+    decision = rg.can_admit(
+        spec, meminfo=mi, read_temp_fn=NO_THERMAL, concurrent_committed_bytes=already_committed
+    )
+    assert decision.admitted is False
+    assert decision.hard_reject is False
+    assert decision.budget_ceiling_exceeded is True
+    assert "budget" in decision.reason.lower()
+
+
+def test_can_admit_exactly_at_ceiling_admits():
+    # Boundary: committed + cost == ceiling exactly must ADMIT (the check is
+    # a strict `>`, not `>=`).
+    spec = rg.ModelSpec(model_id="x", size_bytes=1 * GIB, n_ctx=1024, compute_overhead_bytes=0)
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=8.0, mem_available_gib=8.0)
+    already_committed = rg.MAX_CONCURRENT_MODEL_BUDGET_BYTES - int(1 * GIB)
+    decision = rg.can_admit(
+        spec, meminfo=mi, read_temp_fn=NO_THERMAL, concurrent_committed_bytes=already_committed
+    )
+    assert decision.admitted is True
+    assert decision.budget_ceiling_exceeded is False
+
+
+def test_can_admit_one_byte_over_ceiling_denies():
+    spec = rg.ModelSpec(model_id="x", size_bytes=1 * GIB, n_ctx=1024, compute_overhead_bytes=0)
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=8.0, mem_available_gib=8.0)
+    already_committed = rg.MAX_CONCURRENT_MODEL_BUDGET_BYTES - int(1 * GIB) + 1
+    decision = rg.can_admit(
+        spec, meminfo=mi, read_temp_fn=NO_THERMAL, concurrent_committed_bytes=already_committed
+    )
+    assert decision.admitted is False
+    assert decision.budget_ceiling_exceeded is True
+
+
+def test_can_admit_budget_ceiling_checked_before_headroom_and_thermal():
+    # A load that would ALSO fail the headroom check (tiny MemAvailable)
+    # must still report the budget-ceiling reason, not the headroom reason,
+    # confirming the new check runs before the pre-existing ones (per
+    # TODO.md 7.4a's explicit scoped ordering).
+    spec = rg.ModelSpec(model_id="x", size_bytes=1 * GIB, n_ctx=1024, compute_overhead_bytes=0)
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=0.01, mem_available_gib=0.01)
+    already_committed = rg.MAX_CONCURRENT_MODEL_BUDGET_BYTES
+    decision = rg.can_admit(
+        spec, meminfo=mi, read_temp_fn=NO_THERMAL, concurrent_committed_bytes=already_committed
+    )
+    assert decision.admitted is False
+    assert decision.budget_ceiling_exceeded is True
+    assert "budget" in decision.reason.lower()
+
+
+def test_can_admit_hard_reject_still_takes_priority_over_budget_ceiling():
+    # A model whose own cost alone exceeds the device ceiling must still
+    # report hard_reject=True (unaffected by this new check, which is only
+    # evaluated once hard_reject has already been ruled out).
+    spec = rg.ModelSpec(model_id="huge", size_bytes=50 * GIB, n_ctx=4096)
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=8.0, mem_available_gib=8.0)
+    decision = rg.can_admit(spec, meminfo=mi, read_temp_fn=NO_THERMAL, concurrent_committed_bytes=0)
+    assert decision.admitted is False
+    assert decision.hard_reject is True
+    assert decision.budget_ceiling_exceeded is False
+
+
+def test_can_admit_default_concurrent_committed_bytes_is_zero_unaffected():
+    # Every unmodified call site (not passing concurrent_committed_bytes at
+    # all) must be byte-for-byte unaffected — a real budget of 0 never
+    # trips this check.
+    spec = rg.ModelSpec(model_id="x", size_bytes=1 * GIB, n_ctx=1024, compute_overhead_bytes=0)
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=8.0, mem_available_gib=8.0)
+    decision = rg.can_admit(spec, meminfo=mi, read_temp_fn=NO_THERMAL)
+    assert decision.admitted is True
+    assert decision.budget_ceiling_exceeded is False
+
+
+def test_sum_committed_bytes_includes_pending_and_resident():
+    slots = [
+        {"cost_bytes": 1 * GIB, "status": rg.SLOT_STATUS_PENDING},
+        {"cost_bytes": 2 * GIB, "status": rg.SLOT_STATUS_RESIDENT},
+        {"cost_bytes": 3 * GIB},  # missing status entirely — still counted
+    ]
+    assert rg._sum_committed_bytes(slots) == 6 * GIB
+
+
+def test_total_committed_bytes_includes_both_pending_and_resident(tmp_path):
+    pending_id = rg.register_slot("pending-model", cost_bytes=2 * GIB, state_dir=tmp_path)
+    resident_id = rg.register_slot("resident-model", cost_bytes=3 * GIB, state_dir=tmp_path)
+    rg.mark_resident(resident_id, state_dir=tmp_path)
+
+    # Deliberately the OPPOSITE of total_reserved_bytes()'s PENDING-only
+    # result for the same two slots (see
+    # test_total_reserved_bytes_excludes_resident_slots above): this sums
+    # both.
+    assert rg.total_committed_bytes(state_dir=tmp_path) == 5 * GIB
+    assert rg.total_reserved_bytes(state_dir=tmp_path) == 2 * GIB
+
+    rg.release_slot(pending_id, state_dir=tmp_path)
+    rg.release_slot(resident_id, state_dir=tmp_path)
+
+
+def test_reserve_slot_uses_real_committed_sum_from_state_store_two_prior_slots(tmp_path):
+    # Exercises the locking-correctness claim in reserve_slot()'s own
+    # docstring: two slots already registered (one PENDING, one RESIDENT)
+    # directly through reserve_slot()/register_slot(), then a third
+    # reserve_slot() call that should be denied purely because the
+    # cumulative sum (computed INSIDE reserve_slot()'s own lock, not a
+    # hand-fed can_admit() parameter) now exceeds the ceiling.
+    slot_a_cost = rg.MAX_CONCURRENT_MODEL_BUDGET_BYTES - int(1.5 * GIB)
+    slot_b_cost = int(1 * GIB)
+    rg.register_slot("a", cost_bytes=slot_a_cost, state_dir=tmp_path, status=rg.SLOT_STATUS_RESIDENT)
+    rg.register_slot("b", cost_bytes=slot_b_cost, state_dir=tmp_path, status=rg.SLOT_STATUS_PENDING)
+    # Committed so far: ceiling - 0.5GiB. A candidate costing 1GiB pushes
+    # the sum 0.5GiB over the ceiling.
+    candidate = rg.ModelSpec(model_id="c", size_bytes=1 * GIB, n_ctx=1024, compute_overhead_bytes=0)
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=8.0, mem_available_gib=8.0)
+    decision, slot_id = rg.reserve_slot(candidate, meminfo=mi, read_temp_fn=NO_THERMAL, state_dir=tmp_path)
+    assert decision.admitted is False
+    assert decision.budget_ceiling_exceeded is True
+    assert slot_id is None
+    assert rg.list_slots(state_dir=tmp_path) == [
+        s for s in rg.list_slots(state_dir=tmp_path) if s["model_id"] in ("a", "b")
+    ]
+
+
+def test_reserve_slot_admits_when_committed_sum_stays_under_ceiling(tmp_path):
+    slot_a_cost = rg.MAX_CONCURRENT_MODEL_BUDGET_BYTES - int(2 * GIB)
+    rg.register_slot("a", cost_bytes=slot_a_cost, state_dir=tmp_path, status=rg.SLOT_STATUS_RESIDENT)
+    candidate = rg.ModelSpec(model_id="c", size_bytes=1 * GIB, n_ctx=1024, compute_overhead_bytes=0)
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=8.0, mem_available_gib=8.0)
+    decision, slot_id = rg.reserve_slot(candidate, meminfo=mi, read_temp_fn=NO_THERMAL, state_dir=tmp_path)
+    assert decision.admitted is True
+    assert decision.budget_ceiling_exceeded is False
+    assert slot_id is not None

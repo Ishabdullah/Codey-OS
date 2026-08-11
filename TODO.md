@@ -97,6 +97,213 @@ Everything else below depends on this existing. Nothing here is started.
       once succeeded). See `U.32`/`U.33`/`U.34` below for these as
       tracked follow-ups.
 
+      **Scoping pass, 2026-08-11 (project-architect, desk-only, no code
+      changed, no live model load run — one pure-arithmetic cost-estimate
+      call against real `/proc/meminfo`, no spawn).** Assessment of what's
+      actually left, since a prior round's framing (from Phase 4.1
+      sub-task D's live-verification, a *different* task's test) implied
+      the primary model's load-through-gate-then-unload cycle was wholly
+      unverified — that framing is corrected here, not accepted at face
+      value (`NEW-130`).
+      - **Code-complete, all five sub-tasks**: unchanged from above — true
+        since 2026-08-09, code-reviewer-approved.
+      - **Live-verified, primary role's gate *mechanism***: round 18
+        (`aa18b7a`, 2026-08-09) really admitted, spawned, and later really
+        released (via a real `release_model_slot` request, not a mock) a
+        real, resident `"primary"`-role slot — confirmed by `NEW-104`'s
+        PID-level evidence. `WORK_QUEUE.md`'s 7.3 sub-task E note wrongly
+        claimed the opposite; corrected there, 2026-08-11, per rule 6.
+      - **NOT live-verified**: the real production model
+        (`~/models/qwen2.5-coder-7b/qwen2.5-coder-7b-instruct-q4_k_m.gguf`)
+        at the real production default `n_ctx` (32768) has never actually
+        been spawned through the gate — round 18 used a substitute
+        (Qwen3-4B) at a test-only `n_ctx=2048`, because at the time no
+        smaller-real-footprint substitute was thought to admit at
+        production `n_ctx` at all. **This is not a dead end, but it's
+        tighter than it first looks**: a desk-only cost-estimate call
+        this round (`NEW-131`,
+        `core/resource_gate.estimate_model_load_cost()`/`can_admit()`
+        against the real file and a real live `/proc/meminfo` read, no
+        spawn) found the real 7B at `n_ctx=32768` is `hard_reject=False`
+        — estimated cost 6830557184 bytes (~6514MiB) is only 136MiB
+        (~2.1%) under this device's device_ceiling_bytes 6973872537
+        (~6650MiB), not "comfortably" under it. It was denied just now
+        by the separate *budget check* (transient headroom: 5845012480
+        bytes/~5574MiB available at calculation time, needs ~8143MiB/
+        ~7.95GiB with the 1.25x margin). **Historical-peak check (desk
+        grep of `PROJECT_LOG.md`, no new live run)**: the highest
+        `MemAvailable` this project's own live-test history has ever
+        recorded is ~7.6GiB (round 13, daemon-only post-teardown state,
+        `plannd` not running) — ~350MiB short of the ~7.95GiB this
+        specific config needs. No historical capture has ever reached
+        the bar. This doesn't prove the pass below is unreachable (that
+        7.6GiB reading wasn't a maximally-clean boot state, and the
+        estimate above used the optimistic `reserved_bytes=0` — a
+        resident embed server's slot would subtract further), but a
+        denial on the pass below would be consistent with this device's
+        entire history, not a surprise or a sign of a broken gate.
+      - **This is a live-verification-only gap, not unbuilt scope** — no
+        new code is needed to attempt it, `CODEY_N_CTX` just needs to
+        stay unset (the 32768 default) for this one test, unlike every
+        prior live-test round. But given the historical-peak check above,
+        **a denial result should be treated as informative, not as
+        "the gap is now closed"** — only a genuine admission (or a
+        denial whose margin, in real bytes, is captured and compared
+        against this note's numbers) actually closes it; a denial with
+        no numbers recorded would not.
+      - **Scoped next action for live-verifier**: on a **daemon-only
+        harness** (`NEW-121` notes `codeydOS start` currently always
+        launches `plannd` alongside the daemon — start the daemon process
+        directly, or kill `plannd` by tracked PID immediately after, per
+        round 18's own precedent for reaching `can_admit()` at all), with
+        `CODEY_N_CTX` unset:
+        1. `free -h` before anything (rule 2), record verbatim.
+        2. Confirm no `llama-server`/`plannd` process resident:
+           `ps aux | grep llama-server` showing only the grep.
+        3. Start the daemon only; let its startup preload attempt to load
+           the real primary model at `n_ctx=32768` through `can_admit()`.
+        4. Record the actual `GateDecision` verbatim (admitted or not,
+           and the exact byte figures in the `reason` string) — a denial
+           on headroom is a valid, informative result, NOT a failed test,
+           but it must include the real numbers (not just "denied") to
+           be comparable against this note's historical-peak figures; if
+           admitted, confirm exactly one resident `"primary"` slot, cost
+           matching the estimate above, and that
+           `confirm_resident_and_mark_slot()` behaves as it did in round
+           18 (`NEW-105` — may fall through to its fallback again; that's
+           already known, not a new failure to chase).
+        5. If admitted: request `release_model_slot` for `"primary"` (via
+           a second CLI process attempting its own load, matching round
+           18's Stage 2 pattern, or a direct daemon socket command) and
+           confirm the release actually happens — `list_slots()` empty,
+           `ps aux | grep llama-server` showing only the grep, `free -h`
+           after showing RAM actually returned.
+        6. `free -h` after full teardown (rule 2), record verbatim.
+        7. Log the real numbers to `PROJECT_LOG.md`/this entry regardless
+           of outcome — a denial with real numbers closes this gap just
+           as usefully as an admission would, since the open question is
+           "does the real config get a fair shot at the gate," not
+           "does it always succeed."
+      - **Not in scope for this live-verification pass, and not blocking
+        it**: `NEW-129`'s `temp_critical` sharing between `can_admit()`
+        and `should_trip_shutdown()` — that only matters for testing the
+        *autonomous shutdown tripwire's* slot-release guarantee for the
+        primary model (Phase 4.1's item, not 7.4's), and this pass
+        doesn't need to touch `temp_critical` at all. `NEW-104`
+        (pid/port slot binding) and `NEW-105` (confirm-poll never firing)
+        are known, non-blocking, accounting-only gaps — expect to see
+        both again in this pass; don't treat either as a new failure.
+      - **Sharper flag to Ish, not resolved here** (per `NEW-131`): the
+        shipped default `n_ctx=32768` requires ~7.95GiB of
+        `MemAvailable` to pass the gate's own budget check on this
+        10GiB device — a bar this project's entire live-test history has
+        never once reached (highest ever recorded: ~7.6GiB, round 13).
+        Is 32768 the right production default for this device, or should
+        the production default itself come down (with `CODEY_N_CTX`
+        remaining the override mechanism it already is)? This directly
+        conditions 7.3 sub-task E's tier thresholds and whether "closed"
+        for 7.4 should mean "the mechanism works and the config is
+        admissible in principle" (already true) or "the shipped default
+        actually loads on this device in normal conditions" (still
+        genuinely open) — a product decision, not an implementation
+        detail, not guessed at here.
+      - **Diagnostic follow-up to `NEW-131`, 2026-08-11 (read-only, no
+        model load, per Ish's explicit request before deciding on
+        `n_ctx`): investigated *why* `MemAvailable` never reaches
+        7.95GiB on this device, rather than assuming it's a hard
+        ceiling.** Verbatim `free -h` baseline (fresh capture, no model
+        loaded):
+        ```
+                       total        used        free      shared  buff/cache   available
+        Mem:            10Gi       5.2Gi       1.2Gi        55Mi       4.4Gi       5.3Gi
+        Swap:           11Gi       2.3Gi       9.7Gi
+        ```
+        Repeated ~1 min later (same idle state): `available` 5.4Gi,
+        `Swap` used 2.4Gi/free 9.6Gi — stable, not actively draining or
+        recovering. **Correction to the "Termux/Android often has zero
+        swap" assumption this follow-up was scoped to test**: this
+        device *does* have swap, and it's already in active use. `/proc/
+        meminfo` shows `SwapTotal: 12582908 kB` (~12GiB) backed by
+        `/sys/block/zram0` (`disksize` 12884901888 bytes = 12GiB;
+        `mm_stat`: ~2.48GiB of logical data compressed into ~608MiB of
+        physical RAM, roughly 4:1) — Samsung's zram, already holding
+        2.3-2.4GiB of swapped-out pages at idle. `getprop` confirms
+        Samsung's own low-memory-killer config (`ro.slmk.swap_free_low_
+        percentage`), consistent with a real, actively-managed swap
+        subsystem, not an absent one.
+        **But this doesn't move the needle on the gate's check, because
+        `MemAvailable` structurally excludes swap** — it's the kernel's
+        estimate of memory obtainable *without* swapping (free pages +
+        reclaimable cache, watermark-adjusted), and `SwapFree` never
+        enters that formula. Verified against this capture's own
+        `/proc/meminfo`: `MemFree 1244408` + `Cached 4176184` +
+        `SReclaimable 471532` ≈ 5.89GiB, roughly matching the reported
+        `MemAvailable: 5573052` kB (~5.57GiB) once the kernel's
+        watermark reserve is subtracted — `SwapFree`'s 10.1GiB literally
+        does not appear in the sum. **So "add swap" is a non-lever
+        twice over: swap already exists at ~12GiB capacity, and even if
+        more were added it would not raise `MemAvailable` by itself.**
+        Doing the ceiling arithmetic from this same capture: `MemTotal`
+        11350704 kB (~10.82GiB) minus what's structurally non-reclaimable
+        right now (`AnonPages` 3051092 + `SUnreclaim` 608436 +
+        `PageTables` 247884 + `KernelStack` 122488 + `Unevictable`
+        207808 ≈ 4.24GiB) puts a theoretical ceiling around ~6.6GiB *at
+        this snapshot's anon load* — below both the historical 7.6GiB
+        peak and the gate's 7.95GiB bar. Reaching 7.95GiB would require
+        Android's total anon footprint to drop under ~2.8GiB from
+        today's ~3.05GiB; this is one snapshot's ceiling, not a swept
+        maximum, since anon load varies with whatever Android is
+        holding resident at the time.
+        **No reclaimable Codey-OS-side hogs found.** `ps aux --sort=-
+        %mem | head -30` verbatim (top of list only; full session-only
+        process view, see below):
+        ```
+        USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+        u0_a247  23783  6.5  3.5 6776016 404764 pts/0  Sl+   1970   6:50 ld.so .../claude-code-linux-arm64/claude --resume
+        u0_a247  23776  0.0  0.2 13604388 33136 ?      Ssl   1970   0:05 node .../proxy.cjs ...
+        u0_a247  23234  0.0  0.0 13440740 9476 pts/0   Sl+   1970   0:00 node .../claude --resume
+        ```
+        (remaining rows are this shell/`ps`/`head` invocation itself).
+        A targeted search (`ps aux | grep -iE "llama-server|main\.py|
+        daemon|codey"`) returned zero matches — no stray/orphaned
+        `llama-server`, `main.py`, or daemon processes left resident
+        from past sessions. The only meaningful resident memory visible
+        to Termux is this very live-verifier session's own `claude`
+        CLI process (~405MiB RSS) plus its proxy (~33MiB) — not
+        something reclaimable without ending the session doing the
+        investigating.
+        **Android/OS-level memory is structurally invisible from
+        Termux, not just unexamined**: `id` returns
+        `uid=10247(u0_a247) ... context=u:r:untrusted_app_27:s0:...` —
+        a sandboxed app UID, and `ps aux` only ever showed processes
+        under that same UID (confirmed above), consistent with
+        Android's per-app process isolation. `swapon`/`dumpsys` are
+        both absent from Termux's PATH and `/proc/swaps` returned
+        `Permission denied` — there is no available tool, rooted or
+        not, to inspect what other Android apps/system services are
+        holding resident. The ~5.2GiB `used` in the `free -h` baseline
+        above is therefore mostly *not* attributable to anything
+        Codey-OS or Termux itself controls or can see.
+        **Verdict**: this is closer to a real, mostly-fixed OS-level
+        ceiling than a reclaimable-headroom problem — no stray
+        processes to kill, no missing swap to add (it already exists
+        and isn't the limiting factor for this specific metric), and no
+        visibility into whatever Android itself is holding. The one
+        genuinely open, not-yet-decided question this surfaces (outside
+        this task's scope to resolve, flagging rather than fixing per
+        CLAUDE.md rule 8 — may warrant its own `NEW_ISSUES.md` entry):
+        `NEW-21`'s own history shows real loads on this device
+        *succeed* by swapping (baseline 4.3Gi used/2.2Gi free, single
+        load drove swap 1.2Gi→5.6Gi in ~10s) — meaning the gate's
+        `MemAvailable`-only budget check is gating on a metric that
+        structurally cannot see the swap capacity the workload actually
+        relies on. That reframes the option set beyond "lower `n_ctx`
+        vs. find more free RAM": it may also be "is `MemAvailable` the
+        right signal at all for this gate, or should the budget check
+        incorporate `SwapFree`/zram capacity instead/in addition." Not
+        decided here — still Ish's call, now with real numbers instead
+        of a guess.
+
       Build the resource gate + slot-aware loader, per
       `CODEY_OS_MASTER_VISION.md` Section 7.4's 2026-08-08 amendment:
       **no fixed concurrency ceiling** — the gate admits as many
@@ -437,6 +644,602 @@ Everything else below depends on this existing. Nothing here is started.
          testing is queued separately in `LIVE_TEST_QUEUE.md`, not claimed
          done here). Still needs its mandatory `code-reviewer` pass before
          commit (CLAUDE.md rule 4 — process-lifecycle-adjacent CLI code).
+
+- [ ] 7.4a (WQ Track 3 item 1b, new item spun off 7.4's own closing
+      question, 2026-08-11) — **Swap-aware resource-gate budget check.**
+      Ish's direct decision (2026-08-11): redesign `can_admit()`'s budget
+      check to account for zram/swap capacity, not `MemAvailable` alone —
+      see `TODO.md` 7.4's own diagnostic follow-up entry above (the
+      `MemAvailable`-structurally-excludes-swap finding) and `NEW-21` for
+      the originating evidence. Scoped as its own item, not folded into
+      7.4: all five of 7.4's sub-tasks are code-complete and
+      code-reviewer-approved already, and reopening that scope would blur
+      the code-complete/live-verified distinction rule 7 requires; this
+      item resolves 7.4's own dangling closing question ("is
+      `MemAvailable` the right signal at all for this gate"), so treat it
+      as that question's answer, cross-referenced both ways, not a
+      duplicate. **7.4's own pending live-verification pass (the real 7B
+      at `n_ctx=32768` through the gate) is now sequenced behind sub-task
+      C below** — running it before C would just re-confirm the same
+      `MemAvailable`-only denial already captured in 7.4's notes.
+
+      **Scoping correction to the mandate itself, before any sub-task
+      detail — read this first**: `NEW-21` is real evidence that a load
+      can *complete its spawn* while swapping (RSS squeezed 5.6GB→1.26GB
+      as swap climbed 1.2Gi→5.6Gi in ~10s), but it does NOT show that
+      loads *work* under swap — no inference request ever reached that
+      server that run (independently confirmed in `NEW-21`'s own text),
+      so post-swap performance/stability is unmeasured, n=1, from an
+      otherwise-inconclusive round. This justifies building the
+      *mechanism* (a swap-aware secondary check) — it does not yet
+      justify any specific threshold. Any threshold proposed below is a
+      first, un-calibrated default in the same spirit as
+      `REQUIRED_HEADROOM_FACTOR`/`DEVICE_CEILING_USABLE_FRACTION`, not a
+      value derived from a controlled measurement — sub-task E's live
+      pass is what's actually supposed to produce that measurement (real
+      inference latency under a swap-assisted admission, not just "did it
+      spawn").
+
+      **zram-specific risk, not previously considered and worth flagging
+      up front**: zram is a compressed block device living *inside*
+      `MemTotal`, not extra capacity outside it — swapping to it buys
+      compression ratio, not new memory, and costs CPU to compress/
+      decompress. The ~4:1 ratio observed in 7.4's diagnostic capture
+      (`mm_stat`: ~2.48GiB logical → ~608MiB physical) was measured on
+      ordinary Android app anon pages at idle, not on model weights.
+      Quantized (Q4_K_M) model weights are already high-entropy,
+      compressed data — the same 4:1 ratio may not hold for them at all
+      (closer to 1:1 is plausible, meaning swapping model pages to zram
+      buys much less headroom than the ratio above would suggest, while
+      still costing CPU). **This is unverified — sub-task E's live pass
+      should capture the actual in-model-load compression ratio via
+      `/sys/block/zram0/mm_stat` sampled during the load, not assume the
+      idle-anon-page ratio carries over.** Until measured, do not treat
+      `SwapTotal`/`SwapFree` capacity as 1:1 usable headroom.
+
+      **Device-grounded constant available, not previously in this
+      project's docs**: `getprop ro.slmk.swap_free_low_percentage` on
+      this device reads `10` — Samsung's own low-memory-killer (`slmk`)
+      config kills processes once `SwapFree` drops below 10% of
+      `SwapTotal` (≈1.2GiB at this device's ~12GiB `SwapTotal`). This is
+      a real, device-sourced floor (not a guessed constant) that any
+      swap-budget check must stay above — the swap-budget check's
+      permitted-swap-usage ceiling should be derived from this, not
+      picked independently. (`ro.slmk.2nd.swap_free_low_percentage` also
+      reads `10` — same value on this device's secondary profile, for
+      what that's worth; not further investigated.)
+
+      **Hard invariant, must not be relaxed by this work**:
+      `compute_device_ceiling_bytes()` (the absolute hard-reject check,
+      derived from `MemTotal` only) must NEVER have swap/zram capacity
+      added into its basis. Swap softens the *budget* check only — a
+      single model that alone exceeds the device's usable physical-RAM
+      ceiling stays permanently non-admissible regardless of swap, per
+      the 2026-08-08 amendment's one remaining non-negotiable rule (see
+      this module's own docstring, lines 27-29). State this explicitly in
+      each sub-task's code review so no implementer "improves" the
+      ceiling check by folding swap in.
+
+      **Sub-tasks A/B/C1: done, code-reviewer-approved (three rounds —
+      see below), uncommitted as of this writing.** C2/D/E unblocked as
+      of Ish's 2026-08-11 decisions below, sequenced C2 → D → E since D
+      needs both new `GateDecision` fields settled and E needs D done.
+      A/B landed clean on the first pass. C1's implementation surfaced a
+      real, pre-existing bug that this project's mandatory-review
+      pipeline (CLAUDE.md rule 4) was specifically built to catch:
+      C1's new `_sum_committed_bytes()` sums PENDING+RESIDENT slots
+      (correct per spec), which activated a previously-dormant gap —
+      `core/loader_v2.py`'s `load_primary()` and
+      `core/planner_loader.py`'s `load()` both called `reserve_slot()`
+      without ever rebinding the slot's `pid` to the real spawned
+      subprocess PID, so `reserve_slot()`'s own dead-PID reap filter
+      kept checking the long-lived loader's own PID forever — a crashed
+      model left a permanent ~6.83GiB ghost slot that could never be
+      reaped, and the very next reload attempt was denied by C1's own
+      budget ceiling (ghost + candidate > 8.90GiB), with nothing in the
+      crash-retry path able to recover. Fixed by adding an optional
+      `pid` kwarg to `mark_resident()`, rebinding the slot's real PID
+      inside the same lock as its PENDING→RESIDENT transition, forwarded
+      from both loaders' spawned-branch call sites — this closes
+      `NEW-81` (marked resolved). A second review pass caught that the
+      fix broke an existing test (`FakeServerSpawned`'s hardcoded
+      `pid=12345` fixture wasn't actually alive, so the now-honored
+      real-PID reap logic correctly reaped it mid-test) — fixed by using
+      `os.getpid()` instead, with the same pattern checked and ruled out
+      elsewhere in the test suite. Third pass: **APPROVED**, full suite
+      691 passed, 1 skipped, 0 failures, verified live by the reviewer
+      independently. `NEW-134` logged (not fixed): a slot leaked during
+      the PENDING window, before `mark_resident(pid=...)` ever runs, is
+      still attributed to the loader's own PID and isn't
+      liveness-reapable in that narrower window — post-C1 this now
+      permanently consumes fixed-ceiling budget rather than just
+      skewing a self-healing `MemAvailable`-relative figure; cross-
+      references `NEW-82`/`NEW-114`. **Live-verification deliberately
+      deferred to sub-task E** (Ish's call, 2026-08-11): A/B/C1 don't
+      themselves change dispatch behavior yet (C2 is the actual
+      swap-awareness wiring point), so live-verifying config/logic-only
+      code ahead of the real integration point was judged premature —
+      E already owns the full live model-load verification once C2/D
+      land.
+      - **A — swap signal sourcing only, no admission behavior change.**
+        `read_meminfo()` (`core/resource_gate.py:72`) already parses and
+        returns `SwapTotal`/`SwapFree` in bytes (line 103) — this part of
+        the signal is already present with zero plumbing needed. What's
+        actually missing: (1) a `read_zram_stats()` helper reading
+        `/sys/block/zram0/mm_stat` (injectable path, matching
+        `read_meminfo()`'s own convention), returning `None` on a
+        non-Android host or absent device rather than raising — mirrors
+        `read_current_temp_c()`'s fail-soft posture, since this needs to
+        stay import-safe/test-safe off-device; (2) add `swap_total_bytes`/
+        `swap_free_bytes`/`zram_compression_ratio` (or `None`) fields to
+        `ResourceSnapshot` so `can_dispatch_task()` and any future caller
+        can see swap state without a second signal-sourcing path. No
+        change to `can_admit()`, `estimate_model_load_cost()`, or any
+        `GateDecision`/`DispatchDecision` logic in this sub-task — pure
+        additive signal sourcing, same risk class as 7.4 sub-task A
+        (importing/reading these functions starts nothing, spawns
+        nothing). **No CLAUDE.md rule 4 review required for this
+        sub-task specifically** (no process-lifecycle/admission-behavior
+        change), but still gets code-reviewer's normal lighter pass.
+        **Ready for implementer now, no Ish decision needed** — sets no
+        policy, only sources a signal.
+      - **B — swap-aware budget as a pure, standalone function.** A new
+        function (e.g. `compute_swap_assisted_headroom_bytes()` or
+        similar — implementer's naming call, matching this module's
+        existing naming pattern) taking `meminfo` and an explicit
+        `max_swap_usage_bytes` parameter (NOT a module-level constant
+        blessed as the default in this sub-task — tests pin an explicit
+        value, the real default is Ish's call, see below), and returning
+        the additional headroom a swap-assisted check would allow beyond
+        `compute_headroom_bytes()`'s existing `MemAvailable`-only figure.
+        Not called by `can_admit()` yet — pure function, independently
+        unit-testable with synthetic meminfo dicts. **Pre-registered test
+        case, per this scoping's own math**: feed `NEW-21`'s exact
+        baseline (`MemAvailable` consistent with 4.3Gi used/2.2Gi free,
+        `SwapTotal`~12GiB, `SwapFree` consistent with 1.2Gi already used)
+        into this function and assert what a plausible
+        `max_swap_usage_bytes` default would authorize — write the
+        expected value into the test BEFORE tuning the function to match,
+        not after, so the default isn't silently reverse-engineered to
+        make a specific case pass. **Ready for implementer now, no Ish
+        decision needed** — takes its policy constant as a parameter,
+        doesn't bless a default.
+      - **C1 — the new named cumulative concurrent-model budget ceiling
+        (Ish's direct decision, 2026-08-11 — see "Ish's decisions" block
+        below for the full derivation). Ready for implementer now, no
+        further Ish input needed.** Split out from the swap-aware work
+        (now C2, below) because the two push in opposite directions (C1
+        tightens admission, C2 relaxes it under swap), C1 has zero
+        dependency on sub-tasks A/B, and it is the piece Ish explicitly
+        asked for by name — it should not be stuck waiting on C2/E's
+        swap-calibration timeline.
+        1. Add a new named module-level constant,
+           `MAX_CONCURRENT_MODEL_BUDGET_BYTES = int(8.90 * (1024 ** 3))`
+           (= 9,556,302,233 bytes — **corrected 2026-08-11, see below;
+           this superseded an earlier 8.80GiB value that failed its own
+           purpose, see `NEW-133`**), with a docstring/comment recording
+           the exact derivation (see below) verbatim enough that a future
+           reader can see where 8.90 came from without re-deriving it,
+           and stating explicitly: this is device-derived from *this*
+           device's real on-disk model files at n_ctx=32768 on ~10.8GiB
+           `MemTotal` — it must be **recomputed** (via
+           `estimate_model_load_cost()` against the real files on that
+           device), not linearly scaled, if this code ever runs on
+           different hardware. Also state explicitly that 8.90GiB /
+           10.8GiB ≈ 0.82 being well above `DEVICE_CEILING_USABLE_FRACTION`
+           (0.60) is intentional and must not be "reconciled" toward it —
+           these are two different concepts (one model's absolute
+           physical-RAM ceiling vs. a fixed cap on the sum of ALL
+           concurrently-declared model costs), same distinction the task
+           brief drew. **Also state the embed-floor caveat in the same
+           comment**: the raw sum this ceiling is built from includes the
+           embed model's cost as a floor estimate only (file + fixed
+           overhead, no computable KV-cache term — see sub-item 7 below)
+           — if sub-task E's live pass, or any future
+           `estimate_model_load_cost()` change, measures the embed
+           model's real resident cost above that floor by more than this
+           constant's ~45.7MiB margin over the raw sum, the three-model-
+           concurrent case this ceiling was built to admit could become
+           inadmissible again, the same failure mode `NEW-133` found —
+           re-check this constant against the real embed cost at that
+           point rather than assuming the margin still holds.
+        2. Add a new function alongside `total_reserved_bytes()` (matching
+           its shape and its `state_dir`/`reap_dead` parameters) that sums
+           `cost_bytes` across **every** live, non-dead slot regardless of
+           `SLOT_STATUS_PENDING`/`SLOT_STATUS_RESIDENT` — deliberately the
+           opposite filter from `total_reserved_bytes()`, because this is
+           a *declared-cost policy sum* against a fixed named ceiling, not
+           a live-`MemAvailable`-double-counting guard (`total_reserved_bytes()`'s
+           PENDING-only filter exists specifically to avoid double-counting
+           against a fresh meminfo read — this new check never touches
+           meminfo at all, so that concern doesn't apply here). Document
+           that this assumes every slot in the store carries a real
+           `cost_bytes` — confirmed true for `reserve_slot()`'s own writes
+           (`core/resource_gate.py:1820`, `"cost_bytes":
+           decision.estimated_cost_bytes`, always populated) and
+           positionally required (no default) by `register_slot()`'s own
+           signature — but if some future caller ever calls
+           `register_slot()` with `cost_bytes=0` this sum silently
+           undercounts and the ceiling fails open; call this out in the
+           function's docstring rather than adding new defensive code
+           this task didn't ask for.
+        3. **Critical wiring detail — read before implementing, this is
+           the difference between a correct check and a self-race**:
+           `can_admit()` itself must take the sum as a caller-precomputed
+           parameter (e.g. `concurrent_committed_bytes: int = 0`), same
+           convention as the existing `reserved_bytes` parameter, keeping
+           `can_admit()` free of any direct state-store I/O and fully
+           synthetic-test-able. **But `reserve_slot()` — the actual
+           cross-process entry point (`core/resource_gate.py:1722`) —
+           must compute this new sum itself, inside its own existing
+           `with _LockedState(state_dir) as slots:` block (line ~1789),
+           in the same place it already computes `reserved` (PENDING-only,
+           line ~1797), and pass both down into its own `can_admit()`
+           call.** `reserve_slot()`'s whole documented purpose is closing
+           the TOCTOU window between "is there room" and "write my
+           reservation" by holding the lock for the entire read-check-write
+           sequence (see its own docstring) — computing the new
+           PENDING+RESIDENT sum *outside* that lock (e.g. in a separate
+           caller-side helper call before `reserve_slot()`) reopens
+           exactly that race for this new check: two concurrent callers
+           could each read a stale sub-8.90GiB total and both admit,
+           together exceeding it. Any other caller of `can_admit()`
+           directly (not through `reserve_slot()`) that wants this check
+           enforced is responsible for computing its own consistent
+           snapshot the same way — document this explicitly rather than
+           leaving it implicit.
+        4. **Say explicitly which call sites pass the real sum this
+           sub-task, and which stay at the `0` default until D.** With
+           `concurrent_committed_bytes` defaulting to `0`, every
+           unmodified call site is unaffected (a real budget of `0` never
+           trips the new check) — that is deliberate for callers this
+           sub-task doesn't touch, but must be a stated decision, not an
+           accident: `reserve_slot()` MUST pass the real sum (see item 3)
+           — without that, C1 is "code complete" but the ceiling never
+           actually fires anywhere live, the same failure class
+           `DEVICE_CEILING_USABLE_FRACTION`'s own comment warns against
+           for a ceiling that never fires. `would_model_fit()`
+           (`core/resource_gate.py:1057`) is explicitly deferred to D
+           (below) — do not wire it in C1.
+        5. **Denial classification matters and is not the same as
+           `hard_reject`.** Unlike the single-model ceiling (permanent,
+           can never be satisfied by any device state change), a
+           cumulative-budget denial is recoverable — release/unload
+           another resident model and the same load then passes. Add a
+           new `GateDecision` field (default `False`, e.g.
+           `budget_ceiling_exceeded: bool`) distinct from `hard_reject` so
+           callers can tell them apart. Confirmed by direct code read
+           (`core/loader_v2.py:563-564,640`): the retryable-vs-permanent
+           split is driven entirely by `GateDecision.hard_reject`
+           (`LOAD_OUTCOME_GATE_DENIED_HARD if decision.hard_reject else
+           LOAD_OUTCOME_GATE_DENIED`) — as long as this new check leaves
+           `hard_reject=False`, it maps to the retryable
+           `LOAD_OUTCOME_GATE_DENIED` path automatically, with no
+           `loader_v2.py` change needed. Still grep `hard_reject` and
+           `LOAD_OUTCOME_GATE_DENIED_HARD` across `main.py`,
+           `core/daemon.py`, `core/loader_v2.py` before committing, to
+           confirm no other branch treats "denied, not hard_reject" cases
+           differently in a way this new denial type would trip.
+        6. Before changing `GateDecision`'s shape at all, grep every
+           construction site and every attribute read across `main.py`,
+           `core/daemon.py`, `core/loader_v2.py`, `core/planner_loader.py`
+           (same diligence C2 below also needs) — new fields with
+           defaults are safe for existing positional construction,
+           anything else isn't.
+        7. **Arithmetic correction, resolved 2026-08-11 — `NEW-133`
+           closed.** 7B (6.361GiB) + 1.5B (2.166GiB) + embed (~0.328GiB
+           floor estimate) = **~8.855GiB raw sum** (exact bytes:
+           6,830,557,184 + 2,325,280,320 + 352,563,303 = 9,508,400,807).
+           Ish's original figure, 8.80GiB, was described as "the raw sum
+           minus ~0.06GiB, for a slight safety margin" but was arithmetic-
+           ally *below* the 8.855GiB raw sum by ~0.055GiB — meaning the
+           exact three-model-concurrent scenario the ceiling was derived
+           from would, as specified, itself have been refused by a few
+           tens of MiB once all three were declared resident/pending
+           simultaneously, defeating the stated intent ("make sure the
+           device's own policy is shown to Codey so it never even tries
+           to load a model above that number," Ish's own framing for
+           this constant, quoted in full in the "Ish's decisions" block
+           and `WORK_QUEUE.md`'s item 1b entry below — reads as "the full
+           3-model case should be admissible," not "should be refused by
+           design"). Flagged to Ish (`NEW_ISSUES.md` `NEW-133`);
+           **Ish's answer (2026-08-11, direct): round up slightly instead,
+           so the full 3-model case stays admissible, with any remaining
+           margin-wanting applied elsewhere (the swap-budget check) rather
+           than as a deduction on this ceiling.** Corrected value:
+           **`MAX_CONCURRENT_MODEL_BUDGET_BYTES = 8.90GiB` (9,556,302,233
+           bytes)** — the raw sum rounded up to the next 0.05GiB, giving a
+           positive margin of 47,901,426 bytes (~45.7MiB) *above* the raw
+           sum rather than below it. **Scoping call, not a further Ish
+           round-trip**: no deduction margin belongs on this ceiling at
+           all — it is a declared-cost policy sum, not a live-RAM check,
+           so it is not what protects against OOM (the `MemAvailable ×
+           REQUIRED_HEADROOM_FACTOR` path already does that); whatever
+           conservatism a "safety margin" was meant to buy lives instead
+           in C2's independently-derived, separately-calibrated
+           `MAX_SWAP_ASSIST_BYTES` (768MiB, un-calibrated first default,
+           see the "Ish's decisions" block and the swap-budget derivation
+           below) — not duplicated here. **Caveat that must ship in the
+           constant's own comment (see sub-item 1 above)**: the embed
+           term in the raw sum is a floor estimate (no computable KV-cache
+           term — see decision 2 below), and the ~45.7MiB margin this
+           correction adds could be smaller than that floor's real
+           undercount; if sub-task E's live pass or any future
+           `estimate_model_load_cost()` change measures the embed model's
+           real cost above the floor by more than ~45.7MiB, this constant
+           needs re-derivation, not a bare "it's already fixed" assumption.
+        8. Needs at least one test exercising this check with the
+           cumulative sum non-zero (i.e. simulating another model already
+           declared resident/pending) — with only the primary 7B
+           considered in isolation today, the existing `MemAvailable`
+           check already refuses the planner/embed loads first on this
+           device, so this new ceiling is otherwise dormant in every
+           existing test fixture and would go unexercised by accident.
+           Also test `reserve_slot()`'s own PENDING+RESIDENT sum
+           specifically (item 3 above) with two simulated concurrent
+           slots already registered, not just `can_admit()` in isolation
+           with a hand-fed parameter — the locking-correctness claim in
+           item 3 is only actually exercised by a test that goes through
+           `reserve_slot()` itself.
+        9. **Requires CLAUDE.md rule 4's mandatory code-reviewer pass** —
+           same reasoning as every other sub-task in this item that
+           touches `can_admit()`'s admission math.
+      - **C2 — wire the swap-aware secondary check into `can_admit()`**
+        (depends on A + B, and on C1 landing first — the new
+        `GateDecision` field this needs is added once, alongside C1's,
+        not as a second separate schema change). Only evaluated when the
+        existing `required > headroom` (`MemAvailable ×
+        REQUIRED_HEADROOM_FACTOR`) check would otherwise deny — the
+        existing primary path stays byte-for-byte unchanged on any load
+        that already passes on `MemAvailable` alone. Add a new
+        `GateDecision` field (with a default, e.g.
+        `admitted_via_swap: bool = False`) distinguishing "admitted on
+        RAM" from "admitted on swap budget" in logs/live-verification
+        output — do not silently fold this into the existing `admitted`
+        bool with no way to tell which path fired. **Now unblocked** — see
+        "Ish's decisions" block below for the on-by-default answer and the
+        safe-swap-budget derivation (a project-architect scoping call, not
+        a further Ish round-trip, per this task's own instructions).
+        **New invariant, must not be relaxed**: swap-assisted admission
+        (C2) may only ever override the `required > headroom` denial — it
+        must never be allowed to override C1's cumulative-budget denial.
+        C1's ceiling is meant to stay meaningful even with swap-assisted
+        admission on by default; if C2's check ran first or could
+        substitute for C1, an over-budget concurrent load could talk its
+        way past 8.90GiB via swap, defeating the reason the named
+        constant exists. **Requires CLAUDE.md rule 4's mandatory
+        code-reviewer pass** — this changes whether a model process gets
+        spawned, which is process-lifecycle-adjacent by direct
+        consequence, matching this project's own established precedent
+        (7.4 sub-tasks 2-5 all required it for the same reason).
+      - **D — consistency pass on what C1 and C2 each break elsewhere**,
+        once C1+C2 exist (blocked on both, not parallel with either —
+        needs the real new `GateDecision` shape to fix against):
+        1. `would_model_fit()` (line ~1057) currently returns only
+           `.admitted` — this now has two independent reasons to be
+           imprecise, not one. Under swap-assisted admission (C2) it
+           would silently report "yes it fits" to any future caller
+           (7.3's routing layer, `core/model_tiers.py`, currently under
+           concurrent development — **do not touch that file this
+           round**, D only needs to reason about what `would_model_fit()`
+           itself returns) without distinguishing a swap-assisted "fits"
+           from a comfortable-headroom "fits". Separately, under C1's
+           cumulative ceiling, a "no" caused by "this device's fixed
+           multi-model budget is already spent" is a materially different
+           signal from a "no" caused by "not enough RAM right now" — a
+           router might reasonably retry the first later (once another
+           model unloads) but should treat the second as this candidate
+           model being unsuitable full stop. Needs a decision: does
+           swap-assisted count as "fits" for routing purposes at all, and
+           does a budget-ceiling "no" need its own distinguishable return
+           value, or does this need its own parameter/return shape
+           entirely? (Default absent an explicit call: treat swap-assisted
+           as NOT counting for `would_model_fit()`'s routing use unless a
+           caller explicitly opts in — routing a smaller-model fallback
+           decision onto a thrash-risk load is a different risk profile
+           than the gate's own explicit, single-load admission decision.)
+        2. `can_dispatch_task()`'s `DISPATCH_MIN_HEADROOM_BYTES` (1GiB,
+           checked against `ram_headroom_bytes` only — no swap field
+           exists on `ResourceSnapshot` before sub-task A) will still
+           refuse task dispatch in exactly the memory state the new
+           admission check says yes to. Left unreconciled, a live pass
+           will look like a self-contradicting bug (dispatch refuses,
+           then a direct `can_admit()` call for the same conditions
+           admits) rather than two independently-scoped checks with
+           different purposes. Needs either an explicit note in both
+           functions' docstrings that these are deliberately different
+           checks with different risk tolerances (dispatch = "should the
+           daemon autonomously start new background work", admission =
+           "can this specific model load be allowed") or a swap-aware
+           update to the dispatch floor too — Ish's call, not assumed
+           here.
+        3. `confirm_resident_and_mark_slot()` (`core/loader_v2.py`)
+           confirms a load via a `MemAvailable`-delta poll, and per
+           `NEW-105` has never once actually succeeded in this project's
+           live-test history (falls through to its own "mark resident
+           anyway" fallback every time so far). Under swap-assisted
+           admission, the model's pages go largely to swap by design, so
+           `MemAvailable` will move even less than it already does today
+           — `NEW-105` goes from "known accounting gap, sometimes
+           doesn't fire" to "structurally guaranteed never to fire on
+           this path." Not a blocking bug (the fallback path already
+           exists and is already the observed behavior), but flag this
+           explicitly in the live pass write-up so it isn't mistaken for
+           a new regression.
+      - **E — live verification**, blocked on C1+C2+D. Bar is stricter than
+        7.4's own existing live-verification bar (which only measured
+        whether the process spawned — `NEW-21` already proved that can
+        happen while thrashing):
+        1. `free -h` before anything (rule 2), record verbatim, plus
+           `cat /sys/block/zram0/mm_stat` before the load.
+        2. Confirm no `llama-server`/`plannd` resident (daemon-only
+           harness, per 7.4's own established precedent for reaching
+           `can_admit()` at all on this device).
+        3. Start the load in the swap-assisted-admission configuration,
+           sampling `/proc/meminfo` AND `/sys/block/zram0/mm_stat` at a
+           few-second cadence *during* the load, not just before/after —
+           `NEW-21`'s finding is a **rate** phenomenon (1.2→5.6Gi in
+           ~10s); a before/after pair structurally cannot see it, and
+           this is also how the real model-page compression ratio
+           question above gets answered.
+        4. Track the server's own RSS over time too — `NEW-21` saw a
+           5.6GB→1.26GB squeeze; "admitted" is not the same claim as
+           "working."
+        5. **Send at least one real inference request and record
+           wall-clock latency**, compared against a non-swapped baseline
+           run — this is the actual measurement `NEW-21` never made, and
+           the only one that answers whether swap-assisted admission
+           produces a genuinely usable load or just a spawned-but-
+           unusable one.
+        6. Pre-declared abort criterion, decided BEFORE starting, not
+           improvised mid-run: e.g. `SwapFree` below the
+           `ro.slmk.swap_free_low_percentage` floor (~1.2GiB on this
+           device) or observed RSS collapse below some fraction of the
+           model's declared size → kill the tracked PID immediately
+           (rule 3 — track the specific PID this session's own code
+           spawned; `NEW-103` already confirmed `codeydOS` teardown
+           itself uses a bare `pkill -f`, so this harness cannot lean on
+           that path for cleanup).
+        7. `free -h` and `mm_stat` after full teardown (rule 2), record
+           verbatim.
+        8. **Flag for `LIVE_TEST_QUEUE.md` instead of an agent-run live
+           pass**: this pass deliberately admits a load that today's gate
+           refuses, into a device state closer to its actual failure
+           mode than any prior live-test round has intentionally
+           targeted. The live-verifier agent session's own `claude` CLI
+           process is itself ~400MiB RSS and is a candidate for the same
+           `slmk` low-memory-killer this pass is testing the edge of —
+           Ish should decide whether to run this one himself rather than
+           delegate it, same reasoning as this project's existing
+           `LIVE_TEST_QUEUE.md` deferrals.
+
+      **Ish's decisions (2026-08-11, given directly in-session — resolves
+      all three open questions below, verbatim, not paraphrased)**:
+      1. **Default on or off: ON by default.** Swap-assisted admission
+         (C2) is active by default, no opt-in env var required to enable
+         it (an env var may still exist to *disable* it, implementer's
+         call, but the shipped default is on). This reverses this entry's
+         own earlier "opt-in is the more conservative starting posture"
+         suggestion — Ish's explicit call overrides that suggestion.
+      2. **The device-wide concurrent-model budget ceiling: 8.90GiB
+         (corrected 2026-08-11, see below — Ish's original session figure
+         was 8.80GiB), computed live in this session from real on-disk
+         model files via
+         this project's own `estimate_model_load_cost()`** (not a
+         guess/estimate) — this is a *different, additional* concept from
+         the per-model hard-reject ceiling
+         (`compute_device_ceiling_bytes()`, ~6.49GiB via
+         `DEVICE_CEILING_USABLE_FRACTION=0.60`, unchanged and untouched by
+         this decision): a fixed cap on the **sum** of all
+         concurrently-declared model costs, checked before any admission
+         attempt is even made (see C1 above). Real numbers, all at
+         `n_ctx=32768` for the two LLMs:
+         - 7B (primary/coder) at n_ctx=32768: model_bytes=4.361GiB,
+           kv_cache=1.750GiB, overhead=0.250GiB → **total 6.361GiB**.
+         - 1.5B (planner) at n_ctx=32768: model_bytes=1.041GiB,
+           kv_cache=0.875GiB, overhead=0.250GiB → **total 2.166GiB**.
+         - embed model: file=0.078GiB, **no KV-cache term computable**
+           (the embed model_id has no entry in `KNOWN_MODEL_ARCHS`, so
+           `estimate_model_load_cost()` cannot compute its KV term —
+           flagged to and accepted by Ish as an honest gap, not papered
+           over) → floor estimate ~0.328GiB (file + `DEFAULT_COMPUTE_OVERHEAD_BYTES`
+           only, likely an undercount since it's missing a KV term).
+           **Also flagged to and accepted by Ish as a known caveat**: the
+           embed server is hardcoded to always launch at `-c 2048` in
+           `core/embed_server.py`, NOT `n_ctx=32768` — the "embed at
+           32768" premise the raw sum below implies does not reflect what
+           the code actually does today; used anyway since the embed
+           model's real contribution to the total is small regardless.
+         - Raw sum of all three: 6.361 + 2.166 + 0.328 ≈ **8.855GiB**
+           (exact bytes: 6,830,557,184 + 2,325,280,320 + 352,563,303 =
+           9,508,400,807).
+         - **Ish's original session figure: 8.80GiB** — explicitly this
+           raw sum minus ~0.06GiB, "for a slight safety margin."
+         - **Arithmetic problem found and corrected, 2026-08-11 —
+           `NEW-133` resolved.** 8.80GiB was actually *below* the 8.855GiB
+           raw sum it was derived from by ~0.055GiB — meaning the exact
+           three-model-concurrent case Ish computed the number from would
+           itself have been refused by a few tens of MiB under a literal
+           reading, defeating the stated intent ("make sure the device's
+           own policy is shown to Codey so it never even tries to load a
+           model above that number"). Flagged to Ish via `NEW_ISSUES.md`
+           `NEW-133`; **Ish's direct answer: round up slightly instead, so
+           the full 3-model case stays admissible, with any remaining
+           margin applied elsewhere (the swap-budget check) rather than as
+           a deduction on this ceiling.** **Corrected final ceiling:
+           `MAX_CONCURRENT_MODEL_BUDGET_BYTES = 8.90GiB` (9,556,302,233
+           bytes)** — the raw sum rounded up to the next 0.05GiB,
+           yielding a positive margin of 47,901,426 bytes (~45.7MiB)
+           *above* the raw sum. See C1 sub-item 7 above for the full
+           derivation, the caveat about the embed-floor undercount that
+           must ship in the constant's own comment, and the scoping call
+           on where any remaining "safety margin" intent actually belongs
+           (C2's independently-derived `MAX_SWAP_ASSIST_BYTES`, not this
+           ceiling).
+      3. **Sequencing vs. the `n_ctx=32768` production-default question:
+         resolved by decision 2's own approach.** The 8.90GiB figure is
+         computed at the full, real production `n_ctx=32768` for both
+         LLMs, so this ceiling decision effectively settles what "max"
+         means at the current shipped default — a lower `n_ctx` default
+         remains a possible *future* lever (already how this item's C2
+         sub-task frames it: "n_ctx should be able to be lowered depending
+         on what's needed by a task and what the device has free"), not a
+         prerequisite this item was blocked on.
+
+      **Scoping call made here, not a further Ish round-trip (per this
+      task's own instructions — Ish gave the ceiling number and the
+      "never even tries" intent; the wiring mechanics below are
+      implementer-scoping detail resolved by project-architect)**:
+      decision 1 (swap-assisted admission ON by default) still leaves
+      C2's `max_swap_usage_bytes` default unset — sub-task B deliberately
+      took it as a parameter specifically because "the real default is
+      Ish's call," and the 8.90GiB figure above answers a *different*
+      question (cumulative declared cost) than "how much live `SwapFree`
+      may one pending load's cost estimate eat into." Derive C2's default
+      from the device-grounded `slmk` floor already documented above, not
+      picked independently, but **do not use a bare `SwapFree - K *
+      slmk_floor` formula on its own** — checked against this item's own
+      pre-registered `NEW-21` fixture (`SwapTotal`≈12GiB, `SwapFree`≈
+      10.8GiB, `slmk_floor_bytes`≈1.2GiB), `K=2.0` alone authorizes
+      `10.8 - 2.4 = 8.4GiB` of swap-assist — enough to admit nearly any
+      load at near-zero `MemAvailable`, directly contradicting this
+      entry's own earlier framing ("capped well under the ~1.2GiB floor,
+      not up against it") and leaving C1's 8.90GiB ceiling as the only
+      real constraint C2 respects. Use a **capped** form instead:
+      **`permitted_swap_usage_bytes = min(MAX_SWAP_ASSIST_BYTES,
+      max(0, SwapFree - K * slmk_floor_bytes))`**, where
+      `slmk_floor_bytes` is the `ro.slmk.swap_free_low_percentage`-derived
+      floor (~1.2GiB on this device, computed live from `SwapTotal ×
+      0.10`, not hardcoded), `K` is a gate term that zeroes the assist as
+      `SwapFree` approaches that floor (project-architect proposes
+      `K = 2.0` — stay two full `slmk` floors above the point Samsung's
+      own low-memory-killer starts acting), and `MAX_SWAP_ASSIST_BYTES`
+      is the actual conservative sizing term — project-architect proposes
+      `768MiB` (a new, named, documented, un-calibrated first default,
+      well under the ~1.2GiB `slmk` floor per the asymmetry already
+      documented above: under-estimating just reproduces today's status
+      quo, over-estimating risks `slmk` killing something unrelated), in
+      the same spirit as `REQUIRED_HEADROOM_FACTOR`/
+      `DEVICE_CEILING_USABLE_FRACTION` — sub-task E's live pass is what
+      actually calibrates both constants, exactly as already planned for
+      those two knobs. Verify whatever values are actually chosen against
+      the `NEW-21` fixture (`min(768MiB, 8.4GiB) = 768MiB`) BEFORE writing
+      them into code, per sub-task B's own "expected value in the test
+      first" rule applied to this default. State this derivation and both
+      constants' values explicitly in C2's own code comment, the same way
+      `REQUIRED_HEADROOM_FACTOR`'s comment documents its own reasoning.
+
+      **Explicitly out of scope for this item**: changing
+      `compute_device_ceiling_bytes()`'s basis (see hard invariant
+      above); any change to `n_ctx` defaults themselves (question 3
+      above is a flag, not a decision made here); building any UI/CLI
+      surface for the new knob beyond an env var; retuning
+      `REQUIRED_HEADROOM_FACTOR`/`DEVICE_CEILING_USABLE_FRACTION`
+      (unrelated existing knobs, not part of this mandate). No new
+      dependency is expected (all reads are `/proc`/`/sys`, no new pip
+      package or `pkg install` requirement) — if a sub-task turns out to
+      need one, `install.sh` must be updated in that same task per rule
+      11, not deferred.
 
 ## Phase 2: Parallel design work (does not touch running code — can run alongside Phase 1)
 

@@ -5,6 +5,85 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-08-11 (round 22) — 7.4 (WQ Track 3 item 1, "Phase 5a") re-scoped: prior "wholly unverified" framing corrected, real remaining gap narrowed to one live-verifier pass
+
+Desk-only scoping pass (project-architect), no code changed, no live
+model load run. Read `TODO.md`'s full 7.4 entry, `WORK_QUEUE.md`'s
+Track 3 item 1 and the adjacent Phase 4.1 item 2 / 7.3 sub-task E notes,
+`core/resource_gate.py` in full (`can_admit()`, `should_trip_shutdown()`,
+`estimate_model_load_cost()`, the shared `THERMAL_CONFIG["temp_critical"]`
+read at both `:1017-1018` and `:1441`), and the git history around
+`aa18b7a` (round 18's live confirmation) and `696aafe`/`96b6ea1` (Phase
+4.1 sub-task D).
+
+The task's own framing — inherited from Phase 4.1 sub-task D's
+2026-08-10 live-verification, a *different* task's test — implied 7.4's
+primary-model load-through-gate-then-unload cycle was still wholly
+unverified. That premise doesn't survive a closer read: `NEW-104`
+(filed 2026-08-09, the day *before* the claim it contradicts) has
+PID-level evidence that round 18 really admitted, spawned, and really
+released (via a genuine `release_model_slot` request) a real, resident
+`"primary"`-role slot. `WORK_QUEUE.md`'s 7.3 sub-task E note ("
+`release_model_slot` has never fired on a real request") was flatly
+wrong and is corrected in place per CLAUDE.md rule 6 (`NEW-130`).
+
+What round 18 actually used, though, was a **substitute** model
+(Qwen3-4B) at a **test-only `n_ctx=2048`** — not the real production 7B
+at the real production default `n_ctx=32768`. That distinction is real:
+the substitute's KV-cache shape (36 layers/8 KV heads) costs *more* than
+the real 7B's (28 layers/4 KV heads) at the same `n_ctx`, so the
+substitute's earlier hard-rejection at `n_ctx=32768` (`NEW-95`) says
+nothing about whether the real model would also be hard-rejected there.
+Ran a desk-only, no-spawn arithmetic check this round
+(`core/resource_gate.estimate_model_load_cost()`/`can_admit()` against
+the real 7B file and a real, live `/proc/meminfo` read) and found the
+real model at production `n_ctx=32768` is `hard_reject=False` —
+estimated cost 6830557184 bytes (~6514MiB, `model_bytes=4683073536`,
+`kv_cache_bytes=1879048192`, `overhead_bytes=268435456`) is only 136MiB
+(~2.1%) under this device's device_ceiling_bytes 6973872537 (~6650MiB),
+not comfortably under it; denied just now by the separate budget check
+(`headroom_bytes=5845012480` at that moment, ~5574MiB available, vs.
+~7.95GiB needed with the 1.25x margin). `free -h` at calculation time:
+`total 10Gi, used 5.1Gi, free 1.2Gi, buff/cache 4.5Gi, available 5.5Gi;
+swap total 11Gi, used 1.6Gi, free 10Gi` (`NEW-131`). A follow-up
+historical-peak check (desk grep of this log's own past `free -h`
+captures, no new live run) found the highest `MemAvailable` ever
+recorded across this project's live-test history is ~7.6GiB (round 13,
+daemon-only post-teardown, `plannd` not running) — ~350MiB short of the
+~7.95GiB this specific config needs; no historical capture has ever
+reached the bar.
+
+**Net assessment**: 7.4 is code-complete (all five sub-tasks,
+code-reviewer-approved since 2026-08-09) and the gate *mechanism* is
+live-verified for the primary role. What's left is a single, narrow,
+already-scoped live-verification pass — spawning the real production
+model at the real production `n_ctx` through the gate on a
+favorable-headroom (daemon-only) harness — not unbuilt scope, though the
+historical-peak check means a denial result is a real possibility and
+should be treated as informative (with real numbers recorded), not as
+proof the gate is broken. Full 7-step procedure with the RAM-discipline
+evidence bar (rule 2) written into `TODO.md`'s 7.4 entry for whoever
+runs it next. Also logged `NEW-129` (`temp_critical` sharing between
+`can_admit()` and `should_trip_shutdown()` — a real structural gap, but
+scoped to Phase 4.1's shutdown-tripwire slot-release claim, not 7.4, and
+does not block this pass). Sharper flag to Ish, not resolved here: the
+shipped default `n_ctx=32768` requires ~7.95GiB `MemAvailable` to pass
+its own gate's budget check on this 10GiB device, a bar never once
+reached in this project's live-test history — is 32768 the right
+production default for this device, or should it come down (with
+`CODEY_N_CTX` remaining the override mechanism it already is)? Directly
+conditions 7.3 sub-task E's tier thresholds; a product decision, not an
+implementation detail.
+
+`TODO.md`'s 7.4 entry and `WORK_QUEUE.md`'s Track 3 item 1 (Phase 5a)
+and 7.3 sub-task E note updated in place. `NEW_ISSUES.md` gets three new
+entries: `NEW-129` (Confirmed, `temp_critical` sharing), `NEW-130`
+(Confirmed, the doc self-contradiction and its correction), `NEW-131`
+(Confirmed, the desk-only cost-estimate finding and what it does/doesn't
+resolve). No code, tests, or commits touched this round.
+
+---
+
 ## 2026-08-10 (round 21) — 7.3 (WQ Track 3 item 3, "Phase 5b") scoped: task classifier + tier config, coding domain only
 
 Desk-only scoping pass (project-architect), no code changed. 7.3 was the

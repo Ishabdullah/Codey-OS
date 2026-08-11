@@ -51,10 +51,34 @@ def _meminfo_with_drop_after(n_before: int, high: int = 10**10, low: int = 0):
 
 class FakeServerSpawned:
     """Stand-in for LlamaServer that "spawned" its own process (process is
-    a real-looking MagicMock, matching a genuine spawn, not a reuse)."""
+    a real-looking MagicMock, matching a genuine spawn, not a reuse).
+
+    `.process.pid` is this test process's OWN pid (os.getpid()), not an
+    arbitrary placeholder. Every current caller of this fixture except
+    test_real_gate_reserve_confirm_release_end_to_end is unaffected by this
+    fixture's pid value either way: they mock resource_gate.mark_resident()
+    directly (so the pid never reaches real PID-liveness logic), or -- like
+    test_ensure_model_eviction_failed_sets_outcome -- take a code path that
+    returns before mark_resident() is ever called. But
+    test_real_gate_reserve_confirm_release_end_to_end exercises the REAL
+    resource_gate module end-to-end, and mark_resident() (as of the NEW-81
+    ghost-slot fix) now honors a forwarded real pid -- a hardcoded dead pid
+    like 12345 gets reaped mid-test by the real list_slots() liveness
+    check, which broke that test. os.getpid() is guaranteed alive for the
+    whole test process's lifetime, so it can never be mistaken for a dead
+    process by that same reap logic.
+
+    Limitation: os.getpid() is also reserve_slot()'s own default pid (its
+    `if pid is None: pid = os.getpid()`), so this fixture alone can't
+    distinguish "pid was rebound to the spawned child" from "pid was left
+    at the caller default" -- test_real_gate_reserve_confirm_release_end_to_end
+    doesn't assert on pid, so this doesn't weaken it. That rebinding
+    assertion (a genuinely distinct, independently-alive child pid) lives
+    in test_load_primary_crash_then_reload_not_denied_by_ghost_slot_new81
+    via the separate _fake_server_with_pid() factory below."""
 
     def __init__(self, *a, **k):
-        self.process = MagicMock(pid=12345)
+        self.process = MagicMock(pid=os.getpid())
         self._started = True
 
     def start(self):
@@ -119,6 +143,36 @@ class RealSpawnLlamaServer(lv.LlamaServer):
         self._started = True
         _REAL_SPAWNED_PROCESSES.append(self.process)
         return True
+
+
+def _fake_server_with_pid(pid: int):
+    """
+    Factory (mirrors `_meminfo_with_drop_after()`'s closure-factory pattern
+    above) for a `FakeServerSpawned`-shaped stand-in whose `.process.pid` is
+    caller-supplied instead of `FakeServerSpawned`'s fixed `os.getpid()` --
+    needed so a test can attach a genuine (and independently
+    killable/already-dead) PID *distinct from this test process's own*, to
+    exercise resource_gate's real PID-liveness reaping rather than a pid
+    that's guaranteed alive for the whole test run regardless of what's
+    under test.
+    """
+
+    class _FakeServer:
+        def __init__(self, *a, **k):
+            self.process = MagicMock(pid=pid)
+            self._started = True
+
+        def start(self):
+            return True
+
+        def stop(self):
+            self.process = None
+            self._started = False
+
+        def is_running(self):
+            return self._started
+
+    return _FakeServer
 
 
 class FakeServerSpawnFails:
@@ -500,6 +554,29 @@ def test_confirm_resident_marks_immediately_when_drop_observed(monkeypatch):
     assert sleeps == []  # drop (900) >= threshold (500) on the very first read
 
 
+def test_confirm_resident_forwards_pid_to_mark_resident(monkeypatch):
+    """
+    NEW-81 fix: confirm_resident_and_mark_slot()'s optional `pid` must be
+    forwarded straight through to resource_gate.mark_resident(), so
+    load_primary()'s/PlannerLoader.load()'s real spawned-subprocess PID
+    actually reaches the slot store, not silently dropped along the way.
+    """
+    monkeypatch.setattr(rg, "read_meminfo", lambda *a, **k: {"MemAvailable": 100})
+    mark_calls = []
+    monkeypatch.setattr(
+        rg,
+        "mark_resident",
+        lambda slot_id, **k: mark_calls.append((slot_id, k.get("pid"))) or True,
+    )
+    monkeypatch.setattr(lv.time, "sleep", lambda s: None)
+
+    lv.confirm_resident_and_mark_slot(
+        "slot-x", baseline_meminfo={"MemAvailable": 1000}, estimated_cost_bytes=1000, pid=54321
+    )
+
+    assert mark_calls == [("slot-x", 54321)]
+
+
 def test_confirm_resident_marks_anyway_after_timeout_with_no_drop(monkeypatch):
     """No confirming drop within the timeout -- still marks resident (see
     confirm_resident_and_mark_slot()'s docstring for why: a permanently
@@ -648,6 +725,136 @@ def test_real_gate_denies_oversized_model_and_loader_does_not_spawn(tmp_path, mo
     assert result is False
     MockServer.assert_not_called()
     assert rg.list_slots(state_dir=tmp_path) == []  # nothing leaked
+
+
+def test_load_primary_crash_then_reload_not_denied_by_ghost_slot_new81(tmp_path, monkeypatch):
+    """
+    Regression for the gap TODO.md 7.4a sub-task C1's new
+    MAX_CONCURRENT_MODEL_BUDGET_BYTES ceiling activated: NEW-81 ("slot
+    records have no way to rebind pid at the PENDING->RESIDENT transition").
+
+    Before this fix: reserve_slot() registers the primary's slot under this
+    LOADER's own PID (its `if pid is None: pid = os.getpid()` default,
+    called before the llama-server subprocess even exists yet). If that
+    subprocess later crashes on its own (OOM-kill, etc.) while the loader
+    process itself stays alive -- exactly ensure_model()'s cold-load
+    fallthrough (is_running() False, no explicit unload()/release_slot() in
+    between, matching this test: nothing calls unload() between the two
+    load_primary() calls below) -- resource_gate's PID-liveness reap keeps
+    checking the loader's own (still-alive) PID forever. The stale
+    ~6.36GiB RESIDENT slot is never reaped, so a second load of the same
+    ~6.36GiB primary sums to ~12.7GiB against the fixed 8.90GiB ceiling and
+    is wrongly denied as unrecoverable.
+
+    Real gate, real tmp_path-backed state store, and the real ~4.68GB
+    on-disk primary model file (n_ctx=32768, the actual configured value --
+    see core/resource_gate.py's C1 derivation comment for the same
+    ~6.36GiB/~8.90GiB numbers) so this proves the actual admission math, not
+    a hand-picked cost that happens to clear the ceiling either way.
+    """
+    monkeypatch.setattr(rg, "CODEY_STATE_DIR", tmp_path)
+    monkeypatch.setattr(rg, "read_current_temp_c", lambda: None)
+    monkeypatch.setattr(lv.time, "sleep", lambda s: None)  # don't wait out real poll intervals
+
+    # Cycle of 3 reads per load_primary() call: (1) reserve_slot()'s own
+    # internal admission read (generous -- headroom must look fine), (2)
+    # load_primary()'s pre-spawn baseline capture (generous, same value --
+    # no drop yet), (3) confirm_resident_and_mark_slot()'s first poll
+    # iteration (a big drop from that baseline, well over the ~3.2GiB
+    # confirm threshold, so it confirms immediately instead of waiting out
+    # CONFIRM_RESIDENT_TIMEOUT_S of real wall-clock time). Repeats
+    # identically for the second load_primary() call.
+    GIB = 1024**3
+    call_count = {"n": 0}
+
+    def fake_read_meminfo(*a, **k):
+        n = call_count["n"]
+        call_count["n"] += 1
+        if n % 3 == 2:
+            return {"MemTotal": 16 * GIB, "MemAvailable": 2 * GIB}
+        return {"MemTotal": 16 * GIB, "MemAvailable": 16 * GIB}
+
+    monkeypatch.setattr(rg, "read_meminfo", fake_read_meminfo)
+
+    # A real, genuinely-alive-then-killed PID (same "sleep 300" +
+    # os.killpg(SIGKILL) precedent as RealSpawnLlamaServer/
+    # _kill_if_still_alive above) -- must be ALIVE at the moment the first
+    # load_primary() call registers/confirms the slot (a real crash doesn't
+    # happen until after the model has genuinely loaded), then killed
+    # in-test to simulate the crash before the second load_primary() call.
+    # A PID that's already dead when reserve_slot()/mark_resident() first
+    # see it (e.g. subprocess.Popen(["true"]) + immediate wait()) would be
+    # reaped by the very first post-load list_slots() read below regardless
+    # of whether this fix works -- that would prove nothing.
+    proc = subprocess.Popen(["sleep", "300"], preexec_fn=os.setsid if os.name != "nt" else None)
+    real_pid = proc.pid
+    # A second real-and-alive process, standing in for the NEW llama-server
+    # the second (post-crash) load_primary() call spawns -- must be a
+    # different, independently-alive PID from `real_pid` above, otherwise
+    # the final list_slots() reap below would reap this one too (it would
+    # coincidentally also be dead, proving nothing about whether the OLD
+    # ghost slot specifically got reaped).
+    proc2 = subprocess.Popen(["sleep", "300"], preexec_fn=os.setsid if os.name != "nt" else None)
+    real_pid2 = proc2.pid
+
+    try:
+        with patch.object(lv, "LlamaServer", _fake_server_with_pid(real_pid)), patch(
+            "pathlib.Path.exists", return_value=True
+        ):
+            loader = lv.get_loader()
+            assert loader.load_primary() is True
+
+        slots = rg.list_slots(state_dir=tmp_path)
+        assert len(slots) == 1
+        assert slots[0]["status"] == rg.SLOT_STATUS_RESIDENT
+        assert slots[0]["pid"] == real_pid, (
+            "slot must carry the real spawned subprocess PID, not this "
+            "loader process's own PID, for crash-time reaping to work "
+            "(NEW-81) -- got "
+            f"{slots[0]['pid']!r}"
+        )
+
+        # Simulate the crash: kill the real subprocess the slot's pid now
+        # points to, but deliberately do NOT call
+        # loader.unload()/rg.release_slot() -- matches ensure_model()'s
+        # actual cold-load fallthrough exactly (is_running() False, no
+        # explicit cleanup in that branch). self._slot_id is still set to
+        # the now-stale slot.
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        proc.wait(timeout=5)
+
+        # A second load of the same ~6.36GiB primary spec must NOT be denied
+        # by the fixed MAX_CONCURRENT_MODEL_BUDGET_BYTES ceiling -- the
+        # stale RESIDENT slot (real_pid, now genuinely dead) must be reaped
+        # inside reserve_slot()'s own lock, before the committed-bytes sum
+        # is computed against the candidate.
+        decision_holder = {}
+        orig_reserve_slot = rg.reserve_slot
+
+        def _capturing_reserve_slot(spec, **kwargs):
+            decision, slot_id = orig_reserve_slot(spec, **kwargs)
+            decision_holder["decision"] = decision
+            return decision, slot_id
+
+        monkeypatch.setattr(rg, "reserve_slot", _capturing_reserve_slot)
+
+        with patch.object(lv, "LlamaServer", _fake_server_with_pid(real_pid2)), patch(
+            "pathlib.Path.exists", return_value=True
+        ):
+            assert loader.load_primary() is True, (
+                f"second load wrongly denied: {decision_holder.get('decision')}"
+            )
+        assert decision_holder["decision"].budget_ceiling_exceeded is False
+
+        final_slots = rg.list_slots(state_dir=tmp_path)
+        # The stale ghost slot from the first (crashed) load was reaped --
+        # only the new load's own slot (real_pid2, still alive) remains.
+        assert len(final_slots) == 1
+        assert final_slots[0]["status"] == rg.SLOT_STATUS_RESIDENT
+        assert final_slots[0]["pid"] == real_pid2
+    finally:
+        _kill_if_still_alive(proc)
+        _kill_if_still_alive(proc2)
 
 
 # ── confirm_resident_and_mark_slot() raising: reserve→spawn→confirm leak ────

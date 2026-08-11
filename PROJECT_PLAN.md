@@ -1293,7 +1293,14 @@ implementation starts:
       observability signals, "headroom minus safety margin," never a
       hardcoded number); migrate `core/daemon.py`'s three existing direct
       `get_loader()` calls (lines 509, 556, 587) onto it. Foundation —
-      must land first.
+      must land first. **Status (2026-08-11): code-complete, all five
+      sub-tasks code-reviewer-approved; the gate mechanism (reservation →
+      admission → release → retry → reload) is live-verified for the
+      primary role, but with a substitute model at a test-only `n_ctx`,
+      not the real production model at production `n_ctx=32768` — see
+      `TODO.md`'s 7.4 entry for the full assessment and the one scoped
+      live-verifier pass left to close this box. Box stays unchecked
+      until that pass runs.**
 - [ ] **5b** — Task classifier + tier config, coding domain only.
       Non-LLM heuristic classifier; `(domain, role, tier) → model`
       config; must reconcile with (not duplicate) the coding plugin's

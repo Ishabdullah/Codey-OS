@@ -28,6 +28,15 @@ One admission check is absolute regardless of what else is resident: a
 single model that alone exceeds the device's usable physical-RAM ceiling is
 never admitted (`compute_device_ceiling_bytes()` / GateDecision.hard_reject).
 
+TODO.md 7.4a sub-task C1 adds a second, independent, NAMED ceiling:
+`MAX_CONCURRENT_MODEL_BUDGET_BYTES` caps the SUM of every concurrently-
+declared model's cost (see `total_committed_bytes()`), checked before any
+live-memory/thermal signal. This is deliberately NOT the "max N models"
+fixed concurrency ceiling the 2026-08-08 amendment rejects above — it bounds
+total declared bytes, not model count, and (unlike hard_reject) is
+recoverable: releasing/unloading a resident model can bring a later load
+back under budget (see `GateDecision.budget_ceiling_exceeded`).
+
 Residency state (which models are currently resident, and their declared
 cost) is stored in a small file-backed store so it can be read/written
 across processes (daemon + separate `main.py` CLI invocations), matching
@@ -103,6 +112,176 @@ def read_meminfo(path: str = "/proc/meminfo") -> Dict[str, int]:
     for required in ("MemTotal", "MemFree", "MemAvailable", "Buffers", "Cached", "SwapTotal", "SwapFree"):
         result.setdefault(required, 0)
     return result
+
+
+# ── Signal source 1b: zram state, via /sys/block/zram0 ──────────────────────
+# TODO.md 7.4a sub-task A. `read_meminfo()` above already surfaces
+# SwapTotal/SwapFree (this device's ~12GiB zram-backed swap device shows up
+# there as ordinary swap, no extra plumbing needed) — what's missing is the
+# zram device's OWN accounting: how much of that swap is actually in use
+# right now, and at what compression ratio, which /proc/meminfo cannot say.
+# Live-read on this device, 2026-08-11 (values used only to confirm field
+# names/shape, not hardcoded anywhere below):
+#   /sys/block/zram0/disksize   -> "12884901888" (bytes, single integer)
+#   /sys/block/zram0/mm_stat    -> 9 whitespace-separated integers, in this
+#     fixed kernel-documented order: orig_data_size, compr_data_size,
+#     mem_used_total, mem_limit, mem_used_max, same_pages, pages_compacted,
+#     huge_pages, huge_pages_since. Only the first three are used here — the
+#     rest aren't needed by anything this sub-task builds.
+#
+# zram is a compressed block device living INSIDE MemTotal, not extra
+# capacity outside it (see TODO.md 7.4a's own "zram-specific risk" note) —
+# this function only sources the signal; it does not itself claim any
+# particular compression ratio carries over to model-weight pages (already
+# high-entropy, likely closer to 1:1 than the ~4:1 ratio observed on
+# ordinary idle app pages — unverified until sub-task E's live pass).
+
+
+def read_zram_stats(
+    disksize_path: str = "/sys/block/zram0/disksize",
+    mm_stat_path: str = "/sys/block/zram0/mm_stat",
+) -> Optional[Dict[str, int]]:
+    """
+    Read live zram device accounting, or None if unavailable (non-Android
+    host, no zram device configured, permission denied, etc.) — mirrors
+    `read_current_temp_c()`'s fail-soft posture (never raises), NOT
+    `read_meminfo()`'s fail-loud posture. The difference is deliberate:
+    `read_meminfo()` raising on a missing /proc/meminfo signals a genuinely
+    broken environment for a function every admission decision depends on;
+    a missing zram device is an expected, unremarkable case (this signal is
+    additive/optional — no existing check in this module depends on it) on
+    any non-Android host running this test suite, so callers must be able
+    to treat "no zram" as a normal, common return value rather than an
+    exception to catch everywhere this is called.
+
+    Returns a dict with keys `disksize_bytes`, `orig_data_size_bytes`,
+    `compr_data_size_bytes`, `mem_used_total_bytes` (all raw bytes, straight
+    from the kernel's own accounting, no derived ratio) — the ratio itself
+    is computed by `compute_zram_compression_ratio()` below, kept separate
+    so a caller that only wants the raw counters isn't forced through a
+    division.
+    """
+    try:
+        with open(disksize_path, "r") as f:
+            disksize_bytes = int(f.read().strip())
+        with open(mm_stat_path, "r") as f:
+            fields = f.read().split()
+        orig_data_size = int(fields[0])
+        compr_data_size = int(fields[1])
+        mem_used_total = int(fields[2])
+    except Exception as e:
+        # Best-effort signal only, same posture as read_current_temp_c():
+        # a missing/unreadable zram device must not block anything that
+        # calls this, and this module has no admission logic depending on
+        # it yet (sub-task A is signal-sourcing only).
+        warning(f"resource_gate: zram stats read failed, treating as unavailable: {e}")
+        return None
+    return {
+        "disksize_bytes": disksize_bytes,
+        "orig_data_size_bytes": orig_data_size,
+        "compr_data_size_bytes": compr_data_size,
+        "mem_used_total_bytes": mem_used_total,
+    }
+
+
+def compute_zram_compression_ratio(zram_stats: Optional[Dict[str, int]]) -> Optional[float]:
+    """
+    logical-bytes-stored / physical-bytes-used-to-store-them, i.e.
+    `orig_data_size / compr_data_size` — the ratio a caller would read as
+    "how much headroom is compression buying." Uses `compr_data_size`
+    (compressed payload size only) as the denominator rather than
+    `mem_used_total` (compressed payload + zram's own per-page bookkeeping
+    overhead) so the ratio reflects compression efficiency itself, not
+    allocator overhead; on this device's own live sample the two
+    denominators give ~3.76 vs ~3.58 respectively — a real but secondary
+    difference, not a bug in either choice, and not investigated further
+    here since this sub-task only sources the signal (no admission math
+    consumes it yet).
+
+    Returns None if `zram_stats` is None, or if `compr_data_size_bytes` is 0
+    (an idle/unused zram device — dividing by zero would be wrong, and 0
+    compressed bytes doesn't mean "infinite compression," it means "nothing
+    has been swapped yet").
+    """
+    if zram_stats is None:
+        return None
+    compr = zram_stats.get("compr_data_size_bytes", 0)
+    if compr <= 0:
+        return None
+    return zram_stats.get("orig_data_size_bytes", 0) / compr
+
+
+# ── Sub-task B: pure swap-assisted headroom function ─────────────────────────
+# TODO.md 7.4a sub-task B. NOT called by can_admit()/reserve_slot() yet —
+# that wiring is sub-task C2 (explicitly out of scope for this sub-task).
+# Pure, standalone, independently unit-testable: takes `meminfo` and an
+# explicit `max_swap_usage_bytes` cap as parameters, never reads real system
+# state itself, and blesses no default cap value (the real default is C2's
+# call, derived from Ish's 2026-08-11 direction — see below).
+
+# Device-grounded floor this function's formula is anchored to, per Ish's
+# 2026-08-11 direction (TODO.md 7.4a): `getprop
+# ro.slmk.swap_free_low_percentage` reads 10 on this device — Samsung's own
+# low-memory-killer (slmk) starts killing processes once SwapFree drops
+# below this fraction of SwapTotal. Computed live from SwapTotal (not
+# hardcoded to a fixed byte value) so it tracks whatever SwapTotal this
+# device (or a future different device) actually reports, matching this
+# module's existing "derive from live meminfo, not a baked-in number"
+# convention (compute_device_ceiling_bytes()'s own usable_fraction pattern).
+SLMK_SWAP_FREE_LOW_FRACTION = 0.10
+
+
+def compute_swap_assisted_headroom_bytes(
+    meminfo: Dict[str, int],
+    max_swap_usage_bytes: int,
+    slmk_floor_gate_multiplier: float = 2.0,
+) -> int:
+    """
+    Additional headroom (in bytes) a swap-assisted admission check would
+    allow BEYOND `compute_headroom_bytes()`'s existing MemAvailable-only
+    figure — i.e. `compute_headroom_bytes(meminfo) +
+    compute_swap_assisted_headroom_bytes(meminfo, max_swap_usage_bytes)` is
+    the swap-assisted total a future caller (sub-task C2) would compare
+    against a candidate load's required cost. This function itself performs
+    no such comparison and has no admission side effects — it only computes
+    the additive figure.
+
+    Formula (TODO.md 7.4a's own scoping call, not guessed):
+        permitted = min(
+            max_swap_usage_bytes,
+            max(0, SwapFree - slmk_floor_gate_multiplier * slmk_floor_bytes),
+        )
+    where `slmk_floor_bytes = SwapTotal * SLMK_SWAP_FREE_LOW_FRACTION` (the
+    device-grounded slmk kill floor, computed live above, NOT hardcoded).
+    `slmk_floor_gate_multiplier` (default 2.0) is a gate term that zeroes
+    the assist as SwapFree approaches that floor — staying two full slmk
+    floors above the point Samsung's own low-memory-killer starts acting,
+    per TODO.md 7.4a's own derivation, an un-calibrated first default in the
+    same spirit as REQUIRED_HEADROOM_FACTOR/DEVICE_CEILING_USABLE_FRACTION
+    (sub-task E's live pass is what actually calibrates it, not this
+    sub-task's synthetic fixtures).
+
+    `max_swap_usage_bytes` is NOT capped by this function to any built-in
+    default — sub-task B deliberately takes it as a required parameter (see
+    this section's header comment) rather than blessing a module-level
+    constant; C2 is what will supply the real default (TODO.md 7.4a
+    proposes 768MiB as MAX_SWAP_ASSIST_BYTES, an independently-scoped
+    constant this sub-task does not add).
+
+    Callers must NOT treat the returned bytes as 1:1 usable headroom in the
+    same sense as real free RAM: zram is a compressed block device living
+    INSIDE MemTotal, not extra capacity outside it, and quantized model
+    weights (already high-entropy) may compress far less favorably than the
+    ~4:1 ratio observed on ordinary idle app pages (see
+    `read_zram_stats()`'s own header comment) — this is authorized swap
+    USAGE, not a claim about how much real headroom that usage actually
+    buys under a real model load. Unverified until sub-task E's live pass.
+    """
+    swap_free = meminfo.get("SwapFree", 0)
+    swap_total = meminfo.get("SwapTotal", 0)
+    slmk_floor_bytes = swap_total * SLMK_SWAP_FREE_LOW_FRACTION
+    gated_swap_free = max(0, swap_free - slmk_floor_gate_multiplier * slmk_floor_bytes)
+    return int(max(0, min(max_swap_usage_bytes, gated_swap_free)))
 
 
 # Conservative multiplier applied to a model's estimated cost before
@@ -522,6 +701,19 @@ class ResourceSnapshot:
     battery_percent: Optional[int]
     battery_charging: bool
     timestamp: float
+    # TODO.md 7.4a sub-task A — swap-awareness signal fields, additive only.
+    # swap_total_bytes/swap_free_bytes come straight from read_meminfo()'s
+    # existing SwapTotal/SwapFree parsing (already present, zero new
+    # plumbing); zram_compression_ratio comes from read_zram_stats() +
+    # compute_zram_compression_ratio() (None if unavailable — see those
+    # functions' own docstrings for why). Defaulted so every existing
+    # keyword-constructed ResourceSnapshot in this module/its tests stays
+    # valid unchanged. No admission/dispatch logic reads these yet (that's
+    # 7.4a sub-task C2, out of scope here) — this sub-task only makes the
+    # signal visible on the snapshot.
+    swap_total_bytes: int = 0
+    swap_free_bytes: int = 0
+    zram_compression_ratio: Optional[float] = None
 
 
 def _default_read_battery_fn() -> Tuple[Optional[int], bool]:
@@ -542,16 +734,17 @@ def get_resource_snapshot(
     read_battery_fn=None,
     state_store=None,
     cpu_percent: Optional[float] = None,
+    read_zram_fn=None,
 ) -> ResourceSnapshot:
     """
-    Compose the current CPU%, RAM headroom, temperature, queue depth, and
-    battery state into one `ResourceSnapshot`.
+    Compose the current CPU%, RAM headroom, temperature, queue depth,
+    battery state, and swap/zram state into one `ResourceSnapshot`.
 
     Every signal is independently injectable/overridable so tests never
     need to depend on this device's real live state (matching this module's
     existing test convention — see tests/test_resource_gate.py's module
-    docstring): `meminfo` a synthetic dict, `read_temp_fn`/`read_battery_fn`
-    stub callables, `state_store` a fake object exposing
+    docstring): `meminfo` a synthetic dict, `read_temp_fn`/`read_battery_fn`/
+    `read_zram_fn` stub callables, `state_store` a fake object exposing
     `get_tasks_by_status(status) -> list`, `cpu_percent` a fixed float (or
     None, matching `get_current_cpu_percent()`'s own "unmeasurable" case —
     see its docstring for why None, not 0.0, is used).
@@ -579,6 +772,8 @@ def get_resource_snapshot(
         read_temp_fn = read_current_temp_c
     if read_battery_fn is None:
         read_battery_fn = _default_read_battery_fn
+    if read_zram_fn is None:
+        read_zram_fn = read_zram_stats
     if state_store is None:
         from core.state import get_state_store
 
@@ -605,6 +800,17 @@ def get_resource_snapshot(
         warning(f"resource_gate: snapshot queue-depth read failed, treating as unavailable: {e}")
         queue_pending, queue_running = 0, 0
 
+    try:
+        zram_stats = read_zram_fn()
+    except Exception as e:
+        # Same best-effort posture as the thermal/battery/queue reads just
+        # above — read_zram_stats() itself already fails soft (returns None
+        # rather than raising), but an injected read_zram_fn in a test could
+        # still raise, so this stays consistent with every other signal in
+        # this composer.
+        warning(f"resource_gate: snapshot zram read failed, treating as unavailable: {e}")
+        zram_stats = None
+
     return ResourceSnapshot(
         cpu_percent=cpu_percent,
         ram_headroom_bytes=compute_headroom_bytes(meminfo),
@@ -615,6 +821,9 @@ def get_resource_snapshot(
         battery_percent=battery_percent,
         battery_charging=battery_charging,
         timestamp=time.time(),
+        swap_total_bytes=meminfo.get("SwapTotal", 0),
+        swap_free_bytes=meminfo.get("SwapFree", 0),
+        zram_compression_ratio=compute_zram_compression_ratio(zram_stats),
     )
 
 
@@ -922,6 +1131,97 @@ def estimate_model_load_cost(spec: ModelSpec) -> CostEstimate:
 
 # ── Admission decision ───────────────────────────────────────────────────────
 
+# TODO.md 7.4a sub-task C1 (Ish's direct decision, 2026-08-11). A new,
+# additional, NAMED ceiling — distinct from both the per-model hard-reject
+# ceiling (compute_device_ceiling_bytes(), MemTotal-only, unchanged/untouched
+# by this constant) and the live MemAvailable-based headroom check
+# (compute_headroom_bytes()/REQUIRED_HEADROOM_FACTOR): a fixed cap on the
+# SUM of every concurrently-declared model cost this gate's own state store
+# knows about (see total_committed_bytes() below), checked unconditionally
+# BEFORE any live-memory read is even consulted — Ish's own framing: "make
+# sure the device's own policy is shown to Codey so it never even tries to
+# load a model above that number." This is NOT the "fixed concurrency
+# ceiling" the 2026-08-08 amendment explicitly rejects (a "max N models"
+# rule) — it caps total declared BYTES, not model count, and coexists with
+# the amendment's live-headroom-based admission math rather than replacing
+# it.
+#
+# Derivation (real numbers, computed live via this project's own
+# estimate_model_load_cost() against the real on-disk 7B/1.5B/embed model
+# files at n_ctx=32768, on this device's ~10.8GiB MemTotal — NOT a guess):
+#   7B (primary) at n_ctx=32768:    model=4.361GiB + kv=1.750GiB +
+#                                    overhead=0.250GiB = 6.361GiB
+#                                    (6,830,557,184 bytes exact)
+#   1.5B (planner) at n_ctx=32768:  model=1.041GiB + kv=0.875GiB +
+#                                    overhead=0.250GiB = 2.166GiB
+#                                    (2,325,280,320 bytes exact)
+#   embed model:                    file=0.078GiB, NO KV-cache term
+#                                    computable (the embed model_id has no
+#                                    entry in KNOWN_MODEL_ARCHS —
+#                                    estimate_model_load_cost() cannot
+#                                    compute a KV term for it) -> FLOOR
+#                                    ESTIMATE only, ~0.328GiB
+#                                    (352,563,303 bytes exact) = file +
+#                                    DEFAULT_COMPUTE_OVERHEAD_BYTES. Also:
+#                                    the embed server is hardcoded to
+#                                    launch at -c 2048 in
+#                                    core/embed_server.py, NOT n_ctx=32768
+#                                    — the "embed at 32768" premise below
+#                                    does not reflect what the code
+#                                    actually does today; used anyway since
+#                                    the embed model's contribution to the
+#                                    total is small regardless. KNOWN,
+#                                    ACCEPTED UNDERCOUNT — if a future
+#                                    estimate_model_load_cost() change (or
+#                                    sub-task E's live pass) measures the
+#                                    embed model's real resident cost above
+#                                    this floor by more than this
+#                                    constant's ~45.7MiB margin (see below),
+#                                    the three-model-concurrent case this
+#                                    ceiling was built to admit could become
+#                                    inadmissible again (NEW-133's exact
+#                                    failure mode) — re-check this constant
+#                                    against the real embed cost at that
+#                                    point, don't assume the margin holds.
+#   Raw sum: 6,830,557,184 + 2,325,280,320 + 352,563,303 = 9,508,400,807
+#            bytes (~8.855GiB).
+#
+# NEW-133 (NEW_ISSUES.md): Ish's original session figure, 8.80GiB, was
+# described as "raw sum minus ~0.06GiB, for a slight safety margin" but was
+# arithmetically BELOW the 8.855GiB raw sum by ~0.055GiB — meaning the exact
+# 3-model-concurrent case this ceiling was computed from would itself have
+# been refused by a few tens of MiB, defeating the stated "never even tries
+# to load a model above that number" intent (which reads as "the full
+# 3-model case should be admissible," not "should be refused by design").
+# Ish's direct answer, 2026-08-11: round UP instead, so the full 3-model
+# case stays admissible, with any remaining margin-wanting applied
+# elsewhere (sub-task C2's independently-derived, separately-calibrated
+# MAX_SWAP_ASSIST_BYTES) rather than as a deduction on this ceiling — this
+# is a declared-cost POLICY sum, not a live-RAM safety check (that's what
+# compute_headroom_bytes() x REQUIRED_HEADROOM_FACTOR already does), so no
+# deduction margin belongs on it at all.
+#
+# Corrected value: raw sum rounded UP to the next 0.05GiB = 8.90GiB
+# (9,556,302,233 bytes), a positive margin of 47,901,426 bytes (~45.7MiB)
+# ABOVE the raw sum, not a deduction below it.
+#
+# 8.90GiB / 10.8GiB (this device's MemTotal) ~= 0.82, well above
+# DEVICE_CEILING_USABLE_FRACTION (0.60) — this is INTENTIONAL and must NOT
+# be "reconciled" toward that other constant: they are two different
+# concepts. compute_device_ceiling_bytes()/DEVICE_CEILING_USABLE_FRACTION
+# answers "how much RAM may ONE model ever claim, absolute, regardless of
+# anything else" (a per-model physical ceiling). This constant answers "what
+# is the fixed cap on the SUM of ALL concurrently-declared model costs" (a
+# multi-model budget). A single model's cost can legally be well under 0.60
+# * MemTotal while the SUM of several concurrently-declared models
+# approaches 0.82 * MemTotal — both checks are meant to bind independently.
+#
+# Device-derived from THIS device's real on-disk model files at n_ctx=32768
+# on ~10.8GiB MemTotal — MUST BE RECOMPUTED (via estimate_model_load_cost()
+# against the real files on that device), not linearly scaled, if this code
+# ever runs on different hardware.
+MAX_CONCURRENT_MODEL_BUDGET_BYTES = int(8.90 * (1024 ** 3))  # 9,556,302,233 bytes
+
 
 @dataclass(frozen=True)
 class GateDecision:
@@ -931,6 +1231,20 @@ class GateDecision:
     estimated_cost_bytes: int
     headroom_bytes: int
     device_ceiling_bytes: int
+    # TODO.md 7.4a sub-task C1. True only when admission was refused
+    # specifically by the new MAX_CONCURRENT_MODEL_BUDGET_BYTES cumulative
+    # check below — distinct from `hard_reject` because, unlike the
+    # permanent single-model ceiling (can never be satisfied by any device
+    # state change), a cumulative-budget denial is RECOVERABLE: release/
+    # unload another resident model and the same load then passes.
+    # Confirmed by direct code read (core/loader_v2.py:563-564,640): the
+    # retryable-vs-permanent split is driven entirely by
+    # GateDecision.hard_reject (LOAD_OUTCOME_GATE_DENIED_HARD if
+    # decision.hard_reject else LOAD_OUTCOME_GATE_DENIED) — this new field
+    # always ships with hard_reject=False, so a budget-ceiling denial maps
+    # to the existing retryable LOAD_OUTCOME_GATE_DENIED path automatically,
+    # with no core/loader_v2.py change needed.
+    budget_ceiling_exceeded: bool = False
 
 
 def can_admit(
@@ -940,6 +1254,8 @@ def can_admit(
     usable_fraction: float = DEVICE_CEILING_USABLE_FRACTION,
     headroom_factor: float = REQUIRED_HEADROOM_FACTOR,
     read_temp_fn=None,
+    concurrent_committed_bytes: int = 0,
+    max_concurrent_budget_bytes: int = MAX_CONCURRENT_MODEL_BUDGET_BYTES,
 ) -> GateDecision:
     """
     Decide whether `spec` can be admitted right now.
@@ -948,7 +1264,10 @@ def can_admit(
     function does not know or care how many other models are resident,
     except via `reserved_bytes` (their already-declared cost, subtracted
     from headroom so concurrent admissions don't double-book the same
-    memory — see `total_reserved_bytes()`).
+    memory — see `total_reserved_bytes()`) and `concurrent_committed_bytes`
+    (the declared-cost SUM check below — a fixed byte budget, not a "max N
+    models" count rule; see MAX_CONCURRENT_MODEL_BUDGET_BYTES's own comment
+    for why this is not the concurrency ceiling the amendment rejects).
 
     `meminfo` defaults to a live `/proc/meminfo` read if not supplied
     (tests should always supply a synthetic dict; see NEW-21's regression
@@ -958,16 +1277,38 @@ def can_admit(
     thermal read) if not supplied; tests should always supply a stub
     returning a fixed float or None instead of touching real hardware.
 
-    Three independent checks, any of which can refuse admission:
+    `concurrent_committed_bytes` (default 0 — see TODO.md 7.4a sub-task C1
+    item 4: every call site this sub-task doesn't touch stays unaffected by
+    construction, since a real budget of 0 never trips this check) is a
+    CALLER-PRECOMPUTED sum of every currently-tracked slot's declared cost
+    (PENDING + RESIDENT — see `total_committed_bytes()`). This function
+    stays free of any direct state-store I/O and fully synthetic-testable —
+    it does not compute this sum itself. `reserve_slot()` is the one call
+    site that computes and passes the real sum, inside its own existing
+    lock (see its docstring for why that matters — computing this sum
+    outside that lock would reopen the exact TOCTOU race `reserve_slot()`
+    exists to prevent). Any other direct `can_admit()` caller that wants
+    this check enforced is responsible for computing its own consistent
+    snapshot the same way.
+
+    Four independent checks, any of which can refuse admission:
       1. hard_reject: `spec`'s cost alone exceeds the device's usable
          physical-RAM ceiling — absolute, ignores current headroom/residency
          entirely (2026-08-08 amendment's one remaining non-negotiable rule).
-      2. budget check: `spec`'s cost, times `headroom_factor` (a documented
+      2. budget-ceiling check (TODO.md 7.4a sub-task C1): `spec`'s cost,
+         ADDED to `concurrent_committed_bytes`, exceeds
+         `max_concurrent_budget_bytes` (default
+         MAX_CONCURRENT_MODEL_BUDGET_BYTES — see its own comment for the
+         full derivation). Unlike hard_reject, this denial is RECOVERABLE
+         (release/unload another resident model and the same load then
+         passes) — reported via `GateDecision.budget_ceiling_exceeded`, not
+         `hard_reject`, so callers can tell the two apart.
+      3. budget check: `spec`'s cost, times `headroom_factor` (a documented
          conservative margin — see REQUIRED_HEADROOM_FACTOR's docstring),
          exceeds currently-computed headroom (live MemAvailable, minus any
          `reserved_bytes`) — this is the live, computed limit that replaces
          the old fixed-count rule.
-      3. thermal check: current CPU temperature (if readable) is at or above
+      4. thermal check: current CPU temperature (if readable) is at or above
          THERMAL_CONFIG["temp_critical"] — the amendment names thermal state
          as one of the live signals the gate arbitrates alongside RAM/swap,
          not just a post-hoc throttle applied after a model is already
@@ -976,6 +1317,13 @@ def can_admit(
          An unreadable temperature (None) is treated as "no thermal
          objection" — same fail-open posture core/thermal.py's own
          `_check_thermal_status()` already uses for a None read.
+
+    Checks 3 and 4 (headroom, thermal) are evaluated in the same relative
+    order they always were; check 2 (budget-ceiling) is evaluated
+    immediately after check 1 (hard_reject) and before either of them, per
+    TODO.md 7.4a sub-task C1's explicit scoped ordering — the point being
+    that this device-policy ceiling is checked before any live-memory/
+    thermal signal is even consulted.
     """
     if meminfo is None:
         meminfo = read_meminfo()
@@ -996,6 +1344,26 @@ def can_admit(
                 f"({cost.total_bytes / _KB / _KB:.0f}MiB) exceeds device ceiling "
                 f"({ceiling / _KB / _KB:.0f}MiB) — never admissible regardless of "
                 "current residency"
+            ),
+            estimated_cost_bytes=cost.total_bytes,
+            headroom_bytes=headroom,
+            device_ceiling_bytes=ceiling,
+        )
+
+    prospective_committed = concurrent_committed_bytes + cost.total_bytes
+    if prospective_committed > max_concurrent_budget_bytes:
+        return GateDecision(
+            admitted=False,
+            hard_reject=False,
+            budget_ceiling_exceeded=True,
+            reason=(
+                f"model {spec.model_id!r} cost estimate "
+                f"({cost.total_bytes / _KB / _KB:.0f}MiB) added to already-committed "
+                f"({concurrent_committed_bytes / _KB / _KB:.0f}MiB) = "
+                f"{prospective_committed / _KB / _KB:.0f}MiB, which exceeds the "
+                f"device's fixed concurrent-model budget "
+                f"({max_concurrent_budget_bytes / _KB / _KB:.0f}MiB) — recoverable "
+                "by releasing/unloading another resident model"
             ),
             estimated_cost_bytes=cost.total_bytes,
             headroom_bytes=headroom,
@@ -1068,6 +1436,13 @@ def would_model_fit(
     admission math `can_admit()` uses so a future routing layer (7.3) can
     query it. Not implementing routing itself is intentional (see this
     module's docstring / TODO.md 7.4).
+
+    Deliberately does NOT pass `concurrent_committed_bytes` (stays at
+    `can_admit()`'s own default of 0) — TODO.md 7.4a sub-task C1 explicitly
+    defers wiring this function onto the new cumulative-budget check to
+    sub-task D, which needs to decide how a budget-ceiling "no" should be
+    distinguished from a headroom "no" for routing purposes. Not a gap in
+    this sub-task's scope, a stated deferral.
     """
     return can_admit(
         spec, meminfo=meminfo, reserved_bytes=reserved_bytes, read_temp_fn=read_temp_fn
@@ -1730,12 +2105,23 @@ def reserve_slot(
     threads: Optional[int] = None,
     reap_dead: bool = True,
     state_dir: Optional[Path] = None,
+    max_concurrent_budget_bytes: int = MAX_CONCURRENT_MODEL_BUDGET_BYTES,
 ) -> Tuple[GateDecision, Optional[str]]:
     """
     Atomically decide admission AND register the slot if admitted — the
     single-lock-acquisition replacement for the unsafe pattern of calling
     `total_reserved_bytes()`, then `can_admit()`, then `register_slot()` as
     three separate steps.
+
+    TODO.md 7.4a sub-task C1: this is the one call site that computes the
+    real cumulative committed-bytes sum (PENDING + RESIDENT, see
+    `_sum_committed_bytes()`) and passes it into `can_admit()`'s
+    `concurrent_committed_bytes` — computed INSIDE this function's own lock
+    below, on the same already-reaped slot list `reserved` is computed from,
+    not via a separate `total_committed_bytes()` call (which would both
+    self-deadlock against the lock already held here and reopen the exact
+    TOCTOU window this function exists to close — see its own docstring
+    just below).
 
     That three-step pattern acquires this store's flock three separate
     times (once inside total_reserved_bytes(), none for can_admit() itself,
@@ -1800,6 +2186,13 @@ def reserve_slot(
             if s.get("status", SLOT_STATUS_PENDING) == SLOT_STATUS_PENDING
         )
 
+        # TODO.md 7.4a sub-task C1 item 3: computed HERE, inside this same
+        # lock, on the already-reaped `slots` list — NOT via a separate
+        # total_committed_bytes() call (which acquires its own lock and
+        # would both self-deadlock against the lock already held here and
+        # reopen the exact TOCTOU window this function exists to close).
+        committed = _sum_committed_bytes(slots)
+
         decision = can_admit(
             spec,
             meminfo=meminfo,
@@ -1807,6 +2200,8 @@ def reserve_slot(
             usable_fraction=usable_fraction,
             headroom_factor=headroom_factor,
             read_temp_fn=_fixed_temp_fn,
+            concurrent_committed_bytes=committed,
+            max_concurrent_budget_bytes=max_concurrent_budget_bytes,
         )
 
         if not decision.admitted:
@@ -1828,7 +2223,9 @@ def reserve_slot(
         return decision, slot_id
 
 
-def mark_resident(slot_id: str, state_dir: Optional[Path] = None) -> bool:
+def mark_resident(
+    slot_id: str, state_dir: Optional[Path] = None, pid: Optional[int] = None
+) -> bool:
     """
     Transition a slot from SLOT_STATUS_PENDING to SLOT_STATUS_RESIDENT,
     confirming the model actually finished loading (as opposed to merely
@@ -1852,12 +2249,33 @@ def mark_resident(slot_id: str, state_dir: Optional[Path] = None) -> bool:
     headroom check. This is a contract for sub-task 3's future wiring
     (out of scope for this module today), not something this function can
     enforce itself.
+
+    `pid` (optional): rebind the slot's `pid` field at the same time,
+    atomically, inside the same lock. Fixes NEW-81 — `reserve_slot()` is
+    always called BEFORE the real model subprocess is spawned (the gate has
+    to admit the load before anything is started), so the slot is initially
+    registered under the *caller's own* PID (`reserve_slot()`'s
+    `if pid is None: pid = os.getpid()` default), e.g. the long-lived daemon
+    process, not the short-lived `llama-server` child it's about to spawn.
+    `_pid_alive()`-based reaping (`reserve_slot()`, `release_slot()`,
+    `list_slots()`) therefore keeps checking the daemon's own (still-alive)
+    PID forever, even after the actual model process crashes — the slot's
+    declared cost is never reaped. Callers that know the real subprocess PID
+    by the time the load is confirmed (i.e. every real caller —
+    `core/loader_v2.py`/`core/planner_loader.py`'s shared
+    `confirm_resident_and_mark_slot()`) should pass it here so PID-liveness
+    reaping actually tracks the process whose death should free the slot.
+    Omitting `pid` (the default) leaves whatever PID the slot was registered
+    under untouched — existing callers that don't pass it keep today's
+    behavior exactly.
     """
     found = False
     with _LockedState(state_dir) as slots:
         for s in slots:
             if s.get("slot_id") == slot_id:
                 s["status"] = SLOT_STATUS_RESIDENT
+                if pid is not None:
+                    s["pid"] = pid
                 found = True
                 break
     return found
@@ -2100,3 +2518,51 @@ def total_reserved_bytes(state_dir: Optional[Path] = None, reap_dead: bool = Tru
         for s in list_slots(state_dir=state_dir, reap_dead=reap_dead)
         if s.get("status", SLOT_STATUS_PENDING) == SLOT_STATUS_PENDING
     )
+
+
+def _sum_committed_bytes(slots: List[dict]) -> int:
+    """
+    Pure sum of `cost_bytes` across EVERY entry in `slots` (already reaped
+    of dead-PID entries by the caller, if desired) — deliberately the
+    OPPOSITE filter from `total_reserved_bytes()`/the `reserved` computation
+    above: this sums PENDING AND RESIDENT slots together, not PENDING only.
+
+    This is a declared-cost POLICY sum against a fixed named ceiling
+    (MAX_CONCURRENT_MODEL_BUDGET_BYTES), not a live-`MemAvailable`-
+    double-counting guard — `total_reserved_bytes()`'s PENDING-only filter
+    exists specifically to avoid double-counting a RESIDENT slot's cost
+    against a fresh meminfo read (that slot's memory footprint is already
+    reflected there); this sum never touches meminfo at all, so that
+    concern doesn't apply here — a RESIDENT slot's declared cost is exactly
+    as real a claim against the fixed device-wide budget as a PENDING one.
+
+    Takes a plain in-memory list, not `state_dir`/a lock — kept separate
+    from `total_committed_bytes()` (below) specifically so `reserve_slot()`
+    can call this directly on the slot list it already holds inside its own
+    `_LockedState` block, without acquiring a second, nested lock on the
+    same non-reentrant flock (which would self-deadlock).
+
+    Assumes every slot in the store carries a real `cost_bytes` — true for
+    every write this module itself makes (`reserve_slot()`'s own append,
+    `core/resource_gate.py`, always populates `cost_bytes:
+    decision.estimated_cost_bytes`) and positionally required (no default)
+    by `register_slot()`'s own signature — but if some future caller ever
+    calls `register_slot()` with `cost_bytes=0`, this sum silently
+    undercounts and the ceiling fails open. Documented here rather than
+    defended against with new code this sub-task didn't ask for.
+    """
+    return sum(s.get("cost_bytes", 0) for s in slots)
+
+
+def total_committed_bytes(state_dir: Optional[Path] = None, reap_dead: bool = True) -> int:
+    """
+    Sum of declared `cost_bytes` across every currently-registered, live
+    slot — PENDING and RESIDENT together (see `_sum_committed_bytes()`'s
+    docstring for why this is the opposite filter from
+    `total_reserved_bytes()`). This is the value to pass as `can_admit()`'s
+    `concurrent_committed_bytes` for any direct caller that isn't
+    `reserve_slot()` (which computes this same sum itself, inside its own
+    lock — see its docstring for why that matters and why this function
+    must NOT be called from inside that lock).
+    """
+    return _sum_committed_bytes(list_slots(state_dir=state_dir, reap_dead=reap_dead))

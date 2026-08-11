@@ -112,6 +112,7 @@ def confirm_resident_and_mark_slot(
     estimated_cost_bytes: int,
     timeout_s: float = CONFIRM_RESIDENT_TIMEOUT_S,
     poll_interval_s: float = CONFIRM_RESIDENT_POLL_INTERVAL_S,
+    pid: Optional[int] = None,
 ) -> None:
     """
     Poll /proc/meminfo (bounded by `timeout_s`) for a MemAvailable drop
@@ -122,6 +123,16 @@ def confirm_resident_and_mark_slot(
     core/loader_v2.py:ModelLoader.load_primary() and
     core/planner_loader.py:PlannerLoader.load() so both loaders apply the
     same confirmation policy rather than each reimplementing it.
+
+    `pid` (optional): the real spawned `llama-server` subprocess PID —
+    forwarded straight to `resource_gate.mark_resident()`'s own `pid`
+    argument so the slot is rebound from the caller's own PID (what
+    `reserve_slot()` registered it under, before the subprocess existed) to
+    the process whose death should actually free it. See
+    `resource_gate.mark_resident()`'s docstring (NEW-81) for the full
+    reasoning. Both `load_primary()` and `PlannerLoader.load()` pass
+    `self._server.process.pid` here in the only branch where they know it
+    (the branch where they genuinely spawned the process, not reused one).
 
     On timeout (no confirming drop observed within `timeout_s`): marks the
     slot resident anyway, with a logged warning, rather than leaving it
@@ -158,7 +169,7 @@ def confirm_resident_and_mark_slot(
             "confirm_resident_and_mark_slot()'s docstring)"
         )
 
-    rg.mark_resident(slot_id)
+    rg.mark_resident(slot_id, pid=pid)
 
 
 class LlamaServer:
@@ -694,8 +705,20 @@ class ModelLoader:
                     rg.release_slot(slot_id)
                     self._slot_id = None
                 else:
+                    # pid=self._server.process.pid: rebind the slot from
+                    # this loader's own PID (what reserve_slot() registered
+                    # it under, before this subprocess existed) to the real
+                    # spawned llama-server PID — see
+                    # confirm_resident_and_mark_slot()'s pid docstring and
+                    # resource_gate.mark_resident()'s (NEW-81) for why. Only
+                    # reachable here because self._server.process is not
+                    # None (we genuinely spawned it, not the reuse branch
+                    # above).
                     confirm_resident_and_mark_slot(
-                        slot_id, baseline_meminfo, decision.estimated_cost_bytes
+                        slot_id,
+                        baseline_meminfo,
+                        decision.estimated_cost_bytes,
+                        pid=self._server.process.pid,
                     )
                     self._slot_id = slot_id
 

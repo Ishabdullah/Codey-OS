@@ -5047,7 +5047,28 @@ open, not closed, on this basis.
 
 ### [NEW-81] `core/resource_gate.py`'s slot records have no way to rebind `pid` at the PENDING→RESIDENT transition
 
-- **Status: Confirmed by design gap**, not yet a live bug (module is
+- **Status: RESOLVED (2026-08-11, TODO.md 7.4a sub-task C1's
+  code-reviewer-mandated bug-fix round, code-reviewer approved).**
+  `mark_resident()` now takes an optional `pid` keyword arg that rebinds
+  the slot's `pid` field inside the same lock as the status transition;
+  `core/loader_v2.py`'s shared `confirm_resident_and_mark_slot()` takes
+  and forwards the same `pid`; both `ModelLoader.load_primary()`
+  (`core/loader_v2.py`) and `PlannerLoader.load()`
+  (`core/planner_loader.py`) now pass `pid=self._server.process.pid` in
+  the branch where they genuinely spawned the process (not the reuse
+  branch, which never marks resident at all). This was forced live by
+  C1's new `MAX_CONCURRENT_MODEL_BUDGET_BYTES` cumulative ceiling
+  activating this exact dormant gap: a crashed primary/planner left a
+  permanently-unreapable RESIDENT slot that could exceed the fixed
+  ceiling and never recover. Regression tests:
+  `tests/test_resource_gate.py::test_mark_resident_pid_arg_rebinds_slot_pid`,
+  `test_mark_resident_without_pid_arg_leaves_pid_unchanged`;
+  `tests/test_loader_resource_gate.py::test_confirm_resident_forwards_pid_to_mark_resident`,
+  `test_load_primary_crash_then_reload_not_denied_by_ghost_slot_new81`
+  (end-to-end: real gate, real dead PID, proven to fail before the fix
+  and pass after).
+- **Original finding, kept for record (CLAUDE.md rule 6) — Status:
+  Confirmed by design gap**, not yet a live bug (module is
   still unwired). A daemon reserving a slot under its own PID before
   spawning the actual `llama-server` subprocess has no mechanism to
   update that slot's `pid` to the subprocess's real PID when calling
@@ -6564,3 +6585,316 @@ finding for the same bug. See `NEW-39`.)*
   8 requires logging rather than silently fixing. Whoever next touches
   `is_complex()`'s thresholds should either give the `> 300` branch a
   distinct condition or collapse it into the `> 150` branch explicitly.
+
+## Found during 7.4 (Phase 5a) scoping pass, 2026-08-11 (project-architect, desk-only, no code changed) — NOT fixed, logged only
+
+### [NEW-129] `resource_gate.can_admit()`'s thermal-refusal leg and `should_trip_shutdown()`'s sustained-thermal-trip leg deliberately share one config value (`THERMAL_CONFIG["temp_critical"]`), so a device/test config that makes the shutdown tripwire reachable simultaneously denies admission of the very model whose slot-release the tripwire is supposed to be proven safe for
+
+- **Status: Confirmed** by direct code read, `core/resource_gate.py:1017-1018`
+  (`can_admit()`) and `:1441` (`should_trip_shutdown()`) both execute
+  `THERMAL_CONFIG.get("temp_critical", 90)` — the same key, no per-caller
+  override. This is a deliberate, documented design choice from Phase 4.1
+  sub-task D (`WORK_QUEUE.md` ~line 1409-1413: "`THERMAL_CONFIG` already
+  has the right threshold for the thermal leg... is the correct value to
+  reuse, not a new number"), not an accident — logged here because it
+  produces a real, structural verification gap, not because the sharing
+  itself was unintentional.
+- **Concrete effect, already observed live**: Phase 4.1 sub-task D's
+  2026-08-10 live-verification (`WORK_QUEUE.md` ~line 1527-1575) had to
+  set `CODEY_TEMP_CRITICAL_C=36` to make the sustained-thermal shutdown
+  tripwire reachable in a practical test session. That same lowered
+  threshold independently denied the primary 7B model's own admission
+  through `can_admit()`'s thermal leg, so the primary model never held a
+  gate slot during that run — the tripwire's "no leaked slot on shutdown"
+  claim is confirmed only for the embed-server model (which was resident
+  and exempt from `can_admit()`'s reservation path), not for the primary
+  model, and structurally cannot be under the current design: any
+  `temp_critical` value low enough to make the tripwire reachable in a
+  short test session is also low enough to deny the primary model's own
+  admission through the same threshold.
+- **Scope note**: this is a gap in Phase 4.1 (daemon control redesign,
+  item 2)'s shutdown-tripwire verification, not in 7.4 (Phase 5a, the
+  resource gate itself) — 7.4's own admission→release cycle is exercised
+  via `release_model_slot` and the normal watchdog/SIGTERM shutdown
+  paths, neither of which requires lowering `temp_critical`, so this does
+  NOT block 7.4's live-verification. It also does not block 7.3 (task
+  classifier/tier config) sub-task E.
+- **Not fixed here** — out of scope for a desk-only scoping pass; NEW-119
+  through NEW-128 correction/logging precedent applies (log per rule 8,
+  don't silently fix). Fix direction, for whoever picks this up: either a
+  separate `CODEY_SHUTDOWN_TEMP_CRITICAL_C` env-overridable threshold
+  distinct from admission's `temp_critical` (simplest, but a device that
+  is genuinely at 90°C should probably deny admission AND be closer to
+  tripping shutdown — decoupling them numerically doesn't have an obvious
+  "correct" pair of values without a real thermal-behavior study), or a
+  test harness that gets a primary model resident via a path other than
+  lowering `temp_critical` (e.g. admit it first at a normal temperature,
+  then only lower `temp_critical` afterward to trigger the trip against
+  an already-resident model) — the second option needs no code change,
+  only a different live-test sequencing, and is likely the cheaper fix.
+
+### [NEW-130] `WORK_QUEUE.md`'s 7.3 sub-task E scoping note (written 2026-08-10) claims "`release_model_slot` has never fired on a real request" — contradicted by `NEW-104`'s own verbatim evidence, written the day before, from 7.4's round-18 live-verification
+
+- **Status: Confirmed**, a documentation self-contradiction, not a code
+  bug — corrected in place in `WORK_QUEUE.md` per CLAUDE.md rule 6 rather
+  than left standing. `NEW-104` (`NEW_ISSUES.md`, filed 2026-08-09)
+  describes, with real PIDs: "with the daemon already holding a `primary`
+  slot, `main.py --init` was gate-denied, asked the daemon to
+  `release_model_slot`, the daemon stopped its own copy and released the
+  slot" — i.e. `release_model_slot` genuinely fired and genuinely
+  released a real, resident model's slot, the day before the 7.3
+  scoping note (dated 2026-08-10) claimed it never had.
+- **What round 18 actually verified, precisely** (see NEW-131 below for
+  the distinct, still-open half): the **primary role's** slot-release
+  mechanism — reservation, admission, `release_model_slot` firing on a
+  real request, retry-and-reload — was exercised end-to-end using a
+  **substitute model** (Qwen3-4B via `CODEY_TEST_PRIMARY_ARCH`) at a
+  **test-only `n_ctx=2048`**, confirmed by `LIVE_TEST_QUEUE.md`'s own
+  round-18 update ("the substitute primary model actually get[ting]
+  admitted") and by `cost_bytes: 3067704480` in `NEW-104`'s captured slot
+  read, which matches the substitute's KV-cache shape at `n_ctx=2048`,
+  not the real 7B's. This is real, solid evidence the *mechanism* works —
+  it is not evidence the *production model at its production `n_ctx`*
+  has ever gone through it.
+- **Fixed in docs**: `WORK_QUEUE.md`'s 7.3 sub-task E note corrected in
+  place, 2026-08-11, to reflect this distinction rather than the flatly
+  wrong "never fired" claim.
+
+### [NEW-131] The real production primary model (Qwen2.5-Coder-7B, `~/models/qwen2.5-coder-7b/qwen2.5-coder-7b-instruct-q4_k_m.gguf`) at the real production default `n_ctx` (32768) has never been run through `can_admit()` live — a pure-arithmetic desk check (no model spawn) run this round found it is NOT hard-rejected, only denied by current live headroom, contrary to the implicit worry raised by the substitute's earlier hard-rejection at the same `n_ctx`
+
+- **Status: Confirmed**, computed directly via
+  `core/resource_gate.estimate_model_load_cost()`/`can_admit()` against
+  the real 7B file and a real, live `/proc/meminfo` read (no model
+  spawned — pure arithmetic, safe per this task's own no-live-load
+  scope), 2026-08-11:
+  ```
+  model_bytes: 4683073536
+  kv_cache_bytes: 1879048192
+  overhead_bytes: 268435456
+  total: 6830557184  (~6514MiB)
+  GateDecision(admitted=False, hard_reject=False,
+    reason="model 'primary' cost estimate (6514MiB) x headroom_factor (1.25)
+    = 8143MiB, which exceeds current headroom (5574MiB)",
+    estimated_cost_bytes=6830557184, headroom_bytes=5845012480,
+    device_ceiling_bytes=6973872537)
+  ```
+  `free -h` at the moment of this calculation: `total 10Gi, used 5.1Gi,
+  free 1.2Gi, buff/cache 4.5Gi, available 5.5Gi; swap total 11Gi, used
+  1.6Gi, free 10Gi`.
+- **Why this matters, exact numbers not adjectives** (per this project's
+  own verification-wording-precision practice): `estimated_cost_bytes`
+  (6830557184, ~6514MiB) is **136MiB (~2.1%) under** `device_ceiling_bytes`
+  (6973872537, ~6650MiB) — `hard_reject=False`, but only just. The real
+  production config is NOT structurally inadmissible on this device,
+  unlike what round 18's substitute-model hard-rejection at the same
+  `n_ctx=32768` could easily be misread to imply (the substitute's
+  36-layer/8-KV-head shape costs MORE than the real 7B's 28-layer/4-KV-head
+  shape at the same `n_ctx`, per `TODO.md`'s own round-18 write-up — this
+  is the documented reason the two models' admissibility at the same
+  `n_ctx` cannot be inferred from one another). But a 2.1% margin against
+  the hard-reject ceiling is itself a finding: a marginally-lower-RAM
+  device, or any future bump to the fixed overhead constant
+  (`spec.compute_overhead_bytes`), would flip this specific config from
+  admissible-in-principle to hard-rejected. The real 7B was denied just
+  now only by *transient* headroom (other processes/buff-cache using RAM
+  at calculation time), the same class of denial sub-task 5's CLI
+  recovery path already handles — but the *budget check* (headroom x
+  1.25 margin, not the hard ceiling) is the one actually blocking
+  admission right now, and it needs ~8143MiB (~7.95GiB) of `MemAvailable`
+  at load time to clear.
+- **Historical-peak check (desk-only, `PROJECT_LOG.md` grep, no new live
+  run)**: the highest `MemAvailable`/`available` figure ever recorded in
+  this project's own live-test history is **~7.6GiB** (round 13's
+  post-teardown daemon-only state, `PROJECT_LOG.md` ~line 3221 —
+  `used 2.9Gi / available 7.6Gi`, with `plannd` not running). That is
+  **~350MiB short** of the ~7.95GiB the budget check needs. No historical
+  `free -h` capture in this project's logs has ever reached the bar this
+  config needs to clear. This does not prove the bar is unreachable
+  (round 13's 7.6GiB was a post-teardown snapshot, not a maximally-clean
+  boot state, and `can_admit()` was called with the default
+  `reserved_bytes=0` above — the optimistic case; if the embed server is
+  resident during a real attempt, its registered slot cost would subtract
+  further from headroom) — but it means the scoped live-verifier pass
+  below has a real, evidenced chance of coming back as a denial even
+  under the most favorable realistic conditions this device has ever
+  shown, not just a hypothetical one.
+- **What's still genuinely unverified**: whether the real 7B, at real
+  `n_ctx=32768`, can actually be **admitted and spawned** end-to-end
+  (load-through-gate) on this device under favorable-but-realistic
+  headroom (e.g. daemon-only harness, `plannd` not running, no other
+  model resident, embed server not yet loaded) — the arithmetic above
+  says it's possible in principle but close to both the hard ceiling and
+  the historical headroom peak; no live spawn has ever confirmed it
+  either way. This is the one concrete live-verification gap left in
+  7.4's core cycle for the *production* config specifically (round 18
+  already covers the *mechanism* via the substitute).
+- **Sharper product question for Ish, answerable without any live run**:
+  the shipped default `n_ctx=32768` requires ~7.95GiB of `MemAvailable`
+  to pass its own gate's budget check on a 10GiB device — a bar this
+  project's own live-test history has never once reached. Is 32768 the
+  right production default for this device, or should the production
+  default itself be lowered (with `CODEY_N_CTX` staying as the
+  test/override mechanism it already is)? This directly conditions 7.3
+  sub-task E's tier thresholds and is a product decision, not an
+  implementation detail — not resolved here.
+- **Not fixed here** — a desk-only arithmetic check, logged per rule 8;
+  the live spawn-and-confirm pass itself is scoped into `TODO.md`/
+  `WORK_QUEUE.md`'s 7.4 entries as the next concrete live-verifier task,
+  with this historical-peak caveat carried into that scoping so a denial
+  result isn't mistaken for a broken gate.
+
+### [NEW-132] The device's ~4:1 zram compression ratio, cited as supporting evidence for a swap-aware resource-gate budget, was measured on ordinary Android app anon pages at idle — not on model weights, and may not hold for them
+
+- **Confidence: Suspected** — a reasoning gap identified during
+  2026-08-11 scoping of the swap-aware resource-gate budget check
+  (`TODO.md` 7.4a / `WORK_QUEUE.md` Track 3 item 1b, Ish's 2026-08-11
+  decision to make `can_admit()`'s budget check swap-aware), not
+  confirmed or refuted by any live measurement.
+- **Where found:** `TODO.md`'s 7.4 diagnostic follow-up entry
+  (2026-08-11) captured `/sys/block/zram0/mm_stat` showing roughly
+  2.48GiB of logical data compressed into ~608MiB of physical RAM
+  (~4:1) at device idle. That capture reflects whatever Android's own
+  app processes had swapped out at that moment — ordinary anonymous
+  memory pages, not model-weight pages.
+- **Why this matters:** the primary model files this project loads are
+  already quantized (Q4_K_M) — high-entropy, pre-compressed data.
+  Compressing already-compressed data typically yields a far worse
+  ratio than compressing ordinary process memory (closer to 1:1 is
+  plausible, though not measured). If a swap-aware budget check is
+  built assuming the observed ~4:1 ratio generalizes to model pages,
+  it would significantly over-estimate how much usable headroom
+  `SwapTotal`/`SwapFree` actually represents for this specific
+  workload — the exact over-estimate failure mode that check exists to
+  avoid, with a real consequence (thrash, RSS collapse, or Samsung's
+  `slmk` low-memory-killer intervening, per `getprop
+  ro.slmk.swap_free_low_percentage` = `10`, i.e. `SwapFree` below ~10%
+  of `SwapTotal`/~1.2GiB on this device).
+- **Not fixed here** — no live measurement was taken (this finding
+  itself came from a desk-only scoping pass, no model load run).
+  `TODO.md`'s 7.4a entry, sub-task E, scopes the actual measurement
+  (sampling `/sys/block/zram0/mm_stat` during a real model load) as
+  part of that item's live-verification pass — this entry exists so
+  the assumption isn't silently carried into an implementation before
+  it's checked.
+
+### [NEW-133] Ish's 2026-08-11 `MAX_CONCURRENT_MODEL_BUDGET_BYTES` figure (8.80GiB) is arithmetically below the 8.855GiB raw sum it was explicitly derived from, by ~0.055GiB
+
+- **Status: RESOLVED (2026-08-11, scoping-only correction, no code
+  written yet — sub-tasks A/B/C1 remain unimplemented).** Flagged to Ish
+  directly; his answer: **round up slightly instead, so the full
+  3-model case stays admissible, with any remaining margin applied
+  elsewhere (the swap-budget check, C2's `MAX_SWAP_ASSIST_BYTES`) rather
+  than as a deduction on this ceiling, if a margin is still wanted at
+  all.** Corrected value: `MAX_CONCURRENT_MODEL_BUDGET_BYTES = 8.90GiB`
+  (9,556,302,233 bytes) — the raw sum (9,508,400,807 bytes / 8.855GiB)
+  rounded up to the next 0.05GiB, giving a positive margin of
+  47,901,426 bytes (~45.7MiB) *above* the raw sum instead of ~0.055GiB
+  below it. This makes the exact three-model-concurrent scenario the
+  ceiling was derived from admissible again, resolving the "this
+  ceiling denies the case it was computed from" problem this finding
+  identified. **Carried-forward caveat, not fully closed by the number
+  alone**: the raw sum's embed term (0.328GiB) is a floor estimate with
+  no computable KV-cache term (see decision 2 in `TODO.md` 7.4a) — if
+  the embed model's real resident cost is undercounted by more than the
+  ~45.7MiB margin this correction adds, the admissibility this fix
+  restores could be lost again at the same threshold. This must be
+  documented in the constant's own code comment (see `TODO.md` 7.4a's
+  C1 sub-item 1) and re-checked against sub-task E's live pass rather
+  than assumed permanently settled. Every occurrence of the old 8.80GiB
+  figure updated to 8.90GiB in `TODO.md` 7.4a (C1 sub-items 1, 3, 7 and
+  the "Ish's decisions" block) and `WORK_QUEUE.md`'s item 1b entry; the
+  historical 8.80GiB figure and its "minus ~0.06GiB" framing are kept
+  visible in both docs as the original decision, per CLAUDE.md rule 6,
+  not erased.
+- **Original finding — Confidence: Confirmed** — plain arithmetic on numbers computed live
+  in the same 2026-08-11 session via this project's own
+  `estimate_model_load_cost()`, not an estimate or a re-derivation.
+- **Where found:** scoping pass for `TODO.md` 7.4a / `WORK_QUEUE.md`
+  Track 3 item 1b sub-task C1, recording Ish's direct decision on the
+  new named cumulative concurrent-model-budget ceiling.
+- **The numbers:** 7B primary at `n_ctx=32768` = 6.361GiB; 1.5B planner
+  at `n_ctx=32768` = 2.166GiB; embed model floor estimate (file +
+  overhead only, no computable KV term) = 0.328GiB. Raw sum =
+  6.361 + 2.166 + 0.328 = **8.855GiB**. Ish's stated final ceiling is
+  **8.80GiB**, explicitly described as "the raw sum minus ~0.06GiB, for
+  a slight safety margin" — but 8.80 is *below* 8.855 by ~0.055GiB, not
+  above it with margin subtracted from headroom. Under a literal
+  `concurrent_committed_bytes + candidate_cost > MAX_CONCURRENT_MODEL_BUDGET_BYTES`
+  check, the exact three-model-concurrent scenario the ceiling was
+  computed from would itself be denied by a few tens of MiB.
+- **Why this matters:** if the intent was "this ceiling should
+  comfortably admit all three models running at once," the constant as
+  given doesn't do that — it needs a small upward correction (e.g. to
+  something above 8.855GiB, with the "slight safety margin" framing
+  applied to a different baseline, or accepting that headroom/thermal
+  checks and not this ceiling are what's meant to gate the marginal
+  byte). If the intent was "8.80GiB, and it's fine if the full
+  three-model case is right at or just past the edge," the constant is
+  correct as given and this is expected, not a bug — but that's not
+  what "minus ~0.06GiB for a slight safety margin" reads as on its own.
+- **Resolved, see the "Status: RESOLVED" block at the top of this
+  entry** — this was a numeric question for Ish, not a wiring decision
+  open to project-architect's own scoping judgement; Ish answered it
+  directly and the corrected 8.90GiB value is now what `TODO.md` 7.4a's
+  C1 sub-item 7 and `WORK_QUEUE.md`'s item 1b specify for the
+  implementer to use.
+
+## Found while fixing the NEW-81 bug that C1's `MAX_CONCURRENT_MODEL_BUDGET_BYTES` ceiling activated, 2026-08-11 — NOT fixed, logged only
+
+### [NEW-134] Post-C1, a slot leaked during the PENDING window (reserved, then never confirmed resident) now permanently consumes fixed-ceiling budget, not just a self-healing live-headroom figure — narrower than NEW-81's mechanism, but the same crash-window class as NEW-82/NEW-114
+
+- **Status: Confirmed by design gap, not yet a live bug** (same posture
+  as NEW-81/NEW-82 before them — the module was still not fully daemon-
+  wired at the time this was written). Logged per this task's own
+  instruction and CLAUDE.md rule 8 (found while fixing NEW-81, out of
+  that fix's scope, not silently fixed or dropped).
+- **What's actually true (corrected from the mechanism as originally
+  described to project-architect for this task — verified directly
+  against `core/resource_gate.py` and `core/loader_v2.py` before writing
+  this, not assumed):** `reserve_slot()`'s own PID default
+  (`if pid is None: pid = os.getpid()`, `core/resource_gate.py`) means a
+  freshly-reserved PENDING slot is registered under the **calling
+  process's own PID** (e.g. the long-lived daemon), never literally
+  `pid=None` — so the framing "ghost PENDING slots registered `pid=None`"
+  that this task was originally asked to log is not what the code does;
+  logging it as such would be a false entry, so it's corrected here
+  instead (CLAUDE.md rule 6). The real, narrower gap: between
+  `reserve_slot()` admitting a PENDING slot (attributed to the daemon's
+  PID) and `confirm_resident_and_mark_slot(..., pid=child_pid)` rebinding
+  it to the real subprocess (the NEW-81 fix, this same round), the slot
+  is attributed to the daemon — if the real child process dies inside
+  that specific window, PID-liveness reaping won't notice (it's still
+  checking the daemon's own, still-alive, PID). In the normal case this
+  window is already bounded by `load_primary()`'s/`PlannerLoader.load()`'s
+  `try`/`finally` (any exception releases the slot; see
+  `.claude/agent-memory/code-reviewer/resource_gate_subtask2_confirm_mark_slot_leak.md`),
+  and a daemon `SIGKILL` in that same window is correctly reaped (the
+  slot's pid IS the daemon's own PID, and the daemon really did die) —
+  so this is narrower than NEW-82's general "no TTL on PENDING slots"
+  framing, not a new instance of it.
+- **What's new post-C1 specifically:** before C1, an unreaped leaked
+  PENDING slot only skewed `total_reserved_bytes()`'s live,
+  self-healing, MemAvailable-relative headroom figure (bad, but
+  transient relative to actual memory pressure). After C1, the same leak
+  also permanently consumes part of the fixed
+  `MAX_CONCURRENT_MODEL_BUDGET_BYTES` ceiling via
+  `_sum_committed_bytes()`/`total_committed_bytes()` (PENDING + RESIDENT,
+  summed against a constant, not a live figure) — a leak in this specific
+  window now has a permanent-budget-consumption consequence it didn't
+  have before C1 landed.
+- **Cross-references:** NEW-82 (general PENDING-slot TTL/leak gap, this
+  is a narrower instance of the same underlying class, not a duplicate);
+  NEW-114 (4.1 sub-task C's "crash window with no reaper" finding — same
+  finding *shape*, different subsystem: a state transition with no
+  recovery path if the process dies mid-transition).
+- **Where found:** while implementing this task's mandated NEW-81 fix
+  (TODO.md 7.4a sub-task C1's code-reviewer-required bug-fix round,
+  2026-08-11) — reading `reserve_slot()`'s actual PID-default behavior to
+  confirm the fix's own correctness surfaced this narrower, real gap
+  along the way; not otherwise in scope for that fix, and not fixed
+  here.
+- **Fix direction, if picked up later:** either the TTL-on-PENDING
+  approach NEW-82 already proposes, or having `reserve_slot()` itself
+  eagerly reap PENDING slots older than a bound at read time (it already
+  reaps dead-PID slots at the same point) — either would also close this
+  narrower window, not just the general one.

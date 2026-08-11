@@ -122,8 +122,17 @@ class PlannerLoader:
                     rg.release_slot(slot_id)
                     self._slot_id = None
                 else:
+                    # pid=self._server.process.pid: same NEW-81 fix as
+                    # core/loader_v2.py:ModelLoader.load_primary()'s matching
+                    # branch — rebind the slot from this loader's own PID
+                    # (what reserve_slot() registered it under, before this
+                    # subprocess existed) to the real spawned llama-server
+                    # PID, so crash-time PID-liveness reaping actually works.
                     confirm_resident_and_mark_slot(
-                        slot_id, baseline_meminfo, decision.estimated_cost_bytes
+                        slot_id,
+                        baseline_meminfo,
+                        decision.estimated_cost_bytes,
+                        pid=self._server.process.pid,
                     )
                     self._slot_id = slot_id
 

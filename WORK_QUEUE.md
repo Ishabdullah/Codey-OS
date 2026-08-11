@@ -765,7 +765,112 @@ resource-awareness work twice.
        direct `get_loader()` calls onto it. Fold in `NEW-24`
        (`load_secondary()` doesn't exist) as part of this work. Use
        `NEW-14`/`NEW-18`/`NEW-21`'s swap/RAM observations as validation
-       data for the safety-margin sizing.
+       data for the safety-margin sizing. **Status (2026-08-11): all five
+       sub-tasks code-complete, code-reviewer-approved, and the gate
+       mechanism itself (reservation → admission → `release_model_slot` →
+       retry → reload) is live-verified for the primary role — see
+       `NEW-104`/`NEW-130`. The one remaining live-verification gap is
+       narrower than previously framed: the real production model has
+       never actually been spawned through the gate at the real
+       production `n_ctx` (32768); round 18 used a substitute at a
+       test-only `n_ctx=2048` instead. A desk-only cost-estimate check
+       this round (`NEW-131`, no model spawned) found the real model is
+       NOT hard-rejected on the device-ceiling check at production
+       `n_ctx` (only 2.1% margin, not comfortable) but IS denied right
+       now by the separate budget check, needing ~7.95GiB `MemAvailable`
+       — a bar this project's live-test history has never once reached
+       (highest recorded: ~7.6GiB). See `TODO.md`'s 7.4 entry for the
+       full assessment, the scoped next live-verifier pass (daemon-only
+       harness, `CODEY_N_CTX` unset, full `free -h`/`ps aux`/slot-list
+       evidence bar), and the sharper product question flagged to Ish
+       (is 32768 the right production default for this device at all).**
+1b. [ ] **Phase 5a follow-on — swap-aware resource-gate budget check
+       (new item, 2026-08-11, Ish's direct decision).** Spun off item 1's
+       own closing question above, not folded into it: item 1's five
+       sub-tasks are already code-complete/reviewer-approved, and
+       reopening that scope would blur the code-complete/live-verified
+       ledger; this item is that closing question's resolution. Full
+       5-sub-task (A-E) scoped plan, open questions for Ish, and the
+       zram-is-not-extra-capacity / device-grounded-`slmk`-constant
+       findings are written into `TODO.md`'s new 7.4a entry (inserted
+       directly after 7.4) — read there for the complete write-up, not
+       duplicated here. Short version: A (swap signal sourcing,
+       `read_zram_stats()` + `ResourceSnapshot` fields) and B (a pure
+       swap-aware headroom function, policy constant taken as a
+       parameter, not blessed as a default) are ready for implementer
+       now, no Ish input needed.
+
+       **Status update (2026-08-11): Ish's three open questions answered
+       directly in-session, and the C sub-task split in two as a result**
+       (full derivation, real numbers, and the resulting scoping calls
+       are in `TODO.md`'s 7.4a entry — not duplicated here):
+       - Swap-assisted admission (C2) is **on by default**.
+       - A **new, additional, named policy constant** —
+         `MAX_CONCURRENT_MODEL_BUDGET_BYTES = 8.90GiB` (9,556,302,233
+         bytes) — caps the **sum** of all concurrently-declared model
+         costs (distinct from the existing single-model hard-reject
+         ceiling, ~6.49GiB via `DEVICE_CEILING_USABLE_FRACTION=0.60`,
+         unchanged). Computed live via `estimate_model_load_cost()`
+         against the real 7B/1.5B/embed model files at `n_ctx=32768`:
+         6.361 + 2.166 + 0.328 ≈ 8.855GiB raw sum (exact bytes
+         9,508,400,807). Ish's original session figure was 8.80GiB,
+         "minus ~0.06GiB safety margin" — but 8.80 was actually *below*
+         the 8.855 raw sum it was derived from by ~0.055GiB, meaning the
+         literal 3-model-concurrent case would itself have been denied.
+         **Corrected 2026-08-11, `NEW-133` resolved**: flagged to Ish, who
+         answered "round up slightly instead, so the full 3-model case is
+         still admissible, with the margin applied elsewhere (the
+         swap-budget check) if a margin is still wanted at all." Corrected
+         value is the raw sum rounded up to the next 0.05GiB — 8.90GiB —
+         giving a positive ~45.7MiB margin above the raw sum instead of a
+         deduction below it (see `TODO.md` 7.4a's C1 sub-item 7 for the
+         full derivation and the embed-floor-undercount caveat that must
+         ship in the constant's own comment). Per Ish's explicit
+         requirement — "make sure the device's own policy is shown to
+         Codey so it never even tries to load a model above that
+         number" — this is now its own sub-task, **C1**, split out of
+         the original C because it has zero dependency on A/B and can
+         land independent of C2/E's swap-calibration timeline: a new
+         named constant + a declared-cost summing function (mirroring
+         `total_reserved_bytes()` but summing PENDING+RESIDENT slots,
+         not PENDING-only) + a new pre-check inside `can_admit()`,
+         evaluated after the existing single-model `hard_reject` check
+         but before the thermal/headroom checks, denying via the
+         **retryable** `GATE_DENIED` path (not `GATE_DENIED_HARD` — this
+         denial is recoverable by unloading a resident model, unlike the
+         permanent single-model ceiling).
+       - The original swap-aware secondary check is now **C2** (depends
+         on A+B and on C1 landing first, since both add to the same
+         `GateDecision` shape): the safe-swap-budget default itself
+         (`max_swap_usage_bytes`) is resolved as a project-architect
+         scoping call, not a further Ish round-trip (Ish gave the ceiling
+         number and the "never try above it" intent; this piece is
+         wiring-mechanics detail) — derived from the device-grounded
+         `slmk` floor already in `TODO.md` 7.4a
+         (`SwapFree - K * slmk_floor_bytes`, `K=2.0` proposed as a first,
+         un-calibrated default matching `REQUIRED_HEADROOM_FACTOR`'s own
+         precedent, to be validated by E's live pass).
+       - The `n_ctx=32768` sequencing question is resolved by the above:
+         the 8.90GiB ceiling is computed at the real production
+         `n_ctx=32768` for both LLMs, so it settles what "max" means at
+         today's shipped default; a lower `n_ctx` remains a separate,
+         still-open future lever, not a blocker for this item.
+       - D (consistency pass on `would_model_fit()`, `can_dispatch_task()`'s
+         dispatch floor, and `NEW-105`'s confirm-poll, all of which both
+         new checks interact with) is blocked on C1+C2 together, not C
+         alone. E (live verification) is blocked on C1+C2+D, bar
+         unchanged from the original write-up (during-load sampling of
+         `/proc/meminfo` and `/sys/block/zram0/mm_stat`, real inference
+         latency under the swap-assisted state, pre-declared abort
+         criterion tied to `ro.slmk.swap_free_low_percentage=10`).
+       **This makes item 1's own still-pending live-verification pass
+       (real 7B at production `n_ctx=32768` through the gate) sequenced
+       behind sub-task C1 here** — running it first would only
+       re-confirm the same `MemAvailable`-only denial already captured
+       in item 1's notes. Rule 4 applies to C1 and C2 (and any later
+       sub-task touching admission math) — this changes whether a model
+       process gets spawned, same reasoning item 1's own sub-tasks 2-5
+       were each reviewed under.
 2. [x] **`PENDING_ISH_DECISIONS.md` item 2 — daemon control redesign.**
        Sequence directly alongside/after 5a since it needs the same
        resource-gate authority: `daemon_shutdown` becomes an autonomous
@@ -1850,12 +1955,34 @@ resource-awareness work twice.
          actually load per the classifier's chosen tier — NOT part of
          this round, blocked.** Vision §7.6 item 1: "the resource gate
          and slot-aware loader (7.4) ... has to exist before any tier
-         logic can safely act on a tier decision." `TODO.md`'s 7.4 entry
-         confirms the gate has not yet
-         completed a real load-through-gate-then-unload cycle and
-         `release_model_slot` has never fired on a real request — the
-         positive admission path is unverified, only the hard-denial
-         path is. E stays unscoped until 7.4 closes that gap.
+         logic can safely act on a tier decision." **Correction,
+         2026-08-11 (project-architect, per CLAUDE.md rule 6 — this
+         paragraph's original claim below was wrong, not just
+         incomplete):** the original wording here ("`release_model_slot`
+         has never fired on a real request") is contradicted by
+         `NEW-104`'s own verbatim evidence, filed the day *before* this
+         note was written — round 18 (`aa18b7a`, 2026-08-09) has the
+         daemon really releasing a really-resident `primary` slot on a
+         real `release_model_slot` request, real PIDs, real RSS. The
+         *mechanism* (reservation → admission → `release_model_slot` →
+         retry → reload) is live-verified for the primary role, not
+         unverified. What round 18 actually used was a **substitute**
+         model (Qwen3-4B) at a **test-only `n_ctx=2048`**, not the real
+         production 7B at the real production `n_ctx=32768` — see
+         `NEW-130`/`NEW-131` for the full distinction and a desk-only
+         arithmetic check (2026-08-11, no model spawned) showing the real
+         7B is NOT hard-rejected at production `n_ctx` on this device
+         (only denied by transient headroom at calculation time),
+         contrary to what the substitute's earlier hard-rejection at the
+         same `n_ctx` could be misread to imply. **Net effect on this
+         sub-task's blocking status: still blocked**, but for a narrower
+         reason than originally stated — the gate mechanism itself is
+         proven; what's missing is one live spawn-and-confirm pass of the
+         actual production model at the actual production `n_ctx`, not a
+         basic-mechanism gap. See `TODO.md`'s 7.4 entry for the scoped
+         live-verifier task that would close this. Whether E can proceed
+         once that pass succeeds, or needs Ish's product-direction call
+         first (see the flag below), is unchanged by this correction.
 
        **Flagged to Ish, not a blocker:** A-D (decide, log, never act)
        read as compliant with §7.6's "before any tier logic can safely
