@@ -1902,14 +1902,18 @@ def test_compute_swap_assisted_headroom_is_pure_no_side_effects():
     assert mi == mi_copy
 
 
-def test_compute_swap_assisted_headroom_not_wired_into_can_admit():
-    # Sub-task B builds this function standalone only — can_admit() must not
-    # reference SwapFree/swap at all yet (that's sub-task C2).
+def test_compute_swap_assisted_headroom_now_wired_into_can_admit():
+    # Superseded by sub-task C2: at sub-task B's own point in this project's
+    # history, can_admit() did not reference swap at all — this test used to
+    # pin that. C2 wires compute_swap_assisted_headroom_bytes() in as a
+    # genuine secondary check (see tests below for the full behavioral
+    # coverage), so the source now DOES reference it; this positive
+    # assertion replaces the old negative one rather than silently deleting
+    # it.
     import inspect
 
     src = inspect.getsource(rg.can_admit)
-    assert "SwapFree" not in src
-    assert "compute_swap_assisted_headroom_bytes" not in src
+    assert "compute_swap_assisted_headroom_bytes" in src
 
 
 # ── TODO.md 7.4a sub-task C1: MAX_CONCURRENT_MODEL_BUDGET_BYTES ─────────────
@@ -2076,4 +2080,243 @@ def test_reserve_slot_admits_when_committed_sum_stays_under_ceiling(tmp_path):
     decision, slot_id = rg.reserve_slot(candidate, meminfo=mi, read_temp_fn=NO_THERMAL, state_dir=tmp_path)
     assert decision.admitted is True
     assert decision.budget_ceiling_exceeded is False
+    assert slot_id is not None
+
+
+# ── TODO.md 7.4a sub-task C2: swap-assisted secondary check wired into
+#    can_admit() ───────────────────────────────────────────────────────────
+#
+# All fixtures here use headroom_factor=1.0 (rather than the module default
+# 1.25) so `required` equals `cost.total_bytes` exactly and every boundary
+# below can be pinned to exact byte counts — matching sub-task C1's own
+# `== admits` / `+1 denies` boundary-test pattern (see
+# test_can_admit_exactly_at_ceiling_admits / _one_byte_over_ceiling_denies
+# above), applied here to the RAM+swap combined figure instead of the
+# budget ceiling.
+
+
+def test_max_swap_assist_bytes_value():
+    assert rg.MAX_SWAP_ASSIST_BYTES == 805_306_368
+
+
+# Realistic fixture for the exact-byte boundary tests below: SwapTotal=12GiB,
+# SwapFree=5GiB, mem_available=1GiB. Deliberately NOT a `SwapTotal: 0` /
+# `SwapFree: 5GiB` fixture (that combination is a physically impossible
+# memory state — SwapFree can never exceed SwapTotal on any real device) —
+# with the default `SLMK_FLOOR_GATE_MULTIPLIER=2.0`,
+# `slmk_floor_bytes = 12.0 * 0.10 = 1.2GiB`, `gated = 5.0 - 2*1.2 = 2.6GiB`,
+# so `min(500MiB, 2.6GiB) = 500MiB` exactly — the same exact-byte arithmetic
+# the isolated-arithmetic version would have given, on a realistic fixture.
+_BOUNDARY_MEMINFO = meminfo_bytes(
+    mem_total_gib=10.0, mem_free_gib=1.0, mem_available_gib=1.0,
+    swap_total_gib=12.0, swap_free_gib=5.0,
+)
+
+
+def test_swap_assist_admits_when_ram_alone_would_deny():
+    # NEW-21-shaped fixture (real numbers, not the isolated-arithmetic
+    # fixture above): baseline 2.2GiB MemAvailable, ~10.8GiB SwapFree.
+    # required=2.5GiB > headroom=2.2GiB (RAM alone denies), but
+    # combined = 2.2GiB + 768MiB (the default MAX_SWAP_ASSIST_BYTES cap,
+    # gated SwapFree of 8.4GiB comfortably covers it) = 2.95GiB >= 2.5GiB.
+    spec = rg.ModelSpec(model_id="x", size_bytes=2 * GIB, n_ctx=1024, compute_overhead_bytes=0)
+    mi = meminfo_bytes(
+        mem_total_gib=10.8, mem_free_gib=2.2, mem_available_gib=2.2,
+        swap_total_gib=12.0, swap_free_gib=10.8,
+    )
+    ram_only = rg.can_admit(spec, meminfo=mi, read_temp_fn=NO_THERMAL, enable_swap_assist=False)
+    assert ram_only.admitted is False
+    assert ram_only.admitted_via_swap is False
+
+    decision = rg.can_admit(spec, meminfo=mi, read_temp_fn=NO_THERMAL)
+    assert decision.admitted is True
+    assert decision.admitted_via_swap is True
+    assert decision.hard_reject is False
+    assert decision.budget_ceiling_exceeded is False
+    assert "swap" in decision.reason.lower()
+
+
+def test_swap_assist_exact_combined_headroom_boundary_admits():
+    # combined = 1GiB (RAM, headroom_factor=1.0) + 500MiB (explicit cap,
+    # well under the 2.6GiB gated SwapFree this fixture allows — see
+    # _BOUNDARY_MEMINFO's own comment).
+    required_target = 1 * GIB + 500 * MIB
+    spec = rg.ModelSpec(
+        model_id="x", size_bytes=required_target, n_ctx=1024, compute_overhead_bytes=0
+    )
+    decision = rg.can_admit(
+        spec, meminfo=_BOUNDARY_MEMINFO, read_temp_fn=NO_THERMAL, headroom_factor=1.0,
+        max_swap_usage_bytes=500 * MIB,
+    )
+    assert decision.admitted is True
+    assert decision.admitted_via_swap is True
+
+
+def test_swap_assist_one_byte_over_combined_headroom_boundary_denies():
+    required_target = 1 * GIB + 500 * MIB + 1
+    spec = rg.ModelSpec(
+        model_id="x", size_bytes=required_target, n_ctx=1024, compute_overhead_bytes=0
+    )
+    decision = rg.can_admit(
+        spec, meminfo=_BOUNDARY_MEMINFO, read_temp_fn=NO_THERMAL, headroom_factor=1.0,
+        max_swap_usage_bytes=500 * MIB,
+    )
+    assert decision.admitted is False
+    assert decision.admitted_via_swap is False
+    assert decision.hard_reject is False
+    assert decision.budget_ceiling_exceeded is False
+
+
+def test_swap_assist_disabled_via_parameter_keeps_ram_only_denial():
+    spec = rg.ModelSpec(model_id="x", size_bytes=2 * GIB, n_ctx=1024, compute_overhead_bytes=0)
+    mi = meminfo_bytes(
+        mem_total_gib=10.8, mem_free_gib=2.2, mem_available_gib=2.2,
+        swap_total_gib=12.0, swap_free_gib=10.8,
+    )
+    decision = rg.can_admit(spec, meminfo=mi, read_temp_fn=NO_THERMAL, enable_swap_assist=False)
+    assert decision.admitted is False
+    assert decision.admitted_via_swap is False
+
+
+def test_swap_assist_disabled_via_env_var_keeps_ram_only_denial(monkeypatch):
+    monkeypatch.setenv(rg.CODEY_SWAP_ASSIST_ADMISSION_ENV, "0")
+    spec = rg.ModelSpec(model_id="x", size_bytes=2 * GIB, n_ctx=1024, compute_overhead_bytes=0)
+    mi = meminfo_bytes(
+        mem_total_gib=10.8, mem_free_gib=2.2, mem_available_gib=2.2,
+        swap_total_gib=12.0, swap_free_gib=10.8,
+    )
+    decision = rg.can_admit(spec, meminfo=mi, read_temp_fn=NO_THERMAL)
+    assert decision.admitted is False
+    assert decision.admitted_via_swap is False
+
+
+def test_swap_assist_env_var_unset_matches_default_enabled(monkeypatch):
+    monkeypatch.delenv(rg.CODEY_SWAP_ASSIST_ADMISSION_ENV, raising=False)
+    assert rg._resolve_swap_assist_enabled_default() is True
+
+
+def test_swap_assist_env_var_explicit_one_enables(monkeypatch):
+    monkeypatch.setenv(rg.CODEY_SWAP_ASSIST_ADMISSION_ENV, "1")
+    assert rg._resolve_swap_assist_enabled_default() is True
+
+
+def test_swap_assist_env_var_invalid_value_raises_loudly(monkeypatch):
+    # Deliberately NOT a bare truthiness check (`!= "0"`) — see
+    # CODEY_SWAP_ASSIST_ADMISSION_ENV's own comment for why a value like
+    # "false"/"off"/"no" must fail loudly rather than being silently
+    # (and wrong-directionally) treated as enabled.
+    monkeypatch.setenv(rg.CODEY_SWAP_ASSIST_ADMISSION_ENV, "false")
+    with pytest.raises(ValueError):
+        rg._resolve_swap_assist_enabled_default()
+
+
+def test_swap_assist_never_overrides_budget_ceiling_denial():
+    # Hard invariant (TODO.md 7.4a, must not be relaxed): swap-assisted
+    # admission may only ever override the plain-RAM headroom denial, never
+    # C1's cumulative-budget denial. Tiny MemAvailable AND generous SwapFree
+    # (would easily cover `required` via swap alone) AND
+    # concurrent_committed_bytes already at the ceiling — must stay denied
+    # via budget_ceiling_exceeded, not flip to admitted_via_swap.
+    spec = rg.ModelSpec(model_id="x", size_bytes=1 * GIB, n_ctx=1024, compute_overhead_bytes=0)
+    mi = meminfo_bytes(
+        mem_total_gib=10.8, mem_free_gib=0.01, mem_available_gib=0.01,
+        swap_total_gib=12.0, swap_free_gib=10.8,
+    )
+    decision = rg.can_admit(
+        spec, meminfo=mi, read_temp_fn=NO_THERMAL,
+        concurrent_committed_bytes=rg.MAX_CONCURRENT_MODEL_BUDGET_BYTES,
+    )
+    assert decision.admitted is False
+    assert decision.budget_ceiling_exceeded is True
+    assert decision.admitted_via_swap is False
+
+
+def test_swap_assist_never_overrides_budget_ceiling_denial_via_reserve_slot(tmp_path):
+    # Same invariant, exercised through the real reserve_slot()/
+    # _sum_committed_bytes() path (not a hand-fed concurrent_committed_bytes
+    # parameter) — two RESIDENT slots whose real declared-cost sum already
+    # exceeds MAX_CONCURRENT_MODEL_BUDGET_BYTES, tiny MemAvailable, generous
+    # SwapFree. Must still deny via budget_ceiling_exceeded.
+    slot_a_cost = rg.MAX_CONCURRENT_MODEL_BUDGET_BYTES // 2 + 1 * GIB
+    slot_b_cost = rg.MAX_CONCURRENT_MODEL_BUDGET_BYTES // 2 + 1 * GIB
+    rg.register_slot("a", cost_bytes=slot_a_cost, state_dir=tmp_path, status=rg.SLOT_STATUS_RESIDENT)
+    rg.register_slot("b", cost_bytes=slot_b_cost, state_dir=tmp_path, status=rg.SLOT_STATUS_RESIDENT)
+
+    candidate = rg.ModelSpec(model_id="c", size_bytes=1 * GIB, n_ctx=1024, compute_overhead_bytes=0)
+    mi = meminfo_bytes(
+        mem_total_gib=10.8, mem_free_gib=0.01, mem_available_gib=0.01,
+        swap_total_gib=12.0, swap_free_gib=10.8,
+    )
+    decision, slot_id = rg.reserve_slot(candidate, meminfo=mi, read_temp_fn=NO_THERMAL, state_dir=tmp_path)
+    assert decision.admitted is False
+    assert decision.budget_ceiling_exceeded is True
+    assert decision.admitted_via_swap is False
+    assert slot_id is None
+
+
+def test_swap_assist_ram_only_pass_is_byte_for_byte_unchanged(monkeypatch):
+    # A load that already passes on MemAvailable alone must be completely
+    # unaffected by SwapFree or enable_swap_assist — every GateDecision
+    # field identical across all combinations below, INCLUDING the real
+    # production call shape (enable_swap_assist left unset -> resolved from
+    # CODEY_SWAP_ASSIST_ADMISSION, exactly how reserve_slot() calls
+    # can_admit() today).
+    monkeypatch.delenv(rg.CODEY_SWAP_ASSIST_ADMISSION_ENV, raising=False)
+    spec = rg.ModelSpec(model_id="x", size_bytes=1 * GIB, n_ctx=1024, compute_overhead_bytes=0)
+    decisions = []
+    for swap_free_gib in (0.0, 10.8):
+        for enable_swap_assist in (True, False, None):
+            mi = meminfo_bytes(
+                mem_total_gib=10.8, mem_free_gib=8.0, mem_available_gib=8.0,
+                swap_total_gib=12.0, swap_free_gib=swap_free_gib,
+            )
+            kwargs = {} if enable_swap_assist is None else {"enable_swap_assist": enable_swap_assist}
+            decisions.append(rg.can_admit(spec, meminfo=mi, read_temp_fn=NO_THERMAL, **kwargs))
+    first = decisions[0]
+    assert first.admitted is True
+    assert first.admitted_via_swap is False
+    for other in decisions[1:]:
+        assert other == first
+
+
+def test_would_model_fit_does_not_use_swap_assist():
+    # TODO.md 7.4a sub-task C's own pre-declared default: swap-assisted
+    # admission must NOT count for would_model_fit()'s routing use unless a
+    # caller explicitly opts in (no opt-in mechanism exists yet — that's
+    # sub-task D). A load only admissible via swap assist must still report
+    # False here, even though the equivalent can_admit() call admits it.
+    spec = rg.ModelSpec(model_id="x", size_bytes=2 * GIB, n_ctx=1024, compute_overhead_bytes=0)
+    mi = meminfo_bytes(
+        mem_total_gib=10.8, mem_free_gib=2.2, mem_available_gib=2.2,
+        swap_total_gib=12.0, swap_free_gib=10.8,
+    )
+    assert rg.can_admit(spec, meminfo=mi, read_temp_fn=NO_THERMAL).admitted is True
+    assert rg.would_model_fit(spec, meminfo=mi, read_temp_fn=NO_THERMAL) is False
+
+
+def test_reserve_slot_bad_swap_assist_env_var_raises_and_registers_nothing(monkeypatch, tmp_path):
+    # Mirrors test_reserve_slot_bad_test_arch_override_raises_and_registers_nothing
+    # above: the ValueError from a bad CODEY_SWAP_ASSIST_ADMISSION value is
+    # raised from inside can_admit(), which reserve_slot() calls WHILE
+    # holding _LockedState's flock. Confirms the exception still propagates
+    # cleanly out of reserve_slot() with no slot registered and no leaked/
+    # held lock. Requires a load that would otherwise hit the swap-assist
+    # branch at all (RAM alone denying) — a load that already passes on RAM
+    # never evaluates enable_swap_assist/the env var, so never reaches this
+    # raise (see the byte-for-byte test above).
+    monkeypatch.setenv(rg.CODEY_SWAP_ASSIST_ADMISSION_ENV, "false")
+    spec = rg.ModelSpec(model_id="x", size_bytes=2 * GIB, n_ctx=1024, compute_overhead_bytes=0)
+    mi = meminfo_bytes(
+        mem_total_gib=10.8, mem_free_gib=2.2, mem_available_gib=2.2,
+        swap_total_gib=12.0, swap_free_gib=10.8,
+    )
+    with pytest.raises(ValueError):
+        rg.reserve_slot(spec, meminfo=mi, read_temp_fn=NO_THERMAL, state_dir=tmp_path)
+    assert rg.list_slots(state_dir=tmp_path) == []
+    # Lock released cleanly despite the exception: a second, unrelated call
+    # against the same state_dir must not hang/deadlock on a stuck flock.
+    monkeypatch.delenv(rg.CODEY_SWAP_ASSIST_ADMISSION_ENV, raising=False)
+    ok_spec = rg.ModelSpec(model_id="ok", size_bytes=int(0.1 * GIB), n_ctx=1024, compute_overhead_bytes=0)
+    decision, slot_id = rg.reserve_slot(ok_spec, meminfo=mi, read_temp_fn=NO_THERMAL, state_dir=tmp_path)
+    assert decision.admitted is True
     assert slot_id is not None

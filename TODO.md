@@ -984,7 +984,28 @@ Everything else below depends on this existing. Nothing here is started.
         9. **Requires CLAUDE.md rule 4's mandatory code-reviewer pass** —
            same reasoning as every other sub-task in this item that
            touches `can_admit()`'s admission math.
-      - **C2 — wire the swap-aware secondary check into `can_admit()`**
+      - **C2: done, code-reviewer-approved on the first pass,
+        uncommitted as of this writing.** `MAX_SWAP_ASSIST_BYTES = 768MiB`
+        (matches this section's own pre-registered `NEW-21`-fixture
+        derivation: `min(768MiB, 8.4GiB) = 768MiB`), on by default via
+        `CODEY_SWAP_ASSIST_ADMISSION` (unset → on; only `"1"`/`"0"`
+        accepted, anything else raises loudly); new
+        `GateDecision.admitted_via_swap` field. The swap-assist branch
+        lives entirely inside the existing `if required > headroom:`
+        block, reached only after both `hard_reject` and C1's
+        `budget_ceiling_exceeded` checks have already returned —
+        structurally, not just by convention, unable to override
+        either. `would_model_fit()` explicitly passes
+        `enable_swap_assist=False`, matching this sub-task's own
+        pre-declared routing default. Full suite: 705 passed, 1
+        skipped. Two findings logged, not fixed: `NEW-135` (no
+        `reserved_bytes`-style deduction on the swap-assist check —
+        concurrent swap-assisted admissions could each independently
+        claim the same 768MiB cap) and `NEW-136` (`admitted_via_swap`
+        isn't persisted into the slot record, so a later reader can't
+        tell which resident slots were swap-admitted) — both in scope
+        for sub-task D's consistency pass, not this one. — wire the
+        swap-aware secondary check into `can_admit()`
         (depends on A + B, and on C1 landing first — the new
         `GateDecision` field this needs is added once, alongside C1's,
         not as a second separate schema change). Only evaluated when the

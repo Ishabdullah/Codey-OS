@@ -6898,3 +6898,72 @@ finding for the same bug. See `NEW-39`.)*
   eagerly reap PENDING slots older than a bound at read time (it already
   reaps dead-PID slots at the same point) — either would also close this
   narrower window, not just the general one.
+
+## Found while code-reviewing TODO.md 7.4a sub-task C2 (swap-assisted admission wiring), 2026-08-11 — flagged by implementer as out-of-scope for C2's own mandate, NOT fixed, logged only
+
+### [NEW-135] `compute_swap_assisted_headroom_bytes()` has no `reserved_bytes`-style deduction — two concurrently-pending swap-assisted admissions can each independently claim the same 768MiB `MAX_SWAP_ASSIST_BYTES` cap against the same live `SwapFree` figure
+
+- **Status: Confirmed** — verified directly against `core/resource_gate.py`.
+  `compute_headroom_bytes(meminfo, reserved_bytes=0)` accepts a
+  `reserved_bytes` parameter specifically so a second concurrent admission
+  attempt sees the first one's already-claimed RAM subtracted out (see its
+  own docstring). `compute_swap_assisted_headroom_bytes(meminfo,
+  max_swap_usage_bytes, slmk_floor_gate_multiplier=...)` has no equivalent
+  parameter — it reads live `SwapFree` and `MAX_SWAP_ASSIST_BYTES` fresh on
+  every call, with no way for `can_admit()` to tell it "768MiB of this cap
+  is already spoken for by another PENDING slot." Two model loads racing
+  through `reserve_slot()` at (nearly) the same time, both failing the
+  plain-RAM `required > headroom` check, could each independently be told
+  the full 768MiB swap-assist cap is available and each be admitted via
+  swap — the combined real swap usage could exceed what
+  `MAX_SWAP_ASSIST_BYTES` was sized to authorize as a single-load ceiling.
+- **Why this wasn't fixed in C2 itself:** doing so would change sub-task
+  B's own function signature (`compute_swap_assisted_headroom_bytes()`),
+  which C2's mandate is to wire, not redesign — flagged rather than
+  silently expanded in scope, per CLAUDE.md rule 8.
+- **Where found:** implementer flagged this directly in C2's own PR
+  description; code-reviewer independently re-verified by reading both
+  functions' signatures and docstrings side by side before logging it here
+  (not taken on the implementer's word alone).
+- **Fix direction, if picked up later:** give
+  `compute_swap_assisted_headroom_bytes()` a `reserved_swap_bytes`-style
+  parameter mirroring `compute_headroom_bytes()`'s existing
+  `reserved_bytes`, and have `can_admit()`/`reserve_slot()` pass through
+  the same already-committed-swap-usage figure the RAM-side check already
+  tracks (or a dedicated swap-side equivalent, if the two shouldn't share
+  one accounting figure) — likely a `reserve_slot()`-adjacent sub-task of
+  its own, not a same-day fix.
+
+### [NEW-136] `GateDecision.admitted_via_swap` is not persisted into the slot record — `register_slot()`/`list_slots()` give a later reader no way to tell which resident slots were swap-admitted
+
+- **Status: Confirmed** — verified directly against `core/resource_gate.py`.
+  `register_slot()`'s parameter list (`model_id`, `cost_bytes`, `pid`,
+  `port`, `threads`, `status`, `state_dir`) has no `admitted_via_swap` (or
+  equivalent) field, and the slot dicts `list_slots()` returns carry
+  nothing derived from it either. `GateDecision.admitted_via_swap` exists
+  only on the transient return value of `can_admit()`/`reserve_slot()` at
+  admission time — once a slot is registered, that distinction is lost.
+  A later reader (a live-verification pass, a daemon status command, a
+  future thermal/swap-pressure responder trying to decide which resident
+  slot is the best unload candidate) has no way to ask "which of my
+  currently-resident slots got here via swap assist, and are therefore the
+  ones most likely to be thrashing / worth unloading first under memory
+  pressure" without re-deriving it from scratch.
+- **Why this wasn't fixed in C2 itself:** C2's mandate is `can_admit()`
+  wiring; touching `register_slot()`'s schema is exactly the kind of
+  "second separate schema change" TODO.md's C2 scoping note already
+  warned against doing piecemeal (see C1+C2's shared `GateDecision` field
+  addition, done once, not twice) — flagged rather than silently expanded,
+  per CLAUDE.md rule 8.
+- **Where found:** implementer flagged this directly in C2's own PR
+  description; code-reviewer independently re-verified by reading
+  `register_slot()`'s full parameter list and `list_slots()`'s return
+  shape before logging it here (not taken on the implementer's word
+  alone).
+- **Fix direction, if picked up later:** add an `admitted_via_swap`-style
+  field to the slot record schema (likely alongside whichever sub-task
+  next needs to reason about resident-slot provenance for
+  unload/routing decisions — sub-task D or a live-verification follow-up
+  are the natural homes), and have `reserve_slot()` pass its own
+  `GateDecision.admitted_via_swap` result through to `register_slot()`/
+  `mark_resident()` at the point it already has that decision in hand.

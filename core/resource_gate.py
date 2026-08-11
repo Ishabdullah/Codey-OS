@@ -37,6 +37,18 @@ total declared bytes, not model count, and (unlike hard_reject) is
 recoverable: releasing/unloading a resident model can bring a later load
 back under budget (see `GateDecision.budget_ceiling_exceeded`).
 
+TODO.md 7.4a sub-task C2 adds a SECONDARY check on top of the existing
+`MemAvailable`-based headroom check, evaluated only when that plain-RAM
+check would otherwise refuse admission: swap-assisted headroom
+(`compute_swap_assisted_headroom_bytes()`, ON by default per Ish's
+2026-08-11 direct decision, `CODEY_SWAP_ASSIST_ADMISSION=0` to disable).
+Reported via `GateDecision.admitted_via_swap` so a caller/log can
+distinguish "admitted on RAM" from "admitted on swap budget." This check
+may only ever override the plain-RAM headroom denial — it can never
+override C1's `MAX_CONCURRENT_MODEL_BUDGET_BYTES` denial (see
+`can_admit()`'s own docstring for why that's structurally guaranteed, not
+just a documented intent).
+
 Residency state (which models are currently resident, and their declared
 cost) is stored in a small file-backed store so it can be read/written
 across processes (daemon + separate `main.py` CLI invocations), matching
@@ -212,12 +224,13 @@ def compute_zram_compression_ratio(zram_stats: Optional[Dict[str, int]]) -> Opti
 
 
 # ── Sub-task B: pure swap-assisted headroom function ─────────────────────────
-# TODO.md 7.4a sub-task B. NOT called by can_admit()/reserve_slot() yet —
-# that wiring is sub-task C2 (explicitly out of scope for this sub-task).
-# Pure, standalone, independently unit-testable: takes `meminfo` and an
-# explicit `max_swap_usage_bytes` cap as parameters, never reads real system
-# state itself, and blesses no default cap value (the real default is C2's
-# call, derived from Ish's 2026-08-11 direction — see below).
+# TODO.md 7.4a sub-task B. Pure, standalone, independently unit-testable:
+# takes `meminfo` and an explicit `max_swap_usage_bytes` cap as parameters,
+# never reads real system state itself, and (as built by sub-task B) blesses
+# no default cap value of its own. TODO.md 7.4a sub-task C2 (below, in the
+# admission-decision section) is the caller that wires this function into
+# `can_admit()` and supplies the real default (`MAX_SWAP_ASSIST_BYTES`) — see
+# that section for the wiring itself.
 
 # Device-grounded floor this function's formula is anchored to, per Ish's
 # 2026-08-11 direction (TODO.md 7.4a): `getprop
@@ -230,11 +243,25 @@ def compute_zram_compression_ratio(zram_stats: Optional[Dict[str, int]]) -> Opti
 # convention (compute_device_ceiling_bytes()'s own usable_fraction pattern).
 SLMK_SWAP_FREE_LOW_FRACTION = 0.10
 
+# Gate term that zeroes the swap assist as SwapFree approaches the slmk kill
+# floor above — staying two full slmk floors above the point Samsung's own
+# low-memory-killer starts acting, per TODO.md 7.4a's own derivation. Named
+# and pulled out to module level (rather than left as a bare `2.0` default
+# inline on each function that uses it) specifically so
+# `compute_swap_assisted_headroom_bytes()` and `can_admit()` (sub-task C2)
+# can't drift into two different numbers meaning the same thing — the exact
+# "second number to keep in sync" problem MAX_CONCURRENT_MODEL_BUDGET_BYTES's
+# own comment already warns against for a different pair of constants. An
+# un-calibrated first default, same status as REQUIRED_HEADROOM_FACTOR/
+# DEVICE_CEILING_USABLE_FRACTION — sub-task E's live pass is what actually
+# calibrates it, not this module's synthetic fixtures.
+SLMK_FLOOR_GATE_MULTIPLIER = 2.0
+
 
 def compute_swap_assisted_headroom_bytes(
     meminfo: Dict[str, int],
     max_swap_usage_bytes: int,
-    slmk_floor_gate_multiplier: float = 2.0,
+    slmk_floor_gate_multiplier: float = SLMK_FLOOR_GATE_MULTIPLIER,
 ) -> int:
     """
     Additional headroom (in bytes) a swap-assisted admission check would
@@ -253,20 +280,21 @@ def compute_swap_assisted_headroom_bytes(
         )
     where `slmk_floor_bytes = SwapTotal * SLMK_SWAP_FREE_LOW_FRACTION` (the
     device-grounded slmk kill floor, computed live above, NOT hardcoded).
-    `slmk_floor_gate_multiplier` (default 2.0) is a gate term that zeroes
-    the assist as SwapFree approaches that floor — staying two full slmk
-    floors above the point Samsung's own low-memory-killer starts acting,
-    per TODO.md 7.4a's own derivation, an un-calibrated first default in the
-    same spirit as REQUIRED_HEADROOM_FACTOR/DEVICE_CEILING_USABLE_FRACTION
-    (sub-task E's live pass is what actually calibrates it, not this
-    sub-task's synthetic fixtures).
+    `slmk_floor_gate_multiplier` (default SLMK_FLOOR_GATE_MULTIPLIER, 2.0) is
+    a gate term that zeroes the assist as SwapFree approaches that floor —
+    staying two full slmk floors above the point Samsung's own
+    low-memory-killer starts acting, per TODO.md 7.4a's own derivation, an
+    un-calibrated first default in the same spirit as
+    REQUIRED_HEADROOM_FACTOR/DEVICE_CEILING_USABLE_FRACTION (sub-task E's
+    live pass is what actually calibrates it, not this sub-task's synthetic
+    fixtures).
 
     `max_swap_usage_bytes` is NOT capped by this function to any built-in
-    default — sub-task B deliberately takes it as a required parameter (see
-    this section's header comment) rather than blessing a module-level
-    constant; C2 is what will supply the real default (TODO.md 7.4a
-    proposes 768MiB as MAX_SWAP_ASSIST_BYTES, an independently-scoped
-    constant this sub-task does not add).
+    default — sub-task B (this function) deliberately took it as a required
+    parameter (see this section's header comment) rather than blessing a
+    module-level constant; sub-task C2 is the caller that supplies the real
+    default (`MAX_SWAP_ASSIST_BYTES`, 768MiB — see `can_admit()`'s own
+    swap-assist section below for that constant's derivation).
 
     Callers must NOT treat the returned bytes as 1:1 usable headroom in the
     same sense as real free RAM: zram is a compressed block device living
@@ -1223,6 +1251,81 @@ def estimate_model_load_cost(spec: ModelSpec) -> CostEstimate:
 MAX_CONCURRENT_MODEL_BUDGET_BYTES = int(8.90 * (1024 ** 3))  # 9,556,302,233 bytes
 
 
+# TODO.md 7.4a sub-task C2 (project-architect scoping call per Ish's
+# 2026-08-11 direction — Ish gave the ceiling number/"on by default" intent
+# above; this constant's exact value is wiring-mechanics detail resolved
+# without a further Ish round-trip, per this task's own instructions).
+#
+# `max_swap_usage_bytes` for `compute_swap_assisted_headroom_bytes()` (sub-
+# task B) — the real default sub-task B's own docstring deferred to this
+# sub-task. NOT derived from a bare `SwapFree - K * slmk_floor` formula on
+# its own: checked against this item's own pre-registered NEW-21 fixture
+# (SwapTotal~12GiB, SwapFree~10.8GiB, slmk_floor_bytes~1.2GiB), K=2.0 alone
+# authorizes `10.8 - 2*1.2 = 8.4GiB` of swap-assist — enough to admit nearly
+# any load at near-zero MemAvailable, contradicting this feature's own
+# "capped well under the ~1.2GiB slmk floor, not up against it" framing.
+# 768MiB is a new, named, documented, un-calibrated first default — well
+# under the ~1.2GiB slmk floor per the same asymmetry REQUIRED_HEADROOM_
+# FACTOR/DEVICE_CEILING_USABLE_FRACTION already document (under-estimating
+# just reproduces today's status quo; over-estimating risks slmk killing
+# something unrelated). Verified against the NEW-21 fixture BEFORE being
+# written here, per sub-task B's own "expected value in the test first"
+# rule: min(768MiB, 8.4GiB) = 768MiB (see
+# tests/test_resource_gate.py::test_compute_swap_assisted_headroom_new21_fixture_pre_registered_case,
+# already pinning this exact number from sub-task B). Sub-task E's live
+# pass is what actually calibrates this value, not this sub-task's
+# synthetic fixtures — same status as every other un-calibrated knob in
+# this module.
+MAX_SWAP_ASSIST_BYTES = 768 * 1024 * 1024  # 805,306,368 bytes
+
+# Env var to DISABLE swap-assisted admission (C2) — the shipped default is
+# ON with no opt-in required, per Ish's explicit 2026-08-11 decision (TODO.md
+# 7.4a: "This reverses this entry's own earlier 'opt-in is the more
+# conservative starting posture' suggestion — Ish's explicit call overrides
+# that suggestion"). Kept as an off switch (not removed) because sub-task E's
+# live pass needs a non-swapped baseline latency run through the same
+# reserve_slot()/can_admit() path the swapped run uses, not a separate code
+# path.
+#
+# Read LAZILY (inside _resolve_swap_assist_enabled_default(), not at module
+# import time) for the same reason CODEY_TEST_PRIMARY_ARCH/
+# CODEY_TEST_PLANNER_ARCH are read lazily above: a test process can flip it
+# per-test without importlib.reload, and it can never outlive the env var.
+#
+# Only "1" (enabled) or "0" (disabled) are accepted, and anything else raises
+# loudly rather than silently falling back — deliberately NOT a bare
+# `!= "0"` truthiness check. That looser form would silently treat
+# CODEY_SWAP_ASSIST_ADMISSION=false/off/no (an operator's evident intent to
+# disable) as ENABLED instead, the exact wrong-direction failure this
+# module's own _resolve_test_arch_override() docstring already warns against
+# ("a typo'd override value must fail admission outright rather than quietly
+# falling back") — here a wrong-direction failure is worse than a typo'd
+# arch override, since it silently keeps admitting swap-assisted loads an
+# operator explicitly tried to turn off.
+CODEY_SWAP_ASSIST_ADMISSION_ENV = "CODEY_SWAP_ASSIST_ADMISSION"
+
+
+def _resolve_swap_assist_enabled_default() -> bool:
+    """
+    Whether swap-assisted admission (C2) is active when `can_admit()`'s
+    `enable_swap_assist` parameter is left at its default (`None`) — see
+    that parameter's own docstring. Reads `CODEY_SWAP_ASSIST_ADMISSION`
+    lazily at call time (see this section's header comment for why).
+    """
+    raw = os.environ.get(CODEY_SWAP_ASSIST_ADMISSION_ENV)
+    if raw is None:
+        return True
+    if raw == "1":
+        return True
+    if raw == "0":
+        return False
+    raise ValueError(
+        f"{CODEY_SWAP_ASSIST_ADMISSION_ENV}={raw!r} is not a valid value; "
+        "use '1' (enabled, the default) or '0' (disabled). Unset it to use "
+        "the default."
+    )
+
+
 @dataclass(frozen=True)
 class GateDecision:
     admitted: bool
@@ -1245,6 +1348,19 @@ class GateDecision:
     # to the existing retryable LOAD_OUTCOME_GATE_DENIED path automatically,
     # with no core/loader_v2.py change needed.
     budget_ceiling_exceeded: bool = False
+    # TODO.md 7.4a sub-task C2. True only on an admission that would have
+    # been REFUSED on `MemAvailable` alone (i.e. `required > headroom` was
+    # true) but was admitted anyway because
+    # `headroom + compute_swap_assisted_headroom_bytes(...)` covered
+    # `required`. False on every other admitted decision (RAM alone was
+    # already sufficient) and on every refused decision (hard_reject,
+    # budget_ceiling_exceeded, thermal, or swap-assist still insufficient).
+    # Deliberately a separate field, not folded into `admitted` — a
+    # caller/log needs to distinguish "admitted on RAM" from "admitted on
+    # swap budget" (TODO.md 7.4a's own explicit requirement), since the two
+    # carry different risk profiles (see `can_admit()`'s swap-assist section
+    # below).
+    admitted_via_swap: bool = False
 
 
 def can_admit(
@@ -1256,6 +1372,9 @@ def can_admit(
     read_temp_fn=None,
     concurrent_committed_bytes: int = 0,
     max_concurrent_budget_bytes: int = MAX_CONCURRENT_MODEL_BUDGET_BYTES,
+    enable_swap_assist: Optional[bool] = None,
+    max_swap_usage_bytes: int = MAX_SWAP_ASSIST_BYTES,
+    slmk_floor_gate_multiplier: float = SLMK_FLOOR_GATE_MULTIPLIER,
 ) -> GateDecision:
     """
     Decide whether `spec` can be admitted right now.
@@ -1291,6 +1410,16 @@ def can_admit(
     this check enforced is responsible for computing its own consistent
     snapshot the same way.
 
+    `enable_swap_assist` (default `None`, resolving lazily to
+    `_resolve_swap_assist_enabled_default()` — see
+    `CODEY_SWAP_ASSIST_ADMISSION`'s own comment) controls TODO.md 7.4a
+    sub-task C2, ON by default per Ish's 2026-08-11 direct decision.
+    `max_swap_usage_bytes` (default `MAX_SWAP_ASSIST_BYTES`, 768MiB) and
+    `slmk_floor_gate_multiplier` (default `SLMK_FLOOR_GATE_MULTIPLIER`, 2.0)
+    are passed straight through to `compute_swap_assisted_headroom_bytes()`
+    — see that function's own docstring and `MAX_SWAP_ASSIST_BYTES`'s own
+    comment for the full derivation of both.
+
     Four independent checks, any of which can refuse admission:
       1. hard_reject: `spec`'s cost alone exceeds the device's usable
          physical-RAM ceiling — absolute, ignores current headroom/residency
@@ -1307,7 +1436,24 @@ def can_admit(
          conservative margin — see REQUIRED_HEADROOM_FACTOR's docstring),
          exceeds currently-computed headroom (live MemAvailable, minus any
          `reserved_bytes`) — this is the live, computed limit that replaces
-         the old fixed-count rule.
+         the old fixed-count rule. TODO.md 7.4a sub-task C2: ONLY when this
+         check would otherwise refuse admission, a second, swap-assisted
+         comparison runs — `required` against `headroom +
+         compute_swap_assisted_headroom_bytes(meminfo, max_swap_usage_bytes,
+         slmk_floor_gate_multiplier)`. If that combined figure covers
+         `required`, the load is admitted with
+         `GateDecision.admitted_via_swap=True` instead of being refused. A
+         load that already passes on `headroom` alone never reaches this
+         swap comparison at all — its outcome (and every field on the
+         returned `GateDecision`) is byte-for-byte unchanged by
+         `enable_swap_assist`/`max_swap_usage_bytes`/
+         `slmk_floor_gate_multiplier` in that case. Checks 1 and 2 above
+         both `return` before this point in the function body, so a
+         hard_reject or budget_ceiling_exceeded denial is structurally
+         unreachable by this swap-assisted comparison — it can only ever
+         override THIS check's own denial, never checks 1 or 2's (TODO.md
+         7.4a's own hard invariant for C2, "must never be allowed to
+         override C1's cumulative-budget denial").
       4. thermal check: current CPU temperature (if readable) is at or above
          THERMAL_CONFIG["temp_critical"] — the amendment names thermal state
          as one of the live signals the gate arbitrates alongside RAM/swap,
@@ -1324,6 +1470,25 @@ def can_admit(
     TODO.md 7.4a sub-task C1's explicit scoped ordering — the point being
     that this device-policy ceiling is checked before any live-memory/
     thermal signal is even consulted.
+
+    Caveats carried forward from sub-task B, both still unaddressed by C2
+    (out of scope here; flagged for sub-task D/E):
+      - The swap-assist figure is authorized swap USAGE, not a claim about
+        real usable headroom under an actual model load — quantized model
+        weight pages may compress far less favorably than the ~4:1 ratio
+        `compute_zram_compression_ratio()` observes on ordinary idle app
+        pages. Unverified until sub-task E's live pass.
+      - `compute_swap_assisted_headroom_bytes()` reads raw `SwapFree` with
+        no `reserved_bytes`-style deduction for other in-flight admissions
+        (unlike `compute_headroom_bytes()`, which does subtract
+        `reserved_bytes`) — two concurrently-pending swap-assisted
+        admissions can each independently lean on the same live `SwapFree`
+        figure and the same 768MiB cap, rather than the second one seeing
+        the first one's claim already spent. Not fixed here (would change
+        sub-task B's own function signature, out of scope for C2's mandate
+        of wiring, not redesigning, that function) — flagged for whichever
+        later sub-task revisits concurrent-admission accounting for the
+        swap-assist path specifically.
     """
     if meminfo is None:
         meminfo = read_meminfo()
@@ -1398,6 +1563,45 @@ def can_admit(
             )
 
     if required > headroom:
+        # TODO.md 7.4a sub-task C2. Reached ONLY when the plain-RAM check
+        # just above would already refuse admission — this branch never
+        # runs at all for a load that passes on `headroom` alone (see
+        # `can_admit()`'s own docstring for the byte-for-byte-unchanged
+        # guarantee that follows from that). Checks 1 (hard_reject) and 2
+        # (budget_ceiling_exceeded) above both `return` before this point in
+        # the function body, so this swap-assisted comparison is
+        # structurally unreachable on either of those paths — it can only
+        # ever override THIS check's own denial, never theirs (the hard
+        # invariant TODO.md 7.4a states explicitly for C2).
+        swap_assist_enabled = enable_swap_assist
+        if swap_assist_enabled is None:
+            swap_assist_enabled = _resolve_swap_assist_enabled_default()
+
+        if swap_assist_enabled:
+            swap_headroom = compute_swap_assisted_headroom_bytes(
+                meminfo, max_swap_usage_bytes, slmk_floor_gate_multiplier
+            )
+            combined_headroom = headroom + swap_headroom
+            if required <= combined_headroom:
+                return GateDecision(
+                    admitted=True,
+                    hard_reject=False,
+                    admitted_via_swap=True,
+                    reason=(
+                        f"model {spec.model_id!r} cost estimate "
+                        f"({cost.total_bytes / _KB / _KB:.0f}MiB) x headroom_factor "
+                        f"({headroom_factor}) = {required / _KB / _KB:.0f}MiB exceeds "
+                        f"RAM-only headroom ({headroom / _KB / _KB:.0f}MiB), but is "
+                        f"covered by RAM + swap-assisted headroom "
+                        f"({combined_headroom / _KB / _KB:.0f}MiB, of which "
+                        f"{swap_headroom / _KB / _KB:.0f}MiB is swap-assisted) — "
+                        "admitted via swap assist"
+                    ),
+                    estimated_cost_bytes=cost.total_bytes,
+                    headroom_bytes=headroom,
+                    device_ceiling_bytes=ceiling,
+                )
+
         return GateDecision(
             admitted=False,
             hard_reject=False,
@@ -1443,9 +1647,26 @@ def would_model_fit(
     sub-task D, which needs to decide how a budget-ceiling "no" should be
     distinguished from a headroom "no" for routing purposes. Not a gap in
     this sub-task's scope, a stated deferral.
+
+    Deliberately passes `enable_swap_assist=False`, overriding
+    `can_admit()`'s own on-by-default posture — TODO.md 7.4a sub-task C's
+    own pre-declared default for this exact question ("treat swap-assisted
+    as NOT counting for `would_model_fit()`'s routing use unless a caller
+    explicitly opts in — routing a smaller-model fallback decision onto a
+    thrash-risk load is a different risk profile than the gate's own
+    explicit, single-load admission decision"), applied here rather than
+    left undecided. Sub-task D (out of scope here) owns whatever real
+    opt-in mechanism a future routing caller needs; this keeps this
+    function's return value unchanged from before C2 landed until that
+    decision is made deliberately, not as a side effect of C2's own
+    on-by-default choice for `can_admit()` itself.
     """
     return can_admit(
-        spec, meminfo=meminfo, reserved_bytes=reserved_bytes, read_temp_fn=read_temp_fn
+        spec,
+        meminfo=meminfo,
+        reserved_bytes=reserved_bytes,
+        read_temp_fn=read_temp_fn,
+        enable_swap_assist=False,
     ).admitted
 
 
