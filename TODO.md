@@ -1033,7 +1033,48 @@ Everything else below depends on this existing. Nothing here is started.
         spawned, which is process-lifecycle-adjacent by direct
         consequence, matching this project's own established precedent
         (7.4 sub-tasks 2-5 all required it for the same reason).
-      - **D — consistency pass on what C1 and C2 each break elsewhere**,
+      - **D: done, code-reviewer-approved on the first pass,
+        uncommitted as of this writing.** D1: new
+        `would_model_fit_decision()` returns the full `GateDecision`;
+        `would_model_fit()` stays a thin `.admitted` bool wrapper over
+        it (kept deliberately, since repointing `would_model_fit()`
+        itself to return an always-truthy `GateDecision` object would
+        silently break any existing `if would_model_fit(...):` caller
+        — verified no live caller exists yet anyway, `core/model_tiers.py`
+        hasn't wired the call). D2: `can_dispatch_task()` gained
+        swap-aware dispatch per Ish's 2026-08-11 decision (extend
+        swap-assist to autonomous background dispatch, not just single
+        explicit loads) — reuses C2's exact
+        `compute_swap_assisted_headroom_bytes()`/
+        `MAX_SWAP_ASSIST_BYTES`/`CODEY_SWAP_ASSIST_ADMISSION` mechanism
+        rather than a second parallel one; new
+        `DispatchDecision.dispatched_via_swap` field; the swap-assist
+        branch is nested strictly inside the RAM-headroom check, itself
+        reached only after interactive/thermal/battery checks have
+        already returned — a snapshot passing on RAM alone is
+        unaffected. One deliberate divergence from `can_admit()`:
+        `can_dispatch_task()` catches a malformed
+        `CODEY_SWAP_ASSIST_ADMISSION`'s `ValueError` and falls back to
+        disabled (logged) rather than propagating, since propagating
+        would unwind through `core/daemon.py`'s main loop's `finally:`
+        block (which unloads the 7B server) and kill the daemon's run
+        coroutine — verified this fallback direction is the safe one
+        (identical to pre-D2 behavior), so the divergence can only make
+        autonomous dispatch more conservative on bad config, never more
+        permissive. D3: docs-only — a note added to
+        `confirm_resident_and_mark_slot()`'s docstring and `NEW-105`'s
+        entry, stating (reasoned, not newly live-measured) that
+        swap-assisted admission is expected to make its existing
+        `MemAvailable`-delta confirmation even less likely to ever
+        fire; not marked resolved. `NEW-135`/`NEW-136` deliberately
+        left unfixed this round (a genuine internal inconsistency in
+        this document — C2's write-up forward-referenced them as "in
+        scope for D," but D's own enumerated sub-items never named
+        either — judged a defensible scoping call by code-reviewer,
+        not silent avoidance; `NEW-135`'s widened blast radius under D2
+        documented in `can_dispatch_task()`'s docstring). Full suite:
+        724 passed, 1 skipped (19 new tests, zero regressions). —
+        consistency pass on what C1 and C2 each break elsewhere,
         once C1+C2 exist (blocked on both, not parallel with either —
         needs the real new `GateDecision` shape to fix against):
         1. `would_model_fit()` (line ~1057) currently returns only

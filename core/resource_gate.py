@@ -49,6 +49,25 @@ override C1's `MAX_CONCURRENT_MODEL_BUDGET_BYTES` denial (see
 `can_admit()`'s own docstring for why that's structurally guaranteed, not
 just a documented intent).
 
+TODO.md 7.4a sub-task D is a consistency pass on what C1/C2 each left
+unreconciled elsewhere: (D1) `would_model_fit()` gained a
+`would_model_fit_decision()` sibling returning the full `GateDecision`
+(instead of changing `would_model_fit()`'s own bool return type, which
+would silently break any bool-checking caller — see that function's own
+docstring) so a future routing caller can distinguish a budget-ceiling
+"no" from a headroom "no", and a RAM-comfortable "yes" from a
+swap-assisted one. (D2, Ish's direct 2026-08-11 decision)
+`can_dispatch_task()`'s `DISPATCH_MIN_HEADROOM_BYTES` floor is now
+swap-aware too, via the same `compute_swap_assisted_headroom_bytes()`
+mechanism and `MAX_SWAP_ASSIST_BYTES`/`CODEY_SWAP_ASSIST_ADMISSION`
+conventions C2 established, reported via
+`DispatchDecision.dispatched_via_swap` — see `can_dispatch_task()`'s own
+docstring for the full wiring and its one deliberate difference from
+`can_admit()`'s swap-assist error handling (a malformed
+`CODEY_SWAP_ASSIST_ADMISSION` value is caught and treated as "disabled"
+here, not left to propagate, because this function runs unguarded on
+every tick of the daemon's autonomous dispatch loop).
+
 Residency state (which models are currently resident, and their declared
 cost) is stored in a small file-backed store so it can be read/written
 across processes (daemon + separate `main.py` CLI invocations), matching
@@ -1626,11 +1645,80 @@ def can_admit(
     )
 
 
+def would_model_fit_decision(
+    spec: ModelSpec,
+    meminfo: Optional[Dict[str, int]] = None,
+    reserved_bytes: int = 0,
+    read_temp_fn=None,
+    concurrent_committed_bytes: int = 0,
+    allow_swap_assist: bool = False,
+) -> GateDecision:
+    """
+    TODO.md 7.4a sub-task D1. Full-`GateDecision` sibling of
+    `would_model_fit()`, added because a bare bool answer to "would this
+    fit" became ambiguous once C1 (a recoverable budget-ceiling "no",
+    distinct from a headroom "no") and C2 (a swap-assisted "yes", distinct
+    from a RAM-comfortable "yes") both landed — a future routing caller
+    (7.3, `core/model_tiers.py`) may need to tell these apart (e.g. retry a
+    budget-ceiling denial later once another model unloads, but treat a
+    headroom/hard_reject denial as this candidate being unsuitable full
+    stop; or decline to route onto a swap-assisted "fits").
+
+    `would_model_fit()` itself is now a thin `.admitted` wrapper over this
+    function — deliberately NOT replaced/repointed to return a
+    `GateDecision` directly. A `GateDecision` instance is always truthy, so
+    silently changing `would_model_fit()`'s own return type would turn any
+    existing/future `if would_model_fit(...):` bool check into an
+    always-True bug with no error anywhere it would surface — this module
+    has no live caller of `would_model_fit()` yet (grepped), but
+    `core/model_tiers.py` is this function's intended, concurrently-
+    developed consumer, so "no caller today" doesn't mean "safe to change
+    the return type out from under it." Callers that want the fuller shape
+    should call `would_model_fit_decision()` directly instead.
+
+    `concurrent_committed_bytes` (default 0, matching `can_admit()`'s own
+    default): forwarded straight through so a caller CAN get a real
+    `budget_ceiling_exceeded` answer if it supplies its own sum — but
+    unlike `reserve_slot()`, this function (like `would_model_fit()`
+    before it) holds no lock and registers/reserves nothing, so any
+    caller-supplied value here is inherently a stale snapshot by the time
+    it's read. That staleness is acceptable specifically BECAUSE this is
+    an advisory, side-effect-free query — there is no TOCTOU window to
+    protect the way there is for `reserve_slot()`'s own write (see
+    `can_admit()`'s docstring on why `reserve_slot()` must compute this
+    sum inside its own lock). A caller wanting this check enforced with
+    reservation-time consistency should go through `reserve_slot()`/
+    `can_admit()` directly, not this function.
+
+    `allow_swap_assist` (default `False`) is the opt-in TODO.md 7.4a
+    sub-task C's own pre-declared default asked for: swap-assisted
+    admission does NOT count as "fits" for routing purposes unless a
+    caller explicitly opts in (routing a smaller-model fallback decision
+    onto a thrash-risk load is a different risk profile than the gate's
+    own explicit, single-load admission decision). Forwarded as
+    `can_admit()`'s own `enable_swap_assist` parameter — `False` here
+    means "swap-assist off for this query" regardless of
+    `CODEY_SWAP_ASSIST_ADMISSION`'s own default-on setting, exactly the
+    override `would_model_fit()` already applied unconditionally before
+    this sub-task.
+    """
+    return can_admit(
+        spec,
+        meminfo=meminfo,
+        reserved_bytes=reserved_bytes,
+        read_temp_fn=read_temp_fn,
+        concurrent_committed_bytes=concurrent_committed_bytes,
+        enable_swap_assist=allow_swap_assist,
+    )
+
+
 def would_model_fit(
     spec: ModelSpec,
     meminfo: Optional[Dict[str, int]] = None,
     reserved_bytes: int = 0,
     read_temp_fn=None,
+    concurrent_committed_bytes: int = 0,
+    allow_swap_assist: bool = False,
 ) -> bool:
     """
     Answerable-question hook for the amendment's noted future direction
@@ -1641,32 +1729,24 @@ def would_model_fit(
     query it. Not implementing routing itself is intentional (see this
     module's docstring / TODO.md 7.4).
 
-    Deliberately does NOT pass `concurrent_committed_bytes` (stays at
-    `can_admit()`'s own default of 0) — TODO.md 7.4a sub-task C1 explicitly
-    defers wiring this function onto the new cumulative-budget check to
-    sub-task D, which needs to decide how a budget-ceiling "no" should be
-    distinguished from a headroom "no" for routing purposes. Not a gap in
-    this sub-task's scope, a stated deferral.
-
-    Deliberately passes `enable_swap_assist=False`, overriding
-    `can_admit()`'s own on-by-default posture — TODO.md 7.4a sub-task C's
-    own pre-declared default for this exact question ("treat swap-assisted
-    as NOT counting for `would_model_fit()`'s routing use unless a caller
-    explicitly opts in — routing a smaller-model fallback decision onto a
-    thrash-risk load is a different risk profile than the gate's own
-    explicit, single-load admission decision"), applied here rather than
-    left undecided. Sub-task D (out of scope here) owns whatever real
-    opt-in mechanism a future routing caller needs; this keeps this
-    function's return value unchanged from before C2 landed until that
-    decision is made deliberately, not as a side effect of C2's own
-    on-by-default choice for `can_admit()` itself.
+    Returns only `.admitted` from `would_model_fit_decision()` (TODO.md
+    7.4a sub-task D1 added that function) — a plain bool, same shape this
+    function has always had, for any caller that only needs a yes/no
+    answer. See `would_model_fit_decision()`'s own docstring for the full
+    case shape (`hard_reject`, `budget_ceiling_exceeded`,
+    `admitted_via_swap`) a caller needing more detail should use instead,
+    and for `concurrent_committed_bytes`/`allow_swap_assist`'s own
+    semantics (both default to the same pre-D1 behavior — a real budget of
+    0 and swap-assist off — so an unmodified call site is unaffected by
+    this sub-task).
     """
-    return can_admit(
+    return would_model_fit_decision(
         spec,
         meminfo=meminfo,
         reserved_bytes=reserved_bytes,
         read_temp_fn=read_temp_fn,
-        enable_swap_assist=False,
+        concurrent_committed_bytes=concurrent_committed_bytes,
+        allow_swap_assist=allow_swap_assist,
     ).admitted
 
 
@@ -1702,6 +1782,18 @@ def would_model_fit(
 # would run against a real ModelSpec at load time. It is deliberately not
 # "0 bytes" (any headroom at all): NEW-21's whole lesson is that a bare
 # "nonzero headroom" check is not conservative enough on this device.
+#
+# TODO.md 7.4a sub-task D2 (Ish's direct decision, 2026-08-11): this floor
+# is now swap-aware, matching can_admit()'s own C2 posture, rather than
+# leaving dispatch RAM-only while admission can lean on swap — see
+# can_dispatch_task()'s own docstring for the wiring. Note this floor is
+# still a flat, task-agnostic threshold, not a per-candidate cost estimate
+# scaled by REQUIRED_HEADROOM_FACTOR the way can_admit()'s check is — the
+# flat floor itself IS this check's conservatism (dispatch has no specific
+# model/cost to weigh yet, just "is it even worth attempting"), so there is
+# deliberately no headroom_factor-equivalent multiplier here; that is not
+# an oversight relative to can_admit()'s shape, it is a different kind of
+# check by design (see this section's own header comment).
 DISPATCH_MIN_HEADROOM_BYTES = 1 * 1024 * 1024 * 1024  # 1 GiB
 
 
@@ -1709,10 +1801,24 @@ DISPATCH_MIN_HEADROOM_BYTES = 1 * 1024 * 1024 * 1024  # 1 GiB
 class DispatchDecision:
     allowed: bool
     reason: str
+    # TODO.md 7.4a sub-task D2. True only when `allowed=True` was reached
+    # via the swap-assisted branch of the RAM-headroom check below (i.e.
+    # `ram_headroom_bytes` alone was below DISPATCH_MIN_HEADROOM_BYTES, but
+    # `ram_headroom_bytes + compute_swap_assisted_headroom_bytes(...)`
+    # covered it) — mirrors GateDecision.admitted_via_swap so a later
+    # reader of dispatch-decision logs can distinguish "dispatched on RAM"
+    # from "dispatched on swap budget", the same distinction C2 required
+    # for admission. False on every other decision (RAM alone was already
+    # sufficient, or dispatch was refused for any reason).
+    dispatched_via_swap: bool = False
 
 
 def can_dispatch_task(
-    snapshot: "ResourceSnapshot", interactive_active: bool
+    snapshot: "ResourceSnapshot",
+    interactive_active: bool,
+    enable_swap_assist: Optional[bool] = None,
+    max_swap_usage_bytes: int = MAX_SWAP_ASSIST_BYTES,
+    slmk_floor_gate_multiplier: float = SLMK_FLOOR_GATE_MULTIPLIER,
 ) -> DispatchDecision:
     """
     Decide whether `_process_planner_tasks()` should claim and dispatch the
@@ -1734,7 +1840,10 @@ def can_dispatch_task(
          "not charging AND at/below batt_critical -> treat as most
          restrictive" convention exactly (same config keys, same
          not-charging gate).
-      4. `ram_headroom_bytes < DISPATCH_MIN_HEADROOM_BYTES` -> refuse.
+      4. `ram_headroom_bytes < DISPATCH_MIN_HEADROOM_BYTES` -> refuse,
+         UNLESS TODO.md 7.4a sub-task D2's swap-assisted branch covers the
+         gap (see below) — in which case dispatch is allowed with
+         `DispatchDecision.dispatched_via_swap=True` instead.
       5. `cpu_percent is None` -> this signal is IGNORED, not a refusal
          reason (NEW-108 confirms `/proc/stat` is permission-denied on this
          device, so `cpu_percent` reads `None` unconditionally, regardless
@@ -1750,6 +1859,52 @@ def can_dispatch_task(
     A real, measured `cpu_percent` value is not itself gated on by this
     sub-task (see WORK_QUEUE.md's note on this leg) — it is read into the
     snapshot but not compared against a threshold here.
+
+    **TODO.md 7.4a sub-task D2 (Ish's direct decision, 2026-08-11)**: check
+    4's RAM-headroom floor is now swap-aware, using the exact same
+    `compute_swap_assisted_headroom_bytes()` mechanism and
+    `MAX_SWAP_ASSIST_BYTES`/`CODEY_SWAP_ASSIST_ADMISSION` on/off-switch
+    conventions `can_admit()`'s own C2 swap-assist branch already
+    established — not a second, parallel swap-assist mechanism with
+    different defaults. Only evaluated when `ram_headroom_bytes` alone is
+    already below `DISPATCH_MIN_HEADROOM_BYTES`; a snapshot that already
+    passes on RAM alone never reaches this branch and its `DispatchDecision`
+    is byte-for-byte unchanged by this sub-task. `enable_swap_assist`
+    (default `None`, resolving lazily to
+    `_resolve_swap_assist_enabled_default()`, same as `can_admit()`) and
+    `max_swap_usage_bytes`/`slmk_floor_gate_multiplier` (defaults
+    `MAX_SWAP_ASSIST_BYTES`/`SLMK_FLOOR_GATE_MULTIPLIER`) are the exact same
+    parameters `can_admit()` exposes, passed straight through to
+    `compute_swap_assisted_headroom_bytes()` — see that function's and
+    `MAX_SWAP_ASSIST_BYTES`'s own comments for the full derivation.
+    `ResourceSnapshot.swap_free_bytes`/`swap_total_bytes` (sub-task A) are
+    synthesized into a small meminfo-shaped dict here rather than
+    re-plumbing sub-task B's own `compute_swap_assisted_headroom_bytes()`
+    signature (which takes a full meminfo dict by contract) — out of scope
+    for this sub-task.
+
+    Checks 1-3 above still take priority over this branch exactly as before
+    (unchanged code, unchanged order) — interactive/thermal/battery
+    refusals `return` before this RAM-headroom check ever runs, so
+    swap-assist here can only ever cover THIS check's own gap, never
+    override checks 1-3, matching the same structural (not just
+    conventional) guarantee `can_admit()`'s own swap-assist branch gives
+    for `hard_reject`/`budget_ceiling_exceeded`.
+
+    **Deliberately unfixed, carried-forward caveat (`NEW-135`)**: like
+    `can_admit()`'s own swap-assist branch,
+    `compute_swap_assisted_headroom_bytes()` reads raw `SwapFree` with no
+    `reserved_bytes`-style deduction for other in-flight consumers of the
+    same swap budget. This sub-task adds a SECOND independent consumer of
+    that same 768MiB cap (a dispatch decision, alongside `can_admit()`'s
+    own model-admission decision) — widening `NEW-135`'s blast radius
+    rather than introducing a new gap: a concurrently in-flight
+    swap-assisted admission and a concurrently swap-assisted dispatch
+    decision can each independently claim the same live `SwapFree` figure
+    and the same cap, neither aware of the other's claim. Not fixed here
+    (fixing it means changing sub-task B's own function signature,
+    out of scope for this sub-task's mandate of wiring, not redesigning,
+    that function — same reasoning C2 used to decline the same fix).
     """
     if interactive_active:
         return DispatchDecision(
@@ -1784,6 +1939,69 @@ def can_dispatch_task(
         )
 
     if snapshot.ram_headroom_bytes < DISPATCH_MIN_HEADROOM_BYTES:
+        # TODO.md 7.4a sub-task D2. Only reached when the plain-RAM check
+        # just above would already refuse dispatch — a snapshot that passes
+        # on ram_headroom_bytes alone never reaches this branch, so its
+        # DispatchDecision is byte-for-byte unchanged by this sub-task (see
+        # this function's own docstring).
+        swap_assist_enabled = enable_swap_assist
+        if swap_assist_enabled is None:
+            try:
+                swap_assist_enabled = _resolve_swap_assist_enabled_default()
+            except ValueError as e:
+                # Safety-relevant exception handling (CLAUDE.md's rule):
+                # _resolve_swap_assist_enabled_default() raises loudly BY
+                # DESIGN on a malformed CODEY_SWAP_ASSIST_ADMISSION value
+                # (see its own comment — silently falling back there would
+                # risk the wrong-direction failure of quietly keeping
+                # swap-assist ON when an operator explicitly tried to turn
+                # it off). can_admit()'s own callers can safely let that
+                # exception propagate — they are explicit, single-load
+                # requests. can_dispatch_task() is different: it runs on
+                # EVERY tick of the daemon's autonomous, unattended dispatch
+                # loop (core/daemon.py's _process_planner_tasks(), called
+                # with no surrounding try/except around this check), which
+                # could not raise at all before this sub-task. Letting a
+                # malformed env var wedge/crash that loop is a worse failure
+                # than this one check quietly falling back — so here (and
+                # only here, not in can_admit()) the fail-safe direction is
+                # DISABLED (byte-for-byte the pre-D2, RAM-only behavior),
+                # logged at warning so the fallback isn't silent.
+                warning(
+                    "resource_gate: can_dispatch_task() failed to resolve "
+                    f"CODEY_SWAP_ASSIST_ADMISSION default ({e}) — treating "
+                    "swap-assist as disabled for this dispatch check"
+                )
+                swap_assist_enabled = False
+
+        if swap_assist_enabled:
+            swap_headroom = compute_swap_assisted_headroom_bytes(
+                # compute_swap_assisted_headroom_bytes() takes a meminfo-
+                # shaped dict by contract (sub-task B); ResourceSnapshot
+                # already carries the same two fields under different names
+                # (sub-task A), so a two-key dict is synthesized here rather
+                # than re-plumbing sub-task B's own signature — out of scope
+                # for this sub-task.
+                {"SwapFree": snapshot.swap_free_bytes, "SwapTotal": snapshot.swap_total_bytes},
+                max_swap_usage_bytes,
+                slmk_floor_gate_multiplier,
+            )
+            combined_headroom = snapshot.ram_headroom_bytes + swap_headroom
+            if combined_headroom >= DISPATCH_MIN_HEADROOM_BYTES:
+                return DispatchDecision(
+                    allowed=True,
+                    dispatched_via_swap=True,
+                    reason=(
+                        f"RAM headroom ({snapshot.ram_headroom_bytes / _KB / _KB:.0f}MiB) "
+                        f"below dispatch floor "
+                        f"({DISPATCH_MIN_HEADROOM_BYTES / _KB / _KB:.0f}MiB), but covered "
+                        f"by RAM + swap-assisted headroom "
+                        f"({combined_headroom / _KB / _KB:.0f}MiB, of which "
+                        f"{swap_headroom / _KB / _KB:.0f}MiB is swap-assisted) — "
+                        "dispatching via swap assist"
+                    ),
+                )
+
         return DispatchDecision(
             allowed=False,
             reason=(

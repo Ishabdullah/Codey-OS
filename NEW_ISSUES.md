@@ -5774,6 +5774,26 @@ finding for the same bug. See `NEW-39`.)*
   `MemAvailable` delta, since RSS is a direct per-process measurement
   that isn't confounded by other processes' concurrent page-cache
   activity the way a system-wide `MemAvailable` reading is.
+- **Update, 2026-08-11 (TODO.md 7.4a sub-task D3, docs/comment-only —
+  not resolved, sharpened context only)**: with `core/resource_gate.py`'s
+  swap-assisted admission (sub-task C2) now code-complete, this gap's
+  severity changes shape. A swap-assisted admission is, by definition,
+  one the device's live `MemAvailable` alone was NOT enough to satisfy —
+  so a larger share of a swap-assisted load's pages landing in swap
+  (rather than fresh anonymous RAM) makes the `MemAvailable`-delta this
+  function polls for even less likely to appear within `timeout_s` than
+  it already is on today's plain-RAM path, where it has never once fired
+  (0-for-2 above). This is reasoning from the mechanism's own shape, NOT
+  a new live measurement — no swap-assisted load has actually been run
+  through this confirmation path yet (that's sub-task E, still pending,
+  deliberately deferred past D). Practical effect either way: the
+  "mark resident anyway" fallback already exists and is already the
+  observed behavior on every path tested so far, so this is not a new
+  blocking bug — just a sharpened expectation that sub-task E's live pass
+  should explicitly capture whether this path ever fires under
+  swap-assisted admission, rather than assuming today's 0-for-2 rate
+  simply carries over unchanged. See `core/loader_v2.py`'s
+  `confirm_resident_and_mark_slot()` docstring for the same note in code.
 
 ### [NEW-106] `core/observability.py`'s `State.temperature` property returns the LLM sampling temperature (`MODEL_CONFIG["temperature"]`, default 0.2), not device CPU/SoC temperature — a naming collision that will silently produce a wildly wrong thermal reading for any caller that expects "observability's temperature" to mean device heat
 

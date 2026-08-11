@@ -2320,3 +2320,320 @@ def test_reserve_slot_bad_swap_assist_env_var_raises_and_registers_nothing(monke
     decision, slot_id = rg.reserve_slot(ok_spec, meminfo=mi, read_temp_fn=NO_THERMAL, state_dir=tmp_path)
     assert decision.admitted is True
     assert slot_id is not None
+
+
+# ── TODO.md 7.4a sub-task D1: would_model_fit_decision() ────────────────────
+
+
+def test_would_model_fit_still_returns_a_bare_bool():
+    # Non-breaking guarantee: would_model_fit() itself must still return a
+    # plain bool (not a GateDecision, which is always truthy) — a
+    # GateDecision return here would silently turn any existing/future
+    # `if would_model_fit(...):` check into an always-True bug.
+    spec = rg.ModelSpec(model_id="ok", size_bytes=int(0.5 * GIB), n_ctx=2048)
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=5.0, mem_available_gib=7.0)
+    result = rg.would_model_fit(spec, meminfo=mi, read_temp_fn=NO_THERMAL)
+    assert result is True
+    assert type(result) is bool
+
+
+def test_would_model_fit_decision_returns_full_gate_decision():
+    spec = rg.ModelSpec(model_id="ok", size_bytes=int(0.5 * GIB), n_ctx=2048)
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=5.0, mem_available_gib=7.0)
+    decision = rg.would_model_fit_decision(spec, meminfo=mi, read_temp_fn=NO_THERMAL)
+    assert isinstance(decision, rg.GateDecision)
+    assert decision.admitted is True
+    assert decision.hard_reject is False
+    assert decision.budget_ceiling_exceeded is False
+    assert decision.admitted_via_swap is False
+
+
+def test_would_model_fit_decision_distinguishes_hard_reject_from_headroom_no():
+    # A candidate whose own cost alone exceeds the device ceiling must
+    # report hard_reject=True — a router should treat this candidate as
+    # unsuitable full stop, never retryable.
+    huge = rg.ModelSpec(model_id="huge", size_bytes=50 * GIB, n_ctx=4096)
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=5.0, mem_available_gib=7.0)
+    decision = rg.would_model_fit_decision(huge, meminfo=mi, read_temp_fn=NO_THERMAL)
+    assert decision.admitted is False
+    assert decision.hard_reject is True
+    assert decision.budget_ceiling_exceeded is False
+
+    # A candidate refused purely on live RAM headroom (not the ceiling) must
+    # report hard_reject=False — this is the RECOVERABLE-by-waiting case a
+    # router might reasonably retry later, distinct from the case above.
+    modest = rg.ModelSpec(model_id="modest", size_bytes=int(2 * GIB), n_ctx=1024, compute_overhead_bytes=0)
+    tight_mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=0.5, mem_available_gib=0.5)
+    tight_decision = rg.would_model_fit_decision(modest, meminfo=tight_mi, read_temp_fn=NO_THERMAL)
+    assert tight_decision.admitted is False
+    assert tight_decision.hard_reject is False
+    assert tight_decision.budget_ceiling_exceeded is False
+
+
+def test_would_model_fit_decision_distinguishes_budget_ceiling_no_from_headroom_no():
+    # A "no" caused specifically by C1's fixed cumulative-model budget
+    # (recoverable by releasing another resident model) must be
+    # distinguishable from a "no" caused by live RAM headroom alone.
+    spec = rg.ModelSpec(model_id="c", size_bytes=1 * GIB, n_ctx=1024, compute_overhead_bytes=0)
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=8.0, mem_available_gib=8.0)
+    decision = rg.would_model_fit_decision(
+        spec, meminfo=mi, read_temp_fn=NO_THERMAL,
+        concurrent_committed_bytes=rg.MAX_CONCURRENT_MODEL_BUDGET_BYTES,
+    )
+    assert decision.admitted is False
+    assert decision.hard_reject is False
+    assert decision.budget_ceiling_exceeded is True
+
+
+def test_would_model_fit_decision_default_concurrent_committed_bytes_unaffected():
+    # Unmodified call sites (concurrent_committed_bytes left at its default
+    # of 0) must be byte-for-byte unaffected by C1's check, same convention
+    # as can_admit()'s own default.
+    spec = rg.ModelSpec(model_id="c", size_bytes=1 * GIB, n_ctx=1024, compute_overhead_bytes=0)
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=8.0, mem_available_gib=8.0)
+    decision = rg.would_model_fit_decision(spec, meminfo=mi, read_temp_fn=NO_THERMAL)
+    assert decision.admitted is True
+    assert decision.budget_ceiling_exceeded is False
+
+
+def test_would_model_fit_decision_swap_assisted_yes_distinguishable_from_ram_comfortable_yes():
+    # A "yes" reached only via swap assist (allow_swap_assist=True, opt-in)
+    # must be distinguishable from a RAM-comfortable "yes" via
+    # admitted_via_swap — the whole point of D1's return-shape work.
+    spec = rg.ModelSpec(model_id="x", size_bytes=2 * GIB, n_ctx=1024, compute_overhead_bytes=0)
+    mi = meminfo_bytes(
+        mem_total_gib=10.8, mem_free_gib=2.2, mem_available_gib=2.2,
+        swap_total_gib=12.0, swap_free_gib=10.8,
+    )
+    # Default (allow_swap_assist=False, unchanged pre-D1 behavior): refused.
+    default_decision = rg.would_model_fit_decision(spec, meminfo=mi, read_temp_fn=NO_THERMAL)
+    assert default_decision.admitted is False
+    assert default_decision.admitted_via_swap is False
+
+    # Explicit opt-in: admitted, and distinguishably via swap.
+    opted_in = rg.would_model_fit_decision(
+        spec, meminfo=mi, read_temp_fn=NO_THERMAL, allow_swap_assist=True
+    )
+    assert opted_in.admitted is True
+    assert opted_in.admitted_via_swap is True
+
+    # A RAM-comfortable "yes" (no swap needed at all) stays admitted_via_swap
+    # False even with allow_swap_assist=True — the swap branch is only
+    # reached when RAM alone would already refuse.
+    comfy_mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=8.0, mem_available_gib=8.0)
+    comfy = rg.would_model_fit_decision(
+        spec, meminfo=comfy_mi, read_temp_fn=NO_THERMAL, allow_swap_assist=True
+    )
+    assert comfy.admitted is True
+    assert comfy.admitted_via_swap is False
+
+
+def test_would_model_fit_default_still_matches_pre_d1_behavior():
+    # would_model_fit()'s own bool return, with no new params supplied, must
+    # match its pre-D1 behavior exactly: swap-assisted admission does not
+    # count as "fits" by default.
+    spec = rg.ModelSpec(model_id="x", size_bytes=2 * GIB, n_ctx=1024, compute_overhead_bytes=0)
+    mi = meminfo_bytes(
+        mem_total_gib=10.8, mem_free_gib=2.2, mem_available_gib=2.2,
+        swap_total_gib=12.0, swap_free_gib=10.8,
+    )
+    assert rg.can_admit(spec, meminfo=mi, read_temp_fn=NO_THERMAL).admitted is True
+    assert rg.would_model_fit(spec, meminfo=mi, read_temp_fn=NO_THERMAL) is False
+    # Opting in via the new parameter flips it, proving the parameter is
+    # actually wired through (not just would_model_fit_decision()).
+    assert rg.would_model_fit(
+        spec, meminfo=mi, read_temp_fn=NO_THERMAL, allow_swap_assist=True
+    ) is True
+
+
+# ── TODO.md 7.4a sub-task D2: can_dispatch_task()'s swap-aware dispatch
+#    floor ───────────────────────────────────────────────────────────────────
+#
+# Mirrors sub-task C2's own invariant-testing rigor: swap-assist must be able
+# to cover the RAM-headroom gap, must never be able to bypass any
+# higher-priority refusal (interactive/thermal/battery), must respect the
+# same on/off-switch and cap as can_admit()'s own swap-assist branch, and a
+# snapshot that already passes on RAM alone must be byte-for-byte unaffected.
+
+
+def _swap_snapshot(
+    ram_headroom_bytes,
+    swap_total_bytes=12 * GIB,
+    swap_free_bytes=10 * GIB,
+    temperature_c=40.0,
+    battery_percent=80,
+    battery_charging=False,
+    cpu_percent=10.0,
+):
+    return rg.ResourceSnapshot(
+        cpu_percent=cpu_percent,
+        ram_headroom_bytes=ram_headroom_bytes,
+        ram_total_bytes=12 * GIB,
+        temperature_c=temperature_c,
+        queue_pending=0,
+        queue_running=0,
+        battery_percent=battery_percent,
+        battery_charging=battery_charging,
+        timestamp=time.time(),
+        swap_total_bytes=swap_total_bytes,
+        swap_free_bytes=swap_free_bytes,
+    )
+
+
+def test_can_dispatch_task_swap_assist_admits_when_ram_alone_would_refuse():
+    # RAM headroom just under the 1GiB floor; generous SwapFree comfortably
+    # covers the gap via the default MAX_SWAP_ASSIST_BYTES cap.
+    snap = _swap_snapshot(ram_headroom_bytes=rg.DISPATCH_MIN_HEADROOM_BYTES - MIB)
+    ram_only = rg.can_dispatch_task(snap, interactive_active=False, enable_swap_assist=False)
+    assert ram_only.allowed is False
+    assert ram_only.dispatched_via_swap is False
+
+    decision = rg.can_dispatch_task(snap, interactive_active=False)
+    assert decision.allowed is True
+    assert decision.dispatched_via_swap is True
+    assert "swap" in decision.reason.lower()
+
+
+def test_can_dispatch_task_swap_assist_capped_still_refuses_when_gap_too_large():
+    # Proves swap-assist can't buy arbitrary headroom: RAM headroom 2GiB
+    # below the floor, but MAX_SWAP_ASSIST_BYTES (768MiB default) can't
+    # cover a gap that large even with enormous SwapFree available.
+    snap = _swap_snapshot(
+        ram_headroom_bytes=rg.DISPATCH_MIN_HEADROOM_BYTES - 2 * GIB,
+        swap_total_bytes=100 * GIB,
+        swap_free_bytes=90 * GIB,
+    )
+    decision = rg.can_dispatch_task(snap, interactive_active=False)
+    assert decision.allowed is False
+    assert decision.dispatched_via_swap is False
+
+
+def test_can_dispatch_task_swap_assist_gated_near_slmk_floor_still_refuses():
+    # SwapFree at/below the slmk-gated floor (2 x 10% of SwapTotal) means
+    # compute_swap_assisted_headroom_bytes() authorizes 0 bytes — dispatch
+    # must stay refused even though SwapTotal itself is large. Asserted
+    # directly against the underlying mechanism (not just the decision) so
+    # this test can't pass "by accident" on a tiny nonzero swap_headroom
+    # that happens to still be smaller than the RAM gap.
+    swap_total = 12 * GIB
+    slmk_floor_bytes = swap_total * rg.SLMK_SWAP_FREE_LOW_FRACTION
+
+    for swap_free_bytes in (int(2 * slmk_floor_bytes), int(slmk_floor_bytes)):
+        snap = _swap_snapshot(
+            ram_headroom_bytes=rg.DISPATCH_MIN_HEADROOM_BYTES - MIB,
+            swap_total_bytes=swap_total,
+            swap_free_bytes=swap_free_bytes,
+        )
+        assert (
+            rg.compute_swap_assisted_headroom_bytes(
+                {"SwapFree": snap.swap_free_bytes, "SwapTotal": snap.swap_total_bytes},
+                rg.MAX_SWAP_ASSIST_BYTES,
+            )
+            == 0
+        )
+        decision = rg.can_dispatch_task(snap, interactive_active=False)
+        assert decision.allowed is False
+        assert decision.dispatched_via_swap is False
+
+
+def test_can_dispatch_task_swap_assist_never_overrides_interactive_refusal():
+    # Interactive-lock priority (check 1) must win even when swap-assist
+    # would otherwise cover the RAM gap — swap-assist can only ever cover
+    # ITS OWN check's denial, never checks 1-3's.
+    snap = _swap_snapshot(ram_headroom_bytes=rg.DISPATCH_MIN_HEADROOM_BYTES - MIB)
+    decision = rg.can_dispatch_task(snap, interactive_active=True)
+    assert decision.allowed is False
+    assert decision.dispatched_via_swap is False
+    assert "interactive" in decision.reason.lower()
+
+
+def test_can_dispatch_task_swap_assist_never_overrides_thermal_refusal():
+    snap = _swap_snapshot(
+        ram_headroom_bytes=rg.DISPATCH_MIN_HEADROOM_BYTES - MIB, temperature_c=95.0,
+    )
+    decision = rg.can_dispatch_task(snap, interactive_active=False)
+    assert decision.allowed is False
+    assert decision.dispatched_via_swap is False
+    assert "temperature" in decision.reason.lower()
+
+
+def test_can_dispatch_task_swap_assist_never_overrides_battery_refusal():
+    snap = _swap_snapshot(
+        ram_headroom_bytes=rg.DISPATCH_MIN_HEADROOM_BYTES - MIB,
+        battery_percent=5, battery_charging=False,
+    )
+    decision = rg.can_dispatch_task(snap, interactive_active=False)
+    assert decision.allowed is False
+    assert decision.dispatched_via_swap is False
+    assert "battery" in decision.reason.lower()
+
+
+def test_can_dispatch_task_swap_assist_disabled_via_parameter_keeps_ram_only_refusal():
+    snap = _swap_snapshot(ram_headroom_bytes=rg.DISPATCH_MIN_HEADROOM_BYTES - MIB)
+    decision = rg.can_dispatch_task(snap, interactive_active=False, enable_swap_assist=False)
+    assert decision.allowed is False
+    assert decision.dispatched_via_swap is False
+
+
+def test_can_dispatch_task_swap_assist_disabled_via_env_var_keeps_ram_only_refusal(monkeypatch):
+    monkeypatch.setenv(rg.CODEY_SWAP_ASSIST_ADMISSION_ENV, "0")
+    snap = _swap_snapshot(ram_headroom_bytes=rg.DISPATCH_MIN_HEADROOM_BYTES - MIB)
+    decision = rg.can_dispatch_task(snap, interactive_active=False)
+    assert decision.allowed is False
+    assert decision.dispatched_via_swap is False
+
+
+def test_can_dispatch_task_bad_swap_assist_env_var_disables_rather_than_raises(monkeypatch):
+    # Deliberately different posture from can_admit(): can_dispatch_task()
+    # runs unguarded on every daemon dispatch-loop tick, so a malformed env
+    # var must not raise here — it's caught and treated as disabled
+    # (fail-safe direction: pre-D2 RAM-only behavior), not propagated.
+    monkeypatch.setenv(rg.CODEY_SWAP_ASSIST_ADMISSION_ENV, "false")
+    snap = _swap_snapshot(ram_headroom_bytes=rg.DISPATCH_MIN_HEADROOM_BYTES - MIB)
+    decision = rg.can_dispatch_task(snap, interactive_active=False)
+    assert decision.allowed is False
+    assert decision.dispatched_via_swap is False
+
+
+def test_can_dispatch_task_swap_assist_ram_only_pass_is_byte_for_byte_unchanged(monkeypatch):
+    # A snapshot that already passes on ram_headroom_bytes alone must be
+    # completely unaffected by SwapFree or enable_swap_assist.
+    monkeypatch.delenv(rg.CODEY_SWAP_ASSIST_ADMISSION_ENV, raising=False)
+    decisions = []
+    for swap_free_bytes in (0, 10 * GIB):
+        for enable_swap_assist in (True, False, None):
+            snap = _swap_snapshot(
+                ram_headroom_bytes=rg.DISPATCH_MIN_HEADROOM_BYTES + GIB,
+                swap_free_bytes=swap_free_bytes,
+            )
+            kwargs = {} if enable_swap_assist is None else {"enable_swap_assist": enable_swap_assist}
+            decisions.append(rg.can_dispatch_task(snap, interactive_active=False, **kwargs))
+    first = decisions[0]
+    assert first.allowed is True
+    assert first.dispatched_via_swap is False
+    for other in decisions[1:]:
+        assert other == first
+
+
+def test_can_dispatch_task_swap_assist_exact_combined_headroom_boundary_admits():
+    # Exact-byte boundary, mirroring can_admit()'s own boundary-test pattern:
+    # combined = ram_headroom_bytes + swap_headroom exactly equals the floor.
+    max_swap_usage = 500 * MIB
+    ram_headroom = rg.DISPATCH_MIN_HEADROOM_BYTES - max_swap_usage
+    snap = _swap_snapshot(
+        ram_headroom_bytes=ram_headroom, swap_total_bytes=12 * GIB, swap_free_bytes=10 * GIB,
+    )
+    decision = rg.can_dispatch_task(snap, interactive_active=False, max_swap_usage_bytes=max_swap_usage)
+    assert decision.allowed is True
+    assert decision.dispatched_via_swap is True
+
+
+def test_can_dispatch_task_swap_assist_one_byte_under_combined_headroom_boundary_refuses():
+    max_swap_usage = 500 * MIB
+    ram_headroom = rg.DISPATCH_MIN_HEADROOM_BYTES - max_swap_usage - 1
+    snap = _swap_snapshot(
+        ram_headroom_bytes=ram_headroom, swap_total_bytes=12 * GIB, swap_free_bytes=10 * GIB,
+    )
+    decision = rg.can_dispatch_task(snap, interactive_active=False, max_swap_usage_bytes=max_swap_usage)
+    assert decision.allowed is False
+    assert decision.dispatched_via_swap is False

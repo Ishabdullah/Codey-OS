@@ -147,6 +147,28 @@ def confirm_resident_and_mark_slot(
     worse-in-the-common-case failure to guard against here, not the rarer
     case this leaves imperfectly guarded (marking resident slightly before
     the OS fully reflects the new load).
+
+    **TODO.md 7.4a sub-task D3 note, no code change**: per `NEW-105`, this
+    `MemAvailable`-delta poll has never once actually confirmed a load in
+    this project's live-test history — it has fallen through to the
+    "mark resident anyway" fallback above on every observed run so far,
+    including genuinely successful loads (RSS matched the cost estimate
+    almost exactly). Under `resource_gate.py`'s swap-assisted admission
+    (TODO.md 7.4a sub-task C2), this is expected to get structurally
+    worse, not just stay flaky: a swap-assisted load is, by design, one
+    the device's live `MemAvailable` alone was NOT enough to satisfy, so a
+    larger share of the model's pages landing in swap (rather than fresh
+    anonymous RAM) makes a `MemAvailable` drop of the expected magnitude
+    even less likely to be observed within `timeout_s` than it already is
+    on the plain-RAM path today. This is a prediction from the mechanism's
+    own shape (swap-assisted pages don't reduce `MemAvailable` the way a
+    fresh RAM allocation does), not a live measurement — sub-task E's live
+    pass is what would actually confirm whether this path ever fires under
+    swap-assisted admission at all. Not a blocking bug here: the "mark
+    resident anyway" fallback already exists and is already the observed
+    behavior on every path, swapped or not — this note exists so a future
+    reader doesn't mistake the fallback firing under swap-assist for a new
+    regression this sub-task introduced.
     """
     threshold = int(estimated_cost_bytes * CONFIRM_RESIDENT_FRACTION)
     baseline_available = baseline_meminfo.get("MemAvailable", 0)
