@@ -1,0 +1,19 @@
+{
+  "name": "termux_api",
+  "version": "1.0.0",
+  "description": "Structured Termux:API device capabilities for CCOS agents",
+  "category": "device",
+  "entry_point": "termux_api.py",
+  "capabilities": [
+    {
+      "name": "device.termux_api",
+      "description": "Discover and execute registered Termux:API capabilities",
+      "implementation": "termux_api:get_termux_api",
+      "category": "device",
+      "dependencies": ["termux-api"],
+      "hardware_requirements": []
+    }
+  ],
+  "author": "CCOS",
+  "license": "MIT"
+}
