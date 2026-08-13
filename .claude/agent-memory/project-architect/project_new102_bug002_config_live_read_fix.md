@@ -46,3 +46,20 @@ the file in question before assuming your own change broke it.
 
 Verification tier: code complete, unit-verified only (default-path
 numbers unchanged, so no live model load needed or done).
+
+**Self-caught mistake, same round, logged as NEW-151:** the commit
+carrying this fix (`5687dcf`) was built by staging the ENTIRE working
+tree rather than just the files this round's own scoping touched — it
+swept in two already-implemented, unreviewed process-lifecycle changes
+(`core/daemon.py`'s NEW-145 fix, `core/embed_server.py`/
+`core/inference.py`'s NEW-144 fix) that TODO.md's own 7.4b sub-tasks A/C
+explicitly mark as needing a mandatory `code-reviewer` pass (C also
+needs `live-verifier`) before landing — neither had happened. Caught on
+an advisor-prompted post-close review, not before committing. Corrected
+in `0fe1cd0` (NEW_ISSUES.md NEW-151, TODO.md status notes, PROJECT_LOG.md
+correction), not reverted. **Lesson for next time: even when a round's
+own commit is small and reviewed, `git add <specific files>` must still
+be checked file-by-file against what was actually scoped and read this
+round — an ongoing/uncommitted branch with other in-progress work sitting
+in the same working tree is a trap for "stage everything that's
+modified," and CLAUDE.md rule 4 applies per-file, not per-round-intent.**
