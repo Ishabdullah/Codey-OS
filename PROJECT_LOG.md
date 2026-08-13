@@ -70,7 +70,11 @@ calls against the actual working tree and fail with
 pre-existing uncommitted diff at test-run time (reproduced: pass with
 `main.py` clean, fail the moment it has this round's own `--ctx` diff).
 Logged as `NEW-150`, a pre-existing test-isolation gap, not fixed here
-(out of scope).
+(out of scope). Confirmed post-commit, working tree clean: same 5 tests
+in that file now pass (`5 passed in 2.53s`), and the full suite is clean
+end-to-end — `673 passed, 1 skipped in 127.46s`, 0 failed — verifying
+`NEW-150`'s root-cause trace (a dirty `main.py` at test-run time, not
+this round's actual code) rather than just asserting it.
 
 **Verification tier: code complete, unit-verified.** No live model load
 run or needed — under default settings (`min(32768, 8192)` /
