@@ -89,14 +89,33 @@ only runs inside the interactive `main.py` process, so a daemon-dispatched
 background coder load (a separate process) is unaffected by a `--ctx`
 flag passed to a different process's CLI invocation.
 
-`code-reviewer`: this round does not touch process-lifecycle, daemon
-start/stop, PID files, kill logic, locks, or the GUI server, so it falls
-under the lighter-pass review category per `CLAUDE.md`'s workflow
-section, not the mandatory-approval one — self-reviewed against that
-lighter bar (readability, test coverage of the actual regression,
-consistency with existing snapshot-once/live-read conventions elsewhere
-in this codebase) given no separate reviewer session was available this
-round.
+`code-reviewer`: this round's OWN scoped change (`utils/config.py`,
+`core/memory_v2.py`, `core/planner_loader.py`, `core/loader_v2.py`'s
+n_ctx read, `core/resource_gate.py` comments, `main.py`'s `--ctx` guard)
+does not touch process-lifecycle, daemon start/stop, PID files, kill
+logic, locks, or the GUI server, so that part falls under the
+lighter-pass review category per `CLAUDE.md`'s workflow section — that
+part was self-reviewed against that lighter bar (readability, test
+coverage of the actual regression, consistency with existing
+snapshot-once/live-read conventions elsewhere in this codebase).
+
+**Correction, same day, found on a post-close self-review (`NEW-151`):**
+the sentence above is true only for this round's own diff — it is FALSE
+for the commit (`5687dcf`) as actually made. That commit was built by
+staging the entire working tree, which also carried two already-written,
+unreviewed process-lifecycle changes this round never touched or read:
+`core/daemon.py`'s NEW-145 lazy-coder-load/watchdog-gate fix (7.4b
+sub-task C) and `core/embed_server.py`/`core/inference.py`'s NEW-144
+embed cross-process health-check fix (7.4b sub-task A). Both are
+explicitly marked "**Mandatory `code-reviewer` pass**" in `TODO.md`'s own
+text for those sub-tasks (sub-task C additionally mandates a
+`live-verifier` pass), and neither happened before landing in `main`.
+Logged as `NEW-151`, corresponding status notes added to `TODO.md`'s
+sub-tasks A and C so they are not read as done. Not reverted (history is
+already pushed; rule 6 says correct the record, not silently rewrite
+it) — the fix is a real `code-reviewer` (+ `live-verifier` for C) pass on
+already-landed code, tracked as open work, not a re-log of the same
+finding under a fixed status.
 
 Files: `utils/config.py`, `core/memory_v2.py`, `core/planner_loader.py`,
 `core/loader_v2.py`, `core/resource_gate.py` (comments only), `main.py`,

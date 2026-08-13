@@ -2232,6 +2232,15 @@ Everything else below depends on this existing. Nothing here is started.
       touches process start/kill logic in `core/embed_server.py` and
       the daemon startup sequence).
 
+      **Status, 2026-08-13 (`NEW-151`): implementation landed
+      (`EmbedServer.is_healthy()` in `core/embed_server.py`,
+      health-check-before-`start()` in `core/inference.py:_start_server()`)
+      but NOT via this sub-task's own review path — it rode into commit
+      `5687dcf`, a config-only NEW-102/bug_002 fix commit, without the
+      mandatory `code-reviewer` pass above ever happening. Do not treat
+      sub-task A as done. Still needs: a real `code-reviewer` pass on
+      this diff.**
+
       **Sub-task B — planner context ceiling.**
       Derived, not invented, from the real prompt this project actually
       sends: `core/plannd.py`'s `PLANNER_PROMPT` (the system prompt sent
@@ -2501,6 +2510,18 @@ Everything else below depends on this existing. Nothing here is started.
       window. Use the daemon-only/lighter harness posture this project's
       own NEW-14 finding established, not a full 3-model concurrent
       session.
+
+      **Status, 2026-08-13 (`NEW-151`): implementation landed
+      (`core/daemon.py`'s `_preload_primary_model()` removed,
+      `_watchdog_check_model()`'s `was_ever_loaded()` gate added,
+      matching `core/loader_v2.py`/test changes) but NOT via this
+      sub-task's own review path — it rode into commit `5687dcf`, a
+      config-only NEW-102/bug_002 fix commit, without either the
+      mandatory `code-reviewer` pass or the mandatory `live-verifier`
+      pass above ever happening. Do not treat sub-task C as done, and do
+      not read the code's mere presence in `main` as evidence it works
+      under the real entry point — both mandatory passes above are still
+      outstanding.**
 
       **Pick up alongside this sub-task (2026-08-11, project-architect
       consolidation pass — `NEW_ISSUES.md` cross-referenced to match):
