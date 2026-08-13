@@ -220,6 +220,27 @@ class EmbedServer:
             return self._check_health()
         return False
 
+    def is_healthy(self) -> bool:
+        """Public health-check-only probe, independent of whether THIS
+        Python object spawned the embed server (`self.process`/`self._started`
+        are per-process, per-object state — see `is_running()` above and
+        `start()`'s docstring). A real `/health` HTTP request against the
+        known port, so a caller in a different OS process than whichever
+        one actually owns the embed lifecycle (see `NEW-144` in
+        `NEW_ISSUES.md`) can positively confirm "a healthy embed server is
+        already up" without needing `self.process` to be set.
+
+        Callers that do NOT own the embed lifecycle (today: only
+        `core/inference.py:_start_server()` — see that module's own
+        comment) MUST call this first and skip `start()` entirely when it
+        returns True, rather than calling `start()` unconditionally:
+        `start()`'s only "already running" fast path checks `self.process`,
+        so a foreign-but-healthy occupant falls through to `start()`'s
+        kill-and-replace branch (`NEW-144`'s exact bug) if this guard isn't
+        applied first.
+        """
+        return self._check_health()
+
     # ── Health helpers ─────────────────────────────────────────────────────────
 
     # TCP state 0A = LISTEN, per /proc/net/tcp's documented state codes.

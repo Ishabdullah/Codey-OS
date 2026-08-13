@@ -63,6 +63,19 @@
   the actual fix (mock `check_git_and_offer_commit()`/its dependencies in
   those 3 tests) rather than re-discovering and re-reproducing it a third
   time.
+- **Third occurrence, 2026-08-10, logged separately as `NEW-110`**
+  (code-reviewer, Phase 4.1 sub-task A review) — same 3 tests, same
+  `check_git_and_offer_commit()`/`git_status_paths()`/`confirm()` call
+  chain, same dirty-working-tree trigger. Cross-referenced here
+  (2026-08-11, project-architect consolidation pass) rather than merged,
+  since `NEW-110` already exists as its own entry — but both describe the
+  identical bug and should be closed together by one fix in
+  `tests/test_new19_patch_failed_repeat_escalation.py`. No currently
+  open/upcoming `TODO.md` item's stated scope covers fixing this test
+  file's existing fragility (`U.20`/`U.21` cover unused imports/lint and
+  *missing* test coverage respectively, not repairing an existing
+  flaky/hanging test) — stays open and unattached to any TODO item pending
+  a dedicated pickup.
 
 ### [NEW-40] NEW-10's new SIGTERM handler covers the 4 model-load `try/except (KeyboardInterrupt, SystemExit)` guards in `main.py`, but the REPL's steady-state `input()` wait has an existing SIGINT-only guard that does NOT catch the new SystemExit — a real asymmetry, not parity with SIGINT
 
@@ -5618,6 +5631,41 @@ finding for the same bug. See `NEW-39`.)*
   before `memory_v2` is imported; separately, add the same
   positive-value guard `CODEY_N_CTX` already has to `--ctx`'s argparse
   definition or its handling at `main.py:113`.
+- **Cross-reference (2026-08-11, project-architect consolidation pass):**
+  `TODO.md`'s 7.4b sub-task C ("coder interactive-vs-daemon context
+  branching") already has an implementer touching exactly this code —
+  `main.py`'s `--ctx`/n_ctx call sites and `core/loader_v2.py:
+  load_primary()`'s `MODEL_CONFIG.get("n_ctx", ...)` read — to wire the
+  new interactive/background context branch. Pick up this finding's
+  fix (both the `CTX_TOTAL` import-order gap and the missing
+  `--ctx` positive-value guard) alongside that sub-task's implementation
+  rather than as a separate future round. See `TODO.md` 7.4b sub-task C
+  for the matching note.
+- **Status: RESOLVED, 2026-08-13.** Sub-task C's own first pass had, in
+  fact, reintroduced this exact trap for two NEW values
+  (`PLANNER_N_CTX`/`CODER_BACKGROUND_N_CTX`) instead of closing the
+  original `CTX_TOTAL` instance — caught by cloud ultrareview as
+  `bug_002` on that sub-task's own landing, not by this consolidation
+  note. Real fix, not a re-log: `CTX_TOTAL`,
+  `PLANNER_N_CTX`, and `CODER_BACKGROUND_N_CTX` all converted from
+  import-time constants to functions (`get_ctx_total()`,
+  `get_planner_n_ctx()`, `get_coder_background_n_ctx()`) that re-read
+  `MODEL_CONFIG["n_ctx"]` live; `main.py`'s `--ctx` handling changed to
+  `if args.ctx is not None:` with an explicit `ValueError` on
+  `args.ctx <= 0`. Confirmed as a real regression, not just a gap:
+  baseline `163b5e5`'s `core/planner_loader.py:88` read
+  `MODEL_CONFIG.get("n_ctx", 4096)` live, so `--ctx` reached the planner
+  before sub-task C's first (constant-based) pass and stopped reaching
+  it after — this fix restores that and extends it to the new
+  background-coder ceiling too. 4 new regression tests added to
+  `tests/test_74b_planner_and_coder_n_ctx.py` (12/12 passing), including
+  one that calls `main.apply_overrides()` directly with a fake `--ctx`
+  and asserts both `get_planner_n_ctx()`/`get_coder_background_n_ctx()`
+  follow it — the check that would have caught this the first time.
+  Verification tier: code complete, unit-verified — no live model load
+  needed (default-path numbers are unchanged by this fix, only the
+  `--ctx`-override path's behavior changed). See `TODO.md` 7.4b
+  sub-task C for the full resolution note.
 
 ## Found during live-verification of `TODO.md` 7.4 (resource gate happy-path round 2), 2026-08-09 — NOT fixed, logged only
 
@@ -5967,6 +6015,17 @@ finding for the same bug. See `NEW-39`.)*
   test-design flaw: this file should mock `git status`/`git diff`
   and the `confirm()` call rather than depending on live repo/tree state
   at all). Flagging per CLAUDE.md rule 8.
+- **Cross-reference (2026-08-11, project-architect consolidation
+  pass):** this is the same underlying bug as `NEW-39` (first logged
+  2026-07-30, reconfirmed 2026-08-09) — identical 3 tests, identical
+  `check_git_and_offer_commit()`/`git_status_paths()`/`confirm()` call
+  chain, identical dirty-tree trigger. Not merged into `NEW-39` since
+  both already exist as separate entries, but should be fixed together,
+  once, in `tests/test_new19_patch_failed_repeat_escalation.py`. No
+  currently open/upcoming `TODO.md` item's stated scope covers repairing
+  this existing flaky/hanging test (`U.20`/`U.21` cover lint backlog and
+  *missing* coverage, not this) — stays open and unattached pending a
+  dedicated pickup.
 
 ## Found while implementing Phase 4.1 sub-task B (interactive-session TUI+GUI signal), 2026-08-10 — NOT fixed, logged only
 
@@ -7125,6 +7184,21 @@ finding for the same bug. See `NEW-39`.)*
   other means.
 - **Where found:** sub-task E's live monitor and its two-pass advisor
   review, same session, 2026-08-11.
+- **Addendum, 2026-08-11, sub-task F's case (a) live-verification pass**:
+  reproduced at a SECOND, higher `n_ctx` — at `n_ctx=32768`, peak observed
+  `VmRSS` was 7714.4MiB against a declared cost of 6514MiB, a **~1200MiB
+  (~1.17GiB) overshoot**, larger than the ~843-900MiB overshoot observed
+  at `n_ctx=16384`. The harness that produced this reading also had the
+  PID-acquisition gap closed (poll `loader.get_pid()` from a monitor
+  thread starting at t=0, not wait for `load_primary()` to return — see
+  TODO.md 7.4a-F's "G" write-up, Step 0), so this is a more complete
+  sample of the load window than sub-task E's own 16384 run, not just a
+  second data point at a different `n_ctx` — same open question (how much
+  of the overshoot is anon vs. file-backed) remains unanswered; this
+  pass's harness sampled `RssAnon`/`RssFile`/`RssShmem` for case (b2) but
+  not case (a) (case (a) was written and run before that harness
+  improvement landed mid-session — see case (b2)'s own write-up for the
+  first run that does have the split).
 
 ### [NEW-139] `--mmap` on the spawned `llama-server` process means quantized-weight zram-compression ratio is structurally unmeasurable via this project's current live-test harness — the question `can_admit()`'s own docstring poses about weight-page compression remains open, not answered by sub-task E's live pass
 
@@ -7241,3 +7315,486 @@ finding for the same bug. See `NEW-39`.)*
   2026-08-11, cross-checking `test_new21_production_call_shape_swap_
   assist_may_now_admit` (`tests/test_resource_gate.py`) against a live
   Python re-run of the same fixture through the real `can_admit()`.
+
+## Found during TODO.md 7.4a sub-task F's required live-verification pass, 2026-08-11 (live-verifier, delegated per Ish's explicit authorization) — NOT fixed here, logged only
+
+### [NEW-141] Real concurrent primary+planner load at `n_ctx=32768` (new 10GiB `MAX_SWAP_ASSIST_BYTES` cap) reproduces `NEW-14`'s swap-distress shape with only 2 models, in ~6s (faster, fewer models than `NEW-14`'s original 3-model/~40s observation) — live-verifier's pre-declared rate-trip abort criterion correctly fired and stopped it
+
+- **Status: Confirmed** — directly observed, live, tracked-PID teardown
+  clean afterward.
+- **Where found:** sub-task F's case (b2) live-verification pass, run via
+  a dedicated harness calling `core/loader_v2.py:ModelLoader.
+  load_primary()` then, while the primary stayed genuinely resident,
+  `core/planner_loader.py:PlannerLoader.load()` directly (NOT
+  `ensure_planner()`, which evicts the primary first — see the separate
+  structural finding below). Both real production code paths, not mocked.
+- **The finding**: with the primary 7B resident at `n_ctx=32768`
+  (`MemAvailable`=1819MiB, `SwapFree`=13712MiB, primary `RssAnon`=
+  6263.3MiB), calling `PlannerLoader.load()` triggered a real, fast,
+  substantial swap-out event: in the ~6s between t+12.7s and t+18.7s,
+  `SwapFree` dropped 2209MiB in a single 3s sample interval (from
+  13525MiB to 11319MiB), the primary's own `RssAnon` collapsed from
+  6263.3MiB to 3071.5MiB (a ~3192MiB anonymous-page swap-out, not RSS
+  simply being freed — `RssFile` also dropped, from 720.9MiB to 0.9MiB,
+  a separate mmap-reclaim signal), and zram `mm_stat`'s `orig_data_size`
+  rose by +2.13GB in the same interval — mutually consistent readings,
+  not an artifact of any single sample. This closely matches `NEW-14`'s
+  documented distress shape ("3 concurrent models hit 7.5-8.5GiB swap in
+  ~40s") but was produced by only **2** concurrently-loading models
+  (primary + planner, no daemon/embed stack) within **~6 seconds**, not
+  ~40 — a faster, lower-threshold reproduction than `NEW-14`'s own
+  finding.
+- **Why this matters for sub-task F specifically**: this is the real,
+  live confirmation of the concurrent-admission risk sub-task F's own
+  scoping text flagged as a predicted-but-unverified side effect of
+  raising `MAX_SWAP_ASSIST_BYTES` to 10GiB ("this recalibration... now
+  permits admitting up to ~8.9GiB of declared model cost... at
+  arbitrarily low live `MemAvailable`... recreating conditions `NEW-14`
+  already found caused real distress"). That prediction is now directly
+  observed, not just arithmetic.
+- **What stopped it**: the live-verification harness's pre-declared
+  rate-trip abort criterion (SwapFree drop >1.5GiB within one 3s sample
+  interval — added specifically because sub-task E's own static floor
+  criteria, reused unchanged for this pass's case (a), never fired and
+  would not have fired here either: `SwapFree` stayed >10GiB above the
+  2×slmk floor throughout). The rate criterion fired correctly and the
+  harness tore down both processes via tracked PIDs (SIGTERM, then
+  SIGKILL after a 3s grace period — no `pkill -f`, CLAUDE.md rule 3
+  honored) within seconds; the device returned to a clean, healthy state
+  immediately after (`free -h` available 6.3Gi, `ps aux | grep
+  llama-server` empty, gate state store `[]`).
+- **Not fixed here** — this is a live-verification finding about the
+  real consequence of sub-task F's already-landed recalibration, not a
+  new bug in the recalibration's own arithmetic (which sub-task F's own
+  scoping already predicted this exact outcome). Candidate follow-ups for
+  a future pass (not scoped here, Ish's call): (a) whether the
+  concurrent-admission path this finding required deliberately bypassing
+  production orchestration (`PlannerLoader.load()` called directly,
+  skipping `ensure_planner()`'s sequential-swap eviction — see the
+  structural finding below) to even reach should stay unreachable via any
+  shipped code path, in which case this finding is evidence the existing
+  sequential-swap guard is doing real, load-bearing safety work and
+  should not be relaxed; (b) whether `MAX_SWAP_ASSIST_BYTES`'s 10GiB
+  value (or `MAX_CONCURRENT_MODEL_BUDGET_BYTES`'s 8.90GiB, which was
+  explicitly computed to admit the full 3-model stack) should be
+  reconsidered now that this pass has live evidence, not just arithmetic,
+  of the risk they jointly re-open; (c) the abort criterion set used here
+  (static SwapFree floor + static MemAvailable floor + SwapFree rate-trip)
+  is offered as a validated starting point for any future pass probing
+  this same territory — the rate-trip term was necessary; the two static
+  floors, again, never fired.
+
+### [NEW-142] `core/planner_loader.py`'s `ensure_planner()` (the real production entry point `core/plannd.py:get_plan()` calls) evicts the primary model BEFORE ever reserving a slot for the planner — the concurrent-admission consequence TODO.md 7.4a sub-task F's own scoping flagged is structurally UNREACHABLE via any shipped orchestration path, only via calling `PlannerLoader.load()` directly
+
+- **Status: Confirmed** — read directly from `core/planner_loader.py`
+  (`ensure_planner()` → `_evict_primary_and_confirm_free()`, called before
+  `self.load()`) and confirmed live during sub-task F's case (b)
+  live-verification pass, 2026-08-11.
+- **The finding**: Ish's sequential-swap decision ("the primary 7B model
+  and this 1.5B planner must never be resident at the same time on this
+  device," `core/planner_loader.py`'s own module docstring) is enforced
+  at the `ensure_planner()`/`ensure_model()` orchestration layer, not at
+  `reserve_slot()`/`can_admit()` (the resource gate itself has no
+  knowledge of or opinion on this constraint — it would admit a
+  concurrent planner reservation if asked, as `NEW-141`'s own b1 dry-run
+  directly confirmed). This means a live-verifier — or any future
+  caller — following the actual shipped production call path
+  (`core/plannd.py:get_plan()` → `ensure_planner()`) would NEVER be able
+  to observe the concurrent-admission scenario TODO.md 7.4a sub-task F's
+  own scoping explicitly required live-verifying ("primary + planner
+  loaded sequentially via real `reserve_slot()` calls... observing
+  whether the second load is actually admitted via swap-assist at low
+  real `MemAvailable`"), because `ensure_planner()` unloads the primary
+  first, unconditionally, before the planner's own `reserve_slot()` call
+  is ever reached.
+- **Why this matters, both ways**: (1) it means today's real, shipped
+  system is NOT actually exposed to the concurrent-residency risk
+  `NEW-141` demonstrates — the sequential-swap guard genuinely prevents
+  it in normal operation, a real existing safety property worth stating
+  plainly, not just implicitly relying on. (2) it means sub-task F's own
+  scoping instruction, taken literally ("via a real `reserve_slot()`/
+  `load()` call sequence"), could only be satisfied by calling the
+  lower-level `PlannerLoader.load()` method directly, bypassing the
+  `ensure_planner()` orchestration wrapper that exists specifically to
+  prevent this state — a deliberate, documented choice this pass made
+  (see TODO.md 7.4a-F's "G" write-up, case (b) intro), not a
+  shipped/supported code path. A future reader must not conclude
+  concurrent primary+planner residency is a tested or supported
+  production state from this pass's b1/b2 evidence — it is explicitly
+  not, and remains actively prevented by `ensure_planner()`/
+  `ensure_model()`'s own eviction logic.
+- **Not fixed here** — not a bug, a structural fact about the existing
+  sequential-swap guard's scope, surfaced because sub-task F's own
+  concurrent-admission scoping did not anticipate it. No code change
+  proposed; flagged so this pass's own evidence isn't misread later.
+- **Where found:** sub-task F's case (b) live-verification pass,
+  2026-08-11, direct read of `core/planner_loader.py` while scoping how
+  to actually reach the concurrent-admission call shape.
+
+### [NEW-143] Primary 7B `estimated_cost_bytes` at `n_ctx=32768` sits only ~137MiB under `device_ceiling_bytes` (`hard_reject` threshold) — a small margin, not itself a bug
+
+- **Status: Confirmed** (arithmetic, directly read from a live
+  `GateDecision`), logged as a margin observation, not a defect.
+- **Where found:** sub-task F's case (a) live-verification dry-run,
+  2026-08-11: `estimated_cost_bytes=6,830,557,184` (6514MiB) vs.
+  `device_ceiling_bytes=6,973,870,080` (6650MiB, from
+  `compute_device_ceiling_bytes()` with `DEVICE_CEILING_USABLE_
+  FRACTION=0.60`, unchanged/untouched by sub-task F) — a margin of
+  ~143,312,896 bytes (~137MiB).
+- **Why this matters**: this margin is a per-model HARD ceiling
+  (`hard_reject=True` means "retrying later cannot change the outcome" —
+  `core/loader_v2.py`'s own `LOAD_OUTCOME_GATE_DENIED_HARD` comment), not
+  the swap-assisted headroom sub-task F actually recalibrated. A
+  marginally larger model file (e.g. a different quantization, or the
+  same file plus metadata growth from a future GGUF format revision), or
+  any future change to `DEVICE_CEILING_USABLE_FRACTION`, could flip the
+  real production `n_ctx=32768` default to a **permanent, non-swap-
+  fixable** `hard_reject` — a materially different failure mode than
+  anything sub-task F's own recalibration addresses (which only ever
+  affects the swap-assisted-headroom branch, not this hard ceiling).
+- **Not fixed here** — flagged as a margin worth monitoring, not a
+  defect; no code change proposed. `compute_device_ceiling_bytes()`'s own
+  basis was explicitly out of scope for sub-task F per that item's own
+  "Explicitly out of scope" list.
+
+### [NEW-144] `EmbedServer.start()` treats "port is bound" as "stale, kill and replace" with no health check first — a healthy embed server started by a DIFFERENT process gets killed and respawned by any other process that calls `start_embed_server()`
+
+- **Status: Confirmed** — read directly, `core/embed_server.py:57-81`
+  (`EmbedServer.start()`).
+- **Where found:** scoping pass for Ish's 2026-08-11 "embed model always
+  resident" decision (new TODO.md item, see WORK_QUEUE.md cross-ref),
+  while tracing every call site of `start_embed_server()`
+  (`core/daemon.py`'s `_main_loop` at startup and its 30s watchdog;
+  `core/inference.py:_start_server()`, called on every `infer()` — i.e.
+  every interactive turn in the TUI/CLI process, a DIFFERENT OS process
+  than the daemon).
+- **The bug, exactly:** `start()`'s only "already running, do nothing"
+  fast path is `self.process and self.process.poll() is None and
+  self._check_health()` — `self.process` is this specific `EmbedServer`
+  Python object's own `subprocess.Popen` handle, which is `None` in any
+  process that didn't itself spawn the embed server. Falling through,
+  `start()` next checks `_port_is_bound()` alone (a raw TCP-connect
+  check, deliberately not `_check_health()` — see that method's own
+  docstring, written for a *different* purpose: detecting a foreign
+  occupant that accepts a connection but never answers `/health`). If
+  the port is bound — which it will be, correctly, whenever the daemon's
+  embed server is already up and healthy — `start()` unconditionally
+  logs "Stale process ... replacing" and calls `_kill_port_occupant()`,
+  which resolves the real owning PID via `/proc` scan and `os.kill(pid,
+  9)`s it, then spawns a brand new embed server in its place. There is
+  no health check anywhere in this path that would let a second process
+  recognize "this occupant is fine, leave it alone."
+- **Concrete impact:** under `codey-start` (daemon + TUI both up, the
+  normal product entry point), the daemon's `_main_loop` starts a
+  healthy embed server at daemon startup. The very next time the TUI
+  process runs `infer()` (i.e. the user's first prompt), `inference.py:
+  _start_server()` calls `start_embed_server()` in the TUI's own
+  process — which has no memory of the daemon's `Popen` object — sees
+  the port bound, and kills + respawns the daemon's embed server. This
+  repeats on every subsequent `infer()` call too, since the TUI's own
+  freshly-spawned copy is likewise not the daemon's tracked object
+  either way (a fresh `EmbedServer()`/module attribute is not created
+  per call, but the singleton was already correctly caching *its own*
+  spawn in a prior call — the destructive branch only fires the very
+  first time a given process calls `start()` against an embed server it
+  didn't itself spawn, which is still every single time codey-start's
+  TUI process's first turn runs). Net effect: at least one unnecessary
+  embed-server kill+respawn cycle (~1-2s per this module's own health-
+  wait loop shape) per `codey-start` session, and a live PID/port
+  churn event that this module's own extensive `_find_port_occupant_pid`
+  /`_kill_port_occupant` commentary was written to guard *against*
+  (foreign occupants), not something this project intends to trigger
+  against its own daemon's own healthy process.
+- **Why this matters for the new "always resident" decision:** this bug
+  makes "always resident, never spun down except at Codey shutdown"
+  structurally false today even before any new code is written — the
+  TUI process itself tears the daemon's embed server down and back up
+  on its own first inference call. Any sub-task implementing the
+  always-on lifecycle decision must either fix this (single source of
+  truth: only the process that "owns" the embed lifecycle start/stop's
+  it; every other process only health-checks) or explicitly design
+  around it — it cannot be left as-is and still satisfy the decision's
+  own stated intent.
+- **Not fixed here** — scoping-only pass, no code changed. Flagged as a
+  likely-blocking prerequisite for the new TODO.md item's sub-task A
+  (embed-server lifecycle change), not a standalone fix task.
+
+## Found during TODO.md 7.4b implementation, 2026-08-11 — NOT fixed, logged only
+
+### [NEW-145] `**net regression, not a neutral no-op**`: under `codey-start`, the coder almost always loads at the BACKGROUND 16384 ceiling even for the interactive TUI session — the daemon's own eager preload wins the race against the TUI's session-file write, so sub-task C's "full context while interactively used" case is not actually realized on the normal product entry path, and the interactive user now gets LESS context than before this round, not the same or more
+
+- **Status: Confirmed** — read directly, `core/daemon.py`'s `_main_loop`
+  (`_preload_primary_model()` call, line ~918) and `main.py`'s `main()`
+  (`_write_tui_pid_file()` at line 1923, called only right before `repl()`
+  starts). `codey-start` (`codey-start:47-65`) always starts the daemon
+  first, then launches the TUI in the foreground.
+- **Sequence, concretely:** `codey-start` starts the daemon → the daemon's
+  `_main_loop` calls `_preload_primary_model()` → `ensure_model()` →
+  `ModelLoader.load_primary()`, which (per this round's TODO.md 7.4b
+  sub-task C change) reads `core.resource_gate.is_interactive_session_active()`
+  at that instant. No TUI session pid file exists yet (the TUI process
+  hasn't started, let alone reached `_write_tui_pid_file()`), so this
+  evaluates False and the daemon spawns the 7B server at
+  `utils.config.CODER_BACKGROUND_N_CTX` (16384). The TUI then starts,
+  writes its session pid file, and on its own first `infer()` call also
+  reaches `load_primary()` — which now correctly computes `n_ctx=32768`
+  (interactive session active) for its own `resource_gate.ModelSpec`, but
+  `LlamaServer.start()` (`core/loader_v2.py:211-230`) hits its
+  `_is_port_in_use()` reuse branch first ("already running on port,
+  using existing server", `self.process` left `None`) and reuses the
+  daemon's already-spawned 16384-context server instead of respawning at
+  32768 — the loader then releases its own gate reservation (the
+  established "didn't spawn it, don't double-account" pattern) and never
+  gets a 32768-context server at all.
+- **Net effect:** under the normal product entry point (`codey-start`),
+  Ish's 2026-08-11 decision 3 ("coder runs at full max context when the
+  user is actively using it interactively") is not actually realized —
+  the interactive session ends up running at the smaller
+  `CODER_BACKGROUND_N_CTX` ceiling the whole time, because the daemon's
+  own eager preload structurally always wins this race (it starts before
+  the TUI process even exists). The mirror case (TUI's own `load_primary()`
+  call landing first, e.g. a bare `codeyOS` invocation with no daemon
+  running yet) does NOT have this problem — a solo TUI session with no
+  daemon preloading ahead of it evaluates `is_interactive_session_active()`
+  True and gets the full 32768 context correctly.
+- **This is a net regression for the `codey-start` user, not a neutral
+  no-op, and not merely "decision 3 unrealized":** before this round,
+  `core/loader_v2.py:LlamaServer._spawn_locked()` had no interactive/
+  background branch at all — every server it spawned (daemon preload
+  included) used the unconditional `str(MODEL_CONFIG["n_ctx"])`, i.e.
+  32768. So before this round, the daemon's own preload under
+  `codey-start` already spawned the coder at 32768, and the TUI's first
+  `infer()` reused that same 32768 server. After this round, the SAME
+  race (daemon preloads before the TUI's session file exists) now
+  resolves to the daemon spawning at 16384, and the TUI reuses THAT
+  server instead. Net result for the ordinary `codey-start` interactive
+  user: this round measurably SHRANK their real context from 32768 to
+  16384 — the opposite of decision 3's stated intent, not just a
+  same-as-before gap this round failed to close.
+- **Why not fixed as part of 7.4b sub-task C:** TODO.md's own sub-task C
+  write-up explicitly names `is_interactive_session_active()` (the exact
+  signal 7.4 sub-task C already built) as the mechanism to reuse, "do not
+  build a second detection mechanism" — implemented literally per that
+  instruction. Fixing this race (e.g. having the daemon skip/defer its
+  own eager preload when it suspects a TUI is about to attach, or having
+  the TUI force a respawn at its own ceiling instead of reusing an
+  under-provisioned server) is a real design decision beyond this
+  sub-task's literal scope, and risks reintroducing exactly the kind of
+  self-race CLAUDE.md rule 4 warns about if done without its own review
+  pass.
+
+- **Status update, 2026-08-11 (project-architect, scoping only — no code
+  changed yet): Ish's fix decision given directly in-session.** Remove
+  `core/daemon.py`'s eager coder preload entirely — only the embed model
+  (7.4b sub-task A) stays always-resident; the coder loads lazily on
+  first real request (interactive or background), so
+  `is_interactive_session_active()` is evaluated at actual spawn time
+  instead of guessed wrong at daemon startup. Accepted tradeoff: first
+  real coder request after daemon start pays full load latency
+  (~11-16s, this session's own live-test evidence), not a workaround to
+  design around.
+  **Scope also had to widen past the literal `_preload_primary_model()`
+  call site**, found while scoping (not yet implemented): `core/daemon.py`'s
+  30s watchdog (`_watchdog_check_model()`, line ~752) also calls
+  `loader.ensure_model()` **unconditionally** on every tick, with no
+  distinction between "was loaded and died — restart it" and "never
+  loaded, nobody has asked yet — leave it alone." Left as-is, this
+  watchdog becomes NEW-145's SAME failure shape under a wider exposure
+  window than the bug being fixed: a persistent daemon (the normal
+  `codey-start`/`codeyOS` steady state — `codey-start:48`'s
+  `is_daemon_running` check skips daemon startup entirely when one is
+  already up) sits with no TUI session registered, the watchdog's first
+  tick (~30s after daemon start, or ~30s after the daemon's last
+  restart) calls `ensure_model()` with `is_interactive_session_active()`
+  False, spawns the coder at 16384, and a TUI attaching minutes or hours
+  later reuses that same under-provisioned server via
+  `LlamaServer.start()`'s port-in-use reuse branch — exactly like the
+  original bug, just via the watchdog instead of the startup preload,
+  and on the MORE common "already-running daemon" path, not just the
+  "cold `codey-start`" path this issue was originally filed against.
+  **Full scoped fix description (both call sites, one round, ready for
+  implementer) written into TODO.md's 7.4b sub-task C section** — see
+  the "NEW-145 fix" amendment there for the exact mechanism (a new
+  `ModelLoader.was_ever_loaded()`-style signal the watchdog gates on
+  before calling `ensure_model()`). **Status: still OPEN — not resolved
+  by preload removal alone (would only narrow the window, not close it,
+  per CLAUDE.md rule 6 this is stated explicitly rather than let a
+  partial fix be read as a full one) — scoped and ready for
+  implementer**, mandatory `code-reviewer` pass per CLAUDE.md rule 4
+  (real daemon-startup/watchdog process-lifecycle behavior change).
+- **Not fixed here.** Flagged for live-verifier (this sub-task's own
+  scoping requires a live-verifier pass) — expect a live session under
+  `codey-start` to show the coder loaded at 16384, not 32768, and do not
+  read that as a regression of THIS round's own wiring; it is this
+  documented race, not a bug in the interactive/background branch logic
+  itself (that logic's unit tests, `tests/test_74b_planner_and_coder_n_ctx.py`,
+  confirm the branch computes the correct value in isolation).
+
+### [NEW-146] `core/daemon.py`'s embed-server watchdog (and its own startup call) could still hit `NEW-144`'s kill-and-replace path against a healthy embed server orphaned by a PREVIOUS daemon incarnation that crashed without a graceful shutdown
+
+- **Status: Suspected** — not reproduced live this pass (would require
+  deliberately crashing a daemon process without triggering its `finally:`
+  shutdown path, which CLAUDE.md rule 2's RAM-discipline posture and this
+  task's scope don't call for).
+- **Reasoning:** `core/embed_server.py`'s `_embed_server` singleton is
+  per-process. A NEW daemon process (e.g. after a crash/`kill -9` that
+  bypassed `core/daemon.py`'s graceful-shutdown `finally:` block, which is
+  the only thing that calls `stop_embed_server()`) starts with a fresh
+  `EmbedServer()` object — `self.process is None`, `self._started =
+  False`. If a healthy embed server from the PRIOR daemon incarnation is
+  still alive and bound to the port, both the new daemon's own startup
+  call (`_main_loop`, `start_embed_server()`) and its 30s watchdog
+  (`is_running()` returning `False` because the new singleton has no
+  memory of the old process, then `start_embed_server()`) would call
+  `EmbedServer.start()` directly — which is `NEW-144`'s exact kill-and-
+  replace path, this time triggered by the daemon's OWN calls, not
+  `core/inference.py`'s.
+- **Why this is different from what 7.4b sub-task A fixed:** sub-task A's
+  fix (this round) only added a health-check-only guard to
+  `core/inference.py:_start_server()` — the daemon's own calls are, by
+  this item's own design, meant to be the one true "owner" that starts/
+  stops the embed server unconditionally (see `core/daemon.py`'s
+  `_main_loop`/`finally:` block, already the correct mechanism for a
+  SINGLE daemon incarnation's own lifecycle). This finding is narrower:
+  it's specifically about a daemon RESTART inheriting a still-alive
+  orphan from a crashed prior incarnation, a case this round's own
+  sub-task A scoping did not name and this round did not fix.
+- **Not fixed here** — narrow edge case (requires an ungraceful daemon
+  crash specifically), out of TODO.md 7.4b sub-task A's stated scope
+  (that scope is `core/inference.py:_start_server()` specifically). Not a
+  standalone fix task yet; log only.
+
+### [NEW-147] `core/observability.py`'s `context_size` property and `core/memory_v2.py`/`core/summarizer.py`/`core/tokens.py`'s context-budgeting reads all still read the unconditional `MODEL_CONFIG["n_ctx"]` (32768), not adjusted for TODO.md 7.4b sub-task C's new interactive-vs-background coder ceiling
+
+- **Status: Suspected** — read directly (`core/observability.py:122`,
+  `core/memory_v2.py:38`, `core/summarizer.py:168,189`,
+  `core/tokens.py:48`), not exercised live against an actual
+  background-dispatched 16384-context server.
+- **`context_size` (`core/observability.py:122`):** a pure status-display
+  property (`MODEL_CONFIG.get("n_ctx", 4096)`) — cosmetic staleness only,
+  `codeyOS --status` would report the interactive ceiling (32768) even
+  during a daemon-dispatched background task actually running at 16384.
+  Low-severity.
+- **The other three are a real functional concern, not just cosmetic:**
+  `core/memory_v2.py`'s `CTX_TOTAL`, `core/summarizer.py`'s compression-
+  trigger/target budgets, and `core/tokens.py`'s `max_ctx` all use
+  `MODEL_CONFIG["n_ctx"]` as the assumed token budget for prompt
+  construction / context-compression decisions for the coder role,
+  regardless of which n_ctx the actually-spawned server was given. A
+  daemon-dispatched background task now genuinely CAN run against a
+  16384-context server (sub-task C), but these three modules would still
+  budget prompt construction against 32768 — risking an actual
+  server-side truncation/overflow for a background task whose prompt (or
+  accumulated conversation/memory context) is built assuming 16384 more
+  tokens of room than the spawned server actually has.
+- **`core/memory_v2.py`'s `CTX_TOTAL` specifically is harder to fix than a
+  simple call-site swap:** it's `CTX_TOTAL = MODEL_CONFIG["n_ctx"]`, a
+  MODULE-LEVEL constant evaluated once at import time — the same shape
+  `NEW-102` already found broken for `main.py`'s `--ctx` flag (import
+  order means it's bound before any later override could reach it). A
+  per-load interactive/background signal can't reach a module-level
+  constant at all without restructuring it into something re-read per
+  call (a property/function, not a plain constant) — a future fix here
+  should account for that structural gap, not assume it's a one-line
+  `MODEL_CONFIG["n_ctx"]` → `some_dynamic_n_ctx()` substitution. See
+  `NEW-102` for the closely-related existing finding on this same
+  constant.
+- **Why not fixed here:** TODO.md 7.4b sub-task C's own write-up scopes
+  the wiring to `core/loader_v2.py:load_primary()` and its `main.py`/
+  `core/daemon.py` call sites only — it does not mention memory/
+  summarizer/token-budget consumers, and threading the same interactive/
+  background signal through all of them (so a background-dispatched
+  task's OWN prompt construction budgets against 16384, not 32768) is a
+  materially larger change than this sub-task's literal scope, needing
+  its own design pass (which of these call sites can even observe
+  "am I running in a background-dispatched task right now" cheaply,
+  vs. re-deriving the coder's actual `n_ctx` some other way).
+- **Not fixed here** — flagged as a real functional gap, not fixed as
+  part of this round.
+
+### [NEW-148] `main.py`'s one-shot automation flags (`--init`, `--tdd`, `--fix`) call `load_primary()` before `_write_tui_pid_file()` runs (that only happens on the `repl()`/interactive-chat path) — so TODO.md 7.4b sub-task C's interactive-vs-background branch treats these foreground, human-invoked, single-shot CLI runs as "background," giving them the smaller 16384 ceiling instead of full context
+
+- **Status: Suspected** — read directly, `main.py:1787-1861` (the
+  `--init`/`--tdd`/`--fix` branches, each calling
+  `_load_primary_with_gate_recovery(loader)` well before line 1923's
+  `_write_tui_pid_file()`, which only runs on the shared tail path into
+  `repl()`). Not exercised live this pass.
+- **Concretely:** these three flags are synchronous, foreground,
+  human-invoked CLI runs — not daemon background dispatch, the case
+  `CODER_BACKGROUND_N_CTX` was scoped for — but because
+  `core.resource_gate.is_interactive_session_active()` is driven purely
+  by the TUI-session-pid-file mechanism (`utils.config.TUI_SESSIONS_DIR`),
+  and that file is only written on the `repl()` path, these three flags'
+  own `load_primary()` calls will see no active TUI session and fall
+  into the smaller 16384-token background ceiling — even though they are
+  exactly the kind of interactive, user-driven usage Ish's decision 3
+  meant to give full context.
+- **Why not fixed here:** TODO.md 7.4b sub-task C explicitly directs
+  reusing `is_interactive_session_active()` exactly as-is ("do not build
+  a second detection mechanism") — implemented literally per that
+  instruction. Moving `_write_tui_pid_file()` earlier in `main()` (before
+  these three branches) would be a real behavior change beyond this
+  sub-task's scope, and could have its own side effects (e.g. making the
+  daemon defer background dispatch for the full duration of a `--fix`
+  run, which is arguably correct but is a separate decision this task
+  was not asked to make).
+- **Not fixed here** — logged for scoping into a future round.
+
+### [NEW-149] Even after NEW-145's lazy-load fix (both call sites gated), `core/loader_v2.py:LlamaServer.start()`'s port-in-use reuse branch (`:211-230`) means whichever caller spawns the coder server FIRST wins the context size for that server's entire life — a background daemon-dispatched task that loads first at 16384 leaves a later-attaching interactive TUI stuck at 16384 too, with no respawn
+
+- **Status: Confirmed** — read directly, `core/loader_v2.py:211-230`:
+  `LlamaServer.start()` checks `_is_port_in_use()` before spawning, and
+  if something is already answering on the port, logs "already running
+  on port, using existing server," leaves `self.process` at `None`, and
+  returns without ever re-evaluating or respawning at the caller's own
+  `n_ctx`. This is the exact mechanism NEW-145 itself already identified
+  for the daemon-preload-vs-TUI case; it is not specific to the preload
+  path and is not closed by removing the preload — it's inherent to the
+  reuse branch itself, and applies symmetrically to a background
+  daemon-dispatched task or the watchdog's own restart landing first,
+  followed by an interactive TUI attaching second.
+- **Not this round's fix:** Ish's 2026-08-11 decision only covers
+  removing the eager preload (NEW-145's fix, see above and TODO.md 7.4b
+  sub-task C); it does not direct a fix for "whoever spawns first also
+  fixes the context ceiling for the server's whole life," which is a
+  separate, real design decision (e.g. forcing a respawn when a later
+  caller needs a larger ceiling than the resident server has) that
+  risks its own self-race class if built without a dedicated review
+  pass — logged here, not silently fixed or dropped, per CLAUDE.md
+  rule 8.
+
+## Found during the NEW-102/bug_002 config-live-read fix round, 2026-08-13 — NOT fixed, logged only
+
+### [NEW-150] `tests/test_new19_patch_failed_repeat_escalation.py`'s three `_in_subtask=False` tests run real (unmocked) `git status`/`ask_confirm()` calls against the actual working tree and fail with `OSError: reading from stdin` whenever the file they touch (`main.py`) already has a real, unrelated, pre-existing uncommitted diff at test-run time
+
+- **Status: Confirmed** — traced directly. `core/agent.py:671`'s
+  `check_git_and_offer_commit()` (called from the real, unmocked
+  `run_agent()` path these three tests exercise, since they pass
+  `_in_subtask=False`) calls `git_status_paths(files_touched)` scoped to
+  `["main.py"]` (`core/agent.py:688`). If that returns anything other
+  than `"Nothing to commit."`, it prints the status and calls
+  `ask_confirm()` (`core/agent.py:694`), which tries to read a real
+  interactive `y/n` answer from stdin — `pytest -q`'s captured stdin has
+  none, producing `OSError: pytest: reading from stdin while output is
+  captured!`. Reproduced directly: with `main.py` clean (matching `HEAD`,
+  the tests' implicit assumption), all 5 tests in the file pass; the
+  moment `main.py` has ANY real uncommitted diff (verified using this
+  round's own unrelated `--ctx` guard fix as the diff), the 3 tests using
+  `_in_subtask=False` fail with this exact `OSError`, while the 2 tests
+  using `_in_subtask=True` (which never reaches
+  `check_git_and_offer_commit()`'s real git-status branch, per
+  `core/agent.py`'s own escalation gating) keep passing.
+- **Not fixed here** — out of this round's scope (this round touches
+  `utils/config.py`/`core/loader_v2.py`/`core/planner_loader.py`/
+  `core/memory_v2.py`/`main.py`'s `--ctx` handling, not `core/agent.py`'s
+  git-commit-offer flow or this test file). Confirmed NOT caused by this
+  round's actual code change (the `--ctx` guard's logic has no
+  relationship to `check_git_and_offer_commit()`) — it's a pre-existing
+  test-isolation gap that any future round touching `main.py` mid-session
+  (uncommitted) will trip again, deterministically, not flakily. Fix
+  direction: mock `core.githelper.git_status_paths`/`utils.logger.confirm`
+  (or the whole `check_git_and_offer_commit` call) in this test file,
+  matching how `tests/test_new19_patch_failed_repeat_escalation.py`'s own
+  `_in_subtask=True` tests already avoid the real git path, rather than
+  relying on the ambient working tree happening to be clean for `main.py`
+  at test-run time.

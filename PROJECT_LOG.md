@@ -5,6 +5,103 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-08-13 — cloud-ultrareview nits (bug_001, bug_002) + NEW-102 real fix, closed together
+
+Prompted by cloud multi-agent ultrareview on 7.4a/7.4b's current
+(uncommitted) branch. Two nit findings plus one already-logged issue of
+the same root-cause class, scoped and fixed in one pass since bug_002 and
+NEW-102 are literally the same trap.
+
+**bug_001 — corrected, not fixed as filed.** Ultrareview's claim
+(`.claude/agent-memory/project-architect/MEMORY.md`'s line pointing to
+`project_new145_lazy_coder_load_scoping.md`, which "does not exist") was
+checked against the actual working tree, not just the diff ultrareview
+reviewed: the file exists on disk (3278 bytes, correct pointer-style
+content matching the other ~21 files in that directory) but was
+untracked (`git ls-files` showed 22 tracked memory files; this one and
+two related test files — `tests/test_74b_planner_and_coder_n_ctx.py`,
+`tests/test_new144_embed_health_check_only.py` — were all `??`).
+Ultrareview reviewed the diff, which never shows untracked files, so from
+its perspective the referenced file genuinely didn't exist in the
+committed history. Real fix: stage all three files by name in this
+round's commit (never `git add -A` in this repo — see this agent's own
+memory) rather than creating a duplicate file or rewording the index
+entry, since the content ultrareview wanted was already correct.
+
+**bug_002 + NEW-102 — real fix, not just logged.** 7.4b sub-task C's own
+first pass had reintroduced the exact `NEW-102` import-order trap for two
+NEW values (`utils/config.py`'s `PLANNER_N_CTX`/`CODER_BACKGROUND_N_CTX`,
+module-level constants derived from `_n_ctx` at import time) instead of
+closing the original `CTX_TOTAL` instance (`core/memory_v2.py`) — all
+three were frozen before `main.py`'s `apply_overrides()` ever applies a
+runtime `--ctx` override. Confirmed as a genuine regression, not just a
+gap: `git show 163b5e5:core/planner_loader.py` shows the baseline read
+`MODEL_CONFIG.get("n_ctx", 4096)` live at call time, so `--ctx` reached
+the planner before sub-task C's constant-based first pass and stopped
+after it.
+
+Fix: all three converted from constants to functions
+(`get_planner_n_ctx()`, `get_coder_background_n_ctx()`, `get_ctx_total()`
+in `utils/config.py`/`core/memory_v2.py` respectively) that re-read
+`MODEL_CONFIG["n_ctx"]` live, same `min(..., 8192/16384)` clamp preserved
+where applicable; `core/planner_loader.py` (2 call sites) and
+`core/loader_v2.py:load_primary()` (1 call site) updated to the new
+function names, with the planner's value snapshotted once per call
+(matching `load_primary()`'s existing snapshot-once pattern) so the
+gate's `ModelSpec` and the real spawned `LlamaServer` always agree; stale
+comments referencing the old constant names updated in
+`core/resource_gate.py` and `utils/config.py`'s own header.
+`main.py`'s `--ctx` handling changed from `if args.ctx:` to
+`if args.ctx is not None:` with an explicit `ValueError` on
+`args.ctx <= 0` (closing NEW-102's second gap — `--ctx 0`/`--ctx -1`
+previously either silently no-op'd or applied unvalidated).
+
+4 new tests added to `tests/test_74b_planner_and_coder_n_ctx.py` (12/12
+passing): runtime `MODEL_CONFIG["n_ctx"]` mutation followed live by both
+config functions, and `main.apply_overrides()` called directly with a
+fake `--ctx` asserting both functions follow it and that `--ctx 0`/`-1`
+raise — the exact check that would have caught this the first time.
+Full suite: `python -m pytest tests/ -q` → 670 passed, 1 skipped, 3
+failed. The 3 failures (`tests/test_new19_patch_failed_repeat_escalation.py`,
+`_in_subtask=False` tests) were traced and confirmed NOT caused by this
+round's change — they run real, unmocked `git status`/interactive-confirm
+calls against the actual working tree and fail with
+`OSError: reading from stdin` whenever `main.py` has ANY real
+pre-existing uncommitted diff at test-run time (reproduced: pass with
+`main.py` clean, fail the moment it has this round's own `--ctx` diff).
+Logged as `NEW-150`, a pre-existing test-isolation gap, not fixed here
+(out of scope).
+
+**Verification tier: code complete, unit-verified.** No live model load
+run or needed — under default settings (`min(32768, 8192)` /
+`min(32768, 16384)`) the returned values are numerically identical before
+and after this fix, so there is no default-path behavior change to
+live-verify; only the `--ctx`-override path's behavior changed, and that
+is unit-verified via `apply_overrides()` called directly, not observed
+through a real `codey-start --ctx <n>` session. Also note for the
+record: this fix makes the *read* live within a process; it does not
+carry a `--ctx` mutation across process boundaries — `apply_overrides()`
+only runs inside the interactive `main.py` process, so a daemon-dispatched
+background coder load (a separate process) is unaffected by a `--ctx`
+flag passed to a different process's CLI invocation.
+
+`code-reviewer`: this round does not touch process-lifecycle, daemon
+start/stop, PID files, kill logic, locks, or the GUI server, so it falls
+under the lighter-pass review category per `CLAUDE.md`'s workflow
+section, not the mandatory-approval one — self-reviewed against that
+lighter bar (readability, test coverage of the actual regression,
+consistency with existing snapshot-once/live-read conventions elsewhere
+in this codebase) given no separate reviewer session was available this
+round.
+
+Files: `utils/config.py`, `core/memory_v2.py`, `core/planner_loader.py`,
+`core/loader_v2.py`, `core/resource_gate.py` (comments only), `main.py`,
+`tests/test_74b_planner_and_coder_n_ctx.py`,
+`.claude/agent-memory/project-architect/MEMORY.md` (staging fix only, no
+content change), `TODO.md`, `NEW_ISSUES.md`.
+
+---
+
 ## 2026-08-11 (round 22) — 7.4 (WQ Track 3 item 1, "Phase 5a") re-scoped: prior "wholly unverified" framing corrected, real remaining gap narrowed to one live-verifier pass
 
 Desk-only scoping pass (project-architect), no code changed, no live

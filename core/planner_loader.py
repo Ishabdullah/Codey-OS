@@ -25,7 +25,7 @@ from typing import Optional
 
 import core.resource_gate as rg
 import utils.config as cfg
-from utils.config import LLAMA_SERVER_BIN, MODEL_CONFIG, PLANND_SERVER_PORT
+from utils.config import LLAMA_SERVER_BIN, PLANND_SERVER_PORT
 from utils.logger import error, info, success, warning
 
 # NOTE: PLANNER_MODEL_PATH is intentionally NOT imported as a bound name
@@ -77,15 +77,25 @@ class PlannerLoader:
             # ── Resource gate: reserve a slot before actually spawning ──────
             # Same pattern/contract as core/loader_v2.py:ModelLoader.load_primary()
             # — see that method's matching comments for the full reasoning.
-            # n_ctx uses MODEL_CONFIG (not a planner-specific ctx setting):
-            # core/loader_v2.py:LlamaServer._spawn_locked() passes
-            # MODEL_CONFIG["n_ctx"] to `-c` for every server it spawns,
-            # including this one via port parameterization — matching that
-            # real invoked value here, not a value this loader wishes it used.
+            # n_ctx uses cfg.get_planner_n_ctx() (TODO.md 7.4b sub-task B),
+            # not the shared MODEL_CONFIG["n_ctx"] the coder role uses — Ish's
+            # 2026-08-11 decision caps the planner at its own small, fixed
+            # ceiling, never the coder's (up to) full context.
+            # get_planner_n_ctx() is a function, not a constant (NEW-102/
+            # bug_002 fix), so it re-reads MODEL_CONFIG["n_ctx"] live and
+            # honors a runtime --ctx override — see its definition in
+            # utils/config.py for the full reasoning. Snapshotted ONCE here,
+            # same reasoning as core/loader_v2.py:ModelLoader.load_primary()'s
+            # own MODEL_PATH/interactive-signal snapshots: the ModelSpec
+            # passed to the gate and the LlamaServer actually spawned below
+            # must agree, so both must read the SAME evaluation rather than
+            # two separate live reads that could disagree if MODEL_CONFIG
+            # were mutated mid-call.
+            planner_n_ctx = cfg.get_planner_n_ctx()
             spec = rg.ModelSpec(
                 model_id="planner",
                 path=planner_model_path,
-                n_ctx=MODEL_CONFIG.get("n_ctx", 4096),
+                n_ctx=planner_n_ctx,
             )
             decision, slot_id = rg.reserve_slot(spec)
             if not decision.admitted:
@@ -103,7 +113,9 @@ class PlannerLoader:
             # under fd exhaustion/disk pressure) must stop whatever process
             # was actually spawned and release the reservation, not just the
             # two explicitly-checked failure branches.
-            self._server = LlamaServer(planner_model_path, port=PLANND_SERVER_PORT)
+            self._server = LlamaServer(
+                planner_model_path, port=PLANND_SERVER_PORT, n_ctx=planner_n_ctx
+            )
             loaded_ok = False
             try:
                 if not self._server.start():

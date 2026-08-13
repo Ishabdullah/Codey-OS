@@ -35,7 +35,22 @@ from utils.config import MODEL_CONFIG
 from utils.logger import info, warning
 
 # ── Token budget constants ───────────────────────────────────────────────────
-CTX_TOTAL = MODEL_CONFIG["n_ctx"]
+# get_ctx_total() (NEW-102 fix, 2026-08-13): was a module-level constant
+# (`CTX_TOTAL = MODEL_CONFIG["n_ctx"]`) frozen at import time, so a runtime
+# --ctx override applied later by main.py's apply_overrides() (which
+# mutates MODEL_CONFIG["n_ctx"] in place) never reached it — the original
+# NEW-102 finding, confirmed via the real import chain (main.py -> core.
+# context -> core.memory_v2, all at module-import time, before --ctx's
+# handling ever runs). Converted to a live-reading function, matching the
+# already-correct pattern core/summarizer.py and core/tokens.py use (they
+# read MODEL_CONFIG["n_ctx"] fresh inside their own functions, not at
+# import time). No caller reads CTX_TOTAL today — kept as a function so
+# any future caller gets the live value rather than reintroducing this
+# same import-order trap.
+def get_ctx_total() -> int:
+    return MODEL_CONFIG["n_ctx"]
+
+
 BUDGET_SUMMARY = 1200
 BUDGET_FILES = 6000
 MAX_FILE_CONTEXT_TOKENS = 12000

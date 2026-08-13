@@ -1,8 +1,7 @@
 """
-core/daemon.py's `Daemon._watchdog_check_model()` (TODO.md 7.4 sub-task 3)
-and `Daemon._preload_primary_model()` (TODO.md U.27 / NEW-96) — the two call
-sites that turn `ensure_model()`'s outcome into a log message at daemon
-startup and on the 30s watchdog tick, respectively.
+core/daemon.py's `Daemon._watchdog_check_model()` (TODO.md 7.4 sub-task 3,
+amended by 7.4b sub-task C's NEW-145 fix) — the 30s watchdog tick that turns
+`ensure_model()`'s outcome into a log message.
 
 `ensure_model()` (core/loader_v2.py) already routes through the resource
 gate as of sub-task 2 (both its branches end in `load_primary()`, which
@@ -16,22 +15,34 @@ gate denied a reservation" — neither of which is a crash.
 U.27/NEW-96 closed a follow-on gap: `LOAD_OUTCOME_EVICTION_FAILED` (the
 sequential-swap guard failing to confirm the planner freed port 8081 before
 the primary's cold-load, which happens BEFORE `can_admit()` is ever reached)
-wasn't one of the outcomes either call site named explicitly, so both fell
-through to their generic fallback branch. The watchdog's generic fallback is
-honest ("attempted load, still not running") and was left alone. The
-startup-preload's generic fallback said "will load on first request" — a
-false promise under `codeydOS start`'s default runtime, where `plannd` stays
-up as a separate always-on process and never frees the port on its own, so
-that "first request" retry could never actually succeed. Both call sites now
-name `LOAD_OUTCOME_EVICTION_FAILED` explicitly with the same accurate,
+wasn't one of the outcomes the watchdog named explicitly, so it fell through
+to the generic fallback branch. The watchdog's generic fallback is honest
+("attempted load, still not running") and was left alone; the watchdog now
+names `LOAD_OUTCOME_EVICTION_FAILED` explicitly with an accurate,
 non-promising message.
 
-`_watchdog_check_model()` and `_preload_primary_model()` are both plain
-methods with no dependency on `Daemon` instance state (`self` is unused
-inside either), so these tests call them via `Daemon.__new__(Daemon)` rather
-than running `Daemon.__init__()`'s full state-store/planner/background-
-manager/signal-handler setup, which is far more than this narrow behavior
-needs.
+7.4b sub-task C's NEW-145 fix (2026-08-11) removed the daemon's own eager
+startup preload of the coder (7B) model entirely — it always ran before any
+TUI session could register itself as interactive
+(`is_interactive_session_active()`), so it always spawned the coder at the
+background 16384 `n_ctx` ceiling, and the interactive TUI then reused that
+same under-provisioned server instead of getting its own 32768 one. The
+coder now loads lazily on first real request. This surfaced the SAME race
+on the watchdog's own 30s tick — the daemon's actual steady state under
+`codey-start`, since a running daemon skips the one-time startup preload
+path entirely (`codey-start` only starts a daemon when none is running) —
+because the watchdog called `ensure_model()` unconditionally every tick with
+no distinction between "was loaded and died, restart it" and "never loaded,
+nobody has asked yet, leave it alone." The watchdog now gates on
+`ModelLoader.was_ever_loaded()` (set at `load_primary()`'s success point,
+which is the convergence point for both a genuine spawn and the port-in-use
+adoption/reuse branch) before calling `ensure_model()` at all.
+
+`_watchdog_check_model()` is a plain method with no dependency on `Daemon`
+instance state (`self` is unused inside it), so these tests call it via
+`Daemon.__new__(Daemon)` rather than running `Daemon.__init__()`'s full
+state-store/planner/background-manager/signal-handler setup, which is far
+more than this narrow behavior needs.
 
 No real llama-server subprocess is spawned anywhere in this file (CLAUDE.md
 rule 2 RAM discipline) — `core.loader_v2.get_loader()`'s singleton is reset
@@ -59,11 +70,17 @@ class FakeLoader:
     the two outcome getters.
     """
 
-    def __init__(self, ensure_result, outcome, reason, instance=None):
+    def __init__(self, ensure_result, outcome, reason, instance=None, ever_loaded=True):
         self._ensure_result = ensure_result
         self._outcome = outcome
         self._reason = reason
         self._instance = instance
+        # Defaults True: every existing test in this file predates the
+        # NEW-145 gate and is exercising "was loaded before, is ensure_model()
+        # called and its outcome reported correctly" — not the new
+        # never-loaded-and-unrequested case, which has its own dedicated
+        # test below with ever_loaded=False.
+        self._ever_loaded = ever_loaded
 
     def get_model_instance(self):
         return self._instance
@@ -76,6 +93,9 @@ class FakeLoader:
 
     def get_last_ensure_reason(self):
         return self._reason
+
+    def was_ever_loaded(self):
+        return self._ever_loaded
 
 
 def _run_watchdog_with_fake_loader(fake_loader):
@@ -192,14 +212,19 @@ def test_watchdog_eviction_failed_takes_precedence_over_died_branch():
     assert "planner hasn't freed its port" in msg
 
 
-def test_watchdog_never_loaded_says_not_loaded_not_died():
-    """No server instance at all (e.g. startup preload never succeeded) --
-    must not claim the server "died"; it never came up in the first place."""
+def test_watchdog_no_current_instance_but_loaded_before_says_not_loaded_not_died():
+    """No server instance right now (e.g. this loader loaded/adopted a
+    server before, unload() cleared the instance, and this reload attempt
+    also failed -- was_ever_loaded() stays True, that's what gets us past
+    the new NEW-145 gate and into ensure_model() at all) -- must not claim
+    the server "died"; there's no currently-known process that stopped
+    running."""
     fake = FakeLoader(
         ensure_result=False,
         outcome=lv.LOAD_OUTCOME_SPAWN_FAILED,
         reason="llama-server process failed to start",
         instance=None,
+        ever_loaded=True,
     )
     with patch.object(daemon_mod, "warning") as mock_warning:
         _run_watchdog_with_fake_loader(fake)
@@ -231,6 +256,29 @@ def test_watchdog_real_crash_still_says_died():
     assert "died" in msg
 
 
+def test_watchdog_never_loaded_and_unrequested_does_nothing():
+    """7.4b sub-task C's NEW-145 fix: a coder that has never been spawned
+    NOR adopted by this loader (was_ever_loaded() False) and isn't running
+    now must be left alone -- ensure_model() must NOT be called, since
+    calling it here would reproduce NEW-145's race (spawning the coder at
+    the background n_ctx ceiling before any TUI session can register as
+    interactive)."""
+    fake = FakeLoader(
+        ensure_result=True,  # would succeed if called -- must not be called
+        outcome=lv.LOAD_OUTCOME_OK,
+        reason="",
+        instance=None,
+        ever_loaded=False,
+    )
+    with patch.object(fake, "ensure_model") as mock_ensure, patch.object(
+        daemon_mod, "warning"
+    ) as mock_warning, patch.object(daemon_mod, "info") as mock_info:
+        _run_watchdog_with_fake_loader(fake)
+
+    mock_ensure.assert_not_called()
+    mock_warning.assert_not_called()
+
+
 def test_watchdog_swallows_and_logs_unexpected_exception_not_bare_pass():
     """The watchdog must never crash the daemon's main loop, but an
     unexpected exception must be LOGGED, not silently swallowed (CLAUDE.md:
@@ -242,121 +290,6 @@ def test_watchdog_swallows_and_logs_unexpected_exception_not_bare_pass():
         daemon_mod, "warning"
     ) as mock_warning:
         d._watchdog_check_model()  # must not raise
-
-    assert mock_warning.call_count == 1
-    assert "boom" in mock_warning.call_args[0][0]
-
-
-# ── _preload_primary_model() (startup call site) ────────────────────────
-#
-# U.27/NEW-96: this call site had the false "will load on first request"
-# promise for eviction_failed; the other outcomes (GATE_DENIED,
-# GATE_DENIED_HARD) were already handled correctly by sub-task 3 and are
-# re-checked here only enough to confirm the extraction into
-# `_preload_primary_model()` didn't change their behavior.
-
-
-def _run_preload_with_fake_loader(fake_loader):
-    d = _bare_daemon()
-    with patch.object(lv, "get_loader", return_value=fake_loader):
-        d._preload_primary_model()
-
-
-def test_preload_success_logs_info_not_warning():
-    fake = FakeLoader(ensure_result=True, outcome=lv.LOAD_OUTCOME_OK, reason="", instance=None)
-    with patch.object(daemon_mod, "warning") as mock_warning, patch.object(
-        daemon_mod, "info"
-    ) as mock_info:
-        _run_preload_with_fake_loader(fake)
-    mock_warning.assert_not_called()
-    mock_info.assert_called()
-
-
-def test_preload_gate_denied_hard_says_will_never_be_admitted():
-    fake = FakeLoader(
-        ensure_result=False,
-        outcome=lv.LOAD_OUTCOME_GATE_DENIED_HARD,
-        reason="model exceeds device ceiling",
-        instance=None,
-    )
-    with patch.object(daemon_mod, "warning") as mock_warning:
-        _run_preload_with_fake_loader(fake)
-
-    assert mock_warning.call_count == 1
-    msg = mock_warning.call_args[0][0]
-    assert "will never be admitted" in msg
-    assert "will load on first request" not in msg
-
-
-def test_preload_gate_denied_transient_says_will_retry():
-    fake = FakeLoader(
-        ensure_result=False,
-        outcome=lv.LOAD_OUTCOME_GATE_DENIED,
-        reason="no headroom",
-        instance=None,
-    )
-    with patch.object(daemon_mod, "warning") as mock_warning:
-        _run_preload_with_fake_loader(fake)
-
-    assert mock_warning.call_count == 1
-    msg = mock_warning.call_args[0][0]
-    assert "will retry on the next watchdog tick" in msg
-    assert "will load on first request" not in msg
-
-
-def test_preload_eviction_failed_does_not_promise_first_request_retry():
-    """U.27/NEW-96: this is the core regression case -- eviction_failed at
-    the startup-preload call site must not say "will load on first
-    request", which is a false promise under codeydOS start's default
-    runtime (plannd stays up and never frees the port on its own)."""
-    fake = FakeLoader(
-        ensure_result=False,
-        outcome=lv.LOAD_OUTCOME_EVICTION_FAILED,
-        reason="could not confirm the planner (1.5B) freed its port before "
-        "loading the primary (7B) — sequential-swap guard",
-        instance=None,
-    )
-    with patch.object(daemon_mod, "warning") as mock_warning:
-        _run_preload_with_fake_loader(fake)
-
-    assert mock_warning.call_count == 1
-    msg = mock_warning.call_args[0][0]
-    assert "will load on first request" not in msg
-    assert "planner hasn't freed its port" in msg
-
-
-def test_preload_generic_fallback_still_says_will_load_on_first_request():
-    """An outcome with no dedicated branch (e.g. SPAWN_FAILED/ERROR) still
-    falls through to the unchanged generic message -- U.27/NEW-96's scope
-    was the eviction-failed denial specifically; whether "will load on
-    first request" is itself accurate for spawn/error outcomes was not
-    assessed by this task and is out of scope here. This test only confirms
-    the new named branches didn't accidentally swallow the fallback."""
-    fake = FakeLoader(
-        ensure_result=False,
-        outcome=lv.LOAD_OUTCOME_SPAWN_FAILED,
-        reason="llama-server process failed to start",
-        instance=None,
-    )
-    with patch.object(daemon_mod, "warning") as mock_warning:
-        _run_preload_with_fake_loader(fake)
-
-    assert mock_warning.call_count == 1
-    msg = mock_warning.call_args[0][0]
-    assert "will load on first request" in msg
-
-
-def test_preload_swallows_and_logs_unexpected_exception_not_bare_pass():
-    """Pre-load must never crash daemon startup, but an unexpected
-    exception must be LOGGED, not silently swallowed (CLAUDE.md: exception
-    handling around safety-relevant code must not silently swallow
-    failures without a comment explaining why that's safe -- this path's
-    comment explains it's best-effort, and it does log)."""
-    d = _bare_daemon()
-    with patch.object(lv, "get_loader", side_effect=RuntimeError("boom")), patch.object(
-        daemon_mod, "warning"
-    ) as mock_warning:
-        d._preload_primary_model()  # must not raise
 
     assert mock_warning.call_count == 1
     assert "boom" in mock_warning.call_args[0][0]

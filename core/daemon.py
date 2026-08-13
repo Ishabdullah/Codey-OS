@@ -774,6 +774,22 @@ class Daemon:
             server = loader.get_model_instance()
             was_running = bool(server and server.is_running())
 
+            if not was_running and not loader.was_ever_loaded():
+                # 7.4b sub-task C's NEW-145 fix: nothing has ever spawned
+                # or adopted (see `was_ever_loaded()`'s docstring) a coder
+                # server through this loader — there is nothing "died" to
+                # restart. Calling `ensure_model()` here would reproduce
+                # NEW-145's exact race on this watchdog's own 30s tick
+                # (the daemon's steady state under `codey-start`, since a
+                # running daemon skips `_main_loop()`'s one-time startup
+                # entirely): it would spawn the coder at the background
+                # 16384 ceiling before any TUI session registers as
+                # interactive, and a later-attaching TUI would reuse that
+                # under-provisioned server. Leave it alone — the first
+                # real request (interactive or background) is the only
+                # thing that should trigger the first load.
+                return
+
             if loader.ensure_model():
                 return  # loaded/still running/restarted cleanly — nothing to report
 
@@ -806,8 +822,14 @@ class Daemon:
                 # (see NEW-96/U.27) — just state the fact.
                 warning(f"7B model not loaded — the planner hasn't freed its port ({reason})")
             elif was_running is False and server is None:
-                # Never successfully loaded in the first place (e.g. startup
-                # preload failed) — "died" would misdescribe this.
+                # Reachable only because `was_ever_loaded()` gated us into
+                # calling `ensure_model()` at all (7.4b sub-task C's
+                # NEW-145 fix removed the daemon's startup preload, so
+                # there is no longer a preload-failure path here) — this
+                # loader loaded/adopted a server at least once before, but
+                # `unload()` cleared the instance and this reload attempt
+                # also failed. "died" would misdescribe this: there's no
+                # currently-known process that stopped running.
                 warning(f"7B model not loaded ({outcome}: {reason}) — attempted load, still not running")
             else:
                 # The process really was running and now isn't — this is the
@@ -820,79 +842,6 @@ class Daemon:
             # again with no trace, so this is logged (not a bare `pass`)
             # before being swallowed.
             warning(f"7B model watchdog check failed: {e}")
-
-    def _preload_primary_model(self):
-        """
-        Attempt to pre-load the 7B primary model (llama-server on port 8080)
-        at daemon startup, and log an outcome-accurate message on failure.
-
-        Extracted out of `_main_loop()` (mirrors the `_watchdog_check_model()`
-        extraction from TODO.md 7.4 sub-task 3, for the same reason: a plain
-        synchronous method with no `self` dependency is independently
-        testable, where the equivalent block inline in the async main loop
-        — which also starts the socket server and embed server — is not).
-
-        `ensure_model()` is gate-aware (7.4 sub-tasks 2/3): a `False` return
-        here can mean several distinct things, and logging them all as "will
-        load on first request" is wrong for at least the gate-denial and
-        eviction-failed cases below — none of those will actually resolve on
-        a first-request retry. See `core/loader_v2.py`'s `LOAD_OUTCOME_*`
-        constants.
-        """
-        try:
-            from core.loader_v2 import (LOAD_OUTCOME_EVICTION_FAILED,
-                                         LOAD_OUTCOME_GATE_DENIED,
-                                         LOAD_OUTCOME_GATE_DENIED_HARD,
-                                         get_loader)
-
-            loader = get_loader()
-            if loader.ensure_model():
-                info("7B model pre-loaded (port 8080)")
-            else:
-                # Distinguish a resource-gate denial (real 7.4 outcome —
-                # the gate refused admission, nothing "failed") from an
-                # actual load failure. "Will load on first request" is a
-                # false promise under a denial: the same gate will deny
-                # that first-request load too unless headroom changes, or
-                # (hard_reject) will never admit this model on this
-                # device at all — say so instead of implying the retry
-                # will just work.
-                outcome = loader.get_last_ensure_outcome()
-                reason = loader.get_last_ensure_reason()
-                if outcome == LOAD_OUTCOME_GATE_DENIED_HARD:
-                    warning(
-                        "7B model pre-load denied by resource gate — model "
-                        f"exceeds this device's ceiling, will never be admitted: {reason}"
-                    )
-                elif outcome == LOAD_OUTCOME_GATE_DENIED:
-                    warning(
-                        f"7B model pre-load denied by resource gate (transient — "
-                        f"{reason}); will retry on the next watchdog tick"
-                    )
-                elif outcome == LOAD_OUTCOME_EVICTION_FAILED:
-                    # Same rationale as the watchdog's EVICTION_FAILED branch
-                    # (see NEW-96/U.27): under the default `codeydOS start`
-                    # runtime, `plannd` stays up as a separate always-on
-                    # process, so nothing about a "first request" makes this
-                    # self-resolve — don't promise it will. "pre-load:" kept
-                    # in the message (unlike the watchdog's) so a log reader
-                    # can tell which call site produced it — NEW-96's own
-                    # diagnosis depended on distinguishing the startup line
-                    # from the 30s-tick line.
-                    warning(
-                        f"7B model pre-load: not loaded — the planner hasn't freed its port ({reason})"
-                    )
-                else:
-                    warning(
-                        f"7B model pre-load failed ({outcome}: {reason}) — "
-                        "will load on first request"
-                    )
-        except Exception as _e:
-            # Pre-load is best-effort: startup must not fail the daemon
-            # over a model-load problem the watchdog will keep observing/
-            # retrying anyway — but the failure is still logged (not a
-            # bare `pass`) so it isn't silently lost.
-            warning(f"7B model pre-load skipped: {_e}")
 
     async def _main_loop(self):
         """Main daemon event loop."""
@@ -909,13 +858,24 @@ class Daemon:
         # claimed and executed twice.  All task dispatch goes through
         # _process_planner_tasks, which uses try_claim_task() for atomic claiming.
 
-        # Pre-load 7B model (llama-server on port 8080) so it's ready for CLI
-        # Skip when using a remote backend — no local server needed
+        # 7.4b sub-task C's NEW-145 fix: the daemon no longer eagerly
+        # pre-loads the 7B coder model at startup. Eager preload always ran
+        # before any TUI session could register itself as interactive (see
+        # `core/resource_gate.py`'s `is_interactive_session_active()`), so
+        # it always evaluated False and spawned the coder at the background
+        # 16384 ceiling — the interactive TUI then reused that same
+        # under-provisioned server via `LlamaServer.start()`'s port-in-use
+        # reuse branch instead of getting its own 32768 one (NEW-145). The
+        # coder now loads lazily on first real request — interactive or
+        # background — so the interactive-session signal is evaluated at
+        # actual spawn time. Accepted tradeoff: the first real coder
+        # request after daemon start pays full model-load latency instead
+        # of finding an already-warm model.
         from utils.config import CODEY_BACKEND as _backend
         from utils.config import is_remote_backend as _is_remote
 
         if not _is_remote():
-            self._preload_primary_model()
+            info("Coder (7B) will load lazily on first request — no startup preload")
         else:
             info(f"Backend: {_backend} — skipping local 7B and 1.5B server startup")
 

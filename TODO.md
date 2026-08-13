@@ -1830,6 +1830,831 @@ Everything else below depends on this existing. Nothing here is started.
          during the load window, same honesty standard sub-task E's own
          write-up already held itself to.
 
+      **G — RUN 2026-08-11, sub-task F's required live-verification pass
+      (Ish's explicit authorization to delegate to an agent, same override
+      as sub-task E). Real outcome, honest — case (a) FULL PASS, case (b)
+      b1 (read-only) FULL PASS, case (b) b2 (real concurrent spawn) ABORTED
+      via pre-declared criterion (real, valuable evidence obtained — see
+      below, `NEW-141`), scenario 3 (`NEW-140` shape) DEFERRED, not safely
+      reachable this round — full verbatim evidence:**
+
+      **Step 0 — `NEW-138` PID-acquisition gap: CLOSED for this harness
+      only, not for production.** `core/loader_v2.py:ModelLoader.
+      load_primary()` assigns `self._server = LlamaServer(model_path)`
+      (line 700) BEFORE calling `self._server.start()`, and `LlamaServer.
+      _spawn_locked()` sets `self.process = subprocess.Popen(...)`
+      immediately at spawn time (line 385), well before the ~11-22s
+      health-wait loop that `start()`/`load_primary()` block on internally.
+      This harness therefore calls `loader.load_primary()` in a background
+      thread and polls `loader.get_pid()` (a public getter, no source file
+      touched) from the calling thread every ~0.3s starting at t=0 — this
+      closes the gap from ~22s (sub-task E) down to **t+0.3s to t+3.0s**
+      across this session's three runs (case a: t+3.0s; case b1: t+0.3s).
+      RSS-collapse abort-criterion monitoring was therefore armed for
+      essentially the entire load window this run, not just after
+      `load_primary()` returned. This is a harness-side fix only —
+      `core/loader_v2.py` itself is unmodified, and production callers
+      (`core/daemon.py`, `main.py`) still only see `load_primary()`'s
+      return value, not an early PID.
+
+      **Case (a) — single primary-model load at real production
+      `n_ctx=32768`, new 10GiB `MAX_SWAP_ASSIST_BYTES` cap.**
+
+      Pre-load baseline (`free -h`):
+      ```
+                     total        used        free      shared  buff/cache   available
+      Mem:            10Gi       4.8Gi       1.3Gi        36Mi       4.7Gi       5.8Gi
+      Swap:           15Gi       1.2Gi        14Gi
+      ```
+      No `llama-server`/`plannd` resident (`ps aux | grep` showed only the
+      grep). `getprop ro.slmk.swap_free_low_percentage` = `10`.
+
+      Dry-run gate call, before any spawn, real live `/proc/meminfo`:
+      ```
+      MemTotal=11623116800 MemFree=1342382080 MemAvailable=6169915392
+      SwapTotal=17179865088 SwapFree=15853678592
+      CostEstimate(model_bytes=4683073536, kv_cache_bytes=1879048192, overhead_bytes=268435456)
+      GateDecision(admitted=True, hard_reject=False, reason="model 'primary'
+      cost estimate (6514MiB) x headroom_factor (1.25) = 8143MiB exceeds
+      RAM-only headroom (5884MiB), but is covered by RAM + swap-assisted
+      headroom (16124MiB, of which 10240MiB is swap-assisted) — admitted
+      via swap assist", estimated_cost_bytes=6830557184, headroom_bytes=
+      6169915392, device_ceiling_bytes=6973870080, budget_ceiling_
+      exceeded=False, admitted_via_swap=True)
+      ```
+      **Confirms the scoping's own arithmetic prediction: 32768 is now
+      admitted via swap-assist (full 10240MiB/10GiB swap contribution),
+      unlike sub-task E's 32768 dry-run which was refused
+      (`admitted=False`) at the old 768MiB cap.** Also newly noted:
+      `estimated_cost_bytes` (6,830,557,184) sits only **~137MiB under
+      `device_ceiling_bytes`** (6,973,870,080) — a marginally larger model
+      file, or any future change to `DEVICE_CEILING_USABLE_FRACTION`,
+      would flip 32768 to a permanent `hard_reject` regardless of swap
+      capacity. Worth tracking, not itself a defect.
+
+      Real spawn via `ModelLoader.load_primary()`, tracked PID acquired at
+      t+3.0s (see Step 0 above):
+      ```
+      llama-server PID: 29179
+      LOAD_PRIMARY_RESULT: ok=True elapsed=16.25s
+      ```
+      **16.25s wall-clock — the `_spawn_locked()` 60s health-wait cap did
+      NOT bind at 32768** (an open question from sub-task E's scoping,
+      now answered: no, not at this device's observed load times).
+
+      `/proc/meminfo` + `mm_stat` sampled at 3s cadence during the load
+      (full log: `.live_verify_scratch/case_a_samples.jsonl`, not
+      committed per this pass's constraints — verbatim key trajectory
+      below):
+      ```
+      t+0s   MemAvailable=5884MiB SwapFree=15119MiB
+      t+3s   MemAvailable=6906MiB SwapFree=15213MiB  rss=3571.3MiB (pid acquired t+3.0s)
+      t+6s   MemAvailable=5069MiB SwapFree=15141MiB  rss=5722.9MiB
+      t+9s   MemAvailable=4734MiB SwapFree=14237MiB  rss=6731.1MiB
+      t+12s  MemAvailable=4017MiB SwapFree=13749MiB  rss=7057.2MiB
+      t+15s  MemAvailable=2096MiB SwapFree=13866MiB  rss=7714.4MiB
+      t+18s  MemAvailable=2071MiB SwapFree=13899MiB  rss=7547.1MiB
+      t+21s  MemAvailable=8015MiB SwapFree=13990MiB  rss=null (server stopped, teardown)
+      ```
+      `MemAvailable` fell ~5.9GiB→~2.1GiB over ~15-18s (same rate
+      phenomenon `NEW-21`/sub-task E already found, now confirmed at
+      32768 too), then the process settled before the inference request.
+      `SwapFree` fell from ~15.1GiB to a ~13.7-14.0GiB range (~1.1-1.4GiB
+      real movement, comparable in magnitude to sub-task E's 16384 run's
+      ~900MiB-1.2GiB), **never approaching the 2×slmk floor
+      (3.200GiB, live slmk_floor=1.600GiB)** — stayed >10GiB above it
+      throughout. Peak RSS observed: **7714.4MiB (~7.53GiB)** at t+15s —
+      **~1200MiB (~1.17GiB) over the gate's own declared cost estimate**
+      (6514MiB) — a larger overshoot than sub-task E's 16384 run
+      (~843-900MiB there), consistent with `NEW-138`'s open finding
+      reproducing at a second, higher `n_ctx` (second data point, not yet
+      root-caused — logged to `NEW_ISSUES.md` below, not fixed here).
+
+      Real inference request: single chat-completion (issued after
+      `/health` returned ok), **3.03s wall-clock**, coherent output:
+      `'```python\ndef add_numbers(a, b): return a + b```'` — not a stall,
+      not garbled.
+
+      **Pre-declared abort criteria (never fired):** SwapFree floor
+      (< 2×slmk_floor = 3.200GiB): min observed 13.7GiB, never close.
+      Rate trip (SwapFree drop > 1.5GiB in one 3s sample): max single-
+      interval drop observed ~950MiB (t+9→12s), below threshold.
+      MemAvailable floor (< 300MiB): min observed 2071MiB, never close.
+      RSS-collapse floor (20% of model_bytes = 893.2MiB, armed only after
+      a 2GiB high-watermark): RSS never dropped below ~3.5GiB after
+      crossing 2GiB, no trip.
+
+      Teardown: `loader.unload()` (normal path, tracked `subprocess.Popen`
+      object, no `pkill -f`). Post-teardown baseline:
+      ```
+                     total        used        free      shared  buff/cache   available
+      Mem:            10Gi       3.6Gi       5.0Gi        14Mi       2.2Gi       7.0Gi
+      Swap:           15Gi       2.1Gi        13Gi
+      ```
+      `ps aux | grep llama-server` after teardown: nothing but the grep.
+      Gate state store (`~/.codeyOS/resource_gate_state.json`): `[]`
+      (no leaked slot). **Case (a): FULL PASS**, clean cycle confirmed
+      before case (b) began, per CLAUDE.md rule 2.
+
+      **Case (b) — concurrent primary + planner at `n_ctx=32768`.**
+      A structural finding first, not previously stated explicitly in this
+      item's own scoping: **`core/planner_loader.py`'s `ensure_planner()`
+      (the production entry point `core/plannd.py:get_plan()` actually
+      calls) evicts the primary model FIRST, via
+      `_evict_primary_and_confirm_free()`, before ever reserving a slot for
+      the planner** — Ish's sequential-swap decision ("primary and planner
+      must never be resident at the same time," `core/planner_loader.py`'s
+      own module docstring) is enforced at that orchestration layer, not
+      at `reserve_slot()`/`can_admit()` itself. **This means the
+      concurrent-admission consequence this sub-task's own scoping
+      flagged is UNREACHABLE through the shipped production call path** —
+      a live-verifier following `ensure_planner()` alone would never
+      observe it, because the primary is gone before the planner's
+      `reserve_slot()` call happens. To actually exercise the gate's
+      concurrent-admission arithmetic, this run called
+      `PlannerLoader.load()` directly (the lower-level method
+      `ensure_planner()` itself calls internally, AFTER its own eviction
+      dance) — a real, existing production code path, just invoked
+      without the swap-guard orchestration wrapper around it, per this
+      task's own "real `reserve_slot()`/`load()` call sequence" language.
+      **Logged to `NEW_ISSUES.md` as a new finding, not fixed here** (see
+      below) — a future reader must not conclude concurrent residency is
+      a supported/tested state; it is explicitly NOT reachable through any
+      shipped orchestration entry point.
+
+      **b1 (read-only, zero additional spawn risk): `can_admit()` dry-run
+      for the planner spec while the primary is genuinely resident, at
+      real live low `MemAvailable`.** Fresh cycle: primary loaded again
+      (PID acquired at **t+0.3s**, `LOAD_PRIMARY_RESULT: ok=True
+      elapsed=14.79s`). Once resident:
+      ```
+      primary_resident sample: MemAvailable=2001MiB SwapFree=14226MiB primary_rss=6840.8MiB
+      GATE_STATE_STORE: [{"slot_id": "ba4a157a...", "model_id": "primary",
+        "cost_bytes": 6830557184, "pid": 32428, "status": "resident", ...}]
+      ```
+      (Confirmed by direct read of `core/resource_gate.py:_sum_committed_
+      bytes()` that summing every slot's `cost_bytes` regardless of
+      PENDING/RESIDENT status, as done here, is exactly what
+      `reserve_slot()` itself computes internally as
+      `concurrent_committed_bytes` — this dry-run's call shape is a true
+      equivalent of the real `reserve_slot()` arithmetic, not an
+      approximation.)
+      ```
+      B1_PLANNER_COST: CostEstimate(model_bytes=1117320768,
+        kv_cache_bytes=939524096, overhead_bytes=268435456)
+      B1_DECISION: GateDecision(admitted=True, hard_reject=False,
+        reason="model 'planner' cost estimate (2218MiB) x headroom_factor
+        (1.25) = 2772MiB exceeds RAM-only headroom (2001MiB), but is
+        covered by RAM + swap-assisted headroom (12241MiB, of which
+        10240MiB is swap-assisted) — admitted via swap assist",
+        estimated_cost_bytes=2325280320, headroom_bytes=2098470912,
+        device_ceiling_bytes=6973870080, budget_ceiling_exceeded=False,
+        admitted_via_swap=True)
+      ```
+      **This is real, live confirmation of the scoping's own prediction**
+      ("the 10GiB swap-assist cap will still cover essentially any second
+      or third model's `required` on its own"): at real `MemAvailable`=
+      2001MiB with the primary genuinely resident (not a synthetic
+      fixture), the planner IS admitted via swap-assist, with the full
+      10240MiB swap contribution binding (not the smaller `gated_swap_free`
+      operand — `SwapFree`=14.2GiB here keeps `gated_swap_free` well above
+      the 10GiB cap). Teardown (`planner.unload()`+`loader.unload()`,
+      both no-ops beyond the resident primary since the planner was never
+      actually spawned in b1) confirmed clean: post-teardown `free -h`
+      showed `available` 6.7Gi, `ps aux | grep llama-server` empty, gate
+      state store back to `[]`.
+
+      **b2 (real concurrent spawn — the actual risk this sub-task exists
+      to probe): ABORTED via pre-declared abort criterion, clean tracked-PID
+      teardown. Real, valuable evidence obtained — not a full pass, an
+      honest early abort per this task's own explicit instruction that this
+      is a fully acceptable outcome.**
+
+      Before this run, per advisor review, the harness was strengthened
+      beyond case (a)'s abort criteria (SwapFree floor <2×slmk_floor,
+      MemAvailable <300MiB — both proved too static to fire during
+      sub-task E's own run): a **rate-trip criterion** (SwapFree drop
+      >1.5GiB within one 3s sample interval) was added, plus
+      `RssAnon`/`RssFile`/`RssShmem` sampling (not just `VmRSS`, per
+      `NEW-138`'s own "fix direction" ask) and a post-load 75s steady-state
+      monitoring window (`NEW-14`'s phenomenon was observed AFTER load
+      completed, not during — case (a)'s harness only sampled through the
+      load itself).
+
+      Fresh cycle, clean baseline confirmed (`free -h`: available 5.9Gi,
+      swap 2.0Gi/15Gi used; no `llama-server` resident; gate state store
+      `[]`). Primary loaded first (PID acquired **t+0.3s**,
+      `LOAD_PRIMARY_RESULT: ok=True elapsed=12.72s`). Sample immediately
+      after, primary resident, before planner load starts:
+      ```
+      t+12.7s MemAvailable=1819MiB SwapFree=13712MiB
+        primary_rss: VmRSS=6984.6MiB RssAnon=6263.3MiB RssFile=720.9MiB RssShmem=0.4MiB
+      ```
+      `PlannerLoader.load()` called DIRECTLY (not `ensure_planner()`, which
+      would have evicted the primary first — see the structural finding
+      above), while the primary stayed genuinely resident — planner PID
+      acquired **t+3.0s** into the planner's own load call:
+      ```
+      t+15.7s MemAvailable=1251MiB SwapFree=13525MiB
+        primary_rss: VmRSS=5941.4MiB RssAnon=5940.1MiB RssFile=1.0MiB RssShmem=0.4MiB
+        planner_rss: VmRSS=1417.8MiB RssAnon=923.9MiB RssFile=493.4MiB RssShmem=0.4MiB
+      t+18.7s MemAvailable=1366MiB SwapFree=11319MiB
+        primary_rss: VmRSS=3072.9MiB RssAnon=3071.5MiB RssFile=0.9MiB RssShmem=0.4MiB
+        planner_rss: VmRSS=2217.2MiB RssAnon=1933.0MiB RssFile=283.8MiB RssShmem=0.4MiB
+      [monitor] ABORT CRITERION FIRED (during planner load): SwapFree rate-drop 2209MiB/3s
+      ```
+      **The rate-trip criterion fired — the only one of the three
+      pre-declared criteria that did, and it would NOT have fired under
+      case (a)'s single-model run.** In the same ~6s window (t+12.7→18.7),
+      the primary's own `RssAnon` collapsed from 6263.3MiB to 3071.5MiB
+      (a **~3192MiB anonymous-page swap-out**, not RSS being freed —
+      `RssFile` dropped too, from 720.9MiB to 0.9MiB, a separate
+      mmap-reclaim signal), while zram `mm_stat`'s `orig_data_size` jumped
+      from 2,985,271,296 to 5,209,858,048 bytes (**+2.13GB** in the same 3s
+      sample interval) — the swap-out volume and the `SwapFree` drop are
+      mutually consistent, not an artifact of one reading alone. **This is
+      a real, live reproduction of `NEW-14`'s rate phenomenon
+      ("3 concurrent models hit 7.5-8.5GiB swap in ~40s"), now triggered
+      by only 2 concurrent models (not 3) at `n_ctx=32768`, within ~6
+      seconds of the second load starting — faster and with fewer
+      concurrent models than `NEW-14`'s original observation.** New
+      finding, logged as `NEW-141` below.
+
+      Per the pre-declared abort protocol: the in-flight `planner.load()`
+      background thread was joined (bounded, 15s) BEFORE any kill, so the
+      call could finish its own internal bookkeeping (gate `mark_resident`)
+      rather than being torn down mid-write — it completed
+      (`✓ Loaded planner model`, with the gate's own `confirm_resident_
+      and_mark_slot()` logging its own already-known-flaky `MemAvailable`-
+      drop-confirmation timeout, "marking resident anyway" — `NEW-105`,
+      unrelated, expected). Then both tracked PIDs (planner 13466, primary
+      13024) were torn down via `os.killpg(SIGTERM)` then, after a 3s
+      grace period, `os.killpg(SIGKILL)` — no `pkill -f`, CLAUDE.md rule 3
+      honored throughout.
+
+      Post-teardown confirmation:
+      ```
+                     total        used        free      shared  buff/cache   available
+      Mem:            10Gi       4.1Gi       3.8Gi        26Mi       2.9Gi       6.3Gi
+      Swap:           15Gi       1.7Gi        14Gi
+      ```
+      `ps aux | grep llama-server` after teardown: nothing but the grep.
+      Gate state store: `[]` (no leaked slot from either the primary or
+      the planner). **Clean state confirmed.**
+
+      **Honest bottom line for b2, per CLAUDE.md rule 5/6**: this run did
+      NOT reach the planned 75s post-load steady-state monitoring window —
+      the rate-trip criterion fired during the planner's own load, before
+      "both resident, settled" was ever reached, so that window's specific
+      question (does swap pressure keep climbing or plateau once both
+      models are steady, as case (a)'s single-model run plateaued around
+      t+15-18s) remains genuinely unanswered. What WAS directly observed,
+      live, not inferred: **a real, fast (~6s), substantial (~3.2GiB
+      anon-page) swap-out event triggered by the second concurrent
+      `n_ctx=32768` model load, closely matching `NEW-14`'s documented
+      distress shape** — the pre-declared abort criterion correctly
+      identified this as the moment to stop, and stopping there (rather
+      than pushing further to observe a steady state that this same data
+      suggests may not have been reached safely) is treated here as the
+      correct, conservative call per this task's own explicit instruction
+      that an early abort is a fully acceptable outcome, not a failure to
+      "complete" the scenario. No repeat attempt was made — the same
+      device-state shape would be trivially reproducible and there is
+      no reason to believe a second attempt would end differently or
+      more safely.
+
+      **Scenario 3 — `NEW-140`'s specific low-swap-headroom device shape
+      (`SwapTotal`≈8GiB, `SwapFree`≈6.8GiB): DEFERRED, not safely reachable
+      this round, consistent with the pre-analysis before any spawn this
+      session.** An opportunistic read-only dry-run was captured
+      immediately after b2's teardown (the highest residual-pressure
+      moment of this session, free to capture, no additional spawn risk):
+      ```
+      SCENARIO3_RESIDUAL_MEMINFO: MemTotal=11623116800 MemFree=4365389824
+        MemAvailable=6924828672 SwapTotal=17179865088 SwapFree=15157424128
+      SCENARIO3_RESIDUAL_DECISION: GateDecision(admitted=True,
+        hard_reject=False, reason="...admitted via swap assist",
+        estimated_cost_bytes=6830557184, headroom_bytes=6924828672,
+        device_ceiling_bytes=6973870080, admitted_via_swap=True)
+      ```
+      By the time teardown completed (a few seconds after the abort fired)
+      the device had already substantially recovered — `SwapFree` back to
+      ~14.1GiB, `MemAvailable` back to ~6.6GiB — nowhere near `NEW-140`'s
+      `SwapFree`≈6.8GiB fixture shape. This confirms the pre-registered
+      reasoning from this pass's own scoping: on a real ~16GiB-zram-swap
+      device with `SwapFree` routinely sitting at ~13-15GiB at rest,
+      reaching `SwapFree`≈6.8GiB means the device actually consuming
+      ~7-9GiB of real swap first — which is itself the exact distress
+      condition this pass is required NOT to manufacture via an untested
+      mechanism. b2's own abort (a ~3.2GiB anon swap-out in ~6s) came
+      closer to that shape than case (a) alone did, but the harness
+      correctly stopped before reaching it, and no further attempt was
+      made to push closer. **This scenario remains open for a future pass**
+      — the only safe way to observe it appears to be either a genuinely
+      lower-swap test device, or accepting that reaching it live on this
+      device means deliberately reproducing `NEW-14`/`NEW-21`-class
+      distress, which this task's own instructions explicitly forbid
+      manufacturing.
+
+- [ ] 7.4b (WQ Track 3 item 1c, new item spun off 7.4a's own sub-task F
+      finding — `NEW-141` — plus a fresh, direct 2026-08-11 Ish decision
+      on model lifecycle policy, not a continuation of the swap-cap
+      arithmetic itself). **Scoping pass complete, 2026-08-11
+      (project-architect), no code changed.**
+
+      **Ish confirmed both candidate numbers, 2026-08-11: planner ceiling
+      = 8192, coder background-dispatch ceiling = 16384.** Both ready for
+      implementer now.
+
+      **Ish's decision, verbatim intent, three parts:**
+      1. Embed model: always resident from Codey startup to Codey
+         shutdown, never spun up on-demand. Context stays at its natural
+         max (already true — no change needed, see below).
+      2. Planner (1.5B): capped at a small, fixed context ceiling — never
+         the full 32768 it shares with the coder today.
+      3. Coder (7B): context adjusts dynamically by task, EXCEPT when
+         the user is actively using it interactively outside daemon mode
+         — then it runs at full max context.
+
+      **Embed model's "natural max" fact (already verified, do not
+      re-derive):** `nomic-embed-text-v1.5.Q4_K_M.gguf`'s real on-disk
+      GGUF metadata (`nomic-bert.context_length`) is 2048, exactly
+      matching `core/embed_server.py`'s current hardcoded `-c 2048`
+      launch flag. Decision 1 needs zero context-size change — it is
+      entirely a lifecycle change (always-on vs. on-demand).
+
+      **Sub-task A — embed-server lifecycle (always resident).**
+      `core/embed_server.py`'s `start()`/`stop()` already exist and are
+      idempotent/PID-tracked (no rework of the kill logic needed). The
+      actual gap: today it starts EAGERLY only from `core/daemon.py`'s
+      `_main_loop` (line ~922) at daemon startup, and LAZILY from
+      `core/inference.py:_start_server()` (called on every `infer()`, in
+      whichever process is doing interactive/CLI inference) — the lazy
+      path is the "spun up on-demand" behavior Ish's decision means to
+      end. Under the real product entry point (`codey-start`, which
+      always starts the daemon first — see `codey-start:47-53`), embed
+      already starts eagerly with the daemon; the lazy path only matters
+      for interactive-only invocations that bypass daemon startup, or as
+      a second, redundant "ensure" call inside every `infer()` even when
+      the daemon already started it.
+
+      **Blocking prerequisite found this pass, `NEW-144` (Confirmed, see
+      `NEW_ISSUES.md`):** `EmbedServer.start()`'s only "already running"
+      fast path checks `self.process` (this Python object's OWN spawned
+      subprocess handle) — it has no health-check-only path for "a
+      DIFFERENT process already has a healthy embed server running."
+      Falling through, `start()` sees the port bound and unconditionally
+      treats it as stale, killing and respawning it. Concretely: the
+      TUI process's own first `infer()` call under `codey-start` kills
+      and restarts the daemon's already-healthy embed server, every
+      session. **Sub-task A must fix this before "always resident,
+      never spun down except at Codey shutdown" can be true at all** —
+      the natural fix is a single source of truth (only the process that
+      is meant to own the embed lifecycle actually starts/stops it;
+      every other caller — `core/inference.py:_start_server()`
+      specifically — health-checks only and never calls `start()`'s
+      kill-and-replace path against an occupant it can positively
+      confirm is healthy).
+
+      Stop side: `core/daemon.py`'s `_main_loop`'s `finally:` block
+      already calls `stop_embed_server()` via the tracked Python
+      singleton (line ~1067-1071) on graceful daemon shutdown — this is
+      the correct, already-existing "stop only when Codey shuts down"
+      mechanism and should be the one this sub-task relies on. Do NOT
+      route through `codey-stop`'s bare `pkill -9 -f "llama-server"`
+      sweep (`codey-stop:36`) as part of this sub-task's design — that
+      line is a pre-existing, already-logged CLAUDE.md rule 3 violation
+      (`NEW-85`, Confirmed, not this sub-task's to fix) and must not be
+      treated as embed's real stop mechanism; the graceful daemon
+      shutdown path already does this correctly today.
+
+      **Mandatory `code-reviewer` pass** (CLAUDE.md rule 4 — directly
+      touches process start/kill logic in `core/embed_server.py` and
+      the daemon startup sequence).
+
+      **Sub-task B — planner context ceiling.**
+      Derived, not invented, from the real prompt this project actually
+      sends: `core/plannd.py`'s `PLANNER_PROMPT` (the system prompt sent
+      on every planner call, local AND remote backends) measures at
+      9,786 characters / **~2,446 tokens** (measured this pass, char/4
+      approximation — verbatim: `chars: 9786, approx tokens (chars/4):
+      2446`). `get_plan()`'s local-backend call
+      (`core/plannd.py:394-403`) is single-turn — system prompt + the
+      raw user message only, no conversation history, no project
+      context (that only reaches the SEPARATE 7B-fallback path,
+      `core.orchestrator.plan_tasks()`, not the 1.5B). Output is capped
+      at `PLANNER_MAX_TOKENS = 1024` (`utils/config.py:431`). Fixed
+      floor: 2,446 + 1,024 = **3,470 tokens**, before the user message
+      or chat-template overhead.
+
+      **Candidate ceiling: 8192.** At 8192, ~4,700 tokens remain for the
+      user message plus template overhead — generous headroom over any
+      realistic single coding request. A tighter 4096 would leave only
+      ~626 tokens for the user message and is too tight (a long
+      multi-clause request could overflow it). **What Ish is actually
+      confirming is not the number in isolation but its consequence**:
+      today, at 32768, an arbitrarily long user message fits; at 8192,
+      anything past ~4,700 tokens of user message would overflow and
+      either truncate or fail depending on how the local server handles
+      an over-length request (not itself tested this pass). **Needs
+      Ish's explicit confirmation before implementer starts** — same
+      posture as `MAX_CONCURRENT_MODEL_BUDGET_BYTES`/
+      `MAX_SWAP_ASSIST_BYTES`'s derive-then-confirm precedent.
+
+      Mechanically: today the planner shares `MODEL_CONFIG["n_ctx"]`
+      (the same global 32768 constant as the coder) via
+      `core/planner_loader.py:88` (`n_ctx=MODEL_CONFIG.get("n_ctx",
+      4096)`) — this sub-task adds a planner-specific constant instead
+      of reading the shared global.
+
+      **Mandatory `code-reviewer` pass — NOT for a process-lifecycle
+      reason (this sub-task changes a launch flag value, not kill/PID
+      logic), but because changing the planner's `n_ctx` changes
+      `estimate_model_load_cost()`'s KV-cache term for the planner,
+      which changes `can_admit()`'s real admission arithmetic** — the
+      same "admission-behavior change in `core/resource_gate.py`-adjacent
+      code" category 7.4a sub-task F's own scoping cited for its own
+      mandatory review. Do not substitute rule 4's PID/lifecycle
+      language for this — cite the admission-behavior category instead.
+
+      **Sub-task C — coder interactive-vs-daemon context branching.**
+      **Important scoping correction, found this pass, do not build
+      against the original framing:** `core/model_tiers.py`'s
+      `classify_tier()` CANNOT drive this. For `("coding", "coder",
+      *)`, `_CODER_TIERS` has exactly one local tier (`"large"`, per
+      `NEW-84` — no local `"small"` tier exists), so
+      `classify_tier()`'s own documented fallback
+      (`model_tiers.py:208-209`) returns `"large"` unconditionally
+      whenever there's no `"small"` key. Separately, `NEW-126` already
+      found the underlying `_score_message()` signal set matches almost
+      every realistic coding prompt as `"large"` anyway. Reusing the
+      classifier as originally imagined would therefore give every
+      coder task full context and change nothing.
+
+      **What IS implementable now**: a two-value branch, not a
+      per-task dynamic scale — `n_ctx = 32768` when
+      `core.resource_gate.is_interactive_session_active()` is True (the
+      exact signal 7.4 sub-task C already built and wired into daemon
+      dispatch — reuse it, do not build a second detection mechanism),
+      else a smaller fixed ceiling for daemon-dispatched background
+      coder tasks. **Candidate background ceiling: 16384** — the exact
+      value 7.4a sub-task E's own live-verification pass already proved
+      admits cleanly with real, live, moderate (~900MiB-1.2GiB) swap
+      movement, as a known-safe intermediate point between full 32768
+      and a value nobody has tested live. **Needs Ish's explicit
+      confirmation, same as sub-task B's number.** True per-task
+      dynamic `n_ctx` (matching the fuller "adjusts dynamically based on
+      the task" framing) is `CODEY_OS_MASTER_VISION.md` Section 11's
+      11.9 item, already named in this file's Phase 2 (11.9-11.11,
+      "adaptive `n_ctx` ... computed per load attempt instead of a fixed
+      global constant") and explicitly parked pending a concrete
+      domain agent needing it — this sub-task realizes the narrow
+      interactive-vs-background slice of 11.9 now, while 11.9's fuller
+      per-task scale stays parked, not silently expanded.
+
+      Mechanically: wire the branch at `core/loader_v2.py`'s
+      `load_primary()` (currently reads `MODEL_CONFIG.get("n_ctx",
+      4096)` unconditionally, line 660) and its call sites in
+      `main.py` (interactive) and `core/daemon.py` (background
+      dispatch) — the two already-distinct call contexts sub-task C of
+      7.4 (interactive-session signal) exists specifically to
+      distinguish.
+
+      **Mandatory `code-reviewer` pass AND `live-verifier` pass**
+      (CLAUDE.md rule 4 — this is the first sub-task in this item that
+      actually changes real model-load behavior/spawn args, same
+      category as 7.4's sub-task C "first sub-task where daemon
+      dispatch behavior actually changes").
+
+      **NEW-145 fix — scoped 2026-08-11 (project-architect), not yet
+      implemented. Real regression, found once sub-task C's branch went
+      live under the actual `codey-start` entry point** (see
+      `NEW_ISSUES.md`'s NEW-145 for the full mechanism): the daemon's own
+      eager coder preload (`_preload_primary_model()`, called from
+      `_main_loop()` at startup, line ~918) always runs before any TUI
+      session could possibly have registered as interactive, so it
+      always evaluates `is_interactive_session_active()` False and spawns
+      the coder at the new 16384 background ceiling — then the TUI's own
+      later `infer()` call reuses that already-running 16384 server via
+      `LlamaServer.start()`'s port-in-use reuse branch instead of getting
+      its own 32768 server. Net effect: ordinary interactive use under
+      `codey-start` silently SHRANK from 32768 (unconditional, pre-this-
+      round) to 16384 — the opposite of decision 3.
+
+      **Ish's fix decision, given directly in-session, 2026-08-11:**
+      remove the daemon's eager preload of the coder (primary/7B) model
+      entirely. Only the embed model (sub-task A) stays always-resident/
+      eagerly preloaded. The coder loads lazily on first real request —
+      interactive or background — so `is_interactive_session_active()`
+      is evaluated at actual spawn time, not guessed wrong at daemon
+      startup. Accepted tradeoff, explicit: the first real coder request
+      after daemon start pays full model-load latency (~11-16s, this
+      session's own live-test evidence) instead of finding an
+      already-warm model — not something to design around.
+
+      **Concrete change, two call sites (both needed — verified by
+      direct read this pass, not just the one Ish named):**
+      1. **`core/daemon.py`'s `_main_loop()`**: delete the
+         `self._preload_primary_model()` call (line ~918) and its
+         `if not _is_remote():` guard around it; delete the now-dead
+         `_preload_primary_model()` method itself (lines ~824-895) —
+         nothing else calls it, so a retained-but-uncalled method is not
+         "removed entirely." The `else:` branch's remote-backend log
+         line (line ~920, "Backend: {backend} — skipping local 7B and
+         1.5B server startup") needs a new home outside the now-deleted
+         `if`; a single unconditional startup log line is the natural
+         replacement, e.g. logging either "coder (7B) will load lazily
+         on first request — no startup preload" (local backend) or the
+         existing remote-skip message (remote backend) — this keeps
+         daemon startup behavior observable in the log, matching how
+         every other deliberate behavior change in this project has been
+         made visible (not a silent behavior change).
+      2. **`core/daemon.py`'s `_watchdog_check_model()`** (line ~752,
+         30s tick) — found during this scoping pass, NOT something
+         `_preload_primary_model()`'s removal alone fixes: this watchdog
+         also calls `loader.ensure_model()` UNCONDITIONALLY every tick,
+         with no distinction between "was loaded and died — restart it"
+         (the watchdog's actual original purpose) and "never loaded,
+         nobody has asked yet — leave it alone." Left as-is, this
+         watchdog reproduces NEW-145's exact failure shape on an EVEN
+         MORE common path than the one originally filed: `codey-start`
+         skips daemon startup entirely when a daemon is already running
+         (`codey-start:48`'s `is_daemon_running` check) — the normal
+         steady state for this project's actual daily use is a
+         long-lived daemon with the TUI attaching and detaching
+         repeatedly. Any time the daemon sits ≥30s with no TUI
+         registered, the watchdog's next tick will call `ensure_model()`
+         with `is_interactive_session_active()` False, spawn the coder
+         at 16384, and a TUI attaching afterward reuses that same
+         under-provisioned server — same reuse-branch mechanism NEW-145
+         itself already names.
+         **Fix**: add a new signal the watchdog can use to distinguish
+         the two cases, since `ensure_model()`'s own semantics are pure
+         "ensure loaded" and correctly must stay that way for its real-
+         request callers (main.py's interactive path, daemon background
+         dispatch) — the gate belongs at the watchdog's daemon-side call
+         site, not inside `ensure_model()` itself. Concretely: add
+         `ModelLoader._ever_loaded: bool = False` in `__init__`
+         (`core/loader_v2.py` line ~622), set it True alongside the
+         existing `self._loaded_at = time.time()` assignment on a
+         successful load (line ~779 — deliberately never reset by
+         `unload()`, same as `_loaded_at` already isn't, so it correctly
+         answers "has this loaded at least once in this process's
+         lifetime," not "is it loaded right now"), and expose it via a
+         new `was_ever_loaded() -> bool` accessor (matching the existing
+         `is_loaded()`/`get_loaded_model()` accessor pattern — do not
+         have the watchdog reach into `loader._ever_loaded` directly).
+         `_watchdog_check_model()` then gates: if the server isn't
+         currently running AND `not loader.was_ever_loaded()`, return
+         early without calling `ensure_model()` at all (nothing to
+         restart — no real request has happened yet, so there is nothing
+         "died"). If it was ever loaded before and isn't running now,
+         proceed to `ensure_model()` as today.
+
+         **Deliberate consequence, must be stated for code-reviewer, not
+         left for them to find (same "self-race" category rule 4 exists
+         for):** `_ever_loaded` is per-process state on the DAEMON's own
+         `get_loader()` singleton. Under `codey-start`, the coder is
+         normally spawned by the TUI process, not the daemon — the
+         daemon's own `load_primary()` reaches line ~779 via
+         `LlamaServer.start()`'s port-in-use ADOPTION branch in that
+         case (reusing the TUI-spawned server, not spawning its own),
+         not a fresh spawn. Line ~779 is already the convergence point
+         for both the genuine-spawn and the adoption branch (both set
+         `self._loaded = True` there before returning `True`), so
+         placing `self._ever_loaded = True` at that same line
+         automatically covers adoption too — no separate branch-specific
+         code needed, but this must be called out explicitly for the
+         reviewer, because it changes what "ever loaded" actually means:
+         "this loader spawned OR adopted a running server at least
+         once," not "this loader spawned it." That distinction matters
+         for watchdog crash-restart coverage specifically: (a) unchanged
+         for coder loads the daemon's own loader performed
+         (background-dispatched loads) — restarts on crash exactly as
+         today; (b) unchanged for a TUI-spawned coder the daemon's loader
+         has adopted at least once (the normal `codey-start` case) —
+         also restarts on crash, same as today, because adoption already
+         sets `_ever_loaded` via the same line; (c) NEW: a coder that has
+         never been spawned NOR adopted by the daemon's own loader is
+         left alone by the watchdog rather than eagerly loaded — this is
+         the actual fix. Document this "spawned OR adopted" meaning on
+         the `was_ever_loaded()` accessor's own docstring, not just in
+         this write-up — a future reader checking crash-restart coverage
+         needs it there.
+      **Both call sites must land in the same round** — fixing only (1)
+      narrows NEW-145's exposure window (down to ~30s after a fresh
+      `codey-start`) but does not close it on the more common
+      already-running-daemon path; NEW-145 stays open until both are
+      done (CLAUDE.md rule 6 — do not let a partial fix be recorded as a
+      full one).
+
+      **Tests affected:** `tests/test_daemon_model_watchdog.py:250-362`
+      (the six `test_preload_*` tests) are deleted along with
+      `_preload_primary_model()` — no coverage is lost, the watchdog's
+      own tests above line 248 already exercise the same
+      `LOAD_OUTCOME_*` message branches against the same `FakeLoader`.
+      That file's module docstring (lines 1-41) currently names
+      `_preload_primary_model()` as one of its two subjects and needs
+      updating to describe only the watchdog. A new test is needed for
+      the watchdog's new never-loaded-and-unrequested-yet case (asserts
+      `ensure_model()` is NOT called when `was_ever_loaded()` is False
+      and nothing is running).
+
+      **Residual gap, explicitly NOT this fix's job (logged separately,
+      `NEW-149`, Confirmed):** even with both call sites fixed, whichever
+      caller spawns the coder server first still wins the context size
+      for that server's entire life (`LlamaServer.start()`'s port-in-use
+      reuse branch, `core/loader_v2.py:211-230`) — a background
+      daemon-dispatched task that loads first at 16384 still leaves a
+      later-attaching interactive TUI stuck at 16384, with no respawn.
+      This fix closes NEW-145's specific "daemon always loads before any
+      TUI can register" race; it does not make decision 3 unconditionally
+      true in every ordering. Do not read "NEW-145 resolved" as "decision
+      3 fully realized."
+
+      **Checked this pass, no other eager coder-load path found:**
+      `gui/` and `ccos/` grepped for `load_primary`/`ensure_model`/
+      `get_loader`/`infer(` — no startup or connect-time eager coder-load
+      call site in either; `ccos/plugins/system/daemon_control/
+      daemon_control.py`'s one hit is a doc comment referencing
+      `main.py`'s CLI-side `_load_primary_with_gate_recovery()`, not a
+      new eager-load site.
+
+      **Mandatory `code-reviewer` pass** (CLAUDE.md rule 4 — real
+      daemon-startup AND daemon-watchdog process-lifecycle behavior
+      change, matching this project's own established precedent for
+      anything touching daemon startup/model-load lifecycle).
+
+      **Mandatory `live-verifier` pass — unit tests cannot show this fix
+      worked, NEW-145 was only ever found under the real entry point.**
+      Concrete pass/fail evidence to capture (verbatim, per CLAUDE.md
+      rule 5, not paraphrased): run `free -h` first (rule 2). Start a
+      fresh daemon via `codey-start`, confirm the new startup log line
+      ("coder will load lazily on first request...") appears and NO
+      llama-server (port 8080) process exists yet (`ps aux | grep
+      llama-server` showing nothing but the grep). Then send the TUI's
+      first real prompt and confirm the resulting llama-server's actual
+      command line shows `-c 32768` (verbatim `ps`/`cat /proc/<pid>/
+      cmdline` output). Separately, confirm the watchdog gate: leave the
+      daemon running with the TUI detached for ≥30s (past one tick) with
+      no prompt sent, and confirm no coder server spawns during that
+      window. Use the daemon-only/lighter harness posture this project's
+      own NEW-14 finding established, not a full 3-model concurrent
+      session.
+
+      **Pick up alongside this sub-task (2026-08-11, project-architect
+      consolidation pass — `NEW_ISSUES.md` cross-referenced to match):
+      `NEW-102`.** Same code this sub-task is already touching —
+      `main.py`'s `--ctx` handling and `core/loader_v2.py:
+      load_primary()`'s `MODEL_CONFIG.get("n_ctx", ...)` read. `NEW-102`
+      is that (a) `main.py`'s `--ctx` flag never actually reaches
+      `core/memory_v2.py`'s `CTX_TOTAL` (import order binds it before
+      `--ctx` is applied), and (b) `--ctx` has no positive-value guard,
+      unlike the `CODEY_N_CTX` env var. Fix alongside this sub-task's own
+      n_ctx-branching change rather than as a separate future round.
+
+      **`NEW-102` resolved, 2026-08-13 (project-architect + code-reviewer
+      pass, prompted by cloud ultrareview's `bug_002` finding on this
+      sub-task's own initial landing).** This sub-task's own first pass
+      (the `PLANNER_N_CTX`/`CODER_BACKGROUND_N_CTX` constants above) had
+      reintroduced the exact `NEW-102` import-order trap it was supposed
+      to close — both were module-level constants derived from `_n_ctx`
+      at `utils/config.py` import time, so a runtime `--ctx` override via
+      `main.py`'s `apply_overrides()` never reached either of them (only
+      the interactive coder path's live `MODEL_CONFIG.get("n_ctx", ...)`
+      read did). Confirmed as a real regression, not just a gap: baseline
+      commit `163b5e5`'s `core/planner_loader.py:88` read
+      `MODEL_CONFIG.get("n_ctx", 4096)` live at call time, so `--ctx` DID
+      reach the planner before this sub-task's first pass, and stopped
+      after it.
+
+      Fix: `utils/config.py`'s `PLANNER_N_CTX`/`CODER_BACKGROUND_N_CTX`
+      constants replaced with `get_planner_n_ctx()`/
+      `get_coder_background_n_ctx()` functions that re-read
+      `MODEL_CONFIG["n_ctx"]` on every call (same `min(..., 8192/16384)`
+      clamp, now evaluated live); `core/memory_v2.py`'s `CTX_TOTAL`
+      (the original `NEW-102` finding, unused by any caller today)
+      converted the same way to `get_ctx_total()`; `main.py`'s `--ctx`
+      argparse handling changed from `if args.ctx:` to
+      `if args.ctx is not None:` with an explicit `ValueError` on
+      `args.ctx <= 0` (so `--ctx 0`, previously silently ignored via
+      Python truthiness, and `--ctx -1` both fail loudly instead of an
+      unvalidated bad value reaching the resource gate's KV-cache cost
+      estimate). All three call sites (`core/planner_loader.py`'s two
+      `PLANNER_N_CTX` reads, `core/loader_v2.py:load_primary()`'s
+      `CODER_BACKGROUND_N_CTX` read) updated to the new function names;
+      stale comments referencing the old constant names in
+      `core/resource_gate.py` and `utils/config.py`'s own header updated
+      in the same pass. 4 new tests added to
+      `tests/test_74b_planner_and_coder_n_ctx.py` (12 total in that file,
+      all passing): runtime `MODEL_CONFIG["n_ctx"]` mutation followed by
+      both functions, and `main.apply_overrides()` exercised directly
+      with a fake `--ctx` — the regression-specific check that would
+      have caught this. Full suite (`python -m pytest tests/ -q`): 670
+      passed, 1 skipped, 3 unrelated pre-existing failures (see
+      `NEW-150`, logged separately — a different test file's own
+      isolation gap, confirmed not caused by this change).
+
+      **Verification tier: code complete, unit-verified.** No live model
+      load needed or done — under default settings
+      (`min(32768, 8192)`/`min(32768, 16384)`) the numbers this returns
+      are identical before and after the fix, so there is no default-path
+      behavior change to live-verify. The fix's actual effect (a runtime
+      `--ctx` override reaching the planner/background-coder ceilings) is
+      unit-verified via `apply_overrides()` called directly, not observed
+      through a real `codey-start --ctx <n>` session. Also note: this fix
+      makes the *read* live; it does not carry the mutation across
+      process boundaries — `apply_overrides()` only runs inside the
+      interactive `main.py` process, so a daemon-dispatched background
+      coder load (a separate process) still sees whatever `MODEL_CONFIG`
+      that process's own import produced, not a `--ctx` flag passed to a
+      different process's CLI invocation.
+
+      **Sub-task D — `MAX_CONCURRENT_MODEL_BUDGET_BYTES` (C1) revisit,
+      docs-only, no value change expected.** C1's 8.90GiB derivation
+      (`core/resource_gate.py:1201-1275`) already summed all THREE
+      models — 7B + 1.5B + embed — as a concurrent case, with the embed
+      model's ~0.328GiB already included in the raw sum. Always-on
+      embed does NOT invalidate this: the derivation already assumed
+      embed's cost is always present in the sum, it just wasn't always
+      REALIZED in practice before this decision. **What DOES go stale**:
+      sub-tasks B and C above shrink two of the three operands — the
+      planner's KV term at 8192 (~0.219GiB, roughly a quarter of the
+      2,325,280,320-byte figure's 0.875GiB KV term at 32768) and,
+      outside interactive sessions, the coder's own KV term at a 16384
+      background ceiling instead of 32768. This sub-task recomputes the
+      real 3-model sum via `estimate_model_load_cost()` against the
+      real on-disk files at the NEW ceilings (once B/C's numbers are
+      Ish-confirmed) and updates the derivation comment to match — the
+      ceiling itself will very likely stay 8.90GiB (the new sum is
+      LOWER, giving MORE margin, not less, so nothing about safety
+      regresses), but the comment's stated arithmetic must not be left
+      contradicting the code it documents. No code-reviewer needed if
+      the constant's value doesn't change (comment-only); mandatory
+      review if the recompute does change the value.
+
+      **Does this three-part policy close `NEW-141`'s gap? Worked
+      through concretely, not asserted:** `NEW-141` reproduced
+      concurrent 7B+1.5B residency, BOTH at full `n_ctx=32768`, causing
+      a ~3.2GiB anon-page swap-out in ~6s. Three independent, already-
+      existing mechanisms (none of them new to this item) already
+      prevent this shape in every SHIPPED production path, and this
+      item's decisions shrink the blast radius further if any of them
+      is ever bypassed:
+      1. **Sequential swap-guard** (`core/planner_loader.py`'s
+         `ensure_planner()`) evicts the primary FIRST, before ever
+         reserving a planner slot — `NEW-141` was only reproducible by
+         calling the lower-level `PlannerLoader.load()` directly,
+         bypassing this guard entirely (already logged as `NEW-142`,
+         Confirmed: the concurrent-admission consequence is
+         "structurally UNREACHABLE via any shipped orchestration path").
+      2. **Cross-process eviction safety, checked this pass**: even the
+         one place that's exempt from 7.4 sub-task C's interactive-
+         session dispatch gate — the synchronous `plan_only:True` RPC,
+         which an interactive session can issue on its own behalf while
+         its OWN process has the coder loaded at full context —
+         cannot evict a model a different process spawned.
+         `_evict_primary_and_confirm_free()`
+         (`core/planner_loader.py:232-283`) only calls `loader.unload()`
+         when `loader.is_loaded()` is true for the CALLING process's own
+         `ModelLoader` object; it then re-checks via
+         `probe_port_health(PRIMARY_SERVER_PORT)` (a real cross-process
+         TCP/health check) and fails closed — "not loading planner"
+         — if the primary is still answering, which it will be if a
+         different process (the interactive session) owns it. Verified
+         by direct read, not run live this pass. No residual gap found
+         here.
+      3. **7.4 sub-task C's dispatch gate** already defers ALL background
+         (daemon) task dispatch — which is the only path that would need
+         the planner for anything besides the exempt `plan_only` RPC
+         above — while `is_interactive_session_active()` is true
+         (live-verified 2026-08-10, `Daemon: dispatch deferred ...
+         interactive TUI/GUI session active`). So even setting aside
+         mechanisms 1/2, the daemon structurally will not attempt a
+         background planner-needing dispatch while the coder is being
+         used interactively.
+
+      **Verdict: `NEW-141`'s exact failure shape (concurrent full-
+      context 7B+1.5B) remains structurally unreachable through every
+      shipped path, both before and after this item** — decisions 2/3
+      don't newly CLOSE an open gap (mechanisms 1-3 above already
+      closed it), but they substantially shrink the consequence if
+      any future change ever bypasses the sequential-swap guard: a
+      planner capped at 8192 contributes a much smaller KV footprint
+      than one at 32768, and a daemon-dispatched coder task at a 16384
+      background ceiling likewise. No further live-verification is
+      required to "close" this item's own relationship to `NEW-141` —
+      the open item remains `NEW-141`/`NEW-140`'s own scenario 3 (low-
+      swap-headroom device shape), already logged as deferred, unrelated
+      to this item's three decisions.
+
+      **Build order for implementer**: A (embed lifecycle, blocked on
+      fixing `NEW-144` first) and D (docs-only) can start immediately.
+      B and C are BOTH blocked on Ish confirming their respective
+      candidate numbers (8192 planner ceiling; 16384 background coder
+      ceiling) before implementer starts — do not implement against
+      either candidate as if already approved.
+
 ## Phase 2: Parallel design work (does not touch running code — can run alongside Phase 1)
 
 - [ ] 9.3 (WQ Track 3.5) — Design the plugin/agent manifest schema

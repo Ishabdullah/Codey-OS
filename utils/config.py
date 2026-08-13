@@ -43,13 +43,29 @@ LLAMA_LIB = os.environ.get("CODEY_LLAMA_LIB") or str(_HOME_LLAMA)
 
 # Context window (n_ctx) — overridable via CODEY_N_CTX for substitute/smaller
 # models that can't handle the production default (e.g. NEW-95's resource-gate
-# live-verification round). This is the single source of truth read by both
-# core/loader_v2.py (the real llama-server -c flag it spawns with) and the
-# resource_gate.ModelSpec cost estimate (core/loader_v2.py, core/planner_loader.py)
-# — overriding only one of those would desync the gate's admission math from what
-# actually gets spawned (the NEW-84 class of bug). Fails loudly on a bad value
-# rather than silently falling back, since a silent fallback here could hide a
-# gate/spawn mismatch instead of preventing one.
+# live-verification round). This is the single source of truth for the
+# CODER role's INTERACTIVE ceiling — the real llama-server -c flag
+# core/loader_v2.py:LlamaServer spawns the primary (7B) server with when
+# core.resource_gate.is_interactive_session_active() is True, and the
+# n_ctx the matching resource_gate.ModelSpec cost estimate uses for that
+# same case (TODO.md 7.4b sub-task C). Since that sub-task, it is NOT the
+# only n_ctx value in play: get_planner_n_ctx() (below) returns the
+# dedicated 1.5B planner's fixed ceiling (never this value), and
+# get_coder_background_n_ctx() (below) returns the coder's ceiling for
+# daemon-dispatched BACKGROUND tasks (no interactive TUI/GUI session
+# active) — both are functions, not constants, so they re-read
+# MODEL_CONFIG["n_ctx"] live and pick up a runtime --ctx override (NEW-102/
+# bug_002 fix) rather than freezing a value at import time; each clamps
+# via `min(MODEL_CONFIG["n_ctx"], ...)` so a CODEY_N_CTX or --ctx override
+# for a smaller substitute model still binds downward on them too; see
+# each function's own comment.
+# Overriding only the launch flag without also updating the ModelSpec
+# passed to the resource gate (or vice versa) would desync the gate's
+# admission math from what actually gets spawned (the NEW-84 class of
+# bug) — this env var, and the two derived constants below it, are read
+# fresh by both the spawn site and the gate site in each case. Fails
+# loudly on a bad value rather than silently falling back, since a silent
+# fallback here could hide a gate/spawn mismatch instead of preventing one.
 _n_ctx_env = os.environ.get("CODEY_N_CTX")
 if _n_ctx_env is None:
     _n_ctx = 32768
@@ -81,6 +97,59 @@ MODEL_CONFIG = {
     # automatically. These extra stops catch hallucinated role-play.
     "stop": ["<|im_end|>", "<|im_start|>", "\nUser:", "\nHuman:", "\nA:"],
 }
+
+# ── Planner (1.5B) context ceiling — TODO.md 7.4b sub-task B ────────────────
+# Ish confirmed 2026-08-11: the planner is capped at a small, fixed context
+# ceiling, never the full n_ctx it shared with the coder before this
+# decision. Derived (not invented) from the real prompt this project sends:
+# core/plannd.py's PLANNER_PROMPT (system prompt, every planner call, local
+# AND remote backends) measures ~2,446 tokens (chars/4 approximation,
+# 9,786 chars), and get_plan()'s local-backend call is single-turn (system
+# prompt + raw user message only). Output is capped at PLANNER_MAX_TOKENS
+# (1024, below). Fixed floor: 2,446 + 1,024 = 3,470 tokens before the user
+# message/chat-template overhead. 8192 leaves ~4,700 tokens of headroom for
+# the user message — generous over any realistic single coding request; see
+# TODO.md 7.4b sub-task B for the fuller reasoning and why a tighter 4096
+# was rejected as too tight for a long multi-clause request.
+#
+# NEW-102/bug_002 fix (2026-08-13): this is a FUNCTION, not a module-level
+# constant, specifically so it re-reads MODEL_CONFIG["n_ctx"] on every call
+# instead of freezing a value at import time. main.py's apply_overrides()
+# mutates MODEL_CONFIG["n_ctx"] at runtime when --ctx is passed on the CLI
+# (main.py ~line 115) — a plain `PLANNER_N_CTX = min(_n_ctx, 8192)` constant
+# bound at import would never see that mutation, since apply_overrides()
+# always runs after utils.config is first imported. Reading MODEL_CONFIG
+# live (not `_n_ctx`, which is also frozen at import) is what lets --ctx
+# actually reach the planner, matching the pattern core/loader_v2.py's
+# interactive coder path already used correctly
+# (MODEL_CONFIG.get("n_ctx", 4096), read at call time).
+#
+# Still clamped downward via min() so a substitute/smaller model run via
+# CODEY_N_CTX (e.g. NEW-95's live-verification round) or a smaller --ctx
+# override binds downward here too, rather than this ceiling sitting above
+# an override meant to shrink every model's context on this run.
+def get_planner_n_ctx() -> int:
+    return min(MODEL_CONFIG["n_ctx"], 8192)
+
+
+# ── Coder (7B) BACKGROUND context ceiling — TODO.md 7.4b sub-task C ─────────
+# Ish confirmed 2026-08-11: the coder's context stays at full n_ctx
+# (MODEL_CONFIG["n_ctx"] / CODEY_N_CTX above, 32768 by default) whenever a
+# human is actively using it interactively (core.resource_gate.
+# is_interactive_session_active() is True), and drops to this smaller fixed
+# ceiling for daemon-dispatched BACKGROUND coder tasks (no interactive
+# TUI/GUI session active) — a two-value branch, not the fuller per-task
+# adaptive n_ctx that stays parked as CODEY_OS_MASTER_VISION.md Section
+# 11.9's future item. 16384 is the exact value TODO.md 7.4a sub-task E's
+# own live-verification pass already proved admits cleanly with real,
+# moderate (~900MiB-1.2GiB) swap movement — a known-safe intermediate point
+# between full 32768 and a value nobody has tested live.
+#
+# NEW-102/bug_002 fix (2026-08-13): a function for the same reason
+# get_planner_n_ctx() above is one — see that function's comment for the
+# full import-order/--ctx reasoning, which applies identically here.
+def get_coder_background_n_ctx() -> int:
+    return min(MODEL_CONFIG["n_ctx"], 16384)
 
 AGENT_CONFIG = {
     "max_steps": 10,

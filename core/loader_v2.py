@@ -202,11 +202,22 @@ class LlamaServer:
     via HTTP API for inference.
     """
 
-    def __init__(self, model_path: Path, port: int = SERVER_PORT):
+    def __init__(self, model_path: Path, port: int = SERVER_PORT, n_ctx: Optional[int] = None):
         self.model_path = model_path
         self.process: Optional[subprocess.Popen] = None
         self.port = port
         self._started = False
+        # n_ctx=None (the default) preserves this class's original
+        # behavior — every server it spawns uses the shared global
+        # MODEL_CONFIG["n_ctx"]. TODO.md 7.4b sub-tasks B/C give the
+        # planner and the background-dispatched coder their own smaller
+        # ceilings (utils.config.get_planner_n_ctx() / get_coder_background_n_ctx())
+        # — callers that need a role-specific value pass it explicitly
+        # here so the actual spawned `-c` flag (see _spawn_locked()
+        # below) matches whatever n_ctx the caller's resource_gate.ModelSpec
+        # was built with, rather than the two silently diverging (the
+        # NEW-84 class of gate/spawn desync bug).
+        self.n_ctx = n_ctx if n_ctx is not None else MODEL_CONFIG["n_ctx"]
 
     def start(self) -> bool:
         """Start llama-server subprocess."""
@@ -326,7 +337,7 @@ class LlamaServer:
                     "--port",
                     str(self.port),
                     "-c",
-                    str(MODEL_CONFIG["n_ctx"]),
+                    str(self.n_ctx),
                     "-t",
                     str(MODEL_CONFIG["n_threads"]),
                     "--temp",
@@ -611,6 +622,13 @@ class ModelLoader:
         self._loaded: bool = False
         self._server: Optional[LlamaServer] = None
         self._loaded_at: float = 0
+        # 7.4b sub-task C's NEW-145 fix: set True alongside `_loaded_at`
+        # below on a successful `load_primary()`, and — unlike `_loaded` —
+        # deliberately never reset by `unload()` (same as `_loaded_at`
+        # already isn't). Answers "has this loader spawned OR adopted a
+        # coder server at least once in this process's lifetime," not "is
+        # it loaded right now." See `was_ever_loaded()`'s own docstring.
+        self._ever_loaded: bool = False
         self._load_failures: int = 0
         self._slot_id: Optional[str] = None
         # See LOAD_OUTCOME_* constants above this class.
@@ -634,6 +652,31 @@ class ModelLoader:
             model_path = cfg.MODEL_PATH
             info(f"Loading model: {model_path.name}")
 
+            # ── TODO.md 7.4b sub-task C: interactive-vs-background n_ctx ────
+            # Snapshot the interactive-session signal ONCE here too, same
+            # reasoning as the cfg.MODEL_PATH snapshot above — this call's
+            # ModelSpec (the gate's admission math) and its actual spawned
+            # LlamaServer (the real -c flag) must agree on n_ctx, so both
+            # must read the SAME evaluation of is_interactive_session_active(),
+            # not two separate reads that could disagree if a TUI session
+            # starts/ends mid-call. is_interactive_session_active() is the
+            # existing TODO.md 7.4 sub-task C signal (utils.config.
+            # TUI_SESSIONS_DIR-backed) already wired into daemon dispatch —
+            # reused here, not a second detection mechanism. True when a
+            # human is actively using the TUI/GUI: full interactive ceiling
+            # (MODEL_CONFIG["n_ctx"], the CODEY_N_CTX-overridable default).
+            # False (daemon-dispatched background task, no interactive
+            # session): the smaller get_coder_background_n_ctx() ceiling —
+            # a function, not a constant (NEW-102/bug_002 fix), so it
+            # re-reads MODEL_CONFIG["n_ctx"] live and honors a runtime
+            # --ctx override; see its definition in utils/config.py.
+            interactive = rg.is_interactive_session_active()
+            n_ctx = MODEL_CONFIG.get("n_ctx", 4096) if interactive else cfg.get_coder_background_n_ctx()
+            info(
+                f"Coder n_ctx={n_ctx} "
+                f"({'interactive session active' if interactive else 'no interactive session — background ceiling'})"
+            )
+
             # Check if model file exists
             if not model_path.exists():
                 error(f"Model file not found: {model_path}")
@@ -656,9 +699,7 @@ class ModelLoader:
             # 7.4 sub-task 2: the gate is the sole admission authority. A
             # denied reservation is a real, surfaced failure, not something
             # this method proceeds past.
-            spec = rg.ModelSpec(
-                model_id="primary", path=model_path, n_ctx=MODEL_CONFIG.get("n_ctx", 4096)
-            )
+            spec = rg.ModelSpec(model_id="primary", path=model_path, n_ctx=n_ctx)
             decision, slot_id = rg.reserve_slot(spec)
             if not decision.admitted:
                 error(f"Resource gate denied primary model load: {decision.reason}")
@@ -697,7 +738,7 @@ class ModelLoader:
             # See .claude/agent-memory/code-reviewer/
             # resource_gate_subtask2_confirm_mark_slot_leak.md — this
             # replaces exactly the gap documented there.
-            self._server = LlamaServer(model_path)
+            self._server = LlamaServer(model_path, n_ctx=n_ctx)
             loaded_ok = False
             try:
                 if not self._server.start():
@@ -746,6 +787,7 @@ class ModelLoader:
 
                 self._loaded = True
                 self._loaded_at = time.time()
+                self._ever_loaded = True
                 success(f"Loaded model ({model_path.name})")
                 loaded_ok = True
                 self._last_ensure_outcome = LOAD_OUTCOME_OK
@@ -928,6 +970,47 @@ class ModelLoader:
     def is_loaded(self, model_type: str = None) -> bool:
         """Check if the model is loaded."""
         return self._loaded
+
+    def was_ever_loaded(self) -> bool:
+        """
+        Whether this loader has spawned OR ADOPTED a coder server at least
+        once in this process's lifetime — not "is it loaded right now"
+        (see `is_loaded()` for that). Set once, at `load_primary()`'s
+        success point, and never reset by `unload()`.
+
+        "Adopted" matters here: `load_primary()`'s success point is the
+        convergence point for BOTH a genuine spawn and `LlamaServer.
+        start()`'s port-in-use reuse/adoption branch (reusing a server
+        this loader did not itself spawn — e.g. the daemon's own loader
+        adopting a TUI-spawned coder under the normal `codey-start`
+        runtime, where the TUI process spawns the coder, not the daemon).
+        So this answers "spawned OR adopted at least once," not "spawned
+        at least once."
+
+        Used by `core/daemon.py`'s `_watchdog_check_model()` (7.4b
+        sub-task C's NEW-145 fix) to distinguish "was loaded and died —
+        restart it" from "never loaded, nobody has asked yet — leave it
+        alone." Crash-restart coverage under this distinction: (a)
+        unchanged for coder loads THIS loader's own process performed
+        (background-dispatched loads through the daemon's own
+        `get_loader()`) — restarts on crash exactly as before; (b) ONLY
+        set for a TUI-spawned coder if the daemon's OWN loader has itself
+        called `load_primary()` at least once and hit the port-in-use
+        adoption branch — this requires the daemon to have made its own
+        background-dispatched load/ensure call at some point in the
+        process's lifetime, NOT merely "a TUI session exists." In a
+        TUI-only session with no background task ever dispatched, the
+        daemon's loader never calls `load_primary()` at all, so
+        `_ever_loaded` stays False forever and the watchdog will NOT
+        restart a crashed TUI-spawned coder — a real reduction in
+        crash-restart coverage versus the pre-NEW-145-fix behavior,
+        accepted as a consequence of removing the eager preload (adjacent
+        to NEW-149's "first spawner wins the context size" gap, not fixed
+        by this change); (c) a coder that has never been spawned by NOR
+        adopted through this loader's own `load_primary()` call is left
+        alone by the watchdog rather than eagerly loaded on its 30s tick.
+        """
+        return self._ever_loaded
 
     def get_model_instance(self) -> Optional[LlamaServer]:
         """Get the llama-server instance."""

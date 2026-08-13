@@ -112,7 +112,22 @@ def apply_overrides(args):
 
     if args.threads:
         config.MODEL_CONFIG["n_threads"] = args.threads
-    if args.ctx:
+    if args.ctx is not None:
+        # NEW-102 fix (2026-08-13): --ctx previously had no positive-value
+        # guard, unlike utils/config.py's CODEY_N_CTX env var (added in
+        # U.31), which explicitly rejects zero/negative values because
+        # they'd flow into core/resource_gate.py's KV-cache cost estimate
+        # as a zero/negative term and cause the gate to under-estimate
+        # real cost (a negative n_ctx actually SUBTRACTS from the computed
+        # cost — a real over-admit risk, not just a milder zero-case).
+        # Same guard applied here for the same reason. `is not None` (not
+        # a bare truthiness check) so --ctx 0 is also caught explicitly
+        # instead of silently no-op'ing (0 was previously falsy and just
+        # skipped this whole branch, applying nothing with no error).
+        if args.ctx <= 0:
+            raise ValueError(
+                f"--ctx={args.ctx} is not a valid n_ctx; it must be a positive integer."
+            )
         config.MODEL_CONFIG["n_ctx"] = args.ctx
 
 

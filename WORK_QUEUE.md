@@ -871,6 +871,48 @@ resource-awareness work twice.
        sub-task touching admission math) — this changes whether a model
        process gets spawned, same reasoning item 1's own sub-tasks 2-5
        were each reviewed under.
+1c. [ ] **Model-lifecycle policy for all three local models — new item,
+       2026-08-11, Ish's direct decision** (spun off item 1b's own
+       sub-task F live-verification finding, `NEW-141`, but this is a
+       fresh lifecycle/context-policy decision, not a continuation of
+       the swap-cap arithmetic itself). Full 4-sub-task scoping,
+       derivations, the `NEW-144` blocking prerequisite found this pass,
+       and the worked-through `NEW-141` gap analysis are in `TODO.md`'s
+       new 7.4b entry (inserted directly after 7.4a) — read there for
+       the complete write-up, not duplicated here. Short version:
+       embed model goes always-resident (lifecycle-only change, its
+       2048 context is already its real on-disk "natural max," no
+       change needed there) but is blocked on fixing `NEW-144` first (a
+       newly-found cross-process self-race: any process other than the
+       one that spawned the embed server kills and respawns it on its
+       first `start_embed_server()` call, defeating "always resident"
+       as designed today); planner gets a small fixed context ceiling
+       (8192 candidate, derived from the real 9,786-char/~2,446-token
+       `PLANNER_PROMPT` plus `PLANNER_MAX_TOKENS=1024`, needs Ish
+       confirmation); coder gets a two-value branch off the EXISTING
+       `is_interactive_session_active()` signal (7.4 sub-task B) — full
+       32768 when interactive, else a 16384 candidate background
+       ceiling (also needs Ish confirmation) — NOT a per-task dynamic
+       scale via `classify_tier()`, which this pass found cannot drive
+       it (the coder role has only one local tier, `NEW-84`, so
+       `classify_tier()` always returns `"large"`; true per-task
+       adaptive `n_ctx` stays parked as `CODEY_OS_MASTER_VISION.md`
+       §11.9, unexpanded). `MAX_CONCURRENT_MODEL_BUDGET_BYTES` (item
+       1b's C1) needs a docs-only recompute once B/C's numbers land —
+       its derivation already assumed all three models concurrent, so
+       the 8.90GiB value itself is very unlikely to need to change, but
+       its comment's arithmetic will be stale against the new,
+       smaller planner/background-coder KV terms. `NEW-141`'s own gap
+       is worked through concretely and found already structurally
+       closed for every shipped path (sequential swap-guard +
+       `NEW-142`'s eviction-unreachability finding + 7.4 sub-task C's
+       dispatch gate + a newly-checked cross-process eviction-safety
+       property in `_evict_primary_and_confirm_free()`) — this item's
+       decisions shrink the consequence further if that's ever
+       bypassed, they don't newly close an open hole. Sub-tasks A
+       (embed, blocked on `NEW-144`) and D (docs) are implementable now;
+       B and C are both blocked on Ish confirming their candidate
+       numbers.
 2. [x] **`PENDING_ISH_DECISIONS.md` item 2 — daemon control redesign.**
        Sequence directly alongside/after 5a since it needs the same
        resource-gate authority: `daemon_shutdown` becomes an autonomous

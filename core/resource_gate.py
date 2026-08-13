@@ -1272,6 +1272,60 @@ def estimate_model_load_cost(spec: ModelSpec) -> CostEstimate:
 # on ~10.8GiB MemTotal — MUST BE RECOMPUTED (via estimate_model_load_cost()
 # against the real files on that device), not linearly scaled, if this code
 # ever runs on different hardware.
+#
+# ── TODO.md 7.4b sub-task D revisit, 2026-08-11 (docs-only, VALUE UNCHANGED) ─
+# Ish's 7.4b decision shrinks two of the three operands above: the planner's
+# ceiling is now utils.config.get_planner_n_ctx() (8192 by default, not
+# 32768 — sub-task B; a function, not a constant, as of the NEW-102/bug_002
+# fix — see utils/config.py), and the coder's ceiling drops to
+# utils.config.get_coder_background_n_ctx() (16384 by default, not 32768)
+# for daemon-dispatched BACKGROUND tasks specifically —
+# sub-task C — while staying at the full 32768 whenever a human is actively
+# using it interactively (core.resource_gate.is_interactive_session_active()
+# True). Always-on embed does NOT invalidate the derivation above: it
+# already summed embed's cost as always-present, this decision just makes
+# that assumption REALIZED in practice (see TODO.md 7.4b's own scoping).
+#
+# Recomputed (real numbers, via this project's own estimate_model_load_cost()
+# against the real on-disk 7B/1.5B/embed files, same device):
+#   Planner @ PLANNER_N_CTX=8192:        model=1.041GiB + kv=0.219GiB +
+#                                         overhead=0.250GiB = 1.509GiB
+#                                         (1,620,637,248 bytes exact)
+#   Embed (unchanged, still -c 2048,
+#          same KNOWN, ACCEPTED UNDERCOUNT
+#          as above):                    0.328GiB (352,542,080 bytes exact)
+#   Coder @ CODER_BACKGROUND_N_CTX=16384
+#          (no interactive session):     model=4.361GiB + kv=0.875GiB +
+#                                         overhead=0.250GiB = 5.486GiB
+#                                         (5,891,033,088 bytes exact)
+#   Coder @ full n_ctx=32768
+#          (interactive session active): model=4.361GiB + kv=1.750GiB +
+#                                         overhead=0.250GiB = 6.361GiB
+#                                         (6,830,557,184 bytes exact,
+#                                         identical to the original
+#                                         derivation above — unchanged by
+#                                         this decision)
+#
+#   New raw sum, BACKGROUND coder + planner + embed:
+#     5,891,033,088 + 1,620,637,248 + 352,542,080 = 7,864,212,416 bytes
+#     (~7.324GiB) — the realistic case any daemon-dispatched background
+#     task now produces.
+#   New raw sum, INTERACTIVE coder + planner + embed (the coder's ceiling
+#     this decision does NOT shrink, so this is the larger of the two new
+#     cases, and the one that must be checked against the existing
+#     8.90GiB ceiling):
+#     6,830,557,184 + 1,620,637,248 + 352,542,080 = 8,803,736,512 bytes
+#     (~8.199GiB).
+#
+# Both new sums (7.324GiB background, 8.199GiB interactive) are BELOW the
+# original 8.855GiB raw sum this constant's 8.90GiB was rounded up from,
+# and both stay comfortably below 8.90GiB itself (margins of ~1.576GiB and
+# ~0.701GiB respectively — MORE margin than before this decision, not
+# less). **Conclusion: MAX_CONCURRENT_MODEL_BUDGET_BYTES stays 8.90GiB —
+# no value change from this revisit.** The larger (interactive-coder)
+# recomputed sum is the one this ceiling must be checked against going
+# forward, since sub-task C's decision does not shrink the coder's
+# interactive ceiling — only its background-dispatch one.
 MAX_CONCURRENT_MODEL_BUDGET_BYTES = int(8.90 * (1024 ** 3))  # 9,556,302,233 bytes
 
 
