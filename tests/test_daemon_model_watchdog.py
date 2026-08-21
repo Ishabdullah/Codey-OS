@@ -33,10 +33,22 @@ on the watchdog's own 30s tick — the daemon's actual steady state under
 path entirely (`codey-start` only starts a daemon when none is running) —
 because the watchdog called `ensure_model()` unconditionally every tick with
 no distinction between "was loaded and died, restart it" and "never loaded,
-nobody has asked yet, leave it alone." The watchdog now gates on
-`ModelLoader.was_ever_loaded()` (set at `load_primary()`'s success point,
-which is the convergence point for both a genuine spawn and the port-in-use
-adoption/reuse branch) before calling `ensure_model()` at all.
+nobody has asked yet, leave it alone." The watchdog originally gated on
+`ModelLoader.was_ever_loaded()`, set at `load_primary()`'s success point for
+BOTH a genuine spawn and the port-in-use adoption/reuse branch.
+
+**NEW-152 (2026-08-13, code-reviewer retroactive pass): that combined flag
+was itself sticky-broken.** Under the normal `codey-start` steady state (TUI
+spawns the coder; the daemon's own loader later adopts it via its first
+background dispatch), the flag went True on the first adoption and never
+reset, so the gate stopped protecting the daemon from that point on — an
+ordinary TUI session ending (not a crash) still fell through to
+`ensure_model()` and respawned the coder at the 16384 background ceiling.
+The watchdog now gates on `ModelLoader.was_ever_spawned()` instead, which
+answers "did this loader's own subprocess.Popen() actually run" and
+deliberately excludes adoption — see `was_ever_spawned()`'s own docstring
+in `core/loader_v2.py` for the full case-by-case breakdown, including the
+accepted reduction in crash-restart coverage for adopted-only coders.
 
 `_watchdog_check_model()` is a plain method with no dependency on `Daemon`
 instance state (`self` is unused inside it), so these tests call it via
@@ -70,7 +82,7 @@ class FakeLoader:
     the two outcome getters.
     """
 
-    def __init__(self, ensure_result, outcome, reason, instance=None, ever_loaded=True):
+    def __init__(self, ensure_result, outcome, reason, instance=None, ever_spawned=True):
         self._ensure_result = ensure_result
         self._outcome = outcome
         self._reason = reason
@@ -78,9 +90,15 @@ class FakeLoader:
         # Defaults True: every existing test in this file predates the
         # NEW-145 gate and is exercising "was loaded before, is ensure_model()
         # called and its outcome reported correctly" — not the new
-        # never-loaded-and-unrequested case, which has its own dedicated
-        # test below with ever_loaded=False.
-        self._ever_loaded = ever_loaded
+        # never-spawned-and-unrequested case, which has its own dedicated
+        # test below with ever_spawned=False. NEW-152 renamed this from
+        # ever_loaded/was_ever_loaded() to ever_spawned/was_ever_spawned() —
+        # the daemon-visible behavior this FakeLoader exercises is identical
+        # either way (neither the daemon nor this test file distinguishes
+        # "never loaded at all" from "only ever adopted" — that distinction
+        # lives in core/loader_v2.py and is covered by
+        # tests/test_loader_resource_gate.py's reuse/adoption test instead).
+        self._ever_spawned = ever_spawned
 
     def get_model_instance(self):
         return self._instance
@@ -94,8 +112,8 @@ class FakeLoader:
     def get_last_ensure_reason(self):
         return self._reason
 
-    def was_ever_loaded(self):
-        return self._ever_loaded
+    def was_ever_spawned(self):
+        return self._ever_spawned
 
 
 def _run_watchdog_with_fake_loader(fake_loader):
@@ -213,18 +231,18 @@ def test_watchdog_eviction_failed_takes_precedence_over_died_branch():
 
 
 def test_watchdog_no_current_instance_but_loaded_before_says_not_loaded_not_died():
-    """No server instance right now (e.g. this loader loaded/adopted a
+    """No server instance right now (e.g. this loader genuinely spawned a
     server before, unload() cleared the instance, and this reload attempt
-    also failed -- was_ever_loaded() stays True, that's what gets us past
-    the new NEW-145 gate and into ensure_model() at all) -- must not claim
-    the server "died"; there's no currently-known process that stopped
-    running."""
+    also failed -- was_ever_spawned() stays True, that's what gets us past
+    the NEW-145/NEW-152 gate and into ensure_model() at all) -- must not
+    claim the server "died"; there's no currently-known process that
+    stopped running."""
     fake = FakeLoader(
         ensure_result=False,
         outcome=lv.LOAD_OUTCOME_SPAWN_FAILED,
         reason="llama-server process failed to start",
         instance=None,
-        ever_loaded=True,
+        ever_spawned=True,
     )
     with patch.object(daemon_mod, "warning") as mock_warning:
         _run_watchdog_with_fake_loader(fake)
@@ -258,21 +276,47 @@ def test_watchdog_real_crash_still_says_died():
 
 def test_watchdog_never_loaded_and_unrequested_does_nothing():
     """7.4b sub-task C's NEW-145 fix: a coder that has never been spawned
-    NOR adopted by this loader (was_ever_loaded() False) and isn't running
-    now must be left alone -- ensure_model() must NOT be called, since
-    calling it here would reproduce NEW-145's race (spawning the coder at
-    the background n_ctx ceiling before any TUI session can register as
-    interactive)."""
+    by this loader (was_ever_spawned() False) and isn't running now must be
+    left alone -- ensure_model() must NOT be called, since calling it here
+    would reproduce NEW-145's race (spawning the coder at the background
+    n_ctx ceiling before any TUI session can register as interactive)."""
     fake = FakeLoader(
         ensure_result=True,  # would succeed if called -- must not be called
         outcome=lv.LOAD_OUTCOME_OK,
         reason="",
         instance=None,
-        ever_loaded=False,
+        ever_spawned=False,
     )
     with patch.object(fake, "ensure_model") as mock_ensure, patch.object(
         daemon_mod, "warning"
     ) as mock_warning, patch.object(daemon_mod, "info") as mock_info:
+        _run_watchdog_with_fake_loader(fake)
+
+    mock_ensure.assert_not_called()
+    mock_warning.assert_not_called()
+
+
+def test_watchdog_adopted_only_not_running_no_interactive_does_nothing():
+    """NEW-152: the exact gap the retroactive code-reviewer pass found.
+    was_ever_spawned() is False (this loader has only ever ADOPTED a
+    TUI-spawned coder via load_primary()'s port-in-use branch, or never
+    loaded one at all -- both look identical to the watchdog, on purpose;
+    see core/loader_v2.py's was_ever_spawned() docstring). The coder isn't
+    running now (e.g. the TUI session that owned it simply exited). The
+    watchdog must NOT call ensure_model() and must NOT respawn the coder at
+    the background ceiling just because a coder existed once -- that
+    respawn-on-adoption-then-exit path was NEW-152's exact reproduction of
+    NEW-145's original symptom, through adoption instead of eager preload."""
+    fake = FakeLoader(
+        ensure_result=True,  # would succeed if called -- must not be called
+        outcome=lv.LOAD_OUTCOME_OK,
+        reason="",
+        instance=None,
+        ever_spawned=False,
+    )
+    with patch.object(fake, "ensure_model") as mock_ensure, patch.object(
+        daemon_mod, "warning"
+    ) as mock_warning:
         _run_watchdog_with_fake_loader(fake)
 
     mock_ensure.assert_not_called()

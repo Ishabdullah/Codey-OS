@@ -5,6 +5,75 @@ change, decision, or Qwen task completion.
 
 ---
 
+## 2026-08-13 — NEW-152 fix: watchdog gate narrowed from "spawned OR adopted" to "genuinely spawned" — code complete, NOT yet code-reviewer/live-verifier approved
+
+Prompted by a retroactive `code-reviewer` pass on `NEW-151`'s daemon
+change, which found a Critical gap in the NEW-145/7.4b sub-task C
+watchdog gate: `core/loader_v2.py`'s `ModelLoader._ever_loaded` (the flag
+`core/daemon.py`'s `_watchdog_check_model()` used to decide "nothing to
+restart, leave it alone") was set True on EITHER a genuine coder spawn OR
+the port-in-use adoption branch, and never reset. Under the normal
+`codey-start` steady state (TUI spawns the coder; the daemon's own loader
+later adopts it via its first background dispatch), the flag went True on
+the first adoption and stayed True forever — so an ordinary TUI session
+ending (not a crash) still looked like "was loaded, restart it," and the
+watchdog respawned the coder at the smaller 16384 background ceiling. A
+later-reattaching TUI reused that under-provisioned server via
+`LlamaServer.start()`'s reuse branch, reproducing NEW-145's original
+symptom through adoption instead of the deleted eager preload. Full
+mechanism and reproduction sequence: `NEW_ISSUES.md`'s `NEW-152`.
+
+**Fix:** `_ever_loaded`/`was_ever_loaded()` replaced with
+`_ever_spawned`/`was_ever_spawned()` in `core/loader_v2.py` — set True
+only when `load_primary()` genuinely spawns a subprocess
+(`self._server.process is not None` at the success point), not when it
+adopts an existing one. `core/daemon.py`'s `_watchdog_check_model()` gate
+updated to `if not was_running and not loader.was_ever_spawned(): return`.
+Crash-restart coverage for coder loads the daemon's own loader genuinely
+spawned (background-dispatched loads) is unconditional and unchanged.
+Deliberate, documented reduction: a TUI-spawned coder the daemon's loader
+has only ever adopted is no longer restarted by the watchdog on crash —
+the daemon doesn't own that process's lifecycle, and the TUI's own next
+`infer()` reloads it; this is the direct fix for the false-positive
+respawn, not a separate regression. Full case-by-case breakdown lives on
+`was_ever_spawned()`'s docstring in `core/loader_v2.py`. Residual, not
+fixed by this change and logged separately as `NEW-155` (cross-referenced
+to `NEW-149`): once the daemon HAS genuinely spawned a background coder
+at least once, `_ever_spawned` stays sticky-True — a later tick can still
+respawn it at 16384 and a later-attaching TUI reuses that server.
+
+**Files touched:** `core/loader_v2.py` (flag rename + narrowed
+set-condition + docstring), `core/daemon.py` (gate condition + two
+explanatory comments), `tests/test_daemon_model_watchdog.py` (`FakeLoader`
+renamed, module docstring updated, one new regression test —
+`test_watchdog_adopted_only_not_running_no_interactive_does_nothing`),
+`tests/test_loader_resource_gate.py` (reuse/adoption test's assertion
+flipped from `True` to `False` — this is the unit-level regression test
+for the fix). `NEW_ISSUES.md` gets three new entries (`NEW-152` Critical,
+now fixed; `NEW-153` Warning, embed-server TOCTOU, logged only; `NEW-154`
+Suggestion, embed liveness-primitive inconsistency, logged only; `NEW-155`
+Confirmed, the sticky-after-genuine-spawn residual, logged only).
+
+**Verified:** `python -m pytest tests/test_daemon_model_watchdog.py
+tests/test_loader_resource_gate.py -q` → 37 passed. Full suite:
+`python -m pytest -q` → 742 passed, 1 skipped, 0 failed, 68 warnings (all
+pre-existing `PytestReturnNotNoneWarning` noise in `ccos/tests/`, unrelated
+to this change).
+
+**Status: code-complete only, NOT approved.** This change is squarely
+CLAUDE.md rule 4 (daemon watchdog / model-lifecycle logic) and requires
+the `code-reviewer` subagent's explicit approval before commit — that
+subagent was not invocable in the session that built this fix (no
+Task/subagent-launch tool available); the diff was instead reviewed by
+project-architect directly against `.claude/agents/code-reviewer.md`'s own
+checklist as a stopgap, which is explicitly NOT a substitute for the real
+pass, per the lesson `NEW-151` itself just recorded. `live-verifier` was
+also deliberately not invoked this round, per the coordinator's explicit
+instruction to stop short of it and await an explicit go-ahead. `NEW-145`
+and TODO.md's 7.4b sub-task C stay open. Do not read this entry as "fixed
+and verified" — it is "fixed and tested," pending both mandatory approval
+passes.
+
 ## 2026-08-13 — cloud-ultrareview nits (bug_001, bug_002) + NEW-102 real fix, closed together
 
 Prompted by cloud multi-agent ultrareview on 7.4a/7.4b's current

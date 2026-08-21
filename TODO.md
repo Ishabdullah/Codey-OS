@@ -2523,6 +2523,33 @@ Everything else below depends on this existing. Nothing here is started.
       under the real entry point — both mandatory passes above are still
       outstanding.**
 
+      **Status update, 2026-08-13 (`NEW-152`): the retroactive
+      `code-reviewer` pass prompted by `NEW-151` found a Critical gap in
+      the `was_ever_loaded()` gate itself** (see `NEW_ISSUES.md`'s
+      `NEW-152` for the full mechanism — sticky-True after the daemon's
+      first adoption of a TUI-spawned coder, which is the normal
+      `codey-start` steady state, meant the gate stopped protecting
+      against eager background-ceiling respawns after that point).
+      **Fixed same round**: `was_ever_loaded()` replaced with
+      `was_ever_spawned()` (genuine-spawn-only, adoption no longer
+      counts) in `core/loader_v2.py`/`core/daemon.py`, with matching test
+      updates in `tests/test_daemon_model_watchdog.py`/
+      `tests/test_loader_resource_gate.py`. **Code complete, tests pass
+      (`python -m pytest -q` → 742 passed, 1 skipped, 0 failed). The
+      mandatory rule-4 `code-reviewer` subagent pass has NOT run — the
+      `code-reviewer` subagent was not invocable in the session that
+      built this fix (no Task/subagent-launch tool available); the diff
+      was instead reviewed by project-architect directly against
+      `.claude/agents/code-reviewer.md`'s own checklist as a stopgap,
+      which is not a substitute for the real pass. Live-verification is
+      also still outstanding, per the coordinator's explicit instruction
+      to stop before invoking `live-verifier` this round.** Do not treat
+      sub-task C or `NEW-145` as closed, and do not treat this fix as
+      "code-reviewer approved," until both the real `code-reviewer` pass
+      and the live-verifier pass (extended to also cover the
+      adoption/exit/respawn sequence `NEW-152` describes, per its own
+      write-up) are run.
+
       **Pick up alongside this sub-task (2026-08-11, project-architect
       consolidation pass — `NEW_ISSUES.md` cross-referenced to match):
       `NEW-102`.** Same code this sub-task is already touching —

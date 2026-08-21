@@ -622,13 +622,29 @@ class ModelLoader:
         self._loaded: bool = False
         self._server: Optional[LlamaServer] = None
         self._loaded_at: float = 0
-        # 7.4b sub-task C's NEW-145 fix: set True alongside `_loaded_at`
-        # below on a successful `load_primary()`, and — unlike `_loaded` —
-        # deliberately never reset by `unload()` (same as `_loaded_at`
-        # already isn't). Answers "has this loader spawned OR adopted a
-        # coder server at least once in this process's lifetime," not "is
-        # it loaded right now." See `was_ever_loaded()`'s own docstring.
-        self._ever_loaded: bool = False
+        # NEW-152 (code-reviewer retroactive pass on the NEW-145 fix, found
+        # 2026-08-13): this used to be a single `_ever_loaded` flag set True
+        # on EITHER a genuine spawn OR `LlamaServer.start()`'s port-in-use
+        # adoption branch. That made the watchdog gate below sticky-True
+        # after the very first adoption — the normal `codey-start` steady
+        # state (TUI spawns the coder, daemon later adopts it via a
+        # background dispatch) — so it stopped protecting the daemon after
+        # that point: an ordinary TUI-session-end (not a crash) would still
+        # look like "was loaded, restart it" and respawn at the smaller
+        # background ceiling. Narrowed to genuine-spawn-only so the gate
+        # can tell "this daemon's own loader spawned a coder" (should keep
+        # restarting it on crash, regardless of TUI state) apart from
+        # "this loader has only ever adopted someone else's coder, or
+        # never loaded one at all" (should stay quiet unless a real
+        # request comes in — adoption doesn't imply this loader owns that
+        # process's lifecycle, same argument the reuse branch already
+        # makes about residency accounting). Set True alongside `_loaded_at`
+        # below on a successful genuine spawn only, and — unlike `_loaded`
+        # — deliberately never reset by `unload()` (same as `_loaded_at`
+        # already isn't): for a genuine spawn, that stickiness IS the
+        # crash-restart mechanism. See `was_ever_spawned()`'s own
+        # docstring for the full case-by-case breakdown.
+        self._ever_spawned: bool = False
         self._load_failures: int = 0
         self._slot_id: Optional[str] = None
         # See LOAD_OUTCOME_* constants above this class.
@@ -787,7 +803,16 @@ class ModelLoader:
 
                 self._loaded = True
                 self._loaded_at = time.time()
-                self._ever_loaded = True
+                # NEW-152: only the genuine-spawn branch above (`self._server.
+                # process is not None`) sets `_ever_spawned` — the adoption
+                # branch leaves it False. `self._server.process` hasn't
+                # changed since that branch ran (nothing between there and
+                # here touches it), so re-checking it here is equivalent to
+                # checking it inside the branch, but keeps the "ever" flag
+                # assignment at the single convergence point, matching
+                # `_loaded`/`_loaded_at` immediately above.
+                if self._server is not None and self._server.process is not None:
+                    self._ever_spawned = True
                 success(f"Loaded model ({model_path.name})")
                 loaded_ok = True
                 self._last_ensure_outcome = LOAD_OUTCOME_OK
@@ -971,46 +996,71 @@ class ModelLoader:
         """Check if the model is loaded."""
         return self._loaded
 
-    def was_ever_loaded(self) -> bool:
+    def was_ever_spawned(self) -> bool:
         """
-        Whether this loader has spawned OR ADOPTED a coder server at least
-        once in this process's lifetime — not "is it loaded right now"
-        (see `is_loaded()` for that). Set once, at `load_primary()`'s
-        success point, and never reset by `unload()`.
+        Whether this loader has GENUINELY SPAWNED a coder server (its own
+        subprocess, `LlamaServer.start()` NOT hitting the port-in-use
+        reuse/adoption branch) at least once in this process's lifetime —
+        not "is it loaded right now" (see `is_loaded()` for that), and
+        deliberately NOT "adopted one at least once" either (see NEW-152
+        below for why that used to be the same flag and stopped working).
+        Set once, at `load_primary()`'s success point, only when
+        `self._server.process is not None` at that point; never reset by
+        `unload()` (same as `_loaded_at` isn't) — for a genuine spawn,
+        that stickiness is what makes crash-restart coverage work at all.
 
-        "Adopted" matters here: `load_primary()`'s success point is the
-        convergence point for BOTH a genuine spawn and `LlamaServer.
-        start()`'s port-in-use reuse/adoption branch (reusing a server
-        this loader did not itself spawn — e.g. the daemon's own loader
-        adopting a TUI-spawned coder under the normal `codey-start`
-        runtime, where the TUI process spawns the coder, not the daemon).
-        So this answers "spawned OR adopted at least once," not "spawned
-        at least once."
+        **NEW-152 (2026-08-13, code-reviewer retroactive pass on the
+        NEW-145 fix): replaces the original `_ever_loaded`/
+        `was_ever_loaded()`, which was set True on EITHER a genuine spawn
+        OR the adoption branch.** That made `core/daemon.py`'s
+        `_watchdog_check_model()` gate sticky-True after the very FIRST
+        adoption — which, under the normal `codey-start` steady state (TUI
+        spawns the coder; the daemon's own loader later adopts it via its
+        first background dispatch), is the common case, not an edge case.
+        Once adopted, the flag stayed True forever, so an ordinary TUI
+        session ending (not a crash) looked identical to "was loaded,
+        restart it," and the watchdog respawned the coder at the smaller
+        background ceiling — reproducing NEW-145's original symptom
+        through adoption instead of through the deleted eager preload.
 
-        Used by `core/daemon.py`'s `_watchdog_check_model()` (7.4b
-        sub-task C's NEW-145 fix) to distinguish "was loaded and died —
-        restart it" from "never loaded, nobody has asked yet — leave it
-        alone." Crash-restart coverage under this distinction: (a)
-        unchanged for coder loads THIS loader's own process performed
-        (background-dispatched loads through the daemon's own
-        `get_loader()`) — restarts on crash exactly as before; (b) ONLY
-        set for a TUI-spawned coder if the daemon's OWN loader has itself
-        called `load_primary()` at least once and hit the port-in-use
-        adoption branch — this requires the daemon to have made its own
-        background-dispatched load/ensure call at some point in the
-        process's lifetime, NOT merely "a TUI session exists." In a
-        TUI-only session with no background task ever dispatched, the
-        daemon's loader never calls `load_primary()` at all, so
-        `_ever_loaded` stays False forever and the watchdog will NOT
-        restart a crashed TUI-spawned coder — a real reduction in
-        crash-restart coverage versus the pre-NEW-145-fix behavior,
-        accepted as a consequence of removing the eager preload (adjacent
-        to NEW-149's "first spawner wins the context size" gap, not fixed
-        by this change); (c) a coder that has never been spawned by NOR
-        adopted through this loader's own `load_primary()` call is left
-        alone by the watchdog rather than eagerly loaded on its 30s tick.
+        Narrowing to genuine-spawn-only fixes that: adoption no longer
+        contributes to this flag at all, so a TUI-adopted-then-exited
+        coder correctly reads as "nothing currently wants this," matching
+        Ish's decision 3 ("loads lazily on first real request") instead of
+        being treated as a crash to recover from.
+
+        Used by `_watchdog_check_model()` to distinguish "this daemon's
+        own loader spawned a coder and it isn't running now — restart it"
+        from "this loader has only ever adopted someone else's coder, or
+        never loaded one at all — leave it alone until a real request
+        comes in." Case-by-case: (a) unchanged for coder loads THIS
+        loader's own process genuinely spawned (background-dispatched
+        loads through the daemon's own `get_loader()`) — restarts on
+        crash exactly as before, unconditionally, regardless of whether a
+        TUI is currently attached; (b) **reduced from the previous
+        behavior, deliberately**: a TUI-spawned coder that the daemon's
+        loader has only ever ADOPTED (never itself spawned) is no longer
+        restarted by the watchdog if it crashes — the daemon does not own
+        that process's lifecycle (same argument `load_primary()`'s reuse
+        branch already makes about residency accounting), and the TUI's
+        own next `infer()` call will reload it. This is the fix for the
+        false-positive respawn described above, not a separate regression
+        — the previous "restart an adopted coder on crash" behavior is
+        exactly the mechanism that caused NEW-152; (c) a coder that has
+        never been spawned by NOR adopted through this loader's own
+        `load_primary()` call is left alone by the watchdog, same as
+        before.
+
+        Known residual, NOT fixed by this change (logged separately,
+        NEW-149-adjacent): once this loader HAS genuinely spawned a
+        background coder at least once, `_ever_spawned` stays sticky-True
+        for the rest of the process's lifetime — a later tick can still
+        respawn it at the 16384 background ceiling after it stops, and a
+        later-attaching interactive TUI would reuse that under-provisioned
+        server via `LlamaServer.start()`'s reuse branch. Only case (b)
+        (pure adoption, no genuine spawn ever) is fixed here.
         """
-        return self._ever_loaded
+        return self._ever_spawned
 
     def get_model_instance(self) -> Optional[LlamaServer]:
         """Get the llama-server instance."""

@@ -231,10 +231,11 @@ def test_load_primary_reserves_and_marks_resident_on_real_spawn(monkeypatch):
     assert loader._slot_id == "slot-1"
     assert reserve_calls[0].model_id == "primary"
     assert mark_calls == ["slot-1"]
-    # 7.4b sub-task C's NEW-145 fix: a genuine spawn sets was_ever_loaded()
-    # True (used by core/daemon.py's watchdog to distinguish "never loaded,
-    # nothing to restart" from "was loaded, restart it").
-    assert loader.was_ever_loaded() is True
+    # NEW-152 (narrows 7.4b sub-task C's NEW-145 fix): a genuine spawn sets
+    # was_ever_spawned() True (used by core/daemon.py's watchdog to
+    # distinguish "never spawned, nothing to restart" from "this loader
+    # spawned it, restart it").
+    assert loader.was_ever_spawned() is True
 
 
 def test_load_primary_denied_reservation_does_not_spawn(monkeypatch):
@@ -252,10 +253,10 @@ def test_load_primary_denied_reservation_does_not_spawn(monkeypatch):
     assert loader.is_loaded() is False
     assert loader.get_load_failures() == 1
     # 7.4b sub-task C's NEW-145 fix: a gate-denied load never reaches the
-    # success point, so was_ever_loaded() stays False -- this is exactly
+    # success point, so was_ever_spawned() stays False -- this is exactly
     # the case core/daemon.py's watchdog must leave alone rather than
     # eagerly loading on its own 30s tick.
-    assert loader.was_ever_loaded() is False
+    assert loader.was_ever_spawned() is False
 
 
 def test_load_primary_spawn_failure_releases_slot_not_leaked(monkeypatch):
@@ -301,10 +302,14 @@ def test_load_primary_reuse_path_releases_own_slot_does_not_mark_resident(monkey
     assert loader._slot_id is None
     assert released == ["slot-3"]
     assert mark_calls == []  # never marked resident for a process we don't own
-    # 7.4b sub-task C's NEW-145 fix: the reuse/adoption branch converges on
-    # the same success point as a genuine spawn, so was_ever_loaded() is
-    # True here too -- "spawned OR adopted at least once," not "spawned."
-    assert loader.was_ever_loaded() is True
+    # NEW-152: the reuse/adoption branch converges on the same success
+    # point as a genuine spawn, but was_ever_spawned() only answers "did
+    # THIS loader's own subprocess.Popen() actually run" -- adoption
+    # deliberately does NOT set it (see NEW-152 in NEW_ISSUES.md: the
+    # previous, broader "spawned OR adopted" flag was the root cause of a
+    # sticky watchdog gate that stopped protecting the daemon after the
+    # first adoption). This is the regression assertion for that fix.
+    assert loader.was_ever_spawned() is False
 
 
 def test_unload_releases_slot(monkeypatch):

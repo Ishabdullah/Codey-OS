@@ -7853,3 +7853,124 @@ finding for the same bug. See `NEW-39`.)*
   still open pending exactly that, not as done because the code merely
   exists in `main` now. See `TODO.md`'s 7.4b sub-tasks A/C for the
   matching status note.
+
+## Found during the retroactive `code-reviewer` pass on NEW-151's daemon change, 2026-08-13
+
+### [NEW-152] `core/loader_v2.py`'s `ModelLoader._ever_loaded` (the NEW-145 watchdog gate) was set True on BOTH a genuine coder spawn AND the port-in-use adoption branch, never reset — sticky-True after the daemon's first adoption meant the watchdog gate stopped protecting against eager background-ceiling respawns on the normal `codey-start` steady state
+
+- **Status: Confirmed** — found by a retroactive `code-reviewer` pass
+  (prompted by `NEW-151`, the process violation of landing this change
+  without review), fixed the same round. **The fix itself has NOT yet
+  had its own mandatory rule-4 `code-reviewer` pass — the `code-reviewer`
+  subagent was not invocable in the session that built this fix (no
+  Task/subagent-launch tool available); the diff was instead reviewed by
+  project-architect directly against `.claude/agents/code-reviewer.md`'s
+  own checklist. That is not a substitute for the real pass.** Do not
+  read "found by code-reviewer" as "the fix is code-reviewer-approved."
+  Reproduction traced directly against `core/loader_v2.py`'s pre-fix
+  `load_primary()` (~line 788-790) and `core/daemon.py`'s pre-fix
+  `_watchdog_check_model()` (~line 777): (1) TUI spawns the coder
+  interactively (e.g. 32768 ctx); (2) daemon later dispatches a
+  background task → `load_primary()` hits the port-in-use adoption
+  branch (`self._server.process is None`) → the old combined
+  `_ever_loaded` flag goes True; (3) TUI session ends, coder process
+  exits, port frees; (4) next watchdog tick: `was_running` correctly
+  reads False, but the old `was_ever_loaded()` was still True (sticky,
+  never reset by `unload()`) — the NEW-145 gate did NOT fire; (5) falls
+  through to `ensure_model()`, `is_interactive_session_active()` now
+  False (TUI gone) → coder respawns at the 16384 background ceiling
+  instead of doing nothing; (6) TUI reattaches, reuses the
+  already-running 16384 server via `LlamaServer.start()`'s reuse
+  branch — reproducing NEW-145's original symptom through adoption
+  instead of the deleted eager preload. Step (2)-(4) is the *normal*
+  `codey-start` steady state (TUI-spawns/daemon-adopts), not an edge
+  case, so this gap was reachable on essentially every real session,
+  not a rare race.
+- **Fix, `core/loader_v2.py`/`core/daemon.py`:** replaced the single
+  `_ever_loaded`/`was_ever_loaded()` (spawned-OR-adopted) with
+  `_ever_spawned`/`was_ever_spawned()` (genuine-spawn-only — adoption no
+  longer sets it). The watchdog gate (`core/daemon.py:777`) now reads
+  `if not was_running and not loader.was_ever_spawned(): return`.
+  Crash-restart coverage for coder loads the daemon's own loader
+  genuinely spawned (background-dispatched loads) is unconditional and
+  unchanged. **Deliberate, documented reduction:** a TUI-spawned coder
+  the daemon's loader has only ever ADOPTED is no longer restarted by
+  the watchdog if it crashes while the TUI is still attached — the
+  daemon doesn't own that process's lifecycle (same argument
+  `load_primary()`'s reuse branch already makes about residency
+  accounting) and the TUI's own next `infer()` call reloads it; this is
+  the direct fix for the false-positive respawn above, not a separate
+  regression. Full case-by-case breakdown lives on
+  `was_ever_spawned()`'s own docstring in `core/loader_v2.py`. Residual,
+  NOT fixed by this change (adjacent to `NEW-149`, not expanded here):
+  once the daemon HAS genuinely spawned a background coder at least
+  once, `_ever_spawned` stays sticky-True — a later tick can still
+  respawn it at 16384 after it stops, and a later-attaching TUI reuses
+  that server; only the pure-adoption case is fixed.
+- **Verified:** `python -m pytest tests/test_daemon_model_watchdog.py
+  tests/test_loader_resource_gate.py -q` → 37 passed; full suite
+  `python -m pytest -q` → 742 passed, 1 skipped, 0 failed. Reviewed by
+  project-architect against `.claude/agents/code-reviewer.md`'s
+  checklist (kill-by-PID not pattern, no self-referential guard, no
+  silently-swallowed exceptions, `loaded_ok`/`finally` teardown still
+  intact, no GUI/network surface touched) as a stopgap only — **the
+  mandatory rule-4 `code-reviewer` subagent pass has NOT run** (not
+  invocable in this session, no Task/subagent-launch tool available) and
+  is still outstanding, same as **live-verification**, which is also
+  still outstanding (see `TODO.md`'s 7.4b sub-task C, which already
+  specifies the exact pass/fail evidence to capture, now extended to
+  also cover the adoption/exit/respawn sequence above). This is
+  code-complete/test-verified only. Do not treat `NEW-145`/sub-task C as
+  closed, and do not treat this fix as "code-reviewer approved," until
+  both the real `code-reviewer` pass and that live pass run.
+
+### [NEW-153] `core/embed_server.py`'s `start()` has a TOCTOU: a concurrent `is_healthy()` False result during the daemon's own up-to-30s post-spawn health-wait can cause a caller to kill-and-restart the daemon's own still-initializing embed server via `_kill_port_occupant()`
+
+- **Status: Confirmed** (logged only, not fixed — outside this round's
+  scope). Found during the same retroactive `code-reviewer` pass as
+  `NEW-152`. `EmbedServer.start()`'s "already running" fast path only
+  checks `self.process` (this Python object's own spawned handle); a
+  different process's `is_healthy()` check racing against the daemon's
+  own in-flight startup health-wait (up to 30s) can read a not-yet-ready
+  health endpoint as unhealthy and fall through to
+  `_kill_port_occupant()`, killing and respawning the daemon's own
+  legitimately-starting embed server. Self-recovering (embed is
+  optional — BM25 fallback exists — and the kill is by tracked PID, so
+  CLAUDE.md rule 3 is satisfied), but more reachable now than before
+  `NEW-145`'s fix: removing the daemon's eager coder preload means
+  embed's first real cross-process health check now happens earlier
+  relative to daemon startup, shrinking the window less busy with other
+  startup work and making the race more likely to actually land during
+  it.
+
+### [NEW-154] `core/daemon.py`'s own embed watchdog (~line 996) checks `get_embed_server().is_running()` while `core/inference.py`'s NEW-144 fix uses `is_healthy()` — two different liveness primitives answering the same underlying "is embed up" question
+
+- **Status: Suggestion** (logged only, not fixed — outside this round's
+  scope). Found during the same retroactive `code-reviewer` pass as
+  `NEW-152`. Not a known bug today — `is_running()` (process-alive) and
+  `is_healthy()` (process-alive AND answering `/health`) will usually
+  agree — but worth a one-line note for whoever next touches embed
+  lifecycle: pick one primitive as the canonical "is embed up" check for
+  both the watchdog and inference's pre-flight, or document why they
+  intentionally differ (e.g. the watchdog caring about "is the process
+  alive at all" vs. inference caring about "is it ready to actually
+  answer a request").
+
+### [NEW-155] `NEW-152`'s fix narrows the watchdog gate to genuine-spawn-only, but `_ever_spawned` is still sticky-True forever once set — a background coder the daemon genuinely spawned once can still be respawned at the 16384 background ceiling on a later tick and leave a later-attaching interactive TUI stuck at it, same mechanism as `NEW-149`
+
+- **Status: Confirmed**, self-documented in `was_ever_spawned()`'s own
+  docstring (`core/loader_v2.py`) at fix time, cross-referenced here per
+  CLAUDE.md rule 8 rather than left only as a sub-clause of the `NEW-152`
+  fix note. `NEW-152`'s fix closes the pure-adoption case (a coder this
+  loader has only ever adopted, never spawned, no longer triggers an
+  eager respawn) but does not touch the case where this loader HAS
+  genuinely spawned a coder at least once: `_ever_spawned` stays True for
+  the rest of the process's lifetime (by design — that stickiness is the
+  crash-restart mechanism for genuine spawns), so a later watchdog tick
+  can still call `ensure_model()` and respawn that coder at the smaller
+  16384 background ceiling after it stops, and a later-attaching
+  interactive TUI would reuse that under-provisioned server via
+  `LlamaServer.start()`'s reuse branch (`core/loader_v2.py:211-230`) —
+  the exact "first spawner wins the context size" mechanism `NEW-149`
+  already names. Not fixed here; `NEW-149`'s own resolution (if one is
+  ever scoped) should account for this reachable path through it too.

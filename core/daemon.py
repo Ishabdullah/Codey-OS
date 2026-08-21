@@ -774,20 +774,38 @@ class Daemon:
             server = loader.get_model_instance()
             was_running = bool(server and server.is_running())
 
-            if not was_running and not loader.was_ever_loaded():
-                # 7.4b sub-task C's NEW-145 fix: nothing has ever spawned
-                # or adopted (see `was_ever_loaded()`'s docstring) a coder
-                # server through this loader — there is nothing "died" to
-                # restart. Calling `ensure_model()` here would reproduce
-                # NEW-145's exact race on this watchdog's own 30s tick
-                # (the daemon's steady state under `codey-start`, since a
-                # running daemon skips `_main_loop()`'s one-time startup
-                # entirely): it would spawn the coder at the background
-                # 16384 ceiling before any TUI session registers as
-                # interactive, and a later-attaching TUI would reuse that
-                # under-provisioned server. Leave it alone — the first
-                # real request (interactive or background) is the only
-                # thing that should trigger the first load.
+            if not was_running and not loader.was_ever_spawned():
+                # NEW-152 (code-reviewer retroactive pass on the 7.4b
+                # sub-task C / NEW-145 fix, 2026-08-13): this used to gate
+                # on `was_ever_loaded()`, which was sticky-True after
+                # EITHER a genuine spawn OR the port-in-use adoption
+                # branch. Under the normal `codey-start` steady state (TUI
+                # spawns the coder; the daemon's own loader later adopts
+                # it via its first background dispatch), that flag went
+                # True on the very first adoption and never came back down
+                # — so every later tick where the coder wasn't running
+                # (including the ordinary case of the TUI session simply
+                # ending, not crashing) fell through to `ensure_model()`
+                # below and respawned the coder at the smaller 16384
+                # background ceiling. A TUI reattaching afterward reused
+                # that under-provisioned server via `LlamaServer.start()`'s
+                # reuse branch — reproducing NEW-145's original symptom
+                # through adoption instead of through the deleted eager
+                # preload.
+                #
+                # `was_ever_spawned()` narrows this to "this loader itself
+                # spawned a coder subprocess at least once" — adoption no
+                # longer counts. Crash-restart coverage for coder loads
+                # this daemon genuinely spawned (background-dispatched
+                # loads) is unconditional and unchanged; a coder this
+                # loader has only ever ADOPTED (or never loaded at all) is
+                # left alone here until a real request comes in, matching
+                # Ish's decision 3 ("loads lazily on first real request")
+                # instead of being eagerly restarted just because it
+                # existed once. See `was_ever_spawned()`'s own docstring
+                # for the full case-by-case breakdown, including the
+                # deliberate reduction in crash-restart coverage for
+                # adopted-only coders this accepts.
                 return
 
             if loader.ensure_model():
@@ -822,14 +840,15 @@ class Daemon:
                 # (see NEW-96/U.27) — just state the fact.
                 warning(f"7B model not loaded — the planner hasn't freed its port ({reason})")
             elif was_running is False and server is None:
-                # Reachable only because `was_ever_loaded()` gated us into
-                # calling `ensure_model()` at all (7.4b sub-task C's
-                # NEW-145 fix removed the daemon's startup preload, so
-                # there is no longer a preload-failure path here) — this
-                # loader loaded/adopted a server at least once before, but
-                # `unload()` cleared the instance and this reload attempt
-                # also failed. "died" would misdescribe this: there's no
-                # currently-known process that stopped running.
+                # Reachable only because `was_ever_spawned()` (NEW-152)
+                # gated us into calling `ensure_model()` at all (7.4b
+                # sub-task C's NEW-145 fix removed the daemon's startup
+                # preload, so there is no longer a preload-failure path
+                # here) — this loader genuinely spawned a server at least
+                # once before, but `unload()` cleared the instance and
+                # this reload attempt also failed. "died" would
+                # misdescribe this: there's no currently-known process
+                # that stopped running.
                 warning(f"7B model not loaded ({outcome}: {reason}) — attempted load, still not running")
             else:
                 # The process really was running and now isn't — this is the
