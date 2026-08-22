@@ -650,7 +650,7 @@ was measured on the 7B), `NEW-139` (`--mmap` makes quantized-weight zram
 compression structurally unmeasurable). Closed by retirement: `NEW-137`
 and `NEW-143`, both of which are specifically about the 7B at 32768.
 
-### 4.4 Outstanding process debt — read before starting Phase 1 work
+### 4.4 Outstanding process debt — folded into M1's review pass
 
 **Rule 4 has live debt.** `NEW-151` recorded a self-found process
 violation: commit `5687dcf` swept in two already-implemented,
@@ -661,15 +661,27 @@ adoption), which was then fixed in commit `6528446` — but **that fix is
 itself code-complete only, not code-reviewer-approved and not
 live-verified.** `NEW-145`, `NEW-149`, and `NEW-155` stay open.
 
-**Concretely, before any new 7.4b work:**
-1. A real `code-reviewer` pass on 7.4b sub-task A's diff
-   (`EmbedServer.is_healthy()`, `core/inference.py:_start_server()`).
-2. A real `code-reviewer` pass on the `NEW-152` fix
+**Sequencing changed 2026-08-22.** This debt used to be listed as "clear
+it before any new 7.4b work." Under Ish's direction to migrate the model
+first (§6.2), it is instead **folded into M1's own mandatory review
+pass** — because M1 touches the same files (`core/loader_v2.py`,
+`core/daemon.py`, `core/embed_server.py`, `core/inference.py`), and
+reviewing a superseded intermediate state before changing it again is
+wasted effort. **The gate is not being relaxed, only re-pointed:**
+
+1. When M1's diffs go to `code-reviewer`, the brief must say explicitly
+   that two previously-unreviewed rule-4 diffs are in scope as part of
+   the combined state: 7.4b sub-task A (`EmbedServer.is_healthy()`,
+   `core/inference.py:_start_server()`) and the `NEW-152` fix
    (`_ever_spawned`/`was_ever_spawned()` in `core/loader_v2.py`,
-   `_watchdog_check_model()` in `core/daemon.py`).
-3. `live-verifier` on both, under the real `codey-start` entry point —
-   `NEW-145` was only ever found under the real entry point, never under
-   a synthetic harness.
+   `_watchdog_check_model()` in `core/daemon.py`). A reviewer who only
+   sees M1's own delta will miss them.
+2. `live-verifier` covers both as part of M1-E, **under the real
+   `codey-start` entry point** — `NEW-145` was only ever found under the
+   real entry point, never under a synthetic harness. That constraint is
+   unchanged and non-negotiable.
+3. If M1 slips or is abandoned, this debt reverts to standalone and must
+   be cleared on its own. It does not expire by being folded in.
 
 **Working tree state:** clean as of 2026-08-21 (only this plan's own new
 files untracked). Notes in the archived `TODO.md` saying 7.4a/7.4b work
@@ -797,6 +809,26 @@ Two tracks run in parallel, plus standing lanes that never close.
 (business)** is the Jan-1 deliverable. They intersect at exactly two
 points, named below.
 
+> ### ▶ Start here: M1, the model migration (§6.2)
+>
+> **Ish's direction, 2026-08-22: do the model change fully, before
+> anything else on Track A.** Not after the review debt, not alongside
+> other platform work — first.
+>
+> The reasoning is sound and worth stating so nobody re-sequences it
+> later: every open item in Phase A1 is measured against whichever model
+> is actually loaded. The pending live-verification pass, the two
+> unreviewed rule-4 diffs, the stale budget constants, 7.4b's context
+> ceilings, 7.3's tier thresholds — all of them are calibrated to models
+> that are being retired. Doing any of that work first means doing it
+> twice, and the second time would invalidate the first. Migrating first
+> means everything downstream is measured once, against the model that
+> will actually be there.
+>
+> The one thing that does **not** wait behind M1 is Track B (§6.3) — the
+> Core's schema, API, and auth touch no model at all and can start in
+> parallel today.
+
 ### 6.0 What this merge collapsed
 
 Recorded so nobody re-splits them:
@@ -843,29 +875,40 @@ adds:
 - **Removes:** the concurrent primary+planner admission case (`NEW-141`,
   `NEW-140` scenario 3, `NEW-142`'s planner-eviction path) — there is no
   pair left to run concurrently. 7.4b sub-task B (planner context
-  ceiling) becomes moot: there is no separate planner to cap.
-- **Keeps, unchanged:** the review debt (§4.4), the lease/registry, the
-  concurrency test, the gate mechanism itself. None of these depend on
-  which model is loaded.
-- **Adds:** the migration itself, **M1 below, which now runs first** —
-  because every remaining item in this phase is measured against
-  whichever model is actually loaded, and re-verifying them against a
-  model that is about to be retired is wasted work.
+  ceiling) becomes moot: no separate planner model survives to cap.
+- **Keeps, unchanged:** the lease/registry, the concurrency test, the
+  gate mechanism itself. None depend on which model is loaded.
+- **Adds:** the migration itself, **M1 below, which runs first.**
 
-**Blocked-by:** §4.4's review debt. Clear that first — it is two reviews
-and a live pass, and M1's own changes land in the same files.
+**Blocked-by: nothing.** M1 starts now. §4.4's review debt is **folded
+into M1's own mandatory review pass** rather than gating it — M1 touches
+the same files, so reviewing a superseded intermediate state first would
+be wasted effort. The gate is re-pointed, not relaxed: see §4.4 for the
+three conditions that keeps it honest (the reviewer brief must name the
+two previously-unreviewed diffs; live-verification runs under the real
+`codey-start` entry point; and if M1 slips, the debt reverts to
+standalone).
 
-#### M1 — migrate to Qwen3.5-4B as the single model (new, runs first)
+#### M1 — migrate to Qwen3.5-4B as the single model ◀ START HERE
 
-Sub-tasks in dependency order. Every one of A/B/C/E touches model
-load/spawn paths, so **all of them are CLAUDE.md rule 4 category** —
-mandatory code-reviewer pass, no exceptions.
+**Ish's direction, 2026-08-22: do the model change fully before anything
+else on Track A.** Sub-tasks in dependency order. A/B/C/D/E all touch
+model load/spawn paths, so **every one is CLAUDE.md rule 4 category** —
+mandatory code-reviewer pass, no exceptions, including for the ones that
+look like config edits.
 
 - **M1-A — arch + cost correctness first, before anything loads.**
   Two things, and the second is the one that matters:
-  1. Point `core/resource_gate.py`'s `KNOWN_MODEL_ARCHS["primary"]` at a
-     `qwen35` entry instead of `QWEN25_7B_ARCH`. Leaving it is the
-     `NEW-84` class of admission-safety bug — a silently wrong KV term.
+  1. Point `core/resource_gate.py`'s `KNOWN_MODEL_ARCHS` at a `qwen35`
+     entry — **both roles, not just `"primary"`.** `"planner"` currently
+     maps to `QWEN25_1_5B_ARCH`, and it stays a live role until M1-D
+     collapses it (M1-B repoints the planner *model* at the same file, so
+     from that moment a `"planner"` slot costed with a 1.5B's
+     architecture is wrong). Leaving either is the `NEW-84` class of
+     admission-safety bug — a silently wrong KV term. Also delete or
+     re-scope the test-only `QWEN3_4B_ARCH` substitute (36 layers, 8 KV
+     heads) — it describes the *older* Qwen3-4B and is now one confusable
+     name away from the real default (rule 14).
   2. **`ModelArch` cannot express this model.** It assumes every layer
      attends; Qwen3.5-4B has 8 full-attention layers and 24 SSM layers
      (§1.4). Passing `n_layers=32` would over-estimate KV by ~4× and
@@ -878,13 +921,43 @@ mandatory code-reviewer pass, no exceptions.
      comment must record that this is a hybrid Transformer-SSM model and
      name the GGUF fields it was derived from (`NEW-157`).
   Unit-testable with synthetic meminfo; no model load.
-- **M1-B — config repointing.** `utils/config.py`: `MODEL_PATH` →
-  the Qwen3.5-4B file. Retire `PLANNER_MODEL_PATH`/`PLANND_SERVER_PORT`
-  (port 8081) and `get_planner_n_ctx()` as live config; decide the
-  disposition of `SECONDARY_MODEL_PATH`. Rename `QWEN_7B_MMAP`/
-  `QWEN_7B_MLOCK` (misleading now, behavior unchanged). Choose the
-  `n_ctx` default from §5.1's table — **§8 Q1, a decision that has to be
-  made, not deferred.**
+- **M1-B — config repointing: EVERY model slot becomes Qwen3.5-4B.**
+  Ish's explicit instruction (2026-08-22): "make sure you do it for both
+  models." After this sub-task, **no code path anywhere can load a
+  Qwen2.5-Coder-7B or a Qwen2.5-Coder-1.5B**, including through an env
+  var left set in a shell, a stale test fixture, or the LoRA swap path.
+  In `utils/config.py`:
+  - `MODEL_PATH` → `~/models/qwen3.5-4b-instruct/Qwen3.5-4B-Q4_K_M.gguf`.
+  - `PLANNER_MODEL_PATH` → **the same file.** Do not leave it pointed at
+    the 1.5B "until M1-D removes it" — that is exactly how a retired
+    model survives a migration. The planner *role* outlives this
+    sub-task; the planner *model* does not.
+  - `SECONDARY_MODEL_PATH` → the same file, or removed outright. It
+    currently names the 1.5B and is read by `core/lora_import.py`'s swap
+    path and `core/model_tiers.py`. Decide, don't leave it dangling.
+  - Retire `get_planner_n_ctx()`'s 8192 ceiling as a *separate model's*
+    budget (it was derived for a 1.5B). If a smaller planning context is
+    still wanted, re-derive it for this model; do not carry the old
+    number across.
+  - Rename `QWEN_7B_MMAP`/`QWEN_7B_MLOCK` (misleading now; behavior
+    unchanged).
+  - Choose the `n_ctx` default from §5.1's table — **§8 Q1, a decision
+    that has to be made, not deferred.** 65536 is affordable; 32768 is
+    the status quo.
+  - Grep for any remaining hardcoded path or `qwen2.5` string outside
+    tests before calling this done, and check the environment for a set
+    `CODEY_MODEL`/`CODEY_PLANNER_MODEL`/`CODEY_SECONDARY_MODEL` that
+    would silently override all of the above.
+
+  **Interim state between M1-B and M1-D, stated so it isn't a surprise:**
+  with both slots on one file but the planner path still spawning its own
+  server (port 8081), a planning call would load a **second copy of the
+  same model** — correct, but wasteful (~3GiB for nothing) and pointless.
+  Two acceptable ways through: land B and D together as one reviewed
+  change, or land B and accept the interim only if D follows immediately.
+  **Do not ship the interim as a resting state.** The gate will admit it
+  (both copies fit), which is precisely why it needs saying — nothing
+  will fail loudly to warn you.
 
   **Real consumers, enumerated by direct code read 2026-08-22 — this is
   the list, do not re-derive it from memory** (the discipline 7.4 used,
@@ -915,10 +988,15 @@ mandatory code-reviewer pass, no exceptions.
   `chat_template_kwargs: {"enable_thinking": true}`. **Verify the flag
   actually changes behavior before building on it** — the binary carries
   the strings, which is evidence it supports them, not proof.
-- **M1-D — retire the planner process path.** `core/plannd.py`'s
-  `get_plan()` calls `core/planner_loader.py:ensure_planner()`, which
-  spawns a second server on 8081. That whole path collapses into a
-  thinking-mode request against the one server. `parse_steps()` must
+- **M1-D — collapse the planner onto the one server.** This is what
+  makes "one model" real rather than "one model file loaded twice."
+  `core/plannd.py`'s `get_plan()` calls
+  `core/planner_loader.py:ensure_planner()`, which spawns a second server
+  on 8081. That whole path collapses into a thinking-mode request against
+  the single primary server. The planner *role* survives — planning still
+  happens, `classify_tier("coding", "planner", ...)` still means
+  something, `core/summarizer.py` still summarizes — it just stops having
+  its own process, its own port, and its own model. `parse_steps()` must
   read the answer, never the reasoning — confirm what it receives once
   `--reasoning-format` is set. `codeydOS`'s `start_plannd()`/
   `stop_plannd()` go away with it, which **also retires two of the three
@@ -1363,27 +1441,40 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
 
 ### Phase A1 — model foundation (§6.2)
 
-**Runs first — M1: migrate to Qwen3.5-4B as the single model** (§1.4,
-§6.2). All of A/B/C/E are rule-4 category; mandatory code-reviewer pass.
+**▶ START HERE — M1: migrate to Qwen3.5-4B as the single model** (§1.4,
+§6.2). Ish's direction 2026-08-22: do this fully before anything else on
+Track A. Every other item in this phase is calibrated against a model
+being retired, so doing them first means doing them twice. All of
+A/B/C/D/E are rule-4 category; mandatory code-reviewer pass, and that
+pass **also covers the two previously-unreviewed diffs** from §4.4.
 
-- [ ] **M1-A** — add the `qwen35` arch to `KNOWN_MODEL_ARCHS`
-      (`n_layers=32, n_kv_heads=4, head_dim=256`, GGUF-verified) and
-      decide how `full_attention_interval = 4` is represented
-      (`NEW-157`). **Do this before anything loads** — a wrong arch is a
+- [ ] **M1-A** — add the `qwen35` arch to `KNOWN_MODEL_ARCHS` for **both**
+      the `"primary"` and `"planner"` roles, expressing the 8/24 hybrid
+      split (`NEW-157`) rather than passing `n_layers=32`, which would
+      over-estimate KV ~4x and wrongly refuse an affordable 65536. Retire
+      the confusable test-only `QWEN3_4B_ARCH` (it describes the *older*
+      Qwen3-4B). **Do this before anything loads** — a wrong arch is a
       silent wrong KV term (`NEW-84` class).
-- [ ] **M1-B** — repoint `utils/config.py`: `MODEL_PATH` to the new file;
-      retire `PLANNER_MODEL_PATH`/`PLANND_SERVER_PORT`/
-      `get_planner_n_ctx()`; decide `SECONDARY_MODEL_PATH`'s disposition;
-      rename the misleading `QWEN_7B_MMAP`/`QWEN_7B_MLOCK`; choose the
-      `n_ctx` default (§8 Q1, informed by M1-E).
+- [ ] **M1-B** — repoint **every** model slot in `utils/config.py` at the
+      Qwen3.5-4B file: `MODEL_PATH`, `PLANNER_MODEL_PATH`, and
+      `SECONDARY_MODEL_PATH` (or remove the last two). Ish, 2026-08-22:
+      "make sure you do it for both models." **After this, no path can
+      load a 7B or 1.5B** — check env vars and test fixtures too.
+      Re-derive or drop `get_planner_n_ctx()`'s 8192 (it was a 1.5B's
+      budget); rename `QWEN_7B_MMAP`/`QWEN_7B_MLOCK`; choose the `n_ctx`
+      default (§8 Q1 — 65536 is affordable, 32768 is status quo).
+      **Land with M1-D or immediately before it** — in between, a
+      planning call loads a second copy of the same model.
 - [ ] **M1-C** — pass `--jinja` + `--reasoning-format` in
       `core/loader_v2.py:_spawn_locked()` and enable thinking per-request
       via `chat_template_kwargs` (`NEW-158`). Verify the flag actually
       changes behavior.
-- [ ] **M1-D** — retire the planner process path (`core/plannd.py` →
+- [ ] **M1-D** — collapse the planner onto the one server: retire the
+      second-server path (`core/plannd.py` →
       `planner_loader.ensure_planner()` → port 8081, plus `codeydOS`'s
-      `start_plannd()`/`stop_plannd()`). Confirm `parse_steps()` reads
-      the answer and not the reasoning. **Also retires `NEW-99` and
+      `start_plannd()`/`stop_plannd()`). The planner *role* survives; its
+      process, port and separate model do not. Confirm `parse_steps()`
+      reads the answer and not the reasoning. **Also retires `NEW-99` and
       `NEW-103`** (rule-3 `pkill` violations) — verify, don't assume.
 - [ ] **M1-E** — live verification: gate admission with real byte
       figures, a real inference request, a real thinking-mode planning

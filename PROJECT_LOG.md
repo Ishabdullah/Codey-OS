@@ -12,6 +12,75 @@ and Appendix A.
 
 ---
 
+## 2026-08-22 (later still) — Model migration resequenced to run FIRST, and every model slot (not just the primary) repointed at Qwen3.5-4B
+
+Two direct instructions from Ish, both docs-only, no code changed.
+
+**1. M1 runs before anything else on Track A.** Previously the plan
+gated Phase A1 behind §4.4's rule-4 review debt ("clear that first").
+Ish's reasoning for the reversal is sound and is now written into §6 so
+nobody re-sequences it later: every open item in Phase A1 — the pending
+live-verification pass, the stale budget constants, 7.4b's context
+ceilings, 7.3's tier thresholds — is calibrated against models that are
+being retired. Doing them first means doing them twice, and the second
+pass would invalidate the first. Migrating first means everything
+downstream gets measured once, against the model that will actually be
+there.
+
+**The review debt is folded into M1's own mandatory review pass, not
+dropped.** M1 touches the same files (`core/loader_v2.py`,
+`core/daemon.py`, `core/embed_server.py`, `core/inference.py`), so
+reviewing a superseded intermediate state before changing it again is
+wasted effort. Three conditions keep the rule-4 gate honest and are
+stated in §4.4: (a) the reviewer brief must explicitly name the two
+previously-unreviewed diffs (7.4b sub-task A, and the `NEW-152` fix) as
+in-scope, since a reviewer seeing only M1's delta would miss them; (b)
+live-verification runs under the real `codey-start` entry point, since
+`NEW-145` was only ever found there; (c) if M1 slips or is abandoned,
+the debt reverts to standalone — it does not expire by being folded in.
+
+**2. "Make sure you do it for both models."** M1-B previously repointed
+`MODEL_PATH` only and left `PLANNER_MODEL_PATH` on the 1.5B "until M1-D
+removes it." Rewritten: **every** model slot — `MODEL_PATH`,
+`PLANNER_MODEL_PATH`, `SECONDARY_MODEL_PATH` — points at the Qwen3.5-4B
+file (or is removed), so after M1-B no code path anywhere can load a
+Qwen2.5-Coder-7B or 1.5B, including via a stale env var, a test fixture,
+or `core/lora_import.py`'s swap path. The sub-task now says to grep for
+leftover hardcoded paths and to check the environment for a set
+`CODEY_MODEL`/`CODEY_PLANNER_MODEL`/`CODEY_SECONDARY_MODEL` that would
+silently override the config. `get_planner_n_ctx()`'s 8192 is called out
+for re-derivation rather than carry-over — it was a 1.5B's budget.
+
+**Interim state named explicitly, because nothing will fail loudly to
+warn you:** between M1-B and M1-D, both slots point at one file but the
+planner path still spawns its own server on 8081 — so a planning call
+would load a *second copy of the same model*, ~3GiB for nothing. The
+gate will happily admit it (both copies fit). Guidance: land B and D
+together, or accept the interim only if D follows immediately; do not
+ship it as a resting state.
+
+**Gate-correctness consequence caught while rewriting M1-B:**
+`KNOWN_MODEL_ARCHS["planner"]` also has to move to the `qwen35` entry,
+not just `"primary"` — the planner *role* stays live until M1-D, and the
+moment M1-B repoints its model file, a `"planner"` slot costed with a
+1.5B's architecture is wrong (`NEW-84` class). M1-A now covers both
+roles, and additionally retires the test-only `QWEN3_4B_ARCH` constant
+(36 layers / 8 KV heads — it describes the *older* Qwen3-4B and is now
+one confusable name away from the real default, exactly the trap rule 14
+was just written for).
+
+**M1-D reframed** from "retire the planner process path" to "collapse the
+planner onto the one server," since the planner *role* genuinely
+survives — planning still happens, `classify_tier("coding", "planner",
+...)` still means something, and `core/summarizer.py` still summarizes.
+What goes away is its process, its port, and its separate model.
+
+Docs touched: `CODEY_MASTER_PLAN.md` §4.4, §6 (new start-here banner),
+§6.2 (M1-A/B/D rewritten, blocked-by cleared), Appendix A. Nothing is
+live-verified; M1-E remains where the arithmetic gets confirmed.
+
+---
+
 ## 2026-08-22 (later) — Correction: Qwen3.5-4B's KV cache is 0.571x the retired 7B's, not 2.29x — and a new rule 14 (never assume, verify)
 
 **Ish caught a wrong claim in the entry below and corrected it.** The
