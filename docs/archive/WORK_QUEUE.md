@@ -1,3 +1,13 @@
+**ARCHIVED 2026-08-21 (Ish's explicit instruction).** Superseded by
+`CODEY_MASTER_PLAN.md` in the repo root. Its "Track 3 items 1-8" naming
+scheme is retired in favor of the vision-doc numbering the plan uses
+(7.4, 7.3, 4.3, 7.5, 4.5, 4.6, 4.7). Its "Currently here" section was
+already stale (last updated 2026-07-31) relative to the work that
+followed. Kept here as the evidence trail behind each queue item. **Do
+not plan work from this file.**
+
+---
+
 # Work Queue — One Ordered List, Everything Outstanding
 
 **Purpose:** every other tracking doc (`PENDING_ISH_DECISIONS.md`,

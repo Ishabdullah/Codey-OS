@@ -27,7 +27,7 @@ models, e.g. 4B, are the norm for most agents) and, in some cases, their
 own process, gated onto shared hardware by a not-yet-built scheduler/
 resource-bus layer rather than all running concurrently. This is
 documented direction, not yet built — see
-[`CODEY_OS_MASTER_VISION.md`](CODEY_OS_MASTER_VISION.md) Section 9 and
+[`CODEY_MASTER_PLAN.md`](CODEY_MASTER_PLAN.md) §3 and
 [`docs/agent-plugin-blueprint.md`](docs/agent-plugin-blueprint.md) for
 the full amendment and the developer-facing blueprint for integrating a
 new domain agent.
@@ -190,9 +190,14 @@ be rolled back.
 | [docs/agent-plugin-blueprint.md](docs/agent-plugin-blueprint.md) | Blueprint for designing/integrating a new domain agent (multi-agent platform direction) |
 | [docs/version-history.md](docs/version-history.md) / [CHANGELOG.md](CHANGELOG.md) | Release history |
 
-`CODEY_OS_MASTER_VISION.md` in the repo root is the authoritative,
-maintained spec for what Codey-OS is and where it's headed — the source
-this README itself is checked against.
+[`CODEY_MASTER_PLAN.md`](CODEY_MASTER_PLAN.md) in the repo root is the
+single authoritative plan and spec — what Codey-OS is, the ground rules,
+where things actually stand today, and every outstanding item in
+dependency order. It is the source this README is checked against, and
+the first thing any contributor (human or AI agent) should read. It
+supersedes the former `CODEY_OS_MASTER_VISION.md`, `TODO.md`,
+`WORK_QUEUE.md`, `PROJECT_PLAN.md`, and `Codey-Restoricon-OS.md`, which
+now live in `docs/archive/` as evidence only.
 
 ---
 

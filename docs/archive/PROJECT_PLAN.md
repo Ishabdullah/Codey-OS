@@ -1,3 +1,13 @@
+**ARCHIVED 2026-08-21 (Ish's explicit instruction).** Superseded by
+`CODEY_MASTER_PLAN.md` in the repo root. Its "Phase 5a-5f" naming scheme
+is retired; its code-complete-vs-live-verified discipline (ground rule 7)
+is carried forward and still binding. Its Section 5 open questions were
+all already resolved. Kept here as the historical phase record and the
+round-by-round audit-remediation detail (Rounds 1-19). **Do not plan work
+from this file.** For ongoing round records, use `PROJECT_LOG.md`.
+
+---
+
 # Project Plan: Codey-OS (formerly Codey-v3 + CCOS, v4 retired)
 
 **Status:** Active

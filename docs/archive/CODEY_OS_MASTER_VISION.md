@@ -1,3 +1,14 @@
+**ARCHIVED 2026-08-21 (Ish's explicit instruction).** Superseded by
+`CODEY_MASTER_PLAN.md` in the repo root, which is now the single
+authoritative plan/spec for this project. This document's platform
+identity, architecture, safety model, planned architecture (Sections 7,
+9, 11), and non-goals were all carried forward into that plan — read it,
+not this. Kept here as the evidence trail: the full reasoning, the dated
+amendments, and the verbatim wording behind every decision the plan now
+states in summary form. **Do not plan work from this file.**
+
+---
+
 # Codey-OS — Master Vision & Specification
 
 **Status: DRAFT — awaiting Ish's sign-off.**

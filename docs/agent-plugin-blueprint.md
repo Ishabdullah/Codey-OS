@@ -1,5 +1,14 @@
 > [← Back to README](../README.md)
 
+> **Pointer note, 2026-08-21:** the current authoritative plan is
+> `CODEY_MASTER_PLAN.md` in the repo root. This document is still live
+> and still the design source for the manifest-schema and
+> agent-integration work (master plan §6.8, items 9.3/9.4). Its
+> references to `CODEY_OS_MASTER_VISION.md` and `WORK_QUEUE.md` section
+> numbers now resolve against the archived copies in `docs/archive/`,
+> which keep their original numbering.
+
+
 # Agent/Plugin Integration Blueprint
 
 **Status: design document for the multi-agent platform direction

@@ -3,6 +3,79 @@
 Reverse-chronological. Add a new entry at the top after every meaningful
 change, decision, or Qwen task completion.
 
+**This is the project's round-by-round record (CLAUDE.md rules 7 and 9),
+subordinate to `CODEY_MASTER_PLAN.md` — the single authoritative plan.**
+It is NOT archived. Status here must keep the code-complete /
+code-reviewer-approved / live-verified distinction explicit, and every
+round that changes project status should also update the master plan's §4
+and Appendix A.
+
+---
+
+## 2026-08-21 — Doc consolidation: six tracking/spec docs merged into one authoritative `CODEY_MASTER_PLAN.md`
+
+Executed the "PENDING NEXT STEP" recorded at the top of
+`Codey-Restoricon-OS.md` (Ish's explicit instruction, this session, on a
+fresh context window with a stronger model specifically so nothing got
+dropped in the merge).
+
+**New authoritative document: `CODEY_MASTER_PLAN.md`** (repo root). One
+file carrying: the platform + business identity and the Jan-1-2027
+full-scope target (§1); all 11 CLAUDE.md rules plus two hard invariants
+carried from the gate work (§2); the merged architecture — CCOS shell,
+the Restoricon Core's four layers, one-brain-two-limbs, three
+surfaces/one API/one auth, phone-first deployment, the shared model layer
+and Model Orchestrator (§3); an honest current-state snapshot separating
+built-and-live-verified from built-not-verified, including the §4.4
+rule-4 review debt (§4); the device's real numbers stated once (§5); the
+merged plan as two parallel tracks plus standing lanes (§6); risks (§7);
+eight open decisions awaiting Ish (§8); the document map (§9); the agent
+pipeline (§10); and appendices — the full open-item register keeping the
+original TODO IDs (A), the findings register pointer (B), Ish's verbatim
+CRM module breakdown (C), and the repo structure (D).
+
+**Merged and archived** to `docs/archive/` with archival headers
+(`git mv`, history preserved): `CODEY_OS_MASTER_VISION.md`, `TODO.md`,
+`WORK_QUEUE.md`, `PROJECT_PLAN.md`, `Codey-Restoricon-OS.md`. Each header
+names its successor and says plainly: evidence only, never plan from it.
+
+**Deliberately NOT archived, and stated as such in the plan's §9:**
+`NEW_ISSUES.md` and `PROJECT_LOG.md`. Both are append-only ledgers
+written to on every round — archiving them would break rules 8 and 9
+immediately. They are demoted from "start here" to appendix ledgers the
+master plan owns, and each got a banner saying so.
+
+**Sequencing decisions made in the merge** (recorded so they aren't
+re-litigated): the old Restoricon §8 step 2 "shared model layer" IS the
+old TODO Phase 1 (7.4/7.4a/7.4b) plus 7.3 plus the lease/registry —
+collapsed into one item; old §8 step 8 IS old Phase 2's 9.3/9.4 plus
+Phase 3's 9.2 — collapsed likewise; and the Core's schema/API/auth has no
+model dependency, so Track B starts immediately in parallel with the
+platform work rather than serialized behind it. `PROJECT_PLAN.md`'s
+"Phase 5a-5f" and `WORK_QUEUE.md`'s "Track 3 items 1-8" naming schemes are
+retired in favor of the vision-doc numbering the plan uses.
+
+**Deliberate non-claim, per rule 5:** this merge did NOT re-adjudicate
+the status of all 155 `NEW-##` findings. Doing so mechanically would have
+produced confident-looking statuses the plan cannot stand behind.
+Appendix B carries the findings that are load-bearing for open work and
+points at `NEW_ISSUES.md` for the rest.
+
+**Pointer sweep** so any agent (not just Claude) lands on the new plan:
+`CLAUDE.md` (start-here block, project description, rules 7/8/9,
+structure map, escalation clause), `README.md` (both references), new
+root `AGENTS.md` for non-Claude tools, and four subagent definitions
+(`project-architect`, `implementer`, `agent-tool-designer` x2).
+`LIVE_TEST_QUEUE.md` and `docs/agent-plugin-blueprint.md` deliberately
+left in place and referenced by the plan.
+
+**No code changed. No tests run** (documentation-only round; the suite's
+last recorded state, 742 passed / 1 skipped, is unaffected). Stale note
+corrected along the way per rule 6: the archived `TODO.md`'s repeated
+"uncommitted as of this writing" status lines for 7.4a/7.4b are stale —
+that work is committed (`5687dcf`, `6528446`); the archival header says
+so.
+
 ---
 
 ## 2026-08-13 — NEW-152 fix: watchdog gate narrowed from "spawned OR adopted" to "genuinely spawned" — code complete, NOT yet code-reviewer/live-verifier approved

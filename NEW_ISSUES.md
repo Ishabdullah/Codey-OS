@@ -1,5 +1,14 @@
 # New Issues Found During V3 Overhaul
 
+**This is the project's append-only findings ledger (CLAUDE.md rule 8),
+subordinate to `CODEY_MASTER_PLAN.md` — the single authoritative plan.**
+It is NOT archived and is still where every out-of-scope finding gets
+logged, rated Confirmed or Suspected. Per-issue status is authoritative
+*here*; the master plan carries only the findings that shape open work
+(its Appendix B) and deliberately does not restate 155 statuses it would
+have to guess at. Sections are chronological by the round that found
+them, not by issue number — search for `[NEW-nnn]` rather than scrolling.
+
 ## Found during NEW-10 (SIGTERM handler) implementation, 2026-07-30 — NOT fixed, logged only
 
 ### [NEW-39] `tests/test_new19_patch_failed_repeat_escalation.py`'s `_in_subtask=False` tests are fragile to a dirty git working tree on `main.py` — they fail (with a stdin-capture `OSError`, not an assertion) whenever `main.py` has real uncommitted changes at test-run time

@@ -1,3 +1,16 @@
+**ARCHIVED 2026-08-21 (Ish's explicit instruction).** Superseded by
+`CODEY_MASTER_PLAN.md` in the repo root — every open item here was
+re-homed into that plan's Section 6 and Appendix A, keeping the same IDs
+(7.4, 7.4a, 7.4b, 7.3, 4.3, 7.5, 4.5, 4.6, 4.7, 9.2, 9.3, 9.4, U.x, P.1)
+so this file stays findable from there. This file remains the place to
+read the *full* evidence behind any of those lines: verbatim live-test
+output, byte-exact gate decisions, sub-task-level scoping and review
+history. **Note: statuses here that say work is "uncommitted as of this
+writing" are stale — that work is committed (`5687dcf`, `6528446`).**
+**Do not plan work from this file.**
+
+---
+
 # TODO — Ordered Checklist of Outstanding Work
 
 **Purpose:** one flat, checkable sequence, in dependency order, of every

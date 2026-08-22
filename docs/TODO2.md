@@ -3,6 +3,11 @@
 **Created:** 2026-03-29
 **Version:** v2.7.2
 
+**Pointer note, 2026-08-21:** the current authoritative plan is
+`CODEY_MASTER_PLAN.md` in the repo root; this file still needs the scoped
+re-verification pass tracked there as `U.24` (`NEW-27`, Suspected).
+Everything below predates that plan and is not a work source.
+
 Items in this file were originally deferred from TODO.md (deleted 2026-07-30
 as fully superseded by `WORK_QUEUE.md`/`NEW_ISSUES.md` — its unchecked
 lint-debt items live at `NEW_ISSUES.md:1813-1823` and `WORK_QUEUE.md:208-209`).

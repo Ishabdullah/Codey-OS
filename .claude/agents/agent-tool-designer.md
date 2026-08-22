@@ -12,8 +12,7 @@ Codey-OS's own internal agents — not Claude Code subagents. This is about
 with `capability_registry` and dispatched by `tool_router` to whichever
 internal agent needs them: the 5-agent deliberation loop (Planner,
 Critic, Optimizer, Capability, Safety — see
-`ccos/core/agent_orchestrator.py` and `CODEY_OS_MASTER_VISION.md` Section
-2) and the coding agent itself (`core/agent.py`).
+`ccos/core/agent_orchestrator.py` and `CODEY_MASTER_PLAN.md` §3.2) and the coding agent itself (`core/agent.py`).
 
 ## What each internal agent actually needs
 
@@ -38,8 +37,8 @@ that role implies:
   its job is to block, not to act.
 - **Coding agent (`core/agent.py`)** — the actual work engine; this is
   where file edits, tool execution, and reasoning over a codebase happen,
-  and where most of Section 3's capability list in
-  `CODEY_OS_MASTER_VISION.md` ultimately gets called from.
+  and where most of the capability list in
+  `CODEY_MASTER_PLAN.md` §3.2 ultimately gets called from.
 
 Never grant a capability to an agent role that doesn't need it just
 because the plugin exposes it — the manifest lists what a capability

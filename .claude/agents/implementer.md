@@ -6,7 +6,7 @@ model: inherit
 ---
 
 You implement exactly one scoped task at a time for Codey-OS. Read
-CODEY_OS_MASTER_VISION.md and the task description fully before writing
+CODEY_MASTER_PLAN.md and the task description fully before writing
 anything.
 
 Rules:

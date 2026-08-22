@@ -1,23 +1,31 @@
 # Codey-OS — Project Ground Rules
 
-## Start here (read in this order, every new chat/context window)
+## Start here (read this first, every new chat/context window)
 
-1. **`TODO.md`** — the single ordered checklist of everything left to do,
-   in dependency order. Check this first for current outstanding work and
-   where it sits in sequence, before starting anything new.
-2. **`CODEY_OS_MASTER_VISION.md`** — the canonical spec for what Codey-OS
-   is and will be when finished. Don't contradict it without an explicit,
-   logged decision.
-3. **`WORK_QUEUE.md`** — the same ordered sequence as `TODO.md`, but with
-   full evidence/history behind each item (why it's scoped the way it is,
-   what's already been tried, live-verification detail). `TODO.md` is
-   what to check off; `WORK_QUEUE.md` is what to read when you need the
-   reasoning behind a `TODO.md` line.
+1. **`CODEY_MASTER_PLAN.md`** — **the single authoritative plan.** It is
+   the spec, the rules, the architecture, the current-state snapshot, and
+   the ordered outstanding-work register, all in one file. Read its §0
+   (how to read it), §2 (rules), §4 (where things stand), then §6/Appendix
+   A for what's left. Don't contradict it without an explicit, logged
+   decision from Ish.
+2. **`PROJECT_LOG.md`** — reverse-chronological record of every round.
+   Read the top few entries for what just happened.
+3. **`NEW_ISSUES.md`** — the append-only findings ledger (`NEW-##` IDs).
+   Authoritative for any individual finding's status.
+
+**Superseded 2026-08-21:** `TODO.md`, `CODEY_OS_MASTER_VISION.md`,
+`WORK_QUEUE.md`, `PROJECT_PLAN.md`, and `Codey-Restoricon-OS.md` were
+merged into `CODEY_MASTER_PLAN.md` and moved to `docs/archive/`. They are
+evidence only — the full reasoning and verbatim live-test output behind
+each plan line. **Never plan work from them.**
 
 ## What this project is
-Local-first AI agent OS for Android/Termux (Samsung S24 Ultra). Canonical
-spec: `CODEY_OS_MASTER_VISION.md` — read it, don't contradict it without
-an explicit, logged decision.
+Local-first AI agent OS for Android/Termux (Samsung S24 Ultra), being
+built out into the operating system and single data backend for Ish's
+construction/restoration business, **Restoricon, LLC** — target
+**January 1, 2027, full scope** (Ish, 2026-08-21). Canonical spec:
+`CODEY_MASTER_PLAN.md` — read it, don't contradict it without an
+explicit, logged decision.
 
 Codey-OS unifies two previously-separate codebases — the **Codey-OS core
 coding agent** (`core/`, `tools/`, `utils/`, `main.py`) and the
@@ -28,9 +36,13 @@ agent remains the primary capability, wrapped and registered as one.
 
 **Confirmed direction (Ish, 2026-08-05):** the product scope is a
 **multi-agent platform** — the coding agent is the first domain agent,
-not the whole system. See `CODEY_OS_MASTER_VISION.md` Section 9 and
-`docs/agent-plugin-blueprint.md`; this is documented direction, not yet
-implemented (see `TODO.md`'s Phase 3 for the rollout order).
+not the whole system. **Extended (Ish, 2026-08-21):** Codey-OS is also
+the single backend all Restoricon business data lives in, with two
+"limbs" (a comms/inbox process and an Android device-action app, each a
+fork of an existing standalone product) and three client surfaces over
+one API and one auth system. See `CODEY_MASTER_PLAN.md` §3 and
+`docs/agent-plugin-blueprint.md`; documented direction, largely not yet
+implemented (see `CODEY_MASTER_PLAN.md` §6 for the rollout order).
 
 ## Current repo structure
 
@@ -84,15 +96,19 @@ Codey-OS/
 ├── install.sh            Installation script — must stay current (see
 │                        Working conventions below)
 ├── main.py               Codey-OS CLI entry point
-├── CODEY_OS_MASTER_VISION.md   ← AUTHORITATIVE SPEC
-├── TODO.md                     ← ordered outstanding-work checklist, read first
-├── WORK_QUEUE.md               Same order as TODO.md, with full evidence/history
-├── PROJECT_PLAN.md / PROJECT_LOG.md   Phase tracking / reverse-chronological log
-├── NEW_ISSUES.md               Findings log (Confirmed/Suspected), rule 8
+├── CODEY_MASTER_PLAN.md        ← AUTHORITATIVE PLAN + SPEC, read first
+├── AGENTS.md                   Start-here pointer for non-Claude agents
+├── PENDING_ISH_DECISIONS.md    Fully resolved; record of four
+│                              capability-wrapping decisions
+├── PROJECT_LOG.md              Reverse-chronological round record, rules 7/9
+├── NEW_ISSUES.md               Findings ledger (Confirmed/Suspected), rule 8
 ├── LIVE_TEST_QUEUE.md           Model-load verification steps deferred for
 │                              Ish to run himself (not run by Claude live)
+├── docs/archive/               Superseded docs — evidence only, never plan
+│                              from these: CODEY_OS_MASTER_VISION.md, TODO.md,
+│                              WORK_QUEUE.md, PROJECT_PLAN.md,
+│                              Codey-Restoricon-OS.md, AUDIT_REPORT.md
 ├── Codey-OS-audit.md / MODEL_COMPARISON.md / PRIVACY.md
-│   (docs/archive/AUDIT_REPORT.md — archived, June-2026 pre-CCOS era)
 └── README.md / CHANGELOG.md
 ```
 
@@ -137,15 +153,18 @@ Codey-OS/
    right call.
 
 7. **Distinguish "code complete" from "live verified"** in
-   `PROJECT_PLAN.md` and `PROJECT_LOG.md`. Never mark something fully
-   done on code-complete/mock-tested evidence alone.
+   `CODEY_MASTER_PLAN.md` (§4 and Appendix A) and `PROJECT_LOG.md`. Never
+   mark something fully done on code-complete/mock-tested evidence alone.
 
 8. **Anything found outside a task's scope** — even something small —
    gets logged to `NEW_ISSUES.md` (rated Confirmed or Suspected based on
-   actual certainty) and is not silently fixed or silently dropped.
+   actual certainty) and is not silently fixed or silently dropped. If
+   it's queue-level work, it also gets a line in `CODEY_MASTER_PLAN.md`
+   Appendix A.
 
-9. **Update `PROJECT_PLAN.md` and `PROJECT_LOG.md`** after every
-   completed round, with specifics — not "improved" or "done."
+9. **Update `CODEY_MASTER_PLAN.md` (§4 current state + Appendix A) and
+   `PROJECT_LOG.md`** after every completed round, with specifics — not
+   "improved" or "done."
 
 10. Before creating a new subagent, check the current contents of
     `.claude/agents/` for one that already fits the job. Only create a
@@ -168,7 +187,7 @@ Codey-OS/
 
 - **Read before you write.** Before modifying any file, read it first.
   Before adding a dependency, check `requirements.txt` and `install.sh`.
-  Before changing architecture, re-read `CODEY_OS_MASTER_VISION.md`.
+  Before changing architecture, re-read `CODEY_MASTER_PLAN.md` §3.
 - **Follow existing conventions.** Match the style, naming, imports,
   typing, and patterns already in the file or module you're editing.
   Don't introduce new patterns without a reason.
@@ -224,7 +243,7 @@ project's worst bugs before.
 - code-reviewer rejects the same fix twice without converging
 - live-verifier shows the original symptom isn't actually resolved, or
   shows a new regression
-- The work would touch `CODEY_OS_MASTER_VISION.md`'s own architecture, or
+- The work would touch `CODEY_MASTER_PLAN.md`'s own architecture, or
   any of the gated self-improvement mechanisms (see rule 1)
 - Repeated Termux/device-specific failures suggesting an environment
   problem, not a code problem
