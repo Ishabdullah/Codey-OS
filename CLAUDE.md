@@ -184,6 +184,24 @@ Codey-OS/
     place to add something to `install.sh`, flag it rather than skipping
     the update silently.
 
+
+12. **Never assume — read the artifact, and read all of it.** No factual
+    claim about an external artifact (a model, library, API, binary, or
+    config file) may be stated from prior knowledge, from docs about a
+    *similar* thing, or from family resemblance to a related name. Check
+    the artifact itself. Two traps this project has already hit
+    (2026-08-22, Qwen3.5-4B's architecture — see `CODEY_MASTER_PLAN.md`
+    §2 rule 14 for the full case):
+    - **A model-family name is not evidence.** Qwen3.5 is not Qwen3 with
+      a bigger number; a shared prefix implies nothing about layers,
+      attention mechanism, or KV layout.
+    - **Don't grep for the keys you expect.** Dump the full key/field set
+      first, then narrow. A filtered read that confirms your expectation
+      looks like verification and isn't.
+    Reading files, parsing headers, and inspecting binary strings is
+    cheap and loads nothing (rule 2 governs what actually needs care), so
+    there is no excuse for guessing.
+
 ## Working conventions (not numbered "non-negotiable" rules, but expected)
 
 - **Read before you write.** Before modifying any file, read it first.

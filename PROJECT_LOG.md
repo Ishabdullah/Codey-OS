@@ -12,6 +12,69 @@ and Appendix A.
 
 ---
 
+## 2026-08-22 (later) — Correction: Qwen3.5-4B's KV cache is 0.571x the retired 7B's, not 2.29x — and a new rule 14 (never assume, verify)
+
+**Ish caught a wrong claim in the entry below and corrected it.** The
+model-change scoping asserted that Qwen3.5-4B's KV cache was 2.29x the
+retired 7B's, on the strength of its 256-wide head dim applied across all
+32 layers. That is not how this model works.
+
+**What the GGUF actually says** (re-read, this time dumping the FULL
+metadata key set instead of filtering for expected field names):
+`full_attention_interval = 4` over `block_count = 32` → **8
+full-attention layers**. The remaining **24 are SSM/linear** layers —
+established by an `ssm.*` metadata block the first inspection never saw:
+`ssm.state_size = 128`, `ssm.inner_size = 4096`, `ssm.conv_kernel = 4`,
+`ssm.group_count = 16`, `ssm.time_step_rank = 32`. This is a hybrid
+Transformer-SSM model. Only the 8 full-attention layers grow a KV cache;
+the 24 SSM layers hold a fixed recurrent state independent of context.
+
+**Corrected arithmetic** (`2 × 2 × 8 layers × 4 kv_heads × 256 head_dim`):
+
+| | bytes/token | total at n_ctx=32768 |
+|---|---|---|
+| Qwen3.5-4B | **32,768** (0.571x) | **3.827GiB** |
+| Qwen2.5-Coder-7B (retired) | 57,344 | 6.361GiB |
+
+`n_ctx=65536` costs 4.827GiB and is **admissible** — double the current
+production context for less than the 7B needed at half of it. 131072 and
+262144 hard-reject. This inverts §8 Q1: the question was "how far must
+the context come down," it is now "how far can it go up."
+
+**Root cause of the error, recorded because it is the point:** two
+assumption failures compounding. (1) Reasoning from the older Qwen3-4B's
+behavior because the name is similar — Qwen3.5 is not Qwen3 with a bigger
+number. (2) Inspecting the GGUF with a filter of anticipated key names,
+so the `ssm.*` block that defines the architecture was never read. A
+filtered read that confirms an expectation looks like verification and
+is not.
+
+**New rule 14 in `CODEY_MASTER_PLAN.md` §2, mirrored as rule 12 in
+`CLAUDE.md`, at Ish's direct request:** never state a fact about an
+external artifact from prior knowledge, from docs about a similar thing,
+or from family resemblance — read the artifact, and dump its full key set
+before narrowing. Reading files/headers/binary strings loads nothing and
+is cheap (rule 2 governs what actually needs care), so there is no excuse
+for guessing.
+
+**Docs corrected:** master plan §1.4 (GGUF table now carries the hybrid
+split and the `ssm.*` fields; the wrong caveat replaced with the
+correction on the record), §4.3, new §5.1 cost tables, §8 Q1 (flipped
+direction), M1-A (now explicitly about teaching `ModelArch` the hybrid
+split, since passing `n_layers=32` would over-estimate ~4x and wrongly
+refuse an affordable 65536). `NEW-157` retitled and corrected in place
+with its own rule-6 note. The wrong paragraph in the entry below is left
+standing with a correction marker rather than rewritten.
+
+**Still true and unchanged:** thinking mode is a per-request switch
+(default off), `--jinja` is still not passed (`NEW-158`), the constants
+in `NEW-156` are still stale, and none of this is live-verified — M1-E
+still measures it. The gate's ~4x over-estimate is in the safe direction
+(refuses loads that would work; never over-admits), so nothing here is an
+admission-safety bug.
+
+---
+
 ## 2026-08-22 — Ish's decision: one model for everything (Qwen3.5-4B), thinking mode replaces the dedicated planner — docs updated, NO code changed
 
 Ish's direct in-session decision: retire both the Qwen2.5-Coder-7B
@@ -40,15 +103,16 @@ loaded, no server started:**
 - `core/loader_v2.py:_spawn_locked()` does NOT pass `--jinja` today, so
   the template and the thinking switch are currently inert (`NEW-158`).
 
-**Arithmetic consequence, computed with the gate's own formula:**
-Qwen3.5-4B costs 131,072 bytes/token of KV — 2.29x the retired 7B's
+**Arithmetic consequence — ⚠ THIS PARAGRAPH WAS WRONG, corrected the same
+day; see the entry above it for the correction.** As originally written:
+"Qwen3.5-4B costs 131,072 bytes/token of KV — 2.29x the retired 7B's
 57,344, because of the 256-wide head dim. Totals: 6.803GiB at
-`n_ctx=32768` (hard-rejects against the ~6.49GiB device ceiling),
-4.803GiB at 16384, 3.803GiB at 8192. The retired pair cost 8.527GiB
-declared concurrently — the case `NEW-141` proved this device cannot
-sustain. **The win comes from dropping the second model, not from the 4B
-being individually cheap**, and it is stated that way in the plan rather
-than as an unqualified improvement.
+`n_ctx=32768` (hard-rejects against the ~6.49GiB device ceiling)... The
+win comes from dropping the second model, not from the 4B being
+individually cheap." **The real figure is 32,768 bytes/token — 0.571x the
+7B — because only 8 of the model's 32 layers are full-attention.** Left
+in place rather than silently rewritten, per rule 6, because the error
+itself is now the case study behind rule 14.
 
 **Docs updated** (`CODEY_MASTER_PLAN.md`): new §1.4 decision record with
 the verified GGUF/template/toolchain facts; rule 2 reworded off the

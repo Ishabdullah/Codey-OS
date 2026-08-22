@@ -127,7 +127,17 @@ no model loaded — `~/models/qwen3.5-4b-instruct/Qwen3.5-4B-Q4_K_M.gguf`,
 | `qwen35.attention.key_length` / `value_length` | **256** / 256 |
 | `qwen35.embedding_length` | 2560 |
 | `qwen35.context_length` | **262144** (256K native) |
-| `qwen35.full_attention_interval` | **4** |
+| `qwen35.full_attention_interval` | **4** → 32/4 = **8 full-attention layers** |
+| `qwen35.ssm.state_size` / `ssm.inner_size` | **128** / **4096** |
+| `qwen35.ssm.conv_kernel` / `ssm.group_count` / `ssm.time_step_rank` | 4 / 16 / 32 |
+
+**This is a hybrid Transformer-SSM model, not a conventional attention
+model.** Of its 32 layers, **8 are full-attention** (16 Q heads / 4 KV
+heads, head dim 256) and **24 are SSM/linear-attention** layers carrying
+a fixed-size recurrent state that **does not grow with context**. Only
+the 8 full-attention layers contribute a growing KV cache. The `ssm.*`
+metadata block above is what establishes this, and it is why §5.1's cost
+arithmetic looks nothing like the retired models'.
 
 **Thinking mode is a per-request switch, default off — verified from the
 model's own chat template** (7,816 chars, read from the GGUF): the
@@ -159,17 +169,30 @@ model there is no concurrent pair to arbitrate. The problem does not get
 mitigated; it structurally stops existing. Several derived constants and
 a whole sub-task of policy go with it (§5, §6.2).
 
-**The one caveat that must not be glossed over.** A 4B model is *not*
-automatically cheaper than the 7B at high context, and this project has
-already been bitten by exactly that assumption: the older Qwen3-4B was
-hard-rejected at `n_ctx=32768` despite a smaller file, because its KV
-cache footprint (36 layers × 8 KV heads) was larger than the 7B's. Qwen3.5-4B
-has a 256-wide head dim, double the 7B's — under the gate's current
-uniform-full-attention formula its KV cache is **larger** than the 7B's,
-not smaller (§5). Whether that formula even applies is itself open:
-`full_attention_interval = 4` indicates hybrid attention, which the
-gate's `ModelArch` cannot express (`NEW-157`). **Measure this; do not
-assume it.**
+**It is also dramatically cheaper on context than the model it replaces**
+— 32,768 bytes per token of KV against the 7B's 57,344, i.e. **0.571x**,
+because only 8 of its 32 layers keep a growing cache. At the current
+production `n_ctx=32768` it costs ~3.83GiB against the 7B's 6.36GiB, and
+it can carry **65536 — double the current context — for less than the 7B
+needed for half of it** (§5.1). Its native ceiling is 262144; what limits
+us is the device budget, not the model.
+
+**Correction on the record, per rule 6.** The first version of this
+section (same day) asserted the opposite — that the 256-wide head dim
+made its KV cache 2.29x the 7B's — by applying a conventional
+all-layers-attend formula to a model that does not work that way, and by
+reasoning from the older Qwen3-4B's behavior on the strength of a similar
+name. Ish corrected it. The error is preserved here rather than quietly
+overwritten because it is the exact failure **rule 14** now exists to
+prevent, and because the corrected numbers change a real decision (§8 Q1
+flips from "how far must the context come down" to "how far can it go
+up").
+
+**What still needs measuring, and is genuinely open:** the gate's
+`ModelArch` cannot express hybrid attention at all, so its estimate is
+wrong until M1-A teaches it the 8-layer split (`NEW-157`); and the 24 SSM
+layers' constant state is estimated, not measured (§5.1). Both resolve
+with real numbers in M1-E.
 
 ---
 
@@ -248,6 +271,37 @@ plan's own successor documents.
 13. **Local-first is the default, not an aspiration.** Cloud (OpenRouter)
     is opt-in fallback. A domain running in cloud-only mode must be
     visibly, deliberately chosen — never silently selected.
+
+
+14. **Never assume — read the artifact. And when you read it, read all of
+    it.** No factual claim about an external artifact — a model, a
+    library, an API, a binary, a config file — may be stated from prior
+    knowledge, from documentation about a *similar* thing, or from family
+    resemblance to something with a related name. Go to the artifact and
+    check. This rule exists because of a real, dated failure: on
+    2026-08-22 this plan asserted that Qwen3.5-4B's KV cache was 2.29x
+    the retired 7B's, by applying a conventional 32-layer-attention
+    formula to a model that is nothing of the kind. It is a hybrid: 8
+    full-attention layers and 24 SSM/linear layers whose state does not
+    grow with context. The real figure is **0.571x** — the opposite
+    direction, and a ~2.5GiB difference in what this device can carry.
+    Ish caught it; the docs did not.
+
+    Two specific traps that failure exposed, both binding:
+    - **Model-family names are not evidence.** Qwen3.5 is not Qwen3 with
+      a bigger number. A shared prefix says nothing about layer counts,
+      attention mechanism, KV layout, or context handling. The same goes
+      for library and API versions.
+    - **Do not grep for the keys you expect.** The first inspection of
+      that GGUF filtered metadata against a list of anticipated field
+      names, and therefore never saw the `ssm.*` block that defined the
+      architecture. **Dump the full key set first, then narrow.** A
+      filtered read that confirms your expectation is the most dangerous
+      kind of evidence, because it looks like verification.
+
+    Reading a file, parsing a header, or inspecting a binary's strings is
+    cheap and safe (none of it loads or executes a model — see rule 2 for
+    what actually requires care). There is no excuse for guessing.
 
 ---
 
@@ -581,12 +635,14 @@ obvious survivor to check), the bug outlives the models it was found
 with. Close it on a code read, never on §1.4.
 
 **What did not dissolve, and what replaced it:** the gate's cost model is
-now pointed at the wrong architecture until M1-A fixes it, and the
-budget constants derived from the retired pair are stale (§5.1,
-`NEW-156`). The open question is no longer "can two models coexist" but
-"what does this one model actually cost, and does hybrid attention
-(`NEW-157`) make the gate's estimate wrong" — a measurement question with
-a defined answer, which is a better problem to have.
+pointed at the wrong architecture until M1-A fixes it, and the budget
+constants derived from the retired pair are stale (§5.1, `NEW-156`). The
+open question is no longer "can two models coexist" but "the gate
+over-estimates this model's KV by ~4× until it learns the hybrid split"
+(`NEW-157`) — a bounded, safe-direction error with a known fix, which is
+a considerably better problem to have. On the numbers in §5.1 the device
+now has headroom it did not have a week ago, including room to *raise*
+the context ceiling (§8 Q1).
 
 Still open and unaffected by §1.4: `NEW-138` (an unexplained ~1.56GiB
 anon-RSS gap — worth re-checking against the new model, since the figure
@@ -660,48 +716,59 @@ they drift sample to sample.
 
 ### 5.1 Model costs under the one-model decision (§1.4)
 
-KV-cache arithmetic below uses the gate's own current formula
-(`2 bytes × 2 (K+V) × n_layers × n_kv_heads × head_dim × n_ctx`, fp16 —
-the gate does not pass `kv_type`, so the server really runs fp16 KV) with
-the GGUF-verified architecture from §1.4. Per-token KV cost:
+**Qwen3.5-4B is a hybrid: 8 full-attention layers + 24 SSM/linear
+layers** (§1.4, established from the GGUF's `full_attention_interval = 4`
+over `block_count = 32`, plus the `ssm.*` block). Only the 8
+full-attention layers grow a KV cache with context; the 24 SSM layers
+hold a fixed-size recurrent state. So the KV term uses **8**, not 32:
 
-| Model | layers × kv_heads × head_dim | Bytes per token |
+`2 bytes (fp16) × 2 (K+V) × 8 layers × 4 kv_heads × 256 head_dim`
+= **32,768 bytes per token.**
+
+| Model | Layers contributing KV | Bytes per token |
 |---|---|---|
-| Qwen3.5-4B (new default) | 32 × 4 × **256** | **131,072** |
-| Qwen2.5-Coder-7B (retired) | 28 × 4 × 128 | 57,344 |
-| Qwen2.5-Coder-1.5B (retired) | 28 × 2 × 128 | 28,672 |
+| **Qwen3.5-4B** (new default) | **8** of 32 (hybrid) | **32,768** |
+| Qwen2.5-Coder-7B (retired) | 28 of 28 | 57,344 |
+| Qwen2.5-Coder-1.5B (retired) | 28 of 28 | 28,672 |
 
-**The new model costs 2.29× the 7B per token of context.** File size
-(2.553GiB) plus KV plus the 0.250GiB compute-overhead constant:
+**The new model costs 0.571× the retired 7B per token of context** — a
+~43% reduction, not the increase an all-layers-attend formula would
+predict (see §1.4's correction and rule 14).
 
-| `n_ctx` | KV | Total | Required (×1.25) | Verdict vs. ~6.49GiB ceiling |
+Totals = file (2.553GiB) + KV + the 0.250GiB compute-overhead constant +
+an estimated ~25MiB of SSM state (context-independent):
+
+| `n_ctx` | KV | Total | Required (×1.25) | vs ~6.49GiB ceiling |
 |---|---|---|---|---|
-| 32768 | 4.000GiB | 6.803GiB | 8.503GiB | **hard-reject** (over the ceiling) |
-| 16384 | 2.000GiB | 4.803GiB | 6.003GiB | admissible |
-| 8192 | 1.000GiB | 3.803GiB | 4.753GiB | comfortably admissible |
-| 4096 | 0.500GiB | 3.303GiB | 4.128GiB | comfortably admissible |
+| 32768 (current default) | 1.000GiB | **3.827GiB** | 4.783GiB | comfortable |
+| 65536 | 2.000GiB | 4.827GiB | 6.033GiB | **admissible — 2× the context** |
+| 131072 | 4.000GiB | 6.827GiB | 8.533GiB | hard-reject |
+| 262144 (model's native max) | 8.000GiB | 10.827GiB | — | hard-reject |
 
-For comparison, the retired pair cost 6.361GiB + 2.166GiB = **8.527GiB**
-when both were declared resident — the case `NEW-141` proved this device
-cannot actually sustain. One model at 16384 costs 4.803GiB. **That is the
-win, and it is large** — but note it comes from dropping the second model,
-not from the 4B being individually cheap.
+**For comparison:** the 7B alone cost 6.361GiB at 32768 and sat ~137MiB
+from the hard-reject ceiling (`NEW-143`). The retired pair cost 8.527GiB
+declared concurrently — the case `NEW-141` proved this device cannot
+sustain. The new model at the *same* context costs 3.827GiB, and can run
+at **double** it for 4.827GiB. The one-model decision buys both a
+simpler residency problem and materially more context than before.
 
-**Two things above are computed, not measured, and could move the whole
-table:**
+**Three figures above are computed, not measured:**
 
-1. `full_attention_interval = 4` says this model does **not** use uniform
-   full attention on all 32 layers. If only every 4th layer keeps a full
-   KV cache, the real cost could be roughly a quarter of the figures
-   above — which would put even 32768 comfortably inside the ceiling. The
-   gate's `ModelArch` dataclass cannot represent hybrid attention at all
-   (`NEW-157`), so it will currently over-estimate. Over-estimating is
-   the safe direction (it refuses loads that would have worked, rather
-   than admitting loads that OOM), but it is still wrong, and it would
-   wrongly force a lower `n_ctx` than the device can actually carry.
-2. The model's native `context_length` is **262144**. Nothing here is
-   limited by the model; every ceiling in this table is a device budget
-   decision, not a model capability.
+1. **The gate does not yet know any of this.** `ModelArch` assumes
+   uniform full attention across all layers and has no field for a hybrid
+   split, so it will compute the KV term from 32 layers and over-estimate
+   by ~4× (`NEW-157`). Over-estimating is the safe direction — it refuses
+   loads that would have worked rather than admitting ones that OOM — but
+   left unfixed it would wrongly cap `n_ctx` at 32768 when 65536 is
+   affordable. **M1-A is where the gate learns the 8-layer split.**
+2. **The SSM state estimate (~25MiB) is a formula, not a measurement.**
+   Derived as `inner_size × (conv_kernel − 1) + inner_size × state_size`
+   per layer, fp16, × 24 layers. llama.cpp's actual allocation may differ
+   in layout or element width. It is small and context-independent either
+   way, so it does not change the shape of the table — but do not quote
+   it as fact.
+3. **Everything here is arithmetic against a formula.** M1-E measures
+   real resident cost and settles all of it.
 
 **Stale constants, do not use without re-deriving** (`NEW-156`):
 
@@ -795,16 +862,22 @@ load/spawn paths, so **all of them are CLAUDE.md rule 4 category** —
 mandatory code-reviewer pass, no exceptions.
 
 - **M1-A — arch + cost correctness first, before anything loads.**
-  Add a `qwen35` entry to `core/resource_gate.py`'s `KNOWN_MODEL_ARCHS`
-  for the `"primary"` role (`n_layers=32, n_kv_heads=4, head_dim=256`,
-  GGUF-verified — see §1.4). Without this the gate silently computes the
-  KV term from the retired 7B's architecture, which is the `NEW-84`
-  class of admission-safety bug. Decide explicitly how to represent
-  `full_attention_interval = 4` (`NEW-157`): either extend `ModelArch`
-  to express hybrid attention, or keep the uniform formula and document
-  in the constant's own comment that it deliberately over-estimates and
-  by roughly how much. **Do not silently leave the uniform assumption
-  unremarked.** Unit-testable with synthetic meminfo; no model load.
+  Two things, and the second is the one that matters:
+  1. Point `core/resource_gate.py`'s `KNOWN_MODEL_ARCHS["primary"]` at a
+     `qwen35` entry instead of `QWEN25_7B_ARCH`. Leaving it is the
+     `NEW-84` class of admission-safety bug — a silently wrong KV term.
+  2. **`ModelArch` cannot express this model.** It assumes every layer
+     attends; Qwen3.5-4B has 8 full-attention layers and 24 SSM layers
+     (§1.4). Passing `n_layers=32` would over-estimate KV by ~4× and
+     wrongly refuse `n_ctx=65536`, which §5.1 shows is affordable.
+     Either add a hybrid field (e.g. `n_attention_layers`, derived as
+     `block_count / full_attention_interval`) — the honest fix — or pass
+     `n_layers=8` with a comment stating *exactly* why the number
+     disagrees with the model's real layer count, so the next reader
+     doesn't "correct" it back to 32. Whichever route, the constant's
+     comment must record that this is a hybrid Transformer-SSM model and
+     name the GGUF fields it was derived from (`NEW-157`).
+  Unit-testable with synthetic meminfo; no model load.
 - **M1-B — config repointing.** `utils/config.py`: `MODEL_PATH` →
   the Qwen3.5-4B file. Retire `PLANNER_MODEL_PATH`/`PLANND_SERVER_PORT`
   (port 8081) and `get_planner_n_ctx()` as live config; decide the
@@ -1137,16 +1210,19 @@ these are the things that could go wrong against it.
 
 Numbered for reference. Nothing here is guessed at in this document.
 
-1. **`n_ctx` default for Qwen3.5-4B — now a decision that must be made,
-   not deferred.** Under the gate's current formula the new model
-   hard-rejects at 32768 (6.803GiB total vs. a ~6.49GiB ceiling) and is
-   comfortable at 16384 or below (§5.1). The model itself supports 262144,
-   so this is purely a device-budget call. Complication worth waiting one
-   step for: if `full_attention_interval = 4` means the real KV cost is
-   ~a quarter of the computed figure (`NEW-157`), 32768 may be entirely
-   affordable — **M1-E measures this**, so the honest sequence is measure,
-   then choose. Conditions 7.3's tier thresholds and 7.4b sub-task C's
-   interactive/background ceilings.
+1. **`n_ctx` default for Qwen3.5-4B — the question has flipped from "how
+   far down" to "how far up."** The long-standing worry was that the
+   shipped 32768 was too expensive for this device (it needed ~7.95GiB of
+   `MemAvailable` with the 7B, a bar this device has never reached). With
+   the hybrid 4B, 32768 costs 3.827GiB total and **65536 costs 4.827GiB —
+   both admissible**, where 131072 is not (§5.1). So the real question is
+   whether to keep 32768, or take the doubled context now that it fits.
+   Two things to settle first, both cheap: the gate has to learn the
+   8-layer split or it will refuse 65536 on a ~4× over-estimate (M1-A,
+   `NEW-157`), and M1-E should confirm the arithmetic against real
+   resident cost before the default moves. Conditions 7.3's tier
+   thresholds and 7.4b sub-task C's interactive/background ceilings —
+   both of which were sized against a model that no longer exists.
 2. **The Core→device dispatch mechanism.** Reuse the existing Telegram
    Bot API channel the device app already polls, or build something
    Codey-OS-native? Not designed anywhere.

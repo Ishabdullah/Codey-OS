@@ -37,7 +37,7 @@ them, not by issue number — search for `[NEW-nnn]` rather than scrolling.
   from arithmetic first is precisely the mistake `NEW-133` recorded.
 - **Not fixed this round** — documentation/scoping round, no code touched.
 
-### [NEW-157] `core/resource_gate.py`'s `ModelArch` cannot represent hybrid attention, and Qwen3.5-4B's GGUF declares `full_attention_interval = 4` — the gate will over-estimate its KV cache, possibly by ~4x
+### [NEW-157] `core/resource_gate.py`'s `ModelArch` cannot represent a hybrid Transformer-SSM model — Qwen3.5-4B has 8 full-attention layers and 24 SSM layers, so the gate over-estimates its KV cache by ~4x and would wrongly refuse an affordable `n_ctx=65536` (entry corrected same-day — see below)
 
 - **Status:** Confirmed that the metadata field exists and that
   `ModelArch` has no way to express it; Suspected as to the exact size of
@@ -52,21 +52,44 @@ them, not by issue number — search for `[NEW-nnn]` rather than scrolling.
   `full_attention_interval` of 4 indicates only every 4th layer carries a
   full KV cache, the rest using a cheaper (sliding-window or linear)
   mechanism with a small fixed state.
-- **Impact:** under the uniform formula the model costs 4.000GiB of KV at
-  `n_ctx=32768` (131,072 bytes/token — 2.29x the retired 7B's 57,344,
-  driven by the 256-wide head dim), putting its total at 6.803GiB and
-  hard-rejecting it against the ~6.49GiB device ceiling. If the real cost
-  is closer to a quarter of that, the gate will refuse a context length
-  the device can comfortably carry. **The error direction is the safe one
-  (over-estimate → refuse, never over-admit), so this is not an
-  admission-safety bug** — but it would silently force a lower `n_ctx`
-  default than necessary, and it makes every cost figure in the master
-  plan's §5.1 table an upper bound rather than an estimate.
-- **Fix direction:** measure the real resident cost live at a known
-  `n_ctx` (master plan M1-E) and compare against the computed figure
-  before deciding whether to extend `ModelArch` for hybrid attention or
-  to keep the uniform formula with a documented, quantified
-  over-estimate. Do not "fix" this by guessing a divisor.
+- **CORRECTION, same day, per rule 6 — the first version of this entry
+  had the sign of the error backwards, and Ish caught it.** That version
+  said the model costs 131,072 bytes/token, "2.29x the retired 7B,"
+  treating the ~4x hybrid discount as an unverified possibility. It was
+  produced by applying a conventional all-layers-attend formula to a
+  model that is not conventional, reasoning partly from the older
+  Qwen3-4B's behavior on the strength of a similar name. **The GGUF
+  settles it directly**: `full_attention_interval = 4` over
+  `block_count = 32` gives **8 full-attention layers**, and the `ssm.*`
+  metadata block (`ssm.state_size = 128`, `ssm.inner_size = 4096`,
+  `ssm.conv_kernel = 4`, `ssm.group_count = 16`,
+  `ssm.time_step_rank = 32`) shows the other **24 layers are SSM/linear**,
+  holding a fixed recurrent state that does not grow with context. The
+  real growing-KV figure is `2 x 2 x 8 x 4 x 256` = **32,768 bytes/token
+  — 0.571x the 7B, not 2.29x.**
+  **The first inspection missed the `ssm.*` block entirely** because it
+  filtered the GGUF's metadata against a list of expected field names
+  instead of dumping the full key set. That is the specific mechanism
+  behind the wrong conclusion, and why `CODEY_MASTER_PLAN.md` §2 now
+  carries **rule 14** (never assume; dump the whole key set before
+  narrowing; a model-family name is not evidence).
+- **Impact, corrected:** the finding itself stands — `ModelArch` still
+  cannot express a hybrid model, so the gate computes the KV term from 32
+  layers and **over-estimates by ~4x**. The error direction is the safe
+  one (over-estimate → refuse, never over-admit), so this is **not an
+  admission-safety bug**. What it costs is context: at the over-estimate
+  the gate refuses `n_ctx=65536`, which the corrected arithmetic shows is
+  comfortably affordable (4.827GiB total against a ~6.49GiB ceiling).
+  Left unfixed it silently caps the device below what it can carry.
+- **Fix direction:** master plan M1-A — either add a hybrid field to
+  `ModelArch` (e.g. `n_attention_layers = block_count /
+  full_attention_interval`), or pass `n_layers=8` with a comment stating
+  exactly why that number disagrees with the model's real layer count so
+  the next reader does not "correct" it back to 32. Either way the
+  constant must record that this is a hybrid Transformer-SSM model and
+  name the GGUF fields it came from. M1-E then confirms against real
+  resident cost — including the ~25MiB SSM-state figure, which is a
+  formula estimate, not a measurement.
 - **Not fixed this round.**
 
 ### [NEW-158] `core/loader_v2.py`'s spawn command never passes `--jinja`, so the GGUF chat template — and therefore Qwen3.5-4B's `enable_thinking` switch — is inert
