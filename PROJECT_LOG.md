@@ -12,6 +12,237 @@ and Appendix A.
 
 ---
 
+## 2026-08-22 (latest) — M1-A: the resource gate learns Qwen3.5-4B's hybrid 8/24 architecture (CODE COMPLETE, review pending, no live component); §8 Q1 answered — n_ctx default is 65536
+
+**Status, stated precisely (rule 7): code-complete and unit-tested. NOT
+code-reviewer-approved. NOT live-verified — and M1-A has no live
+component by design, so "live-verified" is not a status it can reach.**
+Uncommitted at time of writing, deliberately: M1-A is rule-4 category
+(§6.2 says every M1 sub-task is, including the ones that look like config
+edits), and the mandatory `code-reviewer` pass has not happened.
+
+**What changed — `core/resource_gate.py` only, plus two test files.**
+
+1. **`QWEN35_4B_ARCH` added; `KNOWN_MODEL_ARCHS` points BOTH roles at it**
+   (`"primary"` and `"planner"`, per Ish's "do it for both models"). The
+   dict is **still keyed by role**, not re-keyed by architecture name —
+   the ~20-line `NEW-84` post-mortem above it exists because path-keying
+   broke on `lora_import`'s hot swap, and re-keying by arch would repeat
+   that class of mistake.
+2. **The hybrid split is a new optional field, not a fudged `n_layers`.**
+   `ModelArch.n_attention_layers: Optional[int] = None`;
+   `estimate_kv_cache_bytes()` uses
+   `n_attention_layers if ... is not None else n_layers` (`or` would
+   treat a legitimate 0 as unset). `QWEN25_7B_ARCH`/`QWEN25_1_5B_ARCH`
+   are byte-identical, which keeps the `is`-identity assertions and the
+   derivation comments that name them honest. The alternative route
+   §6.2 offered — `n_layers=8` with a comment — was rejected: it stores a
+   number that disagrees with the model's real layer count, and a future
+   reader would "correct" it back to 32.
+3. **The 24 SSM layers' fixed state is now an explicit 4th term**,
+   `CostEstimate.recurrent_state_bytes` (default 0, so no existing
+   consumer changes), sourced from `ModelArch.recurrent_state_bytes` =
+   `((4-1)*(4096 + 2*16*128) + 128*4096) * 4 * 24` = **52,690,944 bytes**
+   (the review-corrected value; see the review section below). Not folded into
+   the KV term (that would make KV un-auditable against §5.1's table) and
+   not into overhead (~30 tests pass `compute_overhead_bytes=0`). Its
+   comment records three things: it is **source-derived but still not
+   measured** — read from llama.cpp's allocator, with M1-E keeping the
+   measurement task; it is context-independent; and — the non-obvious
+   one — llama.cpp allocates recurrent state **per sequence slot**, so
+   this is a one-slot figure that scales with `n_seq_max`/`--parallel`,
+   which the §6.2 concurrency test is about to start setting.
+4. **`QWEN3_4B_ARCH` was RE-SCOPED, not deleted** — renamed
+   `QWEN3_4B_TEST_ARCH`. Appendix A previously said "retire"; §6.2's
+   actual wording is "delete or re-scope", and deletion was wrong here:
+   it is still wired into `_TEST_ARCH_REGISTRY_BY_ROLE`, still
+   load-bearing for the `CODEY_TEST_PRIMARY_ARCH` contract (whose stated
+   guarantee is "unset means byte-for-byte unchanged"), and
+   `~/models/qwen3-4b-instruct/` is still on disk. The rename plus an
+   explicit "this is the OLDER Qwen3-4B, NOT the qwen35 default" comment
+   satisfies rule 14's confusable-name concern without touching a live
+   test mechanism. Appendix A's wording was corrected to match.
+
+**Verification (rule 5 — real numbers, no paraphrase).** The one
+assertion that pins the whole change, run against
+`ModelSpec(model_id="primary", size_bytes=2_740_937_888, n_ctx=32768)`:
+
+```
+CostEstimate(model_bytes=2740937888, kv_cache_bytes=1073741824,
+             overhead_bytes=268435456, recurrent_state_bytes=52690944)
+total 4135806112 3.851769596338272
+kv32768 1073741824
+per token 32768
+65536 total GiB 4.851769596338272 required 6.06471199542284
+7b unchanged True True
+```
+
+That reconciles with §5.1's table to the digit — 3.852GiB at 32768,
+4.852GiB / 6.065GiB required at 65536 — and 32,768 bytes/token is the
+figure §5.1 publishes. (This block is the **post-review** run; the
+first-pass figures, 25,755,648 / 4,108,870,816 / 3.827GiB, were wrong —
+see the review section below.) Tests: **200 passed** across
+`tests/test_resource_gate.py` + `tests/test_new84_stale_model_path.py`;
+**739 passed, 1 skipped, 5 deselected** repo-wide. The 5 deselected are
+`tests/test_new19_patch_failed_repeat_escalation.py`, which fails or
+hangs on a dirty working tree (`NEW-110`/`NEW-150`) — expected noise,
+pre-declared before the round started, not a regression and not "fixed".
+
+**Test blast radius was exactly the two files predicted** — the NEW-84
+regression pair (`tests/test_new84_stale_model_path.py:231,244`) and the
+role-resolution/env-override identity assertions in
+`tests/test_resource_gate.py`. Every one was **re-pointed, not deleted**:
+what those tests pin is "resolution happens by role, and the env override
+never leaks into the committed dict", not "the primary is a 7B". Two new
+tests were added: the §5.1 reconciliation above, and a guard asserting
+`kv(32768) * 4 == 32-layer kv`, which fails loudly if anyone
+"corrects" `n_attention_layers` back to 32. One stale test was repaired
+rather than left green: `test_qwen3_4b_arch_kv_estimate_is_larger_than_
+qwen25_7b` compared the substitute against the **retired 7B**, so after
+this change it no longer tested the property it claimed; its baseline is
+now the actual default (ratio ~4.5x, was ~2.6x).
+
+**One coverage loss this change introduced, recorded so nobody mistakes
+green for covered** (code-reviewer W-1). With `"primary"` and `"planner"`
+now pointing at the *same object*, five assertions can no longer fail on
+a planner-lookup bug that falls through to primary:
+`tests/test_new84_stale_model_path.py:246-248` and
+`tests/test_resource_gate.py:228, 249, 254, 279` (line refs corrected in
+re-review; the first pass cited ranges that landed on blank lines and
+docstrings, and named `:270`, which is the `"primary"` lookup a
+planner-fallthrough bug cannot reach — the drained planner assertion is
+`:279`). Only the planner half of each assertion pair is drained; the
+primary-side counterparts at 225, 246 and 253 still test what they
+claim, which is why this list is five and not seven. The
+dangerous case is still covered — a *dropped* `"planner"` key yields
+`arch=None` and `kv_bytes=0`, which
+`test_new84_stale_model_path.py:248`'s `assert cost.kv_cache_bytes != 0`
+catches. This is bounded and unavoidable while one model serves both
+roles, and was deliberately **not** engineered around.
+
+**Two silent-failure checks run explicitly, because inserting fields into
+a frozen dataclass is exactly the "wrong number, no loud failure" shape
+this sub-task exists to fix.** (a) The two new `ModelArch` fields sit
+*between* `head_dim` and `kv_bytes_per_element`, so a positional
+`ModelArch(28, 4, 128, 2)` would now silently mean
+`n_attention_layers=2`. Every `ModelArch(` call in the repo was checked —
+**five**, all in `core/resource_gate.py` (lines 959, 963, 1015, 1071,
+1079), all keyword-only, and none in `tests/`. (This record was corrected
+in re-review: the first pass said "four" and cited line numbers taken
+from a pre-final version of the file — all four had drifted onto comment
+text, and the missing fifth was `QWEN35_4B_ARCH` at 1015, the one site
+this round adds and the *only* one that passes the new fields, i.e.
+exactly where a positional-argument mistake would have mattered. The
+property was clean; the verification record was not.) (b) Every in-file consumer of `CostEstimate` reads
+`cost.total_bytes` (lines 1756-1878 in `can_admit()`'s ceiling, cumulative
+budget, and swap-assist branches); nothing hand-rolls
+`model_bytes + kv_cache_bytes + overhead_bytes`, so the new SSM term
+cannot drop out of an admission decision or a logged breakdown. Neither
+check is covered by the test suite — the gate tests pass unknown archs
+with `compute_overhead_bytes=0` (recurrent term 0) or assert on
+`CostEstimate` directly.
+
+**Code-reviewer: REJECT (narrow), then fixed and re-run.** The reviewer
+verified the 8/24 split, the KV arithmetic, the frozen-dataclass call-site
+audit, the repo-wide `CostEstimate` consumer audit, the scope fence, and
+constraints A/B/D/E/F as clean and primary-sourced, and reproduced both
+suite runs and a negative control literally. One blocking finding:
+
+- **C-1 — `recurrent_state_bytes` was wrong in both of the ways its own
+  comment warned about.** The first pass shipped `(4096*3 + 4096*128) * 2
+  * 24` = 25,755,648, derived from the GGUF's `ssm.*` fields by analogy
+  with Mamba. llama.cpp's actual allocator was on this device the whole
+  time (`~/llama.cpp`, commit `91d2fc38`) and disagrees twice:
+  `llama-hparams.cpp:204` computes the conv term as `(ssm_d_conv - 1) *
+  (ssm_d_inner + 2 * ssm_n_group * ssm_d_state)` — the shipped formula
+  **dropped `qwen35.ssm.group_count = 16`**, a field that was in the key
+  dump handed over with the task — and `llama-model.cpp:2153-2155` passes
+  `recurrent_type_k`/`recurrent_type_v` as **`GGML_TYPE_F32`**, 4 bytes,
+  not the 2-byte fp16 the KV cache uses. Corrected to
+  `((4-1)*(4096 + 2*16*128) + 128*4096) * 4 * 24` = **52,690,944**, a
+  26,935,296-byte correction upward. This is a **rule 12 failure, not a
+  magnitude problem** — 26.9MB against ~957MiB of margin would be a
+  losing argument on size alone; the point is that a formula was written
+  from family resemblance when the allocating source was three greps
+  away, and its comment then claimed the allocation "may differ in layout
+  or element width" while differing in exactly both. §5.1's note 2 has a
+  rule-6 correction recorded against it, since it published "fp16" as
+  fact. **Ish's §8 Q1 answer of 65536 survives**: 4.852GiB total,
+  6.065GiB required, still under the ~6.49GiB ceiling.
+
+**The interim state M1-A alone leaves, with its real number** (reviewer
+W-2, logged as `NEW-161`). `utils/config.py` is deliberately untouched —
+that is M1-B — so `MODEL_PATH` still stats the Qwen2.5-Coder-7B file
+while `model_id="primary"` now resolves to the hybrid arch. At
+`n_ctx=32768` the gate would estimate `1,073,741,824` bytes of KV where
+the real 7B needs `1,879,048,192`: an **805,306,368-byte (768MiB)
+under-estimate, in the unsafe direction**, ~1.0GiB at the ×1.25 factor.
+That is a larger wrong-direction number than C-1. It is fenced by §6.2's
+"do this before anything loads" and by A-before-B being the deliberate
+order (B first would over-estimate and refuse 65536), and it closes the
+moment M1-B lands — but M1 chains can stall mid-sequence when a review
+rejects, and a fence is only as good as someone remembering it, so the
+figure is recorded rather than left implicit.
+
+**Post-fix verification, re-run after the C-1 correction:** `200 passed
+in 51.72s` across the two gate files, and `739 passed, 1 skipped, 68
+warnings in 132.89s` repo-wide (`--ignore` on
+`tests/test_new19_patch_failed_repeat_escalation.py`, the pre-declared
+`NEW-110`/`NEW-150` dirty-tree noise) — identical to the pre-correction
+baseline, so the C-1 fix moved the pinned figures without disturbing
+anything else. Negative control re-run (flip
+`n_attention_layers` 8 -> 32, then revert):
+
+```
+FAILED tests/test_resource_gate.py::test_qwen35_4b_hybrid_kv_uses_8_attention_layers_not_32
+FAILED tests/test_resource_gate.py::test_qwen35_4b_total_cost_reconciles_with_master_plan_table
+2 failed, 189 passed in 1.21s
+```
+
+**Scope fence held.** `MAX_CONCURRENT_MODEL_BUDGET_BYTES` and
+`MAX_SWAP_ASSIST_BYTES` were **not touched** — those are M1-F, explicitly
+after M1-E's measurement (`NEW-133`'s lesson: a ceiling set from
+arithmetic defeated its own purpose). Their derivation comments now read
+stale, and **stale-but-labeled is correct for now**; `NEW-156` already
+records it. `utils/config.py` (M1-B) and `loader_v2.py`'s spawn command
+(M1-C) were not touched either.
+
+**Ish's decision, same session: §8 Q1 is ANSWERED — the `n_ctx` default
+becomes 65536**, not 32768. 2.553GiB file + 2.000GiB KV + 0.250GiB
+overhead + 50.25MiB SSM = 4.852GiB total, 6.065GiB required at ×1.25,
+admissible against the ~6.49GiB ceiling. Two conditions are recorded in
+§8 alongside it: it **depends on M1-A landing** (under the old 32-layer
+assumption the gate would compute 8.000GiB of KV and refuse 65536
+outright), and it is **still arithmetic** — M1-E measures real resident
+cost, and a material disagreement goes back to Ish rather than being
+absorbed. The actual config edit is **M1-B's**, not M1-A's; nothing in
+`utils/config.py` moved this round.
+
+**New finding, logged not fixed (rule 8): `NEW-160`.** Found during the
+full 46-key GGUF dump that fed this sub-task. **Confirmed:** the model's
+7,816-char `tokenizer.chat_template` opens with `image_count`/
+`video_count` vision namespaces and `general.tags` carries
+`image-text-to-text`, while the file has **no** `qwen35.vision.*` keys and
+no mmproj beside it. **Suspected (untested):** M1-C's `--jinja` is
+precisely the flag that switches the server onto that template, vision
+branches included — whether they are inert for a text-only request is a
+hypothesis, not a finding. Attached to M1-C's Appendix A line rather than
+opening a new queue item.
+
+**Process note, flagged rather than papered over.** This round was
+scoped by project-architect and implemented in-session; the
+`implementer` and `code-reviewer` subagents were **not invocable** in
+this session (no subagent-launch tool was available). The rule-4 review
+is therefore **outstanding**, and that is why nothing is committed.
+`code-reviewer`'s brief must also name the two previously-unreviewed
+rule-4 diffs per §4.4 (7.4b sub-task A, and the `NEW-152` fix).
+
+Docs touched: `CODEY_MASTER_PLAN.md` §1.4, §4.2, §4.3, §5.1, §6.2 (M1-B,
+M1-C), §8 Q1, Appendix A (M1-A, M1-B, M1-C); `NEW_ISSUES.md` (`NEW-160`);
+this entry.
+
+---
+
 ## 2026-08-22 (later still) — Model migration resequenced to run FIRST, and every model slot (not just the primary) repointed at Qwen3.5-4B
 
 Two direct instructions from Ish, both docs-only, no code changed.

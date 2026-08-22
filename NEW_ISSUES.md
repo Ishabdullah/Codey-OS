@@ -79,7 +79,7 @@ them, not by issue number — search for `[NEW-nnn]` rather than scrolling.
   one (over-estimate → refuse, never over-admit), so this is **not an
   admission-safety bug**. What it costs is context: at the over-estimate
   the gate refuses `n_ctx=65536`, which the corrected arithmetic shows is
-  comfortably affordable (4.827GiB total against a ~6.49GiB ceiling).
+  comfortably affordable (4.852GiB total against a ~6.49GiB ceiling).
   Left unfixed it silently caps the device below what it can carry.
 - **Fix direction:** master plan M1-A — either add a hybrid field to
   `ModelArch` (e.g. `n_attention_layers = block_count /
@@ -88,9 +88,15 @@ them, not by issue number — search for `[NEW-nnn]` rather than scrolling.
   the next reader does not "correct" it back to 32. Either way the
   constant must record that this is a hybrid Transformer-SSM model and
   name the GGUF fields it came from. M1-E then confirms against real
-  resident cost — including the ~25MiB SSM-state figure, which is a
-  formula estimate, not a measurement.
-- **Not fixed this round.**
+  resident cost — including the SSM-state figure. **Corrected 2026-08-22
+  in M1-A's review:** that figure is 52,690,944 bytes (50.25MiB), read
+  from llama.cpp's own allocator, not the ~25MiB this entry first
+  carried; the original formula dropped `ssm.group_count` and assumed
+  fp16 where the allocator uses F32. Source-derived is still not
+  measured — M1-E's task stands.
+- **Addressed 2026-08-22 by M1-A (code-complete; first review returned
+  REJECT on the SSM constant above, corrected, re-review pending; no
+  live component). Not closed until that re-review approves.**
 
 ### [NEW-158] `core/loader_v2.py`'s spawn command never passes `--jinja`, so the GGUF chat template — and therefore Qwen3.5-4B's `enable_thinking` switch — is inert
 
@@ -168,6 +174,75 @@ only.**
 Cross-references: `NEW-156` (constants derived from the retired models),
 `NEW-157` (hybrid attention vs. the gate's cost formula), `NEW-158`
 (`--jinja` missing, thinking mode inert).
+
+
+### [NEW-160] Qwen3.5-4B's GGUF chat template opens with vision/multimodal namespaces (`image_count`/`video_count`) and `general.tags` carries `image-text-to-text`, yet the file has no `qwen35.vision.*` keys and no mmproj beside it — `--jinja` (M1-C) switches the server onto that template including those branches
+
+- **Status:** **Confirmed** for the artifact facts; **Suspected** for the
+  behavioral consequence. Found 2026-08-22 while doing the full 46-key
+  GGUF metadata dump for M1-A scoping (desk-only, header read, no model
+  loaded). Out of scope for M1-A, which touches
+  `core/resource_gate.py`'s cost model only.
+- **Confirmed (read directly from
+  `~/models/qwen3.5-4b-instruct/Qwen3.5-4B-Q4_K_M.gguf`):** the
+  `tokenizer.chat_template` value is 7,816 characters and its opening
+  section sets up `image_count` / `video_count` namespaces; the
+  `general.tags` field carries `image-text-to-text`. At the same time,
+  the full key dump contains **no** `qwen35.vision.*` block, and there is
+  no mmproj/projector file alongside the GGUF in that directory. The
+  text-only GGUF is internally consistent and fine to run as-is — the
+  vision branches simply have no image content to act on.
+- **Suspected (not tested):** M1-C adds `--jinja`, which is precisely the
+  flag that makes `llama-server` stop using its built-in template guess
+  and start executing *this* template — vision namespace setup included.
+  Whether those branches are inert no-ops for a pure-text request, or
+  whether they alter the rendered prompt (extra tokens, changed role
+  framing, a different content-part shape) is **unverified**. It is
+  plausible they are harmless; that is a hypothesis, not a finding.
+- **Impact:** this compounds `NEW-158`'s already-noted caveat that
+  `--jinja` changes prompt formatting for the existing coding path.
+  `NEW-158` frames that as "the model's own template instead of the
+  built-in guess"; this entry names the specific part of that template
+  most likely to behave unexpectedly under a text-only build.
+- **Fix direction:** none needed yet. M1-C must **verify, not assume** —
+  capture the server's rendered prompt (or an A/B of identical requests
+  with and without `--jinja`) before trusting the coding path across the
+  flag change. Rule 14 applies directly: the template is the artifact,
+  and it has already been read; what has not been read is what
+  `llama-server` does with it.
+- **Not fixed this round** — logged during M1-A scoping, belongs to M1-C.
+
+
+### [NEW-161] Interim state after M1-A alone: `model_id="primary"` resolves to Qwen3.5-4B's hybrid arch while `MODEL_PATH` still points at the Qwen2.5-Coder-7B file, so the gate under-estimates a 7B load's KV cache by 768MiB — in the unsafe direction
+
+- **Status:** **Confirmed** — arithmetic against the committed code, no
+  model loaded. Found 2026-08-22 by `code-reviewer` (W-2) during M1-A's
+  review. Closed by M1-B; recorded because it is a real property of the
+  state M1-A commits, not a hypothetical.
+- **Mechanism:** M1-A repoints `KNOWN_MODEL_ARCHS["primary"]` at
+  `QWEN35_4B_ARCH` (8 attention layers, 4 KV heads, head_dim 256).
+  M1-A deliberately does **not** touch `utils/config.py` — that is M1-B —
+  so `cfg.MODEL_PATH` still names
+  `~/models/qwen2.5-coder-7b/...`, and `estimate_model_load_cost()` stats
+  that file for `model_bytes` while costing its KV with the *4B's* arch.
+- **The number:** at `n_ctx=32768` the gate computes `8 * 2 * 4 * 256 *
+  32768 * 2` = **1,073,741,824** bytes of KV, where the real 7B needs
+  `28 * 2 * 4 * 128 * 32768 * 2` = **1,879,048,192**. An
+  **805,306,368-byte (768MiB) under-estimate**, ~1.0GiB once the ×1.25
+  headroom factor is applied. Under-estimating is the `NEW-21`/`NEW-84`
+  direction — it can admit a load that should have been refused.
+- **Why it is accepted rather than fixed here:** the A-before-B order is
+  deliberate. Doing B first would leave the gate costing the 4B file with
+  the 7B's 28-layer arch — a ~4x *over*-estimate that would refuse the
+  `n_ctx=65536` Ish chose (§8 Q1). One of the two orders has to carry a
+  transient mismatch, and A-first carries it in a window that `§6.2`
+  fences with "do this before anything loads."
+- **What keeps it honest:** M1-B closes it by pointing every model slot
+  at the Qwen3.5-4B file. Until then, treat any gate admission decision
+  involving `model_id="primary"` as unsound. M1 chains can stall
+  mid-sequence when a review rejects — if M1-B is not landing
+  immediately after M1-A, this is the finding that says why that matters.
+- **Not fixed this round** — closes with M1-B.
 
 
 ## Found during NEW-10 (SIGTERM handler) implementation, 2026-07-30 — NOT fixed, logged only

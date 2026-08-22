@@ -131,14 +131,64 @@ def test_estimate_model_load_cost_uses_explicit_size_and_arch():
     assert cost.model_bytes == 4_683_073_536
     assert cost.kv_cache_bytes == 28 * 2 * 4 * 128 * 32768 * 2
     assert cost.overhead_bytes == rg.DEFAULT_COMPUTE_OVERHEAD_BYTES
-    assert cost.total_bytes == cost.model_bytes + cost.kv_cache_bytes + cost.overhead_bytes
+    # No recurrent/SSM term for a conventional transformer.
+    assert cost.recurrent_state_bytes == 0
+    assert cost.total_bytes == (
+        cost.model_bytes
+        + cost.kv_cache_bytes
+        + cost.overhead_bytes
+        + cost.recurrent_state_bytes
+    )
 
 
 def test_estimate_model_load_cost_unknown_arch_omits_kv_term():
     spec = rg.ModelSpec(model_id="mystery-model", size_bytes=1_000_000_000, n_ctx=8192)
     cost = rg.estimate_model_load_cost(spec)
     assert cost.kv_cache_bytes == 0
+    assert cost.recurrent_state_bytes == 0
     assert cost.model_bytes == 1_000_000_000
+
+
+def test_qwen35_4b_hybrid_kv_uses_8_attention_layers_not_32():
+    # The whole point of M1-A. Qwen3.5-4B declares block_count=32 but
+    # full_attention_interval=4, so only 8 layers keep a growing KV cache
+    # (CODEY_MASTER_PLAN.md §1.4/§5.1). Using n_layers here would
+    # over-estimate by exactly 4x and wrongly refuse an affordable n_ctx.
+    assert rg.QWEN35_4B_ARCH.n_layers == 32
+    assert rg.QWEN35_4B_ARCH.n_attention_layers == 8
+    # 8 layers * 2 (K+V) * 4 kv_heads * 256 head_dim * 2 bytes = 32768/token.
+    assert rg.estimate_kv_cache_bytes(rg.QWEN35_4B_ARCH, n_ctx=1) == 32768
+    assert rg.estimate_kv_cache_bytes(rg.QWEN35_4B_ARCH, n_ctx=32768) == 8 * 2 * 4 * 256 * 32768 * 2
+    # Regression guard against "correcting" n_attention_layers back to 32.
+    assert (
+        rg.estimate_kv_cache_bytes(rg.QWEN35_4B_ARCH, n_ctx=32768) * 4
+        == 32 * 2 * 4 * 256 * 32768 * 2
+    )
+
+
+def test_qwen35_4b_total_cost_reconciles_with_master_plan_table():
+    # Single assertion pinning the whole M1-A change against
+    # CODEY_MASTER_PLAN.md §5.1's published table (3.852GiB at n_ctx=32768):
+    # real on-disk file size + 8-layer KV + the 256MiB overhead constant +
+    # the source-derived SSM state. If any one of those four terms drifts,
+    # this fails and the plan's table is the thing to reconcile against.
+    spec = rg.ModelSpec(model_id="primary", size_bytes=2_740_937_888, n_ctx=32768)
+    cost = rg.estimate_model_load_cost(spec)
+    assert cost.model_bytes == 2_740_937_888
+    assert cost.kv_cache_bytes == 1_073_741_824  # exactly 1.000 GiB
+    assert cost.overhead_bytes == rg.DEFAULT_COMPUTE_OVERHEAD_BYTES
+    # Mirrors llama.cpp's n_embd_r + n_embd_s at F32, x 24 SSM layers — see
+    # QWEN35_4B_ARCH's comment for the source lines. The group_count term
+    # (2 * 16 * 128) and the 4-byte element size are both load-bearing: an
+    # earlier version dropped the first and used 2 bytes, under-estimating
+    # by 26,935,296 bytes.
+    assert (
+        cost.recurrent_state_bytes
+        == ((4 - 1) * (4096 + 2 * 16 * 128) + 128 * 4096) * 4 * 24
+        == 52_690_944
+    )
+    assert cost.total_bytes == 4_135_806_112
+    assert abs(cost.total_bytes / (1024 ** 3) - 3.852) < 0.001
 
 
 def test_estimate_model_load_cost_no_size_or_path_raises():
@@ -168,11 +218,14 @@ def test_estimate_model_load_cost_applies_mmap_fraction_from_path(tmp_path):
 def test_known_model_archs_resolved_by_path():
     from utils.config import MODEL_PATH, PLANNER_MODEL_PATH
 
+    # Both roles resolve to the one Qwen3.5-4B arch as of the 2026-08-22
+    # one-model decision; what this test pins is that resolution happens by
+    # model_id and not by the path (NEW-84), not which model is default.
     spec = rg.ModelSpec(model_id="primary", path=MODEL_PATH, size_bytes=1, n_ctx=1024)
-    assert rg._resolve_model_arch(spec) is rg.QWEN25_7B_ARCH
+    assert rg._resolve_model_arch(spec) is rg.QWEN35_4B_ARCH
 
     spec2 = rg.ModelSpec(model_id="planner", path=PLANNER_MODEL_PATH, size_bytes=1, n_ctx=1024)
-    assert rg._resolve_model_arch(spec2) is rg.QWEN25_1_5B_ARCH
+    assert rg._resolve_model_arch(spec2) is rg.QWEN35_4B_ARCH
 
 
 # ── CODEY_TEST_PRIMARY_ARCH / CODEY_TEST_PLANNER_ARCH override ──────────────
@@ -190,28 +243,31 @@ def test_test_arch_override_unset_matches_current_default_behavior(monkeypatch):
     monkeypatch.delenv(rg.CODEY_TEST_PLANNER_ARCH_ENV, raising=False)
 
     spec = rg.ModelSpec(model_id="primary", size_bytes=1, n_ctx=1024)
-    assert rg._resolve_model_arch(spec) is rg.QWEN25_7B_ARCH
+    assert rg._resolve_model_arch(spec) is rg.QWEN35_4B_ARCH
 
     spec2 = rg.ModelSpec(model_id="planner", size_bytes=1, n_ctx=1024)
-    assert rg._resolve_model_arch(spec2) is rg.QWEN25_1_5B_ARCH
+    assert rg._resolve_model_arch(spec2) is rg.QWEN35_4B_ARCH
 
     # KNOWN_MODEL_ARCHS's committed default entries themselves are untouched
     # (this mechanism is a lookup-time override, never a mutation of the dict).
-    assert rg.KNOWN_MODEL_ARCHS["primary"] is rg.QWEN25_7B_ARCH
-    assert rg.KNOWN_MODEL_ARCHS["planner"] is rg.QWEN25_1_5B_ARCH
+    assert rg.KNOWN_MODEL_ARCHS["primary"] is rg.QWEN35_4B_ARCH
+    assert rg.KNOWN_MODEL_ARCHS["planner"] is rg.QWEN35_4B_ARCH
 
 
 def test_test_arch_override_primary_set_selects_qwen3_4b(monkeypatch):
+    # "qwen3-4b" selects the OLDER Qwen3-4B substitute (QWEN3_4B_TEST_ARCH),
+    # which is a different architecture from the qwen35 default — see that
+    # constant's comment.
     monkeypatch.setenv(rg.CODEY_TEST_PRIMARY_ARCH_ENV, "qwen3-4b")
     monkeypatch.delenv(rg.CODEY_TEST_PLANNER_ARCH_ENV, raising=False)
 
     spec = rg.ModelSpec(model_id="primary", size_bytes=1, n_ctx=1024)
-    assert rg._resolve_model_arch(spec) is rg.QWEN3_4B_ARCH
+    assert rg._resolve_model_arch(spec) is rg.QWEN3_4B_TEST_ARCH
 
     # KNOWN_MODEL_ARCHS's committed default entry is still untouched even
     # while the override is active — this is a lookup-time override, not a
     # mutation, so nothing else reading the dict directly is affected.
-    assert rg.KNOWN_MODEL_ARCHS["primary"] is rg.QWEN25_7B_ARCH
+    assert rg.KNOWN_MODEL_ARCHS["primary"] is rg.QWEN35_4B_ARCH
 
 
 def test_test_arch_override_planner_set_selects_qwen25_0_5b(monkeypatch):
@@ -220,7 +276,7 @@ def test_test_arch_override_planner_set_selects_qwen25_0_5b(monkeypatch):
 
     spec = rg.ModelSpec(model_id="planner", size_bytes=1, n_ctx=1024)
     assert rg._resolve_model_arch(spec) is rg.QWEN25_0_5B_PLANNER_ARCH
-    assert rg.KNOWN_MODEL_ARCHS["planner"] is rg.QWEN25_1_5B_ARCH
+    assert rg.KNOWN_MODEL_ARCHS["planner"] is rg.QWEN35_4B_ARCH
 
 
 def test_test_arch_override_does_not_preempt_explicit_spec_arch(monkeypatch):
@@ -283,17 +339,21 @@ def test_test_arch_override_invalid_value_propagates_through_can_admit(monkeypat
         rg.can_admit(spec, meminfo=mi, read_temp_fn=NO_THERMAL)
 
 
-def test_qwen3_4b_arch_kv_estimate_is_larger_than_qwen25_7b():
-    # Pins the actual arithmetic this feature exists to fix: if the 7B arch
-    # were wrongly used for a resident Qwen3-4B-Instruct model, the KV cache
-    # cost would be under-estimated (7B factor: 28*4*128=14336) relative to
-    # Qwen3-4B's real factor (36*8*128=36864, ~2.6x larger) — the dangerous
-    # direction for a resource gate. Confirms QWEN3_4B_ARCH actually produces
-    # the larger, correct estimate once selected via the override.
+def test_qwen3_4b_test_arch_kv_estimate_is_larger_than_the_default_primary():
+    # Pins the arithmetic this override feature exists to fix: if the
+    # default primary arch were wrongly used for a resident, substituted
+    # Qwen3-4B-Instruct, the KV cache cost would be UNDER-estimated — the
+    # dangerous direction for a resource gate. Baseline re-pointed at
+    # QWEN35_4B_ARCH (M1-A, 2026-08-22): the retired 7B is no longer any
+    # role's default, so comparing against it stopped testing the stated
+    # property. The direction still holds and the margin is wider — the
+    # hybrid default's per-token factor is 8*4*256 = 8192 against the
+    # Qwen3-4B substitute's 36*8*128 = 36864, i.e. ~4.5x, where it used to
+    # be ~2.6x against the 7B's 28*4*128 = 14336.
     n_ctx = 4096
-    qwen3_4b_kv = rg.estimate_kv_cache_bytes(rg.QWEN3_4B_ARCH, n_ctx=n_ctx)
-    qwen25_7b_kv = rg.estimate_kv_cache_bytes(rg.QWEN25_7B_ARCH, n_ctx=n_ctx)
-    assert qwen3_4b_kv > qwen25_7b_kv
+    qwen3_4b_kv = rg.estimate_kv_cache_bytes(rg.QWEN3_4B_TEST_ARCH, n_ctx=n_ctx)
+    default_primary_kv = rg.estimate_kv_cache_bytes(rg.QWEN35_4B_ARCH, n_ctx=n_ctx)
+    assert qwen3_4b_kv > default_primary_kv
     expected = 36 * 2 * 8 * 128 * n_ctx * 2
     assert qwen3_4b_kv == expected
 

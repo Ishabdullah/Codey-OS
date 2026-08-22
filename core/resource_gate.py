@@ -891,21 +891,51 @@ def get_resource_snapshot(
 @dataclass(frozen=True)
 class ModelArch:
     """
-    Minimal transformer architecture parameters needed to estimate KV cache
-    size. Values come from each model family's published config (Qwen2.5
-    architecture docs) for QWEN25_7B_ARCH/QWEN25_1_5B_ARCH. QWEN3_4B_ARCH and
-    QWEN25_0_5B_PLANNER_ARCH (below) instead come from reading each real
-    GGUF file's own header metadata directly on-device, because those two
-    are test-only substitute models with no corresponding "published config"
-    reference to cite (see each constant's own comment for the exact fields
-    read). Neither provenance parses the GGUF file at estimate time — this
+    Minimal architecture parameters needed to estimate a model's resident
+    memory cost. Values come from each model family's published config
+    (Qwen2.5 architecture docs) for QWEN25_7B_ARCH/QWEN25_1_5B_ARCH.
+    QWEN35_4B_ARCH, QWEN3_4B_TEST_ARCH and QWEN25_0_5B_PLANNER_ARCH (below)
+    instead come from reading each real GGUF file's own header metadata
+    directly on-device (see each constant's own comment for the exact fields
+    read). No provenance parses the GGUF file at estimate time — this
     dataclass stays narrowly scoped to what this gate needs, not a general
     GGUF-metadata reader.
+
+    Not every model is a uniform stack of attention layers. Qwen3.5-4B is a
+    hybrid Transformer-SSM model: only some of its blocks keep a KV cache
+    that grows with context, and the rest carry a fixed-size recurrent
+    state. `n_attention_layers` and `recurrent_state_bytes` exist for that
+    case and default to "conventional model" values, so every previously
+    declared arch keeps its exact prior cost.
+
+    One limitation worth knowing: `head_dim` is a single number, so this
+    dataclass silently assumes a model's key and value dimensions are
+    equal. That holds for every arch declared below, but the evidence
+    differs by family and it is worth knowing which you have: the qwen3
+    and qwen35 GGUFs declare `attention.key_length` and
+    `attention.value_length` explicitly, and both were checked equal. The
+    three qwen2 GGUFs (7B, 1.5B, and the 0.5B planner substitute) carry
+    neither key — llama.cpp derives head_dim there as
+    `embedding_length / attention.head_count`, one value used for both, so
+    they are symmetric by construction rather than by inspection. Nothing
+    here would catch an asymmetric model: before adding one, check
+    `<arch>.attention.key_length` against `value_length` if it declares
+    them, and read the family's head_dim derivation if it does not.
     """
 
     n_layers: int
     n_kv_heads: int
     head_dim: int
+    # Number of layers that actually keep a growing KV cache. None (the
+    # default) means "all of them", i.e. n_layers — the conventional case.
+    # Set explicitly only for hybrid models where the two differ; see
+    # QWEN35_4B_ARCH.
+    n_attention_layers: Optional[int] = None
+    # Context-INDEPENDENT recurrent/SSM state, in bytes, for models that
+    # carry one. 0 for a conventional transformer. Deliberately a flat byte
+    # count rather than a formula: it does not scale with n_ctx, so there is
+    # nothing for this gate to compute per admission.
+    recurrent_state_bytes: int = 0
     # KV cache element size in bytes. MODEL_CONFIG["kv_type"] = "q4_0" in
     # utils/config.py suggests 4-bit KV, but that key is never actually
     # passed to `llama-server` in core/loader_v2.py's _spawn_locked() command
@@ -917,6 +947,13 @@ class ModelArch:
     kv_bytes_per_element: int = 2
 
 
+# The two retired models (CODEY_MASTER_PLAN.md §1.4, 2026-08-22). No entry
+# in KNOWN_MODEL_ARCHS points at either one any more; they are kept as
+# declared constants because the NEW-84 regression tests and this module's
+# own derivation comments reference them by name, and because M1-D has not
+# yet removed the last of the retired-model code paths. Do not re-point a
+# role at them.
+
 # Qwen2.5-Coder-7B-Instruct: hidden_size=3584, num_hidden_layers=28,
 # num_attention_heads=28, num_key_value_heads=4 (GQA), head_dim=128.
 QWEN25_7B_ARCH = ModelArch(n_layers=28, n_kv_heads=4, head_dim=128)
@@ -924,6 +961,64 @@ QWEN25_7B_ARCH = ModelArch(n_layers=28, n_kv_heads=4, head_dim=128)
 # Qwen2.5-Coder-1.5B-Instruct: hidden_size=1536, num_hidden_layers=28,
 # num_attention_heads=12, num_key_value_heads=2 (GQA), head_dim=128.
 QWEN25_1_5B_ARCH = ModelArch(n_layers=28, n_kv_heads=2, head_dim=128)
+
+# Qwen3.5-4B-Instruct (~/models/qwen3.5-4b-instruct/Qwen3.5-4B-Q4_K_M.gguf,
+# 2,740,937,888 bytes) — the single default model for every role as of the
+# 2026-08-22 one-model decision (CODEY_MASTER_PLAN.md §1.4).
+#
+# THIS IS A HYBRID TRANSFORMER-SSM MODEL, NOT A CONVENTIONAL ONE. Read
+# directly from the GGUF header on-device (full 46-key dump, not a filtered
+# grep — rule 14): general.architecture=qwen35, qwen35.block_count=32,
+# qwen35.full_attention_interval=4. 32/4 = 8 full-attention layers; the
+# other 24 are SSM/linear layers whose state does NOT grow with context. So
+# n_attention_layers=8 while n_layers stays 32 — the numbers disagree on
+# purpose, and "correcting" n_attention_layers to 32 would over-estimate
+# this model's KV cache by 4x and wrongly refuse an n_ctx the device can
+# actually afford (NEW-157).
+#
+# The attention fields are qwen35.attention.head_count_kv=4 and
+# qwen35.attention.key_length=256. head_dim=256 is only valid here because
+# qwen35.attention.value_length is ALSO 256 — ModelArch has one head_dim
+# field and would not catch a model where they differ.
+#
+# recurrent_state_bytes is the 24 SSM layers' fixed state. It is derived
+# from llama.cpp's own allocation code, read on-device at ~/llama.cpp
+# (commit 91d2fc38) — NOT from the GGUF's ssm.* fields interpreted by
+# analogy with Mamba, which is how an earlier version of this constant got
+# it wrong in both of the ways its own comment warned about:
+#
+#   llama-hparams.cpp:204 (n_embd_r, the conv state) —
+#       (ssm_d_conv - 1) * (ssm_d_inner + 2 * ssm_n_group * ssm_d_state)
+#     = 3 * (4096 + 2 * 16 * 128) = 24,576 per layer.
+#     Note ssm_n_group: qwen35.ssm.group_count=16 enters here. Omitting it
+#     halves this term, which is the mistake that was caught in review.
+#   llama-hparams.cpp:220 (n_embd_s, the SSM state) —
+#       ssm_d_state * ssm_d_inner = 128 * 4096 = 524,288 per layer.
+#   llama-model.cpp:2153-2155 — qwen35 passes recurrent_type_k and
+#     recurrent_type_v as GGML_TYPE_F32. The elements are 4 bytes, NOT the
+#     2-byte fp16 the KV cache uses. Do not assume this follows
+#     kv_bytes_per_element; it does not.
+#
+# So: ((4 - 1) * (4096 + 2 * 16 * 128) + 128 * 4096) * 4 * 24
+#   = 52,690,944 bytes (50.25MiB).
+#
+# This is now SOURCE-DERIVED BUT STILL NOT MEASURED. Reading the allocator
+# is stronger evidence than the formula it replaced, but M1-E keeps its
+# measurement task — real resident cost is what settles it.
+#
+# One caveat that is NOT obvious: llama.cpp allocates recurrent state PER
+# SEQUENCE SLOT (llama-memory-recurrent.cpp:100-101, n_rows =
+# max(1, n_seq_max)), so this figure is for a single slot — llama-server's
+# default. It scales with n_seq_max / --parallel: negligible at one slot,
+# not negligible at eight, and the concurrency work in §6.2 is about to
+# start setting that flag.
+QWEN35_4B_ARCH = ModelArch(
+    n_layers=32,
+    n_kv_heads=4,
+    head_dim=256,
+    n_attention_layers=8,
+    recurrent_state_bytes=((4 - 1) * (4096 + 2 * 16 * 128) + 128 * 4096) * 4 * 24,
+)
 
 # Keyed by ModelSpec.model_id, NOT by the model's file path. This dict used
 # to be keyed by str(MODEL_PATH)/str(PLANNER_MODEL_PATH) — both bound once
@@ -942,8 +1037,8 @@ QWEN25_1_5B_ARCH = ModelArch(n_layers=28, n_kv_heads=2, head_dim=128)
 # stable role identifier instead of the mutable path is both correct and
 # swap-proof.
 KNOWN_MODEL_ARCHS: Dict[str, ModelArch] = {
-    "primary": QWEN25_7B_ARCH,
-    "planner": QWEN25_1_5B_ARCH,
+    "primary": QWEN35_4B_ARCH,
+    "planner": QWEN35_4B_ARCH,
 }
 
 # ── Test-only architecture substitutes (Qwen3-4B / Qwen2.5-0.5B planner) ────
@@ -964,7 +1059,16 @@ KNOWN_MODEL_ARCHS: Dict[str, ModelArch] = {
 # Qwen3-4B-Instruct-2507 (~/models/qwen3-4b-instruct/
 # Qwen3-4B-Instruct-2507-Q4_K_M.gguf). GGUF header: qwen3.block_count=36,
 # qwen3.attention.head_count_kv=8, qwen3.attention.key_length=128.
-QWEN3_4B_ARCH = ModelArch(n_layers=36, n_kv_heads=8, head_dim=128)
+#
+# NAMED *_TEST_ARCH ON PURPOSE (renamed from QWEN3_4B_ARCH, 2026-08-22).
+# This is the OLDER Qwen3-4B — general.architecture=qwen3, 36 conventional
+# all-attention layers — and is NOT the qwen35 default above. The two names
+# were one character apart while describing different architectures, which
+# is exactly the confusable-name trap rule 14 exists for. Kept rather than
+# deleted because it is still wired into _TEST_ARCH_REGISTRY_BY_ROLE, still
+# load-bearing for the CODEY_TEST_PRIMARY_ARCH live-test contract, and the
+# model file is still on disk.
+QWEN3_4B_TEST_ARCH = ModelArch(n_layers=36, n_kv_heads=8, head_dim=128)
 
 # 0.5B planner substitute (~/models/qwen2.5-0.5b/planner-codey.gguf, Qwen2
 # architecture, general.size_label="494M"). GGUF header: qwen2.block_count=24,
@@ -994,7 +1098,7 @@ QWEN25_0_5B_PLANNER_ARCH = ModelArch(n_layers=24, n_kv_heads=2, head_dim=64)
 # that, it should be a documented, explicit extension, not a side effect of
 # a shared flat registry.
 _TEST_ARCH_REGISTRY_BY_ROLE: Dict[str, Dict[str, ModelArch]] = {
-    "primary": {"qwen3-4b": QWEN3_4B_ARCH},
+    "primary": {"qwen3-4b": QWEN3_4B_TEST_ARCH},
     "planner": {"qwen2.5-0.5b-planner": QWEN25_0_5B_PLANNER_ARCH},
 }
 
@@ -1102,23 +1206,48 @@ class ModelSpec:
 
 @dataclass(frozen=True)
 class CostEstimate:
+    """
+    The breakdown behind one admission decision, kept as separate terms so
+    a total that looks wrong can be audited against the model's own
+    arithmetic rather than re-derived. `recurrent_state_bytes` defaults to 0
+    and is non-zero only for hybrid/SSM models (see ModelArch); it is
+    context-independent, unlike kv_cache_bytes.
+    """
+
     model_bytes: int
     kv_cache_bytes: int
     overhead_bytes: int
+    recurrent_state_bytes: int = 0
 
     @property
     def total_bytes(self) -> int:
-        return self.model_bytes + self.kv_cache_bytes + self.overhead_bytes
+        return (
+            self.model_bytes
+            + self.kv_cache_bytes
+            + self.overhead_bytes
+            + self.recurrent_state_bytes
+        )
 
 
 def estimate_kv_cache_bytes(arch: ModelArch, n_ctx: int) -> int:
     """
-    KV cache size = n_layers * 2 (K and V) * n_kv_heads * head_dim * n_ctx *
-    bytes_per_element. Standard formula for GQA/MQA transformer KV cache;
-    matches llama.cpp's own KV cache allocation shape.
+    KV cache size = attention_layers * 2 (K and V) * n_kv_heads * head_dim *
+    n_ctx * bytes_per_element. Standard formula for GQA/MQA transformer KV
+    cache; matches llama.cpp's own KV cache allocation shape.
+
+    `attention_layers` is arch.n_attention_layers when set, else n_layers.
+    Only layers that actually attend keep a growing cache — on a hybrid
+    model like Qwen3.5-4B (8 of 32) using n_layers here would over-estimate
+    by 4x (NEW-157). The `is not None` test is deliberate: `or` would treat
+    a legitimate 0 as unset. Layers that don't attend are not free, but
+    their cost is fixed rather than context-scaled and is carried by
+    arch.recurrent_state_bytes instead, in estimate_model_load_cost().
     """
+    attention_layers = (
+        arch.n_attention_layers if arch.n_attention_layers is not None else arch.n_layers
+    )
     return (
-        arch.n_layers
+        attention_layers
         * 2
         * arch.n_kv_heads
         * arch.head_dim
@@ -1169,15 +1298,24 @@ def estimate_model_load_cost(spec: ModelSpec) -> CostEstimate:
     arch = _resolve_model_arch(spec)
     if arch is not None:
         kv_bytes = estimate_kv_cache_bytes(arch, spec.n_ctx)
+        # Context-independent, and 0 for every conventional model — see
+        # ModelArch.recurrent_state_bytes. Kept as its own term rather than
+        # folded into the KV or overhead terms so the KV number stays
+        # directly auditable against CODEY_MASTER_PLAN.md §5.1's table.
+        recurrent_bytes = arch.recurrent_state_bytes
     else:
         warning(
             f"resource_gate: no known architecture for model {spec.model_id!r}; "
             "KV cache term omitted from cost estimate (weights + overhead only)"
         )
         kv_bytes = 0
+        recurrent_bytes = 0
 
     return CostEstimate(
-        model_bytes=model_bytes, kv_cache_bytes=kv_bytes, overhead_bytes=spec.compute_overhead_bytes
+        model_bytes=model_bytes,
+        kv_cache_bytes=kv_bytes,
+        overhead_bytes=spec.compute_overhead_bytes,
+        recurrent_state_bytes=recurrent_bytes,
     )
 
 

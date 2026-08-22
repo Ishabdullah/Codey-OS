@@ -228,7 +228,10 @@ def test_resource_gate_arch_lookup_survives_model_path_swap(tmp_path):
     spec = rg.ModelSpec(model_id="primary", path=swapped_path, n_ctx=32768)
     cost = rg.estimate_model_load_cost(spec)
 
-    expected_kv = rg.estimate_kv_cache_bytes(rg.QWEN25_7B_ARCH, n_ctx=32768)
+    # Baseline re-pointed at the current default arch (M1-A, 2026-08-22).
+    # The property under test is "the lookup survives a path swap", not
+    # which model the primary role happens to be.
+    expected_kv = rg.estimate_kv_cache_bytes(rg.QWEN35_4B_ARCH, n_ctx=32768)
     assert cost.kv_cache_bytes == expected_kv
     assert cost.kv_cache_bytes != 0
 
@@ -240,7 +243,7 @@ def test_resource_gate_arch_lookup_survives_planner_path_swap(tmp_path):
     spec = rg.ModelSpec(model_id="planner", path=swapped_path, n_ctx=32768)
     cost = rg.estimate_model_load_cost(spec)
 
-    expected_kv = rg.estimate_kv_cache_bytes(rg.QWEN25_1_5B_ARCH, n_ctx=32768)
+    expected_kv = rg.estimate_kv_cache_bytes(rg.QWEN35_4B_ARCH, n_ctx=32768)
     assert cost.kv_cache_bytes == expected_kv
     assert cost.kv_cache_bytes != 0
 

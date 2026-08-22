@@ -189,10 +189,11 @@ flips from "how far must the context come down" to "how far can it go
 up").
 
 **What still needs measuring, and is genuinely open:** the gate's
-`ModelArch` cannot express hybrid attention at all, so its estimate is
-wrong until M1-A teaches it the 8-layer split (`NEW-157`); and the 24 SSM
-layers' constant state is estimated, not measured (§5.1). Both resolve
-with real numbers in M1-E.
+`ModelArch` could not express hybrid attention at all — **M1-A fixed that
+2026-08-22 (code-complete, review pending): `n_attention_layers=8` now
+drives the KV term (`NEW-157`)**. The 24 SSM layers' constant state is
+still estimated, not measured, and is now carried explicitly as
+`recurrent_state_bytes` (§5.1). M1-E is where both get real numbers.
 
 ---
 
@@ -611,6 +612,18 @@ scoped to what it actually proved.
   test coverage). Nothing dispatches on a tier decision yet.
 - 4.1 sub-tasks A, B, E.
 
+**One item here is built but NOT yet approved — stated separately so it
+is not read as reviewed:**
+
+- **M1-A (arch + cost correctness in `core/resource_gate.py`)** —
+  code-complete 2026-08-22, **no `code-reviewer` pass yet**, and it is
+  rule-4 category (§6.2). Unit-tested only, by design: 200 passed across
+  `tests/test_resource_gate.py` + `tests/test_new84_stale_model_path.py`,
+  739 passed / 1 skipped / 5 deselected repo-wide (the 5 are
+  `tests/test_new19_patch_failed_repeat_escalation.py`, the known
+  dirty-tree noise, `NEW-110`/`NEW-150`). No model was loaded; there is
+  no live component to this sub-task. See Appendix A for what changed.
+
 ### 4.3 The one honest platform gap — largely dissolved by §1.4
 
 **As it stood on 2026-08-21:** concurrent primary + planner at
@@ -642,7 +655,7 @@ over-estimates this model's KV by ~4× until it learns the hybrid split"
 (`NEW-157`) — a bounded, safe-direction error with a known fix, which is
 a considerably better problem to have. On the numbers in §5.1 the device
 now has headroom it did not have a week ago, including room to *raise*
-the context ceiling (§8 Q1).
+the context ceiling (§8 Q1, answered 2026-08-22: 65536).
 
 Still open and unaffected by §1.4: `NEW-138` (an unexplained ~1.56GiB
 anon-RSS gap — worth re-checking against the new model, since the figure
@@ -748,39 +761,62 @@ hold a fixed-size recurrent state. So the KV term uses **8**, not 32:
 predict (see §1.4's correction and rule 14).
 
 Totals = file (2.553GiB) + KV + the 0.250GiB compute-overhead constant +
-an estimated ~25MiB of SSM state (context-independent):
+50.25MiB of SSM state (context-independent, see note 2):
 
 | `n_ctx` | KV | Total | Required (×1.25) | vs ~6.49GiB ceiling |
 |---|---|---|---|---|
-| 32768 (current default) | 1.000GiB | **3.827GiB** | 4.783GiB | comfortable |
-| 65536 | 2.000GiB | 4.827GiB | 6.033GiB | **admissible — 2× the context** |
-| 131072 | 4.000GiB | 6.827GiB | 8.533GiB | hard-reject |
-| 262144 (model's native max) | 8.000GiB | 10.827GiB | — | hard-reject |
+| 32768 (current default) | 1.000GiB | **3.852GiB** | 4.815GiB | comfortable |
+| 65536 | 2.000GiB | 4.852GiB | 6.065GiB | **admissible — 2× the context** |
+| 131072 | 4.000GiB | 6.852GiB | 8.565GiB | hard-reject |
+| 262144 (model's native max) | 8.000GiB | 10.852GiB | — | hard-reject |
 
 **For comparison:** the 7B alone cost 6.361GiB at 32768 and sat ~137MiB
 from the hard-reject ceiling (`NEW-143`). The retired pair cost 8.527GiB
 declared concurrently — the case `NEW-141` proved this device cannot
-sustain. The new model at the *same* context costs 3.827GiB, and can run
-at **double** it for 4.827GiB. The one-model decision buys both a
+sustain. The new model at the *same* context costs 3.852GiB, and can run
+at **double** it for 4.852GiB. The one-model decision buys both a
 simpler residency problem and materially more context than before.
 
 **Three figures above are computed, not measured:**
 
-1. **The gate does not yet know any of this.** `ModelArch` assumes
-   uniform full attention across all layers and has no field for a hybrid
-   split, so it will compute the KV term from 32 layers and over-estimate
-   by ~4× (`NEW-157`). Over-estimating is the safe direction — it refuses
-   loads that would have worked rather than admitting ones that OOM — but
-   left unfixed it would wrongly cap `n_ctx` at 32768 when 65536 is
-   affordable. **M1-A is where the gate learns the 8-layer split.**
-2. **The SSM state estimate (~25MiB) is a formula, not a measurement.**
-   Derived as `inner_size × (conv_kernel − 1) + inner_size × state_size`
-   per layer, fp16, × 24 layers. llama.cpp's actual allocation may differ
-   in layout or element width. It is small and context-independent either
-   way, so it does not change the shape of the table — but do not quote
-   it as fact.
-3. **Everything here is arithmetic against a formula.** M1-E measures
-   real resident cost and settles all of it.
+1. **The gate now knows the hybrid split — M1-A, 2026-08-22,
+   code-complete (not yet code-reviewer-approved).** `ModelArch` gained
+   `n_attention_layers` (8) and `recurrent_state_bytes`, and
+   `KNOWN_MODEL_ARCHS` points both roles at the new `QWEN35_4B_ARCH`
+   (`NEW-157`). A unit test now pins the exact total in this table's
+   32768 row — 4,135,806,112 bytes = 3.852GiB — so a future edit that
+   "corrects" the 8 back to 32 fails loudly. Before that fix the gate
+   computed the KV term from 32 layers and over-estimated by ~4×; that
+   was the safe direction, but it would have wrongly capped `n_ctx` at
+   32768 when 65536 is affordable.
+2. **The SSM state figure is 50.25MiB, derived from llama.cpp's
+   allocation code — still not measured.** **Correction, rule 6
+   (2026-08-22, caught in M1-A's review):** this document previously
+   published ~25MiB, derived as `inner_size × (conv_kernel − 1) +
+   inner_size × state_size` per layer, **fp16**, × 24 layers, and warned
+   that "llama.cpp's actual allocation may differ in layout or element
+   width." It differed in *exactly both* ways, and the allocating source
+   was on this device the whole time (`~/llama.cpp`, commit `91d2fc38`):
+   - `llama-hparams.cpp:204` — the conv term is `(ssm_d_conv − 1) ×
+     (ssm_d_inner + 2 × ssm_n_group × ssm_d_state)`. The old formula
+     **omitted `ssm.group_count = 16`**, halving that term.
+   - `llama-model.cpp:2153-2155` — qwen35 passes `recurrent_type_k` and
+     `recurrent_type_v` as **`GGML_TYPE_F32`**. Four bytes, not two. The
+     "fp16" above was asserted as fact and was wrong; recurrent state
+     does *not* follow the KV cache's element width.
+
+   Corrected: `((4−1) × (4096 + 2×16×128) + 128×4096) × 4 × 24` =
+   **52,690,944 bytes (50.25MiB)**, an under-estimate of 26,935,296
+   bytes in the old figure. It remains small and context-independent, so
+   the table's shape is unchanged and **§8 Q1's answer of 65536 still
+   holds** (6.065GiB required against the ~6.49GiB ceiling). Reading the
+   allocator is stronger evidence than the formula it replaced, but it is
+   still **source-derived, not measured** — M1-E keeps that task. One
+   property the old note missed entirely: llama.cpp allocates recurrent
+   state **per sequence slot** (`llama-memory-recurrent.cpp:100-101`),
+   so 50.25MiB is one slot's worth and scales with `--parallel`.
+3. **Everything here is arithmetic and source-reading, not
+   measurement.** M1-E measures real resident cost and settles all of it.
 
 **Stale constants, do not use without re-deriving** (`NEW-156`):
 
@@ -794,11 +830,19 @@ simpler residency problem and materially more context than before.
   more permissive than needed — §4.3's own note that it makes the
   plain-`MemAvailable` check effectively non-binding applies with more
   force, not less, now that the model it was sized for is retired.
-- `core/resource_gate.py`'s `KNOWN_MODEL_ARCHS` maps `"primary"` →
-  `QWEN25_7B_ARCH` and `"planner"` → `QWEN25_1_5B_ARCH`. Both entries are
-  wrong the moment the model changes, and a wrong arch silently produces
-  a wrong KV term — the `NEW-84` class of admission-safety bug. This is
-  the single highest-risk line item in the migration.
+- ~~`core/resource_gate.py`'s `KNOWN_MODEL_ARCHS` maps `"primary"` →
+  `QWEN25_7B_ARCH` and `"planner"` → `QWEN25_1_5B_ARCH`.~~ **CLOSED by
+  M1-A, 2026-08-22:** both roles now map to `QWEN35_4B_ARCH`
+  (`core/resource_gate.py:1040-1041`). Kept in this list as a closed
+  entry so `NEW-156`'s cross-reference still resolves. It was the single
+  highest-risk line item in the migration — a wrong arch silently
+  produces a wrong KV term, the `NEW-84` class of admission-safety bug —
+  and that risk is now retired for the *arch* side. One residue remains
+  until M1-B: `utils/config.py` still points `MODEL_PATH` at the 7B file
+  while `"primary"` costs with the 4B's arch, a 768MiB under-estimate in
+  the unsafe direction, recorded as `NEW-161`.
+
+  The two bullets above are still genuinely stale — M1-F has not run.
 
 ---
 
@@ -898,6 +942,16 @@ mandatory code-reviewer pass, no exceptions, including for the ones that
 look like config edits.
 
 - **M1-A — arch + cost correctness first, before anything loads.**
+  **DONE 2026-08-22 as far as code goes — code-complete, `code-reviewer`
+  pass still outstanding, no live component (§4.2, Appendix A).** Landed
+  as an optional `ModelArch.n_attention_layers=8` (NOT the `n_layers=8`
+  route offered below — that stores a number disagreeing with the model's
+  real layer count), plus a 4th `CostEstimate.recurrent_state_bytes`
+  term; `QWEN3_4B_ARCH` was **re-scoped, not deleted** (renamed
+  `QWEN3_4B_TEST_ARCH`; it is still load-bearing for the
+  `CODEY_TEST_PRIMARY_ARCH` contract). The original statement of the
+  sub-task is kept verbatim below as the record of what was asked for:
+
   Two things, and the second is the one that matters:
   1. Point `core/resource_gate.py`'s `KNOWN_MODEL_ARCHS` at a `qwen35`
      entry — **both roles, not just `"primary"`.** `"planner"` currently
@@ -941,9 +995,11 @@ look like config edits.
     number across.
   - Rename `QWEN_7B_MMAP`/`QWEN_7B_MLOCK` (misleading now; behavior
     unchanged).
-  - Choose the `n_ctx` default from §5.1's table — **§8 Q1, a decision
-    that has to be made, not deferred.** 65536 is affordable; 32768 is
-    the status quo.
+  - Set the `n_ctx` default to **65536** — **decided by Ish, 2026-08-22
+    (§8 Q1, answered).** 4.852GiB total / 6.065GiB required against the
+    ~6.49GiB ceiling. Conditional on M1-A having landed (without it the
+    gate over-estimates and refuses 65536) and subject to M1-E's
+    measurement; a material disagreement goes back to Ish.
   - Grep for any remaining hardcoded path or `qwen2.5` string outside
     tests before calling this done, and check the environment for a set
     `CODEY_MODEL`/`CODEY_PLANNER_MODEL`/`CODEY_SECONDARY_MODEL` that
@@ -1288,19 +1344,31 @@ these are the things that could go wrong against it.
 
 Numbered for reference. Nothing here is guessed at in this document.
 
-1. **`n_ctx` default for Qwen3.5-4B — the question has flipped from "how
-   far down" to "how far up."** The long-standing worry was that the
-   shipped 32768 was too expensive for this device (it needed ~7.95GiB of
-   `MemAvailable` with the 7B, a bar this device has never reached). With
-   the hybrid 4B, 32768 costs 3.827GiB total and **65536 costs 4.827GiB —
-   both admissible**, where 131072 is not (§5.1). So the real question is
-   whether to keep 32768, or take the doubled context now that it fits.
-   Two things to settle first, both cheap: the gate has to learn the
-   8-layer split or it will refuse 65536 on a ~4× over-estimate (M1-A,
-   `NEW-157`), and M1-E should confirm the arithmetic against real
-   resident cost before the default moves. Conditions 7.3's tier
-   thresholds and 7.4b sub-task C's interactive/background ceilings —
-   both of which were sized against a model that no longer exists.
+1. ~~**`n_ctx` default for Qwen3.5-4B — 32768 or 65536?**~~ **ANSWERED by
+   Ish, 2026-08-22: 65536.** Per §5.1 that is 2.553GiB file + 2.000GiB KV
+   + 0.250GiB overhead + 50.25MiB SSM state = **4.852GiB total, 6.065GiB
+   required at the ×1.25 factor, admissible against the ~6.49GiB
+   ceiling.** The question had flipped from "how far down" to "how far
+   up": with the 7B, 32768 needed ~7.95GiB of `MemAvailable`, a bar this
+   device has never reached; with the hybrid 4B the same context costs
+   3.852GiB and double it costs 4.852GiB (131072 is still a hard
+   reject).
+
+   **Two conditions travel with this decision and must stay stated,
+   because 65536 is only affordable if both hold:**
+   - **It depends on M1-A landing.** Under the old 32-layer assumption
+     the gate over-estimates KV by ~4× (4 × 2.000 = 8.000GiB) and would
+     refuse 65536 outright. The decision and the fix ship in that order.
+     (M1-A is code-complete as of 2026-08-22; see §4.2.)
+   - **It is still arithmetic.** M1-E measures real resident cost and is
+     the check on it. If measurement disagrees materially with the
+     4.852GiB estimate, that goes back to Ish rather than being silently
+     absorbed.
+
+   The actual edit is M1-B's, in `utils/config.py` — not M1-A's. Still
+   downstream and still needing re-derivation against the new default:
+   7.3's tier thresholds and 7.4b sub-task C's interactive/background
+   ceilings, both sized against a model that no longer exists.
 2. **The Core→device dispatch mechanism.** Reuse the existing Telegram
    Bot API channel the device app already polls, or build something
    Codey-OS-native? Not designed anywhere.
@@ -1448,13 +1516,25 @@ being retired, so doing them first means doing them twice. All of
 A/B/C/D/E are rule-4 category; mandatory code-reviewer pass, and that
 pass **also covers the two previously-unreviewed diffs** from §4.4.
 
-- [ ] **M1-A** — add the `qwen35` arch to `KNOWN_MODEL_ARCHS` for **both**
-      the `"primary"` and `"planner"` roles, expressing the 8/24 hybrid
-      split (`NEW-157`) rather than passing `n_layers=32`, which would
-      over-estimate KV ~4x and wrongly refuse an affordable 65536. Retire
-      the confusable test-only `QWEN3_4B_ARCH` (it describes the *older*
-      Qwen3-4B). **Do this before anything loads** — a wrong arch is a
-      silent wrong KV term (`NEW-84` class).
+- [~] **M1-A** — **code-complete 2026-08-22, NOT yet
+      code-reviewer-approved, no live component.** `QWEN35_4B_ARCH` added
+      and `KNOWN_MODEL_ARCHS` points **both** the `"primary"` and
+      `"planner"` roles at it (dict still keyed by role, per `NEW-84` —
+      deliberately not re-keyed by architecture). The 8/24 hybrid split is
+      expressed as a new optional `ModelArch.n_attention_layers=8` rather
+      than `n_layers=8`, so the retired archs stay byte-identical; the 24
+      SSM layers' fixed state rides as a 4th `CostEstimate` term,
+      `recurrent_state_bytes` = 52,690,944, derived from llama.cpp's own
+      allocation code (`n_embd_r` + `n_embd_s` at F32 x 24 layers) after
+      review caught a 26,935,296-byte under-estimate in the first pass —
+      source-derived, still not measured, M1-E settles it. Verified total
+      at 32768: 4,135,806,112 bytes = 3.852GiB, matching §5.1 exactly. `QWEN3_4B_ARCH` was **re-scoped,
+      not deleted** — renamed `QWEN3_4B_TEST_ARCH` with a comment naming
+      it as the *older* Qwen3-4B, because it is still wired into
+      `_TEST_ARCH_REGISTRY_BY_ROLE` and the `CODEY_TEST_PRIMARY_ARCH`
+      live-test contract and the model is still on disk (§6.2 authorizes
+      "delete or re-scope"). Remaining: the mandatory rule-4
+      code-reviewer pass.
 - [ ] **M1-B** — repoint **every** model slot in `utils/config.py` at the
       Qwen3.5-4B file: `MODEL_PATH`, `PLANNER_MODEL_PATH`, and
       `SECONDARY_MODEL_PATH` (or remove the last two). Ish, 2026-08-22:
@@ -1462,10 +1542,16 @@ pass **also covers the two previously-unreviewed diffs** from §4.4.
       load a 7B or 1.5B** — check env vars and test fixtures too.
       Re-derive or drop `get_planner_n_ctx()`'s 8192 (it was a 1.5B's
       budget); rename `QWEN_7B_MMAP`/`QWEN_7B_MLOCK`; choose the `n_ctx`
-      default (§8 Q1 — 65536 is affordable, 32768 is status quo).
+      default: **65536, decided by Ish 2026-08-22 (§8 Q1, answered)**.
       **Land with M1-D or immediately before it** — in between, a
       planning call loads a second copy of the same model.
-- [ ] **M1-C** — pass `--jinja` + `--reasoning-format` in
+- [ ] **M1-C** — also carries `NEW-160`: the GGUF's chat template opens
+      with `image_count`/`video_count` vision namespaces and
+      `general.tags` says `image-text-to-text`, while the file has no
+      `qwen35.vision.*` keys and no mmproj beside it. `--jinja` is exactly
+      what switches the server onto that template. Verify the rendered
+      prompt, don't assume the vision branches are inert.
+      Pass `--jinja` + `--reasoning-format` in
       `core/loader_v2.py:_spawn_locked()` and enable thinking per-request
       via `chat_template_kwargs` (`NEW-158`). Verify the flag actually
       changes behavior.
