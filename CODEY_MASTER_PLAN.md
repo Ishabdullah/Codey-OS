@@ -103,6 +103,74 @@ roles, is a Jan-1 target, not a stretch goal. This is a settled decision
 and is not re-litigated here. §7 states the risks against it honestly;
 §6 states the order the work has to happen in.
 
+### 1.4 One model for everything (Ish, 2026-08-22) — supersedes the two-model split
+
+**Decision, given directly in-session: the Qwen2.5-Coder-7B primary and
+the Qwen2.5-Coder-1.5B planner are both retired. `Qwen3.5-4B-Q4_K_M`
+becomes the single default model for every role, and it does its own
+planning by running in thinking mode instead of handing off to a separate
+planner model.**
+
+This is a settled decision, not a proposal. What it changes runs through
+almost every platform item in §6.2, so the consequences are stated here
+once and referenced from there.
+
+**The model, verified from the file on disk** (GGUF header read directly,
+no model loaded — `~/models/qwen3.5-4b-instruct/Qwen3.5-4B-Q4_K_M.gguf`,
+2,740,937,888 bytes / 2.553GiB):
+
+| GGUF field | Value |
+|---|---|
+| `general.architecture` | `qwen35` |
+| `qwen35.block_count` | 32 layers |
+| `qwen35.attention.head_count` / `head_count_kv` | 16 / **4** (GQA) |
+| `qwen35.attention.key_length` / `value_length` | **256** / 256 |
+| `qwen35.embedding_length` | 2560 |
+| `qwen35.context_length` | **262144** (256K native) |
+| `qwen35.full_attention_interval` | **4** |
+
+**Thinking mode is a per-request switch, default off — verified from the
+model's own chat template** (7,816 chars, read from the GGUF): the
+template branches on `enable_thinking`. When it is defined and true it
+emits `<think>\n` and the model reasons; otherwise it emits an empty
+`<think>\n\n</think>` block, forcing non-thinking mode. Prior turns'
+reasoning is parsed back out via `reasoning_content`. So:
+
+- The coding path is **unaffected unless we opt in** — no flag, no
+  thinking, no behavior change to what the agent does today.
+- The planning path opts in **per request**. No second model, no second
+  server, no second port, no swap between them. That is precisely the
+  substitution Ish is asking for.
+
+**The local toolchain already supports all of this** — verified by
+inspecting the installed `llama-server` binary (2026-08-11 build,
+`~/llama.cpp/build/bin/llama-server`), which carries the `qwen35`
+architecture plus `--jinja`, `--reasoning-format`, `chat_template_kwargs`,
+`enable_thinking`, and `reasoning_content`. **But `--jinja` is not
+currently passed** by `core/loader_v2.py`'s spawn command (`_spawn_locked`,
+~line 331), which means the GGUF chat template — and therefore
+`enable_thinking` — is inert as the system stands today. That is a
+concrete prerequisite, not a detail (`NEW-158`).
+
+**Why this helps as much as Ish expects it to.** The single hardest
+open problem in §4.3 was concurrent primary + planner residency at
+production context — `NEW-141`, reproduced live, unsolved. With one
+model there is no concurrent pair to arbitrate. The problem does not get
+mitigated; it structurally stops existing. Several derived constants and
+a whole sub-task of policy go with it (§5, §6.2).
+
+**The one caveat that must not be glossed over.** A 4B model is *not*
+automatically cheaper than the 7B at high context, and this project has
+already been bitten by exactly that assumption: the older Qwen3-4B was
+hard-rejected at `n_ctx=32768` despite a smaller file, because its KV
+cache footprint (36 layers × 8 KV heads) was larger than the 7B's. Qwen3.5-4B
+has a 256-wide head dim, double the 7B's — under the gate's current
+uniform-full-attention formula its KV cache is **larger** than the 7B's,
+not smaller (§5). Whether that formula even applies is itself open:
+`full_attention_interval = 4` indicates hybrid attention, which the
+gate's `ModelArch` cannot express (`NEW-157`). **Measure this; do not
+assume it.**
+
 ---
 
 ## 2. Non-negotiable rules
@@ -118,8 +186,9 @@ plan's own successor documents.
    session — not inferred, not implied by a task description. See §6.9.
 
 2. **RAM discipline.** ~10.8GB RAM; this device has crashed from
-   concurrent model loads. Before any live test that loads the local
-   7B/1.5B/embedding models: run `free -h` and record it verbatim. Never
+   concurrent model loads. Before any live test that loads any local
+   model (the Qwen3.5-4B default, the embedding model, or a retired
+   7B/1.5B during migration): run `free -h` and record it verbatim. Never
    run more than one live model-load cycle at a time — a cycle isn't done
    until the model is confirmed unloaded (`ps aux | grep llama-server`
    showing nothing but the grep). Batch test messages into one
@@ -368,22 +437,41 @@ and periodic backups to another storage location.** Real requirements,
 
 ### 3.7 The shared model layer and the Model Orchestrator
 
-One shared local model server, used by Codey-OS and both limbs, with
-Codey-OS tracking access so nothing gets crossed. Three distinct problems
-inside that:
+**As of §1.4 this is one model, not a fleet**: Qwen3.5-4B serves every
+role — coding, planning (via thinking mode), conversation, and whatever
+domain work comes later — alongside the separate, small, always-resident
+embedding model. One shared local model server, used by Codey-OS and both
+limbs, with Codey-OS tracking access so nothing gets crossed. Three
+distinct problems remain inside that, and the decision shrinks two of
+them:
 
-- **Concurrent requests** — likely solvable via `llama-server`'s
+- **Concurrent requests** — now the *primary* problem rather than one of
+  several, because a single server has to serve the daemon, the TUI/GUI,
+  and eventually both limbs. Likely solvable via `llama-server`'s
   slot/`--parallel` handling; **unverified — no such flag is set anywhere
   Codey-OS launches `llama-server` today.** Test this directly before
   building anything more elaborate.
-- **Model residency** — ~10.8GB cannot hold every model simultaneously.
-  The resource gate arbitrates which model is loaded and who may trigger
-  a swap. This is the work in §6.2.
-- **Adoption vs. leasing** — `core/loader_v2.py` decides "is my coder
-  server already running?" by probing port 8080. A shared model server
-  needs an explicit lease/registry, not a port-occupancy guess that
-  `core/embed_server.py`'s `_kill_port_occupant()` can act on. Tracked as
-  the lease/registry item in §6.2 (and by `NEW-104`/`NEW-144`/`NEW-149`).
+- **Model residency** — **largely dissolved.** With one generation model
+  plus the embedding model, there is no primary-vs-planner pair to
+  arbitrate, no sequential swap, and no concurrent-pair admission case
+  (`NEW-141`). The gate still owns admission for the one model, and the
+  budget arithmetic still has to be re-derived (§5) — but the hard part
+  of the problem is gone, not deferred.
+- **Adoption vs. leasing** — unchanged and still real. `core/loader_v2.py`
+  decides "is my server already running?" by probing port 8080. A shared
+  model server needs an explicit lease/registry, not a port-occupancy
+  guess that `core/embed_server.py`'s `_kill_port_occupant()` can act on.
+  Tracked as the lease/registry item in §6.2 (and by
+  `NEW-104`/`NEW-144`/`NEW-149`). **One model shared by more consumers
+  makes this more important, not less.**
+
+**Thinking mode replaces the planner role, not the planner's design
+questions.** The 1.5B model goes away; what does not go away is deciding
+*when* to think (every planning call? only above a complexity threshold?
+— the classifier in 7.3 is the natural place for that judgment), how the
+`<think>` block is stripped before `core/plannd.py:parse_steps()` sees
+it, and what the thinking budget costs in wall-clock on this device.
+§6.2's M1 owns those; §8 Q8 is the policy question inside it.
 
 **The Model Orchestrator** (vision §11, DESIGNED, not built) is the layer
 *above* the gate: models are **ephemeral workers** — loaded for a job,
@@ -411,10 +499,19 @@ scheduling entirely? Test the concurrency question first, then decide.
 
 ---
 
-## 4. Where things actually stand (2026-08-21)
+## 4. Where things actually stand (2026-08-22)
 
 This section is the current-state snapshot. Keep it accurate; it is the
 first thing a new session reads after the rules.
+
+**Read §4.1 and §4.2 with one qualifier in mind:** every live-verified
+result below was measured against the **retired** Qwen2.5-Coder-7B and
+1.5B models (§1.4). The *mechanisms* they verify — gate admission, slot
+reservation, CLI recovery, dispatch gating, the shutdown tripwire — are
+model-independent and remain verified. The *numbers* are not transferable
+to Qwen3.5-4B; §5.1 has the new arithmetic and M1-E is where it gets
+measured. Nothing below is being retroactively downgraded; it is being
+scoped to what it actually proved.
 
 ### 4.1 Built and live-verified
 
@@ -460,22 +557,42 @@ first thing a new session reads after the rules.
   test coverage). Nothing dispatches on a tier decision yet.
 - 4.1 sub-tasks A, B, E.
 
-### 4.3 The one honest platform gap
+### 4.3 The one honest platform gap — largely dissolved by §1.4
 
-**Concurrent primary + planner at `n_ctx=32768` does not work on this
-device.** 7.4a sub-task G case (b) reproduced `NEW-14`'s swap-distress
-shape live with the 10GiB swap-assist cap in place (`NEW-141`). The
-`NEW-140` low-swap-headroom single-model scenario was deferred, not
-safely reproduced. This is what 7.4b's three-part model-lifecycle policy
-(embed always resident; planner capped at 8192; coder context dynamic
-except in interactive use) exists to address.
+**As it stood on 2026-08-21:** concurrent primary + planner at
+`n_ctx=32768` did not work on this device. 7.4a sub-task G case (b)
+reproduced `NEW-14`'s swap-distress shape live with the 10GiB swap-assist
+cap in place (`NEW-141`); the `NEW-140` low-swap-headroom single-model
+scenario was deferred, not safely reproduced.
 
-Related, still open: `NEW-137` (production 32768 never reached the
-swap-assist band at any observed live headroom during sub-task E),
-`NEW-138` (an unexplained ~1.56GiB anon-RSS gap), `NEW-139` (`--mmap`
-makes quantized-weight zram compression structurally unmeasurable),
-`NEW-143` (the production 7B's cost estimate sits ~137MiB under the
-hard-reject ceiling — a thin margin, not a comfortable one).
+**As of §1.4 (2026-08-22) there is no model pair.** `NEW-141` and
+`NEW-140`'s scenario 3 describe a configuration that no longer exists —
+they close on the decision rather than on a fix. **Confirm this against
+the code during M1-D rather than ticking them off from this paragraph** —
+the retired paths have to actually be gone, not merely unused.
+
+**`NEW-142` is the exception and must not be closed by decision.** It is
+`planner_loader.ensure_planner()` evicting the primary *by bypassing the
+gate's reserve path* — the eviction-bypass is what made `NEW-141`
+reproducible in the first place. The mechanism is a code path, not a
+model pairing: if anything retains a direct evict-then-load sequence
+after M1-D (`core/loader_v2.py:_evict_planner_and_confirm_free()` is the
+obvious survivor to check), the bug outlives the models it was found
+with. Close it on a code read, never on §1.4.
+
+**What did not dissolve, and what replaced it:** the gate's cost model is
+now pointed at the wrong architecture until M1-A fixes it, and the
+budget constants derived from the retired pair are stale (§5.1,
+`NEW-156`). The open question is no longer "can two models coexist" but
+"what does this one model actually cost, and does hybrid attention
+(`NEW-157`) make the gate's estimate wrong" — a measurement question with
+a defined answer, which is a better problem to have.
+
+Still open and unaffected by §1.4: `NEW-138` (an unexplained ~1.56GiB
+anon-RSS gap — worth re-checking against the new model, since the figure
+was measured on the 7B), `NEW-139` (`--mmap` makes quantized-weight zram
+compression structurally unmeasurable). Closed by retirement: `NEW-137`
+and `NEW-143`, both of which are specifically about the 7B at 32768.
 
 ### 4.4 Outstanding process debt — read before starting Phase 1 work
 
@@ -537,14 +654,72 @@ they drift sample to sample.
   here (`NEW-108`) — CPU% is unmeasurable without `psutil` (not
   installed). Every gate/dispatch decision treats "CPU unmeasurable" as
   "don't refuse on it alone."
-- Model costs at `n_ctx=32768`, computed from the real on-disk files:
-  7B coder = 6.361GiB; 1.5B planner = 2.166GiB; embed = ~0.328GiB (floor
-  estimate — no computable KV term, and it actually launches at `-c 2048`
-  which is the real GGUF context length for that model). Raw sum
-  ~8.855GiB → `MAX_CONCURRENT_MODEL_BUDGET_BYTES` = **8.90GiB**.
 - `MAX_SWAP_ASSIST_BYTES` = **10.00GiB**; `REQUIRED_HEADROOM_FACTOR` =
   1.25; `DEVICE_CEILING_USABLE_FRACTION` = 0.60 (→ device ceiling
-  ~6.49GiB).
+  ~6.49GiB). The first two are **stale as of §1.4** — see below.
+
+### 5.1 Model costs under the one-model decision (§1.4)
+
+KV-cache arithmetic below uses the gate's own current formula
+(`2 bytes × 2 (K+V) × n_layers × n_kv_heads × head_dim × n_ctx`, fp16 —
+the gate does not pass `kv_type`, so the server really runs fp16 KV) with
+the GGUF-verified architecture from §1.4. Per-token KV cost:
+
+| Model | layers × kv_heads × head_dim | Bytes per token |
+|---|---|---|
+| Qwen3.5-4B (new default) | 32 × 4 × **256** | **131,072** |
+| Qwen2.5-Coder-7B (retired) | 28 × 4 × 128 | 57,344 |
+| Qwen2.5-Coder-1.5B (retired) | 28 × 2 × 128 | 28,672 |
+
+**The new model costs 2.29× the 7B per token of context.** File size
+(2.553GiB) plus KV plus the 0.250GiB compute-overhead constant:
+
+| `n_ctx` | KV | Total | Required (×1.25) | Verdict vs. ~6.49GiB ceiling |
+|---|---|---|---|---|
+| 32768 | 4.000GiB | 6.803GiB | 8.503GiB | **hard-reject** (over the ceiling) |
+| 16384 | 2.000GiB | 4.803GiB | 6.003GiB | admissible |
+| 8192 | 1.000GiB | 3.803GiB | 4.753GiB | comfortably admissible |
+| 4096 | 0.500GiB | 3.303GiB | 4.128GiB | comfortably admissible |
+
+For comparison, the retired pair cost 6.361GiB + 2.166GiB = **8.527GiB**
+when both were declared resident — the case `NEW-141` proved this device
+cannot actually sustain. One model at 16384 costs 4.803GiB. **That is the
+win, and it is large** — but note it comes from dropping the second model,
+not from the 4B being individually cheap.
+
+**Two things above are computed, not measured, and could move the whole
+table:**
+
+1. `full_attention_interval = 4` says this model does **not** use uniform
+   full attention on all 32 layers. If only every 4th layer keeps a full
+   KV cache, the real cost could be roughly a quarter of the figures
+   above — which would put even 32768 comfortably inside the ceiling. The
+   gate's `ModelArch` dataclass cannot represent hybrid attention at all
+   (`NEW-157`), so it will currently over-estimate. Over-estimating is
+   the safe direction (it refuses loads that would have worked, rather
+   than admitting loads that OOM), but it is still wrong, and it would
+   wrongly force a lower `n_ctx` than the device can actually carry.
+2. The model's native `context_length` is **262144**. Nothing here is
+   limited by the model; every ceiling in this table is a device budget
+   decision, not a model capability.
+
+**Stale constants, do not use without re-deriving** (`NEW-156`):
+
+- `MAX_CONCURRENT_MODEL_BUDGET_BYTES` = 8.90GiB was derived precisely as
+  7B + 1.5B + embed at 32768. Two of those three models no longer exist
+  in the system. The constant is not "slightly off" — its entire basis is
+  gone. Re-derive as (Qwen3.5-4B at whatever `n_ctx` is chosen) + embed.
+- `MAX_SWAP_ASSIST_BYTES` = 10.00GiB was calibrated (7.4a sub-task F)
+  specifically to make the 7B at 32768 reachable through swap assist.
+  That target no longer exists. The value is now almost certainly far
+  more permissive than needed — §4.3's own note that it makes the
+  plain-`MemAvailable` check effectively non-binding applies with more
+  force, not less, now that the model it was sized for is retired.
+- `core/resource_gate.py`'s `KNOWN_MODEL_ARCHS` maps `"primary"` →
+  `QWEN25_7B_ARCH` and `"planner"` → `QWEN25_1_5B_ARCH`. Both entries are
+  wrong the moment the model changes, and a wrong arch silently produces
+  a wrong KV term — the `NEW-84` class of admission-safety bug. This is
+  the single highest-risk line item in the migration.
 
 ---
 
@@ -591,25 +766,169 @@ goes to `NEW_ISSUES.md`; queue-level ones also get an Appendix A line.
 
 ### 6.2 Track A / Phase A1 — Finish the model foundation
 
-**Why first:** nothing that loads a model is safe until this is real, and
-`NEW-141` proves the current state genuinely fails on this device for the
-concurrent case. Also unblocks §6.5's AI-assisted domain behavior.
+**Why first:** nothing that loads a model is safe until this is real.
+Also unblocks §6.5's AI-assisted domain behavior.
 
-**Blocked-by:** §4.4's review debt. Clear that first.
+**Reshaped by §1.4 (2026-08-22).** The one-model decision lands squarely
+in the middle of this phase. What it removes, what it keeps, and what it
+adds:
+
+- **Removes:** the concurrent primary+planner admission case (`NEW-141`,
+  `NEW-140` scenario 3, `NEW-142`'s planner-eviction path) — there is no
+  pair left to run concurrently. 7.4b sub-task B (planner context
+  ceiling) becomes moot: there is no separate planner to cap.
+- **Keeps, unchanged:** the review debt (§4.4), the lease/registry, the
+  concurrency test, the gate mechanism itself. None of these depend on
+  which model is loaded.
+- **Adds:** the migration itself, **M1 below, which now runs first** —
+  because every remaining item in this phase is measured against
+  whichever model is actually loaded, and re-verifying them against a
+  model that is about to be retired is wasted work.
+
+**Blocked-by:** §4.4's review debt. Clear that first — it is two reviews
+and a live pass, and M1's own changes land in the same files.
+
+#### M1 — migrate to Qwen3.5-4B as the single model (new, runs first)
+
+Sub-tasks in dependency order. Every one of A/B/C/E touches model
+load/spawn paths, so **all of them are CLAUDE.md rule 4 category** —
+mandatory code-reviewer pass, no exceptions.
+
+- **M1-A — arch + cost correctness first, before anything loads.**
+  Add a `qwen35` entry to `core/resource_gate.py`'s `KNOWN_MODEL_ARCHS`
+  for the `"primary"` role (`n_layers=32, n_kv_heads=4, head_dim=256`,
+  GGUF-verified — see §1.4). Without this the gate silently computes the
+  KV term from the retired 7B's architecture, which is the `NEW-84`
+  class of admission-safety bug. Decide explicitly how to represent
+  `full_attention_interval = 4` (`NEW-157`): either extend `ModelArch`
+  to express hybrid attention, or keep the uniform formula and document
+  in the constant's own comment that it deliberately over-estimates and
+  by roughly how much. **Do not silently leave the uniform assumption
+  unremarked.** Unit-testable with synthetic meminfo; no model load.
+- **M1-B — config repointing.** `utils/config.py`: `MODEL_PATH` →
+  the Qwen3.5-4B file. Retire `PLANNER_MODEL_PATH`/`PLANND_SERVER_PORT`
+  (port 8081) and `get_planner_n_ctx()` as live config; decide the
+  disposition of `SECONDARY_MODEL_PATH`. Rename `QWEN_7B_MMAP`/
+  `QWEN_7B_MLOCK` (misleading now, behavior unchanged). Choose the
+  `n_ctx` default from §5.1's table — **§8 Q1, a decision that has to be
+  made, not deferred.**
+
+  **Real consumers, enumerated by direct code read 2026-08-22 — this is
+  the list, do not re-derive it from memory** (the discipline 7.4 used,
+  and the reason `NEW-24` was found at two call sites rather than one):
+
+  | File | What it uses |
+  |---|---|
+  | `core/planner_loader.py` | The whole module — `cfg.PLANNER_MODEL_PATH` (read fresh, `NEW-84` pattern), `PLANND_SERVER_PORT`, `cfg.get_planner_n_ctx()`, `load()`/`ensure_planner()`/`get_planner_loader()`/`reset_planner_loader()` |
+  | `core/plannd.py` | `get_planner_loader().ensure_planner()` (line ~371), `PLANND_SERVER_PORT` (line ~388) |
+  | `core/summarizer.py` | `PLANND_SERVER_PORT` as `_05B_PORT` — **summarization runs on the planner server too**, a second role that moves to the 4B; easy to miss |
+  | `core/daemon.py` | Planner preload/watchdog: `get_planner_loader()`, `PLANND_SERVER_PORT` (lines ~490-507) |
+  | `core/loader_v2.py` | `_evict_planner_and_confirm_free()` — imports `get_planner_loader`, probes `PLANND_SERVER_PORT` (lines ~968-978) |
+  | `core/lora_import.py` | Mutates `cfg.PLANNER_MODEL_PATH` at four sites (~362, 397, 438, 530) and routes through `get_planner_loader()` (~365, 466) |
+  | `core/model_tiers.py` | `MODEL_TIERS`' planner-role entries: `model_ref=str(cfg.PLANNER_MODEL_PATH)`, `port=cfg.PLANND_SERVER_PORT` (~100-102) |
+  | `core/planner_service.py` | The fallback ladder's daemon-planner attempt, plus `classify_tier("coding", "planner", ...)` |
+  | `core/resource_gate.py` | `KNOWN_MODEL_ARCHS["planner"]`, the `"planner"` slot role, and a `get_planner_n_ctx()` reference (~1278) |
+  | `codeydOS` | `start_plannd()`/`stop_plannd()`, the port-8081 status line, the gate `register_slot(model_id="planner")` from `U.28`, and two `pkill -9 -f "llama-server.*8081"` calls (~261, ~407) |
+
+  Plus the test suite, which pins much of this behavior — expect real
+  test churn, and treat a test that has to be deleted rather than updated
+  as a signal to re-read the sub-task, not a formality.
+- **M1-C — pass `--jinja` and wire thinking mode** (`NEW-158`).
+  `core/loader_v2.py:_spawn_locked()` (~line 331) does not pass
+  `--jinja` today, so the GGUF chat template and `enable_thinking` are
+  inert. Add it, plus `--reasoning-format` so the server splits
+  `<think>` content into `reasoning_content` rather than inlining it in
+  the reply. Then make planning requests opt in via
+  `chat_template_kwargs: {"enable_thinking": true}`. **Verify the flag
+  actually changes behavior before building on it** — the binary carries
+  the strings, which is evidence it supports them, not proof.
+- **M1-D — retire the planner process path.** `core/plannd.py`'s
+  `get_plan()` calls `core/planner_loader.py:ensure_planner()`, which
+  spawns a second server on 8081. That whole path collapses into a
+  thinking-mode request against the one server. `parse_steps()` must
+  read the answer, never the reasoning — confirm what it receives once
+  `--reasoning-format` is set. `codeydOS`'s `start_plannd()`/
+  `stop_plannd()` go away with it, which **also retires two of the three
+  open rule-3 `pkill` violations** (`NEW-99`, `NEW-103`) for free — check
+  that they are genuinely gone rather than moved. Keep the gate's
+  `"planner"` slot accounting honest: with no planner process, those
+  registrations should disappear, not linger (`NEW-100`, `NEW-101`).
+- **M1-E — live verification** (rule 2 discipline throughout: `free -h`
+  before and after, one cycle at a time, PID-tracked teardown, never
+  `pkill -f`). Confirm: the model loads through the gate at the chosen
+  `n_ctx` with the real byte figures recorded; a real inference request
+  returns coherent output; a thinking-mode request actually produces a
+  reasoning block and a usable plan; **measure the real resident cost and
+  compare it against M1-A's estimate** — that comparison is what answers
+  the `full_attention_interval` question (`NEW-157`) with data instead of
+  arithmetic. Record wall-clock latency for both thinking and
+  non-thinking requests: thinking mode spends tokens, and the planning
+  path's cost is now a real product consideration (§8 Q8).
+  **Also record whether `--flash-attn on` is actually active for
+  `qwen35`** — that flag is already in the spawn command, and llama.cpp
+  falls back silently when a kernel doesn't support a given
+  configuration. Flash attention + hybrid attention + a 256-wide head dim
+  is a combination this build has never run on this device. If it falls
+  back, both the latency figures and the KV-cost measurement change
+  meaning, so capture it rather than inferring it from the command line.
+- **M1-G — prompts: re-check, don't pre-emptively rewrite.** Ish's own
+  framing was "maybe we have to adjust our system prompts maybe not," and
+  that is the right posture — this is a measurement question, not a
+  redesign. Three concrete things to check against the new model rather
+  than assume:
+  1. `prompts/system_prompt.py`'s tool-calling format. It was tuned
+     against Qwen2.5-Coder-7B through several live rounds (the `NEW-30`
+     read-before-patch fix was won at 3/3 vs 0/3). A different model
+     family can regress that. **Re-run the existing A/B fixtures before
+     changing a word of it** — this project has a working method for
+     that; use it rather than editing on instinct.
+  2. `core/plannd.py`'s `PLANNER_PROMPT` (~2,446 tokens) was written to
+     compensate for a 1.5B model's limitations — heavy rules, worked
+     examples, explicit format scaffolding. A 4B model reasoning in
+     thinking mode plausibly needs much less of that, and the worked
+     examples are themselves an open bug (`NEW-50`: example content
+     leaks verbatim into unrelated requests). **This is the one prompt
+     with a real case for shrinking**, but only after the thinking-mode
+     path works end to end — measure first.
+  3. `--jinja` changes prompt formatting for the existing coding path too
+     (`NEW-158`): the server starts using the model's own template
+     instead of its built-in guess. That is a behavior change to verify,
+     not a free addition.
+- **M1-F — re-derive the stale constants** (`NEW-156`), once M1-E has
+  real numbers: `MAX_CONCURRENT_MODEL_BUDGET_BYTES` (its 7B+1.5B+embed
+  basis no longer exists) and `MAX_SWAP_ASSIST_BYTES` (calibrated for a
+  retired model). Do this **after** measurement, not before — that is the
+  mistake `NEW-133` recorded, where a ceiling was set from arithmetic
+  that defeated its own stated purpose.
+
+#### Remaining Phase A1 items
 
 | Item | State | What's left |
 |---|---|---|
-| **7.4** resource gate + slot-aware loader | 5/5 sub-tasks approved; core path live-verified | The scoped daemon-only live pass at production `n_ctx=32768` with `CODEY_N_CTX` unset (full step-by-step in the archived `TODO.md` 7.4). Largely superseded in practice by 7.4a G case (a) — re-scope rather than re-run verbatim. |
-| **7.4a** swap-aware budget | A/B/C1/C2/D/F built and approved; E and G run | `NEW-140` scenario 3 (low-swap-headroom single model) still not safely reproduced; `NEW-135`/`NEW-136` (no `reserved_bytes` deduction on swap-assist; `admitted_via_swap` not persisted to the slot) unfixed |
-| **7.4b** model lifecycle policy | Ish's three decisions confirmed | **A**: embed always resident — implementation landed, needs its real review (§4.4). **B**: planner ceiling 8192 — confirmed by Ish, ready for implementer, not started. **C**: coder interactive-vs-daemon context branching — landed + `NEW-152` fix, needs review + live-verify. **D**: docs-only revisit of the 8.90GiB ceiling under the new policy. |
-| **Lease/registry** | Not started | Replace port-probe adoption with an explicit lease. Absorbs `NEW-104` (slots key to caller PID, not the spawned child), `NEW-144`/`NEW-146` (kill-and-replace a healthy occupant), `NEW-149` (reuse branch adopts an under-provisioned server). **This is the actual prerequisite for a shared model server across three processes** — do not treat it as a cleanup item. |
-| **Concurrency test** | Not started | Does `llama-server`'s slot/`--parallel` handling let one server serve Codey-OS and both limbs? No flag is set anywhere today. **Test this before designing anything.** Its answer decides the one-model-vs-swap-scheduling fork (§8 Q3). |
+| **7.4** resource gate + slot-aware loader | 5/5 sub-tasks approved; core path live-verified | Re-target the pending production-config live pass at Qwen3.5-4B (M1-E covers it). The old `n_ctx=32768`-with-the-7B script is now obsolete — do not run it. |
+| **7.4a** swap-aware budget | A/B/C1/C2/D/F built and approved; E and G run | `NEW-135`/`NEW-136` (no `reserved_bytes` deduction on swap-assist; `admitted_via_swap` not persisted to the slot) still unfixed. `NEW-140` scenario 3 and `NEW-141` are **closed by §1.4** — both are concurrent/low-headroom cases that required the retired model pair. Confirm that reasoning against the code before ticking them off. |
+| **7.4b** model lifecycle policy | Reshaped by §1.4 | **A**: embed always resident — implementation landed, needs its real review (§4.4). **B**: planner ceiling 8192 — **moot, no separate planner**; note the correction below. **C**: coder interactive-vs-daemon context branching — landed + `NEW-152` fix, needs review + live-verify; the *policy* still applies (full context interactively, smaller for background dispatch), only the ceilings need re-deriving from §5.1. **D**: fold into M1-F. |
+| **Lease/registry** | Not started | Replace port-probe adoption with an explicit lease. Absorbs `NEW-104` (slots key to caller PID, not the spawned child), `NEW-144`/`NEW-146` (kill-and-replace a healthy occupant), `NEW-149` (reuse branch adopts an under-provisioned server). **More important under §1.4, not less** — one server now has more consumers, and adoption-by-port-probe is how an under-provisioned server gets silently reused. |
+| **Concurrency test** | Not started | Does `llama-server`'s slot/`--parallel` handling let one server serve the daemon, the TUI/GUI, and both limbs? No flag is set anywhere today. **Now the central question of this phase**, since one shared model is the whole architecture rather than one option in it. |
 
-**Exit criteria:** a real production-config load through the gate,
-live-verified with verbatim numbers; concurrent primary+planner either
-working under the 7.4b policy or explicitly documented as
-not-supported-by-design; the lease/registry replacing port probing; and
-the concurrency question answered with real output.
+**Correction to this plan's own earlier claim, per rule 6:** the
+2026-08-21 version of this document listed 7.4b sub-task B as "confirmed
+by Ish, ready for implementer, not started." That was wrong — it is
+implemented, as `get_planner_n_ctx()` in `utils/config.py`, and landed
+inside commit `5687dcf` (the same commit `NEW-151` flagged for sweeping in
+unreviewed work). The error came from trusting the archived `TODO.md`'s
+sub-task status line rather than checking the code. It is moot under §1.4
+either way, but the record should be accurate rather than conveniently
+overtaken by events.
+
+**Exit criteria:** Qwen3.5-4B loading through the gate at a chosen,
+justified `n_ctx`, live-verified with verbatim byte figures; a
+thinking-mode planning request producing a usable plan through the normal
+planning path with no second model involved; the retired models' config,
+process paths, and gate entries genuinely gone rather than dormant; the
+constants in §5.1 re-derived from measurement; the lease/registry
+replacing port probing; and the concurrency question answered with real
+output.
 
 ### 6.3 Track B / Phase B1 — The Core's foundation
 
@@ -818,20 +1137,26 @@ these are the things that could go wrong against it.
 
 Numbered for reference. Nothing here is guessed at in this document.
 
-1. **`n_ctx` production default.** The shipped `32768` needs ~7.95GiB of
-   `MemAvailable` to pass the gate's plain budget check — a bar this
-   device's live-test history has never reached (peak ~7.6GiB). Swap
-   assist now covers the single-model case, but should the production
-   default itself come down (with `CODEY_N_CTX` staying the override)?
-   Product decision, not implementation detail. Conditions 7.3's tier
-   thresholds and what "closed" means for the gate work.
+1. **`n_ctx` default for Qwen3.5-4B — now a decision that must be made,
+   not deferred.** Under the gate's current formula the new model
+   hard-rejects at 32768 (6.803GiB total vs. a ~6.49GiB ceiling) and is
+   comfortable at 16384 or below (§5.1). The model itself supports 262144,
+   so this is purely a device-budget call. Complication worth waiting one
+   step for: if `full_attention_interval = 4` means the real KV cost is
+   ~a quarter of the computed figure (`NEW-157`), 32768 may be entirely
+   affordable — **M1-E measures this**, so the honest sequence is measure,
+   then choose. Conditions 7.3's tier thresholds and 7.4b sub-task C's
+   interactive/background ceilings.
 2. **The Core→device dispatch mechanism.** Reuse the existing Telegram
    Bot API channel the device app already polls, or build something
    Codey-OS-native? Not designed anywhere.
-3. **One model vs. swap scheduling.** Can one model serve coding,
-   customer-facing prose, and on-screen reasoning well enough to avoid
-   swap scheduling entirely? Test the `llama-server` concurrency question
-   first (§6.2), then decide.
+3. ~~**One model vs. swap scheduling.**~~ **Answered by Ish, 2026-08-22
+   (§1.4): one model.** Qwen3.5-4B serves every role, with thinking mode
+   in place of a separate planner. What remains from this question is not
+   a decision but a test: whether one `llama-server` can serve several
+   consumers concurrently (§6.2's concurrency test). Kept here, struck
+   through, so the answer is visible rather than the question quietly
+   vanishing.
 4. **Deployment migration off-phone.** Firebase, a bigger server, or
    something else. Explicitly not decided; revisit after the
    phone-hosted version is real.
@@ -845,7 +1170,14 @@ Numbered for reference. Nothing here is guessed at in this document.
    CLI use whenever the daemon has a planner loaded; it needs real
    cross-process arbitration. Get Ish's call on sequencing relative to
    the gate work (`U.9`).
-8. **Attribution-logging coverage.** Extend `core/recursive.py`'s
+8. **Thinking-mode policy — when does the model think?** Thinking is a
+   per-request opt-in (§1.4), so something has to decide. Options, not
+   mutually exclusive: always on for the planning path; gated on the
+   existing complexity classifier (`classify_tier()` already scores this
+   and currently only logs — 7.3 sub-task C); user-triggerable in the
+   TUI. It costs real tokens and real wall-clock on this device, which
+   M1-E measures. Worth deciding after those numbers exist, not before.
+9. **Attribution-logging coverage.** Extend `core/recursive.py`'s
    attribution logging to `core/agent.py`'s separate plain-`infer()`
    branch as new work, or leave it as a documented accepted gap
    (`U.10`)?
@@ -955,37 +1287,77 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
 
 ### Phase A1 — model foundation (§6.2)
 
+**Runs first — M1: migrate to Qwen3.5-4B as the single model** (§1.4,
+§6.2). All of A/B/C/E are rule-4 category; mandatory code-reviewer pass.
+
+- [ ] **M1-A** — add the `qwen35` arch to `KNOWN_MODEL_ARCHS`
+      (`n_layers=32, n_kv_heads=4, head_dim=256`, GGUF-verified) and
+      decide how `full_attention_interval = 4` is represented
+      (`NEW-157`). **Do this before anything loads** — a wrong arch is a
+      silent wrong KV term (`NEW-84` class).
+- [ ] **M1-B** — repoint `utils/config.py`: `MODEL_PATH` to the new file;
+      retire `PLANNER_MODEL_PATH`/`PLANND_SERVER_PORT`/
+      `get_planner_n_ctx()`; decide `SECONDARY_MODEL_PATH`'s disposition;
+      rename the misleading `QWEN_7B_MMAP`/`QWEN_7B_MLOCK`; choose the
+      `n_ctx` default (§8 Q1, informed by M1-E).
+- [ ] **M1-C** — pass `--jinja` + `--reasoning-format` in
+      `core/loader_v2.py:_spawn_locked()` and enable thinking per-request
+      via `chat_template_kwargs` (`NEW-158`). Verify the flag actually
+      changes behavior.
+- [ ] **M1-D** — retire the planner process path (`core/plannd.py` →
+      `planner_loader.ensure_planner()` → port 8081, plus `codeydOS`'s
+      `start_plannd()`/`stop_plannd()`). Confirm `parse_steps()` reads
+      the answer and not the reasoning. **Also retires `NEW-99` and
+      `NEW-103`** (rule-3 `pkill` violations) — verify, don't assume.
+- [ ] **M1-E** — live verification: gate admission with real byte
+      figures, a real inference request, a real thinking-mode planning
+      request, measured resident cost vs. M1-A's estimate (this is what
+      answers `NEW-157`), and latency for both modes. Rule 2 discipline
+      throughout.
+- [ ] **M1-G** — re-check prompts against the new model: re-run
+      `system_prompt.py`'s existing A/B fixtures before editing it;
+      revisit `PLANNER_PROMPT`'s size and worked examples (`NEW-50`) once
+      thinking mode works; verify `--jinja`'s formatting change to the
+      coding path. **Measure first, edit second.**
+- [ ] **M1-F** — re-derive `MAX_CONCURRENT_MODEL_BUDGET_BYTES` and
+      `MAX_SWAP_ASSIST_BYTES` from M1-E's measurements (`NEW-156`).
+      **After** measurement, not before (the `NEW-133` lesson).
+
+Then:
+
 - [ ] **7.4** — resource gate + slot-aware loader. 5/5 sub-tasks
       code-complete and code-reviewer-approved (2026-08-09). Core
       admission→load→CLI-recovery path live-verified (round 18). Left:
-      a production-config live pass; re-scope against 7.4a G case (a)
-      rather than re-running the old script verbatim.
+      a production-config live pass — now re-targeted at Qwen3.5-4B and
+      covered by M1-E. The old 7B-at-32768 script is obsolete.
 - [ ] **7.4a** — swap-aware budget check. A/B/C1/C2/D/F built and
-      approved; E and G run. Left: `NEW-140` scenario 3 not safely
-      reproduced; `NEW-135`, `NEW-136` unfixed.
-- [ ] **7.4b** — model lifecycle policy (Ish's three decisions
-      confirmed 2026-08-11).
+      approved; E and G run. Left: `NEW-135`, `NEW-136` unfixed.
+      `NEW-140` scenario 3 and `NEW-141` close with the model pair —
+      confirm against the code in M1-D.
+- [ ] **7.4b** — model lifecycle policy, reshaped by §1.4.
   - [ ] **A** — embed model always resident from Codey startup to
         shutdown. Implementation landed via `5687dcf`; **needs its real
         code-reviewer pass** (§4.4). Blocking prerequisite `NEW-144` was
-        the kill-and-replace-a-healthy-occupant bug.
-  - [ ] **B** — planner context ceiling **8192** (confirmed by Ish;
-        derived from `PLANNER_PROMPT`'s ~2,446 tokens + 1,024 output
-        cap = 3,470-token floor). Ready for implementer, not started.
-        Adds a planner-specific constant instead of reading the shared
-        `MODEL_CONFIG["n_ctx"]` global.
-  - [ ] **C** — coder interactive-vs-daemon context branching
-        (background ceiling **16384**, full context when a user is
-        interactive). Landed + `NEW-152` fix (`6528446`); **needs
-        code-reviewer + live-verifier under the real `codey-start` entry
-        point**. `NEW-145`, `NEW-149`, `NEW-155` stay open.
-  - [ ] **D** — revisit `MAX_CONCURRENT_MODEL_BUDGET_BYTES` (8.90GiB)
-        under the new policy. Docs-only; can start immediately.
+        the kill-and-replace-a-healthy-occupant bug. Unaffected by §1.4 —
+        the embedding model is not being replaced.
+  - [x] **B** — planner context ceiling 8192. **Implemented** as
+        `get_planner_n_ctx()` in `utils/config.py` (landed in `5687dcf`,
+        never separately reviewed) — this plan's 2026-08-21 claim that it
+        was "not started" was wrong, corrected per rule 6. **Moot under
+        §1.4**: no separate planner survives. M1-B retires the function.
+  - [ ] **C** — coder interactive-vs-daemon context branching. Landed +
+        `NEW-152` fix (`6528446`); **needs code-reviewer + live-verifier
+        under the real `codey-start` entry point**. `NEW-145`, `NEW-149`,
+        `NEW-155` stay open. The policy survives §1.4; the two ceilings
+        (16384 background / full interactive) need re-deriving from §5.1.
+  - [ ] **D** — folded into M1-F.
 - [ ] **Lease/registry** — replace port-probe adoption with an explicit
       lease. Absorbs `NEW-104`, `NEW-144`/`NEW-146`, `NEW-149`.
-      Prerequisite for a shared model server.
-- [ ] **Concurrency test** — does `llama-server`'s slot/`--parallel`
-      handling serve three consumers? No flag set anywhere today.
+      Prerequisite for a shared model server; more load-bearing under
+      §1.4, since one server now has more consumers.
+- [ ] **Concurrency test** — can one `llama-server` serve the daemon, the
+      TUI/GUI, and both limbs via slot/`--parallel`? No flag set anywhere
+      today. **Now the central question of this phase.**
 
 ### Phase A2 — coding-domain rollout (§6.8)
 
@@ -1066,7 +1438,7 @@ unchanged so the archived evidence stays findable. `[ ]` = open,
       task** — see §8 Q6.
 - [ ] **U.9** (`NEW-69`) — interactive-CLI direct loads bypass the swap
       arbiter. **Escalation** — see §8 Q7.
-- [ ] **U.10** — **open question, §8 Q8** — investigation done, decision
+- [ ] **U.10** — **open question, §8 Q9** — investigation done, decision
       pending. Attribution logging did land (commit `6859745`,
       `core/recursive.py:318-401`); the investigation Ish asked for is
       complete. Known documented gap: it covers only

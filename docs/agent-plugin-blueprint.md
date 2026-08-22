@@ -7,6 +7,15 @@
 > references to `CODEY_OS_MASTER_VISION.md` and `WORK_QUEUE.md` section
 > numbers now resolve against the archived copies in `docs/archive/`,
 > which keep their original numbering.
+>
+> **Model change, 2026-08-22 (master plan §1.4):** this document's
+> references to "the shared 7B" and its `model_tiers` examples predate
+> Ish's decision to retire the Qwen2.5-Coder-7B and 1.5B planner in
+> favour of a single Qwen3.5-4B (planning via thinking mode). The
+> *design* here is unaffected — per-agent model-size declarations matter
+> more when the main agent is itself a 4B, not less — but read every
+> concrete model reference below as illustrative history, not as the
+> current configuration.
 
 
 # Agent/Plugin Integration Blueprint

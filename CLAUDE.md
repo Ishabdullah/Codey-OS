@@ -122,7 +122,8 @@ Codey-OS/
 
 2. **RAM discipline.** This device has ~10.8GB RAM and has crashed before
    from concurrent model loads. Before any live test that loads the local
-   7B/1.5B/embedding models: run `free -h` and record it. Never run more
+   models (the Qwen3.5-4B default, the embedding model, or a retired
+   7B/1.5B during migration): run `free -h` and record it. Never run more
    than one live model-load cycle at a time — a cycle isn't done until the
    model is confirmed unloaded (`ps aux | grep llama-server` showing
    nothing but the grep itself). Batch multiple test messages into one
@@ -213,7 +214,9 @@ before delegating.
   task to implementer.
 - **Qwen prompt work** (system_prompt.py, layered_prompt.py,
   critique_prompts.py, plannd.py's PLANNER_PROMPT — tuning or debugging
-  how the local 7B agent or 1.5B planner follows instructions):
+  how the local model follows instructions — Qwen3.5-4B as of
+  2026-08-22, including its thinking mode; formerly a 7B coder + 1.5B
+  planner, see `CODEY_MASTER_PLAN.md` §1.4):
   project-architect delegates to **prompt-engineer** first, then hands
   the scoped task to implementer if a separate implementation pass is
   needed.

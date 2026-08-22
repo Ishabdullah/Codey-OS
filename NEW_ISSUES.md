@@ -9,6 +9,144 @@ logged, rated Confirmed or Suspected. Per-issue status is authoritative
 have to guess at. Sections are chronological by the round that found
 them, not by issue number — search for `[NEW-nnn]` rather than scrolling.
 
+## Found during the 2026-08-22 one-model decision scoping (§1.4 of `CODEY_MASTER_PLAN.md`) — desk-only, GGUF header + binary `strings` reads, NO model loaded, NOT fixed, logged only
+
+### [NEW-156] `MAX_CONCURRENT_MODEL_BUDGET_BYTES` (8.90GiB) and `MAX_SWAP_ASSIST_BYTES` (10.00GiB) are both derived from models that are being retired — their entire basis disappears with the one-model decision
+
+- **Status:** Confirmed (arithmetic provenance, read directly from
+  `core/resource_gate.py` and this project's own derivation records).
+- **Mechanism:** `MAX_CONCURRENT_MODEL_BUDGET_BYTES` was computed as
+  exactly 7B (6.361GiB) + 1.5B (2.166GiB) + embed (~0.328GiB) at
+  `n_ctx=32768`, rounded up to 8.90GiB (see `NEW-133` for the correction
+  history). Two of those three models leave the system under Ish's
+  2026-08-22 decision. `MAX_SWAP_ASSIST_BYTES` was raised from 768MiB to
+  10.00GiB in 7.4a sub-task F for one specific purpose: making the 7B at
+  `n_ctx=32768` reachable through swap assist. That target no longer
+  exists either.
+- **Impact:** neither constant is "slightly stale" — each one's stated
+  derivation refers to a configuration that will not exist. A cumulative
+  ceiling sized for three concurrent models, applied to a system that
+  loads one generation model plus an embedder, is not conservative; it is
+  meaningless. The 10GiB swap-assist cap is the more concerning of the
+  two: `TODO.md` 7.4a sub-task F already documented that it makes
+  `can_admit()`'s plain-`MemAvailable` check effectively non-binding for
+  any single admissible model, and that reasoning holds with more force
+  once the model it was sized for is gone.
+- **Fix direction:** re-derive both, but only AFTER the new model's real
+  resident cost is measured live (master plan M1-E → M1-F). Deriving them
+  from arithmetic first is precisely the mistake `NEW-133` recorded.
+- **Not fixed this round** — documentation/scoping round, no code touched.
+
+### [NEW-157] `core/resource_gate.py`'s `ModelArch` cannot represent hybrid attention, and Qwen3.5-4B's GGUF declares `full_attention_interval = 4` — the gate will over-estimate its KV cache, possibly by ~4x
+
+- **Status:** Confirmed that the metadata field exists and that
+  `ModelArch` has no way to express it; Suspected as to the exact size of
+  the resulting error (that requires live measurement).
+- **Mechanism:** `ModelArch(n_layers, n_kv_heads, head_dim,
+  kv_bytes_per_element)` and `estimate_model_load_cost()`'s KV term assume
+  **uniform full attention on every layer**:
+  `2 × 2 × n_layers × n_kv_heads × head_dim × n_ctx`. Qwen3.5-4B's GGUF
+  header (read directly, no model load) declares
+  `qwen35.full_attention_interval = 4` alongside `block_count = 32`,
+  `attention.head_count_kv = 4`, `attention.key_length = 256`. A
+  `full_attention_interval` of 4 indicates only every 4th layer carries a
+  full KV cache, the rest using a cheaper (sliding-window or linear)
+  mechanism with a small fixed state.
+- **Impact:** under the uniform formula the model costs 4.000GiB of KV at
+  `n_ctx=32768` (131,072 bytes/token — 2.29x the retired 7B's 57,344,
+  driven by the 256-wide head dim), putting its total at 6.803GiB and
+  hard-rejecting it against the ~6.49GiB device ceiling. If the real cost
+  is closer to a quarter of that, the gate will refuse a context length
+  the device can comfortably carry. **The error direction is the safe one
+  (over-estimate → refuse, never over-admit), so this is not an
+  admission-safety bug** — but it would silently force a lower `n_ctx`
+  default than necessary, and it makes every cost figure in the master
+  plan's §5.1 table an upper bound rather than an estimate.
+- **Fix direction:** measure the real resident cost live at a known
+  `n_ctx` (master plan M1-E) and compare against the computed figure
+  before deciding whether to extend `ModelArch` for hybrid attention or
+  to keep the uniform formula with a documented, quantified
+  over-estimate. Do not "fix" this by guessing a divisor.
+- **Not fixed this round.**
+
+### [NEW-158] `core/loader_v2.py`'s spawn command never passes `--jinja`, so the GGUF chat template — and therefore Qwen3.5-4B's `enable_thinking` switch — is inert
+
+- **Status:** Confirmed by direct read of `_spawn_locked()`'s command
+  list (`core/loader_v2.py:331-378`) and of the model's own chat template
+  (7,816 chars, read from the GGUF header, no model load).
+- **Mechanism:** the spawn command passes `-m`, `--host`, `--port`, `-c`,
+  `-t`, sampling flags, `--flash-attn`, `--embedding`, `--pooling`,
+  `--reverse-prompt` stops, and `--mmap`/`--mlock` — but not `--jinja`.
+  Without it, `llama-server` does not apply the model's own Jinja chat
+  template, and `chat_template_kwargs` (the mechanism that sets
+  `enable_thinking`) has nothing to act on. Qwen3.5-4B's template gates
+  reasoning entirely on that variable: true → emit `<think>\n`;
+  otherwise → emit an empty `<think>\n\n</think>` block, forcing
+  non-thinking mode.
+- **Impact:** the plan to replace the dedicated planner model with the
+  same model in thinking mode (master plan §1.4) cannot work at all until
+  this flag is passed. It is a one-line prerequisite for an
+  architecture-level decision, which is why it is logged rather than left
+  as an implementation detail. Note also that adding `--jinja` changes
+  prompt formatting for the EXISTING coding path too (the server would
+  begin using the model's own template instead of its built-in guess) —
+  that is a real behavior change requiring its own verification, not a
+  free addition.
+- **Related, same round:** the installed `llama-server`
+  (`~/llama.cpp/build/bin/llama-server`, 2026-08-11 build) does carry the
+  `qwen35` architecture string plus `--jinja`, `--reasoning-format`,
+  `chat_template_kwargs`, `enable_thinking`, and `reasoning_content` —
+  verified via `strings`. That is evidence the build supports them, NOT
+  proof the architecture runs correctly; an actual load remains
+  unverified.
+- **Fix direction:** master plan M1-C. Add `--jinja` and
+  `--reasoning-format`, verify the thinking switch genuinely changes
+  output, and re-verify the non-thinking coding path against the template
+  change before trusting it.
+- **Not fixed this round.**
+
+
+### [NEW-159] Disposition note, 2026-08-22: five open findings are PENDING CLOSURE on the one-model decision, but none are closed yet — and `NEW-142` must not be closed this way at all
+
+Recorded as its own ledger entry (not just in `CODEY_MASTER_PLAN.md`)
+because rule 8 makes this file authoritative for a finding's status, and
+a plan that says "pending verification" while the ledger says nothing is
+how a finding gets silently dropped.
+
+Ish's 2026-08-22 decision (master plan §1.4) retires the
+Qwen2.5-Coder-7B primary and the Qwen2.5-Coder-1.5B planner in favour of
+a single Qwen3.5-4B. Several open findings describe a configuration that
+will no longer exist:
+
+- **`NEW-137`** (production `n_ctx=32768` never reached the swap-assist
+  band) — specific to the 7B's cost at 32768.
+- **`NEW-140` scenario 3** (low-swap-headroom single-model case) — the
+  scenario was defined against the retired model's footprint.
+- **`NEW-141`** (concurrent primary+planner at 32768 reproduces
+  `NEW-14`'s swap distress) — requires a model pair.
+- **`NEW-143`** (the 7B's cost estimate sits ~137MiB under the
+  hard-reject ceiling) — specific to the 7B.
+
+**Status of those four: pending closure, NOT closed.** They close only
+when master plan M1-D's code read confirms the retired paths are actually
+gone rather than dormant, and M1-E's live numbers replace the arithmetic
+they were built on. Do not tick them off from the decision alone.
+
+**`NEW-142` is explicitly excluded from the above.** Its mechanism is
+`core/planner_loader.py:ensure_planner()` evicting the primary while
+bypassing the gate's `reserve_slot()` path — an eviction-bypass code
+path, not a property of which two models happen to be involved. It is
+what made `NEW-141` reproducible at all. If any direct
+evict-then-load sequence survives M1-D (`core/loader_v2.py`'s
+`_evict_planner_and_confirm_free()` is the obvious candidate to check),
+this bug outlives the models it was found with. **Close on a code read
+only.**
+
+Cross-references: `NEW-156` (constants derived from the retired models),
+`NEW-157` (hybrid attention vs. the gate's cost formula), `NEW-158`
+(`--jinja` missing, thinking mode inert).
+
+
 ## Found during NEW-10 (SIGTERM handler) implementation, 2026-07-30 — NOT fixed, logged only
 
 ### [NEW-39] `tests/test_new19_patch_failed_repeat_escalation.py`'s `_in_subtask=False` tests are fragile to a dirty git working tree on `main.py` — they fail (with a stdin-capture `OSError`, not an assertion) whenever `main.py` has real uncommitted changes at test-run time

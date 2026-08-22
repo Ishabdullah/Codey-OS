@@ -22,9 +22,9 @@ to register, route to, and eventually extend well beyond it.
 **Product direction (confirmed 2026-08-05):** Codey-OS is a **multi-agent
 platform**, not a single coding-agent product — the coding agent is the
 first domain agent, not the whole system. Future domain agents are
-expected to have their own model (not necessarily the 7B — smaller
-models, e.g. 4B, are the norm for most agents) and, in some cases, their
-own process, gated onto shared hardware by a not-yet-built scheduler/
+expected to have their own model (smaller models are the norm for most
+agents; the main agent itself runs a 4B as of 2026-08-22) and, in some
+cases, their own process, gated onto shared hardware by a not-yet-built scheduler/
 resource-bus layer rather than all running concurrently. This is
 documented direction, not yet built — see
 [`CODEY_MASTER_PLAN.md`](CODEY_MASTER_PLAN.md) §3 and
@@ -73,16 +73,16 @@ for advanced flags that don't exist anywhere else (`--init`, `--tdd`,
 
 ### Backend: local or remote
 
-Two independent knobs control where inference runs — the coding agent and
-the planner can even point at different backends:
+Two independent knobs control where inference runs — the agent and the
+planning path can even point at different backends:
 
 ```bash
-export CODEY_BACKEND=local            # 7B coding agent — default
-export CODEY_BACKEND_P=local          # 1.5B planner — defaults to CODEY_BACKEND if unset
+export CODEY_BACKEND=local            # coding agent — default
+export CODEY_BACKEND_P=local          # planning path — defaults to CODEY_BACKEND if unset
 ```
 
 Each accepts `local` | `openrouter` | `unlimitedclaude`. For example, to
-keep the planner on-device while routing the agent to OpenRouter:
+keep planning on-device while routing the agent to OpenRouter:
 
 ```bash
 export OPENROUTER_API_KEY="sk-or-..."
@@ -138,9 +138,14 @@ state.
 
 ## Architecture
 
-Short version: a Unix-socket daemon (`codeydOS`) runs three purpose-built
-models — a 7B coding agent, a 1.5B planner/summarizer, and an embedding
-encoder for RAG — behind a CLI/TUI client (`codeyOS`) and the browser GUI.
+Short version: a Unix-socket daemon (`codeydOS`) runs local models behind
+a CLI/TUI client (`codeyOS`) and the browser GUI. **As of 2026-08-22 that
+is one general model — Qwen3.5-4B, handling coding, planning (via its
+thinking mode) and summarization — plus a small embedding encoder for
+RAG.** It replaces the previous three-model split (a 7B coding agent, a
+1.5B planner/summarizer, and the encoder); see
+[`CODEY_MASTER_PLAN.md`](CODEY_MASTER_PLAN.md) §1.4 for the decision and
+§6.2 for the migration, which is scoped but not yet built.
 CCOS sits above this as the OS shell: capability registry, plugin manager,
 tool router, and the 5-agent deliberation/safety-veto layer, all in
 `ccos/`.

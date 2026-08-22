@@ -12,6 +12,111 @@ and Appendix A.
 
 ---
 
+## 2026-08-22 — Ish's decision: one model for everything (Qwen3.5-4B), thinking mode replaces the dedicated planner — docs updated, NO code changed
+
+Ish's direct in-session decision: retire both the Qwen2.5-Coder-7B
+primary and the Qwen2.5-Coder-1.5B planner. `Qwen3.5-4B-Q4_K_M`
+(already on disk at `~/models/qwen3.5-4b-instruct/`) becomes the single
+default model for every role, and does its own planning by running in
+thinking mode rather than handing off to a separate planner model.
+
+**Facts established this round, all read directly from files — no model
+loaded, no server started:**
+- GGUF header (bounded 4MB read, then a streaming parse):
+  `general.architecture = qwen35`, `block_count = 32`,
+  `attention.head_count = 16`, `head_count_kv = 4`,
+  `attention.key_length/value_length = 256`, `embedding_length = 2560`,
+  `context_length = 262144`, `full_attention_interval = 4`. File size
+  2,740,937,888 bytes (2.553GiB).
+- Chat template (7,816 chars, read from the same GGUF): thinking is a
+  per-request switch gated on `enable_thinking`, **default off** — true
+  emits `<think>\n`, otherwise an empty `<think>\n\n</think>` block
+  forces non-thinking mode. Prior turns' reasoning round-trips via
+  `reasoning_content`.
+- Installed `llama-server` (2026-08-11 build) carries `qwen35`,
+  `--jinja`, `--reasoning-format`, `chat_template_kwargs`,
+  `enable_thinking`, `reasoning_content` (via `strings`) — evidence of
+  support, not proof of correct execution.
+- `core/loader_v2.py:_spawn_locked()` does NOT pass `--jinja` today, so
+  the template and the thinking switch are currently inert (`NEW-158`).
+
+**Arithmetic consequence, computed with the gate's own formula:**
+Qwen3.5-4B costs 131,072 bytes/token of KV — 2.29x the retired 7B's
+57,344, because of the 256-wide head dim. Totals: 6.803GiB at
+`n_ctx=32768` (hard-rejects against the ~6.49GiB device ceiling),
+4.803GiB at 16384, 3.803GiB at 8192. The retired pair cost 8.527GiB
+declared concurrently — the case `NEW-141` proved this device cannot
+sustain. **The win comes from dropping the second model, not from the 4B
+being individually cheap**, and it is stated that way in the plan rather
+than as an unqualified improvement.
+
+**Docs updated** (`CODEY_MASTER_PLAN.md`): new §1.4 decision record with
+the verified GGUF/template/toolchain facts; rule 2 reworded off the
+7B/1.5B names; §3.7 rewritten around one model (residency problem
+dissolves, concurrency problem becomes primary, lease/registry becomes
+more load-bearing); §4.3 reframed — `NEW-141`, `NEW-140` scenario 3,
+`NEW-142`, `NEW-137`, `NEW-143` all close by retirement rather than by
+fix, with an explicit instruction to confirm that against the code
+during M1-D rather than ticking them off from a paragraph; new §5.1 with
+the per-token cost table, the n_ctx table, and the stale-constants
+warning; §6.2 restructured around a new M1 migration item (A: arch/cost
+correctness first; B: config repointing; C: `--jinja` + thinking wiring;
+D: retire the planner process path; E: live verification; F: re-derive
+constants after measurement); §8 Q1 sharpened, Q3 struck through as
+answered, new Q8 on thinking-mode policy; Appendix A's Phase A1 register
+rewritten.
+
+**Four new ledger entries** (`NEW_ISSUES.md`): `NEW-156` (both budget
+constants derive from retired models), `NEW-157` (`ModelArch` cannot
+express hybrid attention; `full_attention_interval = 4` means the gate
+over-estimates KV, possibly ~4x — safe direction, but would wrongly force
+a lower `n_ctx`), `NEW-158` (`--jinja` missing, thinking switch inert),
+and `NEW-159` — a disposition note recording that `NEW-137`, `NEW-140`
+scenario 3, `NEW-141` and `NEW-143` are **pending closure, not closed**
+(they close on M1-D's code read and M1-E's numbers, not on the decision),
+and that **`NEW-142` is explicitly excluded**: its mechanism is
+`ensure_planner()` bypassing the gate's reserve path on eviction — a code
+path, not a model pairing — so it can outlive the models it was found
+with and must be closed on a code read only.
+
+**Call sites enumerated by direct code read, not from memory** (the
+discipline 7.4 used; the reason `NEW-24` was found at two sites rather
+than one) and written into M1-B: eleven consumers of
+`PLANNER_MODEL_PATH`/`PLANND_SERVER_PORT`/`get_planner_loader()`, several
+of which the first draft of this scoping had missed — notably
+`core/summarizer.py`, which runs summarization on the planner server
+(a second role that moves to the 4B), plus `core/model_tiers.py`,
+`core/lora_import.py` (four mutation sites), `core/loader_v2.py`'s
+planner-eviction path, `core/planner_service.py`, and `codeydOS`.
+
+**Also updated:** `README.md` (backend-knob docs, the architecture
+paragraph's three-model description) and `docs/agent-plugin-blueprint.md`
+(pointer note — its `model_tiers` examples and "the shared 7B" framing
+are now illustrative history), plus `.claude/agents/prompt-engineer.md`
+and `CLAUDE.md` rule 2 / the prompt-work routing bullet.
+
+**M1-G added** on Ish's own "maybe we have to adjust our system prompts
+maybe not" — scoped as measure-first: re-run `system_prompt.py`'s
+existing A/B fixtures before editing (it was tuned against Qwen2.5-Coder
+over several live rounds), revisit `PLANNER_PROMPT`'s bulk and its
+worked-example leakage (`NEW-50`) only after thinking mode works, and
+verify `--jinja`'s formatting change to the existing coding path.
+
+**Correction per rule 6:** the 2026-08-21 master plan listed 7.4b
+sub-task B (planner context ceiling 8192) as "ready for implementer, not
+started." Wrong — it is implemented as `get_planner_n_ctx()` in
+`utils/config.py`, landed inside commit `5687dcf` (the same commit
+`NEW-151` flagged for sweeping in unreviewed work). The error came from
+trusting the archived `TODO.md`'s status line instead of reading the
+code. Moot under this decision, but corrected rather than left to be
+overtaken by events.
+
+**No code changed. No tests run** (documentation round). Nothing in this
+entry has been live-verified — the entire migration is scoped, not built,
+and M1-E is where the arithmetic above either holds or gets corrected.
+
+---
+
 ## 2026-08-21 — Doc consolidation: six tracking/spec docs merged into one authoritative `CODEY_MASTER_PLAN.md`
 
 Executed the "PENDING NEXT STEP" recorded at the top of
