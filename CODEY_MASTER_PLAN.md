@@ -612,17 +612,113 @@ scoped to what it actually proved.
   test coverage). Nothing dispatches on a tier decision yet.
 - 4.1 sub-tasks A, B, E.
 
-**One item here is built but NOT yet approved — stated separately so it
-is not read as reviewed:**
-
 - **M1-A (arch + cost correctness in `core/resource_gate.py`)** —
-  code-complete 2026-08-22, **no `code-reviewer` pass yet**, and it is
-  rule-4 category (§6.2). Unit-tested only, by design: 200 passed across
-  `tests/test_resource_gate.py` + `tests/test_new84_stale_model_path.py`,
-  739 passed / 1 skipped / 5 deselected repo-wide (the 5 are
+  code-complete **and code-reviewer-reviewed** 2026-08-22, landed as
+  `a030bbf`. The pass returned one blocking finding (C-1,
+  `recurrent_state_bytes` derived by analogy with Mamba instead of from
+  llama.cpp's allocator — 25,755,648 corrected to 52,690,944); it was
+  fixed, re-verified, and the reviewer's own re-review corrections (the
+  drained-assertion line refs, the four→five `ModelArch(` call-site
+  count) are incorporated in the committed state. Unit-tested only, by
+  design: 200 passed across `tests/test_resource_gate.py` +
+  `tests/test_new84_stale_model_path.py`, 739 passed / 1 skipped
+  repo-wide post-fix (the excluded file is
   `tests/test_new19_patch_failed_repeat_escalation.py`, the known
-  dirty-tree noise, `NEW-110`/`NEW-150`). No model was loaded; there is
-  no live component to this sub-task. See Appendix A for what changed.
+  dirty-tree noise, `NEW-110`/`NEW-150`). No model was loaded; **there is
+  no live component to this sub-task**, so "live-verified" is not a
+  status it can reach. See Appendix A for what changed.
+
+  **Record gap CLOSED, 2026-08-23.** The confirmatory sign-off promised
+  above landed as part of the M1-B/C/D review pass: `code-reviewer`
+  independently re-derived `recurrent_state_bytes = 52,690,944` from the
+  real llama.cpp source at the pinned commit (`91d2fc38`) and confirmed it
+  matches `a030bbf`'s committed value exactly. No discrepancy — nothing to
+  downgrade per rule 6.
+
+- **M1-B / M1-C / M1-D (config repoint, spawn flags, planner-server
+  collapse) — code-complete, code-reviewer-approved 2026-08-23 across two
+  review passes, NOT YET COMMITTED as of this writing.** No live
+  component to any of the three by design — no model has been loaded this
+  round, everything is code + unit-test. `git status` at the time of this
+  entry shows the full diff staged in the working tree, not on a commit;
+  the checkbox language in Appendix A is written to remain accurate
+  whether read before or after that commit lands.
+  - **M1-B** (`utils/config.py`): `MODEL_PATH`/`PLANNER_MODEL_PATH`
+    repointed to `~/models/qwen3.5-4b-instruct/Qwen3.5-4B-Q4_K_M.gguf`;
+    `SECONDARY_MODEL_PATH` removed as confirmed-dead code (`core/model_
+    tiers.py` had already established mutating it alone had no effect on
+    what actually loaded); `QWEN_7B_MMAP`/`QWEN_7B_MLOCK` renamed to
+    `QWEN_MMAP`/`QWEN_MLOCK`; `n_ctx` default 32768 → 65536 (§8 Q1).
+    Closes `NEW-161` (the interim 768MiB unsafe-direction KV
+    under-estimate — closed the instant `MODEL_PATH` moved off the 7B).
+  - **M1-C** (`core/loader_v2.py:_spawn_locked()`): added `--jinja` and
+    `--reasoning-format deepseek` to the spawn command. Code-reviewer
+    independently resolved `NEW-162`'s open question by dumping the
+    actual GGUF chat template (the artifact itself, not `--help` text or
+    family resemblance — rule 12 discipline): thinking mode is **off by
+    default** — a caller that doesn't opt in gets an already-closed empty
+    `<think></think>` block, so the coder/summarizer paths were never at
+    risk from the new flags. `NEW-162` itself **stays open/Suspected** — a
+    live spawn is still the final word — tracked into M1-E.
+  - **M1-D**: planner server collapsed onto the primary server.
+    `core/planner_loader.py` deleted (322 lines).
+    `_evict_planner_and_confirm_free()` in `core/loader_v2.py` deleted —
+    closes `NEW-142`. All three `codeydOS` port-8081
+    `pkill -9 -f "llama-server.*8081"` sites confirmed gone (verified
+    independently by this session and by code-reviewer) — closes the
+    8081 half of `NEW-99`/`NEW-103`; the 8080-pattern `pkill` sites remain
+    in `codeydOS` and stay open under the same finding numbers. `NEW-100`
+    and `NEW-101` close (the planner gate-slot registration they describe
+    no longer exists). `NEW-124` closes (the stale "0.5B" comment in
+    `core/planner_service.py` is fixed). `NEW-137`, `NEW-140` scenario 3,
+    `NEW-141`, `NEW-143`: the code-read half is satisfied (the retired
+    paths are confirmed gone, not merely unused) but per `NEW-159`'s own
+    disposition note these need M1-E's live numbers too before fully
+    closing — recorded here as **code-read confirmed, pending M1-E**, not
+    closed.
+  - **Fix round** (code-reviewer's one required change, first pass):
+    `core/lora_import.py`'s `swap_to_finetuned_model()` "primary" branch
+    now mutates and rolls back both `cfg.MODEL_PATH` and
+    `cfg.PLANNER_MODEL_PATH` together — it was asymmetric with the
+    "secondary" branch, and the asymmetry could have merged a LoRA onto
+    the wrong base file. New test `tests/test_lora_import_swap_sync.py`.
+    This surfaced a new, separate, pre-existing bug, logged and left open
+    as `NEW-163`: `rollback_to_backup()` copies backup weights onto
+    whatever `cfg.MODEL_PATH` currently names, which after a swap is the
+    fine-tuned file's path — a rollback could write base weights into the
+    fine-tuned file's name. Out of scope to fix in this round.
+  - **install.sh** (rule 11 compliance, fixed in the same round per the
+    rule's requirement): retired 7B/1.5B downloads removed; now downloads
+    Qwen3.5-4B from
+    `https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf`
+    — verified live via `curl -I` by both implementer and code-reviewer
+    independently, a 302 redirect with a matching filename and
+    `x-linked-size: 2740937888`; stale "1.5B planner (port 8081)"
+    post-install text corrected.
+  - **Two code-reviewer passes total.** First pass: M1-B APPROVED, M1-C
+    APPROVED, M1-D CHANGES REQUESTED (the `lora_import.py` fix above) plus
+    the `install.sh` rule-11 gap. Second/final pass: APPROVED all three
+    phases as one combined, ready-to-commit state. Both of §4.4's
+    previously-unreviewed folded-in diffs (7.4b sub-task A, the `NEW-152`
+    fix) were explicitly reviewed in the first pass and returned
+    APPROVED — this closes §4.4's outstanding process debt.
+  - **Test suite, final state, verbatim** (reproduced independently three
+    times this round — implementer, project-architect, and
+    code-reviewer, all matching): `tests/` → **647 passed, 1 skipped**;
+    `ccos/tests/` → **68 passed**. Combined **715 passed, 1 skipped**.
+    Baseline before this round was 743 passed / 1 skipped on the *old*
+    two-server architecture; net movement includes ~30 tests deleted
+    because their subject module/constant was deleted by the planner
+    collapse (verified by code-reviewer as genuine deletions of
+    now-nonexistent functionality, not concealed failures), plus a few
+    new tests added for the M1-C spawn flags and the M1-D `lora_import.py`
+    fix.
+  - **What this round does NOT reach, stated plainly:** M1-E (live
+    verification — no model has been loaded this round, everything is
+    code + unit-test only), M1-F (constants re-derivation, waits on
+    M1-E), and M1-G (prompt re-check, waits on M1-E). "Live-verified" is
+    not a status this round can reach, the same framing §4.2 already
+    applies to M1-A.
 
 ### 4.3 The one honest platform gap — largely dissolved by §1.4
 
@@ -634,18 +730,22 @@ scenario was deferred, not safely reproduced.
 
 **As of §1.4 (2026-08-22) there is no model pair.** `NEW-141` and
 `NEW-140`'s scenario 3 describe a configuration that no longer exists —
-they close on the decision rather than on a fix. **Confirm this against
-the code during M1-D rather than ticking them off from this paragraph** —
-the retired paths have to actually be gone, not merely unused.
+they close on the decision rather than on a fix. **Confirmed against the
+code by M1-D, 2026-08-23:** the retired paths (`core/planner_loader.py`,
+`_evict_planner_and_confirm_free()`) are actually gone, not merely
+unused — but per `NEW-159`'s own disposition note these still need M1-E's
+live numbers before fully closing, so they remain **code-read confirmed,
+pending M1-E**, not closed outright.
 
-**`NEW-142` is the exception and must not be closed by decision.** It is
-`planner_loader.ensure_planner()` evicting the primary *by bypassing the
-gate's reserve path* — the eviction-bypass is what made `NEW-141`
-reproducible in the first place. The mechanism is a code path, not a
-model pairing: if anything retains a direct evict-then-load sequence
-after M1-D (`core/loader_v2.py:_evict_planner_and_confirm_free()` is the
-obvious survivor to check), the bug outlives the models it was found
-with. Close it on a code read, never on §1.4.
+**`NEW-142` is the exception that was never meant to be closed by
+decision — and it CLOSED on a code read, 2026-08-23, exactly as this
+paragraph specified.** It was `planner_loader.ensure_planner()` evicting
+the primary *by bypassing the gate's reserve path* — the eviction-bypass
+is what made `NEW-141` reproducible in the first place. M1-D deleted
+`core/planner_loader.py` in full (322 lines) and deleted
+`core/loader_v2.py:_evict_planner_and_confirm_free()`, the obvious
+survivor this paragraph named to check — confirmed gone by direct code
+read, not inferred from the model-migration decision.
 
 **What did not dissolve, and what replaced it:** the gate's cost model is
 pointed at the wrong architecture until M1-A fixes it, and the budget
@@ -660,10 +760,23 @@ the context ceiling (§8 Q1, answered 2026-08-22: 65536).
 Still open and unaffected by §1.4: `NEW-138` (an unexplained ~1.56GiB
 anon-RSS gap — worth re-checking against the new model, since the figure
 was measured on the 7B), `NEW-139` (`--mmap` makes quantized-weight zram
-compression structurally unmeasurable). Closed by retirement: `NEW-137`
-and `NEW-143`, both of which are specifically about the 7B at 32768.
+compression structurally unmeasurable). **Correction, rule 6 (2026-08-23):
+`NEW-137` and `NEW-143` are NOT yet closed** — both are specifically about
+the 7B at 32768 and their retired code paths are now confirmed gone by
+M1-D's code read, but per `NEW-159`'s disposition note they still need
+M1-E's live numbers before closing outright. This line previously said
+"closed by retirement"; that overstated it.
 
-### 4.4 Outstanding process debt — folded into M1's review pass
+### 4.4 Outstanding process debt — review-pass debt CLOSED 2026-08-23, live-verify still pending M1-E
+
+**Review-pass half CLOSED.** The M1-B/C/D `code-reviewer` brief explicitly
+included the two previously-unreviewed rule-4 diffs described below (7.4b
+sub-task A, the `NEW-152` fix) as in-scope, per point 1 below, and the
+first of the two review passes returned APPROVED on both. The "no
+mandatory review happened" gap this section originally recorded is
+closed. **What is NOT closed:** point 2 below — `live-verifier` covering
+both under the real `codey-start` entry point — which still waits on
+M1-E, same as the rest of this round.
 
 **Rule 4 has live debt.** `NEW-151` recorded a self-found process
 violation: commit `5687dcf` swept in two already-implemented,
@@ -942,8 +1055,9 @@ mandatory code-reviewer pass, no exceptions, including for the ones that
 look like config edits.
 
 - **M1-A — arch + cost correctness first, before anything loads.**
-  **DONE 2026-08-22 as far as code goes — code-complete, `code-reviewer`
-  pass still outstanding, no live component (§4.2, Appendix A).** Landed
+  **DONE 2026-08-22 — code-complete and code-reviewer-reviewed (one
+  blocking finding, C-1, fixed and re-verified), landed as `a030bbf`; no
+  live component by design (§4.2, Appendix A).** Landed
   as an optional `ModelArch.n_attention_layers=8` (NOT the `n_layers=8`
   route offered below — that stores a number disagreeing with the model's
   real layer count), plus a 4th `CostEstimate.recurrent_state_bytes`
@@ -976,6 +1090,10 @@ look like config edits.
      name the GGUF fields it was derived from (`NEW-157`).
   Unit-testable with synthetic meminfo; no model load.
 - **M1-B — config repointing: EVERY model slot becomes Qwen3.5-4B.**
+  **DONE 2026-08-23 — code-complete and code-reviewer-approved (two review
+  passes, see §4.2); NOT YET COMMITTED as of this writing; no live
+  component by design, M1-E covers that.** The original statement of the
+  sub-task is kept verbatim below as the record of what was asked for.
   Ish's explicit instruction (2026-08-22): "make sure you do it for both
   models." After this sub-task, **no code path anywhere can load a
   Qwen2.5-Coder-7B or a Qwen2.5-Coder-1.5B**, including through an env
@@ -1036,6 +1154,14 @@ look like config edits.
   test churn, and treat a test that has to be deleted rather than updated
   as a signal to re-read the sub-task, not a formality.
 - **M1-C — pass `--jinja` and wire thinking mode** (`NEW-158`).
+  **DONE 2026-08-23 — code-complete and code-reviewer-approved (two review
+  passes, see §4.2); NOT YET COMMITTED as of this writing; no live
+  component by design, M1-E covers that.** `NEW-162` (the `--help` text
+  disagreeing with `NEW-158`'s framing) was resolved by dumping the actual
+  GGUF chat template — thinking mode is off by default unless a caller
+  opts in — but stays open/Suspected pending a live spawn. The original
+  statement of the sub-task is kept verbatim below as the record of what
+  was asked for.
   `core/loader_v2.py:_spawn_locked()` (~line 331) does not pass
   `--jinja` today, so the GGUF chat template and `enable_thinking` are
   inert. Add it, plus `--reasoning-format` so the server splits
@@ -1044,7 +1170,12 @@ look like config edits.
   `chat_template_kwargs: {"enable_thinking": true}`. **Verify the flag
   actually changes behavior before building on it** — the binary carries
   the strings, which is evidence it supports them, not proof.
-- **M1-D — collapse the planner onto the one server.** This is what
+- **M1-D — collapse the planner onto the one server.** **DONE
+  2026-08-23 — code-complete and code-reviewer-approved (two review
+  passes, the first of which required a fix in `core/lora_import.py`'s
+  swap-symmetry, since applied and re-reviewed; see §4.2); NOT YET
+  COMMITTED as of this writing; no live component by design, M1-E covers
+  that.** This is what
   makes "one model" real rather than "one model file loaded twice."
   `core/plannd.py`'s `get_plan()` calls
   `core/planner_loader.py:ensure_planner()`, which spawns a second server
@@ -1114,7 +1245,7 @@ look like config edits.
 |---|---|---|
 | **7.4** resource gate + slot-aware loader | 5/5 sub-tasks approved; core path live-verified | Re-target the pending production-config live pass at Qwen3.5-4B (M1-E covers it). The old `n_ctx=32768`-with-the-7B script is now obsolete — do not run it. |
 | **7.4a** swap-aware budget | A/B/C1/C2/D/F built and approved; E and G run | `NEW-135`/`NEW-136` (no `reserved_bytes` deduction on swap-assist; `admitted_via_swap` not persisted to the slot) still unfixed. `NEW-140` scenario 3 and `NEW-141` are **closed by §1.4** — both are concurrent/low-headroom cases that required the retired model pair. Confirm that reasoning against the code before ticking them off. |
-| **7.4b** model lifecycle policy | Reshaped by §1.4 | **A**: embed always resident — implementation landed, needs its real review (§4.4). **B**: planner ceiling 8192 — **moot, no separate planner**; note the correction below. **C**: coder interactive-vs-daemon context branching — landed + `NEW-152` fix, needs review + live-verify; the *policy* still applies (full context interactively, smaller for background dispatch), only the ceilings need re-deriving from §5.1. **D**: fold into M1-F. |
+| **7.4b** model lifecycle policy | Reshaped by §1.4 | **A**: embed always resident — implementation landed, code-reviewer pass done 2026-08-23 (§4.4), still needs live-verify (M1-E). **B**: planner ceiling 8192 — **moot, no separate planner**; note the correction below. **C**: coder interactive-vs-daemon context branching — landed + `NEW-152` fix, code-reviewer pass done 2026-08-23 (§4.4), still needs live-verify (M1-E); the *policy* still applies (full context interactively, smaller for background dispatch), only the ceilings need re-deriving from §5.1. **D**: fold into M1-F. |
 | **Lease/registry** | Not started | Replace port-probe adoption with an explicit lease. Absorbs `NEW-104` (slots key to caller PID, not the spawned child), `NEW-144`/`NEW-146` (kill-and-replace a healthy occupant), `NEW-149` (reuse branch adopts an under-provisioned server). **More important under §1.4, not less** — one server now has more consumers, and adoption-by-port-probe is how an under-provisioned server gets silently reused. |
 | **Concurrency test** | Not started | Does `llama-server`'s slot/`--parallel` handling let one server serve the daemon, the TUI/GUI, and both limbs? No flag is set anywhere today. **Now the central question of this phase**, since one shared model is the whole architecture rather than one option in it. |
 
@@ -1359,7 +1490,7 @@ Numbered for reference. Nothing here is guessed at in this document.
    - **It depends on M1-A landing.** Under the old 32-layer assumption
      the gate over-estimates KV by ~4× (4 × 2.000 = 8.000GiB) and would
      refuse 65536 outright. The decision and the fix ship in that order.
-     (M1-A is code-complete as of 2026-08-22; see §4.2.)
+     (M1-A landed 2026-08-22 as `a030bbf`; see §4.2.)
    - **It is still arithmetic.** M1-E measures real resident cost and is
      the check on it. If measurement disagrees materially with the
      4.852GiB estimate, that goes back to Ish rather than being silently
@@ -1516,8 +1647,10 @@ being retired, so doing them first means doing them twice. All of
 A/B/C/D/E are rule-4 category; mandatory code-reviewer pass, and that
 pass **also covers the two previously-unreviewed diffs** from §4.4.
 
-- [~] **M1-A** — **code-complete 2026-08-22, NOT yet
-      code-reviewer-approved, no live component.** `QWEN35_4B_ARCH` added
+- [x] **M1-A** — **DONE 2026-08-22, landed as `a030bbf`: code-complete
+      and code-reviewer-reviewed (C-1 fixed and re-verified); no live
+      component by design. Confirmatory sign-off folded into the
+      M1-B/C/D brief — see §4.2's record-gap note.** `QWEN35_4B_ARCH` added
       and `KNOWN_MODEL_ARCHS` points **both** the `"primary"` and
       `"planner"` roles at it (dict still keyed by role, per `NEW-84` —
       deliberately not re-keyed by architecture). The 8/24 hybrid split is
@@ -1533,35 +1666,50 @@ pass **also covers the two previously-unreviewed diffs** from §4.4.
       it as the *older* Qwen3-4B, because it is still wired into
       `_TEST_ARCH_REGISTRY_BY_ROLE` and the `CODEY_TEST_PRIMARY_ARCH`
       live-test contract and the model is still on disk (§6.2 authorizes
-      "delete or re-scope"). Remaining: the mandatory rule-4
-      code-reviewer pass.
-- [ ] **M1-B** — repoint **every** model slot in `utils/config.py` at the
-      Qwen3.5-4B file: `MODEL_PATH`, `PLANNER_MODEL_PATH`, and
-      `SECONDARY_MODEL_PATH` (or remove the last two). Ish, 2026-08-22:
-      "make sure you do it for both models." **After this, no path can
-      load a 7B or 1.5B** — check env vars and test fixtures too.
-      Re-derive or drop `get_planner_n_ctx()`'s 8192 (it was a 1.5B's
-      budget); rename `QWEN_7B_MMAP`/`QWEN_7B_MLOCK`; choose the `n_ctx`
-      default: **65536, decided by Ish 2026-08-22 (§8 Q1, answered)**.
-      **Land with M1-D or immediately before it** — in between, a
-      planning call loads a second copy of the same model.
-- [ ] **M1-C** — also carries `NEW-160`: the GGUF's chat template opens
-      with `image_count`/`video_count` vision namespaces and
-      `general.tags` says `image-text-to-text`, while the file has no
-      `qwen35.vision.*` keys and no mmproj beside it. `--jinja` is exactly
-      what switches the server onto that template. Verify the rendered
-      prompt, don't assume the vision branches are inert.
-      Pass `--jinja` + `--reasoning-format` in
-      `core/loader_v2.py:_spawn_locked()` and enable thinking per-request
-      via `chat_template_kwargs` (`NEW-158`). Verify the flag actually
-      changes behavior.
-- [ ] **M1-D** — collapse the planner onto the one server: retire the
-      second-server path (`core/plannd.py` →
-      `planner_loader.ensure_planner()` → port 8081, plus `codeydOS`'s
-      `start_plannd()`/`stop_plannd()`). The planner *role* survives; its
-      process, port and separate model do not. Confirm `parse_steps()`
-      reads the answer and not the reasoning. **Also retires `NEW-99` and
-      `NEW-103`** (rule-3 `pkill` violations) — verify, don't assume.
+      "delete or re-scope"). Leaves `NEW-161` open until M1-B lands.
+- [x] **M1-B** — **DONE 2026-08-23: code-complete and code-reviewer-
+      approved (two review passes, see §4.2); NOT YET COMMITTED as of this
+      writing — check `git log`/`git status` for whether this has since
+      landed and update this line with the real commit hash once it has.
+      No live component by design; M1-E covers that.** Repointed **every**
+      model slot in `utils/config.py` at the Qwen3.5-4B file: `MODEL_PATH`,
+      `PLANNER_MODEL_PATH`; `SECONDARY_MODEL_PATH` removed outright as
+      confirmed-dead code. Ish, 2026-08-22: "make sure you do it for both
+      models" — satisfied, no path can load a 7B or 1.5B. Renamed
+      `QWEN_7B_MMAP`/`QWEN_7B_MLOCK` to `QWEN_MMAP`/`QWEN_MLOCK`; `n_ctx`
+      default set to **65536** (§8 Q1). Closes `NEW-161`. Landed together
+      with M1-C/M1-D as one combined reviewed state, per this bullet's own
+      "land with M1-D or immediately before it" guidance.
+- [x] **M1-C** — **DONE 2026-08-23: code-complete and code-reviewer-
+      approved (two review passes, see §4.2); NOT YET COMMITTED as of this
+      writing — check `git log`/`git status` for whether this has since
+      landed and update this line with the real commit hash once it has.
+      No live component by design; M1-E covers that.** Passed `--jinja` +
+      `--reasoning-format deepseek` in `core/loader_v2.py:_spawn_locked()`.
+      `NEW-160` and `NEW-162` remain open/Suspected — code-reviewer read
+      the actual GGUF chat template (not `--help` text) and confirmed
+      thinking mode is off by default absent an explicit
+      `chat_template_kwargs` opt-in, so the coder/summarizer paths were
+      never at risk from the new flags, but a live spawn is still the
+      final word on both findings and neither closes here.
+- [x] **M1-D** — **DONE 2026-08-23: code-complete and code-reviewer-
+      approved (two review passes — the first returned CHANGES REQUESTED
+      on a `core/lora_import.py` swap-symmetry fix, since applied and
+      re-reviewed; see §4.2); NOT YET COMMITTED as of this writing — check
+      `git log`/`git status` for whether this has since landed and update
+      this line with the real commit hash once it has. No live component
+      by design; M1-E covers that.** Retired the second-server path:
+      `core/planner_loader.py` deleted (322 lines);
+      `core/loader_v2.py:_evict_planner_and_confirm_free()` deleted;
+      `codeydOS`'s `start_plannd()`/`stop_plannd()` and the port-8081
+      `pkill` sites all confirmed gone. Closes `NEW-142`, `NEW-100`,
+      `NEW-101`, `NEW-124`, and the 8081 half of `NEW-99`/`NEW-103` (the
+      8080-pattern `pkill` sites in `codeydOS` remain open under those
+      same numbers). `NEW-137`, `NEW-140` scenario 3, `NEW-141`, `NEW-143`
+      are code-read confirmed but stay open pending M1-E's live numbers,
+      per `NEW-159`'s own disposition note. Surfaced a new pre-existing
+      bug while fixing the lora_import swap-symmetry issue, logged as
+      `NEW-163` (open/Suspected, out of scope to fix here).
 - [ ] **M1-E** — live verification: gate admission with real byte
       figures, a real inference request, a real thinking-mode planning
       request, measured resident cost vs. M1-A's estimate (this is what
@@ -1588,20 +1736,24 @@ Then:
       `NEW-140` scenario 3 and `NEW-141` close with the model pair —
       confirm against the code in M1-D.
 - [ ] **7.4b** — model lifecycle policy, reshaped by §1.4.
-  - [ ] **A** — embed model always resident from Codey startup to
-        shutdown. Implementation landed via `5687dcf`; **needs its real
-        code-reviewer pass** (§4.4). Blocking prerequisite `NEW-144` was
-        the kill-and-replace-a-healthy-occupant bug. Unaffected by §1.4 —
-        the embedding model is not being replaced.
+  - [x] **A** — embed model always resident from Codey startup to
+        shutdown. Implementation landed via `5687dcf`; **code-reviewer
+        pass done 2026-08-23** as part of the M1-B/C/D combined review
+        (§4.4) — APPROVED. Still needs live-verify under the real
+        `codey-start` entry point, deferred to M1-E. Blocking prerequisite
+        `NEW-144` was the kill-and-replace-a-healthy-occupant bug.
+        Unaffected by §1.4 — the embedding model is not being replaced.
   - [x] **B** — planner context ceiling 8192. **Implemented** as
         `get_planner_n_ctx()` in `utils/config.py` (landed in `5687dcf`,
         never separately reviewed) — this plan's 2026-08-21 claim that it
         was "not started" was wrong, corrected per rule 6. **Moot under
         §1.4**: no separate planner survives. M1-B retires the function.
-  - [ ] **C** — coder interactive-vs-daemon context branching. Landed +
-        `NEW-152` fix (`6528446`); **needs code-reviewer + live-verifier
-        under the real `codey-start` entry point**. `NEW-145`, `NEW-149`,
-        `NEW-155` stay open. The policy survives §1.4; the two ceilings
+  - [x] **C** — coder interactive-vs-daemon context branching. Landed +
+        `NEW-152` fix (`6528446`); **code-reviewer pass done 2026-08-23**
+        as part of the M1-B/C/D combined review (§4.4) — APPROVED. Still
+        needs **live-verifier under the real `codey-start` entry point**,
+        deferred to M1-E — `NEW-145`, `NEW-149`, `NEW-155` stay open. The
+        policy survives §1.4; the two ceilings
         (16384 background / full interactive) need re-deriving from §5.1.
   - [ ] **D** — folded into M1-F.
 - [ ] **Lease/registry** — replace port-probe adoption with an explicit

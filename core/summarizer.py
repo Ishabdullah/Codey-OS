@@ -5,12 +5,16 @@ Strategy (in order):
   1. Trigger at 55% context usage — gives headroom before the wall.
   2. Pin important messages (file writes, errors, existing summaries) — never drop these.
   3. Drop oldest unpinned turns until usage falls to 40% — no model call needed.
-  4. After dropping, call the 1.5B model on port 8081 for a ≤100-word "Previously:"
-     micro-summary of only the dropped turns. Prepend to compressed history.
+  4. After dropping, call the primary Qwen3.5-4B model on port 8080 for a
+     ≤100-word "Previously:" micro-summary of only the dropped turns.
+     Prepend to compressed history.
   5. Never re-summarize an existing [CONVERSATION SUMMARY] — it stays pinned.
 
-The 1.5B call is best-effort: if port 8081 is unreachable the drop still happens,
-we just skip the micro-summary line.
+M1-D (2026-08-23): this used to call a dedicated 1.5B planner/summarizer
+model on its own port (8081). That server is retired — summarization now
+rides the same primary server the coder uses. The call is still
+best-effort: if port 8080 is unreachable the drop still happens, we just
+skip the micro-summary line.
 """
 
 import json
@@ -30,16 +34,17 @@ SUMMARIZE_THRESHOLD_PCT = 0.75
 # After compression, target this fraction of n_ctx
 DROP_TARGET_PCT = 0.55
 
-# Max chars per message fed to the 1.5B summarizer (generous — it's small model)
+# Max chars per message fed to the summarizer (generous — small ask either way)
 MICRO_SUMMARY_MSG_LIMIT = 2000
 
-# 1.5B model endpoint — uses plannd port from config to avoid hardcoded collision
+# M1-D (2026-08-23): summarization now rides the primary server, not a
+# separate dedicated port — see module docstring.
 try:
-    from utils.config import PLANND_SERVER_PORT
+    from utils.config import PRIMARY_SERVER_PORT
 
-    _05B_PORT = PLANND_SERVER_PORT
+    _05B_PORT = PRIMARY_SERVER_PORT
 except ImportError:
-    _05B_PORT = 8081
+    _05B_PORT = 8080
 _05B_HOST = "127.0.0.1"
 
 _MICRO_SUMMARY_SYSTEM = (
@@ -80,13 +85,16 @@ def _is_pinned(msg: dict) -> bool:
     return any(sig in content for sig in _PIN_SIGNALS)
 
 
-# ── 1.5B micro-summary ────────────────────────────────────────────────────────
+# ── Micro-summary ────────────────────────────────────────────────────────────
 
 
 def _call_05b(dropped_msgs: list[dict]) -> str | None:
     """
-    Summarize dropped messages using the 1.5B on port 8081, or OpenRouter
-    when CODEY_BACKEND=openrouter.  Returns the summary string or None.
+    Summarize dropped messages using the primary Qwen3.5-4B on port 8080
+    (M1-D, 2026-08-23 — formerly a dedicated 1.5B on port 8081), or a
+    remote backend when CODEY_PLANNER_BACKEND/CODEY_BACKEND is remote.
+    Returns the summary string or None. Function name kept as `_call_05b`
+    for now — purely a historical label, not touched by this round.
     """
     if not dropped_msgs:
         return None
@@ -101,7 +109,7 @@ def _call_05b(dropped_msgs: list[dict]) -> str | None:
         {"role": "user", "content": f"Conversation:\n{history_text}"},
     ]
 
-    # Route to remote planner backend when active — avoids needing the local 1.5B server
+    # Route to remote planner backend when active — avoids needing the local server
     try:
         from utils.config import (CODEY_PLANNER_BACKEND,
                                   is_remote_planner_backend)
@@ -119,7 +127,7 @@ def _call_05b(dropped_msgs: list[dict]) -> str | None:
         warning(f"[summarizer] remote micro-summary failed: {e}")
         return None
 
-    # Local 1.5B path
+    # Local path (primary server)
     payload = {
         "model": "codey-planner",
         "messages": messages,
@@ -144,7 +152,7 @@ def _call_05b(dropped_msgs: list[dict]) -> str | None:
                 text = choices[0].get("message", {}).get("content", "").strip()
                 return text if text else None
     except Exception as e:
-        warning(f"[summarizer] 1.5B micro-summary failed (port {_05B_PORT} down?): {e}")
+        warning(f"[summarizer] micro-summary failed (port {_05B_PORT} down?): {e}")
     return None
 
 
@@ -173,13 +181,14 @@ def should_summarize(history: list[dict], system_messages: list[dict] = None) ->
 
 def summarize_history(history: list[dict]) -> list[dict]:
     """
-    Compress history using sliding-window drop + optional 1.5B micro-summary.
+    Compress history using sliding-window drop + optional micro-summary.
 
     Steps:
       1. Always keep the last 4 messages (2 turns) regardless of pin status.
       2. Walk remaining messages oldest-first; collect unpinned ones as candidates.
       3. Drop candidates until token usage is at or below DROP_TARGET_PCT of n_ctx.
-      4. Ask 1.5B for a micro-summary of the dropped messages (best-effort).
+      4. Ask the primary model for a micro-summary of the dropped messages
+         (best-effort).
       5. Prepend the micro-summary to the compressed history if we got one.
       6. Existing [CONVERSATION SUMMARY] messages are pinned and survive untouched.
     """

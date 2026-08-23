@@ -96,11 +96,18 @@ async def get_model_status() -> Dict:
     async def maybe_probe(port: int, be: str) -> bool:
         return (await probe_port(port)) if be == "local" else False
 
-    a_ok, p_ok, e_ok = await asyncio.gather(
+    # M1-D (2026-08-23): the local planner used to be a genuinely separate
+    # llama-server on port 8081, so it got its own probe_port() call here.
+    # That process is retired — a local planner now shares the primary
+    # server on port 8080 (core/plannd.py:get_plan()), so its "online" state
+    # is the SAME agent probe, not a second port check. A remote planner
+    # backend (CODEY_BACKEND_P set to openrouter/unlimitedclaude) is still a
+    # real separate thing worth its own status, so that branch is unchanged.
+    a_ok, e_ok = await asyncio.gather(
         maybe_probe(8080, backend),
-        maybe_probe(8081, backend_p),
         probe_port(8082),
     )
+    p_ok = a_ok if backend_p == "local" else False
 
     def info(ok: bool, name: str, port: int, be: str) -> Dict:
         if be != "local":
@@ -113,8 +120,8 @@ async def get_model_status() -> Dict:
         }
 
     return {
-        "agent": info(a_ok, "Qwen2.5-Coder-7B", 8080, backend),
-        "planner": info(p_ok, "Qwen2.5-0.5B", 8081, backend_p),
+        "agent": info(a_ok, "Qwen3.5-4B", 8080, backend),
+        "planner": info(p_ok, "Qwen3.5-4B (shares agent server)", 8080, backend_p),
         "embed": info(e_ok, "nomic-embed-text", 8082, "local"),
     }
 

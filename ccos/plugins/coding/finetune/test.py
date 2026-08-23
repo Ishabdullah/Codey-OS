@@ -151,7 +151,7 @@ class _FakeLoader:
 def test_create_backup_and_rollback_on_dummy_model():
     """
     create_backup_before_import/rollback_to_backup read the model path from
-    utils.config (MODEL_PATH/SECONDARY_MODEL_PATH), not from an argument —
+    utils.config (MODEL_PATH), not from an argument —
     so this test points cfg.MODEL_PATH at a throwaway dummy .gguf file for
     the duration of the test and restores it afterward. The real model in
     ~/models/ is never touched. The model-reload step is also stubbed out

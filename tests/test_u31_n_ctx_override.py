@@ -3,12 +3,12 @@ U.31 (TODO.md) — CODEY_N_CTX env-var override for MODEL_CONFIG["n_ctx"].
 
 utils/config.py's MODEL_CONFIG["n_ctx"] is the single source of truth read
 by BOTH core/loader_v2.py (the real llama-server -c flag it spawns with)
-and resource_gate.ModelSpec's cost estimate (core/loader_v2.py,
-core/planner_loader.py). Overriding it only in the gate (mirroring
-core/resource_gate.py's CODEY_TEST_PRIMARY_ARCH pattern) would desync the
-gate's admission math from what actually spawns — the NEW-84 class of bug.
-Instead the override lives here, at the shared source, exactly like
-MODEL_PATH/PLANNER_MODEL_PATH/SECONDARY_MODEL_PATH already do via
+and resource_gate.ModelSpec's cost estimate (core/loader_v2.py — formerly
+also core/planner_loader.py, deleted in M1-D, 2026-08-23). Overriding it
+only in the gate (mirroring core/resource_gate.py's CODEY_TEST_PRIMARY_ARCH
+pattern) would desync the gate's admission math from what actually spawns
+— the NEW-84 class of bug. Instead the override lives here, at the shared
+source, exactly like MODEL_PATH/PLANNER_MODEL_PATH already do via
 os.environ.get(...) at import time.
 
 Because utils/config.py reads its env var at import time, these tests
@@ -32,10 +32,10 @@ def restore_config_module():
     importlib.reload(cfg)
 
 
-def test_n_ctx_default_unset_is_32768():
+def test_n_ctx_default_unset_is_65536():
     os.environ.pop("CODEY_N_CTX", None)
     reloaded = importlib.reload(cfg)
-    assert reloaded.MODEL_CONFIG["n_ctx"] == 32768
+    assert reloaded.MODEL_CONFIG["n_ctx"] == 65536
     assert isinstance(reloaded.MODEL_CONFIG["n_ctx"], int)
 
 

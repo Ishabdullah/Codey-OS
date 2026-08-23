@@ -6,11 +6,30 @@
 #   • System packages (pkg / apt / dnf / pacman)
 #   • Python dependencies
 #   • llama.cpp (built from source)
-#   • All three models:
-#       7B    — Qwen2.5-Coder-7B-Instruct Q4_K_M   (official Qwen HF)
-#       1.5B  — Qwen2.5-Coder-1.5B-Instruct Q4_K_M (official Qwen HF)
-#       Embed — nomic-embed-text-v1.5 Q4_K_M        (nomic-ai HF)
+#   • Both models:
+#       Qwen3.5-4B — the single model for every role (coder + planner,
+#                    thinking mode replaces the old dedicated planner —
+#                    see CODEY_MASTER_PLAN.md M1). Quantized by Unsloth
+#                    (huggingface.co/unsloth/Qwen3.5-4B-GGUF) —
+#                    confirmed 2026-08-23 via the on-device GGUF's own
+#                    general.quantized_by/base_model.0.* metadata
+#                    (gguf_dump.py --no-tensors) AND a live HTTP request
+#                    (curl -I) against the resulting URL, which resolved
+#                    (302 → HF's CDN) with the exact requested filename
+#                    in the response's content-disposition header — not
+#                    inferred from the model-family name alone (rule 12).
+#       Embed      — nomic-embed-text-v1.5 Q4_K_M    (nomic-ai HF)
 #   • PATH, executable bits, daemon directory
+#
+# Retired models NOT installed by this script (M1, 2026-08-23):
+#   Qwen2.5-Coder-1.5B (former dedicated planner) — no code path loads it
+#   anymore; core/planner_loader.py that used to load it is deleted.
+#   Qwen2.5-Coder-7B (former single coder model) — no code path loads a
+#   downloaded GGUF of this model anymore either. Its ModelArch constant
+#   (core/resource_gate.py QWEN25_7B_ARCH) is kept in-code purely as a
+#   legacy comparison fixture for tests/test_resource_gate.py — it has no
+#   dependency on an on-disk model file, so nothing here needs to fetch
+#   the file it once described.
 #
 # Usage:
 #   ./install.sh           — interactive
@@ -32,21 +51,19 @@ NC='\033[0m'
 CODEY_OS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LLAMA_CPP_DIR="$HOME/llama.cpp"
 MODELS_DIR="$HOME/models"
-PRIMARY_MODEL_DIR="$MODELS_DIR/qwen2.5-coder-7b"
-PLANNER_MODEL_DIR="$MODELS_DIR/qwen2.5-coder-1.5b"
+PRIMARY_MODEL_DIR="$MODELS_DIR/qwen3.5-4b-instruct"
 EMBED_MODEL_DIR="$MODELS_DIR/nomic-embed"
 
-# Filenames — must match utils/config.py exactly
-PRIMARY_MODEL_FILE="qwen2.5-coder-7b-instruct-q4_k_m.gguf"
-PLANNER_MODEL_FILE="qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+# Filenames — must match utils/config.py's MODEL_PATH/PLANNER_MODEL_PATH
+# exactly (both now point at this same file, M1-B, 2026-08-23).
+PRIMARY_MODEL_FILE="Qwen3.5-4B-Q4_K_M.gguf"
 EMBED_MODEL_FILE="nomic-embed-text-v1.5.Q4_K_M.gguf"
 
 # ── Model URLs ────────────────────────────────────────────────────────────────
-# 7B coder — official Qwen HF
-PRIMARY_MODEL_URL="https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/main/qwen2.5-coder-7b-instruct-q4_k_m.gguf"
-
-# 1.5B planner — official Qwen HF (code-specific, better planning than 0.5B)
-PLANNER_MODEL_URL="https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+# Qwen3.5-4B — the single model for every role. Verified 2026-08-23 (see
+# comment at the top of this file for how): unsloth's GGUF repo,
+# quantized_by=Unsloth, base model Qwen/Qwen3.5-4B.
+PRIMARY_MODEL_URL="https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf"
 
 # Embedding model — nomic-ai HF
 EMBED_MODEL_URL="https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf"
@@ -266,36 +283,28 @@ file_ok() {
 
 download_models() {
     print_step "Models"
-    mkdir -p "$PRIMARY_MODEL_DIR" "$PLANNER_MODEL_DIR" "$EMBED_MODEL_DIR"
-    check_disk_space 8000 "$HOME" || true
+    mkdir -p "$PRIMARY_MODEL_DIR" "$EMBED_MODEL_DIR"
+    check_disk_space 3000 "$HOME" || true
 
     local PRIMARY_PATH="$PRIMARY_MODEL_DIR/$PRIMARY_MODEL_FILE"
-    local PLANNER_PATH="$PLANNER_MODEL_DIR/$PLANNER_MODEL_FILE"
     local EMBED_PATH="$EMBED_MODEL_DIR/$EMBED_MODEL_FILE"
     local all_present=true
 
-    # ── 7B agent model ──────────────────────────────────────────────────────
-    if file_ok "$PRIMARY_PATH" 4000000000; then
-        print_success "7B agent model already present — skipping"
+    # ── Qwen3.5-4B model (every role — coder + planner) ─────────────────────
+    if file_ok "$PRIMARY_PATH" 2000000000; then
+        print_success "Qwen3.5-4B model already present — skipping"
+    elif [ -z "$PRIMARY_MODEL_URL" ]; then
+        all_present=false
+        print_warning "Qwen3.5-4B model URL is not set — no canonical source was found in this repo."
+        print_warning "  Download the model yourself and place it at:"
+        print_warning "    $PRIMARY_PATH"
+        print_warning "  then re-run this script (or just re-run verify_installation)."
     else
         [ -f "$PRIMARY_PATH" ] && rm -f "$PRIMARY_PATH"
         all_present=false
-        print_status "7B agent model (~4.7 GB) — official Qwen HF"
-        if ! download_file "$PRIMARY_MODEL_URL" "$PRIMARY_PATH" "Qwen2.5-Coder-7B Q4_K_M"; then
+        print_status "Qwen3.5-4B model (~2.55 GiB)"
+        if ! download_file "$PRIMARY_MODEL_URL" "$PRIMARY_PATH" "Qwen3.5-4B Q4_K_M"; then
             print_warning "Manual: wget -c '$PRIMARY_MODEL_URL' -O '$PRIMARY_PATH'"
-        fi
-    fi
-
-    # ── 1.5B planner model ──────────────────────────────────────────────────
-    if file_ok "$PLANNER_PATH" 500000000; then
-        print_success "1.5B planner model already present — skipping"
-    else
-        [ -f "$PLANNER_PATH" ] && rm -f "$PLANNER_PATH"
-        all_present=false
-        print_status "1.5B planner model (~1 GB) — official Qwen HF (code-specific)"
-
-        if ! download_file "$PLANNER_MODEL_URL" "$PLANNER_PATH" "Qwen2.5-Coder-1.5B Q4_K_M"; then
-            print_warning "Manual: wget -c '$PLANNER_MODEL_URL' -O '$PLANNER_PATH'"
         fi
     fi
 
@@ -366,13 +375,9 @@ verify_installation() {
         && print_success "llama-server: built" \
         || print_warning "llama-server: not found"
 
-    file_ok "$PRIMARY_MODEL_DIR/$PRIMARY_MODEL_FILE" 4000000000 \
-        && print_success "7B agent model: ready" \
-        || print_warning "7B agent model: missing"
-
-    file_ok "$PLANNER_MODEL_DIR/$PLANNER_MODEL_FILE" 500000000 \
-        && print_success "1.5B planner model: ready" \
-        || print_warning "1.5B planner model: missing"
+    file_ok "$PRIMARY_MODEL_DIR/$PRIMARY_MODEL_FILE" 2000000000 \
+        && print_success "Qwen3.5-4B model: ready" \
+        || print_warning "Qwen3.5-4B model: missing"
 
     file_ok "$EMBED_MODEL_DIR/$EMBED_MODEL_FILE" 50000000 \
         && print_success "Embedding model: ready" \
@@ -410,9 +415,11 @@ print_completion() {
 
     echo -e "${CYAN}${BOLD}BACKEND SWITCHING  (local models are the default — no key needed)${NC}"
     echo
-    echo -e "  Two independent backends:"
-    echo -e "    ${BOLD}CODEY_BACKEND${NC}   — 7B coding agent  (ports 8080)"
-    echo -e "    ${BOLD}CODEY_BACKEND_P${NC} — 1.5B planner    (port 8081, defaults to CODEY_BACKEND)"
+    echo -e "  Two independent backend selectors (both point at the SAME Qwen3.5-4B"
+    echo -e "  model/server as of M1-D — thinking mode replaces the old dedicated"
+    echo -e "  planner process, there is no separate port-8081 planner anymore):"
+    echo -e "    ${BOLD}CODEY_BACKEND${NC}   — coding agent  (local: port 8080)"
+    echo -e "    ${BOLD}CODEY_BACKEND_P${NC} — planner role  (defaults to CODEY_BACKEND)"
     echo -e "  Each can be: ${BOLD}local${NC} | ${BOLD}openrouter${NC} | ${BOLD}unlimitedclaude${NC}"
     echo
     echo -e "  ── ${BOLD}OpenRouter${NC} ─────────────────────────────────────────────────"
@@ -422,10 +429,10 @@ print_completion() {
     echo -e "    # Route both agent and planner to OpenRouter:"
     echo -e "    ${BLUE}export CODEY_BACKEND=\"openrouter\"${NC}"
     echo
-    echo -e "    # Override the 7B coding model (default: qwen/qwen-2.5-coder-7b-instruct):"
+    echo -e "    # Override the coding-role model (default: qwen/qwen-2.5-coder-7b-instruct):"
     echo -e "    ${BLUE}export OPENROUTER_MODEL=\"anthropic/claude-sonnet-4-5\"${NC}"
     echo
-    echo -e "    # Override the 1.5B planner model independently (default: same as OPENROUTER_MODEL):"
+    echo -e "    # Override the planner-role model independently (default: same as OPENROUTER_MODEL):"
     echo -e "    ${BLUE}export OPENROUTER_PLANNER_MODEL=\"meta-llama/llama-3.2-1b-instruct:free\"${NC}"
     echo
     echo -e "  ── ${BOLD}UnlimitedClaude${NC} ──────────────────────────────────────────────"
@@ -434,14 +441,14 @@ print_completion() {
     echo -e "    # Route both agent and planner:"
     echo -e "    ${BLUE}export CODEY_BACKEND=\"unlimitedclaude\"${NC}"
     echo
-    echo -e "    # Override the 7B coding model (default: qwen3-coder-next):"
+    echo -e "    # Override the coding-role model (default: qwen3-coder-next):"
     echo -e "    ${BLUE}export UNLIMITEDCLAUDE_MODEL=\"claude-sonnet-4-5\"${NC}"
     echo
-    echo -e "    # Override the 1.5B planner model independently (default: claude-haiku-4.5):"
+    echo -e "    # Override the planner-role model independently (default: claude-haiku-4.5):"
     echo -e "    ${BLUE}export UNLIMITEDCLAUDE_PLANNER_MODEL=\"claude-haiku-4-5\"${NC}"
     echo
     echo -e "  ── ${BOLD}Mix backends${NC} (most flexible) ───────────────────────────────"
-    echo -e "    # e.g. 7B runs locally, planner goes to OpenRouter:"
+    echo -e "    # e.g. Qwen3.5-4B runs locally, planner role goes to OpenRouter:"
     echo -e "    ${BLUE}export CODEY_BACKEND=\"local\"${NC}"
     echo -e "    ${BLUE}export CODEY_BACKEND_P=\"openrouter\"${NC}"
     echo -e "    ${BLUE}export OPENROUTER_PLANNER_MODEL=\"meta-llama/llama-3.2-1b-instruct:free\"${NC}"
@@ -453,13 +460,17 @@ print_completion() {
     echo
 
     echo -e "${CYAN}${BOLD}MODEL LOCATIONS${NC}"
-    echo -e "  7B  agent:    ${BLUE}$PRIMARY_MODEL_DIR/$PRIMARY_MODEL_FILE${NC}"
-    echo -e "  1.5B planner: ${BLUE}$PLANNER_MODEL_DIR/$PLANNER_MODEL_FILE${NC}"
-    echo -e "  Embed:        ${BLUE}$EMBED_MODEL_DIR/$EMBED_MODEL_FILE${NC}"
+    echo -e "  Qwen3.5-4B (coder + planner): ${BLUE}$PRIMARY_MODEL_DIR/$PRIMARY_MODEL_FILE${NC}"
+    echo -e "  Embed:                        ${BLUE}$EMBED_MODEL_DIR/$EMBED_MODEL_FILE${NC}"
     echo
     echo -e "  If any model is missing, resume with:"
-    echo -e "  ${BLUE}wget -c '$PRIMARY_MODEL_URL' -O '$PRIMARY_MODEL_DIR/$PRIMARY_MODEL_FILE'${NC}"
-    echo -e "  ${BLUE}wget -c '$PLANNER_MODEL_URL' -O '$PLANNER_MODEL_DIR/$PLANNER_MODEL_FILE'${NC}"
+    if [ -n "$PRIMARY_MODEL_URL" ]; then
+        echo -e "  ${BLUE}wget -c '$PRIMARY_MODEL_URL' -O '$PRIMARY_MODEL_DIR/$PRIMARY_MODEL_FILE'${NC}"
+    else
+        echo -e "  ${YELLOW}Qwen3.5-4B: no download URL known — see the comment at the top of${NC}"
+        echo -e "  ${YELLOW}install.sh (PRIMARY_MODEL_URL) — place the file manually at:${NC}"
+        echo -e "  ${BLUE}    $PRIMARY_MODEL_DIR/$PRIMARY_MODEL_FILE${NC}"
+    fi
     echo -e "  ${BLUE}wget -c '$EMBED_MODEL_URL' -O '$EMBED_MODEL_DIR/$EMBED_MODEL_FILE'${NC}"
     echo
 }
@@ -477,7 +488,7 @@ main() {
     echo "║   Persistent local AI coding agent for Termux / Android      ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
-    echo "  Download: ~5.5 GB (models) + ~500 MB (llama.cpp build)"
+    echo "  Download: ~2.55 GiB (Qwen3.5-4B) + ~81 MB (embed model) + ~500 MB (llama.cpp build)"
     echo "  Build time: 5–15 min on mobile"
     echo
 

@@ -894,8 +894,8 @@ class ModelArch:
     Minimal architecture parameters needed to estimate a model's resident
     memory cost. Values come from each model family's published config
     (Qwen2.5 architecture docs) for QWEN25_7B_ARCH/QWEN25_1_5B_ARCH.
-    QWEN35_4B_ARCH, QWEN3_4B_TEST_ARCH and QWEN25_0_5B_PLANNER_ARCH (below)
-    instead come from reading each real GGUF file's own header metadata
+    QWEN35_4B_ARCH and QWEN3_4B_TEST_ARCH (below) instead come from
+    reading each real GGUF file's own header metadata
     directly on-device (see each constant's own comment for the exact fields
     read). No provenance parses the GGUF file at estimate time — this
     dataclass stays narrowly scoped to what this gate needs, not a general
@@ -1029,29 +1029,43 @@ QWEN35_4B_ARCH = ModelArch(
 # swap and dropped the KV-cache cost term to 0 in the gate's admission math
 # (NEW_ISSUES.md NEW-84 addendum — an admission-safety bug: an
 # underestimated cost could let the gate over-admit a load it would
-# otherwise correctly reject). core/loader_v2.py and core/planner_loader.py
-# both always pass a fixed model_id of "primary"/"planner" respectively
-# regardless of which file is actually being loaded (see their
-# rg.ModelSpec(...) call sites) — a LoRA-merged model keeps the same
+# otherwise correctly reject). core/loader_v2.py always passes a fixed
+# model_id of "primary" regardless of which file is actually being loaded
+# (see its rg.ModelSpec(...) call site) — a LoRA-merged model keeps the same
 # architecture (n_layers/n_kv_heads/head_dim) as its base, so keying on the
 # stable role identifier instead of the mutable path is both correct and
 # swap-proof.
+#
+# M1-D (2026-08-23): a "planner" entry used to sit here too, for
+# core/planner_loader.py's ModelSpec(model_id="planner", ...) reservations.
+# That module (and the dedicated planner process it managed) is deleted —
+# nothing in this codebase calls reserve_slot()/estimate_model_load_cost()
+# with model_id="planner" anymore, so the entry is removed, not left as
+# dead-but-harmless data. "primary" is the only role this gate resolves an
+# architecture for today.
 KNOWN_MODEL_ARCHS: Dict[str, ModelArch] = {
     "primary": QWEN35_4B_ARCH,
-    "planner": QWEN35_4B_ARCH,
 }
 
-# ── Test-only architecture substitutes (Qwen3-4B / Qwen2.5-0.5B planner) ────
-# These two constants exist ONLY to support a documented, deliberate live-test
-# session (Ish swapping in smaller models via utils/config.py's existing
-# CODEY_MODEL / CODEY_PLANNER_MODEL env-var overrides, for RAM-safe on-device
-# gate/loader/daemon verification) — never for any non-test purpose. They are
-# NOT added to KNOWN_MODEL_ARCHS's committed default entries, and by
-# themselves do nothing: see CODEY_TEST_PRIMARY_ARCH / CODEY_TEST_PLANNER_ARCH
-# below for the only mechanism that activates them, and note its own "unset
-# means byte-for-byte unchanged" contract.
+# ── Test-only architecture substitute (Qwen3-4B) ────────────────────────────
+# This constant exists ONLY to support a documented, deliberate live-test
+# session (Ish swapping in a smaller model via utils/config.py's existing
+# CODEY_MODEL env-var override, for RAM-safe on-device gate/loader/daemon
+# verification) — never for any non-test purpose. It is NOT added to
+# KNOWN_MODEL_ARCHS's committed default entries, and by itself does nothing:
+# see CODEY_TEST_PRIMARY_ARCH below for the only mechanism that activates
+# it, and note its own "unset means byte-for-byte unchanged" contract.
 #
-# Values below were read directly from each real GGUF file's own header
+# M1-D (2026-08-23): a matching QWEN25_0_5B_PLANNER_ARCH / "planner"-role
+# entry in the registry below (and the CODEY_TEST_PLANNER_ARCH env var that
+# activated it) is removed along with core/planner_loader.py — nothing ever
+# reserves a slot with model_id="planner" anymore, so that whole per-role
+# substitution path is dead, not just unused. Only the "primary" role
+# remains, so the per-role registry below is retained for its
+# typo-safety/enumerable-error property (see its own comment), not because
+# a second role still exists.
+#
+# Value below was read directly from the real GGUF file's own header
 # metadata on this device (not published specs, not guessed) — see the task
 # that added this section for the exact `gguf`/metadata dump this was
 # extracted from.
@@ -1070,40 +1084,23 @@ KNOWN_MODEL_ARCHS: Dict[str, ModelArch] = {
 # model file is still on disk.
 QWEN3_4B_TEST_ARCH = ModelArch(n_layers=36, n_kv_heads=8, head_dim=128)
 
-# 0.5B planner substitute (~/models/qwen2.5-0.5b/planner-codey.gguf, Qwen2
-# architecture, general.size_label="494M"). GGUF header: qwen2.block_count=24,
-# qwen2.attention.head_count_kv=2; this GGUF has no separate
-# qwen2.attention.key_length field, so head_dim is derived the standard way
-# for this architecture family: qwen2.embedding_length=896 /
-# qwen2.attention.head_count=14 = 64.
-QWEN25_0_5B_PLANNER_ARCH = ModelArch(n_layers=24, n_kv_heads=2, head_dim=64)
-
-# String keys accepted by CODEY_TEST_PRIMARY_ARCH / CODEY_TEST_PLANNER_ARCH
-# below, mapped to the constants above. A small registry (rather than
-# accepting a raw "n_layers,n_kv_heads,head_dim" triple) so a typo produces a
-# loud, enumerable error instead of a silently-plausible wrong triple — see
+# String keys accepted by CODEY_TEST_PRIMARY_ARCH below, mapped to the
+# constant above. A small registry (rather than accepting a raw
+# "n_layers,n_kv_heads,head_dim" triple) so a typo produces a loud,
+# enumerable error instead of a silently-plausible wrong triple — see
 # _resolve_model_arch()'s use of this dict.
 #
-# Deliberately PER-ROLE (a registry keyed by model_id, not one flat registry
-# shared across both env vars): if a single flat registry accepted either key
-# from either env var, e.g. `CODEY_TEST_PRIMARY_ARCH=qwen2.5-0.5b-planner`
-# would be silently accepted and would set the *primary* role's KV factor to
-# 24*2*64=3072 against the real 7B's 14336 — a ~4.7x under-estimate, worse
-# than the 2.6x under-estimate this whole feature exists to fix, and with no
-# loud failure at all. Splitting the registry by role means the wrong-role
-# value simply isn't a recognized key for that role's env var, so it hits the
-# same loud ValueError path as any other typo. Cross-role substitution
-# (deliberately putting the 0.5B arch in the primary slot, or vice versa) is
-# NOT supported by this mechanism — if a future live test genuinely needs
-# that, it should be a documented, explicit extension, not a side effect of
-# a shared flat registry.
+# Deliberately PER-ROLE (a registry keyed by model_id) even though only one
+# role remains post-M1-D — see this dict's own comment before M1-D removed
+# the "planner" entry for the cross-role-substitution risk this structure
+# was built to close, which still applies to any future second role added
+# here.
 _TEST_ARCH_REGISTRY_BY_ROLE: Dict[str, Dict[str, ModelArch]] = {
     "primary": {"qwen3-4b": QWEN3_4B_TEST_ARCH},
-    "planner": {"qwen2.5-0.5b-planner": QWEN25_0_5B_PLANNER_ARCH},
 }
 
-# Env vars read LAZILY (inside _resolve_model_arch(), not at module import)
-# so: (1) a test process can set/unset them per-test without needing
+# Env var read LAZILY (inside _resolve_model_arch(), not at module import)
+# so: (1) a test process can set/unset it per-test without needing
 # importlib.reload (which would rebind this module's ModelArch constants and
 # break identity checks elsewhere, e.g.
 # tests/test_resource_gate.py::test_known_model_archs_resolved_by_path's `is`
@@ -1112,38 +1109,34 @@ _TEST_ARCH_REGISTRY_BY_ROLE: Dict[str, Dict[str, ModelArch]] = {
 # with no risk of a stale in-process cache silently persisting an override
 # into what's meant to be a normal production run.
 #
-# Scoped to model_id "primary"/"planner" ONLY, and only consulted AFTER the
-# existing `spec.arch is not None` explicit-override check in
-# _resolve_model_arch() — a caller (or test) that explicitly passes `arch=`
-# always wins; these env vars must never silently preempt an explicit,
-# already-correct caller declaration. Precedence, in order: explicit
-# `spec.arch` > this env-var test override > KNOWN_MODEL_ARCHS default.
+# Scoped to model_id "primary" ONLY, and only consulted AFTER the existing
+# `spec.arch is not None` explicit-override check in _resolve_model_arch() —
+# a caller (or test) that explicitly passes `arch=` always wins; this env
+# var must never silently preempt an explicit, already-correct caller
+# declaration. Precedence, in order: explicit `spec.arch` > this env-var
+# test override > KNOWN_MODEL_ARCHS default.
 CODEY_TEST_PRIMARY_ARCH_ENV = "CODEY_TEST_PRIMARY_ARCH"
-CODEY_TEST_PLANNER_ARCH_ENV = "CODEY_TEST_PLANNER_ARCH"
 
 _TEST_ARCH_ENV_BY_MODEL_ID = {
     "primary": CODEY_TEST_PRIMARY_ARCH_ENV,
-    "planner": CODEY_TEST_PLANNER_ARCH_ENV,
 }
 
 
 def _resolve_test_arch_override(model_id: str) -> Optional[ModelArch]:
     """
     Return the env-var-selected test-only architecture override for
-    `model_id` ("primary"/"planner" only), or None if no applicable env var
-    is set or the env var is set to the empty string (treated as unset,
-    matching this project's `os.environ.get(NAME, default)` convention
-    elsewhere — e.g. utils/config.py's CODEY_MODEL override — where an empty
-    value is not a meaningful distinct case worth its own error). Raises
-    ValueError (loud, not a silent bad fallback) if the env var is set to a
-    non-empty value not present in that role's entry in
-    _TEST_ARCH_REGISTRY_BY_ROLE — this gate's entire purpose is preventing an
-    under-estimated cost from silently admitting a load it shouldn't, so a
-    typo'd override value (INCLUDING a value valid for the *other* role, per
-    the per-role registry split above) must fail admission outright rather
-    than quietly falling back to the wrong architecture (or to "no
-    architecture", which would silently zero the KV term — see
-    estimate_model_load_cost()'s unknown-arch branch).
+    `model_id` ("primary" only), or None if no applicable env var is set or
+    the env var is set to the empty string (treated as unset, matching this
+    project's `os.environ.get(NAME, default)` convention elsewhere — e.g.
+    utils/config.py's CODEY_MODEL override — where an empty value is not a
+    meaningful distinct case worth its own error). Raises ValueError (loud,
+    not a silent bad fallback) if the env var is set to a non-empty value
+    not present in that role's entry in _TEST_ARCH_REGISTRY_BY_ROLE — this
+    gate's entire purpose is preventing an under-estimated cost from
+    silently admitting a load it shouldn't, so a typo'd override value must
+    fail admission outright rather than quietly falling back to the wrong
+    architecture (or to "no architecture", which would silently zero the KV
+    term — see estimate_model_load_cost()'s unknown-arch branch).
     """
     env_name = _TEST_ARCH_ENV_BY_MODEL_ID.get(model_id)
     if env_name is None:
@@ -1177,8 +1170,8 @@ class ModelSpec:
     tests avoid depending on real model files on disk); if `size_bytes` is
     omitted, it's read from `path.stat().st_size` at estimate time. Arch
     resolution (see `_resolve_model_arch()`) checks, in order: explicit
-    `arch` on this spec, then (for `model_id` "primary"/"planner" only) the
-    CODEY_TEST_PRIMARY_ARCH/CODEY_TEST_PLANNER_ARCH test-only env-var
+    `arch` on this spec, then (for `model_id` "primary" only) the
+    CODEY_TEST_PRIMARY_ARCH test-only env-var
     override (see that section's header comment in this module — unset by
     default, never active in a normal run), then `KNOWN_MODEL_ARCHS`. If none
     of those resolve, the KV cache term is estimated as 0 and a warning is
@@ -1258,9 +1251,9 @@ def estimate_kv_cache_bytes(arch: ModelArch, n_ctx: int) -> int:
 
 def _resolve_model_arch(spec: ModelSpec) -> Optional[ModelArch]:
     """
-    Precedence, in order: explicit `spec.arch` > CODEY_TEST_PRIMARY_ARCH /
-    CODEY_TEST_PLANNER_ARCH env-var test override (see that section's header
-    comment above) > KNOWN_MODEL_ARCHS default. The env-var check can raise
+    Precedence, in order: explicit `spec.arch` > CODEY_TEST_PRIMARY_ARCH
+    env-var test override (see that section's header comment above) >
+    KNOWN_MODEL_ARCHS default. The env-var check can raise
     ValueError if set to an unrecognized value — deliberately not caught
     here; see _resolve_test_arch_override()'s docstring for why a bad
     override must fail loudly rather than silently falling back.
@@ -1413,9 +1406,15 @@ def estimate_model_load_cost(spec: ModelSpec) -> CostEstimate:
 #
 # ── TODO.md 7.4b sub-task D revisit, 2026-08-11 (docs-only, VALUE UNCHANGED) ─
 # Ish's 7.4b decision shrinks two of the three operands above: the planner's
-# ceiling is now utils.config.get_planner_n_ctx() (8192 by default, not
+# ceiling was utils.config.get_planner_n_ctx() (8192 by default, not
 # 32768 — sub-task B; a function, not a constant, as of the NEW-102/bug_002
-# fix — see utils/config.py), and the coder's ceiling drops to
+# fix — see utils/config.py). M1-D (2026-08-23, VALUE STILL UNCHANGED here,
+# same as this whole section's own heading — re-deriving
+# MAX_CONCURRENT_MODEL_BUDGET_BYTES itself is explicitly out of scope for
+# that round, deferred to M1-F pending M1-E's real measurements) removed
+# get_planner_n_ctx() along with the dedicated planner process it ceilinged
+# — flagged here as a now-stale input to this historical derivation, not
+# silently left implying the function still exists. And the coder's ceiling drops to
 # utils.config.get_coder_background_n_ctx() (16384 by default, not 32768)
 # for daemon-dispatched BACKGROUND tasks specifically —
 # sub-task C — while staying at the full 32768 whenever a human is actively
@@ -1568,8 +1567,8 @@ DISPATCH_MAX_SWAP_ASSIST_BYTES = 805_306_368  # 768MiB, unchanged from pre-F
 # path.
 #
 # Read LAZILY (inside _resolve_swap_assist_enabled_default(), not at module
-# import time) for the same reason CODEY_TEST_PRIMARY_ARCH/
-# CODEY_TEST_PLANNER_ARCH are read lazily above: a test process can flip it
+# import time) for the same reason CODEY_TEST_PRIMARY_ARCH is read lazily
+# above: a test process can flip it
 # per-test without importlib.reload, and it can never outlive the env var.
 #
 # Only "1" (enabled) or "0" (disabled) are accepted, and anything else raises
@@ -2975,8 +2974,9 @@ def mark_resident(
     PID forever, even after the actual model process crashes — the slot's
     declared cost is never reaped. Callers that know the real subprocess PID
     by the time the load is confirmed (i.e. every real caller —
-    `core/loader_v2.py`/`core/planner_loader.py`'s shared
-    `confirm_resident_and_mark_slot()`) should pass it here so PID-liveness
+    `core/loader_v2.py`'s `confirm_resident_and_mark_slot()`, formerly
+    shared with `core/planner_loader.py` before that module was deleted in
+    M1-D, 2026-08-23) should pass it here so PID-liveness
     reaping actually tracks the process whose death should free the slot.
     Omitting `pid` (the default) leaves whatever PID the slot was registered
     under untouched — existing callers that don't pass it keep today's

@@ -7,22 +7,16 @@ CODEY_DIR = Path(os.environ.get("CODEY_DIR", Path.home() / "Codey-OS"))
 MODEL_PATH = Path(
     os.environ.get(
         "CODEY_MODEL",
-        Path.home() / "models" / "qwen2.5-coder-7b" / "qwen2.5-coder-7b-instruct-q4_k_m.gguf",
-    )
-)
-SECONDARY_MODEL_PATH = Path(
-    os.environ.get(
-        "CODEY_SECONDARY_MODEL",
-        Path.home() / "models" / "qwen2.5-coder-1.5b" / "qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
+        Path.home() / "models" / "qwen3.5-4b-instruct" / "Qwen3.5-4B-Q4_K_M.gguf",
     )
 )
 
-# ── Primary 7B model server (port 8080) ─────────────────────────────────────
+# ── Primary Qwen3.5-4B model server (port 8080) ─────────────────────────────
 PRIMARY_SERVER_PORT = int(os.environ.get("CODEY_PRIMARY_PORT", "8080"))
 
 # Dedicated embedding model — Option C (v2.6.6)
 # nomic-embed-text-v1.5: 80 MB Q4, 2048 ctx, 768-dim vectors.
-# Runs on port 8082, separate from the 7B generation server on 8080.
+# Runs on port 8082, separate from the generation server on 8080.
 # ~50 ms/chunk, covers 92.6% of chunks; rest use BM25 keyword fallback.
 EMBED_MODEL_PATH = Path(
     os.environ.get(
@@ -45,13 +39,12 @@ LLAMA_LIB = os.environ.get("CODEY_LLAMA_LIB") or str(_HOME_LLAMA)
 # models that can't handle the production default (e.g. NEW-95's resource-gate
 # live-verification round). This is the single source of truth for the
 # CODER role's INTERACTIVE ceiling — the real llama-server -c flag
-# core/loader_v2.py:LlamaServer spawns the primary (7B) server with when
-# core.resource_gate.is_interactive_session_active() is True, and the
+# core/loader_v2.py:LlamaServer spawns the primary (Qwen3.5-4B) server with
+# when core.resource_gate.is_interactive_session_active() is True, and the
 # n_ctx the matching resource_gate.ModelSpec cost estimate uses for that
 # same case (TODO.md 7.4b sub-task C). Since that sub-task, it is NOT the
-# only n_ctx value in play: get_planner_n_ctx() (below) returns the
-# dedicated 1.5B planner's fixed ceiling (never this value), and
-# get_coder_background_n_ctx() (below) returns the coder's ceiling for
+# only n_ctx value in play: get_coder_background_n_ctx() (below) returns
+# the coder's ceiling for
 # daemon-dispatched BACKGROUND tasks (no interactive TUI/GUI session
 # active) — both are functions, not constants, so they re-read
 # MODEL_CONFIG["n_ctx"] live and pick up a runtime --ctx override (NEW-102/
@@ -68,7 +61,7 @@ LLAMA_LIB = os.environ.get("CODEY_LLAMA_LIB") or str(_HOME_LLAMA)
 # fallback here could hide a gate/spawn mismatch instead of preventing one.
 _n_ctx_env = os.environ.get("CODEY_N_CTX")
 if _n_ctx_env is None:
-    _n_ctx = 32768
+    _n_ctx = 65536
 else:
     try:
         _n_ctx = int(_n_ctx_env)
@@ -77,7 +70,7 @@ else:
     except ValueError as e:
         raise ValueError(
             f"CODEY_N_CTX={_n_ctx_env!r} is not a valid n_ctx ({e}). "
-            "Unset it to use the default (32768) or set it to a positive whole number."
+            "Unset it to use the default (65536) or set it to a positive whole number."
         ) from e
 
 MODEL_CONFIG = {
@@ -98,43 +91,9 @@ MODEL_CONFIG = {
     "stop": ["<|im_end|>", "<|im_start|>", "\nUser:", "\nHuman:", "\nA:"],
 }
 
-# ── Planner (1.5B) context ceiling — TODO.md 7.4b sub-task B ────────────────
-# Ish confirmed 2026-08-11: the planner is capped at a small, fixed context
-# ceiling, never the full n_ctx it shared with the coder before this
-# decision. Derived (not invented) from the real prompt this project sends:
-# core/plannd.py's PLANNER_PROMPT (system prompt, every planner call, local
-# AND remote backends) measures ~2,446 tokens (chars/4 approximation,
-# 9,786 chars), and get_plan()'s local-backend call is single-turn (system
-# prompt + raw user message only). Output is capped at PLANNER_MAX_TOKENS
-# (1024, below). Fixed floor: 2,446 + 1,024 = 3,470 tokens before the user
-# message/chat-template overhead. 8192 leaves ~4,700 tokens of headroom for
-# the user message — generous over any realistic single coding request; see
-# TODO.md 7.4b sub-task B for the fuller reasoning and why a tighter 4096
-# was rejected as too tight for a long multi-clause request.
-#
-# NEW-102/bug_002 fix (2026-08-13): this is a FUNCTION, not a module-level
-# constant, specifically so it re-reads MODEL_CONFIG["n_ctx"] on every call
-# instead of freezing a value at import time. main.py's apply_overrides()
-# mutates MODEL_CONFIG["n_ctx"] at runtime when --ctx is passed on the CLI
-# (main.py ~line 115) — a plain `PLANNER_N_CTX = min(_n_ctx, 8192)` constant
-# bound at import would never see that mutation, since apply_overrides()
-# always runs after utils.config is first imported. Reading MODEL_CONFIG
-# live (not `_n_ctx`, which is also frozen at import) is what lets --ctx
-# actually reach the planner, matching the pattern core/loader_v2.py's
-# interactive coder path already used correctly
-# (MODEL_CONFIG.get("n_ctx", 4096), read at call time).
-#
-# Still clamped downward via min() so a substitute/smaller model run via
-# CODEY_N_CTX (e.g. NEW-95's live-verification round) or a smaller --ctx
-# override binds downward here too, rather than this ceiling sitting above
-# an override meant to shrink every model's context on this run.
-def get_planner_n_ctx() -> int:
-    return min(MODEL_CONFIG["n_ctx"], 8192)
-
-
 # ── Coder (7B) BACKGROUND context ceiling — TODO.md 7.4b sub-task C ─────────
 # Ish confirmed 2026-08-11: the coder's context stays at full n_ctx
-# (MODEL_CONFIG["n_ctx"] / CODEY_N_CTX above, 32768 by default) whenever a
+# (MODEL_CONFIG["n_ctx"] / CODEY_N_CTX above, 65536 by default) whenever a
 # human is actively using it interactively (core.resource_gate.
 # is_interactive_session_active() is True), and drops to this smaller fixed
 # ceiling for daemon-dispatched BACKGROUND coder tasks (no interactive
@@ -145,9 +104,27 @@ def get_planner_n_ctx() -> int:
 # moderate (~900MiB-1.2GiB) swap movement — a known-safe intermediate point
 # between full 32768 and a value nobody has tested live.
 #
-# NEW-102/bug_002 fix (2026-08-13): a function for the same reason
-# get_planner_n_ctx() above is one — see that function's comment for the
-# full import-order/--ctx reasoning, which applies identically here.
+# NEW-102/bug_002 fix (2026-08-13): this is a FUNCTION, not a module-level
+# constant, specifically so it re-reads MODEL_CONFIG["n_ctx"] on every call
+# instead of freezing a value at import time. main.py's apply_overrides()
+# mutates MODEL_CONFIG["n_ctx"] at runtime when --ctx is passed on the CLI
+# (main.py ~line 115) — a plain constant bound at import would never see
+# that mutation, since apply_overrides() always runs after utils.config is
+# first imported. Reading MODEL_CONFIG live (not `_n_ctx`, which is also
+# frozen at import) is what lets --ctx actually reach the background coder
+# ceiling, matching the pattern core/loader_v2.py's interactive coder path
+# already used correctly (MODEL_CONFIG.get("n_ctx", 4096), read at call
+# time). Still clamped downward via min() so a substitute/smaller model
+# run via CODEY_N_CTX (e.g. NEW-95's live-verification round) or a smaller
+# --ctx override binds downward here too.
+#
+# M1-D (2026-08-23): a matching get_planner_n_ctx() used to sit above this
+# function, giving the dedicated 1.5B/planner role its own small fixed
+# ceiling distinct from the coder's. It's removed as of this change, not
+# just unused: the planner now shares the coder's single Qwen3.5-4B
+# llama-server process (see PLANNER_MODEL_PATH's comment below), which has
+# exactly one `-c` flag — a separate planner-only context ceiling is no
+# longer an expressible concept, not merely a dead call site.
 def get_coder_background_n_ctx() -> int:
     return min(MODEL_CONFIG["n_ctx"], 16384)
 
@@ -434,7 +411,7 @@ CODEY_BACKEND = os.environ.get("CODEY_BACKEND", "local").lower()
 # Set CODEY_BACKEND_P to mix backends, e.g.:
 #   export CODEY_BACKEND=openrouter        # coder → OpenRouter
 #   export CODEY_BACKEND_P=unlimitedclaude # planner → UnlimitedClaude
-#   export CODEY_BACKEND_P=local           # planner → local 0.5B (port 8081)
+#   export CODEY_BACKEND_P=local           # planner → local primary model (port 8080)
 CODEY_PLANNER_BACKEND = os.environ.get("CODEY_BACKEND_P", CODEY_BACKEND).lower()
 
 
@@ -470,29 +447,47 @@ UNLIMITEDCLAUDE_BASE_URL = os.environ.get(
     "UNLIMITEDCLAUDE_BASE_URL", "https://api.unlimitedclaude.com/v1"
 )
 
-# ── 1.5B planner/summarizer (port 8081) ──────────────────────────────────────
-# Qwen2.5-Coder-1.5B runs as a dedicated planning + summarization model on port 8081,
-# entirely separate from the 7B agent server on port 8080.
-# Upgraded from 0.5B for better code-aware planning and task decomposition.
-# Launched automatically by core/planner_loader.py (PlannerLoader.ensure_planner(),
-# called from core/plannd.py:get_plan()) — sequential swap with the primary 7B
-# model, never both resident at once. Fixed as part of NEW-12's remaining items;
-# see NEW_ISSUES.md.
+# ── Planner/summarizer — collapsed onto the primary server ──────────────────
+# M1-B (2026-08-23): PLANNER_MODEL_PATH was repointed at the same Qwen3.5-4B
+# model file as MODEL_PATH — the dedicated small planner model (formerly
+# Qwen2.5-Coder-1.5B, upgraded at the time from 0.5B for better code-aware
+# planning and task decomposition; see NEW-12 in NEW_ISSUES.md) is retired.
+# M1-D (2026-08-23, this change): the separate port-8081 llama-server
+# process itself is retired too, along with core/planner_loader.py (the
+# module that spawned/swapped it) and the CODEY_PLANND_PORT-configurable
+# PLANND_SERVER_PORT constant that named its port. There is now exactly one
+# local model server: the primary Qwen3.5-4B on PRIMARY_SERVER_PORT
+# (8080). "Planning" is no longer a separate process at all — it's a
+# thinking-mode request (chat_template_kwargs={"enable_thinking": True})
+# against that same primary server (see core/plannd.py:get_plan()), and
+# "summarization" (core/summarizer.py) is likewise a plain request against
+# it. PLANNER_MODEL_PATH itself is kept (identical to MODEL_PATH today) only
+# because core/lora_import.py's fine-tune-swap code paths still read it as a
+# distinct config key for a "planner-focused" LoRA artifact — see that
+# module's own comments for why mutating it still matters even though both
+# names point at the same physical server.
 PLANNER_MODEL_PATH = Path(
     os.environ.get(
         "CODEY_PLANNER_MODEL",
-        Path.home() / "models" / "qwen2.5-coder-1.5b" / "qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
+        Path.home() / "models" / "qwen3.5-4b-instruct" / "Qwen3.5-4B-Q4_K_M.gguf",
     )
 )
-PLANND_SERVER_PORT = int(os.environ.get("CODEY_PLANND_PORT", "8081"))
 
-# ── 7B model memory-mapping settings — Change 2 ─────────────────────────────
-# QWEN_7B_MMAP=True  → weights are mmap'd from disk; only touched pages load into RAM.
-# QWEN_7B_MLOCK=False → OS can page weights out under memory pressure (default).
-# These settings apply ONLY to the Qwen 7B model.
-# The 0.5B summarizer model is unaffected.
-QWEN_7B_MMAP = os.environ.get("CODEY_7B_MMAP", "1") != "0"  # default: True
-QWEN_7B_MLOCK = os.environ.get("CODEY_7B_MLOCK", "0") != "0"  # default: False
+# ── Model memory-mapping settings — Change 2 ────────────────────────────────
+# QWEN_MMAP=True  → weights are mmap'd from disk; only touched pages load into RAM.
+# QWEN_MLOCK=False → OS can page weights out under memory pressure (default).
+# These settings apply to the Qwen3.5-4B model (M1-B, 2026-08-23: constants
+# renamed from QWEN_7B_MMAP/QWEN_7B_MLOCK — the "7B" naming became
+# inaccurate once every model slot moved to Qwen3.5-4B; the previous "0.5B
+# summarizer model is unaffected" line was already wrong before this change
+# too, per NEW-124, since core/loader_v2.py applies these flags
+# unconditionally to every LlamaServer instance it spawns, not just the
+# primary one). The env vars themselves (CODEY_7B_MMAP/CODEY_7B_MLOCK) are
+# NOT renamed here — that would also require updating docs/commands.md,
+# docs/configuration.md, and docs/troubleshooting.md, more than this file
+# plus core/loader_v2.py, so it's left for a later pass.
+QWEN_MMAP = os.environ.get("CODEY_7B_MMAP", "1") != "0"  # default: True
+QWEN_MLOCK = os.environ.get("CODEY_7B_MLOCK", "0") != "0"  # default: False
 
 # ── Planner settings ─────────────────────────────────────────────────────────
 # Temperature 0.2 keeps plans focused; 768 gives room for 5 detailed steps.

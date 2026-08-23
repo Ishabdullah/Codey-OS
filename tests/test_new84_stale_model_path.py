@@ -1,10 +1,10 @@
 """
 NEW-84 regression (NEW_ISSUES.md) — hot-swap staleness.
 
-core/loader_v2.py's ModelLoader.load_primary() and
-core/planner_loader.py's PlannerLoader.load() used to import MODEL_PATH /
-PLANNER_MODEL_PATH as plain module-level names bound once at their own
-import time. core/lora_import.py's swap_to_finetuned_model()/
+core/loader_v2.py's ModelLoader.load_primary() (and, before M1-D,
+2026-08-23, core/planner_loader.py's PlannerLoader.load()) used to import
+MODEL_PATH / PLANNER_MODEL_PATH as plain module-level names bound once at
+their own import time. core/lora_import.py's swap_to_finetuned_model()/
 rollback_to_backup() mutate `utils.config.MODEL_PATH`/`PLANNER_MODEL_PATH`
 on the live config module object, which the loaders never re-read — so a
 "successful" hot-swap silently kept loading the original weights.
@@ -16,6 +16,13 @@ post-swap load would miss the KV-cache-cost arch lookup and silently drop
 that term to 0 — an admission-safety bug (underestimated cost could let the
 gate over-admit a load it should reject).
 
+M1-D (2026-08-23): core/planner_loader.py is deleted (planning collapsed
+onto the same primary server) — its own dedicated regression tests below
+are removed, not adapted, since the module they pinned no longer exists.
+core/lora_import.py's "secondary" swap branch now routes through
+core.loader_v2.get_loader() same as "primary" (see that module's own
+comment) — the surviving "secondary" test below is updated to match.
+
 All tests here use fake/mocked LlamaServer + resource_gate slot functions —
 no real llama-server process is spawned (CLAUDE.md rule 2, RAM discipline).
 """
@@ -26,7 +33,6 @@ import pytest
 
 import core.loader_v2 as lv
 import core.lora_import as li
-import core.planner_loader as pl
 import core.resource_gate as rg
 import utils.config as cfg
 
@@ -57,13 +63,11 @@ class _CapturingLlamaServer:
 @pytest.fixture(autouse=True)
 def reset_state():
     lv._loader = None
-    pl._planner_loader = None
     _CapturingLlamaServer.captured_paths = []
     original_model_path = cfg.MODEL_PATH
     original_planner_path = cfg.PLANNER_MODEL_PATH
     yield
     lv._loader = None
-    pl._planner_loader = None
     cfg.MODEL_PATH = original_model_path
     cfg.PLANNER_MODEL_PATH = original_planner_path
 
@@ -117,26 +121,6 @@ def test_load_primary_missing_swapped_file_fails_cleanly(monkeypatch, tmp_path):
     MockServer.assert_not_called()
 
 
-# ── planner_loader: planner loader reads cfg.PLANNER_MODEL_PATH fresh ───────
-
-
-def test_planner_load_uses_swapped_model_path_not_import_time_binding(monkeypatch, tmp_path):
-    reserve_calls = []
-    _admit_everything(monkeypatch, reserve_calls)
-
-    swapped_path = tmp_path / "codeyOS-finetuned-1.5b.gguf"
-    swapped_path.write_bytes(b"x")
-
-    cfg.PLANNER_MODEL_PATH = swapped_path
-
-    with patch.object(lv, "LlamaServer", _CapturingLlamaServer):
-        planner = pl.get_planner_loader()
-        assert planner.load() is True
-
-    assert _CapturingLlamaServer.captured_paths == [swapped_path]
-    assert reserve_calls[0].path == swapped_path
-
-
 # ── lora_import: end-to-end swap through the real swap function ─────────────
 
 
@@ -162,14 +146,19 @@ def test_swap_to_finetuned_model_secondary_reaches_new_path_via_planner_model_pa
     monkeypatch, tmp_path
 ):
     """
-    The critical NEW-84 case for the "secondary" branch: lora_import.py used
-    to mutate cfg.SECONDARY_MODEL_PATH, a config name PlannerLoader.load()
-    has never read (it reads PLANNER_MODEL_PATH — two distinct names,
-    identical only by coincidental default value). Fixed to mutate
-    cfg.PLANNER_MODEL_PATH instead. This test would have passed even before
-    the loader-staleness fix landed, and failed on the pre-fix
-    SECONDARY_MODEL_PATH mismatch — it specifically targets that mismatch,
-    not just the import-time-binding staleness the primary-side test covers.
+    The original NEW-84 case for the "secondary" branch: lora_import.py used
+    to mutate cfg.SECONDARY_MODEL_PATH, a config name nothing read (the
+    planner loader read PLANNER_MODEL_PATH — two distinct names, identical
+    only by coincidental default value). Fixed to mutate
+    cfg.PLANNER_MODEL_PATH instead.
+
+    M1-D (2026-08-23) update: core/planner_loader.py is deleted, and
+    "secondary" now routes through core.loader_v2.get_loader() — the SAME
+    loader/spawn path as "primary" (see swap_to_finetuned_model()'s own
+    comment) — mutating BOTH cfg.MODEL_PATH (what load_primary() actually
+    reads) and cfg.PLANNER_MODEL_PATH (kept in sync). This test now checks
+    both are updated and that the spawn actually reaches the new path
+    through the primary loader, not a separate one.
     """
     reserve_calls = []
     _admit_everything(monkeypatch, reserve_calls)
@@ -177,37 +166,14 @@ def test_swap_to_finetuned_model_secondary_reaches_new_path_via_planner_model_pa
     new_model = tmp_path / "finetuned-secondary.gguf"
     new_model.write_bytes(b"x")
 
-    pl._planner_loader = None
+    lv._loader = None
     with patch.object(lv, "LlamaServer", _CapturingLlamaServer):
         ok, msg = li.swap_to_finetuned_model(str(new_model), "secondary")
 
     assert ok is True, msg
     assert cfg.PLANNER_MODEL_PATH == new_model
+    assert cfg.MODEL_PATH == new_model
     assert _CapturingLlamaServer.captured_paths == [new_model]
-
-
-def test_swap_to_finetuned_model_secondary_does_not_rely_on_secondary_model_path(
-    monkeypatch, tmp_path
-):
-    """Pin the specific mismatch: cfg.SECONDARY_MODEL_PATH must be left
-    untouched by a "secondary" swap (it's not what the planner loader
-    reads), confirming the fix targets the right config name rather than
-    setting both and papering over the bug."""
-    reserve_calls = []
-    _admit_everything(monkeypatch, reserve_calls)
-
-    original_secondary = cfg.SECONDARY_MODEL_PATH
-    new_model = tmp_path / "finetuned-secondary-2.gguf"
-    new_model.write_bytes(b"x")
-
-    pl._planner_loader = None
-    try:
-        with patch.object(lv, "LlamaServer", _CapturingLlamaServer):
-            ok, msg = li.swap_to_finetuned_model(str(new_model), "secondary")
-        assert ok is True, msg
-        assert cfg.SECONDARY_MODEL_PATH == original_secondary
-    finally:
-        cfg.SECONDARY_MODEL_PATH = original_secondary
 
 
 # ── resource_gate: KNOWN_MODEL_ARCHS keyed by model_id, swap-proof ──────────
@@ -218,9 +184,11 @@ def test_resource_gate_arch_lookup_survives_model_path_swap(tmp_path):
     Before the fix, KNOWN_MODEL_ARCHS was keyed by str(MODEL_PATH) bound at
     resource_gate.py's own import time — a ModelSpec built with the swapped
     path would miss the dict lookup entirely and silently compute
-    kv_cache_bytes == 0. Now keyed by ModelSpec.model_id ("primary"/
-    "planner"), which core/loader_v2.py and core/planner_loader.py always
-    pass regardless of which file is currently configured.
+    kv_cache_bytes == 0. Now keyed by ModelSpec.model_id ("primary" — the
+    only role left as of M1-D, 2026-08-23; "planner" was removed along with
+    core/planner_loader.py, see the matching removed test below), which
+    core/loader_v2.py always passes regardless of which file is currently
+    configured.
     """
     swapped_path = tmp_path / "finetuned-primary.gguf"
     swapped_path.write_bytes(b"x" * 1000)
@@ -231,18 +199,6 @@ def test_resource_gate_arch_lookup_survives_model_path_swap(tmp_path):
     # Baseline re-pointed at the current default arch (M1-A, 2026-08-22).
     # The property under test is "the lookup survives a path swap", not
     # which model the primary role happens to be.
-    expected_kv = rg.estimate_kv_cache_bytes(rg.QWEN35_4B_ARCH, n_ctx=32768)
-    assert cost.kv_cache_bytes == expected_kv
-    assert cost.kv_cache_bytes != 0
-
-
-def test_resource_gate_arch_lookup_survives_planner_path_swap(tmp_path):
-    swapped_path = tmp_path / "finetuned-planner.gguf"
-    swapped_path.write_bytes(b"x" * 1000)
-
-    spec = rg.ModelSpec(model_id="planner", path=swapped_path, n_ctx=32768)
-    cost = rg.estimate_model_load_cost(spec)
-
     expected_kv = rg.estimate_kv_cache_bytes(rg.QWEN35_4B_ARCH, n_ctx=32768)
     assert cost.kv_cache_bytes == expected_kv
     assert cost.kv_cache_bytes != 0

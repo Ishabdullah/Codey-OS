@@ -118,8 +118,8 @@ def test_declines_when_swap_guard_held():
     server = _server()
     fake_loader = FakeLoader(loaded=True)
 
-    # Simulate another thread mid-swap (ensure_model()/ensure_planner()
-    # holds SWAP_GUARD for their entire body).
+    # Simulate another thread mid-transition (ensure_model() holds
+    # SWAP_GUARD for its entire body).
     assert loader_v2_mod.SWAP_GUARD.acquire(blocking=False)
     try:
         with patch("core.thermal.get_thermal_manager", return_value=_idle_thermal()), patch(
@@ -166,21 +166,21 @@ def test_successful_release_confirmed_freed():
     assert not fake_loader.is_loaded()
 
 
-def test_release_of_planner_routes_to_planner_loader():
+def test_release_of_planner_model_id_is_now_invalid():
+    """
+    M1-D (2026-08-23): `model_id == "planner"` used to route to this
+    daemon's own in-process `PlannerLoader` singleton (a test named
+    `test_release_of_planner_routes_to_planner_loader` covered that). With
+    core/planner_loader.py deleted and planning collapsed onto the primary
+    server, `"planner"` is no longer a recognized model_id at all — it
+    must be rejected the same as any other unrecognized value, not quietly
+    routed anywhere.
+    """
     server = _server()
-    primary_loader = FakeLoader(loaded=True)
-    planner_loader = FakeLoader(loaded=True)
-
-    with patch("core.thermal.get_thermal_manager", return_value=_idle_thermal()), patch(
-        "core.loader_v2.get_loader", return_value=primary_loader
-    ), patch(
-        "core.planner_loader.get_planner_loader", return_value=planner_loader
-    ), patch("core.loader_v2.probe_port_health", return_value=False):
-        resp = _run(server._handle_release_model_slot({"model_id": "planner"}))
-
-    assert resp["outcome"] == daemon_mod.RELEASE_OUTCOME_RELEASED
-    assert planner_loader.unload_calls == 1
-    assert primary_loader.unload_calls == 0
+    resp = _run(server._handle_release_model_slot({"model_id": "planner"}))
+    assert resp["status"] == "error"
+    assert resp["released"] is False
+    assert resp["outcome"] == daemon_mod.RELEASE_OUTCOME_INVALID_MODEL
 
 
 def test_unload_exception_returns_error_and_releases_swap_guard():

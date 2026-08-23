@@ -84,23 +84,25 @@ class ModelTierEntry:
 
 
 # ── Coding domain, "planner" role ───────────────────────────────────────────
-# "small": the dedicated 1.5B daemon planner (core/plannd.py, port 8081).
+# M1-D (2026-08-23): a "small" tier used to sit here — the dedicated 1.5B
+# daemon planner on its own port (8081, core/plannd.py). That process is
+# retired (core/planner_loader.py deleted); planning is now a thinking-mode
+# request against the same primary server the "large"/coder tier already
+# points at. Formalizing that as a table entry means "small" and "large"
+# would be byte-for-byte identical (same model_ref, same port) — removed
+# rather than kept as a duplicate of "large" below, since a distinct tier
+# key that resolves to the exact same server isn't a real second tier.
+#
 # "large": the orchestrator's 7B fallback path (core/orchestrator.py's
-#          plan_tasks(), used when the 1.5B daemon planner fails/is
-#          unavailable) — same physical model as the coder role's "large"
-#          tier below (NEW-125), represented literally, not as a distinct
-#          model.
+#          plan_tasks(), used when the daemon planner fails/is unavailable)
+#          — same physical model as the coder role's "large" tier below
+#          (NEW-125), represented literally, not as a distinct model.
 # "remote": present ONLY when CODEY_BACKEND_P is actually set to a remote
 #          backend (cfg.is_remote_planner_backend()) — when the process is
 #          running "local" (the default), there is no remote assignment
 #          active today, so this table doesn't invent a phantom remote entry
 #          for a backend nothing is currently pointed at.
 _PLANNER_TIERS: Dict[str, ModelTierEntry] = {
-    "small": ModelTierEntry(
-        model_ref=str(cfg.PLANNER_MODEL_PATH),
-        backend="local",
-        port=cfg.PLANND_SERVER_PORT,
-    ),
     "large": ModelTierEntry(
         model_ref=str(cfg.MODEL_PATH),
         backend="local",

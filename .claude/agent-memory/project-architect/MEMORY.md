@@ -22,3 +22,4 @@
 - [NEW-145 lazy coder-load scoping](project_new145_lazy_coder_load_scoping.md) — 2026-08-11, fix spans daemon.py's preload AND 30s watchdog (2 call sites, not 1); scoped only, not implemented; NEW-149 spun off
 - [NEW-102/bug_002 config live-read fix](project_new102_bug002_config_live_read_fix.md) — 2026-08-13, sub-task C's own first pass had re-broken NEW-102 with 2 new constants; bug_001 corrected (file existed, untracked); NEW-150/151 spun off
 - [Stage files by scope, not dirty tree](feedback_stage_files_by_scope_not_by_dirty_tree.md) — never git add everything modified; cross-check against what THIS round actually scoped, per-file, even mid-branch
+- [M1-B/C/D docs closeout](project_round_m1bcd_docs_closeout.md) — 2026-08-23, code-complete+reviewer-approved but NOT committed; NEW-161/100/101/124/142 closed, NEW-99/103 partial, NEW-137/140/141/143 explicitly left open pending M1-E

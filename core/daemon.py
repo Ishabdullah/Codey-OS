@@ -61,9 +61,10 @@ RELEASE_SLOT_COOLDOWN_S = 5.0
 # LlamaServer.stop() -> process.wait(timeout=8)), so this is normally
 # near-instant; it exists for the "reused, not spawned by this loader"
 # edge case where stop() has nothing of its own to wait on. Mirrors the
-# load-direction confirm (`confirm_resident_and_mark_slot()`) and the
-# eviction-direction confirm (`_evict_planner_and_confirm_free()`'s
-# `probe_port_health()`) already established in sub-tasks 2/3.
+# load-direction confirm (`confirm_resident_and_mark_slot()`) already
+# established in sub-tasks 2/3, using the same `probe_port_health()` a
+# planner-eviction confirm used before M1-D (2026-08-23) retired that
+# whole path.
 RELEASE_CONFIRM_TIMEOUT_S = 3.0
 RELEASE_CONFIRM_POLL_INTERVAL_S = 0.3
 
@@ -398,7 +399,7 @@ class DaemonServer:
         ask the running daemon to free a slot so the CLI's own reservation
         can be admitted, instead of being denied with no way to recover.
 
-        Request: {"model_id": "primary" | "planner"}
+        Request: {"model_id": "primary"}
         Response (all well-formed requests return status "ok"; only an
         invalid model_id or an unexpected exception during unload returns
         "error"):
@@ -417,13 +418,14 @@ class DaemonServer:
             dies mid-task), the request is declined as busy. Releasing a
             model out from under an in-flight task would corrupt that
             task's response, not just be wasteful.
-          - If `core.loader_v2.SWAP_GUARD` can't be acquired non-blocking, a
-            primary/planner swap is already in flight elsewhere in this
-            process — declined as busy rather than racing it. The guard is
-            then HELD across the unload (not probed-and-dropped), for the
-            same reason `ensure_model()` holds it for its entire body: the
-            loaded/not-loaded transition window is exactly the race the
-            guard exists to prevent.
+          - If `core.loader_v2.SWAP_GUARD` can't be acquired non-blocking,
+            another loaded/not-loaded transition (e.g. a concurrent
+            watchdog `ensure_model()` restart) is already in flight
+            elsewhere in this process — declined as busy rather than
+            racing it. The guard is then HELD across the unload (not
+            probed-and-dropped), for the same reason `ensure_model()` holds
+            it for its entire body: the loaded/not-loaded transition window
+            is exactly the race the guard exists to prevent.
           - Already-not-loaded is a clean success no-op (`released: False`,
             `outcome: already_unloaded`), not an error — the caller's goal
             (a free slot) is already satisfied.
@@ -432,25 +434,25 @@ class DaemonServer:
             the cooldown itself, so a legitimate retry right after a decline
             clears isn't punished for the decline.
 
-        NOTE (per this sub-task's own scope, not a bug): for `model_id ==
-        "planner"`, this will almost always be the `already_unloaded`
-        no-op in practice. `plannd` (the 1.5B planner) runs as a genuinely
-        separate OS process (see codeydOS) with its OWN
-        `core.planner_loader` singleton — this daemon process's own
-        planner-loader singleton is only ever loaded here indirectly, via
-        `ModelLoader._evict_planner_and_confirm_free()`'s in-process
-        eviction check, and is not the process actually holding the
-        planner's slot in the common case. Implemented generically per this
-        sub-task's instructions regardless, since a future in-process
-        planner load path isn't ruled out.
+        M1-D (2026-08-23): `model_id == "planner"` used to also be accepted
+        here, releasing this daemon process's own (usually-irrelevant, per
+        this handler's pre-M1-D docstring) in-process `PlannerLoader`
+        singleton — `plannd`, the actual separate OS process holding the
+        real planner slot, was never reachable through this handler at all.
+        With `core/planner_loader.py` deleted and planning collapsed onto
+        the primary server, `"planner"` is no longer a meaningful value
+        here; only `"primary"` is accepted now, and this handler's only
+        live caller (`main.py`'s `_load_primary_with_gate_recovery()`) has
+        only ever sent `"primary"` — see `ccos/plugins/system/daemon_control/
+        daemon_control.py`'s own note on this handler's sole live caller.
         """
         model_id = data.get("model_id")
-        if model_id not in ("primary", "planner"):
+        if model_id != "primary":
             return {
                 "status": "error",
                 "released": False,
                 "outcome": RELEASE_OUTCOME_INVALID_MODEL,
-                "message": f"model_id must be 'primary' or 'planner', got {model_id!r}",
+                "message": f"model_id must be 'primary', got {model_id!r}",
             }
 
         now = time.monotonic()
@@ -487,24 +489,19 @@ class DaemonServer:
             }
 
         from core.loader_v2 import SWAP_GUARD, get_loader
-        from core.planner_loader import get_planner_loader
-        from utils.config import PLANND_SERVER_PORT, PRIMARY_SERVER_PORT
+        from utils.config import PRIMARY_SERVER_PORT
 
         if not SWAP_GUARD.acquire(blocking=False):
             return {
                 "status": "ok",
                 "released": False,
                 "outcome": RELEASE_OUTCOME_BUSY_SWAP,
-                "message": "a primary/planner swap is already in flight — declined",
+                "message": "a primary load/restart is already in flight — declined",
             }
 
         try:
-            if model_id == "primary":
-                loader = get_loader()
-                port = PRIMARY_SERVER_PORT
-            else:
-                loader = get_planner_loader()
-                port = PLANND_SERVER_PORT
+            loader = get_loader()
+            port = PRIMARY_SERVER_PORT
 
             loop = asyncio.get_event_loop()
             try:
@@ -765,7 +762,6 @@ class Daemon:
         """
         try:
             from core.loader_v2 import (LOAD_OUTCOME_DEFERRED,
-                                         LOAD_OUTCOME_EVICTION_FAILED,
                                          LOAD_OUTCOME_GATE_DENIED,
                                          LOAD_OUTCOME_GATE_DENIED_HARD,
                                          get_loader)
@@ -826,19 +822,11 @@ class Daemon:
                 # retrying on subsequent ticks as conditions change.
                 warning(f"7B model load denied by resource gate (transient) — {reason}")
             elif outcome == LOAD_OUTCOME_DEFERRED:
-                # SWAP_GUARD busy (planner mid-swap) — expected, benign,
-                # self-resolves on the next tick. Not worth a warning.
+                # SWAP_GUARD busy (a concurrent release_model_slot request,
+                # or — before M1-D, 2026-08-23 — a planner mid-swap) —
+                # expected, benign, self-resolves on the next tick. Not
+                # worth a warning.
                 info(f"7B model watchdog: {reason}")
-            elif outcome == LOAD_OUTCOME_EVICTION_FAILED:
-                # The sequential-swap guard couldn't confirm the planner
-                # (1.5B, port 8081) freed its port — this never even reached
-                # can_admit(). Under this project's actual default runtime
-                # (`codeydOS start`, which always keeps `plannd` up as a
-                # separate always-on process), nothing about a future
-                # watchdog tick makes this self-resolve, so this is NOT
-                # phrased as transient/self-resolving like DEFERRED above
-                # (see NEW-96/U.27) — just state the fact.
-                warning(f"7B model not loaded — the planner hasn't freed its port ({reason})")
             elif was_running is False and server is None:
                 # Reachable only because `was_ever_spawned()` (NEW-152)
                 # gated us into calling `ensure_model()` at all (7.4b
@@ -896,7 +884,7 @@ class Daemon:
         if not _is_remote():
             info("Coder (7B) will load lazily on first request — no startup preload")
         else:
-            info(f"Backend: {_backend} — skipping local 7B and 1.5B server startup")
+            info(f"Backend: {_backend} — skipping local model server startup")
 
         # Start dedicated embedding server (nomic-embed on port 8082)
         try:

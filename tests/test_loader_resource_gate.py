@@ -4,8 +4,13 @@ Resource-gate slot-awareness tests — CODEY_OS_MASTER_VISION.md Section 7.4
 
 Covers the actual wiring added in this sub-task:
   - core/loader_v2.py:ModelLoader.load_primary()/unload()
-  - core/planner_loader.py:PlannerLoader.load()/unload()
   - core/embed_server.py:EmbedServer.start()/stop() (accounted-but-exempt)
+
+M1-D (2026-08-23): this file used to also cover
+core/planner_loader.py:PlannerLoader.load()/unload() — that module (and
+the dedicated planner server it managed) is deleted, planning now shares
+the primary server, and its own "PlannerLoader (1.5B)" test section below
+is removed along with it, not adapted.
 
 All tests use a fake LlamaServer / mocked subprocess — no real llama-server
 process is spawned (RAM-discipline rule, CLAUDE.md rule 2). Most tests patch
@@ -25,7 +30,6 @@ import pytest
 
 import core.embed_server as es
 import core.loader_v2 as lv
-import core.planner_loader as pl
 import core.resource_gate as rg
 
 
@@ -193,11 +197,9 @@ class FakeServerSpawnFails:
 @pytest.fixture(autouse=True)
 def reset_singletons():
     lv._loader = None
-    pl._planner_loader = None
     es._embed_server = None
     yield
     lv._loader = None
-    pl._planner_loader = None
     es._embed_server = None
 
 
@@ -437,19 +439,14 @@ def test_ensure_model_deferred_outcome_not_stale_from_prior_gate_denial(monkeypa
     assert loader.get_last_ensure_outcome() == lv.LOAD_OUTCOME_DEFERRED
 
 
-def test_ensure_model_eviction_failed_sets_outcome(monkeypatch):
-    fake_decision = MagicMock(admitted=True, hard_reject=False, estimated_cost_bytes=1024, reason="ok")
-    monkeypatch.setattr(rg, "reserve_slot", lambda spec, **k: (fake_decision, "slot-z"))
-    monkeypatch.setattr(rg, "release_slot", lambda *a, **k: True)
-
-    with patch.object(lv, "LlamaServer", FakeServerSpawned), patch(
-        "pathlib.Path.exists", return_value=True
-    ), patch.object(lv, "probe_port_health", return_value=True):  # planner port still answering
-        loader = lv.get_loader()
-        result = loader.ensure_model()
-
-    assert result is False
-    assert loader.get_last_ensure_outcome() == lv.LOAD_OUTCOME_EVICTION_FAILED
+# M1-D (2026-08-23): a test_ensure_model_eviction_failed_sets_outcome test
+# used to sit here, pinning ensure_model()'s cold-load branch failing
+# closed (LOAD_OUTCOME_EVICTION_FAILED) when it couldn't confirm the
+# dedicated planner's port had freed before loading the primary. That
+# eviction step (and the outcome constant itself) is removed along with
+# core/planner_loader.py — ensure_model()'s cold-load branch now goes
+# straight to load_primary(), so this scenario can no longer occur; see
+# core/loader_v2.py's own comment on the removed constant.
 
 
 def test_ensure_model_already_loaded_sets_outcome(monkeypatch):
@@ -471,85 +468,6 @@ def test_ensure_model_already_loaded_sets_outcome(monkeypatch):
 
     assert result is True
     assert loader.get_last_ensure_outcome() == lv.LOAD_OUTCOME_ALREADY_LOADED
-
-
-# ── PlannerLoader (1.5B) ─────────────────────────────────────────────────────
-
-
-def test_planner_load_reserves_and_marks_resident(monkeypatch):
-    fake_decision = MagicMock(admitted=True, estimated_cost_bytes=512, reason="ok")
-    reserve_calls = []
-    mark_calls = []
-    monkeypatch.setattr(
-        rg,
-        "reserve_slot",
-        lambda spec, **k: (reserve_calls.append(spec) or fake_decision, "planner-slot-1"),
-    )
-    monkeypatch.setattr(rg, "mark_resident", lambda slot_id, **k: mark_calls.append(slot_id) or True)
-    monkeypatch.setattr(rg, "release_slot", lambda *a, **k: True)
-    monkeypatch.setattr(rg, "read_meminfo", _meminfo_with_drop_after(1))
-
-    with patch.object(lv, "LlamaServer", FakeServerSpawned), patch(
-        "pathlib.Path.exists", return_value=True
-    ):
-        planner = pl.get_planner_loader()
-        assert planner.load() is True
-
-    assert planner._slot_id == "planner-slot-1"
-    assert reserve_calls[0].model_id == "planner"
-    assert mark_calls == ["planner-slot-1"]
-
-
-def test_planner_load_denied_reservation_does_not_spawn(monkeypatch):
-    fake_decision = MagicMock(admitted=False, estimated_cost_bytes=0, reason="no headroom")
-    monkeypatch.setattr(rg, "reserve_slot", lambda spec, **k: (fake_decision, None))
-
-    with patch.object(lv, "LlamaServer") as MockServer, patch(
-        "pathlib.Path.exists", return_value=True
-    ):
-        planner = pl.get_planner_loader()
-        result = planner.load()
-
-    assert result is False
-    MockServer.assert_not_called()
-    assert planner.is_loaded() is False
-
-
-def test_planner_load_spawn_failure_releases_slot(monkeypatch):
-    fake_decision = MagicMock(admitted=True, estimated_cost_bytes=512, reason="ok")
-    released = []
-    monkeypatch.setattr(rg, "reserve_slot", lambda spec, **k: (fake_decision, "planner-slot-2"))
-    monkeypatch.setattr(rg, "release_slot", lambda slot_id, **k: released.append(slot_id) or True)
-    monkeypatch.setattr(rg, "read_meminfo", lambda *a, **k: {"MemAvailable": 10**10})
-
-    with patch.object(lv, "LlamaServer", FakeServerSpawnFails), patch(
-        "pathlib.Path.exists", return_value=True
-    ):
-        planner = pl.get_planner_loader()
-        result = planner.load()
-
-    assert result is False
-    assert released == ["planner-slot-2"]
-    assert planner._slot_id is None
-
-
-def test_planner_unload_releases_slot(monkeypatch):
-    fake_decision = MagicMock(admitted=True, estimated_cost_bytes=512, reason="ok")
-    released = []
-    monkeypatch.setattr(rg, "reserve_slot", lambda spec, **k: (fake_decision, "planner-slot-3"))
-    monkeypatch.setattr(rg, "mark_resident", lambda *a, **k: True)
-    monkeypatch.setattr(rg, "release_slot", lambda slot_id, **k: released.append(slot_id) or True)
-    monkeypatch.setattr(rg, "read_meminfo", _meminfo_with_drop_after(1))
-
-    with patch.object(lv, "LlamaServer", FakeServerSpawned), patch(
-        "pathlib.Path.exists", return_value=True
-    ):
-        planner = pl.get_planner_loader()
-        assert planner.load() is True
-        planner.unload()
-
-    assert planner._slot_id is None
-    assert released == ["planner-slot-3"]
 
 
 # ── confirm_resident_and_mark_slot() ─────────────────────────────────────────
@@ -976,46 +894,10 @@ def test_load_primary_confirm_raises_slot_not_leaked_no_orphan(tmp_path, monkeyp
         _kill_if_still_alive(proc)
 
 
-def test_planner_load_confirm_raises_slot_not_leaked_no_orphan(tmp_path, monkeypatch):
-    """
-    Same scenario as test_load_primary_confirm_raises_slot_not_leaked_no_orphan
-    but for core/planner_loader.py:PlannerLoader.load() — the two loaders
-    are separate call sites with separate (near-identical) control flow, so
-    this must be verified independently, not assumed from the primary-side
-    test alone.
-    """
-    _real_gate_generous_meminfo(monkeypatch, tmp_path)
-
-    def boom(slot_id, state_dir=None):
-        raise OSError("simulated flock()/os.replace() failure under fd exhaustion")
-
-    monkeypatch.setattr(rg, "mark_resident", boom)
-
-    _REAL_SPAWNED_PROCESSES.clear()
-    proc = None
-    try:
-        with patch.object(lv, "LlamaServer", RealSpawnLlamaServer), patch(
-            "pathlib.Path.exists", return_value=True
-        ):
-            planner = pl.get_planner_loader()
-            result = planner.load()
-            # Read from the out-of-band spawn list, not planner._server —
-            # the fix under test resets self._server to None on this
-            # cleanup path (see load()'s finally block).
-            proc = _REAL_SPAWNED_PROCESSES[0] if _REAL_SPAWNED_PROCESSES else None
-
-        assert result is False
-        assert planner._slot_id is None
-        assert planner._loaded is False
-
-        slots = rg.list_slots(state_dir=tmp_path)
-        assert [s for s in slots if s.get("model_id") == "planner"] == [], (
-            f"slot leaked after confirm-raise: {slots}"
-        )
-
-        assert proc is not None, "test setup bug: server never actually spawned"
-        assert proc.poll() is not None, (
-            f"process pid={proc.pid} is still running — orphaned by a leaked spawn"
-        )
-    finally:
-        _kill_if_still_alive(proc)
+# M1-D (2026-08-23): a test_planner_load_confirm_raises_slot_not_leaked_
+# no_orphan test used to sit here, the planner-side mirror of
+# test_load_primary_confirm_raises_slot_not_leaked_no_orphan above for
+# core/planner_loader.py:PlannerLoader.load() — that module is deleted
+# along with the dedicated planner server it managed, so it's removed
+# rather than adapted. The primary-side test above still covers this
+# failure mode for the one loader that remains.

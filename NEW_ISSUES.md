@@ -161,15 +161,24 @@ when master plan M1-D's code read confirms the retired paths are actually
 gone rather than dormant, and M1-E's live numbers replace the arithmetic
 they were built on. Do not tick them off from the decision alone.
 
-**`NEW-142` is explicitly excluded from the above.** Its mechanism is
-`core/planner_loader.py:ensure_planner()` evicting the primary while
-bypassing the gate's `reserve_slot()` path — an eviction-bypass code
-path, not a property of which two models happen to be involved. It is
-what made `NEW-141` reproducible at all. If any direct
-evict-then-load sequence survives M1-D (`core/loader_v2.py`'s
-`_evict_planner_and_confirm_free()` is the obvious candidate to check),
-this bug outlives the models it was found with. **Close on a code read
-only.**
+**Update, 2026-08-23 — half of that bar cleared.** M1-D's code read is
+done (code-complete, code-reviewer-approved, not yet committed):
+`core/planner_loader.py` deleted in full, `_evict_planner_and_confirm_
+free()` deleted, `codeydOS`'s `start_plannd()`/`stop_plannd()` and the
+port-8081 `pkill` sites all confirmed gone. **All four move to
+code-read confirmed, pending M1-E — still NOT closed.** M1-E's live
+numbers are the other half of this bar and have not run.
+
+**`NEW-142` is explicitly excluded from the above, and it CLOSED,
+2026-08-23, on exactly the code read this note specified.** Its
+mechanism was `core/planner_loader.py:ensure_planner()` evicting the
+primary while bypassing the gate's `reserve_slot()` path — an
+eviction-bypass code path, not a property of which two models happen to
+be involved. It is what made `NEW-141` reproducible at all. M1-D deleted
+`core/planner_loader.py` in full and deleted `core/loader_v2.py`'s
+`_evict_planner_and_confirm_free()` — the exact candidate this note
+named to check. **Confirmed gone. Closed on a code read, not on the
+decision, per this note's own instruction.**
 
 Cross-references: `NEW-156` (constants derived from the retired models),
 `NEW-157` (hybrid attention vs. the gate's cost formula), `NEW-158`
@@ -243,6 +252,13 @@ Cross-references: `NEW-156` (constants derived from the retired models),
   mid-sequence when a review rejects — if M1-B is not landing
   immediately after M1-A, this is the finding that says why that matters.
 - **Not fixed this round** — closes with M1-B.
+- **Status: CLOSED, 2026-08-23.** M1-B landed (code-complete,
+  code-reviewer-approved, not yet committed): `utils/config.py`'s
+  `MODEL_PATH` and `PLANNER_MODEL_PATH` both now point at
+  `~/models/qwen3.5-4b-instruct/Qwen3.5-4B-Q4_K_M.gguf`. The mismatch this
+  finding described (primary costed with the 4B's arch while
+  `MODEL_PATH` still named the 7B) no longer exists — confirmed by
+  reading the committed `utils/config.py`.
 
 
 ## Found during NEW-10 (SIGTERM handler) implementation, 2026-07-30 — NOT fixed, logged only
@@ -5795,6 +5811,13 @@ finding for the same bug. See `NEW-39`.)*
   project, not because it fired incorrectly during this session.
 - **Not fixed** — pre-existing code, out of this live-verification
   task's scope to touch.
+- **Status: PARTIALLY CLOSED, 2026-08-23.** M1-D deleted `codeydOS`'s
+  `start_plannd()` entirely, taking `codeydOS:261`'s
+  `pkill -9 -f "llama-server.*8081"` with it — that half of this finding
+  is closed by direct code read (confirmed: no `8081` string remains in
+  `codeydOS`). `codeydOS:151`'s `pkill -9 -f "llama-server.*8080"` (and
+  the other 8080-pattern `pkill` sites `NEW-103` also names) remain and
+  stay open under this finding number.
 
 ## Found while fixing U.28/NEW-97 (registering `plannd` with the gate), 2026-08-09 — NOT fixed, logged only
 
@@ -5824,6 +5847,13 @@ finding for the same bug. See `NEW-39`.)*
   gate-visible-but-not-loader-owned process), or clarify in that
   handler's docstring/response that it can only ever affect the
   in-process loader's own model, never `plannd`.
+- **Status: CLOSED, 2026-08-23.** M1-D deleted `core/planner_loader.py`
+  (the `PlannerLoader` singleton this finding is about) and `plannd` as a
+  separate process entirely — there is no longer a second, bash-`nohup`
+  process holding an independent `"planner"` gate slot for
+  `release_model_slot` to disagree with. The contradiction this finding
+  described requires two independent code paths both claiming the
+  `"planner"` role; only one exists now. Confirmed by direct code read.
 
 ### [NEW-101] (Suspected, low severity, bounded) A `plannd` crash without `stop_plannd()` running (e.g. OOM-killed) leaves its RESIDENT gate slot un-released until the next reap; the following `start_plannd()` registers a second `"planner"` slot before that happens
 
@@ -5839,6 +5869,11 @@ finding for the same bug. See `NEW-39`.)*
   `(model_id, port)` at registration time in `start_plannd()` — release
   any existing `"planner"` slot on port 8081 before registering a new
   one, rather than relying solely on eventual reap.
+- **Status: CLOSED, 2026-08-23.** M1-D deleted `codeydOS`'s
+  `start_plannd()`/`stop_plannd()` entirely — there is no longer a
+  separate `plannd` process to crash without releasing its slot, and no
+  port-8081 registration path left to duplicate. Confirmed by direct
+  code read.
 
 ## Found during `code-reviewer`'s pass on `U.31` (`CODEY_N_CTX` override), 2026-08-09 — NOT fixed, logged only
 
@@ -6735,6 +6770,12 @@ finding for the same bug. See `NEW-39`.)*
   config table needs to get right the first time (it will need to name
   this model precisely). Worth fixing in the same pass that adds the
   tier config table, not before.
+- **Status: CLOSED, 2026-08-23.** M1-D's planner collapse rewrote
+  `core/planner_service.py`'s module docstring; it now correctly says
+  "Daemon planner (primary Qwen3.5-4B, thinking mode, or a remote...)"
+  and explicitly notes the prior "0.5B or remote" text was stale even
+  before M1-D, since the model had already been upgraded to 1.5B.
+  Confirmed by direct code read.
 
 ### [NEW-125] The 7B coder model and the planner's "large tier" escalation path are the same physical model today — a role/tier overlap worth naming before 7.3's tier config formalizes roles
 
@@ -7675,6 +7716,13 @@ finding for the same bug. See `NEW-39`.)*
 - **Where found:** sub-task F's case (b) live-verification pass,
   2026-08-11, direct read of `core/planner_loader.py` while scoping how
   to actually reach the concurrent-admission call shape.
+- **Status: CLOSED, 2026-08-23 — closed on a code read, exactly as
+  required above, never on the §1.4 decision.** M1-D deleted
+  `core/planner_loader.py` in full (322 lines, including
+  `ensure_planner()`) and deleted `core/loader_v2.py`'s
+  `_evict_planner_and_confirm_free()` — the "obvious survivor to check"
+  this finding named. Confirmed gone by direct code read; no
+  evict-then-load sequence bypassing the gate's reserve path survives.
 
 ### [NEW-143] Primary 7B `estimated_cost_bytes` at `n_ctx=32768` sits only ~137MiB under `device_ceiling_bytes` (`hard_reject` threshold) — a small margin, not itself a bug
 
@@ -8219,3 +8267,74 @@ finding for the same bug. See `NEW-39`.)*
   the exact "first spawner wins the context size" mechanism `NEW-149`
   already names. Not fixed here; `NEW-149`'s own resolution (if one is
   ever scoped) should account for this reachable path through it too.
+
+### [NEW-162] `NEW-158`'s "the flag is not passed, so it's off" framing may not hold on the installed build — this binary's own `--help` text states `--jinja` defaults to enabled, and `--reasoning-format` defaults to `auto`, not `none`
+
+- **Status: Suspected.** Found 2026-08-23 while scoping M1-B/C/D, by
+  running `~/llama.cpp/build/bin/llama-server --help` on the exact binary
+  `NEW-158` examined (`version: 1 (91d2fc3)`, matching §5.1's commit
+  `91d2fc38`). The literal help text reads: `--jinja, --no-jinja ...
+  (default: enabled)` and `--reasoning-format FORMAT ... (default: auto)`,
+  and a separate `-rea, --reasoning [on|off|auto]` flag also defaults to
+  `auto`.
+- **Why this doesn't simply overturn `NEW-158`:** `--help` output is the
+  parser's stated default, not a proof of runtime behavior with this
+  specific model and command line — rule 12 cuts both ways here. It is
+  equally possible that `(default: enabled)` is accurate and `_spawn_locked()`'s
+  omission of `--jinja` has always been a no-op (in which case `NEW-158`'s
+  claim that thinking mode is "inert" without the flag needs downgrading
+  per rule 6), or that some other part of the spawn command, an older
+  llama.cpp default baked into this build's actual code path, or the
+  model's own template negotiation overrides the help text's stated
+  default. **Neither has been checked against a live spawn** — `NEW-158`
+  was itself desk-only (GGUF header read, no load), and so is this entry.
+- **Impact on M1-C:** the task cannot start from "add `--jinja` because
+  it's currently off" as a settled premise. It must first capture the
+  actual request/response behavior of a live spawn (with the real
+  `--reasoning-format` value made explicit — `deepseek` for split
+  `reasoning_content`, not the `auto`/`none`/`deepseek-legacy` alternatives
+  also listed in `--help` — since `auto`'s behavior against this specific
+  hybrid model's template is itself unverified) before concluding whether
+  `--jinja`/`--reasoning-format` are additions or no-ops. Either outcome is
+  fine; guessing which one is true and skipping the check is not.
+- **Fix direction:** M1-C's live-verification step (deferred to M1-E per
+  this round's scoping) settles this with a real spawn and a captured
+  request/response pair, ideally one with `--jinja` explicit and one
+  without, on the same model. Until then this stays Suspected on both
+  sides.
+- **Not fixed this round** — logged during M1-B/C/D scoping, resolution
+  belongs to M1-C's live-verification step (folds into M1-E under this
+  round's plan).
+
+### [NEW-163] `core/lora_import.py`'s `rollback_to_backup()` copies the saved backup weights onto whatever `cfg.MODEL_PATH` currently names — after a swap, that name is the fine-tuned file's path, so a rollback writes base weights into the fine-tuned file's name rather than restoring the original base file
+- **Found by:** the implementer fixing `NEW-161`'s sibling asymmetry bug
+  (M1-B/C/D round, this session, fixing `swap_to_finetuned_model()`'s
+  "primary" branch to keep `cfg.MODEL_PATH`/`cfg.PLANNER_MODEL_PATH` in
+  sync with the "secondary" branch, per code-reviewer's required-fix
+  finding on the M1-D diff). Not introduced by that fix — pre-existing —
+  but newly exposed once "primary" swaps and rollbacks became symmetric
+  with "secondary," which is what made the pattern visible enough to
+  name precisely.
+- **Mechanism:** `rollback_to_backup()` restores a backup by copying it
+  over the path `cfg.MODEL_PATH` (or `cfg.PLANNER_MODEL_PATH`) *currently*
+  holds. After `swap_to_finetuned_model()` succeeds, that path has already
+  been mutated to point at the fine-tuned file under
+  `~/models/codey-finetuned/`. A subsequent rollback therefore overwrites
+  the fine-tuned file's on-disk name with the original base weights,
+  rather than restoring `cfg.MODEL_PATH`/`cfg.PLANNER_MODEL_PATH` back to
+  the original base file's own path. The config pointer ends up correct
+  (it's reset to the pre-swap value elsewhere in the rollback path), but
+  the file left on disk under the fine-tuned name is now silently the
+  base model, not the fine-tune it was named for.
+- **Impact:** a failed swap that triggers rollback leaves a file on disk
+  whose name and contents disagree — anyone inspecting
+  `~/models/codey-finetuned/` after a rollback, or a future swap that
+  reuses that path expecting the fine-tuned weights, gets the base model
+  instead. Rated Suspected pending a live rollback reproduction — the
+  code read is direct, but the actual on-disk end-state after a real
+  failure-triggered rollback has not been executed and observed this
+  round.
+- **Not fixed this round** — out of scope for the M1-D lora_import.py
+  fix, which only addressed the `MODEL_PATH`/`PLANNER_MODEL_PATH` config
+  sync asymmetry, not this separate on-disk file-identity issue. Needs
+  its own scoped task.

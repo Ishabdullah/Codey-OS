@@ -44,18 +44,27 @@ from utils.logger import error, info, success, warning
 SERVER_HOST = "127.0.0.1"
 SERVER_PORT = PRIMARY_SERVER_PORT
 
-# ── Sequential-swap guard (primary 7B vs. planner 1.5B) ─────────────────────
-# Ish's decision: the primary and planner models must never be resident at
-# the same time on this device. This lock is in-process mutual exclusion
-# ONLY — it stops core/daemon.py's watchdog (which calls
-# ModelLoader.ensure_model() every 30s, on the event loop) from evicting the
-# planner while core/planner_loader.py's ensure_planner() is mid-swap in a
-# run_in_executor thread of the *same* daemon process. It is deliberately
-# non-blocking everywhere it's used (see ensure_model()/ensure_planner()) —
-# daemon.py:562 calls ensure_model() directly on the event loop, so blocking
-# here would stall the whole daemon. This is plain mutual exclusion, not a
-# resource-gate/headroom check (that's future Track 3 Phase 5a) — it doesn't
-# measure capacity, it just prevents two in-process swaps from racing.
+# ── Loaded/not-loaded transition guard ──────────────────────────────────────
+# Originally named for its primary-7B-vs-planner-1.5B sequential-swap role:
+# Ish's decision was that the two models must never be resident at the same
+# time on this device, and this lock serialized the evict-then-load window
+# on each side of that swap. M1-D (2026-08-23) retired the dedicated
+# planner process (core/planner_loader.py, deleted) — there is only one
+# local model server now, so there is no longer a second side to swap
+# against.
+#
+# The lock itself is retained, not deleted: core/daemon.py's
+# `_handle_release_model_slot` still acquires it (non-blocking) to guard
+# the primary's loaded/not-loaded transition window against a concurrent
+# watchdog `ensure_model()` call racing an explicit CLI-requested release —
+# both run in this same process, and that race is real independent of
+# whether a planner exists. ensure_model() below still holds it across its
+# own "already loaded, maybe thermal-restart" and "cold load" branches for
+# the same reason. Deliberately non-blocking everywhere it's used —
+# daemon.py's watchdog calls ensure_model() directly on the event loop, so
+# blocking here would stall the whole daemon. Plain in-process mutual
+# exclusion, not a resource-gate/headroom check (that's a separate
+# concern, core/resource_gate.py).
 SWAP_GUARD = threading.Lock()
 
 
@@ -63,10 +72,13 @@ def probe_port_health(port: int) -> bool:
     """
     Cross-process-safe check: is anything answering GET /health on *port*?
 
-    Used by the primary/planner sequential-swap arbiter to detect a model
-    server that some OTHER process spawned (this loader's own _loaded flag
-    only reflects in-process state) — CLAUDE.md rule 3 forbids killing a
-    process we didn't spawn, so this is a read-only probe, never a kill.
+    Used by core/daemon.py's `_handle_release_model_slot` to confirm a
+    model server actually stopped answering after an unload attempt, and
+    (before M1-D, 2026-08-23) by the now-deleted primary/planner
+    sequential-swap eviction path for the same purpose. Cross-process
+    because this loader's own `_loaded` flag only reflects in-process
+    state — CLAUDE.md rule 3 forbids killing a process we didn't spawn, so
+    this is a read-only probe, never a kill.
     """
     try:
         with urllib.request.urlopen(
@@ -119,10 +131,15 @@ def confirm_resident_and_mark_slot(
     consistent with `estimated_cost_bytes` actually having landed, then call
     resource_gate.mark_resident(slot_id) — see this section's header comment
     for why "health endpoint answered" alone isn't sufficient per
-    mark_resident()'s documented precondition. Shared by
-    core/loader_v2.py:ModelLoader.load_primary() and
-    core/planner_loader.py:PlannerLoader.load() so both loaders apply the
-    same confirmation policy rather than each reimplementing it.
+    mark_resident()'s documented precondition. Used by
+    core/loader_v2.py:ModelLoader.load_primary() — the only remaining
+    caller as of M1-D (2026-08-23): this used to also be shared with
+    core/planner_loader.py:PlannerLoader.load(), which is deleted along
+    with that module. Kept as a separate function rather than inlined back
+    into load_primary(), since the confirmation policy itself (poll
+    /proc/meminfo, mark resident on a confirming drop or on timeout) is a
+    distinct, independently-testable concern from the spawn/reserve flow
+    around it.
 
     `pid` (optional): the real spawned `llama-server` subprocess PID —
     forwarded straight to `resource_gate.mark_resident()`'s own `pid`
@@ -130,9 +147,9 @@ def confirm_resident_and_mark_slot(
     `reserve_slot()` registered it under, before the subprocess existed) to
     the process whose death should actually free it. See
     `resource_gate.mark_resident()`'s docstring (NEW-81) for the full
-    reasoning. Both `load_primary()` and `PlannerLoader.load()` pass
-    `self._server.process.pid` here in the only branch where they know it
-    (the branch where they genuinely spawned the process, not reused one).
+    reasoning. `load_primary()` passes `self._server.process.pid` here in
+    the only branch where it knows it (the branch where it genuinely
+    spawned the process, not reused one).
 
     On timeout (no confirming drop observed within `timeout_s`): marks the
     slot resident anyway, with a logged warning, rather than leaving it
@@ -209,10 +226,12 @@ class LlamaServer:
         self._started = False
         # n_ctx=None (the default) preserves this class's original
         # behavior — every server it spawns uses the shared global
-        # MODEL_CONFIG["n_ctx"]. TODO.md 7.4b sub-tasks B/C give the
-        # planner and the background-dispatched coder their own smaller
-        # ceilings (utils.config.get_planner_n_ctx() / get_coder_background_n_ctx())
-        # — callers that need a role-specific value pass it explicitly
+        # MODEL_CONFIG["n_ctx"]. TODO.md 7.4b sub-task C gives the
+        # background-dispatched coder its own smaller ceiling
+        # (utils.config.get_coder_background_n_ctx() — the matching
+        # planner-only ceiling, get_planner_n_ctx(), was removed in M1-D,
+        # 2026-08-23, once planning stopped being a separately-sized
+        # server) — callers that need a role-specific value pass it explicitly
         # here so the actual spawned `-c` flag (see _spawn_locked()
         # below) matches whatever n_ctx the caller's resource_gate.ModelSpec
         # was built with, rather than the two silently diverging (the
@@ -237,8 +256,9 @@ class LlamaServer:
             # probe: a daemon process and a separately-invoked CLI process can
             # both see the port free and both attempt to spawn, and the
             # up-to-60s health-check wait below widens that window further.
-            # Close it with an flock'd lock file, one per port so the primary
-            # and planner locks never collide, mirroring the exact pattern
+            # Close it with an flock'd lock file, one per port so servers on
+            # different ports never collide over the same lock, mirroring
+            # the exact pattern
             # core/daemon.py:48-93 (check_pid_file/write_pid_file) already
             # uses for daemon-vs-daemon locking — LOCK_EX | LOCK_NB
             # (non-blocking), imported locally like that file does (keeps
@@ -355,29 +375,39 @@ class LlamaServer:
                     "--embedding",  # enable /v1/embeddings endpoint for hybrid KB search
                     "--pooling",
                     "mean",  # mean pooling → single vector per input (OAI-compatible)
+                    "--jinja",  # make jinja templating explicit rather than relying
+                    # on the binary's own default (verified enabled-by-default in
+                    # this build's --help, NEW-162)
+                    "--reasoning-format",
+                    "deepseek",  # split <think>...</think> into message.reasoning_content
+                    # instead of leaving it inlined in message.content; verified against
+                    # this build's --help (llama-server 91d2fc3): accepts
+                    # none|deepseek|deepseek-legacy, defaults to auto. Made explicit here
+                    # rather than relying on the default, ahead of phase D's parse_steps()
+                    # needing message.content free of reasoning text.
                 ]
 
                 # Add stop tokens (using --reverse-prompt)
                 for stop in MODEL_CONFIG.get("stop", []):
                     cmd.extend(["--reverse-prompt", stop])
 
-                # ── mmap / mlock settings for the 7B model (Change 2) ──────────
+                # ── mmap / mlock settings for the model (Change 2) ──────────────
                 # Pass --mmap / --no-mmap explicitly in both directions so the flag
                 # is visible in ps output and not left to llama.cpp's default.
                 # --no-mlock does NOT exist in this llama.cpp build; omitting --mlock
                 # is sufficient to keep mlock disabled (the llama.cpp default).
                 try:
-                    from utils.config import QWEN_7B_MLOCK, QWEN_7B_MMAP
+                    from utils.config import QWEN_MLOCK, QWEN_MMAP
 
-                    if QWEN_7B_MMAP:
+                    if QWEN_MMAP:
                         cmd.append("--mmap")
                     else:
                         cmd.append("--no-mmap")
-                    if QWEN_7B_MLOCK:
+                    if QWEN_MLOCK:
                         cmd.append("--mlock")
                     info(
-                        f"7B model: mmap={'enabled' if QWEN_7B_MMAP else 'disabled'}, "
-                        f"mlock={'enabled' if QWEN_7B_MLOCK else 'disabled'}"
+                        f"model: mmap={'enabled' if QWEN_MMAP else 'disabled'}, "
+                        f"mlock={'enabled' if QWEN_MLOCK else 'disabled'}"
                     )
                 except ImportError:
                     pass  # Config not available — use llama.cpp defaults (mmap on, mlock off)
@@ -478,8 +508,8 @@ class LlamaServer:
         except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException):
             # See probe_port_health()'s matching comment: http.client.HTTPException
             # (e.g. BadStatusLine) doesn't inherit from the other three, and this
-            # method backs is_running()/is_loaded(), which callers (e.g.
-            # PlannerLoader.ensure_planner()) document as never raising.
+            # method backs is_running()/is_loaded(), which callers document as
+            # never raising.
             return False
 
     def _is_port_in_use(self) -> bool:
@@ -601,12 +631,19 @@ class LlamaServer:
 # on the gate-denial path) so a stale value from a PRIOR call is never
 # misread as this call's outcome — see the deferred/SWAP_GUARD-busy case in
 # ensure_model(), which returns False without ever reaching load_primary().
+#
+# M1-D (2026-08-23): a LOAD_OUTCOME_EVICTION_FAILED value used to sit here,
+# set when ensure_model()'s sequential-swap eviction of the dedicated
+# planner (core/planner_loader.py) couldn't confirm the planner's port had
+# freed. That eviction step is gone along with the planner process itself
+# (see SWAP_GUARD's docstring above) — ensure_model()'s cold-load branch
+# now goes straight to load_primary(), so this outcome can no longer occur
+# and the constant is removed, not left as an unreachable value.
 LOAD_OUTCOME_OK = "ok"
 LOAD_OUTCOME_ALREADY_LOADED = "already_loaded"
 LOAD_OUTCOME_DEFERRED = "deferred"  # SWAP_GUARD busy — retry next tick, not a failure
 LOAD_OUTCOME_GATE_DENIED = "gate_denied"  # transient: headroom/thermal — may succeed on retry
 LOAD_OUTCOME_GATE_DENIED_HARD = "gate_denied_hard"  # permanent: model alone exceeds device ceiling
-LOAD_OUTCOME_EVICTION_FAILED = "eviction_failed"  # couldn't confirm planner freed its port
 LOAD_OUTCOME_SPAWN_FAILED = "spawn_failed"  # llama-server process failed to start/health-check
 LOAD_OUTCOME_ERROR = "error"  # missing model file/binary, or an unexpected exception
 
@@ -887,26 +924,31 @@ class ModelLoader:
         not just the cold-load branch. A thermal-triggered restart does its
         own unload()/load_primary() cycle, during which _loaded is False
         and the port isn't answering; without the guard covering that
-        window too, a concurrent ensure_planner() (running in plannd.py's
-        run_in_executor thread) could see "primary not loaded" and spawn
-        the planner mid-restart, landing both models resident at once —
-        exactly what SWAP_GUARD exists to prevent (see its docstring:
-        "any time the primary's loaded/not-loaded state is in transition,
-        no exceptions"). Non-blocking, as always (see SWAP_GUARD comment
-        above): if the planner is mid-swap, defer — including a thermal
-        restart. That's acceptable because thermal state is re-evaluated
-        every watchdog tick (≤30s), so a deferred restart just runs on the
-        next tick instead of this one; nothing is lost.
+        window too, a concurrent daemon-side `release_model_slot` request
+        (core/daemon.py's `_handle_release_model_slot`, which also acquires
+        SWAP_GUARD non-blocking) could observe "primary not loaded" mid-
+        restart and race this method's own unload()/load_primary() cycle.
+        M1-D (2026-08-23) removed the sequential-swap-with-a-planner
+        eviction step this method used to do here (see SWAP_GUARD's
+        docstring — there's no longer a second model to evict), but the
+        guard itself, and the reason it must cover this whole method body,
+        is unchanged: any time the primary's loaded/not-loaded state is in
+        transition, no exceptions. Non-blocking, as always (see SWAP_GUARD
+        comment above): if the guard is held elsewhere in-process, defer —
+        including a thermal restart. That's acceptable because thermal
+        state is re-evaluated every watchdog tick (≤30s), so a deferred
+        restart just runs on the next tick instead of this one; nothing is
+        lost.
         """
         if not SWAP_GUARD.acquire(blocking=False):
-            info("Primary load/restart deferred — planner swap in flight")
+            info("Primary load/restart deferred — guard busy elsewhere in-process")
             # Not load_primary()'s job to set this (it never runs on this
             # path) — every return point in THIS method sets the outcome
             # itself precisely so a stale value from a previous call can
             # never be misread as this call's result (see LOAD_OUTCOME_*
             # comment above the ModelLoader class).
             self._last_ensure_outcome = LOAD_OUTCOME_DEFERRED
-            self._last_ensure_reason = "planner swap in flight (SWAP_GUARD busy) — retry next tick"
+            self._last_ensure_reason = "SWAP_GUARD busy — retry next tick"
             return False
         try:
             if self._loaded and self._server and self._server.is_running():
@@ -931,62 +973,14 @@ class ModelLoader:
                 self._last_ensure_reason = ""
                 return True
 
-            # ── Sequential swap (cold load) ────────────────────────────
-            if not self._evict_planner_and_confirm_free():
-                self._last_ensure_outcome = LOAD_OUTCOME_EVICTION_FAILED
-                self._last_ensure_reason = (
-                    "could not confirm the planner (1.5B) freed its port before "
-                    "loading the primary (7B) — sequential-swap guard"
-                )
-                return False
+            # ── Cold load ────────────────────────────────────────────────
+            # M1-D (2026-08-23): this used to first call
+            # _evict_planner_and_confirm_free() — deleted along with
+            # core/planner_loader.py, since there is no longer a second
+            # local model server to evict before loading this one.
             return self.load_primary()
         finally:
             SWAP_GUARD.release()
-
-    def _evict_planner_and_confirm_free(self) -> bool:
-        """
-        Unload the planner (1.5B) if THIS process's own planner-loader
-        singleton spawned it (we can only stop a process we spawned —
-        CLAUDE.md rule 3), then confirm its port is actually free before we
-        proceed to load the primary. Mirrors
-        core/planner_loader.py:PlannerLoader._evict_primary_and_confirm_free()
-        exactly, in the opposite direction — deliberately symmetric, not a
-        looser "best effort" version of it: Ish's decision 2 (never both
-        resident) is the actual requirement here, not a soft preference, so
-        a planner we can't confirm gone must block the primary load exactly
-        like an unconfirmed primary blocks the planner load.
-
-        Trade-off worth naming for reviewers: a stuck planner now blocks a
-        primary (agent) load too, not just the reverse. This is accepted
-        because the alternative — loading a 5GB 7B model on top of a zombie
-        1.5B — is the actual OOM-crash scenario this device has hit before,
-        and the watchdog (core/daemon.py, ~30s tick) retries ensure_model()
-        automatically, so this self-heals once the planner's process
-        actually exits.
-        """
-        try:
-            from core.planner_loader import get_planner_loader
-            from utils.config import PLANND_SERVER_PORT
-
-            planner = get_planner_loader()
-            if planner.is_loaded():
-                info("Sequential swap: unloading planner (1.5B) before loading primary (7B)")
-                planner.unload()
-
-            if probe_port_health(PLANND_SERVER_PORT):
-                warning(
-                    f"Planner still answering on port {PLANND_SERVER_PORT} after "
-                    "eviction attempt — not loading primary (would violate sequential-swap)"
-                )
-                return False
-            return True
-        except Exception as e:
-            # A failure in this cooperative check (import error, etc.) is
-            # treated the same as "couldn't confirm free" — fail closed
-            # rather than risk both models resident, consistent with the
-            # planner-side mirror of this method.
-            warning(f"Planner eviction check failed: {e} — not loading primary")
-            return False
 
     def get_loaded_model(self) -> Optional[str]:
         """Get the currently loaded model type."""

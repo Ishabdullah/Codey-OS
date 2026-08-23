@@ -17,9 +17,18 @@ sequential-swap guard failing to confirm the planner freed port 8081 before
 the primary's cold-load, which happens BEFORE `can_admit()` is ever reached)
 wasn't one of the outcomes the watchdog named explicitly, so it fell through
 to the generic fallback branch. The watchdog's generic fallback is honest
-("attempted load, still not running") and was left alone; the watchdog now
-names `LOAD_OUTCOME_EVICTION_FAILED` explicitly with an accurate,
+("attempted load, still not running") and was left alone; the watchdog then
+named `LOAD_OUTCOME_EVICTION_FAILED` explicitly with an accurate,
 non-promising message.
+
+M1-D (2026-08-23): `LOAD_OUTCOME_EVICTION_FAILED` and the eviction step
+that produced it are both removed along with core/planner_loader.py —
+`ensure_model()`'s cold-load branch now goes straight to `load_primary()`,
+so this outcome can no longer occur. The two tests that pinned its watchdog
+handling (`test_watchdog_eviction_failed_names_the_outcome_and_does_not_
+promise_retry`, `test_watchdog_eviction_failed_takes_precedence_over_
+died_branch`) are removed accordingly, not adapted — there is no scenario
+left for them to exercise.
 
 7.4b sub-task C's NEW-145 fix (2026-08-11) removed the daemon's own eager
 startup preload of the coder (7B) model entirely — it always ran before any
@@ -181,53 +190,6 @@ def test_watchdog_deferred_logs_info_not_warning():
 
     mock_warning.assert_not_called()
     mock_info.assert_called()
-
-
-def test_watchdog_eviction_failed_names_the_outcome_and_does_not_promise_retry():
-    """U.27/NEW-96: eviction_failed must be its own named branch (not the
-    generic fallback), logged as a warning (not self-resolving like
-    DEFERRED), and must not claim the server "died" -- it never got past
-    the sequential-swap guard to attempt a real load."""
-    fake = FakeLoader(
-        ensure_result=False,
-        outcome=lv.LOAD_OUTCOME_EVICTION_FAILED,
-        reason="could not confirm the planner (1.5B) freed its port before "
-        "loading the primary (7B) — sequential-swap guard",
-        instance=None,
-    )
-    with patch.object(daemon_mod, "warning") as mock_warning:
-        _run_watchdog_with_fake_loader(fake)
-
-    assert mock_warning.call_count == 1
-    msg = mock_warning.call_args[0][0]
-    assert "died" not in msg
-    assert "planner hasn't freed its port" in msg
-    assert "will load on first request" not in msg
-
-
-def test_watchdog_eviction_failed_takes_precedence_over_died_branch():
-    """If the primary WAS running and then a cold-load retry hits a failed
-    eviction (e.g. the planner started re-occupying the port after a
-    restart), the named EVICTION_FAILED branch must still win over the
-    generic "server died" fallback -- same precedence the other three named
-    outcomes (GATE_DENIED_HARD/GATE_DENIED/DEFERRED) already have above it,
-    intentional per the outcome-naming pattern this task follows."""
-    server = MagicMock()
-    server.is_running.return_value = False
-    fake = FakeLoader(
-        ensure_result=False,
-        outcome=lv.LOAD_OUTCOME_EVICTION_FAILED,
-        reason="could not confirm the planner (1.5B) freed its port before "
-        "loading the primary (7B) — sequential-swap guard",
-        instance=server,
-    )
-    with patch.object(daemon_mod, "warning") as mock_warning:
-        _run_watchdog_with_fake_loader(fake)
-
-    assert mock_warning.call_count == 1
-    msg = mock_warning.call_args[0][0]
-    assert "died" not in msg
-    assert "planner hasn't freed its port" in msg
 
 
 def test_watchdog_no_current_instance_but_loaded_before_says_not_loaded_not_died():

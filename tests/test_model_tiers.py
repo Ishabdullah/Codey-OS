@@ -12,7 +12,6 @@ import pytest
 
 import core.model_tiers as model_tiers
 import utils.config as cfg
-from core.orchestrator import _score_message
 
 
 class TestTableStructure:
@@ -37,10 +36,17 @@ class TestTableStructure:
     def test_coder_has_no_small_tier(self):
         assert ("coding", "coder", "small") not in model_tiers.MODEL_TIERS
 
-    def test_planner_role_has_small_and_large_local_tiers(self):
+    def test_planner_role_has_exactly_one_local_tier(self):
+        """M1-D (2026-08-23): planning collapsed onto the same single primary
+        server the coder uses — the planner role's former "small" tier (a
+        dedicated 1.5B on its own port) is removed, leaving exactly one
+        local tier ("large"), same as the coder role."""
         planner_tiers = model_tiers.tiers_for_role("coding", "planner")
         local_tiers = {tier: e for tier, e in planner_tiers.items() if e.backend == "local"}
-        assert local_tiers.keys() == {"small", "large"}
+        assert local_tiers.keys() == {"large"}
+
+    def test_planner_has_no_small_tier(self):
+        assert ("coding", "planner", "small") not in model_tiers.MODEL_TIERS
 
     def test_entries_are_model_tier_entry_instances(self):
         for entry in model_tiers.MODEL_TIERS.values():
@@ -60,12 +66,6 @@ class TestTableStructure:
 
 class TestValuesSourcedFromConfig:
     """Table values must come from utils/config.py, not be re-hardcoded."""
-
-    def test_planner_small_tier_matches_config(self):
-        entry = model_tiers.get_tier("coding", "planner", "small")
-        assert entry.model_ref == str(cfg.PLANNER_MODEL_PATH)
-        assert entry.port == cfg.PLANND_SERVER_PORT
-        assert entry.backend == "local"
 
     def test_coder_large_tier_matches_config(self):
         entry = model_tiers.get_tier("coding", "coder", "large")
@@ -184,39 +184,25 @@ class TestClassifyTier:
             == "large"
         )
 
-    def test_planner_short_message_no_action_no_signals_is_small(self):
-        assert model_tiers.classify_tier("coding", "planner", "hey") == "small"
-
-    def test_planner_action_keyword_is_large(self):
-        """A single action keyword (has_action) is enough to route to the
-        large tier, even for an otherwise short message."""
+    def test_planner_role_always_returns_large_no_small_tier_exists(self):
+        """M1-D (2026-08-23): the planner role's "small" tier is removed
+        (planning collapsed onto the same primary server the coder uses),
+        so classify_tier() must always return "large" for it now, exactly
+        like the coder role — never inventing a "small" the tier table no
+        longer configures, regardless of the message's scoring signals.
+        This replaces the pre-M1-D small/large branching tests below, which
+        exercised needs_large's has_action/length/signal_count clauses —
+        those clauses can no longer fire for the planner role at all, since
+        `classify_tier()`'s own `if "small" not in available: return
+        "large"` short-circuits before ever calling `_score_message()`."""
+        assert model_tiers.classify_tier("coding", "planner", "hey") == "large"
         assert model_tiers.classify_tier("coding", "planner", "fix bug") == "large"
-
-    def test_planner_two_complex_signals_is_large(self):
         assert (
-            model_tiers.classify_tier("coding", "planner", "create and build something") == "large"
+            model_tiers.classify_tier("coding", "planner", "create and build something")
+            == "large"
         )
-
-    def test_planner_long_message_with_no_action_or_signal_words_is_large(self):
-        """Length alone (>150 chars) routes to large, independent of
-        keyword matches."""
-        long_message = "x" * 160
-        assert model_tiers.classify_tier("coding", "planner", long_message) == "large"
-
-    def test_planner_signal_count_alone_is_large_without_has_action(self):
-        """Isolates the `signal_count >= 2` clause specifically: "the api
-        module" matches two COMPLEX_SIGNALS entries ("api", "module") but
-        zero _action_kws entries, so has_action=False and length<150 — only
-        signal_count>=2 can be driving this to "large". Without this test,
-        every other "large" case in this class is also covered by
-        has_action or length alone, leaving signal_count's own branch
-        unverified. (Sub-task D strengthens this with an explicit
-        signal_count==2 assertion, since "large" alone doesn't distinguish
-        signal_count==2 from signal_count>=3.)"""
-        message = "the api module"
-        assert _score_message(message).signal_count == 2
-        assert _score_message(message).has_action is False
-        assert model_tiers.classify_tier("coding", "planner", message) == "large"
+        assert model_tiers.classify_tier("coding", "planner", "x" * 160) == "large"
+        assert model_tiers.classify_tier("coding", "planner", "") == "large"
 
     def test_result_is_always_a_valid_key_for_the_role(self):
         available = model_tiers.tiers_for_role("coding", "planner")
@@ -230,53 +216,24 @@ class TestClassifyTier:
         with pytest.raises(KeyError):
             model_tiers.classify_tier("coding", "nonexistent-role", "hi")
 
-    def test_reuses_score_message_not_a_third_keyword_list(self):
-        """classify_tier() must not define its own action/signal keyword
-        lists — it reuses core.orchestrator's existing ones via
-        _score_message(). Confirmed indirectly: a message containing an
-        orchestrator action keyword ("refactor") not present in any
-        model_tiers-local list still routes to large."""
-        assert model_tiers.classify_tier("coding", "planner", "refactor") == "large"
-
-    def test_empty_message_no_action_no_length_no_signal_is_small(self):
-        """Empty string has has_action=False, length=0, signal_count=0 —
-        none of needs_large's three clauses fire, so this must be "small"."""
-        assert model_tiers.classify_tier("coding", "planner", "") == "small"
-
     def test_unknown_domain_raises_keyerror(self):
         with pytest.raises(KeyError):
             model_tiers.classify_tier("nonexistent-domain", "planner", "hi")
 
-    def test_length_boundary_150_is_not_large_by_length_alone(self):
-        """needs_large's length clause is strictly `> 150` — a message of
-        exactly 150 chars with no action keyword and fewer than 2
-        COMPLEX_SIGNALS hits must NOT be routed to large by length alone."""
-        message = "z" * 150
-        assert _score_message(message).length == 150
-        assert model_tiers.classify_tier("coding", "planner", message) == "small"
-
-    def test_length_boundary_151_is_large_by_length_alone(self):
-        """One char past the threshold flips the length clause to True."""
-        message = "z" * 151
-        assert _score_message(message).length == 151
-        assert model_tiers.classify_tier("coding", "planner", message) == "large"
-
-    def test_signal_count_boundary_one_is_not_large_by_signal_alone(self):
-        """needs_large's signal clause is `signal_count >= 2` — exactly one
-        COMPLEX_SIGNALS hit, no action keyword, short message, must stay
-        "small". "module" alone is one COMPLEX_SIGNALS hit and matches no
-        _action_kws entry."""
-        message = "module"
-        score = _score_message(message)
-        assert score.signal_count == 1
-        assert score.has_action is False
-        assert score.length <= 150
-        assert model_tiers.classify_tier("coding", "planner", message) == "small"
-
-    # The symmetric signal_count==2 boundary case ("the api module") is
-    # covered by TestClassifyTier.test_planner_signal_count_alone_is_large_
-    # without_has_action above (strengthened with an explicit
-    # signal_count==2 assertion) — not duplicated here.
+    # M1-D (2026-08-23): this class used to also cover classify_tier()'s
+    # needs_large scoring — has_action/length/signal_count boundary cases,
+    # and confirming _score_message() reuse rather than a third local
+    # keyword list — all exercised through the planner role, since the
+    # coder role never had a "small" tier to route away from (NEW-84). Now
+    # that the planner role's "small" tier is also gone (see
+    # test_planner_role_always_returns_large_no_small_tier_exists above),
+    # `classify_tier()`'s `if "small" not in available: return "large"`
+    # short-circuit fires for BOTH configured roles before `_score_message()`
+    # is ever called — there is no longer any `(domain, role)` pair in
+    # `MODEL_TIERS` that reaches the scoring logic at all, so those
+    # boundary/reuse tests were removed rather than kept against
+    # unreachable code. If a future role/tier reintroduces a real "small"
+    # tier, this coverage should come back with it.
 
 
 class TestClassifyTierFullChainIntegration:

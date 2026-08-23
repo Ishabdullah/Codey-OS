@@ -2,9 +2,11 @@
 #
 # codey-stop - Codey-OS Orchestrator (stop daemon + GUI + confirm clean exit)
 #
-# Shuts down everything codey-start brought up: main daemon, planner
-# daemon (plannd), the GUI server, and sweeps for any orphaned
-# llama-server model processes left behind.
+# Shuts down everything codey-start brought up: the main daemon (via
+# codeydOS stop), the GUI server, and sweeps for any orphaned llama-server
+# model processes left behind. (M1-D, 2026-08-23: the separate planner
+# daemon "plannd" this comment used to also mention is retired — planning
+# now shares the same primary server the main daemon already manages.)
 #
 
 set -e

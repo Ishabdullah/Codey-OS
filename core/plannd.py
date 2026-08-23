@@ -1,20 +1,26 @@
 """
 plannd — Task planner for Codey-OS
 
-Provides get_plan(): sends a user prompt to the 1.5B model on port 8081
-and returns a numbered step list for the 7B agent to execute.
+Provides get_plan(): sends a user prompt to the primary Qwen3.5-4B model
+(port 8080) with thinking mode enabled, and returns a numbered step list
+for the same model to then execute as the coding agent.
 
-get_plan() ensures the local 1.5B planner server is loaded before calling
-it, via core/planner_loader.py's PlannerLoader.ensure_planner() — this
-performs a sequential swap with the primary 7B model (core/loader_v2.py):
-the two are never resident at the same time on this device. See
-core/planner_loader.py and core/loader_v2.py's SWAP_GUARD docstring for the
-swap mechanics. Skipped entirely when a remote planner backend
-(CODEY_BACKEND_P / CODEY_BACKEND) is configured — no local server needed.
+M1-D (2026-08-23): planning used to be a dedicated Qwen2.5-1.5B model on
+its own port 8081, swapped in/out against the primary 7B via
+core/planner_loader.py's PlannerLoader.ensure_planner() (sequential swap,
+never both resident). That whole server/swap mechanism is retired —
+core/planner_loader.py is deleted. There is now exactly one local model
+server, and get_plan()'s local-backend path is a plain HTTP request against
+it with `chat_template_kwargs: {"enable_thinking": true}` to invoke
+Qwen3.5-4B's thinking mode for the planning step, rather than routing to a
+second process. This function does NOT itself trigger a model load (see
+its own comment below) — loading the primary is the daemon watchdog's job
+(core/daemon.py), same as any other request against it. Skipped entirely
+when a remote planner backend (CODEY_BACKEND_P / CODEY_BACKEND) is
+configured — no local server needed either way.
 
 Port assignments:
-  8080 — Qwen2.5-Coder-7B  (agent execution only)
-  8081 — Qwen2.5-1.5B       (planning + summarization)
+  8080 — Qwen3.5-4B          (agent execution AND planning/summarization)
   8082 — nomic-embed-text    (embeddings)
 """
 
@@ -249,7 +255,7 @@ def filter_tool_steps(steps: List[str]) -> List[str]:
     return kept if len(kept) > 1 else steps[:2]  # fallback: keep first two
 
 
-# ── Planning via 1.5B on port 8081 (or remote when CODEY_BACKEND_P is set) ──
+# ── Planning via the primary server (or remote when CODEY_BACKEND_P is set) ─
 
 
 def _get_plan_remote(prompt: str) -> Optional[List[str]]:
@@ -344,9 +350,23 @@ def get_plan(prompt: str) -> Optional[List[str]]:
     """
     Break *prompt* into a numbered plan.
 
-    Uses the local 1.5B on port 8081 by default.
-    When CODEY_BACKEND_P (or CODEY_BACKEND) is a remote backend, routes
-    there instead so the 1.5B server does not need to be running.
+    Uses the local primary Qwen3.5-4B server (port 8080) by default, with
+    thinking mode enabled for the planning request. When CODEY_BACKEND_P
+    (or CODEY_BACKEND) is a remote backend, routes there instead.
+
+    M1-D lifecycle decision (2026-08-23): this function does NOT load or
+    evict any model itself — the pre-M1-D version called
+    core/planner_loader.py's ensure_planner(), which would first evict the
+    primary model to make room for a dedicated planner process. With
+    planning collapsed onto the primary server, there is nothing left to
+    swap: if the primary isn't already resident, this call simply fails to
+    connect (same as any other client hitting a cold server) and returns
+    None below, exactly like the old "planner unavailable" path did.
+    Making a planning request the thing that spawns a 4GB+ model would add
+    a new implicit-load path outside core/resource_gate.py's admission
+    accounting — loading the primary stays the daemon watchdog's job
+    (core/daemon.py) and the CLI's own explicit load path (core/loader_v2.py),
+    not something a planning HTTP call triggers as a side effect.
     """
     try:
         from utils.config import is_remote_planner_backend
@@ -355,25 +375,6 @@ def get_plan(prompt: str) -> Optional[List[str]]:
             return _get_plan_remote(prompt)
     except ImportError:
         pass
-
-    # ── Ensure the local 1.5B planner is loaded (sequential swap) ─────────
-    # Only reached for the local-backend path (remote returns above). This
-    # unloads the primary 7B model first if needed — see
-    # core/planner_loader.py. Any failure (model file missing, spawn
-    # timeout, a cross-process conflict we can't safely resolve) means no
-    # local planner is available right now: return None immediately so the
-    # caller falls back to unplanned single-task execution
-    # (core/daemon.py's existing fallback, ~line 212), rather than making
-    # the HTTP call below against a server that was never started.
-    try:
-        from core.planner_loader import get_planner_loader
-
-        if not get_planner_loader().ensure_planner():
-            print("[plannd] planner model unavailable — falling back to unplanned execution", flush=True)
-            return None
-    except Exception as e:
-        print(f"[plannd] planner load failed: {e}", flush=True)
-        return None
 
     try:
         from utils.config import PLANNER_MAX_TOKENS, PLANNER_TEMPERATURE
@@ -385,11 +386,11 @@ def get_plan(prompt: str) -> Optional[List[str]]:
         max_tokens = 512
 
     try:
-        from utils.config import PLANND_SERVER_PORT
+        from utils.config import PRIMARY_SERVER_PORT
 
-        port = PLANND_SERVER_PORT
+        port = PRIMARY_SERVER_PORT
     except ImportError:
-        port = 8081
+        port = 8080
 
     payload = {
         "model": "plannd",
@@ -400,6 +401,11 @@ def get_plan(prompt: str) -> Optional[List[str]]:
         "max_tokens": max_tokens,
         "temperature": temperature,
         "stream": False,
+        # Qwen3.5-4B thinking mode (core/loader_v2.py's LlamaServer now
+        # spawns with --jinja --reasoning-format deepseek, M1-C) — this is
+        # what actually invokes it for this one request; nothing else here
+        # switches the server's behavior globally.
+        "chat_template_kwargs": {"enable_thinking": True},
     }
 
     url = f"http://127.0.0.1:{port}/v1/chat/completions"
@@ -416,6 +422,15 @@ def get_plan(prompt: str) -> Optional[List[str]]:
             choices = result.get("choices", [])
             if not choices:
                 return None
+            # --reasoning-format deepseek (M1-C) splits thinking-mode output
+            # into message.content (the final answer) and
+            # message.reasoning_content (the <think> trace). Read ONLY
+            # .content here — the numbered plan is the answer, never the
+            # reasoning trace. Unlike _get_plan_remote() above (a different
+            # backend/response shape, untouched by this change), there is
+            # deliberately no reasoning_content fallback: falling back to it
+            # here would let a plan silently come from the model's
+            # scratch-work instead of its actual answer.
             raw = choices[0].get("message", {}).get("content", "").strip()
             if not raw:
                 return None

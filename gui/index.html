@@ -346,7 +346,7 @@
     const displayName = backend !== 'local' ? `${name} · ${backend}` : name;
     const roleLabel   = { agent: '7B', planner: '0.5B', embed: 'EMB' }[id] ?? '';
     return (
-      <div className="pill" title={`Port ${id === 'agent' ? 8080 : id === 'planner' ? 8081 : 8082}`}>
+      <div className="pill" title={`Port ${id === 'embed' ? 8082 : 8080}`}>
         <span className="pill-label">{roleLabel}</span>
         <span className={dotCls} />
         <span>{displayName}</span>

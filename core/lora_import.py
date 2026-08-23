@@ -32,13 +32,14 @@ from utils.logger import info, success, warning
 # `cfg.MODEL_PATH`/`cfg.PLANNER_MODEL_PATH` fresh at the point of use.
 #
 # Also note: the "secondary"/planner branches below read and write
-# `cfg.PLANNER_MODEL_PATH`, NOT `cfg.SECONDARY_MODEL_PATH` — see
-# swap_to_finetuned_model()'s "secondary" branch comment for why: those are
-# two DIFFERENT config names (identical only by coincidence of default
-# value), and core/planner_loader.py's PlannerLoader — the loader that
-# actually spawns the 1.5B server — only ever reads `PLANNER_MODEL_PATH`.
-# Mutating `SECONDARY_MODEL_PATH` alone (the pre-fix behavior) had no effect
-# on what actually got loaded.
+# `cfg.PLANNER_MODEL_PATH`, NOT `cfg.SECONDARY_MODEL_PATH` (removed
+# entirely from utils/config.py, M1-B) — see swap_to_finetuned_model()'s
+# "secondary" branch comment for the current (M1-D, 2026-08-23) state: that
+# branch now ALSO mutates `cfg.MODEL_PATH` and swaps through
+# `core.loader_v2.get_loader()`, the same as the "primary" branch, since
+# core/planner_loader.py (the loader that used to read `PLANNER_MODEL_PATH`
+# on its own, separate 1.5B server) is deleted — "secondary" and "primary"
+# now swap the exact same physical server.
 
 # =============================================================================
 # LoRA Adapter Validation
@@ -327,9 +328,20 @@ def swap_to_finetuned_model(model_path: str, model_variant: str = "primary") -> 
     # For now, we need to update the config to point to new model
     # In a full implementation, this would use the loader's hot-swap
     if model_variant == "primary":
-        # Backup original path (read fresh — see module-level NOTE above)
+        # Backup original paths (read fresh — see module-level NOTE above).
+        # M1-D (2026-08-23): mirrors the "secondary" branch below — both
+        # branches now target the SAME physical server/config value
+        # (cfg.MODEL_PATH), so both must mutate AND roll back
+        # cfg.PLANNER_MODEL_PATH in lockstep too. Leaving PLANNER_MODEL_PATH
+        # unmutated here would let it go stale after a "primary" swap, and
+        # import_lora_adapter()'s secondary branch reads that stale value as
+        # `base_model` for an on-device LoRA merge — the exact class of bug
+        # NEW-84 fixed the first time (a name nothing reads, or a name read
+        # by a DIFFERENT code path than the one that was updated).
         original = cfg.MODEL_PATH
+        original_planner = cfg.PLANNER_MODEL_PATH
         cfg.MODEL_PATH = model_file
+        cfg.PLANNER_MODEL_PATH = model_file
 
         # Reload. core/loader_v2.py:ModelLoader.load_primary() reads
         # cfg.MODEL_PATH fresh (NEW_ISSUES.md NEW-84 fix), so this mutation
@@ -339,8 +351,9 @@ def swap_to_finetuned_model(model_path: str, model_variant: str = "primary") -> 
             success(f"Swapped to fine-tuned primary model: {model_path}")
             return True, f"Swapped to fine-tuned model"
         else:
-            # Rollback
+            # Rollback both, in sync with the mutation above.
             cfg.MODEL_PATH = original
+            cfg.PLANNER_MODEL_PATH = original_planner
             return False, "Failed to load fine-tuned model, rolled back"
 
     else:
@@ -352,25 +365,45 @@ def swap_to_finetuned_model(model_path: str, model_variant: str = "primary") -> 
         #
         # NEW-84 (NEW_ISSUES.md): this branch used to mutate
         # `cfg.SECONDARY_MODEL_PATH`, but core/planner_loader.py's
-        # PlannerLoader.load() has never read that name — it reads
+        # PlannerLoader.load() never read that name — it read
         # `PLANNER_MODEL_PATH` (they're two distinct config keys, only
         # coincidentally identical by default). Mutating
         # SECONDARY_MODEL_PATH alone had zero effect on what actually got
-        # loaded; the fine-tuned file was never used. Fixed to mutate
-        # `cfg.PLANNER_MODEL_PATH`, the name PlannerLoader.load() actually
-        # reads (now freshly, per its own NEW-84 fix).
-        original = cfg.PLANNER_MODEL_PATH
+        # loaded; the fine-tuned file was never used.
+        #
+        # M1-D (2026-08-23), decision recorded here: with
+        # core/planner_loader.py deleted (planning collapsed onto the same
+        # single primary Qwen3.5-4B server the coder uses), there is no
+        # longer a distinct planner loader/process for a "secondary" swap to
+        # target — the NEW-84 fix above (route this branch's load through
+        # PLANNER_MODEL_PATH + PlannerLoader) is itself now dead, not just
+        # its predecessor bug. Rather than leave "secondary" as a
+        # do-nothing/error branch, it's REPURPOSED: a "secondary" swap now
+        # targets the SAME physical server the "primary" branch above does,
+        # via the same `loader` (`core.loader_v2.get_loader()`) and the same
+        # `cfg.MODEL_PATH` — the config value `load_primary()` actually
+        # reads. `cfg.PLANNER_MODEL_PATH` is mutated too, kept in sync
+        # rather than left stale, since other code (this module's own
+        # create_backup_before_import()/rollback_to_backup()) still reads it
+        # as the "planner variant"'s path — but the identical mutation of
+        # `cfg.MODEL_PATH` is what actually makes the swap take effect,
+        # exactly the class of bug NEW-84 fixed the first time (mutating a
+        # name nothing reads has zero effect on what loads). Net effect:
+        # "swap the planner" and "swap the coder" are now literally the same
+        # operation, affecting both roles at once, since they share one
+        # server.
+        original = cfg.MODEL_PATH
+        original_planner = cfg.PLANNER_MODEL_PATH
+        cfg.MODEL_PATH = model_file
         cfg.PLANNER_MODEL_PATH = model_file
 
-        from core.planner_loader import get_planner_loader
-
-        planner = get_planner_loader()
-        planner.unload()
-        if planner.load():
+        loader.unload()
+        if loader.load_primary():
             success(f"Swapped to fine-tuned secondary model: {model_path}")
             return True, f"Swapped to fine-tuned model"
         else:
-            cfg.PLANNER_MODEL_PATH = original
+            cfg.MODEL_PATH = original
+            cfg.PLANNER_MODEL_PATH = original_planner
             return False, "Failed to load fine-tuned model, rolled back"
 
 
@@ -449,25 +482,23 @@ def rollback_to_backup(backup_path: str, model_variant: str) -> Tuple[bool, str]
         # used to call `loader.load_secondary()`, which does not exist on
         # `ModelLoader` (an unconditional `loader.unload()` was also called
         # for BOTH branches, which is itself wrong for the secondary case —
-        # it stopped the primary's server, not the planner's). Fixed to use
-        # the correct existing loader for each variant: `core.loader_v2`'s
-        # `ModelLoader` for "primary", `core.planner_loader`'s
-        # `PlannerLoader` for "secondary" (the same underlying 1.5B model —
-        # see swap_to_finetuned_model()'s matching comment for why, and for
-        # the still-open "loader can't target an arbitrary file" gap this
-        # does not resolve).
-        if model_variant == "primary":
-            from core.loader_v2 import get_loader
+        # it stopped the primary's server, not the planner's). Fixed at the
+        # time to use a distinct `core.planner_loader.PlannerLoader` for
+        # "secondary" (the same underlying 1.5B model — see
+        # swap_to_finetuned_model()'s matching comment for why).
+        #
+        # M1-D (2026-08-23): that PlannerLoader/module no longer exists —
+        # planning collapsed onto the same primary server. Both variants now
+        # reload through the SAME `core.loader_v2.get_loader()`, since
+        # there's only one server left to reload; the "loader can't target
+        # an arbitrary file" gap this never resolved is now moot for the
+        # same reason (there's only one loader, and it already reads
+        # `cfg.MODEL_PATH` fresh).
+        from core.loader_v2 import get_loader
 
-            loader = get_loader()
-            loader.unload()
-            loader.load_primary()
-        else:
-            from core.planner_loader import get_planner_loader
-
-            planner = get_planner_loader()
-            planner.unload()
-            planner.load()
+        loader = get_loader()
+        loader.unload()
+        loader.load_primary()
 
         success("Rolled back to original model")
         return True, "Rolled back successfully"
@@ -492,7 +523,10 @@ def import_lora_adapter(
 
     Args:
         adapter_path: Path to LoRA adapter directory
-        model_variant: "primary" (7B) or "secondary" (1.5B)
+        model_variant: "primary" or "secondary" — both are the SAME
+            Qwen3.5-4B model/server as of M1-D (2026-08-23); "secondary"
+            is kept only as an output-artifact naming distinction (see
+            output_name below), not a functionally different swap target
         quantize: Quantization level
         merge_on_device: Whether to merge on-device (default: expect pre-merged GGUF)
 
@@ -523,12 +557,18 @@ def import_lora_adapter(
         # Full merge on-device (requires llama.cpp, lots of RAM)
         if model_variant == "primary":
             base_model = str(cfg.MODEL_PATH)
-            output_name = "codeyOS-finetuned-7b.gguf"
+            output_name = "codeyOS-finetuned-primary.gguf"
         else:
             # PLANNER_MODEL_PATH, not SECONDARY_MODEL_PATH — see module-level
-            # NOTE at the top of this file (NEW_ISSUES.md NEW-84).
+            # NOTE at the top of this file (NEW_ISSUES.md NEW-84). M1-D
+            # (2026-08-23): base_model resolves to the SAME file as the
+            # "primary" branch above (PLANNER_MODEL_PATH == MODEL_PATH,
+            # both the single Qwen3.5-4B) — output_name is still kept
+            # distinct so a "planner-focused" fine-tune's merged artifact
+            # doesn't silently overwrite a "coder-focused" one on disk;
+            # "-1.5b" is dropped since there is no 1.5B model anymore.
             base_model = str(cfg.PLANNER_MODEL_PATH)
-            output_name = "codeyOS-finetuned-1.5b.gguf"
+            output_name = "codeyOS-finetuned-planner.gguf"
 
         output_path = Path.home() / "models" / "codey-finetuned" / output_name
         output_path.parent.mkdir(parents=True, exist_ok=True)

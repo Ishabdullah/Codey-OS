@@ -4,12 +4,24 @@ core/planner_service.py — unified planning interface.
 Provides a single entry point for task planning that encapsulates the
 fallback hierarchy:
 
-  1. Daemon planner (0.5B or remote) via Unix socket — fast, low overhead.
-  2. Orchestrator plan_tasks (7B recursive_infer) — used when the daemon is
-     unavailable or returns no steps.
+  1. Daemon planner (primary Qwen3.5-4B, thinking mode, or a remote
+     backend) via Unix socket — fast, low overhead.
+  2. Orchestrator plan_tasks (recursive_infer against the same primary
+     model) — used when the daemon is unavailable or returns no steps.
 
 Both main.py and core/agent.py should go through this module so planning
 behaviour is consistent regardless of how the CLI is invoked.
+
+NEW-124 (NEW_ISSUES.md, fixed here): this docstring and the comments below
+used to say the daemon planner is "0.5B or remote" — stale even before
+M1-D, since the model had already been upgraded to a dedicated 1.5B (see
+utils/config.py's own comment history) well before this docstring was
+written. M1-D (2026-08-23) makes it moot either way: the dedicated planner
+process (core/plannd.py's former 1.5B on port 8081, managed by the
+now-deleted core/planner_loader.py) is retired. There is no longer a
+second local model at all — "the daemon planner" now means "the primary
+Qwen3.5-4B server, asked with `chat_template_kwargs: {enable_thinking:
+true}`" (see core/plannd.py:get_plan()), not a separate smaller model.
 """
 
 from utils.logger import info
@@ -20,14 +32,17 @@ def get_plan(prompt: str, no_plan: bool = False, project_context: str = ""):
     Return a step list for *prompt*, or None if planning is skipped/unavailable.
 
     Fallback order:
-      1. Daemon planner (plannd / 0.5B / remote backend).
-      2. Orchestrator plan_tasks (7B recursive).
+      1. Daemon planner (plannd, primary Qwen3.5-4B thinking-mode request,
+         or a remote backend).
+      2. Orchestrator plan_tasks (recursive_infer against the same primary
+         model).
 
     Args:
         prompt:          The user message to plan.
         no_plan:         Skip planning entirely when True.
         project_context: Optional CODEY.md / project summary passed to
-                         plan_tasks when falling back to the 7B planner.
+                         plan_tasks when falling back to the orchestrator
+                         planner.
 
     Returns:
         list[str] of step descriptions, or None.
@@ -70,7 +85,7 @@ def get_plan(prompt: str, no_plan: bool = False, project_context: str = ""):
     if plan:
         return plan
 
-    # ── Attempt 2: in-process 7B orchestrator ────────────────────────────────
+    # ── Attempt 2: in-process orchestrator (primary model) ──────────────────
     try:
         from core.orchestrator import plan_tasks
 
@@ -107,7 +122,7 @@ def _request_daemon_plan(prompt: str):
                 )
                 info(f"Requesting plan from {CODEY_PLANNER_BACKEND} planner ({pm})...")
             else:
-                info("Requesting plan from 0.5B planner...")
+                info("Requesting plan from local planner (primary model, thinking mode)...")
         except Exception:
             info("Requesting plan from planner...")
 

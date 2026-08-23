@@ -216,42 +216,51 @@ def test_estimate_model_load_cost_applies_mmap_fraction_from_path(tmp_path):
 
 
 def test_known_model_archs_resolved_by_path():
-    from utils.config import MODEL_PATH, PLANNER_MODEL_PATH
+    from utils.config import MODEL_PATH
 
-    # Both roles resolve to the one Qwen3.5-4B arch as of the 2026-08-22
-    # one-model decision; what this test pins is that resolution happens by
-    # model_id and not by the path (NEW-84), not which model is default.
+    # Resolves to the one Qwen3.5-4B arch as of the 2026-08-22 one-model
+    # decision; what this test pins is that resolution happens by model_id
+    # and not by the path (NEW-84), not which model is default.
     spec = rg.ModelSpec(model_id="primary", path=MODEL_PATH, size_bytes=1, n_ctx=1024)
     assert rg._resolve_model_arch(spec) is rg.QWEN35_4B_ARCH
 
-    spec2 = rg.ModelSpec(model_id="planner", path=PLANNER_MODEL_PATH, size_bytes=1, n_ctx=1024)
-    assert rg._resolve_model_arch(spec2) is rg.QWEN35_4B_ARCH
+    # M1-D (2026-08-23): a "planner" model_id used to resolve here too (it
+    # shared this same QWEN35_4B_ARCH entry even before M1-D, since the
+    # planner already pointed at the same model file). That KNOWN_MODEL_ARCHS
+    # entry is removed along with core/planner_loader.py — nothing
+    # constructs a ModelSpec with model_id="planner" anymore, so there is no
+    # longer a second role to pin here; see
+    # test_resource_gate_unknown_model_id_still_omits_kv_term's sibling in
+    # tests/test_new84_stale_model_path.py for confirmation that an
+    # unrecognized model_id (which "planner" now is) still degrades safely.
 
 
-# ── CODEY_TEST_PRIMARY_ARCH / CODEY_TEST_PLANNER_ARCH override ──────────────
+# ── CODEY_TEST_PRIMARY_ARCH override ────────────────────────────────────────
 # Env-var-gated architecture substitution for a documented live-test session
-# (swapping smaller models in via CODEY_MODEL/CODEY_PLANNER_MODEL for
-# RAM-safe on-device gate/loader/daemon verification — see
-# core/resource_gate.py's "Test-only architecture substitutes" section).
+# (swapping a smaller model in via CODEY_MODEL for RAM-safe on-device
+# gate/loader/daemon verification — see core/resource_gate.py's "Test-only
+# architecture substitute" section).
+#
+# M1-D (2026-08-23): a matching CODEY_TEST_PLANNER_ARCH override (and the
+# "planner"-role KNOWN_MODEL_ARCHS entry / QWEN25_0_5B_PLANNER_ARCH it
+# selected) is removed along with core/planner_loader.py — nothing
+# constructs a ModelSpec with model_id="planner" anymore, so that whole
+# per-role substitution path, and every test below that exercised it, is
+# removed rather than adapted. Only "primary" remains.
 
 
 def test_test_arch_override_unset_matches_current_default_behavior(monkeypatch):
-    # Regression: with both env vars unset (the default, normal case),
+    # Regression: with the env var unset (the default, normal case),
     # resolution must be byte-for-byte identical to today — including the
     # object identity the pre-existing test above already pins.
     monkeypatch.delenv(rg.CODEY_TEST_PRIMARY_ARCH_ENV, raising=False)
-    monkeypatch.delenv(rg.CODEY_TEST_PLANNER_ARCH_ENV, raising=False)
 
     spec = rg.ModelSpec(model_id="primary", size_bytes=1, n_ctx=1024)
     assert rg._resolve_model_arch(spec) is rg.QWEN35_4B_ARCH
 
-    spec2 = rg.ModelSpec(model_id="planner", size_bytes=1, n_ctx=1024)
-    assert rg._resolve_model_arch(spec2) is rg.QWEN35_4B_ARCH
-
-    # KNOWN_MODEL_ARCHS's committed default entries themselves are untouched
-    # (this mechanism is a lookup-time override, never a mutation of the dict).
+    # KNOWN_MODEL_ARCHS's committed default entry itself is untouched (this
+    # mechanism is a lookup-time override, never a mutation of the dict).
     assert rg.KNOWN_MODEL_ARCHS["primary"] is rg.QWEN35_4B_ARCH
-    assert rg.KNOWN_MODEL_ARCHS["planner"] is rg.QWEN35_4B_ARCH
 
 
 def test_test_arch_override_primary_set_selects_qwen3_4b(monkeypatch):
@@ -259,7 +268,6 @@ def test_test_arch_override_primary_set_selects_qwen3_4b(monkeypatch):
     # which is a different architecture from the qwen35 default — see that
     # constant's comment.
     monkeypatch.setenv(rg.CODEY_TEST_PRIMARY_ARCH_ENV, "qwen3-4b")
-    monkeypatch.delenv(rg.CODEY_TEST_PLANNER_ARCH_ENV, raising=False)
 
     spec = rg.ModelSpec(model_id="primary", size_bytes=1, n_ctx=1024)
     assert rg._resolve_model_arch(spec) is rg.QWEN3_4B_TEST_ARCH
@@ -268,15 +276,6 @@ def test_test_arch_override_primary_set_selects_qwen3_4b(monkeypatch):
     # while the override is active — this is a lookup-time override, not a
     # mutation, so nothing else reading the dict directly is affected.
     assert rg.KNOWN_MODEL_ARCHS["primary"] is rg.QWEN35_4B_ARCH
-
-
-def test_test_arch_override_planner_set_selects_qwen25_0_5b(monkeypatch):
-    monkeypatch.delenv(rg.CODEY_TEST_PRIMARY_ARCH_ENV, raising=False)
-    monkeypatch.setenv(rg.CODEY_TEST_PLANNER_ARCH_ENV, "qwen2.5-0.5b-planner")
-
-    spec = rg.ModelSpec(model_id="planner", size_bytes=1, n_ctx=1024)
-    assert rg._resolve_model_arch(spec) is rg.QWEN25_0_5B_PLANNER_ARCH
-    assert rg.KNOWN_MODEL_ARCHS["planner"] is rg.QWEN35_4B_ARCH
 
 
 def test_test_arch_override_does_not_preempt_explicit_spec_arch(monkeypatch):
@@ -288,11 +287,11 @@ def test_test_arch_override_does_not_preempt_explicit_spec_arch(monkeypatch):
     assert rg._resolve_model_arch(spec) is rg.QWEN25_7B_ARCH
 
 
-def test_test_arch_override_scoped_to_primary_and_planner_only(monkeypatch):
+def test_test_arch_override_scoped_to_primary_only(monkeypatch):
     # Same "primary-7b" model_id used by the NEW-21 regression fixtures below
-    # (not the bare "primary"/"planner" role identifiers) must be unaffected
-    # by the override, WITHOUT an explicit spec.arch short-circuiting the
-    # check (an explicit arch would resolve at the earlier branch in
+    # (not the bare "primary" role identifier) must be unaffected by the
+    # override, WITHOUT an explicit spec.arch short-circuiting the check (an
+    # explicit arch would resolve at the earlier branch in
     # _resolve_model_arch() regardless of scoping, so it wouldn't actually
     # exercise/discriminate this env-var-scoping behavior at all) —
     # otherwise there's no way to distinguish "the override works" from "the
@@ -307,24 +306,6 @@ def test_test_arch_override_invalid_value_raises_valueerror(monkeypatch):
     spec = rg.ModelSpec(model_id="primary", size_bytes=1, n_ctx=1024)
     with pytest.raises(ValueError):
         rg._resolve_model_arch(spec)
-
-
-def test_test_arch_override_cross_role_value_rejected(monkeypatch):
-    # A value that's valid for the OTHER role's env var (e.g. the planner
-    # substitute's key used for CODEY_TEST_PRIMARY_ARCH) must be rejected
-    # loudly, not silently accepted — a flat, role-agnostic registry would
-    # have let this through and produced a WORSE under-estimate (0.5B arch
-    # used for the primary/7B slot) than the bug this feature exists to fix.
-    monkeypatch.setenv(rg.CODEY_TEST_PRIMARY_ARCH_ENV, "qwen2.5-0.5b-planner")
-    spec = rg.ModelSpec(model_id="primary", size_bytes=1, n_ctx=1024)
-    with pytest.raises(ValueError):
-        rg._resolve_model_arch(spec)
-
-    monkeypatch.delenv(rg.CODEY_TEST_PRIMARY_ARCH_ENV, raising=False)
-    monkeypatch.setenv(rg.CODEY_TEST_PLANNER_ARCH_ENV, "qwen3-4b")
-    spec2 = rg.ModelSpec(model_id="planner", size_bytes=1, n_ctx=1024)
-    with pytest.raises(ValueError):
-        rg._resolve_model_arch(spec2)
 
 
 def test_test_arch_override_invalid_value_propagates_through_can_admit(monkeypatch):
@@ -358,9 +339,11 @@ def test_qwen3_4b_test_arch_kv_estimate_is_larger_than_the_default_primary():
     assert qwen3_4b_kv == expected
 
 
-def test_qwen25_0_5b_planner_arch_kv_estimate():
-    expected = 24 * 2 * 2 * 64 * 4096 * 2
-    assert rg.estimate_kv_cache_bytes(rg.QWEN25_0_5B_PLANNER_ARCH, n_ctx=4096) == expected
+# M1-D (2026-08-23): a test_qwen25_0_5b_planner_arch_kv_estimate test used
+# to sit here, pinning QWEN25_0_5B_PLANNER_ARCH's KV-cache arithmetic — that
+# constant is removed along with the "planner"-role test-arch substitution
+# mechanism above, so this test is removed rather than kept against a
+# deleted constant.
 
 
 # ── NEW-21 regression: real numbers, correctly-computed cost estimate ───────
