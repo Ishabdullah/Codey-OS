@@ -720,6 +720,83 @@ scoped to what it actually proved.
     not a status this round can reach, the same framing §4.2 already
     applies to M1-A.
 
+- **M1-E (live verification) — DONE 2026-08-23, fully live-verified on
+  real device via `main.py --no-resume`** (chosen deliberately over the
+  full `codey-start` because the daemon+GUI would have consumed headroom
+  this device didn't have to spare that session — but it routes through
+  the identical `core/loader_v2.py:_spawn_locked()` code path, so the
+  migration's own spawn logic was genuinely exercised, not bypassed).
+  Three load/unload cycles, each PID individually tracked and killed
+  (never `pkill -f` by pattern), confirmed fully unloaded between and
+  after (`ps aux | grep llama-server` clean). `free -h` baseline: 5.3Gi
+  available before, 6.7Gi available after, all three cycles complete.
+  - **`NEW-157` CLOSED with measurement.** Real RSS across three
+    independent spawns clustered 2-10% above M1-A's point estimate of
+    5,209,547,936 bytes (4.8518GiB at `n_ctx=65536`): 5.19GiB, 5.1645GiB,
+    5.3431GiB, 4.9476GiB — all comfortably inside the ×1.25 headroom
+    factor (6.065GiB required vs. ~4.95-5.34GiB actual peak). The hybrid
+    fix (8 attention layers, not the old all-32-attend formula) is
+    confirmed directionally and quantitatively correct — nowhere near the
+    ~4x error the pre-fix formula would have produced.
+  - **`NEW-158` CLOSED.** `--reasoning-format deepseek` genuinely splits
+    `message.content` from `message.reasoning_content` in real server
+    responses, confirmed via a real thinking-mode request — not a no-op.
+    `parse_steps()` correctly reads `.content` only.
+  - **`NEW-160` CLOSED (upgraded from Suspected).** The real 7,816-char
+    `tokenizer.chat_template` was extracted from the live GGUF and
+    rendered with real jinja2 against a plain-text message with both
+    `enable_thinking=False` and `True` — no vision-namespace tokens
+    leaked into rendered output for either case. A real coding-path
+    inference request in the same session independently confirmed clean
+    output with no role-framing corruption. The vision branches are
+    confirmed inert for text-only requests.
+  - **`NEW-162` CLOSED with a caveat.** A true A/B (flags present vs.
+    absent) wasn't feasible without a code change, since
+    `--jinja`/`--reasoning-format` are hardcoded in `_spawn_locked()`,
+    not env-toggleable, so the strict "off vs. on" comparison from the
+    original bug report's framing was never run. Response-shape evidence
+    with flags present shows the mechanism working correctly
+    (`reasoning_content` genuinely separate from `content` under
+    `enable_thinking: true`) — enough to say the flags demonstrably do
+    something, which is the question this finding actually turned on.
+  - **Flash-attention activity — LEFT OPEN, not confirmed either way.**
+    No positive confirmation was found that `--flash-attn on` is actually
+    active vs. silently falling back — the specific llama.cpp log line
+    that would confirm it never appeared at this build's default log
+    verbosity. Needs a higher-verbosity spawn or a different check; not
+    glossed over as "probably fine."
+  - **Two new findings from this live session — `NEW-164` and `NEW-165`
+    (see `NEW_ISSUES.md`), both open, neither fixed this round.**
+    `NEW-164`: `PLANNER_MAX_TOKENS=1024` is confirmed, live, too small —
+    a real thinking-mode planning request spent its entire budget on the
+    reasoning trace and returned `content: ""`, so `get_plan()` silently
+    returned `None`. Planning silently degrades to unplanned execution.
+    This is a real, currently-live production defect, not a theoretical
+    risk. `NEW-165`: `get_plan()`'s hardcoded `timeout=60` is shorter
+    than this device's real prompt-processing time for the planner's
+    prompt (~2,425 tokens takes over 60s to prefill alone at ~23-26 t/s)
+    — a request can be cancelled server-side before generation even
+    starts, an independent failure mode that fires *before* `NEW-164`'s
+    scenario even gets a chance to manifest. **Recommendation: bundle
+    NEW-164+NEW-165 into one fix task (found together, same function,
+    same live session) and run it BEFORE M1-F/M1-G** — planning is
+    currently broken on real prompts, a more urgent problem than either
+    of those two follow-on sub-tasks.
+  - **Real latency data captured (§8 Q8's cost question, reference
+    data):** non-thinking coding requests: 177.9s for 124 tokens
+    (7.0 t/s), 135.7s for 578 tokens (5.7 t/s). Thinking-mode planning
+    request: 315.16s total (104.86s prompt processing at 23.13 t/s +
+    210.2s generation at 4.87 t/s) for 1024 tokens that never reached an
+    answer. Thinking mode is markedly slower per generated token and, per
+    `NEW-164`, can burn its whole budget with nothing to show for it.
+  - **What M1-E does NOT settle:** `NEW-137`, `NEW-140` scenario 3,
+    `NEW-141`, `NEW-143` (§4.3) still need their own re-check against
+    these live numbers before closing — this entry records M1-E's own
+    findings, not a blanket close of every item that was "pending M1-E."
+    M1-F (constants re-derivation) and M1-G (prompt re-check) have not
+    run. The round as a whole is not "M1 fully live-verified" until the
+    `NEW-164`/`NEW-165` fix and M1-F/M1-G also land.
+
 ### 4.3 The one honest platform gap — largely dissolved by §1.4
 
 **As it stood on 2026-08-21:** concurrent primary + planner at
@@ -1191,24 +1268,44 @@ look like config edits.
   that they are genuinely gone rather than moved. Keep the gate's
   `"planner"` slot accounting honest: with no planner process, those
   registrations should disappear, not linger (`NEW-100`, `NEW-101`).
-- **M1-E — live verification** (rule 2 discipline throughout: `free -h`
-  before and after, one cycle at a time, PID-tracked teardown, never
-  `pkill -f`). Confirm: the model loads through the gate at the chosen
-  `n_ctx` with the real byte figures recorded; a real inference request
-  returns coherent output; a thinking-mode request actually produces a
-  reasoning block and a usable plan; **measure the real resident cost and
-  compare it against M1-A's estimate** — that comparison is what answers
-  the `full_attention_interval` question (`NEW-157`) with data instead of
-  arithmetic. Record wall-clock latency for both thinking and
-  non-thinking requests: thinking mode spends tokens, and the planning
-  path's cost is now a real product consideration (§8 Q8).
-  **Also record whether `--flash-attn on` is actually active for
-  `qwen35`** — that flag is already in the spawn command, and llama.cpp
-  falls back silently when a kernel doesn't support a given
-  configuration. Flash attention + hybrid attention + a 256-wide head dim
-  is a combination this build has never run on this device. If it falls
-  back, both the latency figures and the KV-cost measurement change
-  meaning, so capture it rather than inferring it from the command line.
+- **M1-E — live verification.** **DONE 2026-08-23 — fully live-verified**
+  on real device via `main.py --no-resume` (deliberately not the full
+  `codey-start`, since daemon+GUI would have consumed headroom this
+  device didn't have to spare that session — but it routes through the
+  identical `core/loader_v2.py:_spawn_locked()` code path, so the
+  migration's own spawn logic was genuinely exercised). Rule 2 discipline
+  followed: `free -h` recorded before (5.3Gi available) and after
+  (6.7Gi available), three load/unload cycles, each PID individually
+  tracked and killed (never `pkill -f`), confirmed fully unloaded between
+  and after each (`ps aux | grep llama-server` clean).
+  Real RSS across three spawns at `n_ctx=65536`: 5.19GiB, 5.1645GiB,
+  5.3431GiB, 4.9476GiB — 2-10% above M1-A's 4.8518GiB estimate, well
+  inside the ×1.25 headroom factor. **Closes `NEW-157`** with
+  measurement — the hybrid-arch fix is confirmed directionally and
+  quantitatively correct. A real non-thinking inference request returned
+  coherent output (177.9s/124 tok, 135.7s/578 tok). A real thinking-mode
+  planning request confirmed `reasoning_content` genuinely splits from
+  `content` in the response — **closes `NEW-158` and `NEW-162`** (the
+  latter with a caveat: no code-level A/B of flags-present-vs-absent was
+  feasible since the flags are hardcoded, not env-toggleable, but the
+  response-shape evidence is enough to confirm the flags are not no-ops).
+  A real jinja2 render of the actual 7,816-char chat template against
+  both `enable_thinking` states, plus a real coding-path request, showed
+  no vision-namespace leakage — **closes `NEW-160`** (upgraded from
+  Suspected to Confirmed-and-closed). **Left open, not confirmed either
+  way:** whether `--flash-attn on` is actually active — the confirming
+  llama.cpp log line never appeared at this build's default log
+  verbosity; needs a higher-verbosity spawn or a different check.
+  **Two new live findings, `NEW-164` and `NEW-165`** (see
+  `NEW_ISSUES.md`): `PLANNER_MAX_TOKENS=1024` is confirmed too small for
+  real thinking-mode reasoning on this device (the trace alone consumed
+  the full budget on a real request, returning empty `content`, silently
+  degrading planning to unplanned execution); and `get_plan()`'s
+  hardcoded `timeout=60` is shorter than this device's real
+  prompt-processing time for the planner's prompt, an independent and
+  earlier-firing failure mode. Both open, unfixed, recommended as one
+  bundled fix task run **before** M1-F/M1-G (see §4.2 for the full
+  writeup and the reasoning for that ordering).
 - **M1-G — prompts: re-check, don't pre-emptively rewrite.** Ish's own
   framing was "maybe we have to adjust our system prompts maybe not," and
   that is the right posture — this is a measurement question, not a
@@ -1704,11 +1801,39 @@ pass **also covers the two previously-unreviewed diffs** from §4.4.
       per `NEW-159`'s own disposition note. Surfaced a new pre-existing
       bug while fixing the lora_import swap-symmetry issue, logged as
       `NEW-163` (open/Suspected, out of scope to fix here).
-- [ ] **M1-E** — live verification: gate admission with real byte
-      figures, a real inference request, a real thinking-mode planning
-      request, measured resident cost vs. M1-A's estimate (this is what
-      answers `NEW-157`), and latency for both modes. Rule 2 discipline
-      throughout.
+- [x] **M1-E** — **DONE 2026-08-23, fully live-verified** on real device
+      via `main.py --no-resume` (same `_spawn_locked()` code path as
+      `codey-start`). Real RSS at `n_ctx=65536` across three cycles:
+      5.19GiB, 5.1645GiB, 5.3431GiB, 4.9476GiB, all within the ×1.25
+      headroom factor of M1-A's 4.8518GiB estimate — **closes `NEW-157`**
+      with measurement. A real thinking-mode request confirmed
+      `reasoning_content`/`content` genuinely split — **closes `NEW-158`
+      and `NEW-162`** (latter with a no-code-level-A/B caveat, see §4.2).
+      A real jinja2 render of the actual chat template plus a real
+      coding-path request confirmed no vision-namespace leakage —
+      **closes `NEW-160`**. Flash-attention activity for `qwen35` stays
+      **unconfirmed** (the confirming log line never appeared at this
+      build's default verbosity) — left open, not glossed over. Rule 2
+      discipline followed throughout: `free -h` before/after, PID-tracked
+      teardown, never `pkill -f`. Full findings and real latency numbers
+      in §4.2. Surfaced two new live findings, **`NEW-164`** (planner
+      token budget too small for real thinking-mode reasoning) and
+      **`NEW-165`** (planner HTTP timeout shorter than real
+      prompt-processing time) — both open, unfixed, see below.
+- [ ] **M1-E-fix** — **new, unplanned, inserted here because it's more
+      urgent than the items after it (planning is currently broken on
+      real prompts).** Slotted between M1-E and M1-F/M1-G as a lettered
+      addendum rather than renumbering the sequence, since M1-F and M1-G
+      are still correctly ordered relative to each other and to this new
+      item — this just needs to run first. Bundles `NEW-164` and
+      `NEW-165` (found together, same live session, same function,
+      `core/plannd.py:get_plan()`): raise `PLANNER_MAX_TOKENS` and/or
+      budget the reasoning trace separately from the answer and/or
+      surface a loud warning on empty `content` after a thinking-mode
+      request (`NEW-164`); raise or make configurable the hardcoded
+      `timeout=60` so it comfortably exceeds this device's real
+      prompt-processing time for the planner's actual prompt size
+      (`NEW-165`). Not started.
 - [ ] **M1-G** — re-check prompts against the new model: re-run
       `system_prompt.py`'s existing A/B fixtures before editing it;
       revisit `PLANNER_PROMPT`'s size and worked examples (`NEW-50`) once

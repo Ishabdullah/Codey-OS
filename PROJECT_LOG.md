@@ -12,7 +12,110 @@ and Appendix A.
 
 ---
 
-## 2026-08-23 (latest) — M1-B + M1-C + M1-D: config repoint, spawn flags, planner-server collapse (CODE COMPLETE, code-reviewer-APPROVED across two passes, landed as `841ef2e`, no live component)
+## 2026-08-23 (latest) — M1-E: live verification of the Qwen3.5-4B migration (FULLY LIVE-VERIFIED on real device; `NEW-157`/`NEW-158`/`NEW-160`/`NEW-162` closed; `NEW-164`/`NEW-165` newly found and open)
+
+**Status, stated precisely (rule 7): fully live-verified**, on real
+device, via `main.py --no-resume` — deliberately not the full
+`codey-start`, because the daemon+GUI would have consumed headroom this
+device didn't have to spare that session, but the run routes through the
+identical `core/loader_v2.py:_spawn_locked()` code path, so the
+migration's own spawn logic was genuinely exercised, not bypassed. Rule 2
+discipline followed throughout: `free -h` recorded before (5.3Gi
+available) and after (6.7Gi available); three load/unload cycles, each
+PID individually tracked and killed (never `pkill -f` by pattern),
+confirmed fully unloaded between and after each cycle (`ps aux | grep
+llama-server` clean).
+
+**`NEW-157` CLOSED with measurement.** Real RSS across three independent
+spawns at `n_ctx=65536` clustered 2-10% above M1-A's point estimate of
+5,209,547,936 bytes (4.8518GiB): 5.19GiB, 5.1645GiB, 5.3431GiB,
+4.9476GiB. All four are comfortably inside the ×1.25 headroom factor
+(6.065GiB required vs. ~4.95-5.34GiB actual peak) — not an
+admission-safety problem, a legitimate future refinement of the flat
+overhead constant if ever wanted. The hybrid-arch fix (8 attention layers
+vs. the pre-fix all-32-attend formula) is confirmed directionally and
+quantitatively correct — nowhere near the ~4x error the old formula would
+have produced.
+
+**`NEW-158` CLOSED.** `--reasoning-format deepseek` (M1-C) genuinely
+splits `message.content` from `message.reasoning_content` in real server
+responses, confirmed via a real thinking-mode request — not a no-op.
+`parse_steps()` correctly reads `.content` only.
+
+**`NEW-160` CLOSED, upgraded from Suspected to Confirmed-and-closed.**
+The actual 7,816-char `tokenizer.chat_template` was extracted from the
+live GGUF and rendered with real jinja2 against a plain-text message with
+both `enable_thinking=False` and `True` — no vision-namespace tokens
+(`image_count`/`video_count`) leaked into rendered output for either
+case. A real coding-path inference request in the same session
+independently confirmed clean output with no role-framing corruption.
+The vision branches are confirmed inert for text-only requests.
+
+**`NEW-162` CLOSED, with a caveat.** A true A/B (flags present vs.
+absent) wasn't feasible without a code change, since
+`--jinja`/`--reasoning-format` are hardcoded in `_spawn_locked()`, not
+env-toggleable — the strict "off vs. on" comparison from the original bug
+report's framing was never run. Response-shape evidence with flags
+present shows the mechanism working correctly: `reasoning_content`
+genuinely appears separate from `content` when `enable_thinking: true` is
+set. That is enough to confirm the flags demonstrably do something —
+they are not no-ops — which is the question this finding actually turned
+on.
+
+**Left open, not confirmed either way: flash-attention activity.** No
+positive confirmation was found that `--flash-attn on` is actually active
+for `qwen35` vs. silently falling back — the specific llama.cpp log line
+that would confirm it never appeared at this build's default log
+verbosity. Recorded honestly as unresolved, needing a higher-verbosity
+spawn or a different check, not glossed over as "probably fine."
+
+**Two new findings from this live session, logged as `NEW-164` and
+`NEW-165` in `NEW_ISSUES.md` — both open, unfixed.** `NEW-164`:
+`PLANNER_MAX_TOKENS=1024` is confirmed, live, too small — a real
+thinking-mode planning request (the real `PLANNER_PROMPT`, 2,425 prompt
+tokens) spent its entire 1024-token budget on the reasoning trace and
+returned `content: ""`, so `get_plan()` silently returned `None`.
+Planning silently degrades to unplanned execution with no visible error —
+a real, currently-live production defect, not a theoretical risk.
+`NEW-165`: `core/plannd.py:get_plan()`'s hardcoded `timeout=60` is
+shorter than this device's real prompt-processing time for the planner's
+prompt (~2,425 tokens takes over 60s to prefill alone at ~23-26 t/s) — a
+request can be cancelled server-side before generation even starts, an
+independent failure mode that fires *before* `NEW-164`'s scenario even
+gets a chance to manifest. **Recommendation: bundle `NEW-164`+`NEW-165`
+into one fix task (found together, same function, same live session) and
+run it BEFORE M1-F/M1-G** — planning is currently broken on real prompts,
+a more urgent problem than either of those two follow-on sub-tasks. Slot
+this into the plan as **M1-E-fix**, inserted between M1-E and M1-F/M1-G
+without renumbering the rest of the sequence.
+
+**Real latency data captured (§8 Q8's cost question, reference data).**
+Non-thinking coding requests: 177.9s for 124 tokens (7.0 t/s), 135.7s for
+578 tokens (5.7 t/s). Thinking-mode planning request: 315.16s total
+(104.86s prompt processing at 23.13 t/s + 210.2s generation at 4.87 t/s)
+for 1024 tokens that never reached an answer. Thinking mode is markedly
+slower per generated token and, per `NEW-164`, can burn its whole budget
+with nothing to show for it.
+
+**What this round does NOT settle, stated plainly.** `NEW-137`, `NEW-140`
+scenario 3, `NEW-141`, `NEW-143` (§4.3 of the master plan) were code-read
+confirmed by M1-D but still need their own re-check against these live
+numbers before closing — this round's findings do not blanket-close every
+item that was "pending M1-E." M1-F (constants re-derivation) and M1-G
+(prompt re-check) have not run. **The round as a whole is not "M1 fully
+live-verified"** until the `NEW-164`/`NEW-165` fix and M1-F/M1-G also
+land — M1-E itself, specifically, is fully live-verified.
+
+Master plan updated: §4.2 (new M1-E entry with full findings), §6.2
+(M1-E bullet flipped to DONE), Appendix A (M1-E checkbox flipped, new
+**M1-E-fix** item inserted before M1-F). `NEW_ISSUES.md` updated: `NEW-157`,
+`NEW-158`, `NEW-160`, `NEW-162` each carry a `Status: CLOSED, 2026-08-23`
+note per the existing closure convention; `NEW-164`/`NEW-165` were
+already logged this session and are left open/unfixed, as they should be.
+
+---
+
+## 2026-08-23 — M1-B + M1-C + M1-D: config repoint, spawn flags, planner-server collapse (CODE COMPLETE, code-reviewer-APPROVED across two passes, landed as `841ef2e`, no live component)
 
 **Status, stated precisely (rule 7): code-complete and code-reviewer-
 approved. NOT committed as of this writing — `git status` shows the full

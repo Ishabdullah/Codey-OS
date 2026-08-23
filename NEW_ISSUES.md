@@ -97,6 +97,17 @@ them, not by issue number — search for `[NEW-nnn]` rather than scrolling.
 - **Addressed 2026-08-22 by M1-A (code-complete; first review returned
   REJECT on the SSM constant above, corrected, re-review pending; no
   live component). Not closed until that re-review approves.**
+- **Status: CLOSED, 2026-08-23 — resolved with real measurement, M1-E.**
+  Three independent live spawns of the real model at `n_ctx=65536`
+  clustered 2-10% above M1-A's point estimate of 5,209,547,936 bytes
+  (4.8518GiB): real RSS readings were 5.19GiB, 5.1645GiB, 5.3431GiB, and
+  4.9476GiB. All four are comfortably inside the ×1.25 headroom factor
+  (6.065GiB required vs. ~4.95-5.34GiB actual peak) — this is a legitimate
+  future refinement of the flat overhead constant if ever wanted, not an
+  admission-safety problem. The hybrid-arch fix itself (8 attention layers
+  vs. the pre-fix all-32-attend formula) is confirmed directionally and
+  quantitatively correct by this measurement — nowhere near the ~4x error
+  the old formula would have produced.
 
 ### [NEW-158] `core/loader_v2.py`'s spawn command never passes `--jinja`, so the GGUF chat template — and therefore Qwen3.5-4B's `enable_thinking` switch — is inert
 
@@ -133,6 +144,12 @@ them, not by issue number — search for `[NEW-nnn]` rather than scrolling.
   output, and re-verify the non-thinking coding path against the template
   change before trusting it.
 - **Not fixed this round.**
+- **Status: CLOSED, 2026-08-23 — resolved live, M1-E.** A real
+  thinking-mode request against the live server confirmed
+  `--reasoning-format deepseek` genuinely splits `message.content` from
+  `message.reasoning_content` in the actual HTTP response — not a no-op.
+  `parse_steps()` correctly reads `.content` only. The thinking switch is
+  live and functioning as designed.
 
 
 ### [NEW-159] Disposition note, 2026-08-22: five open findings are PENDING CLOSURE on the one-model decision, but none are closed yet — and `NEW-142` must not be closed this way at all
@@ -220,6 +237,15 @@ Cross-references: `NEW-156` (constants derived from the retired models),
   and it has already been read; what has not been read is what
   `llama-server` does with it.
 - **Not fixed this round** — logged during M1-A scoping, belongs to M1-C.
+- **Status: CLOSED, 2026-08-23 — resolved live, M1-E.** The actual
+  7,816-char `tokenizer.chat_template` was extracted from the live GGUF
+  and rendered with real jinja2 against a plain-text message with both
+  `enable_thinking=False` and `enable_thinking=True` — no
+  vision-namespace tokens (`image_count`/`video_count`) leaked into
+  rendered output for either case. A real coding-path inference request
+  in the same session independently confirmed clean output with no
+  role-framing corruption. The vision branches are confirmed inert for
+  text-only requests.
 
 
 ### [NEW-161] Interim state after M1-A alone: `model_id="primary"` resolves to Qwen3.5-4B's hybrid arch while `MODEL_PATH` still points at the Qwen2.5-Coder-7B file, so the gate under-estimates a 7B load's KV cache by 768MiB — in the unsafe direction
@@ -8305,6 +8331,18 @@ finding for the same bug. See `NEW-39`.)*
 - **Not fixed this round** — logged during M1-B/C/D scoping, resolution
   belongs to M1-C's live-verification step (folds into M1-E under this
   round's plan).
+- **Status: CLOSED, 2026-08-23, with a caveat — resolved as far as this
+  round can, M1-E.** A true A/B (flags present vs. absent) was not
+  feasible without a code change, since `--jinja`/`--reasoning-format` are
+  hardcoded in `_spawn_locked()`, not env-toggleable — the strict
+  "off vs. on" comparison from this finding's original framing was never
+  run. What *was* run is response-shape evidence with the flags present:
+  `reasoning_content` genuinely appears separate from `content` when
+  `enable_thinking: true` is set (same evidence that closes `NEW-158`).
+  That is enough to say the flags demonstrably do something — they are
+  not no-ops — which is the question this finding actually turned on.
+  Closing on that basis rather than leaving it open for an A/B this round
+  has no way to run.
 
 ### [NEW-163] `core/lora_import.py`'s `rollback_to_backup()` copies the saved backup weights onto whatever `cfg.MODEL_PATH` currently names — after a swap, that name is the fine-tuned file's path, so a rollback writes base weights into the fine-tuned file's name rather than restoring the original base file
 - **Found by:** the implementer fixing `NEW-161`'s sibling asymmetry bug
@@ -8338,3 +8376,83 @@ finding for the same bug. See `NEW-39`.)*
   fix, which only addressed the `MODEL_PATH`/`PLANNER_MODEL_PATH` config
   sync asymmetry, not this separate on-disk file-identity issue. Needs
   its own scoped task.
+
+### [NEW-164] `core/plannd.py`'s `get_plan()` (local backend, thinking-mode path): `PLANNER_MAX_TOKENS=1024` is confirmed too small for real thinking-mode reasoning on this device — the trace alone consumes the whole budget, `message.content` comes back empty, and planning silently degrades to unplanned execution with no visible error
+- **Status: Confirmed** — live-reproduced during M1-E (2026-08-23), not
+  a theoretical risk. `core/plannd.py` line ~427's comment area is where
+  the request is built with `chat_template_kwargs: {"enable_thinking":
+  true}` and `max_tokens=PLANNER_MAX_TOKENS`.
+- **Reproduction, verbatim from the live session:** the real
+  `PLANNER_PROMPT` (9,786 chars, 2,425 prompt tokens) sent with
+  `enable_thinking: true` and `max_tokens=1024` returned:
+  ```json
+  "finish_reason": "length",
+  "message": {
+      "content": "",
+      "reasoning_content": "The user wants me to: ... [4632 chars, never
+        reaches an answer]"
+  },
+  "usage": {"completion_tokens": 1024, "prompt_tokens": 2425}
+  ```
+  Server log confirms `n_decoded = 1024` at release — generation stopped
+  only because it hit `max_tokens`, never a natural stop token. This is
+  not a parsing bug: `parse_steps("")` correctly returns `[]`, and
+  `get_plan()` correctly returns `None` on an empty answer. The defect is
+  upstream — the budget itself is wrong for this model's real reasoning
+  verbosity on this device's real prompts.
+- **Mechanism:** `--reasoning-format deepseek` (M1-C) correctly splits
+  `<think>` content into `reasoning_content`, separate from `content` —
+  confirmed working exactly as designed (this resolves `NEW-158`/
+  `NEW-162`'s mechanical question). But `max_tokens` caps *total*
+  generated tokens, reasoning included. A 1024-token ceiling, sized
+  originally for the retired 1.5B model with no thinking mode at all, is
+  the wrong number for a model that now spends a variable, sometimes
+  large, fraction of its budget on a reasoning trace before ever writing
+  an answer.
+- **Impact:** every planning request is now at risk of silently
+  returning no plan, with the daemon falling through to whatever
+  unplanned-execution path exists — not a crash, not a loud failure,
+  exactly the failure shape rule 5/rule 12 exist to prevent from going
+  unnoticed. Reproduced on a real device, not inferred.
+- **Compounding, separately confirmed bug — `NEW-165` below.**
+- **Not fixed this round** — M1-E is verification only, per this round's
+  scope fence. Needs its own scoped fix task: raise
+  `PLANNER_MAX_TOKENS`, and/or cap or budget the reasoning trace
+  separately from the answer, and/or surface a loud warning when
+  `content` comes back empty after a thinking-mode request rather than
+  silently returning `None`. M1-F's constant re-derivation should not
+  be read as covering this — M1-F is `MAX_CONCURRENT_MODEL_BUDGET_BYTES`/
+  `MAX_SWAP_ASSIST_BYTES` (memory admission), a different constant
+  entirely; this is a token-budget bug, found live during the same round
+  but not that task's subject.
+
+### [NEW-165] `core/plannd.py`'s `get_plan()` (local backend) uses a hardcoded `urllib.request.urlopen(req, timeout=60)` — shorter than this device's real prompt-processing time for the planner's actual prompt size, so a request can be cancelled server-side before generation even starts, independent of and prior to `NEW-164`'s token-budget issue
+- **Status: Confirmed** — live-reproduced during M1-E (2026-08-23).
+- **Reproduction:** loading the model via the production
+  `core.loader_v2.get_loader().ensure_model()` path and calling the real
+  `core.plannd.get_plan()` returned `None`. Server log showed why:
+  prompt processing on the real `PLANNER_PROMPT` (~2,425 tokens) at this
+  device's measured ~23-26 tokens/second prefill rate takes over 60
+  seconds by itself, before a single output token is generated:
+  ```
+  0.48.430.067 I slot print_timing: id 3 | task 0 | prompt processing,
+    n_tokens = 1024, progress = 0.42, t = 41.24 s / 24.83 tokens/s
+  1.07.212.746 W srv  stop: cancel task, id_task = 0
+  1.11.913.807 I slot release: id 3 | task 0 | stop processing:
+    n_tokens = 1536, truncated = 0
+  ```
+  `get_plan()`'s `except Exception` catches the resulting timeout
+  exception and returns `None` — the exact same silent-failure shape as
+  `NEW-164`, via a different mechanism (HTTP client timeout, not an
+  empty-content answer), and one that fires *first* in the request
+  lifecycle, before `NEW-164`'s scenario would even get a chance to
+  manifest on a slower path.
+- **Impact:** on this device, in the state measured, a planning request
+  can fail this way even before addressing `NEW-164` — fixing the
+  token budget alone is not sufficient if the timeout still cuts the
+  request off mid-prefill. Both need fixing together, or the timeout
+  fix should land first since it gates whether `NEW-164`'s scenario is
+  even reachable.
+- **Not fixed this round** — same fix-task scoping note as `NEW-164`:
+  needs its own task, likely bundled with it given they were found in
+  the same live session and touch the same function.
