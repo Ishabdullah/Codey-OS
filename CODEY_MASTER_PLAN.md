@@ -637,7 +637,7 @@ scoped to what it actually proved.
 
 - **M1-B / M1-C / M1-D (config repoint, spawn flags, planner-server
   collapse) — code-complete, code-reviewer-approved 2026-08-23 across two
-  review passes, NOT YET COMMITTED as of this writing.** No live
+  review passes, landed as `841ef2e`.** No live
   component to any of the three by design — no model has been loaded this
   round, everything is code + unit-test. `git status` at the time of this
   entry shows the full diff staged in the working tree, not on a commit;
@@ -1091,7 +1091,7 @@ look like config edits.
   Unit-testable with synthetic meminfo; no model load.
 - **M1-B — config repointing: EVERY model slot becomes Qwen3.5-4B.**
   **DONE 2026-08-23 — code-complete and code-reviewer-approved (two review
-  passes, see §4.2); NOT YET COMMITTED as of this writing; no live
+  passes, see §4.2); landed as `841ef2e`; no live
   component by design, M1-E covers that.** The original statement of the
   sub-task is kept verbatim below as the record of what was asked for.
   Ish's explicit instruction (2026-08-22): "make sure you do it for both
@@ -1155,7 +1155,7 @@ look like config edits.
   as a signal to re-read the sub-task, not a formality.
 - **M1-C — pass `--jinja` and wire thinking mode** (`NEW-158`).
   **DONE 2026-08-23 — code-complete and code-reviewer-approved (two review
-  passes, see §4.2); NOT YET COMMITTED as of this writing; no live
+  passes, see §4.2); landed as `841ef2e`; no live
   component by design, M1-E covers that.** `NEW-162` (the `--help` text
   disagreeing with `NEW-158`'s framing) was resolved by dumping the actual
   GGUF chat template — thinking mode is off by default unless a caller
@@ -1668,9 +1668,7 @@ pass **also covers the two previously-unreviewed diffs** from §4.4.
       live-test contract and the model is still on disk (§6.2 authorizes
       "delete or re-scope"). Leaves `NEW-161` open until M1-B lands.
 - [x] **M1-B** — **DONE 2026-08-23: code-complete and code-reviewer-
-      approved (two review passes, see §4.2); NOT YET COMMITTED as of this
-      writing — check `git log`/`git status` for whether this has since
-      landed and update this line with the real commit hash once it has.
+      approved (two review passes, see §4.2); landed as `841ef2e`.
       No live component by design; M1-E covers that.** Repointed **every**
       model slot in `utils/config.py` at the Qwen3.5-4B file: `MODEL_PATH`,
       `PLANNER_MODEL_PATH`; `SECONDARY_MODEL_PATH` removed outright as
@@ -1681,9 +1679,7 @@ pass **also covers the two previously-unreviewed diffs** from §4.4.
       with M1-C/M1-D as one combined reviewed state, per this bullet's own
       "land with M1-D or immediately before it" guidance.
 - [x] **M1-C** — **DONE 2026-08-23: code-complete and code-reviewer-
-      approved (two review passes, see §4.2); NOT YET COMMITTED as of this
-      writing — check `git log`/`git status` for whether this has since
-      landed and update this line with the real commit hash once it has.
+      approved (two review passes, see §4.2); landed as `841ef2e`.
       No live component by design; M1-E covers that.** Passed `--jinja` +
       `--reasoning-format deepseek` in `core/loader_v2.py:_spawn_locked()`.
       `NEW-160` and `NEW-162` remain open/Suspected — code-reviewer read
@@ -1695,9 +1691,7 @@ pass **also covers the two previously-unreviewed diffs** from §4.4.
 - [x] **M1-D** — **DONE 2026-08-23: code-complete and code-reviewer-
       approved (two review passes — the first returned CHANGES REQUESTED
       on a `core/lora_import.py` swap-symmetry fix, since applied and
-      re-reviewed; see §4.2); NOT YET COMMITTED as of this writing — check
-      `git log`/`git status` for whether this has since landed and update
-      this line with the real commit hash once it has. No live component
+      re-reviewed; see §4.2); landed as `841ef2e`. No live component
       by design; M1-E covers that.** Retired the second-server path:
       `core/planner_loader.py` deleted (322 lines);
       `core/loader_v2.py:_evict_planner_and_confirm_free()` deleted;

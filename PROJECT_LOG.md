@@ -12,7 +12,7 @@ and Appendix A.
 
 ---
 
-## 2026-08-23 (latest) — M1-B + M1-C + M1-D: config repoint, spawn flags, planner-server collapse (CODE COMPLETE, code-reviewer-APPROVED across two passes, NOT YET COMMITTED, no live component)
+## 2026-08-23 (latest) — M1-B + M1-C + M1-D: config repoint, spawn flags, planner-server collapse (CODE COMPLETE, code-reviewer-APPROVED across two passes, landed as `841ef2e`, no live component)
 
 **Status, stated precisely (rule 7): code-complete and code-reviewer-
 approved. NOT committed as of this writing — `git status` shows the full
