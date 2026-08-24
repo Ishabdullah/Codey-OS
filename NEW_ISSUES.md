@@ -8436,16 +8436,18 @@ finding for the same bug. See `NEW-39`.)*
   exactly the failure shape rule 5/rule 12 exist to prevent from going
   unnoticed. Reproduced on a real device, not inferred.
 - **Compounding, separately confirmed bug — `NEW-165` below.**
-- **Not fixed this round** — M1-E is verification only, per this round's
-  scope fence. Needs its own scoped fix task: raise
-  `PLANNER_MAX_TOKENS`, and/or cap or budget the reasoning trace
-  separately from the answer, and/or surface a loud warning when
-  `content` comes back empty after a thinking-mode request rather than
-  silently returning `None`. M1-F's constant re-derivation should not
-  be read as covering this — M1-F is `MAX_CONCURRENT_MODEL_BUDGET_BYTES`/
-  `MAX_SWAP_ASSIST_BYTES` (memory admission), a different constant
-  entirely; this is a token-budget bug, found live during the same round
-  but not that task's subject.
+- **Status: CLOSED, 2026-08-23, landed as `4cbf9a8`.** `PLANNER_MAX_TOKENS`
+  raised 1024→2048 (later recalibration context: `NEW-167`), and a
+  `utils.logger.warning()` now fires with diagnostic detail (prompt
+  token estimate, `max_tokens` used, `reasoning_content` length)
+  whenever a thinking-mode response comes back empty after
+  `finish_reason == "length"` — replacing the old fully-silent
+  `return None`. Live-verified same session: two different real
+  thinking-mode planning prompts on this device both returned non-empty,
+  usable plans (`finish_reason: "stop"`, 167 and 203 of the 2048-token
+  budget used). Not proven for a prompt that drives the reasoning trace
+  to the full budget — that scenario was never exercised, stated
+  honestly rather than assumed covered.
 
 ### [NEW-165] `core/plannd.py`'s `get_plan()` (local backend) uses a hardcoded `urllib.request.urlopen(req, timeout=60)` — shorter than this device's real prompt-processing time for the planner's actual prompt size, so a request can be cancelled server-side before generation even starts, independent of and prior to `NEW-164`'s token-budget issue
 - **Status: Confirmed** — live-reproduced during M1-E (2026-08-23).
@@ -8474,9 +8476,20 @@ finding for the same bug. See `NEW-39`.)*
   request off mid-prefill. Both need fixing together, or the timeout
   fix should land first since it gates whether `NEW-164`'s scenario is
   even reachable.
-- **Not fixed this round** — same fix-task scoping note as `NEW-164`:
-  needs its own task, likely bundled with it given they were found in
-  the same live session and touch the same function.
+- **Status: CLOSED, 2026-08-23, landed as `4cbf9a8`.** The flat `timeout=60`
+  replaced with `compute_planner_timeout()`, a formula derived from
+  measured device rates rather than a constant that goes stale the next
+  time the token budget changes; `core/daemon.py`'s two outer
+  `asyncio.wait_for` timeouts now derive from the same formula plus a
+  buffer, so raising the inner timeout doesn't just relocate the
+  cancellation one layer up. Post-fix live re-verification then found
+  the formula's own rate constants were not actually conservative
+  floors (`NEW-167`, also closed same session), and a second review pass
+  found a further, previously-unnoticed client-side socket timeout in
+  `core/planner_service.py` that was shorter than everything above it
+  (`NEW-169`, also closed same session) — see those entries for the full
+  three-layer discovery. No premature cancellation was observed in
+  either of the real prompts tested live.
 
 ### [NEW-166] `PLANNER_MAX_TOKENS` is shared between `core/plannd.py`'s local-backend `get_plan()` and its untouched `_get_plan_remote()` (OpenRouter/UnlimitedClaude) — raising it for NEW-164 silently doubles the remote backend's generation budget too, with no corresponding change to that path's own `timeout=60`
 - **Status:** Confirmed — found by the implementer fixing `NEW-164`

@@ -766,8 +766,10 @@ scoped to what it actually proved.
     verbosity. Needs a higher-verbosity spawn or a different check; not
     glossed over as "probably fine."
   - **Two new findings from this live session — `NEW-164` and `NEW-165`
-    (see `NEW_ISSUES.md`), both open, neither fixed this round.**
-    `NEW-164`: `PLANNER_MAX_TOKENS=1024` is confirmed, live, too small —
+    (see `NEW_ISSUES.md`), both open at the time this entry was written,
+    since CLOSED — see the M1-E-fix entry below and `PROJECT_LOG.md`'s
+    2026-08-23 M1-E-fix entry.** `NEW-164`: `PLANNER_MAX_TOKENS=1024` is
+    confirmed, live, too small —
     a real thinking-mode planning request spent its entire budget on the
     reasoning trace and returned `content: ""`, so `get_plan()` silently
     returned `None`. Planning silently degrades to unplanned execution.
@@ -777,11 +779,16 @@ scoped to what it actually proved.
     prompt (~2,425 tokens takes over 60s to prefill alone at ~23-26 t/s)
     — a request can be cancelled server-side before generation even
     starts, an independent failure mode that fires *before* `NEW-164`'s
-    scenario even gets a chance to manifest. **Recommendation: bundle
-    NEW-164+NEW-165 into one fix task (found together, same function,
-    same live session) and run it BEFORE M1-F/M1-G** — planning is
+    scenario even gets a chance to manifest. **Recommendation (acted on
+    same round as M1-E-fix): bundle NEW-164+NEW-165 into one fix task
+    (found together, same function, same live session) and run it BEFORE
+    M1-F/M1-G** — planning is
     currently broken on real prompts, a more urgent problem than either
-    of those two follow-on sub-tasks.
+    of those two follow-on sub-tasks. The fix task that followed also
+    surfaced and closed two further layers, `NEW-167` and `NEW-169` (see
+    Appendix A's M1-E-fix entry) — this M1-E entry is left as originally
+    written to record M1-E's own findings honestly, not edited to read as
+    if the fix had already happened.
   - **Real latency data captured (§8 Q8's cost question, reference
     data):** non-thinking coding requests: 177.9s for 124 tokens
     (7.0 t/s), 135.7s for 578 tokens (5.7 t/s). Thinking-mode planning
@@ -1303,7 +1310,9 @@ look like config edits.
   degrading planning to unplanned execution); and `get_plan()`'s
   hardcoded `timeout=60` is shorter than this device's real
   prompt-processing time for the planner's prompt, an independent and
-  earlier-firing failure mode. Both open, unfixed, recommended as one
+  earlier-firing failure mode. Both open, unfixed as of this M1-E entry,
+  **since fixed and live-verified as M1-E-fix, `4cbf9a8`, 2026-08-23**
+  (see Appendix A's M1-E-fix entry), recommended as one
   bundled fix task run **before** M1-F/M1-G (see §4.2 for the full
   writeup and the reasoning for that ordering).
 - **M1-G — prompts: re-check, don't pre-emptively rewrite.** Ish's own
@@ -1820,20 +1829,52 @@ pass **also covers the two previously-unreviewed diffs** from §4.4.
       token budget too small for real thinking-mode reasoning) and
       **`NEW-165`** (planner HTTP timeout shorter than real
       prompt-processing time) — both open, unfixed, see below.
-- [ ] **M1-E-fix** — **new, unplanned, inserted here because it's more
-      urgent than the items after it (planning is currently broken on
-      real prompts).** Slotted between M1-E and M1-F/M1-G as a lettered
-      addendum rather than renumbering the sequence, since M1-F and M1-G
-      are still correctly ordered relative to each other and to this new
-      item — this just needs to run first. Bundles `NEW-164` and
-      `NEW-165` (found together, same live session, same function,
-      `core/plannd.py:get_plan()`): raise `PLANNER_MAX_TOKENS` and/or
-      budget the reasoning trace separately from the answer and/or
-      surface a loud warning on empty `content` after a thinking-mode
-      request (`NEW-164`); raise or make configurable the hardcoded
-      `timeout=60` so it comfortably exceeds this device's real
-      prompt-processing time for the planner's actual prompt size
-      (`NEW-165`). Not started.
+- [x] **M1-E-fix** — **DONE 2026-08-23, landed as `4cbf9a8`, code-reviewer-
+      approved (three separate passes) and live-verified for the
+      scenarios tested.** Bundled `NEW-164` and `NEW-165`
+      (`core/plannd.py:get_plan()`): `PLANNER_MAX_TOKENS` raised
+      1024→2048 with a new `utils.logger` warning when a thinking-mode
+      response comes back with empty `content` after
+      `finish_reason=="length"` (`NEW-164`); the flat `timeout=60`
+      replaced with `compute_planner_timeout()`, a formula derived from
+      measured device rates, with `core/daemon.py`'s two outer
+      `asyncio.wait_for` timeouts re-derived from the same formula so
+      the fix doesn't just relocate the cancellation one layer up
+      (`NEW-165`). **Two more layers surfaced and fixed in the same
+      session, not in the original scope:** `NEW-167` — the formula's
+      own rate constants (`PLANNER_MIN_PREFILL_TPS=20`/
+      `PLANNER_MIN_GEN_TPS=4`) were not actually conservative; real
+      measured cold-cache, thinking-mode rates on this device came in at
+      roughly half both (10.63 t/s prefill, 2.15-2.74 t/s generation) —
+      recalibrated to 10/2 from the real measurement. `NEW-169` — a
+      third, more serious gap found while sanity-checking `NEW-167`:
+      `core/planner_service.py:_request_daemon_plan()` had its own
+      hardcoded client-side socket `timeout=185`, untouched by any of
+      the above, shorter than every server-side timeout in the chain,
+      and the real live caller's (`main.py`'s interactive planning-
+      oracle RPC) own effective timeout — meaning the whole three-round
+      formula rebuild was moot for its one real production caller until
+      this layer was also derived from the same formula. A final review
+      pass traced `core/planner_client.py`, `main.py`, and
+      `core/daemon.py`'s connection-accept loop and confirmed no fourth
+      layer exists. **Live-verified:** two different real thinking-mode
+      planning prompts on this device returned non-empty, usable plans
+      (`finish_reason: "stop"`, 167 and 203 completion tokens, both well
+      under the 2048-token budget) via the real `core.plannd.get_plan()`
+      production path — this closes `NEW-164` for the cases tested; it
+      does **not** prove a prompt that drives the reasoning trace to the
+      full 2048-token budget would still succeed (untested this round,
+      stated honestly as such). Two minor findings logged and left open:
+      `NEW-170` (the broken-import fallback timeout is itself a flat
+      1400.0s constant, safe only up to ~3060 estimated prompt tokens)
+      and `NEW-171` (one new test re-derives the timeout formula inline
+      instead of calling the real implementation — test-quality gap, not
+      a production defect). `NEW-168` (a separate false-positive bug in
+      the "plan may be truncated" diagnostic, found during M1-E's own
+      verification pass) was not addressed here and remains open. Tests:
+      658 passed, 1 skipped (`tests/`), 68 passed (`ccos/tests/`). See
+      `PROJECT_LOG.md`'s 2026-08-23 M1-E-fix entry for the full
+      three-round discovery narrative.
 - [ ] **M1-G** — re-check prompts against the new model: re-run
       `system_prompt.py`'s existing A/B fixtures before editing it;
       revisit `PLANNER_PROMPT`'s size and worked examples (`NEW-50`) once

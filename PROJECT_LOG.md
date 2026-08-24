@@ -12,7 +12,126 @@ and Appendix A.
 
 ---
 
-## 2026-08-23 (latest) — M1-E: live verification of the Qwen3.5-4B migration (FULLY LIVE-VERIFIED on real device; `NEW-157`/`NEW-158`/`NEW-160`/`NEW-162` closed; `NEW-164`/`NEW-165` newly found and open)
+## 2026-08-23 (latest) — M1-E-fix: planner timeout chain, fixed and live-verified end to end (`NEW-164`/`NEW-165` CLOSED; `NEW-167`/`NEW-169` found and CLOSED same session; `NEW-170`/`NEW-171` open)
+
+**Status, stated precisely (rule 7): code complete, code-reviewer-approved
+(three separate review passes), and live-verified** for the scenarios
+actually exercised — not proven for every possible prompt shape (see
+"What this round does not settle" below). Landed as `4cbf9a8`, the
+M1-E-fix slot inserted into `CODEY_MASTER_PLAN.md` Appendix A between
+M1-E and M1-F/M1-G in the prior round.
+
+**Starting point.** M1-E's live verification (previous entry, this file)
+found planning silently broken on real prompts: a real thinking-mode
+request against Qwen3.5-4B consumed its entire `PLANNER_MAX_TOKENS=1024`
+budget on reasoning alone and returned empty `content` (`NEW-164`), and
+separately, `core/plannd.py`'s `get_plan()` had a hardcoded 60s HTTP
+timeout shorter than this device's real prefill time for the planner's
+actual prompt size, cancelling requests before generation even started
+(`NEW-165`). Both failures were silent — bare `print()` or no logging at
+all — so planning degraded to unplanned execution with no visible error.
+
+**`NEW-164`/`NEW-165` fix, first pass.** `PLANNER_MAX_TOKENS` raised
+1024→2048, with a warning now logged via `utils.logger` (not `print()`)
+whenever a thinking-mode response comes back with empty `content` after
+`finish_reason == "length"`. `get_plan()`'s flat 60s timeout replaced
+with `compute_planner_timeout()`, a formula derived from measured device
+rates instead of a constant that goes stale the next time the token
+budget changes. `core/daemon.py`'s two outer `asyncio.wait_for` timeouts
+(previously a flat 180s) now derive from the same formula plus a buffer,
+so raising the inner timeout doesn't just relocate the cancellation one
+layer up. Code-reviewer approved this pass.
+
+**`NEW-167` — found during the required post-fix live-verification pass,
+same session.** Re-verifying `NEW-164`/`NEW-165` live surfaced a second
+bug in the fix's own numbers: the formula's rate constants
+(`PLANNER_MIN_PREFILL_TPS=20`, `PLANNER_MIN_GEN_TPS=4`) were described as
+"conservative floors below M1-E's measured range," but real measured
+rates on this device for a cold-cache, thinking-mode call came in at
+roughly **half** of both — `94.04 ms/token = 10.63 tokens/second`
+prefill (cold-cache, the only true cold measurement in the session) and
+`2.15-2.74 tokens/second` generation across three completions, against
+M1-E's previously-cited 23-26 t/s prefill / 4.87 t/s generation. M1-E's
+numbers describe this device under different conditions (a different
+concurrent load, or non-thinking generation) and should not have been
+treated as this device's floor for a cold-cache, thinking-mode call.
+Arithmetic showed a request that consumed its full 2048-token budget —
+the exact scenario `NEW-164` exists to describe — would cost roughly
+1181s against the formula's computed 665s, reproducing `NEW-165`'s
+premature-cancellation failure mode at the new numbers, not just the old
+ones. **Fixed same session:** `PLANNER_MIN_PREFILL_TPS` lowered 20→10,
+`PLANNER_MIN_GEN_TPS` lowered 4→2, matching the real measured floor, with
+the live-verification numbers recorded in the constants' own comment as
+provenance. A second code-reviewer pass confirmed this recalibration.
+
+**`NEW-169` — found while sanity-checking `NEW-167`'s practical effect,
+same session, a third and more serious gap.** Tracing one hop past
+`send_plan_request_async()`'s two call sites (which the earlier
+`NEW-164`/`NEW-165` review had correctly verified) out to
+`send_command()` — a separate client-side socket helper wrapping the
+whole RPC from *outside* the daemon process — found
+`core/planner_service.py:_request_daemon_plan()` using its own hardcoded
+client-side socket `timeout=185`, untouched by any of the fixes above and
+shorter than every server-side timeout in the chain those fixes built.
+This is the real, live call path, not a hypothetical: `main.py`'s
+`_try_daemon_plan()` is the interactive CLI's sole live caller of this
+RPC. With `NEW-167`'s recalibrated constants, a full 2048-token plan
+needs roughly 1296.5s server-side (formula) and ~1326.5s at the daemon's
+outer `asyncio.wait_for` layer — both now comfortably long enough — but
+the client's own socket gave up at a flat 185s regardless, meaning **the
+entire three-round formula-based rebuild was moot for its one real
+production caller.** This was true even under the original,
+pre-`NEW-167` constants (~693s for the same case). **Fixed same
+session:** `_request_daemon_plan()`'s `timeout=185` replaced with a value
+derived from the same `compute_planner_timeout()` formula plus the same
+outer buffer used at the daemon layer, so it is now the outermost and
+longest timeout in the chain, as it should be. A final code-reviewer pass
+traced `core/planner_client.py`, `main.py`, and `core/daemon.py`'s
+connection-accept loop, confirmed no fourth layer exists, and approved
+the combined chain as complete.
+
+**Live-verification evidence (rule 5, verbatim data, not paraphrase).**
+Two different real thinking-mode planning prompts on this device, via the
+real production path (`core.plannd.get_plan()`), both returned
+non-empty, usable plans: `finish_reason: "stop"` (a natural stop token,
+not a length cutoff), using 167 and 203 completion tokens respectively —
+both well under the 2048-token budget. This is the evidence that closes
+`NEW-164` for the cases actually tested. **It does not prove a prompt
+that drives the reasoning trace all the way to the full 2048-token
+budget would still succeed** — that scenario was not exercised this
+round, stated honestly as untested rather than assumed safe by
+extrapolation from the formula alone.
+
+**Two minor findings logged and deliberately left open, not fixed this
+round.** `NEW-170`: `_request_daemon_plan()`'s broken-import fallback
+(`socket_timeout = 1400.0`) is itself a flat constant in a chain whose
+entire point is eliminating flat constants — safe only up to roughly
+3060 estimated prompt tokens, a narrow-trigger case (a broken import on
+the CLI side specifically while the daemon side works) not live-
+reproduced. `NEW-171`: the new
+`tests/test_planner_service_daemon_socket_timeout.py` test re-derives
+`compute_planner_timeout(...) + 30.0` inline rather than calling into
+`core/daemon.py`'s own computation — a test-quality gap (can't detect
+drift if the daemon's `+30.0` buffer changes later), not a production
+defect. Neither blocks this fix; both need their own scoped look before
+being called closed.
+
+**Test counts.** 658 passed, 1 skipped (`tests/`); 68 passed
+(`ccos/tests/`).
+
+**What this round does not settle, stated plainly.** No prompt in this
+session actually drove a thinking-mode response to consume its full
+2048-token budget — the arithmetic behind `NEW-167`'s recalibration and
+`NEW-169`'s fix is sound and derived from real measured rates, but the
+full-budget failure/success boundary itself remains unexercised live.
+`NEW-170` and `NEW-171` remain open. `core/plannd.py`'s "plan may be
+truncated" diagnostic (`NEW-168`, found during M1-E's own verification
+pass, a separate false-positive bug in the truncation-warning heuristic)
+was not touched this round and remains open.
+
+---
+
+## 2026-08-23 — M1-E: live verification of the Qwen3.5-4B migration (FULLY LIVE-VERIFIED on real device; `NEW-157`/`NEW-158`/`NEW-160`/`NEW-162` closed; `NEW-164`/`NEW-165` newly found and open)
 
 **Status, stated precisely (rule 7): fully live-verified**, on real
 device, via `main.py --no-resume` — deliberately not the full
