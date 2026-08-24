@@ -8898,3 +8898,69 @@ finding for the same bug. See `NEW-39`.)*
   is real schema-migration work disproportionate to a currently-dead code
   path. Whoever activates `NEW-112`'s pull-side path should address this
   at the same time, not before.
+
+### [NEW-179] `MAX_CONCURRENT_MODEL_BUDGET_BYTES >= compute_device_ceiling_bytes()` was never documented as a required ordering, or tested — M1-F's own first-pass re-derivation violated it
+- **Status: Confirmed, caught and fixed within the same round (M1-F,
+  2026-08-24) before landing.** `core/resource_gate.py`'s
+  `MAX_CONCURRENT_MODEL_BUDGET_BYTES` (the SUM-of-concurrently-declared-
+  models budget check) and `compute_device_ceiling_bytes()` (the absolute
+  per-model physical ceiling, rule 12) are independent checks, but the
+  former has always needed to sit AT OR ABOVE the latter — otherwise the
+  budget check can refuse a single model that `hard_reject` would
+  otherwise admit, inverting rule 12's "hard_reject is the absolute
+  per-model bound" into "budget is the real bound, tighter than the
+  documented physical one." The retired 8.90GiB value satisfied this by a
+  wide margin (~0.82 vs. ~0.60 of MemTotal) and its own comment even
+  observed the relationship ("well above DEVICE_CEILING_USABLE_FRACTION,
+  this is INTENTIONAL") — but never stated it as a *requirement*, and no
+  test pinned it.
+- **Mechanism:** M1-F's re-derivation for the single-model architecture
+  (§1.4/M1-D) first computed a value (5.25GiB) from the concurrent raw sum
+  alone (interactive primary + embed, ~5.18GiB, rounded up with margin),
+  without checking it against `compute_device_ceiling_bytes()`
+  (~6.48-6.50GiB on this device). Running the existing test suite
+  immediately caught this: `test_hard_ceiling_boundary_flips_hard_reject`,
+  `test_primary_model_admitted_under_idle_conditions`, and
+  `test_new21_naive_check_without_margin_would_have_admitted` all failed —
+  each builds a model just under the device ceiling on an otherwise-idle
+  device and asserts admission, and each was refused with
+  `budget_ceiling_exceeded` instead.
+- **Fixed within the same round:** re-derived to 7.00GiB, chosen to clear
+  the live device ceiling (~6.4949GiB) by a real margin (~0.505GiB, not
+  the ~6MiB an intermediate 6.50GiB candidate would have left) as well as
+  the concurrent raw sum. Full reasoning in
+  `core/resource_gate.py`'s `MAX_CONCURRENT_MODEL_BUDGET_BYTES` comment.
+  New regression test `test_max_concurrent_budget_at_least_device_ceiling`
+  in `tests/test_resource_gate.py` now pins the invariant directly so a
+  future re-derivation cannot silently re-break it.
+- **Logged per rule 8** even though fixed the same round, because the gap
+  (the ordering requirement existing undocumented and untested for the
+  entire lifetime of this constant, since TODO.md 7.4a) is itself the
+  finding, independent of this round's specific near-miss.
+
+### [NEW-180] Embed model's real resident RSS has never been measured — `MAX_CONCURRENT_MODEL_BUDGET_BYTES`'s embed term remains a floor estimate, not a measurement
+- **Status: Confirmed gap, not a bug.** Checked directly during M1-F
+  (2026-08-24, `NEW-156`'s re-derivation): searched this project's live-
+  test history (`PROJECT_LOG.md`, M1-E's entry) for a real measured embed
+  RSS figure and found none. Every derivation of
+  `MAX_CONCURRENT_MODEL_BUDGET_BYTES` back to TODO.md 7.4a sub-task C1 has
+  used the same floor estimate — `EMBED_MODEL_PATH`'s file size (80.2MiB)
+  + `DEFAULT_COMPUTE_OVERHEAD_BYTES` (256MiB) = 352,542,080 bytes
+  (~0.328GiB) — because the embed model_id has no `KNOWN_MODEL_ARCHS`
+  entry, so `estimate_model_load_cost()` cannot compute a KV term for it,
+  and `core/embed_server.py` launches it at a fixed `-c 2048` unrelated to
+  whatever `n_ctx` the coder's own ModelSpec uses.
+- **Impact:** `MAX_CONCURRENT_MODEL_BUDGET_BYTES` (7.00GiB as of M1-F)
+  carries real margin above both the interactive concurrent raw sum
+  (~1.4GiB) and the device ceiling (~0.505GiB), so this gap is not
+  currently load-bearing for the single-model architecture's realistic
+  cases the way it was for the tighter, now-superseded 5.20-5.25GiB
+  candidates M1-F considered and rejected before settling on 7.00GiB.
+  Still open because the underlying number this floor estimate stands in
+  for has simply never been checked against reality.
+- **Not fixed this round** — measuring real embed RSS needs a live
+  embed-server spawn/measure/kill cycle (rule 2 discipline: `free -h`
+  before/after, PID tracked and killed individually, confirmed unloaded),
+  out of scope for M1-F's arithmetic-only re-derivation. Natural pairing
+  for a future round that already needs a live embed-server cycle for
+  another reason, rather than a dedicated round just for this.

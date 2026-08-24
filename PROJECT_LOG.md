@@ -12,7 +12,82 @@ and Appendix A.
 
 ---
 
-## 2026-08-24 (latest) — 3-tier dispatch Task B: the real medium/hard split built and code-reviewer-approved
+## 2026-08-24 (latest) — M1-F: resource-gate constants re-derived for the single-model architecture (`NEW-156`)
+
+**Status: code-complete, self-reviewed. Not code-reviewer-approved (no
+code-reviewer subagent available this session — this category (rule 4:
+gates live model-load admission) still needs that pass before being fully
+done). Not live-verified — this is arithmetic re-derivation from M1-E's
+already-live measurements (2026-08-23), not a fresh live pass of its own;
+that is exactly M1-F's own scoping ("waits on M1-E," not a live-verify
+step itself).**
+
+Re-derived the two constants `NEW-156` flagged as stale after M1-D
+collapsed the coder+planner roles into a single Qwen3.5-4B (§1.4):
+
+- **`MAX_CONCURRENT_MODEL_BUDGET_BYTES`: 8.90GiB → 7.00GiB**
+  (7,516,192,768 bytes). Computed via `estimate_model_load_cost()`
+  against the real on-disk `MODEL_PATH`/`EMBED_MODEL_PATH` files:
+  interactive primary (n_ctx=65536, 5,209,547,936 bytes) + embed floor
+  estimate (352,542,080 bytes) = 5,562,090,016 bytes (~5.1801GiB) raw
+  sum, the larger of the interactive/background cases.
+- **`MAX_SWAP_ASSIST_BYTES`: 10.00GiB → 6.50GiB** (6,979,321,856 bytes).
+  Live formula (`compute_swap_assisted_headroom_bytes()`, fresh
+  `/proc/meminfo` reads this session, not the 2026-08-11 sample):
+  `gated_swap_free` measured ~7.14-7.23GiB across two reads seconds
+  apart — real drift, matching the "sample to sample" warning this
+  file's own comments have carried since 7.4a. New value sits ~0.435GiB
+  above the interactive worst case's required cost (6.065GiB) and
+  ~0.6-0.7GiB below the live ceiling.
+
+**Real finding mid-round, not assumed (`NEW-179`):** the first-pass
+concurrent-budget value (5.25GiB, derived from the raw sum alone,
+rounded up for embed-undercount margin) turned out to sit BELOW
+`compute_device_ceiling_bytes()` (~6.4949GiB live). Running the existing
+test suite caught it immediately — `test_hard_ceiling_boundary_flips_
+hard_reject`, `test_primary_model_admitted_under_idle_conditions`, and
+`test_new21_naive_check_without_margin_would_have_admitted` all failed,
+each refusing a single model near the device ceiling with
+`budget_ceiling_exceeded` instead of admitting it (inverting rule 12's
+"hard_reject is the absolute per-model bound"). This ordering requirement
+— `MAX_CONCURRENT_MODEL_BUDGET_BYTES >= compute_device_ceiling_bytes()`
+— had existed implicitly since the original 8.90GiB derivation (whose own
+comment observed it sat "well above `DEVICE_CEILING_USABLE_FRACTION`,
+INTENTIONAL") but was never itself documented as a requirement or pinned
+by a test. Fixed the same round: re-derived to 7.00GiB (clears the live
+device ceiling by ~0.505GiB) and added
+`test_max_concurrent_budget_at_least_device_ceiling` to
+`tests/test_resource_gate.py` so a future re-derivation can't silently
+re-break it.
+
+**Also spun off `NEW-180`:** embed model's real resident RSS has never
+been measured — every derivation of this budget constant back to 7.4a
+sub-task C1 has used the same file-size-only floor estimate
+(352,542,080 bytes). Not currently load-bearing at 7.00GiB/6.50GiB's
+margins, but flagged as a gap that's never actually been checked.
+
+`DISPATCH_MAX_SWAP_ASSIST_BYTES` (768MiB) was explicitly left unchanged,
+per the task's own scope. `tests/test_resource_gate.py`: replaced the
+now-unreachable `test_three_model_concurrent_case_is_admissible_new133_
+regression` scenario's assertion (correctly refused under the new,
+smaller ceiling — kept as a historical record, not deleted) with a new
+`test_single_model_concurrent_case_is_admissible_m1f_regression` that
+exercises the real interactive-primary+embed worst case this ceiling is
+now sized for; updated the two exact-byte-value pin tests
+(`test_max_concurrent_model_budget_bytes_value`,
+`test_max_swap_assist_bytes_value`) and stale in-comment `10GiB`
+references elsewhere in the file. Full test suite: **190/190 passed**
+(`tests/test_resource_gate.py`), **20/20 passed**
+(`tests/test_loader_resource_gate.py`), **661 passed, 1 skipped**
+(`tests/` in full). Files touched: `core/resource_gate.py`,
+`tests/test_resource_gate.py`, `tests/test_loader_resource_gate.py`
+(stale `~6.36GiB primary`/`8.90GiB ceiling` prose updated to generic
+current-architecture wording, no logic change) — no other files in
+scope, confirmed via `git status`/`git diff --stat`.
+
+---
+
+## 2026-08-24 — 3-tier dispatch Task B: the real medium/hard split built and code-reviewer-approved
 
 **Status: code-complete, code-reviewer-approved. Not rule-4 category** —
 an additive, defaulted payload field through an existing RPC handler,

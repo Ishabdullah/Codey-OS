@@ -932,9 +932,12 @@ they drift sample to sample.
   here (`NEW-108`) — CPU% is unmeasurable without `psutil` (not
   installed). Every gate/dispatch decision treats "CPU unmeasurable" as
   "don't refuse on it alone."
-- `MAX_SWAP_ASSIST_BYTES` = **10.00GiB**; `REQUIRED_HEADROOM_FACTOR` =
+- `MAX_SWAP_ASSIST_BYTES` = **6.50GiB** (re-derived by M1-F, 2026-08-24,
+  from the retired 10.00GiB — see below); `REQUIRED_HEADROOM_FACTOR` =
   1.25; `DEVICE_CEILING_USABLE_FRACTION` = 0.60 (→ device ceiling
-  ~6.49GiB). The first two are **stale as of §1.4** — see below.
+  ~6.49-6.50GiB live, drifts slightly with MemTotal reads).
+  `MAX_CONCURRENT_MODEL_BUDGET_BYTES` = **7.00GiB** (re-derived by M1-F
+  from the retired 8.90GiB — see below).
 
 ### 5.1 Model costs under the one-model decision (§1.4)
 
@@ -1015,18 +1018,43 @@ simpler residency problem and materially more context than before.
 3. **Everything here is arithmetic and source-reading, not
    measurement.** M1-E measures real resident cost and settles all of it.
 
-**Stale constants, do not use without re-deriving** (`NEW-156`):
+**Constants below — CLOSED by M1-F, 2026-08-24** (`NEW-156`):
 
-- `MAX_CONCURRENT_MODEL_BUDGET_BYTES` = 8.90GiB was derived precisely as
+- ~~`MAX_CONCURRENT_MODEL_BUDGET_BYTES` = 8.90GiB was derived precisely as
   7B + 1.5B + embed at 32768. Two of those three models no longer exist
-  in the system. The constant is not "slightly off" — its entire basis is
-  gone. Re-derive as (Qwen3.5-4B at whatever `n_ctx` is chosen) + embed.
-- `MAX_SWAP_ASSIST_BYTES` = 10.00GiB was calibrated (7.4a sub-task F)
+  in the system.~~ **Re-derived to 7.00GiB.** Computed via
+  `estimate_model_load_cost()` against the real on-disk primary/embed
+  files: interactive primary (n_ctx=65536) + embed raw sum =
+  5,562,090,016 bytes (~5.1801GiB). M1-F's first-pass value from that sum
+  alone (5.25GiB) was too low — it sat BELOW `compute_device_ceiling_bytes()`
+  (~6.4949GiB live), which the project's own existing single-model tests
+  immediately caught (a single model near the device ceiling was wrongly
+  refused via `budget_ceiling_exceeded`), surfacing a previously
+  undocumented, untested ordering requirement between the two constants
+  (`NEW-179`). Final value, 7.00GiB, clears both the device ceiling
+  (~0.505GiB margin) and the concurrent raw sum (~1.4GiB margin). Full
+  derivation and the invariant fix in `core/resource_gate.py`'s own
+  comment; regression test `test_max_concurrent_budget_at_least_device_ceiling`
+  in `tests/test_resource_gate.py` now pins the ordering directly.
+- ~~`MAX_SWAP_ASSIST_BYTES` = 10.00GiB was calibrated (7.4a sub-task F)
   specifically to make the 7B at 32768 reachable through swap assist.
-  That target no longer exists. The value is now almost certainly far
-  more permissive than needed — §4.3's own note that it makes the
-  plain-`MemAvailable` check effectively non-binding applies with more
-  force, not less, now that the model it was sized for is retired.
+  That target no longer exists.~~ **Re-derived to 6.50GiB.** Live formula
+  (`compute_swap_assisted_headroom_bytes()`, fresh `/proc/meminfo` reads,
+  not the 2026-08-11 session's) gave `gated_swap_free` ~7.14-7.23GiB
+  (two reads seconds apart, confirming real sample-to-sample drift). New
+  value sits ~0.435GiB above the interactive worst case's required cost
+  (~6.065GiB, ×1.25 headroom) and ~0.6-0.7GiB below the live ceiling —
+  a real, binding margin, not a number set high enough to never bind.
+  **Stated explicitly, per rules 6/7:** this does NOT restore the
+  plain-`MemAvailable` check to binding for the interactive worst case —
+  that property (§4.3's original observation) is unchanged in direction,
+  only reduced in magnitude from 10.00GiB. Full derivation in
+  `core/resource_gate.py`'s own comment.
+- Embed model's real resident RSS remains unmeasured (`NEW-180`, spun off
+  this round) — both constants above still use the same file-size-only
+  floor estimate (352,542,080 bytes, ~0.328GiB) every derivation back to
+  7.4a has used. Not currently load-bearing at 7.00GiB/6.50GiB's margins,
+  but the number itself has never been checked against reality.
 - ~~`core/resource_gate.py`'s `KNOWN_MODEL_ARCHS` maps `"primary"` →
   `QWEN25_7B_ARCH` and `"planner"` → `QWEN25_1_5B_ARCH`.~~ **CLOSED by
   M1-A, 2026-08-22:** both roles now map to `QWEN35_4B_ARCH`
@@ -1039,7 +1067,13 @@ simpler residency problem and materially more context than before.
   while `"primary"` costs with the 4B's arch, a 768MiB under-estimate in
   the unsafe direction, recorded as `NEW-161`.
 
-  The two bullets above are still genuinely stale — M1-F has not run.
+  All bullets above are now closed — M1-F ran 2026-08-24. Status:
+  **code-complete, self-reviewed, not code-reviewer-approved, not
+  live-verified** — this round had no separate code-reviewer subagent
+  available in-session; the mandatory review pass (CLAUDE.md rule 4, this
+  category gates model-load admission) still needs to run before this is
+  considered fully done, same discipline as every other process-adjacent
+  change in this project.
 
 ---
 
@@ -1338,12 +1372,32 @@ look like config edits.
      (`NEW-158`): the server starts using the model's own template
      instead of its built-in guess. That is a behavior change to verify,
      not a free addition.
-- **M1-F — re-derive the stale constants** (`NEW-156`), once M1-E has
-  real numbers: `MAX_CONCURRENT_MODEL_BUDGET_BYTES` (its 7B+1.5B+embed
-  basis no longer exists) and `MAX_SWAP_ASSIST_BYTES` (calibrated for a
-  retired model). Do this **after** measurement, not before — that is the
-  mistake `NEW-133` recorded, where a ceiling was set from arithmetic
-  that defeated its own stated purpose.
+- **M1-F — re-derive the stale constants** (`NEW-156`) — **DONE
+  2026-08-24, code-complete + self-reviewed, not code-reviewer-approved,
+  not live-verified.** `MAX_CONCURRENT_MODEL_BUDGET_BYTES`: 8.90GiB →
+  7.00GiB. `MAX_SWAP_ASSIST_BYTES`: 10.00GiB → 6.50GiB. Both computed via
+  this project's own `estimate_model_load_cost()`/
+  `compute_swap_assisted_headroom_bytes()` against the real on-disk
+  primary/embed files and a fresh live `/proc/meminfo` read (2026-08-24
+  session), per rule 5 — not reused from M1-E's earlier session numbers.
+  One real finding from this round, not assumed: M1-F's own first-pass
+  concurrent-budget value (5.25GiB, derived from the concurrent raw sum
+  alone) sat below `compute_device_ceiling_bytes()` and was caught
+  immediately by the project's own existing single-model tests, surfacing
+  a previously undocumented, untested ordering requirement between the
+  two constants (`NEW-179`, fixed same round with a new regression test).
+  Also spun off `NEW-180` (embed model's real resident RSS still
+  unmeasured — both re-derived constants still use the same file-size
+  floor estimate every prior derivation used, not currently load-bearing
+  at the new margins but never checked against reality). Full derivation
+  in `core/resource_gate.py`'s own comments on both constants; test
+  suite run (`tests/`, 661 passed, 1 skipped) passes in full. **Not live-verified —
+  this round is arithmetic re-derivation from M1-E's already-live
+  measurements, not a fresh live pass of its own, consistent with this
+  task's own scoping (M1-F "waits on M1-E," not a live-verify step
+  itself).** Mandatory code-reviewer pass (rule 4, this category gates
+  model-load admission) still needs to run before this is fully done —
+  no code-reviewer subagent was available in this session.
 
 #### Remaining Phase A1 items
 
@@ -1351,7 +1405,9 @@ look like config edits.
 |---|---|---|
 | **7.4** resource gate + slot-aware loader | 5/5 sub-tasks approved; core path live-verified | Re-target the pending production-config live pass at Qwen3.5-4B (M1-E covers it). The old `n_ctx=32768`-with-the-7B script is now obsolete — do not run it. |
 | **7.4a** swap-aware budget | A/B/C1/C2/D/F built and approved; E and G run | `NEW-135`/`NEW-136` (no `reserved_bytes` deduction on swap-assist; `admitted_via_swap` not persisted to the slot) still unfixed. `NEW-140` scenario 3 and `NEW-141` are **closed by §1.4** — both are concurrent/low-headroom cases that required the retired model pair. Confirm that reasoning against the code before ticking them off. |
-| **7.4b** model lifecycle policy | Reshaped by §1.4 | **A**: embed always resident — implementation landed, code-reviewer pass done 2026-08-23 (§4.4), still needs live-verify (M1-E). **B**: planner ceiling 8192 — **moot, no separate planner**; note the correction below. **C**: coder interactive-vs-daemon context branching — landed + `NEW-152` fix, code-reviewer pass done 2026-08-23 (§4.4), still needs live-verify (M1-E); the *policy* still applies (full context interactively, smaller for background dispatch), only the ceilings need re-deriving from §5.1. **D**: fold into M1-F. |
+| **7.4b** model lifecycle policy | Reshaped by §1.4 | **A**: embed always resident — implementation landed, code-reviewer pass done 2026-08-23 (§4.4), still needs live-verify (M1-E). **B**: planner ceiling 8192 — **moot, no separate planner**; note the correction below. **C**: coder interactive-vs-daemon context branching — landed + `NEW-152` fix, code-reviewer pass done 2026-08-23 (§4.4), still needs live-verify (M1-E); the *policy* still applies (full context interactively, smaller for background dispatch), only the ceilings need re-deriving from §5.1. **D**: folded into M1-F,
+**DONE 2026-08-24** — the constant now reflects there being no separate
+planner process, with real re-derived numbers. |
 | **Lease/registry** | Not started | Replace port-probe adoption with an explicit lease. Absorbs `NEW-104` (slots key to caller PID, not the spawned child), `NEW-144`/`NEW-146` (kill-and-replace a healthy occupant), `NEW-149` (reuse branch adopts an under-provisioned server). **More important under §1.4, not less** — one server now has more consumers, and adoption-by-port-probe is how an under-provisioned server gets silently reused. |
 | **Concurrency test** | Not started | Does `llama-server`'s slot/`--parallel` handling let one server serve the daemon, the TUI/GUI, and both limbs? No flag is set anywhere today. **Now the central question of this phase**, since one shared model is the whole architecture rather than one option in it. |
 
@@ -1880,9 +1936,15 @@ pass **also covers the two previously-unreviewed diffs** from §4.4.
       revisit `PLANNER_PROMPT`'s size and worked examples (`NEW-50`) once
       thinking mode works; verify `--jinja`'s formatting change to the
       coding path. **Measure first, edit second.**
-- [ ] **M1-F** — re-derive `MAX_CONCURRENT_MODEL_BUDGET_BYTES` and
-      `MAX_SWAP_ASSIST_BYTES` from M1-E's measurements (`NEW-156`).
-      **After** measurement, not before (the `NEW-133` lesson).
+- [x] **M1-F** — re-derive `MAX_CONCURRENT_MODEL_BUDGET_BYTES` and
+      `MAX_SWAP_ASSIST_BYTES` from M1-E's measurements (`NEW-156`) —
+      **DONE 2026-08-24, code-complete + self-reviewed, not
+      code-reviewer-approved, not live-verified.** 8.90GiB → 7.00GiB;
+      10.00GiB → 6.50GiB. See §4.2's M1-F entry for the full derivation,
+      the `NEW-179` invariant fix (budget ceiling must stay ≥ the device
+      ceiling — undocumented and untested before this round, caught by
+      the existing test suite), and `NEW-180` (embed RSS still
+      unmeasured). Mandatory code-reviewer pass still outstanding.
 
 Then:
 
@@ -1915,7 +1977,10 @@ Then:
         deferred to M1-E — `NEW-145`, `NEW-149`, `NEW-155` stay open. The
         policy survives §1.4; the two ceilings
         (16384 background / full interactive) need re-deriving from §5.1.
-  - [ ] **D** — folded into M1-F.
+  - [x] **D** — folded into M1-F, **DONE 2026-08-24**: re-derived
+        `MAX_CONCURRENT_MODEL_BUDGET_BYTES` (§ M1-F entry above) now
+        reflects there being no separate planner process, executed with
+        real numbers instead of left unchanged by inertia.
 - [ ] **Lease/registry** — replace port-probe adoption with an explicit
       lease. Absorbs `NEW-104`, `NEW-144`/`NEW-146`, `NEW-149`.
       Prerequisite for a shared model server; more load-bearing under

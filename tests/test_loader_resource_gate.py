@@ -678,15 +678,20 @@ def test_load_primary_crash_then_reload_not_denied_by_ghost_slot_new81(tmp_path,
     between, matching this test: nothing calls unload() between the two
     load_primary() calls below) -- resource_gate's PID-liveness reap keeps
     checking the loader's own (still-alive) PID forever. The stale
-    ~6.36GiB RESIDENT slot is never reaped, so a second load of the same
-    ~6.36GiB primary sums to ~12.7GiB against the fixed 8.90GiB ceiling and
-    is wrongly denied as unrecoverable.
+    RESIDENT slot is never reaped, so a second load of the same primary
+    sums to roughly double its single-load cost against the fixed
+    MAX_CONCURRENT_MODEL_BUDGET_BYTES ceiling and is wrongly denied as
+    unrecoverable.
 
-    Real gate, real tmp_path-backed state store, and the real ~4.68GB
-    on-disk primary model file (n_ctx=32768, the actual configured value --
-    see core/resource_gate.py's C1 derivation comment for the same
-    ~6.36GiB/~8.90GiB numbers) so this proves the actual admission math, not
-    a hand-picked cost that happens to clear the ceiling either way.
+    Real gate, real tmp_path-backed state store, and the real on-disk
+    primary model file at whatever n_ctx utils.config.MODEL_CONFIG
+    actually configures (Qwen3.5-4B, ~4.85GiB single-load cost at the
+    current default n_ctx=65536 -- was Qwen2.5-Coder-7B at ~6.36GiB/
+    n_ctx=32768 and an 8.90GiB ceiling before §1.4/M1-D/M1-F, 2026-08-24;
+    see core/resource_gate.py's MAX_CONCURRENT_MODEL_BUDGET_BYTES comment
+    for the current derivation) so this proves the actual admission math
+    against real, current numbers, not a hand-picked cost that happens to
+    clear the ceiling either way.
     """
     monkeypatch.setattr(rg, "CODEY_STATE_DIR", tmp_path)
     monkeypatch.setattr(rg, "read_current_temp_c", lambda: None)
@@ -759,7 +764,7 @@ def test_load_primary_crash_then_reload_not_denied_by_ghost_slot_new81(tmp_path,
         os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
         proc.wait(timeout=5)
 
-        # A second load of the same ~6.36GiB primary spec must NOT be denied
+        # A second load of the same primary spec must NOT be denied
         # by the fixed MAX_CONCURRENT_MODEL_BUDGET_BYTES ceiling -- the
         # stale RESIDENT slot (real_pid, now genuinely dead) must be reaped
         # inside reserve_slot()'s own lock, before the committed-bytes sum

@@ -315,9 +315,10 @@ def compute_swap_assisted_headroom_bytes(
     default — sub-task B (this function) deliberately took it as a required
     parameter (see this section's header comment) rather than blessing a
     module-level constant; sub-task C2 is the caller that supplies the real
-    default (`MAX_SWAP_ASSIST_BYTES`, 10GiB as of sub-task F's 2026-08-11
-    recalibration — see `can_admit()`'s own swap-assist section below for
-    that constant's derivation; `can_dispatch_task()` uses its own,
+    default (`MAX_SWAP_ASSIST_BYTES`, 6.50GiB as of M1-F's 2026-08-24
+    re-derivation, superseding sub-task F's 2026-08-11 10.00GiB — see
+    `can_admit()`'s own swap-assist section below for that constant's
+    derivation; `can_dispatch_task()` uses its own,
     deliberately unchanged, `DISPATCH_MAX_SWAP_ASSIST_BYTES`, 768MiB).
 
     Callers must NOT treat the returned bytes as 1:1 usable headroom in the
@@ -1458,12 +1459,139 @@ def estimate_model_load_cost(spec: ModelSpec) -> CostEstimate:
 # original 8.855GiB raw sum this constant's 8.90GiB was rounded up from,
 # and both stay comfortably below 8.90GiB itself (margins of ~1.576GiB and
 # ~0.701GiB respectively — MORE margin than before this decision, not
-# less). **Conclusion: MAX_CONCURRENT_MODEL_BUDGET_BYTES stays 8.90GiB —
-# no value change from this revisit.** The larger (interactive-coder)
-# recomputed sum is the one this ceiling must be checked against going
-# forward, since sub-task C's decision does not shrink the coder's
-# interactive ceiling — only its background-dispatch one.
-MAX_CONCURRENT_MODEL_BUDGET_BYTES = int(8.90 * (1024 ** 3))  # 9,556,302,233 bytes
+# less). **Conclusion at the time of this 2026-08-11 revisit:
+# MAX_CONCURRENT_MODEL_BUDGET_BYTES stays 8.90GiB — no value change from
+# this revisit.** That conclusion is now superseded by the M1-F
+# re-derivation directly below, once the planner process itself was
+# retired (§1.4/M1-D) rather than merely re-ceilinged.
+#
+# ── M1-F (2026-08-24): re-derived for the single-model architecture
+# (`NEW-156`) ──────────────────────────────────────────────────────────────
+# §1.4/M1-D retired the dedicated planner process entirely — Qwen3.5-4B is
+# now the only local generation model, running in thinking mode instead of
+# handing off to a second server. This constant's basis (3 concurrently-
+# declared models: 7B + 1.5B + embed, then coder + planner + embed above)
+# no longer exists; M1-E (2026-08-23) supplied the first real measured RSS
+# for the new single model, which is what this re-derivation waited on
+# (`NEW-133`'s lesson: never re-derive an admission ceiling from arithmetic
+# alone before real measurement exists).
+#
+# Real numbers, computed live via estimate_model_load_cost() against the
+# real on-disk primary/embed files on this device (2026-08-24 session):
+#   Primary @ full n_ctx=65536 (interactive session active — the coder's
+#   ceiling MODEL_CONFIG["n_ctx"] is NOT shrunk by an interactive session,
+#   only a background-dispatched one is, per get_coder_background_n_ctx()):
+#     model=2,740,937,888 + kv=2,147,483,648 (32,768 bytes/token x 65536,
+#     the hybrid 8-attention-layer term, §5.1) + overhead=268,435,456 +
+#     recurrent=52,690,944 (context-independent SSM state, one sequence
+#     slot) = 5,209,547,936 bytes (4.8518GiB) — matches §5.1's table and
+#     M1-A's own pinned unit-test total for this model exactly.
+#   Primary @ CODER_BACKGROUND_N_CTX=16384 (no interactive session):
+#     model=2,740,937,888 + kv=536,870,912 + overhead=268,435,456 +
+#     recurrent=52,690,944 = 3,598,935,200 bytes (3.3518GiB).
+#   Embed: UNCHANGED, same KNOWN, ACCEPTED UNDERCOUNT as every prior
+#     derivation in this section — 352,542,080 bytes (0.328GiB), a floor
+#     estimate (file size + DEFAULT_COMPUTE_OVERHEAD_BYTES only; the embed
+#     model_id has no KNOWN_MODEL_ARCHS entry, so no KV term is computed for
+#     it, and it still launches at -c 2048 per core/embed_server.py, not
+#     whatever n_ctx this table's other rows use). **M1-E did not measure
+#     real embed RSS** — checked this round, no such figure exists in this
+#     project's live-test history yet — so this floor is still the only
+#     available number; logged as a still-open gap below, same as every
+#     prior revisit of this constant.
+#
+#   New raw sum, BACKGROUND primary + embed:
+#     3,598,935,200 + 352,542,080 = 3,951,477,280 bytes (~3.680GiB).
+#   New raw sum, INTERACTIVE primary + embed (the larger of the two cases,
+#     per this constant's own established precedent of checking against
+#     whichever is bigger — see the sub-task-D-revisit block above):
+#     5,209,547,936 + 352,542,080 = 5,562,090,016 bytes (~5.1801GiB).
+#
+# **This constant has a SECOND floor, independent of the concurrent raw
+# sum above, that this section's own prior revisits stated but never
+# enforced with a test: MAX_CONCURRENT_MODEL_BUDGET_BYTES must stay >=
+# compute_device_ceiling_bytes()`, or the budget check can refuse a SINGLE
+# model that `hard_reject` would otherwise admit — inverting rule 12's
+# "hard_reject is the absolute per-model bound" into "budget is the real
+# bound, tighter than the documented physical one." The original 8.90GiB
+# value's own comment observed it sat at ~0.82 of MemTotal, "well above
+# DEVICE_CEILING_USABLE_FRACTION (0.60)," and called that "INTENTIONAL" —
+# that observation was the invariant, not incidental color. This round is
+# what first wrote the invariant down as a requirement and pinned it with
+# `test_max_concurrent_budget_at_least_device_ceiling` in
+# tests/test_resource_gate.py, because M1-F's first-pass value (5.25GiB,
+# rounded up from the interactive raw sum alone) violated it and was
+# caught by the project's own existing single-model tests
+# (`test_hard_ceiling_boundary_flips_hard_reject` et al.) refusing a
+# model just under compute_device_ceiling_bytes() with
+# budget_ceiling_exceeded instead of admitting it. Logged as `NEW-179`
+# (see NEW_ISSUES.md): this ordering requirement existed the whole time
+# this constant has had a documented derivation and was never itself
+# documented or tested before M1-F's own mistake surfaced it.
+#
+# Live `compute_device_ceiling_bytes()` called directly against this
+# device's real `read_meminfo()` (MemTotal 11,623,120,896 bytes, 2026-08-24
+# session) = 6,973,872,537 bytes (~6.4949GiB) — the actual device figure,
+# not a fixture. The historical 10.8GiB-MemTotal fixture used throughout
+# this module's tests gives a very close but NOT identical 6,957,847,019
+# bytes (~6.4800GiB), since 10.8GiB is a slightly-rounded stand-in for the
+# real, slightly-higher MemTotal (`DEVICE_CEILING_USABLE_FRACTION`, 0.60,
+# applied to a MemTotal that drifts only slightly sample to sample —
+# unlike SwapFree, MemTotal is a fixed hardware property, so this floor is
+# far more stable than the swap-side numbers in this file).
+#
+# Final value: **7.00GiB (7,516,192,768 bytes)**, chosen to clear BOTH
+# floors with a real margin, not sit at either one:
+#   - clears the real live device ceiling (~6.4949GiB) by ~0.505GiB — wide
+#     enough that a MemTotal re-read on this same device, or a modest
+#     difference on a similar device, does not flip the invariant back the
+#     wrong way (6.50GiB, an earlier candidate, cleared it by only ~6MiB —
+#     too thin to trust against sample-to-sample drift).
+#   - clears the interactive concurrent raw sum (5,562,090,016 bytes,
+#     ~5.1801GiB) by ~1.4GiB — which also retires the embed-RSS-undercount
+#     margin concern from the 5.20-vs-5.25GiB rounding question earlier
+#     revisits of this constant wrestled with: even a large future
+#     correction to the embed floor estimate has ample room here.
+#   - still correctly REFUSES both two-concurrent-primary cases (an
+#     unreachable state today per the structural check below, but the
+#     ceiling should not accidentally admit either shape of it):
+#     two INTERACTIVE primaries + embed = 2 x 5,209,547,936 + 352,542,080 =
+#     10,771,637,952 bytes (~10.03GiB), comfortably above 7.00GiB; two
+#     BACKGROUND primaries + embed = 2 x 3,598,935,200 + 352,542,080 =
+#     7,550,412,480 bytes (~7.033GiB) — refused, but only by 34,219,712
+#     bytes (~32.6MiB), NOT comfortably. If a genuine two-background-primary
+#     concurrent case is ever intentionally introduced (it is not today —
+#     see the structural check below), re-check this margin specifically;
+#     it is the tightest case this ceiling is asked to refuse.
+#
+# One structural check this round confirmed, not merely assumed (rule 12):
+# core/loader_v2.py's LlamaServer/ModelLoader never register a second
+# "primary" slot before releasing the first — ensure_model()'s thermal-
+# restart branch calls self.unload() (which calls rg.release_slot() on the
+# existing slot) BEFORE calling load_primary() (which calls rg.reserve_slot()
+# again), all inside a single SWAP_GUARD-held critical section. There is no
+# spawn-then-kill handoff window in this codebase where two "primary"
+# reservations exist concurrently, so this ceiling's reduction from 8.90GiB
+# does not newly refuse an in-flight restart/reload transient that used to
+# be admissible — verified by reading ensure_model()'s and
+# LlamaServer.unload()'s bodies directly, not assumed from the old
+# 3-model-derivation's shape.
+#
+# 7.00GiB / ~10.82GiB (this device's MemTotal, §5) ~= 0.647 — back above
+# DEVICE_CEILING_USABLE_FRACTION (0.60), preserving the same qualitative
+# relationship the retired 8.90GiB/0.82 value had (budget ceiling
+# meaningfully above the single-model physical ceiling), just at a smaller
+# absolute margin appropriate to a system with one generation model
+# instead of three.
+#
+# Device-derived from THIS device's real on-disk model files at the n_ctx
+# values above, on ~10.82GiB MemTotal — MUST BE RECOMPUTED (via
+# estimate_model_load_cost() against the real files on that device), not
+# linearly scaled, if this code ever runs on different hardware. Any future
+# re-derivation MUST check the result against compute_device_ceiling_bytes()
+# on the target device, not just against the concurrent raw sum — see the
+# invariant note above.
+MAX_CONCURRENT_MODEL_BUDGET_BYTES = int(7.00 * (1024 ** 3))  # 7,516,192,768 bytes
 
 
 # TODO.md 7.4a sub-task C2 (project-architect scoping call per Ish's
@@ -1532,14 +1660,111 @@ MAX_CONCURRENT_MODEL_BUDGET_BYTES = int(8.90 * (1024 ** 3))  # 9,556,302,233 byt
 # existing MAX_CONCURRENT_MODEL_BUDGET_BYTES ceiling, this can admit up to
 # ~8.9GiB of declared model cost at arbitrarily low live MemAvailable —
 # flagged there for a separate live-verification pass, not addressed by
-# changing either ceiling).
-MAX_SWAP_ASSIST_BYTES = 10 * 1024 ** 3  # 10,737,418,240 bytes (10.00GiB)
+# changing either ceiling). **This 10.00GiB figure and the reasoning above
+# it are historical — sub-task F calibrated them specifically to make the
+# now-retired 7B-at-32768 case reachable through swap assist. That target
+# is gone (§1.4). Superseded by the M1-F re-derivation directly below.**
+#
+# ── M1-F (2026-08-24): re-derived for the single-model architecture
+# (`NEW-156`) ──────────────────────────────────────────────────────────────
+# Same live formula sub-task F used (`compute_swap_assisted_headroom_bytes()`
+# itself, called with the real max_swap_usage_bytes uncapped to read its own
+# unclamped `gated_swap_free` term), but with a FRESH live read of
+# `/proc/meminfo` on this device today, per rule 5 — the old 2026-08-11
+# sample is not reused:
+#   SwapTotal = 16,777,212 kB (~16.00GiB, unchanged — Ish's zram increase);
+#   SwapFree (two reads taken seconds apart this session, confirming the
+#   "drifts sample to sample" warning above is not theoretical):
+#     read 1: SwapFree = 10,937,764 kB -> gated_swap_free (hand arithmetic,
+#             slmk_floor_bytes = SwapTotal x 0.10, gated = SwapFree -
+#             2.0 x slmk_floor_bytes) = 7,764,297,318 bytes (~7.231GiB)
+#     read 2: SwapFree = 10,838,696 kB (a few seconds later) ->
+#             compute_swap_assisted_headroom_bytes() called directly against
+#             a fresh read_meminfo(), uncapped, returned 7,662,847,590 bytes
+#             (~7.137GiB) — the module's own arithmetic, not a hand
+#             re-derivation, confirming the formula and the hand math agree.
+#   This device's real swap headroom moved ~94MiB in the time it took to run
+#   two commands — smaller than the ~500-900MiB single-session drift sub-
+#   task F observed, but the SAME property: this is a live, moving number,
+#   never a constant to be trusted verbatim from a prior session.
+#
+# Target worst case, from §5.1's own table: primary alone (no embed — swap
+# assist gates ONE model's admission at a time, not the concurrent-budget
+# sum MAX_CONCURRENT_MODEL_BUDGET_BYTES above governs) at full interactive
+# n_ctx=65536: model+kv+overhead+recurrent = 5,209,547,936 bytes
+# (4.8518GiB), x REQUIRED_HEADROOM_FACTOR (1.25) = 6,511,934,920 bytes
+# (~6.065GiB required) — matches §5.1's table exactly.
+#
+# New value: 6.50GiB (6,979,321,856 bytes). Chosen the same way sub-task F
+# chose 10.00GiB — a real, binding margin below the live-computed ceiling,
+# not exactly at it, and comfortably above the worst case this cap exists
+# to admit:
+#   - ~0.435GiB above the 6.065GiB required worst case (a real margin, not
+#     a knife's edge — comparable in spirit, though smaller in absolute
+#     terms, to the ~2.5GiB of slack the 131072/262144 rows of §5.1's table
+#     show between the admissible 65536 case and the next hard-reject
+#     tier).
+#   - ~0.6-0.7GiB below both live gated_swap_free reads above (~7.14-7.23GiB
+#     today) — a real ceiling that would actually bind if SwapFree drops
+#     further, not a number set so high it never does.
+#
+# **Stated plainly, per rule 6/7 (do not let a smaller number imply a
+# qualitative change that didn't happen): 6.50GiB does NOT make the plain-
+# MemAvailable-only check binding again for the interactive worst case.**
+# hard_reject bounds any single model's cost at compute_device_ceiling_bytes()
+# (~6.49GiB per §5, itself close to the 65536 case's own 4.8518GiB raw
+# cost), and the largest possible `required` after REQUIRED_HEADROOM_FACTOR
+# for that same case is ~6.065GiB — below 6.50GiB regardless of live
+# MemAvailable, including at MemAvailable=0. §4.3's original "this makes
+# the plain-MemAvailable check effectively non-binding" observation still
+# applies at 6.50GiB, in the same direction, just at a smaller magnitude
+# than 10.00GiB produced. This is accepted, not an oversight — the
+# alternative (a cap below 6.065GiB) would defeat swap-assist's entire
+# purpose for the one case §8 Q1 explicitly decided should be admissible at
+# this device's real headroom.
+#
+# **Also worth recording plainly: the live term, not this cap, is what
+# actually binds today.** Both live gated_swap_free reads above
+# (~7.14-7.23GiB) are only ~1.1-1.2GiB above the 6.065GiB requirement — if
+# SwapFree drops by roughly that much on a future session (well within the
+# ~3.46GiB swing observed between this session's read and the 2026-08-11
+# sub-task F session's 10.43GiB-vs-13.89GiB SwapFree), the interactive
+# 65536 worst case stops being admissible through swap assist regardless of
+# what this constant is set to — the formula's own min(max_swap_usage_bytes,
+# gated_swap_free) would clamp on the smaller, live-drifting operand, not
+# this cap. Re-verify this margin live before relying on it, same as every
+# other number in this section.
+#
+# This cap silently couples to n_ctx — worth stating for whoever next
+# revisits §8 Q1's "65536" answer upward. Working backward from 6.50GiB:
+# max admissible cost via swap assist alone = 6,979,321,856 / 1.25
+# (REQUIRED_HEADROOM_FACTOR) = 5,583,457,484.8 bytes; subtracting the
+# fixed, n_ctx-independent terms (model 2,740,937,888 + overhead
+# 268,435,456 + recurrent 52,690,944 = 3,062,064,288) leaves a KV budget
+# of 2,521,393,196.8 bytes; at 32,768 bytes/token that's n_ctx ≈ 76,947 —
+# ~17.4% above today's 65536 default. THIS constant (via swap assist) is
+# what binds FIRST if n_ctx is ever raised past ~77k on this device —
+# compute_device_ceiling_bytes() (~6.4949GiB, no REQUIRED_HEADROOM_FACTOR
+# applied to hard_reject's raw-cost comparison, by the same arithmetic
+# good to ~n_ctx≈119,379) does not become the binding constraint until
+# well past that. Re-derive both before raising n_ctx, not just the one
+# that happens to be checked first.
+#
+# Real numbers, computed live via this project's own
+# estimate_model_load_cost() and compute_swap_assisted_headroom_bytes()
+# against the real on-disk primary model file and real /proc/meminfo, on
+# this device's ~10.82GiB MemTotal / ~16.00GiB SwapTotal — MUST BE
+# RECOMPUTED (not linearly scaled) if this code ever runs on different
+# hardware.
+MAX_SWAP_ASSIST_BYTES = int(6.50 * 1024 ** 3)  # 6,979,321,856 bytes (6.50GiB)
 
 # TODO.md 7.4a sub-task F: `can_dispatch_task()`'s own default cap,
-# deliberately DECOUPLED from `MAX_SWAP_ASSIST_BYTES` above (which sub-task
-# F raised to 10GiB for `can_admit()` — one-shot, explicit, human/loader-
-# initiated model loads). `can_dispatch_task()` runs unguarded on EVERY
-# tick of the daemon's autonomous, unattended dispatch loop, gating
+# deliberately DECOUPLED from `MAX_SWAP_ASSIST_BYTES` above (raised to
+# 10.00GiB by sub-task F, since re-derived to 6.50GiB by M1-F — see that
+# constant's own comment above; both values are/were `can_admit()`-only —
+# one-shot, explicit, human/loader-initiated model loads). `can_dispatch_
+# task()` runs unguarded on EVERY tick of the daemon's autonomous,
+# unattended dispatch loop, gating
 # `DISPATCH_MIN_HEADROOM_BYTES` (1GiB, chosen specifically as an
 # early-warning floor "well before can_admit()'s own...check would run,"
 # per that constant's own comment). Raising the shared constant to 10GiB
@@ -1693,8 +1918,8 @@ def can_admit(
     `_resolve_swap_assist_enabled_default()` — see
     `CODEY_SWAP_ASSIST_ADMISSION`'s own comment) controls TODO.md 7.4a
     sub-task C2, ON by default per Ish's 2026-08-11 direct decision.
-    `max_swap_usage_bytes` (default `MAX_SWAP_ASSIST_BYTES`, 10GiB as of
-    sub-task F's 2026-08-11 recalibration) and
+    `max_swap_usage_bytes` (default `MAX_SWAP_ASSIST_BYTES`, 6.50GiB as of
+    M1-F's 2026-08-24 re-derivation) and
     `slmk_floor_gate_multiplier` (default `SLMK_FLOOR_GATE_MULTIPLIER`, 2.0)
     are passed straight through to `compute_swap_assisted_headroom_bytes()`
     — see that function's own docstring and `MAX_SWAP_ASSIST_BYTES`'s own
@@ -1763,8 +1988,8 @@ def can_admit(
         (unlike `compute_headroom_bytes()`, which does subtract
         `reserved_bytes`) — two concurrently-pending swap-assisted
         admissions can each independently lean on the same live `SwapFree`
-        figure and the same `MAX_SWAP_ASSIST_BYTES` cap (10GiB as of
-        sub-task F), rather than the second one seeing the first one's
+        figure and the same `MAX_SWAP_ASSIST_BYTES` cap (6.50GiB as of
+        M1-F), rather than the second one seeing the first one's
         claim already spent. Not fixed here (would change
         sub-task B's own function signature, out of scope for C2's mandate
         of wiring, not redesigning, that function) — flagged for whichever
@@ -2138,8 +2363,8 @@ def can_dispatch_task(
     is the one deliberate exception, per TODO.md 7.4a sub-task F's
     2026-08-11 recalibration: this function's own default is
     `DISPATCH_MAX_SWAP_ASSIST_BYTES` (768MiB, unchanged), NOT
-    `MAX_SWAP_ASSIST_BYTES` (raised to 10GiB, `can_admit()`-only by that
-    same recalibration) — see `DISPATCH_MAX_SWAP_ASSIST_BYTES`'s own
+    `MAX_SWAP_ASSIST_BYTES` (6.50GiB as of M1-F's 2026-08-24 re-derivation,
+    `can_admit()`-only) — see `DISPATCH_MAX_SWAP_ASSIST_BYTES`'s own
     comment for why the two caps were deliberately decoupled. Both are
     passed straight through to `compute_swap_assisted_headroom_bytes()` —
     see that function's own comments for the full derivation.
@@ -2168,10 +2393,11 @@ def can_dispatch_task(
     in-flight swap-assisted admission and a concurrently swap-assisted
     dispatch decision can each independently claim the same live
     `SwapFree` figure, neither aware of the other's claim. As of TODO.md
-    7.4a sub-task F's 2026-08-11 recalibration, the two consumers no
-    longer share the SAME numeric cap (`can_admit()` now defaults to
-    `MAX_SWAP_ASSIST_BYTES`, 10GiB; this function still defaults to the
-    unchanged `DISPATCH_MAX_SWAP_ASSIST_BYTES`, 768MiB) — `NEW-135`'s core
+    7.4a sub-task F's 2026-08-11 recalibration (value since re-derived by
+    M1-F, 2026-08-24), the two consumers no longer share the SAME numeric
+    cap (`can_admit()` now defaults to `MAX_SWAP_ASSIST_BYTES`, 6.50GiB;
+    this function still defaults to the unchanged
+    `DISPATCH_MAX_SWAP_ASSIST_BYTES`, 768MiB) — `NEW-135`'s core
     gap (no cross-consumer accounting of the shared `SwapFree` pool) is
     unaffected by that split and remains exactly as unfixed as before. Not
     fixed here (fixing it means changing sub-task B's own function

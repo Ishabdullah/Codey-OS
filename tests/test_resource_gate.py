@@ -414,8 +414,10 @@ def test_new21_regression_rejects_load_on_ram_margin_alone(mem_available_gib):
 # real, production can_admit() call shape leaves `enable_swap_assist` unset,
 # resolving to the default-ON swap-assist path (sub-task C2). At this
 # fixture's swap terms (SwapTotal=8.0GiB, SwapFree=6.8GiB -> slmk_floor =
-# 0.8GiB, gated_swap_free = 6.8 - 2*0.8 = 5.2GiB), the raised 10GiB
-# MAX_SWAP_ASSIST_BYTES cap (min(10GiB, 5.2GiB) = 5.2GiB swap contribution)
+# 0.8GiB, gated_swap_free = 6.8 - 2*0.8 = 5.2GiB), the MAX_SWAP_ASSIST_BYTES
+# cap (6.50GiB as of M1-F, 2026-08-24, re-deriving sub-task F's original
+# 10.00GiB — min(6.50GiB, 5.2GiB) = 5.2GiB swap contribution either way,
+# since 5.2GiB is below both cap values)
 # now covers the RAM deficit at 3 of the 4 MemAvailable points in NEW-21's
 # own plausible range (3.5/5.0/6.5GiB) — only the 2.2GiB floor (MemAvailable
 # == MemFree, no reclaimable cache at all) still denies outright: its
@@ -467,8 +469,8 @@ def test_new21_naive_check_without_margin_would_have_admitted():
     # ...at the real production call shape (enable_swap_assist left unset),
     # the gate's default conservative margin still correctly rejects this
     # load on RAM alone — but, as of TODO.md 7.4a sub-task F's 2026-08-11
-    # recalibration, the same call now admits it anyway via the raised
-    # 10GiB MAX_SWAP_ASSIST_BYTES cap (see
+    # recalibration (value since re-derived by M1-F, 2026-08-24), the same
+    # call now admits it anyway via the MAX_SWAP_ASSIST_BYTES cap (see
     # test_new21_production_call_shape_swap_assist_may_now_admit above for
     # the full derivation on this exact fixture) — no longer a bare denial.
     real = rg.can_admit(spec, meminfo=mi, read_temp_fn=NO_THERMAL)
@@ -2017,26 +2019,73 @@ def test_compute_swap_assisted_headroom_now_wired_into_can_admit():
 
 # ── TODO.md 7.4a sub-task C1: MAX_CONCURRENT_MODEL_BUDGET_BYTES ─────────────
 
-# Real, exact bytes from TODO.md 7.4a's own derivation — used directly
-# (not re-derived here) so these tests pin the actual documented numbers.
+# Historical figures from TODO.md 7.4a's own 3-model (7B+1.5B+embed)
+# derivation. Both retired models no longer exist in the system (§1.4/M1-D)
+# — kept only as a labeled historical constant so the superseded regression
+# test below stays legible, not because the scenario is still real.
 _SEVENB_COST_BYTES = 6_830_557_184
 _ONE_POINT_FIVEB_COST_BYTES = 2_325_280_320
-_EMBED_COST_BYTES = 352_563_303
+# M1-F (2026-08-24): recomputed via estimate_model_load_cost() against the
+# real on-disk embed file; superseded the older 352_563_303 figure (a very
+# slightly different fixture size used in the original 7.4a derivation).
+_EMBED_COST_BYTES = 352_542_080
+
+# M1-F (2026-08-24): real Qwen3.5-4B costs via estimate_model_load_cost()
+# against the real on-disk primary model file — see
+# core/resource_gate.py's MAX_CONCURRENT_MODEL_BUDGET_BYTES comment for the
+# full derivation these are copied from.
+_PRIMARY_INTERACTIVE_65536_COST_BYTES = 5_209_547_936  # n_ctx=65536, interactive
+_PRIMARY_BACKGROUND_16384_COST_BYTES = 3_598_935_200  # n_ctx=16384, background
 
 
 def test_max_concurrent_model_budget_bytes_value():
-    assert rg.MAX_CONCURRENT_MODEL_BUDGET_BYTES == 9_556_302_233
+    assert rg.MAX_CONCURRENT_MODEL_BUDGET_BYTES == 7_516_192_768
+
+
+def test_max_concurrent_budget_at_least_device_ceiling():
+    # M1-F (2026-08-24), NEW-179: MAX_CONCURRENT_MODEL_BUDGET_BYTES must
+    # never sit BELOW compute_device_ceiling_bytes(), or the budget check
+    # can refuse a single model hard_reject would otherwise admit —
+    # inverting rule 12's "hard_reject is the absolute per-model bound."
+    # The retired 8.90GiB value satisfied this by a wide margin (~0.82 vs
+    # ~0.60 of MemTotal) but the relationship was never itself pinned by a
+    # test until M1-F's own first-pass value (5.25GiB) violated it and was
+    # caught by test_hard_ceiling_boundary_flips_hard_reject et al. This
+    # test is the fix for that gap, not a duplicate of those.
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=8.0, mem_available_gib=8.0)
+    assert rg.MAX_CONCURRENT_MODEL_BUDGET_BYTES >= rg.compute_device_ceiling_bytes(mi)
 
 
 def test_three_model_concurrent_case_is_admissible_new133_regression(tmp_path):
-    # NEW-133's exact regression case: the full 3-model-concurrent scenario
-    # this ceiling was derived from must itself be ADMISSIBLE, not refused
-    # by a rounding error (the failure mode the 8.80GiB->8.90GiB correction
-    # fixed). Two slots pre-registered (7B + 1.5B), candidate is the embed
-    # model — sum of all three equals the raw 9,508,400,807-byte sum, well
-    # under the 9,556,302,233-byte ceiling.
-    rg.register_slot("primary", cost_bytes=_SEVENB_COST_BYTES, state_dir=tmp_path, status=rg.SLOT_STATUS_RESIDENT)
-    rg.register_slot("planner", cost_bytes=_ONE_POINT_FIVEB_COST_BYTES, state_dir=tmp_path, status=rg.SLOT_STATUS_RESIDENT)
+    # NEW-133's original regression case (7B + 1.5B + embed, 3 concurrent
+    # models) no longer reflects a reachable state — both non-embed models
+    # in that scenario are retired (§1.4/M1-D collapsed coder+planner into
+    # one model). Kept here, unchanged in shape, as a permanent historical
+    # record that the OLD 8.90GiB ceiling admitted its own worst case; the
+    # test below it is this same regression's re-expression for the current
+    # single-model architecture and IS exercised for real.
+    rg.register_slot("primary-retired-7b", cost_bytes=_SEVENB_COST_BYTES, state_dir=tmp_path, status=rg.SLOT_STATUS_RESIDENT)
+    rg.register_slot("planner-retired-1.5b", cost_bytes=_ONE_POINT_FIVEB_COST_BYTES, state_dir=tmp_path, status=rg.SLOT_STATUS_RESIDENT)
+
+    embed_spec = rg.ModelSpec(model_id="embed", size_bytes=_EMBED_COST_BYTES, n_ctx=2048, compute_overhead_bytes=0)
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=5.0, mem_available_gib=5.0)
+    decision, slot_id = rg.reserve_slot(embed_spec, meminfo=mi, read_temp_fn=NO_THERMAL, state_dir=tmp_path)
+    # Not asserting admitted here on purpose — under the current, much
+    # smaller MAX_CONCURRENT_MODEL_BUDGET_BYTES (7.00GiB), this retired
+    # 3-model sum (~8.855GiB raw) is correctly OVER budget. That is the
+    # right outcome for a scenario this codebase can no longer produce, not
+    # a regression — see the real single-model case below instead.
+    assert decision.admitted is False
+    assert decision.budget_ceiling_exceeded is True
+
+
+def test_single_model_concurrent_case_is_admissible_m1f_regression(tmp_path):
+    # M1-F's own regression case for the current architecture, in the same
+    # spirit as NEW-133's original test above: the exact worst-case
+    # concurrent scenario MAX_CONCURRENT_MODEL_BUDGET_BYTES was derived to
+    # admit (interactive-ceiling primary + embed) must itself be
+    # ADMISSIBLE, not refused by an off-by-a-rounding-step error.
+    rg.register_slot("primary", cost_bytes=_PRIMARY_INTERACTIVE_65536_COST_BYTES, state_dir=tmp_path, status=rg.SLOT_STATUS_RESIDENT)
 
     embed_spec = rg.ModelSpec(model_id="embed", size_bytes=_EMBED_COST_BYTES, n_ctx=2048, compute_overhead_bytes=0)
     mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=5.0, mem_available_gib=5.0)
@@ -2195,16 +2244,19 @@ def test_reserve_slot_admits_when_committed_sum_stays_under_ceiling(tmp_path):
 
 
 def test_max_swap_assist_bytes_value():
-    # TODO.md 7.4a sub-task F (2026-08-11 recalibration): can_admit()'s own
-    # cap was raised to 10GiB; see DISPATCH_MAX_SWAP_ASSIST_BYTES below for
-    # the deliberately-unchanged, decoupled can_dispatch_task() cap.
-    assert rg.MAX_SWAP_ASSIST_BYTES == 10_737_418_240
+    # M1-F (2026-08-24): re-derived from 10.00GiB (TODO.md 7.4a sub-task F,
+    # 2026-08-11) to 6.50GiB for the single-model architecture (§1.4/M1-D) —
+    # see MAX_SWAP_ASSIST_BYTES's own comment in core/resource_gate.py for
+    # the full derivation. DISPATCH_MAX_SWAP_ASSIST_BYTES below stays
+    # deliberately unchanged, decoupled from this value.
+    assert rg.MAX_SWAP_ASSIST_BYTES == 6_979_321_856
 
 
 def test_dispatch_max_swap_assist_bytes_value():
     # TODO.md 7.4a sub-task F: can_dispatch_task()'s own cap stays at the
-    # original 768MiB value, deliberately decoupled from the can_admit()-
-    # only 10GiB raise above.
+    # original 768MiB value, deliberately decoupled from MAX_SWAP_ASSIST_
+    # BYTES above (raised to 10GiB by sub-task F, re-derived to 6.50GiB by
+    # M1-F — this constant tracks neither change).
     assert rg.DISPATCH_MAX_SWAP_ASSIST_BYTES == 805_306_368
 
 
@@ -2226,10 +2278,11 @@ def test_swap_assist_admits_when_ram_alone_would_deny():
     # NEW-21-shaped fixture (real numbers, not the isolated-arithmetic
     # fixture above): baseline 2.2GiB MemAvailable, ~10.8GiB SwapFree.
     # required=2.5GiB > headroom=2.2GiB (RAM alone denies), but
-    # combined = 2.2GiB + min(10GiB, 8.4GiB gated SwapFree) (the default
-    # MAX_SWAP_ASSIST_BYTES cap as of TODO.md 7.4a sub-task F's 2026-08-11
-    # recalibration; the 8.4GiB gated SwapFree term binds here, not the
-    # 10GiB cap itself) = 10.6GiB >= 2.5GiB.
+    # combined = 2.2GiB + min(6.5GiB, 8.4GiB gated SwapFree) (the default
+    # MAX_SWAP_ASSIST_BYTES cap as of M1-F's 2026-08-24 re-derivation; the
+    # 6.5GiB cap binds here, not the 8.4GiB gated SwapFree term — the
+    # opposite of which term bound before M1-F lowered the cap below this
+    # fixture's gated SwapFree) = 8.7GiB >= 2.5GiB.
     spec = rg.ModelSpec(model_id="x", size_bytes=2 * GIB, n_ctx=1024, compute_overhead_bytes=0)
     mi = meminfo_bytes(
         mem_total_gib=10.8, mem_free_gib=2.2, mem_available_gib=2.2,
