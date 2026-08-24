@@ -108,6 +108,37 @@ def _request_daemon_plan(prompt: str):
 
         if not is_daemon_running():
             return None
+
+        # NEW-169: this socket timeout used to be a flat 185s, independent
+        # of NEW-164/165/167's formula-based timeouts in plannd.py/daemon.py
+        # below it. Those fixes raised the *server-side* budget for a
+        # thinking-mode plan to well over 1300s at PLANNER_MAX_TOKENS=2048 —
+        # but this call is the outermost, client-side wrapper around the
+        # whole RPC round trip (Unix socket, not HTTP), and it was never
+        # updated to match. A flat 185s here meant the client gave up and
+        # raised ConnectionError long before either server-side fix could
+        # matter, for any plan needing more than 185s — which every one of
+        # NEW-164/165/167's own worked examples already exceeded. Derive
+        # this timeout from the same formula/inputs core/daemon.py's
+        # _handle_command uses for its own outer wait_for (compute_planner_
+        # timeout() + 30.0s), plus a small extra buffer for the socket
+        # round trip itself, so this client always outlives every timeout
+        # nested inside it rather than being the shortest one in the chain.
+        try:
+            from core.plannd import PLANNER_PROMPT, compute_planner_timeout
+            from core.tokens import estimate_tokens
+            from utils.config import PLANNER_MAX_TOKENS
+
+            prompt_tokens_estimate = estimate_tokens(PLANNER_PROMPT) + estimate_tokens(prompt)
+            daemon_outer_timeout = compute_planner_timeout(prompt_tokens_estimate, PLANNER_MAX_TOKENS) + 30.0
+            socket_timeout = daemon_outer_timeout + 10.0
+        except Exception:
+            # Same degrade-gracefully convention as every other utils.config/
+            # core.* dependency in this function: a broken import shouldn't
+            # crash planning, it should fall back to a safe, generous flat
+            # value comfortably above the pre-recalibration worst case.
+            socket_timeout = 1400.0
+
         try:
             from utils.config import (CODEY_PLANNER_BACKEND,
                                       OPENROUTER_PLANNER_MODEL,
@@ -129,7 +160,7 @@ def _request_daemon_plan(prompt: str):
         response = send_command(
             "command",
             {"prompt": prompt, "no_plan": False, "plan_only": True},
-            timeout=185,
+            timeout=socket_timeout,
         )
         plan = response.get("plan")
         if plan and isinstance(plan, list) and len(plan) > 1:

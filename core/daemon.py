@@ -237,11 +237,25 @@ class DaemonServer:
         no_plan = data.get("no_plan", False)
         if not no_plan:
             try:
+                from core.plannd import PLANNER_PROMPT, compute_planner_timeout
                 from core.planner_client import send_plan_request_async
+                from core.tokens import estimate_tokens
+                from utils.config import PLANNER_MAX_TOKENS
+
+                # NEW-165 fix 3: derive the outer wait_for timeout from the
+                # same formula plannd.py uses for its own inner urlopen
+                # timeout (plus a small buffer), instead of a second
+                # hardcoded guess. Otherwise raising plannd's inner
+                # timeout (formula-based, can exceed 180s) just relocates
+                # NEW-165 one layer up, and worse — cancellation here
+                # carries none of plannd's new diagnostic logging.
+                prompt_tokens_estimate = estimate_tokens(PLANNER_PROMPT) + estimate_tokens(prompt)
+                inner_timeout = compute_planner_timeout(prompt_tokens_estimate, PLANNER_MAX_TOKENS)
+                outer_timeout = inner_timeout + 30.0
 
                 steps = await asyncio.wait_for(
                     send_plan_request_async(prompt),
-                    timeout=180.0,
+                    timeout=outer_timeout,
                 )
                 if steps and len(steps) > 1:
                     info(f"plannd: returned {len(steps)}-step plan (plan_only)")
@@ -255,7 +269,7 @@ class DaemonServer:
                 if steps:
                     info("plannd returned only 1 step — using single-task path")
             except asyncio.TimeoutError:
-                warning("plannd request timed out after 180 s — falling back to direct task")
+                warning(f"plannd request timed out after {outer_timeout:.0f}s — falling back to direct task")
             except ConnectionRefusedError:
                 # plannd not running — silent fallback
                 pass
@@ -1092,19 +1106,31 @@ class Daemon:
         """
         Pull-side planning step for a claimed `needs_planning=1` direct-
         command task (7.4 sub-task C) — relocated from `_handle_command`'s
-        old synchronous enqueue-time planning call, same 180s timeout and
-        fallback-to-single-task semantics as before. Returns the step list
-        (possibly None/empty) or None on any failure; planner unavailability
-        is always silent (logged only), matching the original behavior this
-        replaces.
+        old synchronous enqueue-time planning call, fallback-to-single-task
+        semantics as before. Returns the step list (possibly None/empty) or
+        None on any failure; planner unavailability is always silent
+        (logged only), matching the original behavior this replaces.
+
+        NEW-165 fix 3 (2026-08-23): the timeout is no longer a flat 180s —
+        it's derived from core.plannd.compute_planner_timeout(), the same
+        formula plannd.py uses for its own inner HTTP timeout around this
+        same call, plus a small buffer. See _handle_command's plan_only
+        branch above for the identical reasoning.
         """
         try:
+            from core.plannd import PLANNER_PROMPT, compute_planner_timeout
             from core.planner_client import send_plan_request_async
+            from core.tokens import estimate_tokens
+            from utils.config import PLANNER_MAX_TOKENS
 
-            steps = await asyncio.wait_for(send_plan_request_async(prompt), timeout=180.0)
+            prompt_tokens_estimate = estimate_tokens(PLANNER_PROMPT) + estimate_tokens(prompt)
+            inner_timeout = compute_planner_timeout(prompt_tokens_estimate, PLANNER_MAX_TOKENS)
+            outer_timeout = inner_timeout + 30.0
+
+            steps = await asyncio.wait_for(send_plan_request_async(prompt), timeout=outer_timeout)
             return steps
         except asyncio.TimeoutError:
-            warning("plannd request timed out after 180s — falling back to direct task")
+            warning(f"plannd request timed out after {outer_timeout:.0f}s — falling back to direct task")
         except ConnectionRefusedError:
             # plannd not running — silent fallback
             pass
@@ -1194,7 +1220,8 @@ class Daemon:
         # 7.4 sub-task C: pull-side planning for a raw task enqueued via
         # _handle_command's plan_only=False path (needs_planning=1) — moved
         # here from the old synchronous enqueue-time send_plan_request_async
-        # call, same 180s timeout and fallback-to-single-task semantics.
+        # call, fallback-to-single-task semantics (timeout is now
+        # formula-derived, see _plan_claimed_task's own docstring, NEW-165).
         description = db_task["description"]
         if db_task.get("needs_planning"):
             steps = await self._plan_claimed_task(description)

@@ -255,6 +255,39 @@ def filter_tool_steps(steps: List[str]) -> List[str]:
     return kept if len(kept) > 1 else steps[:2]  # fallback: keep first two
 
 
+def compute_planner_timeout(prompt_tokens_estimate: int, max_tokens: int) -> float:
+    """
+    NEW-165: formula-based HTTP timeout for a local-backend planning call,
+    replacing the flat `timeout=60` that was shorter than this device's
+    real prompt-processing time for the actual PLANNER_PROMPT size
+    (live-reproduced during M1-E — prefill alone took >60s on a
+    ~2,425-token prompt).
+
+    A flat constant is exactly what caused NEW-165 once already and would
+    go stale the moment PLANNER_MAX_TOKENS changes again, so this derives
+    the timeout from the actual prompt/answer sizes instead:
+
+        timeout = prefill_time + generation_time + margin
+
+    using PLANNER_MIN_PREFILL_TPS / PLANNER_MIN_GEN_TPS /
+    PLANNER_TIMEOUT_MARGIN_SECONDS (utils/config.py) as conservative
+    floors below this device's measured M1-E rates.
+
+    core/daemon.py reuses this exact function (not a re-derived constant)
+    to size its own outer `asyncio.wait_for` timeout around the same
+    HTTP call, so the inner urlopen timeout always fires first and gets
+    a chance to log before the outer wrapper would cancel it.
+    """
+    from utils.config import (PLANNER_MIN_GEN_TPS, PLANNER_MIN_PREFILL_TPS,
+                               PLANNER_TIMEOUT_MARGIN_SECONDS)
+
+    return (
+        (prompt_tokens_estimate / PLANNER_MIN_PREFILL_TPS)
+        + (max_tokens / PLANNER_MIN_GEN_TPS)
+        + PLANNER_TIMEOUT_MARGIN_SECONDS
+    )
+
+
 # ── Planning via the primary server (or remote when CODEY_BACKEND_P is set) ─
 
 
@@ -392,6 +425,23 @@ def get_plan(prompt: str) -> Optional[List[str]]:
     except ImportError:
         port = 8080
 
+    # NEW-165: derive the HTTP timeout from the actual prompt/answer sizes
+    # instead of a flat constant — see compute_planner_timeout()'s
+    # docstring above for why. estimate_tokens() is the same heuristic
+    # core/memory_v2.py already uses (core/tokens.py), not a new counter.
+    # Imported here, not at module level, to match every other
+    # utils.config/core.* dependency in this function — lazy so that a
+    # missing/broken module degrades this one call instead of making
+    # `import core.plannd` itself hard-fail.
+    try:
+        from core.tokens import estimate_tokens
+
+        prompt_tokens_estimate = estimate_tokens(PLANNER_PROMPT) + estimate_tokens(prompt)
+        request_timeout = compute_planner_timeout(prompt_tokens_estimate, max_tokens)
+    except ImportError:
+        prompt_tokens_estimate = 0
+        request_timeout = 300.0
+
     payload = {
         "model": "plannd",
         "messages": [
@@ -417,7 +467,7 @@ def get_plan(prompt: str) -> Optional[List[str]]:
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=60) as response:
+        with urllib.request.urlopen(req, timeout=request_timeout) as response:
             result = json.loads(response.read().decode("utf-8"))
             choices = result.get("choices", [])
             if not choices:
@@ -431,12 +481,37 @@ def get_plan(prompt: str) -> Optional[List[str]]:
             # deliberately no reasoning_content fallback: falling back to it
             # here would let a plan silently come from the model's
             # scratch-work instead of its actual answer.
-            raw = choices[0].get("message", {}).get("content", "").strip()
+            message = choices[0].get("message", {})
+            raw = message.get("content", "").strip()
             if not raw:
+                # NEW-164: this used to be a silent `return None` — the
+                # actually-silent half of that bug. A thinking-mode
+                # request can legitimately come back with empty content
+                # when the reasoning trace alone exhausts max_tokens
+                # (finish_reason == "length", no natural stop token ever
+                # reached) — the reasoning trace is unbounded in
+                # principle, so no fixed PLANNER_MAX_TOKENS is guaranteed
+                # sufficient. Log real diagnostics whenever that happens
+                # so the failure is visible instead of indistinguishable
+                # from "planner unavailable".
+                from utils.logger import warning as _warning
+
+                finish_reason = choices[0].get("finish_reason")
+                reasoning_content = message.get("reasoning_content") or ""
+                if finish_reason == "length":
+                    _warning(
+                        "[plannd] get_plan: thinking-mode request hit "
+                        "finish_reason=length with empty content — "
+                        f"prompt_tokens_estimate={prompt_tokens_estimate}, "
+                        f"max_tokens={max_tokens}, "
+                        f"reasoning_content_len={len(reasoning_content)}"
+                    )
                 return None
             steps = parse_steps(raw)
             steps = filter_tool_steps(steps)
             return steps if steps else None
     except Exception as e:
-        print(f"[plannd] get_plan error: {e}", flush=True)
+        from utils.logger import warning as _warning
+
+        _warning(f"[plannd] get_plan error: {e}")
         return None

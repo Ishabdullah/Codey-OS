@@ -490,6 +490,79 @@ QWEN_MMAP = os.environ.get("CODEY_7B_MMAP", "1") != "0"  # default: True
 QWEN_MLOCK = os.environ.get("CODEY_7B_MLOCK", "0") != "0"  # default: False
 
 # ── Planner settings ─────────────────────────────────────────────────────────
-# Temperature 0.2 keeps plans focused; 768 gives room for 5 detailed steps.
+# Temperature 0.2 keeps plans focused.
+# NEW-164 (2026-08-23, M1-E live verification): 1024 was sized for the
+# retired Qwen2.5-1.5B planner, which had no thinking mode at all. On
+# Qwen3.5-4B with `chat_template_kwargs: {"enable_thinking": true}`
+# (core/plannd.py:get_plan()), 1024 tokens is not enough headroom for a
+# real reasoning trace before the model reaches its numbered-plan answer —
+# live-reproduced: a 2,425-prompt-token request hit `finish_reason:
+# "length"` at 1024 completion tokens with `message.content` still empty
+# and 4,632 chars of unfinished `reasoning_content`. Raised to 2048.
+# Corrected 2026-08-23 (code-reviewer's NEW-167 sanity check): this
+# comparison used to say "chosen against daemon.py's task_timeout=1800s,
+# leaving ~1100s for execution afterward" — wrong on two counts. First,
+# the ~667s figure was computed with this constant's ORIGINAL,
+# since-corrected PLANNER_MIN_PREFILL_TPS/PLANNER_MIN_GEN_TPS (20/4,
+# corrected to 10/2 per NEW-167 below); with the current constants the
+# same worst-case inner timeout is ~1296.5s, not ~667s (see
+# compute_planner_timeout() in core/plannd.py). Second, task_timeout
+# (core/daemon.py's _process_planner_tasks, wrapping task EXECUTION) and
+# planning's own timeout do not actually share a budget in the code at
+# all — they wrap two independent, sequential asyncio.wait_for calls,
+# planning then execution, not one combined ceiling. Do not restate a
+# shared-budget framing that doesn't exist in the control flow. The
+# ceiling actually worth checking against is core/planner_service.py's
+# client-side socket timeout (_request_daemon_plan()), which NEW-169
+# found was a stale flat 185s — it is now itself derived from this same
+# formula, so it no longer needs a separate hardcoded comparison here.
+# 4096 tokens would roughly double 2048's own worst-case cost again — not
+# defensible for a single planning call regardless of which downstream
+# ceiling is checked. This value happens to equal
+# MODEL_CONFIG["max_tokens"] above (the server's --n-predict startup
+# default) — that is a COINCIDENCE, not a dependency. Confirmed against
+# llama.cpp's server request schema: a request's own `max_tokens`/
+# `n_predict` has no clamp to the server's startup default, so do not
+# "simplify" this by referencing MODEL_CONFIG["max_tokens"] instead of a
+# literal — a future change to one must not silently change the other.
+#
+# IMPORTANT: the reasoning trace itself is unbounded in principle — no
+# fixed token budget is guaranteed sufficient on a harder prompt, because
+# there is no way to cap the reasoning portion separately from the answer
+# (confirmed: core/loader_v2.py's server spawn args expose no such flag).
+# This is why core/plannd.py's get_plan() logs a warning whenever a
+# thinking-mode request comes back with finish_reason == "length" and
+# empty content — that is the actually-silent failure mode this comment
+# cannot fix by itself.
 PLANNER_TEMPERATURE = 0.2
-PLANNER_MAX_TOKENS = 1024
+PLANNER_MAX_TOKENS = 2048
+
+# NEW-165 (2026-08-23, M1-E live verification): formula-based HTTP timeout
+# inputs for core/plannd.py's get_plan() (local backend only — NOT
+# _get_plan_remote(), a different backend with its own timeout=60 left
+# untouched).
+#
+# NEW-167 (2026-08-23, post-fix live re-verification): the first pass at
+# these two constants (20 / 4) was NOT actually a floor below M1-E's
+# measured range — it was M1-E's range itself, cited from a different
+# call shape (M1-E's 23-26 tok/s prefill and 4.87 tok/s figures came from
+# a non-thinking coding request and a differently-loaded device state).
+# A direct re-measurement of a cold-cache, thinking-mode planning call —
+# the exact shape these constants are meant to bound — measured
+# 10.63-11.5 tok/s prefill and 2.15-2.74 tok/s generation on this same
+# device (~/.codeyOS/llama-server.log, task 0's print_timing line for
+# prefill; three separate completions for generation). The values below
+# are set at approximately that measured floor itself (10/10.63 ≈ 94% of
+# the lowest single prefill sample; 2/2.15 ≈ 93% of the lowest single
+# generation sample) — NOT halved, despite an earlier draft of this
+# comment claiming that; corrected by code-reviewer 2026-08-23. A ~6-7%
+# cushion is a thin margin, especially given the FIRST calibration
+# attempt (the original 20/4, sourced from a differently-shaped M1-E
+# measurement) was already found ~2x optimistic once via live
+# re-measurement. If this recurs a third time, don't re-derive by hand
+# again — widen the cushion deliberately or gather more samples (rule 12:
+# measure the artifact the constant actually governs, not a
+# family-resemblant figure from a different code path).
+PLANNER_MIN_PREFILL_TPS = 10
+PLANNER_MIN_GEN_TPS = 2
+PLANNER_TIMEOUT_MARGIN_SECONDS = 30

@@ -6869,6 +6869,27 @@ finding for the same bug. See `NEW-39`.)*
   `TestDaemonPlanPathUnaffectedByClassifier` exercises `get_plan()`'s
   indifference to whatever `classify_tier()` returns — it is not evidence
   that `"remote"` is a real output of today's `classify_tier()`.
+- **Rule-6 correction (2026-08-23, found while scoping the 3-tier
+  coding-task dispatch):** this entry's framing — `classify_tier()`
+  "skews toward large," a weak-but-nonzero discriminating signal — no
+  longer holds and should be read as **stronger than stated**, not
+  merely confirmed. Post-M1-D, `core/model_tiers.py`'s `_PLANNER_TIERS`
+  table contains only a `"large"` entry for the local backend (plus
+  `"remote"` under a remote backend) — there is no `"small"` tier left
+  for the `planner` role at all, since M1-D collapsed the dedicated
+  small-model planner server onto the single shared model. `classify_tier()`'s
+  own early-return guard (`if "small" not in available: return
+  "large"...`) therefore fires **unconditionally** in every config that
+  exists today, local or remote. The `_score_message()` call beneath that
+  guard is not "skewed toward large" — it is **dead code**, contributing
+  zero discriminating signal, for a reason (no small tier exists to
+  select) that is independent of and predates `_action_kws`' keyword
+  coverage. Whoever builds the 3-tier coding-task dispatch (a separate,
+  newer effort — see `CODEY_MASTER_PLAN.md` §6.8, Ish's direction
+  2026-08-23) should not treat `classify_tier()` as reusable signal for
+  that purpose; the live signal actually worth reusing is
+  `core.orchestrator._score_message()`'s raw fields directly, not
+  `classify_tier()`'s wrapper around them.
 
 ### [NEW-127] `core/agent.py`'s inline `_action_kws` list has already drifted out of sync with `core/orchestrator.py`'s module-level `_action_kws`, despite the "keep in sync" comment on both — 7.3 sub-task A left this untouched by design, logging per CLAUDE.md rule 8 since it wasn't otherwise tracked as a Confirmed finding
 
@@ -8456,3 +8477,189 @@ finding for the same bug. See `NEW-39`.)*
 - **Not fixed this round** — same fix-task scoping note as `NEW-164`:
   needs its own task, likely bundled with it given they were found in
   the same live session and touch the same function.
+
+### [NEW-166] `PLANNER_MAX_TOKENS` is shared between `core/plannd.py`'s local-backend `get_plan()` and its untouched `_get_plan_remote()` (OpenRouter/UnlimitedClaude) — raising it for NEW-164 silently doubles the remote backend's generation budget too, with no corresponding change to that path's own `timeout=60`
+- **Status:** Confirmed — found by the implementer fixing `NEW-164`
+  (raising `PLANNER_MAX_TOKENS` 1024→2048), flagged rather than silently
+  worked around, since the fix's file scope explicitly excluded
+  `_get_plan_remote()`.
+- **Mechanism:** both functions read the same module-level
+  `utils.config.PLANNER_MAX_TOKENS` constant. `NEW-164`'s fix reasoned
+  about the new value (2048) purely in terms of the local backend's
+  measured token rates and `core/daemon.py`'s outer timeout budget —
+  `_get_plan_remote()`'s own hardcoded `timeout=60` (line ~312) was
+  deliberately left alone as a different backend/latency profile, but
+  its `max_tokens` payload value rose anyway as a side effect of sharing
+  the constant.
+- **Impact:** a remote-backend planning call can now request twice the
+  generation length in the same 60-second window that was calibrated
+  (implicitly, never explicitly derived) for the old 1024-token budget.
+  Whether this is actually a problem depends on the remote provider's
+  real token-per-second rate, which has not been measured or checked —
+  rated Confirmed on the mechanism (the shared constant, verified by
+  direct code read), Suspected on the practical impact (unverified
+  whether it actually causes remote-path timeouts or budget overruns).
+- **Not fixed this round** — out of scope for the NEW-164 fix, which was
+  fenced to the local-backend path only. Needs its own scoped decision:
+  either split `PLANNER_MAX_TOKENS` into local/remote-specific constants,
+  or confirm the remote provider's real rate makes 2048 safe within its
+  existing 60s timeout and document that explicitly rather than leaving
+  it coincidental.
+
+### [NEW-167] `NEW-165`'s fix used `PLANNER_MIN_PREFILL_TPS=20`/`PLANNER_MIN_GEN_TPS=4` as "conservative floors below M1-E's measured range," but live re-verification measured real rates roughly half of both — the timeout formula would under-budget a harder prompt whose reasoning trace approaches the full token budget
+- **Status: Confirmed, live-reproduced.** Found during the required
+  post-fix live-verification pass for `NEW-164`/`NEW-165` (2026-08-23),
+  same session that also confirmed `NEW-164` resolved.
+- **Evidence, server log ground truth (`~/.codeyOS/llama-server.log`):**
+  cold-cache prompt processing measured `94.04 ms/token = 10.63
+  tokens/second` (task 0, the only cold-prefill measurement — later
+  calls in the same load cycle benefited from a cache hit and don't
+  measure prefill). Thinking-mode generation measured `2.15-2.74
+  tokens/second` across three separate completions (465.47ms/tok,
+  2.74 tok/s cache-hit call; 2.71 tok/s second cache-hit call). Both are
+  roughly **half** of the constants' assumed floors (`PLANNER_MIN_PREFILL_TPS
+  =20`, `PLANNER_MIN_GEN_TPS=4`) and of M1-E's own originally-cited range
+  (23-26 tok/s prefill, 4.87 tok/s generation) — M1-E's numbers describe
+  this device under different conditions (likely a different concurrent
+  load, or non-thinking generation, which independently measured faster
+  at 5.7-7.0 t/s in that same round) and should not be treated as this
+  device's floor for a cold-cache, thinking-mode call.
+- **Impact:** `compute_planner_timeout()`'s formula (`prompt_tokens/20 +
+  max_tokens/4 + 30`) computed `665.0s` for a 2,460-estimated-token
+  prompt at `PLANNER_MAX_TOKENS=2048`. At the *actually measured* rates,
+  a request that consumed its full 2048-token budget (the exact scenario
+  `NEW-164` exists to describe) would cost roughly `2424/10.63 +
+  2048/2.15 ≈ 228s + 953s ≈ 1181s` — nearly double the computed timeout.
+  Neither test prompt run in this round actually drove generation that
+  far (both stopped naturally at 167/2048 and 203/2048 tokens), so the
+  under-budget timeout was not directly exercised, but the arithmetic
+  shows `NEW-165`'s premature-cancellation failure mode would recur on a
+  harder prompt at the new numbers, not just the old ones.
+- **Fix, applied same session:** `PLANNER_MIN_PREFILL_TPS` lowered
+  20→10 and `PLANNER_MIN_GEN_TPS` lowered 4→2, matching the real
+  measured floor rather than an assumed one, with the live-verification
+  numbers recorded in the constants' own comment as provenance (rule 12
+  — cite the artifact that was actually measured, not a family-resemblant
+  prior figure from a different call shape).
+- **Status: CLOSED, 2026-08-23** — recalibrated in the same round that
+  found it, before commit.
+
+### [NEW-168] `core/plannd.py`'s new "plan may be truncated — consider increasing max_tokens" diagnostic (added for `NEW-164`) fires as a false positive whenever the last parsed step ends in an alphabetic character, independent of whether `finish_reason` actually indicates truncation
+- **Status: Suspected** — observed as a side-effect during `NEW-164`'s
+  live-verification pass (2026-08-23), not the subject of that pass, not
+  investigated to a root cause.
+- **Evidence:** three live thinking-mode planning calls this round all
+  printed `[plannd] plan may be truncated — consider increasing
+  max_tokens`, even though all three had `finish_reason: "stop"` (a
+  natural stop token, not a length cutoff) and used well under half
+  their `max_tokens=2048` budget (167 and 203 completion tokens
+  observed). The warning appears to trigger on some heuristic about the
+  final character of the last parsed step (e.g., "...error in the loop"
+  ends in "p", an alphabetic character) rather than on the actual
+  `finish_reason`/`usage.completion_tokens` the response already
+  carries.
+- **Impact:** this is exactly the diagnostic path `NEW-164`'s fix
+  introduced specifically to make real truncation visible — a false
+  positive here trains whoever reads the logs to ignore the warning,
+  defeating its purpose. Not yet confirmed whether it ever correctly
+  identifies a true truncation case, or is unconditionally noisy.
+- **Not fixed this round** — found live, outside the scope of the
+  `NEW-164`/`NEW-165` fix's own verification pass. Needs its own look at
+  wherever this heuristic lives in `core/plannd.py`'s `parse_steps()` or
+  its caller, ideally replacing the character-ending heuristic with a
+  direct check against the response's own `finish_reason`/
+  `usage.completion_tokens` fields, which `get_plan()` already has
+  available at the call site.
+
+### [NEW-169] `core/planner_service.py:129`'s `_request_daemon_plan()` uses a hardcoded client-side socket `timeout=185` — untouched by NEW-164/165/167, shorter than every server-side timeout in the chain those fixes built, and the real live caller's own timeout, making the whole formula-based mechanism moot for actual production use
+- **Status: Confirmed** — found by code-reviewer while sanity-checking
+  the `NEW-167` recalibration's practical effect (2026-08-23), by tracing
+  one hop past `send_plan_request_async()`'s two call sites (which the
+  earlier `NEW-164`/`NEW-165` review correctly verified) out to
+  `send_command()`, the separate client-side socket helper that wraps
+  the whole RPC from *outside* the daemon process — a distinct call
+  graph the earlier review's grep did not extend to.
+- **Mechanism:** `core/planner_service.py`'s `_request_daemon_plan()`
+  calls `send_command("command", {...}, timeout=185)`. `send_command()`
+  (`core/daemon.py`) opens a Unix domain socket to the daemon and calls
+  `sock.settimeout(185)` — a client-side timeout on the entire RPC round
+  trip. If the daemon hasn't responded within 185s, the client raises
+  `socket.timeout` -> `ConnectionError`, and falls through to "Attempt 2:
+  in-process orchestrator" (`planner_service.py` ~line 86), regardless of
+  what's happening inside the daemon/plannd/llama-server chain.
+- **This is the real, live call path, not a hypothetical:** `main.py`'s
+  `_try_daemon_plan()` -> `core.planner_service._request_daemon_plan()`
+  -> `send_command(timeout=185)`. `core/daemon.py`'s own docstring names
+  this RPC the interactive CLI's planning-oracle call and states it is
+  the sole live caller of the `command` socket verb — matching the
+  pre-existing `NEW-112` finding, independently confirmed via repo-wide
+  grep.
+- **Impact:** the three timeouts in the actual chain, nested, are:
+  1. `core/plannd.py`'s `urlopen()` to llama-server — formula-based,
+     `NEW-165`/`167`, ~1296.5s for a full 2048-token plan at the
+     recalibrated constants.
+  2. `core/daemon.py`'s `asyncio.wait_for` around the RPC handler —
+     `inner_timeout + 30.0`, ~1326.5s.
+  3. `core/planner_service.py`'s client-side socket timeout — **still a
+     flat 185s, untouched by any of the above.**
+  Layer 3 is strictly outermost and shortest. For any real planning call
+  needing more than 185s — now virtually guaranteed for a full-budget
+  plan, and true even under the *original*, pre-`NEW-167` constants
+  (~693s for the same case) — the client gives up long before either
+  server-side fix could matter. **The formula-timeout mechanism this
+  project has iterated on three times (`NEW-164`, `NEW-165`, `NEW-167`)
+  does not prevent premature cancellation for its one real caller.**
+- **Not caught earlier because:** the `NEW-164`/`NEW-165` review's
+  verification grepped for callers of `send_plan_request_async` (the
+  async function inside the daemon process itself) and confirmed exactly
+  two call sites, both inside `core/daemon.py` — correct as far as it
+  went, but it never extended to `send_command()`, a separate helper
+  wrapping the RPC from outside the daemon process entirely.
+- **Fix, applied same session:** `_request_daemon_plan()`'s `timeout=185`
+  replaced with a value derived from the same `compute_planner_timeout()`
+  formula the rest of the chain uses (the function has access to the
+  same prompt), plus the outer buffer already used at the daemon layer,
+  so all three layers are now consistently derived from one real number
+  rather than three independently-guessed ones.
+- **Status: CLOSED, 2026-08-23** — fixed in the same round it was found.
+
+### [NEW-170] `core/planner_service.py:_request_daemon_plan()`'s broken-import fallback (`socket_timeout = 1400.0`) is itself a flat constant in a chain whose entire point is eliminating flat constants — safe only up to ~3060 estimated prompt tokens
+- **Status: Suspected** — found by code-reviewer's final pass on the
+  `NEW-169` fix (2026-08-23), narrow-trigger, not live-reproduced.
+- **Mechanism:** when the `try`/`except Exception` around
+  `compute_planner_timeout()`'s inputs fails (e.g. a broken
+  `core.plannd`/`core.tokens`/`utils.config` import in the CLI process
+  specifically — the daemon-side computation can succeed independently),
+  `_request_daemon_plan()` falls back to a hardcoded `socket_timeout =
+  1400.0`. Past roughly 3060 estimated prompt tokens (where
+  `compute_planner_timeout(prompt_tokens, PLANNER_MAX_TOKENS=2048) +
+  30.0 + 10.0` would exceed 1400.0), this flat fallback would again be
+  shorter than the daemon's own formula-derived outer timeout for the
+  same request — reproducing `NEW-169`'s exact bug shape at the tail,
+  just with a much narrower trigger condition (an import failure, not
+  the every-request case `NEW-169` was).
+- **Impact:** low likelihood (requires a broken import specifically on
+  the CLI side while the daemon side works, AND a prompt long enough to
+  exceed the fallback's implicit budget) but real if both hold.
+- **Not fixed this round** — flagged per rule 8 rather than silently
+  patched; a durable fix would need the fallback to also be prompt-length-aware
+  (or accept that an import failure this specific is rare enough that a
+  generous flat ceiling is an acceptable degraded mode, and just raise it
+  further) — a design call, not obviously worth a fourth round of the
+  same fix pattern without Ish weighing in.
+
+### [NEW-171] `tests/test_planner_service_daemon_socket_timeout.py`'s `test_request_daemon_plan_socket_timeout_exceeds_daemon_outer_timeout` re-derives `compute_planner_timeout(...) + 30.0` inline rather than calling into `core/daemon.py`'s own computation — can't detect drift if daemon's `+30.0` buffer changes later
+- **Status: Suspected** — found by code-reviewer's final pass on the
+  `NEW-169` fix (2026-08-23), test-quality gap, not a production defect.
+- **Impact:** if a future change alters `core/daemon.py`'s outer-timeout
+  buffer (currently `inner_timeout + 30.0`) without a corresponding
+  change to this test's own re-derivation of the same formula, the test
+  would keep passing while silently testing a stale expectation — the
+  same "self-contained reimplementation instead of exercising the real
+  code" trap this project has caught in prior reviews (e.g. the M1-B/C/D
+  round's negative-control checks were added specifically to guard
+  against this).
+- **Not fixed this round** — cosmetic test-quality issue, not blocking.
+  A future touch of this test file should prefer importing/calling
+  `core/daemon.py`'s real computation (or a shared helper both files
+  call) over a hand-copied formula, if one becomes available.
