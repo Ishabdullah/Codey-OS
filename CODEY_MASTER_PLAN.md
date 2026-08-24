@@ -1497,7 +1497,7 @@ order.
 
 | Item | Depends on | Note |
 |---|---|---|
-| **7.3 sub-task E** — actually dispatch on the tier decision | A1 | A–D are built and log-only today. `NEW-126` (thresholds resolve to "large" for nearly everything) and the missing remote-tier path must be addressed here. |
+| **7.3 sub-task E** — actually dispatch on the tier decision | A1 | A–D are built but **unreachable in production** (`NEW-172`) — their `classify_tier()` call site, `core.planner_service.get_plan()`, has zero real callers. The easy-tier skip is already shipped elsewhere (`main.py:492`, `core/agent.py:1271`, both via `is_complex()`). Remaining work: medium/hard split via `enable_thinking` on `plannd.get_plan()`, plus a consolidate-or-delete call on the orphaned function (overlaps 4.3). See Appendix A. |
 | **4.3** — wrap `core/agent.py` as a real CCOS capability | A1 | Migrate **both** existing call paths (`main.py` for CLI/GUI, `core/task_executor.py` for the daemon) onto one boundary — not a third path alongside them. The wrapper owns its own permission surface (`confirm_shell`/`confirm_write`) explicitly rather than inheriting the caller's. Also where recursive self-refinement gets wrapped. |
 | **7.5** — in-flight context passing + task-context blackboard | 4.3 | `plugin_manager.call_capability` gets a threaded context argument (today a step's output is silently discarded); plus a scoped task-context table for durable cross-step handoffs. **Not** a general shared-memory grant, **not** a repurposing of `ccos_memory`. Per vision §11.2 the threaded content is a compact structured record, not a conversation dump. |
 | **4.5** — peer-CLI escalation redesign | 4.1's queue, 7.5's blackboard | Daemon pulls an item needing escalation off the main queue, parks it on a review list, notifies the user, keeps working. 100% design-only today. |
@@ -1928,6 +1928,75 @@ Then:
 
 - [ ] **7.3 sub-task E** — dispatch on the tier decision (A–D built,
       log-only). Must address `NEW-126` and the missing remote-tier path.
+      **Re-scoped 2026-08-24 (`NEW-172`, `NEW-126` further corrected):**
+      A–D's `classify_tier()`/log-only integration lives inside
+      `core.planner_service.get_plan()`, which has **zero production
+      callers** — `main.py` calls `_request_daemon_plan()` directly,
+      `core/agent.py` uses a different `core.planner.get_plan()`, the
+      daemon's `plan_only` RPC calls `core.plannd.get_plan()` directly,
+      and `core/task_executor.py` bypasses planning entirely
+      (`no_plan=True`). Sub-task C's block has therefore never executed
+      outside its own test file, and no log evidence exists to tune
+      thresholds against. Separately, the easy-tier skip this sub-task
+      was headed toward is **already shipped** at both live entry points
+      — `main.py:492`'s `if not is_complex(prompt): return
+      run_agent(...)` (before `_try_daemon_plan()`) and
+      `core/agent.py:1271`'s `if is_complex(user_message) and
+      not _in_subtask and not no_plan:` — both using
+      `core.orchestrator.is_complex()`/`_score_message()` already. What
+      remains under this sub-task: (a) the medium/hard split via
+      `enable_thinking` on `plannd.get_plan()` (unaffected by this
+      finding, still the planned next task), and (b) a consolidate-or-
+      delete decision on the orphaned `planner_service.get_plan()` and
+      dead `model_tiers.classify_tier()`, which overlaps 4.3's "migrate
+      both call paths onto one boundary" below — a design call for Ish,
+      not an implementer task.
+      **Reconciled 2026-08-24 (Ish approved building all three tiers in
+      one push):** two scoping passes (easy vs. medium/hard) ran in
+      parallel and disagreed on where the decision point lives — reconciled
+      into two sequenced, implementer-ready tasks. **Task A (delete):**
+      remove `planner_service.get_plan()` and `model_tiers.classify_tier()`
+      (loses its only caller; already degenerate/constant-valued post-M1-D
+      — see `tests/test_model_tiers.py`'s `TestClassifyTier` docstring),
+      plus `tests/test_planner_service_classify_tier.py` and the
+      `TestClassifyTier`/`TestClassifyTierFullChainIntegration` classes in
+      `tests/test_model_tiers.py`. Keep `MODEL_TIERS`/`ModelTierEntry`/
+      `get_tier()`/`tiers_for_role()` — a legitimate, independently-tested
+      data table with no other production consumer, not itself dead.
+      **Task B (build):** the real decision point is
+      `main.py:490-495` (`score = _score_message(prompt)` computed once,
+      passed to both `is_complex(prompt, score=score)` — new optional
+      param — and threaded through `_try_daemon_plan(prompt, no_plan,
+      tier)` → `_request_daemon_plan(prompt, tier)`, which is NOT being
+      deleted). Tier split on the post-easy-gate population: `tier =
+      "medium" if score.length > 300 else "hard"` (reuses `is_complex()`'s
+      own existing `length > 300` boundary — see `NEW-174`'s note that
+      this boundary is currently dead-identical to `length > 150` in
+      `is_complex()` itself, unrelated defect, not blocking) — `hard`
+      is the default/fallback matching M1-D's thinking-mode-by-default
+      design; log the chosen tier plus `has_action`/`length`/
+      `signal_count` on every decision so the boundary is tunable from
+      real traffic later. Fenced out of Task B: `core/agent.py:1271`'s
+      `plan_tasks()` fallback and `core/planner.py:get_plan()`'s
+      `--plan`-flag path (`NEW-175` — different mechanisms, no
+      `chat_template_kwargs` hook) and `NEW-168`'s truncation-heuristic
+      fix (`NEW-173` — touches both plannd backends, not a cheap fold-in
+      as originally proposed). Full brief with exact signatures, the
+      GGUF-verified `enable_thinking:false` behavior, the
+      `functools.partial`/`run_in_executor` mislabeling trap, and the
+      timeout-nesting invariant (`PLANNER_MAX_TOKENS_MEDIUM <
+      PLANNER_MAX_TOKENS`, must be commented at the constant) is in the
+      2026-08-24 project-architect reconciliation.
+      **Task A: DONE, 2026-08-24, code-reviewer-approved** —
+      `planner_service.get_plan()`/`model_tiers.classify_tier()` and
+      their dedicated test file/classes actually deleted (not just
+      scoped); `MODEL_TIERS`/`get_tier()`/`tiers_for_role()` confirmed
+      untouched. Test count: 658→644 passed (14 removed, matching
+      exactly what was deleted), 1 skipped, `ccos/tests/` unaffected at
+      68 passed — see `PROJECT_LOG.md`'s 2026-08-24 Task A entry for the
+      full arithmetic and the pre-existing `main.py`-git-clean test
+      fragility (`NEW-177`) found and correctly isolated as unrelated
+      during review. **Task B: still scoped, not started.**
 - [ ] **4.3** — wrap `core/agent.py` as a CCOS capability, unifying both
       call paths.
 - [ ] **7.5** — in-flight context passing + task-context blackboard.

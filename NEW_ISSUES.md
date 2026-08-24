@@ -8676,3 +8676,202 @@ finding for the same bug. See `NEW-39`.)*
   A future touch of this test file should prefer importing/calling
   `core/daemon.py`'s real computation (or a shared helper both files
   call) over a hand-copied formula, if one becomes available.
+
+### [NEW-172] `core.planner_service.get_plan()` has zero production callers — its Attempt-2 orchestrator fallback and 7.3 sub-task C's `classify_tier()` log-only block are unreachable outside the test suite
+
+- **Status:** Confirmed (exhaustive caller-graph check while scoping "Task 1
+  of the 3-tier coding-task dispatch — easy-tier skip", 2026-08-24).
+- **Evidence:** `planner_service.get_plan()`'s own docstring claims "Both
+  main.py and core/agent.py should go through this module" — untrue for
+  either as the code stands:
+  - `main.py:410-416`'s `_try_daemon_plan()` imports and calls
+    `_request_daemon_plan()` directly (`from core.planner_service import
+    _request_daemon_plan`), never `get_plan()` itself — skipping straight
+    past Attempt 1's wrapper and never reaching Attempt 2
+    (`orchestrator.plan_tasks()`) or the tier-classification block above
+    both.
+  - `core/agent.py:1295`'s `get_plan(user_message, read_codeymd())` call is
+    `core.planner.get_plan()` — a different module, different signature
+    (`user_message, system_context -> str`), unrelated to
+    `planner_service.get_plan()`.
+  - `core/daemon.py:240`'s `plan_only=True` RPC path (the daemon's own
+    planning entry point) calls `core.plannd.get_plan()` directly, not
+    `planner_service`.
+  - `core/task_executor.py:137` calls `run_agent(..., no_plan=True,
+    _in_subtask=True)` — planning is explicitly bypassed for daemon-queued
+    steps, so this path never plans at all, let alone through
+    `planner_service`.
+  - Grepped `--include=*.py --include=*.sh --include=*.js --include=*.html`
+    repo-wide plus `importlib`/`getattr(...get_plan...)` for dynamic
+    dispatch: no hit outside `planner_service.py` itself and its own test
+    file (`tests/test_planner_service_classify_tier.py`,
+    `tests/test_planner_service_daemon_socket_timeout.py`).
+- **Impact:** `tests/test_planner_service_classify_tier.py` passes and
+  exercises real code — but a green suite over an orphaned function is not
+  evidence the function is wired into any live path. This is what made
+  7.3 sub-task C look integrated when it isn't reachable in production.
+  Any future task assuming `get_plan()` is "the" dispatch point (as the
+  now-corrected 3-tier easy-tier scoping pass did) will produce code that
+  never executes. See `NEW-126`'s rule-6 correction below for the direct
+  consequence to that sub-task's own log evidence.
+- **Also note (not fixed here):** `main.py:488-491`'s comment above the
+  `is_complex()` gate still says "skip 1.5B planner" / "7B agent" — stale
+  post-M1-D terminology naming a model layout that no longer exists.
+  M-lane docs cleanup, not part of this finding's fix.
+- **Not fixed this round** — this is a design question (consolidate
+  `planner_service.get_plan()`'s two callers into the real ladder, or
+  delete the orphaned function and its dead Attempt-2/classify_tier code)
+  that overlaps `CODEY_MASTER_PLAN.md` §6.8 item 4.3's "migrate both
+  existing call paths onto one boundary" — flagged for Ish, not silently
+  fixed or silently dropped.
+
+### [NEW-126] rule-6 correction (2026-08-24): the log-only mitigation this entry claimed never held — `classify_tier()`'s call site is itself unreachable in production
+
+- **Status:** Confirmed — direct consequence of `NEW-172`.
+- **Evidence:** the original entry's stated mitigation was: "the raw
+  signal breakdown is included below specifically so these logs remain
+  useful evidence for tuning sub-task E's thresholds later." That
+  `info(...)` call lives inside `core.planner_service.get_plan()`, one
+  level below the `classify_tier()` call. `NEW-172` establishes
+  `get_plan()` has no production caller. Therefore this log line cannot
+  have fired outside `tests/test_planner_service_classify_tier.py`'s own
+  real-classifier tests — there is no persistent daemon log file to check
+  either way (`utils/logger.py`'s `_log_to_file()` only writes once
+  `setup_file_logging()` is called, which only happens in
+  `core/daemon.py`'s own daemon-mode startup, a code path that never
+  calls `planner_service.get_plan()`), so this is a structural conclusion
+  from the caller graph, not a search of a log file that turned out empty.
+- **Correction:** downgrade the earlier framing ("skews toward large,
+  weak-but-nonzero discriminating signal, logs remain useful evidence")
+  one step further than the 2026-08-23 correction already did. It is not
+  just that `classify_tier()`'s decision rule is dead code beneath a
+  guard that always returns early — the *log line reporting that
+  decision* has never executed in any real session. Whoever picks up 7.3
+  sub-task E should not expect any historical log evidence to exist for
+  tuning thresholds; none was ever produced.
+
+### [NEW-173] `core/plannd.py:parse_steps()`'s truncation heuristic (NEW-168) has two callers, both local and remote backends — the "same block, cheap to fold in" premise in the medium/hard tiering brief was wrong
+
+- **Status:** Confirmed (upgraded from NEW-168's original "Suspected") —
+  found while reconciling the two 3-tier scoping passes (2026-08-24).
+- **Root cause, now pinned down exactly:** `core/plannd.py:213-215` —
+  `if last and last[-1] not in ".!?)" and last[-1].isalpha(): print("[plannd]
+  plan may be truncated...")` — fires on the last parsed step's final
+  character, independent of `finish_reason`/`usage.completion_tokens`.
+  `parse_steps()` has exactly two callers: `core/plannd.py:368` (inside
+  `_get_plan_remote()`) and `core/plannd.py:510` (inside local `get_plan()`).
+  Both are affected by the same false-positive.
+- **Why this blocks a cheap fold-in:** fixing this properly requires
+  `finish_reason`/`usage`, which exist only in each caller's scope, not
+  inside `parse_steps()` itself. A real fix means either changing
+  `parse_steps()`'s signature/return (touching the remote path, which
+  `NEW-166` explicitly said to leave alone when `NEW-164`'s local-only
+  budget fix landed) or duplicating a finish_reason check in both callers.
+  Neither is "the same block already being edited" — the medium/hard
+  tiering work only touches local `get_plan()`'s payload/parameter
+  surface, not `parse_steps()` or `_get_plan_remote()`.
+- **Decision (this round):** fenced out of the medium/hard tier task as
+  its own scoped fix. Suggested shape for that future task: remove the
+  character-heuristic print from `parse_steps()` entirely, and add a
+  proper `finish_reason`/`usage.completion_tokens`-based truncation check
+  independently in each of `get_plan()` and `_get_plan_remote()`, since
+  they have different response shapes/budgets and NEW-166 already
+  establishes they must not share a change silently.
+
+### [NEW-174] `core/orchestrator.py:is_complex()`'s `length > 300` branch is byte-identical to its `length > 150` branch — dead differentiation
+
+- **Status:** Confirmed — found while deriving a medium/hard tier split
+  condition from `is_complex()`'s existing thresholds (2026-08-24).
+- **Evidence:** `core/orchestrator.py`'s `is_complex()`:
+  ```
+  if score.length > 300:
+      return score.signal_count >= 2
+  elif score.length > 150:
+      return score.signal_count >= 2
+  else:
+      return score.signal_count >= 3
+  ```
+  The `length > 300` and `length > 150` branches return the exact same
+  expression. The comment above them ("Scale threshold by message length
+  — longer messages need fewer signals") implies the `>300` branch was
+  meant to require fewer signals than the `>150` branch (e.g. `>= 1`), but
+  it never was written that way — there is no live behavioral difference
+  between a 200-char and a 3000-char complex message today.
+- **Not fixed this round** — outside scope of the medium/hard tiering
+  task that surfaced it; flagging since any future consumer reading this
+  comment (including the medium/hard tier split, which deliberately reuses
+  `length > 300` as an existing, already-defined boundary — see
+  `CODEY_MASTER_PLAN.md` Appendix A's tiering item) should not assume the
+  code enforces the comment's stated intent.
+
+### [NEW-175] Two live planning mechanisms never touched by any tier system: `core/agent.py:1271`'s `plan_tasks()` fallback and `core/planner.py:get_plan()`'s explicit `--plan` path
+
+- **Status:** Confirmed — found while scoping which entry points the
+  medium/hard tier split's `enable_thinking` parameter can reach
+  (2026-08-24).
+- **Evidence:**
+  - `core/agent.py:1271` (`if is_complex(user_message) and not _in_subtask
+    and not no_plan:`) calls `core.orchestrator.plan_tasks()` — a fully
+    separate, in-process mechanism using `recursive_infer` against the
+    primary model, with no daemon RPC and no `chat_template_kwargs`
+    threading. This fires whenever `run_agent()` is invoked with
+    `no_plan=False` (its default per `core/agent.py:956`) outside a
+    subtask — concretely, at `main.py:589` (the "no plan available, daemon
+    plan failed" fallback at the end of the same function that gates
+    `_try_daemon_plan`) and at any other direct `run_agent()` call that
+    doesn't set `no_plan=True`. It only fires today as a fallback of last
+    resort once the daemon/`plannd` path has already failed/returned
+    nothing, or when a caller bypasses `main.py`'s dispatch gate entirely.
+  - `core/planner.py:get_plan()` (used only via the explicit `--plan` CLI
+    flag at `core/agent.py:1287`) uses `core.inference_v2.infer()` directly
+    — plain, no thinking mode, no daemon, genuinely orthogonal to the
+    plannd/daemon planning ladder.
+- **Impact:** a real (if minority) fraction of planning traffic — the
+  daemon-unavailable fallback and the explicit `--plan` flag — will
+  silently ignore whatever tier system ships for the primary daemon path,
+  since neither mechanism has an `enable_thinking`/tier hook today.
+- **Not fixed this round** — explicitly fenced out of the medium/hard tier
+  task's scope (see the reconciled brief handed to implementer,
+  2026-08-24); logged here so it isn't silently dropped. Future tiering
+  work covering these two paths would need to either add thinking-mode
+  control to `core/orchestrator.py:plan_tasks()`'s `recursive_infer` call,
+  or accept that both stay full-capability-by-default (arguably the safer
+  default for a last-resort/explicit path anyway).
+
+### [NEW-176] `tests/test_orchestration.py:167`'s `TestScoreMessage` docstring still references `core.model_tiers.classify_tier()`, deleted as dead code by `NEW-172`'s fix
+- **Status: Confirmed, trivial.** Found by the implementer fixing
+  `NEW-172` (2026-08-24), while grepping the repo for leftover references
+  to the deleted `classify_tier()`/`get_plan()` pair. A stale comment,
+  not a call — `TestScoreMessage`'s behavior is unaffected, it does not
+  actually invoke `classify_tier()`.
+- **Not fixed this round** — out of the deletion task's file scope
+  (a test file the task wasn't asked to touch). One-line comment fix
+  whenever `tests/test_orchestration.py` is next edited for any reason.
+
+### [NEW-177] `tests/test_new19_patch_failed_repeat_escalation.py`'s `_in_subtask=False` tests silently assume `main.py` is git-clean at test-run time — any uncommitted diff to `main.py` makes them fail with a captured-stdin `OSError`, unrelated to what they're actually testing
+- **Status: Confirmed** — reproduced independently twice (implementer,
+  then code-reviewer from scratch) during the `NEW-172` deletion task
+  (2026-08-24).
+- **Mechanism:** these tests exercise `core/agent.py`'s escalation path,
+  which calls `check_git_and_offer_commit()` → `git_status_paths(["main.py"])`
+  → real `git status` output, then `ask_confirm()`. The moment `main.py`
+  has ANY uncommitted diff — content-independent, confirmed by dirtying
+  only `main.py` against an otherwise fully-stashed clean tree — the
+  status string is no longer `"Nothing to commit."`, `ask_confirm()`
+  proceeds to read stdin, and under pytest's captured-output mode that
+  raises `OSError` instead of the test's intended assertion running at
+  all.
+- **Impact:** any task that legitimately needs to touch `main.py` and
+  run the test suite before committing (a normal, common state during
+  active development — this exact project's own workflow leaves diffs
+  uncommitted through a code-reviewer pass before every commit) will see
+  these 3 tests fail for a reason unrelated to their actual subject. This
+  has already happened at least twice this session alone. Not previously
+  logged as its own finding — each time it was correctly diagnosed as
+  pre-existing/unrelated and worked around, but never given a ticket, so
+  the same diagnosis had to be redone from scratch each time.
+- **Not fixed this round** — needs its own scoped task: mock
+  `git_status_paths()`/`check_git_and_offer_commit()`'s git call in these
+  specific tests (matching how other tests in this suite already isolate
+  from real git state), rather than relying on the working tree happening
+  to be clean when the suite runs.

@@ -408,7 +408,7 @@ def run_init():
 
 
 def _try_daemon_plan(prompt: str, no_plan: bool = False):
-    """Thin shim — delegates to core.planner_service.get_plan."""
+    """Thin shim — delegates to core.planner_service._request_daemon_plan."""
     from core.planner_service import _request_daemon_plan
 
     if no_plan:

@@ -12,7 +12,225 @@ and Appendix A.
 
 ---
 
-## 2026-08-23 (latest) — M1-E-fix: planner timeout chain, fixed and live-verified end to end (`NEW-164`/`NEW-165` CLOSED; `NEW-167`/`NEW-169` found and CLOSED same session; `NEW-170`/`NEW-171` open)
+## 2026-08-24 (latest) — 3-tier dispatch Task A: `NEW-172`'s dead code actually deleted (code-complete, code-reviewer-approved)
+
+**Status: code-complete, code-reviewer-approved. Not process-lifecycle —
+a normal review pass applied, not the mandatory rule-4 category.** This
+corrects a rule-9 gap the entry below left standing: it described Task A
+as "ready to hand to implementer... no further scoping needed" in the
+same diff that Task A was actually landed in, so the two entries briefly
+disagreed about whether code had changed. It had. Recorded properly here.
+
+- Deleted `core/planner_service.py:get_plan()` (zero production callers,
+  confirmed by exhaustive grep — re-verified independently by
+  code-reviewer with broader, unqualified patterns, same result) and
+  `core/model_tiers.py:classify_tier()` (its only caller was inside the
+  block just deleted). `MODEL_TIERS`/`ModelTierEntry`/`get_tier()`/
+  `tiers_for_role()` in the same file are untouched — independently
+  tested, real consumers elsewhere, not themselves dead.
+  `_request_daemon_plan()`, in the same file as the deleted `get_plan()`,
+  is untouched and remains the one live function in
+  `planner_service.py` — its own test coverage
+  (`tests/test_planner_service_daemon_socket_timeout.py`) still passes
+  3/3 in isolation, confirmed by code-reviewer.
+- Deleted `tests/test_planner_service_classify_tier.py` (all 8 tests
+  genuinely exercised the deleted pair) and `tests/test_model_tiers.py`'s
+  `TestClassifyTier`/`TestClassifyTierFullChainIntegration` classes only
+  (6 tests) — every other class in that file is untouched.
+- Corrected two docstrings that had gone stale describing the deleted
+  function: `main.py:_try_daemon_plan()` (previously claimed to delegate
+  to `get_plan()`; it calls `_request_daemon_plan()` directly, and always
+  did) and `core/planner_service.py`'s own module docstring (previously
+  claimed to be "a single entry point... both main.py and core/agent.py
+  should go through," which was never true of `_request_daemon_plan()`,
+  the function that survives).
+- **Test arithmetic, verified independently by code-reviewer, exact:**
+  pre-round baseline (full `git stash`) — **658 passed, 1 skipped**. With
+  this round's diff applied and the required-uncommitted `main.py`
+  docstring fix stashed separately — **644 passed, 1 skipped**
+  (658 − 14 = 644: 8 tests from the deleted file + 6 from the two deleted
+  classes). With `main.py`'s own diff left in the working tree (the real
+  state this review ran against) — **641 passed, 1 skipped, 3 failed**,
+  all three in `tests/test_new19_patch_failed_repeat_escalation.py`.
+  `ccos/tests/` — 68 passed, unaffected either way.
+- **The 3 `test_new19` failures are a pre-existing test-infrastructure
+  fragility, not a regression from this deletion — reproduced twice
+  independently (implementer, then code-reviewer from scratch):**
+  `core/agent.py:check_git_and_offer_commit()` calls
+  `git_status_paths(["main.py"])`, which returns real git status; the
+  moment `main.py` has ANY uncommitted diff at test-run time, the
+  resulting `ask_confirm()` reads stdin under pytest's captured-output
+  mode and raises `OSError`. Confirmed content-independent by dirtying
+  only `main.py` against an otherwise-clean, fully-stashed tree — same
+  3 failures reproduce. This is real, separate, pre-existing fragility
+  (the test suite silently assumes `main.py` is git-clean at run time)
+  worth its own finding, not fixed here — logging as a follow-up below.
+- One stray stale comment (not a call) found in
+  `tests/test_orchestration.py:167` referencing the deleted
+  `classify_tier()` — logged as `NEW-176`, left for whenever that file
+  is next touched for any reason, per its own scope fence.
+- **Code-reviewer's process note, recorded honestly rather than
+  papered over:** the first review attempt on this deletion was
+  interrupted mid-verdict by a session usage-limit reset, leaving a
+  draft memory file with a pre-written "APPROVED, no findings"
+  conclusion. The re-run review did not treat that draft as evidence —
+  it redid the diff/test verification from scratch, and that
+  independent pass is what surfaced this entry's own rule-9 gap (the
+  draft had missed it). Memory file corrected to match.
+
+**Follow-up finding, logged as `NEW-177` (rule 8):**
+`tests/test_new19_patch_failed_repeat_escalation.py`'s `_in_subtask=False`
+tests assume `main.py` is git-clean at test-run time, which is not a
+property this project's own workflow guarantees generally (it happened
+to matter here only because this round's own required fix left `main.py`
+dirty during review, same as the `NEW-164`/`165` fix round earlier this
+session). This has now been independently rediscovered and re-diagnosed
+twice without a ticket to point to — `NEW-177` exists so the next
+occurrence doesn't repeat the diagnosis from scratch a third time.
+
+Task B (building the real medium/hard split) remains scoped, not
+started — see the entry below for its design.
+
+---
+
+## 2026-08-24 — 3-tier dispatch: two conflicting scoping passes reconciled into one implementer-ready two-task brief (Task A delete, Task B build)
+
+**Status: scoping/reconciliation only, no code changed.** Two scoping
+passes for the medium/hard split (easy tier's own halt is the entry
+directly below) had run in parallel — the medium/hard pass built its whole
+design around `planner_service.get_plan()` as "the decision point,"
+unaware the easy-tier pass had just proven that function has zero
+production callers (`NEW-172`). Reconciled by tracing the real call chain:
+
+- **Relocated the decision point** (advisor-flagged blocking item 1):
+  `main.py:490-495` already computes `is_complex(prompt)` immediately
+  before calling `_try_daemon_plan(prompt, no_plan)` →
+  `_request_daemon_plan(prompt)` (in `planner_service.py`, NOT deleted —
+  only `get_plan()` and `model_tiers.classify_tier()` are). Plan: compute
+  `score = _score_message(prompt)` once, give `is_complex()` an optional
+  `score=` param, thread `tier` through both calls.
+- **Derived the medium/hard split from scratch** (blocking item 2) rather
+  than reusing the orphaned brief's `signal_count >= 2 and length > 150`
+  condition — proved it reduces to just `length > 150` on the
+  already-`is_complex()==True` population (that population already
+  guarantees `signal_count >= 2`, sometimes `>= 3`), which would have
+  produced a near-empty or wrong-direction bucket. Landed on `"medium" if
+  length > 300 else "hard"`, `hard` as the safe default per M1-D's
+  thinking-mode-by-default design, reusing `is_complex()`'s own existing
+  `length > 300` boundary rather than inventing a number — found in the
+  process that `is_complex()`'s own `length > 300` and `length > 150`
+  branches are byte-identical dead code (`NEW-174`, fenced out, unrelated).
+- **Read `core/planner.py:get_plan()` directly** (rule 12) rather than
+  trusting the prior pass's inventory — confirmed genuinely orthogonal
+  (plain `infer()`, no thinking mode, explicit `--plan` flag only).
+  Verified `run_agent()`'s `no_plan=False` default (`core/agent.py:956`)
+  to confirm `core/agent.py:1271`'s own `plan_tasks()` fallback is a real,
+  separate live path (fires at `main.py:589` when the daemon plan fails).
+  Both fenced out of this round as `NEW-175` — different mechanism
+  (in-process `recursive_infer`, no daemon RPC), not silently dropped.
+- **Deletion boundary** (blocking item 4): delete `get_plan()`,
+  `classify_tier()` (already degenerate/constant-valued post-M1-D — see
+  `tests/test_model_tiers.py`'s own `TestClassifyTier` docstring), and
+  `tests/test_planner_service_classify_tier.py`; keep `MODEL_TIERS`/
+  `get_tier()`/`tiers_for_role()` (independently tested, no other
+  consumer, not itself dead). Confirmed `_request_daemon_plan()` (which
+  survives and gains the new `tier` param) has separate test coverage in
+  `tests/test_planner_service_daemon_socket_timeout.py`, so Task A's
+  deletion doesn't strand it untested.
+- **`NEW-168` fold-in decision reversed after checking, not assumed**
+  (blocking item 5): grepped `parse_steps()`'s callers and found two
+  (`plannd.py:368` inside `_get_plan_remote()`, `plannd.py:510` inside
+  local `get_plan()`) — the "same block, cheap to fold in" premise in the
+  medium/hard brief was factually wrong; a real fix needs `finish_reason`,
+  which only exists in each caller's scope, and would touch the remote
+  path `NEW-166` said to leave alone. Fenced out as its own task,
+  upgraded `NEW-168` to Confirmed with the exact heuristic pinned down
+  (`plannd.py:213-215`) as `NEW-173`.
+- Salvaged everything from the medium/hard brief that survived relocation:
+  the GGUF-verified `enable_thinking:false` behavior, the
+  `PLANNER_MAX_TOKENS_MEDIUM` config helper, `plannd.get_plan()`'s new
+  parameter, the `functools.partial`/`run_in_executor` positional-arg
+  mislabeling trap (`planner_client.py:35` is a bare positional call
+  today — confirmed by reading), and the timeout-nesting reasoning
+  (`_request_daemon_plan()`'s client socket timeout stays pinned to the
+  hard-tier budget unconditionally; the daemon's own internal timeouts
+  scale per-tier). Added one invariant the advisor flagged as the one
+  thing that could recur quietly in NEW-169's shape: `PLANNER_MAX_TOKENS_
+  MEDIUM < PLANNER_MAX_TOKENS` must be a commented invariant at the
+  constant's definition.
+- New findings logged, not silently fixed: `NEW-173` (Confirmed, upgraded
+  from `NEW-168`), `NEW-174` (Confirmed, dead branch in `is_complex()`),
+  `NEW-175` (Confirmed, two live planning paths outside any tier system).
+- `CODEY_MASTER_PLAN.md` Appendix A's 7.3 sub-task E entry updated with
+  the reconciled Task A / Task B split, ready to hand to implementer
+  directly — no further scoping needed.
+
+---
+
+## 2026-08-24 — 3-tier dispatch "easy tier" scoping halted: task's own premise falsified before implementer handoff (`NEW-172` opened, `NEW-126` re-corrected)
+
+**Status: scoping only, no code changed.** Ish had approved three design
+recommendations for a 3-tier coding-task dispatch, including "easy tier
+ships first, isolated inside `core.planner_service.get_plan()`, which
+`main.py`/`core/agent.py` already fall through to on a `None` result."
+While writing the implementer brief, verified (per rule 12, and per the
+advisor's push to check every caller, not just the one the prior scoping
+pass named) that this premise does not hold:
+
+- `main.py:410-416`'s `_try_daemon_plan()` imports and calls
+  `core.planner_service._request_daemon_plan()` **directly** — it never
+  calls `get_plan()` at all, so it never reaches Attempt 2
+  (`orchestrator.plan_tasks()`) or the `classify_tier()` log-only block
+  above it.
+- `core/agent.py:1295`'s `get_plan(user_message, read_codeymd())` is
+  `core.planner.get_plan()` — an entirely different module and signature.
+- `core/daemon.py:240`'s `plan_only=True` RPC path calls
+  `core.plannd.get_plan()` directly.
+- `core/task_executor.py:137` runs daemon-queued steps with
+  `no_plan=True, _in_subtask=True` — planning is bypassed entirely for
+  that path.
+
+Result: `core.planner_service.get_plan()` has **zero production callers**
+(confirmed by an exhaustive grep across `.py/.sh/.js/.html` plus a check
+for `importlib`/dynamic dispatch). Its Attempt-2 fallback and 7.3
+sub-task C's `classify_tier()` logging have never executed outside
+`tests/test_planner_service_classify_tier.py`'s own real-classifier
+tests — there is no persistent daemon log to check either way, since
+`utils/logger.py`'s file handler is only wired up by `core/daemon.py`'s
+own startup, a path that never calls this function. Filed as `NEW-172`
+(Confirmed), with a further rule-6 correction folded into `NEW-126`: its
+stated mitigation ("raw signal recoverable from the logs") never held,
+because the log line reporting `classify_tier()`'s decision has never
+fired in production.
+
+Separately, and more directly relevant to the task at hand: **the
+easy-tier skip this task was scoping is already shipped** at both real
+entry points — `main.py:492` (`if not is_complex(prompt): return
+run_agent(...)`, ahead of `_try_daemon_plan()`) and
+`core/agent.py:1271` (`if is_complex(user_message) and not _in_subtask
+and not no_plan:`), both built on `core.orchestrator.is_complex()` /
+`_score_message()`. An empirical check (12 representative prompts, no
+model load — `_score_message()` is pure) also independently corroborated
+`is_complex()`'s existing `length < 50` boundary as a clean separator on
+this sample (easy topped out at length 32, not-easy started at 35;
+`has_action` and `signal_count` alone do not separate the two groups,
+confirming `NEW-126`'s original finding that `has_action` is nearly
+always true for real coding prompts).
+
+No implementer task was created — one built on the false premise would
+have produced code that never executes. Updated `CODEY_MASTER_PLAN.md`
+§6.8's Appendix A entry and table row for 7.3 sub-task E to reflect what
+actually remains: the medium/hard split via `enable_thinking` on
+`plannd.get_plan()` (unaffected, still the next real task) and a
+consolidate-or-delete decision on the orphaned `planner_service.get_plan()`
++ dead `model_tiers.classify_tier()`, which overlaps §6.8 item 4.3's
+"migrate both call paths onto one boundary" — escalated to Ish as a
+product-direction question (this reopens a conclusion he'd already
+approved three recommendations on top of), not resolved unilaterally.
+
+---
+
+## 2026-08-23 — M1-E-fix: planner timeout chain, fixed and live-verified end to end (`NEW-164`/`NEW-165` CLOSED; `NEW-167`/`NEW-169` found and CLOSED same session; `NEW-170`/`NEW-171` open)
 
 **Status, stated precisely (rule 7): code complete, code-reviewer-approved
 (three separate review passes), and live-verified** for the scenarios

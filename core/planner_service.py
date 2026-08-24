@@ -1,16 +1,15 @@
 """
-core/planner_service.py — unified planning interface.
+core/planner_service.py — daemon planner request helper.
 
-Provides a single entry point for task planning that encapsulates the
-fallback hierarchy:
-
-  1. Daemon planner (primary Qwen3.5-4B, thinking mode, or a remote
-     backend) via Unix socket — fast, low overhead.
-  2. Orchestrator plan_tasks (recursive_infer against the same primary
-     model) — used when the daemon is unavailable or returns no steps.
-
-Both main.py and core/agent.py should go through this module so planning
-behaviour is consistent regardless of how the CLI is invoked.
+NEW-172 (NEW_ISSUES.md, fixed here): this module used to also define
+get_plan(), advertised as "a single entry point for task planning" that
+"both main.py and core/agent.py should go through" — that claim was untrue
+for either caller (main.py's _try_daemon_plan() calls
+_request_daemon_plan() directly, core/agent.py's own get_plan() is a
+different function in core/planner.py) and get_plan() had zero production
+callers. It's deleted; this module now contains only
+_request_daemon_plan(), the one function actually called
+(main.py:_try_daemon_plan()).
 
 NEW-124 (NEW_ISSUES.md, fixed here): this docstring and the comments below
 used to say the daemon planner is "0.5B or remote" — stale even before
@@ -25,77 +24,6 @@ true}`" (see core/plannd.py:get_plan()), not a separate smaller model.
 """
 
 from utils.logger import info
-
-
-def get_plan(prompt: str, no_plan: bool = False, project_context: str = ""):
-    """
-    Return a step list for *prompt*, or None if planning is skipped/unavailable.
-
-    Fallback order:
-      1. Daemon planner (plannd, primary Qwen3.5-4B thinking-mode request,
-         or a remote backend).
-      2. Orchestrator plan_tasks (recursive_infer against the same primary
-         model).
-
-    Args:
-        prompt:          The user message to plan.
-        no_plan:         Skip planning entirely when True.
-        project_context: Optional CODEY.md / project summary passed to
-                         plan_tasks when falling back to the orchestrator
-                         planner.
-
-    Returns:
-        list[str] of step descriptions, or None.
-    """
-    if no_plan:
-        return None
-
-    # ── Tier classification (log-only) ──────────────────────────────────────
-    # TODO.md 7.3 sub-task C: decide, don't act. classify_tier()'s answer is
-    # observed here for visibility into what a future tier-aware dispatch
-    # (sub-task E, blocked on 7.4's resource gate closing) would choose — it
-    # must NOT influence which model path/port the fallback ladder below
-    # actually uses. Any failure to classify must not affect planning, so
-    # this is best-effort and swallows its own exceptions.
-    #
-    # NOTE (NEW-126, logged not fixed): under current
-    # core.orchestrator._action_kws, almost every realistic coding prompt
-    # matches at least one action keyword, so this will log 'large' for
-    # substantially all traffic while the ladder below still tries the
-    # small/daemon planner first — the log disagrees with the executed path
-    # by default. The raw signal breakdown is included below specifically so
-    # these logs remain useful evidence for tuning sub-task E's thresholds
-    # later, rather than being a string of "large" with no discriminating
-    # detail.
-    try:
-        from core.model_tiers import classify_tier
-        from core.orchestrator import _score_message
-
-        tier = classify_tier("coding", "planner", prompt)
-        score = _score_message(prompt)
-        info(
-            f"classify_tier: would select '{tier}' tier for coding/planner (log-only, not acted on) "
-            f"(has_action={score.has_action}, length={score.length}, signal_count={score.signal_count})"
-        )
-    except Exception as _e:
-        info(f"classify_tier unavailable ({type(_e).__name__}) — continuing with existing fallback ladder")
-
-    # ── Attempt 1: daemon planner ─────────────────────────────────────────────
-    plan = _request_daemon_plan(prompt)
-    if plan:
-        return plan
-
-    # ── Attempt 2: in-process orchestrator (primary model) ──────────────────
-    try:
-        from core.orchestrator import plan_tasks
-
-        queue = plan_tasks(prompt, project_context)
-        if queue and queue.tasks:
-            return [t.description for t in queue.tasks]
-    except Exception as _e:
-        info(f"Orchestrator planner unavailable ({type(_e).__name__}) — running directly")
-
-    return None
 
 
 def _request_daemon_plan(prompt: str):
