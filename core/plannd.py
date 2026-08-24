@@ -322,6 +322,12 @@ def _get_plan_remote(prompt: str) -> Optional[List[str]]:
         import json as _json
         import urllib.request as _req
 
+        # 7.3 sub-task E Task B: tiering is local-only. This always uses the
+        # full PLANNER_MAX_TOKENS (hard-tier) budget — chat_template_kwargs
+        # (the enable_thinking switch the local path uses to tier) is not
+        # part of the OpenAI-compatible surface OpenRouter/UnlimitedClaude
+        # implement, so tiering genuinely cannot apply here. No functional
+        # change.
         payload = {
             "model": planner_model,
             "messages": messages,
@@ -379,13 +385,21 @@ def _get_plan_remote(prompt: str) -> Optional[List[str]]:
         return None
 
 
-def get_plan(prompt: str) -> Optional[List[str]]:
+def get_plan(prompt: str, enable_thinking: bool = True) -> Optional[List[str]]:
     """
     Break *prompt* into a numbered plan.
 
     Uses the local primary Qwen3.5-4B server (port 8080) by default, with
-    thinking mode enabled for the planning request. When CODEY_BACKEND_P
-    (or CODEY_BACKEND) is a remote backend, routes there instead.
+    thinking mode enabled for the planning request (unless *enable_thinking*
+    is False — 7.3 sub-task E Task B, 2026-08-24: the medium-tier planning
+    path, which uses a smaller PLANNER_MAX_TOKENS_MEDIUM budget instead of
+    PLANNER_MAX_TOKENS since a non-thinking request produces no reasoning
+    trace at all, verified directly against the live GGUF's chat template —
+    see utils/config.py's PLANNER_MAX_TOKENS_MEDIUM comment). Default True
+    preserves current behavior for every existing caller not passing this
+    arg. When CODEY_BACKEND_P (or CODEY_BACKEND) is a remote backend,
+    routes there instead — tiering does not apply to that path (see
+    _get_plan_remote()'s own comment).
 
     M1-D lifecycle decision (2026-08-23): this function does NOT load or
     evict any model itself — the pre-M1-D version called
@@ -410,11 +424,22 @@ def get_plan(prompt: str) -> Optional[List[str]]:
         pass
 
     try:
-        from utils.config import PLANNER_MAX_TOKENS, PLANNER_TEMPERATURE
+        from utils.config import (PLANNER_MAX_TOKENS,
+                                  PLANNER_MAX_TOKENS_MEDIUM,
+                                  PLANNER_TEMPERATURE)
 
         temperature = PLANNER_TEMPERATURE
-        max_tokens = PLANNER_MAX_TOKENS
+        # Derived once, right next to the budget it governs, so the token
+        # budget and the enable_thinking flag sent to the server can never
+        # disagree (7.3 sub-task E Task B) — a medium-tier request must use
+        # PLANNER_MAX_TOKENS_MEDIUM AND enable_thinking=False together, never
+        # a mismatched pairing of the two.
+        max_tokens = PLANNER_MAX_TOKENS_MEDIUM if not enable_thinking else PLANNER_MAX_TOKENS
     except ImportError:
+        # Below both tiers' budgets either way, so this can't invert the
+        # PLANNER_MAX_TOKENS_MEDIUM < PLANNER_MAX_TOKENS invariant — no
+        # tiered fallback needed here, matching this function's existing
+        # degrade-gracefully convention for a broken utils.config import.
         temperature = 0.2
         max_tokens = 512
 
@@ -454,8 +479,11 @@ def get_plan(prompt: str) -> Optional[List[str]]:
         # Qwen3.5-4B thinking mode (core/loader_v2.py's LlamaServer now
         # spawns with --jinja --reasoning-format deepseek, M1-C) — this is
         # what actually invokes it for this one request; nothing else here
-        # switches the server's behavior globally.
-        "chat_template_kwargs": {"enable_thinking": True},
+        # switches the server's behavior globally. enable_thinking=False
+        # (7.3 sub-task E Task B, medium tier) produces a pre-closed, empty
+        # <think></think> block per the live-verified chat template — see
+        # PLANNER_MAX_TOKENS_MEDIUM's comment in utils/config.py.
+        "chat_template_kwargs": {"enable_thinking": enable_thinking},
     }
 
     url = f"http://127.0.0.1:{port}/v1/chat/completions"
@@ -499,13 +527,34 @@ def get_plan(prompt: str) -> Optional[List[str]]:
                 finish_reason = choices[0].get("finish_reason")
                 reasoning_content = message.get("reasoning_content") or ""
                 if finish_reason == "length":
-                    _warning(
-                        "[plannd] get_plan: thinking-mode request hit "
-                        "finish_reason=length with empty content — "
-                        f"prompt_tokens_estimate={prompt_tokens_estimate}, "
-                        f"max_tokens={max_tokens}, "
-                        f"reasoning_content_len={len(reasoning_content)}"
-                    )
+                    # 7.3 sub-task E Task B: branch the message on
+                    # enable_thinking — a thinking-mode truncation (an
+                    # unbounded reasoning trace exhausting the budget) and a
+                    # medium-tier truncation (a legitimately-too-small 1024
+                    # budget for a real, non-thinking answer) are two
+                    # different failure shapes and must stay distinguishable
+                    # in logs. NOTE: this does NOT touch NEW-168's separate
+                    # truncation-heuristic bug (parse_steps()'s
+                    # last-character check) — that is fenced out to its own
+                    # task (NEW-173).
+                    if enable_thinking:
+                        _warning(
+                            "[plannd] get_plan: thinking-mode request hit "
+                            "finish_reason=length with empty content — "
+                            f"prompt_tokens_estimate={prompt_tokens_estimate}, "
+                            f"max_tokens={max_tokens}, "
+                            f"reasoning_content_len={len(reasoning_content)}"
+                        )
+                    else:
+                        _warning(
+                            "[plannd] get_plan: medium-tier (non-thinking) "
+                            "request hit finish_reason=length with empty "
+                            "content — the max_tokens budget was too small "
+                            "for this answer — "
+                            f"prompt_tokens_estimate={prompt_tokens_estimate}, "
+                            f"max_tokens={max_tokens}, "
+                            f"reasoning_content_len={len(reasoning_content)}"
+                        )
                 return None
             steps = parse_steps(raw)
             steps = filter_tool_steps(steps)

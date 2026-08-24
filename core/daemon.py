@@ -240,7 +240,17 @@ class DaemonServer:
                 from core.plannd import PLANNER_PROMPT, compute_planner_timeout
                 from core.planner_client import send_plan_request_async
                 from core.tokens import estimate_tokens
-                from utils.config import PLANNER_MAX_TOKENS
+                from utils.config import (PLANNER_MAX_TOKENS,
+                                          PLANNER_MAX_TOKENS_MEDIUM)
+
+                # 7.3 sub-task E Task B (2026-08-24): additive field —
+                # missing on an old client's payload defaults safely to
+                # today's hard-tier behavior.
+                tier = data.get("tier", "hard")
+                enable_thinking = tier != "medium"
+                max_tokens_for_this_request = (
+                    PLANNER_MAX_TOKENS_MEDIUM if tier == "medium" else PLANNER_MAX_TOKENS
+                )
 
                 # NEW-165 fix 3: derive the outer wait_for timeout from the
                 # same formula plannd.py uses for its own inner urlopen
@@ -249,12 +259,21 @@ class DaemonServer:
                 # timeout (formula-based, can exceed 180s) just relocates
                 # NEW-165 one layer up, and worse — cancellation here
                 # carries none of plannd's new diagnostic logging.
+                #
+                # 7.3 sub-task E Task B: sized against
+                # max_tokens_for_this_request (the tier actually in play for
+                # THIS request), not a flat PLANNER_MAX_TOKENS — this is the
+                # daemon's own internal per-request timeout, which DOES
+                # scale per-tier (unlike core/planner_service.py's outer
+                # client-side socket timeout, which stays pinned to the
+                # hard-tier worst case regardless of tier — see that
+                # module's comment for why those two must not match).
                 prompt_tokens_estimate = estimate_tokens(PLANNER_PROMPT) + estimate_tokens(prompt)
-                inner_timeout = compute_planner_timeout(prompt_tokens_estimate, PLANNER_MAX_TOKENS)
+                inner_timeout = compute_planner_timeout(prompt_tokens_estimate, max_tokens_for_this_request)
                 outer_timeout = inner_timeout + 30.0
 
                 steps = await asyncio.wait_for(
-                    send_plan_request_async(prompt),
+                    send_plan_request_async(prompt, enable_thinking=enable_thinking),
                     timeout=outer_timeout,
                 )
                 if steps and len(steps) > 1:
@@ -1102,7 +1121,7 @@ class Daemon:
         interactive_active = is_interactive_session_active()
         return can_dispatch_task(snapshot, interactive_active)
 
-    async def _plan_claimed_task(self, prompt: str):
+    async def _plan_claimed_task(self, prompt: str, tier: str = "hard"):
         """
         Pull-side planning step for a claimed `needs_planning=1` direct-
         command task (7.4 sub-task C) — relocated from `_handle_command`'s
@@ -1116,18 +1135,36 @@ class Daemon:
         formula plannd.py uses for its own inner HTTP timeout around this
         same call, plus a small buffer. See _handle_command's plan_only
         branch above for the identical reasoning.
+
+        *tier* (7.3 sub-task E Task B, 2026-08-24) defaults to "hard": this
+        function's only caller (`_process_planner_tasks()`'s
+        needs_planning=1 branch) enqueues from `state.add_task()`'s
+        `description` column, which does not carry a tier value through the
+        tasks table (per NEW-112, this whole enqueue path has no live
+        caller today) — plumbing tier through the DB schema is a separate,
+        out-of-scope change, so this stays pinned to hard-tier behavior
+        until/unless that's done.
         """
         try:
             from core.plannd import PLANNER_PROMPT, compute_planner_timeout
             from core.planner_client import send_plan_request_async
             from core.tokens import estimate_tokens
-            from utils.config import PLANNER_MAX_TOKENS
+            from utils.config import (PLANNER_MAX_TOKENS,
+                                      PLANNER_MAX_TOKENS_MEDIUM)
+
+            enable_thinking = tier != "medium"
+            max_tokens_for_this_request = (
+                PLANNER_MAX_TOKENS_MEDIUM if tier == "medium" else PLANNER_MAX_TOKENS
+            )
 
             prompt_tokens_estimate = estimate_tokens(PLANNER_PROMPT) + estimate_tokens(prompt)
-            inner_timeout = compute_planner_timeout(prompt_tokens_estimate, PLANNER_MAX_TOKENS)
+            inner_timeout = compute_planner_timeout(prompt_tokens_estimate, max_tokens_for_this_request)
             outer_timeout = inner_timeout + 30.0
 
-            steps = await asyncio.wait_for(send_plan_request_async(prompt), timeout=outer_timeout)
+            steps = await asyncio.wait_for(
+                send_plan_request_async(prompt, enable_thinking=enable_thinking),
+                timeout=outer_timeout,
+            )
             return steps
         except asyncio.TimeoutError:
             warning(f"plannd request timed out after {outer_timeout:.0f}s — falling back to direct task")

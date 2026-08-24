@@ -244,7 +244,7 @@ def _score_message(message):
     )
 
 
-def is_complex(message):
+def is_complex(message, score=None):
     """
     Heuristic: does this need multiple steps?
 
@@ -253,11 +253,19 @@ def is_complex(message):
 
     Args:
         message: User's request text
+        score: optional pre-computed ScoreResult (from `_score_message(message)`).
+            When given, used instead of recomputing it internally — lets a
+            caller that also needs the raw signals (e.g. main.py's
+            medium/hard tier split, 7.3 sub-task E) score the same message
+            once and reuse it here, rather than scoring it twice. Existing
+            callers that don't pass this (core/agent.py:1271) are unaffected —
+            behavior is identical to always recomputing from `message`.
 
     Returns:
         True if request should be orchestrated, False otherwise
     """
-    score = _score_message(message)
+    if score is None:
+        score = _score_message(message)
 
     # If no action keyword AND looks like a question, NOT complex
     if not score.has_action and score.is_question:

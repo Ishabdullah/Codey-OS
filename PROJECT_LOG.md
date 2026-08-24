@@ -12,7 +12,111 @@ and Appendix A.
 
 ---
 
-## 2026-08-24 (latest) — 3-tier dispatch Task A: `NEW-172`'s dead code actually deleted (code-complete, code-reviewer-approved)
+## 2026-08-24 (latest) — 3-tier dispatch Task B: the real medium/hard split built and code-reviewer-approved
+
+**Status: code-complete, code-reviewer-approved. Not rule-4 category** —
+an additive, defaulted payload field through an existing RPC handler,
+no daemon start/stop/PID/kill/lock logic touched (reviewer agreed with
+the implementer's own classification rather than escalating by default).
+
+Threaded `enable_thinking`/`tier` end-to-end through the whole planning
+call chain: `main.py` (decision point) → `core.planner_service.
+_request_daemon_plan()` → `core/daemon.py`'s socket RPC → `core.
+planner_client.send_plan_request_async()` → `core.plannd.get_plan()`'s
+actual HTTP request to llama-server.
+
+- `utils/config.py`: `PLANNER_MAX_TOKENS_MEDIUM = 1024`, justified from
+  `PLANNER_PROMPT`'s answer shape (1-8 short plain-English steps, no
+  code) — not from "the retired 1.5B planner used 1024," a
+  family-resemblance justification rejected per rule 12 — with a
+  commented invariant that it must never exceed `PLANNER_MAX_TOKENS`.
+- `core/orchestrator.py`: `is_complex(message, score=None)` — an
+  optional param so `main.py` can score a prompt once and reuse it for
+  both the easy-tier gate and the new tier split, instead of scoring
+  twice. Reviewer grepped every call site repo-wide and confirmed no
+  existing caller passes a second positional arg that could silently
+  mis-bind to the new param; a 9-case test proves identical output with
+  and without an explicit `score=`.
+- `main.py`: `score = _score_message(prompt)` computed once;
+  `tier = "medium" if score.length > 300 else "hard"`; threaded through
+  `_try_daemon_plan(prompt, no_plan, tier=tier)`; the decision is logged
+  (`has_action`/`length`/`signal_count`) but guarded so it doesn't fire
+  when `no_plan=True` — verified by reading the actual `if not no_plan:`
+  wrapper, not just trusting the report.
+- **The critical invariant, verified in both directions by
+  code-reviewer, with real discriminating tests, not just "some timeout
+  was computed":** `core/planner_service.py:_request_daemon_plan()`'s
+  client-side socket timeout stays pinned to **hard**-tier sizing
+  unconditionally — it never shrinks for a medium-tier request. Old
+  daemons that don't recognize `tier` always run hard-tier server-side;
+  if the client's own timeout shrank for medium, it could give up before
+  such a daemon finishes, reproducing `NEW-169`'s exact failure shape in
+  a new guise. Meanwhile `core/daemon.py`'s own two internal
+  `compute_planner_timeout()` call sites (`_handle_command`'s
+  `plan_only=True` branch, `_plan_claimed_task`) DO scale down for
+  medium tier — the deliberate, correct asymmetry. New tests assert
+  numeric *equality* for medium vs. hard on the client-socket side and
+  numeric *inequality* on the daemon-internal side.
+- **A silent-mislabeling trap caught before it shipped:**
+  `core/planner_client.py:send_plan_request_async()` used to call
+  `loop.run_in_executor(None, get_plan, task)` — positional-only. Adding
+  `enable_thinking` to `get_plan()`'s signature without fixing this call
+  site would have silently defaulted every request to hard-tier behavior
+  (`run_in_executor` doesn't forward kwargs), with zero exceptions
+  anywhere to catch it. Fixed via `functools.partial`; the new test
+  asserts on the actual `enable_thinking` value the mocked `get_plan`
+  receives, not just that a plan came back.
+- `core/plannd.py`: `get_plan(prompt, enable_thinking: bool = True)` —
+  default preserves old behavior for any caller not passing the new arg.
+  `max_tokens`/`chat_template_kwargs.enable_thinking` are computed
+  adjacently (a few lines apart, both keyed off the same param) so they
+  can't independently drift — confirmed by code-reviewer reading the
+  actual code layout, not trusting the report's description of it. The
+  `NEW-164` truncation-warning message now branches on `enable_thinking`
+  so a medium-tier legitimate 1024-token overrun and a hard-tier runaway
+  reasoning trace stay distinguishable in logs. `NEW-168`'s separate,
+  unrelated truncation-heuristic bug confirmed untouched (fenced to
+  `NEW-173`). `_get_plan_remote()` got a comment only — tiering is
+  local-only, since `chat_template_kwargs` isn't part of the OpenAI-
+  compatible surface OpenRouter/UnlimitedClaude implement.
+- **One honest gap, logged as `NEW-178`, not silently smoothed over:**
+  `_plan_claimed_task`'s spec called for reading `tier` from a `data`
+  dict that doesn't exist at that call site (its only caller passes a
+  raw description string from SQLite; the tasks table has no tier
+  column). The implementer added a plain `tier: str = "hard"` parameter
+  instead and logged the gap rather than pretending it works.
+  Code-reviewer independently re-verified both halves of the bounding
+  claim: the caller genuinely passes no `tier` arg, and `NEW-112`'s
+  "zero live callers on this pull-side path" claim genuinely holds — so
+  the gap can't manifest in current production traffic, only if/when
+  that dormant path is ever activated.
+- **Reviewer's own observation, not a defect, worth stating plainly:**
+  `score.length` is a character count, so the `length > 300` boundary
+  will likely route most real coding prompts to medium (non-thinking)
+  tier in practice — a bigger behavioral shift than "additive,
+  backward-compatible" first suggests. This is the exact boundary Ish
+  pre-approved in the 2026-08-24 reconciliation, not a silent
+  implementer choice.
+- **Test counts, verified independently by code-reviewer, both
+  directions of the known `main.py`-dirty test fragility (`NEW-177`):**
+  with this task's own `main.py` diff dirty during review — 3 failed
+  (the known `NEW-177` pattern), 656 passed, 1 skipped. With `main.py`
+  restored to its committed state — **659 passed, 1 skipped** (644
+  post-Task-A baseline + 15 new tests in
+  `tests/test_plannd_tier_split.py`). `ccos/tests/` unaffected at 68
+  passed.
+- Two non-blocking notes from review, not gating this commit: no test
+  directly exercises `main.py`'s own tier-decision line (low risk,
+  one-line, spec-verbatim match — worth a follow-up test); the
+  "Planning tier: ..." log fires even when the daemon isn't running
+  (cosmetic noise, not the case the `no_plan` guard exists to prevent).
+
+`CODEY_MASTER_PLAN.md`'s §6.8 phase-summary table row and Appendix A's
+7.3 sub-task E entry both updated to DONE for Task A and Task B.
+
+---
+
+## 2026-08-24 — 3-tier dispatch Task A: `NEW-172`'s dead code actually deleted (code-complete, code-reviewer-approved)
 
 **Status: code-complete, code-reviewer-approved. Not process-lifecycle —
 a normal review pass applied, not the mandatory rule-4 category.** This

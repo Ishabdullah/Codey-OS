@@ -8875,3 +8875,26 @@ finding for the same bug. See `NEW-39`.)*
   specific tests (matching how other tests in this suite already isolate
   from real git state), rather than relying on the working tree happening
   to be clean when the suite runs.
+
+### [NEW-178] `core/daemon.py`'s pull-side planning path (`_plan_claimed_task`, reached via `needs_planning=1` from `_handle_command`'s `plan_only=False` branch) has no way to carry a `tier` value through — the tasks table has no tier column, so a claimed task can only ever plan at the `tier="hard"` default
+- **Status: Confirmed, low impact.** Found by the implementer building
+  Task B of the 3-tier planning dispatch (2026-08-24), while threading
+  `tier` through the socket-RPC planning path.
+- **Mechanism:** `_plan_claimed_task(self, prompt: str)` has no `data`
+  dict to read a `tier` field from — its only caller passes
+  `db_task["description"]` from SQLite, and the tasks table schema has
+  no tier column to carry a value through from wherever the task was
+  originally enqueued. The implementer added `tier: str = "hard"` as a
+  plain parameter default rather than plumbing a real value, which is
+  honest about the gap rather than silently pretending it's handled.
+- **Impact, bounded:** per the pre-existing `NEW-112` finding, this
+  entire pull-side path (`plan_only=False`'s enqueue-then-plan-later
+  flow, `needs_planning=1`) has **zero live production callers today** —
+  it is real, intended future functionality, not currently reachable.
+  So this gap cannot manifest in current production traffic; it becomes
+  relevant only if/when `NEW-112`'s dormant path is ever activated.
+- **Not fixed this round** — fixing it properly means adding a `tier`
+  column to the tasks table schema (or an equivalent side-channel), which
+  is real schema-migration work disproportionate to a currently-dead code
+  path. Whoever activates `NEW-112`'s pull-side path should address this
+  at the same time, not before.

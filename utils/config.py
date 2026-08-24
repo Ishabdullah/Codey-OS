@@ -537,6 +537,28 @@ QWEN_MLOCK = os.environ.get("CODEY_7B_MLOCK", "0") != "0"  # default: False
 PLANNER_TEMPERATURE = 0.2
 PLANNER_MAX_TOKENS = 2048
 
+# 7.3 sub-task E, Task B (2026-08-24): medium-tier budget for a planning
+# request made with `chat_template_kwargs: {"enable_thinking": false}`
+# (core/plannd.py:get_plan()'s enable_thinking=False branch). Verified
+# directly against the live GGUF's embedded Jinja chat template (rule 12 —
+# not assumed from family resemblance to anything): enable_thinking=false
+# (or unset) produces a pre-closed, empty `<think>\n\n</think>\n\n` block —
+# the model emits NO reasoning trace at all in that case, so none of
+# PLANNER_MAX_TOKENS's headroom for an unbounded thinking trace (see that
+# constant's own comment above) applies here. 1024 is sized from
+# PLANNER_PROMPT's own answer shape instead: 1-8 short plain-English steps,
+# no code, no markdown — real answers run roughly 50-400 tokens, so 1024 is
+# 2.5x+ headroom over the largest realistic non-thinking answer. This is
+# NOT "the retired Qwen2.5-1.5B planner used 1024" — that would be a
+# family-resemblance justification for an unrelated model/prompt shape,
+# explicitly rejected during scoping.
+#
+# Invariant that must never be silently inverted (advisor-flagged): a
+# larger medium-tier budget than hard-tier's would mean "less capable
+# planning mode" costs MORE tokens than "more capable" — the opposite
+# of the intent. PLANNER_MAX_TOKENS_MEDIUM < PLANNER_MAX_TOKENS always.
+PLANNER_MAX_TOKENS_MEDIUM = 1024
+
 # NEW-165 (2026-08-23, M1-E live verification): formula-based HTTP timeout
 # inputs for core/plannd.py's get_plan() (local backend only — NOT
 # _get_plan_remote(), a different backend with its own timeout=60 left

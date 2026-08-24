@@ -26,10 +26,15 @@ true}`" (see core/plannd.py:get_plan()), not a separate smaller model.
 from utils.logger import info
 
 
-def _request_daemon_plan(prompt: str):
+def _request_daemon_plan(prompt: str, tier: str = "hard"):
     """
     Send *prompt* to the running plannd daemon and return the step list.
     Returns None on any failure or when the daemon is not running.
+
+    *tier* ("hard" or "medium", 7.3 sub-task E Task B, 2026-08-24) is
+    threaded into the socket payload as an additive field — an old daemon
+    binary that doesn't recognize it just ignores it and runs full
+    hard-tier behavior, which is safe (see the socket-timeout note below).
     """
     try:
         from core.daemon import is_daemon_running, send_command
@@ -52,6 +57,18 @@ def _request_daemon_plan(prompt: str):
         # timeout() + 30.0s), plus a small extra buffer for the socket
         # round trip itself, so this client always outlives every timeout
         # nested inside it rather than being the shortest one in the chain.
+        #
+        # 7.3 sub-task E, Task B (2026-08-24): this computation stays
+        # PINNED to PLANNER_MAX_TOKENS (hard-tier) UNCONDITIONALLY,
+        # regardless of *tier* — do not parameterize it by tier. This is
+        # the outermost client-side timeout and must survive an old daemon
+        # binary that doesn't recognize the `tier` field and always runs a
+        # full hard-tier request server-side. If this client sized its own
+        # timeout down for a medium-tier request against an old daemon
+        # still running hard-tier under the hood, it would reproduce
+        # NEW-169's exact failure shape in a new guise. The daemon's OWN
+        # internal per-request timeouts do scale per-tier (core/daemon.py) —
+        # only this client-facing value stays pinned to the worst case.
         try:
             from core.plannd import PLANNER_PROMPT, compute_planner_timeout
             from core.tokens import estimate_tokens
@@ -81,13 +98,19 @@ def _request_daemon_plan(prompt: str):
                 )
                 info(f"Requesting plan from {CODEY_PLANNER_BACKEND} planner ({pm})...")
             else:
-                info("Requesting plan from local planner (primary model, thinking mode)...")
+                # NEW-172 fix's follow-on (7.3 sub-task E Task B): this used
+                # to unconditionally say "thinking mode" — false for a
+                # medium-tier request. Remote tiering doesn't apply here
+                # (tier only affects the local backend), so this branch
+                # only needs to reflect *tier* when the local path is used.
+                _mode = "thinking mode" if tier != "medium" else "non-thinking mode"
+                info(f"Requesting plan from local planner (primary model, {_mode})...")
         except Exception:
             info("Requesting plan from planner...")
 
         response = send_command(
             "command",
-            {"prompt": prompt, "no_plan": False, "plan_only": True},
+            {"prompt": prompt, "no_plan": False, "plan_only": True, "tier": tier},
             timeout=socket_timeout,
         )
         plan = response.get("plan")

@@ -407,13 +407,13 @@ def run_init():
     success(f"CODEY.md written to {path}") if not path.startswith("[ERROR]") else error(path)
 
 
-def _try_daemon_plan(prompt: str, no_plan: bool = False):
+def _try_daemon_plan(prompt: str, no_plan: bool = False, tier: str = "hard"):
     """Thin shim — delegates to core.planner_service._request_daemon_plan."""
     from core.planner_service import _request_daemon_plan
 
     if no_plan:
         return None
-    return _request_daemon_plan(prompt)
+    return _request_daemon_plan(prompt, tier=tier)
 
 
 def _extract_filename_from_step(step: str) -> str:
@@ -483,16 +483,38 @@ def _run_with_plan(prompt: str, history: list, yolo: bool, use_plan: bool, no_pl
         return run_agent(prompt, history, yolo=yolo, use_plan=use_plan, no_plan=no_plan)
     # Multi-peer or multi-step peer prompts fall through to plannd below
 
-    # ── Complexity gate: skip 1.5B planner for simple, non-complex tasks ───────
+    # ── Complexity gate: skip the planner for simple, non-complex tasks ───────
     # Mirrors the pattern in core/agent.py:1256 which gates its own orchestrator
     # planner behind is_complex(). Simple single-step edits should go straight
-    # to the 7B agent instead of routing through the 1.5B planner.
-    from core.orchestrator import is_complex
+    # to the agent instead of routing through the planner.
+    #
+    # 7.3 sub-task E, Task B (2026-08-24): score once and reuse for both the
+    # easy-tier gate and the medium/hard tier split below, rather than
+    # scoring the same prompt twice.
+    from core.orchestrator import _score_message, is_complex
 
-    if not is_complex(prompt):
+    score = _score_message(prompt)
+    if not is_complex(prompt, score=score):
         return run_agent(prompt, history, yolo=yolo, use_plan=use_plan, no_plan=no_plan)
 
-    plan = _try_daemon_plan(prompt, no_plan)
+    # Medium/hard tier split on the post-easy-gate population: reuses
+    # is_complex()'s own existing `length > 300` boundary (NEW-174 notes
+    # this boundary is currently dead-identical to `length > 150` inside
+    # is_complex() itself — unrelated pre-existing defect, not fixed here).
+    # "hard" (enable_thinking=True) is the default/fallback, matching
+    # M1-D's thinking-mode-by-default design.
+    tier = "medium" if score.length > 300 else "hard"
+    if not no_plan:
+        # Guarded on no_plan: _try_daemon_plan(prompt, no_plan=True, ...)
+        # below returns None immediately without planning at all — logging
+        # a tier decision for a plan that never happens would be noise on
+        # every --no-plan invocation.
+        info(
+            f"Planning tier: {tier} (has_action={score.has_action}, "
+            f"length={score.length}, signal_count={score.signal_count})"
+        )
+
+    plan = _try_daemon_plan(prompt, no_plan, tier=tier)
 
     if plan:
         separator()

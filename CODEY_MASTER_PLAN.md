@@ -1497,7 +1497,7 @@ order.
 
 | Item | Depends on | Note |
 |---|---|---|
-| **7.3 sub-task E** — actually dispatch on the tier decision | A1 | A–D are built but **unreachable in production** (`NEW-172`) — their `classify_tier()` call site, `core.planner_service.get_plan()`, has zero real callers. The easy-tier skip is already shipped elsewhere (`main.py:492`, `core/agent.py:1271`, both via `is_complex()`). Remaining work: medium/hard split via `enable_thinking` on `plannd.get_plan()`, plus a consolidate-or-delete call on the orphaned function (overlaps 4.3). See Appendix A. |
+| **7.3 sub-task E** — actually dispatch on the tier decision | A1 | **DONE 2026-08-24.** Task A deleted the orphaned, unreachable `classify_tier()`/`planner_service.get_plan()` pair (`NEW-172`, landed `8fe5d07`). Task B built the real medium/hard split — tier decided once in `main.py` (`score.length > 300`), threaded as an additive/defaulted field through `_request_daemon_plan()` → `core/daemon.py`'s socket RPC → `plannd.get_plan(enable_thinking=...)`, with the client-side socket timeout deliberately pinned to hard-tier sizing regardless of tier (old-daemon safety) while the daemon's own internal timeouts scale per-tier. Code-reviewer-approved, code-complete. See Appendix A for the full design and `NEW-178` for the one known gap (the dormant pull-side planning path can't carry a tier value — bounded, that path has zero production callers today). |
 | **4.3** — wrap `core/agent.py` as a real CCOS capability | A1 | Migrate **both** existing call paths (`main.py` for CLI/GUI, `core/task_executor.py` for the daemon) onto one boundary — not a third path alongside them. The wrapper owns its own permission surface (`confirm_shell`/`confirm_write`) explicitly rather than inheriting the caller's. Also where recursive self-refinement gets wrapped. |
 | **7.5** — in-flight context passing + task-context blackboard | 4.3 | `plugin_manager.call_capability` gets a threaded context argument (today a step's output is silently discarded); plus a scoped task-context table for durable cross-step handoffs. **Not** a general shared-memory grant, **not** a repurposing of `ccos_memory`. Per vision §11.2 the threaded content is a compact structured record, not a conversation dump. |
 | **4.5** — peer-CLI escalation redesign | 4.1's queue, 7.5's blackboard | Daemon pulls an item needing escalation off the main queue, parks it on a review list, notifies the user, keeps working. 100% design-only today. |
@@ -1996,7 +1996,51 @@ Then:
       68 passed — see `PROJECT_LOG.md`'s 2026-08-24 Task A entry for the
       full arithmetic and the pre-existing `main.py`-git-clean test
       fragility (`NEW-177`) found and correctly isolated as unrelated
-      during review. **Task B: still scoped, not started.**
+      during review.
+      **Task B: DONE, 2026-08-24, code-reviewer-approved.** Threaded
+      `enable_thinking`/`tier` end-to-end: `utils/config.py` gained
+      `PLANNER_MAX_TOKENS_MEDIUM=1024` (justified from `PLANNER_PROMPT`'s
+      answer shape, not the retired 1.5B's old budget, per rule 12);
+      `core.orchestrator.is_complex()` gained an optional `score=`
+      param so `main.py` scores a prompt once and reuses it for both the
+      easy-gate check and the tier split; `main.py` derives
+      `tier = "medium" if score.length > 300 else "hard"` and logs the
+      decision (guarded against firing on `--no-plan`); `core.planner_
+      service._request_daemon_plan()` threads `tier` into the socket
+      payload but keeps its own client-side timeout pinned to hard-tier
+      sizing **unconditionally** — the critical invariant, verified in
+      both directions by code-reviewer: the daemon's *own* internal
+      `compute_planner_timeout()` calls DO shrink for medium tier, the
+      client's outermost socket timeout never does, so an old daemon
+      binary that ignores `tier` and always runs hard-tier server-side
+      can never outlive a client that shrank its own wait. `core.
+      planner_client.send_plan_request_async()`'s `run_in_executor` call
+      was switched to `functools.partial` — without this, adding
+      `enable_thinking` to `plannd.get_plan()` would have silently
+      defaulted every request to hard-tier behavior via positional-arg
+      forwarding, with zero exceptions anywhere; caught before it shipped.
+      15 new tests (`tests/test_plannd_tier_split.py`), all independently
+      re-run by code-reviewer with real discriminating assertions (exact
+      equality on the tier-invariant socket timeout, exact inequality on
+      the daemon's own tier-scaled timeout), not just "some value
+      computed." Full suite: 659 passed/1 skipped (644 baseline + 15
+      new), `ccos/tests/` unaffected at 68 passed.
+      **One honest gap, logged as `NEW-178`, not silently smoothed over:**
+      the daemon's dormant pull-side planning path (`_plan_claimed_task`,
+      reached only via the `plan_only=False`/`needs_planning=1` path
+      `NEW-112` already found has zero production callers) has no tasks-
+      table column to carry a `tier` value through, so it can only ever
+      plan at the `tier="hard"` default. Bounded and non-blocking since
+      that path isn't reachable in production today; whoever activates it
+      should add the schema column at the same time.
+      **Reviewer's own note, not a defect:** `score.length` is a
+      character count, so the `length > 300` boundary likely routes most
+      real coding prompts to medium (non-thinking) tier — a bigger
+      behavioral shift in practice than "additive, backward-compatible"
+      first suggests. This is the exact boundary Ish pre-approved in the
+      2026-08-24 reconciliation, not a silent implementer choice — stated
+      here so it's visible rather than only findable by re-deriving it
+      from the character-vs-token distinction.
 - [ ] **4.3** — wrap `core/agent.py` as a CCOS capability, unifying both
       call paths.
 - [ ] **7.5** — in-flight context passing + task-context blackboard.
