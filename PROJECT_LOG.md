@@ -12,7 +12,388 @@ and Appendix A.
 
 ---
 
-## 2026-08-25 (latest) — M1-F: mandatory code-reviewer pass ran, approved (`NEW-156`)
+## 2026-08-25 (latest) — M1-G's G2b run live: grounding 3/3, sequencing 3/3; M1-G closed DONE
+
+Follow-up to the entry below (same day, third round): the pre-registered
+`.cfg`-fixture G2b design was run live by live-verifier. Precondition
+gate: all 5 parts passed, re-verified fresh this session (fixture
+recreated with exact spec content, `WORKSPACE_ROOT`/path resolution
+confirmed, no stray `case_g2b_anchor.c` sibling, `detect_filenames(PROMPT)`
+and `auto_load_from_prompt(PROMPT)` both returned `[]`, payload-level
+assertion confirmed the fixture's `retries=3` content absent from the
+assembled pre-inference payload). RAM discipline: `free -h` before `5.6Gi
+used, 598Mi free, 4.9Gi available`, after `5.2Gi used, 2.9Gi free, 5.4Gi
+available`; `ps aux | grep llama-server` clean before and after;
+`loader.get_pid()` returned `None` after `loader.unload()`.
+
+**Deviation from spec, stated plainly:** the cycle was not one continuous
+server process — `core/thermal.py` fired mid-run and restarted the server
+(PID 23098 at `-t 4` → thermal throttle → PID 31624 at `-t 2`), two
+`llama-server` PIDs existed sequentially (never concurrently) within one
+tracked load-then-unload cycle. Rule 2 held; the spec's "no reload per
+draw" framing was violated by a real thermal artifact, not a driver
+choice.
+
+**Results, all 3 draws identical in shape:** `read_file
+(case_g2b_anchor.cfg)` → `patch_file(old_str="timeout=30",
+new_str="timeout=60")` → `note_save` (drawn 1 and 2 emitted a duplicate
+`note_save`, draw 3 a single one — new finding, `NEW-186`). On-disk
+content after all 3 draws matched (`timeout=60`, `retries=3` — correct
+edit each time). **Grounding 3/3:** every `old_str` an exact substring of
+the fixture's real content at time of patch. **Sequencing 3/3:** a
+qualifying `read_file` on the fixture precedes the first qualifying
+`patch_file` in every draw's trace order. Direct proof the preload
+confound was absent *during* the run, not just predicted: the `✓ Loaded:
+case_g2b_anchor.cfg` marker (the signature that preceded inference in the
+failed G2 attempt) is absent in all 3 draws; the only load-adjacent
+marker is `ℹ Read .live_verify_scratch/case_g2b_anchor.cfg (106 chars)`,
+appearing *after* the model's own `read_file` call every time.
+
+**Caveat, stated honestly:** the fixture's unspaced `timeout=30`
+content-trap (designed so a guess would plausibly come out as the more
+natural `timeout = 30` and fail the patch) never fired — no draw ever
+guessed. So the sequencing result rests on trace order plus the
+precondition gate's payload-absence check, not a caught bad guess —
+weaker corroboration than the design hoped for, recorded as such rather
+than upgraded.
+
+**Scorer self-correction, per rule 6:** the run's in-process scorer had a
+regex bug (required a closing `</tool>` tag the model's streamed output
+never emits), which made the first-pass output log show all 3 draws as
+FAIL. Caught in-session; the same already-captured stdout was re-parsed
+with a corrected regex (no new inference, no new model load), confirming
+11 raw `<tool>` markers all parsed with 0 JSON errors. Both logs are kept:
+`.live_verify_scratch/m1g_g2b_output.log` (left uncorrected, an honest
+record of the bug) and `.live_verify_scratch/m1g_g2b_regrade.log` (the
+actual scoring evidence). Both files are gitignored and will not persist
+between sessions — the scorer gotcha (no `</tool>` requirement) and the
+560.9s thermal-throttled draw-3 latency (vs. ~20-30s in G2/G3) are now
+written directly into `CODEY_MASTER_PLAN.md`'s §4.2 M1-G entry so they
+survive the files' disappearance.
+
+**Docs updates this round:**
+- `NEW_ISSUES.md`: `NEW-182` narrowed a third time — G2b is now a
+  validated (if narrow, N=3, single-domain) measurement path, but the
+  core `.py`/`.json` preload confound for real coding-target extensions
+  is unchanged and stays open. New `NEW-186` filed (duplicate
+  post-completion `note_save` calls on 2/3 draws; Suspected-only,
+  unconfirmed link to `NEW-168`/`NEW-173`).
+- `CODEY_MASTER_PLAN.md` §4.2's M1-G entry: full G2b writeup appended
+  (verbatim numbers, since the source logs won't survive), plus the
+  closing status judgment below.
+- `CODEY_MASTER_PLAN.md` Appendix A's M1-G item: flipped to `[x]` with a
+  condensed version of the same close reasoning.
+
+**M1-G final status: DONE.** This is an architect-level judgment on top
+of the pre-registered measurements — the G2b spec itself declined to
+name a single pass/fail verdict, reporting X/3 and Y/3 only. The
+reasoning: G1 (desk, confirms the `NEW-30` fix is the committed baseline)
++ G2 (live, grounding 3/3 in the real `.py`-under-preload domain — the
+one axis still live there, since sequencing is moot once content is
+already preloaded) + G2b (live, grounding 3/3 and sequencing 3/3 in a
+genuinely no-preload `.cfg` domain) together give item 1 (tool-calling
+format) and item 3's residual (jinja template preserving tool-calling
+instructions) a real, if narrow, positive measurement on both applicable
+axes in their respective domains. Item 2 (`NEW-50`) closed via G3's clean
+5/5 with the stated rule-5 caveat, already recorded. G4 was not needed.
+The one genuine residual — `.py`/`.json`-domain sequencing specifically —
+has no reachable exit criterion at HEAD: measuring it needs either fixing
+`core/context.py`'s preload behavior (out of M1-G's scope, itself
+`NEW-182`/`NEW-185` work) or an explicit harness-side preload bypass
+(considered and deprioritized in the G2b design). That residual is
+recorded as `NEW-182`, a standing methodology-gap finding that can stay
+open indefinitely without blocking M1-G — holding M1-G open for a test
+design that cannot be run at HEAD would be worse doc hygiene than closing
+it with the residual stated plainly. No edit was made or is warranted to
+`prompts/system_prompt.py`, `core/plannd.py`'s `PLANNER_PROMPT`, or the
+`--jinja`/`--reasoning-format` spawn flags — "measured, no edit needed"
+is the valid outcome Ish's own original framing ("maybe we have to adjust
+our system prompts maybe not") anticipated.
+
+**Confirmed nothing downstream assumed a prompt edit would land:**
+checked §6.2's Phase A1 ordering (7.4/7.4a/7.4b remnants, the
+lease/registry, the concurrency test) — none of those items are gated on
+an M1-G edit landing; the close doesn't disturb that ordering.
+
+**What's next in Phase A1, now that M1-G is closed:** per §6.2's
+"Remaining Phase A1 items" table — 7.4b sub-tasks A and C still need
+their live-verify pass (largely covered by M1-E already, worth a final
+confirmation), the lease/registry replacing port-probe adoption (not
+started, absorbs `NEW-104`/`NEW-144`/`NEW-146`/`NEW-149`), the
+concurrency test (not started, now "the central question of this phase"
+since one shared model serves multiple consumers), and `NEW-180` (embed
+model's real resident RSS still unmeasured, not currently load-bearing at
+M1-F's new margins but never checked against reality). No single one of
+these is pre-selected as "next" by this round — that choice is open for
+the next session.
+
+## 2026-08-25 — M1-G's G2b redesigned and pre-registered (desk-only, not yet run); NEW-185 found
+
+Follow-up to the entry below: `NEW-182` found the previously-proposed
+G2b (re-running `case1_prompt` verbatim) dead, because `NEW-62`'s
+same-day regex fix that made the original run safe now resolves the same
+path and preloads it. This round designed a genuinely new G2b rather
+than leaving it open. Desk-only — no model loaded, no live-verifier
+session, `prompts/system_prompt.py` and `core/plannd.py` untouched.
+
+**Read `core/context.py`'s `detect_filenames()` regex in full** (per
+rule 12 — no assumption from the old regex's behavior). Confirmed
+empirically (not by pattern-reading alone) that for a real `.py` target
+file, no natural phrasing avoids the preload — `.py` is a full-match
+extension, matched anywhere in the prompt text regardless of syntactic
+position. The only deterministic escape is a fixture whose extension
+isn't in the alternation list at all.
+
+**Designed and empirically verified a `.cfg`-fixture G2b:**
+`.live_verify_scratch/case_g2b_anchor.cfg` (fixture content and exact
+daemon-step-shaped prompt text now written into `CODEY_MASTER_PLAN.md`'s
+M1-G entry, §4.2 and Appendix A), N=3, matching `ab_driver.py`'s
+`case1_prompt` shape. Verified directly (not reasoned): fresh Python
+process, `context.detect_filenames(PROMPT)` → `[]`; `_mem.clear()` then
+`context.auto_load_from_prompt(PROMPT)` → `[]`, `_mem.list_files()`
+empty afterward. Also confirmed the fixture resolves inside
+`WORKSPACE_ROOT` (no `NEW-60` recurrence).
+
+**Found a new bug in the process, logged as `NEW-185` (Confirmed, not
+fixed this round — out of this task's scope):** `detect_filenames()`'s
+regex silently truncates several extensions to a shorter listed one
+instead of failing to match — `.cfg`→`.c`, `.pyi`/`.pyx`→`.py`,
+`.tsx`→`.ts`, `.jsx`→`.js`, `.hpp`→`.h` (verified via `re.findall`
+directly returning the truncated string). This is exactly why the
+`.cfg` escape works (the truncated `.c` sibling doesn't exist, so the
+existence check drops it) — but it means the design's precondition gate
+(not just the design's reasoning) is the actual protection, and the same
+bug could silently load the *wrong* file if a same-stem `.c` file ever
+exists alongside a `.cfg` one.
+
+Full pre-registered spec (fixture content, exact prompt text, N=3,
+5-part precondition gate including a payload-level assertion, tool-call
+definitions for read/edit given shell access, and grading rules scored
+on the first edit call only) is in `CODEY_MASTER_PLAN.md`'s M1-G entry.
+**Not run — M1-G remains open.** `NEW-182` updated to reflect this is a
+narrowing, not a closure: the underlying preload mechanism is unchanged
+for `.py`/`.json`/etc. fixtures, only one non-full-match-extension
+fixture domain is now known to avoid it.
+
+Files touched: `CODEY_MASTER_PLAN.md` (M1-G entries in §4.2 and Appendix
+A), `NEW_ISSUES.md` (`NEW-182` narrowed, `NEW-185` filed),
+`.live_verify_scratch/case_g2b_anchor.cfg` (new fixture, gitignored, not
+committed — must be present with this exact content before the live run).
+
+---
+
+## 2026-08-25 — M1-G's G2/G3 live cycles run: G2 split/inconclusive, G3 clean 5/5, M1-G still not done
+
+Live-verifier ran the pre-registered G2 and G3 test plan from the prior
+entry below. This entry processes those results into the tracked docs
+per rules 5/6/7/8/9 — no code was edited in `prompts/` or
+`core/plannd.py` this round, findings-logging only.
+
+**G2 (item 1 + item 3's residual, `NEW-30` read-before-patch A/B against
+Qwen3.5-4B) — split, not a clean pass.** Precondition gate passed
+(fixture path + `WORKSPACE_ROOT` both resolved correctly). RAM
+discipline followed: `free -h` before/after recorded, PID 31329 killed
+directly (not `pkill -f`), confirmed gone via `ps -p 31329` exit 1.
+- Grounding: **3/3** — every `patch_file` call's `old_str` matched real,
+  present file content, zero hallucination.
+- Sequencing (read-before-patch): **1/3, and the criterion turned out
+  unmeasurable with this harness.** `core/context.py:97`'s
+  `load_file()`, reached via `auto_load_from_prompt()`
+  (`core/agent.py:1265`), preloads any file named in the prompt into
+  working memory *before* the model runs at all (`✓ Loaded:
+  fixture_b_small.py (432 chars)` appears pre-inference in every draw's
+  archived log). Draws 1-2 never called `read_file` — not a discipline
+  failure, the model never needed to, since the content was already
+  visible without its own tool call. Only draw 3 explicitly called
+  `read_file` before `patch_file`.
+- **Item 1 and item 3's residual do NOT close on this result.** This
+  isn't a model failure — this specific prompt shape
+  (`_execute_task` with a bare "Add a docstring to..." prompt) cannot
+  discriminate the actual question (does the model read before editing
+  when it hasn't already been shown the file) from the preloader's own
+  behavior.
+- New finding logged, `NEW-182`: traced the same question against the
+  *original* 2026-07-31 `NEW-30` A/B pass (`ab_driver.py`, 3 draws per
+  arm — the real A/B script, not `driver.py`'s separate single-draw
+  trials). The archived `.live_verify_scratch/ab_output.log` from that
+  actual run shows **no** preload fired, and the fixed arm's model
+  explicitly called `read_file` before `patch_file` in all 3 draws — so
+  the original `NEW-30` fix's 0/3-vs-3/3 differential is not confounded
+  by this mechanism (a paired A/B comparison under a constant condition
+  either way can't be explained by a preload effect), and **no rule-6
+  downgrade applies to the original fix.**
+- **Root cause traced, not left as "not fully isolated":** why did the
+  old run escape the preload? `NEW-62`, a `detect_filenames()` regex fix
+  that landed the *same day* (`4625e43`) — the pre-fix regex matched
+  `.live_verify_scratch/case1_anchor.py` but stripped its leading dot,
+  which then failed the existence check and got silently dropped, so
+  nothing preloaded. The post-fix regex at HEAD (`fe39a35`) resolves the
+  same path correctly — confirmed by calling `auto_load_from_prompt()` on
+  the identical prompt text today, which prints `✓ Loaded:
+  case1_anchor.py (151 chars)`. Also checked and ruled out: the `used <
+  total * 0.5` gate at `core/agent.py:1263-1264` evaluates `True` today
+  (3759/65536 tokens) — not the blocker.
+- **Consequence: the first-proposed G2b (re-run `case1_prompt` verbatim)
+  is NOT viable — corrected in this same round.** It would hit the
+  identical preload confound as G2, not avoid it, because the exact bug
+  that made it safe in 2026-07-31 has since been fixed. A viable G2b
+  needs a different design (a file reference `detect_filenames()` won't
+  match, or an explicit, honestly-labeled harness bypass of the preload)
+  — not designed this round, flagged as the open next step.
+- Verbatim data archived: `.live_verify_scratch/m1g_g2_results.jsonl`,
+  `.live_verify_scratch/m1g_g2_output.log`,
+  `.live_verify_scratch/m1g_g2_output_23.log`. Note: the harness's own
+  `timeout 900` wrapper SIGTERM'd the driver mid-draw-2 (exit 124, not a
+  crash); draws 2-3 were re-run against the same still-resident server
+  (one load cycle per rule 2), draw 3 ran after a thermal throttle event
+  (4→2 threads).
+
+**G3 (item 2 / `NEW-50` worked-example leak, Qwen3.5-4B thinking mode) —
+clean 5/5, with the rule-5 caveat stated honestly.** Precondition gate
+passed. RAM discipline followed: PID 30582 loaded via
+`core.loader_v2.get_loader().ensure_model("primary")`, unloaded via
+`loader.unload()`, confirmed via `get_pid()` returning `None` and an
+empty `ps aux | grep llama-server`.
+- All 5 draws returned `content` byte-identical to the correct answer
+  (`"1. Edit core/legacy_calc.py: fix the off-by-one error in the
+  loop"`), with correct CREATE-vs-EDIT `reasoning_content` (582-798
+  chars each). No verbatim leak from any `PLANNER_PROMPT` worked example
+  (fibonacci, xform, ping_check, sync_utils) in either channel —
+  confirmed via direct grep of the archived JSONL, not a narrow
+  fibonacci-only check.
+- **Non-circularity confirmed via `git log -L`:** the two blocks making
+  this test prompt's correct answer directly present in `PLANNER_PROMPT`
+  — the VIOLATION example (`core/plannd.py:60-66`) and worked EXAMPLE
+  (`core/plannd.py:171-177`), both verified line-accurate at HEAD
+  `fe39a35` — were added in commit `d674a0c` (2026-07-30), *before*
+  `NEW-50` was filed (2026-07-31) using this exact prompt. `NEW-50`'s own
+  text records a 1/3 leak on the 1.5B model despite this counter-example
+  already being live — so 5/5 clean on Qwen3.5-4B is real evidence, not
+  circular reasoning.
+- **Per rule 5:** 5/5 clean is "not reproduced in this sample," not
+  "fixed" — it cannot rule out a residual leak rate on the order of the
+  originally-observed ~1/3.
+- New finding logged, `NEW-183`: this exact test prompt's correct answer
+  now sits verbatim twice inside `PLANNER_PROMPT` (the same two blocks
+  above), which weakens it as a future discriminator — a model could
+  match either worked block instead of reasoning Edit-vs-Create from
+  scratch. Any future re-test of this same leak concern should use a
+  fresh, non-overlapping prompt.
+- The pre-existing `[plannd] plan may be truncated` false-positive fired
+  on all 5 draws despite `finish_reason=stop` and complete correct plans
+  — this is the already-known `NEW-168` bug (fenced to `NEW-173`), not
+  new.
+- Verbatim data archived: `.live_verify_scratch/m1g_g3_results.jsonl`,
+  `.live_verify_scratch/m1g_g3_output.log`.
+
+**G4:** not needed — no leak reproduced in `content` this round.
+
+**Housekeeping, `NEW-184`:** Appendix A's `M1-F` item was found to
+directly contradict itself ("code-reviewer-approved 2026-08-25" and
+"Mandatory code-reviewer pass still outstanding" in the same paragraph)
+— a leftover the prior round's staleness fix (`fe39a35`) missed. Fixed
+in this same pass.
+
+**Status: M1-G is NOT done.** G1 done, G2 needs a redo via a redesigned
+G2b (not yet designed — the original proposal was checked mid-round and
+rejected as not viable, see `NEW-182`), G3 closed (with the rule-5
+caveat), G4 not needed. `CODEY_MASTER_PLAN.md` §4.2 and Appendix A
+updated with this same breakdown; `NEW_ISSUES.md` gained `NEW-182`,
+`NEW-183`, `NEW-184`.
+
+**Files touched this round:** `NEW_ISSUES.md`, `CODEY_MASTER_PLAN.md`
+(§4.2's M1-G entry, Appendix A's M1-G and M1-F entries), `PROJECT_LOG.md`
+(this entry). No files under `prompts/` or `core/plannd.py` were edited.
+
+---
+
+## 2026-08-25 — M1-G scoped into a pre-registered test plan (desk only, no model loaded, no prompt text touched)
+
+Desk-only scoping round for `CODEY_MASTER_PLAN.md` Appendix A's `M1-G`
+(prompt re-check against Qwen3.5-4B, now unblocked since M1-E-fix made
+thinking-mode planning work). Per rule 12/CLAUDE.md's workflow section,
+this category routes through prompt-engineer before any implementer
+pass; this round produced the scoping only — no prompt text was edited
+and no model was loaded (rule 2: no live component run this session).
+
+**Desk findings, all read from the artifacts directly, not assumed:**
+- `prompts/system_prompt.py` at HEAD is byte-identical
+  (`diff` empty) to the 2026-07-31 round's
+  `.live_verify_scratch/system_prompt.FIXED.py` — the `NEW-30`
+  read-before-patch fix is confirmed the committed baseline, not drifted
+  since. `.live_verify_scratch/system_prompt.PREFIX.py` (the pre-fix arm)
+  is also still on disk, so both A/B arms remain directly reusable.
+- `git log --oneline -- core/plannd.py` shows `d674a0c` ("Fix planner
+  prompt: NEW-46/NEW-28/NEW-47 fixed, live-verified on 1.5B") landed —
+  the "uncommitted, pending Ish" status recorded in several `NEW_ISSUES.md`
+  entries from the 2026-07-31 round is now stale; the rewrite was
+  committed at some later point and is part of HEAD.
+- `core/plannd.py`'s current `PLANNER_PROMPT` (HEAD `edc9e36`) still
+  contains the exact fibonacci worked example `NEW-50` traced as its
+  verbatim-leak source (lines ~137-149), unchanged since the finding —
+  confirms `NEW-50`'s "does this still reproduce on Qwen3.5-4B thinking
+  mode" is a genuinely open, unanswered question, not something the
+  model migration incidentally already fixed or something referring to
+  since-deleted prompt text.
+- `.live_verify_scratch/fixture_b_small.py` (the `NEW-30` A/B fixture)
+  resolves inside `WORKSPACE_ROOT` (`utils/config.py`'s
+  `WORKSPACE_ROOT = Path(os.getcwd()).resolve()`) when run with cwd at
+  the repo root — the `NEW-60` workspace-boundary bug that invalidated
+  two earlier `NEW-30` live passes does not apply to this fixture as-is,
+  but this must be re-confirmed at execution time, not assumed from this
+  note alone.
+- Item 3 of the M1-G plan line (verify `--jinja`'s formatting change to
+  the coding path) is already partly closed by M1-E: a real jinja2
+  render plus a real coding-path request confirmed no vision-namespace
+  leakage (`NEW-160`, closed). The only residual — whether the
+  jinja-rendered template still delivers `system_prompt.py`'s
+  tool-calling instructions intact for the read-before-patch case
+  specifically — is folded into the item-1 live test below rather than
+  tested as a separate pass.
+
+**Pre-registered test plan written (see `CODEY_MASTER_PLAN.md` §4.2's
+M1-G entry for the full text) — not yet executed:**
+- **G2** (one live cycle): re-run the `NEW-30` read-before-patch A/B
+  against Qwen3.5-4B using the existing `fixture_b_small.py`, N=3 draws,
+  same pass criterion as the original 2026-07-31 pass (grounded `old_str`
+  from a real prior `read_file`, not a guess). Closes item 1 and item 3's
+  residual together if it holds.
+- **G3** (separate live cycle): re-run `NEW-50`'s exact original test
+  prompt through `core/plannd.py:get_plan()` in thinking mode, N=5 draws
+  (raised from the original 3, since the leak's originally-observed rate
+  was 1/3) — the writeup for that pass must state, per rule 5, that even
+  5 clean draws cannot exclude a residual leak rate of a similar order.
+  **Measurement-channel caveat (added after an advisor review caught it):**
+  Qwen3.5-4B returns its thinking trace via a separate `reasoning_content`
+  field, not inline `<think>` tags, so `parse_steps()`'s `<think>` strip is
+  a no-op on this model — G3 must capture and archive both `content` and
+  `reasoning_content` per draw and score the pass/fail criterion against
+  `content` only, or a leak that merely relocated into the trace would be
+  scored as a false pass.
+- **Precondition gate for G2/G3:** print the resolved fixture path and
+  resolved `WORKSPACE_ROOT` and abort on mismatch before spending any
+  inference — the same gate the 2026-07-31 third `NEW-30` pass added
+  after `NEW-60` burned two earlier passes on this exact failure mode.
+- **G4** (conditional on G3 reproducing the leak): prompt-engineer scopes
+  the `PLANNER_PROMPT` shrink — explicitly not attempted this round,
+  since editing before measuring is exactly what this item warns against,
+  and the leak may simply not reproduce on the new model.
+
+**Explicitly out of scope, not silently touched:** `prompts/layered_prompt.py`
+and `prompts/critique_prompts.py` were read for orientation only — neither
+is named in the `M1-G` plan line, and no findings in either were produced
+this round.
+
+**Status: scoped only — code-complete/reviewed/live-verified do not yet
+apply to any change, because no change was made.** G2/G3 need a
+live-verifier session (one model-load cycle each, rule 2 discipline:
+`free -h` before/after, PID-tracked teardown, one cycle at a time) before
+M1-G can move past "scoped." `CODEY_MASTER_PLAN.md` Appendix A and §4.2
+updated with this same breakdown.
+
+---
+
+## 2026-08-25 — M1-F: mandatory code-reviewer pass ran, approved (`NEW-156`)
 
 **Status update to the 2026-08-24 entry below: M1-F is now
 code-complete, code-reviewer-approved, not live-verified** (no live

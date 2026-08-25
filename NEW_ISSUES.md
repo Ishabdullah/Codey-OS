@@ -952,6 +952,19 @@ uncommitted working-tree prompt text, not against `HEAD`.
   now-closed (for its own specific case) `NEW-47`. A future prompt round
   should treat "does this new edit leak content from an unrelated
   example" as a standing regression class to test for, not a one-off.
+- **Correction, 2026-08-25 (rule 6):** this entry and several neighbors
+  (`NEW-46`/`NEW-47`/`NEW-51`) describe the 4-iteration `PLANNER_PROMPT`
+  rewrite as "uncommitted, commit decision pending with Ish." That is
+  now stale — `git log --oneline -- core/plannd.py` shows the rewrite
+  landed as `d674a0c` ("Fix planner prompt: NEW-46/NEW-28/NEW-47 fixed,
+  live-verified on 1.5B") at some point after this round, and the
+  fibonacci example this entry traces as the leak source is still
+  present, unchanged, in the current HEAD (`edc9e36`) — confirmed via
+  direct read of `core/plannd.py:137-149`, not assumed. `NEW-50` itself
+  is neither confirmed nor refuted against the new Qwen3.5-4B thinking-
+  mode model — it was found on the retired 1.5B planner and has not been
+  re-tested since the migration. See `CODEY_MASTER_PLAN.md` Appendix A's
+  `M1-G` entry for the pre-registered re-test plan (not yet run).
 
 ### [NEW-51] Rule 9 peer-CLI delegation format fails entirely (0/3, no delegation step emitted) on a fresh phrasing not matching prior tested patterns (Confirmed; deterministic; causal link to this session's changes not established)
 
@@ -9007,3 +9020,267 @@ finding for the same bug. See `NEW-39`.)*
   M1-F's actual constants or tests was ever in question — only the
   tracked docs' status language briefly lagged the real approval by one
   editing pass within the same round.
+
+### [NEW-182] `core/context.py`'s prompt-scanning auto-preload (`auto_load_from_prompt`, called unconditionally from `core/agent.py:1265`) now preloads any file named in a `detect_filenames()`-matchable path, in ANY bare single-shot task prompt — making "did the model call `read_file` before editing" structurally unmeasurable this way at HEAD, though it was NOT a confound for the original `NEW-30` A/B pass (a different-era regex bug, since fixed, made that one shape safe then, not now)
+- **Status:** Confirmed (mechanism traced and reproduced directly; scope
+  of which prompt shapes it affects is narrower than the live-verifier's
+  initial framing — see below).
+- **What's Confirmed:** M1-G's G2 test (this round, 2026-08-25) reused
+  `TaskExecutor._execute_task` with a bare `"Add a docstring to the
+  shutdown function in <path>."`-style prompt naming a real, existing
+  file. `core/context.py:97`'s `load_file()` — reached via
+  `auto_load_from_prompt()` — preloads that file's full content into
+  `core.memory_v2`'s working memory *before* the model runs at all
+  (`✓ Loaded: fixture_b_small.py (432 chars)` appears in the archived
+  `.live_verify_scratch/m1g_g2_output.log` before any inference). Once
+  preloaded, the model has no need to call `read_file` itself — draws 1-2
+  never did. This makes "did it read before it patched" unmeasurable with
+  this prompt shape: not calling `read_file` isn't a discipline failure
+  here, it's the correct response to content already being visible.
+- **What's also Confirmed, correcting the live-verifier's broader framing:**
+  the *original* 2026-07-31 `NEW-30` third-pass A/B test
+  (`.live_verify_scratch/ab_driver.py`, 3 draws per arm, the exact
+  `"Previous context: ...\n\nYour task (step 2/2): Edit <path>..."`
+  daemon-step-template `case1_prompt` shape — verified this is the real
+  A/B cycle's own driver, not `driver.py`'s separate single-draw
+  `case1_anchor`/`case2_control`/`case3_new49` trials, which are a
+  different script) was checked directly against the archived
+  `.live_verify_scratch/ab_output.log` from that actual run: no
+  `✓ Loaded:` line appears anywhere in the log, and the fixed arm's model
+  explicitly called `read_file` on `.live_verify_scratch/case1_anchor.py`
+  in all 3 draws before `patch_file`. So the original pass's model
+  genuinely called `read_file` itself, un-preloaded, in the run actually
+  scored. That pass's 0/3 (pre-fix) vs. 3/3 (post-fix) differential is a
+  paired A/B comparison under a constant condition either way, so even if
+  preload had fired identically in both arms it could not explain a
+  0/3-vs-3/3 gap — **no rule-6 downgrade of the original `NEW-30` fix is
+  warranted from this finding.**
+- **Root cause of why the old run escaped the confound — traced, not
+  guessed:** the live-verifier's original hypothesis (re-run the same
+  `case1_prompt` shape today to avoid the preload) does **not** hold at
+  HEAD, and the reason is `NEW-62` — a fix landed the *same day*
+  (`4625e43`, 2026-07-31) as the archived A/B pass, for a bug in
+  `detect_filenames()`'s regex. The pre-fix regex
+  (`r"(?:\.{0,2}/)?[\w\-/]+\.(?:py|...)"`) matched
+  `.live_verify_scratch/case1_anchor.py` but **stripped the leading dot**
+  from the directory segment, producing `live_verify_scratch/case1_anchor.py`
+  (verified directly: `re.findall()` with the pre-fix pattern against the
+  exact `case1_prompt` text returns exactly this dot-stripped string) —
+  which then fails `detect_filenames()`'s own existence check (the
+  directory literally starts with a dot on disk), so the match gets
+  silently dropped and `auto_load_from_prompt()` preloads nothing. The
+  post-fix regex (in `core/context.py` at HEAD) preserves the leading dot
+  and the same string now passes the existence check — confirmed by a
+  direct call to `auto_load_from_prompt()` on the identical prompt text
+  today, which prints `✓ Loaded: case1_anchor.py (151 chars)`. Also ruled
+  out: the `used < total * 0.5` context-usage gate at
+  `core/agent.py:1263-1264` was checked directly (`core.tokens.get_context_usage`)
+  and evaluates `True` today (3759/65536) — the gate was not, and is not,
+  what blocked preload; it is entirely `NEW-62`'s regex fix.
+- **Consequence for G2b, corrected from this round's first pass: re-running
+  `case1_prompt` verbatim today will NOT avoid the auto-preload confound
+  — it will hit the identical confound as G2, because the exact bug that
+  used to make this shape "safe" (`NEW-62`) has since been fixed.** G2b
+  as originally scoped in this round's first docs pass is **not viable
+  as written** and needs a different design — e.g. a prompt that refers
+  to the target file without a `detect_filenames()`-matchable path (so
+  the model must locate it itself), or an explicit, clearly-labeled
+  harness-side bypass of `auto_load_from_prompt()` for that one call. Not
+  designed this round — flagged as the open next step (see
+  `CODEY_MASTER_PLAN.md`'s M1-G entry).
+- **Practical upshot:** any bare single-shot prompt that names an
+  existing file in a form `detect_filenames()` matches — daemon-step
+  shape or not — will be preloaded before inference under the current
+  (post-`NEW-62`) code, making read-before-patch sequencing structurally
+  unmeasurable via `_execute_task`-style tests naming a real path
+  directly. A viable re-test needs either a path `detect_filenames()`
+  won't match, or an explicit, honestly-labeled ablation of the preload
+  step.
+- **Cross-references:** `NEW-30` (the original read-before-patch fix and
+  its three prior live-verify passes), `NEW-60` (workspace-boundary bug
+  that invalidated two of those earlier passes, unrelated mechanism),
+  `NEW-62` (the dot-path regex fix that is the actual mechanism here).
+- **2026-08-25 update (second desk-only round) — narrowed, not closed.**
+  A viable G2b design now exists and is pre-registered in
+  `CODEY_MASTER_PLAN.md`'s M1-G entry (§4.2 and Appendix A): a fixture
+  whose extension (`.cfg`) is not in `detect_filenames()`'s alternation
+  list, referenced by exact path in a prompt matching `ab_driver.py`'s
+  `case1_prompt` daemon-step shape. Confirmed empirically (not by regex
+  reasoning) that `detect_filenames()`/`auto_load_from_prompt()` both
+  return `[]` for this exact prompt. Also confirmed, and this is the
+  reason for `NEW-185`, filed at the end of this ledger: for a real `.py`
+  target, **no** phrasing
+  that names the file by path avoids the preload — `.py` is a full-match
+  extension, matched in any syntactic position, so a non-matching
+  extension is the only deterministic escape found. This does not close
+  `NEW-182` — the underlying mechanism (any bare prompt naming a real
+  `.py`/`.json`/etc. file by path gets preloaded) is unchanged and still
+  makes read-before-patch unmeasurable for that fixture domain; it only
+  narrows the practical impact by identifying one fixture domain
+  (non-full-match extensions) where the confound is avoidable. The
+  redesigned G2b itself has **not been run** — this is a design-only
+  update.
+- **2026-08-25 update (third round, live G2b run) — narrowed further to
+  "measurable and clean on one data point," still NOT closed.** G2b ran
+  live: precondition gate 5/5 passed fresh (not reused from the desk-only
+  check), `free -h` before `5.6Gi used, 598Mi free, 4.9Gi available`,
+  after `5.2Gi used, 2.9Gi free, 5.4Gi available`, `ps aux | grep
+  llama-server` clean before/after, `loader.get_pid()` returned `None`
+  after unload. All 3 draws: grounding 3/3 (every `old_str` an exact
+  substring of the fixture's real content), sequencing 3/3 (a qualifying
+  `read_file` precedes the first qualifying `patch_file` in every draw's
+  trace). Direct confirmation the preload was absent *during* the run,
+  not just predicted: the `✓ Loaded: case_g2b_anchor.cfg` marker never
+  appears in any draw; the only load-adjacent marker is `ℹ Read
+  .live_verify_scratch/case_g2b_anchor.cfg (106 chars)`, which appears
+  *after* the model's own `read_file` call in every draw. **This narrows
+  the finding to "measurable and clean on one data point," not "fixed" or
+  "closed"** — it rests on N=3, a single fixture domain (`.cfg`, chosen
+  because it accidentally avoids `detect_filenames()`'s extension match
+  per `NEW-185`'s truncation bug, not because the preload mechanism
+  itself changed), and the fixture's content-trap corroboration (an
+  unspaced `timeout=30` designed so a guessed value would plausibly come
+  out spaced and fail the patch) never actually fired in any draw — no
+  draw ever produced a failed patch attempt, so the sequencing result
+  rests on tool-call trace order plus the precondition gate's
+  payload-level confirmation that the fixture's content was absent from
+  the pre-inference payload, not on a caught bad guess. This is real but
+  weaker evidence than the original G2b design anticipated. **The
+  underlying mechanism this finding is actually about —
+  `auto_load_from_prompt()` unconditionally preloading any `.py`/`.json`/
+  etc. (full-extension-match) file named in a bare prompt — is completely
+  unchanged and still confounds read-before-patch measurement for real
+  coding-target extensions.** Separately, G2's own result (same round as
+  the original finding) already measured **grounding 3/3 in the
+  `.py`-under-preload domain itself** — the one axis that is actually
+  live when preload fires (sequencing is moot once content is already in
+  context) — so between G2 and G2b, both applicable axes now have a real
+  measurement in their respective domains; only `.py`/`.json`-domain
+  *sequencing specifically* remains genuinely unmeasurable, and has no
+  reachable test design at HEAD short of fixing `core/context.py` (out of
+  scope here) or an explicit harness-side preload bypass (not built).
+  This finding stays **Confirmed and open** — it is a standing
+  methodology-gap finding independent of any one task's status; see
+  `CODEY_MASTER_PLAN.md`'s M1-G entry for how this fed into that item's
+  own close decision.
+
+### [NEW-183] `core/plannd.py`'s `PLANNER_PROMPT` now has `NEW-50`'s exact original regression-guard test prompt embedded twice as worked content (a VIOLATION block and a full worked EXAMPLE, both showing the identical correct answer) — this specific test prompt can no longer cleanly discriminate "leak genuinely fixed" from "model matched an in-prompt example"
+- **Status:** Confirmed (both blocks read directly at HEAD `fe39a35`,
+  line numbers verified against the live file, not assumed from an older
+  citation).
+- **Detail:** `NEW-50`'s test prompt is `"Fix the off-by-one error in the
+  loop in core/legacy_calc.py"`, correct answer `"1. Edit
+  core/legacy_calc.py: fix the off-by-one error in the loop"`. Verified
+  present verbatim in `core/plannd.py` at two places:
+  - `core/plannd.py:60-66` — the VIOLATION block, contrasting a wrong
+    Create-based plan against this exact correct Edit-based one.
+  - `core/plannd.py:171-177` — a full worked EXAMPLE with the identical
+    user prompt and identical correct one-line plan.
+  Traced via `git log -L`: both blocks were added in commit `d674a0c`
+  (2026-07-30), the day *before* `NEW-50` was filed (2026-07-31) using
+  this exact prompt as its test case. `NEW_ISSUES.md`'s own `NEW-50` text
+  records a 1/3 leak on the 1.5B model *despite* this counter-example
+  already being live at the time — so it is not evidence-free to test
+  this same prompt against a new model and call a clean result
+  meaningful; the M1-G G3 live pass's 5/5 clean result (this round,
+  2026-08-25) is real evidence the leak isn't reproducing on Qwen3.5-4B,
+  not circular. Going forward, however, this specific prompt is a weaker
+  discriminator than it used to be, precisely because its own correct
+  answer is now sitting in the prompt twice as a worked example — a
+  model could produce the right output by matching either worked block
+  rather than by correctly reasoning about Edit-vs-Create from scratch.
+- **Recommendation, not yet scoped as a task:** any *future* re-test of
+  this same worked-example-leak concern (verbatim content leaking from
+  one of `PLANNER_PROMPT`'s examples into an unrelated request) should
+  use a fresh Edit-vs-Create test prompt that has no matching worked
+  block anywhere in `PLANNER_PROMPT`, to keep the test meaningful as a
+  discriminator.
+- **Cross-references:** `NEW-50` (the original finding), `CODEY_MASTER_PLAN.md`
+  §4.2's M1-G entry (G3 test writeup and result).
+
+### [NEW-184] `CODEY_MASTER_PLAN.md` Appendix A's `M1-F` item contradicted itself on review status in the same entry
+- **Status:** Confirmed, already self-corrected in this same editing pass
+  (fixed below, in this round's docs update — logged per rule 8 rather
+  than silently dropped).
+- **Detail:** Appendix A's `M1-F` checkbox item said, in the same
+  paragraph, both "code-reviewer-approved 2026-08-25" and, one sentence
+  later, "Mandatory code-reviewer pass still outstanding" — a direct
+  contradiction. Commit `fe39a35` ("M1-F review status was stale") had
+  already fixed this exact class of staleness elsewhere in the same
+  round (see the preceding entry above, `2eae89f`/`fe39a35`'s own
+  writeup) but missed this one trailing sentence in the Appendix A
+  checkbox item specifically. Same category as `NEW-181`: docs status
+  language lagging an approval that had actually already happened.
+- **Fixed same round (this M1-G docs-processing round, 2026-08-25):** the
+  stray "Mandatory code-reviewer pass still outstanding" sentence removed
+  from Appendix A's `M1-F` item; it now consistently reads
+  code-complete, code-reviewer-approved 2026-08-25, not live-verified.
+
+### [NEW-185] `core/context.py`'s `detect_filenames()` regex silently truncates several extensions to a shorter listed extension instead of failing to match
+- **Status:** Confirmed (reproduced directly via `re.findall`, not
+  reasoned from the pattern alone).
+- **Detail:** found while designing M1-G's redesigned G2b test (see
+  `CODEY_MASTER_PLAN.md`'s M1-G entry, 2026-08-25 second round). The
+  extension alternation in `detect_filenames()`'s regex
+  (`core/context.py:189`) is
+  `py|json|js|ts|sh|yaml|yml|toml|txt|md|html|css|cpp|c|h|rs|go|rb|java`.
+  Several real extensions are literal superstrings of a shorter listed
+  alternative — `cfg` contains `c`, `pyi`/`pyx` contain `py`, `tsx`
+  contains `ts`, `jsx` contains `js`, `hpp` contains `h`. Because the
+  regex has no extension-boundary anchor, `re.findall` matches the
+  shorter alternative and silently drops the trailing characters instead
+  of failing to match or matching the full real extension. Verified
+  directly: `re.findall(pattern, ".../case_g2b_anchor.cfg ...")` returns
+  `.../case_g2b_anchor.c` (not `.cfg`, not "no match").
+- **Consequence:** in practice this is usually self-neutralizing —
+  `detect_filenames()` also requires the (truncated) path to exist on
+  disk, and a `.cfg` file's truncated `.c` sibling usually does not
+  exist, so the file is silently *not* preloaded (this is exactly the
+  property M1-G's G2b test exploits deliberately). But the failure mode
+  runs the other way too, silently: if a repo happens to contain both
+  `foo.cfg` and a same-stem `foo.c` (or `foo.pyi`/`foo.py`,
+  `foo.tsx`/`foo.ts`, etc.), a prompt naming `foo.cfg` will silently
+  preload `foo.c`'s content instead — the wrong file, with no error or
+  warning surfaced anywhere.
+- **Not fixed this round** — out of scope for the M1-G test-design task
+  that found it; logged per rule 8. A real fix would add a
+  word-boundary/end-of-extension anchor (e.g. `(?:py|...|c|...)\b` or an
+  explicit negative lookahead against the other listed extensions) so the
+  regex either matches the full real extension or doesn't match at all.
+- **Cross-references:** `NEW-62` (an earlier, different `detect_filenames()`
+  regex bug — the leading-dot stripping bug, unrelated mechanism but same
+  function), `CODEY_MASTER_PLAN.md`'s M1-G / G2b entry (where this was
+  found and where the precondition-gate mitigation for G2b's own fixture
+  is spelled out).
+
+### [NEW-186] `TaskExecutor`/executor path emits duplicate post-completion `note_save` calls after a patch has already succeeded, on some draws but not others
+- **Status:** Confirmed (observed directly in raw tool-call traces), but
+  the underlying cause and its relationship to any other tracked finding
+  is Suspected only — not confirmed either way.
+- **What's Confirmed:** in M1-G's G2b live run (2026-08-25, `.cfg`
+  fixture, `ab_driver.py`-shaped daemon-step prompt, N=3), draws 1 and 2
+  each emitted two identical `note_save` calls back-to-back after the
+  target patch had already succeeded and the task was otherwise complete;
+  draw 3 emitted only one. All three draws' actual file edits were
+  correct and identical regardless — this is wasted/duplicated
+  post-completion tool activity, not a correctness bug in the edit
+  itself.
+- **What's Suspected, not Confirmed:** the live-verifier who found this
+  flagged it as possibly related to `NEW-168`/`NEW-173`'s "`[plannd] plan
+  may be truncated`" false-positive category (a task-completion
+  recognition problem), but explicitly declined to assert the
+  connection. That prior finding lives in the planner's plan-parsing path
+  (`core/plannd.py`); this one is a duplicate tool-call emission in the
+  executor path (`TaskExecutor._execute_task` and whatever loop decides a
+  task is "done" and stops issuing tool calls) — plausibly the same root
+  category (the system not reliably recognizing "this step is finished")
+  but a different code path, and not verified to be the same mechanism.
+  Recorded as a **separate finding**, cross-referenced, not folded into
+  `NEW-168`/`NEW-173`, per the live-verifier's own stated uncertainty.
+- **Not investigated further or fixed this round** — out of scope for
+  M1-G's docs-closeout pass. A follow-up would need to look at what
+  signal (if any) tells the executor loop a task is complete and why that
+  signal fires twice on 2/3 draws here but once on the third.
+- **Cross-references:** `NEW-168`/`NEW-173` (possible, unconfirmed,
+  related "task completion recognition" category in the planner path),
+  `CODEY_MASTER_PLAN.md`'s M1-G / G2b entry (where this was observed).
