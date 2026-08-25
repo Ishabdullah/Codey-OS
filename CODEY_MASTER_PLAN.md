@@ -1839,24 +1839,38 @@ look like config edits.
   persists the admitted decision's own claim onto the new slot record. A
   new `total_reserved_swap_bytes()` mirrors `total_reserved_bytes()` for
   any direct `can_admit()` caller outside `reserve_slot()` (none exist
-  today). Seven new regression tests in `tests/test_resource_gate.py`
+  today). Eight new regression tests in `tests/test_resource_gate.py`
   (`test_new135_*`), including one that reproduces the exact pre-fix
-  double-admission and confirms it is now refused; full suite 668 passed,
-  1 skipped (was 661/1 before this round). **Scope boundary, stated
+  double-admission and confirms it is now refused, and one
+  (`..._wiring_actually_uses_persisted_pending_claim`) added after advisor
+  review flagged the other six as only proving the underlying functions
+  correct in isolation — that test pre-loads a PENDING slot's claim via
+  `register_slot()` with no hand-fed `reserved_swap_bytes` and was
+  confirmed to fail if `reserve_slot()`'s own
+  `reserved_swap_bytes=reserved_swap` wiring line is deleted; full suite
+  669 passed, 1 skipped (was 661/1 before this round). **Scope boundary, stated
   plainly:** this closes the race for `reserve_slot()`/`can_admit()`
   callers only — `can_dispatch_task()`'s separate swap-assist consumer
   (7.4a sub-task D2) registers no slot, so this accounting mechanism has
   nothing to sum against on that side; that residual is documented
   directly in `can_admit()`'s own docstring rather than silently left
   implicit. Separately, confirmed `NEW-140` scenario 3 and `NEW-141`
-  directly against HEAD (not reused from the earlier M1-D code-read):
-  `core/planner_loader.py` does not exist on disk and
-  `_evict_planner_and_confirm_free()` is absent from `core/loader_v2.py`
-  — both findings' reproduction path is now structurally unreachable, so
-  both close per `NEW-159`'s own stated bar (M1-D code-read + M1-E live
-  pass, both already done). `NEW-140`'s other, model-independent content
-  (the general swap-assist-re-admits-distress mechanism) stays open,
-  unaffected by this closure. **Needs the mandatory rule-4 code-reviewer
+  directly against HEAD, each on its OWN correct evidence (not the same
+  evidence applied to both, which would misdescribe scenario 3 — that
+  scenario is single-model, not concurrent, so `core/planner_loader.py`'s
+  absence isn't what closes it): `NEW-141` requires the retired concurrent
+  primary+planner pair, and `core/planner_loader.py`/
+  `_evict_planner_and_confirm_free()` are confirmed absent from HEAD —
+  its reproduction path is structurally unreachable. `NEW-140` scenario 3
+  describes the retired 7B's specific cost estimate under the old 10GiB
+  cap at a single-model load; the correct evidence there is M1-B's already
+  -confirmed repoint of every model-role path (`MODEL_PATH`,
+  `PLANNER_MODEL_PATH`) onto Qwen3.5-4B, not the 7B — the single-model
+  load this scenario describes cannot occur through any live production
+  path today. Both close per `NEW-159`'s own stated bar (M1-D code-read +
+  M1-E live pass, both already done). `NEW-140`'s other, model-independent
+  content (the general swap-assist-re-admits-distress mechanism) stays
+  open, unaffected by this closure. **Needs the mandatory rule-4 code-reviewer
   pass before this is fully done** — no code-reviewer subagent was
   available in this session, same limitation M1-F hit.
 - **Correction to this document's own §6.2 table and Appendix A, 2026-08-25
@@ -1877,7 +1891,7 @@ look like config edits.
 | Item | State | What's left |
 |---|---|---|
 | **7.4** resource gate + slot-aware loader | 5/5 sub-tasks approved; core path live-verified | Re-target the pending production-config live pass at Qwen3.5-4B (M1-E covers it). The old `n_ctx=32768`-with-the-7B script is now obsolete — do not run it. |
-| **7.4a** swap-aware budget | A/B/C1/C2/D/F built and approved; E and G run | `NEW-135`/`NEW-136` (no `reserved_bytes` deduction on swap-assist; `admitted_via_swap` not persisted to the slot) — **FIXED 2026-08-25, code-complete and self-tested, NOT yet mandatory-code-reviewer-approved** (rule 4 — touches resource-gate admission accounting; no code-reviewer subagent available this session). See `NEW-135`/`NEW-136`'s own updated entries and `core/resource_gate.py` (`compute_swap_assisted_headroom_bytes()`'s `reserved_swap_bytes` param, `GateDecision.swap_bytes_claimed`, `reserve_slot()`'s new PENDING-swap sum, `total_reserved_swap_bytes()`). Fixed for the `reserve_slot()`/`can_admit()` path only — `can_dispatch_task()`'s separate swap-assist consumer (no slot registered, nothing to sum against) is explicitly NOT covered, documented as a residual gap in `can_admit()`'s own docstring. `NEW-140` scenario 3 and `NEW-141` **confirmed and closed 2026-08-25** — both required the retired `core/planner_loader.py`, confirmed absent from HEAD directly (not assumed from the earlier code-read). `NEW-140`'s OTHER content (the general swap-assist-re-admits-distress mechanism, model-independent) stays open, unaffected by this closure. |
+| **7.4a** swap-aware budget | A/B/C1/C2/D/F built and approved; E and G run | `NEW-135`/`NEW-136` (no `reserved_bytes` deduction on swap-assist; `admitted_via_swap` not persisted to the slot) — **FIXED 2026-08-25, code-complete and self-tested, NOT yet mandatory-code-reviewer-approved** (rule 4 — touches resource-gate admission accounting; no code-reviewer subagent available this session). See `NEW-135`/`NEW-136`'s own updated entries and `core/resource_gate.py` (`compute_swap_assisted_headroom_bytes()`'s `reserved_swap_bytes` param, `GateDecision.swap_bytes_claimed`, `reserve_slot()`'s new PENDING-swap sum, `total_reserved_swap_bytes()`). Fixed for the `reserve_slot()`/`can_admit()` path only — `can_dispatch_task()`'s separate swap-assist consumer (no slot registered, nothing to sum against) is explicitly NOT covered, documented as a residual gap in `can_admit()`'s own docstring. `NEW-140` scenario 3 and `NEW-141` **confirmed and closed 2026-08-25**, each on its own correct evidence — `NEW-141` (concurrent case) on `core/planner_loader.py`'s confirmed absence from HEAD; `NEW-140` scenario 3 (single-model case, does NOT require `planner_loader.py`) on M1-B's confirmed repoint of every model-role path onto Qwen3.5-4B, since the retired 7B's specific cost figures no longer describe any live production path. `NEW-140`'s OTHER content (the general swap-assist-re-admits-distress mechanism, model-independent) stays open, unaffected by this closure. |
 | **7.4b** model lifecycle policy | Reshaped by §1.4 | **A**: embed always resident — implementation landed, code-reviewer pass done 2026-08-23 (§4.4), still needs live-verify **under the real `codey-start` entry point** — **correction, 2026-08-25 (rule 6): M1-E did NOT provide this.** M1-E deliberately ran `main.py --no-resume` (see §4.2's M1-E entry — chosen specifically to avoid the daemon+GUI's extra headroom draw), not the real `codey-start` entry point this item calls for, so pointing at "M1-E" as if it already covered this is wrong; it remains a genuinely open live-verify ask. **B**: planner ceiling 8192 — **moot, no separate planner**; note the correction below. **C**: coder interactive-vs-daemon context branching — landed + `NEW-152` fix, code-reviewer pass done 2026-08-23 (§4.4), still needs live-verify **under the real `codey-start` entry point, same correction as A above** — the *policy* still applies (full context interactively, smaller for background dispatch), only the ceilings need re-deriving from §5.1. **D**: folded into M1-F,
 **DONE 2026-08-24** — the constant now reflects there being no separate
 planner process, with real re-derived numbers. |
@@ -2522,16 +2536,21 @@ Then:
       `compute_swap_assisted_headroom_bytes()`/`can_admit()`,
       `GateDecision.swap_bytes_claimed`, `reserve_slot()`'s PENDING-swap
       sum, `total_reserved_swap_bytes()`) — code-complete, self-tested
-      (7 new regression tests, full suite 668 passed/1 skipped), **NOT
+      (8 new regression tests including one that fails if the real
+      `reserve_slot()` wiring is removed, full suite 669 passed/1
+      skipped), **NOT
       yet mandatory-code-reviewer-approved** (rule 4, no code-reviewer
       subagent available this session). Fixes the `reserve_slot()`/
       `can_admit()` path only; `can_dispatch_task()`'s separate consumer
       stays an open, documented gap (no slot to attribute its claim to).
-      `NEW-140` scenario 3 and `NEW-141` **CLOSED 2026-08-25** — confirmed
-      directly against HEAD (not just the earlier code-read) that
-      `core/planner_loader.py` and `_evict_planner_and_confirm_free()` are
-      genuinely absent; `NEW-140`'s other, model-independent content stays
-      open.
+      `NEW-140` scenario 3 and `NEW-141` **CLOSED 2026-08-25**, each on its
+      own correct evidence (not the same evidence for both — scenario 3 is
+      single-model, not concurrent): `NEW-141` on `core/planner_loader.py`/
+      `_evict_planner_and_confirm_free()`'s confirmed absence from HEAD;
+      `NEW-140` scenario 3 on M1-B's confirmed repoint of every model-role
+      path onto Qwen3.5-4B (the retired 7B's specific figures no longer
+      describe any live path). `NEW-140`'s other, model-independent content
+      stays open.
 - [ ] **7.4b** — model lifecycle policy, reshaped by §1.4.
   - [x] **A** — embed model always resident from Codey startup to
         shutdown. Implementation landed via `5687dcf`; **code-reviewer

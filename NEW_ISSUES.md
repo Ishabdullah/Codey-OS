@@ -7347,10 +7347,15 @@ finding for the same bug. See `NEW-39`.)*
   describes for any caller going through `reserve_slot()`. A new
   `total_reserved_swap_bytes()` helper mirrors `total_reserved_bytes()` for
   any direct `can_admit()` caller outside `reserve_slot()` (none exist in
-  this codebase today). Six new regression tests in
+  this codebase today). Eight new regression tests in
   `tests/test_resource_gate.py` (prefixed `test_new135_`), including one
   that reproduces the exact pre-fix double-admission and confirms it is
-  now refused. Full suite: 668 passed, 1 skipped (was 661/1 before this
+  now refused, and one (`..._wiring_actually_uses_persisted_pending_claim`,
+  added after advisor review) that pre-loads a PENDING slot's claim via
+  `register_slot()` with no hand-fed `reserved_swap_bytes` — confirmed to
+  fail if `reserve_slot()`'s own wiring line is deleted, proving the fix is
+  actually connected in production and not just correct in isolation.
+  Full suite: 669 passed, 1 skipped (was 661/1 before this
   round). **Also stale-corrected while in this entry (rule 6):** the
   2026-08-11 note below cites `MAX_SWAP_ASSIST_BYTES` values (768MiB, then
   a hypothetical 10GiB) that predate M1-F's 2026-08-24 re-derivation to

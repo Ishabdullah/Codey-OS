@@ -2536,6 +2536,58 @@ def test_new135_reserve_slot_second_racing_swap_admission_sees_first_claim(tmp_p
         assert decision_b.swap_bytes_claimed > 0
 
 
+def test_new135_reserve_slot_wiring_actually_uses_persisted_pending_claim(tmp_path):
+    # Exercises the real reserve_slot() wiring end-to-end, not a hand-fed
+    # parameter — mirrors this file's existing precedent
+    # (test_swap_assist_never_overrides_budget_ceiling_denial_via_reserve_slot's
+    # own stated reason for using the real path instead of a hand-fed
+    # concurrent_committed_bytes). A candidate that reserve_slot() admits via
+    # swap assist on an EMPTY store (control arm, proves the fixture is
+    # otherwise admissible) must be REFUSED once a prior PENDING slot already
+    # claims the entire swap-assist cap — via reserve_slot()'s own internal
+    # reserved_swap sum, not a directly-passed reserved_swap_bytes. This is
+    # the one test in this file that would still pass if the
+    # `reserved_swap_bytes=reserved_swap` wiring inside reserve_slot() were
+    # deleted (every other NEW-135 test calls compute_swap_assisted_
+    # headroom_bytes()/can_admit() directly with an explicit parameter) —
+    # so it is the test that actually proves the fix is wired into
+    # production, not just correct in isolation.
+    mi = meminfo_bytes(
+        mem_total_gib=10.8, mem_free_gib=2.2, mem_available_gib=2.2,
+        swap_total_gib=12.0, swap_free_gib=10.8,
+    )
+    spec = rg.ModelSpec(model_id="x", size_bytes=2 * GIB, n_ctx=1024, compute_overhead_bytes=0)
+
+    # Control arm: empty store, this exact candidate/fixture is admissible
+    # via swap assist on its own.
+    control_decision, control_slot_id = rg.reserve_slot(
+        spec, meminfo=mi, read_temp_fn=NO_THERMAL, state_dir=tmp_path,
+    )
+    assert control_decision.admitted is True
+    assert control_decision.admitted_via_swap is True
+    rg.release_slot(control_slot_id, state_dir=tmp_path)
+    assert rg.list_slots(state_dir=tmp_path) == []
+
+    # Pre-load a PENDING slot that, by itself, has already claimed the
+    # ENTIRE MAX_SWAP_ASSIST_BYTES cap — cost_bytes=0 so it contributes
+    # nothing to the RAM-side `reserved` sum or the budget-ceiling check,
+    # isolating this test to the swap-claim accounting specifically.
+    rg.register_slot(
+        "prior", cost_bytes=0, state_dir=tmp_path, status=rg.SLOT_STATUS_PENDING,
+        swap_bytes_claimed=rg.MAX_SWAP_ASSIST_BYTES,
+    )
+
+    decision, slot_id = rg.reserve_slot(spec, meminfo=mi, read_temp_fn=NO_THERMAL, state_dir=tmp_path)
+    assert decision.admitted is False
+    assert decision.admitted_via_swap is False
+    # Rule out the two other ways this could have been refused, so a pass
+    # here can only mean the swap-claim accounting fired, not something
+    # else coincidentally denying it.
+    assert decision.hard_reject is False
+    assert decision.budget_ceiling_exceeded is False
+    assert slot_id is None
+
+
 def test_new135_reserve_slot_second_admission_refused_once_cap_exhausted():
     # A sharper, cap-exhaustion version of the race above: a cap sized so
     # ONE candidate's claim consumes it entirely. Without reserved_swap_bytes

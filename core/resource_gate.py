@@ -1778,6 +1778,22 @@ MAX_CONCURRENT_MODEL_BUDGET_BYTES = int(7.00 * (1024 ** 3))  # 7,516,192,768 byt
 # this device's ~10.82GiB MemTotal / ~16.00GiB SwapTotal — MUST BE
 # RECOMPUTED (not linearly scaled) if this code ever runs on different
 # hardware.
+#
+# `NEW-135` fix, 2026-08-25 — this constant's MEANING, not just its value:
+# every derivation above (E, F) computed this as a single number without
+# considering more than one admission decision in flight at once, and
+# `NEW-135` found `can_admit()` correspondingly treated it as if each
+# concurrently-PENDING admission got its own independent 6.50GiB allowance
+# against the same live `SwapFree` — never the actual intent (nothing in
+# either derivation session argues for authorizing N x 6.50GiB of aggregate
+# swap use just because N loads happen to race). The fix
+# (`reserved_swap_bytes` on `compute_swap_assisted_headroom_bytes()`/
+# `can_admit()`, wired through `reserve_slot()`) makes this constant behave
+# as it was always meant to: a single shared ceiling on the TOTAL swap
+# authorized across every concurrently-PENDING admission, not a per-load
+# allowance each one gets independently. No change to the 6.50GiB VALUE
+# itself was needed or made — only to how multiple concurrent claims
+# against it are accounted for.
 MAX_SWAP_ASSIST_BYTES = int(6.50 * 1024 ** 3)  # 6,979,321,856 bytes (6.50GiB)
 
 # TODO.md 7.4a sub-task F: `can_dispatch_task()`'s own default cap,
@@ -3082,8 +3098,8 @@ def register_slot(
     fix-direction note acted on directly, as a magnitude rather than a bare
     boolean (see `GateDecision.swap_bytes_claimed`'s own comment for why a
     magnitude, not a bool, is what NEW-135's accounting actually needs).
-    Direct callers that don't pass this default to 0, i.e. "no swap claimed"
-    — existing callers are unaffected.
+    Direct callers that don't pass this get 0, i.e. "no swap claimed" —
+    existing callers are unaffected.
     """
     if pid is None:
         pid = os.getpid()
@@ -3571,12 +3587,17 @@ def total_reserved_swap_bytes(state_dir: Optional[Path] = None, reap_dead: bool 
     lock — see its docstring for why that matters and why this function
     must NOT be called from inside that lock). Mirrors
     `total_reserved_bytes()` exactly, summing `swap_bytes_claimed` instead
-    of `cost_bytes`; same PENDING-only filter and same reasoning (a
+    of `cost_bytes`; same PENDING-only filter, on the same INHERITED
+    assumption `total_reserved_bytes()`'s own RAM-side filter rests on (a
     RESIDENT slot's swap usage, if any, is already reflected in a
-    subsequent live `SwapFree` read, so also subtracting it here would
-    double-count it). A slot with no `swap_bytes_claimed` field at all
-    (state written before this field existed, or a RAM-only admission) is
-    treated as 0.
+    subsequent live `SwapFree` read) — not independently measured for the
+    swap case specifically. This holds only if callers respect
+    `mark_resident()`'s own documented precondition (only mark RESIDENT
+    once the load's real memory footprint has actually landed) — the same
+    class of "believed true, not measured" claim `NEW-180` (embed model's
+    real resident RSS still unmeasured) is already open on for the RAM
+    side. A slot with no `swap_bytes_claimed` field at all (state written
+    before this field existed, or a RAM-only admission) is treated as 0.
     """
     return sum(
         s.get("swap_bytes_claimed", 0)

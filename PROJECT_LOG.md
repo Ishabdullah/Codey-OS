@@ -39,15 +39,22 @@ new `total_reserved_swap_bytes()` mirrors `total_reserved_bytes()` for any
 direct `can_admit()` caller outside `reserve_slot()` (none exist in this
 codebase today — confirmed via grep).
 
-**Verification:** 7 new regression tests added to
+**Verification:** 8 new regression tests added to
 `tests/test_resource_gate.py` (`test_new135_*` prefix), including
-`test_new135_reserve_slot_second_admission_refused_once_cap_exhausted`,
-which reproduces the exact pre-fix double-admission (two identical
-candidates each independently admitted against the same cap) and confirms
-the second is now refused once the first's claim is passed through as
-`reserved_swap_bytes`. Full suite: `python -m pytest tests/` → **668
-passed, 1 skipped** (was 661 passed, 1 skipped before this round — net +7,
-all new). No live component — this is a pure code-level accounting fix,
+`test_new135_reserve_slot_second_admission_refused_once_cap_exhausted`
+(reproduces the exact pre-fix double-admission and confirms the second is
+now refused once the first's claim is passed through as
+`reserved_swap_bytes`) and
+`test_new135_reserve_slot_wiring_actually_uses_persisted_pending_claim`
+(added after advisor review flagged that the other six tests only proved
+the underlying functions correct in isolation, not that `reserve_slot()`
+actually wires them together in production — this test pre-loads a
+PENDING slot's claim via `register_slot()` directly, with no hand-fed
+`reserved_swap_bytes` parameter, and was confirmed to fail if the
+`reserved_swap_bytes=reserved_swap` line inside `reserve_slot()` is
+deleted). Full suite: `python -m pytest tests/` → **669 passed, 1
+skipped** (was 661 passed, 1 skipped before this round — net +8, all
+new). No live component — this is a pure code-level accounting fix,
 consistent with `NEW-135`'s own "not a same-day fix... likely a
 `reserve_slot()`-adjacent sub-task of its own" framing finally being
 picked up.
@@ -63,17 +70,26 @@ implicit, and in `NEW-135`'s ledger entry.
 
 **Bundled desk confirmation (also in 7.4a's scope, per §6.2's own
 instruction to "confirm that reasoning against the code before ticking
-[NEW-140 scenario 3 / NEW-141] off"):** confirmed directly against HEAD
-(not reused from the earlier M1-D code-read) that `core/planner_loader.py`
-does not exist on disk and `_evict_planner_and_confirm_free()` is absent
-from `core/loader_v2.py`. Both findings' own reproduction path called
-`core.planner_loader.PlannerLoader.load()` directly — a module that no
-longer exists — so both close per `NEW-159`'s own stated bar (M1-D
-code-read + M1-E live pass, both already done). `NEW-140`'s other,
-model-independent content (the general mechanism: a raised
-`MAX_SWAP_ASSIST_BYTES` re-admits historical swap-distress device states
-via swap-assist for a single model load) stays open and unaffected by this
-closure — it has not been re-measured against Qwen3.5-4B's real cost.
+[NEW-140 scenario 3 / NEW-141] off"):** each finding confirmed on its OWN
+correct evidence, not the same evidence applied to both — `NEW-140`
+scenario 3 is a single-model case and does not involve
+`core/planner_loader.py` at all. `NEW-141` (the concurrent primary+planner
+case) closes because `core/planner_loader.py` does not exist on disk and
+`_evict_planner_and_confirm_free()` is absent from `core/loader_v2.py` —
+this finding's own reproduction called
+`core.planner_loader.PlannerLoader.load()` directly, a module that no
+longer exists. `NEW-140` scenario 3 (the retired 7B's specific cost
+estimate under the old 10GiB cap at a single-model load) closes instead on
+M1-B's already-confirmed repoint of every model-role path
+(`MODEL_PATH`/`PLANNER_MODEL_PATH`) onto Qwen3.5-4B — the single-model
+load this scenario describes cannot occur through any live production
+path today, since the 7B is no longer wired to any active role. Both close
+per `NEW-159`'s own stated bar (M1-D code-read + M1-E live pass, both
+already done). `NEW-140`'s other, model-independent content (the general
+mechanism: a raised `MAX_SWAP_ASSIST_BYTES` re-admits historical
+swap-distress device states via swap-assist for a single model load) stays
+open and unaffected by this closure — it has not been re-measured against
+Qwen3.5-4B's real cost.
 
 **Rule-6 correction made in the same round:** `CODEY_MASTER_PLAN.md`'s
 §6.2 table and Appendix A both previously said 7.4b sub-tasks A and C
