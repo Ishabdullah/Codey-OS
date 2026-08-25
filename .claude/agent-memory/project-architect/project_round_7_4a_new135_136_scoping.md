@@ -55,6 +55,28 @@ this up: run the code-reviewer pass before this can be marked done. See
 [[project-c2-gui-security-status]]-style precedent — M1-F's own entry is
 the template for how this gets closed out once a reviewer is available.
 
+**Advisor review caught a real test-quality gap before this was reported
+done:** the first 7 regression tests all called
+`compute_swap_assisted_headroom_bytes()`/`can_admit()` directly with a
+hand-fed `reserved_swap_bytes` — none of them would fail if
+`reserve_slot()`'s own `reserved_swap_bytes=reserved_swap` wiring line
+were deleted, i.e. they proved the functions correct in isolation but not
+that the fix was actually connected in production. Added an 8th test
+(`test_new135_reserve_slot_wiring_actually_uses_persisted_pending_claim`)
+that pre-loads a PENDING slot's claim via `register_slot()` with no
+hand-fed parameter, and explicitly confirmed by temporarily deleting the
+wiring line that this new test fails without it and passes with it
+restored. **Lesson for future rounds:** when a fix threads a value through
+multiple layers (function param → caller computation → wiring at a call
+site), at least one test must exercise the outermost real call site with
+no hand-fed shortcut, or the test suite can look complete while the actual
+wiring is untested. Advisor also caught 3 doc-precision issues (a stale
+"single-load ceiling" comment not updated for the fix's new pool
+semantics, an inherited-not-measured assumption stated as fact, and
+NEW-140 scenario 3/NEW-141 sharing the same closure evidence when they
+need different evidence) — all fixed in a follow-up commit (`f7511bb`)
+before this was called done.
+
 Also note: M1-G's own docs closure (CODEY_MASTER_PLAN.md/NEW_ISSUES.md/
 PROJECT_LOG.md edits) was found already complete but uncommitted at the
 start of this session — committed separately (`cbc87f3`) before this
