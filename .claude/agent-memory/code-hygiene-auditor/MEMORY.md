@@ -1,0 +1,2 @@
+- [Master-plan sanity audit approach](project_master_plan_sanity_audit_2026-08-25.md) — how to cross-check CODEY_MASTER_PLAN.md vs code/tests; one real finding (M1-F commit overclaim)
+- [Doc discipline is unusually high here](feedback_doc_discipline_high_dont_force_findings.md) — this project's own docs self-correct constantly; don't manufacture findings to seem thorough

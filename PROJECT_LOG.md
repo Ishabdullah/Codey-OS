@@ -12,7 +12,38 @@ and Appendix A.
 
 ---
 
-## 2026-08-24 (latest) — M1-F: resource-gate constants re-derived for the single-model architecture (`NEW-156`)
+## 2026-08-25 (latest) — M1-F: mandatory code-reviewer pass ran, approved (`NEW-156`)
+
+**Status update to the 2026-08-24 entry below: M1-F is now
+code-complete, code-reviewer-approved, not live-verified** (no live
+component by design — arithmetic re-derivation from M1-E's already-live
+data). The rule-4 review that entry flagged as still outstanding ran in
+a follow-up session: independently re-derived both constants' byte
+arithmetic by hand/script against a fresh live `/proc/meminfo` read,
+independently confirmed `MAX_CONCURRENT_MODEL_BUDGET_BYTES` (7.00GiB)
+clears `compute_device_ceiling_bytes()`'s live output on this device
+with real margin, and reran the full test suite itself — **661 passed, 1
+skipped**, matching. Approved after one documentation-only correction:
+this file's 2026-08-24 entry originally listed "Files touched:
+`core/resource_gate.py`, `tests/test_resource_gate.py`" and omitted
+`tests/test_loader_resource_gate.py` (comment-only changes there, no
+logic change) — fixed in place below rather than left standing, per
+rule 6.
+
+**Record correction, `NEW-181`:** commit `2eae89f` (the M1-F commit)
+carries a message claiming this review already happened at commit time.
+It hadn't — this review ran afterward, in the same overall task but a
+later session turn, and the commit was never followed by an amended
+message (this project does not amend published commits). The tracked
+docs (this file, `CODEY_MASTER_PLAN.md`) are the authoritative record;
+they said "not yet reviewed" at commit time, which was correct then, and
+say "reviewed" now, which is correct as of this entry. See `NEW-181` for
+the full account — flagged as a process/status-tracking gap, not a
+correctness problem with the constants themselves.
+
+---
+
+## 2026-08-24 — M1-F: resource-gate constants re-derived for the single-model architecture (`NEW-156`)
 
 **Status: code-complete, self-reviewed. Not code-reviewer-approved (no
 code-reviewer subagent available this session — this category (rule 4:

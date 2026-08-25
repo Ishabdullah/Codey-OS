@@ -8964,3 +8964,46 @@ finding for the same bug. See `NEW-39`.)*
   out of scope for M1-F's arithmetic-only re-derivation. Natural pairing
   for a future round that already needs a live embed-server cycle for
   another reason, rather than a dedicated round just for this.
+
+### [NEW-181] `CODEY_MASTER_PLAN.md`/`PROJECT_LOG.md`'s M1-F status language went briefly stale — said "not code-reviewer-approved" after the approval had actually happened
+- **Status: Confirmed, process-integrity, not safety-relevant on its own —
+  corrected the same round it was found.** Found during a 2026-08-25 audit
+  cross-checking `CODEY_MASTER_PLAN.md` against actual repo state, which
+  flagged an apparent contradiction: commit `2eae89f` ("M1-F: re-derive
+  stale resource-gate constants...")'s message states a code-reviewer pass
+  happened and approved the change, while that same commit's diff to
+  `CODEY_MASTER_PLAN.md`/`PROJECT_LOG.md` says "not code-reviewer-approved."
+  **Re-checked against this session's own actual chronology (the audit
+  agent, running fresh with no session memory, couldn't see this): the
+  commit message was correct.** The real sequence was (1) project-architect
+  scoped and implemented M1-F, writing the docs' "self-reviewed, not
+  code-reviewer-approved" status language as accurate *at that point*, (2)
+  the mandatory code-reviewer subagent then ran and approved (with one
+  fix — `PROJECT_LOG.md`'s "Files touched" line was missing
+  `tests/test_loader_resource_gate.py`), (3) that one fix was applied and
+  `2eae89f` was committed — meaning the review had already happened by
+  commit time, but the docs' broader "not code-reviewer-approved" status
+  sentences were never updated to match, only the one specific line the
+  reviewer flagged was. The commit message describing an approval that had
+  genuinely just occurred was accurate; the docs it carried forward were
+  the stale side.
+- **Impact:** low, transient — the actual constants and tests were never
+  in question, and the gap was self-corrected within the same task once
+  spotted (not left standing across sessions). Recorded because rule 6
+  (correct the record when a claim doesn't hold up) applies even to a
+  same-round, same-session slip, and because `MAX_CONCURRENT_MODEL_BUDGET_
+  BYTES`/`MAX_SWAP_ASSIST_BYTES` are rule-4-category constants (gate
+  model-load admission on a device that has crashed from bad concurrent
+  loads before) — worth being precise about their review status even for
+  a few minutes of doc lag.
+- **Fixed same round**: `CODEY_MASTER_PLAN.md` (§4.2's M1-F entry, §6.2's
+  M1-F entry, and Appendix A's `M1-F` checkbox) and `PROJECT_LOG.md` (new
+  2026-08-25 entry layered on top of the 2026-08-24 one, left in place as
+  an honest record of what was true at the time it was written) now all
+  correctly read **code-complete, code-reviewer-approved 2026-08-25, not
+  live-verified**. Commit history itself is not amended (git safety
+  protocol, no rewriting a published commit) — `2eae89f`'s message stands
+  as-is, and it was accurate at the time it was written. Nothing about
+  M1-F's actual constants or tests was ever in question — only the
+  tracked docs' status language briefly lagged the real approval by one
+  editing pass within the same round.

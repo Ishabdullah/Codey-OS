@@ -1067,13 +1067,22 @@ simpler residency problem and materially more context than before.
   while `"primary"` costs with the 4B's arch, a 768MiB under-estimate in
   the unsafe direction, recorded as `NEW-161`.
 
-  All bullets above are now closed — M1-F ran 2026-08-24. Status:
-  **code-complete, self-reviewed, not code-reviewer-approved, not
-  live-verified** — this round had no separate code-reviewer subagent
-  available in-session; the mandatory review pass (CLAUDE.md rule 4, this
-  category gates model-load admission) still needs to run before this is
-  considered fully done, same discipline as every other process-adjacent
-  change in this project.
+  All bullets above are now closed — M1-F ran 2026-08-24. **Update
+  2026-08-25: code-reviewer-approved.** The mandatory CLAUDE.md rule-4
+  pass ran in a follow-up session — independently re-derived both
+  constants' byte arithmetic against a fresh live `/proc/meminfo` read,
+  independently confirmed the `compute_device_ceiling_bytes()` ordering
+  invariant, and reran the full test suite itself (661 passed, 1
+  skipped, matching). Approved after one documentation-only fix
+  (`PROJECT_LOG.md`'s "Files touched" line was missing
+  `tests/test_loader_resource_gate.py`). Status: **code-complete,
+  code-reviewer-approved, not live-verified** (still arithmetic
+  re-derivation from M1-E's already-live data, not a fresh live pass — no
+  live component by design). See `NEW-181` for a since-corrected
+  transient status-tracking gap from this same round (commit `2eae89f`'s
+  own message stated the review had happened while these tracked docs, at
+  commit time, still said it hadn't — the review genuinely had happened,
+  just not yet reflected here; this line is that correction).
 
 ---
 
@@ -1373,8 +1382,9 @@ look like config edits.
      instead of its built-in guess. That is a behavior change to verify,
      not a free addition.
 - **M1-F — re-derive the stale constants** (`NEW-156`) — **DONE
-  2026-08-24, code-complete + self-reviewed, not code-reviewer-approved,
-  not live-verified.** `MAX_CONCURRENT_MODEL_BUDGET_BYTES`: 8.90GiB →
+  2026-08-24, code-complete, code-reviewer-approved 2026-08-25,
+  not live-verified** (arithmetic re-derivation from M1-E's already-live
+  data, no live component by design). `MAX_CONCURRENT_MODEL_BUDGET_BYTES`: 8.90GiB →
   7.00GiB. `MAX_SWAP_ASSIST_BYTES`: 10.00GiB → 6.50GiB. Both computed via
   this project's own `estimate_model_load_cost()`/
   `compute_swap_assisted_headroom_bytes()` against the real on-disk
@@ -1685,13 +1695,16 @@ Numbered for reference. Nothing here is guessed at in this document.
    CLI use whenever the daemon has a planner loaded; it needs real
    cross-process arbitration. Get Ish's call on sequencing relative to
    the gate work (`U.9`).
-8. **Thinking-mode policy — when does the model think?** Thinking is a
-   per-request opt-in (§1.4), so something has to decide. Options, not
-   mutually exclusive: always on for the planning path; gated on the
-   existing complexity classifier (`classify_tier()` already scores this
-   and currently only logs — 7.3 sub-task C); user-triggerable in the
-   TUI. It costs real tokens and real wall-clock on this device, which
-   M1-E measures. Worth deciding after those numbers exist, not before.
+8. ~~**Thinking-mode policy — when does the model think?**~~ **Answered
+   by the 7.3 sub-task E work, 2026-08-24 (Task A + Task B, `8fe5d07` +
+   `edc9e36`).** Gated on complexity, not always-on or TUI-triggered:
+   `classify_tier()` (the option this question originally named as a
+   log-only candidate) was deleted as dead code in Task A (`NEW-172`) and
+   replaced in Task B by a real medium/hard split decided once in
+   `main.py` (`score.length > 300`) and threaded through as
+   `enable_thinking` all the way to `plannd.get_plan()`. Kept here,
+   struck through, so the answer is visible rather than the question
+   quietly vanishing, same pattern as Q3 above.
 9. **Attribution-logging coverage.** Extend `core/recursive.py`'s
    attribution logging to `core/agent.py`'s separate plain-`infer()`
    branch as new work, or leave it as a documented accepted gap
@@ -1938,8 +1951,9 @@ pass **also covers the two previously-unreviewed diffs** from §4.4.
       coding path. **Measure first, edit second.**
 - [x] **M1-F** — re-derive `MAX_CONCURRENT_MODEL_BUDGET_BYTES` and
       `MAX_SWAP_ASSIST_BYTES` from M1-E's measurements (`NEW-156`) —
-      **DONE 2026-08-24, code-complete + self-reviewed, not
-      code-reviewer-approved, not live-verified.** 8.90GiB → 7.00GiB;
+      **DONE 2026-08-24, code-complete, code-reviewer-approved
+      2026-08-25, not live-verified** (no live component by design).
+      8.90GiB → 7.00GiB;
       10.00GiB → 6.50GiB. See §4.2's M1-F entry for the full derivation,
       the `NEW-179` invariant fix (budget ceiling must stay ≥ the device
       ceiling — undocumented and untested before this round, caught by
