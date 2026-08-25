@@ -167,9 +167,11 @@ will no longer exist:
 - **`NEW-137`** (production `n_ctx=32768` never reached the swap-assist
   band) — specific to the 7B's cost at 32768.
 - **`NEW-140` scenario 3** (low-swap-headroom single-model case) — the
-  scenario was defined against the retired model's footprint.
+  scenario was defined against the retired model's footprint. **CLOSED
+  2026-08-25 — see `NEW-140`'s own entry for the confirmation.**
 - **`NEW-141`** (concurrent primary+planner at 32768 reproduces
-  `NEW-14`'s swap distress) — requires a model pair.
+  `NEW-14`'s swap distress) — requires a model pair. **CLOSED 2026-08-25 —
+  see `NEW-141`'s own entry for the confirmation.**
 - **`NEW-143`** (the 7B's cost estimate sits ~137MiB under the
   hard-reject ceiling) — specific to the 7B.
 
@@ -7328,6 +7330,39 @@ finding for the same bug. See `NEW-39`.)*
 
 ### [NEW-135] `compute_swap_assisted_headroom_bytes()` has no `reserved_bytes`-style deduction — two concurrently-pending swap-assisted admissions can each independently claim the same 768MiB `MAX_SWAP_ASSIST_BYTES` cap against the same live `SwapFree` figure
 
+- **Status update, 2026-08-25 — FIXED for the `reserve_slot()`/`can_admit()`
+  path, code-complete and self-tested, NOT yet mandatory-code-reviewer-
+  approved (rule 4).** `compute_swap_assisted_headroom_bytes()` gained a
+  `reserved_swap_bytes` parameter (subtracted from the policy cap
+  `max_swap_usage_bytes`, not from live `SwapFree` — see the function's own
+  docstring for why); `can_admit()` gained the same parameter, threaded
+  straight through; `GateDecision` gained `swap_bytes_claimed` (a
+  magnitude, not just the `admitted_via_swap` boolean, so it can be summed
+  — this also directly satisfies `NEW-136`'s fix-direction note, see that
+  entry). `reserve_slot()` now computes the real PENDING-only sum of other
+  slots' `swap_bytes_claimed` inside its own existing lock (mirroring the
+  RAM-side `reserved`/`committed` sums it already computed there) and
+  passes it through, then persists the admitted decision's own claim onto
+  the new slot record — closing the exact double-claim race this finding
+  describes for any caller going through `reserve_slot()`. A new
+  `total_reserved_swap_bytes()` helper mirrors `total_reserved_bytes()` for
+  any direct `can_admit()` caller outside `reserve_slot()` (none exist in
+  this codebase today). Six new regression tests in
+  `tests/test_resource_gate.py` (prefixed `test_new135_`), including one
+  that reproduces the exact pre-fix double-admission and confirms it is
+  now refused. Full suite: 668 passed, 1 skipped (was 661/1 before this
+  round). **Also stale-corrected while in this entry (rule 6):** the
+  2026-08-11 note below cites `MAX_SWAP_ASSIST_BYTES` values (768MiB, then
+  a hypothetical 10GiB) that predate M1-F's 2026-08-24 re-derivation to
+  6.50GiB — left in place as the original record, not edited, since
+  correcting it in place would misrepresent what was actually known at the
+  time; this note is the current, accurate figure. **NOT fixed**:
+  `can_dispatch_task()`'s separate swap-assist consumer (it registers no
+  slot, so this accounting mechanism has nothing to sum against on that
+  side — see `can_admit()`'s own docstring, "Caveats carried forward"
+  section, for the explicit statement of this residual gap). **Needs the
+  mandatory rule-4 code-reviewer pass before this can be marked done** —
+  this touches the resource gate's admission accounting directly.
 - **Status update, 2026-08-11 (same session as TODO.md 7.4a sub-item F) —
   still Confirmed, blast radius widens with the F recalibration.** This
   finding's worst-case double-count was bounded by whatever
@@ -7375,6 +7410,25 @@ finding for the same bug. See `NEW-39`.)*
 
 ### [NEW-136] `GateDecision.admitted_via_swap` is not persisted into the slot record — `register_slot()`/`list_slots()` give a later reader no way to tell which resident slots were swap-admitted
 
+- **Status update, 2026-08-25 — FIXED, code-complete and self-tested, NOT
+  yet mandatory-code-reviewer-approved (rule 4).** Fixed as a magnitude
+  rather than a bare boolean, per this entry's own fix-direction note and
+  because `NEW-135`'s fix needed a magnitude to sum, not just a flag (a
+  bool alone can't be summed to recover how much swap a set of PENDING
+  slots collectively claimed). `register_slot()` gained a
+  `swap_bytes_claimed: int = 0` parameter, persisted onto every slot
+  record; `reserve_slot()` passes `decision.swap_bytes_claimed` through
+  automatically. A later reader can derive the old boolean trivially
+  (`slot["swap_bytes_claimed"] > 0`) if only the flag is wanted — this
+  entry's own fix-direction note anticipated the field being useful for
+  "which resident slot is the best unload candidate under memory
+  pressure" reasoning; that consumer is not built yet (no live
+  thermal/swap-pressure responder exists today) but the data it would need
+  is now recorded. See `NEW-135`'s own updated entry for the shared
+  implementation and test details (`core/resource_gate.py`,
+  `tests/test_resource_gate.py`'s `test_new135_*` tests, one of which
+  directly asserts the persisted field). **Needs the mandatory rule-4
+  code-reviewer pass before this can be marked done.**
 - **Status: Confirmed** — verified directly against `core/resource_gate.py`.
   `register_slot()`'s parameter list (`model_id`, `cost_bytes`, `pid`,
   `port`, `threads`, `status`, `state_dir`) has no `admitted_via_swap` (or
@@ -7590,6 +7644,27 @@ finding for the same bug. See `NEW-39`.)*
 
 ### [NEW-140] TODO.md 7.4a sub-task F's 10GiB `MAX_SWAP_ASSIST_BYTES` recalibration makes the exact historical `NEW-21` SINGLE-MODEL swap-distress device state admissible again via swap-assist at the real production `can_admit()` call shape — not previously flagged, only the concurrent 3-model consequence was
 
+- **Status update, 2026-08-25 — "scenario 3" (the low-swap-headroom
+  single-model case this finding's title describes) CLOSED per `NEW-159`'s
+  bar; the finding's OTHER content is unaffected and stays Confirmed.**
+  This finding is really two things: (1) the general observation that a
+  raised `MAX_SWAP_ASSIST_BYTES` re-admits the historical `NEW-21` device
+  state via swap-assist for a single model load — a live, generic
+  mechanism finding, not tied to any specific retired model, still fully
+  applicable to Qwen3.5-4B and unaffected by this closure; and (2) the
+  specific worked numeric example below, computed against the retired
+  7B's `cost.total_bytes=6,830,557,184` and the superseded 10GiB cap. Item
+  (2)'s exact figures are stale (7B retired, cap re-derived to 6.50GiB by
+  M1-F) and item (1)'s live mechanism has not been re-measured against
+  Qwen3.5-4B's real cost — that re-measurement is exactly what M1-E's own
+  entry means by "still needs its own re-check against these live
+  numbers." What CAN close today, per `NEW-159`'s bar (M1-D code-read +
+  M1-E live pass, both done): the worked numbers below are retired-model
+  arithmetic, not evidence about current behavior, and must not be read as
+  still describing the shipped system. The general mechanism (1) is left
+  open as a live, standing concern — not closed by this update — since
+  nothing about swap-assist's admit-under-distress behavior changed with
+  the model swap.
 - **Status: Confirmed** — found during code-reviewer's mandatory pass on
   sub-task F (CLAUDE.md rule 4), independently re-derived, not just taken
   from the implementer's own disclosure (which correctly flagged it in
@@ -7666,6 +7741,23 @@ finding for the same bug. See `NEW-39`.)*
 
 ### [NEW-141] Real concurrent primary+planner load at `n_ctx=32768` (new 10GiB `MAX_SWAP_ASSIST_BYTES` cap) reproduces `NEW-14`'s swap-distress shape with only 2 models, in ~6s (faster, fewer models than `NEW-14`'s original 3-model/~40s observation) — live-verifier's pre-declared rate-trip abort criterion correctly fired and stopped it
 
+- **Status update, 2026-08-25 — CLOSED per `NEW-159`'s own stated bar.**
+  `NEW-159` set two conditions before this could close: M1-D's code read
+  confirming the retired paths are actually gone (done, 2026-08-23,
+  code-reviewer-approved) and M1-E's live pass (done, 2026-08-23, "fully
+  live-verified"). Re-confirmed directly against HEAD this round, not
+  assumed from the prior code-read: `core/planner_loader.py` does not
+  exist on disk, and `_evict_planner_and_confirm_free()` is absent from
+  `core/loader_v2.py` (only referenced in a historical comment at line
+  978-979 explaining its deletion). This finding's own reproduction
+  required calling `core.planner_loader.PlannerLoader.load()` directly — a
+  module that no longer exists, so the exact code path this finding
+  exercised is now structurally unreachable, not merely superseded by a
+  policy decision. Closing on the configuration no longer existing is
+  consistent with this entry's own §4.3 framing ("close on the decision
+  rather than on a fix"). Not fixed by new arithmetic — nothing to
+  re-derive, since there is no longer a second concurrent model class for
+  this scenario to apply to.
 - **Status: Confirmed** — directly observed, live, tracked-PID teardown
   clean afterward.
 - **Where found:** sub-task F's case (b2) live-verification pass, run via

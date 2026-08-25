@@ -284,6 +284,7 @@ def compute_swap_assisted_headroom_bytes(
     meminfo: Dict[str, int],
     max_swap_usage_bytes: int,
     slmk_floor_gate_multiplier: float = SLMK_FLOOR_GATE_MULTIPLIER,
+    reserved_swap_bytes: int = 0,
 ) -> int:
     """
     Additional headroom (in bytes) a swap-assisted admission check would
@@ -294,6 +295,22 @@ def compute_swap_assisted_headroom_bytes(
     against a candidate load's required cost. This function itself performs
     no such comparison and has no admission side effects — it only computes
     the additive figure.
+
+    `reserved_swap_bytes` (default 0, `NEW-135`'s fix): the swap-assist
+    already authorized to OTHER concurrently-PENDING admissions, so a second
+    admission racing the first doesn't see the full `max_swap_usage_bytes`
+    cap as still-available. Mirrors `compute_headroom_bytes()`'s existing
+    `reserved_bytes` parameter, but is subtracted from the POLICY CAP
+    (`max_swap_usage_bytes`), not from the live `SwapFree` signal itself —
+    unlike RAM, swap authorized-but-not-yet-consumed by a still-loading
+    PENDING slot has not actually reduced `SwapFree` yet (the model hasn't
+    started paging in), so the live gated-SwapFree term below is computed
+    exactly as before; only the shared authorization ceiling shrinks by
+    however much of it other in-flight admissions have already claimed. See
+    `reserve_slot()` for the one caller that computes and passes a real,
+    lock-consistent value here (the RAM-side `reserved_bytes` precedent for
+    why this must be computed inside that same lock, not via a separate
+    call).
 
     Formula (TODO.md 7.4a's own scoping call, not guessed):
         permitted = min(
@@ -334,7 +351,12 @@ def compute_swap_assisted_headroom_bytes(
     swap_total = meminfo.get("SwapTotal", 0)
     slmk_floor_bytes = swap_total * SLMK_SWAP_FREE_LOW_FRACTION
     gated_swap_free = max(0, swap_free - slmk_floor_gate_multiplier * slmk_floor_bytes)
-    return int(max(0, min(max_swap_usage_bytes, gated_swap_free)))
+    # NEW-135: the shared authorization ceiling shrinks by whatever other
+    # in-flight PENDING admissions have already claimed against it — see
+    # this parameter's own docstring for why this is subtracted from the
+    # cap rather than from `gated_swap_free`.
+    remaining_cap = max(0, max_swap_usage_bytes - reserved_swap_bytes)
+    return int(max(0, min(remaining_cap, gated_swap_free)))
 
 
 # Conservative multiplier applied to a model's estimated cost before
@@ -1865,6 +1887,16 @@ class GateDecision:
     # carry different risk profiles (see `can_admit()`'s swap-assist section
     # below).
     admitted_via_swap: bool = False
+    # NEW-135/NEW-136 fix: the actual swap bytes THIS decision would need to
+    # authorize to cover the gap between `required` and RAM-only `headroom`
+    # — 0 whenever `admitted_via_swap` is False. Recorded as a magnitude
+    # (not just the `admitted_via_swap` boolean) specifically so a caller
+    # persisting this into the slot store (`reserve_slot()`) can later sum
+    # PENDING slots' real swap claims and pass that sum back in as
+    # `reserved_swap_bytes`, closing NEW-135's double-claim race — a bare
+    # boolean has no magnitude to sum. See `reserve_slot()`'s docstring for
+    # the full accounting loop this field feeds.
+    swap_bytes_claimed: int = 0
 
 
 def can_admit(
@@ -1879,6 +1911,7 @@ def can_admit(
     enable_swap_assist: Optional[bool] = None,
     max_swap_usage_bytes: int = MAX_SWAP_ASSIST_BYTES,
     slmk_floor_gate_multiplier: float = SLMK_FLOOR_GATE_MULTIPLIER,
+    reserved_swap_bytes: int = 0,
 ) -> GateDecision:
     """
     Decide whether `spec` can be admitted right now.
@@ -1924,6 +1957,15 @@ def can_admit(
     are passed straight through to `compute_swap_assisted_headroom_bytes()`
     — see that function's own docstring and `MAX_SWAP_ASSIST_BYTES`'s own
     comment for the full derivation of both.
+
+    `reserved_swap_bytes` (default 0, `NEW-135`'s fix): passed straight
+    through to `compute_swap_assisted_headroom_bytes()`'s own parameter of
+    the same name — the swap-assist already claimed by other concurrently-
+    PENDING admissions. `reserve_slot()` is the one call site that computes
+    a real, lock-consistent value (summing PENDING slots'
+    `swap_bytes_claimed`, mirroring how it already computes `reserved_bytes`
+    for the RAM side) — any other direct caller wanting this race closed is
+    responsible for computing its own consistent snapshot the same way.
 
     Four independent checks, any of which can refuse admission:
       1. hard_reject: `spec`'s cost alone exceeds the device's usable
@@ -1976,25 +2018,29 @@ def can_admit(
     that this device-policy ceiling is checked before any live-memory/
     thermal signal is even consulted.
 
-    Caveats carried forward from sub-task B, both still unaddressed by C2
-    (out of scope here; flagged for sub-task D/E):
+    Caveats carried forward from sub-task B:
       - The swap-assist figure is authorized swap USAGE, not a claim about
         real usable headroom under an actual model load — quantized model
         weight pages may compress far less favorably than the ~4:1 ratio
         `compute_zram_compression_ratio()` observes on ordinary idle app
-        pages. Unverified until sub-task E's live pass.
-      - `compute_swap_assisted_headroom_bytes()` reads raw `SwapFree` with
-        no `reserved_bytes`-style deduction for other in-flight admissions
-        (unlike `compute_headroom_bytes()`, which does subtract
-        `reserved_bytes`) — two concurrently-pending swap-assisted
-        admissions can each independently lean on the same live `SwapFree`
-        figure and the same `MAX_SWAP_ASSIST_BYTES` cap (6.50GiB as of
-        M1-F), rather than the second one seeing the first one's
-        claim already spent. Not fixed here (would change
-        sub-task B's own function signature, out of scope for C2's mandate
-        of wiring, not redesigning, that function) — flagged for whichever
-        later sub-task revisits concurrent-admission accounting for the
-        swap-assist path specifically.
+        pages. Unverified until sub-task E's live pass. Still open.
+      - **`NEW-135` fixed for the `reserve_slot()` call path (this round,
+        not C2):** `compute_swap_assisted_headroom_bytes()` now accepts
+        `reserved_swap_bytes` (see this function's own `reserved_swap_bytes`
+        parameter above) and `reserve_slot()` computes and passes a real,
+        lock-consistent value — two concurrently-pending swap-assisted
+        `reserve_slot()` admissions can no longer each independently claim
+        the full `MAX_SWAP_ASSIST_BYTES` cap against the same live
+        `SwapFree` figure. **NOT fixed for `can_dispatch_task()`'s separate
+        swap-assist consumer** (see its own docstring's carried-forward
+        caveat) — that path never registers a slot, so there is nothing for
+        this accounting mechanism to sum on that side; a `can_admit()`
+        admission and a `can_dispatch_task()` dispatch decision can still
+        each independently claim swap headroom with no cross-awareness of
+        each other. Any *direct* caller of `can_admit()` other than
+        `reserve_slot()` (there are none in this codebase today, per the
+        docstring above) would also need to compute its own consistent
+        `reserved_swap_bytes` snapshot the same way to get this protection.
     """
     if meminfo is None:
         meminfo = read_meminfo()
@@ -2085,14 +2131,25 @@ def can_admit(
 
         if swap_assist_enabled:
             swap_headroom = compute_swap_assisted_headroom_bytes(
-                meminfo, max_swap_usage_bytes, slmk_floor_gate_multiplier
+                meminfo,
+                max_swap_usage_bytes,
+                slmk_floor_gate_multiplier,
+                reserved_swap_bytes=reserved_swap_bytes,
             )
             combined_headroom = headroom + swap_headroom
             if required <= combined_headroom:
+                # The actual swap this decision needs to authorize is just
+                # the gap RAM-only headroom didn't cover — not the whole
+                # `swap_headroom` capacity, which may be larger than what
+                # this particular load actually uses. `required > headroom`
+                # is guaranteed true in this branch (the `if` above this
+                # swap-assist block), so this gap is always > 0.
+                swap_claim = required - headroom
                 return GateDecision(
                     admitted=True,
                     hard_reject=False,
                     admitted_via_swap=True,
+                    swap_bytes_claimed=swap_claim,
                     reason=(
                         f"model {spec.model_id!r} cost estimate "
                         f"({cost.total_bytes / _KB / _KB:.0f}MiB) x headroom_factor "
@@ -2990,6 +3047,7 @@ def register_slot(
     threads: Optional[int] = None,
     status: str = SLOT_STATUS_PENDING,
     state_dir: Optional[Path] = None,
+    swap_bytes_claimed: int = 0,
 ) -> str:
     """
     Register a slot in the cross-process store, unconditionally (no
@@ -3013,6 +3071,19 @@ def register_slot(
     Pass SLOT_STATUS_RESIDENT directly only if the model is already known
     to be fully loaded and running at registration time; otherwise register
     as PENDING and call `mark_resident()` once load is confirmed.
+
+    `swap_bytes_claimed` (default 0, `NEW-135`/`NEW-136`): the
+    `GateDecision.swap_bytes_claimed` value from whatever admission decision
+    justified this slot, if any (0 for a RAM-only admission). Persisted so
+    `total_reserved_swap_bytes()`/`reserve_slot()`'s own inline sum can
+    later account for it, and so a later reader (a status command, a
+    future thermal/swap-pressure responder) can tell which resident slots
+    got here via swap assist and by how much — this is `NEW-136`'s own
+    fix-direction note acted on directly, as a magnitude rather than a bare
+    boolean (see `GateDecision.swap_bytes_claimed`'s own comment for why a
+    magnitude, not a bool, is what NEW-135's accounting actually needs).
+    Direct callers that don't pass this default to 0, i.e. "no swap claimed"
+    — existing callers are unaffected.
     """
     if pid is None:
         pid = os.getpid()
@@ -3026,6 +3097,7 @@ def register_slot(
         "threads": threads,
         "status": status,
         "registered_at": time.time(),
+        "swap_bytes_claimed": swap_bytes_claimed,
     }
     with _LockedState(state_dir) as slots:
         slots.append(entry)
@@ -3088,6 +3160,19 @@ def reserve_slot(
     is `False` (nothing was registered). The new slot (if any) is created
     with status SLOT_STATUS_PENDING — call `mark_resident()` once the model
     is confirmed actually running.
+
+    `NEW-135` fix: this is also the one call site that computes the real
+    cumulative swap-claim sum (PENDING slots' `swap_bytes_claimed`, mirroring
+    `reserved`/`committed` immediately above) and passes it into
+    `can_admit()`'s `reserved_swap_bytes` — computed inside this same lock,
+    on the same already-reaped slot list, for exactly the TOCTOU reasons
+    this function's own docstring already gives for `reserved`/`committed`.
+    The admitted decision's own `swap_bytes_claimed` (0 if not
+    `admitted_via_swap`) is then persisted onto the new slot record, closing
+    the loop for the next racing caller. See `can_admit()`'s
+    `reserved_swap_bytes` docstring for the one thing this does NOT fix —
+    `can_dispatch_task()`'s separate swap-assist consumer, which registers
+    no slot and so has nothing for this mechanism to sum on that side.
     """
     if meminfo is None:
         meminfo = read_meminfo()
@@ -3131,6 +3216,17 @@ def reserve_slot(
         # reopen the exact TOCTOU window this function exists to close).
         committed = _sum_committed_bytes(slots)
 
+        # NEW-135 fix: same PENDING-only filter as `reserved` above, summing
+        # `swap_bytes_claimed` instead of `cost_bytes` — the swap-assist
+        # capacity other in-flight admissions have already claimed. See
+        # `total_reserved_swap_bytes()` for the equivalent computed outside
+        # this lock, for direct `can_admit()` callers other than this one.
+        reserved_swap = sum(
+            s.get("swap_bytes_claimed", 0)
+            for s in slots
+            if s.get("status", SLOT_STATUS_PENDING) == SLOT_STATUS_PENDING
+        )
+
         decision = can_admit(
             spec,
             meminfo=meminfo,
@@ -3140,6 +3236,7 @@ def reserve_slot(
             read_temp_fn=_fixed_temp_fn,
             concurrent_committed_bytes=committed,
             max_concurrent_budget_bytes=max_concurrent_budget_bytes,
+            reserved_swap_bytes=reserved_swap,
         )
 
         if not decision.admitted:
@@ -3156,6 +3253,12 @@ def reserve_slot(
                 "threads": threads,
                 "status": SLOT_STATUS_PENDING,
                 "registered_at": time.time(),
+                # NEW-135/NEW-136: persist the magnitude this admission
+                # actually claimed (0 if not admitted_via_swap) so the next
+                # racing reserve_slot() call's `reserved_swap` sum above sees
+                # it, and so a later reader can tell which resident slots
+                # got here via swap and by how much.
+                "swap_bytes_claimed": decision.swap_bytes_claimed,
             }
         )
         return decision, slot_id
@@ -3454,6 +3557,29 @@ def total_reserved_bytes(state_dir: Optional[Path] = None, reap_dead: bool = Tru
     """
     return sum(
         s.get("cost_bytes", 0)
+        for s in list_slots(state_dir=state_dir, reap_dead=reap_dead)
+        if s.get("status", SLOT_STATUS_PENDING) == SLOT_STATUS_PENDING
+    )
+
+
+def total_reserved_swap_bytes(state_dir: Optional[Path] = None, reap_dead: bool = True) -> int:
+    """
+    `NEW-135` fix: sum of `swap_bytes_claimed` across currently-registered,
+    live, SLOT_STATUS_PENDING slots ONLY — the value to pass as
+    `can_admit()`'s `reserved_swap_bytes` for any direct caller that isn't
+    `reserve_slot()` (which computes this same sum itself, inside its own
+    lock — see its docstring for why that matters and why this function
+    must NOT be called from inside that lock). Mirrors
+    `total_reserved_bytes()` exactly, summing `swap_bytes_claimed` instead
+    of `cost_bytes`; same PENDING-only filter and same reasoning (a
+    RESIDENT slot's swap usage, if any, is already reflected in a
+    subsequent live `SwapFree` read, so also subtracting it here would
+    double-count it). A slot with no `swap_bytes_claimed` field at all
+    (state written before this field existed, or a RAM-only admission) is
+    treated as 0.
+    """
+    return sum(
+        s.get("swap_bytes_claimed", 0)
         for s in list_slots(state_dir=state_dir, reap_dead=reap_dead)
         if s.get("status", SLOT_STATUS_PENDING) == SLOT_STATUS_PENDING
     )

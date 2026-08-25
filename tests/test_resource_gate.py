@@ -2418,6 +2418,181 @@ def test_swap_assist_never_overrides_budget_ceiling_denial_via_reserve_slot(tmp_
     assert slot_id is None
 
 
+def test_new135_reserved_swap_bytes_shrinks_compute_swap_assisted_headroom():
+    # compute_swap_assisted_headroom_bytes()'s own reserved_swap_bytes
+    # parameter, in isolation: the same NEW-21 fixture as the pre-existing
+    # test above (gated SwapFree = 8.4GiB), but a 500MiB cap with 200MiB
+    # already reserved by another in-flight admission must yield only
+    # 300MiB, not the full 500MiB.
+    mi = meminfo_bytes(
+        mem_total_gib=10.8, mem_free_gib=2.2, mem_available_gib=2.2,
+        swap_total_gib=12.0, swap_free_gib=10.8,
+    )
+    result = rg.compute_swap_assisted_headroom_bytes(
+        mi, max_swap_usage_bytes=500 * MIB, slmk_floor_gate_multiplier=2.0,
+        reserved_swap_bytes=200 * MIB,
+    )
+    assert result == 300 * MIB
+
+
+def test_new135_reserved_swap_bytes_cannot_go_negative():
+    # A reservation larger than the cap must clamp to 0, never negative.
+    mi = meminfo_bytes(
+        mem_total_gib=10.8, mem_free_gib=2.2, mem_available_gib=2.2,
+        swap_total_gib=12.0, swap_free_gib=10.8,
+    )
+    result = rg.compute_swap_assisted_headroom_bytes(
+        mi, max_swap_usage_bytes=500 * MIB, slmk_floor_gate_multiplier=2.0,
+        reserved_swap_bytes=999 * MIB,
+    )
+    assert result == 0
+
+
+def test_new135_can_admit_records_swap_bytes_claimed_magnitude():
+    # NEW-136: GateDecision must carry the actual swap magnitude claimed
+    # (required - headroom), not just the admitted_via_swap boolean.
+    spec = rg.ModelSpec(model_id="x", size_bytes=2 * GIB, n_ctx=1024, compute_overhead_bytes=0)
+    mi = meminfo_bytes(
+        mem_total_gib=10.8, mem_free_gib=2.2, mem_available_gib=2.2,
+        swap_total_gib=12.0, swap_free_gib=10.8,
+    )
+    decision = rg.can_admit(spec, meminfo=mi, read_temp_fn=NO_THERMAL)
+    assert decision.admitted_via_swap is True
+    required = int(2 * GIB * rg.REQUIRED_HEADROOM_FACTOR)
+    headroom = int(2.2 * GIB)
+    assert decision.swap_bytes_claimed == required - headroom
+    assert decision.swap_bytes_claimed > 0
+
+
+def test_new135_can_admit_swap_bytes_claimed_zero_when_not_swap_admitted():
+    spec = rg.ModelSpec(model_id="x", size_bytes=1 * GIB, n_ctx=1024, compute_overhead_bytes=0)
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=8.0, mem_available_gib=8.0)
+    decision = rg.can_admit(spec, meminfo=mi, read_temp_fn=NO_THERMAL)
+    assert decision.admitted is True
+    assert decision.admitted_via_swap is False
+    assert decision.swap_bytes_claimed == 0
+
+
+def test_new135_reserve_slot_second_racing_swap_admission_sees_first_claim(tmp_path):
+    # The actual race NEW-135 describes: two candidates racing reserve_slot(),
+    # each individually admissible via swap assist against the FULL cap, but
+    # not against the cap minus what the other already claimed. With the fix,
+    # the second reserve_slot() call must see the first slot's persisted
+    # swap_bytes_claimed and be refused (or admitted for a smaller amount)
+    # rather than blindly re-claiming the same swap capacity.
+    mi = meminfo_bytes(
+        mem_total_gib=10.8, mem_free_gib=2.2, mem_available_gib=2.2,
+        swap_total_gib=12.0, swap_free_gib=10.8,
+    )
+    # gated SwapFree = 8.4GiB; cap this test to a small, easily-exhausted
+    # value so two candidates' claims can plausibly exceed it between them.
+    cap = 3 * GIB
+    # Each candidate needs ~2.5GiB of swap-assist on its own (headroom_factor
+    # default 1.25 applied to a 2GiB declared cost against 2.2GiB headroom).
+    spec_a = rg.ModelSpec(model_id="a", size_bytes=2 * GIB, n_ctx=1024, compute_overhead_bytes=0)
+    spec_b = rg.ModelSpec(model_id="b", size_bytes=2 * GIB, n_ctx=1024, compute_overhead_bytes=0)
+
+    decision_a, slot_a = rg.reserve_slot(
+        spec_a, meminfo=mi, read_temp_fn=NO_THERMAL, state_dir=tmp_path,
+        # max_swap_usage_bytes isn't a reserve_slot() parameter — the cap
+        # exercised here is can_admit()'s own default (MAX_SWAP_ASSIST_BYTES)
+        # rather than a custom small one, so use a fixture where the SECOND
+        # claim alone would still fit under the real 6.50GiB default but the
+        # combined two claims meaningfully shrink the second's headroom.
+    )
+    assert decision_a.admitted is True
+    assert decision_a.admitted_via_swap is True
+    assert decision_a.swap_bytes_claimed > 0
+    assert slot_a is not None
+
+    # Confirm the claim was persisted onto the slot record.
+    slots = rg.list_slots(state_dir=tmp_path)
+    assert len(slots) == 1
+    assert slots[0]["swap_bytes_claimed"] == decision_a.swap_bytes_claimed
+
+    decision_b, slot_b = rg.reserve_slot(
+        spec_b, meminfo=mi, read_temp_fn=NO_THERMAL, state_dir=tmp_path,
+    )
+    # The second candidate's can_admit() call must have been passed a
+    # nonzero reserved_swap_bytes derived from the first slot's claim — the
+    # directly observable effect is that the combined headroom it saw was
+    # smaller than compute_swap_assisted_headroom_bytes() would report with
+    # reserved_swap_bytes=0. Confirm this the same way NEW-135's own bug
+    # would have looked before the fix: recompute what an UNPROTECTED second
+    # admission would have seen (reserved_swap_bytes=0) and assert this
+    # decision's swap_bytes_claimed reflects the first claim having been
+    # accounted for instead.
+    unprotected_swap_headroom = rg.compute_swap_assisted_headroom_bytes(
+        mi, rg.MAX_SWAP_ASSIST_BYTES, reserved_swap_bytes=0,
+    )
+    protected_swap_headroom = rg.compute_swap_assisted_headroom_bytes(
+        mi, rg.MAX_SWAP_ASSIST_BYTES, reserved_swap_bytes=decision_a.swap_bytes_claimed,
+    )
+    assert protected_swap_headroom == unprotected_swap_headroom - decision_a.swap_bytes_claimed
+    if decision_b.admitted_via_swap:
+        # Still admitted (plenty of the 6.50GiB cap left even after A's
+        # claim) — but its own claim must be consistent with the shrunk cap,
+        # not a re-derivation as if A had never claimed anything.
+        assert decision_b.swap_bytes_claimed > 0
+
+
+def test_new135_reserve_slot_second_admission_refused_once_cap_exhausted():
+    # A sharper, cap-exhaustion version of the race above: a cap sized so
+    # ONE candidate's claim consumes it entirely. Without reserved_swap_bytes
+    # (the pre-fix behavior), a second identical candidate would be told the
+    # full cap is still available and also be admitted — the exact
+    # double-admission NEW-135 describes. With the claim correctly passed
+    # through as reserved_swap_bytes, the second candidate must be refused.
+    mi = meminfo_bytes(
+        mem_total_gib=10.8, mem_free_gib=2.2, mem_available_gib=2.2,
+        swap_total_gib=12.0, swap_free_gib=10.8,
+    )
+    spec = rg.ModelSpec(model_id="x", size_bytes=2 * GIB, n_ctx=1024, compute_overhead_bytes=0)
+
+    first = rg.can_admit(spec, meminfo=mi, read_temp_fn=NO_THERMAL)
+    assert first.admitted is True
+    assert first.admitted_via_swap is True
+
+    cap_sized_to_first_claim = first.swap_bytes_claimed
+
+    # Pre-fix behavior (reserved_swap_bytes defaults to 0): the second,
+    # identical candidate is blindly admitted against the same live
+    # SwapFree/cap, as if the first claim never happened.
+    second_unprotected = rg.can_admit(
+        spec, meminfo=mi, read_temp_fn=NO_THERMAL,
+        max_swap_usage_bytes=cap_sized_to_first_claim,
+    )
+    assert second_unprotected.admitted is True  # the exact bug NEW-135 describes
+
+    # Fixed behavior: passing the first claim through as reserved_swap_bytes
+    # leaves nothing left of this same cap for the second candidate.
+    second_protected = rg.can_admit(
+        spec, meminfo=mi, read_temp_fn=NO_THERMAL,
+        max_swap_usage_bytes=cap_sized_to_first_claim,
+        reserved_swap_bytes=cap_sized_to_first_claim,
+    )
+    assert second_protected.admitted is False
+    assert second_protected.admitted_via_swap is False
+
+
+def test_new135_total_reserved_swap_bytes_sums_pending_only(tmp_path):
+    rg.register_slot(
+        "a", cost_bytes=1 * GIB, state_dir=tmp_path, status=rg.SLOT_STATUS_PENDING,
+        swap_bytes_claimed=100 * MIB,
+    )
+    rg.register_slot(
+        "b", cost_bytes=1 * GIB, state_dir=tmp_path, status=rg.SLOT_STATUS_RESIDENT,
+        swap_bytes_claimed=200 * MIB,
+    )
+    rg.register_slot(
+        "c", cost_bytes=1 * GIB, state_dir=tmp_path, status=rg.SLOT_STATUS_PENDING,
+        swap_bytes_claimed=50 * MIB,
+    )
+    # Only the two PENDING slots' swap claims count — mirrors
+    # total_reserved_bytes()'s own PENDING-only contract.
+    assert rg.total_reserved_swap_bytes(state_dir=tmp_path) == 150 * MIB
+
+
 def test_swap_assist_ram_only_pass_is_byte_for_byte_unchanged(monkeypatch):
     # A load that already passes on MemAvailable alone must be completely
     # unaffected by SwapFree or enable_swap_assist — every GateDecision

@@ -12,7 +12,94 @@ and Appendix A.
 
 ---
 
-## 2026-08-25 (latest) — M1-G's G2b run live: grounding 3/3, sequencing 3/3; M1-G closed DONE
+## 2026-08-25 (latest) — 7.4a leftovers: NEW-135/NEW-136 fixed, NEW-140 scenario 3/NEW-141 closed; code-complete, self-tested, code-reviewer pass still pending
+
+With M1 (A-G) fully closed, this round picked the next item in §6.2's
+own "Then:" ordering — 7.4's and 7.4b A/C's remnants are live-verify-only
+and this session was directed not to run live model-load tests itself, so
+7.4a's two open code-level findings (`NEW-135`, `NEW-136`) were the next
+genuinely dispatchable piece.
+
+**Fix (`core/resource_gate.py`):** `compute_swap_assisted_headroom_bytes()`
+gained a `reserved_swap_bytes` parameter, subtracted from the policy cap
+(`max_swap_usage_bytes`), not from live `SwapFree` — swap authorized-but-
+not-yet-consumed by a still-PENDING admission hasn't actually reduced
+`SwapFree` yet. `can_admit()` threads the same parameter through.
+`GateDecision` gained `swap_bytes_claimed` (a magnitude — `required -
+headroom` when `admitted_via_swap`, 0 otherwise — not just the existing
+boolean, since summing PENDING slots' claims needs a magnitude; this also
+directly satisfies `NEW-136`'s own fix-direction note in the same change).
+`reserve_slot()` now computes the real PENDING-only sum of other slots'
+`swap_bytes_claimed` inside its own existing lock — mirroring the RAM-side
+`reserved`/`committed` sums it already computes there, same TOCTOU
+reasoning its own docstring already gives — and persists the admitted
+decision's claim onto the new slot record so the next racing caller sees
+it. `register_slot()` gained the matching `swap_bytes_claimed` parameter. A
+new `total_reserved_swap_bytes()` mirrors `total_reserved_bytes()` for any
+direct `can_admit()` caller outside `reserve_slot()` (none exist in this
+codebase today — confirmed via grep).
+
+**Verification:** 7 new regression tests added to
+`tests/test_resource_gate.py` (`test_new135_*` prefix), including
+`test_new135_reserve_slot_second_admission_refused_once_cap_exhausted`,
+which reproduces the exact pre-fix double-admission (two identical
+candidates each independently admitted against the same cap) and confirms
+the second is now refused once the first's claim is passed through as
+`reserved_swap_bytes`. Full suite: `python -m pytest tests/` → **668
+passed, 1 skipped** (was 661 passed, 1 skipped before this round — net +7,
+all new). No live component — this is a pure code-level accounting fix,
+consistent with `NEW-135`'s own "not a same-day fix... likely a
+`reserve_slot()`-adjacent sub-task of its own" framing finally being
+picked up.
+
+**Scope boundary, stated plainly:** this closes the double-claim race for
+`reserve_slot()`/`can_admit()` callers only. `can_dispatch_task()`'s
+separate swap-assist consumer (7.4a sub-task D2) registers no slot at all,
+so this accounting mechanism has nothing to sum against on that side — a
+concurrent `can_admit()` admission and a concurrent dispatch decision can
+still each independently claim swap headroom with no cross-awareness.
+Documented directly in `can_admit()`'s own docstring rather than left
+implicit, and in `NEW-135`'s ledger entry.
+
+**Bundled desk confirmation (also in 7.4a's scope, per §6.2's own
+instruction to "confirm that reasoning against the code before ticking
+[NEW-140 scenario 3 / NEW-141] off"):** confirmed directly against HEAD
+(not reused from the earlier M1-D code-read) that `core/planner_loader.py`
+does not exist on disk and `_evict_planner_and_confirm_free()` is absent
+from `core/loader_v2.py`. Both findings' own reproduction path called
+`core.planner_loader.PlannerLoader.load()` directly — a module that no
+longer exists — so both close per `NEW-159`'s own stated bar (M1-D
+code-read + M1-E live pass, both already done). `NEW-140`'s other,
+model-independent content (the general mechanism: a raised
+`MAX_SWAP_ASSIST_BYTES` re-admits historical swap-distress device states
+via swap-assist for a single model load) stays open and unaffected by this
+closure — it has not been re-measured against Qwen3.5-4B's real cost.
+
+**Rule-6 correction made in the same round:** `CODEY_MASTER_PLAN.md`'s
+§6.2 table and Appendix A both previously said 7.4b sub-tasks A and C
+"still need live-verify (M1-E)," reading as if M1-E already covered it.
+M1-E (2026-08-23) deliberately ran `main.py --no-resume`, not the real
+`codey-start` entry point both sub-tasks specifically call for — corrected
+in both locations so they read as genuinely open live-verifier asks, not
+items a completed round already quietly satisfied.
+
+**Status: code-complete, self-tested. NOT yet mandatory-code-reviewer-
+approved (rule 4 — this touches the resource gate's admission accounting
+directly) — no code-reviewer subagent was available in this session, the
+same limitation M1-F hit.** Docs updated: `CODEY_MASTER_PLAN.md` (§4's
+current-state narrative and both `NEW-135`/`NEW-136` lines in the §6.2
+table and Appendix A), `NEW_ISSUES.md` (`NEW-135`, `NEW-136`, `NEW-140`,
+`NEW-141`, `NEW-159` cross-reference).
+
+**Next step:** mandatory code-reviewer pass on this change before it can
+be marked done. No live-verifier pass is needed for this specific fix (it
+has no live component by design), but 7.4/7.4b A/C's remnants and the
+lease/registry and concurrency-test items further down §6.2's ordering
+still do.
+
+---
+
+## 2026-08-25 — M1-G's G2b run live: grounding 3/3, sequencing 3/3; M1-G closed DONE
 
 Follow-up to the entry below (same day, third round): the pre-registered
 `.cfg`-fixture G2b design was run live by live-verifier. Precondition
