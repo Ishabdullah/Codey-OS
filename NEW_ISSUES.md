@@ -9663,3 +9663,136 @@ finding for the same bug. See `NEW-39`.)*
   observation this fixture shape is grounded in), `NEW-14` (related
   concurrent-model distress observation), M1-E/M1-F (the real cost/cap
   figures this re-derivation used verbatim, not re-measured live).
+
+## Found during the mandatory rule-4 code-reviewer pass on Track B / Phase B1 (Restoricon Core), 2026-08-26 — one blocking defect FIXED same round, three non-blocking findings logged only
+
+### [NEW-189] `crm_service.py`'s `get_project()`/`list_projects()` had no `has_permission()` gate at all — FIXED same round
+- **Status: FIXED, 2026-08-26.** Reviewer proved with a fake zero-
+  permission actor object (`has_permission()` returning `False`
+  unconditionally) that `crm.get_project(1, actor)` and
+  `crm.list_projects(actor)` both returned full project data with no
+  `PermissionError` — unlike every other entity's read path in the same
+  file (`get_customer()`/`list_customers()` call `has_permission()` or
+  `can_access_customer()` before touching the database; `get_project()`/
+  `list_projects()` only special-cased `ROLE_CUSTOMER`/`ROLE_TECHNICIAN`
+  narrowing, with no base gate for any other actor). Not live-exploitable
+  under the shipped role matrix (all of `admin`/`manager`/`sales`/
+  `project_manager`/`ai_agent` happen to carry `PERM_READ_ALL_PROJECTS`),
+  but the check's absence meant a hypothetical future role, or a bug
+  elsewhere that produced an actor object outside `ROLE_PERMISSIONS`
+  entirely, would fall through to full, unfiltered project access with
+  zero enforcement — exactly the scenario the reviewer's fake actor
+  reproduced directly.
+- **Fix**: both methods now raise `PermissionError` unless the actor
+  holds at least one of `PERM_READ_ALL_PROJECTS`,
+  `PERM_READ_ASSIGNED_PROJECTS`, or `PERM_READ_OWN_PROJECTS` (added
+  `PERM_READ_OWN_PROJECTS` to the file's import block, previously
+  unused there), checked before any database read. Verified the fix
+  closes the reviewer's exact reproduction: a fake zero-permission actor
+  now gets `PermissionError` from both methods (reproduced directly,
+  not just claimed). `tests/test_restoricon_core/` full suite:
+  `11 passed`; full repo suite: `482 passed, 1 skipped`
+  (`--ignore=tests/test_resource_gate.py`) + `200 passed`
+  (`tests/test_resource_gate.py`) = consistent with the previously
+  reported `682 passed, 1 skipped` total.
+- **Not yet independently re-reviewed** — this fix needs its own
+  confirmatory code-reviewer pass before Phase B1 can be considered
+  code-reviewer-approved as a whole, per this project's standard
+  reject-and-loop-back pipeline (the same pattern `NEW-187` just went
+  through).
+
+### [NEW-190] `RESTORICON_API_HOST` env var can silently bind the REST API to `0.0.0.0` with no warning or guard
+- **Status: Confirmed, not fixed — logged only, non-blocking per the
+  reviewer's verdict.** `restoricon_core/api/server.py:25`:
+  `DEFAULT_HOST = os.getenv("RESTORICON_API_HOST", "127.0.0.1")` — the
+  default is the safe loopback address, but nothing prevents
+  `RESTORICON_API_HOST=0.0.0.0` (or any other interface) from silently
+  exposing the token-authenticated CRM API beyond localhost, with no
+  startup warning distinguishing "explicitly configured for a LAN
+  deployment" from "accidentally exported/inherited from a shell
+  profile." Same shape as this project's own prior GUI-server finding
+  (`C-2`, `2026-07-29` — see that round's entries) about unguarded
+  bind-address configuration.
+- **Suggested direction, not applied**: log a startup warning whenever
+  the resolved bind host is not `127.0.0.1`/`localhost`, so a
+  non-loopback bind is visible in the logs rather than silent.
+
+### [NEW-191] `restoricon_core/api/routes.py:244`'s 500 handler leaks raw exception text to the client
+- **Status: Confirmed, not fixed — logged only, non-blocking per the
+  reviewer's verdict.** `except Exception as ex: return 500, {...},
+  {"error": f"Internal server error: {str(ex)}"}` returns the raw
+  Python exception string in the HTTP response body for any unhandled
+  server-side error — a standard information-disclosure smell (can leak
+  file paths, SQL fragments, internal state) even though this server is
+  loopback-only by default (see `NEW-190`, which is exactly why this
+  isn't purely academic if the bind address is ever widened).
+- **Suggested direction, not applied**: return a generic error message
+  to the client and log the real exception (with traceback) server-side
+  only.
+
+### [NEW-192] Only `admin`/`customer` roles hold `PERM_SIGN_CONTRACTS` — `manager`/`sales`/`project_manager` cannot sign contracts
+- **Status: Suspected (business-rule question, not a security defect) —
+  logged only, non-blocking per the reviewer's verdict.** Confirmed via
+  `restoricon_core/auth.py`'s `ROLE_PERMISSIONS` matrix: `PERM_SIGN_
+  CONTRACTS` is granted only to `ROLE_ADMIN` and `ROLE_CUSTOMER`. If a
+  `sales` or `project_manager` role is expected to countersign contracts
+  in Restoricon's real workflow (plausible for a construction/
+  restoration business's actual signing process), this may be a
+  permissions-matrix oversight from Phase B1's initial build rather than
+  an intentional restriction. Not fixed here — needs Ish's or a future
+  round's confirmation of the intended real-world signing workflow
+  before changing the matrix.
+
+### [NEW-193] Several Restoricon Core entities have `POST` routes but no corresponding `GET` routes yet
+- **Status: Confirmed, not fixed — logged only, non-blocking per the
+  reviewer's verdict, likely just incomplete Phase B1 scope rather than
+  a defect.** Reviewer noted during the `restoricon_core/api/routes.py`
+  read-through that some entities' route registration is currently
+  write-only. Not enumerated exhaustively in this entry — a future round
+  extending the REST API surface should audit `routes.py` against the
+  full entity list in `CODEY_MASTER_PLAN.md`'s Phase B1/Appendix C spec
+  and fill in the missing read routes as part of that work, not as a
+  standalone fix.
+
+### [NEW-194] `get_project()`/`list_projects()`'s narrowing logic (customer isolation, technician-assignment filter, financial-field redaction) is keyed on `actor.role` identity, not on the permission that passed `NEW-189`'s new top-level gate
+- **Status: Confirmed, not fixed — logged only, non-blocking, does not
+  reopen `NEW-189`.** Found by code-reviewer during `NEW-189`'s
+  confirmatory pass, 2026-08-26. `NEW-189`'s fix added a top-level check
+  requiring at least one of `PERM_READ_ALL_PROJECTS`/
+  `PERM_READ_ASSIGNED_PROJECTS`/`PERM_READ_OWN_PROJECTS` before either
+  method touches the database — but everything BELOW that gate (the
+  customer-isolation check, the technician-assigned-employee filter, and
+  the financial-field/notes/subcontractors redaction for customers) is
+  still keyed on `actor.role == ROLE_CUSTOMER`/`== ROLE_TECHNICIAN`
+  identity, not on which of the three permissions the actor actually
+  holds. A constructed actor with `role="nobody"` and `has_permission()`
+  returning `True` only for `"read:own_projects"` passes the new
+  top-level gate (satisfying `NEW-189`'s fix), then falls through every
+  narrowing branch below it (none of which match `role == ROLE_CUSTOMER`
+  or `== ROLE_TECHNICIAN`) and receives an UNFILTERED `get_project()`/
+  `list_projects()` result — another customer's project, full financials,
+  full notes, full subcontractors, with no customer-isolation check at
+  all.
+- **Not live-exploitable under the shipped role matrix** — only
+  `ROLE_CUSTOMER` currently holds `PERM_READ_OWN_PROJECTS` and only
+  `ROLE_TECHNICIAN` currently holds `PERM_READ_ASSIGNED_PROJECTS`, so no
+  actor construction reachable through this codebase's own actor-creation
+  paths can currently produce the role/permission mismatch the
+  reproduction used. Same "one matrix edit away" shape `NEW-189` itself
+  used to justify non-Critical status for its own (now-fixed) gap — this
+  is the same class of latent risk, one layer deeper.
+- **Fix direction, if picked up later**: re-key the narrowing logic
+  (customer isolation, technician filter, financial redaction) on the
+  specific permission the actor holds (`PERM_READ_OWN_PROJECTS` →
+  customer-shaped narrowing, `PERM_READ_ASSIGNED_PROJECTS` → technician-
+  shaped narrowing, `PERM_READ_ALL_PROJECTS` → no narrowing) rather than
+  on `actor.role` identity, so the permission model and the data-shaping
+  logic can't drift apart the way `NEW-189` and this finding both show
+  they currently can. Not fixed here — same file, same category as
+  `NEW-189`, but a distinct code change or Ish's confirmation that
+  role-identity keying is intentional (roles and permissions are meant to
+  move together, and `has_permission()` alone is not meant to be load-
+  bearing for shaping) is enough of a design question that it should not
+  be silently changed in a confirmatory-review round.
+- **Cross-references:** `NEW-189` (the fix this was found reviewing;
+  does not reopen it — this is a distinct, deeper gap).

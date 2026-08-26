@@ -2053,6 +2053,37 @@ second process on the device returning correctly role-filtered data, and
 a Communication History + Audit Log record written by both a human action
 and an agent action.
 
+**Status, 2026-08-26 — code-complete, mandatory rule-4 review run,
+one blocking gap found and fixed, three (four, after the confirmatory
+pass) non-blocking findings logged, NOT yet live-verified.**
+`restoricon_core/` (`database.py`, `models.py`, `auth.py`,
+`services/{audit_service,communication_service,crm_service}.py`,
+`api/{server,routes}.py`) built: SQLite schema for all nine Appendix C
+entities, PBKDF2-HMAC-SHA256 auth with the 7-role ladder (adds
+`ai_agent` and `customer` to the 6 named above), append-only audit log
+and communication history, and a `127.0.0.1`-bound REST API. Rule-4
+review independently verified crypto, token handling, network binding,
+parameterized SQL, audit-log append-only integrity, and SQLite
+thread-safety all clean. **Blocking defect found and fixed same
+day**: `crm_service.py`'s `get_project()`/`list_projects()` had no
+`has_permission()` gate at all (`NEW-189`, proven with a fake
+zero-permission actor, fixed and confirmatory-approved). **Non-blocking,
+logged, not fixed**: `NEW-190` (silent `0.0.0.0` bind risk via env var),
+`NEW-191` (500 handler leaks raw exception text), `NEW-192` (only
+`admin`/`customer` can sign contracts — needs Ish's confirmation of the
+real signing workflow), `NEW-193` (some entities have `POST` but no
+`GET` routes yet), `NEW-194` (found during `NEW-189`'s confirmatory
+pass: the narrowing logic below `NEW-189`'s new gate is still keyed on
+`actor.role` identity rather than the permission that passed the gate —
+same "one matrix edit away" latent shape as `NEW-189` itself, one layer
+deeper). Test suite: `tests/test_restoricon_core/` 11 passed; full repo
+suite 682 passed/1 skipped (includes an unrelated concurrent
+`core/resource_gate.py` workstream's own tests). **Exit criteria not
+yet fully met as "live-verified"**: the test suite includes live
+HTTP client/server roundtrip tests, but this has not been confirmed
+against the real `codey-start` entry point with a genuinely separate
+OS process per rule 2/7's code-complete-vs-live-verified distinction —
+that live-verifier pass is still open.
 ### 6.4 Track B / Phase B2 — The voice/inbox limb writes through
 
 **Depends on:** B1 (needs the Core to write to). Independent of A1 except

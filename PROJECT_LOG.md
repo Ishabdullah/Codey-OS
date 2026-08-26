@@ -12,7 +12,71 @@ and Appendix A.
 
 ---
 
-## 2026-08-26 (latest) — NEW-187 fix: mandatory code-reviewer pass caught a backwards fail-safe direction, fixed same round
+## 2026-08-26 (latest) — Track B / Phase B1 mandatory rule-4 review: one blocking RBAC gap found and fixed (NEW-189), three non-blocking findings logged (NEW-190/191/192/193)
+
+Ran the mandatory rule-4 code-reviewer pass on Track B / Phase B1
+(Restoricon Core's data engine, auth, and local REST API), built by a
+concurrent workstream in this same repo. The implementing round's own
+report had already flagged this review as outstanding before sign-off —
+rule 4 names server binding/auth explicitly, so this was never optional.
+
+**Verdict: CHANGES REQUESTED, one blocking defect, fixed same round.**
+Crypto (PBKDF2-HMAC-SHA256, real per-user salts, constant-time
+comparison), Bearer token generation/revocation, `127.0.0.1` network
+binding, parameterized SQL throughout, audit-log append-only integrity,
+and thread-safety of the SQLite connection caching under the
+multi-threaded server were all independently verified clean — reviewer
+ran real tests, not just read the code.
+
+**Blocking defect, `NEW-189`**: `crm_service.py`'s `get_project()` and
+`list_projects()` had no `has_permission()` gate at all, unlike every
+other entity's read path in the same file. Reviewer proved this
+empirically with a fake zero-permission actor object — both methods
+returned full project data with no `PermissionError`. Not
+live-exploitable under the shipped role matrix (every non-customer/
+technician role happens to carry `PERM_READ_ALL_PROJECTS`), but the
+missing gate meant a future role or a bug producing an out-of-matrix
+actor would fall through to unfiltered access with zero enforcement.
+**Fixed this round**: both methods now require at least one of
+`PERM_READ_ALL_PROJECTS`/`PERM_READ_ASSIGNED_PROJECTS`/
+`PERM_READ_OWN_PROJECTS` before touching the database (added the
+previously-unused `PERM_READ_OWN_PROJECTS` import). Verified directly —
+re-ran the reviewer's exact fake-actor reproduction against the patched
+code; both methods now raise `PermissionError` as expected.
+`tests/test_restoricon_core/` — `11 passed`. Full repo suite:
+`482 passed, 1 skipped` (`--ignore=tests/test_resource_gate.py`) +
+`200 passed` (`tests/test_resource_gate.py`) — consistent with the
+previously reported `682 passed, 1 skipped` total.
+
+**Non-blocking findings logged, not fixed this round** (reviewer's
+verdict: don't block sign-off on these, but track them per rule 8):
+`NEW-190` (`RESTORICON_API_HOST` can silently bind to `0.0.0.0`, no
+startup warning — same shape as the project's prior `C-2` GUI-binding
+finding), `NEW-191` (the API's 500 handler leaks raw exception text to
+the client), `NEW-192` (only `admin`/`customer` hold
+`PERM_SIGN_CONTRACTS` — plausibly a business-rule oversight if `sales`/
+`project_manager` are meant to countersign contracts in Restoricon's
+real workflow; needs Ish's confirmation, not a code fix), `NEW-193`
+(several entities have `POST` routes with no corresponding `GET` routes
+yet — likely just incomplete Phase B1 scope).
+
+**Status: `NEW-189`'s fix is code-complete and empirically verified by
+this round, but has NOT itself had an independent confirmatory
+code-reviewer pass** — the same "applying a reviewer's own requested fix
+isn't the same as an independent re-review" reasoning `NEW-187` required
+applies here too. Phase B1 is not yet fully code-reviewer-approved as a
+whole until that confirmatory pass runs.
+
+Files touched: `restoricon_core/services/crm_service.py`,
+`NEW_ISSUES.md`, this file. `CODEY_MASTER_PLAN.md`'s Phase B1 status
+line was not touched by this round — left for the confirmatory pass or
+a project-architect round to update once the review chain closes, since
+this round's scope was security review + the one blocking fix, not
+full doc reconciliation for a subsystem this round didn't build.
+
+---
+
+## 2026-08-26 — NEW-187 fix: mandatory code-reviewer pass caught a backwards fail-safe direction, fixed same round
 
 Follow-up to the same-day 7.4a-closeout round below: `core/resource_
 gate.py`'s `NEW-187` fix (`can_dispatch_task()` reading `total_reserved_
