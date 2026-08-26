@@ -12,7 +12,144 @@ and Appendix A.
 
 ---
 
-## 2026-08-26 (latest) — Real `codey-start` live-verify: 7.4b-A closed, 7.4b-C half-closed, `NEW-180` partially closed; two new findings (`NEW-195` hang, `NEW-196` stale slot) surfaced
+## 2026-08-26 (latest) — Clean(er) `NEW-195` re-test, 7.4b-C's background half live-verified for the first time, `n_threads=6` benchmarked (`NEW-197`), a real monitor bug found and fixed mid-round (`NEW-198`)
+
+Follow-up to the previous entry's aborted round. Two live actions this
+time: (1) re-run the `NEW-195` hang scenario under `tools/
+adb_confound_monitor.py`'s watch, and (2) exercise 7.4b-C's
+never-tested background/daemon-dispatch context branch by submitting a
+task directly via `core/state.py`'s real `StateStore.add_task()` while
+the daemon ran alone. A real bug in the confound monitor itself
+(`NEW-198`) was found and fixed by the coordinating session mid-round,
+after the raw report came back — see below.
+
+**7.4b-C background/daemon-dispatch half: CONFIRMED, first time ever.**
+Daemon alone, no TUI (`is_interactive_session_active()` returned
+`False`); a task added directly to the daemon's own DB was picked up and
+spawned `llama-server ... -c 16384 -t 6 ...`, matching
+`get_coder_background_n_ctx()` (`utils/config.py:137`) exactly. Task
+completed (`status: done`, `result: 'Done.'`), wall time 319s. This
+closes 7.4b-C's live-verification GAP (both context branches now have
+real spawn-command-line evidence) but not item C itself — see below.
+
+**`NEW-195` re-test: did NOT hang this time, but this is NOT a clean
+single-variable result.** Same trivial "ping" prompt under a fresh
+`codey-start` cold interactive spawn (`-c 65536 -t 6` confirmed via log
+and `ps`) completed in 324.8s (160.7s prefill over 4156 tokens + 164.0s
+eval, 3.31 tok/s), then correctly stopped to ask for shell-command
+confirmation. The ADB confound monitor's JSONL log (its stdout was
+misleadingly empty throughout the live session — see `NEW-198` below)
+showed wakefulness stayed `Awake` the entire ~22.7-minute window, unlike
+the original capture's screen-standby confound — but two brief
+foreground-activity flips to the Samsung launcher did occur, including a
+~3-second blip bracketing the exact moment "ping" was sent. Separately,
+`NEW-197` had raised `MODEL_CONFIG["n_threads"]` 4→6 between the
+original capture and this re-test, so the confound-reduction and the
+thread-count increase both changed at once — the measured speedup at 6
+threads is the same order of magnitude as the difference between 700+s
+and 325s, a competing explanation this round's data cannot rule out.
+**Decision: `NEW-195` stays OPEN, framing downgraded further, NOT marked
+Resolved/non-reproduced** — see `NEW-195`'s own entry for the full
+reasoning. What has firmed up: 542 tokens at this device's real
+measured throughput is roughly 325s at 6 threads, so part of the
+original 700+s stall may simply have been normal (if slow) generation
+aborted before it could finish, independent of the phone-call/
+screen-standby confound — but a single-variable, fully isolated re-run
+(same `n_threads`, zero foreground flips for the whole window) has still
+never been done.
+
+**`NEW-196` (stale resident slot after SIGTERM): did NOT recur this
+round.** `~/.codeyOS/resource_gate_state.json` is now `[]` after this
+round's teardown (independently checked, not inferred from "teardown
+reported clean" alone) — plausibly because nothing was killed
+mid-generation this time (the "ping" request completed normally before
+teardown), unlike the original capture. Does not close `NEW-196` — the
+underlying `SIGTERM`-during-generation cleanup gap (`NEW-40`'s scope) is
+unchanged in the code; this round simply didn't exercise that failure
+window.
+
+**`NEW-197` (`n_threads` 4→6) real benchmark numbers, split status —
+stays OPEN.** Real `print_timing` lines from `~/.codeyOS/
+llama-server.log`: interactive run (`n_ctx=65536`, cold 4156-token
+prompt) — prefill 25.86 tok/s, eval 3.31 tok/s; background-dispatch run
+(`n_ctx=16384`, prefix-cache-assisted) — prefill 31.03/16.65 tok/s, eval
+5.45/6.25 tok/s. Against the `n_threads=4` baseline (10.63 tok/s
+prefill, 2.15-2.74 tok/s eval, 2026-08-23): prefill ~2.4-2.9x faster,
+eval ~1.2-2.9x faster — directionally a real speedup, but not a
+controlled A/B (no same-session `n_threads=4` control, different
+`n_ctx`/cache states between runs, and the prefill ratio is superlinear
+relative to the 1.5x thread increase, which is itself a sign the two
+baselines aren't fully comparable). Thermal/time-to-throttle axis: **not
+measured at all** — log showed one `⚠ Thermal: Continuous inference for
+5.3 min` line, short of the 10-minute threshold, but the daemon
+restarted between phases (PID 31928→13586→15870), almost certainly
+resetting that counter. Both axes stay open pending a proper
+same-session controlled test.
+
+**`NEW-198` (new, Confirmed, Fixed same round): `tools/
+adb_confound_monitor.py`'s stdout was fully buffered when redirected to
+a file, not line-buffered** — meaning the monitor's own real-time
+confound detection silently failed during this exact round. Found by
+the coordinating (project-architect) session while reviewing the raw
+report: the file stayed empty for the run's full duration; live-verifier
+initially read "empty stdout" as "no confound" and only caught the real
+flips afterward via the JSONL log's `f.flush()`-backed writes. Fixed via
+`sys.stdout.reconfigure(line_buffering=True)` /
+`sys.stderr.reconfigure(line_buffering=True)` right after argument
+parsing in `main()` (`tools/adb_confound_monitor.py:109-110`). Verified
+empirically (before/after redirected-stdout test, confirmed lines now
+appear in real time); full suite re-run clean, 671 passed/1 skipped. No
+`code-reviewer` pass run (not a process-lifecycle/kill-logic change,
+rule 4 does not apply) — code-complete + empirically verified, not
+reviewer-approved.
+
+**`NEW-199` (new, Suspected, testing-harness scope only): a scripted
+`/exit` sent via piped (non-TTY) stdin did not resolve a pending
+shell-command confirmation prompt** during this round's teardown.
+Live-verifier's own root-cause guess (unverified) is that the
+confirmation gate's read doesn't resolve cleanly from non-TTY piped
+stdin. Scoped explicitly as a testing-harness limitation, not a
+production-usage claim — teardown was still accomplished cleanly via
+direct `kill -TERM` on tracked PIDs.
+
+**`free -h` checkpoints (verbatim):** baseline `4.6Gi used/2.1Gi
+free/6.0Gi avail`, Swap `1.7Gi used/14Gi free`; background-dispatch peak
+`8.2Gi used/110-180Mi free/2.3-2.6Gi avail`, Swap `2.1Gi used`;
+interactive peak `8.1-8.5Gi used/118-316Mi free/2.0-2.5Gi avail`, Swap
+`2.7-3.8Gi used`; final teardown `4.3Gi used/3.7Gi free/6.1Gi avail`,
+Swap `2.1Gi used`. Comparable tightness to the previous round
+(`NEW-14`-shaped observation) but this time resolved rather than
+stalling.
+
+**Teardown: confirmed clean.** Tracked-PID kill (TUI process, then the
+real `run_u44B.py` PID), then real `codey-stop` ("no llama-server
+processes remain"); `ps aux` grep for `llama-server|daemon.py|
+run_u44B|codey-start` empty afterward; `git status` clean.
+
+**7.4b status: A fully closed; C's live-verification gap now closed
+(both halves confirmed), but C itself — and the 7.4b parent checkbox —
+stays open**, blocked on `NEW-145`/`NEW-149`/`NEW-155`'s underlying race
+conditions (not exercised by this round's spawn ordering) and the
+background context ceiling's own re-derivation from §5.1 (only the
+interactive ceiling, 65536, has been re-derived so far, per Ish's
+2026-08-22 direction). Docs updated: `CODEY_MASTER_PLAN.md` §4's 7.4b
+row and Appendix A's 7.4b entry (item C and the parent bullet); the
+Phase A1 "Remaining items" table's lease/registry and concurrency-test
+rows re-checked and confirmed still accurate/unaffected — those two
+remain the next unstarted items in Phase A1.
+
+**What's next:** per §6.2's Phase A1 ordering, the lease/registry
+(absorbing `NEW-104`, `NEW-144`/`NEW-146`, `NEW-149`) and the
+concurrency test (can one `llama-server` serve the daemon, TUI/GUI, and
+both limbs via slot/`--parallel`) are the two remaining unstarted items
+and should be the next round's focus. `NEW-145`/`NEW-149`/`NEW-155`'s
+race conditions are a natural fit to fold into the lease/registry work,
+since that work directly replaces the port-probe reuse mechanism those
+three findings are about.
+
+---
+
+## 2026-08-26 — Real `codey-start` live-verify: 7.4b-A closed, 7.4b-C half-closed, `NEW-180` partially closed; two new findings (`NEW-195` hang, `NEW-196` stale slot) surfaced
 
 Live-verifier ran the follow-up round recommended at the bottom of the
 previous entry: one real `codey-start` full-stack launch, bundling

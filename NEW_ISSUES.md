@@ -10108,6 +10108,66 @@ finding for the same bug. See `NEW-39`.)*
   point gathered in the same session), `CODEY_MASTER_PLAN.md` §8 Q10
   (the risk-acceptance decision the admission fact should inform,
   without unilaterally reopening it).
+- **Status update, 2026-08-26 — clean(er) re-run: same scenario did NOT
+  hang, but the re-run is NOT a clean single-variable test, so this
+  stays OPEN, downgraded further rather than closed.** A second
+  `codey-start` full-stack pass sent the same trivial "ping" prompt under
+  the same interactive scenario, this time monitored throughout by
+  `tools/adb_confound_monitor.py` (see `NEW-198`). Wakefulness stayed
+  `Awake` the entire ~22.7-minute window — no screen-off/standby this
+  time, unlike the original capture — but foreground activity briefly
+  flipped to the Samsung launcher twice, including a ~3-second blip
+  bracketing the exact moment the prompt was sent (`PING_SENT_AT` =
+  11:32:48). Live-verifier did not deliberately switch apps and does not
+  know the cause; the blip is too brief relative to the run's 324.8s
+  total to plausibly explain that duration, but it means this round is
+  not a perfectly confound-free control either — a materially better
+  one than the original capture, not a perfect one.
+- **The response this time: 542 tokens in 324.8s (160.7s prefill over
+  4156 tokens + 164.0s eval, 3.31 tok/s), then a correct stop to ask for
+  shell-command confirmation** (the model interpreted "ping" as a
+  request to run the shell `ping` command — a reasonable tool-use
+  reading, not a bug). This was NOT a same-scenario, same-conditions
+  re-run in one respect that matters: `NEW-197` raised
+  `MODEL_CONFIG["n_threads"]` 4→6 between the original capture and this
+  re-test, so the confound-reduction and the thread-count increase both
+  changed at once. The measured generation speedup at 6 threads (roughly
+  1.2-2.9x per `NEW-197`'s own numbers) is the same order of magnitude
+  as the difference between 700+s of non-completion and this run's 325s
+  — a competing, equally plausible explanation for why this run
+  finished when the original didn't. This round's data cannot isolate
+  which of (confound removed) or (threads raised) — or some mix of
+  both — is responsible.
+- **What this DOES establish, stated precisely:** 542 tokens of output
+  at this device's real measured throughput (160.7s prefill + 164.0s
+  eval ≈ 325s) is this scenario's normal cost at `n_threads=6`. A longer
+  thinking block, or the same prompt at the original `n_threads=4`
+  (roughly 2x slower per `NEW-197`), would plausibly put >700s of
+  non-completion inside a scenario's ordinary generation time with no
+  internal defect required — i.e., part of the original 700+s
+  observation may simply have been normal (if slow) generation that
+  live-verifier aborted before it could finish, independent of the
+  phone-call/screen-standby confound. This reasoning does NOT require
+  claiming "the clean re-run didn't reproduce it, so the original was
+  the confound" — that framing conflates two changed variables and is
+  not supported by this round's evidence alone.
+- **Decision: stays OPEN, framing downgraded further rather than
+  resolved/closed-as-non-reproduced.** Marking this Resolved would
+  overclaim what a two-variable re-test can show. What has firmed up:
+  the original 700+s stall is no longer the project's only data point on
+  this scenario's normal duration, and nothing in either session
+  currently requires a Codey-OS-internal defect to explain the delay —
+  but a properly isolated re-run (same `n_threads`, verified zero
+  foreground-app flips for the entire window) has still never been done.
+  Recommended next step if this is picked up again: hold `n_threads`
+  fixed at whatever the current production value is and use the
+  confound monitor for the full window with zero flips, so a future
+  result isolates one variable at a time.
+- **Cross-references, added this round:** `NEW-197` (the concurrent
+  thread-count change that confounds this re-test's interpretation),
+  `NEW-198` (the ADB confound monitor's stdout-buffering bug, fixed
+  same round it was found, which very nearly caused this exact re-test
+  to be misjudged as confound-free in real time).
 
 ### [NEW-196] Live occurrence of `NEW-40`'s documented SIGTERM/cleanup asymmetry: a mid-generation `SIGTERM` left a stale `"resident"` slot entry in `resource_gate_state.json` after a real `codey-start` teardown
 
@@ -10159,6 +10219,25 @@ finding for the same bug. See `NEW-39`.)*
   pattern this round's `codey-stop` kill relied on, verified safe in
   this specific instance only), `NEW-195` (the hung generation whose
   mid-flight `SIGTERM` triggered this).
+- **Status update, 2026-08-26 — did NOT recur in the same day's
+  follow-up round; not closed, just not re-observed.** The `NEW-195`
+  re-test round's own teardown was reported clean (`codey-stop` reported
+  "no llama-server processes remain," tracked-PID `ps` grep empty,
+  `git status` clean). This coordinating session independently checked
+  `~/.codeyOS/resource_gate_state.json` after that round's teardown
+  (verification per this round's own instruction not to infer from
+  "teardown clean" alone) and found it is now `[]` — empty, no stale
+  `"resident"` slot, mtime matching that round's final-teardown
+  timestamp. This is real evidence the specific stale-slot outcome did
+  not repeat this time, most plausibly because that round's teardown
+  path did not need to fight a hung mid-generation `SIGTERM` the way
+  `NEW-195`'s original capture did (this round's "ping" request
+  completed normally in 324.8s before the session was torn down, rather
+  than being killed mid-flight). This does NOT close `NEW-196` — the
+  underlying `SIGTERM`-during-generation cleanup gap (`NEW-40`'s own
+  scope) is unchanged in the code; this round simply didn't exercise the
+  same failure window, since nothing was killed mid-generation this
+  time.
 
 ## Found/actioned outside the live-verify round above, 2026-08-26 — Ish's direct request, applied same session
 
@@ -10196,3 +10275,118 @@ finding for the same bug. See `NEW-39`.)*
 - **Cross-references:** `NEW-195` (the confound this change was
   deliberately not tested against), `core/thermal.py` (the throttle
   logic whose behavior this change may shift).
+- **Status update, 2026-08-26 (clean(er) re-run + real benchmark
+  numbers). Split status, per the same one-claim-closes/one-stays-open
+  shape as `NEW-180`:**
+  - **Speedup axis: directionally confirmed with real numbers, but NOT a
+    controlled measurement — stays open.** Real `print_timing` lines from
+    `~/.codeyOS/llama-server.log` at `n_threads=6`: interactive run
+    (`n_ctx=65536`, cold 4156-token prompt) — prefill 25.86 tok/s, eval
+    3.31 tok/s; background-dispatch run (`n_ctx=16384`,
+    prefix-cache-assisted) — prefill 31.03/16.65 tok/s, eval 5.45/6.25
+    tok/s across two calls. Against M1-E-fix's `n_threads=4` baseline
+    (10.63 tok/s prefill, 2.15-2.74 tok/s eval, 2026-08-23): prefill is
+    roughly 2.4-2.9x faster, eval roughly 1.2-2.9x faster. **This is NOT
+    a clean A/B**: no same-session `n_threads=4` control was captured
+    (reverting mid-round was out of scope), the two runs differ in
+    `n_ctx` and prefix-cache state, and — most importantly — the prefill
+    ratio (2.4-2.9x) is well above what a 1.5x thread increase (4→6)
+    should linearly produce; a superlinear jump like that is a sign the
+    two baselines aren't comparable (different prompt lengths, cache
+    states, or ambient load), not evidence threads alone overdelivered.
+    Directionally, more threads plausibly helped — but this data cannot
+    stand as validation of a specific speedup factor.
+  - **Time-to-throttle axis: NOT measured at all — stays open.** The log
+    showed one `⚠ Thermal: Continuous inference for 5.3 min` line,
+    short of `core/thermal.py`'s 10-minute threshold, but the daemon
+    itself restarted between the background-dispatch and interactive
+    phases (PID 31928 → 13586 → 15870), which almost certainly reset
+    this counter — neither phase individually sustained inference for
+    close to 10 minutes, and nothing in the log shows `_current_threads`
+    ever being reduced. No evidence either way on whether `n_threads=6`
+    reaches the throttle threshold faster than the old baseline of 4.
+  - **Net: `NEW-197` stays OPEN.** Not because the change is suspected
+    wrong — 671/1 suite still passes and the directional numbers are
+    consistent with a real speedup — but because neither of the two
+    things this entry originally flagged as unmeasured (controlled
+    speedup, time-to-throttle) has actually been measured yet. A future
+    round should capture a same-session `n_threads=4` vs `6` A/B on an
+    identical prompt/`n_ctx`, plus a genuine 10+ minute sustained-load
+    run without an intervening daemon restart, before this closes.
+
+### [NEW-198] `tools/adb_confound_monitor.py`'s stdout was fully buffered (not line-buffered) when redirected to a file, meaning the monitor's own real-time confound detection silently failed during the exact live-verify round it was built to protect
+
+- **Status: Confirmed, Fixed same round.** Found by the coordinating
+  (project-architect) session, not live-verifier, while reviewing this
+  round's raw report: the `NEW-195` re-test round redirected the
+  monitor's stdout to a file for a background live session, and the file
+  stayed empty for the run's full ~22.7-minute duration — Python
+  defaults to full buffering (not line buffering) on `sys.stdout` when
+  it isn't a TTY. Live-verifier initially read "empty stdout" as "no
+  confound detected in real time" and only caught the actual ~19s and
+  ~3s foreground-activity flips afterward, by separately inspecting the
+  monitor's JSONL log file, which used its own explicit `f.flush()` on
+  every write and therefore stayed accurate throughout. This is not a
+  theoretical risk: it is the exact mechanism by which this monitor,
+  built and reviewed the immediately prior round specifically to protect
+  live-verify sessions from false negatives, nearly produced one during
+  its very next real use.
+- **Reproduction (before/after, both empirically run, not just read):**
+  redirected the monitor's stdout to a file and inspected the file's
+  content mid-run, before the process exited. Before the fix, the file
+  stayed empty until the process exited (or was killed) and its stdio
+  buffer flushed on close. After the fix, lines appeared in the file in
+  real time, matching the monitor's own polling interval.
+- **Fix:** `tools/adb_confound_monitor.py:109-110`, added
+  `sys.stdout.reconfigure(line_buffering=True)` and
+  `sys.stderr.reconfigure(line_buffering=True)` immediately after
+  argument parsing in `main()`, before any output is produced.
+- **Verification tier, stated precisely per this project's
+  code-complete/reviewer-approved/live-verified distinction:** fixed and
+  empirically verified (the before/after redirected-stdout test above),
+  full suite re-run clean (671 passed, 1 skipped). **No `code-reviewer`
+  subagent pass has been run on this change** — it is a 2-line
+  diagnostic-tooling fix with no process-lifecycle, kill-logic, or
+  RAM-sensitive content (CLAUDE.md rule 4 does not apply; the monitor
+  only reads via `adb shell dumpsys`/`logcat`, spawns nothing, kills
+  nothing), so it does not require rule 4's mandatory pass, but it also
+  has not had a code-hygiene or general review pass — mark as
+  code-complete + empirically verified, not reviewer-approved.
+- **Impact if left unfixed:** any future live-verify round relying on
+  this monitor's live stdout for real-time confound awareness (as
+  opposed to post-hoc JSONL inspection) would silently get a false "no
+  confound" signal for the entire session whenever stdout is redirected
+  to a file rather than a live TTY — exactly the mode a background
+  monitoring process normally runs in.
+- **Cross-references:** `NEW-195` (the round this bug was found in the
+  middle of; the JSONL-file fallback is what saved that round's
+  confound-detection accuracy despite this bug).
+
+### [NEW-199] Piped (non-TTY) stdin does not reliably resolve the shell-command confirmation prompt during a scripted `/exit` — testing-harness limitation, not a claimed production defect
+
+- **Status: Suspected, scoped as a testing-harness constraint only.**
+  Found 2026-08-26 during the `NEW-195` re-test round: live-verifier
+  scripted a `/exit` via piped (non-TTY) stdin to close out the second
+  interactive test session, and it did not resolve the pending
+  shell-command confirmation prompt (`Run shell command: 'ping -c 1
+  google.com'?`) that the "ping" interpretation had left open.
+  Live-verifier's own root-cause guess — that the confirmation gate
+  reads via a mechanism that doesn't resolve cleanly from non-TTY piped
+  stdin — is explicitly unverified, not diagnosed further this round,
+  and is reported here as a hypothesis, not a finding.
+- **Why this is scoped as Suspected/harness-only rather than a
+  production bug claim:** real interactive users run this product from
+  an actual terminal (a TTY), not from a script piping canned input over
+  stdin; there is no evidence yet that this affects any real usage path.
+  It matters here only because it is a live-verify testing-harness
+  constraint worth knowing about for future scripted test sessions —
+  teardown in this specific round was still accomplished cleanly via
+  direct `kill -TERM` on the tracked PIDs rather than via the piped
+  `/exit`, so it did not block or corrupt this round's results.
+- **Not investigated further this round** — out of scope for a
+  docs-reconciliation pass. A future round that wants to build more
+  scripted/automated live-verify tooling should check whether the
+  confirmation-prompt read path (`input()` vs. some other read) behaves
+  differently under piped stdin before relying on scripted `/exit` to
+  close out sessions with a pending confirmation.
+- **Cross-references:** `NEW-195` (the round this was found during).

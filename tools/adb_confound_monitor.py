@@ -98,6 +98,17 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    # NEW-198: stdout defaults to fully-buffered (not line-buffered) when
+    # not attached to a TTY (e.g. redirected to a log file by a live-verify
+    # session watching it in real time) — without this, change
+    # notifications below can sit in Python's internal buffer indefinitely
+    # and never reach a tail -f/redirected log until the process exits,
+    # defeating this script's entire real-time-confound-detection purpose.
+    # The JSONL file writes already call f.flush() explicitly; this makes
+    # stdout behave the same way.
+    sys.stdout.reconfigure(line_buffering=True)
+    sys.stderr.reconfigure(line_buffering=True)
+
     out_path = args.out
     if out_path is None:
         DEFAULT_OUT_DIR.mkdir(parents=True, exist_ok=True)
