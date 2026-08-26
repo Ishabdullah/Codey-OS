@@ -3031,3 +3031,48 @@ def test_can_dispatch_task_swap_assist_one_byte_under_combined_headroom_boundary
     decision = rg.can_dispatch_task(snap, interactive_active=False, max_swap_usage_bytes=max_swap_usage)
     assert decision.allowed is False
     assert decision.dispatched_via_swap is False
+
+
+def test_can_dispatch_task_new187_deducts_reserve_slot_pending_swap_claim(monkeypatch):
+    # NEW-187 fix: a concurrently-PENDING reserve_slot() admission that has
+    # already claimed swap-assist headroom (per NEW-135's own
+    # total_reserved_swap_bytes() ledger) must shrink the cap
+    # can_dispatch_task() sees for ITS OWN, separate, DISPATCH_MAX_SWAP_
+    # ASSIST_BYTES-capped claim — a decision that would be admitted via
+    # swap-assist with no concurrent claim (reserved=0) must now be refused
+    # once another admission has already claimed the full 768MiB cap.
+    max_swap_usage = rg.DISPATCH_MAX_SWAP_ASSIST_BYTES
+    ram_headroom = rg.DISPATCH_MIN_HEADROOM_BYTES - max_swap_usage
+    snap = _swap_snapshot(
+        ram_headroom_bytes=ram_headroom, swap_total_bytes=12 * GIB, swap_free_bytes=10 * GIB,
+    )
+
+    monkeypatch.setattr(rg, "total_reserved_swap_bytes", lambda: 0)
+    baseline = rg.can_dispatch_task(snap, interactive_active=False)
+    assert baseline.allowed is True
+    assert baseline.dispatched_via_swap is True
+
+    monkeypatch.setattr(rg, "total_reserved_swap_bytes", lambda: max_swap_usage)
+    claimed = rg.can_dispatch_task(snap, interactive_active=False)
+    assert claimed.allowed is False
+    assert claimed.dispatched_via_swap is False
+
+
+def test_can_dispatch_task_new187_reserved_swap_read_failure_fails_closed(monkeypatch):
+    # A broken/unreadable state store must not crash the daemon's
+    # autonomous dispatch loop, but per code-reviewer findings (NEW-187
+    # review round) it must also not fail toward the MORE permissive
+    # "treat as 0 in-flight claims" reading — that is backwards for a
+    # gate, and diverges from reserve_slot()'s own fail-closed handling
+    # of this identical ledger. Fails the same direction as the sibling
+    # CODEY_SWAP_ASSIST_ADMISSION handler just above this branch: swap-
+    # assist is disabled for this tick (byte-for-byte the pre-D2,
+    # RAM-only outcome), not silently treated as "no other claims."
+    def _boom():
+        raise OSError("state file corrupt")
+
+    monkeypatch.setattr(rg, "total_reserved_swap_bytes", _boom)
+    snap = _swap_snapshot(ram_headroom_bytes=rg.DISPATCH_MIN_HEADROOM_BYTES - MIB)
+    decision = rg.can_dispatch_task(snap, interactive_active=False)
+    assert decision.allowed is False
+    assert decision.dispatched_via_swap is False

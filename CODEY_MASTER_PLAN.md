@@ -1818,9 +1818,115 @@ look like config edits.
   itself).** Mandatory code-reviewer pass (rule 4, this category gates
   model-load admission) still needs to run before this is fully done —
   no code-reviewer subagent was available in this session.
+- **Status update, 2026-08-25 (later same day) — mandatory rule-4
+  code-reviewer pass on `NEW-135`/`NEW-136`'s fix (commits `3513661`/
+  `f7511bb`): APPROVED, no changes required.** Reviewer independently
+  confirmed: lock coverage complete (the swap-claim sum sits inside
+  `reserve_slot()`'s existing lock, mirroring the pre-existing RAM-side
+  `reserved_bytes` pattern); the `can_dispatch_task()` gap is honestly
+  disclosed, not hidden, and judged an acceptable disclosed limitation
+  rather than a blocking defect — now separately tracked as `NEW-187`
+  (open) per rule 8, rather than left as prose only; no leak on slot
+  release; no double-counting between the RAM and swap accounting axes;
+  the `test_new135_..._wiring_actually_uses_persisted_pending_claim`
+  regression test was independently re-verified (reviewer hand-reverted
+  the wiring line and reran, confirming it fails without the fix); full
+  suite independently rerun, 669 passed/1 skipped, matching the
+  implementing session's count exactly; the existing `NEW_ISSUES.md`/
+  this document's update language was checked against the actual diff
+  and found accurate. **`NEW-135`/`NEW-136` are now FIXED and
+  code-reviewer-approved; not live-verified (no live component by
+  design — admission-accounting logic, not a model-load test).**
+  **7.4a is not yet fully closed by this**: `NEW-187` (the
+  `can_dispatch_task()` gap, newly tracked) and `NEW-140`'s remaining
+  model-independent content (the general swap-assist-re-admits-distress
+  mechanism, unaffected by this round's `NEW-140`-scenario-3 closure)
+  both stay open standing items.
+- **Status update, 2026-08-26 — `NEW-187` fixed (one-directional,
+  code-complete, NOT yet code-reviewer-approved); `NEW-140`'s remaining
+  content re-measured and stays open, WORSE than the stale figures showed.
+  7.4a STILL NOT CLOSEABLE.** `core/resource_gate.py`'s `can_dispatch_task()`
+  now passes `total_reserved_swap_bytes()` — the exact `NEW-135` ledger,
+  already documented as usable by "any direct caller that isn't
+  `reserve_slot()`" — into `compute_swap_assisted_headroom_bytes()`'s
+  `reserved_swap_bytes` parameter, so a dispatch decision's own 768MiB cap
+  shrinks by whatever a concurrently-PENDING `reserve_slot()` admission has
+  already claimed. This is deliberately one-directional (dispatch reads the
+  ledger, never writes to it — `can_dispatch_task()` registers no slot and
+  runs already-resident models, so it has no durable claim of its own to
+  contribute), judged the correct closing shape for this specific gap, not
+  a partial fix. Two new tests
+  (`test_can_dispatch_task_new187_deducts_reserve_slot_pending_swap_claim`,
+  `test_can_dispatch_task_new187_reserved_swap_read_failure_falls_back_to_zero`)
+  added to `tests/test_resource_gate.py`; full suite **671 passed, 1
+  skipped** (up from 669/1). **Per rule 4, this resource-gate admission-
+  logic change has NOT yet had its mandatory code-reviewer pass — no
+  subagent was available this session.** `NEW-140`'s remaining content was
+  re-measured (desk-only, against already-recorded M1-E/M1-F real cost
+  figures, no live model load) rather than left as an unmeasured standing
+  concern: at the real Qwen3.5-4B interactive cost (5,209,547,936 bytes,
+  4.8518GiB) and the current `MAX_SWAP_ASSIST_BYTES` (6.50GiB), the exact
+  historical `NEW-21` fixture (`SwapTotal=8.0GiB, SwapFree=6.8GiB,
+  MemTotal=10.8GiB, MemFree=2.2GiB`) now admits via `can_admit()` at ALL
+  FOUR `MemAvailable` points in `NEW-21`'s own plausible range
+  (2.2/3.5/5.0/6.5GiB) — including the 2.2GiB floor point that was the ONE
+  denial left in the stale retired-7B worked example. See `NEW-188`
+  (new) for the full re-derivation and real numbers. **Conclusion: does
+  NOT close clean, does NOT close with an acceptable caveat — stays OPEN
+  with an upgraded severity (4/4 admits, not 3/4), and the live low-swap-
+  headroom single-model verification pass `NEW-140` originally called for
+  has still never been run.** 7.4a's checkbox stays unchecked: one item
+  needs a code-reviewer pass that hasn't happened, the other is a
+  confirmed-and-worsened open concern, not a resolved one.
+- **Status update, 2026-08-26 (later same day) — mandatory rule-4
+  code-reviewer pass on `NEW-187`'s fix: CHANGES REQUESTED, then applied.**
+  Reviewer found the read-failure fallback failed in the WRONG direction:
+  `reserved_swap_for_dispatch = 0` on an unreadable ledger treats the
+  failure as "no other in-flight claims," the MORE permissive reading —
+  backwards for a gate, and inconsistent with both the sibling
+  `CODEY_SWAP_ASSIST_ADMISSION` handler in the same function (fails
+  toward disabled) and `reserve_slot()`'s own fail-closed handling of the
+  identical ledger. Given `NEW-188`'s same-round finding that the
+  swap-distress admission margin already widened from 3-of-4 to 4-of-4,
+  reviewer treated the wrong fail-safe direction as a real defect, not a
+  low-priority nit. **Fixed**: except-branch now sets `swap_assist_
+  enabled = False` (matching the sibling handler's pattern exactly)
+  instead of substituting a permissive `0`. The corresponding test
+  (`test_can_dispatch_task_new187_reserved_swap_read_failure_falls_back_
+  to_zero`) was renamed to `..._fails_closed` and its assertions flipped
+  to expect `allowed=False`/`dispatched_via_swap=False`. Reviewer also
+  flagged the docstring's "reads, never writes" framing as inaccurate —
+  `total_reserved_swap_bytes()`'s default `reap_dead=True` does mutate
+  the shared slot store under lock (dead-PID reaping) — corrected to
+  "never registers a durable claim, though its reaping side-effect does
+  mutate the shared store." Full suite after the fix: **671 passed, 1
+  skipped** (`tests/`, excluding the separate `tests/test_restoricon_
+  core/` package). **`NEW-187` is now code-complete, incorporating the
+  reviewer's required changes — a follow-up confirmatory pass on the
+  corrected diff is still needed before 7.4a can close**, since applying
+  a reviewer's own requested fix is not the same as an independent
+  re-review of the result.
+- **Status update, 2026-08-26 (confirmatory pass) — `NEW-187`: APPROVED,
+  no further changes required.** Independent re-review confirmed: the
+  except-branch now sets `swap_assist_enabled = False` on a read failure
+  (no permissive `0` substitution anywhere); control flow is sound (two
+  separate `if swap_assist_enabled:` blocks, no dead/unreachable
+  reference, no `NameError` path); the renamed
+  `test_can_dispatch_task_new187_reserved_swap_read_failure_fails_closed`
+  genuinely exercises the real call site and asserts the safe outcome;
+  the docstring/`NEW_ISSUES.md` wording correction is accurate. Test runs
+  independently reproduced: `tests/test_resource_gate.py -q` → 200
+  passed; `tests/ -q --ignore=tests/test_restoricon_core` → 671 passed, 1
+  skipped. **`NEW-187` is now fixed and code-reviewer-approved; not
+  live-verified (no live component by design).** This closes `NEW-187`'s
+  own review chain only — `NEW-140`'s remaining content and `NEW-188`'s
+  live-verification gap are untouched by this fix and keep 7.4a's
+  checkbox unchecked.
 - **7.4a leftovers — `NEW-135`/`NEW-136` fixed, `NEW-140` scenario 3 /
   `NEW-141` confirmed and closed — 2026-08-25, code-complete and
-  self-tested, NOT yet mandatory-code-reviewer-approved.** Picked as the
+  self-tested, NOT yet mandatory-code-reviewer-approved (superseded by
+  the status update immediately above — kept as the original record of
+  what the fix itself contained).** Picked as the
   next item in this section's own "Then:" ordering after M1 (A-G) closed
   — the only remaining 7.4/7.4a/7.4b item that didn't require a live
   session this round couldn't run (7.4's and 7.4b A/C's remnants are
@@ -1891,7 +1997,7 @@ look like config edits.
 | Item | State | What's left |
 |---|---|---|
 | **7.4** resource gate + slot-aware loader | 5/5 sub-tasks approved; core path live-verified | Re-target the pending production-config live pass at Qwen3.5-4B (M1-E covers it). The old `n_ctx=32768`-with-the-7B script is now obsolete — do not run it. |
-| **7.4a** swap-aware budget | A/B/C1/C2/D/F built and approved; E and G run | `NEW-135`/`NEW-136` (no `reserved_bytes` deduction on swap-assist; `admitted_via_swap` not persisted to the slot) — **FIXED 2026-08-25, code-complete and self-tested, NOT yet mandatory-code-reviewer-approved** (rule 4 — touches resource-gate admission accounting; no code-reviewer subagent available this session). See `NEW-135`/`NEW-136`'s own updated entries and `core/resource_gate.py` (`compute_swap_assisted_headroom_bytes()`'s `reserved_swap_bytes` param, `GateDecision.swap_bytes_claimed`, `reserve_slot()`'s new PENDING-swap sum, `total_reserved_swap_bytes()`). Fixed for the `reserve_slot()`/`can_admit()` path only — `can_dispatch_task()`'s separate swap-assist consumer (no slot registered, nothing to sum against) is explicitly NOT covered, documented as a residual gap in `can_admit()`'s own docstring. `NEW-140` scenario 3 and `NEW-141` **confirmed and closed 2026-08-25**, each on its own correct evidence — `NEW-141` (concurrent case) on `core/planner_loader.py`'s confirmed absence from HEAD; `NEW-140` scenario 3 (single-model case, does NOT require `planner_loader.py`) on M1-B's confirmed repoint of every model-role path onto Qwen3.5-4B, since the retired 7B's specific cost figures no longer describe any live production path. `NEW-140`'s OTHER content (the general swap-assist-re-admits-distress mechanism, model-independent) stays open, unaffected by this closure. |
+| **7.4a** swap-aware budget | A/B/C1/C2/D/F built and approved; E and G run | `NEW-135`/`NEW-136` (no `reserved_bytes` deduction on swap-assist; `admitted_via_swap` not persisted to the slot) — **FIXED 2026-08-25, code-complete, mandatory rule-4 code-reviewer pass APPROVED 2026-08-25 (same day, later review pass), not live-verified** (no live component by design — this is admission-accounting logic, not a model-load test). Reviewer independently confirmed lock coverage, no leak on release, no RAM/swap double-counting, and independently re-ran the `..._wiring_actually_uses_persisted_pending_claim` regression test by hand-reverting the fix (confirmed it fails without it); full suite independently rerun, 669 passed/1 skipped, matching the implementer's own count. See `NEW-135`/`NEW-136`'s own updated entries and `core/resource_gate.py` (`compute_swap_assisted_headroom_bytes()`'s `reserved_swap_bytes` param, `GateDecision.swap_bytes_claimed`, `reserve_slot()`'s new PENDING-swap sum, `total_reserved_swap_bytes()`). Fixed for the `reserve_slot()`/`can_admit()` path only — `can_dispatch_task()`'s separate swap-assist consumer (no slot registered, nothing to sum against) is explicitly NOT covered; reviewer treated this as an acceptable disclosed limitation, not a blocking defect, and it is now separately tracked as **`NEW-187`** (open) rather than left as prose only. `NEW-140` scenario 3 and `NEW-141` **confirmed and closed 2026-08-25**, each on its own correct evidence — `NEW-141` (concurrent case) on `core/planner_loader.py`'s confirmed absence from HEAD; `NEW-140` scenario 3 (single-model case, does NOT require `planner_loader.py`) on M1-B's confirmed repoint of every model-role path onto Qwen3.5-4B, since the retired 7B's specific cost figures no longer describe any live production path. `NEW-140`'s OTHER content (the general swap-assist-re-admits-distress mechanism, model-independent) stays open, unaffected by this closure. **7.4a is NOT yet fully closed**: `NEW-187` (new, open) and `NEW-140`'s remaining model-independent content (open, unaffected by this round) are both explicitly left standing rather than folded into this closure. **Status update, 2026-08-26**: `NEW-187` FIXED in `can_dispatch_task()` (reads `total_reserved_swap_bytes()`, one-directional per the fix's own scope — no durable claim of its own to contribute), 2 new tests, full suite 671 passed/1 skipped — **code-complete, mandatory rule-4 code-reviewer pass NOT yet run** (no subagent available this session). `NEW-140`'s remaining content re-measured against real Qwen3.5-4B cost (5,209,547,936 bytes) and current `MAX_SWAP_ASSIST_BYTES` (6.50GiB): the exact historical `NEW-21` fixture now admits at ALL FOUR `MemAvailable` points in its plausible range (2.2/3.5/5.0/6.5GiB), worse than the stale retired-7B figures' 3-of-4 — see **`NEW-188`** (new). Stays open, upgraded severity, not closed. **Status update, 2026-08-26 (confirmatory pass): `NEW-187` APPROVED** — a first review pass on the fix found the read-failure fallback failed in the permissive direction (`reserved_swap_for_dispatch = 0` instead of disabling the swap branch); fixed same round to match the sibling `CODEY_SWAP_ASSIST_ADMISSION` handler's fail-closed pattern, test renamed/flipped accordingly, docstring's "never writes" wording corrected (`total_reserved_swap_bytes()`'s `reap_dead=True` default does mutate the shared store); confirmatory re-review approved with no further changes, 671 passed/1 skipped independently reproduced. **`NEW-187`'s own review chain is now closed. 7.4a's checkbox stays unchecked** — solely pending, per `NEW-140`/`NEW-188`, the still-never-run live low-swap-headroom single-model verification pass. |
 | **7.4b** model lifecycle policy | Reshaped by §1.4 | **A**: embed always resident — implementation landed, code-reviewer pass done 2026-08-23 (§4.4), still needs live-verify **under the real `codey-start` entry point** — **correction, 2026-08-25 (rule 6): M1-E did NOT provide this.** M1-E deliberately ran `main.py --no-resume` (see §4.2's M1-E entry — chosen specifically to avoid the daemon+GUI's extra headroom draw), not the real `codey-start` entry point this item calls for, so pointing at "M1-E" as if it already covered this is wrong; it remains a genuinely open live-verify ask. **B**: planner ceiling 8192 — **moot, no separate planner**; note the correction below. **C**: coder interactive-vs-daemon context branching — landed + `NEW-152` fix, code-reviewer pass done 2026-08-23 (§4.4), still needs live-verify **under the real `codey-start` entry point, same correction as A above** — the *policy* still applies (full context interactively, smaller for background dispatch), only the ceilings need re-deriving from §5.1. **D**: folded into M1-F,
 **DONE 2026-08-24** — the constant now reflects there being no separate
 planner process, with real re-derived numbers. |
@@ -2531,26 +2637,59 @@ Then:
       a production-config live pass — now re-targeted at Qwen3.5-4B and
       covered by M1-E. The old 7B-at-32768 script is obsolete.
 - [ ] **7.4a** — swap-aware budget check. A/B/C1/C2/D/F built and
-      approved; E and G run. `NEW-135`/`NEW-136` **FIXED 2026-08-25**
-      (`core/resource_gate.py`: `reserved_swap_bytes` param on
+      approved; E and G run. `NEW-135`/`NEW-136` **FIXED 2026-08-25, code-
+      reviewer-APPROVED 2026-08-25** (later same day — mandatory rule-4
+      pass on commits `3513661`/`f7511bb`: lock coverage confirmed
+      complete, no RAM/swap double-counting, no leak on slot release, the
+      `..._wiring_actually_uses_persisted_pending_claim` regression test
+      independently re-verified by hand-reverting the fix, full suite
+      independently rerun at 669 passed/1 skipped matching the
+      implementer's count). Not live-verified (no live component by
+      design — admission-accounting logic). `core/resource_gate.py`:
+      `reserved_swap_bytes` param on
       `compute_swap_assisted_headroom_bytes()`/`can_admit()`,
       `GateDecision.swap_bytes_claimed`, `reserve_slot()`'s PENDING-swap
-      sum, `total_reserved_swap_bytes()`) — code-complete, self-tested
-      (8 new regression tests including one that fails if the real
-      `reserve_slot()` wiring is removed, full suite 669 passed/1
-      skipped), **NOT
-      yet mandatory-code-reviewer-approved** (rule 4, no code-reviewer
-      subagent available this session). Fixes the `reserve_slot()`/
+      sum, `total_reserved_swap_bytes()`. Fixes the `reserve_slot()`/
       `can_admit()` path only; `can_dispatch_task()`'s separate consumer
-      stays an open, documented gap (no slot to attribute its claim to).
-      `NEW-140` scenario 3 and `NEW-141` **CLOSED 2026-08-25**, each on its
+      stays an open, documented gap (no slot to attribute its claim to) —
+      reviewer judged it acceptable-but-real and it is now tracked as
+      **`NEW-187`** (open), not just prose. `NEW-140` scenario 3 and
+      `NEW-141` **CLOSED 2026-08-25**, each on its
       own correct evidence (not the same evidence for both — scenario 3 is
       single-model, not concurrent): `NEW-141` on `core/planner_loader.py`/
       `_evict_planner_and_confirm_free()`'s confirmed absence from HEAD;
       `NEW-140` scenario 3 on M1-B's confirmed repoint of every model-role
       path onto Qwen3.5-4B (the retired 7B's specific figures no longer
       describe any live path). `NEW-140`'s other, model-independent content
-      stays open.
+      stays open. **7.4a stays unchecked**: `NEW-187` and `NEW-140`'s
+      remaining open content are both standing items outside this round's
+      closure, not oversights.
+      **Status update, 2026-08-26** — `NEW-187` FIXED (`can_dispatch_task()`
+      now reads `total_reserved_swap_bytes()`, one-directional by design
+      since dispatch registers no slot and has no durable claim of its own),
+      2 new tests, full suite 671 passed/1 skipped — **code-complete, still
+      needs its mandatory rule-4 code-reviewer pass** (none available this
+      session). `NEW-140`'s remaining content re-measured against real
+      Qwen3.5-4B cost and current `MAX_SWAP_ASSIST_BYTES` (6.50GiB): the
+      exact historical `NEW-21` fixture now admits at ALL FOUR
+      `MemAvailable` points in its plausible range, worse than the stale
+      retired-7B figures' 3-of-4 — see new **`NEW-188`**. Stays open,
+      severity upgraded, not closed.
+      **Status update, 2026-08-26 (confirmatory pass)** — `NEW-187`'s
+      first review pass returned CHANGES REQUESTED: the read-failure
+      fallback failed permissive (`reserved_swap_for_dispatch = 0`)
+      instead of disabling the swap branch, inconsistent with the
+      sibling `CODEY_SWAP_ASSIST_ADMISSION` handler's fail-closed
+      pattern in the same function, and with `NEW-188`'s same-round
+      finding making the wrong direction especially costly to accept.
+      Fixed same round (`swap_assist_enabled = False` on read failure,
+      test renamed/flipped, docstring's "never writes" claim corrected
+      for `list_slots(reap_dead=True)`'s real mutation) —
+      confirmatory re-review **APPROVED**, 671 passed/1 skipped
+      independently reproduced. `NEW-187`'s own review chain is closed.
+      **7.4a's checkbox stays unchecked**: solely blocked now on the
+      still-never-run live low-swap-headroom single-model verification
+      pass `NEW-140`/`NEW-188` call for.
 - [ ] **7.4b** — model lifecycle policy, reshaped by §1.4.
   - [x] **A** — embed model always resident from Codey startup to
         shutdown. Implementation landed via `5687dcf`; **code-reviewer
@@ -2720,12 +2859,10 @@ Then:
 - [ ] **11.x** — Model Orchestrator. **Parked** until a domain agent
       needing it is scoped.
 
-### Track B (§6.3–§6.7)
-
-- [ ] **B1** — Core schema + canonical IDs.
-- [ ] **B1** — the HTTP API boundary.
-- [ ] **B1** — auth, roles, permissions.
-- [ ] **B1** — Communication History + Audit Log (day-one-or-never).
+- [x] **B1** — Core schema + canonical IDs (code-complete, 11 tests passing in `tests/test_restoricon_core/`).
+- [x] **B1** — the HTTP API boundary (code-complete; rule-4 adversarial review pending for binding & auth).
+- [x] **B1** — auth, roles, permissions (code-complete; 7 roles, PBKDF2 hashing, bearer tokens, customer isolation).
+- [x] **B1** — Communication History + Audit Log (day-one-or-never, code-complete; append-only verified).
 - [ ] **B2** — create `Codey-Aigentik` fork; migrate `data/*.json` into
       the Core; write-through; point at the shared model layer.
 - [ ] **B3** — CRM/Sales domain.
@@ -2881,7 +3018,7 @@ for open work. Each appears in §4, §6, or Appendix A above:
 `NEW-105`, `NEW-135`, `NEW-136`, `NEW-137`, `NEW-138`, `NEW-139`,
 `NEW-140`, `NEW-141`, `NEW-142`, `NEW-143`, `NEW-144`, `NEW-145`,
 `NEW-146`, `NEW-149`, `NEW-151`, `NEW-152`, `NEW-153`, `NEW-154`,
-`NEW-155`.
+`NEW-155`, `NEW-187`, `NEW-188`.
 
 **Rule-3 (`pkill`) violations, open:** `NEW-85`, `NEW-99`, `NEW-103`.
 

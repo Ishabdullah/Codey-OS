@@ -7330,6 +7330,27 @@ finding for the same bug. See `NEW-39`.)*
 
 ### [NEW-135] `compute_swap_assisted_headroom_bytes()` has no `reserved_bytes`-style deduction — two concurrently-pending swap-assisted admissions can each independently claim the same 768MiB `MAX_SWAP_ASSIST_BYTES` cap against the same live `SwapFree` figure
 
+- **Status update, 2026-08-25 (later same day) — mandatory rule-4
+  code-reviewer pass complete: APPROVED, no changes required.** Reviewer
+  independently confirmed: lock coverage complete (the swap-claim sum sits
+  inside `reserve_slot()`'s existing lock, mirroring the pre-existing
+  RAM-side `reserved_bytes` pattern); the one real gap
+  (`can_dispatch_task()`'s separate consumer not going through the locked
+  path) is honestly disclosed, not hidden, and treated as an acceptable
+  disclosed limitation rather than a blocking defect — logged separately as
+  `NEW-187` per rule 8 rather than left as prose only; no leak on slot
+  release (the PENDING-only filter naturally excludes RESIDENT/removed
+  slots); no double-counting between RAM `reserved_bytes` and swap
+  `reserved_swap_bytes` (confirmed separate, additive axes); the new
+  regression test `test_new135_reserve_slot_wiring_actually_uses_
+  persisted_pending_claim` was independently re-verified by the reviewer
+  (hand-reverted the wiring line, reran, confirmed it fails without the
+  fix); `MAX_SWAP_ASSIST_BYTES` (6.50GiB, M1-F) confirmed unchanged; full
+  suite independently rerun by the reviewer: 669 passed, 1 skipped,
+  matching the implementing session's own count. **This finding is now
+  FIXED and code-reviewer-approved** for the `reserve_slot()`/
+  `can_admit()` path; not live-verified (no live component by design —
+  this is admission-accounting logic, not a model-load test).
 - **Status update, 2026-08-25 — FIXED for the `reserve_slot()`/`can_admit()`
   path, code-complete and self-tested, NOT yet mandatory-code-reviewer-
   approved (rule 4).** `compute_swap_assisted_headroom_bytes()` gained a
@@ -7415,6 +7436,13 @@ finding for the same bug. See `NEW-39`.)*
 
 ### [NEW-136] `GateDecision.admitted_via_swap` is not persisted into the slot record — `register_slot()`/`list_slots()` give a later reader no way to tell which resident slots were swap-admitted
 
+- **Status update, 2026-08-25 (later same day) — mandatory rule-4
+  code-reviewer pass complete: APPROVED, no changes required**, as part of
+  the same review that approved `NEW-135` (see that entry's own updated
+  status for the full reviewer findings — the two fixes shipped in one
+  change and were reviewed together). **This finding is now FIXED and
+  code-reviewer-approved**; not live-verified (no live component by
+  design).
 - **Status update, 2026-08-25 — FIXED, code-complete and self-tested, NOT
   yet mandatory-code-reviewer-approved (rule 4).** Fixed as a magnitude
   rather than a bare boolean, per this entry's own fix-direction note and
@@ -7670,6 +7698,15 @@ finding for the same bug. See `NEW-39`.)*
   open as a live, standing concern — not closed by this update — since
   nothing about swap-assist's admit-under-distress behavior changed with
   the model swap.
+- **Status update, 2026-08-26 — re-measured against real Qwen3.5-4B cost
+  figures, per this update's own stated requirement. Item (1)'s general
+  mechanism is CONFIRMED, not resolved, and the concrete outcome is WORSE
+  than the stale retired-7B example below, not merely "still applicable."
+  See `NEW-188` for the full re-derivation, real numbers, and the fresh
+  worked example that replaces the stale one below as the current-model
+  evidence. `NEW-140` stays OPEN; `NEW-188`'s existence does not close
+  this entry — `NEW-188` is the up-to-date restatement of exactly this
+  finding's item (1), not a separate, independent issue.**
 - **Status: Confirmed** — found during code-reviewer's mandatory pass on
   sub-task F (CLAUDE.md rule 4), independently re-derived, not just taken
   from the implementer's own disclosure (which correctly flagged it in
@@ -9381,3 +9418,248 @@ finding for the same bug. See `NEW-39`.)*
 - **Cross-references:** `NEW-168`/`NEW-173` (possible, unconfirmed,
   related "task completion recognition" category in the planner path),
   `CODEY_MASTER_PLAN.md`'s M1-G / G2b entry (where this was observed).
+
+### [NEW-187] `can_dispatch_task()`'s separate swap-assist consumer bypasses `reserve_slot()`'s locked PENDING-swap accounting — `NEW-135`'s fix does not cover this path
+- **Status: FIXED and CODE-REVIEWER-APPROVED, 2026-08-26 (confirmatory
+  pass).** Independent re-review confirmed both required changes from the
+  round below: the except-branch sets `swap_assist_enabled = False` on a
+  `total_reserved_swap_bytes()` read failure (no permissive `0`
+  substitution); control flow verified sound (no dead/unreachable
+  reference, no `NameError` path); the renamed
+  `test_can_dispatch_task_new187_reserved_swap_read_failure_fails_closed`
+  genuinely exercises the real call site and asserts the safe outcome;
+  docstring/this entry's "never writes" wording correction confirmed
+  accurate. Test runs independently reproduced:
+  `tests/test_resource_gate.py -q` → 200 passed;
+  `tests/ -q --ignore=tests/test_restoricon_core` → 671 passed, 1
+  skipped. **Not live-verified (no live component by design).** Closes
+  `NEW-187`'s own review chain — does not by itself close 7.4a, which
+  still has `NEW-140`'s remaining content / `NEW-188`'s live-verification
+  gap open.
+- **Status update, 2026-08-26 (later same day) — mandatory rule-4
+  code-reviewer pass: CHANGES REQUESTED, then fixed and re-verified.**
+  The reviewer found the original fix's read-failure fallback
+  (`reserved_swap_for_dispatch = 0` on any exception from
+  `total_reserved_swap_bytes()`) failed in the WRONG direction — treating
+  an unreadable ledger as "no other in-flight claims" is the MORE
+  permissive reading, exactly backwards for a gate, and inconsistent with
+  (a) the sibling `CODEY_SWAP_ASSIST_ADMISSION` handler a few lines above
+  in the same function, which explicitly fails toward disabled/restrictive,
+  and (b) `reserve_slot()`'s own read of this identical ledger, which has
+  no try/except and fails closed (propagates, admission refused) rather
+  than substituting a permissive default. Given `NEW-188` (found in the
+  same round) shows the swap-distress admission margin has already
+  widened from 3-of-4 to 4-of-4 at real Qwen3.5-4B cost, the reviewer
+  judged this the wrong moment to accept a permissive fail-safe direction
+  as a low-priority nit. **Fixed**: the except-branch now sets
+  `swap_assist_enabled = False` (skip the swap branch for this dispatch
+  tick, byte-for-byte the pre-D2 RAM-only outcome) instead of substituting
+  `reserved_swap_for_dispatch = 0`, matching the sibling handler's
+  pattern exactly. `tests/test_resource_gate.py`'s
+  `test_can_dispatch_task_new187_reserved_swap_read_failure_falls_back_to_zero`
+  (which had pinned the unsafe direction, asserting `decision.allowed is
+  True` on a read failure) was renamed to
+  `test_can_dispatch_task_new187_reserved_swap_read_failure_fails_closed`
+  and now asserts `decision.allowed is False` /
+  `decision.dispatched_via_swap is False` on the same `OSError` injection.
+  **Reviewer also flagged the docstring/this entry's original "never
+  writes to it" framing as inaccurate**: `total_reserved_swap_bytes()`
+  calls `list_slots(reap_dead=True)` by default, and `list_slots()` DOES
+  mutate the shared slot store under lock when reaping (drops dead-PID
+  entries) — so `can_dispatch_task()` does write to the shared state file
+  on every call where the swap branch is reached, at daemon-tick
+  frequency (far more often than `reserve_slot()`'s own reaping, which
+  only happens at load-admission time). The one-directional design itself
+  is still correct (dispatch never registers a durable PENDING claim a
+  racing `reserve_slot()` would sum against), but the docstring's wording
+  has been corrected from "reading, never writing" to "never registers a
+  durable claim, though its reaping side-effect does mutate the shared
+  store." Full suite re-run after the fix: `200 passed` in
+  `tests/test_resource_gate.py` alone (full-repo count not re-verified in
+  this entry; see `PROJECT_LOG.md`'s corresponding entry for the
+  full-suite figure at the time of this fix). **`NEW-187` is now
+  code-complete and incorporates the reviewer's required changes — still
+  needs a follow-up confirmatory code-reviewer pass on the corrected diff
+  before 7.4a can close**, since a code-reviewer subagent applying its own
+  requested fix and self-approving is not equivalent to an independent
+  re-review.
+- **Status update, 2026-08-26 (earlier same day, superseded by the fix
+  above) — CODE-COMPLETE, NOT YET CODE-REVIEWER-APPROVED.** `can_dispatch_
+  task()` (`core/resource_gate.py`, the `if swap_assist_enabled:` branch
+  starting around what is now line 2549) now reads `total_reserved_swap_
+  bytes()` — the exact ledger `NEW-135`'s fix populates on `reserve_
+  slot()`, already documented on that function as usable by "any direct
+  caller that isn't `reserve_slot()`" — and passes it as `compute_swap_
+  assisted_headroom_bytes()`'s `reserved_swap_bytes` parameter, so a
+  dispatch decision's own `DISPATCH_MAX_SWAP_ASSIST_BYTES` (768MiB) cap
+  shrinks by however much a concurrently-PENDING `reserve_slot()`
+  admission has already claimed against the shared live `SwapFree`
+  figure. Two new tests added (`tests/test_resource_gate.py`):
+  `test_can_dispatch_task_new187_deducts_reserve_slot_pending_swap_claim`
+  and (originally) `test_can_dispatch_task_new187_reserved_swap_read_
+  failure_falls_back_to_zero` — the latter's name and assertion were
+  corrected by the fix above. Full suite at this point: `671 passed, 1
+  skipped`. **This fix is deliberately ONE-DIRECTIONAL, not a full close
+  of the underlying race**: `can_dispatch_task()` never registers a slot
+  and commits no durable PENDING claim of its own — a dispatch decision
+  leaves nothing in the ledger for a racing `reserve_slot()` call to sum
+  against, unlike two `reserve_slot()` callers racing each other
+  (`NEW-135`'s original symmetric case). `can_dispatch_task()` also runs
+  already-resident models (task execution against an already-loaded
+  model), not a new model load, so there is no analogous "commit" on its
+  side to protect against in the first place — this asymmetry is judged
+  the correct closing state for this gap, not a deferred half-measure.
+- **Status: Confirmed** — found by code-reviewer during the mandatory
+  rule-4 pass on `NEW-135`/`NEW-136`'s fix (commits `3513661`/`f7511bb`),
+  2026-08-25. Disclosed by the implementer in `can_admit()`'s own
+  docstring ("Caveats carried forward" section) and in `NEW-135`'s own
+  entry, not discovered independently by the reviewer — but per rule 8
+  this still needs its own tracked entry rather than living only as prose
+  inside a fix that is otherwise closed.
+- **The gap:** `NEW-135`'s fix closes the double-claim race for any
+  caller going through `reserve_slot()` — it computes the real
+  PENDING-only sum of other slots' `swap_bytes_claimed` inside
+  `reserve_slot()`'s own lock. `can_dispatch_task()` (7.4a sub-task D2)
+  is a separate `can_admit()` consumer that decides dispatch eligibility
+  without registering a slot at all — since this accounting mechanism is
+  keyed off persisted slot records, `can_dispatch_task()` has nothing to
+  sum against and cannot participate in the new locked accounting.
+- **Why this is a real, if currently low-priority, gap and not a
+  restatement of NEW-135's original scope:** a caller reaching
+  `can_dispatch_task()` concurrently with a `reserve_slot()` admission (or
+  with another `can_dispatch_task()` call) could theoretically still
+  independently claim the same swap-assist headroom that `NEW-135`'s fix
+  now protects on the `reserve_slot()` side — the structural double-claim
+  `NEW-135` fixed for one path still exists, unfixed, on this other path.
+  Reviewer judged this an acceptable disclosed limitation, not a blocking
+  defect, for this round's approval — but "acceptable to ship disclosed"
+  is not the same as "closed."
+- **Not fixed here** — logging only, per this task's explicit scope
+  (documentation/status-recording pass, no code changes). No live
+  reproduction attempted; this is a code-level structural gap
+  identified by reading, same as `NEW-135`'s own original discovery
+  method.
+- **Fix direction, if picked up later:** either give
+  `can_dispatch_task()` a way to register/track its own pending swap
+  claim against the same accounting `reserve_slot()` now maintains, or
+  determine (and document) that `can_dispatch_task()`'s call pattern in
+  practice makes the race unreachable — this would need to be checked
+  against `can_dispatch_task()`'s actual callers, the same way `NEW-112`
+  checked the command handler's enqueue branches for real live callers.
+- **Cross-references:** `NEW-135`, `NEW-136` (the fix this gap was found
+  during review of), `NEW-112` (precedent for checking whether a
+  consumer path has real live callers before treating a gap as
+  practically reachable).
+
+## Found during 7.4a closeout re-verification, 2026-08-26 (project-architect, desk-only arithmetic re-derivation against already-measured M1-E/M1-F figures, no live model load) — NOT fixed here, logged only
+
+### [NEW-188] `NEW-140`'s general mechanism re-measured against real Qwen3.5-4B cost — the exact historical `NEW-21` swap-distress device state is now admissible via swap-assist at ALL FOUR `MemAvailable` points in `NEW-21`'s own plausible range, not 3 of 4 as the stale retired-7B figures showed
+
+- **Status: Confirmed** — computed directly against the real, current
+  `core/resource_gate.py` functions (`can_admit()`, `estimate_model_load_
+  cost()`), not re-derived by hand or assumed from the retired-model
+  numbers. This is the re-measurement `NEW-140`'s own 2026-08-25 status
+  update and M1-E's entry both called for but had not yet been done.
+- **Inputs used, all read from this codebase's own already-recorded
+  figures, none newly measured live (per this task's explicit desk-only
+  scope):**
+  - Real Qwen3.5-4B interactive cost at full production `n_ctx=65536`
+    (`core/resource_gate.py`'s own M1-F derivation comment, ~line 1503-1510,
+    and `tests/test_resource_gate.py`'s `test_qwen35_4b_total_cost_
+    reconciles_with_master_plan_table` at `n_ctx=32768` for the same
+    model/arch): `ModelSpec(model_id="primary", size_bytes=2_740_937_888,
+    n_ctx=65536)` → `estimate_model_load_cost()` gives
+    `total_bytes=5,209,547,936` (4.8518GiB), matching M1-F's own recorded
+    figure exactly.
+  - `REQUIRED_HEADROOM_FACTOR=1.25` (unchanged) → required =
+    `6,511,934,920` bytes (6.0647GiB).
+  - `MAX_SWAP_ASSIST_BYTES=6.50GiB` (M1-F, 2026-08-24, current value).
+  - The exact `NEW-21` fixture shape `NEW-140`'s own worked example used:
+    `MemTotal=10.8GiB, MemFree=2.2GiB, SwapTotal=8.0GiB, SwapFree=6.8GiB`,
+    `MemAvailable` swept across `NEW-21`'s own stated plausible range
+    (2.2/3.5/5.0/6.5GiB).
+- **The finding, live-called against the real `can_admit()` (not a mock,
+  though no model was loaded — pure in-process function call against a
+  synthetic meminfo dict, matching this task's explicit "deskwork against
+  already-measured figures" scope):**
+  ```
+  2.2 admitted=True  via_swap=True  cost=5209547936 headroom=2362232012
+      swap_claimed=4149702908
+      reason: cost 4968MiB x 1.25 = 6210MiB exceeds RAM-only headroom
+      (2253MiB), but covered by RAM + swap-assisted headroom (7578MiB,
+      of which 5325MiB is swap-assisted) — admitted via swap assist
+  3.5 admitted=True  via_swap=True  cost=5209547936 headroom=3758096384
+      swap_claimed=2753838536  ... swap-assisted headroom 8909MiB,
+      5325MiB swap-assisted
+  5.0 admitted=True  via_swap=True  cost=5209547936 headroom=5368709120
+      swap_claimed=1143225800  ... swap-assisted headroom 10445MiB,
+      5325MiB swap-assisted
+  6.5 admitted=True  via_swap=False cost=5209547936 headroom=6979321856
+      swap_claimed=0
+      reason: within headroom (with margin) and device ceiling
+  ```
+  Every one of the four `MemAvailable` points in `NEW-21`'s own plausible
+  range now admits — including the 2.2GiB floor point (`MemAvailable ==
+  MemFree`, no reclaimable cache at all), which was the ONE point that
+  still denied for the retired 7B (`NEW-140`'s original worked example:
+  "admitted=False ... reason: cost 8143MiB exceeds current headroom
+  (2253MiB)"). At 6.5GiB the load is now admitted on RAM alone, with no
+  swap assist needed at all, because Qwen3.5-4B's required cost
+  (6.0647GiB) is smaller than the retired 7B's (7.951GiB) and now sits
+  just BELOW the top of `NEW-21`'s own plausible `MemAvailable` range.
+- **Why this is a genuinely worse outcome, not just "still applicable" as
+  the 2026-08-25 status update phrased it before this re-measurement**:
+  `NEW-140`'s original worked example (retired 7B) had exactly one safety
+  net left in `NEW-21`'s plausible range — the 2.2GiB floor, where
+  `MemAvailable` equals `MemFree` with zero reclaimable cache, i.e. the
+  worst-case reading of `NEW-21`'s own reported state. That floor case now
+  ALSO admits for the real, shipped Qwen3.5-4B model. The device-grounded
+  swap contribution itself is unchanged (`gated_swap_free = SwapFree -
+  2*slmk_floor = 6.8 - 1.6 = 5.2GiB`, matching the 5325MiB swap-assisted
+  figure at every non-6.5GiB point above, exactly as `NEW-140`'s own
+  derivation already established for the retired 7B) — what changed is
+  that Qwen3.5-4B's smaller required cost (6.0647GiB vs. the 7B's
+  7.951GiB) needs less RAM+swap to clear, so it clears at every point this
+  fixture sweeps, not just three of four.
+- **What this does NOT establish**: this fixture's `SwapTotal=8.0GiB` is
+  itself a stale, historical number from when `NEW-21` was originally
+  observed (2026-07-29) — the real device's `SwapTotal` has since grown to
+  ~16.00GiB (Ish's zram increase, confirmed live by M1-F's 2026-08-24
+  session, `core/resource_gate.py` ~line 1697). This finding is therefore
+  the same kind of synthetic-worst-case check `NEW-140`'s own retired-7B
+  example already was (and that the existing `test_new21_production_
+  call_shape_swap_assist_may_now_admit` test in `tests/test_resource_
+  gate.py` still is, unmodified, still pinned to the retired 7B's
+  `primary-7b`/`QWEN25_7B_ARCH` spec) — not a claim that this exact
+  `SwapTotal=8.0GiB` condition can recur on the live device today. The
+  device-grounded mechanism it demonstrates (a raised swap-assist cap
+  making a historically-distress-causing device shape admissible) is
+  real and current; the specific `SwapTotal` operand in the fixture is
+  not. No live reproduction was attempted here, consistent with this
+  task's explicit desk-only scope (rule 12/rule 5: computed against real
+  functions and real recorded cost figures, not guessed or paraphrased).
+- **Conclusion for `NEW-140`'s item (1) (the general mechanism)**: STAYS
+  OPEN, with the severity assessment upgraded from "still applicable,
+  unmeasured against the current model" to "measured against the current
+  model, and the outcome is a wider admission window (4/4 vs. 3/4) than
+  the retired model's own numbers showed." Does not close clean and does
+  not close with a caveat — this is a live-verification gap (`NEW-140`'s
+  own "Required addition to the live-verification plan" item, still not
+  done) that a desk-only arithmetic pass cannot itself close; it can only
+  confirm the mechanism is real and current, which it has now done.
+- **Recommended follow-up, not performed here (out of this round's
+  explicit desk-only scope)**: (1) update or add a `test_new21_...`-style
+  fixture in `tests/test_resource_gate.py` using the real `primary`/
+  `QWEN35_4B_ARCH` spec instead of the retired `primary-7b`/
+  `QWEN25_7B_ARCH` one, so the pinned regression test reflects the
+  currently-shipped model rather than stale arithmetic; (2) the live
+  low-swap-headroom single-model verification pass `NEW-140` originally
+  called for (its "Required addition to the live-verification plan"
+  section) has still never been run — this remains the one thing that
+  would actually confirm or refute real-world risk, not just the
+  mechanism's arithmetic reachability.
+- **Cross-references:** `NEW-140` (the finding this re-measures; stays
+  open, not superseded), `NEW-21` (the original swap-distress
+  observation this fixture shape is grounded in), `NEW-14` (related
+  concurrent-model distress observation), M1-E/M1-F (the real cost/cap
+  figures this re-derivation used verbatim, not re-measured live).

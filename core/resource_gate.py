@@ -2455,28 +2455,39 @@ def can_dispatch_task(
     conventional) guarantee `can_admit()`'s own swap-assist branch gives
     for `hard_reject`/`budget_ceiling_exceeded`.
 
-    **Deliberately unfixed, carried-forward caveat (`NEW-135`)**: like
-    `can_admit()`'s own swap-assist branch,
-    `compute_swap_assisted_headroom_bytes()` reads raw `SwapFree` with no
-    `reserved_bytes`-style deduction for other in-flight consumers of the
-    same swap budget. This sub-task adds a SECOND independent consumer of
-    the same live `SwapFree` figure (a dispatch decision, alongside
-    `can_admit()`'s own model-admission decision) — widening `NEW-135`'s
-    blast radius rather than introducing a new gap: a concurrently
-    in-flight swap-assisted admission and a concurrently swap-assisted
-    dispatch decision can each independently claim the same live
-    `SwapFree` figure, neither aware of the other's claim. As of TODO.md
-    7.4a sub-task F's 2026-08-11 recalibration (value since re-derived by
-    M1-F, 2026-08-24), the two consumers no longer share the SAME numeric
-    cap (`can_admit()` now defaults to `MAX_SWAP_ASSIST_BYTES`, 6.50GiB;
-    this function still defaults to the unchanged
-    `DISPATCH_MAX_SWAP_ASSIST_BYTES`, 768MiB) — `NEW-135`'s core
-    gap (no cross-consumer accounting of the shared `SwapFree` pool) is
-    unaffected by that split and remains exactly as unfixed as before. Not
-    fixed here (fixing it means changing sub-task B's own function
-    signature, out of scope for this sub-task's mandate of wiring, not
-    redesigning, that function — same reasoning C2 used to decline the
-    same fix).
+    **`NEW-187` fix (2026-08-26), partially closing the `NEW-135` gap this
+    function widened**: this branch now passes `total_reserved_swap_bytes()`
+    — the exact ledger `reserve_slot()`'s own `NEW-135` fix populates,
+    already documented on that function as "for any direct caller that
+    isn't `reserve_slot()`" — into `compute_swap_assisted_headroom_bytes()`'s
+    `reserved_swap_bytes` parameter below, so a dispatch decision no longer
+    treats the full `DISPATCH_MAX_SWAP_ASSIST_BYTES` cap as untouched
+    when a concurrently-PENDING `reserve_slot()` admission has already
+    claimed swap-assist headroom against the shared live `SwapFree` figure.
+    This is a ONE-DIRECTIONAL fix, not a full close of `NEW-135`'s "widened
+    blast radius": `can_dispatch_task()` never registers a slot and commits
+    no durable claim of its own (a dispatch decision has no persisted
+    record for a racing `reserve_slot()` call to sum against, unlike two
+    `reserve_slot()` callers racing each other) — so `reserve_slot()`
+    remains, structurally, unable to see a concurrent dispatch decision's
+    swap usage. That residual direction is not a symmetric race the way
+    `NEW-135`'s original finding was; it is dispatch (which runs already-
+    resident models, not a new model load) reading the swap ledger, never
+    registering a durable claim of its own onto it. (Note: the read call,
+    `total_reserved_swap_bytes()`, does call `list_slots(reap_dead=True)`
+    by default, which DOES mutate the shared slot store under lock —
+    dropping dead-PID entries. So this function is not literally
+    read-only against the shared state file; it just never adds a
+    PENDING claim a racing `reserve_slot()` call would sum against, and
+    it does so at daemon-tick frequency, not just at load-admission time
+    like `reserve_slot()`'s own reaping.) See `NEW-187`'s own
+    `NEW_ISSUES.md` entry for the full reasoning on why this asymmetry is
+    accepted as the closing state, not deferred further. A read failure
+    on this ledger fails toward disabling swap-assist for the tick
+    (`swap_assist_enabled = False`), matching the sibling
+    `CODEY_SWAP_ASSIST_ADMISSION` handler's fail-safe direction just
+    above in this function — not toward the more permissive "treat as no
+    other claims" reading (code-reviewer finding, NEW-187 review round).
     """
     if interactive_active:
         return DispatchDecision(
@@ -2547,6 +2558,31 @@ def can_dispatch_task(
                 swap_assist_enabled = False
 
         if swap_assist_enabled:
+            # NEW-187 fix: same ledger reserve_slot() populates via its own
+            # NEW-135 fix, read here (see this function's own docstring
+            # "NEW-187 fix" section for the one-directional design). A read
+            # failure (e.g. a corrupt/unreadable state file) must not crash
+            # the daemon's autonomous dispatch loop, but per code-reviewer
+            # findings (NEW-187 review round) a read failure must NOT fail
+            # toward the MORE permissive "treat as 0 in-flight claims"
+            # reading — that is exactly backwards for a gate, and reads on
+            # the same ledger elsewhere in this file (reserve_slot()'s own
+            # inline sum) fail closed, not open. Matching the sibling
+            # CODEY_SWAP_ASSIST_ADMISSION handler just above this block:
+            # fail-safe direction is DISABLED (skip the swap branch for this
+            # tick, byte-for-byte the pre-D2 RAM-only behavior), logged at
+            # warning so the fallback isn't silent.
+            try:
+                reserved_swap_for_dispatch = total_reserved_swap_bytes()
+            except Exception as e:
+                warning(
+                    "resource_gate: can_dispatch_task() failed to read "
+                    f"total_reserved_swap_bytes() ({e}) — treating "
+                    "swap-assist as disabled for this dispatch check"
+                )
+                swap_assist_enabled = False
+
+        if swap_assist_enabled:
             swap_headroom = compute_swap_assisted_headroom_bytes(
                 # compute_swap_assisted_headroom_bytes() takes a meminfo-
                 # shaped dict by contract (sub-task B); ResourceSnapshot
@@ -2557,6 +2593,7 @@ def can_dispatch_task(
                 {"SwapFree": snapshot.swap_free_bytes, "SwapTotal": snapshot.swap_total_bytes},
                 max_swap_usage_bytes,
                 slmk_floor_gate_multiplier,
+                reserved_swap_bytes=reserved_swap_for_dispatch,
             )
             combined_headroom = snapshot.ram_headroom_bytes + swap_headroom
             if combined_headroom >= DISPATCH_MIN_HEADROOM_BYTES:
