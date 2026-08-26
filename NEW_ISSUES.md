@@ -10545,3 +10545,105 @@ finding for the same bug. See `NEW-39`.)*
   invariant instead of the intended-but-not-quite-true one.
 - **Cross-references:** none — self-contained, found and fully scoped in
   the same review pass.
+
+
+## Found during the 2026-08-26 Phase A1 "concurrency test" scoping (§6.2 of `CODEY_MASTER_PLAN.md`) — desk-only, vendored llama.cpp source read (`~/llama.cpp` commit `91d2fc38`) + real production log evidence, NO model loaded this round, NOT fixed, logged only
+
+### [NEW-204] `llama-server` has been running every real production launch with 4 concurrent slots (`kv_unified=true`) the whole time — the master plan's "no flag is set anywhere" framing was factually true but its implied conclusion ("concurrency is off/untested") was wrong
+
+- **Status: Confirmed, from both source and real verbatim log output —
+  not a hypothesis.** `core/loader_v2.py`'s `_spawn_locked()` (~line 351)
+  never passes `-np`/`--parallel`, and neither the repo nor the live shell
+  environment sets `LLAMA_ARG_N_PARALLEL` (grepped, both empty). But this
+  build's own default for that flag is **not** 1 — `~/llama.cpp/tools/
+  server/server.cpp:146-151` resolves the unset/`-1` value to
+  `params.n_parallel = 4, params.kv_unified = true` for any non-router
+  launch (i.e. every real launch this project makes, since `-m <path>` is
+  always passed). This is not just a source-code claim: `~/.codeyOS/
+  llama-server.log:20` (the most recent real `codey-start` coder launch,
+  2026-08-26) prints `initializing, n_slots = 4, n_ctx_slot = 65536,
+  kv_unified = 'true'` verbatim, and every logged embed-server launch in
+  `~/.codeyOS/embed-server.log` shows the identical `n_slots = 4, ...
+  kv_unified = 'true'` pattern (at `n_ctx_slot = 2048`). Every live-verify
+  pass this project has ever run against the real loader has therefore
+  been exercising a 4-slot server, not the single-consumer server the
+  rest of the documentation assumed.
+- **Impact:** this settles the "is `--parallel`/multi-slot serving even
+  real and available" half of the Phase A1 concurrency test by code-read
+  plus already-existing log evidence, with no new live pass required for
+  that half. It does NOT settle the actual open question, which is
+  behavioral, not existential — see the plan's Phase A1 concurrency-test
+  entry for the reframed remaining ask (an oversubscription test, not a
+  bare "does it start" test).
+- **Not fixed** — nothing to fix; this is a documentation/framing
+  correction (rule 6) plus a live-evidence pointer, not a code defect.
+- **Cross-references:** `NEW-205` (the memory-accounting consequence of
+  this same default), the master plan's §6.2 Phase A1 "Concurrency test"
+  row and Appendix A checklist entry (corrected this round per rule 6).
+
+### [NEW-205] `core/resource_gate.py`'s `QWEN35_4B_ARCH.recurrent_state_bytes` constant assumes 1 sequence slot; real production launches run at `n_parallel=4` today, so every cost estimate since M1-A has undercounted the SSM/recurrent-state term by ~150.75MiB
+
+- **Status: Confirmed by source-tracing the vendored llama.cpp
+  allocator, not measured (the measured number is unavailable at this
+  project's current log verbosity — see below); the multiplier itself
+  (×4, not some other factor) is confirmed exactly, not estimated.**
+  `core/resource_gate.py`'s `QWEN35_4B_ARCH.recurrent_state_bytes`
+  (~line 1043) is `((4-1) × (4096 + 2×16×128) + 128×4096) × 4 × 24` =
+  `52,690,944` bytes — the single-slot figure §5.1 already documents as
+  "source-derived, not measured." But `~/llama.cpp/src/llama-model.cpp:
+  2137/2156` passes `recurrent_rs_size = max(1, cparams.n_seq_max)` into
+  the hybrid-memory constructor as `mem_size`, and `~/llama.cpp/src/
+  llama-memory-recurrent.cpp:99-100` allocates `n_rows = mem_size × (1 +
+  n_rs_seq)` — i.e. the recurrent-state buffer scales linearly with
+  `n_seq_max` (`= n_parallel`, `common.cpp:1594`), not fixed at 1.
+  `n_rs_seq` is `params.speculative.need_n_rs_seq()`
+  (`common.cpp:1595`), which returns 0 unless a speculative-decoding
+  draft model is configured (`common.h:388-394`) — confirmed 0 for this
+  project's actual spawn command, since `_spawn_locked()` never passes
+  any `--draft`/`--model-draft` flag. Per `NEW-204`, real production
+  launches already run at `n_parallel=4` by the binary's own default, so
+  the real recurrent-state cost today is `52,690,944 × 4 = 210,763,776`
+  bytes (~201.02MiB), not the ~50.25MiB the gate assumes — an existing,
+  present-tense undercount of `158,072,832` bytes (~150.75MiB) in every
+  cost estimate `estimate_model_load_cost()` has produced since M1-A
+  (2026-08-22), including the ones M1-F's `MAX_CONCURRENT_MODEL_BUDGET_
+  BYTES` (7.00GiB) and `MAX_SWAP_ASSIST_BYTES` (6.50GiB) derivations
+  relied on.
+- **Attention/KV term is NOT affected — checked and ruled out, not just
+  assumed clean.** `~/llama.cpp/src/llama-context.cpp:286-297`: when
+  `kv_unified=true` (today's default, per `NEW-204`), `cparams.n_ctx_seq
+  = cparams.n_ctx` — the full-attention KV buffer is sized once by the
+  `-c` value regardless of `n_parallel`, not multiplied by slot count.
+  §5.1's `32,768 bytes/token × n_ctx` KV table is unaffected by this
+  finding.
+- **Not measured — could not be closed by log evidence this round.**
+  llama.cpp's own `RS buffer size` / `KV self size` log lines
+  (`llama-memory-recurrent.cpp:115`, similar in the attention path) are
+  emitted via `LLAMA_LOG_INFO`, which `~/llama.cpp/common/log.cpp:441-
+  452`'s `common_get_verbosity()` maps to `LOG_LEVEL_TRACE` — a finer
+  tier than this project's current spawn verbosity (`verbosity = 3`,
+  confirmed from `~/.codeyOS/llama-server.log:10`), so neither existing
+  log file contains these lines. Getting the real measured number needs
+  a live pass with raised verbosity (`-lv`), which was out of this
+  round's desk-only scope.
+- **Impact:** ~150.75MiB is a real, already-incurred bite against
+  M1-F's calibrated margins — roughly 30% of `MAX_CONCURRENT_MODEL_
+  BUDGET_BYTES`'s ~0.505GiB device-ceiling margin and roughly 34% of
+  `MAX_SWAP_ASSIST_BYTES`'s ~0.435GiB margin above the interactive
+  worst-case required cost (both figures per §5.1's M1-F entry). Neither
+  margin is eliminated, but both are meaningfully thinner than currently
+  documented once this term is included.
+- **Fix direction, not done this round (out of scope by the task's own
+  instruction):** make `recurrent_state_bytes` (or its consumer in
+  `estimate_model_load_cost()`) scale by the actual `n_parallel` the
+  loader's spawn command will produce (today, always 4, since nothing
+  overrides the binary's auto-default) instead of hardcoding the
+  1-slot figure. Should be measured live (raised verbosity or an RSS
+  delta comparison) rather than re-derived by formula a second time,
+  per this project's own standing preference for measurement over
+  arithmetic once a live pass is available to get it.
+- **Cross-references:** `NEW-204` (why `n_parallel=4` is already active
+  today, not a hypothetical future setting), `NEW-180` (embed RSS also
+  unmeasured — same "small undercount against untested margins"
+  category), §5.1's own recurrent-state derivation and M1-F's constant
+  derivations in `CODEY_MASTER_PLAN.md`.

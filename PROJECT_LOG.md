@@ -12,7 +12,89 @@ and Appendix A.
 
 ---
 
-## 2026-08-26 (latest) — Lease/registry item: mandatory rule-4 code-reviewer pass APPROVED, item CLOSED; three non-blocking findings logged (`NEW-201`/`202`/`203`)
+## 2026-08-26 (latest) — Phase A1 "concurrency test" scoped: desk-only, no code changed. Mechanism confirmed already active in production by real log evidence, not a hypothetical; remaining question reframed from feasibility to behavior (`NEW-204`, `NEW-205`)
+
+Scoped the last unstarted Phase A1 item per `CODEY_MASTER_PLAN.md` §6.2's
+ordering. This was framed going in as "does `--parallel` even work, and
+is it worth the memory cost" — the actual finding is materially
+different and corrects the plan's own prior wording (rule 6).
+
+**The mechanism is not off — it has been on, unnoticed, in every real
+launch this project has made.** `core/loader_v2.py`'s `_spawn_locked()`
+never passes `-np`/`--parallel`, and neither the repo nor the shell
+environment sets `LLAMA_ARG_N_PARALLEL` (both checked, both empty). But
+this project's vendored llama.cpp build (`~/llama.cpp`, commit
+`91d2fc38`) resolves the unset/`-1` default to `n_parallel=4,
+kv_unified=true` for any real (non-router) launch
+(`tools/server/server.cpp:146-151`). This is not just a source-code
+inference — verified against real, already-existing evidence: both
+`~/.codeyOS/llama-server.log:20` (the coder's most recent real
+`codey-start` launch, 2026-08-26) and every entry in `~/.codeyOS/
+embed-server.log` print `initializing, n_slots = 4, ... kv_unified =
+'true'` verbatim. Every live-verify pass this project has ever run,
+including this week's 7.4a/7.4b/lease-registry rounds, has therefore
+already been exercising a 4-slot server without anyone noticing.
+
+**Memory-cost interaction traced through the vendored source, not
+assumed:**
+- Full-attention KV term (8 layers): **unaffected by slot count.**
+  `llama-context.cpp:286-297` — under `kv_unified=true` (today's active
+  default), `cparams.n_ctx_seq = cparams.n_ctx`, i.e. one physical pool
+  sized once by `-c`, not multiplied by `n_parallel`. §5.1's KV table is
+  unchanged.
+- SSM/recurrent-state term (24 layers): **does scale with slot count**,
+  confirmed via `llama-model.cpp:2137/2156` (`recurrent_rs_size =
+  n_seq_max`) and `llama-memory-recurrent.cpp:99-100`
+  (`n_rows = mem_size × (1 + n_rs_seq)`, with `n_rs_seq` confirmed 0 for
+  this project's spawn command — no speculative-decoding flags anywhere).
+  At the already-active `n_parallel=4`, the real recurrent-state cost is
+  `210,763,776` bytes (~201.02MiB), not the `52,690,944` bytes
+  (~50.25MiB) `core/resource_gate.py`'s `QWEN35_4B_ARCH.recurrent_state_
+  bytes` assumes — an existing, present-tense undercount of
+  `158,072,832` bytes (~150.75MiB) in every cost estimate since M1-A,
+  including the ones M1-F's `MAX_CONCURRENT_MODEL_BUDGET_BYTES` (7.00GiB,
+  ~0.505GiB margin) and `MAX_SWAP_ASSIST_BYTES` (6.50GiB, ~0.435GiB
+  margin) derivations relied on. Logged as **`NEW-205`**, Confirmed, not
+  fixed this round (out of this task's scope). The exact measured buffer
+  size could not be pulled from existing logs — llama.cpp's own `RS
+  buffer size`/`KV self size` lines log at a verbosity tier
+  (`LOG_LEVEL_TRACE`) finer than this project's current spawn setting
+  (`verbosity = 3`) — so this stays source-derived like the rest of
+  §5.1's recurrent-state figure, not newly measured.
+
+**What's genuinely still open, reframed from "does this work at all" to
+a specific behavioral question:** `kv_unified=true` means each of the 4
+slots advertises the full `n_ctx` (`n_ctx_slot = 65536` in the real log)
+while all 4 share one physical pool sized by that same `n_ctx` — the
+server is structurally 4:1 oversubscribed on *capacity*, not memory.
+Nothing has ever tested what happens when concurrent requests' combined
+usage approaches or exceeds that shared budget (graceful defer/serialize,
+truncation, or rejection). A trivial 2-small-concurrent-request test
+would pass without exercising this at all.
+
+**Next step, scoped for a live-verifier round, not run this round:** 2+
+genuinely concurrent requests against the real `codey-start`-spawned
+coder server, sized so combined prompt+generation approaches/exceeds
+65536 tokens (today's only real single-request evidence tops out around
+4,700 tokens — nowhere near the contention zone). Capture the `/slots`
+endpoint (enabled by default) before/during/after, the server log's
+slot-assignment/truncation lines, and `free -h` before/after per rule 2.
+Define success as "both requests complete without corruption or
+deadlock" first (the near-term daemon+TUI use case §1.4 actually needs)
+before attempting the harder "true simultaneous decoding" bar (needed
+only for the future both-limbs scope). Subject to rule 2 (one live
+model-load cycle, confirmed unload after).
+
+**Docs updated:** `CODEY_MASTER_PLAN.md` §6.2's Phase A1 table row and
+Appendix A's "Concurrency test" checklist entry, both corrected per rule
+6 and left unchecked pending the live pass. `NEW_ISSUES.md` gained
+`NEW-204` (mechanism already active, framing correction) and `NEW-205`
+(recurrent-state undercount, Confirmed, not fixed). No code touched this
+round — desk/design work only, per the task's explicit scope.
+
+---
+
+## 2026-08-26 — Lease/registry item: mandatory rule-4 code-reviewer pass APPROVED, item CLOSED; three non-blocking findings logged (`NEW-201`/`202`/`203`)
 
 Mandatory rule-4 review of the lease/registry commit (`1ca97e1`) came
 back **APPROVED**, with real independent verification, not a rubber
