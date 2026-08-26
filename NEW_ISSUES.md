@@ -9731,17 +9731,30 @@ finding for the same bug. See `NEW-39`.)*
   only.
 
 ### [NEW-192] Only `admin`/`customer` roles hold `PERM_SIGN_CONTRACTS` — `manager`/`sales`/`project_manager` cannot sign contracts
-- **Status: Suspected (business-rule question, not a security defect) —
-  logged only, non-blocking per the reviewer's verdict.** Confirmed via
-  `restoricon_core/auth.py`'s `ROLE_PERMISSIONS` matrix: `PERM_SIGN_
-  CONTRACTS` is granted only to `ROLE_ADMIN` and `ROLE_CUSTOMER`. If a
-  `sales` or `project_manager` role is expected to countersign contracts
-  in Restoricon's real workflow (plausible for a construction/
-  restoration business's actual signing process), this may be a
-  permissions-matrix oversight from Phase B1's initial build rather than
-  an intentional restriction. Not fixed here — needs Ish's or a future
-  round's confirmation of the intended real-world signing workflow
-  before changing the matrix.
+- **Status: FIXED, 2026-08-26 — deliberate placeholder policy, per Ish's
+  own explicit direction** ("create the logical contract-signing
+  workflow. i will change it later if needed. as most policy and
+  procedures for the company are in the development phase. but we need
+  to finish Codey-OS"). `restoricon_core/auth.py`'s `ROLE_PERMISSIONS`
+  matrix now grants `PERM_SIGN_CONTRACTS` to `ROLE_ADMIN` (unchanged),
+  `ROLE_MANAGER` (new), `ROLE_SALES` (new), `ROLE_PROJECT_MANAGER` (new),
+  and `ROLE_CUSTOMER` (unchanged) — the company-side roles plausibly
+  involved in closing/managing a job, plus the customer as the other
+  signing party. Deliberately still withheld from `ROLE_TECHNICIAN` (not
+  a signing role in this business) and `ROLE_AI_AGENT` (an autonomous
+  agent should not hold binding-signature authority by default — a
+  judgment call, not something Ish specified, flagged here per rule 5 so
+  it's visible if that default needs revisiting). Documented in
+  `auth.py`'s own comment above `PERM_SIGN_CONTRACTS` as an explicit
+  placeholder, not a final business rule — Restoricon's real signing
+  workflow and procedures are still being developed, and Ish has said
+  this will likely change. `tests/test_restoricon_core/` — `11 passed`,
+  no regression. **Not yet independently code-reviewed** — this is an
+  RBAC-matrix edit in `auth.py`, the same file `NEW-189`'s review
+  covered; per this project's standard practice for anything touching
+  auth, a follow-up confirmatory pass is warranted before treating this
+  as done, even though the underlying business-rule decision itself was
+  made by Ish directly and is not in question.
 
 ### [NEW-193] Several Restoricon Core entities have `POST` routes but no corresponding `GET` routes yet
 - **Status: Confirmed, not fixed — logged only, non-blocking per the

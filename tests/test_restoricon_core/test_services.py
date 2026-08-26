@@ -10,7 +10,10 @@ from restoricon_core.auth import (
     ROLE_ADMIN,
     ROLE_AI_AGENT,
     ROLE_CUSTOMER,
+    ROLE_MANAGER,
+    ROLE_PROJECT_MANAGER,
     ROLE_SALES,
+    ROLE_TECHNICIAN,
 )
 from restoricon_core.database import DatabaseManager
 from restoricon_core.models import (
@@ -260,3 +263,60 @@ def test_crm_entity_lifecycle_with_audit_trail(setup_services):
     logs = audit_service.query_logs(actor_admin)
     # We should have audit logs for: create customer, create lead, create opp, create proj, create est, create contract, sign contract, create invoice, pay invoice
     assert len(logs) == 9
+
+
+def test_sign_contract_new192_role_matrix(setup_services):
+    # NEW-192: PERM_SIGN_CONTRACTS is granted to admin/manager/sales/
+    # project_manager/customer, deliberately withheld from technician and
+    # ai_agent. Confirms the grant is real (positive cases) and that the
+    # withholding is enforced (negative cases), not just present in the
+    # permission table.
+    db, auth_service, audit_service, _, crm_service = setup_services
+
+    admin_user = auth_service.create_user(
+        username="admin", plain_password="Password123", full_name="Admin", email="admin@test.com", role=ROLE_ADMIN
+    )
+    actor_admin = AuthContext(user_id=admin_user.id, username="admin", role=ROLE_ADMIN, actor_type="human")
+
+    cust = crm_service.create_customer(
+        Customer(first_name="Jane", last_name="Doe", email="jane@example.com"),
+        actor_admin,
+    )
+    contract = crm_service.create_contract(
+        Contract(
+            contract_number="CTR-NEW192-001",
+            customer_id=cust.id,
+            title="Test Agreement",
+            content="Terms...",
+        ),
+        actor_admin,
+    )
+
+    def make_actor(role, **kwargs):
+        user = auth_service.create_user(
+            username=f"user_{role}",
+            plain_password="Password123",
+            full_name=f"Test {role}",
+            email=f"{role}@test.com",
+            role=role,
+            **kwargs,
+        )
+        return AuthContext(user_id=user.id, username=f"user_{role}", role=role, actor_type="human", **kwargs)
+
+    # Positive: each of these roles must be able to sign.
+    for role in (ROLE_MANAGER, ROLE_SALES, ROLE_PROJECT_MANAGER):
+        signed = crm_service.sign_contract(contract.id, f"sig-{role}", make_actor(role))
+        assert signed.status == "signed"
+    signed = crm_service.sign_contract(contract.id, "sig-admin-2", actor_admin)
+    assert signed.status == "signed"
+
+    # Customer signing their own contract must also succeed.
+    signed = crm_service.sign_contract(
+        contract.id, "sig-customer", make_actor(ROLE_CUSTOMER, customer_id=cust.id)
+    )
+    assert signed.status == "signed"
+
+    # Negative: technician and ai_agent must still be rejected.
+    for role in (ROLE_TECHNICIAN, ROLE_AI_AGENT):
+        with pytest.raises(PermissionError):
+            crm_service.sign_contract(contract.id, f"sig-{role}", make_actor(role))

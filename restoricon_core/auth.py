@@ -62,6 +62,13 @@ PERM_READ_OWN_ESTIMATES = "read:own_estimates"
 
 PERM_READ_CONTRACTS = "read:contracts"
 PERM_WRITE_CONTRACTS = "write:contracts"
+# NEW-192, 2026-08-26: PERM_SIGN_CONTRACTS is granted to admin/manager/
+# sales/project_manager (company-side signers) and customer (the other
+# party). Deliberately withheld from technician (not a signing role) and
+# ai_agent (an autonomous agent should not hold binding-signature
+# authority by default). This is a placeholder policy per Ish's own
+# framing — Restoricon's real signing workflow is still being defined —
+# not a final business rule; revisit when that policy is settled.
 PERM_SIGN_CONTRACTS = "sign:contracts"
 PERM_READ_OWN_CONTRACTS = "read:own_contracts"
 
@@ -118,6 +125,7 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_ESTIMATES,
         PERM_READ_CONTRACTS,
         PERM_WRITE_CONTRACTS,
+        PERM_SIGN_CONTRACTS,
         PERM_READ_DOCUMENTS,
         PERM_WRITE_DOCUMENTS,
         PERM_READ_FINANCIALS,
@@ -138,6 +146,7 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_ESTIMATES,
         PERM_READ_CONTRACTS,
         PERM_WRITE_CONTRACTS,
+        PERM_SIGN_CONTRACTS,
         PERM_READ_DOCUMENTS,
         PERM_WRITE_DOCUMENTS,
         PERM_LOG_COMMUNICATION,
@@ -149,6 +158,7 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_PROJECTS,
         PERM_READ_ESTIMATES,
         PERM_READ_CONTRACTS,
+        PERM_SIGN_CONTRACTS,
         PERM_READ_DOCUMENTS,
         PERM_WRITE_DOCUMENTS,
         PERM_READ_FINANCIALS,

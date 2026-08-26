@@ -12,7 +12,47 @@ and Appendix A.
 
 ---
 
-## 2026-08-26 (latest) — Track B / Phase B1 mandatory rule-4 review: one blocking RBAC gap found and fixed (NEW-189), three non-blocking findings logged (NEW-190/191/192/193)
+## 2026-08-26 (latest) — NEW-192 resolved: placeholder contract-signing policy set per Ish's explicit direction, code-reviewer-approved
+
+Ish gave explicit direction to resolve `NEW-192` (only `admin`/`customer`
+could sign contracts) rather than leave it open pending real company
+policy: "create the logical contract-signing workflow. i will change it
+later if needed. as most policy and procedures for the company are in
+the development phase."
+
+`restoricon_core/auth.py`'s `ROLE_PERMISSIONS` matrix now also grants
+`PERM_SIGN_CONTRACTS` to `ROLE_MANAGER`, `ROLE_SALES`, and
+`ROLE_PROJECT_MANAGER` (the company-side roles plausibly involved in
+closing/managing a job) — `ROLE_ADMIN`/`ROLE_CUSTOMER` were already
+correct and untouched. Deliberately still withheld from
+`ROLE_TECHNICIAN` and `ROLE_AI_AGENT` — an autonomous agent holding
+binding-signature authority by default is a judgment call I made, not
+something Ish specified, so it's flagged in the code comment and the
+`NEW-192` entry as worth revisiting rather than silently baked in.
+Documented in `auth.py` as an explicit placeholder, not a final business
+rule.
+
+Code-reviewer confirmatory pass: **APPROVED**. Confirmed the diff
+matches the stated decision exactly, no mechanical set-literal bugs (no
+typo, no missing comma, no cross-role edit-boundary error), and traced
+`sign_contract()`'s actual enforcement (`crm_service.py:656`) plus the
+API route to confirm the permission grant is genuinely load-bearing, not
+shadowed by a stale role-identity check the way `NEW-194` found for
+projects. One non-blocking suggestion: the existing test suite only
+exercised the customer-signing path. Added
+`test_sign_contract_new192_role_matrix` to
+`tests/test_restoricon_core/test_services.py` — positive cases for
+`admin`/`manager`/`sales`/`project_manager`/`customer`, negative cases
+confirming `technician`/`ai_agent` are still rejected with
+`PermissionError`. `tests/test_restoricon_core/` — **12 passed** (up
+from 11).
+
+Files touched: `restoricon_core/auth.py`,
+`tests/test_restoricon_core/test_services.py`, `NEW_ISSUES.md`.
+
+---
+
+## 2026-08-26 — Track B / Phase B1 mandatory rule-4 review: one blocking RBAC gap found and fixed (NEW-189), three non-blocking findings logged (NEW-190/191/192/193)
 
 Ran the mandatory rule-4 code-reviewer pass on Track B / Phase B1
 (Restoricon Core's data engine, auth, and local REST API), built by a
