@@ -820,6 +820,17 @@ class ModelLoader:
                     )
                     rg.release_slot(slot_id)
                     self._slot_id = None
+                    # ── Lease/registry item, 2026-08-26 (NEW-104/NEW-149) ────
+                    # NEW-104's own fix-direction note: releasing our
+                    # reservation above (correct — we don't own this
+                    # process) must not leave the gate permanently blind to
+                    # a real, resident server nobody else re-registers
+                    # either. Best-effort, never allowed to block or fail
+                    # the actual reuse this method is already committed to
+                    # above — every step here is either a pure read or
+                    # wrapped so a failure only loses observability, not
+                    # correctness.
+                    self._reconcile_adopted_slot(spec.n_ctx)
                 else:
                     # pid=self._server.process.pid: rebind the slot from
                     # this loader's own PID (what reserve_slot() registered
@@ -890,6 +901,82 @@ class ModelLoader:
             self._last_ensure_outcome = LOAD_OUTCOME_ERROR
             self._last_ensure_reason = str(e)
             return False
+
+    def _reconcile_adopted_slot(self, wanted_n_ctx: int) -> None:
+        """
+        Lease/registry item (2026-08-26, `NEW-104`/`NEW-149`): called only
+        from `load_primary()`'s adoption branch (`self._server.process is
+        None` — we reused a server we didn't spawn and already released our
+        own reservation). Makes the gate's slot store aware of that server
+        if nothing already has, and surfaces (log-only — no respawn, see
+        `NEW_ISSUES.md` `NEW-149`'s own "not this round's fix" note and this
+        module's own class docstring) the case where the resident server was
+        sized smaller than what this caller actually needed.
+
+        Best-effort throughout: every failure mode here degrades to "the
+        gate stays exactly as blind as it was before this method existed,"
+        never to blocking or failing the reuse `load_primary()` already
+        committed to before calling this.
+        """
+        try:
+            existing = rg.find_resident_slot(model_id="primary", port=self._server.port)
+            if existing is not None:
+                # Someone (the original spawner) already registered this
+                # server — don't double-register (would double-count its
+                # cost in _sum_committed_bytes()). Just surface a ceiling
+                # mismatch if there is one.
+                existing_n_ctx = existing.get("n_ctx")
+                if existing_n_ctx is not None and existing_n_ctx < wanted_n_ctx:
+                    warning(
+                        f"resource_gate: adopted coder server (pid={existing.get('pid')}, "
+                        f"port={self._server.port}) is resident at n_ctx={existing_n_ctx}, "
+                        f"smaller than this caller's required n_ctx={wanted_n_ctx} — "
+                        "NEW-149: whichever caller spawned first wins the context size "
+                        "for the server's whole life; not respawned automatically."
+                    )
+                return
+
+            # Nothing registered for this port at all — the real
+            # "port-probe adoption with no lease" case NEW-104 originally
+            # named. Resolve the real PID positively (never a name-based
+            # guess, CLAUDE.md rule 3) and register a RESIDENT slot on its
+            # behalf so the store stops being blind to this process.
+            real_pid = rg.resolve_port_owner_pid(self._server.port)
+            if real_pid is None or not rg.pid_cmdline_contains(real_pid, b"llama-server"):
+                # Couldn't positively confirm a real llama-server PID —
+                # leave the store as-is rather than registering a slot
+                # against an unverified/possibly-recycled PID.
+                return
+
+            resolved_n_ctx = rg.resolve_spawned_n_ctx(real_pid)
+            cost_bytes = 0
+            try:
+                cost_bytes = self._server.model_path.stat().st_size
+            except OSError:
+                pass  # best-effort estimate only, see register_slot()'s own cost_bytes contract
+
+            rg.register_slot(
+                model_id="primary",
+                cost_bytes=cost_bytes,
+                pid=real_pid,
+                port=self._server.port,
+                status=rg.SLOT_STATUS_RESIDENT,
+                n_ctx=resolved_n_ctx,
+            )
+            info(
+                f"resource_gate: registered previously-unlisted resident coder server "
+                f"(pid={real_pid}, port={self._server.port}, n_ctx={resolved_n_ctx})"
+            )
+            if resolved_n_ctx is not None and resolved_n_ctx < wanted_n_ctx:
+                warning(
+                    f"resource_gate: adopted coder server (pid={real_pid}, "
+                    f"port={self._server.port}) is resident at n_ctx={resolved_n_ctx}, "
+                    f"smaller than this caller's required n_ctx={wanted_n_ctx} — "
+                    "NEW-149: whichever caller spawned first wins the context size "
+                    "for the server's whole life; not respawned automatically."
+                )
+        except Exception as e:
+            warning(f"resource_gate: adopted-slot reconciliation failed, ignoring: {e}")
 
     def unload(self):
         """Unload (stop) the current model server."""

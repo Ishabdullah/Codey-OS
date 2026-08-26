@@ -314,6 +314,111 @@ def test_load_primary_reuse_path_releases_own_slot_does_not_mark_resident(monkey
     assert loader.was_ever_spawned() is False
 
 
+# ── Lease/registry item, 2026-08-26 (NEW-104/NEW-149) ────────────────────────
+# _reconcile_adopted_slot(): called from load_primary()'s reuse/adoption
+# branch (self._server.process is None). Must never block the reuse it's
+# called from — every assertion below runs against `result is True`.
+
+
+class _FakeServerReusedWithPortAndPath:
+    """Like FakeServerReused, but carries the .port/.model_path attributes
+    _reconcile_adopted_slot() reads — the shared FakeServerReused fixture
+    above intentionally doesn't, so this dedicated fake keeps that
+    fixture's own regression test (which asserts nothing about
+    reconciliation) unaffected."""
+
+    def __init__(self, *a, **k):
+        self.process = None
+        self._started = True
+        self.port = 8080
+        self.model_path = Path("/fake/model.gguf")
+
+    def start(self):
+        return True
+
+    def stop(self):
+        self._started = False
+
+    def is_running(self):
+        return self._started
+
+
+def test_reconcile_adopted_slot_warns_on_smaller_existing_ctx(monkeypatch):
+    fake_decision = MagicMock(admitted=True, estimated_cost_bytes=1024, reason="ok")
+    monkeypatch.setattr(rg, "reserve_slot", lambda spec, **k: (fake_decision, "slot-x"))
+    monkeypatch.setattr(rg, "release_slot", lambda *a, **k: True)
+    monkeypatch.setattr(rg, "read_meminfo", lambda *a, **k: {"MemAvailable": 10**10})
+    monkeypatch.setattr(
+        rg, "find_resident_slot", lambda **k: {"pid": 4242, "port": 8080, "n_ctx": 16384}
+    )
+    register_calls = []
+    monkeypatch.setattr(rg, "register_slot", lambda **k: register_calls.append(k) or "should-not-happen")
+
+    with patch.object(lv, "LlamaServer", _FakeServerReusedWithPortAndPath), patch(
+        "pathlib.Path.exists", return_value=True
+    ):
+        loader = lv.get_loader()
+        result = loader.load_primary()
+
+    assert result is True
+    # Already registered by someone else -- must NOT double-register a
+    # second slot for the same port regardless of whether its n_ctx is
+    # smaller than this caller's own (that mismatch is log-only, NEW-149).
+    assert register_calls == []
+
+
+def test_reconcile_adopted_slot_registers_when_nothing_found(monkeypatch):
+    fake_decision = MagicMock(admitted=True, estimated_cost_bytes=1024, reason="ok")
+    monkeypatch.setattr(rg, "reserve_slot", lambda spec, **k: (fake_decision, "slot-y"))
+    monkeypatch.setattr(rg, "release_slot", lambda *a, **k: True)
+    monkeypatch.setattr(rg, "read_meminfo", lambda *a, **k: {"MemAvailable": 10**10})
+    monkeypatch.setattr(rg, "find_resident_slot", lambda **k: None)
+    monkeypatch.setattr(rg, "resolve_port_owner_pid", lambda port: 5150)
+    monkeypatch.setattr(rg, "pid_cmdline_contains", lambda pid, needle: True)
+    monkeypatch.setattr(rg, "resolve_spawned_n_ctx", lambda pid: 16384)
+    register_calls = []
+    monkeypatch.setattr(
+        rg, "register_slot", lambda **k: register_calls.append(k) or "adopted-slot-1"
+    )
+
+    with patch.object(lv, "LlamaServer", _FakeServerReusedWithPortAndPath), patch(
+        "pathlib.Path.exists", return_value=True
+    ):
+        loader = lv.get_loader()
+        result = loader.load_primary()
+
+    assert result is True
+    assert len(register_calls) == 1
+    kwargs = register_calls[0]
+    assert kwargs["pid"] == 5150
+    assert kwargs["port"] == 8080
+    assert kwargs["status"] == rg.SLOT_STATUS_RESIDENT
+    assert kwargs["n_ctx"] == 16384
+
+
+def test_reconcile_adopted_slot_skips_unverified_pid(monkeypatch):
+    """If the resolved PID's cmdline doesn't confirm llama-server, never
+    register a slot against it (avoids the recycled-PID trap)."""
+    fake_decision = MagicMock(admitted=True, estimated_cost_bytes=1024, reason="ok")
+    monkeypatch.setattr(rg, "reserve_slot", lambda spec, **k: (fake_decision, "slot-z"))
+    monkeypatch.setattr(rg, "release_slot", lambda *a, **k: True)
+    monkeypatch.setattr(rg, "read_meminfo", lambda *a, **k: {"MemAvailable": 10**10})
+    monkeypatch.setattr(rg, "find_resident_slot", lambda **k: None)
+    monkeypatch.setattr(rg, "resolve_port_owner_pid", lambda port: 5150)
+    monkeypatch.setattr(rg, "pid_cmdline_contains", lambda pid, needle: False)
+    register_calls = []
+    monkeypatch.setattr(rg, "register_slot", lambda **k: register_calls.append(k) or "x")
+
+    with patch.object(lv, "LlamaServer", _FakeServerReusedWithPortAndPath), patch(
+        "pathlib.Path.exists", return_value=True
+    ):
+        loader = lv.get_loader()
+        result = loader.load_primary()
+
+    assert result is True
+    assert register_calls == []
+
+
 def test_unload_releases_slot(monkeypatch):
     fake_decision = MagicMock(admitted=True, estimated_cost_bytes=1024, reason="ok")
     released = []
@@ -596,6 +701,110 @@ def test_embed_server_releases_slot_on_stop(monkeypatch, tmp_path):
         server.stop()
 
     assert released == ["embed-slot-2"]
+    assert server._slot_id is None
+
+
+# ── Embed server: adopt-instead-of-kill (NEW-146, lease/registry item) ───────
+
+
+def test_embed_server_adopts_healthy_occupant_instead_of_killing(monkeypatch, tmp_path):
+    """A fresh EmbedServer() (e.g. after a daemon restart that lost memory
+    of the prior incarnation's own spawned process) must adopt an already-
+    healthy occupant rather than kill-and-replace it (NEW-146: the daemon's
+    own start() calls were not covered by NEW-144's inference.py-only
+    guard)."""
+    fake_model = tmp_path / "embed.gguf"
+    fake_model.write_bytes(b"x" * 4096)
+
+    kill_calls = []
+    register_calls = []
+    monkeypatch.setattr(
+        rg, "register_slot", lambda **k: register_calls.append(k) or "adopted-embed-slot"
+    )
+    monkeypatch.setattr(rg, "find_resident_slot", lambda **k: None)
+
+    server = es.EmbedServer()
+    server.model_path = fake_model
+
+    with patch.object(server, "_port_is_bound", return_value=True), patch.object(
+        server, "_check_health", return_value=True
+    ), patch.object(
+        server, "_kill_port_occupant", side_effect=lambda: kill_calls.append(1) or True
+    ), patch.object(server, "_find_port_occupant_pid", return_value=4242), patch(
+        "subprocess.Popen"
+    ) as popen_mock:
+        result = server.start()
+
+    assert result is True
+    assert kill_calls == []  # never killed the healthy occupant
+    popen_mock.assert_not_called()  # never spawned a replacement either
+    assert len(register_calls) == 1
+    assert register_calls[0]["pid"] == 4242
+    assert register_calls[0]["status"] == rg.SLOT_STATUS_RESIDENT
+    assert server._slot_id == "adopted-embed-slot"
+
+
+def test_embed_server_adoption_does_not_double_register_existing_slot(monkeypatch, tmp_path):
+    fake_model = tmp_path / "embed.gguf"
+    fake_model.write_bytes(b"x" * 4096)
+
+    register_calls = []
+    monkeypatch.setattr(rg, "register_slot", lambda **k: register_calls.append(k) or "x")
+    monkeypatch.setattr(
+        rg, "find_resident_slot", lambda **k: {"pid": 4242, "port": 8082, "n_ctx": None}
+    )
+
+    server = es.EmbedServer()
+    server.model_path = fake_model
+
+    with patch.object(server, "_port_is_bound", return_value=True), patch.object(
+        server, "_check_health", return_value=True
+    ):
+        result = server.start()
+
+    assert result is True
+    assert register_calls == []  # already registered by someone else
+
+
+def test_embed_server_still_kills_unhealthy_occupant(monkeypatch, tmp_path):
+    """The original NEW-144 threat model (port bound, but NOT answering
+    /health) must still hit the kill-and-replace path -- the new adoption
+    branch must not swallow this case."""
+    fake_model = tmp_path / "embed.gguf"
+    fake_model.write_bytes(b"x" * 4096)
+
+    server = es.EmbedServer()
+    server.model_path = fake_model
+
+    with patch.object(server, "_port_is_bound", return_value=True), patch.object(
+        server, "_check_health", return_value=False
+    ), patch.object(server, "_kill_port_occupant", return_value=False) as kill_mock:
+        result = server.start()
+
+    assert result is False  # aborts when the occupant couldn't be cleared
+    kill_mock.assert_called_once()
+
+
+def test_embed_server_stop_releases_slot_even_when_adopted(monkeypatch, tmp_path):
+    """stop() must release an adopted server's slot even though
+    self.process is None for an adopted process (never ours to kill) --
+    regression test for the leak this same fix introduced and then closed
+    in the same round (see stop()'s own docstring)."""
+    fake_model = tmp_path / "embed.gguf"
+    fake_model.write_bytes(b"x" * 4096)
+
+    released = []
+    monkeypatch.setattr(rg, "release_slot", lambda slot_id, **k: released.append(slot_id) or True)
+
+    server = es.EmbedServer()
+    server.model_path = fake_model
+    server._slot_id = "adopted-slot-99"
+    # self.process deliberately left None -- matches the adoption branch's
+    # own state after start() returns.
+
+    server.stop()
+
+    assert released == ["adopted-slot-99"]
     assert server._slot_id is None
 
 

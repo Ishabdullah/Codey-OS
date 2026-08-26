@@ -3076,3 +3076,195 @@ def test_can_dispatch_task_new187_reserved_swap_read_failure_fails_closed(monkey
     decision = rg.can_dispatch_task(snap, interactive_active=False)
     assert decision.allowed is False
     assert decision.dispatched_via_swap is False
+
+
+# ── Lease/registry item, 2026-08-26 (absorbs NEW-104/NEW-144/NEW-146/NEW-149) ─
+# register_slot()/reserve_slot()'s new n_ctx field, and find_resident_slot(),
+# the query helper an adoption path uses to answer "is this model already
+# resident, and at what n_ctx/pid/port?" instead of a raw port probe.
+
+
+def test_register_slot_persists_n_ctx(tmp_path):
+    slot_id = rg.register_slot(
+        "primary", cost_bytes=1 * GIB, port=8080, n_ctx=16384, state_dir=tmp_path
+    )
+    slots = rg.list_slots(state_dir=tmp_path)
+    assert slots[0]["slot_id"] == slot_id
+    assert slots[0]["n_ctx"] == 16384
+
+
+def test_register_slot_n_ctx_defaults_to_none(tmp_path):
+    rg.register_slot("primary", cost_bytes=1 * GIB, state_dir=tmp_path)
+    slots = rg.list_slots(state_dir=tmp_path)
+    assert slots[0]["n_ctx"] is None
+
+
+def test_reserve_slot_persists_spec_n_ctx(tmp_path):
+    spec = rg.ModelSpec("primary", size_bytes=1 * GIB, n_ctx=32768)
+    mi = meminfo_bytes(mem_total_gib=12, mem_free_gib=10, mem_available_gib=10)
+    decision, slot_id = rg.reserve_slot(spec, meminfo=mi, read_temp_fn=NO_THERMAL, state_dir=tmp_path)
+    assert decision.admitted
+    slots = rg.list_slots(state_dir=tmp_path)
+    assert slots[0]["n_ctx"] == 32768
+
+
+def test_find_resident_slot_returns_none_when_no_match(tmp_path):
+    rg.register_slot("primary", cost_bytes=1 * GIB, port=8080, state_dir=tmp_path)  # PENDING
+    assert rg.find_resident_slot("primary", port=8080, state_dir=tmp_path) is None
+
+
+def test_find_resident_slot_finds_resident_by_model_and_port(tmp_path):
+    rg.register_slot(
+        "primary",
+        cost_bytes=1 * GIB,
+        pid=os.getpid(),
+        port=8080,
+        n_ctx=16384,
+        status=rg.SLOT_STATUS_RESIDENT,
+        state_dir=tmp_path,
+    )
+    found = rg.find_resident_slot("primary", port=8080, state_dir=tmp_path)
+    assert found is not None
+    assert found["n_ctx"] == 16384
+
+
+def test_find_resident_slot_port_mismatch_returns_none(tmp_path):
+    rg.register_slot(
+        "primary",
+        cost_bytes=1 * GIB,
+        pid=os.getpid(),
+        port=8080,
+        status=rg.SLOT_STATUS_RESIDENT,
+        state_dir=tmp_path,
+    )
+    assert rg.find_resident_slot("primary", port=9999, state_dir=tmp_path) is None
+
+
+def test_find_resident_slot_reaps_dead_pid(tmp_path):
+    dead_pid = 999_999_999  # not a real running PID on any normal system
+    rg.register_slot(
+        "primary",
+        cost_bytes=1 * GIB,
+        pid=dead_pid,
+        port=8080,
+        status=rg.SLOT_STATUS_RESIDENT,
+        state_dir=tmp_path,
+    )
+    assert rg.find_resident_slot("primary", port=8080, state_dir=tmp_path) is None
+
+
+def test_resolve_spawned_n_ctx_parses_dash_c_argument(monkeypatch, tmp_path):
+    fake_cmdline = tmp_path / "cmdline"
+    fake_cmdline.write_bytes(b"llama-server\x00-m\x00/x/y.gguf\x00-c\x0016384\x00-t\x006\x00")
+
+    real_open = open
+
+    def fake_open(path, *a, **kw):
+        if str(path) == "/proc/12345/cmdline":
+            return real_open(fake_cmdline, *a, **kw)
+        return real_open(path, *a, **kw)
+
+    monkeypatch.setattr("builtins.open", fake_open)
+    assert rg.resolve_spawned_n_ctx(12345) == 16384
+
+
+def test_resolve_spawned_n_ctx_returns_none_when_unreadable(monkeypatch):
+    def fake_open(path, *a, **kw):
+        raise FileNotFoundError()
+
+    monkeypatch.setattr("builtins.open", fake_open)
+    assert rg.resolve_spawned_n_ctx(12345) is None
+
+
+def test_pid_cmdline_contains_matches_real_self_process():
+    # /proc/self is always readable in-test; use os.getpid() against a
+    # substring guaranteed to be in this test process's own argv (the
+    # interpreter path always contains "python").
+    assert rg.pid_cmdline_contains(os.getpid(), b"python") is True
+
+
+def test_pid_cmdline_contains_false_for_unreadable_pid():
+    assert rg.pid_cmdline_contains(999_999_999, b"llama-server") is False
+
+
+def test_resolve_port_owner_pid_finds_real_listening_process(monkeypatch):
+    """Spawn a real socket in this test process, then confirm
+    resolve_port_owner_pid() identifies its PID via a real /proc/*/fd scan
+    for the real inode.
+
+    /proc/net/tcp itself is mocked here, NOT because of test convenience —
+    empirically confirmed (2026-08-26, rule 12: read the artifact, don't
+    assume) that /proc/net/tcp and /proc/net/tcp6 are BOTH
+    permission-denied on this actual device's Termux/Android sandbox, even
+    for this process's own sockets (`PermissionError` reading
+    `/proc/net/tcp` directly, and even `/proc/<own_pid>/net/tcp` is denied
+    the same way — this is Android's own per-app network-state hardening,
+    not a Termux-specific gap this project can configure around). So the
+    *first* half of resolve_port_owner_pid()'s two-step mechanism (find the
+    inode via /proc/net/tcp) cannot be exercised for real on this device at
+    all, in production or in a test — mocking it is not a shortcut, it is
+    the only way to test anything past that point. The *second* half
+    (`_pid_owning_inode()`'s /proc/*/fd scan) genuinely IS exercised for
+    real below: same-UID /proc/<pid>/fd access is confirmed readable on
+    this device (verified separately), so the fabricated /proc/net/tcp row
+    below uses this process's REAL socket inode (`os.fstat(...).st_ino`,
+    not a fake one), and the real, unmocked `_pid_owning_inode()` must find
+    it via a real filesystem scan.
+    """
+    import socket as _socket
+
+    with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        s.listen(1)
+        port = s.getsockname()[1]
+        real_inode = os.fstat(s.fileno()).st_ino
+
+        port_hex = f"{port:04X}"
+        fake_tcp_line = (
+            "   0: 0100007F:{0} 00000000:0000 0A 00000000:00000000 "
+            "00:00000000 00000000  1000        0 {1} 1 0000000000000000 100 0 0 10 0\n"
+        ).format(port_hex, real_inode)
+        fake_content = "  sl  local_address rem_address   st ...\n" + fake_tcp_line
+
+        real_open = open
+
+        def fake_open(path, *a, **kw):
+            if str(path) == "/proc/net/tcp":
+                import io
+
+                return io.StringIO(fake_content)
+            if str(path) == "/proc/net/tcp6":
+                raise FileNotFoundError()
+            return real_open(path, *a, **kw)
+
+        monkeypatch.setattr("builtins.open", fake_open)
+        found_pid = rg.resolve_port_owner_pid(port)
+
+    assert found_pid == os.getpid()
+
+
+def test_resolve_port_owner_pid_returns_none_when_proc_net_tcp_unreadable(monkeypatch):
+    # Documents and pins the real, confirmed device behavior (see the
+    # docstring above): /proc/net/tcp is PermissionError, not merely
+    # absent, on this actual device. resolve_port_owner_pid() must degrade
+    # to None rather than raise -- it already does (both proc_file
+    # candidates are wrapped in `except (FileNotFoundError, PermissionError)`)
+    # but this pins that specific exception type, not just "some error."
+    def fake_open(path, *a, **kw):
+        if str(path) in ("/proc/net/tcp", "/proc/net/tcp6"):
+            raise PermissionError(13, "Permission denied", str(path))
+        raise FileNotFoundError()
+
+    monkeypatch.setattr("builtins.open", fake_open)
+    assert rg.resolve_port_owner_pid(12345) is None
+
+
+def test_resolve_port_owner_pid_returns_none_for_unbound_port():
+    # Port 1 is a privileged low port essentially never bound in this
+    # unprivileged Termux test environment. Also exercises the REAL
+    # (unmocked) code path end-to-end on this device: since /proc/net/tcp
+    # itself is unreadable here (see above), this always resolves via the
+    # early "no candidates" return, not a genuine "scanned and found
+    # nothing" result -- both still correctly produce None, which is what
+    # this test actually pins.
+    assert rg.resolve_port_owner_pid(1) is None

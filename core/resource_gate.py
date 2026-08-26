@@ -3101,6 +3101,7 @@ def register_slot(
     status: str = SLOT_STATUS_PENDING,
     state_dir: Optional[Path] = None,
     swap_bytes_claimed: int = 0,
+    n_ctx: Optional[int] = None,
 ) -> str:
     """
     Register a slot in the cross-process store, unconditionally (no
@@ -3137,6 +3138,16 @@ def register_slot(
     magnitude, not a bool, is what NEW-135's accounting actually needs).
     Direct callers that don't pass this get 0, i.e. "no swap claimed" —
     existing callers are unaffected.
+
+    `n_ctx` (default None, lease/registry item, 2026-08-26): the context
+    size the running (or about-to-run) server was/will be spawned with.
+    Existing callers that don't pass it get `None`, matching prior
+    behavior exactly. This is the datum `NEW-149`/`NEW-155` needed to be
+    detectable at all — before this, a slot recorded `port` but not
+    `n_ctx`, so nothing reading the store could tell whether a resident
+    server was spawned at the caller's own required ceiling or a smaller
+    one a different, earlier caller happened to pick. See
+    `find_resident_slot()` below, the query helper this enables.
     """
     if pid is None:
         pid = os.getpid()
@@ -3151,6 +3162,7 @@ def register_slot(
         "status": status,
         "registered_at": time.time(),
         "swap_bytes_claimed": swap_bytes_claimed,
+        "n_ctx": n_ctx,
     }
     with _LockedState(state_dir) as slots:
         slots.append(entry)
@@ -3312,6 +3324,13 @@ def reserve_slot(
                 # it, and so a later reader can tell which resident slots
                 # got here via swap and by how much.
                 "swap_bytes_claimed": decision.swap_bytes_claimed,
+                # Lease/registry item, 2026-08-26 (NEW-149/NEW-155): persist
+                # the n_ctx this admission was computed against, so a later
+                # caller can detect (via find_resident_slot()) that a
+                # resident server was sized for a smaller ceiling than it
+                # itself needs, instead of silently reusing it with no way
+                # to tell.
+                "n_ctx": spec.n_ctx,
             }
         )
         return decision, slot_id
@@ -3399,6 +3418,184 @@ def list_slots(state_dir: Optional[Path] = None, reap_dead: bool = True) -> List
             live = [s for s in slots if s.get("pid") is None or _pid_alive(s["pid"])]
             slots[:] = live
         return list(slots)
+
+
+def find_resident_slot(
+    model_id: str,
+    port: Optional[int] = None,
+    state_dir: Optional[Path] = None,
+    reap_dead: bool = True,
+) -> Optional[dict]:
+    """
+    Lease/registry item (2026-08-26, absorbs `NEW-104`/`NEW-144`/`NEW-146`/
+    `NEW-149` per `CODEY_MASTER_PLAN.md` §6.2's Appendix A entry): the query
+    half of "is a specific model already resident, and if so, at what
+    `n_ctx`/`pid`/`port`?" — the question every port-probe adoption branch
+    in this codebase (`core/loader_v2.py:LlamaServer.start()`'s reuse
+    branch, `core/embed_server.py:EmbedServer.start()`'s kill-and-replace
+    branch) was previously answering with a raw TCP/HTTP probe instead of
+    this store, the store already being the single source of truth for
+    everything else about slot ownership. Deliberately reuses the existing
+    slot store/lock rather than inventing a second lease-file format — see
+    this section's header comment for why RESIDENT is the right status to
+    filter on here (a PENDING slot is an in-flight reservation, not yet a
+    real running server to adopt).
+
+    Returns the first matching RESIDENT slot dict (or `None` if none
+    found), matched on `model_id` and, if given, `port` too — callers that
+    know the exact port they're about to bind to (the normal case: a fixed
+    per-role port like `PRIMARY_SERVER_PORT`/`EMBED_SERVER_PORT`) should
+    pass it, since `model_id` alone is not guaranteed unique if a future
+    caller ever registers more than one slot for the same role.
+
+    `reap_dead` (default True, explicit rather than a bare default per
+    NEW-187's review-pass precedent on this section's other read helpers):
+    forwarded to the same PID-liveness reap `list_slots()` already does,
+    so a slot whose owning PID has since died is never returned as a live
+    adoption target.
+    """
+    for slot in list_slots(state_dir=state_dir, reap_dead=reap_dead):
+        if slot.get("status") != SLOT_STATUS_RESIDENT:
+            continue
+        if slot.get("model_id") != model_id:
+            continue
+        if port is not None and slot.get("port") != port:
+            continue
+        return slot
+    return None
+
+
+# TCP state 0A = LISTEN, per /proc/net/tcp's documented state codes.
+_TCP_STATE_LISTEN = "0A"
+
+
+def resolve_port_owner_pid(port: int) -> Optional[int]:
+    """
+    Resolve the exact PID bound to `port` via a `/proc/net/tcp[6]` +
+    `/proc/*/fd` scan. Generalized (2026-08-26, lease/registry item) from
+    `core/embed_server.py:_find_port_occupant_pid()`'s original
+    embed-server-only implementation, so `core/loader_v2.py`'s coder
+    adoption path can identify a genuinely-adopted (never-registered-by-
+    this-process) server's real PID the same positively-identified way
+    `embed_server.py`'s kill path already does, rather than each caller
+    growing its own copy of this scan. Returns `None` if no owning PID
+    could be positively identified — callers must never fall back to a
+    name-based anything in that case (CLAUDE.md rule 3).
+
+    **Confirmed platform limitation (2026-08-26, `NEW-200`, read directly
+    against this actual device per rule 12 — not assumed from `embed_
+    server.py`'s own pre-existing "can be unreadable on some Termux/Android
+    configurations" comment):** on this project's real target device,
+    `/proc/net/tcp`/`/proc/net/tcp6` are `PermissionError` — not merely
+    absent — for EVERY caller, including a process reading about its own
+    sockets. This degrades safely (returns `None`, exactly as designed)
+    rather than crashing, but it means this function's PRIMARY path
+    (finding a truly-foreign PID with no pre-existing resource-gate slot
+    to fall back to) will essentially never succeed in production on this
+    device — only a caller with a real fallback path independent of this
+    scan (`embed_server.py`'s `_find_pid_via_registered_slot()`, or this
+    module's own `find_resident_slot()`, both of which read the
+    resource-gate's own slot store instead of the OS) can positively
+    identify a port's occupant here. Kept as the primary path anyway for
+    portability to a rooted device or a non-Android deployment where
+    `/proc/net/tcp` IS readable — but a caller relying on this function
+    ALONE to resolve a genuinely-unregistered foreign process on THIS
+    device should not expect it to succeed. See `NEW-200` for the full
+    finding and its practical consequence for `NEW-104`'s original
+    "true foreign adoption, no lease at all" case.
+    """
+    try:
+        port_hex = f"{port:04X}"
+        candidates: List[Tuple[str, str]] = []  # (state, inode), LISTEN first
+        for proc_file in ("/proc/net/tcp", "/proc/net/tcp6"):
+            try:
+                with open(proc_file) as f:
+                    lines = f.readlines()
+            except (FileNotFoundError, PermissionError):
+                continue
+            for line in lines[1:]:  # skip header
+                parts = line.split()
+                if len(parts) < 10:
+                    continue
+                local_addr, state, inode = parts[1], parts[3], parts[9]
+                if local_addr.endswith(f":{port_hex}"):
+                    candidates.append((state, inode))
+        candidates.sort(key=lambda c: 0 if c[0] == _TCP_STATE_LISTEN else 1)
+
+        for _state, inode in candidates:
+            pid = _pid_owning_inode(inode)
+            if pid is not None:
+                return pid
+    except Exception as e:
+        warning(f"resource_gate: /proc scan for port {port} occupant failed: {e}")
+    return None
+
+
+def _pid_owning_inode(inode: str) -> Optional[int]:
+    """Scan /proc/*/fd for the PID holding a socket inode."""
+    try:
+        for pid_dir in Path("/proc").iterdir():
+            if not pid_dir.name.isdigit():
+                continue
+            try:
+                for fd in (pid_dir / "fd").iterdir():
+                    link = os.readlink(str(fd))
+                    if f"socket:[{inode}]" in link:
+                        return int(pid_dir.name)
+            except (PermissionError, OSError):
+                continue
+    except Exception:
+        pass
+    return None
+
+
+def pid_cmdline_contains(pid: int, needle: bytes) -> bool:
+    """
+    True if `/proc/<pid>/cmdline` contains `needle`. Used to positively
+    confirm an unfamiliar PID is actually a `llama-server` process before
+    treating it as an adoption target (mirrors
+    `embed_server.py:_cmdline_is_llama_server()`, generalized here so
+    `loader_v2.py`'s coder-adoption path can use the identical check
+    rather than a second copy of it).
+    """
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            cmdline = f.read()
+        return needle in cmdline
+    except Exception:
+        return False
+
+
+def resolve_spawned_n_ctx(pid: int) -> Optional[int]:
+    """
+    Best-effort: parse the `-c <n_ctx>` argument out of `/proc/<pid>/cmdline`
+    for a process this project itself spawned via `LlamaServer._spawn_locked()`
+    (see `core/loader_v2.py`, which always passes `["-c", str(self.n_ctx)]`
+    verbatim on that binary's command line — confirmed live-readable this
+    way in the 7.4b live-verification pass, `~/.codeyOS/llama-server.log:1`'s
+    spawn line, per CLAUDE.md rule 12's "read the artifact" bar). Returns
+    `None` if the cmdline can't be read, has no `-c` argument, or the
+    following argument isn't an integer — callers must treat `None` as
+    "unknown," never as "0" or any other assumed value.
+
+    `/proc/<pid>/cmdline` is NUL-separated argv, not shell-quoted text —
+    parsed accordingly (split on `\\x00`, look for the exact `-c` token,
+    read the next token) rather than with a text/regex parse that would
+    mis-split on embedded spaces in another argument.
+    """
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            raw = f.read()
+    except Exception:
+        return None
+    args = [a.decode("utf-8", errors="replace") for a in raw.split(b"\x00") if a]
+    for i, arg in enumerate(args):
+        if arg == "-c" and i + 1 < len(args):
+            try:
+                return int(args[i + 1])
+            except ValueError:
+                return None
+    return None
 
 
 # ── Signal source 5: interactive-session activity (TUI + GUI) ───────────────

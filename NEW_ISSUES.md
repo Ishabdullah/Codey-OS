@@ -10390,3 +10390,73 @@ finding for the same bug. See `NEW-39`.)*
   differently under piped stdin before relying on scripted `/exit` to
   close out sessions with a pending confirmation.
 - **Cross-references:** `NEW-195` (the round this was found during).
+
+## Found during the lease/registry item's implementation, 2026-08-26 — confirmed by direct read (rule 12), not fixed (a platform constraint, not a code defect)
+
+### [NEW-200] `/proc/net/tcp`/`/proc/net/tcp6` are `PermissionError` for EVERY caller on this device, including reads of the caller's own sockets — `resolve_port_owner_pid()`'s primary path cannot succeed here in production for a truly-unregistered foreign process
+- **Status: Confirmed, not fixable within this project's control — a
+  device/OS platform constraint, documented rather than worked around
+  further.** Confirmed by direct read (CLAUDE.md rule 12 — "never assume,
+  read the artifact"), not inferred from `core/embed_server.py`'s
+  pre-existing, more tentative comment ("can be unreadable on SOME
+  Termux/Android configurations"). Reproduced directly against this real
+  device: `open("/proc/net/tcp")` raises `PermissionError: [Errno 13]
+  Permission denied` for this project's own Termux process — even a
+  process reading about its OWN sockets via `/proc/<own_pid>/net/tcp`
+  gets the identical `PermissionError`. This is Android's own per-app
+  network-state hardening (SELinux policy denying unprivileged apps read
+  access to the global socket table), not something Termux, this
+  project's install steps, or root-less configuration can change.
+  Cross-checked that `ss`, `netstat`, and `lsof` (all installed via
+  `android-tools`/similar packages) fare no better on this device: `ss`
+  fails with "Cannot open netlink socket: Permission denied"; `netstat`
+  reports "no support for `AF INET (tcp)` on this system" and shows only
+  processes it can already identify by other means; `lsof -i` returns
+  empty. No available userspace tool on this device can map an arbitrary
+  port to its owning PID without root.
+- **What IS confirmed readable on this device**: `/proc/<pid>/fd` for any
+  same-UID process (verified directly against a real running Termux
+  process) — so `_pid_owning_inode()`'s half of the mechanism (given an
+  inode number) genuinely works here. The broken half is specifically
+  discovering the LISTEN-state inode for a given port in the first place,
+  which is what `/proc/net/tcp` was for.
+- **Practical consequence for the lease/registry item's own goal
+  (`NEW-104`)**: `NEW-104`'s original "true foreign adoption — a resident
+  server with no pre-existing resource-gate slot to fall back to" case
+  CANNOT be resolved to a real PID on this device via
+  `resolve_port_owner_pid()` alone. `core/loader_v2.py`'s new
+  `_reconcile_adopted_slot()` and `core/embed_server.py`'s existing
+  adoption path both correctly degrade to "leave the gate as blind as
+  before" in this specific sub-case (best-effort by design, never
+  blocking) — this is NOT a crash or an incorrect-admission bug, but it
+  does mean this specific code path is effectively dead weight on THIS
+  device today, functioning only as intended portability for a rooted
+  device or a non-Android deployment where `/proc/net/tcp` is genuinely
+  readable. The two cases that DO work on this device today don't depend
+  on this scan at all: (1) a server this process itself registered
+  earlier (`find_resident_slot()`, pure resource-gate-store read, no OS
+  call), and (2) `embed_server.py`'s own `_find_pid_via_registered_slot()`
+  fallback (same pattern, pre-existing).
+- **Not fixed — nothing to fix in this project's own code.** The
+  `resolve_port_owner_pid()`/`_pid_owning_inode()` implementation is
+  correct and safe as written (degrades to `None`, never crashes, never
+  falls back to a name-based kill per rule 3) — it is simply unable to
+  succeed via its primary path on this specific device for the one case
+  it was added to newly cover. Documented directly in
+  `resolve_port_owner_pid()`'s own docstring so a future reader doesn't
+  have to rediscover this by reading `NEW_ISSUES.md` first.
+- **If this ever needs to actually work on this device**: the only
+  avenues not yet explored are (a) a rooted device (out of this project's
+  scope — Ish's own device, not something to request), or (b) an
+  Android-specific API (e.g. `dumpsys` variants, `ConnectivityManager`,
+  or similar) that might expose per-app socket ownership through a path
+  this project hasn't checked — not investigated this round, flagged as
+  a possible future direction only if this specific gap ever becomes
+  load-bearing rather than best-effort.
+- **Cross-references:** `NEW-104` (the finding this was meant to fully
+  close — stays only partially closed, see the lease/registry item's own
+  `CODEY_MASTER_PLAN.md` entry for the precise scope), `NEW-146` (embed
+  server adoption, which works today via the registered-slot fallback,
+  unaffected by this gap), `core/embed_server.py`'s own pre-existing
+  comment on `_find_port_occupant_pid()` (which had already flagged this
+  as a possibility, now confirmed as fact on this specific device).

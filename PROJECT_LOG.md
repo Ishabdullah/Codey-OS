@@ -12,7 +12,95 @@ and Appendix A.
 
 ---
 
-## 2026-08-26 (latest) — Clean(er) `NEW-195` re-test, 7.4b-C's background half live-verified for the first time, `n_threads=6` benchmarked (`NEW-197`), a real monitor bug found and fixed mid-round (`NEW-198`)
+## 2026-08-26 (latest) — Lease/registry item built (`NEW-104`/`NEW-144`/`NEW-146`/`NEW-149`); a real platform limitation found and documented (`NEW-200`); mandatory code-reviewer pass still outstanding
+
+Picked up the next unstarted Phase A1 item per §6.2's ordering. The
+implementing session (project-architect, working directly since no
+subagent-dispatch tool was available) hit a transient API error mid-round
+after completing the design and implementation but before finishing its
+own test-suite verification — the coordinating session picked up from
+there, diagnosed the one failing test, and completed the round.
+
+**Built**: `core/resource_gate.py` gains `find_resident_slot()` (the
+query half — is a model already resident, at what `n_ctx`/`pid`/`port`,
+reusing the existing slot store rather than a second lease-file format)
+and a positive-PID-resolution toolkit generalized from
+`core/embed_server.py`'s own pre-existing pattern:
+`resolve_port_owner_pid()`, `_pid_owning_inode()`,
+`pid_cmdline_contains()`, `resolve_spawned_n_ctx()` — every one of them
+returns `None`/`False` on any ambiguity rather than ever falling back to
+a name-based kill (rule 3). `register_slot()`/`reserve_slot()` now
+persist `n_ctx`, the datum `NEW-149`'s detection needed. `core/
+loader_v2.py`'s coder-adoption path gets a new `_reconcile_adopted_slot()`
+that registers a previously-unlisted resident server (or logs, not
+respawns, an under-provisioned-ceiling mismatch against an
+already-registered one) — entirely best-effort, every failure mode
+degrades to "the gate stays exactly as blind as before," never blocking
+the reuse it's called from. `core/embed_server.py`'s `start()` now
+adopts an already-healthy occupant instead of killing it — this is
+`NEW-146`'s actual fix (the daemon's own restart path calls `start()`
+directly; `NEW-144`'s earlier fix only covered `core/inference.py`'s
+caller). Caught and fixed, in the same round, a slot-release leak the
+adoption fix would otherwise have introduced: `stop()`'s slot release was
+nested inside `if self.process:`, but an adopted server has no `Popen`
+handle (`self.process is None`) — moved the release out of that block so
+an adopted server's slot is still released on `stop()`.
+
+**Real bug found while diagnosing the one failing test, not assumed**:
+`test_resolve_port_owner_pid_finds_real_listening_process` asserted it
+"exercises the real mechanism end-to-end," but direct testing
+(`open("/proc/net/tcp")`) showed `PermissionError` on this actual
+device — for EVERY caller, including a process reading about its own
+sockets, not merely "sometimes unreadable" as `embed_server.py`'s
+pre-existing, more tentative comment had put it. Cross-checked `ss`
+("Cannot open netlink socket: Permission denied"), `netstat` ("no
+support for `AF INET (tcp)` on this system"), and `lsof -i` (empty) —
+none work either. This is Android's own per-app network-state hardening,
+not a Termux config gap. Confirmed separately that `/proc/<pid>/fd` IS
+readable for same-UID processes, so `_pid_owning_inode()`'s half of the
+mechanism (given an inode) does work here — only the "find the inode via
+`/proc/net/tcp`" half is blocked. **Fixed the test** to mock only the
+`/proc/net/tcp` read (using the test process's REAL socket inode via
+`os.fstat().st_ino`, not a fabricated one) while letting the real,
+unmocked `/proc/*/fd` scan run — genuinely exercises the half of the
+mechanism that can be exercised on this device, rather than either
+silently skipping the test or leaving a false "end-to-end real" claim in
+its docstring. Added a second test pinning the confirmed
+`PermissionError` (not just "some exception") as the expected real-device
+behavior. Documented the limitation directly in
+`resolve_port_owner_pid()`'s own docstring and logged **`NEW-200`**
+(Confirmed, not a fixable code defect — a platform constraint): `NEW-104`'s
+hardest case ("truly foreign process, no pre-existing resource-gate slot
+to fall back to") cannot be resolved to a real PID on this device without
+root; the two cases that don't depend on this OS call (a slot this
+process itself registered; `embed_server.py`'s pre-existing
+registered-slot fallback) are unaffected and work correctly.
+
+**Verification**: `python -m pytest tests/ -q --ignore=tests/test_restoricon_core`
+→ **692 passed, 1 skipped** (up from 671/1 — 21 new tests: 15 for the
+lease/registry mechanism itself plus this round's 2 replacement/addition
+tests for the `/proc/net/tcp` finding, plus a few incidental others
+already in flight). 15 of the new tests were written by the interrupted
+implementing session and independently confirmed still correct and
+appropriately mocked (no dependency on the broken `/proc/net/tcp` path)
+by this round's own review before trusting them.
+
+**Status: code-complete, self-tested — NOT yet mandatory-code-reviewer-
+approved.** Per CLAUDE.md rule 4, this touches lock/process-lifecycle
+coordination (slot registration, adoption, kill-avoidance) and requires
+the code-reviewer subagent's explicit approval before being considered
+done, regardless of how correct it looks. That pass has not run yet —
+flagged explicitly rather than claimed done, consistent with this
+project's own recent precedent (`NEW-135`/`187`).
+
+Files touched: `core/resource_gate.py`, `core/loader_v2.py`,
+`core/embed_server.py`, `tests/test_resource_gate.py`,
+`tests/test_loader_resource_gate.py`, `CODEY_MASTER_PLAN.md`,
+`NEW_ISSUES.md`.
+
+---
+
+## 2026-08-26 — Clean(er) `NEW-195` re-test, 7.4b-C's background half live-verified for the first time, `n_threads=6` benchmarked (`NEW-197`), a real monitor bug found and fixed mid-round (`NEW-198`)
 
 Follow-up to the previous entry's aborted round. Two live actions this
 time: (1) re-run the `NEW-195` hang scenario under `tools/

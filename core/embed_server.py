@@ -60,17 +60,61 @@ class EmbedServer:
         if self.process and self.process.poll() is None and self._check_health():
             return True
 
+        # ── Adopt a healthy occupant instead of killing it (NEW-146) ────────
+        # NEW-144's original fix only guarded core/inference.py's caller
+        # (_start_server(), which never owns start/stop lifecycle). This
+        # method itself is the one true owner (the daemon's _main_loop and
+        # 30s watchdog both call it directly) — but a daemon RESTART after
+        # an ungraceful crash (bypassing the old daemon's finally: shutdown)
+        # starts with a fresh EmbedServer() object that has no memory of a
+        # still-alive, healthy embed server the PRIOR incarnation spawned.
+        # Without this check, that case fell through to the kill-and-replace
+        # branch below against a perfectly healthy process — exactly
+        # NEW-146's scenario. A real /health response here means "already
+        # correct and running," so adopt it (register a lease/registry slot
+        # for its real PID, if not already registered) rather than tearing
+        # it down and re-paying the ~1-2s spawn cost for no behavioral gain.
+        # `_port_is_bound()` gated first (not `_check_health()` alone): this
+        # method's own not-yet-spawned Popen has nothing listening yet, so a
+        # real deployment's health probe against an empty port always fails
+        # here on its own — gating on the raw TCP-bound check first keeps
+        # that failure mode explicit rather than relying on `_check_health()`
+        # alone to imply it.
+        if self._port_is_bound() and self._check_health():
+            info(f"Adopting already-healthy embed server on port {self.port}, not restarting it")
+            self._started = True
+            if self._slot_id is None:
+                try:
+                    existing = rg.find_resident_slot(model_id="embed", port=self.port)
+                    if existing is None:
+                        real_pid = self._find_port_occupant_pid()
+                        if real_pid is not None:
+                            self._slot_id = rg.register_slot(
+                                model_id="embed",
+                                cost_bytes=self.model_path.stat().st_size,
+                                pid=real_pid,
+                                port=self.port,
+                                status=rg.SLOT_STATUS_RESIDENT,
+                            )
+                except Exception as e:
+                    # Accounting-only, same posture as the genuine-spawn
+                    # registration below — must never block adoption itself.
+                    warning(f"resource_gate: failed to register adopted embed server slot: {e}")
+            return True
+
         # Kill any stale llama-server occupying the embed port — it may have
-        # different settings (wrong ctx, old ubatch) from a previous run.
-        # Uses the raw TCP-connect check (_port_is_bound), not
-        # _is_port_open() alone: _is_port_open() also requires a
-        # successful /health response, so a foreign occupant that accepts
-        # the connection but doesn't answer /health would make
-        # _is_port_open() report "not open" and skip clearing the port
-        # entirely — then Popen below would fail to bind and this method
-        # would burn the full 30 s health-check loop before reporting a
-        # misleading "Timeout waiting for embed server" instead of the
-        # real cause.
+        # different settings (wrong ctx, old ubatch) from a previous run, OR
+        # (see the health check just above, which already handles the
+        # healthy case) it's bound but NOT answering /health — the original
+        # NEW-144 threat model this branch exists for. Uses the raw
+        # TCP-connect check (_port_is_bound), not _is_port_open() alone:
+        # _is_port_open() also requires a successful /health response, so a
+        # foreign occupant that accepts the connection but doesn't answer
+        # /health would make _is_port_open() report "not open" and skip
+        # clearing the port entirely — then Popen below would fail to bind
+        # and this method would burn the full 30 s health-check loop before
+        # reporting a misleading "Timeout waiting for embed server" instead
+        # of the real cause.
         if self._port_is_bound():
             info(f"Stale process on port {self.port} — replacing with fresh embed server...")
             if not self._kill_port_occupant():
@@ -176,7 +220,21 @@ class EmbedServer:
         return False
 
     def stop(self):
-        """Stop the embed server subprocess."""
+        """Stop the embed server subprocess.
+
+        Only kills the process this object actually holds a `Popen` handle
+        for (`self.process`) — an adopted server (NEW-146's lease/registry
+        fix, `self.process` left `None` by the adoption branch in `start()`)
+        is never ours to kill, matching this project's existing "never own
+        what you didn't spawn" posture elsewhere (`core/loader_v2.py`'s
+        reuse branch, CLAUDE.md rule 3). The slot release below is
+        deliberately NOT nested inside the `if self.process:` block: an
+        adopted server still has a real `self._slot_id` (registered for
+        observability), and leaving the release nested there would leak
+        that slot forever on an adopted server's `stop()` — exactly the
+        accounting-blind gap this same round's lease/registry item exists
+        to close, just re-introduced through this method if left as it was.
+        """
         if self.process:
             try:
                 import signal as _signal
@@ -202,16 +260,16 @@ class EmbedServer:
                     pass
             finally:
                 self.process = None
-                self._started = False
-                if self._slot_id:
-                    try:
-                        rg.release_slot(self._slot_id)
-                    except Exception as e:
-                        # Same posture as the registration try/except above —
-                        # accounting-only, must never block the actual stop.
-                        warning(f"resource_gate: failed to release embed server slot: {e}")
-                    self._slot_id = None
-                info("Embed server stopped")
+        self._started = False
+        if self._slot_id:
+            try:
+                rg.release_slot(self._slot_id)
+            except Exception as e:
+                # Same posture as the registration try/except above —
+                # accounting-only, must never block the actual stop.
+                warning(f"resource_gate: failed to release embed server slot: {e}")
+            self._slot_id = None
+        info("Embed server stopped")
 
     def is_running(self) -> bool:
         if self.process is not None and self.process.poll() is None:
