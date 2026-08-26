@@ -1,0 +1,1346 @@
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+0.00.008.864 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.011.591 W srv  llama_server: -----------------
+0.00.011.608 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.011.609 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.011.610 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.011.611 W srv  llama_server: -----------------
+0.00.013.018 I srv    load_model: loading model '/data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf'
+0.00.112.114 W load: special_eos_id is not in special_eog_ids - the tokenizer config may be incorrect
+0.00.353.823 W srv    load_model: speculative decoding not supported by this context
+0.00.353.834 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 2048, kv_unified = 'true'
+0.00.361.394 I srv  llama_server: model loaded
+0.00.361.398 I srv  llama_server: listening on http://127.0.0.1:8082
+0.08.208.944 I srv    operator(): operator(): cleaning up before exit...
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+0.00.004.185 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.006.050 W srv  llama_server: -----------------
+0.00.006.056 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.006.057 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.006.057 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.006.058 W srv  llama_server: -----------------
+0.00.007.363 I srv    load_model: loading model '/data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf'
+0.00.107.855 W load: special_eos_id is not in special_eog_ids - the tokenizer config may be incorrect
+0.00.320.562 W srv    load_model: speculative decoding not supported by this context
+0.00.320.583 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 2048, kv_unified = 'true'
+0.00.323.485 I srv  llama_server: model loaded
+0.00.323.493 I srv  llama_server: listening on http://127.0.0.1:8082
+0.43.266.054 I srv    operator(): operator(): cleaning up before exit...
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+0.00.005.773 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.007.265 W srv  llama_server: -----------------
+0.00.007.272 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.007.272 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.007.273 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.007.274 W srv  llama_server: -----------------
+0.00.009.016 I srv    load_model: loading model '/data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf'
+0.00.133.688 W load: special_eos_id is not in special_eog_ids - the tokenizer config may be incorrect
+0.00.382.032 W srv    load_model: speculative decoding not supported by this context
+0.00.382.054 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 2048, kv_unified = 'true'
+0.00.443.164 I srv  llama_server: model loaded
+0.00.443.183 I srv  llama_server: listening on http://127.0.0.1:8082
+0.12.230.883 I srv    operator(): operator(): cleaning up before exit...
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+0.00.004.444 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.005.179 W srv  llama_server: -----------------
+0.00.005.221 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.005.223 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.005.224 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.005.225 W srv  llama_server: -----------------
+0.00.006.644 I srv    load_model: loading model '/data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf'
+0.00.084.214 W load: special_eos_id is not in special_eog_ids - the tokenizer config may be incorrect
+0.00.190.808 W srv    load_model: speculative decoding not supported by this context
+0.00.190.830 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 2048, kv_unified = 'true'
+0.00.193.633 I srv  llama_server: model loaded
+0.00.193.647 I srv  llama_server: listening on http://127.0.0.1:8082
+0.41.129.017 I srv    operator(): operator(): cleaning up before exit...
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+0.00.005.249 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.006.136 W srv  llama_server: -----------------
+0.00.006.166 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.006.168 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.006.169 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.006.171 W srv  llama_server: -----------------
+0.00.007.576 I srv    load_model: loading model '/data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf'
+0.00.074.694 W load: special_eos_id is not in special_eog_ids - the tokenizer config may be incorrect
+0.00.141.211 W srv    load_model: speculative decoding not supported by this context
+0.00.141.226 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 2048, kv_unified = 'true'
+0.00.144.108 I srv  llama_server: model loaded
+0.00.144.119 I srv  llama_server: listening on http://127.0.0.1:8082
+0.01.029.537 I srv    operator(): operator(): cleaning up before exit...
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+0.00.004.733 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.005.773 W srv  llama_server: -----------------
+0.00.005.798 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.005.799 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.005.800 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.005.801 W srv  llama_server: -----------------
+0.00.007.189 I srv    load_model: loading model '/data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf'
+0.00.084.049 W load: special_eos_id is not in special_eog_ids - the tokenizer config may be incorrect
+0.00.469.846 W srv    load_model: speculative decoding not supported by this context
+0.00.469.859 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 2048, kv_unified = 'true'
+0.00.475.596 I srv  llama_server: model loaded
+0.00.475.613 I srv  llama_server: listening on http://127.0.0.1:8082
+0.04.864.775 I srv    operator(): operator(): cleaning up before exit...
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+0.00.003.885 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.008.257 W srv  llama_server: -----------------
+0.00.008.264 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.008.266 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.008.266 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.008.267 W srv  llama_server: -----------------
+0.00.009.613 I srv    load_model: loading model '/data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf'
+0.00.153.699 W load: special_eos_id is not in special_eog_ids - the tokenizer config may be incorrect
+0.00.516.078 W srv    load_model: speculative decoding not supported by this context
+0.00.516.104 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 2048, kv_unified = 'true'
+0.00.527.168 I srv  llama_server: model loaded
+0.00.527.212 I srv  llama_server: listening on http://127.0.0.1:8082
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+0.00.003.814 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.004.435 W srv  llama_server: -----------------
+0.00.004.463 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.004.464 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.004.465 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.004.466 W srv  llama_server: -----------------
+0.00.005.839 I srv    load_model: loading model '/data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf'
+0.00.101.170 W load: special_eos_id is not in special_eog_ids - the tokenizer config may be incorrect
+0.00.200.358 W srv    load_model: speculative decoding not supported by this context
+0.00.200.382 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 2048, kv_unified = 'true'
+0.00.203.273 I srv  llama_server: model loaded
+0.00.203.283 I srv  llama_server: listening on http://127.0.0.1:8082
+0.31.644.688 I srv    operator(): operator(): cleaning up before exit...
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+0.00.006.371 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.007.237 W srv  llama_server: -----------------
+0.00.007.255 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.007.256 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.007.257 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.007.258 W srv  llama_server: -----------------
+0.00.008.577 I srv    load_model: loading model '/data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf'
+0.00.078.012 W load: special_eos_id is not in special_eog_ids - the tokenizer config may be incorrect
+0.00.144.440 W srv    load_model: speculative decoding not supported by this context
+0.00.144.457 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 2048, kv_unified = 'true'
+0.00.147.240 I srv  llama_server: model loaded
+0.00.147.253 I srv  llama_server: listening on http://127.0.0.1:8082
+0.05.551.215 I srv    operator(): operator(): cleaning up before exit...
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+0.00.003.839 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.004.654 W srv  llama_server: -----------------
+0.00.004.676 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.004.679 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.004.680 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.004.681 W srv  llama_server: -----------------
+0.00.006.121 I srv    load_model: loading model '/data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf'
+0.00.074.088 W load: special_eos_id is not in special_eog_ids - the tokenizer config may be incorrect
+0.00.137.316 W srv    load_model: speculative decoding not supported by this context
+0.00.137.332 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 2048, kv_unified = 'true'
+0.00.140.174 I srv  llama_server: model loaded
+0.00.140.188 I srv  llama_server: listening on http://127.0.0.1:8082
+2.40.919.391 I srv    operator(): operator(): cleaning up before exit...
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+0.00.004.101 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.004.782 W srv  llama_server: -----------------
+0.00.004.812 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.004.814 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.004.815 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.004.816 W srv  llama_server: -----------------
+0.00.006.225 I srv    load_model: loading model '/data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf'
+0.00.081.052 W load: special_eos_id is not in special_eog_ids - the tokenizer config may be incorrect
+0.00.149.211 W srv    load_model: speculative decoding not supported by this context
+0.00.149.230 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 2048, kv_unified = 'true'
+0.00.152.167 I srv  llama_server: model loaded
+0.00.152.178 I srv  llama_server: listening on http://127.0.0.1:8082
+2.55.831.092 I srv    operator(): operator(): cleaning up before exit...
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+0.00.003.649 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.004.214 W srv  llama_server: -----------------
+0.00.004.232 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.004.234 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.004.235 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.004.235 W srv  llama_server: -----------------
+0.00.005.568 I srv    load_model: loading model '/data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf'
+0.00.073.595 W load: special_eos_id is not in special_eog_ids - the tokenizer config may be incorrect
+0.00.138.660 W srv    load_model: speculative decoding not supported by this context
+0.00.138.676 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 2048, kv_unified = 'true'
+0.00.141.580 I srv  llama_server: model loaded
+0.00.141.592 I srv  llama_server: listening on http://127.0.0.1:8082
+3.44.568.335 I srv    operator(): operator(): cleaning up before exit...
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+0.00.005.124 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.007.552 W srv  llama_server: -----------------
+0.00.007.554 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.007.555 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.007.556 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.007.557 W srv  llama_server: -----------------
+0.00.010.472 I srv    load_model: loading model '/data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf'
+0.00.102.935 W load: special_eos_id is not in special_eog_ids - the tokenizer config may be incorrect
+0.00.237.823 W srv    load_model: speculative decoding not supported by this context
+0.00.237.835 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 2048, kv_unified = 'true'
+0.00.242.933 I srv  llama_server: model loaded
+0.00.242.963 I srv  llama_server: listening on http://127.0.0.1:8082
+3.09.655.184 I srv    operator(): operator(): cleaning up before exit...
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+0.00.019.134 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.020.803 W srv  llama_server: -----------------
+0.00.020.810 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.020.811 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.020.812 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.020.812 W srv  llama_server: -----------------
+0.00.022.233 I srv    load_model: loading model '/data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf'
+0.00.248.831 W load: special_eos_id is not in special_eog_ids - the tokenizer config may be incorrect
+0.00.844.998 W srv    load_model: speculative decoding not supported by this context
+0.00.845.024 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 2048, kv_unified = 'true'
+0.00.877.034 I srv  llama_server: model loaded
+0.00.877.051 I srv  llama_server: listening on http://127.0.0.1:8082
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+0.00.028.980 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.032.617 W srv  llama_server: -----------------
+0.00.032.630 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.032.631 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.032.632 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.032.632 W srv  llama_server: -----------------
+0.00.034.772 I srv    load_model: loading model '/data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf'
+0.00.183.969 W load: special_eos_id is not in special_eog_ids - the tokenizer config may be incorrect
+0.00.460.941 W srv    load_model: speculative decoding not supported by this context
+0.00.460.958 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 2048, kv_unified = 'true'
+0.00.473.873 I srv  llama_server: model loaded
+0.00.473.906 I srv  llama_server: listening on http://127.0.0.1:8082
+0.43.354.160 I srv    operator(): operator(): cleaning up before exit...
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+0.00.005.123 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.006.247 W srv  llama_server: -----------------
+0.00.006.279 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.006.281 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.006.282 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.006.283 W srv  llama_server: -----------------
+0.00.007.690 I srv    load_model: loading model '/data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf'
+0.00.094.348 W load: special_eos_id is not in special_eog_ids - the tokenizer config may be incorrect
+0.00.221.667 W srv    load_model: speculative decoding not supported by this context
+0.00.221.686 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 2048, kv_unified = 'true'
+0.00.224.544 I srv  llama_server: model loaded
+0.00.224.561 I srv  llama_server: listening on http://127.0.0.1:8082
+1.04.725.186 I srv    operator(): operator(): cleaning up before exit...
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+0.00.162.375 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.164.667 W srv  llama_server: -----------------
+0.00.164.683 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.164.684 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.164.685 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.164.686 W srv  llama_server: -----------------
+0.00.166.387 I srv    load_model: loading model '/data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf'
+0.00.293.857 W load: special_eos_id is not in special_eog_ids - the tokenizer config may be incorrect
+0.00.472.849 W srv    load_model: speculative decoding not supported by this context
+0.00.472.861 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 2048, kv_unified = 'true'
+0.00.480.970 I srv  llama_server: model loaded
+0.00.481.021 I srv  llama_server: listening on http://127.0.0.1:8082
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+0.00.013.505 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.030.641 W srv  llama_server: -----------------
+0.00.030.660 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.030.661 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.030.662 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.030.663 W srv  llama_server: -----------------
+0.00.037.385 I srv    load_model: loading model '/data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf'
+0.00.281.999 W load: special_eos_id is not in special_eog_ids - the tokenizer config may be incorrect
+0.00.602.287 W srv    load_model: speculative decoding not supported by this context
+0.00.602.305 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 2048, kv_unified = 'true'
+0.00.608.316 I srv  llama_server: model loaded
+0.00.608.335 I srv  llama_server: listening on http://127.0.0.1:8082
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+0.00.017.586 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.034.781 W srv  llama_server: -----------------
+0.00.034.798 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.034.799 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.034.800 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.034.801 W srv  llama_server: -----------------
+0.00.038.333 I srv    load_model: loading model '/data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf'
+0.00.183.130 W load: special_eos_id is not in special_eog_ids - the tokenizer config may be incorrect
+0.00.596.981 W srv    load_model: speculative decoding not supported by this context
+0.00.597.000 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 2048, kv_unified = 'true'
+0.00.606.899 I srv  llama_server: model loaded
+0.00.607.055 I srv  llama_server: listening on http://127.0.0.1:8082
+2.02.851.991 I srv    operator(): operator(): cleaning up before exit...
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+0.00.004.270 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.005.290 W srv  llama_server: -----------------
+0.00.005.313 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.005.314 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.005.315 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.005.316 W srv  llama_server: -----------------
+0.00.006.659 I srv    load_model: loading model '/data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf'
+0.00.087.731 W load: special_eos_id is not in special_eog_ids - the tokenizer config may be incorrect
+0.00.186.584 W srv    load_model: speculative decoding not supported by this context
+0.00.186.603 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 2048, kv_unified = 'true'
+0.00.189.492 I srv  llama_server: model loaded
+0.00.189.506 I srv  llama_server: listening on http://127.0.0.1:8082
+3.29.078.254 I srv    operator(): operator(): cleaning up before exit...
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+0.00.004.167 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.004.795 W srv  llama_server: -----------------
+0.00.004.823 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.004.825 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.004.826 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.004.827 W srv  llama_server: -----------------
+0.00.006.153 I srv    load_model: loading model '/data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf'
+0.00.097.533 W load: special_eos_id is not in special_eog_ids - the tokenizer config may be incorrect
+0.00.211.519 W srv    load_model: speculative decoding not supported by this context
+0.00.211.535 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 2048, kv_unified = 'true'
+0.00.214.335 I srv  llama_server: model loaded
+0.00.214.349 I srv  llama_server: listening on http://127.0.0.1:8082
+30.58.055.387 I srv    operator(): operator(): cleaning up before exit...
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-40/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-40/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-41/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-41/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-42/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-42/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-43/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-43/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-44/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-44/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-45/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-45/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-46/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-46/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-47/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-47/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-48/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-48/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-52/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-52/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-53/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-53/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-54/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-54/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-55/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-55/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-57/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-57/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-58/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-58/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-59/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-59/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-62/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-62/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-63/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-63/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-64/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-64/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-65/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-65/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-67/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-67/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-68/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-68/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-70/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-70/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-71/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-71/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-72/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-72/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-74/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-74/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-76/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-76/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-77/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-77/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-78/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-78/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-79/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-79/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-80/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-80/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-81/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-81/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-82/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-82/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-83/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-83/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-84/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-84/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-85/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-85/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-86/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-86/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-87/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-87/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-88/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-88/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-89/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-89/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-91/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-91/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-92/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-92/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-93/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-93/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-94/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-94/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-95/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-95/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-96/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-96/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-97/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-97/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-98/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-98/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-99/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-99/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-101/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-101/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-103/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-103/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-104/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-104/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-106/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-106/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+0.00.004.033 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.004.732 W srv  llama_server: -----------------
+0.00.004.757 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.004.759 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.004.760 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.004.761 W srv  llama_server: -----------------
+0.00.006.182 I srv    load_model: loading model '/data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf'
+0.00.086.600 W load: special_eos_id is not in special_eog_ids - the tokenizer config may be incorrect
+0.00.199.521 W srv    load_model: speculative decoding not supported by this context
+0.00.199.531 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 2048, kv_unified = 'true'
+0.00.202.313 I srv  llama_server: model loaded
+0.00.202.326 I srv  llama_server: listening on http://127.0.0.1:8082
+2.19.424.156 I srv    operator(): operator(): cleaning up before exit...
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-109/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-109/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-110/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-110/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-111/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-111/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-112/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-112/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-113/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-113/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-114/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-114/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-115/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-115/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-116/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-116/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-117/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-117/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-118/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-118/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+0.00.003.781 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.004.414 W srv  llama_server: -----------------
+0.00.004.441 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.004.443 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.004.444 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.004.445 W srv  llama_server: -----------------
+0.00.005.769 I srv    load_model: loading model '/data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf'
+0.00.088.774 W load: special_eos_id is not in special_eog_ids - the tokenizer config may be incorrect
+0.00.195.153 W srv    load_model: speculative decoding not supported by this context
+0.00.195.168 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 2048, kv_unified = 'true'
+0.00.198.020 I srv  llama_server: model loaded
+0.00.198.037 I srv  llama_server: listening on http://127.0.0.1:8082
+13.40.220.793 I srv    operator(): operator(): cleaning up before exit...
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-119/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-119/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-120/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-120/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-122/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-122/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-123/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-123/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-125/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-125/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-127/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-127/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-128/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-128/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-136/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-136/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-138/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-138/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-139/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-139/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-141/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-141/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-144/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-144/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-145/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-145/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-148/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-148/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-152/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-152/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-155/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-155/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-157/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-157/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-159/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-159/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-160/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-160/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-164/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-164/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-165/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-165/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-166/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-166/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-168/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-168/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-171/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-171/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-172/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-172/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-174/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-174/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-176/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-176/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-177/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-177/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-178/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-178/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-180/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-180/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-182/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-182/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-184/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-184/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-185/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-185/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-186/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-186/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-187/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-187/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+0.00.003.682 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.004.224 W srv  llama_server: -----------------
+0.00.004.240 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.004.242 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.004.243 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.004.244 W srv  llama_server: -----------------
+0.00.005.629 I srv    load_model: loading model '/data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf'
+0.00.079.537 W load: special_eos_id is not in special_eog_ids - the tokenizer config may be incorrect
+0.00.174.806 W srv    load_model: speculative decoding not supported by this context
+0.00.174.825 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 2048, kv_unified = 'true'
+0.00.177.605 I srv  llama_server: model loaded
+0.00.177.617 I srv  llama_server: listening on http://127.0.0.1:8082
+0.17.539.912 I srv    operator(): operator(): cleaning up before exit...
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+0.00.003.984 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.004.635 W srv  llama_server: -----------------
+0.00.004.661 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.004.663 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.004.664 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.004.665 W srv  llama_server: -----------------
+0.00.006.016 I srv    load_model: loading model '/data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf'
+0.00.076.321 W load: special_eos_id is not in special_eog_ids - the tokenizer config may be incorrect
+0.00.149.232 W srv    load_model: speculative decoding not supported by this context
+0.00.149.248 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 2048, kv_unified = 'true'
+0.00.152.131 I srv  llama_server: model loaded
+0.00.152.146 I srv  llama_server: listening on http://127.0.0.1:8082
+4.05.062.288 I srv    operator(): operator(): cleaning up before exit...
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+0.00.004.475 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.005.188 W srv  llama_server: -----------------
+0.00.005.216 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.005.217 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.005.218 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.005.219 W srv  llama_server: -----------------
+0.00.006.581 I srv    load_model: loading model '/data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf'
+0.00.076.034 W load: special_eos_id is not in special_eog_ids - the tokenizer config may be incorrect
+0.00.149.356 W srv    load_model: speculative decoding not supported by this context
+0.00.149.379 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 2048, kv_unified = 'true'
+0.00.152.250 I srv  llama_server: model loaded
+0.00.152.266 I srv  llama_server: listening on http://127.0.0.1:8082
+2.01.234.954 I srv    operator(): operator(): cleaning up before exit...
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-188/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-188/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-189/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-189/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-191/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-191/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-192/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-192/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-193/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-193/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-194/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-194/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-195/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-195/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-196/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-196/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-0/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-0/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-1/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-1/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-2/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-2/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-4/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-4/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-5/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-5/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-6/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-6/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-7/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-7/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-8/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-8/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-10/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-10/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-11/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-11/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-12/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-12/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-13/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-13/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-15/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-15/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-16/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-16/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-18/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-18/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-19/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-19/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-20/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-20/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-21/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-21/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-23/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-23/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-25/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-25/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-26/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-26/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-27/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-27/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-29/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-29/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-31/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-31/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-33/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-33/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-34/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-34/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-36/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-36/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-37/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-37/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-38/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-38/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-39/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-39/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-40/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-40/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-41/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-41/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-44/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-44/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-45/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-45/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-46/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-46/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-47/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-47/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-48/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-48/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-49/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-49/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-50/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-50/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-51/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-51/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-52/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-52/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-22/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-22/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-26/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-26/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-27/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-27/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-28/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-28/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-33/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-33/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-34/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-34/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-37/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-37/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-1/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-1/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-2/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-2/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-6/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-6/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-10/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-10/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-11/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-11/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-15/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-15/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-0/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-0/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-1/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-1/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-2/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-2/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-3/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-3/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-4/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-4/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-5/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-5/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-8/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-8/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-10/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-10/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-11/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-11/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-12/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-12/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-13/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-13/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-14/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-14/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-15/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-15/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-16/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-16/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-17/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-17/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-19/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-19/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-21/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-21/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-24/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-24/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-27/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-27/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-28/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-28/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-29/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-29/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-33/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-33/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-34/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-34/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-37/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-37/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-38/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-38/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-39/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-39/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-40/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-40/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-41/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-41/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-42/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-42/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-43/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-43/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-44/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-44/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-45/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-45/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-46/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-46/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-47/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-47/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-48/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-48/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-49/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-49/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-50/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-50/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-51/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-51/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-52/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-52/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-53/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-53/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-54/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-54/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-56/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-56/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-58/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-58/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-59/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-59/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-60/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-60/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-61/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-61/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-62/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-62/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-2/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-2/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-3/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-3/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-4/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-4/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-5/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-5/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-6/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-6/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-7/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-7/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-8/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-8/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-9/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-9/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-10/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-10/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-1/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-1/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-4/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-4/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-5/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-5/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-9/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-9/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-10/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-10/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-12/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-12/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-0/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-0/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-1/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-1/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-2/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-2/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-3/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-3/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-4/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-4/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-6/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-6/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-8/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-8/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-10/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-10/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-12/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-12/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-13/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-13/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-15/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-15/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-17/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-17/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-18/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-18/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-20/test_embed_server_registers_sl0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/usr/tmp/pytest-of-u0_a247/pytest-20/test_embed_server_releases_slo0/embed.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+
+--- embed server start: /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server -m /data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf --host 127.0.0.1 --port 8082 -c 2048 -t 2 -b 2048 --ubatch-size 2048 --embedding --pooling mean
+0.00.005.619 E ggml_opencl: platform IDs not available.
+0.00.009.283 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.011.375 W srv  llama_server: -----------------
+0.00.011.395 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.011.396 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.011.397 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.011.398 W srv  llama_server: -----------------
+0.00.013.230 I srv    load_model: loading model '/data/data/com.termux/files/home/models/nomic-embed/nomic-embed-text-v1.5.Q4_K_M.gguf'
+0.00.118.478 W load: special_eos_id is not in special_eog_ids - the tokenizer config may be incorrect
+0.00.205.832 W srv    load_model: speculative decoding not supported by this context
+0.00.205.849 I srv    load_model: initializing, n_slots = 4, n_ctx_slot = 2048, kv_unified = 'true'
+0.00.220.532 I srv  llama_server: model loaded
+0.00.220.549 I srv  llama_server: listening on http://127.0.0.1:8082
+16.54.168.585 I srv    operator(): operator(): cleaning up before exit...

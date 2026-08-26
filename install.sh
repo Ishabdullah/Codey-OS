@@ -108,6 +108,13 @@ install_system_deps() {
             # / 7.4 sub-task A) — voice interface
             pkg install -y espeak termux-api 2>/dev/null \
                 || print_warning "espeak/termux-api pkg install failed — voice interface may not work"
+            # android-tools (adb) — used by tools/adb_confound_monitor.py
+            # (NEW-195/NEW-197) to record screen/foreground-app state
+            # during live-verify sessions, so future rounds can rule out
+            # concurrent phone use as a confound rather than discover it
+            # after the fact.
+            pkg install -y android-tools 2>/dev/null \
+                || print_warning "android-tools (adb) pkg install failed — live-verify confound monitoring will not work"
         fi
         print_success "Termux packages installed"
     elif command -v apt &>/dev/null; then

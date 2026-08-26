@@ -1,0 +1,96 @@
+ℹ  Daemon PID: 31066
+ℹ  Daemon started
+ℹ  Coder (7B) will load lazily on first request — no startup preload
+ℹ  Starting embed server (nomic) on port 8082...
+ℹ  Embed server PID: 31070, log: 
+/data/data/com.termux/files/home/.codeyOS/embed-server.log
+✓  Embed server ready on port 8082
+ℹ  Embed server started (port 8082)
+⚠  FileWatch: watchdog not installed, file watches disabled
+ℹ  Daemon listening on /data/data/com.termux/files/home/.codeyOS/codeyOS.sock
+⚠  resource_gate: CPU sample read failed, treating as unavailable: [Errno 13] 
+Permission denied: '/proc/stat'
+ℹ  resource_gate shutdown-tripwire check: thermal leg not satisfied: most recent
+sample (78.3) is below threshold (90) — not currently sustained regardless of 
+earlier history
+⚠  resource_gate: CPU sample read failed, treating as unavailable: [Errno 13] 
+Permission denied: '/proc/stat'
+ℹ  resource_gate shutdown-tripwire check: thermal leg not satisfied: most recent
+sample (68.9) is below threshold (90) — not currently sustained regardless of 
+earlier history
+⚠  resource_gate: CPU sample read failed, treating as unavailable: [Errno 13] 
+Permission denied: '/proc/stat'
+ℹ  resource_gate shutdown-tripwire check: thermal leg not satisfied: most recent
+sample (74.8) is below threshold (90) — not currently sustained regardless of 
+earlier history
+⚠  resource_gate: CPU sample read failed, treating as unavailable: [Errno 13] 
+Permission denied: '/proc/stat'
+ℹ  resource_gate shutdown-tripwire check: thermal leg not satisfied: most recent
+sample (75.9) is below threshold (90) — not currently sustained regardless of 
+earlier history
+⚠  resource_gate: CPU sample read failed, treating as unavailable: [Errno 13] 
+Permission denied: '/proc/stat'
+ℹ  resource_gate shutdown-tripwire check: thermal leg not satisfied: most recent
+sample (69.3) is below threshold (90) — not currently sustained regardless of 
+earlier history
+⚠  resource_gate: CPU sample read failed, treating as unavailable: [Errno 13] 
+Permission denied: '/proc/stat'
+ℹ  resource_gate shutdown-tripwire check: thermal leg not satisfied: most recent
+sample (75.5) is below threshold (90) — not currently sustained regardless of 
+earlier history
+⚠  resource_gate: CPU sample read failed, treating as unavailable: [Errno 13] 
+Permission denied: '/proc/stat'
+ℹ  resource_gate shutdown-tripwire check: thermal leg not satisfied: most recent
+sample (73.2) is below threshold (90) — not currently sustained regardless of 
+earlier history
+⚠  resource_gate: CPU sample read failed, treating as unavailable: [Errno 13] 
+Permission denied: '/proc/stat'
+⚠  resource_gate shutdown-tripwire check: thermal leg not satisfied: trailing 
+window only spans 211s of the required 1200s — insufficient history to conclude 
+sustained (expected for the first ~duration after any daemon restart, since 
+history is process-global and starts empty)
+⚠  resource_gate: CPU sample read failed, treating as unavailable: [Errno 13] 
+Permission denied: '/proc/stat'
+ℹ  resource_gate shutdown-tripwire check: thermal leg not satisfied: most recent
+sample (48.7) is below threshold (90) — not currently sustained regardless of 
+earlier history
+⚠  resource_gate: CPU sample read failed, treating as unavailable: [Errno 13] 
+Permission denied: '/proc/stat'
+ℹ  resource_gate shutdown-tripwire check: thermal leg not satisfied: most recent
+sample (73.6) is below threshold (90) — not currently sustained regardless of 
+earlier history
+⚠  resource_gate: CPU sample read failed, treating as unavailable: [Errno 13] 
+Permission denied: '/proc/stat'
+⚠  resource_gate shutdown-tripwire check: thermal leg not satisfied: trailing 
+window only spans 539s of the required 1200s — insufficient history to conclude 
+sustained (expected for the first ~duration after any daemon restart, since 
+history is process-global and starts empty)
+⚠  resource_gate: CPU sample read failed, treating as unavailable: [Errno 13] 
+Permission denied: '/proc/stat'
+ℹ  resource_gate shutdown-tripwire check: thermal leg not satisfied: most recent
+sample (44.6) is below threshold (90) — not currently sustained regardless of 
+earlier history
+⚠  resource_gate: CPU sample read failed, treating as unavailable: [Errno 13] 
+Permission denied: '/proc/stat'
+ℹ  resource_gate shutdown-tripwire check: thermal leg not satisfied: most recent
+sample (66.2) is below threshold (90) — not currently sustained regardless of 
+earlier history
+⚠  resource_gate: CPU sample read failed, treating as unavailable: [Errno 13] 
+Permission denied: '/proc/stat'
+ℹ  resource_gate shutdown-tripwire check: thermal leg not satisfied: most recent
+sample (73.2) is below threshold (90) — not currently sustained regardless of 
+earlier history
+ℹ  SIGTERM received, shutting down...
+ℹ  Embed server stopped
+ℹ  Daemon socket stopped
+ℹ  Daemon stopped
+ unavailable: [Errno 13] Permission denied: '/proc/stat'
+2026-08-26 10:53:11,360 - INFO - resource_gate shutdown-tripwire check: thermal leg not satisfied: most recent sample (44.6) is below threshold (90) — not currently sustained regardless of earlier history
+2026-08-26 10:54:50,871 - WARNING - resource_gate: CPU sample read failed, treating as unavailable: [Errno 13] Permission denied: '/proc/stat'
+2026-08-26 10:54:50,898 - INFO - resource_gate shutdown-tripwire check: thermal leg not satisfied: most recent sample (66.2) is below threshold (90) — not currently sustained regardless of earlier history
+2026-08-26 10:55:20,961 - WARNING - resource_gate: CPU sample read failed, treating as unavailable: [Errno 13] Permission denied: '/proc/stat'
+2026-08-26 10:55:20,993 - INFO - resource_gate shutdown-tripwire check: thermal leg not satisfied: most recent sample (73.2) is below threshold (90) — not currently sustained regardless of earlier history
+2026-08-26 10:55:48,189 - INFO - SIGTERM received, shutting down...
+2026-08-26 10:55:48,678 - INFO - Embed server stopped
+2026-08-26 10:55:48,681 - INFO - Daemon socket stopped
+2026-08-26 10:55:48,687 - INFO - Daemon stopped

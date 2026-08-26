@@ -12,7 +12,324 @@ and Appendix A.
 
 ---
 
-## 2026-08-26 (latest) — NEW-192 resolved: placeholder contract-signing policy set per Ish's explicit direction, code-reviewer-approved
+## 2026-08-26 (latest) — Real `codey-start` live-verify: 7.4b-A closed, 7.4b-C half-closed, `NEW-180` partially closed; two new findings (`NEW-195` hang, `NEW-196` stale slot) surfaced
+
+Live-verifier ran the follow-up round recommended at the bottom of the
+previous entry: one real `codey-start` full-stack launch, bundling
+7.4b-A/C's live-verify ask with `NEW-180`'s embed-RSS measurement, per
+CLAUDE.md rule 2. Executed as planned; results below are more mixed than
+a routine close-out.
+
+**`free -h` checkpoints (rule 2 discipline):**
+- Before launch: `Mem: 4.7Gi used, 1.2Gi free, 5.8Gi available` /
+  `Swap: 1.8Gi used, 14Gi free`.
+- Embed-resident window (~9-12s in, before coder loaded): `Mem: 8.7Gi
+  used, 83Mi free, 1.8Gi available` / `Swap: 2.4Gi used, 13Gi free` —
+  the tightest ambient window recorded in any session so far.
+- Peak, ~12 min into a stuck interactive request: `Mem: 7.8-8.3Gi used,
+  ~100-650Mi free` / `Swap: 4.3-4.5Gi used` (climbing steadily; never
+  reached `NEW-14`'s reported 7.5-8.5GiB range before the session was
+  aborted).
+- After teardown: `Mem: 4.6Gi used, 3.5Gi free, 6.0Gi available` /
+  `Swap: 1.9Gi used, 14Gi free` — back to baseline.
+
+**7.4b-A (embed always resident): CLOSED, fully live-verified.** Embed
+`llama-server` PID 31070 launched immediately at `codey-start` startup,
+same PID throughout the coder's load, the 12-minute stall, and a severe
+RSS-eviction event — the full 96-line `~/.codeyOS/codeyOS.log` (spans
+`Daemon PID: 31066` through `Daemon stopped`) shows no restart line
+anywhere in that span. Copy preserved at
+`docs/archive/live-evidence/2026-08-26-7.4b-codey-start/`.
+
+**7.4b-C (interactive-vs-daemon context branching): interactive half
+live-verified; background/daemon-dispatch half NOT tested, stays open.**
+On-disk evidence: `~/.codeyOS/llama-server.log:1`'s spawn command line
+carries `-c 65536` verbatim (copy preserved alongside the others above),
+corroborated by `ps` at spawn time; genuine cold spawn against a clean
+pre-launch baseline. (Live-verifier's session also reported a console
+line `Coder n_ctx=65536 (interactive session active)`; that line is NOT
+present in the persisted `codeyOS.log` — likely TUI/foreground stdout
+not written to the log file, cited as reported, not as an independently
+checkable artifact.) The `n_ctx=16384` background-dispatch branch was
+never reached — live-verifier aborted before a second load, for the
+reason below.
+
+**`NEW-180` (real embed RSS): PARTIALLY CLOSED.** First-ever direct
+measurement via a `/proc/<pid>/status` sampler: `VmRSS 191,252 kB`
+(186.77 MiB / 195,842,048 bytes) at plateau, pre-eviction — LOWER than
+the 352,542,080-byte floor estimate every `MAX_CONCURRENT_MODEL_BUDGET_
+BYTES`/`MAX_SWAP_ASSIST_BYTES` derivation back to 7.4a sub-task C1 has
+used, meaning those constants carry more real margin than assumed.
+Closes the "never measured" claim. Does NOT close the "never validated
+as representative" claim — a third sample, 25-28s later (once the coder
+began loading), showed the same process's `VmRSS` collapse to 3,052 kB
+with 98,184 kB pushed to swap, a ~60x swing under real pressure, faster
+than `NEW-14`'s previously reported ~40s eviction window. One idle
+sample is enough to retire "unmeasured," not enough to retire
+"unvalidated."
+
+**Two findings outside original scope, logged per rule 8:**
+- **`NEW-195` (new, corrected same round per rule 6):** the interactive
+  coder, admitted successfully at `n_ctx=65536`, never completed a
+  trivial prompt after 700+ seconds while swap climbed steadily
+  (1.8Gi→4.3-4.5Gi used) and the coder's own RSS share fell from 45.2%
+  to 25.7% of RAM. **Initially logged as a likely internal
+  thrashing/hang bug; downgraded after Ish reported a confound found
+  after capture:** the test device was concurrently handling an active
+  phone call, other app use, and screen standby for the entire observed
+  window — unknown to live-verifier at capture time, not controlled
+  for. A phone call and other foreground apps compete directly for the
+  same RAM/CPU, and screen standby can trigger Android's own Doze/App
+  Standby throttling — either could fully explain the stall with no
+  Codey-OS-side bug required. **This finding cannot currently
+  distinguish an internal cause from ordinary external resource
+  contention; both remain open.** Separately, and unaffected by that
+  confound (a point-in-time resource-gate record, not a timing
+  observation): the post-teardown stale `resource_gate_state.json`
+  entry shows `swap_bytes_claimed=472,718,792` bytes, a field only set
+  nonzero when `admitted_via_swap=True` — inferred with high confidence,
+  though the `GateDecision` line itself was not captured this session.
+  ~13x the claim in the previous live pass that fed 7.4a/§8 Q10's
+  2026-08-26 risk-acceptance decision, under the tightest `MemAvailable`
+  (~1.8GiB) of any session yet. Does not reproduce `NEW-21`/`NEW-140`/
+  `NEW-188`'s specific low-RAM-AND-low-swap fixture shape (`SwapFree`
+  never dropped below ~70% free) and does not reopen §8 Q10's
+  resolution — logged to §8 Q10 and `NEW-140`/`NEW-188` for Ish's
+  awareness on its own terms. Recommended next step: re-run the same
+  test with the device not concurrently used for anything else, before
+  treating the stall as evidence of an internal bug. This is the
+  direct, concrete reason 7.4b-C's background half was never reached,
+  regardless of the stall's eventual cause. Ish has also enabled ADB
+  and wants a future monitoring harness (foreground-app/screen-state
+  tracking during live tests) built to rule this confound class in or
+  out going forward — scoped as separate work, not attempted this round.
+- **`NEW-196` (new):** a live, concrete occurrence of the already-
+  documented `NEW-40` SIGTERM/cleanup asymmetry. Teardown required
+  `kill -TERM`-ing three stuck TUI-side PIDs directly before running
+  `codey-stop`, whose own kill logic is a blanket `pkill -9 -f
+  "llama-server"` / `"gui/server.py"` (`codey-stop:34,38` — a new,
+  broader instance of the `NEW-99`/`NEW-103` anti-pattern, now added to
+  `NEW-103` as an addendum since it's the same defect shape in a second
+  file). Live-verifier did not blindly trust the blanket kill: verified
+  a clean pre-launch baseline first (nothing foreign could have been
+  hit this specific run), then confirmed via `ps` afterward that all 7
+  tracked PIDs were gone. After teardown, `resource_gate_state.json`
+  retained a stale `"resident"` slot for the coder's PID (31292, already
+  confirmed dead) — the mid-generation `SIGTERM` from `NEW-195`'s hang
+  hit the same unguarded window `NEW-40` already documents. Does not
+  close `NEW-40`; documents a real occurrence.
+
+**Docs updated:** `CODEY_MASTER_PLAN.md` §4's 7.4b summary-table row,
+Appendix A's 7.4b entry (A now `[x]` and fully closed; C's text carries
+the interactive/background split explicitly so the checkbox doesn't
+imply more than was verified, avoiding the `NEW-181` mismatch shape),
+and §8 Q10's resolution (new-evidence note appended, decision not
+reopened). `NEW_ISSUES.md`: `NEW-180` split-closed, `NEW-103` addendum
+for `codey-stop`'s sites, `NEW-195` and `NEW-196` added.
+
+**What's next:** `NEW-195` is a real blocker, not just a logged
+curiosity, but its priority next step changed after the confound was
+reported: the two items still ahead in §6.2's Phase A1 ordering
+(lease/registry, then the concurrency test — "can one `llama-server`
+serve daemon + TUI/GUI + both limbs concurrently") are exactly the kind
+of multi-consumer load test that would be uninterpretable if a trivial
+prompt genuinely hangs for 12 minutes on this stack — so live Phase A1
+work should not proceed until `NEW-195` is resolved one way or the
+other. Given the confound, the highest-value next step is a **clean
+re-run** of the same hang observation with the device not concurrently
+used for anything else (no calls, no other foreground apps, screen
+state monitored), not a desk investigation into internal causes that
+may not exist. A desk read of `llama-server`'s own log for PID 31292 and
+`main.py`'s inference call path can run in parallel but should not be
+treated as chasing a confirmed internal bug until the re-run either
+reproduces or fails to reproduce the stall. This does not block
+continued *desk* work on the lease/registry design (no live component
+yet), and separately, Ish wants an ADB-based monitoring harness
+(foreground-app/screen-state tracking) built before or alongside the
+next live-verify round to rule this confound class in or out going
+forward — scoped as its own future task, not attempted this round.
+
+---
+
+## 2026-08-26 — Ish answers §8 Q10: 7.4a CLOSED on a risk-acceptance decision, not a fix
+
+Docs-only round. Ish answered `CODEY_MASTER_PLAN.md` §8 Q10 (the open
+question logged last round about `NEW-140`/`NEW-188`'s residual
+compound-distress gap) with, in his own words: **"accept the residual as
+a standing documented risk for now."**
+
+**What this closes and what it does not, stated per rules 5/6 so it
+cannot be misread later:**
+- Axis (a) — does swap-assist genuinely activate on the real device under
+  real ambient conditions — was already CONFIRMED live by last round's
+  pass (`admitted_via_swap=True`, real production `reserve_slot()` call).
+- Axis (b) — the compound low-RAM-AND-low-swap `NEW-21`-shaped distress
+  state `NEW-140`/`NEW-188` actually worry about — was **never observed
+  live across three consecutive real-device sessions**, and is now closed
+  by Ish's explicit decision to stop chasing a live reproduction, **not**
+  by a fix landing or a reproduction succeeding. The underlying arithmetic
+  (the exact `NEW-21` fixture admits at all four plausible `MemAvailable`
+  points under the current 6.50GiB `MAX_SWAP_ASSIST_BYTES` cap) remains
+  true and undisputed.
+
+**Docs updated:**
+- `CODEY_MASTER_PLAN.md` §8 Q10 — resolution appended (original reasoning
+  kept, not deleted), dated and quoted verbatim, marked resolved.
+- `CODEY_MASTER_PLAN.md` Appendix A's 7.4a entry — checkbox flipped to
+  done, closure note appended with the exact scope above.
+- `CODEY_MASTER_PLAN.md` §4 summary-table row for 7.4a — flagged closed,
+  same scope note.
+- `NEW_ISSUES.md` — `NEW-140` and `NEW-188` both updated: left **OPEN**
+  (not marked Resolved) with an explicit note that no further
+  live-verification work is planned against the compound-distress
+  question. Reasoning: the finding's own arithmetic content is real and
+  undisputed; what changed is that the project has decided to stop
+  pursuing a live reproduction, which is a decision about effort, not a
+  correction to the finding. `NEW-188`'s separate, still-outstanding
+  test-fixture follow-up (replace the stale `primary-7b`/`QWEN25_7B_ARCH`
+  regression fixture in `tests/test_resource_gate.py` with a `primary`/
+  `QWEN35_4B_ARCH` one) is unaffected by this decision and remains open.
+
+**What's next, per §6.2's stated Phase A1 ordering** (7.4 → 7.4a → 7.4b →
+lease/registry → concurrency test): 7.4a is now closed. 7.4's own
+remaining item was re-checked against the same rule-6 concern that hit
+7.4b's A/C rows (M1-E used `main.py --no-resume`, not `codey-start`) —
+M1-E's own text states it ran via `_spawn_locked()`, "same ... code path
+as `codey-start`," and 7.4's ask is the resource-gate/loader admission
+path itself, which that shared code path genuinely covers; unlike
+7.4b-A/C, nothing about 7.4's ask depends on the daemon/GUI session
+wrapper `--no-resume` skips. 7.4's "covered by M1-E" note stands as
+written (see its updated §4 summary-table row for the full reasoning).
+So the next genuinely open item in the stated ordering is **7.4b
+sub-tasks A and C's live-verification under the real `codey-start` entry
+point** (both code-complete and code-reviewer-approved already; this
+specific check has never actually been run). Recommending this be
+bundled into one live-verifier session with `NEW-180` (embed model's
+real resident RSS, still unmeasured, ties directly into 7.4b-A's "embed
+model stays resident" check) — one `codey-start` cycle can gather all
+three data points at once, consistent with CLAUDE.md rule 2's "batch
+multiple test messages into one interactive session" guidance. The
+lease/registry and concurrency-test items remain correctly ordered
+behind this — both are unstarted design/implementation work with no
+live-verification component ready yet, while 7.4b-A/C are fully built
+and reviewed and only need confirmation.
+
+**Live-verifier brief for that follow-up round, scoped here since a full
+`codey-start` launch is out of this round's tool reach:**
+- Full-stack `codey-start` launches have a bad track record on this
+  device — Round 13 (`NEW-11`) took 2 full-stack crashes + 1 self-abort
+  before converging on a lighter daemon-only harness, and `NEW-14`
+  recorded 7.5-8.5GiB swap pressure within ~40s of a 3-concurrent-model
+  full-stack start. 7.4b-A/C specifically require the real `codey-start`
+  entry point (that's the whole point of the check), so the harness
+  cannot be lightened away this time — the session should append each
+  reading (embed-residency check, context-ceiling check, RSS sample) to
+  a scratchpad file as it is taken, not hold results in memory only,
+  so a crash mid-session doesn't lose data already gathered.
+- `NEW-180`'s embed RSS must be sampled right after the embed model
+  becomes resident and before the primary model loads. Under this
+  device's known 7.5-8.5GiB swap pressure during full-stack starts,
+  resident pages can be evicted once the primary model loads — an RSS
+  reading taken later, at peak load, would understate the real figure
+  and read as false confirmation of the existing 352,542,080-byte
+  file-size-only floor estimate rather than an independent measurement.
+- Follow `free -h` before/after and PID-tracked teardown (rules 2/3) as
+  every prior live-verify round in this project has.
+
+No code was touched this round.
+
+---
+
+## 2026-08-26 — 7.4a live-verification pass run: swap-assist confirmed live for the first time, compound low-swap distress state still not observed, checkbox stays open with a narrower residual
+
+Docs-only round (no code touched): reconciling live-verifier's result for
+the `NEW-140`/`NEW-188` live low-swap-headroom single-model pass, run
+natural-state-only per Ish's own explicit scope choice (no
+deliberately-induced memory pressure this round).
+
+**Method**: real production `python3 main.py --no-resume` (M1-E's
+established `_spawn_locked()` path), one message then `/exit`, single
+load/unload cycle. `free -h` before: `4.2Gi used, 806Mi free, 6.3Gi
+available`; after: `3.2Gi used, 5.2Gi free, 7.3Gi available`. `ps aux |
+grep llama-server` clean before and after; model stopped via `main.py`'s
+own graceful `/exit`, no residual PID (rule 3 never came into play). Real
+`GateDecision` captured via a scratchpad wrapper that monkeypatches
+`core.resource_gate.reserve_slot` with a pure logging passthrough (calls
+the real unmodified function, logs its real return value) — no
+production file touched by the measurement itself.
+
+**Real `/proc/meminfo` at the exact moment `reserve_slot()` ran**:
+`MemTotal=11,623,120,896` (10.826GiB), `MemAvailable=6,476,886,016`
+(6.0321GiB), `SwapTotal=17,179,865,088` (16.000GiB),
+`SwapFree=15,478,288,384` (14.415GiB, 90.1% free).
+
+**Real `GateDecision`**: `admitted=True hard_reject=False
+admitted_via_swap=True swap_bytes_claimed=35,048,904` bytes,
+`estimated_cost_bytes=5,209,547,936`, `headroom_bytes=6,476,886,016`,
+`device_ceiling_bytes=6,973,872,537`, `budget_ceiling_exceeded=False`.
+
+**Two-axis result, both need to be read together, neither collapses into
+the other**:
+- **Axis (a) — does swap-assist activate live on the real device under
+  real ambient conditions: CONFIRMED, for the first time.** Ambient
+  `MemAvailable` (6.0321GiB) sat only ~35MiB below the real required-cost
+  threshold (6.0647GiB, cost×1.25) — a small, real, unforced shortfall
+  from ordinary system drift, not anything induced. This tripped the real
+  swap-assist branch in a genuine, unmodified production call, closing
+  the specific sub-question of whether the mechanism actually fires
+  outside synthetic test fixtures. The live `estimated_cost_bytes`
+  (5,209,547,936) also matches `NEW-188`'s desk-derived figure exactly —
+  a real-production confirmation that entry's arithmetic input was
+  correct.
+- **Axis (b) — the compound low-RAM-AND-low-swap `NEW-21`-shaped distress
+  state `NEW-140`/`NEW-188` are actually about: NOT reproduced, stays
+  open.** `SwapFree` was 90.1% free (14.415GiB of 16.0GiB) — nowhere near
+  the `NEW-21` fixture's `SwapFree≈6.8GiB`-of-8GiB compound-distress
+  shape. The operand that bound in this real call was
+  `MAX_SWAP_ASSIST_BYTES`'s 6.50GiB cap, not swap scarcity (only ~33MiB
+  of a possible several-GiB swap-assist budget was actually leaned on).
+  This is the THIRD consecutive live session (after the two `NEW-137`/
+  sub-task E sessions) finding this device's swap pool healthy during a
+  real model load — informative about this device's real usage pattern,
+  but not proof the compound state is unreachable, and not the same
+  claim as "verified safe."
+
+**Decision on 7.4a's checkbox — stays UNCHECKED, residual narrowed and
+precisely restated, not left as stale wording.** The prior wording
+("solely blocked on the still-never-run live low-swap-headroom
+single-model verification pass") is now inaccurate — that pass has been
+run. What remains blocking is specifically the compound low-RAM+low-swap
+state, not general swap-assist activation. Considered closing the
+checkbox outright on the analogy to M1-G's "test cannot be run at HEAD"
+closure, but rejected that analogy: M1-G's test was structurally
+unreachable, while inducing memory pressure here is fully runnable and
+was excluded only by Ish's own scope choice for this specific round —
+closing on that would silently promote a one-round scope decision into a
+permanent risk acceptance (exactly what rules 6/7 exist to prevent).
+`NEW-140`'s own text pre-registered this exact branch ("if the device's
+live state doesn't naturally present a low-swap-headroom moment... say so
+explicitly and not silently substitute a healthy-state run as if it
+covered the same case") — followed that instruction rather than the
+closing instinct.
+
+Whether to (a) authorize a future round to deliberately induce the
+compound low-RAM+low-swap state, or (b) accept the residual as a
+standing, documented, low-probability-on-this-device risk and close 7.4a
+on that decision (per `NEW-141`'s own "close on the decision rather than
+on a fix" precedent) is logged as a new open question, `CODEY_MASTER_PLAN.md`
+§8 Q10 — Ish's call, not defaulted either direction.
+
+**Docs updated**: `NEW-140` and `NEW-188` (`NEW_ISSUES.md`) both got a
+2026-08-26 status update with the full verbatim numbers above;
+`CODEY_MASTER_PLAN.md` Appendix A's 7.4a entry, its §4 summary-table row,
+and §8 (new Q10) all updated to match. Checked §6.2's Phase A1 ordering
+(the lease/registry, the concurrency test) — nothing downstream assumed
+7.4a's checkbox would close on this pass, so no pointer changes needed
+there. No code was touched this round.
+
+---
+
+## 2026-08-26 — NEW-192 resolved: placeholder contract-signing policy set per Ish's explicit direction, code-reviewer-approved
 
 Ish gave explicit direction to resolve `NEW-192` (only `admin`/`customer`
 could sign contracts) rather than leave it open pending real company

@@ -75,7 +75,15 @@ else:
 
 MODEL_CONFIG = {
     "n_ctx": _n_ctx,
-    "n_threads": 4,
+    # 4 -> 6, 2026-08-26, per Ish's request to speed up inference on this
+    # device's 8-core CPU (confirmed via nproc). THERMAL_CONFIG's
+    # "original_threads" (utils/config.py, below) derives from this value,
+    # so the thermal manager's post-throttle restore target moves with it
+    # automatically. Not yet live-benchmarked against the prior value of 4
+    # for either raw speedup or how much sooner thermal throttling now
+    # kicks in (core/thermal.py reduces after 10 min sustained inference) -
+    # see NEW-195.
+    "n_threads": 6,
     "n_gpu_layers": 0,
     "verbose": False,
     "temperature": 0.7,

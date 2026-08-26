@@ -1996,9 +1996,9 @@ look like config edits.
 
 | Item | State | What's left |
 |---|---|---|
-| **7.4** resource gate + slot-aware loader | 5/5 sub-tasks approved; core path live-verified | Re-target the pending production-config live pass at Qwen3.5-4B (M1-E covers it). The old `n_ctx=32768`-with-the-7B script is now obsolete — do not run it. |
-| **7.4a** swap-aware budget | A/B/C1/C2/D/F built and approved; E and G run | `NEW-135`/`NEW-136` (no `reserved_bytes` deduction on swap-assist; `admitted_via_swap` not persisted to the slot) — **FIXED 2026-08-25, code-complete, mandatory rule-4 code-reviewer pass APPROVED 2026-08-25 (same day, later review pass), not live-verified** (no live component by design — this is admission-accounting logic, not a model-load test). Reviewer independently confirmed lock coverage, no leak on release, no RAM/swap double-counting, and independently re-ran the `..._wiring_actually_uses_persisted_pending_claim` regression test by hand-reverting the fix (confirmed it fails without it); full suite independently rerun, 669 passed/1 skipped, matching the implementer's own count. See `NEW-135`/`NEW-136`'s own updated entries and `core/resource_gate.py` (`compute_swap_assisted_headroom_bytes()`'s `reserved_swap_bytes` param, `GateDecision.swap_bytes_claimed`, `reserve_slot()`'s new PENDING-swap sum, `total_reserved_swap_bytes()`). Fixed for the `reserve_slot()`/`can_admit()` path only — `can_dispatch_task()`'s separate swap-assist consumer (no slot registered, nothing to sum against) is explicitly NOT covered; reviewer treated this as an acceptable disclosed limitation, not a blocking defect, and it is now separately tracked as **`NEW-187`** (open) rather than left as prose only. `NEW-140` scenario 3 and `NEW-141` **confirmed and closed 2026-08-25**, each on its own correct evidence — `NEW-141` (concurrent case) on `core/planner_loader.py`'s confirmed absence from HEAD; `NEW-140` scenario 3 (single-model case, does NOT require `planner_loader.py`) on M1-B's confirmed repoint of every model-role path onto Qwen3.5-4B, since the retired 7B's specific cost figures no longer describe any live production path. `NEW-140`'s OTHER content (the general swap-assist-re-admits-distress mechanism, model-independent) stays open, unaffected by this closure. **7.4a is NOT yet fully closed**: `NEW-187` (new, open) and `NEW-140`'s remaining model-independent content (open, unaffected by this round) are both explicitly left standing rather than folded into this closure. **Status update, 2026-08-26**: `NEW-187` FIXED in `can_dispatch_task()` (reads `total_reserved_swap_bytes()`, one-directional per the fix's own scope — no durable claim of its own to contribute), 2 new tests, full suite 671 passed/1 skipped — **code-complete, mandatory rule-4 code-reviewer pass NOT yet run** (no subagent available this session). `NEW-140`'s remaining content re-measured against real Qwen3.5-4B cost (5,209,547,936 bytes) and current `MAX_SWAP_ASSIST_BYTES` (6.50GiB): the exact historical `NEW-21` fixture now admits at ALL FOUR `MemAvailable` points in its plausible range (2.2/3.5/5.0/6.5GiB), worse than the stale retired-7B figures' 3-of-4 — see **`NEW-188`** (new). Stays open, upgraded severity, not closed. **Status update, 2026-08-26 (confirmatory pass): `NEW-187` APPROVED** — a first review pass on the fix found the read-failure fallback failed in the permissive direction (`reserved_swap_for_dispatch = 0` instead of disabling the swap branch); fixed same round to match the sibling `CODEY_SWAP_ASSIST_ADMISSION` handler's fail-closed pattern, test renamed/flipped accordingly, docstring's "never writes" wording corrected (`total_reserved_swap_bytes()`'s `reap_dead=True` default does mutate the shared store); confirmatory re-review approved with no further changes, 671 passed/1 skipped independently reproduced. **`NEW-187`'s own review chain is now closed. 7.4a's checkbox stays unchecked** — solely pending, per `NEW-140`/`NEW-188`, the still-never-run live low-swap-headroom single-model verification pass. |
-| **7.4b** model lifecycle policy | Reshaped by §1.4 | **A**: embed always resident — implementation landed, code-reviewer pass done 2026-08-23 (§4.4), still needs live-verify **under the real `codey-start` entry point** — **correction, 2026-08-25 (rule 6): M1-E did NOT provide this.** M1-E deliberately ran `main.py --no-resume` (see §4.2's M1-E entry — chosen specifically to avoid the daemon+GUI's extra headroom draw), not the real `codey-start` entry point this item calls for, so pointing at "M1-E" as if it already covered this is wrong; it remains a genuinely open live-verify ask. **B**: planner ceiling 8192 — **moot, no separate planner**; note the correction below. **C**: coder interactive-vs-daemon context branching — landed + `NEW-152` fix, code-reviewer pass done 2026-08-23 (§4.4), still needs live-verify **under the real `codey-start` entry point, same correction as A above** — the *policy* still applies (full context interactively, smaller for background dispatch), only the ceilings need re-deriving from §5.1. **D**: folded into M1-F,
+| **7.4** resource gate + slot-aware loader | 5/5 sub-tasks approved; core path live-verified | Re-target the pending production-config live pass at Qwen3.5-4B (M1-E covers it). The old `n_ctx=32768`-with-the-7B script is now obsolete — do not run it. **Re-checked 2026-08-26 against the same rule-6 concern raised for 7.4b's A/C rows: M1-E's own text states it ran via `main.py --no-resume`, "same `_spawn_locked()` code path as `codey-start`" — that phrase is the load-bearing distinction. 7.4's remaining ask is the resource-gate/loader admission path itself, which `_spawn_locked()` shares identically with `codey-start`; unlike 7.4b-A (embed residency across a full session's daemon lifecycle) and 7.4b-C (interactive-vs-daemon-dispatch branching, a daemon-specific code path), nothing about 7.4's ask depends on the daemon/GUI session wrapper `main.py --no-resume` skips. "Covered by M1-E" stands as written, not an inherited overclaim.** |
+| **7.4a** swap-aware budget — **CLOSED 2026-08-26 (risk-acceptance decision, not a fix)** | A/B/C1/C2/D/F built and approved; E and G run | `NEW-135`/`NEW-136` (no `reserved_bytes` deduction on swap-assist; `admitted_via_swap` not persisted to the slot) — **FIXED 2026-08-25, code-complete, mandatory rule-4 code-reviewer pass APPROVED 2026-08-25 (same day, later review pass), not live-verified** (no live component by design — this is admission-accounting logic, not a model-load test). Reviewer independently confirmed lock coverage, no leak on release, no RAM/swap double-counting, and independently re-ran the `..._wiring_actually_uses_persisted_pending_claim` regression test by hand-reverting the fix (confirmed it fails without it); full suite independently rerun, 669 passed/1 skipped, matching the implementer's own count. See `NEW-135`/`NEW-136`'s own updated entries and `core/resource_gate.py` (`compute_swap_assisted_headroom_bytes()`'s `reserved_swap_bytes` param, `GateDecision.swap_bytes_claimed`, `reserve_slot()`'s new PENDING-swap sum, `total_reserved_swap_bytes()`). Fixed for the `reserve_slot()`/`can_admit()` path only — `can_dispatch_task()`'s separate swap-assist consumer (no slot registered, nothing to sum against) is explicitly NOT covered; reviewer treated this as an acceptable disclosed limitation, not a blocking defect, and it is now separately tracked as **`NEW-187`** (open) rather than left as prose only. `NEW-140` scenario 3 and `NEW-141` **confirmed and closed 2026-08-25**, each on its own correct evidence — `NEW-141` (concurrent case) on `core/planner_loader.py`'s confirmed absence from HEAD; `NEW-140` scenario 3 (single-model case, does NOT require `planner_loader.py`) on M1-B's confirmed repoint of every model-role path onto Qwen3.5-4B, since the retired 7B's specific cost figures no longer describe any live production path. `NEW-140`'s OTHER content (the general swap-assist-re-admits-distress mechanism, model-independent) stays open, unaffected by this closure. **7.4a is NOT yet fully closed**: `NEW-187` (new, open) and `NEW-140`'s remaining model-independent content (open, unaffected by this round) are both explicitly left standing rather than folded into this closure. **Status update, 2026-08-26**: `NEW-187` FIXED in `can_dispatch_task()` (reads `total_reserved_swap_bytes()`, one-directional per the fix's own scope — no durable claim of its own to contribute), 2 new tests, full suite 671 passed/1 skipped — **code-complete, mandatory rule-4 code-reviewer pass NOT yet run** (no subagent available this session). `NEW-140`'s remaining content re-measured against real Qwen3.5-4B cost (5,209,547,936 bytes) and current `MAX_SWAP_ASSIST_BYTES` (6.50GiB): the exact historical `NEW-21` fixture now admits at ALL FOUR `MemAvailable` points in its plausible range (2.2/3.5/5.0/6.5GiB), worse than the stale retired-7B figures' 3-of-4 — see **`NEW-188`** (new). Stays open, upgraded severity, not closed. **Status update, 2026-08-26 (confirmatory pass): `NEW-187` APPROVED** — a first review pass on the fix found the read-failure fallback failed in the permissive direction (`reserved_swap_for_dispatch = 0` instead of disabling the swap branch); fixed same round to match the sibling `CODEY_SWAP_ASSIST_ADMISSION` handler's fail-closed pattern, test renamed/flipped accordingly, docstring's "never writes" wording corrected (`total_reserved_swap_bytes()`'s `reap_dead=True` default does mutate the shared store); confirmatory re-review approved with no further changes, 671 passed/1 skipped independently reproduced. **`NEW-187`'s own review chain is now closed.** **Status update, 2026-08-26 (live-verification pass, natural-state-only per Ish's explicit scope choice)**: that previously-missing pass has now been run against real production `python3 main.py --no-resume`. Real `GateDecision`: `admitted=True admitted_via_swap=True swap_bytes_claimed=35,048,904` bytes, `estimated_cost_bytes=5,209,547,936` (matches `NEW-188`'s desk figure exactly); ambient `/proc/meminfo` at the moment of the call showed `MemAvailable=6.0321GiB` (unforced, ~35MiB below the 6.0647GiB required-cost threshold) but `SwapFree=14.415GiB` of 16.000GiB (90.1% free). Two-axis result: (a) swap-assist DOES activate live under real ambient conditions — CONFIRMED for the first time; (b) the compound low-RAM-AND-low-swap `NEW-21`-shaped distress state `NEW-140`/`NEW-188` are actually about — NOT reproduced, third consecutive live session finding this device's swap pool healthy. **7.4a's checkbox stays unchecked, residual narrowed**: pending only the compound-distress axis, not general swap-assist activation (now confirmed). Whether to pursue a deliberately-induced future pass or accept this as a standing documented risk is Ish's call — logged as §8 Q10. **Status update, 2026-08-26: Ish answered §8 Q10 — "accept the residual as a standing documented risk for now." 7.4a CLOSED on that decision, not on a fix or a live reproduction.** General swap-assist activation is confirmed live; the compound low-RAM+low-swap distress scenario was never observed live and is now accepted as a standing risk, not verified safe — see Appendix A's 7.4a entry and §8 Q10 for the full wording. |
+| **7.4b** model lifecycle policy | Reshaped by §1.4 | **A**: embed always resident — implementation landed, code-reviewer pass done 2026-08-23 (§4.4). **LIVE-VERIFIED 2026-08-26 under the real `codey-start` entry point.** Real `codey-start` launch: embed `llama-server` (PID 31070) spawned immediately at daemon startup, before any coder request, and the SAME PID persisted through the coder's load and the subsequent 12-minute stall (`NEW-195`), including a severe RSS-eviction event (`NEW-180`) — the 96-line `~/.codeyOS/codeyOS.log` (spans `Daemon PID: 31066` through `Daemon stopped`, copy preserved at `docs/archive/live-evidence/2026-08-26-7.4b-codey-start/codeyOS.log`) shows no "Embed server died — restarting" line anywhere in that span. This item is now fully closed (code-complete, code-reviewer-approved, live-verified). **B**: planner ceiling 8192 — **moot, no separate planner**; note the correction below. **C**: coder interactive-vs-daemon context branching — landed + `NEW-152` fix, code-reviewer pass done 2026-08-23 (§4.4). **PARTIALLY live-verified 2026-08-26**: the interactive half is confirmed under real `codey-start` — on-disk evidence is `~/.codeyOS/llama-server.log:1`'s spawn command line carrying `-c 65536` verbatim (copy preserved alongside the other artifacts above), corroborated by `ps` at spawn time; genuine cold spawn against a clean pre-launch baseline. (Live-verifier's session also reported a console line `Coder n_ctx=65536 (interactive session active)`; that line is NOT present in the persisted `codeyOS.log` — likely TUI/foreground stdout not written to the log file — so it is cited as reported, not as an independently-checkable artifact.) **The background/daemon-dispatch half (expected `n_ctx=16384`) was NOT tested** — live-verifier aborted before reaching it, because the interactive session hung on a trivial prompt for 700+ seconds under real, worsening swap pressure (new finding `NEW-195`). **Confound found after capture (rule 6, corrected same round):** the test device was concurrently handling an active phone call, other app use, and screen standby for the entire hang window — unknown to live-verifier at capture time, not controlled for — so `NEW-195` cannot currently attribute the hang to Codey-OS versus ordinary external resource contention; see `NEW-195`'s own entry for the corrected framing. Either way, the abort itself is a structural fact independent of cause. This is a live-safety-driven gap, not an oversight. **C stays open pending that second half**, and a clean (no-confound) re-run of the hang observation before any conclusion is drawn from it. **D**: folded into M1-F,
 **DONE 2026-08-24** — the constant now reflects there being no separate
 planner process, with real re-derived numbers. |
 | **Lease/registry** | Not started | Replace port-probe adoption with an explicit lease. Absorbs `NEW-104` (slots key to caller PID, not the spawned child), `NEW-144`/`NEW-146` (kill-and-replace a healthy occupant), `NEW-149` (reuse branch adopts an under-provisioned server). **More important under §1.4, not less** — one server now has more consumers, and adoption-by-port-probe is how an under-provisioned server gets silently reused. |
@@ -2323,6 +2323,71 @@ Numbered for reference. Nothing here is guessed at in this document.
    attribution logging to `core/agent.py`'s separate plain-`infer()`
    branch as new work, or leave it as a documented accepted gap
    (`U.10`)?
+10. ~~**`NEW-140`/`NEW-188`'s residual compound-distress gap.**~~
+    **ANSWERED by Ish, 2026-08-26: "accept the residual as a standing
+    documented risk for now."** Kept here, struck through, so the answer
+    is visible rather than the question quietly vanishing, same pattern
+    as Q1/Q3/Q8 above. A 2026-08-26
+    natural-state-only live pass (Ish's own explicit scope choice for
+    that round) confirmed swap-assist genuinely activates on the real
+    device under real ambient conditions for the first time
+    (`admitted_via_swap=True`, real production `reserve_slot()` call,
+    `estimated_cost_bytes` matching `NEW-188`'s desk figure exactly) —
+    but `SwapFree` was 90.1% free at the time, nowhere near the `NEW-21`
+    fixture's compound low-RAM-AND-low-swap distress shape `NEW-140`/
+    `NEW-188` actually worry about. This is the THIRD consecutive live
+    session (after the two `NEW-137`/sub-task E sessions) in which this
+    device's swap pool was found healthy during a real model load — never
+    once naturally compound-distressed. The question: (a) authorize a
+    future round to deliberately induce the compound low-RAM+low-swap
+    state to test it directly, or (b) accept the residual as a standing,
+    documented, low-probability-on-this-device risk and close 7.4a on
+    that decision (per `NEW-141`'s own precedent, "close on the decision
+    rather than on a fix")? Not a default either direction.
+
+    **Resolution detail:** Ish chose option (b). **Resolved, not open.**
+    This closes 7.4a — see its Appendix A entry and the §4 summary-table
+    row for the exact scope of what "closed" means here. Stated plainly
+    per rules 5/6 so it isn't misread later: this is a **risk-acceptance
+    decision**, not a claim that the compound low-RAM-AND-low-swap
+    `NEW-21`-shaped distress state was tested and found safe. It was
+    never observed live across three consecutive real-device sessions,
+    and the underlying arithmetic risk `NEW-140`/`NEW-188` documented
+    (the exact `NEW-21` fixture now admits at all four plausible
+    `MemAvailable` points under the current 6.50GiB swap-assist cap) is
+    still real and undisputed — Ish's decision is to stop chasing a live
+    reproduction of it on this device, not to declare it resolved by a
+    fix. See `NEW-140`/`NEW-188`'s own entries in `NEW_ISSUES.md` for how
+    each is now marked following this decision.
+
+    **New evidence, 2026-08-26 (does not reopen this decision, logged
+    for awareness per rule 8):** the very next live session (7.4b-A/C's
+    `codey-start` live-verify pass) left a stale resident slot recording
+    `swap_bytes_claimed=472,718,792` bytes — a value only set when
+    `admitted_via_swap=True`, so a swap-assisted admission is inferred
+    with high confidence, though the `GateDecision` line itself was not
+    captured this session (unlike the previous pass, which captured it
+    directly). ~13x the 35,048,904-byte claim that fed this resolution —
+    under the
+    tightest ambient `MemAvailable` (~1.8GiB) observed in any session so
+    far, immediately followed by an unresolved 12-minute stall
+    (`NEW-195`). `SwapFree` still never dropped below roughly 70% free
+    during that session, so `NEW-21`/`NEW-140`/`NEW-188`'s specific
+    low-RAM-AND-low-swap fixture shape was still not met — this is not a
+    reproduction of the compound-distress condition Q10 was decided
+    against, and this entry is not being reopened on that basis. **The
+    stall's own cause is now separately in question** — `NEW-195` was
+    corrected after capture once Ish reported the test device was
+    concurrently handling an active phone call, other app use, and
+    screen standby for the entire stall window, a confound unknown at
+    capture time; the stall cannot currently be attributed to
+    Codey-OS versus ordinary external resource contention. The
+    swap-claim admission fact above is unaffected by that confound (it's
+    a point-in-time resource-gate record, not a timing observation) and
+    is recorded here on its own terms, because it is the closest any
+    live session has come to the compound-distress shape yet — Ish
+    should have it in view if this risk-acceptance is ever revisited.
+    See `NEW-195` for the full detail and the corrected framing.
 
 ---
 
@@ -2667,7 +2732,7 @@ Then:
       admission→load→CLI-recovery path live-verified (round 18). Left:
       a production-config live pass — now re-targeted at Qwen3.5-4B and
       covered by M1-E. The old 7B-at-32768 script is obsolete.
-- [ ] **7.4a** — swap-aware budget check. A/B/C1/C2/D/F built and
+- [x] **7.4a** — swap-aware budget check. A/B/C1/C2/D/F built and
       approved; E and G run. `NEW-135`/`NEW-136` **FIXED 2026-08-25, code-
       reviewer-APPROVED 2026-08-25** (later same day — mandatory rule-4
       pass on commits `3513661`/`f7511bb`: lock coverage confirmed
@@ -2721,15 +2786,79 @@ Then:
       **7.4a's checkbox stays unchecked**: solely blocked now on the
       still-never-run live low-swap-headroom single-model verification
       pass `NEW-140`/`NEW-188` call for.
-- [ ] **7.4b** — model lifecycle policy, reshaped by §1.4.
+      **Status update, 2026-08-26 (live-verification pass) — that pass
+      HAS now been run, natural-state-only per Ish's explicit scope
+      choice for this round (no deliberately-induced memory pressure).
+      Result is genuinely mixed, not a clean close.** Real production
+      `python3 main.py --no-resume` call (M1-E's established path), one
+      load/unload cycle: `free -h` `4.2Gi used, 806Mi free, 6.3Gi
+      available` → `3.2Gi used, 5.2Gi free, 7.3Gi available`; `ps aux |
+      grep llama-server` clean before/after; graceful `/exit` teardown,
+      no residual PID. Real `/proc/meminfo` at the moment `reserve_slot()`
+      ran: `MemAvailable=6.0321GiB`, `SwapFree=14.415GiB` of 16.000GiB
+      (90.1% free). Real `GateDecision`: `admitted=True admitted_via_
+      swap=True swap_bytes_claimed=35,048,904` bytes,
+      `estimated_cost_bytes=5,209,547,936` — the last figure matches
+      `NEW-188`'s desk-derived cost exactly, a real-production
+      confirmation of that entry's arithmetic input. **Axis (a) — does
+      swap-assist activate live on the real device under real ambient
+      conditions: CONFIRMED, first time**, closing that specific
+      sub-question. **Axis (b) — the compound low-RAM-AND-low-swap
+      `NEW-21`-shaped distress state `NEW-140`/`NEW-188` are actually
+      about: NOT reproduced.** `SwapFree` was 90.1% free, nowhere near
+      `NEW-21`'s `SwapFree≈6.8GiB`-of-8GiB fixture; the operand that
+      bound was `MAX_SWAP_ASSIST_BYTES`'s cap headroom, not swap
+      scarcity. Third consecutive live session (after the two `NEW-137`/
+      sub-task E sessions) finding this device's swap pool healthy during
+      a real model load. **7.4a's checkbox stays UNCHECKED, but the
+      residual is now narrower and precisely stated: general swap-assist
+      activation is confirmed live; only the compound low-RAM+low-swap
+      state remains unobserved.** Whether that residual needs a future
+      deliberately-induced pass or can be accepted as a standing
+      documented risk is Ish's call, not resolved here — logged as §8
+      Q10. Full numbers and both-axis framing in `NEW-140`'s and
+      `NEW-188`'s own 2026-08-26 updates. No code was touched this round
+      (docs reconciliation only); §6.2's Phase A1 ordering (the lease/
+      registry, the concurrency test) is unaffected — nothing downstream
+      assumed 7.4a would close on this pass, so no pointer changes.
+      **Status update, 2026-08-26 (Ish's decision on §8 Q10) — 7.4a is
+      now CLOSED.** Ish's exact words: "accept the residual as a standing
+      documented risk for now." **Precise scope of "closed," stated
+      honestly rather than left to imply more than it means:** (1) the
+      narrower question — does swap-assist genuinely activate on the
+      real device under real ambient conditions — is CONFIRMED LIVE (the
+      immediately-preceding status update's `admitted_via_swap=True`
+      pass); (2) the compound low-RAM-AND-low-swap `NEW-21`-shaped
+      distress scenario `NEW-140`/`NEW-188` are actually about was NEVER
+      OBSERVED LIVE across three consecutive real-device sessions, and is
+      now closed by Ish's explicit risk-acceptance decision, not by a fix
+      or a successful reproduction. **This is a risk-acceptance closure,
+      not a "verified safe" claim** (rules 5/6): the underlying
+      arithmetic — the exact `NEW-21` fixture admits at all four
+      plausible `MemAvailable` points under the current 6.50GiB
+      `MAX_SWAP_ASSIST_BYTES` cap — remains true and undisputed; the
+      decision is to stop pursuing a live reproduction on this device,
+      not to declare the mechanism harmless. See §8 Q10 for Ish's exact
+      wording and `NEW-140`/`NEW-188`'s own 2026-08-26 status lines for
+      how each finding is marked following this decision.
+- [ ] **7.4b** — model lifecycle policy, reshaped by §1.4. **A is now
+      fully closed; C's interactive half is live-verified but its
+      background half is not — parent checkbox stays unchecked.**
   - [x] **A** — embed model always resident from Codey startup to
         shutdown. Implementation landed via `5687dcf`; **code-reviewer
         pass done 2026-08-23** as part of the M1-B/C/D combined review
-        (§4.4) — APPROVED. Still needs live-verify under the real
-        `codey-start` entry point — **correction 2026-08-25 (rule 6):**
-        M1-E ran `main.py --no-resume`, not `codey-start`, so this is
-        still a genuinely open live-verifier ask, not something M1-E
-        already delivered. Blocking prerequisite
+        (§4.4) — APPROVED. **LIVE-VERIFIED 2026-08-26** under a real
+        `codey-start` full-stack launch: embed `llama-server` (PID
+        31070) came up immediately at daemon startup, before any coder
+        request, and the same PID survived unchanged through the
+        coder's load, a 12-minute interactive stall (`NEW-195`), and a
+        severe RSS-eviction event (`NEW-180`'s third sample) — the
+        96-line `~/.codeyOS/codeyOS.log` (spans `Daemon PID: 31066`
+        through `Daemon stopped`; copy preserved at
+        `docs/archive/live-evidence/2026-08-26-7.4b-codey-start/`)
+        shows no restart line for it anywhere in that span. **Fully
+        closed: code-complete, code-reviewer-approved, live-verified.**
+        Blocking prerequisite
         `NEW-144` was the kill-and-replace-a-healthy-occupant bug.
         Unaffected by §1.4 — the embedding model is not being replaced.
   - [x] **B** — planner context ceiling 8192. **Implemented** as
@@ -2739,11 +2868,35 @@ Then:
         §1.4**: no separate planner survives. M1-B retires the function.
   - [x] **C** — coder interactive-vs-daemon context branching. Landed +
         `NEW-152` fix (`6528446`); **code-reviewer pass done 2026-08-23**
-        as part of the M1-B/C/D combined review (§4.4) — APPROVED. Still
-        needs **live-verifier under the real `codey-start` entry point**
-        — **same 2026-08-25 correction as A above**: M1-E did not run
-        `codey-start`, so this is not yet delivered — `NEW-145`,
-        `NEW-149`, `NEW-155` stay open. The
+        as part of the M1-B/C/D combined review (§4.4) — APPROVED.
+        **Checkbox is `[x]` for the built/reviewed work only — live
+        verification is incomplete; do not read this box as "fully
+        live-verified" (the `NEW-181` mismatch shape this project has
+        already been bitten by once).** 2026-08-26 real `codey-start`
+        pass: the **interactive half is live-verified** — on-disk
+        evidence is `~/.codeyOS/llama-server.log:1`'s spawn command line
+        carrying `-c 65536` verbatim (copy preserved at
+        `docs/archive/live-evidence/2026-08-26-7.4b-codey-start/`),
+        corroborated by `ps` at spawn time; genuine cold spawn against a
+        clean pre-launch baseline (no reuse-branch confound).
+        (Live-verifier's session also reported a console line `Coder
+        n_ctx=65536 (interactive session active)` not present in the
+        persisted `codeyOS.log` — cited as reported, not as an
+        independently-checkable artifact.) **The
+        background/daemon-dispatch half (expected `n_ctx=16384`) was NOT
+        tested** — live-verifier aborted before reaching it because the
+        interactive session hung on a trivial prompt for 700+ seconds
+        under real, worsening swap pressure (new finding `NEW-195`).
+        **Confound found after capture (rule 6):** the test device was
+        concurrently handling an active phone call, other app use, and
+        screen standby for that entire window, unknown at capture time
+        and not controlled for — so `NEW-195` cannot currently
+        distinguish a Codey-OS-side cause from ordinary external
+        resource contention; see `NEW-195`'s own entry. Regardless of
+        cause, the abort itself is a real, live-safety-driven gap, not
+        an oversight. `NEW-145`, `NEW-149`, `NEW-155` stay open, and
+        `NEW-195` now also blocks this item's remaining half pending a
+        clean re-run. The
         policy survives §1.4; the two ceilings
         (16384 background / full interactive) need re-deriving from §5.1.
   - [x] **D** — folded into M1-F, **DONE 2026-08-24**: re-derived
