@@ -12,7 +12,55 @@ and Appendix A.
 
 ---
 
-## 2026-08-26 (latest) — Lease/registry item built (`NEW-104`/`NEW-144`/`NEW-146`/`NEW-149`); a real platform limitation found and documented (`NEW-200`); mandatory code-reviewer pass still outstanding
+## 2026-08-26 (latest) — Lease/registry item: mandatory rule-4 code-reviewer pass APPROVED, item CLOSED; three non-blocking findings logged (`NEW-201`/`202`/`203`)
+
+Mandatory rule-4 review of the lease/registry commit (`1ca97e1`) came
+back **APPROVED**, with real independent verification, not a rubber
+stamp: the reviewer traced `stop()`'s control flow line-by-line to
+confirm no double-release/leak, confirmed `_reconcile_adopted_slot()`'s
+try/except genuinely wraps its entire body, confirmed every caller of
+`resolve_port_owner_pid()`/`pid_cmdline_contains()` checks for
+`None`/`False` before use (rule 3 intact), independently reproduced
+`NEW-200`'s `PermissionError` claim live, and — the strongest form of
+verification here — hand-broke `_pid_owning_inode()` locally and
+confirmed the rewritten test genuinely fails without the real fix,
+proving it's a real regression guard rather than a tautology that would
+pass either way. Full suite independently rerun: `692 passed, 1 skipped`,
+matching.
+
+**Three non-blocking findings surfaced by the review, logged per rule 8
+rather than silently dropped:**
+- **`NEW-201`**: `find_resident_slot()`'s read and `register_slot()`'s
+  write are two separate lock acquisitions, not one — a genuine TOCTOU
+  double-registration race in principle, the same shape `reserve_slot()`'s
+  own docstring already documents avoiding for exactly this reason
+  (`NEW-135`'s precedent). Confirmed NOT currently reachable: gated on
+  `resolve_port_owner_pid()` succeeding, which needs `/proc/net/tcp` —
+  dead on this device per `NEW-200` — and `embed_server.start()` has only
+  one sequential caller (the daemon's own `_main_loop`) today.
+- **`NEW-202`**: `find_resident_slot()` filters on
+  `status == SLOT_STATUS_RESIDENT`; `embed_server.py`'s older
+  `_find_pid_via_registered_slot()` fallback doesn't filter on status at
+  all. Confirmed currently harmless — every `model_id="embed"` slot-write
+  site was grepped and all pass `status=RESIDENT` explicitly.
+- **`NEW-203`**: `stop()`'s docstring claims an adopted server always has
+  `self.process is None`; a real edge case (this object's own earlier
+  spawn died, then a different server is adopted before the stale
+  `self.process` is cleared) makes that false. The actual runtime
+  behavior stays safe in this edge case (the stale dead PID is targeted,
+  not the real adopted server) — only the stated invariant is inaccurate.
+
+**Status: Lease/registry item is now DONE** — code-complete,
+code-reviewer-approved, not live-verified (no live component by design;
+admission/adoption accounting logic, not a model-load test).
+`CODEY_MASTER_PLAN.md`'s §4 summary-table row and Appendix A checkbox
+both updated and flipped to done.
+
+Files touched: `NEW_ISSUES.md`, `CODEY_MASTER_PLAN.md`.
+
+---
+
+## 2026-08-26 — Lease/registry item built (`NEW-104`/`NEW-144`/`NEW-146`/`NEW-149`); a real platform limitation found and documented (`NEW-200`); mandatory code-reviewer pass still outstanding
 
 Picked up the next unstarted Phase A1 item per §6.2's ordering. The
 implementing session (project-architect, working directly since no

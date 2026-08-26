@@ -10460,3 +10460,88 @@ finding for the same bug. See `NEW-39`.)*
   unaffected by this gap), `core/embed_server.py`'s own pre-existing
   comment on `_find_port_occupant_pid()` (which had already flagged this
   as a possibility, now confirmed as fact on this specific device).
+
+## Found during the lease/registry item's mandatory rule-4 code-reviewer pass, 2026-08-26 — all three latent, not currently reachable, logged per rule 8 rather than dropped
+
+### [NEW-201] `find_resident_slot()` + `register_slot()` is a TOCTOU double-registration race — not currently reachable, but the exact anti-pattern `reserve_slot()`'s own docstring already documents avoiding
+- **Status: Confirmed as a real latent gap, Suspected as ever-reachable
+  in the current codebase — not fixed, logged only.** Both
+  `core/loader_v2.py`'s `_reconcile_adopted_slot()` and
+  `core/embed_server.py`'s `start()` (adoption branch) call
+  `find_resident_slot()` (one lock acquisition, read-only) and, if it
+  returns `None`, later call `register_slot()` (a SEPARATE lock
+  acquisition) to write a new slot. Two concurrent callers could both see
+  `None` from their own `find_resident_slot()` read before either one's
+  `register_slot()` write lands, and both then register a slot for the
+  same real PID/port — a double-count in `_sum_committed_bytes()`. This
+  is the identical read-then-write-not-atomically shape `reserve_slot()`'s
+  own docstring (`core/resource_gate.py`, ~line 3201) already documents
+  as the anti-pattern its own PENDING-swap-sum logic was written to avoid
+  (see `NEW-135`'s fix).
+- **Confirmed NOT currently reachable**, by the reviewer, not assumed:
+  `loader_v2.py`'s path is gated on `resolve_port_owner_pid()` succeeding,
+  which needs `/proc/net/tcp` — confirmed dead on this device (`NEW-200`),
+  and `_reconcile_adopted_slot()` has no registered-slot fallback to
+  succeed via instead. `embed_server.py`'s `start()` is only ever called
+  from the daemon's single `async def _main_loop` — sequential coroutine
+  ticks on one thread, not concurrent callers; no other process calls
+  `start()` today.
+- **Fix direction, if/when this becomes reachable** (a rooted device
+  where `resolve_port_owner_pid()` works, or a future second caller of
+  `embed_server.start()`): an atomic `register_slot_if_absent()` that does
+  the find-then-append inside a SINGLE `_LockedState` acquisition, instead
+  of two separate ones with a gap between them.
+- **Cross-references:** `NEW-135` (the precedent this gap should have
+  matched but doesn't yet), `NEW-200` (why this is currently unreachable
+  via the `loader_v2.py` path specifically).
+
+### [NEW-202] `find_resident_slot()` filters on `status == RESIDENT`; `embed_server.py`'s older `_find_pid_via_registered_slot()` fallback does not — a status-filter divergence between two functions answering the same question
+- **Status: Confirmed as a real divergence, currently empty/harmless —
+  not fixed, logged only.** `find_resident_slot()` (new this round) only
+  returns a slot whose `status` is `SLOT_STATUS_RESIDENT`. `core/
+  embed_server.py`'s pre-existing `_find_pid_via_registered_slot()`
+  filters only on `model_id`+`port`, with no status check at all — a
+  PENDING slot for the embed model would satisfy it just as readily as a
+  RESIDENT one.
+- **Confirmed currently harmless**, by the reviewer: every
+  `model_id="embed"` slot-write site in the codebase was grepped, and all
+  of them pass `status=SLOT_STATUS_RESIDENT` explicitly — there is no
+  live code path today that would leave a PENDING `model_id="embed"` slot
+  around for `_find_pid_via_registered_slot()` to wrongly match against.
+- **Fix direction, if/when a PENDING embed slot ever becomes possible**:
+  add the same `status == SLOT_STATUS_RESIDENT` filter to
+  `_find_pid_via_registered_slot()` that `find_resident_slot()` already
+  has, so the two functions answering the same underlying question ("is
+  a specific model's server really resident") agree.
+- **Cross-references:** none — self-contained, found and fully scoped in
+  the same review pass.
+
+### [NEW-203] `EmbedServer.stop()`'s docstring asserts an adopted server always has `self.process is None` — a real edge case makes that false, though the resulting behavior stays safe
+- **Status: Confirmed as an inaccurate docstring claim; the actual
+  runtime behavior in the edge case is still safe — not fixed, logged
+  only.** `stop()`'s docstring states an adopted server (`start()`'s new
+  adoption branch) always has `self.process is None`, since adoption by
+  definition means this object never spawned a `Popen` for it. The
+  reviewer traced a real edge case where this is false: if THIS object's
+  OWN earlier spawn already died (so `self.process` still holds a stale,
+  dead `Popen` handle that hasn't been cleared yet) and adoption of a
+  DIFFERENT, healthy occupant then occurs before that stale `self.process`
+  gets reset to `None`, the object ends up in a state the docstring didn't
+  anticipate: an adopted (not-owned) real server, but a non-`None`
+  `self.process` pointing at the object's own dead previous spawn.
+- **Why this stays safe despite the inaccurate invariant**: `stop()`'s
+  kill logic targets `self.process`'s own PID — in this edge case, that
+  PID belongs to the object's own already-dead prior spawn, not the
+  really-adopted server, so `stop()` harmlessly no-ops against a PID
+  that's already gone (or, worst case, sends a signal to a dead/reaped
+  PID that raises `ProcessLookupError`, already handled) rather than
+  ever mistakenly killing the real adopted server it doesn't own.
+- **Not fixed** — this is a documentation-accuracy issue, not a behavior
+  bug; the reviewer's own framing was "the stated invariant is inaccurate
+  and should be corrected in a follow-up," not "this needs a code fix."
+  Fix direction: clear `self.process = None` explicitly at the point a
+  prior spawn is confirmed dead (rather than only inside `stop()`'s own
+  cleanup), or correct the docstring's wording to describe the actual
+  invariant instead of the intended-but-not-quite-true one.
+- **Cross-references:** none — self-contained, found and fully scoped in
+  the same review pass.
