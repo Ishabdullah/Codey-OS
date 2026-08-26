@@ -12,7 +12,110 @@ and Appendix A.
 
 ---
 
-## 2026-08-26 (latest) — Phase A1 "concurrency test" scoped: desk-only, no code changed. Mechanism confirmed already active in production by real log evidence, not a hypothetical; remaining question reframed from feasibility to behavior (`NEW-204`, `NEW-205`)
+## 2026-08-26 (latest) — Phase A1 "concurrency test" RUN live against the real `codey-start` stack: negative result. The shared `llama-server`'s `kv_unified=true` 4-slot default fails EVERY in-flight request under combined-load oversubscription, not gracefully — a real finding bearing on §1.4's architecture, escalated to Ish as §8 Q11, no code changed (`NEW-206`)
+
+**What ran:** live-verifier's own scoped follow-on to the prior round's
+desk-only mechanism check (`NEW-204`/`NEW-205`). Real `codey-start` full
+stack, real binary/code path, but `CODEY_N_CTX=8192` instead of
+production's real `65536` (a pre-existing, explicitly permitted
+override — precedent `U.31`/`NEW-95`/7.4a) — reaching oversubscription
+at 65536 would need ~40+ minutes of prefill per rung at this device's
+measured rate. **Disclosed scope deviation, not hidden**: this tests the
+mechanism at n_ctx=8192, not production's 65536.
+
+**Smoke test:** two tiny concurrent `/completion` calls with distinct
+canary strings both showed `"is_processing": true` on two DIFFERENT
+slots (2, 3) simultaneously, confirmed via a mid-flight `/slots` poll —
+real, verified concurrent decoding, not serialization.
+
+**Oversubscription test — the actual finding:** two prompts sized via
+the server's own `/tokenize` endpoint at 4245 and 4246 tokens (combined
+8491 against the 8192-token pool, already over 100% before generation),
+`n_predict: 300` each, fired genuinely concurrently. Real
+`~/.codeyOS/llama-server.log`:
+```
+init_batch: failed to prepare attention ubatches
+decode: failed to find a memory slot for batch of size 509
+srv decode: failed to find free space in the KV cache, retrying with smaller batch size ...
+(cascading retries: 509 → 256 → 128 → ... → 1, over several minutes)
+srv decode: Context size has been exceeded. off = 207, n_batch = 1, ret = 1
+srv send_error: task id = 28, error: Context size has been exceeded.
+slot release: id 0 | task 28 | stop processing: n_tokens = 4253, truncated = 0
+slot release: id 1 | task 27 | stop processing: n_tokens = 4241, truncated = 0
+srv update_slots: decode() failed: Context size has been exceeded.
+```
+Both raw HTTP responses: `{"error":{"code":500,"message":"Context size
+has been exceeded.","type":"server_error"}}`. Total wall time ~6m32s
+for EACH request; both curls returned within 13ms of each other
+(genuinely simultaneous failure). Task 28/slot 0 reached 4253/4253
+tokens (100%); task 27/slot 1 reached 3733/4241 (88%). Neither request
+produced any partial output — both errored before generation began.
+`free -h` stayed flat/stable throughout (~8.1-8.3GiB used, no upward
+trend, no thrashing) — not a resource-exhaustion symptom.
+
+**Confound addressed, not hidden:** ADB wakefulness/foreground monitor
+showed two ~3s foreground flips (Messaging app → launcher/recents →
+Termux) at test-window-relative t+70s and t+73s; Ish independently and
+unprompted confirmed brief phone use during the run, corroborating
+rather than contradicting the ADB capture. The actual failure did not
+occur until ~12+ minutes into the test, after the long retry cascade —
+the retry-cascade log timestamps show ~11+ minutes of continued,
+uninterrupted server processing between the blips and the failure. This
+gap rules out the confound as a cause; the finding is confound-
+independent and is not hedged on that account, per rule 5.
+
+**Verdict:** neither of the two success bars this test was scoped
+against was met ("both complete without corruption/deadlock" — the
+near-term daemon+TUI bar; "true simultaneous decoding" — the harder
+future both-limbs bar). This is a genuine, previously-untested negative
+result on the exact mechanism §1.4's single-shared-model architecture
+decision (and §8 Q3's still-open concurrency piece) implicitly assumed
+would work: when combined demand genuinely exceeds the pool's total
+capacity, every in-flight request fails hard (not gracefully) after an
+expensive fragmentation-driven retry cascade.
+
+**Correction after reading the allocator source, not asserted from the
+log shape alone (rule 12):** `~/llama.cpp/src/llama-kv-cache.cpp:894-
+1084`'s `find_slot()` confirms the underlying mechanism is a genuine
+KV-cache contiguity requirement (fails if no CONTIGUOUS free run of
+cells exists, even if the total free-cell count elsewhere would
+suffice) — not a simple linear sum-check, and pool-size-independent as
+a mechanism. **But this test's combined demand (8491 tokens) already
+exceeded the 8192 pool before generation started, so it cannot actually
+distinguish "trivially fails because demand exceeds any pool's total
+capacity" (true at any pool size, not itself a novel finding) from
+"fails via fragmentation even when combined demand is comfortably UNDER
+the nominal pool" (the real, more consequential, and still UNTESTED
+case that would actually threaten a realistic daemon+TUI load against
+production's much larger 65536 headroom).** Also untested: both
+prompts failed at prefill time, before their `n_predict: 300`
+generation budget was reached — whether a pair of requests that fit at
+admission and only collide DURING generation degrades the same way is a
+distinct, unexamined failure surface. A 65536 follow-up needs to target
+these two specific gaps, not just repeat the same over-100% scenario at
+a bigger number.
+
+**Logged as `NEW-206`** (Confirmed — direct observation, real logs, real
+HTTP responses — with the above nuance folded into the entry itself, not
+left as an overclaim). `CODEY_MASTER_PLAN.md`'s §6.2 Phase A1
+"Concurrency test" row and Appendix A checklist entry both updated with
+this result; **checkbox stays unchecked** — this is a negative result,
+not a passing confirmation. **Escalated to Ish as new §8 Q11** rather
+than a fix being designed unilaterally, per rule 1 and CLAUDE.md's "work
+touches the plan's own architecture" escalation bar — options laid out:
+(a) test the actually-open under-capacity/during-generation questions
+before deciding anything else, (b) add a request-queue/serialization
+layer in front of the shared server, (c) have the resource gate refuse
+admission of a second concurrent request once combined estimated
+context approaches the shared pool, (d) accept single-consumer-at-a-time
+as the real constraint and revise §1.4's assumption. No code was
+written or changed this round — findings-logging, one desk-only source
+read of the vendored `~/llama.cpp` allocator, and docs reconciliation
+only.
+
+---
+
+## 2026-08-26 — Phase A1 "concurrency test" scoped: desk-only, no code changed. Mechanism confirmed already active in production by real log evidence, not a hypothetical; remaining question reframed from feasibility to behavior (`NEW-204`, `NEW-205`)
 
 Scoped the last unstarted Phase A1 item per `CODEY_MASTER_PLAN.md` §6.2's
 ordering. This was framed going in as "does `--parallel` even work, and

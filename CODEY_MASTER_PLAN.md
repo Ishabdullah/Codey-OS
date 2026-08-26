@@ -2002,7 +2002,7 @@ look like config edits.
 **DONE 2026-08-24** — the constant now reflects there being no separate
 planner process, with real re-derived numbers. |
 | **Lease/registry — CLOSED 2026-08-26, code-reviewer-approved** | **Code-complete, mandatory rule-4 code-reviewer pass APPROVED 2026-08-26 (same day).** Reviewer independently traced `stop()`'s control flow line-by-line (no double-release, no leak), confirmed `_reconcile_adopted_slot()`'s try/except wraps its entire body (nothing can propagate into `load_primary()`), confirmed every `resolve_port_owner_pid()`/`pid_cmdline_contains()` caller checks for `None`/`False` before use (rule 3 intact), confirmed the adoption-branch ordering (`_port_is_bound()` before `_check_health()`), independently reproduced `NEW-200`'s `PermissionError` claim live, and — notably — hand-broke `_pid_owning_inode()` locally and confirmed the rewritten test actually fails without the real fix, proving it's a genuine regression guard and not a tautology. Full suite independently rerun: 692 passed/1 skipped, matching. Three non-blocking findings surfaced by the review, logged per rule 8 rather than silently dropped: **`NEW-201`** (a TOCTOU double-registration race between `find_resident_slot()`'s read and `register_slot()`'s write, confirmed NOT currently reachable — gated on `NEW-200`'s dead `/proc/net/tcp` path for `loader_v2.py`, and `embed_server.start()` has only one sequential caller today), **`NEW-202`** (a status-filter divergence between `find_resident_slot()` and `embed_server.py`'s older `_find_pid_via_registered_slot()`, confirmed currently harmless by grepping every embed slot-write site), **`NEW-203`** (an inaccurate docstring claim in `stop()` about when `self.process` is `None` for an adopted server — a real edge case exists, but the resulting behavior stays safe). None of the three block approval; all are logged for future attention if their preconditions ever change. Replaced port-probe adoption with an explicit registry query, built directly against the existing resource-gate slot store rather than a second lease-file format. New: `find_resident_slot()` (query: is a model already resident, at what `n_ctx`/`pid`/`port`), `resolve_port_owner_pid()`/`_pid_owning_inode()`/`pid_cmdline_contains()`/`resolve_spawned_n_ctx()` (generalized from `embed_server.py`'s own pre-existing pattern, for positively identifying a genuinely-foreign process — never a name-based guess, rule 3), `register_slot()`/`reserve_slot()` now persist `n_ctx`. `core/loader_v2.py`'s new `_reconcile_adopted_slot()` registers a previously-unlisted resident coder server on adoption and logs (not respawns, per `NEW-149`'s own scope) an under-provisioned-ceiling mismatch. `core/embed_server.py`'s `start()` now adopts an already-healthy occupant instead of killing it (`NEW-146`'s actual fix — the daemon's own restart path, not just `core/inference.py`'s caller `NEW-144` covered), and `stop()`'s slot-release was moved out of the `if self.process:` block so an adopted server (no `Popen` handle, `self.process is None`) still releases its slot instead of leaking it — a leak this same round's own adoption fix would otherwise have introduced. 15 new tests (`tests/test_loader_resource_gate.py`, `tests/test_resource_gate.py`), full suite **692 passed, 1 skipped** (up from 671/1). **Real platform limitation found and documented, `NEW-200`**: `/proc/net/tcp`/`tcp6` are `PermissionError` on this actual device for every caller, including a process reading its own sockets — confirmed by direct read (rule 12), not assumed. This means `resolve_port_owner_pid()`'s primary path cannot succeed here for `NEW-104`'s original "truly foreign, no pre-existing slot" case; the mechanism degrades safely (returns `None`, never crashes, never falls back to a name-based kill) but is effectively non-functional on THIS device for that one sub-case — kept for portability to a rooted device or non-Android deployment. The two cases that DO work here (a slot this process itself registered; `embed_server.py`'s registered-slot fallback) don't depend on this scan. **Absorbs and updates**: `NEW-104` (partially — see `NEW-200`'s caveat), `NEW-144`/`NEW-146` (embed kill-and-replace of a healthy occupant, now fixed both at the `inference.py` caller AND the daemon's own `start()`/restart path), `NEW-149` (reuse-adopts-under-provisioned-server is now detectable/logged, not silently invisible — not auto-corrected, per this item's own scope). **Mandatory rule-4 code-reviewer pass: APPROVED 2026-08-26** (see this cell's opening sentence for the full review summary) — this item is now DONE: code-complete, code-reviewer-approved. Not live-verified (no live component by design — this is admission/adoption accounting logic, not a model-load test); a future live pass exercising a genuine cross-process adoption scenario would still be informative but is not required to consider this item closed. |
-| **Concurrency test** | **Scoped 2026-08-26 — mechanism confirmed active by real evidence, remaining ask is a behavioral live test, not a feasibility question** | **Correction to this row's own prior wording, per rule 6:** "no flag is set anywhere today" is true about the flag but the conclusion drawn from it — that concurrency is unavailable/untested — was wrong. `core/loader_v2.py`'s `_spawn_locked()` never passes `-np`/`--parallel`, but this vendored llama.cpp build (`~/llama.cpp`, commit `91d2fc38`) resolves the unset default (`-1`) to `n_parallel=4, kv_unified=true` for every real (non-router) launch (`tools/server/server.cpp:146-151`) — **confirmed not just in source but in real production logs**: `~/.codeyOS/llama-server.log:20` (coder, 2026-08-26 `codey-start` session) and every entry in `~/.codeyOS/embed-server.log` both print `n_slots = 4, ... kv_unified = 'true'` verbatim. Every live-verify pass this project has ever run has therefore already been exercising a 4-slot server (`NEW-204`). **Memory-cost interaction, checked not assumed:** the full-attention KV term is unaffected — `llama-context.cpp:286-297` shows `cparams.n_ctx_seq = cparams.n_ctx` under `kv_unified=true`, i.e. one physical pool sized by `-c` regardless of slot count, so §5.1's KV table stands. The SSM/recurrent-state term DOES scale with `n_seq_max` (`llama-model.cpp:2137/2156`, `llama-memory-recurrent.cpp:99-100`) and is undercounted in `core/resource_gate.py` by ~150.75MiB against the already-active `n_parallel=4` default (`NEW-205`, logged, not fixed this round). **What's actually still open, reframed:** `kv_unified=true` makes each of the 4 slots advertise the full `n_ctx` (`n_ctx_slot = 65536` in the real log) while sharing one physical pool — the server is structurally 4:1 oversubscribed on *capacity*, not memory. No test has ever exercised what happens when concurrent requests' combined usage approaches or exceeds that shared budget (graceful defer/serialize vs. truncation vs. rejection). **Next step scoped for live-verifier, not run this round:** 2+ genuinely concurrent requests against the real `codey-start`-spawned coder server, sized so combined prompt+generation approaches/exceeds 65536 tokens (the existing single-request production log only reached ~4,700 tokens — nowhere near the contention zone); capture the `/slots` endpoint (enabled by default) before/during/after, the server log's slot-assignment/truncation lines, `free -h` before/after per rule 2, and define success as "both requests complete without corruption or deadlock" (the near-term daemon+TUI use case) before attempting the harder "true simultaneous decoding" bar (needed only for the future both-limbs scope). Subject to rule 2 (one live model-load cycle, confirmed unload after). |
+| **Concurrency test** | **Behavioral test RUN 2026-08-26 against the real `codey-start` stack — negative result, checkbox stays unchecked** | **This row's earlier "mechanism confirmed active, remaining ask is a behavioral live test" framing has now been tested, and the result is a genuine architectural finding, not a routine pass/fail (`NEW-206`).** Scope note: the real live pass used `CODEY_N_CTX=8192` (a pre-existing, permitted override — precedent `U.31`/`NEW-95`/7.4a), not production's real `65536` ceiling, because reaching oversubscription at 65536 would take ~40+ minutes of prefill per rung at this device's measured rate; same binary, same code path, same `n_parallel=4, kv_unified=true` defaults, smaller physical pool only. **Proven:** (1) genuine concurrent decoding is real — a smoke test showed two tiny requests both `"is_processing": true` on different slots (2, 3) simultaneously via `/slots`; (2) two prompts sized at 4245+4246 tokens (`/tokenize`-measured, combined 8491 — already OVER the 8192 pool before generation) produce KV-cache fragmentation (`failed to find a memory slot for batch`, confirmed by reading the real allocator source, `~/llama.cpp/src/llama-kv-cache.cpp:894-1084` — `find_slot()`'s contiguous-allocation branch fails when it can't find `n_test` CONTIGUOUS free cells even if the total free-cell count elsewhere would suffice, a genuine fragmentation mechanism, not a simple linear sum-check), a ~12-minute cascading batch-size retry (509→256→...→1), and then a **hard failure of BOTH in-flight requests** (`Context size has been exceeded`, HTTP 500 for each) — no queuing, no serialization, no truncation-and-continue, no partial output from either side. RAM stayed flat throughout (no resource-exhaustion confound). An ADB-confirmed ~3s phone-foreground blip occurred at t+70-73s, 11+ minutes before the actual failure event — timing gap rules it out as a cause; the finding stands as real and confound-independent. **Not proven, and narrower than a first pass concluded:** because combined demand ALREADY exceeded total pool capacity before generation started, this run cannot separate "trivially fails because demand genuinely exceeds any pool's total capacity" (true at any pool size, not itself surprising) from "fails via fragmentation even when combined demand is comfortably UNDER the nominal pool size" (the mechanism `find_slot()`'s contiguity requirement makes plausible, and the shape that actually threatens a realistic daemon+TUI scenario against 65536's much larger headroom) — that distinction needs a dedicated 65536 re-run designed to stay under nominal capacity, not just a bigger-pool repeat of the same over-100% scenario. Also untested: both prompts here failed at PREFILL time, before their `n_predict: 300` generation budget was reached — whether two requests that fit at admission and only collide DURING generation degrade the same way (with, plausibly, partial output before failure, unlike this round's all-or-nothing result) is a distinct, unexamined failure surface. **Neither of the two success bars this test was scoped against was met** ("both complete without corruption/deadlock" — the near-term daemon+TUI bar — nor the harder future "true simultaneous decoding" bar). **Checkbox stays unchecked.** This bears directly on §1.4's single-shared-model architecture decision and §8 Q3's still-open concurrency piece — escalated to Ish as **§8 Q11** rather than a fix being unilaterally designed here, per rule 1/CLAUDE.md's escalation bar for anything touching the plan's own architecture. |
 
 **Correction to this plan's own earlier claim, per rule 6:** the
 2026-08-21 version of this document listed 7.4b sub-task B as "confirmed
@@ -2291,11 +2291,12 @@ Numbered for reference. Nothing here is guessed at in this document.
    Codey-OS-native? Not designed anywhere.
 3. ~~**One model vs. swap scheduling.**~~ **Answered by Ish, 2026-08-22
    (§1.4): one model.** Qwen3.5-4B serves every role, with thinking mode
-   in place of a separate planner. What remains from this question is not
-   a decision but a test: whether one `llama-server` can serve several
-   consumers concurrently (§6.2's concurrency test). Kept here, struck
-   through, so the answer is visible rather than the question quietly
-   vanishing.
+   in place of a separate planner. What remains from this question was
+   not a decision but a test: whether one `llama-server` can serve
+   several consumers concurrently (§6.2's concurrency test). **That test
+   has now run (2026-08-26) and produced a decision-shaped negative
+   result — see `NEW-206` and §8 Q11.** Kept here, struck through, so the
+   answer is visible rather than the question quietly vanishing.
 4. **Deployment migration off-phone.** Firebase, a bigger server, or
    something else. Explicitly not decided; revisit after the
    phone-hosted version is real.
@@ -2388,6 +2389,62 @@ Numbered for reference. Nothing here is guessed at in this document.
     live session has come to the compound-distress shape yet — Ish
     should have it in view if this risk-acceptance is ever revisited.
     See `NEW-195` for the full detail and the corrected framing.
+11. **`NEW-206` — the real shared `llama-server` fails hard (both
+    in-flight requests, HTTP 500, after a ~12-minute fragmentation-
+    driven retry cascade) when concurrent requests oversubscribe its
+    `kv_unified=true` shared KV pool.** This is the behavioral half of
+    §8 Q3's "one model vs. swap scheduling" decision that Q3 explicitly
+    left open (struck through as answered on the architecture question,
+    but flagging the concurrency test as the remaining unresolved
+    piece) — that piece has now been tested, live, against the real
+    `codey-start` stack (at `CODEY_N_CTX=8192`, not production's real
+    65536 — see `NEW-206`'s own entry for why). Proven: genuine
+    concurrent decoding exists (two requests on different slots
+    simultaneously, confirmed via `/slots`); when combined demand
+    genuinely exceeds total pool capacity, EVERY in-flight request
+    fails hard (HTTP 500, all together, after an expensive 12-minute
+    retry cascade) — not graceful degradation, queuing, serialization,
+    or truncation-and-continue. **Narrower than a first read
+    suggested, confirmed by reading the allocator source
+    (`llama-kv-cache.cpp:894-1084`) rather than assumed:** the tested
+    scenario already had combined demand over 100% of the pool before
+    generation started, so it cannot distinguish "trivially fails
+    because demand exceeds any pool's total capacity" (true regardless
+    of pool size — not itself a novel finding) from "fails via KV-cache
+    fragmentation even when combined demand is comfortably UNDER the
+    nominal pool" (a real, distinct mechanism per the source's
+    contiguous-allocation requirement, but NOT what this test actually
+    exercised) — or from a during-generation (rather than prefill-time)
+    collision, also untested. This bears directly on §1.4's
+    single-shared-model architecture, not just on this one test's
+    pass/fail, so no fix was designed or chosen unilaterally here —
+    real options, not defaulted to any of them:
+    - **(a) Test the actually-open questions before deciding anything
+      else:** does the same hard, all-in failure also occur when
+      combined demand stays UNDER the nominal pool size (via
+      fragmentation) and/or when the collision happens DURING
+      generation rather than at prefill — both plausible per the
+      allocator's contiguity requirement, neither exercised by this
+      round's test. Re-running the identical over-100% scenario at
+      65536 alone would only re-confirm the trivial case and would not
+      answer the question that actually matters for a realistic
+      daemon+TUI load.
+    - **(b) Add a request-queue/serialization layer** in front of the
+      shared server so only one request decodes at a time regardless
+      of the nominal 4-slot advertisement — sacrifices the genuine
+      concurrency the smoke test proved is available, in exchange for
+      never hitting this failure mode.
+    - **(c) Have the resource gate itself refuse to admit a second
+      concurrent request** once combined estimated context would
+      approach the shared pool — keeps concurrency for requests that
+      fit, denies admission (rather than a 12-minute cascade-then-fail)
+      for ones that wouldn't.
+    - **(d) Accept single-consumer-at-a-time as the real operating
+      constraint** and revise §1.4's assumption that one server can
+      transparently serve multiple simultaneous consumers — a product-
+      direction-level acknowledgment rather than a code fix.
+    Not resolved here — Ish's call, per rule 1 and CLAUDE.md's
+    escalation bar for anything touching the plan's own architecture.
 
 ---
 
@@ -2976,22 +3033,44 @@ Then:
       `NEW-202` (a status-filter divergence, confirmed currently
       harmless), `NEW-203` (an inaccurate `stop()` docstring claim, safe
       in practice). This item is now DONE.
-- [ ] **Concurrency test** — **Scoped 2026-08-26 (see §6.2's Phase A1
-      table row for the full writeup).** Mechanism confirmed active by
-      real production log evidence (`NEW-204`): every real launch already
-      runs `n_slots = 4, kv_unified = 'true'` by this llama.cpp build's
-      own default, unbeknownst to prior documentation. KV-cache memory
-      does not scale with slot count (checked, `llama-context.cpp:286-
-      297`); recurrent/SSM state does and is undercounted ~150.75MiB in
-      `core/resource_gate.py` today (`NEW-205`, logged not fixed). Genuine
-      remaining question is behavioral, not existential: whether
-      concurrent requests whose combined usage approaches the shared
-      `kv_unified` pool (each of the 4 slots advertises the full `n_ctx`,
-      oversubscribed 4:1 on capacity) are served correctly. Live-verifier
-      test scoped (2+ concurrent requests via real `codey-start`, sized to
-      approach/exceed 65536 combined tokens, `/slots` + server-log +
-      `free -h` evidence) but **not yet run**. Checkbox stays open pending
-      that live pass.
+- [ ] **Concurrency test** — **Live pass RUN 2026-08-26; negative result
+      (`NEW-206`); checkbox stays unchecked.** Mechanism confirmed active
+      by real production log evidence (`NEW-204`): every real launch
+      already runs `n_slots = 4, kv_unified = 'true'` by this llama.cpp
+      build's own default. KV-cache memory does not scale with slot
+      count (checked, `llama-context.cpp:286-297`); recurrent/SSM state
+      does and is undercounted ~150.75MiB in `core/resource_gate.py`
+      today (`NEW-205`, logged not fixed). **The behavioral question is
+      now answered, not open — and the answer is bad:** a real
+      `codey-start` live pass at `CODEY_N_CTX=8192` (production's real
+      65536 would need ~40+ min prefill per rung; same binary/code path/
+      defaults, smaller pool only) confirmed genuine concurrent decoding
+      via `/slots` (two requests on different slots simultaneously), then
+      drove two prompts to combined 8491 tokens against the 8192 pool —
+      result was KV-fragmentation (`failed to find a memory slot for
+      batch`), a ~12-minute cascading retry, and a **hard failure of
+      BOTH in-flight requests** (HTTP 500 each, `Context size has been
+      exceeded`), not graceful degradation, queuing, serialization, or
+      truncation-and-continue. RAM stayed flat (no resource-exhaustion
+      confound); a ~3s ADB-confirmed phone-foreground blip occurred 11+
+      minutes before the actual failure and is ruled out as a cause by
+      that timing gap. **Not yet confirmed, and narrower than a first
+      read of the result suggested:** the test's combined demand
+      (8491 tokens) already exceeded the 8192 pool before generation
+      began, so this run cannot separate "trivially fails because
+      demand exceeds any pool's total capacity" (true regardless of
+      pool size) from "fails via fragmentation even when combined
+      demand is comfortably under the nominal pool" (the more
+      consequential, unproven case — real per the allocator source's
+      contiguous-allocation requirement, `llama-kv-cache.cpp:894-1084`,
+      but not exercised by this test) or from a during-generation
+      (rather than prefill-time) collision. A 65536 re-run needs to
+      target those two gaps specifically, not just repeat the same
+      over-capacity scenario at a bigger number.
+      **Escalated to Ish as §8 Q11** — this bears on §1.4's
+      single-shared-model architecture assumption, not just this one
+      test's pass/fail, so no fix (queuing, admission capping, or
+      re-opening §1.4) was designed or picked here.
 
 ### Phase A2 — coding-domain rollout (§6.8)
 

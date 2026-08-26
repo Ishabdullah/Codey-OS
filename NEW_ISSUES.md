@@ -10647,3 +10647,170 @@ finding for the same bug. See `NEW-39`.)*
   unmeasured — same "small undercount against untested margins"
   category), §5.1's own recurrent-state derivation and M1-F's constant
   derivations in `CODEY_MASTER_PLAN.md`.
+
+## Found during the 2026-08-26 Phase A1 concurrency test (§6.2 of `CODEY_MASTER_PLAN.md`, `NEW-204`/`NEW-205`'s scoped follow-on) — REAL live-verifier pass against the actual `codey-start` full stack, NOT fixed, logged only
+
+### [NEW-206] The real `llama-server`, running its own already-active `n_parallel=4, kv_unified=true` default (`NEW-204`), fails EVERY in-flight request — not gracefully, not by queuing or truncating — when two concurrent requests' combined context oversubscribes the shared KV pool, after a long, expensive fragmentation-driven retry cascade
+
+- **Status: Confirmed, directly observed** — real server logs
+  (`~/.codeyOS/llama-server.log`), real raw HTTP responses, real
+  `/slots` polls, real `free -h` before/during/after. Not inferred, not
+  a mock, not a desk derivation. **Scope deviation disclosed by the
+  live-verifier and preserved here rather than hidden:** the test ran
+  against `codey-start`'s real binary and code path but with
+  `CODEY_N_CTX` overridden to `8192` (a pre-existing, explicitly
+  permitted override — precedent `U.31`/`NEW-95`/7.4a), not production's
+  actual `65536` ceiling, because reaching oversubscription at 65536
+  would need ~40+ minutes of prefill per rung at this device's measured
+  prefill rate. **This proves the mechanism exists and fails hard at
+  n_ctx=8192 under genuine over-capacity combined demand; it does NOT
+  prove the exact failure timing/cascade shape is identical at
+  n_ctx=65536, and — more importantly, confirmed by reading the
+  allocator source rather than assumed — it does NOT prove the same
+  hard failure also triggers below 100% combined capacity (via
+  fragmentation) or during generation rather than prefill**, which are
+  the shapes that would actually matter for realistic production loads
+  well under 65536. See "not proven" below for the full reasoning,
+  including why "pool-size-independent" is true of the underlying
+  contiguity mechanism but does not mean this test proved the
+  consequential (under-capacity) case.
+- **Proven, this round:**
+  - **Genuine concurrency is real, not serialized** — a smoke test
+    before the main test fired two tiny `/completion` calls with
+    distinct canary strings; a mid-flight `/slots` poll showed both
+    with `"is_processing": true` on two DIFFERENT slots (2 and 3)
+    simultaneously. This directly confirms the 4-slot server actually
+    interleaves work rather than silently queuing behind the scenes.
+  - **Oversubscription fails hard, not gracefully.** Two prompts sized
+    via the server's own `/tokenize` endpoint (not estimated) at 4245
+    and 4246 tokens (combined 8491 against the 8192-token pool — over
+    100% before any generation even started), `n_predict: 300` each,
+    fired genuinely concurrently. Real log:
+    ```
+    init_batch: failed to prepare attention ubatches
+    decode: failed to find a memory slot for batch of size 509
+    srv decode: failed to find free space in the KV cache, retrying with smaller batch size ...
+    (cascading retries: 509 → 256 → 128 → ... → 1, over several minutes)
+    srv decode: Context size has been exceeded. off = 207, n_batch = 1, ret = 1
+    srv send_error: task id = 28, error: Context size has been exceeded.
+    slot release: id 0 | task 28 | stop processing: n_tokens = 4253, truncated = 0
+    slot release: id 1 | task 27 | stop processing: n_tokens = 4241, truncated = 0
+    srv update_slots: decode() failed: Context size has been exceeded.
+    ```
+    BOTH raw HTTP responses were `{"error":{"code":500,"message":
+    "Context size has been exceeded.","type":"server_error"}}`. Total
+    wall time ~6m32s for EACH request; both curls returned within 13ms
+    of each other (genuinely simultaneous failure, not one timing out
+    after the other). Task 28/slot 0 reached 4253/4253 tokens (100% of
+    its own prompt consumed before failing); task 27/slot 1 reached
+    3733/4241 (88%). **Neither request produced any partial output —
+    both errored before generation began**, so there is no
+    truncation-and-continue behavior and no cross-request content
+    leakage (there was nothing produced by either to leak).
+  - **The failure mechanism is fragmentation-driven, not a simple
+    linear sum-exceeds-capacity check.** The server spent over 12
+    minutes cascading through shrinking batch-size retries
+    (509→256→128→...→1) before giving up entirely and failing BOTH
+    in-flight requests — not just the one that nominally pushed the
+    pool over, and not with any partial/serialized recovery.
+  - **No corruption, no hang, no crash, no deadlock, no RAM pressure.**
+    `free -h` stayed flat/stable throughout (~8.1–8.3GiB used, no
+    upward trend, no thrashing) — this is a pure llama.cpp
+    request-admission/scheduling behavior, not a resource-exhaustion
+    symptom.
+- **Not proven / explicitly out of scope this round — corrected after
+  reading the actual allocator source (`~/llama.cpp/src/llama-kv-
+  cache.cpp:894-1084`), not asserted from the log shape alone, per rule
+  12:** the test's combined prompt size (8491 tokens) already exceeded
+  the pool (8192) before generation started — a genuine, trivial
+  over-capacity condition that fails on **any** pool size, since demand
+  exceeding total capacity fails regardless of how large that capacity
+  is. Reading `find_slot()`'s `cont=true` branch confirms the deeper
+  mechanism IS a contiguity requirement, not a simple linear
+  sum-check — it walks the cache looking for `n_test` (the full batch
+  size, for contiguous/prefill allocation) *contiguous* free cells, and
+  returns failure if none exist even when the *total* count of free
+  cells elsewhere in the cache would be sufficient (lines 1005-1084).
+  This makes the mechanism itself genuinely pool-size-independent in
+  principle. **But this test did not actually exercise that
+  distinction** — because combined demand already exceeded total
+  capacity, this specific run cannot separate "failed because sum
+  really was too large" (trivial, same at any pool size, arguably not
+  even a distinct finding worth escalating on its own) from "failed
+  because free space was fragmented even though the sum would have
+  fit" (the real, more consequential production risk that would apply
+  to two moderate requests comfortably under 65536's nominal capacity).
+  **The 65536 re-run this finding calls for should specifically target
+  combined-under-100%-but-fragmented conditions**, not just re-run the
+  same over-100% scenario at a bigger pool — that would only re-confirm
+  the trivial case. Separately, both test prompts consumed effectively
+  100% of their own share on **prefill**, before their `n_predict: 300`
+  generation budget was even reached — this test never exercised the
+  case of two requests that fit fine at admission and only collide
+  later, during generation, which is a distinct failure surface (a
+  request could plausibly get partial output before dying, unlike this
+  round's all-or-nothing prefill-time failure) and the more realistic
+  daemon+TUI shape. Treat "hard, all-in failure exists and is real
+  under over-capacity combined demand" as confirmed; treat "the same
+  hard failure also happens under FRAGMENTED-but-under-capacity or
+  DURING-GENERATION conditions" as the two genuinely open questions a
+  65536 re-run needs to target, not "does it reproduce at 65536" in the
+  abstract.
+- **Confound addressed explicitly, not silently omitted (rule 5):** an
+  ADB wakefulness/foreground-activity monitor ran throughout. Two brief
+  (~3s each) foreground flips occurred at test-window-relative t+70s and
+  t+73s (Messaging app → launcher/recents → back to Termux); Ish
+  independently and unprompted confirmed he used the phone briefly
+  during the run, corroborating rather than contradicting the ADB
+  capture. **This does not implicate the finding.** The actual failure
+  (both requests erroring) did not occur until roughly 12+ minutes into
+  the test, after the long retry cascade — the retry-cascade log
+  timestamps show ~11+ minutes of continued, uninterrupted server
+  processing between the t+70-73s blips and the actual failure event.
+  A 3-second foreground interruption cannot explain a definitive
+  server-side error that manifests 11+ minutes later with no
+  intervening gap in server activity. This finding is confound-
+  independent and should not be hedged on that account, though the
+  confound is recorded here per rule 5's verbatim-record requirement.
+- **Impact — this is not a routine resource-gate accounting bug like
+  most recent findings (`NEW-135`/`NEW-136`/`NEW-187`/`NEW-205`); it is
+  a discovery about `llama.cpp`'s real-world behavior under a condition
+  §1.4's single-shared-model architecture decision implicitly assumed
+  would work.** §1.4 (2026-08-22) settled "one model serves every role"
+  partly on the open question of whether one `llama-server` can
+  transparently serve multiple simultaneous consumers (§8 Q3, struck
+  through as answered but explicitly noting the concurrency test as the
+  remaining unresolved piece). This result shows that, at least at
+  n_ctx=8192 under genuine combined-demand-exceeds-total-capacity
+  conditions, the answer is: no graceful degradation, no queuing, no
+  serialization, no truncation-and-continue — a hard failure of every
+  in-flight request after an expensive delay. **What this proves is
+  narrower than "concurrency is unsafe in general" — it proves the
+  system has no admission control preventing that specific bad outcome
+  once combined demand genuinely exceeds the shared pool, and that
+  when it does happen, the failure mode is maximally bad (both die,
+  after 12 minutes) rather than one request being rejected cleanly up
+  front.** Whether the SAME hard-failure behavior also triggers well
+  UNDER the nominal capacity (via KV-cache fragmentation, confirmed as
+  a real contiguity-based mechanism in `find_slot()`'s source — see
+  above) or DURING generation rather than at prefill — the two shapes
+  that would actually threaten a plausible real scenario like an
+  interactive TUI session and a background daemon task each running a
+  moderate-sized prompt well within 65536's combined room — is NOT yet
+  tested. That gap, not "does the same number reproduce at 65536," is
+  what a follow-up live pass needs to target. Either way, the finding
+  already shows the shared-server architecture has no built-in
+  admission protection against oversubscription today — an outcome
+  that needs either a design response in front of the shared server or
+  an explicit accepted-risk decision before the concurrency-test
+  checkbox in Appendix A can be considered handled.
+- **Not fixed, no code changed this round** — by the live-verifier's own
+  scope and rule 1's escalation path; see `CODEY_MASTER_PLAN.md` §8 Q11
+  for the options laid out for Ish's decision.
+- **Cross-references:** `NEW-204` (confirms `n_parallel=4,
+  kv_unified=true` is the real active default this finding was tested
+  against), `NEW-205` (the separate, unrelated memory-accounting
+  consequence of the same default), §1.4 and §8 Q3 (the architecture
+  decision this finding bears on), §6.2's Phase A1 "Concurrency test"
+  row and Appendix A checklist entry (updated this round, still
+  unchecked).
