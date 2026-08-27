@@ -16,8 +16,10 @@ from typing import Optional
 from ..auth import AuthService
 from ..database import DatabaseManager, DEFAULT_DB_PATH
 from ..services.audit_service import AuditService
+from ..services.automation_service import AutomationService
 from ..services.communication_service import CommunicationService
 from ..services.crm_service import CRMService
+from ..services.scheduling_service import SchedulingService
 from .routes import APIRouter
 
 logger = logging.getLogger("restoricon_core.api")
@@ -84,12 +86,19 @@ class RestoriconAPIServer:
         self.audit_service = AuditService(self.db)
         self.comm_service = CommunicationService(self.db)
         self.crm_service = CRMService(self.db, self.audit_service)
+        self.scheduling_service = SchedulingService(self.db, self.audit_service)
+        self.automation_service = AutomationService(self.db, self.audit_service)
 
+        # RBAC for these two services (and CRMService's subcontractor
+        # methods) is enforced in the service layer, not here -- see
+        # APIRouter's own class docstring.
         self.router = APIRouter(
             auth_service=self.auth_service,
             crm_service=self.crm_service,
             comm_service=self.comm_service,
             audit_service=self.audit_service,
+            scheduling_service=self.scheduling_service,
+            automation_service=self.automation_service,
         )
 
         class CustomHandler(RestoriconRequestHandler):

@@ -11,6 +11,9 @@ from urllib.parse import parse_qs, urlparse
 
 from ..auth import AuthContext, AuthService
 from ..models import (
+    Appointment,
+    AutomationRule,
+    BusinessProfile,
     Contract,
     Customer,
     Document,
@@ -19,14 +22,25 @@ from ..models import (
     Lead,
     Opportunity,
     Project,
+    Subcontractor,
 )
 from ..services.audit_service import AuditService
+from ..services.automation_service import AutomationService
 from ..services.communication_service import CommunicationService
 from ..services.crm_service import CRMService
+from ..services.scheduling_service import SchedulingService
 
 
 class APIRouter:
-    """Dispatches HTTP requests to appropriate service handlers with RBAC and error handling."""
+    """Dispatches HTTP requests to appropriate service handlers with RBAC and error handling.
+
+    RBAC is enforced entirely in the *service* layer (every service method
+    calls `actor.has_permission(...)` and raises `PermissionError` on
+    denial) -- this router's only auth job is resolving the Bearer token
+    to an `AuthContext` below and letting the global `except PermissionError`
+    handler in `handle_request` turn that rejection into a 403. Routes
+    never call `has_permission()` directly.
+    """
 
     def __init__(
         self,
@@ -34,11 +48,15 @@ class APIRouter:
         crm_service: CRMService,
         comm_service: CommunicationService,
         audit_service: AuditService,
+        scheduling_service: SchedulingService,
+        automation_service: AutomationService,
     ):
         self.auth = auth_service
         self.crm = crm_service
         self.comm = comm_service
         self.audit = audit_service
+        self.scheduling = scheduling_service
+        self.automation = automation_service
 
     def handle_request(
         self,
@@ -233,6 +251,138 @@ class APIRouter:
                     actor, entity_type=entity_type, entity_id=entity_id, action=action, limit=limit, offset=offset
                 )
                 return 200, {"Content-Type": "application/json"}, {"audit_logs": [l.to_dict() for l in logs]}
+
+            # Subcontractors
+            if path == "/api/v1/subcontractors":
+                if method == "GET":
+                    qualification_status = query_params.get("qualification_status", [None])[0]
+                    primary_trade = query_params.get("primary_trade", [None])[0]
+                    limit = int(query_params.get("limit", ["50"])[0])
+                    offset = int(query_params.get("offset", ["0"])[0])
+                    subs = self.crm.list_subcontractors(
+                        actor,
+                        qualification_status=qualification_status,
+                        primary_trade=primary_trade,
+                        limit=limit,
+                        offset=offset,
+                    )
+                    return 200, {"Content-Type": "application/json"}, {"subcontractors": [s.to_dict() for s in subs]}
+                elif method == "POST":
+                    sub = Subcontractor(**json_body)
+                    created = self.crm.create_subcontractor(sub, actor)
+                    return 201, {"Content-Type": "application/json"}, {"subcontractor": created.to_dict()}
+
+            if path.startswith("/api/v1/subcontractors/") and path.endswith("/qualification") and method == "POST":
+                sub_id = int(path.split("/")[-2])
+                qualification_status = json_body.get("qualification_status")
+                recruitment_step = json_body.get("recruitment_step")
+                updated_sub = self.crm.update_subcontractor_qualification(
+                    sub_id, qualification_status, actor, recruitment_step
+                )
+                if not updated_sub:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Subcontractor not found"}
+                return 200, {"Content-Type": "application/json"}, {"subcontractor": updated_sub.to_dict()}
+
+            if path.startswith("/api/v1/subcontractors/") and method == "GET":
+                sub_id = int(path.split("/")[-1])
+                sub = self.crm.get_subcontractor(sub_id, actor)
+                if not sub:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Subcontractor not found"}
+                return 200, {"Content-Type": "application/json"}, {"subcontractor": sub.to_dict()}
+
+            # Appointments
+            if path == "/api/v1/appointments":
+                if method == "GET":
+                    cid = query_params.get("customer_id", [None])[0]
+                    cust_id = int(cid) if cid else None
+                    status = query_params.get("status", [None])[0]
+                    limit = int(query_params.get("limit", ["50"])[0])
+                    offset = int(query_params.get("offset", ["0"])[0])
+                    appts = self.scheduling.list_appointments(
+                        actor, customer_id=cust_id, status=status, limit=limit, offset=offset
+                    )
+                    return 200, {"Content-Type": "application/json"}, {"appointments": [a.to_dict() for a in appts]}
+                elif method == "POST":
+                    appt = Appointment(**json_body)
+                    created = self.scheduling.create_appointment(appt, actor)
+                    return 201, {"Content-Type": "application/json"}, {"appointment": created.to_dict()}
+
+            if path.startswith("/api/v1/appointments/") and path.endswith("/status") and method == "POST":
+                appt_id = int(path.split("/")[-2])
+                status = json_body.get("status")
+                updated_appt = self.scheduling.update_appointment_status(appt_id, status, actor)
+                if not updated_appt:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Appointment not found"}
+                return 200, {"Content-Type": "application/json"}, {"appointment": updated_appt.to_dict()}
+
+            if path.startswith("/api/v1/appointments/") and method == "GET":
+                appt_id = int(path.split("/")[-1])
+                appt = self.scheduling.get_appointment(appt_id, actor)
+                if not appt:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Appointment not found"}
+                return 200, {"Content-Type": "application/json"}, {"appointment": appt.to_dict()}
+
+            # Automation Rules
+            if path == "/api/v1/automation-rules":
+                if method == "GET":
+                    channel = query_params.get("channel", [None])[0]
+                    limit = int(query_params.get("limit", ["100"])[0])
+                    offset = int(query_params.get("offset", ["0"])[0])
+                    rules = self.automation.list_rules(actor, channel=channel, limit=limit, offset=offset)
+                    return 200, {"Content-Type": "application/json"}, {"automation_rules": [r.to_dict() for r in rules]}
+                elif method == "POST":
+                    rule = AutomationRule(**json_body)
+                    created = self.automation.create_rule(rule, actor)
+                    return 201, {"Content-Type": "application/json"}, {"automation_rule": created.to_dict()}
+
+            if path.startswith("/api/v1/automation-rules/") and path.endswith("/match") and method == "POST":
+                rule_id = int(path.split("/")[-2])
+                updated_rule = self.automation.record_rule_match(rule_id, actor)
+                if not updated_rule:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Automation rule not found"}
+                return 200, {"Content-Type": "application/json"}, {"automation_rule": updated_rule.to_dict()}
+
+            # Business Profile (singleton)
+            if path == "/api/v1/business-profile":
+                if method == "GET":
+                    profile = self.automation.get_business_profile(actor)
+                    if not profile:
+                        return 404, {"Content-Type": "application/json"}, {"error": "Business profile not configured"}
+                    return 200, {"Content-Type": "application/json"}, {"business_profile": profile.to_dict()}
+                elif method == "POST":
+                    profile = BusinessProfile(**json_body)
+                    saved = self.automation.upsert_business_profile(profile, actor)
+                    return 200, {"Content-Type": "application/json"}, {"business_profile": saved.to_dict()}
+
+            # Do-Not-Contact
+            if path == "/api/v1/do-not-contact":
+                if method == "GET":
+                    limit = int(query_params.get("limit", ["100"])[0])
+                    offset = int(query_params.get("offset", ["0"])[0])
+                    entries = self.automation.list_do_not_contact(actor, limit=limit, offset=offset)
+                    return 200, {"Content-Type": "application/json"}, {"do_not_contact": [e.to_dict() for e in entries]}
+                elif method == "POST":
+                    identifier = json_body.get("identifier", "")
+                    entry = self.automation.add_to_do_not_contact(
+                        identifier,
+                        actor,
+                        name=json_body.get("name"),
+                        reason=json_body.get("reason"),
+                        source=json_body.get("source"),
+                    )
+                    if not entry:
+                        return 400, {"Content-Type": "application/json"}, {"error": "Identifier could not be classified as email or phone"}
+                    return 201, {"Content-Type": "application/json"}, {"do_not_contact": entry.to_dict()}
+
+            if path == "/api/v1/do-not-contact/remove" and method == "POST":
+                identifier = json_body.get("identifier", "")
+                removed = self.automation.remove_from_do_not_contact(identifier, actor)
+                return 200, {"Content-Type": "application/json"}, {"removed": removed}
+
+            if path == "/api/v1/do-not-contact/check" and method == "GET":
+                identifier = query_params.get("identifier", [""])[0]
+                blocked = self.automation.is_blocked(identifier, actor)
+                return 200, {"Content-Type": "application/json"}, {"blocked": blocked}
 
             return 404, {"Content-Type": "application/json"}, {"error": f"Endpoint not found: {method} {path}"}
 

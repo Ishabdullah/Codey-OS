@@ -12,6 +12,69 @@ and Appendix A.
 
 ---
 
+## 2026-08-27 — Phase B2 task 4a (routes for the 5 new resources) built and code-reviewer-approved
+
+**Status: code-complete, code-reviewer-approved. NOT live-verified**
+(no real running server instance was started and hit with real network
+calls this round — verification is test-suite/mock only, per rule 7).
+**No Aigentik-CLI/Codey-Aigentik JS code has been changed to call any of
+these routes yet** — that write-through replacement is the separate,
+later step (§6.4 step 4), out of scope here.
+
+Implementer built the 17-route spec from the prior scoping round
+(this file, entry below):
+- `restoricon_core/api/routes.py` — 152 new lines: the 13 spec-table
+  routes plus GET/POST pairs for all five new resources
+  (subcontractors, appointments, automation-rules, business-profile,
+  do-not-contact).
+- `restoricon_core/api/server.py` — 9 new lines: wires
+  `SchedulingService`/`AutomationService` into
+  `RestoriconAPIServer.__init__` and threads them through
+  `APIRouter.__init__` as the two new constructor args the scoping
+  round called for.
+- `tests/test_restoricon_core/test_api.py` — 285 new lines, 6 new
+  tests covering the new routes.
+
+**Code-reviewer approved with 2 non-blocking notes, neither requiring a
+code change this round:**
+1. `GET /api/v1/subcontractors/{id}/qualification` has no matching GET
+   route, so it falls through to the generic by-id handler
+   (`routes.py`'s `GET .../{id}` branch), which tries
+   `int("qualification")`, raises `ValueError`, and gets turned into a
+   400 rather than a more accurate 404. Pre-existing pattern (the
+   `appointments/{id}/status` branch has the identical shape), not
+   introduced by this round. Logged as **`NEW-222`**.
+2. A general note that the router's prefix-matching pattern is now
+   shared across enough by-id branches to be worth hardening in its own
+   pass, rather than patched piecemeal per-route.
+
+**Test count — re-run fresh this round, not reused from a prior
+citation.** The reviewer flagged that the "764"/"770" baselines cited
+earlier in the day had already gone stale from unrelated same-day
+commits, so the number below is a direct, current run, not carried
+forward:
+
+```
+$ python -m pytest tests/ -q
+770 passed, 1 skipped in 52.74s
+```
+
+`git diff --stat` for this round:
+```
+.claude/agent-memory/code-reviewer/MEMORY.md     |   1 +
+.claude/agent-memory/project-architect/MEMORY.md |   1 +
+restoricon_core/api/routes.py                    | 152 +++++++++++-
+restoricon_core/api/server.py                    |   9 +
+tests/test_restoricon_core/test_api.py           | 285 ++++++++++++++++++++++-
+5 files changed, 446 insertions(+), 2 deletions(-)
+```
+
+`CODEY_MASTER_PLAN.md` §4.5 and §6.4 updated with this round's closing
+status. `NEW_ISSUES.md` gained `NEW-222` (the routing-quirk finding
+above).
+
+---
+
 ## 2026-08-27 — Phase B2 task 4a (routes for the 5 new resources) scoped — no code written
 
 **Status: scoping only. Not implemented, not code-reviewed, not tested.**

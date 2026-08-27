@@ -1044,6 +1044,32 @@ this round, since it writes to the live Restoricon Core DB from real
 business data. Step 3 (write-through replacement) and `NEW-211`'s
 port-collision fix remain the next Phase B2 work, not started.
 
+**Phase B2 task 4a (Core API routes for the five new resources),
+2026-08-27 — code-complete, code-reviewer-approved. Routes exist and are
+wired; NOT live-verified against a real running server instance with
+real network calls (rule 7 — mock/test-suite verification only, no
+process was actually started and hit over HTTP this round), and NO
+Aigentik-CLI/Codey-Aigentik JS code has been changed to call any of
+them yet — that write-through replacement is the separate, later step
+(§6.4 step 4) this round explicitly does not touch.** Built: 17 new
+routes across `restoricon_core/api/routes.py` (the 13 in §6.4's spec
+table plus DELETE-free GET/POST pairs for all five resources) and
+`restoricon_core/api/server.py` (wires `SchedulingService`/
+`AutomationService` into `RestoriconAPIServer.__init__` and threads them
+through `APIRouter.__init__` as two new constructor args, per the
+scoping pass's confirmed single construction site), plus 6 new tests in
+`tests/test_restoricon_core/test_api.py`. Code-reviewer approved with 2
+non-blocking notes, neither requiring a code change this round: (1) the
+pre-existing `GET .../subcontractors/{id}/qualification` routing quirk
+— falls through to the generic by-id handler and raises `ValueError`
+(400) instead of 404, not introduced by this round — now logged as
+`NEW-222`; (2) a general note on the router's prefix-matching pattern
+being shared and worth hardening in its own pass rather than patched
+piecemeal. Full suite re-run this round (not reused from a prior
+citation, since the reviewer found the previously-cited 764/770
+baselines were already stale from unrelated same-day commits):
+`python -m pytest tests/ -q` — **770 passed, 1 skipped**.
+
 ---
 
 ## 5. The device, stated once
@@ -2505,6 +2531,13 @@ Workflow section's separate clause: "mandatory for anything touching
 process control, daemon/kill logic, **or security**" — five new
 auth-gated HTTP endpoints on a real API surface is a security-relevant
 change regardless of rule 4.
+
+**Task 4a built and code-reviewer-approved, 2026-08-27 — see §4.5's full
+entry** for the built artifacts, the reviewer's two non-blocking notes
+(including `NEW-222`), and the test count. Code-complete/mock-tested via
+the test suite only — not live-verified against a real running server
+instance with real network calls, and no Aigentik-CLI/Codey-Aigentik JS
+code calls any of these routes yet.
 
 **Test plan:** extend `tests/test_restoricon_core/test_api.py`'s
 existing live-HTTP-roundtrip pattern (`RestoriconAPIServer` bound to a

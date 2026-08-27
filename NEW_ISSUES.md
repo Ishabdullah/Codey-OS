@@ -11390,3 +11390,31 @@ finding for the same bug. See `NEW-39`.)*
 - **Cross-reference:** `restoricon_core/api/routes.py`
   (`handle_request`'s `except PermissionError` / `except ValueError` /
   `except Exception` chain).
+
+### [NEW-222] `GET /api/v1/subcontractors/{id}/qualification` falls through to the generic by-id handler and returns 400 instead of 404
+- **Status: Confirmed, pre-existing, found during code-reviewer's pass
+  on task 4a's routes** — read directly. `routes.py` only defines a
+  `POST .../{id}/qualification` route (line ~275); there is no matching
+  `GET` route for that path. Because the generic
+  `if path.startswith("/api/v1/subcontractors/") and method == "GET":`
+  branch (line ~286) matches on prefix alone, a `GET` to
+  `/api/v1/subcontractors/{id}/qualification` falls into it instead of
+  404ing as "no such route." That branch then does
+  `sub_id = int(path.split("/")[-1])`, which tries to parse the literal
+  string `"qualification"` as an integer, raises `ValueError`, and
+  `handle_request`'s exception chain turns that into a 400
+  ("bad request") rather than the more accurate 404 ("no such
+  endpoint/resource"). Not introduced by task 4a — the same
+  prefix-matching pattern is used for `appointments/{id}/status` too and
+  would misbehave identically on `GET .../{id}/status`.
+- **Not fixed here** — task 4a's scope was wiring the routes in the spec
+  table (§6.4), not hardening the generic by-id handler's path matching.
+  A real fix would tighten the by-id branch's match condition (e.g.
+  reject paths with more than one segment after the collection name, or
+  check the trailing segment is purely numeric before attempting
+  `int()`) — small, but touches routing logic shared by every
+  by-id GET across the router, so it deserves its own scoped pass rather
+  than a one-line patch buried in this round.
+- **Cross-reference:** `restoricon_core/api/routes.py` (subcontractors
+  `GET .../{id}` generic branch, and the analogous `appointments`
+  `GET .../{id}` branch which has the same shape).

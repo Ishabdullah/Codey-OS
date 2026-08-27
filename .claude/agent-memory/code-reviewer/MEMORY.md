@@ -71,3 +71,4 @@
 - [Lease/registry item (NEW-104/144/146/149) — approved](lease_registry_new104_144_146_149_approved.md) — TOCTOU double-registration proven unreachable today (dead-code/single-coroutine), logged latent
 - [NEW-206/§8 Q11 context-budget admission fix — changes requested (doc-logging only)](new206_q11_context_budget_reservation_lifetime_double_count.md) — reservation-held-for-full-call double-counts vs /slots' live signal; check reachability before blocking on a textbook race
 - [Phase B2 task 2 migrate_aigentik.py + RBAC lookups — approved](restoricon_core_phase_b2_task2_migrate_aigentik_approved.md) — negative-control-verified idempotency test; NEW-218 mischaracterizes its own mechanism (mapper never reads source created_at)
+- [Phase B2 task 4a 17 new HTTP routes — approved, 2 warnings](restoricon_core_phase_b2_task4a_routes_approved.md) — read-but-not-write role live-probed (sales); 3 stale test-count baselines (764/770/actual 832) reconciled
