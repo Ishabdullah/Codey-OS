@@ -12,6 +12,17 @@ and Appendix A.
 
 ---
 
+## 2026-08-27 — Phase B2 Task 4: Adversarial code review, bug fixes, and APPROVED verdict (Codey-OS & Codey-Aigentik)
+
+- **Status**: Code-reviewer approved, unit-test verified (`890 passed, 1 skipped` in `Codey-OS`, `167 passed, 0 failed` across 10 suites in `Codey-Aigentik`).
+- **Adversarial Review Findings & Fixes**:
+  1. Fixed runtime `ReferenceError` in `Codey-Aigentik/calendar.js:397` where `{ start, end: slotEnd }` was returned instead of `{ start: slotStart, end: slotEnd }` when searching without `preferredDate`. Added unit tests in `tests/calendar.test.js` covering open calendar search, collision avoidance, and mid-day alignment.
+  2. Fixed unawaited Promises in `Codey-Aigentik/owner-command.js` (`schedule_appointment` branch) for `getDurationForRelationship`, `findNextAvailableSlot`, and `createAppointment`.
+  3. Fixed `upsert_appointment` in `Codey-OS/restoricon_core/services/scheduling_service.py` and `routes.py` to accept and use `raw_updates=json_body` on updates, preventing dataclass default values (`status="confirmed"`, `offered_slots=[]`, `history=[]`) from overwriting negotiating appointment state during partial payload upserts. Added regression test `test_router_appointment_upsert_partial_preserves_negotiating_state`.
+- **Reviewer Verdict**: `code-reviewer` subagent executed a full re-review pass across both repos and returned **`APPROVED`**.
+
+---
+
 ## 2026-08-27 — Phase B2 Task 4: subcontractor-recruiter.js write-through cutover complete (Codey-Aigentik)
 
 - **Status**: Code-complete, unit-test verified across both repositories (`889 passed, 1 skipped` in `Codey-OS`, `164 passed, 0 failed` across 10 suites in `Codey-Aigentik`).
