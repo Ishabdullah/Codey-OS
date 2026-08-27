@@ -12477,3 +12477,103 @@ required)
   unresolved; this entry is a cross-reference/warning note only.
 - **Cross-references:** `NEW-207`, `NEW-145`, `NEW-149`, `NEW-155`,
   `core/resource_gate.py`, `CODEY_MASTER_PLAN.md`'s 7.4b item C entry.
+
+## Found during the `migrate_aigentik.py` customers.json/schedule-config.json extension, 2026-08-27 — code-complete, code-reviewer-approved, not yet applied against real data
+
+### [NEW-252] (Suspected, design question not a bug) `customers.json`'s insurance/claim fields have no real `Customer`/`Lead` columns — bucketed opaquely into `custom_fields["aigentik_raw"]`
+- **Status:** by design for this migration pass, not an oversight. ~38 of
+  customers.json's ~46 fields (insurance/claim fields especially:
+  `insurance_related`, `insurance_company`, `claim_number`, `adjuster`,
+  `incident_date`) don't map onto any `Customer` column and are preserved
+  verbatim, unparsed, inside `custom_fields["aigentik_raw"]` rather than
+  dropped or forced into a CHECK-constrained column. This matches
+  `NEW-212`'s original framing ("substantially overflow Customer/Lead")
+  and was the explicitly scoped decision for this round.
+- **Impact:** that data is opaque JSON, not queryable/reportable via
+  normal Core columns or SQL — no `WHERE insurance_company = ?`, no
+  reporting join. Given Restoricon is a restoration business where
+  insurance-claim data is core operational data, not incidental metadata,
+  this is worth a real schema decision, not a permanent state.
+- **Not fixed here** — out of this round's scope; flagged for a future
+  schema-expansion round to decide whether insurance/claim fields deserve
+  real columns.
+- **Cross-references:** `NEW-212`, `restoricon_core/migrate_aigentik.py`
+  (`map_customer()`'s docstring has the full field-by-field breakdown).
+
+### [NEW-253] (Confirmed open question, not resolved this round) `customers.json`'s lead-status fields (`lead_source`/`lead_status`/`lead_score`) describe sales-funnel state but this round only ever writes to `customers`, never to `leads`
+- **Status: Confirmed** — this round's explicit task scope ("Customer
+  create method") only calls `crm_service.create_customer()`. A record
+  like `CUST-MTADLJ2H-6597` (`lead_status="NEW"`) has data shaped like a
+  `Lead`, not just a `Customer`, but no `Lead` row is created for it and
+  no cross-reference between the resulting `Customer` row and a would-be
+  `Lead` row exists.
+- **Impact:** any future CRM/Sales domain work (`B3` in
+  `CODEY_MASTER_PLAN.md` Appendix A) or reporting that expects lead-stage
+  customers to appear in `leads` will not find them there — they exist
+  only as `Customer` rows with lead-shaped data stranded in
+  `custom_fields["aigentik_raw"]`.
+- **Not built here** — flagging so it isn't silently assumed complete;
+  needs a scope decision (dual-write into both tables? migrate distinctly
+  by status? leave as-is?) before a future round acts on it.
+- **Cross-references:** `NEW-212`, `restoricon_core/migrate_aigentik.py`.
+
+### [NEW-254] (Confirmed by direct read of `audit_service.py`; minor/informational for today's data, real storage/PII concern going forward) `create_customer()` duplicates the customer's entire `custom_fields["aigentik_raw"]` blob into the permanent, append-only `audit_log` table on every call
+- **Status: Confirmed** — `restoricon_core/services/crm_service.py:109-116`
+  calls `self.audit.log(..., details=customer.to_dict())`, and
+  `AuditService.log()` (`restoricon_core/services/audit_service.py:40`)
+  unconditionally `json.dumps()`s the full `details` dict into the
+  `audit_log.details_json` column. Since `customer.to_dict()` includes
+  `custom_fields` (which for a `migrate_aigentik.py`-created customer
+  holds `aigentik_raw` — i.e. every field of the source record not given
+  a real column, including insurance/claim fields per `NEW-252`), the
+  entire raw source record is duplicated into `audit_log`.
+- **Impact today:** inert. All 3 real `customers.json` records have null/
+  placeholder insurance and claim fields, so nothing sensitive is
+  actually duplicated by today's data. Read `audit_service.py` directly
+  to confirm the mechanism (rule 12) rather than assume from the
+  `AuditService` docstring alone — the log service is explicitly
+  "append-only" (`audit_service.py:2,34`) with no update/delete method at
+  all, meaning once real insurance/claim data does flow through this
+  path, it cannot later be redacted or purged from `audit_log` short of a
+  manual DB edit outside the service layer.
+- **Not fixed here** — this is an existing pattern (`create_customer()`
+  is the 5th method sharing `NEW-218`'s "unconditional overwrite"
+  finding, and this audit-duplication behavior is not unique to
+  migration-created customers; every `create_customer()` caller
+  duplicates `custom_fields` into `audit_log` the same way). Worth a
+  policy decision (exclude `custom_fields`/`aigentik_raw` from the audit
+  `details` payload, or accept the append-only duplication as intended
+  "immutable full record" behavior) before this script — or any future
+  write-through path built on the same pattern — runs against real
+  customer records containing real insurance/claim details.
+- **Cross-references:** `NEW-218`, `restoricon_core/services/
+  crm_service.py:109-116`, `restoricon_core/services/audit_service.py`.
+
+### [NEW-255] (Confirmed, self-disclosed by the code-reviewer — correcting the record per rule 5/6, not a data-safety incident) The code-reviewer's independent verification of this round's schema work unintentionally ran the real schema migration against the live `~/.codey_restoricon/core.db`, adding the `schedule_config` table to the production file
+- **Status: Confirmed.** While independently verifying `NEW-212`/`NEW-216`/
+  `NEW-232`'s closure, the code-reviewer's stated intent was to check for
+  the `schedule_config` table's existence against a throwaway copy of the
+  real DB. Instead, `DatabaseManager` was instantiated directly against
+  the real `~/.codey_restoricon/core.db` path, which runs
+  `_migrate_schema()`/`init_schema()` as a side effect of opening the
+  connection — this added the `schedule_config` TABLE to the live file.
+  Confirmed by file size (258048 -> 270336 bytes) and mtime change.
+- **What did NOT happen:** no data rows were written. `customers`,
+  `leads`, and `schedule_config` were all independently confirmed still
+  at 0 rows after the fact. Table creation via `CREATE TABLE IF NOT
+  EXISTS` is idempotent and would have happened automatically on the next
+  real daemon start regardless of this review action — this is not
+  divergent state, just state that arrived slightly earlier than planned.
+- **Why this is logged as Confirmed rather than downgraded or omitted:**
+  per rule 5/6, this is stated plainly as what actually happened — an
+  unintended side effect during a review pass that was explicitly meant
+  to be read-only against a copy, not the live file — rather than
+  understated as "no impact" or left uncorrected in the record.
+- **Not fixed here; no fix needed** — the resulting schema state is
+  correct and matches what `--apply` will need anyway. Logged so future
+  readers of the review history have an accurate account, and as a
+  process note: reviewers verifying schema/DB behavior should default to
+  an explicit throwaway copy path, never the real `DEFAULT_DB_PATH`,
+  even when the intent is read-only.
+- **Cross-references:** `NEW-212`, `restoricon_core/database.py`
+  (`DEFAULT_DB_PATH`), `~/.codey_restoricon/core.db`.

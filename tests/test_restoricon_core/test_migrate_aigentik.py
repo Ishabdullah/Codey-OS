@@ -340,17 +340,202 @@ def test_channel_check_violation_reported_for_rules(tmp_path, db_manager):
 
 
 def test_out_of_scope_files_reported_not_touched(tmp_path, db_manager):
+    """contacts.json remains excluded (NEW-215, data-model mismatch);
+    customers.json/schedule-config.json are no longer out of scope as of
+    this task -- see test_customer_migration.py-style tests below."""
     source_dir = _write_valid_source_dir(tmp_path)
     (source_dir / "contacts.json").write_text(json.dumps([{"id": "c1"}]))
-    (source_dir / "customers.json").write_text(json.dumps([{"id": "cu1"}]))
-    (source_dir / "schedule-config.json").write_text(json.dumps({"working_hours": {}}))
 
     report = run_migration(str(source_dir), db_manager, apply=True)
 
-    assert set(report["skipped_out_of_scope"].keys()) == {
-        "contacts.json",
-        "customers.json",
-        "schedule-config.json",
-    }
+    assert set(report["skipped_out_of_scope"].keys()) == {"contacts.json"}
     for reason in report["skipped_out_of_scope"].values():
         assert reason  # non-empty explanation logged, not silently dropped
+
+
+VALID_CUSTOMER = {
+    "customer_id": "CUST-MT9QP39R-7620",
+    "customer_name": "Alice Johnson",
+    "preferred_name": None,
+    "phone": "8602223344",
+    "email": "alice@restoricon-test.com",
+    "property_address": "100 Main St",
+    "city": "Hartford",
+    "state": "CT",
+    "zip": None,
+    "property_type": "Single-family",
+    "owner_status": True,
+    "occupancy_status": "Occupied",
+    "customer_category": "NEW_CUSTOMER",
+    "project_category": "remodeling",
+    "project_type": "kitchen_remodeling",
+    "project_description": None,
+    "customer_goal": None,
+    "rooms_affected": [],
+    "approximate_size": None,
+    "materials_requested": None,
+    "design_needed": False,
+    "project_urgency": "Standard",
+    "desired_start_date": None,
+    "desired_completion_date": None,
+    "customer_budget": None,
+    "insurance_related": False,
+    "insurance_company": None,
+    "claim_number": None,
+    "adjuster": None,
+    "incident_date": None,
+    "photos_received": [],
+    "documents_received": [],
+    "lead_source": "inbound",
+    "lead_status": "APPOINTMENT_SCHEDULED",
+    "lead_score": "HOT",
+    "appointment_date": "2026-09-05",
+    "appointment_time": "2:00 PM",
+    "appointment_status": None,
+    "last_contact": "2026-08-26T06:55:34.094Z",
+    "next_followup": None,
+    "contact_preference": "sms",
+    "best_contact_time": None,
+    "customer_notes": [],
+    "dnc_status": False,
+    "escalation_status": None,
+    "created_at": "2026-08-26T06:55:34.094Z",
+    "updated_at": "2026-08-26T06:55:34.198Z",
+}
+
+VALID_SCHEDULE_CONFIG = {
+    "working_hours": {
+        "sun": {"start": "00:00", "end": "23:59"},
+        "mon": {"start": "09:00", "end": "18:00"},
+    },
+    "default_duration_minutes": 30,
+    "buffer_minutes": 15,
+    "booking_window_days": 365,
+    "duration_by_relationship": {},
+}
+
+
+def _write_customers_and_schedule_config(source_dir, customers=None, schedule_config=None):
+    (source_dir / "customers.json").write_text(
+        json.dumps(customers if customers is not None else [VALID_CUSTOMER])
+    )
+    (source_dir / "schedule-config.json").write_text(
+        json.dumps(schedule_config if schedule_config is not None else VALID_SCHEDULE_CONFIG)
+    )
+    return source_dir
+
+
+def test_customer_dry_run_writes_nothing(tmp_path, db_manager, services):
+    source_dir = _write_valid_source_dir(tmp_path)
+    _write_customers_and_schedule_config(source_dir)
+    actor = build_migration_actor()
+
+    report = run_migration(str(source_dir), db_manager, apply=False)
+
+    assert report["customers"]["would_insert"] == 1
+    assert report["customers"]["inserted"] == 0
+    assert report["schedule_config"]["would_upsert"] == 1
+    assert report["schedule_config"]["upserted"] == 0
+    assert services["crm"].list_customers(actor) == []
+    assert services["scheduling"].get_schedule_config(actor) is None
+
+
+def test_customer_apply_writes_and_maps_fields(tmp_path, db_manager, services):
+    source_dir = _write_valid_source_dir(tmp_path)
+    _write_customers_and_schedule_config(source_dir)
+    actor = build_migration_actor()
+
+    report = run_migration(str(source_dir), db_manager, apply=True)
+
+    assert report["customers"]["inserted"] == 1
+    assert report["schedule_config"]["upserted"] == 1
+
+    customers = services["crm"].list_customers(actor)
+    assert len(customers) == 1
+    cust = customers[0]
+    assert cust.external_id == "CUST-MT9QP39R-7620"
+    assert cust.first_name == "Alice"
+    assert cust.last_name == "Johnson"
+    assert cust.phone == "8602223344"
+    assert cust.email == "alice@restoricon-test.com"
+    assert cust.service_address == "100 Main St"
+    assert cust.customer_source == "inbound"
+    assert cust.last_contact_at == "2026-08-26T06:55:34.094Z"
+    # CHECK-constrained columns left at schema defaults -- not guessed
+    # from lead_status/customer_category (see map_customer's docstring).
+    assert cust.status == "lead"
+    assert cust.customer_type == "residential"
+    # Unmapped fields preserved verbatim, not dropped.
+    assert cust.custom_fields["aigentik_raw"]["lead_status"] == "APPOINTMENT_SCHEDULED"
+    assert cust.custom_fields["aigentik_raw"]["insurance_related"] is False
+    assert cust.custom_fields["aigentik_raw"]["city"] == "Hartford"
+
+    config = services["scheduling"].get_schedule_config(actor)
+    assert config is not None
+    assert config.default_duration_minutes == 30
+    assert config.working_hours["mon"]["start"] == "09:00"
+
+
+def test_customer_idempotent_rerun_no_duplicates(tmp_path, db_manager, services):
+    source_dir = _write_valid_source_dir(tmp_path)
+    _write_customers_and_schedule_config(source_dir)
+
+    first = run_migration(str(source_dir), db_manager, apply=True)
+    assert first["customers"]["inserted"] == 1
+    assert first["schedule_config"]["upserted"] == 1
+
+    second = run_migration(str(source_dir), db_manager, apply=True)
+    assert second["customers"]["inserted"] == 0
+    assert second["customers"]["skipped"] == 1
+    # schedule_config is update-always -- still reports an upsert, still
+    # exactly one singleton row.
+    assert second["schedule_config"]["upserted"] == 1
+
+    actor = build_migration_actor()
+    assert len(services["crm"].list_customers(actor)) == 1
+    config = services["scheduling"].get_schedule_config(actor)
+    assert config.id == 1
+
+
+def test_customer_missing_customer_id_reported_not_raised(tmp_path, db_manager):
+    bad_customer = dict(VALID_CUSTOMER)
+    bad_customer["customer_id"] = None
+    source_dir = _write_valid_source_dir(tmp_path)
+    _write_customers_and_schedule_config(source_dir, customers=[VALID_CUSTOMER, bad_customer])
+
+    dry_report = run_migration(str(source_dir), db_manager, apply=False)
+    assert dry_report["customers"]["total_records"] == 2
+    assert dry_report["customers"]["would_insert"] == 1
+    assert len(dry_report["customers"]["invalid"]) == 1
+    assert "customer_id" in dry_report["customers"]["invalid"][0]["errors"][0]
+
+    apply_report = run_migration(str(source_dir), db_manager, apply=True)
+    assert apply_report["customers"]["inserted"] == 1
+    assert len(apply_report["customers"]["invalid"]) == 1
+
+
+def test_customer_single_word_name_gets_empty_last_name(tmp_path, db_manager, services):
+    single_word = dict(VALID_CUSTOMER)
+    single_word["customer_id"] = "CUST-SINGLE-0001"
+    single_word["customer_name"] = "Prospective"
+    source_dir = _write_valid_source_dir(tmp_path)
+    _write_customers_and_schedule_config(source_dir, customers=[single_word])
+
+    report = run_migration(str(source_dir), db_manager, apply=True)
+    assert report["customers"]["inserted"] == 1
+
+    actor = build_migration_actor()
+    cust = services["crm"].list_customers(actor)[0]
+    assert cust.first_name == "Prospective"
+    assert cust.last_name == ""
+
+
+def test_schedule_config_missing_file_is_absent_not_error(tmp_path, db_manager):
+    source_dir = _write_valid_source_dir(tmp_path)
+    (source_dir / "customers.json").write_text(json.dumps([VALID_CUSTOMER]))
+    # schedule-config.json intentionally not written.
+
+    report = run_migration(str(source_dir), db_manager, apply=False)
+
+    assert report["schedule_config"]["file_status"] == "absent"
+    assert report["schedule_config"]["would_upsert"] == 0

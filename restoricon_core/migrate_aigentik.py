@@ -3,25 +3,49 @@ One-off / re-runnable migration script: Aigentik-CLI's live JSON data
 files -> restoricon_core's SQLite database.
 
 Phase B2 task 2 (CODEY_MASTER_PLAN.md Sec6.4, "Task 2 (data migration)
-scoped 2026-08-27"). First-pass scope: only the 4 Aigentik-CLI files
-that map cleanly onto tables landed in c30d755:
+scoped 2026-08-27"). First pass covered the 4 files that mapped cleanly
+onto tables landed in c30d755; this round (2026-08-27, following
+customers/leads/schedule_config gaining `external_id`/a destination
+table in commit 8693721) adds two more:
 
-    subcontractors.json  -> subcontractors    (crm_service)
-    calendar.json        -> appointments      (scheduling_service)
-    email-rules.json     -> automation_rules, channel='email'
-    sms-rules.json       -> automation_rules, channel='sms'
-    profile.json         -> business_profile  (automation_service)
+    subcontractors.json   -> subcontractors    (crm_service)
+    calendar.json         -> appointments      (scheduling_service)
+    email-rules.json      -> automation_rules, channel='email'
+    sms-rules.json        -> automation_rules, channel='sms'
+    profile.json          -> business_profile  (automation_service)
+    customers.json         -> customers        (crm_service)
+    schedule-config.json  -> schedule_config   (scheduling_service)
+
+customers.json field mapping (NEW-212's ~46-field shape vs. Customer's
+~19 columns): only 8 source fields have a direct, non-lossy destination
+column (customer_id -> external_id; customer_name split on first space
+-> first_name/last_name; phone; email; property_address ->
+service_address; lead_source -> customer_source; last_contact ->
+last_contact_at; next_followup -> next_followup_at). Every other source
+field (insurance/claim fields, project-scheduling fields, lead_status/
+lead_score/customer_category, customer_notes, dnc_status, etc.) is
+preserved verbatim under custom_fields["aigentik_raw"] rather than
+silently dropped or guessed into a CHECK-constrained column it doesn't
+actually match. In particular, Customer.status
+(lead/prospect/active/past/lost) and Customer.customer_type
+(residential/commercial) are left at their schema defaults for every
+migrated record -- the source's lead_status/customer_category/
+project_type values don't correspond to those CHECK domains, and
+inventing a mapping would misrepresent a record's status rather than
+just failing to enrich it. See map_customer()'s docstring for the exact
+field lists.
 
 Explicitly OUT OF SCOPE this round -- this script does not read or write
-anything related to these files, and reports why each is skipped:
+anything related to this file, and reports why it is skipped:
 
-    contacts.json         - NEW-215: an Android-contacts phonebook sync,
-                             not CRM data, no destination table today.
-    customers.json         - NEW-212: real CRM data but its ~46 fields
-                             substantially overflow Customer/Lead with no
-                             dedup key.
-    schedule-config.json  - NEW-216: scheduling defaults, no destination
-                             table today.
+    contacts.json - NEW-215: an Android-contacts phonebook sync (201 real
+                    phone-contact records), not CRM data -- a categorical
+                    data-model mismatch, independent of whether the data
+                    is "real" or "test" (confirmed via direct read,
+                    2026-08-27). This is a scope exclusion, not a
+                    data-safety one: unlike customers.json/
+                    schedule-config.json, there was never a plan to give
+                    this file a destination table this round.
 
 AuthContext bootstrap
 ----------------------
@@ -56,34 +80,40 @@ AuthService.create_user(). Why this is safe here:
 
 Idempotency strategy (two different strategies, on purpose)
 -------------------------------------------------------------
-- subcontractors / appointments / automation_rules: SKIP-IF-EXISTS.
-  Each of these tables has UNIQUE(external_id) and its service now has a
-  get_*_by_external_id lookup (NEW-217, added in this same task). This
-  script looks up by Aigentik's own string ID before every insert and
-  skips (reporting the skip) if a row already exists. Chosen over
-  update-if-changed because only lookup methods were added this round --
-  no generic field-level update method exists for these three tables,
-  and building one is a separate, unscoped change.
-- business_profile: UPDATE-ALWAYS (upsert). automation_service.
-  upsert_business_profile() already does an INSERT ... ON CONFLICT(id) DO
-  UPDATE against the fixed id=1 singleton row -- there is nothing to
-  "skip"; re-running this script just refreshes the row to whatever
-  profile.json currently says, which is correct for a singleton config
-  record synced from a live source file.
+- subcontractors / appointments / automation_rules / customers:
+  SKIP-IF-EXISTS. Each of these tables has UNIQUE(external_id) and its
+  service now has a get_*_by_external_id lookup (NEW-217/NEW-212 for
+  customers, added in this and the prior task). This script looks up by
+  Aigentik's own string ID before every insert and skips (reporting the
+  skip) if a row already exists. Chosen over update-if-changed because
+  only lookup methods were added this round -- no generic field-level
+  update method exists for these tables, and building one is a separate,
+  unscoped change.
+- business_profile / schedule_config: UPDATE-ALWAYS (upsert).
+  automation_service.upsert_business_profile() and
+  scheduling_service.upsert_schedule_config() both do an
+  INSERT ... ON CONFLICT(id) DO UPDATE against a fixed id=1 singleton
+  row -- there is nothing to "skip"; re-running this script just
+  refreshes the row to whatever the source file currently says, which is
+  correct for a singleton config record synced from a live source file.
 
 Known limitation (NEW-218, logged, not fixed here)
 ----------------------------------------------------
-create_subcontractor/create_appointment/create_rule all unconditionally
-overwrite created_at/updated_at with the current timestamp before
-INSERT, discarding any value already set on the dataclass passed in.
-This means historical created_at values from Aigentik's JSON (e.g. an
-email rule genuinely created months ago) are replaced with this script's
-own run time. Every other timestamp field (last_contact_at,
+create_subcontractor/create_appointment/create_rule/create_customer all
+unconditionally overwrite created_at (and, for the first three,
+updated_at) with the current timestamp before INSERT, discarding any
+value already set on the dataclass passed in. This means historical
+created_at values from Aigentik's JSON (e.g. an email rule genuinely
+created months ago, or a customer's real created_at) are replaced with
+this script's own run time. Every other timestamp field (last_contact_at,
 next_followup_at, setup_date, etc.) lives in its own column and is
-preserved correctly -- only the two universal created_at/updated_at
-columns are affected. Not fixed here: doing so requires changing the
-service layer's create_* signatures, which is out of this migration
-script's scope. See NEW-218 in NEW_ISSUES.md.
+preserved correctly -- only the universal created_at/updated_at columns
+are affected. customers.json's own `updated_at` field has no
+corresponding column on the Customer dataclass at all (Customer only has
+created_at) and is preserved, un-acted-on, inside custom_fields
+["aigentik_raw"]. Not fixed here: doing so requires changing the service
+layer's create_* signatures, which is out of this migration script's
+scope. See NEW-218 in NEW_ISSUES.md.
 
 Defensive read behavior (live-writer safety)
 -----------------------------------------------
@@ -115,7 +145,14 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .auth import AuthContext, ROLE_AI_AGENT
 from .database import DatabaseManager
-from .models import Appointment, AutomationRule, BusinessProfile, Subcontractor
+from .models import (
+    Appointment,
+    AutomationRule,
+    BusinessProfile,
+    Customer,
+    ScheduleConfig,
+    Subcontractor,
+)
 from .services.audit_service import AuditService
 from .services.automation_service import AutomationService
 from .services.crm_service import CRMService
@@ -124,14 +161,27 @@ from .services.scheduling_service import SchedulingService
 DEFAULT_SOURCE_DIR = os.path.expanduser("~/Aigentik-CLI/data")
 
 OUT_OF_SCOPE_FILES = {
-    "contacts.json": "NEW-215: Android-contacts phonebook sync, not CRM data, no destination table",
-    "customers.json": "NEW-212: real CRM data but ~46 fields overflow Customer/Lead, no dedup key",
-    "schedule-config.json": "NEW-216: scheduling defaults, no destination table",
+    "contacts.json": "NEW-215: Android-contacts phonebook sync, not CRM data -- categorical data-model mismatch, not a data-safety exclusion",
 }
 
 VALID_CHANNELS = {"email", "sms"}
 VALID_APPT_STATUSES = {"confirmed", "negotiating", "cancelled", "completed"}
 VALID_APPT_TYPES = {"call", "in_person"}
+
+# customers.json source keys with a direct, non-lossy mapping onto a
+# Customer column (see map_customer()). Every other source key present
+# on a record is preserved verbatim under custom_fields["aigentik_raw"]
+# rather than being dropped or guessed into a column it doesn't match.
+CUSTOMER_MAPPED_SOURCE_KEYS = {
+    "customer_id",
+    "customer_name",
+    "phone",
+    "email",
+    "property_address",
+    "lead_source",
+    "last_contact",
+    "next_followup",
+}
 
 
 def build_migration_actor() -> AuthContext:
@@ -412,6 +462,86 @@ def map_profile(rec: Dict[str, Any]) -> Tuple[Optional[BusinessProfile], List[st
     return profile, []
 
 
+def map_customer(rec: Dict[str, Any]) -> Tuple[Optional[Customer], List[str]]:
+    """Map one customers.json record to a Customer.
+
+    Only 8 of the source's ~46 fields (CUSTOMER_MAPPED_SOURCE_KEYS) have a
+    direct, non-lossy destination column:
+
+        customer_id      -> external_id
+        customer_name     -> first_name/last_name (split on first space;
+                             single-word names, e.g. "Prospective
+                             Customer" being two words is the common
+                             case, get last_name="")
+        phone             -> phone
+        email             -> email
+        property_address -> service_address
+        lead_source       -> customer_source
+        last_contact      -> last_contact_at
+        next_followup     -> next_followup_at
+
+    Every other field on the record (insurance/claim fields, project-
+    scheduling fields, customer_category/lead_status/lead_score,
+    customer_notes, dnc_status, appointment_*, created_at/updated_at,
+    etc.) is preserved verbatim under custom_fields["aigentik_raw"] --
+    not dropped, and not guessed into Customer.status or
+    Customer.customer_type, both of which are CHECK-constrained to
+    domains (lead/prospect/active/past/lost;
+    residential/commercial) that none of the source's status-like fields
+    actually match. Those two columns are left at their Customer
+    dataclass defaults ('lead', 'residential') for every migrated
+    record; see the module docstring for why guessing was rejected.
+    """
+    errors: List[str] = []
+
+    external_id = rec.get("customer_id")
+    if not external_id:
+        errors.append("customer_id (external_id) is required for idempotent migration")
+
+    raw_name = (rec.get("customer_name") or "").strip()
+    if not raw_name:
+        errors.append("customer_name is required but missing/blank")
+    name_parts = raw_name.split(" ", 1)
+    first_name = name_parts[0]
+    last_name = name_parts[1] if len(name_parts) > 1 else ""
+
+    aigentik_raw = {
+        k: v for k, v in rec.items() if k not in CUSTOMER_MAPPED_SOURCE_KEYS
+    }
+
+    customer = Customer(
+        external_id=external_id,
+        first_name=first_name,
+        last_name=last_name,
+        phone=rec.get("phone"),
+        email=rec.get("email"),
+        service_address=rec.get("property_address"),
+        customer_source=rec.get("lead_source"),
+        last_contact_at=rec.get("last_contact"),
+        next_followup_at=rec.get("next_followup"),
+        custom_fields={"aigentik_raw": aigentik_raw},
+    )
+
+    if errors:
+        return None, errors
+    return customer, []
+
+
+def map_schedule_config(rec: Dict[str, Any]) -> Tuple[Optional[ScheduleConfig], List[str]]:
+    """Map schedule-config.json (a single object, not a list) to a
+    ScheduleConfig. All fields map 1:1 -- no CHECK-constrained columns
+    beyond the fixed id=1 the upsert always sets, and no unmappable
+    fields (unlike customers.json)."""
+    config = ScheduleConfig(
+        working_hours=rec.get("working_hours") or {},
+        default_duration_minutes=rec.get("default_duration_minutes") or 30,
+        buffer_minutes=rec.get("buffer_minutes") or 15,
+        booking_window_days=rec.get("booking_window_days") or 365,
+        duration_by_relationship=rec.get("duration_by_relationship") or {},
+    )
+    return config, []
+
+
 def _empty_list_entry() -> Dict[str, Any]:
     return {
         "file_status": "absent",
@@ -530,6 +660,61 @@ def _migrate_profile_file(
     return entry
 
 
+def _migrate_schedule_config_file(
+    *,
+    source_dir: str,
+    filename: str,
+    scheduling_service: SchedulingService,
+    actor: AuthContext,
+    apply: bool,
+) -> Dict[str, Any]:
+    """schedule_config is a singleton, update-always (upsert) target,
+    mirroring _migrate_profile_file's pattern exactly. No pre-read via
+    get_schedule_config() -- there is nothing to compare against or
+    report beyond would_upsert/upserted, and it would only add another
+    permission gate for no benefit."""
+    path = os.path.join(source_dir, filename)
+    try:
+        data, file_status = _read_json_stable(path)
+    except Exception as exc:
+        return {"file_status": "error", "error": str(exc)}
+
+    if file_status == "absent":
+        return {
+            "file_status": "absent",
+            "total_records": 0,
+            "would_upsert": 0,
+            "invalid": [],
+            "upserted": 0,
+        }
+
+    if not isinstance(data, dict):
+        return {
+            "file_status": "present",
+            "error": f"expected a JSON object in {filename}, got {type(data).__name__}",
+        }
+
+    entry: Dict[str, Any] = {
+        "file_status": "present",
+        "total_records": 1,
+        "would_upsert": 0,
+        "invalid": [],
+        "upserted": 0,
+    }
+
+    config, errors = map_schedule_config(data)
+    if errors:
+        entry["invalid"].append({"index": 0, "source_record": data, "errors": errors})
+        return entry
+
+    entry["would_upsert"] = 1
+    if apply:
+        scheduling_service.upsert_schedule_config(config, actor)
+        entry["upserted"] = 1
+
+    return entry
+
+
 def run_migration(source_dir: str, db_manager: DatabaseManager, apply: bool) -> Dict[str, Any]:
     """Run the migration (dry-run unless apply=True) and return a
     structured, per-file report. Never writes to the database unless
@@ -590,6 +775,24 @@ def run_migration(source_dir: str, db_manager: DatabaseManager, apply: bool) -> 
         apply=apply,
     )
 
+    report["customers"] = _migrate_list_file(
+        source_dir=source_dir,
+        filename="customers.json",
+        mapper=map_customer,
+        lookup_fn=crm_service.get_customer_by_external_id,
+        create_fn=crm_service.create_customer,
+        actor=actor,
+        apply=apply,
+    )
+
+    report["schedule_config"] = _migrate_schedule_config_file(
+        source_dir=source_dir,
+        filename="schedule-config.json",
+        scheduling_service=scheduling_service,
+        actor=actor,
+        apply=apply,
+    )
+
     report["skipped_out_of_scope"] = dict(OUT_OF_SCOPE_FILES)
 
     return report
@@ -605,6 +808,8 @@ def print_report(report: Dict[str, Any], apply: bool) -> None:
         "automation_rules_email",
         "automation_rules_sms",
         "business_profile",
+        "customers",
+        "schedule_config",
     ):
         entry = report[key]
         print(f"\n[{key}]")

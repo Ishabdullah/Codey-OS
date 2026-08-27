@@ -1387,6 +1387,58 @@ note. Full suite independently re-run fresh by project-architect before
 commit: `823 passed, 1 skipped` (`python -m pytest tests/ -q`, 2026-08-27),
 matching both the implementer's and the reviewer's counts exactly.
 
+**`migrate_aigentik.py` extended to `customers.json`/`schedule-config.json`,
+2026-08-27 — code-complete, code-reviewer-APPROVED, committed. NOT yet
+run with `--apply` against real data** (deliberate — pending a DB backup,
+which is Ish's/the coordinator's next step, not this round's). Added
+`map_customer()` (`customers.json` -> `Customer` via
+`crm_service.create_customer()`, skip-if-exists via
+`get_customer_by_external_id()`) and `map_schedule_config()`/
+`_migrate_schedule_config_file()` (`schedule-config.json` ->
+`ScheduleConfig` via `scheduling_service.upsert_schedule_config()`,
+mirroring the existing `profile.json` pattern). Of customers.json's ~46
+fields, only 8 get a direct, non-lossy column mapping; everything else
+(insurance/claim fields, project-scheduling fields, `lead_status`, etc.)
+is preserved verbatim in `custom_fields["aigentik_raw"]` rather than
+dropped or guessed into a CHECK-constrained column — see `NEW-252`/
+`NEW-253` for the follow-up questions this raises. `contacts.json` remains
+the sole `OUT_OF_SCOPE_FILES` entry (phonebook shape, no customer fields,
+reconfirmed by direct read). **Verified against the real, live
+`customers.json`/`schedule-config.json`** (dry-run, in-memory DB, no
+writes): 3/3 customers would-insert, 0 would-skip, 0 invalid; 1/1
+schedule_config would-upsert. Real on-device `~/.codey_restoricon/core.db`
+confirmed still at 0 rows in `customers`/`leads`/`schedule_config` (via a
+throwaway copy, not the live file) — `--apply` will be a clean set of 3
+inserts + 1 upsert, no dedup/collision risk. API routes are confirmed not
+a prerequisite (`migrate_aigentik.py` calls services directly, no HTTP
+client) — `NEW-247` remains open separately, for other future callers.
+**Two follow-on findings, both Confirmed, neither fixed this round:**
+`NEW-252` (insurance/claim fields opaque in `custom_fields`, a real
+Restoricon-relevant schema question) and `NEW-253` (lead-shaped data in
+customers.json never reaches `leads`). **One storage/PII-shaped finding,
+Confirmed by direct read of `audit_service.py`:** `NEW-254` —
+`create_customer()` duplicates the full `custom_fields["aigentik_raw"]`
+blob into the permanent, append-only `audit_log` table on every call;
+inert for today's placeholder data, but a real concern once real
+insurance/claim data flows through this path, since `audit_log` has no
+update/delete path at all. **One process-note finding, Confirmed and
+self-disclosed by the code-reviewer (rule 5/6 — correcting the record
+honestly):** while independently verifying this round, the reviewer
+unintentionally instantiated `DatabaseManager` against the real
+`~/.codey_restoricon/core.db` (rather than the intended throwaway copy),
+which auto-ran the schema migration and added the `schedule_config` TABLE
+to the live file (258048 -> 270336 bytes). No data rows were written
+(customers/leads/schedule_config confirmed still 0 rows) and table
+creation is idempotent — not a data-safety incident, but logged as
+`NEW-255` so the record is accurate. Full suite re-run fresh before
+commit: `829 passed, 1 skipped` (`python -m pytest tests/ -q`,
+2026-08-27), matching the implementer's own count exactly (16/16 new in
+`test_migrate_aigentik.py`, plus whatever the concurrently in-progress
+`NEW-145`/`NEW-149`/`NEW-155` context-ceiling round has already added to
+the same working tree — that round's files (`core/daemon.py`,
+`core/loader_v2.py`, three of its test files) are untouched and
+unstaged by this commit).
+
 ---
 
 ## 5. The device, stated once
@@ -5462,7 +5514,16 @@ Then:
       Schema/service-layer only, no API routes yet (`NEW-247`), no JS/
       Codey-Aigentik changes. `NEW-248` (permission-gate mismatch on
       `get_customer_by_external_id()`, fourth occurrence of this gap
-      class) spun off, open.
+      class) spun off, open. **`migrate_aigentik.py` extended to
+      `customers.json`/`schedule-config.json`, 2026-08-27 — code-complete,
+      code-reviewer-approved, committed (829 passed, 1 skipped).** NOT
+      yet run with `--apply` against real data (pending a DB backup, next
+      step). `NEW-252`/`NEW-253`/`NEW-254` spun off (insurance/claim
+      field opacity, lead-status data not reaching `leads`, audit-log
+      duplication of raw customer data); `NEW-255` logged (reviewer
+      unintentionally ran the schema migration against the real
+      `~/.codey_restoricon/core.db` during independent verification —
+      table added, 0 data rows, not a data-safety incident).
 - [ ] **B3** — CRM/Sales domain.
 - [ ] **B3** — Operations domain.
 - [ ] **B3** — first Automated Workflows.
