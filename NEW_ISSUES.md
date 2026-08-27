@@ -11317,3 +11317,76 @@ finding for the same bug. See `NEW-39`.)*
   scheduling_service.py` (`create_appointment`), `restoricon_core/
   services/automation_service.py` (`create_rule`), `restoricon_core/
   migrate_aigentik.py` (module docstring's "Known limitations" section).
+
+## Found during Phase B2 task 4a route-wiring scoping, 2026-08-27
+
+### [NEW-219] `automation_service.py` has no single get-rule-by-id method — a new write-only route
+- **Status: Confirmed** — read directly. The service exposes
+  `create_rule`, `list_rules`, `get_automation_rule_by_external_id`
+  (internal-only, keyed on Aigentik's string id, not the Core's integer
+  `id`), and `record_rule_match(rule_id, actor)`. There is no
+  `get_rule(rule_id, actor)`. Task 4a's spec (§6.4) wires
+  `POST /api/v1/automation-rules/{id}/match`, which means an HTTP caller
+  can mutate a rule by integer id but has no route to read that same
+  rule back by id afterward (only `list_rules`, unfiltered by id) — the
+  same "write-only routes" class `NEW-193` already names, just found in
+  a new module.
+- **Not fixed here** — task 4a's scope is wiring routes to the CRUD
+  surface the service already exposes, not adding new service methods.
+  Adding `get_rule(rule_id, actor)` to `AutomationService` plus a
+  `GET /api/v1/automation-rules/{id}` route is a small, self-contained
+  follow-up, cheap to do whenever `NEW-193`'s broader write-only-routes
+  cleanup happens (or sooner, standalone).
+- **Cross-reference:** `restoricon_core/services/automation_service.py`,
+  `CODEY_MASTER_PLAN.md` §6.4 task 4a route table.
+
+### [NEW-220] `is_blocked`/`remove_from_do_not_contact` cannot distinguish "not on the list" from "malformed identifier" over HTTP
+- **Status: Confirmed, safety-relevant** — read directly.
+  `is_blocked(identifier, actor)` and
+  `remove_from_do_not_contact(identifier, actor)` both call
+  `classify_identifier(identifier)` first and return bare `False` if it
+  returns `None` (i.e. the identifier didn't parse as an email or phone
+  number) — the exact same `False` they'd return for a validly-formed
+  identifier that legitimately isn't on the do-not-contact list. An HTTP
+  caller (the planned `GET /api/v1/do-not-contact/check` and
+  `POST /api/v1/do-not-contact/remove` routes, §6.4 task 4a) has no way
+  to tell "this contact is safe to reach out to" from "this input never
+  got checked because it was malformed" — on a suppression list that
+  gap is a false-negative risk, not just an API-ergonomics one.
+- **Not fixed here** — fixing it at the route layer would mean
+  duplicating `classify_identifier()`'s parsing logic in `routes.py` to
+  detect the malformed case before calling the service method, which
+  this task's scope (route wiring only, no service-layer logic
+  duplication) explicitly excludes. The clean fix is in the service
+  layer: change `is_blocked`/`remove_from_do_not_contact` to raise
+  `ValueError` (already handled globally as 400 by `routes.py`) instead
+  of returning `False` when `classify_identifier` fails — its own small,
+  reviewable task.
+- **Cross-reference:** `restoricon_core/services/automation_service.py`
+  (`classify_identifier`, `is_blocked`, `remove_from_do_not_contact`).
+
+### [NEW-221] `Model(**json_body)` raises uncaught `TypeError` on unrecognized JSON keys, falling through to 500 instead of 400
+- **Status: Confirmed, pre-existing** — read directly. All eight of
+  `routes.py`'s current POST routes construct a dataclass directly from
+  the parsed request body (e.g. `Customer(**json_body)`,
+  `Contract(**json_body)`). Python raises `TypeError` for either an
+  unexpected keyword or a missing required positional field, and
+  `handle_request`'s `except` chain only catches `PermissionError` and
+  `ValueError` as 4xx — `TypeError` falls to the generic
+  `except Exception` branch and returns 500 with an internal error
+  string, misrepresenting a client input error as a server fault. Not
+  new — true of every existing POST route before this round — but task
+  4a's five new POST routes (`subcontractors`, `appointments`,
+  `automation-rules`, `business-profile`, `do-not-contact`) will inherit
+  the same pattern by matching established convention, so it is being
+  logged now rather than silently carried forward unnoted.
+- **Not fixed here** — fixing it means either catching `TypeError`
+  alongside `ValueError` in `handle_request`'s except chain (simplest,
+  but risks masking a genuine internal `TypeError` bug as a 400) or
+  validating each dataclass's fields before construction (more correct,
+  more code, one change per resource) — a real design decision that
+  affects all thirteen POST routes at once, not a one-line fix scoped to
+  task 4a alone.
+- **Cross-reference:** `restoricon_core/api/routes.py`
+  (`handle_request`'s `except PermissionError` / `except ValueError` /
+  `except Exception` chain).

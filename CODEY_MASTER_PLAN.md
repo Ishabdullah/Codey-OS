@@ -2435,6 +2435,115 @@ below, adjust if (a) is chosen):
    surface has been designed yet; flagged as a real open design item for
    the implementation round, not assumed solved by this scoping pass.
 
+**Task 4a (routes for the five new resources) scoped 2026-08-27 — spec
+below, not implemented.** Read `restoricon_core/api/routes.py` and
+`api/server.py` in full, plus `crm_service.py`/`scheduling_service.py`/
+`automation_service.py`'s real method signatures, per rule 12.
+Confirmed: `routes.py` has zero routes today for subcontractors,
+appointments, automation_rules, business_profile, do_not_contact
+(`NEW-193`'s write-only-routes gap applies). `api/server.py` constructs
+`CRMService` but never constructs `SchedulingService`/`AutomationService`
+or passes them into `APIRouter` — both need to be wired in
+`RestoriconAPIServer.__init__` and threaded through `APIRouter.__init__`
+as two new required constructor args. Re-grepped `APIRouter(` across the
+whole repo (not just `restoricon_core/`) — the only construction site is
+`api/server.py:88`, so no other test builds `APIRouter` directly and the
+constructor-signature change is safe.
+
+**Auth/RBAC — no permission-matrix change needed.** RBAC is enforced in
+the *service* layer, not the route layer (every service method calls
+`actor.has_permission(...)` and raises `PermissionError`, which
+`routes.py`'s `handle_request` already catches globally and turns into
+403 — routes never call `has_permission()` directly). Confirmed
+`ROLE_AI_AGENT` in `auth.py`'s `ROLE_PERMISSIONS` already holds full
+read+write on all ten new permission constants
+(`PERM_{READ,WRITE}_SUBCONTRACTORS/APPOINTMENTS/AUTOMATION_RULES/
+BUSINESS_PROFILE/DNC`) as of `c30d755` — this task only wires routes,
+it adds no new grants.
+
+**Route list (method, path -> service call, verb convention matches the
+existing `/{id}/sign` and `/{id}/pay` action-suffix pattern — zero
+existing routes use PUT/DELETE despite the HTTP handler dispatching
+both, so none are introduced here):**
+
+| Method | Path | Calls | Falsy/error return |
+|---|---|---|---|
+| GET | `/api/v1/subcontractors` | `crm.list_subcontractors(actor, qualification_status=, primary_trade=, limit=, offset=)` | — |
+| POST | `/api/v1/subcontractors` | `crm.create_subcontractor(Subcontractor(**body), actor)` | — |
+| GET | `/api/v1/subcontractors/{id}` | `crm.get_subcontractor(id, actor)` | 404 |
+| POST | `/api/v1/subcontractors/{id}/qualification` | `crm.update_subcontractor_qualification(id, body["qualification_status"], actor, body.get("recruitment_step"))` | 404 |
+| GET | `/api/v1/appointments` | `scheduling.list_appointments(actor, customer_id=, status=, limit=, offset=)` | — |
+| POST | `/api/v1/appointments` | `scheduling.create_appointment(Appointment(**body), actor)` | — |
+| GET | `/api/v1/appointments/{id}` | `scheduling.get_appointment(id, actor)` | 404 |
+| POST | `/api/v1/appointments/{id}/status` | `scheduling.update_appointment_status(id, body["status"], actor)` | 404 |
+| GET | `/api/v1/automation-rules` | `automation.list_rules(actor, channel=, limit=, offset=)` | — |
+| POST | `/api/v1/automation-rules` | `automation.create_rule(AutomationRule(**body), actor)` | — |
+| POST | `/api/v1/automation-rules/{id}/match` | `automation.record_rule_match(id, actor)` | 404 |
+| GET | `/api/v1/business-profile` | `automation.get_business_profile(actor)` | 404 (matches `customers/{id}`'s resource-fetch shape, not `/auth/me`'s 200-with-null shape) |
+| POST | `/api/v1/business-profile` | `automation.upsert_business_profile(BusinessProfile(**body), actor)` | 200, not 201 — it's a singleton upsert (`id` pinned to 1), never a new resource |
+| GET | `/api/v1/do-not-contact` | `automation.list_do_not_contact(actor, limit=, offset=)` | — |
+| POST | `/api/v1/do-not-contact` | `automation.add_to_do_not_contact(body["identifier"], actor, name=, reason=, source=)` | **400**, not 404 — `None` means `classify_identifier()` rejected the identifier as malformed input, not "not found" |
+| POST | `/api/v1/do-not-contact/remove` | `automation.remove_from_do_not_contact(body["identifier"], actor)` | 200 `{"removed": <bool>}` always — it's a bare `bool`, not `Optional` |
+| GET | `/api/v1/do-not-contact/check?identifier=` | `automation.is_blocked(identifier, actor)` | 200 `{"blocked": <bool>}` always |
+
+**Explicit non-goals for this task** (say so in the implementer handoff
+so scope doesn't drift): no `~/Aigentik-CLI`/`~/Codey-Aigentik` JS files
+touched — that is task 4's write-through step, still separate; no
+by-external-id GET routes for any of the three services'
+`get_*_by_external_id` methods — `migrate_aigentik.py` calls services
+directly in-process (confirmed by its imports), so nothing needs them
+over HTTP yet, and adding them now would be an unrequested feature; no
+refactor of `routes.py`'s single `handle_request` into sub-routers even
+though this task nearly doubles its length — that kind of unscoped
+cleanup is this project's documented repeat failure mode.
+
+**Rule-4/security note:** §6.4's own rule-4 analysis above says rule 4
+"mostly does not apply" to B2 — that's still true here; this task is
+not a process-lifecycle change (no daemon/PID/kill-logic/lock/GUI-bind
+change). It is nonetheless mandatory for the code-reviewer per the
+Workflow section's separate clause: "mandatory for anything touching
+process control, daemon/kill logic, **or security**" — five new
+auth-gated HTTP endpoints on a real API surface is a security-relevant
+change regardless of rule 4.
+
+**Test plan:** extend `tests/test_restoricon_core/test_api.py`'s
+existing live-HTTP-roundtrip pattern (`RestoriconAPIServer` bound to a
+free port + `:memory:` db + real `urllib.request` calls) — its fixture
+already seeds an `ai_agent`-role user, so the success path per resource
+is cheap to add. For the negative case, add one `ROLE_TECHNICIAN` user
+(confirmed in `auth.py`'s matrix to hold none of the ten new
+permissions) and assert 403 across all five resources with one test —
+a clean, already-verified-empty permission set makes it a reliable
+negative. Record the exact before/after `pytest` pass count in the
+commit/PROJECT_LOG entry (baseline confirmed 2026-08-27: 764 passed, 1
+skipped).
+
+**Docstring note for whoever implements this:** `APIRouter`'s class
+docstring and `RestoriconAPIServer.__init__`'s new
+`scheduling_service`/`automation_service` wiring should both note that
+RBAC is enforced in the service layer, not here — the route layer's
+only auth job is resolving the Bearer token to an `AuthContext` and
+letting the global `PermissionError` handler turn a service-layer
+rejection into 403. Without that note the new route block reads as if
+it forgot permission checks.
+
+**Findings logged out of scope, `NEW-219`/`NEW-220`/`NEW-221` in
+`NEW_ISSUES.md`** (not fixed here): `automation_service.py` has no
+single get-rule-by-id method, so `POST /automation-rules/{id}/match`'s
+target `id` has no way to be read back over HTTP — the `NEW-193`
+write-only-routes class, filed Confirmed; `is_blocked`/
+`remove_from_do_not_contact` both return bare `False` for an
+unclassifiable identifier, so an HTTP caller of a *do-not-contact
+suppression list* cannot distinguish "not on the list" from "malformed
+input" — safety-relevant, filed Confirmed, not fixed in the route
+because fixing it would mean duplicating `classify_identifier()`'s
+logic at the route layer; `Model(**json_body)` on unrecognized JSON
+keys raises `TypeError`, which the existing `except` chain doesn't
+catch as 400 so it falls through to 500 — true of all eight
+already-shipped POST routes today, not new to this task, filed
+Confirmed as a pre-existing pattern the new routes will also inherit by
+matching convention.
+
 **Rule 4 relevance — checked, mostly does not apply:** B2 itself is
 data/API integration, not process supervision. It does not touch
 `ccos/core/plugin_manager.py` (the `external_process` supervision

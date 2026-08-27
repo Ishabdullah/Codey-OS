@@ -12,6 +12,71 @@ and Appendix A.
 
 ---
 
+## 2026-08-27 — Phase B2 task 4a (routes for the 5 new resources) scoped — no code written
+
+**Status: scoping only. Not implemented, not code-reviewed, not tested.**
+
+Read `restoricon_core/api/routes.py` and `api/server.py` in full, plus
+the real method signatures of `crm_service.py`/`scheduling_service.py`/
+`automation_service.py`, per rule 12 — no assumptions from prior rounds
+carried forward unverified. Confirmed:
+- `routes.py` has zero routes today for subcontractors, appointments,
+  automation_rules, business_profile, do_not_contact (`NEW-193`'s
+  write-only-routes gap). `api/server.py` never constructs
+  `SchedulingService`/`AutomationService` or wires them into
+  `APIRouter` — both need adding as new required constructor args.
+  Re-grepped `APIRouter(` across the whole repo (not just
+  `restoricon_core/`): the only construction site is
+  `api/server.py:88`, so the constructor-signature change is safe — no
+  other test builds `APIRouter` directly.
+- RBAC needs zero new grants: it's enforced entirely in the service
+  layer (`actor.has_permission(...)` inside each service method, caught
+  globally by `routes.py` as 403), and `ROLE_AI_AGENT` already holds
+  full read+write on all ten new permission constants as of `c30d755`.
+- Full 17-route table (method/path/service-call/error-handling per
+  route, including the 404-vs-400-vs-bool-response decisions for each
+  `Optional`/`bool`-returning service method) written into
+  `CODEY_MASTER_PLAN.md` §6.4 task 4a. Verb convention follows the
+  existing `/{id}/sign`, `/{id}/pay` action-suffix pattern — no
+  PUT/DELETE introduced, matching the fact that zero existing routes use
+  them despite the HTTP handler dispatching both.
+- Test plan: extend `test_api.py`'s existing live-HTTP-roundtrip
+  pattern (`RestoriconAPIServer` + `:memory:` + real `urllib.request`),
+  reusing its already-seeded `ai_agent` user for the success path and
+  adding one `ROLE_TECHNICIAN` user (confirmed to hold none of the ten
+  new permissions) for a clean 403 negative across all five resources.
+  Baseline recorded before any implementation: `764 passed, 1 skipped`.
+- Rule-4/security: not a process-lifecycle change (§6.4's own rule-4
+  analysis still holds), but mandatory for code-reviewer anyway under
+  the Workflow section's separate security clause — five new
+  auth-gated HTTP endpoints.
+- Explicit non-goals recorded in the spec: no `~/Aigentik-CLI`/
+  `~/Codey-Aigentik` JS files touched (write-through is a separate,
+  later task); no by-external-id GET routes (`migrate_aigentik.py`
+  calls services in-process, confirmed by its imports, so nothing needs
+  them over HTTP yet); no refactor of `routes.py` into sub-routers even
+  though this task nearly doubles `handle_request`'s length.
+
+**Three findings logged to `NEW_ISSUES.md` (Confirmed, none fixed —
+out of this task's scope):** `NEW-219` (`automation_service.py` has no
+get-rule-by-id method, so the new `POST /automation-rules/{id}/match`
+route would be write-only for that id — the `NEW-193` class again, in a
+new module); `NEW-220` (`is_blocked`/`remove_from_do_not_contact` both
+return bare `False` for a malformed identifier, indistinguishable from
+"not on the list" — safety-relevant on a do-not-contact suppression
+surface); `NEW-221` (`Model(**json_body)` raises uncaught `TypeError`
+on unrecognized JSON keys, falling through to the generic 500 handler
+instead of 400 — pre-existing across all 8 current POST routes, the 5
+new ones will inherit it by matching convention).
+
+Next: hand this spec to implementer, then mandatory code-reviewer pass
+(security clause, not rule 4) before commit. NEW-215/212/216 (whether
+to migrate `contacts.json`/`customers.json`/`schedule-config.json`, and
+whether to run `migrate_aigentik.py --apply` against real production
+data) remain deferred, Ish's call, not touched this round.
+
+---
+
 ## 2026-08-27 (latest) — Phase B2 task 2 (data migration script) implemented, code-reviewer-approved — dry-run tested only, no `--apply` against production
 
 **Status: code-complete, code-reviewer-approved. NOT live-verified beyond
