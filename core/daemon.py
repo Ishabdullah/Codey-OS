@@ -329,7 +329,17 @@ class DaemonServer:
         # here) is conservatively counted as active rather than stale, so
         # ambiguity resolves toward "busy," matching this whole chain's
         # fail-closed posture.
-        task_timeout = self._config.get("tasks", "task_timeout", default=1800)
+        #
+        # Uses the module-level get_config() singleton (imported at the top
+        # of this file), not `self._config` -- `DaemonServer.__init__`
+        # never sets that attribute (only `Daemon.__init__`, a different
+        # class, does). The original version of this fix referenced
+        # `self._config` here, which would have raised AttributeError on
+        # every real invocation; every existing unit test masked this by
+        # manually stubbing `handler._config` onto the test double,
+        # bypassing real construction entirely. Found via live-verification
+        # attempt, 2026-08-27 -- see NEW-259.
+        task_timeout = get_config().get("tasks", "task_timeout", default=1800)
         now = int(time.time())
         running_active = len(
             [

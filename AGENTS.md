@@ -11,10 +11,14 @@ Then, for context on what just happened and what's known-broken:
 - `NEW_ISSUES.md` — append-only findings ledger (`NEW-##` IDs);
   authoritative for any individual finding's status.
 
-`CLAUDE.md` holds the same ground rules in the format Claude Code reads.
-If you are a different agent, read `CLAUDE.md` too — everything in it
-applies to you, and its rules 1–11 are reproduced in
-`CODEY_MASTER_PLAN.md` §2.
+`CLAUDE.md` and `ANTIGRAVITY.md` hold the same ground rules, each in the
+format its own tool reads (Claude Code and Antigravity respectively —
+both work on this repo). If you are a different agent, read whichever
+one exists for your tool, or `CLAUDE.md` if neither does — everything in
+either applies to you, and their rules 1–11 are reproduced in
+`CODEY_MASTER_PLAN.md` §2 (kept tool-neutral there on any point where the
+two files use different terminology for the same policy, e.g. rule 10's
+subagent-registry check).
 
 **Superseded 2026-08-21:** `CODEY_OS_MASTER_VISION.md`, `TODO.md`,
 `WORK_QUEUE.md`, `PROJECT_PLAN.md`, and `Codey-Restoricon-OS.md` were

@@ -12,6 +12,70 @@ and Appendix A.
 
 ---
 
+## 2026-08-27 — NEW-259: two real bugs found in the already-committed, twice-approved NEW-145/149/155 fix; both fixed, code-reviewer-approved. Also: Antigravity brought in as a second agent on this project, ANTIGRAVITY.md/AGENTS.md doc-consistency fix, HANDOFF.md added
+
+**Context**: Claude Code's session hit a rate limit mid-round (during a
+live-verification dispatch for the NEW-145/149/155 fix and a full-scope
+decision for `subcontractor-recruiter.js`). Ish brought in Antigravity
+(a separate AI coding tool, operating under its own rule file
+`ANTIGRAVITY.md` — a content-equivalent fork of `CLAUDE.md` using that
+tool's own subagent terminology) to keep working. Antigravity/Qwen Code
+committed `abbc733` (resolves `NEW-242`/`NEW-245` —
+`upsert_subcontractor()`, Core→JS field mapping, a new upsert route) and
+`2f1ab51` (docs) while Claude was rate-limited, and left an interrupted
+live-verification attempt's uncommitted diff in the working tree when it
+too hit a session limit.
+
+**On resuming, Claude reviewed everything that changed rather than
+assuming it was correct** (per rule 12) and found two real, serious bugs
+in Claude's own already-committed, twice-code-reviewer-approved
+`b0d2d86` fix — both introduced by Claude in the original round, neither
+caught by either prior review pass, both surfaced by the interrupted
+live-verification attempt:
+
+1. **`core/daemon.py`'s `_handle_status()` referenced `self._config`,
+   which `DaemonServer` never sets** (only the unrelated `Daemon` class
+   does) — every real invocation would raise `AttributeError`. Every
+   unit test masked this by stubbing `handler._config` directly on the
+   test double, never exercising real `__init__`. Fixed: use the
+   module-level `get_config()` singleton directly. 3 tests rewritten to
+   patch `core.daemon.get_config` instead.
+2. **`core/loader_v2.py`'s `ModelLoader.load_primary()` called
+   `rg.reserve_slot(spec)` without `port=PRIMARY_SERVER_PORT`** — the
+   registered slot would have no port, so `find_resident_slot(model_id=
+   "primary", port=self.port)` (Option C's own preferred first lookup)
+   would never match, permanently forcing every upgrade attempt onto the
+   `/proc` fallback, which is itself broken (`NEW-200`). Net effect: the
+   entire Option C respawn-on-upgrade mechanism would have been a
+   silent, permanent no-op in production. Fixed: added the `port=`
+   kwarg. New regression test added.
+
+Both fixes independently re-verified by code-reviewer via real negative
+controls (each bug reintroduced, confirmed the exact failure, restored) —
+not accepted on description alone. Full findings, including why each bug
+evaded two prior review passes, are in `NEW-259`.
+
+**Also this round**: `AGENTS.md` had been edited to drop its `CLAUDE.md`
+reference entirely in favor of `ANTIGRAVITY.md`, and `CODEY_MASTER_PLAN.md`
+§2's rule 10 still used Claude-Code-specific wording (`.claude/agents/`)
+that no longer matched `ANTIGRAVITY.md`'s own rule 10 (`define_subagent`)
+— caught by a `/code-review` pass run separately this session. Fixed:
+`AGENTS.md` now references both rule files; the master plan's rule 10 is
+now tool-neutral. `NEW-260` logged (pre-existing, unrelated,
+`test_plannd_timeout.py`/`test_plannd_tier_split.py` stale-formula
+failures — confirmed via `git stash` to predate this session entirely,
+from the `dfb655c` round, not fixed here). `HANDOFF.md` added at the
+repo root — a concise "what's happening right now" briefing for
+whichever agent (Claude or Antigravity) picks up next, on top of (not
+replacing) this file and the master plan. Four stray live-verification
+scratch scripts left at the repo root (untracked, not part of the test
+suite) were removed.
+
+`python -m pytest tests/ -q` → `877 passed, 1 skipped` plus the 6
+pre-existing `NEW-260` failures (unaffected by this round).
+
+---
+
 ## 2026-08-27 — Phase B2 subcontractor-recruiter.js JS cutover (**code-complete + tested**)
 
 **Status:** Code-complete, tested. 150/150 Codey-Aigentik tests pass (`npm test`). 133/133 restoricon-core tests pass (`python -m pytest tests/test_restoricon_core/`). Committed and pushed to `Codey-Aigentik` (`53a08bb`).

@@ -1067,8 +1067,20 @@ class ModelLoader:
             # 7.4 sub-task 2: the gate is the sole admission authority. A
             # denied reservation is a real, surfaced failure, not something
             # this method proceeds past.
+            #
+            # port=PRIMARY_SERVER_PORT (NEW-259, found post-approval,
+            # 2026-08-27): without this, the registered slot record has no
+            # port, so `find_resident_slot(model_id="primary", port=...)` —
+            # the first lookup Option C's `_resident_n_ctx_if_smaller()`
+            # tries (NEW-145/149/155 chain) — never matches, silently
+            # forcing every upgrade attempt onto the /proc fallback, which
+            # is itself unusable in production (NEW-200). That would make
+            # the entire Option C respawn-on-upgrade mechanism a permanent
+            # no-op despite every one of its own unit tests passing, since
+            # none of them exercise a real `load_primary()` call to check
+            # what `reserve_slot()` actually receives.
             spec = rg.ModelSpec(model_id="primary", path=model_path, n_ctx=n_ctx)
-            decision, slot_id = rg.reserve_slot(spec)
+            decision, slot_id = rg.reserve_slot(spec, port=PRIMARY_SERVER_PORT)
             if not decision.admitted:
                 error(f"Resource gate denied primary model load: {decision.reason}")
                 self._load_failures += 1

@@ -82,10 +82,14 @@ class TestCoderInteractiveVsBackgroundNCtx:
     def _run_load_primary(self, monkeypatch, interactive: bool):
         fake_decision = MagicMock(admitted=True, estimated_cost_bytes=1024, reason="ok")
         reserve_calls = []
+        reserve_kwargs = []
         monkeypatch.setattr(
             rg,
             "reserve_slot",
-            lambda spec, **k: (reserve_calls.append(spec) or fake_decision, "slot-primary"),
+            lambda spec, **k: (
+                reserve_calls.append(spec) or reserve_kwargs.append(k) or fake_decision,
+                "slot-primary",
+            ),
         )
         monkeypatch.setattr(rg, "mark_resident", lambda *a, **k: True)
         monkeypatch.setattr(rg, "release_slot", lambda *a, **k: True)
@@ -98,6 +102,7 @@ class TestCoderInteractiveVsBackgroundNCtx:
             loader = lv.ModelLoader()
             assert loader.load_primary() is True
 
+        self.last_reserve_kwargs = reserve_kwargs
         return reserve_calls
 
     def test_interactive_session_active_uses_full_n_ctx(self, monkeypatch):
@@ -127,6 +132,24 @@ class TestCoderInteractiveVsBackgroundNCtx:
             FakeServerSpawned.last_n_ctx = None
             reserve_calls = self._run_load_primary(monkeypatch, interactive)
             assert reserve_calls[0].n_ctx == FakeServerSpawned.last_n_ctx
+
+    def test_load_primary_registers_slot_with_real_port(self, monkeypatch):
+        """NEW-259 (found post-approval, 2026-08-27): `reserve_slot()` must
+        be called with `port=PRIMARY_SERVER_PORT`, not left to its default
+        `None`. `find_resident_slot(model_id="primary", port=self.port)` —
+        the FIRST lookup Option C's `_resident_n_ctx_if_smaller()` tries
+        (test_new145_149_155_option_c.py's slot-store-path tests) —
+        matches on `port` when one is given. A slot registered with no
+        port would never match that lookup, silently forcing every upgrade
+        attempt onto the /proc fallback, which is itself unusable in
+        production (`NEW-200`: `/proc/net/tcp[6]` is `PermissionError` for
+        every caller on this device) — making the entire Option C upgrade
+        mechanism a permanent no-op despite passing every one of its own
+        unit tests, none of which construct a real `ModelLoader.
+        load_primary()` call to check what `reserve_slot()` actually
+        receives."""
+        self._run_load_primary(monkeypatch, interactive=True)
+        assert self.last_reserve_kwargs[0].get("port") == lv.PRIMARY_SERVER_PORT
 
 
 class TestNCtxFunctionsClampToCodeyNCtxOverride:

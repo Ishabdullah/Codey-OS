@@ -252,9 +252,11 @@ plan's own successor documents.
    with specifics — not "improved" or "done." §4 and Appendix A are the
    status surface; `PROJECT_LOG.md` is the reverse-chronological record.
 
-10. Before creating a new subagent, check `.claude/agents/` for one that
-    already fits. Subagent sprawl makes the pipeline harder to reason
-    about, not easier.
+10. Before creating a new subagent, check your tool's existing subagent
+    definitions (`.claude/agents/` for Claude Code, whatever registry
+    Antigravity or another tool uses) for one that already fits.
+    Subagent sprawl makes the pipeline harder to reason about, not
+    easier.
 
 11. **Keep `install.sh` current.** Any new dependency (pip package,
     `pkg install`, system binary) or setup-step change updates

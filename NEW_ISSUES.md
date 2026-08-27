@@ -12812,3 +12812,119 @@ required)
   rename/re-document the signal so its actual meaning ("some interactive
   session is active somewhere," not "the caller of this function is that
   session") is explicit in code, not just in review notes.
+
+### [NEW-259] Two real bugs in the committed NEW-145/149/155 Option C fix (`b0d2d86`), found post-approval during a live-verification attempt — both fixed same round, neither caught by either code-reviewer pass
+- **Status: Confirmed, fixed.** Committed at `b0d2d86` and approved across
+  two code-reviewer passes, this fix shipped with two real defects that
+  would each independently have prevented it from working in production.
+  Both were found by a concurrent Antigravity session's own
+  live-verification attempt (interrupted by a session limit before it
+  could complete a full run) and confirmed/fixed directly this round.
+  Logged here per rule 6 — a near-miss serious enough that both review
+  passes' limits deserve an honest record, not just a silent patch.
+- **Bug 1 — `core/daemon.py`'s `_handle_status()` referenced
+  `self._config`, which `DaemonServer` never sets.** `self._config =
+  get_config()` is only ever assigned in `Daemon.__init__` — a
+  *different* class (`core/daemon.py:716`). `DaemonServer.__init__`
+  (the class `_handle_status()` actually belongs to, line 165) never
+  sets this attribute. Every real invocation of the age-filtering code
+  added by this fix would have raised `AttributeError: 'DaemonServer'
+  object has no attribute '_config'` the first time it ran against a
+  real running task. **Why both review passes missed it:** every unit
+  test in `tests/test_new145_149_155_option_c.py` constructed the test
+  double via `handler._config = _FakeConfig(...)`, bypassing real
+  `__init__` entirely and masking the missing attribute — the tests
+  verified the age-filtering *logic* correctly but never verified the
+  object actually has the attribute it's tested against under real
+  construction. **Fixed**: `_handle_status()` now calls the
+  module-level `get_config()` singleton directly (already imported at
+  the top of the file) instead of `self._config`. The three affected
+  tests were rewritten to patch `core.daemon.get_config` via
+  `unittest.mock.patch.object` instead of stubbing a nonexistent
+  instance attribute — re-verified as genuinely load-bearing via a real
+  negative control (reverted to `self._config`, confirmed all three
+  fail with the exact `AttributeError`, then restored).
+- **Bug 2 — `core/loader_v2.py`'s `ModelLoader.load_primary()` called
+  `rg.reserve_slot(spec)` without `port=PRIMARY_SERVER_PORT`.** This is
+  the ONLY call site of `reserve_slot()` in the codebase. Without an
+  explicit `port`, the registered slot record has no port field
+  populated. `_resident_n_ctx_if_smaller()` — the first step of Option
+  C's entire upgrade mechanism — calls `resource_gate.find_resident_slot
+  (model_id="primary", port=self.port)` as its FIRST lookup strategy
+  (deliberately preferred over the `/proc`-based fallback per this same
+  fix's own design, since `/proc/net/tcp[6]` is `PermissionError` for
+  every caller on this device, `NEW-200`). `find_resident_slot()`
+  matches on `port` when one is given — a slot record with no port
+  would never match, silently forcing every single upgrade attempt onto
+  the `/proc` fallback, which is *itself* broken in production. Net
+  effect: the entire Option C respawn-on-upgrade mechanism would have
+  been a **permanent, silent no-op** in real use — exactly the failure
+  mode live-verification exists to catch, and exactly why this fix was
+  correctly still marked "not live-verified" in the docs rather than
+  fully resolved. **Why both review passes missed it:** no test in
+  either `test_new145_149_155_option_c.py` or
+  `test_74b_planner_and_coder_n_ctx.py` constructs a real
+  `ModelLoader.load_primary()` call and inspects what `reserve_slot()`
+  actually receives — the option-C-specific tests monkeypatch
+  `find_resident_slot` directly rather than exercising the real
+  registration path that feeds it. **Fixed**: `port=PRIMARY_SERVER_PORT`
+  added to the call. New regression test
+  `test_load_primary_registers_slot_with_real_port` added to
+  `tests/test_74b_planner_and_coder_n_ctx.py`, re-verified as load-bearing
+  via a real negative control (reverted the port kwarg, confirmed the
+  new test fails with the exact assertion, then restored).
+- **Process note**: both bugs were found by re-running the FULL test
+  suite (`python -m pytest tests/ -q`) during a routine "review what
+  changed" pass, not by a targeted investigation — a reminder that
+  running the complete suite, not just the newly-added test file, is
+  what surfaces this class of gap (a test double masking a real
+  construction-time bug won't show up if you only run the file whose
+  tests all still pass in isolation).
+- **Cross-references**: `NEW-145`/`NEW-149`/`NEW-155` (the fix these
+  bugs live inside), `NEW-200` (`/proc/net/tcp[6]` `PermissionError`,
+  the reason Bug 2's fallback path is itself unusable), `NEW-256`
+  (a related, separate, still-open inconsistency: `_handle_health()`
+  hardcodes `1800` instead of reading `task_timeout` from config — not
+  the same bug as this entry's Bug 1, but adjacent code in the same
+  file).
+
+### [NEW-260] 6 tests in `test_plannd_timeout.py`/`test_plannd_tier_split.py` fail on a clean `main` checkout, unrelated to any of tonight's Phase B2/context-ceiling work — pre-existing, stale expected-value bug
+- **Status: Confirmed by direct read, not fixed here (out of scope for
+  the round that found it).** Discovered incidentally while
+  investigating whether `core/daemon.py`/`core/loader_v2.py`'s
+  uncommitted changes (from a separate live-verification attempt)
+  broke anything — `python -m pytest tests/ -q` showed 6 failures
+  unrelated to those files. Isolated the cause: `git stash` (reverting
+  ALL uncommitted changes back to committed `main` at `2f1ab51`) still
+  reproduces all 6 failures — confirming this predates tonight's
+  session entirely and has nothing to do with any change made during
+  it. Further isolated by checking out `core/plannd.py`/`utils/
+  config.py`/`core/daemon.py` from `dfb655c` (an older commit) on top
+  of current `main` — failures persist identically, so it's not caused
+  by any change to those three files either; it's an assertion drift
+  between the tests' own hardcoded expected-value formula and the real
+  code's current formula.
+- **Root cause**: every failure's actual-vs-expected delta is exactly
+  `600.0` seconds (e.g. `1928.9 == 1328.9`), which is exactly
+  `core/resource_gate.py`'s `CONTEXT_QUEUE_TIMEOUT_CAP_SECONDS`. The
+  §8 Q11 concurrency-admission round (`dfb655c`) added a context-budget
+  queue-wait term to the real outer-timeout formula
+  (`core/plannd.py:compute_outer_plan_timeout()`), but these two test
+  files' own hand-computed `expected_outer = inner_timeout + 30.0`
+  formulas were never updated to include that term — they've been
+  silently stale since `dfb655c` landed (an earlier date than tonight's
+  session), asserting against the OLD two-term formula while the real
+  code has used the newer three-term one ever since.
+- **Not fixed here**: out of scope for the round that discovered it
+  (that round's task was reviewing/finalizing the NEW-145/149/155 fix,
+  not fixing pre-existing plannd test staleness). A real fix needs
+  either updating both test files' expected-value formulas to include
+  the queue-wait term, or refactoring them to call
+  `compute_outer_plan_timeout()` directly rather than re-deriving its
+  formula by hand (the more robust fix, avoiding a second stale-formula
+  recurrence the next time the real formula changes).
+- **Cross-references**: `core/plannd.py:compute_outer_plan_timeout()`,
+  `core/resource_gate.py:CONTEXT_QUEUE_TIMEOUT_CAP_SECONDS` (line
+  ~4018), `dfb655c` ("Sec8 Q11/NEW-206: concurrent-context admission
+  gate + queue, code-reviewer approved" — the commit that added the
+  queue-wait term without updating these two test files).

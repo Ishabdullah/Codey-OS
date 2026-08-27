@@ -82,3 +82,4 @@
 - [NEW-145/149/155 Option C kill+respawn upgrade fix — approved, 3 warnings](new145_149_155_option_c_approved.md) — asymmetry invariant verified real via hand-break; slot-release and task_timeout-config-vs-hardcode both have zero test coverage despite correct code
 - [NEW-233/257 comms provider_message_id dedup — round2 approved, 1 warning open](new233_257_comms_idempotency_role_vs_permission_leak.md) — permission-keyed gate verified via negative control; NEW_ISSUES.md consequence paragraph still ROLE_CUSTOMER-only, stale vs PROJECT_LOG.md
 - [NEW-145/149/155 3-warning follow-up closed — approved](new145_149_155_option_c_3warnings_closed.md) — comment fix + 2 negative-control-verified tests; chain fully closed for commit
+- [NEW-259 daemon._config + loader_v2 reserve_slot port fix — approved](new259_daemon_config_and_loader_port_fix_approved.md) — 2 real bugs in twice-approved code, both negative-control-verified; ccos-inclusive test count reconciled, not a red flag

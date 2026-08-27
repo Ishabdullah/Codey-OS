@@ -211,9 +211,9 @@ def test_handle_status_running_active_excludes_stale_rows():
     stale_task = {"id": 2, "status": "running", "started_at": now - 5000}
     handler = daemon_mod.DaemonServer.__new__(daemon_mod.DaemonServer)
     handler.state = _FakeState({"pending": [], "running": [fresh_task, stale_task], "done": []})
-    handler._config = _FakeConfig(task_timeout=1800)
 
-    result = _run(handler._handle_status({}))
+    with patch.object(daemon_mod, "get_config", return_value=_FakeConfig(task_timeout=1800)):
+        result = _run(handler._handle_status({}))
     assert result["tasks"]["running"] == 2
     assert result["tasks"]["running_active"] == 1
 
@@ -225,9 +225,9 @@ def test_handle_status_running_active_zero_when_all_stale():
     stale_task = {"id": 1, "status": "running", "started_at": now - 5000}
     handler = daemon_mod.DaemonServer.__new__(daemon_mod.DaemonServer)
     handler.state = _FakeState({"pending": [], "running": [stale_task], "done": []})
-    handler._config = _FakeConfig(task_timeout=1800)
 
-    result = _run(handler._handle_status({}))
+    with patch.object(daemon_mod, "get_config", return_value=_FakeConfig(task_timeout=1800)):
+        result = _run(handler._handle_status({}))
     assert result["tasks"]["running"] == 1
     assert result["tasks"]["running_active"] == 0
 
@@ -241,7 +241,16 @@ def test_handle_status_running_active_reads_configured_non_default_timeout():
     old enough to be stale against that configured value but still fresh
     against the (wrong, hardcoded) 1800 default, so a silent hardcode
     would make this test fail: `running_active` would incorrectly read 1
-    instead of 0 if the config value isn't actually being read."""
+    instead of 0 if the config value isn't actually being read.
+
+    Patches the module-level `core.daemon.get_config` singleton, not
+    `handler._config` — `DaemonServer.__init__` never sets that attribute
+    (only the unrelated `Daemon.__init__` does); `_handle_status()` itself
+    reads the global `get_config()` directly. A prior version of this test
+    stubbed `handler._config` instead, which no code path ever reads —
+    the assertion happened to pass anyway because the real code's default
+    (1800) matched what the tests intended, silently masking the fact that
+    the test's own patch had no effect (see NEW-259)."""
     import time
 
     now = int(time.time())
@@ -251,9 +260,9 @@ def test_handle_status_running_active_reads_configured_non_default_timeout():
     task = {"id": 1, "status": "running", "started_at": now - 100}
     handler = daemon_mod.DaemonServer.__new__(daemon_mod.DaemonServer)
     handler.state = _FakeState({"pending": [], "running": [task], "done": []})
-    handler._config = _FakeConfig(task_timeout=60)
 
-    result = _run(handler._handle_status({}))
+    with patch.object(daemon_mod, "get_config", return_value=_FakeConfig(task_timeout=60)):
+        result = _run(handler._handle_status({}))
     assert result["tasks"]["running"] == 1
     assert result["tasks"]["running_active"] == 0
 
