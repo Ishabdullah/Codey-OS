@@ -12,6 +12,64 @@ and Appendix A.
 
 ---
 
+## 2026-08-27 — Phase B2 task 4, second write-through module scoped: `email-rules.js`/`sms-rules.js` — desk-only, spec handed to implementer, no code written
+
+Ish asleep, working autonomously per his standing instruction; no
+product-scope decision made. Confirmed the candidate against real
+current data (re-read `~/Aigentik-CLI/data/*.json` directly, since it's
+been static since Aigentik-CLI stopped): `email-rules.json` — 2 real
+rules; `sms-rules.json` — `[]`, 0 rules; `calendar.json` — 1 real
+appointment (correcting an earlier summary that implied it was empty).
+Evaluated and rejected `calendar.js` as a fallback without needing to —
+its real appointment record's `offered_slots`/`rsvp_status`/
+`form_sent`/`pending_reschedule`/append-only `history` fields hit the
+same `NEW-224` general-update-method gap, and a larger one than
+subcontractors.
+
+Read `email-rules.js`/`sms-rules.js` in full plus every caller
+(`index.js:1203`/`884`, `owner-command.js` multiple sites) — confirmed
+no `.forEach()`/`.filter()` async-iteration bug like the DNC pilot's
+`owner-command.js` fix; every call site is a single call already inside
+an `async function`. `automation_service.py`/`routes.py` cover
+`addRule`/`checkRules`/`listRulesForSms` cleanly; one real gap found —
+no rule-deletion method or route exists for `removeRule()` — logged and
+resolved in-scope as `NEW-230` (a single-purpose delete-by-id method,
+judged smaller than `NEW-224`'s open-ended field-merge problem, same
+size class as `NEW-217`'s in-scope lookup methods). Two more findings
+logged out of scope: `NEW-228` (production `email-rules.json` already
+has a dead rule — `condition_type: "message_contains"` has no matching
+`switch` case in `email-rules.js`, `match_count: 0` since creation — the
+spec explicitly requires this survive the cutover unchanged, not get
+"fixed"); `NEW-229` (`create_rule` validates `channel` but not
+`condition_type`/`action` domain values, pre-existing loose-validation
+pattern).
+
+Core-only vs. dual-write decided as Core-only again, but on a different
+argument than the DNC pilot's (stated explicitly rather than inheriting
+"DNC said so" as the whole reasoning): rules are config, not per-message
+safety state, so the real justification is single-source-of-truth for
+rule content plus consistency with the DNC pilot's already-reviewed
+throw-on-failure shape. Pinned two contracts the spec requires tests
+for: rule precedence (newest-rule-wins today via `unshift`+first-match,
+currently only preserved by `list_rules`'s `ORDER BY id DESC` as a
+coincidence, not a stated contract) and channel isolation (confirmed
+`routes.py:326-332` actually parses `channel` from the query string, so
+no SMS-rule-fires-on-email-traffic risk exists, but a test should assert
+it directly). Confirmed `~/Codey-Aigentik/config.json`'s `core_api`
+block (from the DNC pilot's provisioning) is reusable as-is — no new
+auth/config plumbing needed for this module.
+
+Full spec (7-step implementer handoff, Core-side delete method+route
+first, then the JS conversion) written into
+`CODEY_MASTER_PLAN.md` §6.4, between the pilot entry and §6.5. `NEW-228`/
+`NEW-229`/`NEW-230` added to `NEW_ISSUES.md`. Not implemented — next
+step is handing this spec to implementer, then the mandatory
+code-reviewer pass (new auth-gated `.../delete` route makes this
+security-relevant regardless of rule 4's narrower process-lifecycle
+scope).
+
+---
+
 ## 2026-08-27 — Phase B2 task 4 pilot (do-not-contact.js write-through) built, code-reviewer-approved, and finalized — spans `~/Codey-Aigentik` and `~/Codey-OS`, two repos, two commits
 
 Implementer built the spec from the round above; code-reviewer approved

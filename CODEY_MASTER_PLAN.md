@@ -2784,6 +2784,230 @@ specific change is process-lifecycle and needs its own mandatory
 code-reviewer pass — called out here so the implementer doesn't cross
 that line unnoticed.
 
+**Task 4, second module — `email-rules.js`/`sms-rules.js` scoped
+2026-08-27, desk-only, no code written, `~/Aigentik-CLI` untouched.** Ish
+still asleep; proceeding autonomously per his standing instruction, no
+product-scope decision made — the calendar.js fallback evaluation and
+the `NEW-230` delete-method decision below are both implementation-
+readiness/rollout-safety calls, not product choices. Read
+`~/Aigentik-CLI/email-rules.js` (145 lines) and `~/Aigentik-CLI/
+sms-rules.js` (115 lines) in full, every caller (`index.js:1203` and
+`884`, `owner-command.js` lines 269/275/477/580-636), the real
+production data (`data/email-rules.json` — 2 real rules;
+`data/sms-rules.json` — `[]`, 0 rules; `data/calendar.json` — 1 real
+appointment, not empty as the task-2 finding's summary table implied),
+`automation_service.py` in full, and `routes.py`'s automation-rules
+block, per rule 12.
+
+**Confirmed as the best next candidate over calendar.js — did not need
+to fall back.** `calendar.js`'s real appointment record
+(`data/calendar.json`) carries `offered_slots`, `rsvp_status`,
+`form_sent`, `pending_reschedule`, and an append-only `history` array —
+`scheduling_service.py` only offers `create_appointment`/
+`get_appointment`/`list_appointments`/`update_appointment_status`
+(status-only), the exact `NEW-224` general-update gap, and a larger one
+than the subcontractor case (more fields, plus an append-only log
+`update_appointment_status` has no way to extend). `email-rules.js`/
+`sms-rules.js` have no such gap once `NEW-230` (below) is resolved.
+
+**The two files are one module, not two — scope and implement
+together.** `restoricon_core/models.py`'s `AutomationRule` dataclass
+already merges both channels into one table distinguished by `channel`
+("Aigentik-CLI's email-rules.json and sms-rules.json are field-identical
+... distinguished by `channel`" — its own docstring). The two JS files
+are structurally identical clones (`loadRules`/`saveRules`/`addRule`/
+`removeRule`/`checkRules`/`listRulesForSms`, differing only in
+`RULES_FILE` name, `id` prefix (`er_`/`sr_`), and `checkRules`'s
+condition-type set) — neither imports the other, but they must convert
+together since both write through to the same table/service/routes and
+a partial conversion would leave one channel silently divergent from
+the other's cutover state.
+
+**Call-site shapes checked — no iteration-with-async-callback risk like
+the DNC pilot's `owner-command.js` bug.** Every `checkRules`/`addRule`/
+`removeRule`/`listRulesForSms` call site (`index.js:1203`, `884`;
+`owner-command.js:269`, `275`, `596`, `615`, `630-633`) is a single call,
+not an array iteration (`sms-rules.js` is additionally always
+dynamically `import()`-ed per call site in `owner-command.js`, unlike
+`email-rules.js`'s static import — both patterns already sit inside
+`async function`s, confirmed by the adjacent `await gmail.markAsSpam(...)`
+at `index.js:1215` and existing `await import(...)` calls). No
+`.forEach()`/`.filter()` conversion is needed for this module.
+
+**Service-layer coverage — one real gap found and resolved in-scope
+(`NEW-230`), everything else covers cleanly.** `create_rule`/`list_rules`/
+`record_rule_match` cover `addRule`/`checkRules`'s increment-on-match
+step/`listRulesForSms`'s read. The one gap: no delete method or route
+exists for `removeRule()` — see `NEW-230` for the full analysis. Judged
+in-scope to fix this round (unlike `NEW-224`'s subcontractor deferral)
+because it is a single-purpose, single-field-free method (delete one row
+by id, no partial-field-merge design question), the same size/shape as
+`NEW-217`'s three lookup methods, which this project already treated as
+in-scope for their own task rather than deferred.
+
+**Core-only vs. dual-write — decided as Core-only, matching the DNC
+pilot's shape but on a different argument, stated explicitly per the
+scoping review's note not to let "DNC said so" stand as the whole
+reasoning.** DNC's core danger was hidden-state divergence in a safety
+guarantee (an entry only the local file knows about). That specific risk
+doesn't apply to rules — they're config, not per-message state; the only
+per-message write is `match_count`, a low-stakes counter, not a
+correctness-bearing fact. The actual reason for Core-only here is (a)
+single-source-of-truth for the rules' *content*, so `add rule`/`remove
+rule` issued from any future caller (e.g. a web UI, once one exists) see
+the same list `checkRules` evaluates, and (b) consistency with the
+already-reviewed DNC pilot's throw-on-failure shape — a Core outage
+during `checkRules()` propagates as a thrown error the same way an
+outage during `isBlocked()` already does, which is an existing,
+reviewed failure mode this task inherits rather than introduces.
+
+**Rule-precedence contract — must be pinned explicitly, not left
+implicit.** `addRule` does `rules.unshift(rule)` (newest first) and
+`checkRules` returns on first match, so today "newest rule wins" by
+construction. `automation_service.py`'s `list_rules` happens to preserve
+this via `ORDER BY id DESC`, but that's a coincidence the spec must turn
+into a stated contract, not leave implicit: the client-side test suite
+must create rule A then rule B and assert B is evaluated first against
+the fetched list, so a future change to `list_rules`'s ordering (e.g. to
+`created_at ASC`) fails a test instead of silently inverting every rule
+decision. Confirmed `routes.py:326-332` actually parses `channel`/
+`limit`/`offset` from the query string (not just accepts them
+unused) — `GET /api/v1/automation-rules?channel=sms` correctly returns
+only that channel's rules, so no cross-channel contamination risk (SMS's
+`from_number`/`message_contains` cases firing on email traffic) exists.
+
+**Pagination assumption must be stated, not assumed.** `loadRules()`
+today returns every rule in the file, unbounded. `list_rules` defaults
+`limit=100`. At 2 real rules this is invisible; the spec must state the
+assumption explicitly (request a high limit, e.g. `limit=1000`, in the
+client's `GET`) rather than silently inheriting the API's 100-row
+default, so a future 101st rule doesn't go silently inert.
+
+**`external_id` must be preserved client-side, not dropped.** `addRule`
+currently generates `er_${Date.now()}`/`sr_${Date.now()}` locally. The
+write-through conversion must keep generating that ID client-side and
+send it as the new rule's `external_id` in the `POST` body — letting
+Core assign a bare integer id and leaving `external_id` `NULL` would
+split newly-created rules from `migrate_aigentik.py`-migrated rules into
+two ID namespaces (SQLite's `UNIQUE(external_id)` permits multiple
+`NULL`s, so this wouldn't error, it would just quietly fragment
+idempotent-rerun tracking).
+
+**Behavior parity — `NEW-228`'s dead rule must survive the cutover
+unchanged.** `email-rules.js`'s `checkRules` has no `message_contains`
+case (confirmed against the full `switch`), and real production rule
+`er_1771724421209` uses exactly that `condition_type` — it has never
+matched anything (`match_count: 0` since 2026-02-22) and must not start
+matching after this task. The client-side matching logic (which
+condition types map to which check) moves to the fork's JS unchanged,
+mirroring the classify-client-side/store-and-serve-server-side split the
+DNC pilot already established for `classifyIdentifier()` — the
+implementer must not add a `message_contains` case to `email-rules.js`
+"to fix" this while doing the conversion; that's an unscoped
+product-behavior change requiring Ish's decision, not a migration
+concern (see `NEW-228`).
+
+**Empty-Core-table reality must be stated, not implied away.**
+`--apply` has never been run against `~/Aigentik-CLI`'s real data (per
+the task-2 entry above), so `restoricon_core`'s `automation_rules` table
+is empty at the time this task lands — the 2 real production rules
+still live only in `~/Aigentik-CLI/data/email-rules.json` until Ish
+approves a migration `--apply` run. "Write-through done" for this module
+means new `Codey-Aigentik` rule reads/writes go through Core correctly,
+**not** that the existing 2 production rules are preserved or visible
+yet — that's a separate, already-tracked, not-yet-approved step. Tests
+must seed rules via the API (`create_rule`/`POST`), not assume migrated
+data is present.
+
+**Auth/config plumbing confirmed reusable as-is.** `~/Codey-Aigentik/
+config.json` (real, gitignored) already has the `core_api` block from
+the DNC pilot's provisioning step — this module needs no new
+provisioning, config keys, or `install.sh` change (`fetch` is already a
+global in this runtime per the DNC pilot's precedent; stated positively
+per rule 11 rather than silently skipped).
+
+**Implementer spec:**
+1. **Core-side first** (lands before the JS conversion, so the JS is
+   tested against a real route, not a mock of one that doesn't exist):
+   add `AutomationService.delete_rule(rule_id: int, actor: AuthContext)
+   -> bool` (`PERM_WRITE_AUTOMATION_RULES`-gated, audit-logged like
+   `create_rule`, `DELETE FROM automation_rules WHERE id = ?`, returns
+   `cursor.rowcount > 0`) and a `POST /api/v1/automation-rules/{id}/
+   delete` route returning `200 {"deleted": <bool>}` always (matches
+   `/do-not-contact/remove`'s always-200-bare-bool shape, not a 404 —
+   deleting an already-gone id is not an error). This is `NEW-230`'s
+   resolution.
+2. Convert `email-rules.js`'s and `sms-rules.js`'s `loadRules`/
+   `saveRules`/`addRule`/`removeRule`/`checkRules`/`listRulesForSms` to
+   `async function`s calling the Core's automation-rules routes over
+   HTTP, following the DNC pilot's `coreRequest()` helper pattern
+   exactly (single choke point, `AbortSignal.timeout`, throw on non-2xx
+   or network failure, no local-JSON fallback). `isPromotional`/the
+   condition-type `switch` logic in `checkRules` are pure, no I/O — stay
+   local and synchronous, matching `detectOptOutRequest`'s precedent in
+   the DNC pilot. `checkRules` becomes: `GET /api/v1/automation-rules?
+   channel=<channel>&limit=1000`, iterate client-side in the existing
+   order (list is already newest-first per the pinned contract above)
+   running the existing per-condition-type match logic, and on match
+   call `POST /api/v1/automation-rules/{id}/match` before returning
+   (matching the existing "update then return" order). `removeRule`
+   becomes: `GET` the list, run the existing fuzzy
+   id-or-description-`includes` match client-side, then call the new
+   `POST .../{id}/delete` route with the matched id. `addRule` keeps
+   generating `er_${Date.now()}`/`sr_${Date.now()}` client-side and
+   sends it as `external_id` in the `POST /api/v1/automation-rules`
+   body.
+3. Every call site becomes `await`-ed — no `for...of`/`forEach`
+   restructuring needed per the call-site-shape check above, all sites
+   are single calls already inside `async function`s.
+4. Preserve existing return shapes exactly: `addRule` still resolves to
+   the rule object; `removeRule` still resolves to a `bool`; `checkRules`
+   still resolves to `{ action, rule, reason }` (email) /
+   `{ action, rule }` (sms); `listRulesForSms` still resolves to the same
+   formatted string built client-side from the fetched list.
+5. Tests: new `tests/email-rules.test.js`/`tests/sms-rules.test.js`
+   (neither exists yet — no prior fs-mocking test to convert, unlike the
+   DNC pilot), mocking the Core API HTTP calls, following the DNC test's
+   established mocking pattern. Include the rule-precedence contract
+   test (create A then B, assert B evaluates first) and a channel-
+   isolation test (an SMS-only rule must not fire on an email-shaped
+   input, verifying `routes.py`'s `channel` query param actually
+   isolates the two lists, not just trusting the code read above).
+6. No `install.sh`/config changes needed — state so explicitly per rule
+   11 rather than skipping the check.
+7. Doc update, in-scope for the two rows this module touches (not a
+   full pass — leave the rest to `NEW-226`'s existing deferred cleanup
+   pointer): `~/Codey-Aigentik/docs/data-files.md` lines 12-13
+   (`email-rules.json`/`sms-rules.json` rows) need updating to say these
+   are no longer local files after this task; `docs/architecture.md`'s
+   and `docs/commands.md`'s prose mentions of `email-rules.js`/
+   `sms-rules.js` as the "rule engine" reading/writing files can stay as
+   architecture description (they still are the rule engine, just
+   backed by Core now) unless the implementer finds a line that
+   specifically asserts local-file storage, which should be corrected
+   alongside `data-files.md`.
+
+**Verification tier this task can reach:** code-complete +
+code-reviewer-approved + tested against a Core API instance started
+locally for the test run — same tier as the DNC pilot, for the same
+reason (no `~/Aigentik-CLI` production cutover has happened). Record the
+tier honestly per rule 7.
+
+**Findings logged out of scope this round, not fixed here:** `NEW-228`
+(pre-existing dead `message_contains` email rule in production data —
+must survive the cutover unchanged, not be "fixed"), `NEW-229`
+(`create_rule` validates `channel` but not `condition_type`/`action`
+domain values — pre-existing loose-validation pattern, matches other
+services). `NEW-230` is resolved in-scope by this task's own spec, not
+deferred — see implementer spec step 1.
+
+**Rule 4 relevance — same conclusion as the pilot, checked again for
+this module specifically.** No daemon/PID/kill-logic/lock/GUI-bind
+change. The new `delete_rule`/`.../delete` route is a security-relevant
+change (new auth-gated write endpoint), which the Workflow section's
+separate "or security" clause already makes mandatory for code-reviewer
+regardless of rule 4's narrower process-lifecycle scope.
+
 ### 6.5 Track B / Phase B3 — CRM/Sales and Operations
 
 **Depends on:** B1; B2 for real seed data; A1 for anything AI-assisted

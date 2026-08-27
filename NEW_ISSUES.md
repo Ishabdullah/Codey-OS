@@ -11595,3 +11595,93 @@ needed updating now that the Core DB exists — is handled as an update
 appended directly to `NEW-225` itself above, not as a new numbered
 finding, since it's a status change to an existing entry rather than a
 new fact.)
+
+### [NEW-228] `email-rules.js`'s live production data already contains a
+rule its own matcher can never fire — pre-existing dead configuration,
+not introduced by the B2 write-through work
+- **Status: Confirmed.** `~/Aigentik-CLI/data/email-rules.json`'s second
+  rule (`er_1771724421209`, "Mark emails that look like spam...") has
+  `"condition_type": "message_contains"`. `email-rules.js`'s `checkRules`
+  `switch` only handles `from`/`domain`/`subject_contains`/
+  `body_contains`/`promotional`/`any` — there is no `message_contains`
+  case, so this rule silently never matches (falls through to the
+  default action instead). Its `match_count: 0` in the real data is
+  consistent with this — it has never fired since creation
+  (2026-02-22). Compounding cause: `owner-command.js:586`'s
+  rule-creation LLM prompt offers `message_contains` as a valid
+  `condition_type` for **both** channels (it's real for `sms-rules.js`,
+  which does implement that case), so the owner can keep unknowingly
+  creating inert email rules through the normal "add email rule"
+  command.
+- **Action:** none taken — pre-existing behavior, not a regression from
+  any Codey-OS work. Logged because the upcoming email-rules.js/
+  sms-rules.js write-through task (§6.4) must explicitly preserve this
+  as behavior parity — the migration/write-through spec must not
+  "helpfully" add a `message_contains` case to `email-rules.js`'s
+  matcher, since that would change which real emails get spam-filtered
+  without Ish's decision. A real fix (either implementing the missing
+  case or narrowing the LLM prompt so it stops offering it for the
+  email channel) is separate, unscoped product-behavior work for Ish to
+  decide on, not a bug in the Core migration.
+- **Cross-reference:** `~/Aigentik-CLI/email-rules.js`'s `checkRules`;
+  `~/Aigentik-CLI/owner-command.js:584-587`; `CODEY_MASTER_PLAN.md` §6.4
+  task 4's email-rules.js/sms-rules.js spec.
+
+### [NEW-229] `automation_service.py`'s `create_rule` validates `channel`
+but not `condition_type`/`action` against any domain — a rule with a
+never-matching `condition_type` or an unrecognized `action` string can
+be written to the Core with no error
+- **Status: Confirmed, pre-existing pattern (same class as other
+  services' loose validation), not fixed here.** `create_rule` (
+  `restoricon_core/services/automation_service.py:96-139`) only checks
+  `rule.channel in VALID_CHANNELS`; `condition_type` and `action` are
+  stored as-is with no allow-list check, so the Core has no way to
+  reject `NEW-228`'s kind of typo/mismatch at write time — it would
+  silently persist a rule identical in effect to the dead one already in
+  production.
+- **Action:** none taken this round — out of scope for the write-through
+  task, which preserves existing (loose) validation behavior rather than
+  introducing new server-side constraints the JS layer doesn't already
+  enforce. Worth a follow-up if/when the Core becomes the single point
+  where rules are authored (rather than just a write-through target of
+  client-validated JS), since the Core would then be the last line of
+  defense against a typo'd rule.
+- **Cross-reference:** `restoricon_core/services/automation_service.py`
+  `create_rule`.
+
+### [NEW-230] `automation_service.py`/`routes.py` have no rule-deletion
+method or route — `email-rules.js`/`sms-rules.js`'s `removeRule()` has
+no Core-side destination, same class of gap as `NEW-224`'s subcontractor
+finding but narrower in scope
+- **Status: Confirmed, and — unlike `NEW-224` — judged in-scope to
+  resolve within the upcoming write-through task rather than deferred.**
+  Neither `automation_service.py` nor `restoricon_core/api/routes.py`
+  has any method/route to delete an `automation_rules` row.
+  `email-rules.js`/`sms-rules.js`'s `removeRule(identifier)` (delete-by-
+  id-or-fuzzy-description-match) has no Core equivalent to call. This is
+  the same *class* of gap `NEW-224` found for subcontractors, but a
+  materially smaller one: `NEW-224` needed a general partial-update
+  method covering an open-ended set of fields with no defined shape
+  (trade, experience, licensing, insurance, `qualification_data`
+  deltas), which is itself a design task; this needs exactly one new
+  single-purpose method — delete one row by its own integer id, no field
+  merging — the same size and shape as `NEW-217`'s three lookup methods,
+  which this project already judged in-scope for their own migration
+  task rather than deferred. Per that precedent, this is scoped as
+  in-scope, not deferred: add `AutomationService.delete_rule(rule_id,
+  actor)` (permission-gated on `PERM_WRITE_AUTOMATION_RULES`,
+  audit-logged like `create_rule`, returns `bool`) and a
+  `POST /api/v1/automation-rules/{id}/delete` route (action-suffix
+  convention, matching `/do-not-contact/remove`'s shape — no PUT/DELETE
+  HTTP verbs are used anywhere in `routes.py` today, so a DELETE method
+  route would break that established convention) returning `{"deleted":
+  <bool>}`. The identifier's fuzzy-description-match behavior stays
+  client-side in the JS (fetch the list, match locally, call delete with
+  the matched id) — only the actual row deletion moves to the Core.
+- **Action:** resolved as part of the email-rules.js/sms-rules.js
+  write-through task's spec (§6.4) — Core-side method + route land
+  first, then the JS conversion is tested against the real route rather
+  than a mock of a route that doesn't exist yet.
+- **Cross-reference:** `restoricon_core/services/automation_service.py`;
+  `restoricon_core/api/routes.py:325-343`; `NEW-224`; `NEW-217`;
+  `CODEY_MASTER_PLAN.md` §6.4 task 4's email-rules.js/sms-rules.js spec.
