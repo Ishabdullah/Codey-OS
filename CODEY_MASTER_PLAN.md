@@ -1122,15 +1122,24 @@ locally-started scratch Core server, not the real persistent DB path —
 150/150 `~/Codey-Aigentik` suite (`npm test`), 778 passed/1 skipped in
 this repo's own `tests/` (`python -m pytest tests/ -q`).
 
-**Phase B2 write-through progress: 2 of the 10 write-site modules
-(§6.4's per-module list) are now done — `do-not-contact.js` and
-`email-rules.js`/`sms-rules.js`.** Remaining modules and their current
+**Phase B2 task 4, third module (`calendar.js` & schedule-config
+write-through), 2026-08-27 — code-complete, unit-test verified.** Built in
+`~/Codey-Aigentik` and `Codey-OS`: added `update_appointment()` and
+`upsert_appointment()` in `SchedulingService` plus routes for
+`POST /api/v1/appointments/upsert`, `POST /api/v1/appointments/:id/update`,
+`GET /api/v1/schedule-config`, and `POST /api/v1/schedule-config`. Converted
+`calendar.js` to Restoricon Core API (`coreRequest()` over Bearer auth),
+updated all mutations and queries to write-through asynchronously, preserved
+pure date/time parsing math, and updated all `owner-command.js` and `index.js`
+call sites with `await`. Unit tests pass in both repos (`889 passed, 1 skipped`
+in `Codey-OS`, `157 passed, 0 failed` in `Codey-Aigentik`).
+
+**Phase B2 write-through progress: 3 of the 10 write-site modules
+(§6.4's per-module list) are now done — `do-not-contact.js`,
+`email-rules.js`/`sms-rules.js`, and `calendar.js`.** Remaining modules and their current
 blockers: `contacts.js`/`customer-module.js` (blocked on `NEW-212`/
 `NEW-215`, Ish's scope call, not a design gap); `subcontractor-
-recruiter.js` (blocked on `NEW-224` — needs a general partial-update
-method design, open-ended field set); `calendar.js` (blocked on a
-similar general-update gap per the task-4 scoping round's own
-evaluation); and the comms/email/SMS-provider paths
+recruiter.js` (Core-side upsert/update implemented via `abbc733`, JS write-through pending); and the comms/email/SMS-provider paths
 (`email-provider.js`/`gmail.js`/`index.js`'s Google Voice handling →
 a communications endpoint) — **re-scoped 2026-08-27 and found to be
 blocked, not the next unblocked candidate as this section previously

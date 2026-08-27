@@ -12,6 +12,27 @@ and Appendix A.
 
 ---
 
+## 2026-08-27 — Phase B2 Task 4: calendar.js & schedule-config write-through cutover complete (Codey-OS & Codey-Aigentik)
+
+- **Status**: Code-complete, unit-test verified across both repositories (`889 passed, 1 skipped` in `Codey-OS`, `157 passed, 0 failed` in `Codey-Aigentik`).
+- **Core API & Service Additions (`Codey-OS`)**:
+  - Added `ALLOWED_UPDATE_FIELDS`, `update_appointment()`, and `upsert_appointment()` in `restoricon_core/services/scheduling_service.py` to support partial updates and idempotent create-or-update of appointments keyed by `id` or `external_id`.
+  - Added routes in `restoricon_core/api/routes.py`:
+    - `POST /api/v1/appointments/upsert`
+    - `POST /api/v1/appointments/:id/update`
+    - `GET /api/v1/schedule-config`
+    - `POST /api/v1/schedule-config`
+  - Added comprehensive test suite `tests/test_restoricon_core/test_appointments_upsert.py` covering model creation, partial update validation, upsert semantics, and route execution.
+- **Write-Through Cutover (`Codey-Aigentik`)**:
+  - Converted `calendar.js` from local JSON (`calendar.json`, `schedule-config.json`) to Restoricon Core API (`coreRequest()` over Bearer auth).
+  - Implemented `mapCoreToJS` and `mapJSToCore` bidirectional field mappers.
+  - Cut over all appointment mutations (`createAppointment`, `proposeAppointment`, `updateAppointment`, `setAppointmentType`, `markFormSent`, `setAppointmentNotes`, `setRequestedDatetime`, `updateNegotiationOffers`, `confirmNegotiation`, `setPendingReschedule`, `clearPendingReschedule`, `rescheduleAppointment`, `cancelAppointment`, `setRsvpStatus`) and schedule config operations (`loadScheduleConfig`, `saveScheduleConfig`, `setWorkingHours`, `setDayOff`, `setDurationForRelationship`) to write directly through to Core.
+  - Kept pure date/time parsing math deterministic and synchronous (`parseDatetimePhrase`, `parseDatetimeDetailed`, `combineTimeWithDate`, `extractDaysFromPhrase`, `parseWorkingHoursPhrase`, `parseDayOffPhrase`, `mentionsToday`, `startOfTomorrow`, `formatOfferList`, `matchOfferedSlotSelection`, `detectRelativeTimeRequest`, `detectAppointmentTypeFromText`, `formatAppointment`).
+  - Added `await` to all async calendar calls in `owner-command.js` and `index.js`.
+  - Expanded `tests/calendar.test.js` with mock-fetch unit tests covering Core mapping, listing, config loading/fallback, creation, proposal, rescheduling, and cancellation.
+
+---
+
 ## 2026-08-27 — 7.4b-C (NEW-145/149/155/259) LIVE-VERIFIED ON-DEVICE; NEW-261 discovered and resolved (reserve_slot same-port committed double-count)
 
 - **Status**: Live-verified on-device against real `llama-server` and `ModelLoader` processes. Item 7.4b-C is now fully closed across all tiers (code-complete, code-reviewer-approved, live-verified).
