@@ -12,6 +12,18 @@ and Appendix A.
 
 ---
 
+## 2026-08-27 — Phase B2 subcontractor-recruiter.js JS cutover (**code-complete + tested**)
+
+**Status:** Code-complete, tested. 150/150 Codey-Aigentik tests pass (`npm test`). 133/133 restoricon-core tests pass (`python -m pytest tests/test_restoricon_core/`). Committed and pushed to `Codey-Aigentik` (`53a08bb`).
+
+**What was done:**
+- **JS Write-Through Complete**: Converted `createOrUpdateSubcontractorLead()` in `subcontractor-recruiter.js` to use `POST /api/v1/subcontractors/upsert` with reverse mapping `mapCoreToJS` / `mapJSToCore`.
+- **Update and Read Routes Wired**: Wired `updateSubcontractor()` to `POST /api/v1/subcontractors/:id/update` and `POST /api/v1/subcontractors/:id/qualification`. Wired `findSubcontractor()` and `getSubcontractorById()` to `GET /api/v1/subcontractors?q=`.
+- **Async Callers Updated**: Made `resolvePersonAndRoles` in `role-router.js` async, and updated call sites in `index.js`, `owner-command.js`, and `role-router.js` to await recruiter operations.
+- **Unit Tests**: Updated `tests/role-router.test.js` to mock `fetch` and await `resolvePersonAndRoles`. Full suite passes 150/150.
+
+---
+
 ## 2026-08-27 — Phase B2 subcontractor write-through: NEW-242 + NEW-245 (**code-reviewer-approved**)
 
 **Status:** Code-complete, code-reviewer-approved. 133/133 tests pass. Not live-verified (no process-lifecycle changes; live-verify not required per rules).

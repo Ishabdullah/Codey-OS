@@ -1313,12 +1313,11 @@ need (`update_subcontractor()` then, if status changed, a separate
 `update_subcontractor_qualification()` call).
 
 **Phase B2 write-through progress, updated: 3 of the 10 write-site
-modules are now done at the Core-side level — `do-not-contact.js`,
-`email-rules.js`/`sms-rules.js`, and (Core-only, no JS yet)
-`subcontractor-recruiter.js`'s general-update method.** The JS
-conversion for the third module is still outstanding, alongside the
-still-blocked `contacts.js`/`customer-module.js`, `calendar.js`, and
-comms/email/SMS-provider modules described above.
+modules are now done including JS-side cutovers — `do-not-contact.js`,
+`email-rules.js`/`sms-rules.js`, and `subcontractor-recruiter.js` (Core upsert
+and JS write-through both complete, 150/150 Codey-Aigentik tests pass).**
+Remaining modules: `customer-module.js` (CRM customer intake), `calendar.js`,
+and comms/email/SMS-provider logging.
 
 **Phase B2 task 4, third module, continuation — `find_subcontractor()`
 Core read primitive: code-complete + code-reviewer-approved, 2026-08-27
