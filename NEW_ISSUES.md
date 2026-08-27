@@ -11448,3 +11448,127 @@ discrepancy in what's passing
   fabricated number if it resurfaces.
 - **Cross-reference:** `PROJECT_LOG.md`'s task-4a entry (has the correct
   770/1 figure, unaffected).
+
+## Found during Phase B2 task 4 (write-through pilot module selection) scoping, 2026-08-27 — desk-only, read `~/Aigentik-CLI`'s real code, `restoricon_core/services/crm_service.py`, `restoricon_core/models.py`, and `restoricon_core/database.py` directly per rule 12; not fixed, logged only
+
+### [NEW-224] `subcontractor-recruiter.js`'s `updateSubcontractor()` has no
+Core-side destination — it is not a viable first write-through pilot
+as-is
+- **Status: Confirmed.** `crm_service.py` exposes exactly four
+  subcontractor operations: `create_subcontractor`, `get_subcontractor`,
+  `get_subcontractor_by_external_id`, `list_subcontractors` (filters:
+  `qualification_status`, `primary_trade` only), and
+  `update_subcontractor_qualification` (sets `qualification_status`
+  +optionally `recruitment_step` only). There is no general
+  partial-update method or route. `subcontractor-recruiter.js`'s
+  `updateSubcontractor(id, updates)` is called from `index.js` (twice,
+  merging LLM-extracted fields like `company_name`, `primary_trade`,
+  `years_in_business`, `license_number`, insurance flags, and
+  `qualification_data` deltas mid-SMS-conversation) and from
+  `owner-command.js` (status-only updates, which *would* map to
+  `update_subcontractor_qualification`, but the module's other call
+  sites don't). Task 4a (`c30d755`'s route round) explicitly declined to
+  add by-external-id/general-update routes as "an unrequested feature"
+  since no caller needed them yet — task 4 (write-through) is that
+  caller, so that decision needs revisiting when subcontractors' turn in
+  the write-through sequence comes up.
+- **Action**: not fixed here. Consequence for this round: subcontractors
+  is deferred as the pilot module; `do-not-contact.js` was selected
+  instead (see `CODEY_MASTER_PLAN.md` §6.4's updated task 4 entry) — its
+  4 functions map 1:1 onto the 4 already-shipped do-not-contact routes
+  with no general-update need. When subcontractors' write-through is
+  scoped later, this finding is the blocker to resolve first: either add
+  a general `update_subcontractor(id, **fields)` service method + PATCH-
+  style route (mandatory code-reviewer pass, rule 4's "or security"
+  clause), or have the JS caller compose only the specific fields each
+  existing route supports and drop the free-form merge semantics
+  (behavior change, needs Ish's sign-off since it changes what the live
+  recruiting conversation can record).
+- **Cross-reference:** `CODEY_MASTER_PLAN.md` §6.4 task 4 (write-through
+  replacement, per-module list); `restoricon_core/services/crm_service.py`
+  lines 940-1123; `~/Aigentik-CLI/subcontractor-recruiter.js` (lines with
+  `updateSubcontractor(` calls in `index.js`/`owner-command.js`).
+
+### [NEW-225] `restoricon_core`'s Core API has never been started against
+a real persistent DB or received a real network call from any external
+process
+- **Status: Confirmed, not a defect — a verification-tier fact worth
+  recording explicitly.** `restoricon_core/database.py`'s
+  `DEFAULT_DB_PATH` (`~/.codey_restoricon/core.db`) does not exist on
+  disk; no `restoricon_core/api/server.py` process was found in `ps aux`
+  at scoping time. All existing test coverage (`tests/
+  test_restoricon_core/test_api.py`) uses a `:memory:` DB and a real
+  `ThreadingHTTPServer` bound to a free port within the same test
+  process — a real HTTP roundtrip, but never against the production DB
+  path, never with a second, separate OS process (like a Node.js CLI)
+  as the caller.
+- **Action**: none required as a fix; this is context for whoever
+  live-verifies the do-not-contact write-through pilot (task 4, first
+  slice) — that verification will be the first time the Core API is
+  started against its real DB path and called from outside the Python
+  test process, which is a meaningfully bigger step than "another unit
+  test passed" and should be recorded as such rather than folded into
+  ordinary code-reviewer sign-off.
+- **Cross-reference:** `CODEY_MASTER_PLAN.md` §6.4 task 4's pilot spec;
+  `restoricon_core/database.py:16`; `restoricon_core/api/server.py`
+  (`DEFAULT_PORT = 8770`, confirms `NEW-211`'s `:8080` collision finding
+  is unrelated to this port).
+- **Update, 2026-08-27, after the do-not-contact.js pilot round —
+  partly discharged, not closed.** `tools/provision_ai_agent_auth.py`
+  (new this round) has now actually connected to
+  `~/.codey_restoricon/core.db` at its real, default path and created
+  the schema + one real `ai_agent`-role user + token in it — the "does
+  not exist on disk" half of this finding no longer holds; verified via
+  `ls -la ~/.codey_restoricon/` showing a real `core.db` file. But the
+  second half still holds exactly as written: `ps aux` still shows no
+  `restoricon_core/api/server.py` process, and every HTTP test the
+  do-not-contact pilot's implementer/reviewer ran (18 new + 122 full
+  suite in `~/Codey-Aigentik`) went through a separate locally-started
+  scratch/`:memory:` Core server, not the real DB path. The Core API
+  server has still never served a request against its real persistent
+  DB from an external process. Leave open; will close only once a
+  server process bound to the real DB path actually answers a real
+  external request (the still-pending production cutover, Ish's call).
+
+## Found during Phase B2 task 4 (write-through pilot) implementation, 2026-08-27 — implementer's own report, confirmed by project-architect; not fixed, logged only
+
+### [NEW-226] Three `~/Codey-Aigentik` doc files still describe
+do-not-contact as a local JSON file — stale after this round's
+write-through change
+- **Status: Confirmed.** `docs/architecture.md:148`, `docs/commands.md:87`,
+  and `docs/data-files.md:18` (all in `~/Codey-Aigentik`) describe
+  do-not-contact as stored in `data/do-not-contact.json`. As of this
+  round's write-through pilot, `do-not-contact.js` no longer reads or
+  writes any local file — it calls the Restoricon Core API exclusively
+  (Core-only, no local fallback, by design). These three doc lines are
+  now factually wrong.
+- **Action:** none taken this round — doc staleness only, no code or
+  behavior affected. Fix is a small, low-risk doc edit whenever
+  `~/Codey-Aigentik`'s docs next get a pass; no code-reviewer needed
+  (docs-only change).
+- **Cross-reference:** `CODEY_MASTER_PLAN.md` §4's Phase B2 task 4 pilot
+  entry; `~/Codey-Aigentik/do-not-contact.js` (this round's diff).
+
+### [NEW-227] `tools/provision_ai_agent_auth.py` accumulates tokens on
+repeated reruns — no revocation step
+- **Status: Confirmed, low severity, already self-documented.** The
+  script's own docstring states it plainly: "Idempotent: re-running with
+  the same `--username` reuses the existing user and issues it a new
+  token (old tokens for that user are left valid/expiring on their own
+  schedule — this script does not revoke anything)." Each rerun against
+  the same `--username` therefore leaves behind one more live,
+  never-revoked bearer token for the `ai_agent` user, with no cleanup
+  path.
+- **Action:** none taken this round — logged per rule 8 since it's a
+  real loose end even though it's disclosed, not hidden, behavior. A
+  future pass could add a `--revoke-existing` flag or a token-expiry
+  policy in `restoricon_core/auth.py`, but that's new scope, not a bug
+  fix, and wasn't part of this round's pilot task.
+- **Cross-reference:** `tools/provision_ai_agent_auth.py` (docstring and
+  `provision()`); `restoricon_core/auth.py::AuthService.create_token`.
+
+(The third item scoped for this round — whether `NEW-225`'s status
+needed updating now that the Core DB exists — is handled as an update
+appended directly to `NEW-225` itself above, not as a new numbered
+finding, since it's a status change to an existing entry rather than a
+new fact.)

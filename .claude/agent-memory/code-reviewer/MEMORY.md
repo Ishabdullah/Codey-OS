@@ -72,3 +72,4 @@
 - [NEW-206/§8 Q11 context-budget admission fix — changes requested (doc-logging only)](new206_q11_context_budget_reservation_lifetime_double_count.md) — reservation-held-for-full-call double-counts vs /slots' live signal; check reachability before blocking on a textbook race
 - [Phase B2 task 2 migrate_aigentik.py + RBAC lookups — approved](restoricon_core_phase_b2_task2_migrate_aigentik_approved.md) — negative-control-verified idempotency test; NEW-218 mischaracterizes its own mechanism (mapper never reads source created_at)
 - [Phase B2 task 4a 17 new HTTP routes — approved, 2 warnings](restoricon_core_phase_b2_task4a_routes_approved.md) — read-but-not-write role live-probed (sales); 3 stale test-count baselines (764/770/actual 832) reconciled
+- [Phase B2 task 4 DNC write-through pilot (Codey-Aigentik) — approved](phase_b2_task4_dnc_writethrough_approved.md) — verify a status-code special-case against the real server route, not the comment; 122+774 tests pasted

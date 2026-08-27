@@ -1070,6 +1070,35 @@ citation, since the reviewer found the previously-cited 764/770
 baselines were already stale from unrelated same-day commits):
 `python -m pytest tests/ -q` — **770 passed, 1 skipped**.
 
+**Phase B2 task 4 pilot module (`do-not-contact.js` write-through),
+2026-08-27 — code-complete, code-reviewer-approved with zero findings.
+NOT live-verified against real Aigentik-CLI production traffic (rule
+7).** Built in `~/Codey-Aigentik` (a separate repo from this one;
+`~/Aigentik-CLI`, the live original, was never touched): converted
+`do-not-contact.js`'s four I/O functions from local JSON
+(`data/do-not-contact.json`, which never existed on disk) to Restoricon
+Core API calls, Core-only with no local-file fallback per the
+scoping-round decision above, plus async-correctness fixes in
+`owner-command.js`'s `forEach`/`filter` call sites (both silently
+dropped awaits on the now-async DNC calls; `filter`'s truthy-`Promise`
+bug would have made `handleUnblockContact`'s "removed" check always
+true). New `tools/provision_ai_agent_auth.py` (this repo) provisions the
+one-off `ai_agent` Core user + bearer token the fork's `config.json`
+needs; 4 passing tests in `tests/test_provision_ai_agent_auth.py`.
+Tested: 18/18 new do-not-contact unit tests, 122/122 full
+`~/Codey-Aigentik` suite, all against a locally-started scratch Core
+server — not the real persistent DB path. **`NEW-225` is only partly
+discharged by this round:** the real Core DB (`~/.codey_restoricon/
+core.db`) now exists on disk with one `ai_agent` user provisioned in
+it, but the Core's HTTP API server has never actually been started
+against that real DB path and served a request from an external
+process — every reviewer/implementer HTTP test this round ran against a
+separate in-memory or scratch-file DB, matching `NEW-225`'s original
+distinction exactly. Cutting real production DNC traffic over from
+`~/Aigentik-CLI` to `~/Codey-Aigentik`/Core is a separate decision for
+Ish, not made or scheduled this round. Remaining 9 write-through modules
+(§6.4's per-module list) not started.
+
 ---
 
 ## 5. The device, stated once
@@ -2559,6 +2588,168 @@ only auth job is resolving the Bearer token to an `AuthContext` and
 letting the global `PermissionError` handler turn a service-layer
 rejection into 403. Without that note the new route block reads as if
 it forgot permission checks.
+
+**Task 4 (write-through replacement) — pilot module scoped 2026-08-27,
+desk-only, no code written, `~/Aigentik-CLI` untouched.** Ish asleep;
+proceeding autonomously per his standing instruction, no product-scope
+call made (see below — the one candidate decision this task required
+turned out to be an implementation-readiness fact, not a product
+choice). Read `~/Aigentik-CLI/subcontractor-recruiter.js` in full (682
+lines) plus every caller (`index.js`, `owner-command.js`,
+`role-router.js`, `llama.js`) and `~/Aigentik-CLI/do-not-contact.js` in
+full (its only caller set is the same four files), against
+`restoricon_core/services/crm_service.py`'s real subcontractor methods
+and `restoricon_core/models.py`'s `Subcontractor` dataclass, per rule
+12.
+
+**Subcontractors rejected as the pilot — `NEW-224`.** The task's initial
+premise (subcontractors is the smallest/most isolated candidate because
+task 2's migration already proved the table+service+route chain) turned
+out to be only half true: `crm_service.py` has no general
+partial-update method, only `update_subcontractor_qualification`
+(status/step only). `subcontractor-recruiter.js`'s `updateSubcontractor()`
+— the function actually driving the live SMS conversation's mid-flow
+field merges (trade, experience, licensing, insurance,
+`qualification_data` deltas) — has no Core-side destination to call.
+Building one now would mean adding a new service method + route this
+round, which is itself a security-relevant Core change needing its own
+mandatory code-reviewer pass — not the "smallest, most isolated" pilot
+this step calls for. See `NEW-224` for the full method-by-method gap.
+
+**`do-not-contact.js` selected instead — clean 1:1 route match, zero
+production-data risk.** Its four I/O functions
+(`loadEntries`/`saveEntries` internal, `isBlocked`,
+`addToDoNotContact`, `removeFromDoNotContact`, `listDoNotContact`) map
+exactly onto the four already-shipped routes (`GET /do-not-contact`,
+`POST /do-not-contact`, `POST /do-not-contact/remove`, `GET
+/do-not-contact/check`) with no missing verb and no general-update need
+— `addToDoNotContact`'s upsert-by-identifier semantics match
+`automation_service.py`'s `add_to_do_not_contact` exactly. Per §6.4's
+task-2 migration findings, `~/Aigentik-CLI/data/do-not-contact.json`
+**does not exist yet** — zero production DNC entries as of 2026-08-27 —
+so a Core-only cutover for this one resource has no existing data to
+lose or dual-write to reconcile.
+
+**Edit target confirmed: `~/Codey-Aigentik`, not `~/Aigentik-CLI`.**
+Per §3.4's fork rationale and this project's standing rule that
+`~/Aigentik-CLI` is never modified, the write-through change lands in
+the fork's copy of `do-not-contact.js` (and its callers' call sites in
+`index.js`/`owner-command.js`/`role-router.js`, all present verbatim in
+the fork as of the 2026-08-27 clone).
+
+**Dual-write vs. Core-only — decided as Core-only, no local JSON
+fallback, not escalated to Ish.** The scoping round's first instinct was
+defensive dual-write (Core as source of truth, JSON as fallback) on the
+reasoning that this is Ish's live production messaging system and
+degrading write availability would have real consequences. That
+reasoning doesn't hold for the actual edit target: `~/Codey-Aigentik`
+has no `config.json` and no `data/` directory yet, so it cannot run at
+all today — there is no live traffic in the fork to protect. Dual-write's
+only justification (availability under Core outage) doesn't apply until
+cutover (retiring `~/Aigentik-CLI` in favor of the fork) actually
+happens, and that retirement is Ish's decision, not made here. Worse,
+dual-write has a real correctness bug for this specific resource: if the
+Core write fails but the local JSON write succeeds, `isBlocked()` calls
+against Core would miss an entry only the JSON file knows about,
+silently failing the one thing this list exists to guarantee (never
+re-contacting someone who opted out) — a defensive fallback that
+degrades the safety property it's meant to protect is worse than a
+hard failure. Decision: Core-only for this pilot; a failed HTTP call
+surfaces as an error to the caller rather than silently falling back to
+local JSON. This is a technical rollout-safety call, not a product-scope
+decision — it doesn't foreclose any option Ish would care about, and is
+documented here rather than escalated per that reasoning; flag it to
+Ish for confirmation before any live cutover regardless.
+
+**Auth provisioning (task-list step 2) confirmed NOT done — required as
+part of this task's prerequisites, not deferred.** `~/Aigentik-CLI/
+config.json` has no `core_api` block (full key structure read and
+confirmed: `owner`/`gmail`/`llama`/`llm`/`gemini`/`vertex`/`sms`/
+`behavior`/`paths` only). `~/Codey-Aigentik/config.json` does not exist
+at all yet (only `config.json.example`) — and because
+`do-not-contact.js` (like every write-site module) does a static ES
+`import config from './config.json' with { type: 'json' }`, the fork's
+modules cannot even be imported, let alone tested, without that file
+existing first. `restoricon_core/database.py`'s `DEFAULT_DB_PATH`
+(`~/.codey_restoricon/core.db`) does not exist on disk either — the
+Core has never been run against its real persistent DB (`NEW-225`). No
+`restoricon_core/api/server.py` process was found running (`ps aux`
+checked). Prerequisite work folded into this task: (1) start the Core
+API once against its real DB path (creates the schema via `CREATE TABLE
+IF NOT EXISTS` on first connection) to run `auth.py`'s `create_user()`
+(role=`ai_agent`) + `create_token()` once, producing a real bearer
+token; (2) create `~/Codey-Aigentik/config.json` (copy from
+`config.json.example`, gitignored per `NEW-210`, never committed) with
+a new `core_api` block: `{ "base_url": "http://127.0.0.1:8770", "token":
+"<the token>" }` (port confirmed from `restoricon_core/api/
+server.py:28`'s `DEFAULT_PORT = int(os.getenv("RESTORICON_API_PORT",
+"8770"))` — distinct from the `:8080` `llama.js` `chatLocal()` uses,
+confirming `NEW-211`'s port-collision finding is unrelated to this step,
+per point 5 below). This is provisioning + config only, no Core-side
+code change (`create_user`/`create_token`/`ROLE_AI_AGENT` all already
+exist per the auth-provisioning note already in this section).
+
+**Confirms NEW-211 is unrelated to this step.** `NEW-211` is about
+`llama.js`'s `chatLocal()` hitting `:8080` (Codey-OS's own
+`PRIMARY_SERVER_PORT`) for *model* calls — that's task-list step 5
+(model-layer repoint), a separate, harder, not-yet-designed piece of
+work. `do-not-contact.js`'s writes never touch the model or port 8080;
+this pilot can proceed fully independently of NEW-211's resolution.
+
+**Implementer spec:**
+1. Convert `loadEntries`/`saveEntries`/`isBlocked`/`addToDoNotContact`/
+   `removeFromDoNotContact`/`listDoNotContact` to `async function`s that
+   call the Core's four do-not-contact routes over HTTP (`fetch` —
+   already a global in this Node runtime per `llama.js`'s existing
+   usage, so `install.sh`/`package.json` need no new dependency; state
+   this positively rather than silently skipping the rule-11 check).
+   `loadEntries`'s current unconditional list-load becomes a `GET
+   /api/v1/do-not-contact` call; drop the local-file existence check
+   entirely (Core-only, no fallback, per the decision above).
+   `detectOptOutRequest` and `classifyIdentifier`/`normalizePhone`/
+   `normalizeEmail` are pure functions with no I/O — leave them
+   untouched, still local, still synchronous.
+2. Every call site becomes `await`-ed. All current call sites already
+   sit inside `async function`s (`checkDoNotContact` in `index.js`,
+   `handleBlockContact`/`handleUnblockContact`/`executeInterpretedCommand`
+   in `owner-command.js`, `detectRoleAndIntent` in `role-router.js` — the
+   `detectOptOutRequest` call inside it needs no change since that
+   function stays synchronous) — no wider async-propagation refactor is
+   needed elsewhere in the fork for this module. Two specific sites need
+   restructuring, not just an `await` added: `owner-command.js`'s
+   `handleBlockContact` uses `identifiers.forEach(id =>
+   doNotContact.addToDoNotContact(...))` and `handleUnblockContact` uses
+   `candidates.filter(id => doNotContact.removeFromDoNotContact(id))` —
+   both need converting to `for...of` with `await` (or
+   `Promise.all`/`Promise.allSettled` if concurrent calls are
+   acceptable) since `.forEach()`/`.filter()` do not await a callback's
+   returned promise, and `handleUnblockContact`'s `filter` result
+   (`removed.length === 0` check) would silently be wrong (comparing
+   truthy `Promise` objects, always `>0`) if left as-is.
+3. Preserve existing return shapes/behavior exactly: `isBlocked` still
+   resolves to a `bool`; `addToDoNotContact` still resolves to the
+   entry object (or `null` for an unclassifiable identifier — matches
+   the route table's documented 400 case, translate a non-2xx Core
+   response into the same `null` return the callers already branch on);
+   `removeFromDoNotContact` still resolves to a `bool`; `listDoNotContact`
+   still resolves to the same formatted string (build it client-side
+   from the `GET /api/v1/do-not-contact` list response, matching the
+   existing numbering/format).
+4. Update the fork's `install.sh`/README with the `core_api` config
+   step so a fresh clone of `~/Codey-Aigentik` can be configured
+   end-to-end (rule 11).
+5. Tests: extend the fork's existing `tests/do-not-contact.test.js`
+   pattern to mock the Core API HTTP calls rather than the filesystem;
+   do not delete existing behavioral test cases, convert their
+   assertions to the new async signatures.
+
+**Verification tier this task can reach:** code-complete +
+code-reviewer-approved + tested against a Core API instance started
+locally for the test run. It cannot be "live verified" against
+`~/Aigentik-CLI`'s real production traffic in this round — that would
+require retiring `~/Aigentik-CLI` in favor of the fork, which is Ish's
+cutover decision and unmade. Record the tier honestly per rule 7 rather
+than implying production verification happened.
 
 **Findings logged out of scope, `NEW-219`/`NEW-220`/`NEW-221` in
 `NEW_ISSUES.md`** (not fixed here): `automation_service.py` has no

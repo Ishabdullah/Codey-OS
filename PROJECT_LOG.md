@@ -12,6 +12,145 @@ and Appendix A.
 
 ---
 
+## 2026-08-27 — Phase B2 task 4 pilot (do-not-contact.js write-through) built, code-reviewer-approved, and finalized — spans `~/Codey-Aigentik` and `~/Codey-OS`, two repos, two commits
+
+Implementer built the spec from the round above; code-reviewer approved
+with zero findings. This entry finalizes and commits both repos.
+
+**`~/Codey-Aigentik` (commit `4dd1232`, pushed to `origin/main`,
+`github.com/Ishabdullah/Codey-Aigentik`):** `do-not-contact.js`'s
+`loadEntries`/`saveEntries`/`isBlocked`/`addToDoNotContact`/
+`removeFromDoNotContact`/`listDoNotContact` converted from local JSON
+I/O to Restoricon Core API calls (Core-only, no local fallback — DNC is
+a hard suppression guarantee, and a silently-diverging fallback is worse
+than a hard failure). `owner-command.js`'s `handleBlockContact`/
+`handleUnblockContact` fixed from `.forEach()`/`.filter()` (which don't
+await a callback's promise) to `for...of` with `await` —
+`handleUnblockContact`'s old `filter` result would always have been
+truthy `Promise` objects, making its "removed" check always pass.
+`install.sh` and `docs/configuration.md` updated with the new
+`core_api` config step (rule 11). Re-run this round, verbatim: new
+`tests/do-not-contact.test.js` — **18 passed, 18 total**; full suite
+(`npm test`) — **8 suites, 122 tests, all passed**. `config.json` (real,
+holds the live bearer token) confirmed still gitignored via `git
+check-ignore -v config.json` → `.gitignore:5:config.json`; not staged,
+not committed.
+
+**`~/Codey-OS` (this repo, commit below):** new
+`tools/provision_ai_agent_auth.py` — one-off script that connects to
+`restoricon_core`'s real persistent DB (`~/.codey_restoricon/core.db`,
+created via `CREATE TABLE IF NOT EXISTS` on first connection since it
+didn't exist before this round) and creates/reuses one `ai_agent`-role
+user + issues it a bearer token, which was hand-copied into
+`~/Codey-Aigentik/config.json`'s new `core_api.token` field (not
+committed — that file is gitignored and real). New `tests/
+test_provision_ai_agent_auth.py` — **4 passed**. Full suite re-run fresh
+this round: `python -m pytest tests/ -q` → **774 passed, 1 skipped**
+(53.14s).
+
+**Verification tier — explicit, per rule 7: code-complete +
+code-reviewer-approved. NOT live-verified against real production
+traffic.** All HTTP testing (implementer's, reviewer's, and this
+round's `npm test`/`pytest` re-runs) went through a locally-started
+scratch/`:memory:` Core server, never the real DB path with a real
+server process serving an external caller. `~/Aigentik-CLI` (the live
+original CLI actually running Ish's business) was never touched by any
+part of this round — only its fork, `~/Codey-Aigentik`, was edited.
+Cutting real production do-not-contact traffic over from
+`~/Aigentik-CLI` to the Core-backed fork is a separate decision for Ish,
+not made or scheduled here.
+
+**`NEW-225` updated, not closed** (see `NEW_ISSUES.md`): the real Core
+DB now exists on disk with one real `ai_agent` user in it, but the
+Core's HTTP API server has still never been started against that real
+DB path and served a request from an external process — the finding's
+core claim still holds in its second half. Three new findings logged,
+`NEW-226` (3 stale `~/Codey-Aigentik` doc references to the old JSON
+file location, doc-only, not fixed) and `NEW-227` (`provision_ai_agent_
+auth.py`'s tokens accumulate on rerun with no revocation step — already
+disclosed in its own docstring, logged per rule 8 anyway since it's a
+real loose end).
+
+**Scope explicitly not touched this round:** the remaining 9
+write-through modules in §6.4's per-module list, and any real production
+cutover decision.
+
+---
+
+## 2026-08-27 — Phase B2 task 4 (write-through pilot) module scoped: subcontractors rejected, do-not-contact.js selected — desk-only, no code written
+
+Autonomous continuation while Ish asleep, per his standing instruction;
+no product-scope decision made. Task: pick the smallest, most isolated
+Aigentik-CLI module for a write-through-to-Core proof-of-concept, per
+`CODEY_MASTER_PLAN.md` §6.4 task-list item 4.
+
+**Subcontractors rejected as the pilot (`NEW-224`).** Read
+`~/Aigentik-CLI/subcontractor-recruiter.js` (682 lines) and all four
+callers (`index.js`, `owner-command.js`, `role-router.js`, `llama.js`)
+against `restoricon_core/services/crm_service.py`'s real subcontractor
+methods. `crm_service.py` has no general partial-update method — only
+`update_subcontractor_qualification` (status/step only) — but
+`updateSubcontractor()` is what actually drives the live SMS
+conversation's mid-flow field merges (trade, experience, licensing,
+insurance, `qualification_data`). Building a general update path now
+would itself be a new security-relevant Core change needing its own
+code-reviewer pass, contradicting the "smallest, most isolated" premise.
+
+**`do-not-contact.js` selected instead.** Its four I/O functions map
+1:1 onto the four already-shipped do-not-contact routes with no
+general-update gap. `~/Aigentik-CLI/data/do-not-contact.json` does not
+exist in production (0 records) — zero data-loss risk on a Core-only
+cutover for this resource.
+
+**Dual-write vs. Core-only, decided Core-only, not escalated.** Initial
+instinct was defensive dual-write given this is Ish's live production
+system, but the actual edit target (`~/Codey-Aigentik`) has no
+`config.json`/`data/` yet and cannot run at all today — there's no live
+traffic to protect yet, so dual-write's only justification doesn't
+apply. Dual-write also has a real correctness bug here: a local-only
+fallback entry would be invisible to Core-backed `isBlocked()` checks,
+silently breaking the one guarantee this list exists for. Documented as
+an interim rollout decision in `CODEY_MASTER_PLAN.md` §6.4, not
+escalated (doesn't foreclose any product option) — flagged for Ish's
+confirmation before any real cutover.
+
+**Auth provisioning confirmed not done, folded into this task's
+prerequisites.** No `core_api` block in `~/Aigentik-CLI/config.json`;
+no `~/Codey-Aigentik/config.json` exists at all (blocks even importing
+the fork's ES modules, which statically `import config from
+'./config.json'`); `restoricon_core`'s real DB path
+(`~/.codey_restoricon/core.db`) doesn't exist — Core has never run
+against persistent storage (`NEW-225`); no Core API process found
+running (`ps aux` checked, port 8770 confirmed via
+`server.py:28`/`DEFAULT_PORT`). Spec requires: start Core once against
+its real DB path, `create_user(role="ai_agent")` + `create_token()`
+once, write the token into a fresh gitignored
+`~/Codey-Aigentik/config.json`'s new `core_api` block.
+
+**NEW-211 confirmed unrelated to this step** — it's about `llama.js`'s
+model calls hitting `:8080` (task-list step 5), not this resource's
+writes; Core API's own port is 8770, no collision.
+
+**Full implementer spec (async conversion, two `.forEach()`/`.filter()`
+sites needing restructuring to `for...of`/`Promise.all`, return-shape
+preservation, test-conversion, install.sh/README update) written into
+`CODEY_MASTER_PLAN.md` §6.4's task 4 entry** — handed off, not yet
+implemented. Next: implementer, then mandatory code-reviewer pass
+(security-relevant per the Workflow section's clause, even though rule
+4's process-lifecycle criteria don't apply). Verification tier this
+round can reach once built: code-complete + reviewer-approved + tested
+against a locally-started Core instance — not live-verified against
+real `~/Aigentik-CLI` production traffic, since that needs Ish's
+cutover decision.
+
+**Findings logged:** `NEW-224` (subcontractors' `updateSubcontractor()`
+has no Core destination — blocks that module as a future pilot until a
+general-update service method + route is added), `NEW-225` (Core API
+has never run against its real persistent DB or been called from a
+separate OS process — context for whoever live-verifies this pilot).
+
+---
+
 ## 2026-08-27 — Phase B2 task 4a (routes for the 5 new resources) built and code-reviewer-approved
 
 **Status: code-complete, code-reviewer-approved. NOT live-verified**
