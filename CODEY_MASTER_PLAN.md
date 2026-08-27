@@ -1099,6 +1099,40 @@ distinction exactly. Cutting real production DNC traffic over from
 Ish, not made or scheduled this round. Remaining 9 write-through modules
 (§6.4's per-module list) not started.
 
+**Phase B2 task 4, second module (`email-rules.js`/`sms-rules.js`
+write-through), 2026-08-27 — code-complete, code-reviewer-approved.
+NOT live-verified against real Aigentik-CLI production traffic (same
+tier as the DNC pilot, rule 7).** Built in `~/Codey-Aigentik`: converted
+`email-rules.js`'s and `sms-rules.js`'s local-JSON I/O to Restoricon
+Core API calls, following the DNC pilot's `coreRequest()` pattern, plus
+associated `index.js`/`owner-command.js` call-site fixes. Required a new
+Core-side capability (`NEW-230`): `AutomationService.delete_rule(rule_id,
+actor)` in `restoricon_core/services/automation_service.py` and
+`POST /api/v1/automation-rules/{id}/delete` in
+`restoricon_core/api/routes.py`, since `removeRule()`'s fuzzy
+id-or-description match (kept client-side) had no Core-side deletion
+target before this round. Code-reviewer approved with one non-blocking
+doc-accuracy note (corrected in `NEW_ISSUES.md`'s `NEW-230` entry:
+`delete_rule`'s audit logging is conditional on a successful delete,
+matching `remove_from_do_not_contact`'s pattern, not `create_rule`'s
+unconditional log as originally written). Tested against a
+locally-started scratch Core server, not the real persistent DB path —
+150/150 `~/Codey-Aigentik` suite (`npm test`), 778 passed/1 skipped in
+this repo's own `tests/` (`python -m pytest tests/ -q`).
+
+**Phase B2 write-through progress: 2 of the 10 write-site modules
+(§6.4's per-module list) are now done — `do-not-contact.js` and
+`email-rules.js`/`sms-rules.js`.** Remaining modules and their current
+blockers: `contacts.js`/`customer-module.js` (blocked on `NEW-212`/
+`NEW-215`, Ish's scope call, not a design gap); `subcontractor-
+recruiter.js` (blocked on `NEW-224` — needs a general partial-update
+method design, open-ended field set); `calendar.js` (blocked on a
+similar general-update gap per the task-4 scoping round's own
+evaluation); and the comms/email/SMS-provider paths
+(`email-provider.js`/`gmail.js`/`index.js`'s Google Voice handling →
+a communications endpoint), which is the next **unblocked** candidate —
+no design gap or Ish decision pending on it as of this round.
+
 ---
 
 ## 5. The device, stated once
@@ -2992,6 +3026,11 @@ code-reviewer-approved + tested against a Core API instance started
 locally for the test run — same tier as the DNC pilot, for the same
 reason (no `~/Aigentik-CLI` production cutover has happened). Record the
 tier honestly per rule 7.
+
+**Built and closed at exactly this tier, 2026-08-27 — see §4's full
+entry** for what was built, the corrected `NEW-230` audit-logging
+detail, and the test counts (150/150 `~/Codey-Aigentik`, 778/1 this
+repo).
 
 **Findings logged out of scope this round, not fixed here:** `NEW-228`
 (pre-existing dead `message_contains` email rule in production data —

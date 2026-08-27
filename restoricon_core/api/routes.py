@@ -342,6 +342,11 @@ class APIRouter:
                     return 404, {"Content-Type": "application/json"}, {"error": "Automation rule not found"}
                 return 200, {"Content-Type": "application/json"}, {"automation_rule": updated_rule.to_dict()}
 
+            if path.startswith("/api/v1/automation-rules/") and path.endswith("/delete") and method == "POST":
+                rule_id = int(path.split("/")[-2])
+                deleted = self.automation.delete_rule(rule_id, actor)
+                return 200, {"Content-Type": "application/json"}, {"deleted": deleted}
+
             # Business Profile (singleton)
             if path == "/api/v1/business-profile":
                 if method == "GET":

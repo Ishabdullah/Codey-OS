@@ -262,12 +262,55 @@ def test_record_rule_match_does_not_write_audit_log(setup_ops_services, admin_ac
         lambda auto, actor: auto.create_rule(AutomationRule(channel="email"), actor),
         lambda auto, actor: auto.list_rules(actor),
         lambda auto, actor: auto.record_rule_match(1, actor),
+        lambda auto, actor: auto.delete_rule(1, actor),
     ],
 )
 def test_automation_rule_methods_reject_zero_permission_actor(setup_ops_services, call):
     _, _, _, _, _, automation_service = setup_ops_services
     with pytest.raises(PermissionError):
         call(automation_service, ZeroPermissionActor())
+
+
+def test_delete_rule_removes_row_and_audit_logs(setup_ops_services, admin_actor):
+    """NEW-230: delete_rule() happy path -- row is gone from list_rules,
+    an audit log entry is written (unlike record_rule_match), and a
+    second delete of the same already-gone id returns False rather than
+    erroring."""
+    _, _, audit_service, _, _, automation_service = setup_ops_services
+
+    rule = automation_service.create_rule(
+        AutomationRule(channel="email", condition_type="from", condition_value="x", action="spam"),
+        admin_actor,
+    )
+
+    deleted = automation_service.delete_rule(rule.id, admin_actor)
+    assert deleted is True
+    assert automation_service.list_rules(admin_actor, channel="email") == []
+
+    logs = audit_service.query_logs(admin_actor, entity_type="automation_rule", action="delete")
+    assert len(logs) == 1
+
+    # Deleting an already-gone id is not an error -- returns False.
+    assert automation_service.delete_rule(rule.id, admin_actor) is False
+
+
+def test_delete_rule_rejects_zero_permission_actor_and_leaves_row_intact(setup_ops_services, admin_actor):
+    """A denied delete_rule() call must not remove the row -- confirm the
+    permission check happens before any DB mutation, not just that the
+    exception is raised."""
+    _, _, _, _, _, automation_service = setup_ops_services
+
+    rule = automation_service.create_rule(
+        AutomationRule(channel="sms", condition_type="from_number", condition_value="555", action="spam"),
+        admin_actor,
+    )
+
+    with pytest.raises(PermissionError):
+        automation_service.delete_rule(rule.id, ZeroPermissionActor())
+
+    listed = automation_service.list_rules(admin_actor, channel="sms")
+    assert len(listed) == 1
+    assert listed[0].id == rule.id
 
 
 # ==========================================

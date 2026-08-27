@@ -316,6 +316,49 @@ def test_api_automation_rules_crud(api_server):
     assert status == 404
 
 
+def test_api_automation_rules_delete(api_server):
+    """NEW-230: POST /api/v1/automation-rules/{id}/delete -- always-200
+    bare-bool shape (matching /do-not-contact/remove), not a 404 for a
+    delete of an already-gone id."""
+    _, base_url, _, _ = api_server
+    headers = _agent_headers(base_url)
+
+    status, body = make_request(
+        f"{base_url}/api/v1/automation-rules",
+        method="POST",
+        headers=headers,
+        data={
+            "channel": "sms",
+            "condition_type": "from_number",
+            "condition_value": "5551234567",
+            "action": "spam",
+        },
+    )
+    assert status == 201
+    rule_id = body["automation_rule"]["id"]
+
+    status, body = make_request(
+        f"{base_url}/api/v1/automation-rules/{rule_id}/delete",
+        method="POST",
+        headers=headers,
+    )
+    assert status == 200
+    assert body["deleted"] is True
+
+    status, body = make_request(f"{base_url}/api/v1/automation-rules", headers=headers)
+    assert status == 200
+    assert len(body["automation_rules"]) == 0
+
+    # Deleting an already-gone id -> still 200, bare False, never 404.
+    status, body = make_request(
+        f"{base_url}/api/v1/automation-rules/{rule_id}/delete",
+        method="POST",
+        headers=headers,
+    )
+    assert status == 200
+    assert body["deleted"] is False
+
+
 def test_api_business_profile_singleton(api_server):
     _, base_url, _, _ = api_server
     headers = _agent_headers(base_url)
@@ -446,6 +489,11 @@ def test_api_new_resources_permission_denied_for_technician(api_server):
     assert status == 403
 
     status, _ = make_request(f"{base_url}/api/v1/automation-rules", headers=tech_headers)
+    assert status == 403
+
+    status, _ = make_request(
+        f"{base_url}/api/v1/automation-rules/1/delete", method="POST", headers=tech_headers
+    )
     assert status == 403
 
     status, _ = make_request(f"{base_url}/api/v1/business-profile", headers=tech_headers)

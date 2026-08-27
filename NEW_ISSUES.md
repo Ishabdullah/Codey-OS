@@ -11670,7 +11670,9 @@ finding but narrower in scope
   task rather than deferred. Per that precedent, this is scoped as
   in-scope, not deferred: add `AutomationService.delete_rule(rule_id,
   actor)` (permission-gated on `PERM_WRITE_AUTOMATION_RULES`,
-  audit-logged like `create_rule`, returns `bool`) and a
+  audit-logged only on a successful delete — like
+  `remove_from_do_not_contact`'s pattern, not `create_rule`'s
+  unconditional log — returns `bool`) and a
   `POST /api/v1/automation-rules/{id}/delete` route (action-suffix
   convention, matching `/do-not-contact/remove`'s shape — no PUT/DELETE
   HTTP verbs are used anywhere in `routes.py` today, so a DELETE method
@@ -11685,3 +11687,39 @@ finding but narrower in scope
 - **Cross-reference:** `restoricon_core/services/automation_service.py`;
   `restoricon_core/api/routes.py:325-343`; `NEW-224`; `NEW-217`;
   `CODEY_MASTER_PLAN.md` §6.4 task 4's email-rules.js/sms-rules.js spec.
+
+### [NEW-231] `automation_rules` table has no `last_matched` column —
+email-rules.js's/sms-rules.js's per-rule `last_matched` timestamp is
+silently dropped by the B2 write-through cutover, found while implementing
+that task, out of scope to fix there
+- **Status: Confirmed, found during the email-rules.js/sms-rules.js
+  write-through implementation (§6.4 task 4), not fixed as part of it.**
+  Pre-cutover, both JS files' `checkRules()` set
+  `allRules[rIdx].last_matched = new Date().toISOString()` on every match
+  and persisted it in the local JSON file, alongside `match_count`.
+  `restoricon_core/database.py`'s `automation_rules` table
+  (`restoricon_core/database.py:341-353`) has no `last_matched` column —
+  only `match_count` and `updated_at` (the latter is in fact updated by
+  `record_rule_match()` on every match, so the *information* isn't fully
+  lost, but it's no longer exposed as its own named field the way the
+  pre-cutover data shape had it). `docs/rules.md:13` in `~/Codey-Aigentik`
+  asserted "every rule tracks its own `match_count` and `last_matched`
+  timestamp" — that claim is no longer literally true post-cutover, so
+  the write-through task's implementer corrected that one doc line as a
+  direct, in-scope consequence of its own change (not a separate finding
+  fix), while logging the underlying schema gap here rather than adding a
+  column mid-task.
+- **Action:** none taken on the schema — out of scope for the write-through
+  task per the master-plan spec, which didn't call out `last_matched`
+  specifically (only `match_count`, `external_id`, precedence, pagination,
+  and channel isolation). If a `last_matched` field is wanted going
+  forward, it's a small, additive schema change (one new nullable column
+  on `automation_rules`, one new field on the `AutomationRule` dataclass,
+  set alongside `match_count` in `record_rule_match()`) for a future round
+  to decide on, not urgent since `updated_at` already carries the same
+  timestamp today.
+- **Cross-reference:** `restoricon_core/database.py:341-353`;
+  `restoricon_core/services/automation_service.py`'s `record_rule_match`;
+  `~/Codey-Aigentik/email-rules.js`/`sms-rules.js` (pre-cutover version,
+  git history); `~/Codey-Aigentik/docs/rules.md`; `CODEY_MASTER_PLAN.md`
+  §6.4 task 4's email-rules.js/sms-rules.js spec.

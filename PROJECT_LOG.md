@@ -12,6 +12,55 @@ and Appendix A.
 
 ---
 
+## 2026-08-27 — Phase B2 task 4, second write-through module BUILT: `email-rules.js`/`sms-rules.js` — code-complete, code-reviewer-approved, NOT live-verified against real production traffic
+
+Implementer built the module scoped in the round below. Spans two
+repos.
+
+**`~/Codey-Aigentik`** (commit `777c699`, pushed to `origin/main`,
+`4dd1232..777c699`): converted `email-rules.js`'s and `sms-rules.js`'s
+local-JSON I/O to Restoricon Core API calls via the DNC pilot's
+`coreRequest()` pattern, plus corresponding `index.js`/
+`owner-command.js` call-site fixes. New `tests/email-rules.test.js`/
+`tests/sms-rules.test.js`. Doc updates to `docs/data-files.md`/
+`docs/rules.md` for the two rows this module touches. `config.json`
+(gitignored) confirmed unmodified/restored before staging —
+`git status --short config.json` empty, `git check-ignore -v
+config.json` confirms the ignore rule. Full suite: **150 passed, 10
+test suites** (`npm test`).
+
+**This repo**: new `AutomationService.delete_rule(rule_id, actor)` in
+`restoricon_core/services/automation_service.py` and
+`POST /api/v1/automation-rules/{id}/delete` in
+`restoricon_core/api/routes.py`, resolving `NEW-230` — `removeRule()`'s
+fuzzy id-or-description match had no Core-side deletion target before
+this round. Code-reviewer approved with one non-blocking doc-accuracy
+finding: `NEW-230`'s original write-up said `delete_rule`'s audit
+logging was unconditional "like `create_rule`"; the actual
+implementation logs only on a successful delete, matching
+`remove_from_do_not_contact`'s pattern instead. Corrected in
+`NEW_ISSUES.md` per rule 6 before this round's commit. Full suite,
+re-run fresh this round (not reused from a prior count, per the
+`NEW-223` lesson): **778 passed, 1 skipped** (`python -m pytest
+tests/ -q`, 54.07s).
+
+**Verification tier:** code-complete + code-reviewer-approved + tested
+against a locally-started scratch Core server. **NOT** live-verified
+against real `~/Aigentik-CLI` production traffic — same tier as the
+`do-not-contact.js` pilot, for the same reason (no production cutover
+has happened; rule 7).
+
+**Phase B2 write-through progress:** 2 of 10 write-site modules done
+(`do-not-contact.js`; `email-rules.js`/`sms-rules.js`). Remaining
+blocked/unblocked status recorded in `CODEY_MASTER_PLAN.md` §4's new
+entry — next unblocked candidate is the comms/email/SMS-provider paths
+(`email-provider.js`/`gmail.js`/`index.js`'s Google Voice handling).
+
+No further Phase B2 work started this round per the handoff's explicit
+scope limit.
+
+---
+
 ## 2026-08-27 — Phase B2 task 4, second write-through module scoped: `email-rules.js`/`sms-rules.js` — desk-only, spec handed to implementer, no code written
 
 Ish asleep, working autonomously per his standing instruction; no

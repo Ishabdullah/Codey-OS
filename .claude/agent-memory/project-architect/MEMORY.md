@@ -37,3 +37,4 @@
 - [Phase B2 task4a routes scoped](project_phase_b2_task4a_routes_scoped.md) — 2026-08-27, RBAC lives in service layer not routes; APIRouter( has 1 construction site repo-wide; NEW-219/220/221 spun off; spec only, not implemented
 - [Phase B2 task4a routes closed](project_phase_b2_task4a_routes_closed.md) — 2026-08-27, 17 routes code-complete+code-reviewer-approved, 770/1 tests re-run fresh (stale-count warning); NEW-222 spun off; not live-verified, no JS write-through yet
 - [Phase B2 task4 DNC pilot closed](project_phase_b2_task4_dnc_pilot_closed.md) — 2026-08-27, two-repo close (Codey-Aigentik 4dd1232 + Codey-OS); 122/122 + 774/1 tests; NEW-225 partly discharged not closed; NEW-226/227 spun off
+- [Phase B2 task4 email/sms-rules scoped](project_phase_b2_task4_email_sms_rules_scoped.md) — 2026-08-27, e93a359, spec-only not implemented; calendar.js confirmed still blocked (NEW-224-class); NEW-228/229/230 spun off, NEW-230 resolved in-spec

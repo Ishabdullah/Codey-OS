@@ -178,6 +178,34 @@ class AutomationService:
             return None
         return self._row_to_rule(row)
 
+    def delete_rule(self, rule_id: int, actor: AuthContext) -> bool:
+        """Delete one automation_rules row by its own integer id.
+        NEW-230: email-rules.js/sms-rules.js's removeRule() has no Core
+        equivalent without this -- the fuzzy id-or-description match stays
+        client-side in the JS; this only deletes the already-resolved id.
+        Always returns a bool (deleting an already-gone id is not an
+        error), matching remove_from_do_not_contact()'s shape."""
+        if not actor.has_permission(PERM_WRITE_AUTOMATION_RULES):
+            raise PermissionError("Actor lacks permission to delete automation rules")
+
+        conn = self.db.get_connection()
+        with conn:
+            cursor = conn.execute(
+                "DELETE FROM automation_rules WHERE id = ?;",
+                (rule_id,),
+            )
+            deleted = cursor.rowcount > 0
+
+        if deleted:
+            self.audit.log(
+                action="delete",
+                entity_type="automation_rule",
+                entity_id=rule_id,
+                change_summary=f"Deleted automation rule {rule_id}",
+                actor=actor,
+            )
+        return deleted
+
     def record_rule_match(self, rule_id: int, actor: AuthContext) -> Optional[AutomationRule]:
         """Increment a rule's hit counter. Deliberately NOT audit-logged:
         this fires on every inbound message a rule matches (a
