@@ -12,6 +12,57 @@ and Appendix A.
 
 ---
 
+## 2026-08-27 — Phase B2 task 4, comms/email/SMS-provider write-through — SCOPED ONLY, found BLOCKED, not implemented
+
+Autonomous continuation round (Ish asleep, told not to make product-scope
+decisions). Read `~/Codey-Aigentik/email-provider.js` in full and the
+Google Voice/SMS handling in `~/Codey-Aigentik/index.js`
+(`handleGoogleVoiceText`), plus `communication_service.py` and
+`routes.py`'s `/api/v1/communications` route.
+
+**Result: this module was not handed off for implementation.** Two
+blocking findings, both logged this round:
+- `NEW-232`: `customers`/`leads` tables have no `external_id` column
+  (unlike `automation_rules`/`subcontractors`/`appointments`, which each
+  got one in the schema-expansion round), so there is no way for
+  Aigentik's JS-side contact/customer IDs to resolve to Core's integer
+  `customer_id` FK — every comms write would land with `customer_id=
+  NULL`, defeating the one customer-scoped query path that makes the log
+  useful. This is a hard sequencing dependency, elevating the
+  already-logged `NEW-212`.
+- `NEW-233`: `communication_history` has no idempotency key. Combined
+  with `email-provider.js`'s own documented IMAP `\Seen`-flag race
+  (comment at `email-provider.js:359-362`: a failed flag update causes
+  the same email to be "reprocessed and re-replied to on every poll"),
+  an inbound write-through would append duplicate rows to a table whose
+  stated semantics are append-only/immutable.
+
+Also confirmed, independent of either blocker: unlike the DNC pilot
+(read-gate, correctly Core-only/fail-loud), outbound comms logging must
+be best-effort/non-blocking — `sendEmail`/`sendReply` throw on failure
+and callers act on that throw, so a Core failure placed in that path
+risks suppressing a real send or a caller retrying an already-successful
+one. This is settled as an engineering conclusion, not deferred to Ish.
+
+Two narrow questions genuinely are Ish's and are logged as a pending
+decision in `CODEY_MASTER_PLAN.md` (§4, the task-4 comms entry): (1)
+whether to prioritize closing `NEW-212`/`NEW-232` now, and (2) whether a
+knowingly-lossy best-effort comms log is acceptable as an interim state
+for what's meant to become the single backend for all Restoricon data.
+Neither has been asked/answered yet — this round only surfaces them.
+
+No code changed. `~/Aigentik-CLI` untouched, as instructed. Also
+confirmed (correcting §4's prior "next unblocked candidate" framing of
+this module): the fork's `data/` directory has no local comms log at
+risk from any migration (only `customers.json`, `subcontractors.json`);
+real production message history, if any, lives in `~/Aigentik-CLI/
+data/contacts.json`, out of this task's path entirely.
+
+**Files touched:** `NEW_ISSUES.md` (NEW-232, NEW-233 added),
+`CODEY_MASTER_PLAN.md` (§4 comms entry added/corrected).
+
+---
+
 ## 2026-08-27 — Phase B2 task 4, second write-through module BUILT: `email-rules.js`/`sms-rules.js` — code-complete, code-reviewer-approved, NOT live-verified against real production traffic
 
 Implementer built the module scoped in the round below. Spans two

@@ -11723,3 +11723,79 @@ that task, out of scope to fix there
   `~/Codey-Aigentik/email-rules.js`/`sms-rules.js` (pre-cutover version,
   git history); `~/Codey-Aigentik/docs/rules.md`; `CODEY_MASTER_PLAN.md`
   §6.4 task 4's email-rules.js/sms-rules.js spec.
+
+### [NEW-232] `customers`/`leads` tables still have no `external_id`
+column — blocks the email/SMS-provider comms write-through from linking
+any `communication_history` row to the customer it's about, found while
+scoping that task (not yet implemented)
+- **Status: Confirmed, elevates the already-logged `NEW-212` from
+  "future migration obstacle" to an active blocker for the next
+  write-through task.** `restoricon_core/database.py`'s `customers`
+  table (`:50-70`) and `leads` table (`:73-90`) have no `external_id`
+  column, unlike `automation_rules`, `subcontractors`, and `appointments`,
+  which all got one in the Phase B2 schema-expansion round and each have
+  a working `get_*_by_external_id()` lookup method
+  (`automation_service.py:165`, `crm_service.py:1042`,
+  `scheduling_service.py:137`). `communication_service.py`'s
+  `record_communication()` (`restoricon_core/services/
+  communication_service.py:43-119`) takes `customer_id: Optional[int]`,
+  a Core-side integer primary key. `~/Codey-Aigentik/index.js`'s message
+  handlers only have Aigentik's own string/local contact and customer
+  identifiers (`contact.id` from `contacts.findOrCreateByPhone`,
+  `currentCust.customer_id` from `customer-module.js`) — there is
+  currently no reachable Core method to translate either into a Core
+  `customers.id`. Any comms write-through implemented today would have
+  to either write every record with `customer_id=NULL` (an
+  unassociated, per-customer-unqueryable log — arguably worse than not
+  writing it, since `query_communications()`'s customer-scoped query
+  path, its only real use, would return nothing for every record) or
+  block on this schema gap.
+- **Action:** none taken — this round was scoping-only, per the
+  project-architect's own instruction not to implement. Logged as a
+  blocking dependency for the email/SMS-provider write-through task
+  rather than something to route around; see the `CODEY_MASTER_PLAN.md`
+  pending-decision entry this round adds for how it should be resolved
+  before that task starts.
+- **Cross-reference:** `NEW-212`; `restoricon_core/database.py:50-90`;
+  `restoricon_core/services/communication_service.py:43-119`;
+  `~/Codey-Aigentik/index.js` (customer/contact resolution in
+  `handleGoogleVoiceText`, ~line 851, 991); `CODEY_MASTER_PLAN.md` §6.4
+  task 4's email-provider.js/gmail.js/index.js write-through spec.
+
+### [NEW-233] `communication_history` has no idempotency key —
+combined with email-provider.js's already-documented IMAP re-processing
+hazard, an inbound comms write-through would duplicate records on
+every reprocessed message, found while scoping that task (not yet
+implemented)
+- **Status: Confirmed, independent of any implementation choice made
+  in the eventual write-through task.** `restoricon_core/database.py`'s
+  `communication_history` table (`:224-`) has no unique constraint or
+  external-message-id column (only `idx_comms_customer_id`,
+  `idx_comms_project_id`, `idx_comms_timestamp` — none of them unique)
+  and `record_communication()` performs a bare `INSERT` with no
+  dedup/upsert logic. `email-provider.js`'s own code comment
+  (`handleNewMail()`, `~/Codey-Aigentik/email-provider.js:359-362`)
+  already documents that if the `messageFlagsAdd(msg.uid, ['\Seen'], ...)`
+  call fails or races, the same email is "reprocessed and re-replied to
+  on every poll" — a hazard the code accepts today because reprocessing
+  only re-runs the reply logic (idempotent-ish in effect, since a
+  contact simply gets a duplicate auto-reply, which is already a known
+  imperfection). Adding a comms write-through on top of that path
+  without a dedup key (e.g. IMAP `message_id`, or Google Voice's own
+  message identity) means every such reprocess event also appends a new,
+  indistinguishable duplicate row to a table whose only intended
+  semantics are "append-only, immutable, one row per real interaction"
+  (`communication_service.py:1-4`'s own docstring) — silently corrupting
+  the historical record rather than just duplicating a customer-facing
+  reply.
+- **Action:** none taken — scoping-only round. This is a design input
+  for whoever implements the write-through: either add a nullable
+  `external_message_id` column with a partial unique index (unique when
+  non-null, so internal-note/ai_conversation rows without a natural
+  external id aren't constrained) plus an upsert-or-skip path in
+  `record_communication()`, or accept known duplication as an interim
+  limitation — a call for that implementation round, not this one.
+- **Cross-reference:** `restoricon_core/database.py:224-`;
+  `restoricon_core/services/communication_service.py:1-4,43-119`;
+  `~/Codey-Aigentik/email-provider.js:359-362`; `CODEY_MASTER_PLAN.md`
+  §6.4 task 4's email-provider.js/gmail.js/index.js write-through spec.

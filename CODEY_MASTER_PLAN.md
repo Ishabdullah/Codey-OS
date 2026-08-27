@@ -1130,8 +1130,84 @@ method design, open-ended field set); `calendar.js` (blocked on a
 similar general-update gap per the task-4 scoping round's own
 evaluation); and the comms/email/SMS-provider paths
 (`email-provider.js`/`gmail.js`/`index.js`'s Google Voice handling →
-a communications endpoint), which is the next **unblocked** candidate —
-no design gap or Ish decision pending on it as of this round.
+a communications endpoint) — **re-scoped 2026-08-27 and found to be
+blocked, not the next unblocked candidate as this section previously
+said; see the "Phase B2 task 4, comms/email/SMS-provider write-through
+— scoping only, blocked" entry immediately above §5 and the pending
+decision it logs for Ish.**
+
+**Phase B2 task 4, comms/email/SMS-provider write-through — scoping
+only, 2026-08-27, blocked, not handed off for implementation.**
+Read `~/Codey-Aigentik/email-provider.js` in full and the Google
+Voice/SMS handling in `~/Codey-Aigentik/index.js`
+(`handleGoogleVoiceText`, ~line 820-1100). Findings that changed this
+module's shape relative to the DNC/rules precedent:
+- **This is not a migration of an existing local write.** Unlike DNC
+  and rules, there is no `data/communications.json` (or equivalent) in
+  `~/Codey-Aigentik/data/` today — that directory holds only
+  `customers.json` (1.5KB) and `subcontractors.json` (2 bytes). The
+  fork has never logged comms locally; per-contact activity trails go
+  through `contacts.addHistory()` (a different, not-yet-migrated data
+  shape), not a dedicated comms log. A write-through here means adding
+  brand-new Core calls into a live send/receive path, not converting an
+  existing one. (Production comms history, if any exists, lives in the
+  untouched `~/Aigentik-CLI/data/contacts.json` (149KB) — out of this
+  task's path entirely, not touched or at risk.)
+- **Blocked: `customers`/`leads` have no `external_id` column
+  (`NEW-232`).** `communication_service.record_communication()` takes
+  an integer `customer_id` FK into Core's own `customers` table.
+  Aigentik's JS side only has its own string/local contact and customer
+  identifiers, and — unlike `automation_rules`/`subcontractors`/
+  `appointments`, which each got an `external_id` column and a
+  `get_*_by_external_id()` lookup in the B2 schema-expansion round —
+  there is no Core-side method to translate one into the other. Writing
+  through today would mean every comms record lands with
+  `customer_id=NULL`, defeating the one query path
+  (`query_communications(customer_id=...)`) that makes the log useful.
+  This is a hard sequencing dependency, not a design preference: the
+  `NEW-212`/`external_id` schema gap must close before this module's
+  write-through can be implemented correctly.
+- **Confirmed separately, independent of the above: no idempotency key
+  on `communication_history` (`NEW-233`).** Combined with
+  `email-provider.js`'s own documented IMAP `\Seen`-flag race (a failed
+  flag update causes the same email to be "reprocessed and re-replied
+  to on every poll" — comment at `email-provider.js:359-362`), an
+  inbound write-through would append a duplicate row to an
+  append-only/immutable table on every such reprocess, silently
+  corrupting the historical record.
+- **Risk-profile question answered directly, not deferred to Ish:**
+  outbound logging should be best-effort/non-blocking (a Core failure
+  must never propagate into `sendEmail`/`sendReply`, which throw on
+  failure and whose callers act on that throw — a Core outage placed in
+  that path would either suppress a real send or risk a caller retrying
+  a send that already succeeded). This is the opposite of the DNC
+  pilot's Core-only pattern, correctly so: DNC is a read-gate where
+  failing loud is the safe direction, comms logging is an after-the-fact
+  record where failing loud is the unsafe direction. This conclusion is
+  settled and doesn't need Ish's input — it constrains how the
+  eventual implementation should be built, once unblocked.
+- **What does need Ish (two narrow questions only, not the whole
+  module — logged here as a pending decision, not yet asked/answered):**
+  (1) whether closing `NEW-212`/`NEW-232` (adding `external_id` to
+  `customers`/`leads`, the same shape of change already done for the
+  other three tables) should be prioritized now to unblock this task,
+  and (2) whether a knowingly-lossy, best-effort comms log (no durable
+  outbox/retry — a Core-write failure is swallowed, not queued) is an
+  acceptable interim state for what's meant to become the single
+  backend for all Restoricon data, including real customer
+  communications.
+- **Smallest safely-separable slice, once unblocked:** provider-level
+  outbound only — instrument `sendEmail`/`sendReply`/
+  `replyToGoogleVoiceText` in `email-provider.js`, the single chokepoint
+  every outbound customer message passes through, fire-and-forget.
+  Explicitly excluded from that slice: `sendOwnerNotification`
+  (internal, not customer-facing), `sendCalendarInvite`/
+  `sendCalendarCancellation` (channel `appointment`, belongs with the
+  `calendar.js` round, already blocked on its own general-update gap),
+  and all inbound handling (blocked on `NEW-233`'s dedup gap
+  independent of the customer_id question).
+- **Not implemented this round per explicit instruction — scoping and
+  the blocking-dependency finding only.**
 
 ---
 
