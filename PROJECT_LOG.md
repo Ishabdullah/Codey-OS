@@ -12,6 +12,68 @@ and Appendix A.
 
 ---
 
+## 2026-08-27 — Two closures: NEW-145/149/155 context-ceiling fix committed (code-reviewer-approved, live-verify still pending); NEW-233/257 reliable comms log committed (code-reviewer-approved after one CHANGES REQUESTED round)
+
+**NEW-145/149/155 (context-ceiling respawn-on-upgrade, "Option C") —
+committed `b0d2d86`.** Code-complete, code-reviewer-approved across two
+passes (initial approval + a 3-warning follow-up, all warnings closed
+with real negative-control tests — a regression was reintroduced by
+hand, confirmed the new test caught it, then reverted, for each of the
+3 warnings). Two deliberate deviations from the original design spec
+(slot-store-first PID resolution instead of `/proc`-first, since
+`/proc/net/tcp[6]` is `PermissionError` for every caller on this real
+device per `NEW-200`; a single-PID `os.kill()` TERM-then-KILL helper
+instead of `LlamaServer.stop()`'s `os.killpg()`, which would kill an
+entire foreign process group) were each independently re-verified
+against source by code-reviewer, not accepted on the implementer's
+word. The asymmetry invariant (a background-dispatched `load_primary()`
+call can never trigger a kill) was confirmed by deliberately breaking
+it and watching the regression test fail. One new non-blocking finding
+logged, `NEW-258` (an `allow_upgrade` labeling-accuracy gap, not a
+safety hole — the kill decision is separately gated by
+`daemon_task_in_progress()` regardless). **Still outstanding: the
+live-verification pass** — unit tests cannot exercise a real
+port-in-use race or a real kill+respawn cycle against a live daemon.
+Do not mark this chain fully resolved until that runs (rule 7).
+
+**NEW-233/257 (reliable comms log) — committed `9748a49`.** Sent back
+CHANGES REQUESTED once: the `provider_message_id`-stripping gate was
+keyed on `actor.role == ROLE_CUSTOMER` specifically, leaving
+`ROLE_TECHNICIAN` (holds `PERM_LOG_COMMUNICATION`, not
+`PERM_READ_COMMUNICATIONS`) able to reach the same dedup-conflict path
+and read back another customer's private communication content via a
+guessed/observed provider message-id collision — live-reproduced by the
+reviewer before the fix, re-verified closed after. Fixed by gating on
+the permission itself (`not actor.has_permission(
+PERM_READ_COMMUNICATIONS)`), which the implementer verified already
+covers `ROLE_CUSTOMER` on its own (distinct `PERM_READ_OWN_
+COMMUNICATIONS` permission), so the redundant role-specific clause was
+dropped rather than kept as dead-code residue. Two smaller warnings also
+fixed same round: a doc claim ("full project suite 850 passed") that
+didn't reproduce in a working tree with concurrent unrelated changes
+(corrected to the scoped, stable `tests/test_restoricon_core/` count,
+per the `NEW-223` lesson from earlier this session), and a non-string
+`provider_message_id` JSON value crashing with an uncaught 500 instead
+of a clean 400. `NEW-257`'s own write-up had one lingering wording
+inconsistency after the fix (still described the idempotency-loss
+consequence as `ROLE_CUSTOMER`-specific after the gate was generalized
+to any role lacking the read permission) — corrected directly before
+this commit, matching `PROJECT_LOG.md`'s already-correct wording from
+the prior entry.
+
+`python -m pytest tests/ -q` → `864 passed, 1 skipped` (full suite,
+after both commits landed).
+
+Real production data note: `migrate_aigentik.py --apply` was run for
+real earlier this session (backup taken and checksum-verified first) —
+3 customers, 1 subcontractor, 1 appointment, 2 automation rules, 1
+business profile, 1 schedule config now live in the real Core DB. This
+comms-log work's own DB changes (the new `provider_message_id` column)
+were verified only against a throwaway copy of that same real file,
+confirmed untouched by this round.
+
+---
+
 ## 2026-08-27 — `communication_history` reliable-log fix (NEW-233 resolved, Core-side) — code-complete, self-tested, code-reviewer pass pending
 
 Ish ruled the comms LOG must be reliable (no duplicates, no silent loss

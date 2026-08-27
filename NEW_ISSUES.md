@@ -12778,3 +12778,37 @@ required)
   `parseMessage()`); `~/Codey-Aigentik/index.js:1113-1151`
   (`handleNewEmail()`, `handleGoogleVoiceText()`); `CODEY_MASTER_PLAN.md`
   §6.4 (JS retry-queue spec recorded there for the follow-up round).
+
+### [NEW-258] `is_interactive_session_active()` mislabeling gap in NEW-145/NEW-149/NEW-155 Option C's `allow_upgrade` wiring
+- **Status: Confirmed, non-blocking.**
+- **Cross-reference:** NEW-145/NEW-149/NEW-155 chain, Option C
+  (`core/loader_v2.py:LlamaServer._upgrade_resident_if_safe()` /
+  `start()`'s `allow_upgrade` wiring, and `core/daemon.py`'s
+  `daemon_task_in_progress()` / `_handle_status()`'s `running_active`
+  age-filtering — committed `b0d2d86`, code-reviewer-approved).
+- **Detail:** code-reviewer's review of the Option C fix noted (as a
+  non-blocking observation) that `resource_gate.is_interactive_session_
+  active()` (or whatever call site feeds `allow_upgrade=True` into
+  `LlamaServer.__init__`) can't currently distinguish "a real interactive
+  TUI attach is asking to upgrade its own resident server" from "a
+  daemon-side watchdog call happening to run while some unrelated TUI
+  session is attached elsewhere." Because the signal is
+  session-presence-based rather than attach-identity-based, a daemon-side
+  watchdog invocation could observe `allow_upgrade=True` for a reason
+  that has nothing to do with the watchdog's own caller being the
+  interactive attach.
+- **Why this is not a safety hole:** the actual kill decision inside
+  `_upgrade_resident_if_safe()` is separately gated by
+  `daemon_task_in_progress()` regardless of how `allow_upgrade` got set —
+  if the daemon reports a task in progress, the upgrade is declined
+  (`_UPGRADE_NOT_SAFE`) no matter which caller or code path set
+  `allow_upgrade=True`. So the mislabeling could at most cause an upgrade
+  attempt to be considered when the daemon is genuinely idle, not an
+  unsafe kill while busy. This is a latent labeling-accuracy gap, not a
+  functional bug identified in this fix's own test suite.
+- **Not fixed here** — documentation only. Recommended follow-up: either
+  tighten `allow_upgrade`'s call sites to only ever be set from a
+  call-stack that is unambiguously the interactive attach itself, or
+  rename/re-document the signal so its actual meaning ("some interactive
+  session is active somewhere," not "the caller of this function is that
+  session") is explicit in code, not just in review notes.

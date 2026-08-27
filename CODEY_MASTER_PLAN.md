@@ -5217,8 +5217,42 @@ Then:
           code-reviewer pass (no exceptions — real kill logic), then a
           live-verification pass (daemon-only harness, per the `NEW-14`
           swap-pressure precedent — not a full `codey-start` stack, per
-          rule 2) before this chain can be marked resolved. Not
-          implemented, not code-reviewed, not live-verified yet.
+          rule 2) before this chain can be marked resolved.
+        - **Status update, 2026-08-27 — CODE-COMPLETE, CODE-REVIEWER-
+          APPROVED, NOT YET LIVE-VERIFIED.** Committed `b0d2d86`. Two
+          deliberate deviations from the literal design above, each
+          independently re-verified by code-reviewer against source
+          rather than accepted on the implementer's word: (1) PID
+          resolution checks the resource-gate slot store FIRST, `/proc`
+          only as fallback — the reverse of this design's stated order —
+          because `resolve_port_owner_pid()`'s own docstring (`NEW-200`)
+          confirms `/proc/net/tcp[6]` is `PermissionError` for every
+          caller on this actual device, so `/proc`-first would make the
+          fix a no-op in production; matches `_reconcile_adopted_slot()`
+          's existing working pattern. (2) the kill uses a new single-PID
+          `os.kill()` TERM-then-8s-wait-then-KILL helper, not
+          `LlamaServer.stop()`'s body — `stop()`'s `os.killpg(os.getpgid
+          (pid), ...)` would kill an entire foreign process group from
+          one resolved PID; `core/embed_server.py:_kill_port_occupant()`
+          already made this identical narrowing decision for the same
+          foreign-port-occupant shape. Code-reviewer independently
+          verified the asymmetry invariant holds (a background-dispatched
+          `load_primary()` call can never set `allow_upgrade=True`,
+          confirmed by breaking it and watching the regression test
+          catch it) across two review passes (initial approval + a
+          3-warning follow-up pass, all warnings closed with real
+          negative-control tests, not just code changes). One
+          non-blocking documentation gap found by the review is now
+          logged as `NEW-258` (the `allow_upgrade` signal is
+          session-presence-based, not attach-identity-based — not a
+          safety hole, since the kill decision is separately gated by
+          `daemon_task_in_progress()` regardless of how `allow_upgrade`
+          got set, but a labeling-accuracy gap worth tightening someday).
+          **Still outstanding: the live-verification pass** (§7 of the
+          original design write-up) — unit tests cannot exercise a real
+          port-in-use race or a real TERM-then-KILL cycle against a live
+          daemon process. Do not mark this chain (`NEW-145`/`NEW-149`/
+          `NEW-155`) fully resolved until that pass runs, per rule 7.
   - [x] **D** — folded into M1-F,
         `MAX_CONCURRENT_MODEL_BUDGET_BYTES` (§ M1-F entry above) now
         reflects there being no separate planner process, executed with
