@@ -1249,6 +1249,33 @@ conversion for the third module is still outstanding, alongside the
 still-blocked `contacts.js`/`customer-module.js`, `calendar.js`, and
 comms/email/SMS-provider modules described above.
 
+**Phase B2 task 4, third module, continuation — `find_subcontractor()`
+Core read primitive scoped 2026-08-27, NOT implemented (desk-only,
+no code written).** Re-reading `subcontractor-recruiter.js` in full
+this round surfaced that the prior round's `update_subcontractor()`
+unblocked only the write half of the JS conversion — the read half
+(`findSubcontractor()`'s fuzzy phone/email/name lookup, used on every
+inbound SMS/email via `role-router.js` plus six `owner-command.js`
+call sites) has no Core equivalent at all (`NEW-241`). Advisor review
+rejected a shadow-write slice (converting only the two
+`updateSubcontractor()` write call sites while reads stayed
+local-JSON) as unverifiable and divergence-prone; a second advisor
+pass also caught a wrong-answer bug in the first draft of this spec
+(an unguarded empty query would have returned the table's first row
+instead of no match — fixed in the spec before handoff) and an
+overstated claim in this round's own framing. **Correction: closing
+this read-primitive gap alone does not make a real JS cutover
+possible** — `NEW-242` (`createOrUpdateSubcontractorLead()`'s
+upsert/dedup logic, no Core equivalent) and the newly-logged `NEW-245`
+(no documented mapping from a Core `Subcontractor` row back to the
+field names/types five JS consumer functions expect) are both still-
+open prerequisites; this method is necessary but not sufficient. Full
+method + route spec is in §6.4's third-module continuation entry,
+ready for implementer; also surfaced `NEW-243` (dual-write-vs-Core-
+primary open design question for the eventual real cutover) and
+`NEW-244` (`contacts.js`'s still-local-JSON cross-write, orthogonal).
+Nothing in `~/Codey-Aigentik` touched.
+
 ---
 
 ## 5. The device, stated once
@@ -3410,6 +3437,188 @@ task 4 third-module entry for the full outcome, the `NEW-238`/`NEW-239`/
 `NEW-240` findings raised in review, and the fresh 789/1 test count.
 Ships the Core-side method + route only; the JS conversion itself
 remains not started.**
+
+**Task 4, third module continuation — `subcontractor-recruiter.js`
+read-path prerequisite, `find_subcontractor()` Core method + route,
+scoped 2026-08-27, desk-only, no code written, `~/Codey-Aigentik`/
+`~/Aigentik-CLI` untouched.** Ish asleep; proceeding autonomously per
+his standing instruction, not making a product-scope call. Re-read
+`~/Codey-Aigentik/subcontractor-recruiter.js` in full (682 lines),
+`role-router.js:119-121`, `owner-command.js`'s six read call sites, and
+`crm_service.py`/`api/routes.py`'s existing subcontractor methods
+directly per rule 12 before scoping this.
+
+**Why this increment and not the full JS conversion:** the prior round's
+`update_subcontractor()` (39c0f98) unblocked only the *write* half of
+`NEW-224`'s gap. Re-reading the file this round surfaced that the
+*read* half has no Core equivalent at all (`NEW-241`) — `findSubcontractor()`'s
+fuzzy phone/email/name lookup, which every JS read call site depends on
+via `person.subcontractor_record` (populated on *every* inbound
+SMS/email) or directly in `owner-command.js`. Advisor review confirmed:
+attempting to convert just the two `updateSubcontractor()` write call
+sites (`index.js:959,1290`) this round, while leaving reads on local
+JSON, would produce an unverifiable shadow-write with no read path
+ever exercising it, and would let `NEW-234`'s local null-overwrite bug
+silently diverge the two copies of the same record — the weakest
+available version of this work, not a real increment. `NEW-242`
+(the `createOrUpdateSubcontractorLead()` upsert/dedup logic, four call
+sites) is a second, larger prerequisite gap, deliberately left for a
+later round rather than folded into this one, per this project's
+incremental-slicing convention.
+
+**Scope, this round: one new read-only Core method + one route, no JS
+changes.** This makes the fuzzy *lookup itself* available server-side
+and is independently testable/reviewable the same way the write method
+was (service unit tests + route test against a real `:memory:`/local
+DB instance, no live SMS session required). **Correction to this
+round's own earlier framing:** this is not, by itself, "the minimum
+that makes a real JS cutover possible" — closing this gap still leaves
+two more prerequisites before any `findSubcontractor()` call site can
+actually convert: `NEW-242` (`createOrUpdateSubcontractorLead()`'s
+upsert/dedup logic, no Core equivalent) and `NEW-245` (the reverse
+Core-row→JS-record shape mapping — every JS consumer of the record
+this lookup returns reads local-JSON field names/types that don't
+match `Subcontractor.to_dict()`, logged below). This method is a
+necessary but not sufficient step.
+
+**Method signature and behavior
+(`restoricon_core/services/crm_service.py`, added after
+`get_subcontractor_by_external_id()`):**
+
+```python
+def find_subcontractor(
+    self, query: str, actor: AuthContext
+) -> Optional[Subcontractor]:
+```
+
+1. `actor.has_permission(PERM_READ_SUBCONTRACTORS)` — same permission
+   as `get_subcontractor`/`list_subcontractors`, no new permission
+   constant (read-only method).
+2. **Empty/blank query returns `None`, checked before anything else** —
+   mirrors `subcontractor-recruiter.js:194`'s `if (!identifier) return
+   null`. This is not optional: without this guard, an empty-string
+   query would substring-match every non-null `company_name` and
+   silently return the *first row in the table* instead of no match.
+   `if not query or not query.strip(): return None`.
+3. **Normalize the query exactly as the JS does**
+   (`subcontractor-recruiter.js:203`): `q = query.strip().lower()`
+   — the JS's `String(identifier).toLowerCase().trim()`. Apply this
+   once, before the scan, not per-field.
+4. **Must mirror `findSubcontractor()`'s exact per-record predicate
+   order, not just its final result set** — `subcontractor-recruiter
+   .js:206-217` checks, for each record in array order:
+   `subcontractor_id` exact match (case-insensitive) → `email` exact
+   match (case-insensitive) → `company_name` substring
+   (case-insensitive) → `legal_name` substring → `dba` substring →
+   `contact_name` substring → phone digit-substring match (both
+   directions, `pDigits.includes(cleanDigits) ||
+   cleanDigits.includes(pDigits)`), gated on the query's stripped-digit
+   length being `>= 7` (mirrors `subcontractor-recruiter.js:204,213`
+   exactly) — and returns the *first* record for which any condition
+   is true, not a best/highest-priority match across the whole table.
+   Implement this as a full Python-side scan over `SELECT * FROM
+   subcontractors ORDER BY id ASC;` (ascending `id` is the closest
+   analog to the JS array's insertion order — this equivalence only
+   holds cleanly for rows created by `migrate_aigentik.py` in file
+   order; records created later through different paths, e.g. a future
+   Core-native creation route, can diverge from JS's original
+   insertion order, which matters here because two records can
+   legitimately both match a company-name substring and only the first
+   is returned) applying the same six checks in the same order per row,
+   rather than an equivalent-looking SQL `LIKE`/`OR` query — SQL can't
+   reproduce the bidirectional digit-substring phone match, and this
+   project has already been burned once (`NEW-235`) by treating "looks
+   equivalent" as equivalent without checking. Table size (a
+   subcontractor recruiting pipeline, not a customer table) makes a
+   full unbounded scan acceptable; do not add `LIMIT`/pagination to
+   this method — the JS original has none, and adding one would
+   silently narrow which records are reachable.
+5. Return `None` if no record matches (JS returns `null`).
+6. **No separate ID-resolve step needed for a follow-up
+   `update_subcontractor()` call** — since this method returns the full
+   `Subcontractor` object (not just a boolean/ID), its numeric Core
+   `id` (needed for `.../{id}/update`) comes back with the lookup
+   result itself; the implementer should not add a redundant second
+   lookup.
+
+**Route — included in this round's spec**, per the same
+method-plus-route-together precedent `NEW-226`/`NEW-112` already
+established: extend the existing `GET /api/v1/subcontractors` handler
+(`routes.py:256-269`) rather than add a new path segment — check for an
+optional `q` query param first; if **present and non-blank** (after
+`.strip()`), branch to `crm.find_subcontractor(q, actor)` and return
+`200 {"subcontractor": ...}` or `404 {"error": "Subcontractor not
+found"}`, ignoring `qualification_status`/`primary_trade`/`limit`/
+`offset` in that branch. **If `q` is absent, or present but blank/
+whitespace-only (e.g. `?q=` or `?q=%20`), fall through to the existing
+`list_subcontractors` behavior unchanged** — a blank `q` is treated the
+same as no `q` at all, not as "search for nothing" (which the method
+itself already refuses via its own blank-query guard above; the route
+must not even reach the method in that case, since silently disabling
+the list behavior for a stray trailing `?q=` would be a worse surprise
+than ignoring it). This avoids a second `path.startswith(...)` branch
+and the `NEW-222`/`NEW-237`-class routing-quirk risk a new path segment
+would introduce.
+
+**Not in scope this round:** `get_subcontractor_by_external_id()`
+already exists service-side with no HTTP route — left unexposed since
+no caller needs it over HTTP yet (only `migrate_aigentik.py`, which
+calls the Python service directly, in-process); `createOrUpdateSubcontractorLead()`'s
+upsert/dedup logic (`NEW-242`); the reverse Core-row→JS-record shape
+mapping every actual caller of this lookup would need (`NEW-245`); any
+JS file changes; the dual-write-vs-Core-primary sequencing question for
+the eventual real cutover (`NEW-243`, logged as an open design
+question, not a blocker for this narrower slice).
+
+**`install.sh`: no change needed** — stdlib only, matching every other
+B2 service-layer task.
+
+**Test list for the implementer:** exact `external_id` match
+(case-insensitive) found; exact `email` match (case-insensitive) found;
+`company_name`/`legal_name`/`dba`/`contact_name` substring match found
+(case-insensitive, partial string); phone digit match found in both
+directions (query-is-substring-of-stored and stored-is-substring-of-query);
+phone match correctly *not* attempted when the query's stripped-digit
+count is under 7; no match anywhere returns `None` (route: 404, not an
+exception); **empty-string query returns `None` (not the first row in
+the table); whitespace-only query returns `None`; a valid query with
+leading/trailing whitespace still matches (normalization applied
+before comparison)**; `PermissionError` when the actor lacks
+`PERM_READ_SUBCONTRACTORS`; route's `q`-param branch takes priority
+over `qualification_status`/`primary_trade`/`limit`/`offset` when both
+are present and `q` is non-blank; **a blank/whitespace-only `q`
+(`?q=`, `?q=%20`) falls through to the existing list behavior rather
+than invoking `find_subcontractor()` or returning 404.**
+
+**Findings logged out of scope this round:** `NEW-241` (this gap
+itself, logged for the record before being closed by this spec),
+`NEW-242` (upsert/dedup logic, no Core equivalent, four call sites),
+`NEW-243` (dual-write-vs-Core-primary open design question for the real
+cutover), `NEW-244` (`contacts.js`'s still-local-JSON `syncWithContacts()`
+cross-write, orthogonal but tangled for a later round), `NEW-245`
+(reverse Core-row→JS-record shape mapping needed by every actual
+caller of this lookup — `last_contact_at` vs `last_contact`,
+`external_id`/numeric `id` vs `subcontractor_id`, `int` 0/1 vs JS
+boolean fields, and `qualification_data` sub-keys `determineNextRecruitmentStep()`
+reads back — none of which `NEW-235` covered, since that finding is
+about the forward extraction-schema→Core direction only).
+
+**Rule-4/security note:** no daemon/PID/kill-logic/lock/GUI-bind
+change. Read-only method + route — no new write surface — but still
+routed through mandatory code-reviewer per the Workflow section's
+standard per-task gate (every task goes through code-reviewer
+regardless of size), not because rule 4's process-lifecycle trigger
+applies here.
+
+**Verification tier this task can reach once implemented:**
+code-complete + code-reviewer-approved + tested against a Core API
+instance/DB started locally for the test run — same tier as the
+`update_subcontractor()` slice, for the same reason (no
+`~/Aigentik-CLI`/`~/Codey-Aigentik` production cutover has happened,
+and this round ships no JS changes). Record the tier honestly per
+rule 7.
+
+**Not implemented this round — scoped and handed off only.**
 
 ### 6.5 Track B / Phase B3 — CRM/Sales and Operations
 

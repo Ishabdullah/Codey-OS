@@ -11980,3 +11980,161 @@ implemented)
   `restoricon_core/services/crm_service.py`'s
   `update_subcontractor_qualification()`, `update_appointment_status()`,
   and `update_subcontractor()`.
+
+## Found during Phase B2 task 4, third module (`subcontractor-recruiter.js` write-through) continuation scoping, 2026-08-27 — desk-only, re-read `~/Codey-Aigentik/subcontractor-recruiter.js` (682 lines) in full plus its callers in `index.js`, `owner-command.js`, `role-router.js`, and `restoricon_core/services/crm_service.py`/`api/routes.py` directly per rule 12; not fixed, logged only. No code written this round — see `CODEY_MASTER_PLAN.md` §6.4 for the narrower slice actually scoped and handed off.
+
+### [NEW-241] `findSubcontractor()`'s fuzzy multi-field lookup has no Core equivalent at all — gates the entire read side of the JS conversion, not just the write side `39c0f98` unblocked
+- **Status: Confirmed** (read `subcontractor-recruiter.js:199-219` against
+  `crm_service.py:888-1217` and `api/routes.py:255-298` directly).
+  `findSubcontractor(identifier)` does case-insensitive exact match on
+  `subcontractor_id`/`email`, case-insensitive substring match on
+  `company_name`/`legal_name`/`dba`/`contact_name`, and bidirectional
+  digit-substring match on `phone` (`pDigits.includes(cleanDigits) ||
+  cleanDigits.includes(pDigits)`, gated on `cleanDigits.length >= 7`),
+  scanning the full in-memory array and returning the first record for
+  which any condition is true (`Array.prototype.find`, not a
+  best-match ranking). `restoricon_core`'s only subcontractor read
+  methods are `get_subcontractor` (numeric Core `id` only),
+  `get_subcontractor_by_external_id` (exact `external_id` only, no
+  HTTP route), and `list_subcontractors` (filters on
+  `qualification_status`/`primary_trade` only, paginated). None of
+  these can serve `findSubcontractor`'s callers. Every read call site —
+  `role-router.js:119-121` (runs on *every* inbound SMS/email to
+  populate `person.subcontractor_record`), and six call sites in
+  `owner-command.js` (`show_subcontractor_profile`,
+  `qualify_subcontractor`, `approve_subcontractor`,
+  `decline_subcontractor`, `request_subcontractor_docs`,
+  `list_subcontractor_missing_docs`) — depends on this function. Task
+  39c0f98 (the `update_subcontractor()` Core method + route) unblocks
+  only the *write* half of `NEW-224`'s gap; the read half this finding
+  describes was not previously identified as its own blocker.
+- **Action:** none taken this round — scoped as `CODEY_MASTER_PLAN.md`
+  §6.4's next task-4 increment (`find_subcontractor()` Core method +
+  route), not implemented here.
+- **Cross-reference:** `~/Codey-Aigentik/subcontractor-recruiter.js:199-219`;
+  `~/Codey-Aigentik/role-router.js:119-121`; `~/Codey-Aigentik/
+  owner-command.js:1150-1247`; `restoricon_core/services/
+  crm_service.py:1032-1085`; `restoricon_core/api/routes.py:255-298`;
+  `CODEY_MASTER_PLAN.md` §6.4's `find_subcontractor()` spec.
+
+### [NEW-242] `createOrUpdateSubcontractorLead()`'s upsert/dedup/auto-status logic has no Core equivalent — four call sites depend on it, all still JS-only
+- **Status: Confirmed** (read `subcontractor-recruiter.js:222-317`
+  directly). This function does an existing-record lookup (by explicit
+  `subcontractor_id` or, failing that, via `findSubcontractor()` on
+  phone/email/contact_name — see `NEW-241`), then either merges into
+  the found record or constructs and inserts a brand-new one with 30+
+  default-populated fields, recalculates `qualification_status` via
+  `determineQualificationStatus()`, and calls `syncWithContacts()`.
+  `restoricon_core`'s `create_subcontractor` is pure-insert only (no
+  existing-record lookup, no merge branch) and `update_subcontractor`
+  is pure-update only (requires a known numeric Core `id`, no dedup
+  search). Four call sites depend on the combined upsert behavior:
+  `index.js:770` (application-form path), `index.js:949` and `:1280`
+  (first-contact SMS/email path when `person.subcontractor_record` is
+  null), and `owner-command.js:840` (`add_subcontractor` owner
+  command).
+- **Action:** none taken — out of scope for this round (this round
+  scopes only the narrower `find_subcontractor()` read primitive, see
+  `NEW-241`). Flagged as a second, larger prerequisite gap for whoever
+  eventually converts these four call sites; likely needs its own
+  Core-side method (or the JS side composing `find_subcontractor()` +
+  `create_subcontractor()`/`update_subcontractor()` itself, deferring
+  the dedup decision to the caller) — a design choice for that later
+  round, not this one.
+- **Cross-reference:** `~/Codey-Aigentik/subcontractor-recruiter.js:222-317`;
+  `~/Codey-Aigentik/index.js:770,949,1280`; `~/Codey-Aigentik/
+  owner-command.js:840`; `restoricon_core/services/
+  crm_service.py:940-1030,1142-1217`.
+
+### [NEW-243] Dual-write-vs-Core-primary pattern question for `subcontractor-recruiter.js`'s eventual cutover — distinct from the DNC/email-rules precedent because this flow reads its own state back mid-conversation
+- **Status: Suspected — design input, not a bug.** Unlike
+  `do-not-contact.js`/`email-rules.js`/`sms-rules.js` (write-heavy,
+  read-rarely modules where a full Core-only cutover was safe once the
+  write route existed), `subcontractor-recruiter.js`'s conversational
+  flow reads its own state back on every turn via
+  `person.subcontractor_record` (`role-router.js:119-121`, backed by
+  `findSubcontractor()`). A Core-only cutover of *only* the write call
+  sites (`updateSubcontractor()` at `index.js:959,1290`) while the read
+  path (`findSubcontractor()`, still local-JSON-only per `NEW-241`)
+  stays unconverted would produce a genuine shadow-write with no
+  verifiable read path exercising it, and would let `NEW-234`'s local
+  null-overwrite bug and the Core method's `None`-key rejection
+  silently diverge the two copies of the same record after a single
+  ambiguous SMS reply. Advisor review (this round) recommended against
+  attempting a shadow-write slice for exactly this reason.
+- **Action:** none taken — logged as an open design question for
+  whichever future round actually converts the JS read+write paths
+  together (not achievable as an isolated write-only slice per the
+  reasoning above). Not escalated to Ish as a blocking product
+  question — `NEW-235`'s field-mapping decision was already fixed by
+  this round's task brief ("the schema is fixed for this round"); this
+  is an implementation-sequencing question, resolvable by whoever picks
+  up the full conversion once `NEW-241`/`NEW-242` are closed.
+- **Cross-reference:** `~/Codey-Aigentik/subcontractor-recruiter.js:320-348`;
+  `~/Codey-Aigentik/role-router.js:119-121`; `NEW-234`; `NEW-241`;
+  `NEW-242`.
+
+### [NEW-245] No documented mapping exists for the *reverse* direction — a Core `Subcontractor` row read back into JS-side consumers (`formatSubcontractorSummary`, `formatFollowupList`, `getMissingDocuments`, `determineQualificationStatus`, `determineNextRecruitmentStep`) doesn't match the field names/types those functions expect
+- **Status: Confirmed** (raised by advisor review of this round's
+  `find_subcontractor()` spec; verified directly against
+  `subcontractor-recruiter.js` and `models.py`). `NEW-235` documents
+  the *forward* direction (LLM extraction schema → Core columns) that
+  a future write path needs; nothing documents the reverse direction a
+  future *read* path needs once `find_subcontractor()` (this round) or
+  any other Core lookup replaces `findSubcontractor()`'s local-JSON
+  return value. Concretely: `formatFollowupList:656` calls
+  `s.last_contact.substring(0,10)` — Core's field is `last_contact_at`
+  (`models.py:288`), so an unmapped Core object would throw
+  `TypeError: Cannot read properties of undefined` at that line, not
+  silently misbehave. `formatSubcontractorSummary` and all six
+  `owner-command.js` reply-string call sites read `s.subcontractor_id`
+  — Core exposes `external_id` (string) and a separate numeric `id`,
+  no `subcontractor_id` key at all. `getMissingDocuments:411-426` and
+  `determineQualificationStatus:453-460,522-526` do strict
+  `=== false`/`!== false`/`=== null` comparisons against
+  `w9_received`/`msa_signed`/`coi_received`/`msa_sent`/`workers_comp`/
+  `license_required`, which are JS booleans locally but `int` 0/1 or
+  `Optional[str]`/`Optional[int]` on the Core side (`models.py:269,
+  274-276,280-282`) — some paths survive because `0` is falsy, but the
+  explicit `=== null`/`!== false` checks do not survive a type
+  mismatch. `determineNextRecruitmentStep:496-530` reads nine
+  `qualification_data` sub-keys (`permission_granted`,
+  `trade_specific_answered`, `experience_years`,
+  `service_area_answered`, `availability_2027`, `license_answered`,
+  `insurance_answered`, `willing_to_onboard_msa`, `interested`) that
+  only exist if the *forward* mapping (`NEW-235`) correctly buckets
+  them into Core's `qualification_data` blob in the first place.
+- **Action:** none taken — not a blocker for this round's narrower
+  `find_subcontractor()` method/route slice (which returns a raw
+  `Subcontractor.to_dict()`, unmapped, by design — mapping is a
+  caller-side concern). Logged so whichever future round actually
+  wires a Core lookup into these five JS consumer functions starts from
+  this list instead of rediscovering each mismatch one crash at a time.
+  This round's §6.4 write-up was corrected to stop describing
+  `find_subcontractor()` as sufficient to make "a real JS cutover
+  possible" — it is necessary but not sufficient; `NEW-242` and this
+  finding are both still-open prerequisites.
+- **Cross-reference:** `~/Codey-Aigentik/subcontractor-recruiter.js:
+  411-426,434-491,496-530,575-599,642-659`; `restoricon_core/
+  models.py:243-296`; `NEW-235` (forward-direction counterpart);
+  `CODEY_MASTER_PLAN.md` §6.4's `find_subcontractor()` spec.
+
+### [NEW-244] `contacts.js` is still pure local-JSON (no Core client) while `syncWithContacts()` writes it from every subcontractor create/update — orthogonal to this round but will need reconciling at the real cutover
+- **Status: Confirmed** (grepped `~/Codey-Aigentik/contacts.js` for
+  `coreClient`/`restoricon_core`/`fetch(` — zero matches).
+  `syncWithContacts()` (`subcontractor-recruiter.js:351-404`) is called
+  from both `createOrUpdateSubcontractorLead()` and
+  `updateSubcontractor()` and writes derived fields (`business_name`,
+  `trade`, `licensed`, `gl_insurance`, `wc_insurance`, `crew_size`,
+  `weekly_capacity`, `references`) into `contacts.js`'s local JSON via
+  `contacts.updateContact()`/`contacts.createContact()`, independent of
+  whichever storage backend the subcontractor record itself lives in.
+  If/when `subcontractor-recruiter.js` cuts over to Core-only or
+  dual-write, this cross-write to a still-unconverted module continues
+  targeting local JSON — not wrong today, but a real tangle for
+  whichever round eventually converts `contacts.js`/`customer-module.js`
+  (already noted as blocked in `CODEY_MASTER_PLAN.md` §6.4).
+- **Action:** none taken — informational, no fix due this round.
+- **Cross-reference:** `~/Codey-Aigentik/subcontractor-recruiter.js:351-404`;
+  `~/Codey-Aigentik/contacts.js`; `CODEY_MASTER_PLAN.md` §6.4's
+  `contacts.js`/`customer-module.js` blocked-module note.
