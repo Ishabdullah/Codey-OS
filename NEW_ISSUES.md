@@ -10814,3 +10814,113 @@ finding for the same bug. See `NEW-39`.)*
   decision this finding bears on), §6.2's Phase A1 "Concurrency test"
   row and Appendix A checklist entry (updated this round, still
   unchecked).
+
+### [NEW-207] `can_dispatch_task()`'s `interactive_active` refusal is checked only once, at task-claim time — an already-claimed background task can keep running (up to the 1800s task timeout) alongside a human-opened interactive session for the rest of its execution, undermining the check's own stated intent
+
+- **Status: Confirmed, from reading the real control flow, not
+  inferred.** `core/resource_gate.py::can_dispatch_task()`'s own
+  docstring states its check 1 exists so the daemon "never do[es]
+  daemon-initiated background work while a human is watching the
+  TUI/GUI." `core/daemon.py::_process_planner_tasks()` (~lines
+  1201-1228) calls `self._check_dispatch_gate()` (which evaluates
+  `can_dispatch_task()`) exactly once, immediately before
+  `try_claim_task()`, and then `await`s the entire task body
+  (`asyncio.wait_for(self.executor._execute_task(...), timeout=timeout)`,
+  `timeout` defaulting to 1800s) with no re-check of
+  `is_interactive_session_active()` anywhere inside that await. A task
+  correctly refused admission while a human session is active is
+  therefore the only case this gate covers; a task claimed while NO
+  interactive session existed keeps running, unmonitored against this
+  check, for up to 1800s — if a human opens a TUI/GUI session partway
+  through, the background task's own inference calls continue running
+  concurrently against the shared server anyway, exactly the situation
+  the gate's own docstring says should never happen.
+- **Found during:** the 2026-08-26 §8 Q11 concurrency-fix design/
+  scoping round (`CODEY_MASTER_PLAN.md` §8 Q11), while enumerating the
+  concurrency pairs actually reachable against the real
+  `core/daemon.py` control flow, as an input to that design — not a
+  new bug search of its own. Logged per rule 8 rather than silently
+  fixed or dropped, since it was found outside that round's assigned
+  scope (which was to design the admission-check-plus-queue fix for
+  `NEW-206`, not to re-harden `can_dispatch_task()`'s own existing
+  gate).
+- **Relationship to `NEW-206`'s fix:** the §8 Q11 admission-check design
+  (once implemented) makes this overlap SAFE — a background task's
+  in-flight inference calls would hold a context-budget reservation
+  the same as any other caller, so an interactive request racing it
+  would correctly queue rather than both dying — but that fix does not
+  restore this gate's own stated intent of never running background
+  work concurrently with an active interactive session at all. The two
+  are complementary, not the same fix: NEW-206's fix prevents the
+  crash; this gap is a separate, narrower policy question (should a
+  long-running background task actually pause or abort when a human
+  opens a session mid-task) that nothing in the §8 Q11 design addresses.
+- **Not fixed this round** — found during design work, not itself in
+  scope; not queue-level urgent (the §8 Q11 fix removes the actual
+  crash risk this gap could otherwise contribute to), but a real,
+  confirmed gap against the gate's own documented intent.
+- **Cross-references:** `core/resource_gate.py::can_dispatch_task()`
+  and its docstring, `core/daemon.py::_process_planner_tasks()`
+  (~lines 1178-1237), `NEW-206`/§8 Q11 (the round this was found
+  during).
+
+## Found during the mandatory rule-4 code-reviewer pass on §8 Q11's context-budget admission fix, 2026-08-27 — Confirmed, safe-direction (under-admits, never over-admits), not fixed this round
+
+### [NEW-208] `reserve_context_budget()`'s combined-usage sum double-counts every admitted request for its ENTIRE in-flight duration (not just the brief TOCTOU window it was designed to close), quietly reducing how much real concurrency the §8 Q11 fix actually admits
+- **Status: Confirmed, directly traced through the actual code, not
+  inferred.** `reserve_context_budget()` (`core/resource_gate.py:4293+`)
+  sums three figures against the ceiling: (a) the live `/slots`-reported
+  occupancy (the authoritative real-occupancy signal), (b) every OTHER
+  outstanding reservation in the local ledger, and (c) this request's own
+  new estimate. `release_context_budget()` (`core/resource_gate.py:4463+`)
+  is only ever called from a `finally` block AFTER the HTTP call it
+  guards has fully returned — i.e. after the request's entire
+  prompt+generation lifetime, not shortly after admission. For that
+  entire lifetime, the SAME request is counted in the sum TWICE: once via
+  its still-outstanding local reservation record (b), and once via
+  `/slots`' own real `n_prompt_tokens` figure (a), since the server has
+  been actively processing it — and therefore visible in `/slots` — for
+  as long as it's been running.
+- **The function's own docstring reasoning is self-contradicting, not
+  just imprecise.** `release_context_budget()`'s docstring
+  (`core/resource_gate.py:4470-4481`) argues release-on-HTTP-return is
+  correct because "this ledger was never meant to track occupancy for a
+  request's whole lifetime — only to close the TOCTOU gap between an
+  admission check and that request actually reaching the server" — but
+  the actual release timing (on HTTP-return, i.e. after the whole
+  lifetime) is exactly what makes the ledger DO hold the reservation for
+  the request's whole lifetime, contradicting the stated design intent
+  in the same docstring. The header comment above this section
+  (`core/resource_gate.py:~3946`, "only job is to close the TOCTOU
+  window between one caller's admission...") states the same intent the
+  actual release timing doesn't achieve.
+- **Not a safety bug — fails in the safe direction.** This causes the
+  gate to systematically UNDER-admit relative to real available headroom
+  (never over-admit), so it cannot reopen `NEW-206`'s original cascade —
+  the worst-case consequence is unnecessary queuing/waiting for requests
+  that would have actually fit. But it quietly undercuts the stated
+  purpose of pairing (c)'s admission gate with (b)'s queue specifically
+  to PRESERVE real concurrency, not fall back to de facto serialization.
+  At the documented ~8-9% typical single-request footprint (per §8 Q11's
+  own design-round measurement against `_build_draft_prompt()`) and the
+  15% `CONTEXT_BUDGET_SAFETY_MARGIN_FRACTION`, this could roughly halve
+  the number of genuinely-concurrent requests the gate actually admits
+  compared to what the design intends — every admitted in-flight request
+  effectively reserves double its own real footprint against the shared
+  ceiling for as long as it runs.
+- **Not fixed this round** — reviewer's own judgment, endorsed here: a
+  code fix is not mandatory before this fix can be considered done,
+  since the direction is safe; logging it (this entry) is the required
+  action per rule 8, not a code change. Fix direction for a future
+  round, if the reduced-concurrency cost turns out to matter in
+  practice: release the local reservation once `/slots` first shows the
+  request's own footprint reflected in the live poll (rather than
+  waiting for the whole HTTP call to return), so the local ledger only
+  ever covers the true TOCTOU gap between admission and the request
+  first appearing in `/slots` — closer to what both docstrings already
+  claim the design does.
+- **Cross-references:** `NEW-206` (the finding this fix addresses), §8
+  Q11 (the design/decision record and implementation status), `core/
+  inference_hybrid.py::ChatCompletionBackend.infer()` and `core/
+  plannd.py::get_plan()` (the two call sites whose `finally`-block
+  release timing produces this).

@@ -21,8 +21,11 @@ import json
 import unittest.mock as mock
 from io import BytesIO
 
+import pytest
+
 import core.daemon as daemon_mod
 import core.plannd as plannd_mod
+import core.resource_gate as rg
 from core.plannd import PLANNER_PROMPT, compute_planner_timeout, get_plan
 from core.state import StateStore
 from core.tokens import estimate_tokens
@@ -36,6 +39,38 @@ def _fake_response(payload: dict):
     cm.__enter__.return_value = BytesIO(body)
     cm.__exit__.return_value = False
     return cm
+
+
+@pytest.fixture(autouse=True)
+def _admit_context_budget_by_default():
+    """
+    §8 Q11 fix (2026-08-26): get_plan() now runs a context-budget admission
+    check (core/resource_gate.py::wait_and_reserve_context_budget()) before
+    its urlopen call. This test file's own synthetic environment has no
+    resident primary-model slot registered, so that check would otherwise
+    always refuse (n_ctx unresolvable — reserve_context_budget()'s own
+    documented fail-closed posture, CLAUDE.md rule 12) and every test below
+    would fail on admission before ever reaching the HTTP-mocking/parsing
+    behavior these tests actually exercise. Autoused so every test in this
+    file gets an always-admitted stub without needing to repeat this patch
+    per test — this file is specifically about the timeout/logging
+    behavior around the HTTP call, not the admission gate itself (see
+    tests/test_context_budget.py for that coverage).
+    """
+    admitted = rg.ContextBudgetDecision(
+        admitted=True,
+        reservation_id="test-reservation",
+        reserved_tokens=0,
+        effective_n_ctx=8192,
+        ceiling_tokens=8192,
+        slots_occupied_tokens=0,
+        other_reserved_tokens=0,
+        estimate_source="tokenize",
+        reason="admitted",
+    )
+    with mock.patch("core.resource_gate.wait_and_reserve_context_budget", return_value=admitted), \
+         mock.patch("core.resource_gate.release_context_budget", return_value=True):
+        yield
 
 
 # ── compute_planner_timeout() formula ───────────────────────────────────────

@@ -80,7 +80,47 @@ class ChatCompletionBackend:
 
         Returns:
             (text, tokens, tps) tuple or None on error
+
+        §8 Q11 / NEW-206 fix (2026-08-26): before issuing the HTTP call,
+        reserves this request's estimated context (prompt + max_tokens)
+        against the shared server's KV pool via
+        `core/resource_gate.py::wait_and_reserve_context_budget()` — refusing
+        outright oversubscription would recreate NEW-206's hard-failure
+        cascade (both in-flight requests die together after a ~12-minute
+        fragmentation-driven retry), so an admission that would exceed the
+        pool's safety margin instead BLOCKS here until room frees up or a
+        formula-based timeout elapses (Ish's confirmed fix direction, §8
+        Q11: "(b) as a safety AFTER (c)" — one mechanism, two behaviors, not
+        a separate rejection). Blocking here is safe on both live call
+        paths that reach `infer()`: the interactive TUI/GUI path is a
+        synchronous CLI process with no event loop to stall, and the
+        daemon's background-dispatch path already runs this whole function
+        off the daemon's asyncio loop via `run_in_executor`
+        (`core/task_executor.py`), confirmed during §8 Q11's design round.
+        On timeout, returns `None` — this function's own pre-existing
+        "returns None on error" contract, so an admission timeout looks to
+        every existing caller exactly like any other inference failure
+        already does (no new caller-facing failure mode to handle).
         """
+        try:
+            from core.resource_gate import (release_context_budget,
+                                            wait_and_reserve_context_budget)
+
+            budget_decision = wait_and_reserve_context_budget(
+                self._port, messages, max_tokens, host=self._host
+            )
+            if not budget_decision.admitted:
+                error(f"Chat completions: context-budget admission failed: {budget_decision.reason}")
+                return None
+        except Exception as e:
+            # Safety-relevant admission check failed to even run (e.g.
+            # core.resource_gate import error) — fail closed, same posture
+            # as an admission refusal above, not "skip the check and hope."
+            # A silently-skipped check here is exactly the over-admission
+            # NEW-206 itself is about.
+            error(f"Chat completions: context-budget check raised, refusing to proceed: {e}")
+            return None
+
         try:
             start = time.time()
 
@@ -118,6 +158,16 @@ class ChatCompletionBackend:
         except Exception as e:
             error(f"Chat completions failed: {e}")
             return None
+        finally:
+            # Release regardless of success/failure/exception — see
+            # release_context_budget()'s own docstring for why releasing on
+            # HTTP-return is correct here (unlike the design round's
+            # rejected "release on HTTP-return" idea for /slots-based
+            # occupancy tracking, which this reservation ledger is NOT).
+            try:
+                release_context_budget(budget_decision.reservation_id)
+            except Exception as e:
+                warning(f"Chat completions: failed to release context budget reservation: {e}")
 
     def _infer_blocking(self, req, start: float) -> Optional[tuple]:
         """Non-streaming inference — waits for full response before returning."""

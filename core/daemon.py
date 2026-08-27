@@ -237,7 +237,7 @@ class DaemonServer:
         no_plan = data.get("no_plan", False)
         if not no_plan:
             try:
-                from core.plannd import PLANNER_PROMPT, compute_planner_timeout
+                from core.plannd import PLANNER_PROMPT, compute_outer_plan_timeout
                 from core.planner_client import send_plan_request_async
                 from core.tokens import estimate_tokens
                 from utils.config import (PLANNER_MAX_TOKENS,
@@ -268,9 +268,12 @@ class DaemonServer:
                 # client-side socket timeout, which stays pinned to the
                 # hard-tier worst case regardless of tier — see that
                 # module's comment for why those two must not match).
+                # §8 Q11 (2026-08-26): compute_outer_plan_timeout() adds a
+                # buffer for get_plan()'s own new context-budget queue wait
+                # on top of compute_planner_timeout()'s inner-urlopen sizing
+                # — see that function's own docstring.
                 prompt_tokens_estimate = estimate_tokens(PLANNER_PROMPT) + estimate_tokens(prompt)
-                inner_timeout = compute_planner_timeout(prompt_tokens_estimate, max_tokens_for_this_request)
-                outer_timeout = inner_timeout + 30.0
+                outer_timeout = compute_outer_plan_timeout(prompt_tokens_estimate, max_tokens_for_this_request)
 
                 steps = await asyncio.wait_for(
                     send_plan_request_async(prompt, enable_thinking=enable_thinking),
@@ -1146,7 +1149,7 @@ class Daemon:
         until/unless that's done.
         """
         try:
-            from core.plannd import PLANNER_PROMPT, compute_planner_timeout
+            from core.plannd import PLANNER_PROMPT, compute_outer_plan_timeout
             from core.planner_client import send_plan_request_async
             from core.tokens import estimate_tokens
             from utils.config import (PLANNER_MAX_TOKENS,
@@ -1157,9 +1160,11 @@ class Daemon:
                 PLANNER_MAX_TOKENS_MEDIUM if tier == "medium" else PLANNER_MAX_TOKENS
             )
 
+            # §8 Q11 (2026-08-26): see _handle_command's plan_only branch
+            # above — compute_outer_plan_timeout() adds a buffer for
+            # get_plan()'s own new context-budget queue wait.
             prompt_tokens_estimate = estimate_tokens(PLANNER_PROMPT) + estimate_tokens(prompt)
-            inner_timeout = compute_planner_timeout(prompt_tokens_estimate, max_tokens_for_this_request)
-            outer_timeout = inner_timeout + 30.0
+            outer_timeout = compute_outer_plan_timeout(prompt_tokens_estimate, max_tokens_for_this_request)
 
             steps = await asyncio.wait_for(
                 send_plan_request_async(prompt, enable_thinking=enable_thinking),

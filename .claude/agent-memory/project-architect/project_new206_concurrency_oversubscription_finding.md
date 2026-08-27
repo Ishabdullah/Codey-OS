@@ -1,6 +1,6 @@
 ---
 name: project-new206-concurrency-oversubscription-finding
-description: Live concurrency-oversubscription test at n_ctx=8192 found hard all-request failure; escalated to Ish as §8 Q11; corrected scope after reading llama.cpp source
+description: Live concurrency-oversubscription test at n_ctx=8192 found hard all-request failure; §8 Q11 now ANSWERED (2026-08-26) — see [[project_round_q11_concurrency_fix_scoping]] for the fix design
 metadata:
   type: project
 ---

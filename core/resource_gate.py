@@ -92,6 +92,7 @@ import json
 import os
 import tempfile
 import time
+import urllib.request
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -2997,10 +2998,23 @@ _STATE_FILENAME = "resource_gate_state.json"
 _LOCK_FILENAME = "resource_gate_state.lock"
 
 
-def _state_paths(state_dir: Optional[Path]) -> tuple[Path, Path]:
+def _state_paths(
+    state_dir: Optional[Path],
+    state_filename: str = _STATE_FILENAME,
+    lock_filename: str = _LOCK_FILENAME,
+) -> tuple[Path, Path]:
+    """
+    `state_filename`/`lock_filename` (§8 Q11, 2026-08-26): overridable so
+    `_LockedState` can back a SECOND, independent file-locked store (the
+    context-budget reservation ledger below) using the exact same
+    lock-then-read-then-write mechanism, rather than inventing a second
+    primitive — see `_LockedState`'s own docstring. Defaults are unchanged
+    so every existing caller (the model-residency slot store) is
+    unaffected.
+    """
     base = Path(state_dir) if state_dir is not None else CODEY_STATE_DIR
     base.mkdir(parents=True, exist_ok=True)
-    return base / _STATE_FILENAME, base / _LOCK_FILENAME
+    return base / state_filename, base / lock_filename
 
 
 def _pid_alive(pid: int) -> bool:
@@ -3062,8 +3076,13 @@ class _LockedState:
     """Context manager: acquire the sibling lock file, yield the current
     slot list for mutation, write it back atomically on clean exit."""
 
-    def __init__(self, state_dir: Optional[Path]):
-        self._state_path, self._lock_path = _state_paths(state_dir)
+    def __init__(
+        self,
+        state_dir: Optional[Path],
+        state_filename: str = _STATE_FILENAME,
+        lock_filename: str = _LOCK_FILENAME,
+    ):
+        self._state_path, self._lock_path = _state_paths(state_dir, state_filename, lock_filename)
         self._lock_fd = None
 
     def __enter__(self) -> List[dict]:
@@ -3886,3 +3905,704 @@ def total_committed_bytes(state_dir: Optional[Path] = None, reap_dead: bool = Tr
     must NOT be called from inside that lock).
     """
     return _sum_committed_bytes(list_slots(state_dir=state_dir, reap_dead=reap_dead))
+
+
+# ── Context-budget admission (§8 Q11 / NEW-206 fix, 2026-08-26) ─────────────
+# Ish's decision (CODEY_MASTER_PLAN.md §8 Q11, ANSWERED 2026-08-26): the real
+# shared `llama-server` (kv_unified=true, n_parallel=4) fails EVERY in-flight
+# request hard — not gracefully — when two concurrent requests' combined
+# context oversubscribes its shared KV pool (NEW-206, live-reproduced). Fix
+# direction: (c) the resource gate refuses admission once combined estimated
+# context would approach the shared pool, with (b) wired directly behind it
+# so a refusal becomes a serialization wait, not an outright rejection — one
+# mechanism, two behaviors (`reserve_context_budget()` is (c);
+# `wait_and_reserve_context_budget()` layers (b) on top of it).
+#
+# This is a SECOND, independent file-locked store (`_CONTEXT_STATE_FILENAME`/
+# `_CONTEXT_LOCK_FILENAME`), not a new coordination primitive: it reuses
+# `_LockedState` exactly as-is (see that class's own docstring and
+# `_state_paths()`'s `state_filename`/`lock_filename` overrides added
+# above), the same way the model-residency slot store already keeps its
+# lock file as a separate, always-empty sibling of its payload file. Kept
+# as a separate JSON file from the model-slot store (not additional entries
+# tagged onto the same list) so the byte-accounting sums this file already
+# relies on (`total_reserved_bytes()`, `_sum_committed_bytes()`, etc.) can
+# never accidentally sum a context-token reservation's fields as if they
+# were another model-load's `cost_bytes` — the two domains (bytes of RAM,
+# tokens of KV-pool context) must never mix in one arithmetic sum.
+#
+# The reservation ledger this section builds is deliberately NOT the sole
+# source of truth on real KV-pool occupancy — a second design-review pass
+# (source-checked against `~/llama.cpp/tools/server/server-context.cpp`)
+# found that a normal request's cached prompt tokens stay resident after
+# the HTTP call returns (`slot::release()`'s `reset()` does not clear them,
+# for prefix-cache reuse), so a per-call reservation that is the only signal
+# would under-count real occupancy for the dominant multi-turn case. Instead:
+# the server's own `/slots` endpoint (already enabled by default —
+# `params.endpoint_slots = true`, never disabled by this project's spawn
+# command in `core/loader_v2.py`) is polled fresh at each admission check and
+# its `n_prompt_tokens` field summed across slots (confirmed real, from
+# `slot::to_json()`) as the AUTHORITATIVE occupancy signal. This ledger's
+# only job is to close the TOCTOU window between one caller's admission
+# check and that caller's request actually reaching the server — i.e. the
+# gap /slots cannot see into because the request hasn't been sent yet — not
+# to track occupancy for a request's entire lifetime. That is also why
+# releasing a reservation once its own HTTP call returns is correct here
+# (see `release_context_budget()`'s own docstring), unlike
+# the design round's original, rejected "release on HTTP-return" idea, which
+# was wrong for a different reason (using per-call release as the ONLY
+# accounting signal, with no live /slots check backing it up for the time
+# the call is actually in flight).
+
+# Fraction of n_ctx witheld as a fragmentation-safe margin: an admission is
+# refused once combined estimated context (server-reported /slots occupancy
+# + this process's own in-flight-but-not-yet-dispatched reservations + the
+# candidate request's own prompt+generation estimate) would exceed
+# `n_ctx * (1 - CONTEXT_BUDGET_SAFETY_MARGIN_FRACTION)`. 0.15 (not something
+# razor-thin like 0.02-0.05) is deliberate: NEW-206's own source-reading of
+# the real allocator (`llama-kv-cache.cpp:894-1084`) found the failure mode
+# is KV-cache FRAGMENTATION (a contiguous-allocation requirement can fail
+# even when the total free-cell count elsewhere would suffice), not a bare
+# linear sum-vs-total check — so a margin that only just clears 100% of
+# nominal capacity would still leave the exact non-contiguous-free-space
+# scenario NEW-206 flagged as untested (and which Ish explicitly declined to
+# spend a live 65536 re-run confirming, see §8 Q11's own entry) free to
+# still trigger the cascade this fix exists to prevent. 15% is a first-pass,
+# UN-CALIBRATED default reasoned from that risk, in the same voice as this
+# module's other first-pass constants (REQUIRED_HEADROOM_FACTOR,
+# DEVICE_CEILING_USABLE_FRACTION) — not derived from a controlled set of
+# real on-device fragmentation measurements, which the design round noted
+# were never run. A future live pass that actually measures how much
+# contiguous headroom `find_slot()` needs in practice should retune this,
+# not treat it as settled.
+CONTEXT_BUDGET_SAFETY_MARGIN_FRACTION = 0.15
+
+# How often wait_and_reserve_context_budget() retries after a refusal.
+# 2.0s matches this module's own existing short-HTTP-probe timeout
+# (check_health()-style precedent) — frequent enough that a typical
+# request's ~8-9% pool footprint (§8 Q11's own typical-footprint check)
+# clears within a few retries once the blocking occupant's turn ends,
+# without hammering the server with continuous /slots polls. Deliberately
+# NOT FIFO-fair (documented, accepted tradeoff from the design round): two
+# waiters race on each retry tick, and whichever's reserve_context_budget()
+# call wins the lock first is admitted first — not a bug to fix here.
+CONTEXT_QUEUE_POLL_INTERVAL_SECONDS = 2.0
+
+# Hard cap on wait_and_reserve_context_budget()'s own timeout, regardless of
+# what compute_context_queue_timeout_seconds()'s formula would otherwise
+# compute (which can reach ~110 minutes at production's real n_ctx=65536 —
+# see that function's own docstring). The cap exists because both real call
+# sites this queue wraps are themselves bounded by an ENCLOSING timeout that
+# a full formula-sized wait would blow through before the admitted request
+# even got a chance to run:
+#   - core/task_executor.py's background-dispatch path (inference_hybrid.py)
+#     is wrapped in a 1800s asyncio.wait_for() around the ENTIRE task
+#     (core/daemon.py's dispatch loop, core/daemon_config.py's
+#     DEFAULT_CONFIG["tasks"]["task_timeout"]) — a queue wait plus the
+#     actual inference call both have to fit inside that one 1800s budget.
+#   - core/plannd.py's plan_only RPC path is wrapped in
+#     core/daemon.py's own asyncio.wait_for(inner_timeout + 30.0) around the
+#     HTTP call (compute_planner_timeout()'s own docstring) — this task's
+#     wiring extends that outer_timeout to also cover a pre-request queue
+#     wait (see core/plannd.py's own get_plan() wiring comment), so the cap
+#     here keeps that extension bounded too.
+# 600.0s (10 minutes) leaves >= 1200s (20 minutes) of the 1800s task-timeout
+# budget for the actual admitted call afterward on the background-dispatch
+# path — generous margin, not razor-thin — while still being long enough
+# that a typical (~8-9% pool footprint) request queued behind one or two
+# similarly-typical in-flight requests should clear well before the cap in
+# practice. Like CONTEXT_BUDGET_SAFETY_MARGIN_FRACTION, this is a first-pass,
+# un-calibrated value reasoned from the enclosing timeouts' own numbers, not
+# from a real measured queue-clearing time — a future live pass should
+# retune it against actual observed wait durations, not treat it as settled.
+CONTEXT_QUEUE_TIMEOUT_CAP_SECONDS = 600.0
+
+# How long a context-budget reservation record is honored before this
+# module's own reaping treats it as stale and drops it, REGARDLESS of
+# whether its owning PID is still alive — a defense-in-depth backstop for a
+# reservation whose owning process is alive but which itself leaked (crashed
+# out of its own try/finally before calling release_context_budget(), a bug
+# in a future caller, etc.), since `_pid_alive()`-based reaping alone cannot
+# catch that case (the daemon process itself stays alive for the record's
+# entire life; only the one in-flight HTTP call the reservation was for
+# would have died). 1800s matches core/daemon_config.py's own
+# DEFAULT_CONFIG["tasks"]["task_timeout"] — the longest any single real
+# request this ledger tracks is itself allowed to run before the daemon's
+# own watchdog would have killed it, so a reservation older than that is
+# never a legitimately-still-running request, only a leak.
+CONTEXT_RESERVATION_MAX_AGE_SECONDS = 1800.0
+
+# Timeout for the two short, best-effort HTTP calls this section makes
+# against the live server (/slots, /tokenize). 2.0s for /slots matches this
+# module's own check_health()-equivalent precedent elsewhere in this
+# codebase (core/inference_hybrid.py:ChatCompletionBackend.check_health());
+# /tokenize gets a slightly longer budget (5.0s) since it does real
+# tokenization work proportional to prompt length, not a fixed-cost health
+# ping.
+SLOTS_ENDPOINT_TIMEOUT_SECONDS = 2.0
+TOKENIZE_ENDPOINT_TIMEOUT_SECONDS = 5.0
+
+# core/tokens.py's estimate_tokens()/estimate_messages_tokens() are used here
+# ONLY as the fallback when the server's own /tokenize endpoint is
+# unreachable — see estimate_prompt_tokens()'s own docstring for why. Called
+# with no `path` argument (this call site has no file path to give it), that
+# heuristic always uses the ~4-chars/token prose ratio, never the
+# ~3-chars/token code ratio the same function uses when it DOES get a path —
+# under-counting a code-heavy prompt (the common case here: agent prompts
+# are full of source code) by roughly a third. That is the DANGEROUS
+# direction for a safety check whose whole purpose is not under-admitting
+# combined demand, so the heuristic estimate (never the /tokenize-endpoint
+# one, which needs no such correction) is padded before use — the same
+# "pad the estimate conservatively, not the signal" pattern
+# REQUIRED_HEADROOM_FACTOR already established in this module. An
+# un-calibrated first default, not measured against real code-vs-prose
+# prompt mixes.
+CONTEXT_HEURISTIC_FALLBACK_PADDING_FACTOR = 1.35
+
+_CONTEXT_STATE_FILENAME = "resource_gate_context_budget.json"
+_CONTEXT_LOCK_FILENAME = "resource_gate_context_budget.lock"
+
+
+def resolve_effective_n_ctx(
+    model_id: str, port: int, state_dir: Optional[Path] = None
+) -> Optional[int]:
+    """
+    Resolve the shared server's REAL, currently-spawned `n_ctx` — never a
+    config default — for a context-budget admission check to divide against.
+
+    This function exists because of a concrete failure mode a reviewer
+    identified directly against this fix's own regression case: `NEW-206`'s
+    own live test ran with `CODEY_N_CTX=8192` while a fresh process's
+    `MODEL_CONFIG["n_ctx"]` import would read production's real default,
+    65536 — an admission check that budgeted against `MODEL_CONFIG["n_ctx"]`
+    directly would silently no-op on exactly the override path the finding
+    was reproduced on. `find_resident_slot()`'s persisted `n_ctx` field
+    (populated at real spawn time by `core/loader_v2.py`'s
+    `rg.reserve_slot(spec)`/`rg.register_slot(..., n_ctx=...)` calls,
+    NEW-149/NEW-155's own lease/registry item) is the one value in this
+    codebase that reflects what a server was ACTUALLY spawned with,
+    regardless of what any later reader's own config import says — so it is
+    tried first, ahead of a live `/proc/<pid>/cmdline` re-derivation
+    (`resolve_spawned_n_ctx()`, kept as a secondary path for the case where
+    no slot is registered at all, though `resolve_port_owner_pid()`'s own
+    docstring notes this device's `/proc/net/tcp` is permission-denied for
+    every caller, so that secondary path will rarely resolve anything here
+    in practice — kept anyway for portability to a device where it can).
+
+    Returns `None` if neither source can resolve a real value —
+    `reserve_context_budget()`'s caller-facing contract for that case is to
+    REFUSE admission rather than silently fall back to `MODEL_CONFIG["n_ctx"]`
+    (CLAUDE.md rule 12: never guess at an external artifact's real state from
+    a value that could disagree with it) — see that function's own docstring.
+    """
+    slot = find_resident_slot(model_id=model_id, port=port, state_dir=state_dir)
+    if slot is not None:
+        n_ctx = slot.get("n_ctx")
+        if n_ctx:
+            return int(n_ctx)
+    pid = resolve_port_owner_pid(port)
+    if pid is not None:
+        n_ctx = resolve_spawned_n_ctx(pid)
+        if n_ctx is not None:
+            return n_ctx
+    return None
+
+
+def _fetch_slots_prompt_tokens(
+    host: str, port: int, timeout: float = SLOTS_ENDPOINT_TIMEOUT_SECONDS
+) -> Optional[int]:
+    """
+    Poll the live server's `/slots` endpoint and sum `n_prompt_tokens`
+    across every slot returned — the AUTHORITATIVE, freshly-measured
+    occupancy signal this section's header comment describes (candidate 1
+    from §8 Q11's design round, confirmed viable there: `slot::to_json()`'s
+    real field, the endpoint enabled by this project's own default spawn
+    command).
+
+    Returns `None` (never 0) on ANY failure — timeout, connection refused,
+    malformed JSON, the endpoint disabled — so a caller can tell "genuinely
+    zero resident context" apart from "couldn't ask the server," and
+    degrade accordingly. See `reserve_context_budget()`'s own docstring for
+    why degrading to "the local reservation ledger alone" (never to "treat
+    as unlimited") is the safe failure mode for this admission check
+    specifically — this is safety-relevant code (CLAUDE.md's exception-
+    handling rule), and silently treating an unreachable `/slots` as "the
+    pool must be empty" would reopen exactly the over-admission NEW-206
+    itself is about.
+    """
+    try:
+        url = f"http://{host}:{port}/slots"
+        with urllib.request.urlopen(url, timeout=timeout) as response:
+            data = json.loads(response.read().decode("utf-8"))
+        if not isinstance(data, list):
+            return None
+        return sum(int(s.get("n_prompt_tokens", 0) or 0) for s in data)
+    except Exception as e:
+        warning(f"resource_gate: /slots poll failed for {host}:{port}, degrading: {e}")
+        return None
+
+
+def _tokenize_via_server(
+    host: str, port: int, text: str, timeout: float = TOKENIZE_ENDPOINT_TIMEOUT_SECONDS
+) -> Optional[int]:
+    """
+    Ask the live server's own `/tokenize` endpoint for the real token count
+    of `text` — the same approach `NEW-206`'s own live test used to measure
+    its two prompts, more precise than any local heuristic since it uses the
+    model's actual tokenizer. Returns `None` (never a guessed count) on any
+    failure so `estimate_prompt_tokens()` can fall back to the heuristic
+    explicitly, rather than silently substituting a wrong number.
+    """
+    try:
+        url = f"http://{host}:{port}/tokenize"
+        payload = json.dumps({"content": text}).encode("utf-8")
+        req = urllib.request.Request(
+            url, data=payload, headers={"Content-Type": "application/json"}, method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            data = json.loads(response.read().decode("utf-8"))
+        tokens = data.get("tokens")
+        if isinstance(tokens, list):
+            return len(tokens)
+        return None
+    except Exception as e:
+        warning(f"resource_gate: /tokenize call failed for {host}:{port}, falling back to heuristic: {e}")
+        return None
+
+
+def estimate_prompt_tokens(
+    host: str, port: int, messages: List[dict], tokenize_fn=None
+) -> Tuple[int, str]:
+    """
+    Estimate the prompt-token cost of `messages` for a context-budget
+    admission check, preferring the live server's own `/tokenize` endpoint
+    for precision and falling back to `core/tokens.py`'s existing
+    `estimate_tokens()`/`estimate_messages_tokens()` heuristic (padded, see
+    `CONTEXT_HEURISTIC_FALLBACK_PADDING_FACTOR`'s own comment) if `/tokenize`
+    fails or times out.
+
+    Centralized here (§8 Q11's design round explicitly called this out,
+    "now that it's safety-relevant, not just a UX computation") rather than
+    duplicated at each of the two live call sites (`core/inference_hybrid.py`,
+    `core/plannd.py`) — both call sites now go through
+    `reserve_context_budget()` (which calls this), so there is exactly one
+    place this estimation logic can drift, not two independently-maintained
+    copies.
+
+    Returns `(estimated_tokens, source)` where `source` is `"tokenize"` or
+    `"heuristic"` — persisted onto the reservation record so a later reader
+    can tell which was used for a given admission decision.
+
+    `tokenize_fn` (test seam): defaults to a real `/tokenize` HTTP call
+    against `host`/`port`; tests pass a stub returning an int or `None`.
+    """
+    text = "\n".join(str(m.get("content", "")) for m in messages)
+    if tokenize_fn is None:
+        tokenize_fn = lambda t: _tokenize_via_server(host, port, t)
+    tokens = tokenize_fn(text)
+    if tokens is not None:
+        return int(tokens), "tokenize"
+
+    from core.tokens import estimate_messages_tokens
+
+    heuristic = estimate_messages_tokens(messages)
+    return int(heuristic * CONTEXT_HEURISTIC_FALLBACK_PADDING_FACTOR), "heuristic"
+
+
+def compute_context_queue_timeout_seconds(n_ctx: int, max_tokens: int) -> float:
+    """
+    Formula-based timeout for `wait_and_reserve_context_budget()`'s own
+    retry loop — matching this codebase's own established precedent
+    (`core/plannd.py::compute_planner_timeout()`, which this project chose
+    over a flat constant specifically because a flat constant already
+    caused one incident, `NEW-165`, the moment the thing it was sized
+    against changed) rather than a single hardcoded number.
+
+    Modeled as the worst-case wall-clock time for ONE full-context occupant
+    (prefill across the whole shared pool, then a full generation budget) to
+    finish and free the capacity a queued caller is waiting on — the
+    genuine upper bound on how long a well-behaved queued wait might
+    legitimately need, using this project's own conservative device-rate
+    floors (`PLANNER_MIN_PREFILL_TPS`/`PLANNER_MIN_GEN_TPS`/
+    `PLANNER_TIMEOUT_MARGIN_SECONDS`, `utils/config.py` — the same floors
+    `compute_planner_timeout()` already uses, not a second, independently-
+    guessed set of rates), then capped at `CONTEXT_QUEUE_TIMEOUT_CAP_SECONDS`
+    — see that constant's own comment for why the uncapped formula (which
+    reaches ~110 minutes at production's real n_ctx=65536) would exceed both
+    real call sites' own enclosing timeouts.
+    """
+    from utils.config import (PLANNER_MIN_GEN_TPS, PLANNER_MIN_PREFILL_TPS,
+                               PLANNER_TIMEOUT_MARGIN_SECONDS)
+
+    worst_case = (
+        (n_ctx / PLANNER_MIN_PREFILL_TPS)
+        + (max_tokens / PLANNER_MIN_GEN_TPS)
+        + PLANNER_TIMEOUT_MARGIN_SECONDS
+    )
+    return min(worst_case, CONTEXT_QUEUE_TIMEOUT_CAP_SECONDS)
+
+
+@dataclass(frozen=True)
+class ContextBudgetDecision:
+    """
+    Result of `reserve_context_budget()`/`wait_and_reserve_context_budget()`.
+
+    `admitted`: whether this request may proceed now.
+    `reservation_id`: the ledger record's id if admitted (pass to
+        `release_context_budget()` once the HTTP call this reservation was
+        for returns, success or failure) — `None` if not admitted.
+    `reserved_tokens`: this request's own `prompt_tokens + max_tokens`
+        estimate (the figure actually reserved on admission).
+    `effective_n_ctx`: the real spawned `n_ctx` this decision was computed
+        against (`resolve_effective_n_ctx()`), or `None` if it could not be
+        resolved (in which case `admitted` is always `False` — see
+        `reserve_context_budget()`'s own docstring for why that's a refusal,
+        not a guess).
+    `ceiling_tokens`: `effective_n_ctx * (1 - safety_margin_fraction)`, the
+        combined-demand ceiling this decision was checked against (0 if
+        `effective_n_ctx` is `None`).
+    `slots_occupied_tokens`: the live `/slots`-reported sum at check time (0
+        if `/slots` was unreachable — see `reason` for whether that
+        degraded-signal case applies to this particular decision).
+    `other_reserved_tokens`: sum of every OTHER live reservation record's
+        `reserved_tokens` in the ledger at check time (this decision's own
+        request is not included in this figure).
+    `estimate_source`: `"tokenize"`, `"heuristic"`, or `"none"` (the
+        `effective_n_ctx`-unresolvable refusal case, where no estimate was
+        computed at all).
+    `reason`: human-readable explanation, always populated (not just on
+        refusal) so a caller/log can show why an admission succeeded too.
+    `timed_out`: `True` only when `wait_and_reserve_context_budget()`'s own
+        retry loop hit its timeout without ever getting admitted — `False`
+        for every decision `reserve_context_budget()` itself returns
+        directly (single-shot calls have no notion of "timed out").
+    """
+
+    admitted: bool
+    reservation_id: Optional[str]
+    reserved_tokens: int
+    effective_n_ctx: Optional[int]
+    ceiling_tokens: int
+    slots_occupied_tokens: int
+    other_reserved_tokens: int
+    estimate_source: str
+    reason: str
+    timed_out: bool = False
+
+
+def reserve_context_budget(
+    port: int,
+    messages: List[dict],
+    max_tokens: int,
+    model_id: str = "primary",
+    host: str = "127.0.0.1",
+    n_ctx: Optional[int] = None,
+    safety_margin_fraction: float = CONTEXT_BUDGET_SAFETY_MARGIN_FRACTION,
+    state_dir: Optional[Path] = None,
+    pid: Optional[int] = None,
+    reap_dead: bool = True,
+    fetch_slots_fn=None,
+    tokenize_fn=None,
+) -> ContextBudgetDecision:
+    """
+    Single-shot admission check + atomic reservation against the shared
+    server's KV-pool context budget — the (c) half of §8 Q11's fix. Reserves
+    `estimate_prompt_tokens(...) + max_tokens` (prompt AND generation
+    together, deliberately conservative: the design round's own source-read
+    confirmed the during-generation collision surface is untested, so this
+    does not assume it is safe to release the generation-budget portion
+    early).
+
+    Admission combines THREE figures against the ceiling, not just this
+    request's own estimate: (a) the live `/slots`-reported sum (the
+    authoritative real-occupancy signal — see this section's header
+    comment), (b) every other live reservation this or another process has
+    admitted but not yet released (closes the TOCTOU window between an
+    admission check and that request actually reaching the server — the
+    ledger's only job, see the header comment for why it does NOT try to be
+    the sole source of truth on real, ongoing occupancy), and (c) this
+    request's own estimate. Refuses if the combined total would exceed
+    `effective_n_ctx * (1 - safety_margin_fraction)`.
+
+    `n_ctx`, if given, skips `resolve_effective_n_ctx()`'s own store/proc
+    lookup — `wait_and_reserve_context_budget()`'s own retry loop passes it
+    explicitly so every retry checks against the same resolved value instead
+    of re-resolving (and potentially re-querying `/proc`) on every tick.
+    Direct callers should normally leave this `None` and let it resolve.
+
+    **If `effective_n_ctx` cannot be resolved at all (neither the slot
+    store nor a live `/proc` re-derivation has it), this function REFUSES
+    admission** rather than falling back to `MODEL_CONFIG["n_ctx"]` — see
+    `resolve_effective_n_ctx()`'s own docstring for the concrete bug this
+    avoids (a config value that can silently disagree with what the server
+    was actually spawned with, exactly `NEW-206`'s own `CODEY_N_CTX=8192`-
+    override scenario). This is a deliberate fail-closed choice for
+    safety-relevant admission logic (CLAUDE.md's exception-handling rule):
+    in normal operation `core/loader_v2.py` always registers the primary
+    server's real `n_ctx` at spawn time, so this branch should essentially
+    never fire when the server was started through this project's own
+    normal path; if it ever does fire, refusing one request that can't be
+    safety-checked is a far smaller failure than silently admitting against
+    a possibly-wrong ceiling and reopening NEW-206's cascade.
+
+    `/slots` is polled BEFORE the ledger's lock is acquired, not inside it —
+    matching `reserve_slot()`'s own documented reason for reading live
+    signals (meminfo, thermal) outside `_LockedState`'s blocking, no-timeout
+    flock: a slow or unreachable `/slots` call must not stall every other
+    process waiting on this ledger's lock. If the poll fails, admission
+    degrades to the local reservation ledger alone (never to "treat as
+    unlimited" — see `_fetch_slots_prompt_tokens()`'s own docstring), and
+    `reason` notes the degraded signal explicitly when refusing.
+    """
+    if pid is None:
+        pid = os.getpid()
+
+    if n_ctx is None:
+        n_ctx = resolve_effective_n_ctx(model_id, port, state_dir=state_dir)
+    if not n_ctx or n_ctx <= 0:
+        return ContextBudgetDecision(
+            admitted=False,
+            reservation_id=None,
+            reserved_tokens=0,
+            effective_n_ctx=None,
+            ceiling_tokens=0,
+            slots_occupied_tokens=0,
+            other_reserved_tokens=0,
+            estimate_source="none",
+            reason=(
+                "cannot resolve the shared server's real n_ctx from the slot "
+                "store or /proc — refusing this admission rather than "
+                "guessing (CLAUDE.md rule 12)"
+            ),
+        )
+
+    ceiling_tokens = int(n_ctx * (1.0 - safety_margin_fraction))
+
+    prompt_tokens, estimate_source = estimate_prompt_tokens(
+        host, port, messages, tokenize_fn=tokenize_fn
+    )
+    reserved_tokens = prompt_tokens + max_tokens
+
+    if fetch_slots_fn is None:
+        fetch_slots_fn = lambda: _fetch_slots_prompt_tokens(host, port)
+    try:
+        slots_tokens = fetch_slots_fn()
+    except Exception as e:
+        # Best-effort signal only — see _fetch_slots_prompt_tokens()'s own
+        # docstring for why an injected fetch_slots_fn raising is handled
+        # the same degrade-not-crash way a real HTTP failure already is.
+        warning(f"resource_gate: fetch_slots_fn raised, degrading: {e}")
+        slots_tokens = None
+    slots_signal_degraded = slots_tokens is None
+    if slots_signal_degraded:
+        slots_tokens = 0
+
+    with _LockedState(
+        state_dir, state_filename=_CONTEXT_STATE_FILENAME, lock_filename=_CONTEXT_LOCK_FILENAME
+    ) as records:
+        if reap_dead:
+            now = time.time()
+            records[:] = [
+                r
+                for r in records
+                if (r.get("pid") is None or _pid_alive(r["pid"]))
+                and (now - r.get("created_at", 0)) < CONTEXT_RESERVATION_MAX_AGE_SECONDS
+            ]
+
+        other_reserved_tokens = sum(r.get("reserved_tokens", 0) for r in records)
+        combined = slots_tokens + other_reserved_tokens + reserved_tokens
+
+        if combined > ceiling_tokens:
+            reason = (
+                f"combined estimated context {combined} tokens would exceed "
+                f"the {safety_margin_fraction:.0%}-margin ceiling "
+                f"{ceiling_tokens} of n_ctx={n_ctx} "
+                f"(slots={slots_tokens}, other_reservations={other_reserved_tokens}, "
+                f"this_request={reserved_tokens})"
+            )
+            if slots_signal_degraded:
+                reason += " — /slots unreachable, degraded to local reservation ledger only"
+            return ContextBudgetDecision(
+                admitted=False,
+                reservation_id=None,
+                reserved_tokens=reserved_tokens,
+                effective_n_ctx=n_ctx,
+                ceiling_tokens=ceiling_tokens,
+                slots_occupied_tokens=slots_tokens,
+                other_reserved_tokens=other_reserved_tokens,
+                estimate_source=estimate_source,
+                reason=reason,
+            )
+
+        reservation_id = uuid.uuid4().hex
+        records.append(
+            {
+                "reservation_id": reservation_id,
+                "port": port,
+                "pid": pid,
+                "reserved_tokens": reserved_tokens,
+                "prompt_tokens": prompt_tokens,
+                "max_tokens": max_tokens,
+                "estimate_source": estimate_source,
+                "created_at": time.time(),
+            }
+        )
+        return ContextBudgetDecision(
+            admitted=True,
+            reservation_id=reservation_id,
+            reserved_tokens=reserved_tokens,
+            effective_n_ctx=n_ctx,
+            ceiling_tokens=ceiling_tokens,
+            slots_occupied_tokens=slots_tokens,
+            other_reserved_tokens=other_reserved_tokens,
+            estimate_source=estimate_source,
+            reason="admitted",
+        )
+
+
+def release_context_budget(reservation_id: str, state_dir: Optional[Path] = None) -> bool:
+    """
+    Remove a context-budget reservation by id once the HTTP call it was
+    reserved for has returned — success OR failure, always, from a
+    `finally` block at the call site (matching this module's own
+    `release_slot()` precedent).
+
+    Releasing on HTTP-return is correct HERE for a reason distinct from why
+    the design round's original "release on HTTP-return" idea was flagged
+    WRONG for tracking real occupancy (see this section's header comment):
+    this ledger was never meant to track occupancy for a request's whole
+    lifetime — only to close the TOCTOU gap between an admission check and
+    that request actually reaching the server. By the time the HTTP call
+    returns, the server has already been sending/processing it the whole
+    time, so `/slots`' `n_prompt_tokens` figure has already had the real
+    figures visible to any OTHER caller's admission check for as long as
+    this one has been in flight — continuing to hold this reservation after
+    return would double-count against that now-authoritative live signal
+    for every later admission check, not protect against anything.
+
+    Returns `True` if a matching reservation was found/removed, `False`
+    otherwise (e.g. it already expired via `CONTEXT_RESERVATION_MAX_AGE_
+    SECONDS` reaping — not an error, safe to ignore).
+    """
+    found = False
+    with _LockedState(
+        state_dir, state_filename=_CONTEXT_STATE_FILENAME, lock_filename=_CONTEXT_LOCK_FILENAME
+    ) as records:
+        remaining = [r for r in records if r.get("reservation_id") != reservation_id]
+        found = len(remaining) != len(records)
+        records[:] = remaining
+    return found
+
+
+def wait_and_reserve_context_budget(
+    port: int,
+    messages: List[dict],
+    max_tokens: int,
+    model_id: str = "primary",
+    host: str = "127.0.0.1",
+    safety_margin_fraction: float = CONTEXT_BUDGET_SAFETY_MARGIN_FRACTION,
+    timeout_seconds: Optional[float] = None,
+    poll_interval_seconds: float = CONTEXT_QUEUE_POLL_INTERVAL_SECONDS,
+    state_dir: Optional[Path] = None,
+    pid: Optional[int] = None,
+    fetch_slots_fn=None,
+    tokenize_fn=None,
+    sleep_fn=time.sleep,
+) -> ContextBudgetDecision:
+    """
+    The (b)-as-backstop-behind-(c) half of §8 Q11's fix: retries
+    `reserve_context_budget()` in a plain acquire-check-release-sleep-retry
+    loop until either admitted or `timeout_seconds` elapses, turning a
+    would-be refusal into a serialization WAIT instead of an outright
+    rejection — one mechanism, two behaviors, matching Ish's own "(b) as a
+    safety AFTER (c)" framing (§8 Q11), not two separate circuit breakers.
+
+    Each retry is a full, independent `reserve_context_budget()` call —
+    `_LockedState`'s blocking flock is acquired and released within that
+    call, never held across `sleep_fn()` (the design round's own explicit
+    requirement: a caller sleeping while holding this cross-process lock
+    would stall every OTHER process's admission checks and slot operations
+    for the sleep's whole duration).
+
+    Deliberately NOT FIFO-fair (design round's own accepted tradeoff, not a
+    bug): every waiter's next retry races every other waiter's next retry
+    with no ordering token between them — whichever call happens to reach
+    `reserve_context_budget()`'s lock first on a given tick wins that tick,
+    which can (rarely, in principle) let a later-arriving waiter jump ahead
+    of an earlier one.
+
+    `n_ctx` is resolved ONCE up front (not re-resolved on every retry) so
+    every retry in one wait checks against the same value and so
+    `timeout_seconds`'s default can be computed from it before the loop
+    starts. If it cannot be resolved at all, returns immediately (the
+    first `reserve_context_budget()` call's own refusal) rather than
+    retrying pointlessly — a request that can never be resolved once won't
+    resolve on a later tick either.
+
+    `timeout_seconds`, if `None` (the normal case), defaults to
+    `compute_context_queue_timeout_seconds(n_ctx, max_tokens)` — see that
+    function's own docstring for the formula and its
+    `CONTEXT_QUEUE_TIMEOUT_CAP_SECONDS` cap.
+
+    On timeout, returns the LAST refusal `ContextBudgetDecision` with
+    `timed_out=True` set — callers (`core/inference_hybrid.py`,
+    `core/plannd.py`) treat this the same as any other admission refusal
+    (log and surface a failure to their own caller, exactly like every
+    other error path those two functions already have), just with a more
+    specific reason string available for the log line.
+    """
+    n_ctx = resolve_effective_n_ctx(model_id, port, state_dir=state_dir)
+
+    decision = reserve_context_budget(
+        port,
+        messages,
+        max_tokens,
+        model_id=model_id,
+        host=host,
+        n_ctx=n_ctx,
+        safety_margin_fraction=safety_margin_fraction,
+        state_dir=state_dir,
+        pid=pid,
+        fetch_slots_fn=fetch_slots_fn,
+        tokenize_fn=tokenize_fn,
+    )
+    if decision.admitted or decision.effective_n_ctx is None:
+        return decision
+
+    if timeout_seconds is None:
+        timeout_seconds = compute_context_queue_timeout_seconds(n_ctx, max_tokens)
+    deadline = time.time() + timeout_seconds
+
+    while True:
+        if time.time() >= deadline:
+            return ContextBudgetDecision(
+                admitted=False,
+                reservation_id=None,
+                reserved_tokens=decision.reserved_tokens,
+                effective_n_ctx=decision.effective_n_ctx,
+                ceiling_tokens=decision.ceiling_tokens,
+                slots_occupied_tokens=decision.slots_occupied_tokens,
+                other_reserved_tokens=decision.other_reserved_tokens,
+                estimate_source=decision.estimate_source,
+                reason=(
+                    f"timed out after {timeout_seconds:.0f}s waiting for context "
+                    f"budget to free up — last refusal: {decision.reason}"
+                ),
+                timed_out=True,
+            )
+        sleep_fn(poll_interval_seconds)
+        decision = reserve_context_budget(
+            port,
+            messages,
+            max_tokens,
+            model_id=model_id,
+            host=host,
+            n_ctx=n_ctx,
+            safety_margin_fraction=safety_margin_fraction,
+            state_dir=state_dir,
+            pid=pid,
+            fetch_slots_fn=fetch_slots_fn,
+            tokenize_fn=tokenize_fn,
+        )
+        if decision.admitted:
+            return decision

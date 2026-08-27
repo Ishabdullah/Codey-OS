@@ -37,10 +37,13 @@ import json
 import unittest.mock as mock
 from io import BytesIO
 
+import pytest
+
 import core.daemon as daemon_mod
 import core.plannd as plannd_mod
 import core.planner_client as planner_client_mod
 import core.planner_service as planner_service
+import core.resource_gate as rg
 from core.orchestrator import _score_message, is_complex
 from core.plannd import (PLANNER_PROMPT, compute_planner_timeout, get_plan)
 from core.state import StateStore
@@ -54,6 +57,32 @@ def _fake_response(payload: dict):
     cm.__enter__.return_value = BytesIO(body)
     cm.__exit__.return_value = False
     return cm
+
+
+@pytest.fixture(autouse=True)
+def _admit_context_budget_by_default():
+    """
+    §8 Q11 fix (2026-08-26) — same rationale as
+    tests/test_plannd_timeout.py's identical fixture: get_plan() now runs a
+    context-budget admission check before its urlopen call, which would
+    otherwise always refuse in this file's synthetic (no resident slot
+    registered) test environment. This file is about the tier-split
+    plumbing, not the admission gate itself (see tests/test_context_budget.py).
+    """
+    admitted = rg.ContextBudgetDecision(
+        admitted=True,
+        reservation_id="test-reservation",
+        reserved_tokens=0,
+        effective_n_ctx=8192,
+        ceiling_tokens=8192,
+        slots_occupied_tokens=0,
+        other_reserved_tokens=0,
+        estimate_source="tokenize",
+        reason="admitted",
+    )
+    with mock.patch("core.resource_gate.wait_and_reserve_context_budget", return_value=admitted), \
+         mock.patch("core.resource_gate.release_context_budget", return_value=True):
+        yield
 
 
 def _server(db_path):

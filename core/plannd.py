@@ -288,6 +288,53 @@ def compute_planner_timeout(prompt_tokens_estimate: int, max_tokens: int) -> flo
     )
 
 
+def compute_outer_plan_timeout(prompt_tokens_estimate: int, max_tokens: int) -> float:
+    """
+    §8 Q11 fix (2026-08-26): `core/daemon.py` sizes its own outer
+    `asyncio.wait_for()` around the whole `send_plan_request_async()`/
+    `get_plan()` call from `compute_planner_timeout()` plus a small buffer
+    (see that function's own docstring) — deliberately so the inner urlopen
+    timeout always fires first. `get_plan()` now also runs a blocking
+    context-budget admission wait (`core/resource_gate.py::
+    wait_and_reserve_context_budget()`) BEFORE its urlopen call, consuming
+    wall-clock time the original two-timeout sizing didn't account for. This
+    function is the single place that adds a matching buffer to the OUTER
+    timeout too, so a still-queued (not yet dispatched) request cannot be
+    cancelled by `daemon.py`'s wait_for before its own bounded admission
+    wait has a chance to either admit it or time out on its own terms —
+    `daemon.py`'s two call sites (`_handle_command`'s plan_only branch,
+    `_plan_claimed_task()`) both call this instead of re-deriving the same
+    buffer twice.
+
+    Best-effort: if the primary server's real `n_ctx` cannot be resolved
+    (`core/resource_gate.py::resolve_effective_n_ctx()` — e.g. the primary
+    isn't loaded yet), the queue-wait buffer contributes 0 here.
+    `get_plan()`'s own admission check hits the exact same unresolvable-
+    n_ctx case in that scenario and refuses immediately rather than
+    actually queuing (see `reserve_context_budget()`'s own docstring for
+    why that's a fail-closed refusal, not a guess) — so no extra outer time
+    is needed for a wait that will never happen.
+    """
+    queue_buffer = 0.0
+    try:
+        from core.resource_gate import (compute_context_queue_timeout_seconds,
+                                        resolve_effective_n_ctx)
+        from utils.config import PRIMARY_SERVER_PORT
+
+        n_ctx = resolve_effective_n_ctx("primary", PRIMARY_SERVER_PORT)
+        if n_ctx:
+            queue_buffer = compute_context_queue_timeout_seconds(n_ctx, max_tokens)
+    except Exception as e:
+        from utils.logger import warning as _warning
+
+        _warning(
+            "[plannd] compute_outer_plan_timeout: n_ctx resolution failed, "
+            f"no queue buffer added to the outer timeout: {e}"
+        )
+
+    return compute_planner_timeout(prompt_tokens_estimate, max_tokens) + queue_buffer + 30.0
+
+
 # ── Planning via the primary server (or remote when CODEY_BACKEND_P is set) ─
 
 
@@ -494,6 +541,41 @@ def get_plan(prompt: str, enable_thinking: bool = True) -> Optional[List[str]]:
         method="POST",
     )
 
+    # §8 Q11 / NEW-206 fix (2026-08-26): reserve this request's estimated
+    # context (prompt + max_tokens) against the shared server's KV pool
+    # before issuing the HTTP call — see
+    # core/inference_hybrid.py::ChatCompletionBackend.infer()'s matching
+    # comment for the full reasoning (this is the same admission mechanism,
+    # the other of §8 Q11's two wired call sites). Blocking here is safe:
+    # this function's live callers are core/planner_client.py's
+    # send_plan_request_async() (already off the daemon's asyncio loop via
+    # run_in_executor) and main.py's synchronous interactive path (a
+    # separate OS process with no event loop to stall) — confirmed during
+    # §8 Q11's design round. On admission timeout/failure, returns None —
+    # this function's own pre-existing "returns None on planner
+    # unavailable" contract, so callers see no new failure mode.
+    try:
+        from core.resource_gate import (release_context_budget,
+                                        wait_and_reserve_context_budget)
+
+        budget_decision = wait_and_reserve_context_budget(
+            port, payload["messages"], max_tokens
+        )
+        if not budget_decision.admitted:
+            from utils.logger import warning as _warning
+
+            _warning(f"[plannd] get_plan: context-budget admission failed: {budget_decision.reason}")
+            return None
+    except Exception as e:
+        # Safety-relevant admission check failed to even run — fail closed
+        # (same posture as an admission refusal above), not "skip the check
+        # and hope." A silently-skipped check here is exactly the
+        # over-admission NEW-206 itself is about.
+        from utils.logger import warning as _warning
+
+        _warning(f"[plannd] get_plan: context-budget check raised, refusing to proceed: {e}")
+        return None
+
     try:
         with urllib.request.urlopen(req, timeout=request_timeout) as response:
             result = json.loads(response.read().decode("utf-8"))
@@ -564,3 +646,13 @@ def get_plan(prompt: str, enable_thinking: bool = True) -> Optional[List[str]]:
 
         _warning(f"[plannd] get_plan error: {e}")
         return None
+    finally:
+        # §8 Q11 fix: release regardless of success/failure/early-return
+        # above — see release_context_budget()'s own docstring for why
+        # releasing once this HTTP call returns is correct here.
+        try:
+            release_context_budget(budget_decision.reservation_id)
+        except Exception as e:
+            from utils.logger import warning as _warning
+
+            _warning(f"[plannd] get_plan: failed to release context budget reservation: {e}")

@@ -12,7 +12,408 @@ and Appendix A.
 
 ---
 
-## 2026-08-26 (latest) — Phase A1 "concurrency test" RUN live against the real `codey-start` stack: negative result. The shared `llama-server`'s `kv_unified=true` 4-slot default fails EVERY in-flight request under combined-load oversubscription, not gracefully — a real finding bearing on §1.4's architecture, escalated to Ish as §8 Q11, no code changed (`NEW-206`)
+## 2026-08-27 (latest) — §8 Q11 / `NEW-206` fix: mandatory rule-4 code-reviewer pass CHANGES REQUESTED (logging-only requirement), `NEW-208` logged
+
+Ran the mandatory rule-4 code-reviewer pass on the prior round's
+context-budget admission+queue implementation (a second attempt — the
+first hit a session-limit API error mid-review before reaching a
+verdict; confirmed via `git status`/`git diff` that nothing was lost or
+changed by that interruption, and the re-run started fresh with no
+partial findings to build on).
+
+**Verified clean, independently, not taken on trust:**
+- `resolve_effective_n_ctx()` fails closed on every unresolvable path —
+  no branch returns a permissive/unlimited value.
+- No TOCTOU regression between the new context-budget ledger and the
+  existing model-slot store — they're genuinely separate, never
+  cross-summed.
+- `wait_and_reserve_context_budget()`'s wait loop never holds the
+  blocking `_LockedState` flock across `sleep()`; timeout is enforced,
+  bounded, and returns cleanly with no leaked lock or partial
+  reservation.
+- `release_context_budget()` is called on every exit path of both
+  `core/inference_hybrid.py::infer()` and `core/plannd.py::get_plan()`,
+  including exception branches — read both functions in full, not just
+  diff hunks, to confirm this.
+- The new daemon outer-timeout layering (`compute_outer_plan_timeout()`
+  plus the two touched `core/daemon.py` call sites) correctly preserves
+  the "inner fires first" invariant `NEW-164`/`165`/`167`/`169`
+  established — the new `CONTEXT_QUEUE_TIMEOUT_CAP_SECONDS=600.0` is
+  correctly budgeted into the outer bound, not silently dropped.
+- No duplicated safety-margin (`0.15`)/timeout-cap (`600.0`) constants
+  anywhere that could drift.
+- The two pre-existing tests' new autouse "always admit" fixtures only
+  bypass the new admission check, without weakening either file's
+  original assertions.
+- Full suite independently rerun: **716 passed, 1 skipped**, matching
+  exactly.
+
+**One real defect found, `NEW-208` (Confirmed, safe-direction, logged
+not fixed):** `reserve_context_budget()`'s combined-usage sum
+double-counts every admitted request for its ENTIRE in-flight duration,
+not just the brief TOCTOU window the design intends. Root cause:
+`release_context_budget()` only runs in a `finally` AFTER the full HTTP
+call returns — i.e. after the request's whole lifetime, not shortly
+after admission — so for the whole time a request is running, it's
+counted twice: once via its still-outstanding local reservation record,
+once via `/slots`' own real occupancy (which already reflects it, since
+the server has been actively processing it the whole time). Both
+`release_context_budget()`'s own docstring and this section's header
+comment claim the ledger's "only job" is closing the brief TOCTOU gap —
+but the actual release timing contradicts that stated intent; it
+genuinely holds for the whole lifetime. This is NOT a safety bug — it
+fails in the safe direction (under-admits, never over-admits, cannot
+reopen `NEW-206`'s cascade) — but it quietly roughly halves the real
+concurrency this fix was designed to preserve, at the documented ~8-9%
+typical single-request footprint and 15% margin. Per rule 8, this
+required logging (now done, `NEW-208`), not a mandatory code fix this
+round — reviewer's own judgment, endorsed here. Fix direction for later
+if the concurrency cost matters in practice: release once `/slots`
+first reflects the request's own footprint, rather than waiting for the
+whole HTTP call to return.
+
+**Status: the fix's mandatory rule-4 review requirement (logging
+`NEW-208`) is now satisfied.** Not yet committed — will commit now that
+the docs correctly reflect the review outcome. Still not live-verified
+(unit/mock-tested only, per rule 7 — stated explicitly, not claimed as
+behaviorally confirmed).
+
+Files touched: `NEW_ISSUES.md`, `CODEY_MASTER_PLAN.md`.
+
+---
+
+## 2026-08-26 — §8 Q11 / `NEW-206` fix IMPLEMENTED (code-complete, self-tested — mandatory rule-4 code-reviewer pass NOT yet run, NOT live-verified)
+
+**What this round built.** The prior round (below) scoped Ish's confirmed
+fix direction — (c) the resource gate refuses admission once combined
+estimated context would approach the shared KV pool, with (b) wired
+directly behind it as a serialization-wait backstop, one mechanism two
+behaviors — but left it desk-only per rule 4. This round writes the code.
+
+**New in `core/resource_gate.py`** (a second, independent file-locked
+reservation ledger, reusing `_LockedState` exactly as-is via new
+`state_filename`/`lock_filename` overrides on `_state_paths()`/
+`_LockedState.__init__` — not a new coordination primitive, and kept as a
+separate JSON file from the model-residency slot store so byte-accounting
+sums there can never accidentally include a token-count field):
+- `resolve_effective_n_ctx(model_id, port)` — resolves the shared server's
+  REAL spawned `n_ctx` from the slot store's persisted value first
+  (`find_resident_slot()`, populated at real spawn time by
+  `core/loader_v2.py`), falling back to a live `/proc/<pid>/cmdline`
+  re-derivation. **A mid-implementation advisor review caught that
+  budgeting against `MODEL_CONFIG["n_ctx"]` directly (this round's
+  original plan) would have silently no-op'd on exactly `NEW-206`'s own
+  reproduction path** — that test ran `CODEY_N_CTX=8192` while a fresh
+  process's config import reads production's 65536 default. If neither
+  source resolves, admission REFUSES (fail-closed, CLAUDE.md rule 12) —
+  expected to essentially never fire in normal operation.
+- `estimate_prompt_tokens(host, port, messages)` — centralized (not
+  duplicated at the two call sites, per the design round's own explicit
+  ask) token estimation: prefers the live server's own `/tokenize`
+  endpoint (same approach `NEW-206`'s own live test used), falls back to
+  `core/tokens.py`'s heuristic padded 1.35x — `estimate_tokens()` with no
+  file-path argument always uses the ~4-chars/token prose ratio, which
+  under-counts a code-heavy prompt by roughly a third, the dangerous
+  under-admission direction for a safety check.
+- `_fetch_slots_prompt_tokens(host, port)` — polls the live `/slots`
+  endpoint (already enabled by default, confirmed via `loader_v2.py`'s
+  spawn command) and sums `n_prompt_tokens` as the AUTHORITATIVE
+  occupancy signal, resolving the design round's single biggest open
+  question (the original "release budget on HTTP-return" idea was
+  confirmed WRONG for occupancy tracking — a normal request's cached
+  prompt tokens stay resident after the call returns, per
+  `slot::release()`'s `reset()`). Polled OUTSIDE the reservation ledger's
+  lock (matching `reserve_slot()`'s own documented reason for reading live
+  signals before acquiring `_LockedState`'s blocking flock); on failure,
+  degrades to the local reservation ledger alone (never to "unlimited" —
+  that would reopen the exact over-admission this fix exists to prevent).
+- `reserve_context_budget()` — single-shot admission check + atomic
+  reservation: combines the live `/slots` sum, every other live
+  reservation in the ledger, and this request's own
+  `prompt_tokens + max_tokens` estimate against
+  `n_ctx * (1 - CONTEXT_BUDGET_SAFETY_MARGIN_FRACTION)`. Reservations carry
+  a `pid` (for `_pid_alive()` reaping) and a `created_at` (for
+  `CONTEXT_RESERVATION_MAX_AGE_SECONDS`-based expiry, a defense-in-depth
+  backstop for a reservation whose owning process is alive but which
+  itself leaked without releasing).
+- `release_context_budget()` — releases on HTTP-return, correct here for
+  a different reason than why "release on HTTP-return" was wrong for
+  occupancy tracking: by the time the call returns, `/slots` has already
+  had the real figures visible for the whole in-flight duration, so
+  continuing to hold the reservation would double-count.
+- `wait_and_reserve_context_budget()` — the (b) backstop: retries
+  `reserve_context_budget()` in a plain acquire-check-release-sleep-retry
+  loop, never holding the lock across `sleep_fn()`, deliberately NOT
+  FIFO-fair (documented, accepted tradeoff from the design round).
+  Resolves `n_ctx` once up front (not per-retry).
+- `compute_context_queue_timeout_seconds(n_ctx, max_tokens)` —
+  formula-based (matching `compute_planner_timeout()`'s own established
+  precedent over a flat constant, `NEW-165`'s own lesson), modeled as one
+  full-context occupant's worst-case prefill+generation time using the
+  same device-rate floors, capped at `CONTEXT_QUEUE_TIMEOUT_CAP_SECONDS`.
+
+**Numbers chosen, with reasoning (this round's own to decide, per the
+task's scoping):**
+- `CONTEXT_BUDGET_SAFETY_MARGIN_FRACTION = 0.15` — not razor-thin, because
+  `NEW-206`'s own source-read confirmed the failure mode is KV-cache
+  FRAGMENTATION (`find_slot()`'s contiguous-allocation requirement), not a
+  bare sum-vs-total check; a margin that only just clears 100% would leave
+  the exact untested non-contiguous scenario free to still trigger the
+  cascade. First-pass, un-calibrated, same voice as
+  `REQUIRED_HEADROOM_FACTOR`/`DEVICE_CEILING_USABLE_FRACTION` — not
+  measured against real on-device fragmentation (Ish declined the 65536
+  re-run that would have measured it).
+- `CONTEXT_QUEUE_TIMEOUT_CAP_SECONDS = 600.0` (10 minutes) — the uncapped
+  formula reaches ~110 minutes at production's real n_ctx=65536, which
+  would blow through both real call sites' own enclosing timeouts: the
+  daemon's 1800s background-task timeout (`core/task_executor.py` via
+  `core/daemon.py`'s `asyncio.wait_for`), and the plan_only RPC's outer
+  wait_for (`compute_planner_timeout()`'s own docstring). 600s leaves
+  ≥1200s of the 1800s budget for the actual admitted call afterward on the
+  background path. `core/plannd.py` gained `compute_outer_plan_timeout()`
+  and `core/daemon.py`'s two outer-timeout call sites (the plan_only RPC
+  branch and `_plan_claimed_task()`) were updated to call it instead of
+  re-deriving `inner_timeout + 30.0` directly — a necessary companion
+  change beyond the two named call sites, required so a still-queued
+  request cannot be cancelled by the outer wait_for before its own bounded
+  admission wait resolves, preserving `compute_planner_timeout()`'s
+  documented "inner fires first" invariant.
+- Refusal/timeout UX: both call sites return `None` — each function's own
+  pre-existing "returns None on failure" contract, so an admission failure
+  looks to every existing caller like any other inference/planning
+  failure already does; no new caller-facing exception type introduced.
+  `core/inference_hybrid.py::infer()` and `core/plannd.py::get_plan()`
+  both fail CLOSED (return `None`, log, do not proceed) if the admission
+  check itself raises (e.g. an import error) — a silently-skipped safety
+  check would be exactly the over-admission this fix exists to prevent.
+
+**Wired at both named call sites**, each calling
+`wait_and_reserve_context_budget()` before its HTTP call and
+`release_context_budget()` in a `finally`:
+`core/inference_hybrid.py::ChatCompletionBackend.infer()` and
+`core/plannd.py::get_plan()`.
+
+**Tests, all new, no real HTTP/subprocess:**
+- `tests/test_context_budget.py` (19 tests) — `resolve_effective_n_ctx()`
+  resolution/fallback, `estimate_prompt_tokens()`'s tokenize/heuristic
+  paths and padding, `compute_context_queue_timeout_seconds()`'s formula
+  and cap, `reserve_context_budget()`'s admit/refuse/degrade/TOCTOU-close/
+  reap-expired paths, `release_context_budget()`, and
+  `wait_and_reserve_context_budget()`'s fast-path/retry-until-released/
+  timeout/unresolvable-n_ctx-short-circuit paths (using an injected
+  `sleep_fn` and, for the timeout test, a mocked `time.time` — no real
+  sleeping).
+- `tests/test_inference_hybrid_context_budget.py` (5 tests) — `infer()`'s
+  own wiring: admits-and-releases, refused-never-calls-urlopen,
+  timed-out-never-calls-urlopen, releases-even-on-HTTP-failure,
+  fails-closed-when-the-admission-check-itself-raises.
+- Two pre-existing test files needed an autouse fixture stubbing the new
+  gate to "always admit" — `tests/test_plannd_timeout.py` and
+  `tests/test_plannd_tier_split.py` — since their synthetic test
+  environment has no resident slot registered and would otherwise refuse
+  every `get_plan()` call before reaching the HTTP/parsing behavior those
+  files actually test. This is a real, necessary update given the
+  behavior genuinely changed (get_plan() now has a new precondition), not
+  a weakening of that coverage — both files' existing assertions are
+  unchanged and still pass.
+- Full suite: `python -m pytest tests/ -q --ignore=tests/
+  test_restoricon_core` → **716 passed, 1 skipped** (the 1 skip is
+  pre-existing, unrelated to this change). Before the two pre-existing
+  test files above were given the autouse admission-stub fixture, the
+  same command reported 7 failures (all in those two files, all from the
+  new admission gate refusing every `get_plan()` call in their synthetic
+  no-resident-slot environment) — fixed, not worked around, by adding the
+  fixture rather than by weakening or deleting the affected assertions.
+
+**NOT done this round:** the mandatory rule-4 code-reviewer pass (this
+touches resource-gate admission logic AND process/request coordination)
+has not yet run — no commit has been made pending that approval. Not
+live-verified against a real `codey-start` stack — this round's own
+verification is unit/mock-tested only, stated explicitly per rule 7, not
+claimed as behaviorally confirmed. `install.sh` needed no changes (no new
+dependency — `urllib.request`/`urllib.error`, stdlib, already used
+elsewhere in this codebase).
+
+See `CODEY_MASTER_PLAN.md` §8 Q11's own entry (implementation-round
+update) and Appendix A's "Concurrency test" row for the corresponding
+plan-doc updates.
+
+---
+
+## 2026-08-26 — §8 Q11 ANSWERED by Ish; concurrency-oversubscription fix (`NEW-206`) scoped, desk-only, NOT implemented (rule 4)
+
+**Decision.** Asked directly whether to run option (a) first (a live
+test at production's real `n_ctx=65536`, to determine whether the same
+hard-failure mechanism NEW-206 found also triggers under
+fragmented-but-under-capacity conditions and/or during generation
+rather than at prefill — both genuinely untested by NEW-206's own
+8192-scale run), Ish's verbatim answer: **"lets forget about running a
+i think it will just be the same thing as our last test with smaller
+context just do the rest of it without doing a."** (a) is declined by
+Ish's own judgment call (expects a bigger-pool re-run of the same
+over-100%-of-pool scenario would just reproduce the existing finding at
+greater live-test cost, not answer the open questions) — not skipped by
+oversight. Fix direction, confirmed: **(c) as primary defense** (the
+resource gate proactively refuses admission once combined estimated
+context would approach the shared pool) **with (b) wired directly
+behind it as a serialization backstop** (anything (c)'s estimate
+doesn't reject still never decodes fully concurrently against the same
+pool — it queues instead). Chosen together, not either alone, not (d).
+
+**Design work this round (desk-only; no code changed — rule-4 category,
+resource-gate admission logic and process/request coordination):**
+- **Denominator confirmed from source, not assumed (rule 12):**
+  `NEW-204`'s real log line (`~/.codeyOS/llama-server.log:20`,
+  production 65536 config) — `n_slots = 4, n_ctx_slot = 65536,
+  kv_unified = 'true'` — plus `NEW-205`'s already-confirmed read of
+  `llama-context.cpp:286-297` (`kv_unified=true` ⇒ `cparams.n_ctx_seq =
+  cparams.n_ctx`, sized once by `-c`, not divided by `n_parallel`)
+  together confirm the shared pool an admission check must budget
+  against is the full `n_ctx` value, matching what `NEW-206`'s own
+  arithmetic already assumed.
+- **Typical-request footprint checked desk-side, corrected on a second
+  pass to use the real prompt builder** (via `python3 -c`): an initial
+  calculation against the raw `SYSTEM_PROMPT` alone gave ~5,358 tokens
+  against 65536 (~8%). Re-run against `prompts/layered_prompt.py::
+  _build_draft_prompt()` — what `core/agent.py`'s interactive path
+  actually builds (notes/preferences/project/repo-map/file blocks
+  layered on the base system prompt) — a real sample task prompt
+  measured ~3,774 tokens, giving ~5,822 tokens with `max_tokens`=2048
+  against 65536 (~8.9%); planner-prompt equivalent unchanged at ~4,569
+  tokens (~7%, no layering applies to `PLANNER_PROMPT`). **Stated as a
+  floor, not a typical value (rule 5):** excludes `core/memory_v2.py`'s
+  retrieved-context injection and accumulated conversation history,
+  neither measured here. A typical request still claims a modest slice
+  of the pool at either figure — (b)+(c) preserves real concurrency for
+  the common case rather than collapsing into (d) by mechanism, worth
+  confirming rather than assuming.
+- **No single existing Python chokepoint spans both live call sites** —
+  checked by reading `core/inference_v2.py`, `core/inference_hybrid.py`,
+  `core/plannd.py`, `core/agent.py`, `core/task_executor.py`,
+  `core/daemon.py`, and `gui/server.py`. Exactly two code paths issue
+  HTTP requests against the shared server: `core/inference_hybrid.py`'s
+  `ChatCompletionBackend.infer()` (via `core/inference_v2.py::infer()`,
+  reached by both the interactive path — `main.py`/`core/agent.py` —
+  and the daemon's background-dispatch path — `core/task_executor.py`
+  → `core/agent.py`) and `core/plannd.py::get_plan()` (planning, both
+  interactive and via the daemon's `plan_only` RPC, its own independent
+  HTTP call, never routed through `inference_v2`). `core/loader_v2.py`'s
+  own `infer()` has zero live callers. `core/summarizer.py` talks to a
+  different model/port, out of scope. The GUI has no inference path of
+  its own — it relays through the daemon socket into the same two
+  paths. The natural chokepoint both processes can reach is therefore
+  not a shared Python function but `core/resource_gate.py`'s existing
+  cross-process, file-locked slot store (the same mechanism
+  `reserve_slot()`/`release_slot()` already use) — extending it, not
+  building a second parallel accounting store, matching this project's
+  `NEW-135` precedent.
+- **Reachable concurrency pairs enumerated against the real code, not
+  assumed from the task's own framing:** `core/daemon.py`'s
+  `_process_planner_tasks()` (~line 1178) dispatches and `await`s
+  exactly one background task per tick — two concurrent background
+  tasks are NOT reachable. What IS reachable: (1) an interactive
+  TUI/GUI request racing an already-dispatched background task still
+  executing (the `interactive_active` gate in `can_dispatch_task()` is
+  checked only once, at claim time, and a task can run up to 1800s);
+  (2) two simultaneous interactive clients (TUI + GUI), no gate exists
+  between them today; (3) a `plannd.get_plan()` call racing an
+  interactive `infer()` call — different code paths, no shared gate.
+- **New state/function design** (not yet implemented): per-slot
+  reservation records (`{"reservation_id", "pid", "tokens",
+  "estimated_via", "reserved_at"}`, PID-reapable like `reserve_slot()`'s
+  own dead-PID sweep) on top of the existing slot dict; `reserve_
+  context_budget()`/`release_context_budget()`/`wait_and_reserve_
+  context_budget()` — the last one the (b) queue, explicitly never
+  holding `_LockedState`'s blocking flock across a sleep, matching its
+  own documented "short critical section" assumption. Reservation size
+  is `estimated_tokens + max_tokens` (prompt plus generation budget
+  together), deliberately conservative because Ish declined option (a)
+  and the during-generation collision surface is therefore still
+  untested — the fix cannot assume it's benign. Estimate source:
+  server's own `/tokenize` endpoint at admission time (matching
+  `NEW-206`'s own live-test precedent), with `core/tokens.py`'s cruder
+  `estimate_tokens()` heuristic as fallback only.
+- **Ambiguity resolved, not guessed past:** Ish's own framing ("b) as a
+  safety AFTER c") reads as one mechanism with two behaviors — (c)'s
+  refusal directly becomes (b)'s wait, not two independent circuit
+  breakers. A separate breaker would only earn its place against a
+  failure mode (c) structurally cannot see, and the only candidate (an
+  imperfect estimate) is already covered by the `+max_tokens` margin
+  and `/tokenize` precision.
+- **Release-signal correction, found on a second design-review pass —
+  now the design's single biggest open question, promoted above the
+  numbers below.** Source-checked against `~/llama.cpp/tools/server/
+  server-context.cpp`: `slot::release()` (~line 477) flips a slot to
+  IDLE and calls `reset()` (~line 294), which does NOT clear a normal
+  (non-child) task's cached prompt tokens — the KV cells stay resident
+  for prefix-cache reuse on the slot's next call. "Release budget when
+  the HTTP call returns" therefore under-counts real occupancy in the
+  dominant multi-turn conversation case, and `core/inference_hybrid.
+  py`'s own streaming path (`_infer_streaming`'s 15s per-read socket
+  timeout and its `_MAX_REPEATS = 2` circuit breaker) can return before
+  the server actually stops decoding, meaning a `finally: release()`
+  there can free budget the server is still using. **Candidate
+  resolution 1 confirmed viable, not just proposed** — traced
+  `slot::to_json()` (~lines 632-666, the function backing the `/slots`
+  HTTP response, confirmed via `get_slots` → `SERVER_TASK_TYPE_METRICS`
+  → this method): it emits `res["n_prompt_tokens"] = prompt.tokens.
+  size()` per slot, the real retained token count `NEW-206`'s own live
+  test already used for ground truth via manual `/slots` polling. The
+  endpoint is enabled by this build's own default (`params.endpoint_
+  slots = true`, `common.h:665`), unmodified by `core/loader_v2.py`'s
+  spawn command, so no spawn-flag change is needed. Candidate 1: poll
+  `/slots`, sum `n_prompt_tokens` across slots, treat that as the
+  authoritative occupancy signal, with the Python-side ledger only
+  closing the TOCTOU window around sending a request. Candidate 2
+  (fallback if candidate 1 proves insufficient in practice): disable
+  prompt-cache retention for this project's calls (if the API exposes
+  a `cache_prompt: false`-style toggle), trading away prefix-cache
+  reuse to make "release on return" true again. Neither implemented;
+  candidate 1 is the stronger starting point.
+- **Blocking-wait safety confirmed, not assumed:** the synchronous
+  poll-sleep loop `wait_and_reserve_context_budget()` needs is safe on
+  both live call sites without an async-aware variant — the
+  background-dispatch path already runs `run_agent()` via `loop.
+  run_in_executor()` (`core/task_executor.py:135-137`), off the
+  daemon's asyncio loop, and the daemon's `plan_only` RPC path already
+  runs `plannd.get_plan()` the same way via `core/planner_client.py::
+  send_plan_request_async()`'s own `run_in_executor` call. The
+  interactive TUI path is a separate OS process with no event loop to
+  stall.
+- **Left open for a follow-up implementer round** (deliberately not
+  guessed at here): the release-signal question above (the biggest
+  one); the exact safety-margin fraction of `n_ctx` to reserve against;
+  the queue's timeout value and caller-facing expiry behavior; and
+  whether `/tokenize` should be centralized in one shared helper rather
+  than duplicated at the two call sites.
+
+**One item found outside this round's scope, logged not fixed (rule
+8):** while enumerating reachable concurrency pairs against
+`core/daemon.py`'s real control flow, found that
+`can_dispatch_task()`'s `interactive_active` check is evaluated only
+ONCE, at task-claim time (`core/daemon.py::_process_planner_tasks()`,
+~lines 1201-1228) — an already-claimed background task keeps running
+for up to its 1800s timeout even if a human opens a TUI/GUI session
+partway through, undermining that gate's own documented intent ("never
+do daemon-initiated background work while a human is watching"). The
+§8 Q11 fix (once implemented) makes this overlap SAFE via the new
+admission/queue mechanism, but does not restore the gate's original
+policy — a separate, narrower question. Logged as **`NEW-207`**
+(Confirmed).
+
+**Status:** scoped/designed only. No code changed this round. Full
+detail recorded in `CODEY_MASTER_PLAN.md` §8 Q11 (resolved, struck
+through per the Q1/Q3/Q8/Q10 convention) and Appendix A's Phase A1
+"Concurrency test" checklist item and §4 summary-table row (all three
+updated, checkbox stays unchecked). `NEW-207` added to `NEW_ISSUES.md`
+per rule 8; everything else above (the missing chokepoint, the
+reachable-pairs enumeration, the release-signal finding) was the
+deliverable this round was scoped to produce, not an out-of-scope
+surprise.
+
+---
+
+## 2026-08-26 — Phase A1 "concurrency test" RUN live against the real `codey-start` stack: negative result. The shared `llama-server`'s `kv_unified=true` 4-slot default fails EVERY in-flight request under combined-load oversubscription, not gracefully — a real finding bearing on §1.4's architecture, escalated to Ish as §8 Q11, no code changed (`NEW-206`)
 
 **What ran:** live-verifier's own scoped follow-on to the prior round's
 desk-only mechanism check (`NEW-204`/`NEW-205`). Real `codey-start` full
