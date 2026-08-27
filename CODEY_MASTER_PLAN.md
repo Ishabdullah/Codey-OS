@@ -3815,25 +3815,70 @@ subcontractor records to monitor.
 - The first Automated Workflows on top of them (Appendix C §13's four
   worked examples are the acceptance cases).
 
-### 6.6 Track B / Phase B4 — The phone-hosted website, three surfaces
+### 6.6 Track B / Phase B4 — The public website + phone-hosted API surfaces
 
 **Depends on:** B1 (API + auth), B3 (data worth showing).
 
-1. The existing public marketing site, now served from the phone.
+**Superseded 2026-08-27 (Ish's own architecture direction, given verbatim
+in a live session):** item 1 below is no longer "the marketing site,
+served from the phone." Ish specified a hybrid architecture instead —
+the static public site stays on GitHub Pages (reliable independent of
+whether the phone is online), and the phone is never exposed directly.
+A tunnel (Cloudflare Tunnel, or Cloudflare Workers for the simplest
+form-only endpoints) fronts the phone's API under a separate subdomain
+(e.g. `api.restoricon.com`), so `restoricon.com` (GitHub Pages) and the
+phone's API are two independently-reachable things, not one origin:
+
+```
+Visitor -> restoricon.com (GitHub Pages: homepage, services, pricing,
+           photos, SEO, blog, contact/booking form UI)
+Visitor's form submission -> api.restoricon.com -> Cloudflare ->
+           Cloudflare Tunnel -> phone's Restoricon Core API ->
+           validate -> store lead/customer -> email/SMS notify ->
+           Aigentik processing -> appointment request
+```
+
+No port-forwarding, no direct phone exposure. Ish's own stated
+preference, and this plan's: **GitHub Pages + Cloudflare + phone API**,
+not moving the whole site onto the phone — reliability for the static
+content doesn't depend on the phone's uptime, while the phone still owns
+all real backend logic and data. For the simplest form-only endpoints,
+Cloudflare Workers ahead of the phone (rather than routing everything
+through the tunnel) is an option worth considering per-endpoint once B4
+is actually scoped for implementation — not decided yet, noted here as
+the range Ish described.
+
+Revised item list:
+
+1. **Public marketing/informational site** — stays on GitHub Pages, not
+   phone-hosted. Homepage, services, pricing, photos, SEO, blog, contact
+   and booking form UI. The phone only receives what these forms submit,
+   via the tunnel.
 2. The **staff/admin surface** — a real authenticated admin page, not a
-   hidden URL.
+   hidden URL. Still served via the phone's API (through the tunnel),
+   since it's an authenticated surface, not static public content.
 3. The **customer portal** — project status, appointments, estimates,
    contracts, invoices, payments, messages, documents, photos, change
    orders, warranty info, approvals, signatures (Appendix C §12). Full
-   document/signature/financial surface, not a view-only stub.
+   document/signature/financial surface, not a view-only stub. Also a
+   phone-API-backed authenticated surface, not static.
 4. The **device-limb dashboard** as the third client of the same API —
    business calendar, financial summary, contacts, all fetched, none
    owned locally beyond caching.
 
-**This is the highest-risk security surface in the whole plan.** One
-boundary bug means one customer sees another's contract. Mandatory
-code-reviewer pass on every auth/permission change, and a dedicated
-authorization test suite — not just "it works when I log in."
+**This is still the highest-risk security surface in the whole plan** —
+if anything, more so now that the API is reachable from the public
+internet via a tunnel rather than only from a same-device client. One
+boundary bug means one customer sees another's contract; a tunnel
+misconfiguration means the phone's API is reachable by more than
+intended. Mandatory code-reviewer pass on every auth/permission change
+AND on the tunnel/Cloudflare configuration itself once that's built, plus
+a dedicated authorization test suite — not just "it works when I log
+in." The Cloudflare Tunnel setup, DNS split (`restoricon.com` vs
+`api.restoricon.com`), and whatever auth sits in front of the tunnel
+(Cloudflare Access or equivalent, not yet decided) are new, real scoped
+work this phase didn't previously account for — not a detail to assume
+solved when B4 is actually picked up.
 
 ### 6.7 Track B / Phase B5 — The remaining domains, then the device limb
 
