@@ -1287,6 +1287,16 @@ primary open design question for the eventual real cutover) and
 `NEW-244` (`contacts.js`'s still-local-JSON cross-write, orthogonal).
 Nothing in `~/Codey-Aigentik` touched.
 
+**Cleanup round, 2026-08-27 — not Phase B2 work, three small findings
+closed.** `NEW-227` (token accumulation on `provision_ai_agent_auth.py`
+rerun) and `NEW-222`/`NEW-237` (the by-id-GET routing quirk, fixed for
+its 4 known instances in `restoricon_core/api/routes.py`) are both
+code-reviewer-approved and committed. `NEW-226` was already closed
+separately in `Codey-Aigentik` (commit `0398396`, docs-only). See
+`NEW_ISSUES.md` for full detail; one residual (an empty-trailing-segment
+variant of the routing quirk on `GET /api/v1/customers/`) is logged
+open, not fixed this round.
+
 ---
 
 ## 5. The device, stated once

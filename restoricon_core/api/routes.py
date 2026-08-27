@@ -121,7 +121,7 @@ class APIRouter:
                     created = self.crm.create_customer(cust, actor)
                     return 201, {"Content-Type": "application/json"}, {"customer": created.to_dict()}
 
-            if path.startswith("/api/v1/customers/") and method == "GET":
+            if path.startswith("/api/v1/customers/") and "/" not in path[len("/api/v1/customers/"):] and method == "GET":
                 cust_id = int(path.split("/")[-1])
                 cust = self.crm.get_customer(cust_id, actor)
                 if not cust:
@@ -162,7 +162,7 @@ class APIRouter:
                     created = self.crm.create_project(proj, actor)
                     return 201, {"Content-Type": "application/json"}, {"project": created.to_dict()}
 
-            if path.startswith("/api/v1/projects/") and method == "GET":
+            if path.startswith("/api/v1/projects/") and "/" not in path[len("/api/v1/projects/"):] and method == "GET":
                 proj_id = int(path.split("/")[-1])
                 proj = self.crm.get_project(proj_id, actor)
                 if not proj:
@@ -306,7 +306,7 @@ class APIRouter:
                     return 404, {"Content-Type": "application/json"}, {"error": "Subcontractor not found"}
                 return 200, {"Content-Type": "application/json"}, {"subcontractor": updated_sub.to_dict()}
 
-            if path.startswith("/api/v1/subcontractors/") and method == "GET":
+            if path.startswith("/api/v1/subcontractors/") and "/" not in path[len("/api/v1/subcontractors/"):] and method == "GET":
                 sub_id = int(path.split("/")[-1])
                 sub = self.crm.get_subcontractor(sub_id, actor)
                 if not sub:
@@ -338,7 +338,7 @@ class APIRouter:
                     return 404, {"Content-Type": "application/json"}, {"error": "Appointment not found"}
                 return 200, {"Content-Type": "application/json"}, {"appointment": updated_appt.to_dict()}
 
-            if path.startswith("/api/v1/appointments/") and method == "GET":
+            if path.startswith("/api/v1/appointments/") and "/" not in path[len("/api/v1/appointments/"):] and method == "GET":
                 appt_id = int(path.split("/")[-1])
                 appt = self.scheduling.get_appointment(appt_id, actor)
                 if not appt:

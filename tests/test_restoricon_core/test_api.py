@@ -182,6 +182,65 @@ def _agent_headers(base_url):
     return {"Authorization": f"Bearer {body['token']}"}
 
 
+def test_api_customer_and_project_get_by_id(api_server):
+    """No prior test exercised GET /customers/{id} or /projects/{id}
+    directly; added alongside the NEW-222/NEW-237 by-id route match
+    tightening since that change touched these two branches too."""
+    _, base_url, _, _ = api_server
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "admin", "password": "AdminSecretPassword123"},
+    )
+    assert status == 200
+    headers = {"Authorization": f"Bearer {body['token']}"}
+
+    status, body = make_request(
+        f"{base_url}/api/v1/customers",
+        method="POST",
+        headers=headers,
+        data={
+            "first_name": "Bob",
+            "last_name": "Jones",
+            "email": "bob@example.com",
+            "service_address": "1 Elm St",
+            "customer_type": "residential",
+            "status": "active",
+        },
+    )
+    assert status == 201
+    cust_id = body["customer"]["id"]
+
+    status, body = make_request(f"{base_url}/api/v1/customers/{cust_id}", headers=headers)
+    assert status == 200
+    assert body["customer"]["first_name"] == "Bob"
+
+    status, body = make_request(f"{base_url}/api/v1/customers/999999", headers=headers)
+    assert status == 404
+
+    status, body = make_request(
+        f"{base_url}/api/v1/projects",
+        method="POST",
+        headers=headers,
+        data={
+            "customer_id": cust_id,
+            "title": "Kitchen remodel",
+            "property_address": "1 Elm St",
+            "project_type": "residential_remodel",
+            "contract_amount": 5000.0,
+        },
+    )
+    assert status == 201
+    proj_id = body["project"]["id"]
+
+    status, body = make_request(f"{base_url}/api/v1/projects/{proj_id}", headers=headers)
+    assert status == 200
+    assert body["project"]["title"] == "Kitchen remodel"
+
+    status, body = make_request(f"{base_url}/api/v1/projects/999999", headers=headers)
+    assert status == 404
+
+
 def test_api_subcontractors_crud(api_server):
     _, base_url, _, _ = api_server
     headers = _agent_headers(base_url)
@@ -382,6 +441,50 @@ def test_api_subcontractors_find_query_param(api_server):
     assert status == 200
     assert "subcontractors" in body
     assert len(body["subcontractors"]) == 1
+
+
+def test_api_by_id_get_routes_404_not_400_on_action_suffix(api_server):
+    """NEW-222/NEW-237: GET .../{id}/qualification, .../{id}/update, and
+    .../{id}/status (all POST-only action suffixes) must fall through to
+    the router's final 404 catch-all, not into the generic by-id GET
+    handler where the suffix segment gets fed to int() and raises a
+    ValueError that handle_request turns into a 400."""
+    _, base_url, _, _ = api_server
+    headers = _agent_headers(base_url)
+
+    status, body = make_request(
+        f"{base_url}/api/v1/subcontractors",
+        method="POST",
+        headers=headers,
+        data={"company_name": "Acme Roofing", "primary_trade": "roofing"},
+    )
+    assert status == 201
+    sub_id = body["subcontractor"]["id"]
+
+    status, body = make_request(f"{base_url}/api/v1/subcontractors/{sub_id}/qualification", headers=headers)
+    assert status == 404
+
+    status, body = make_request(f"{base_url}/api/v1/subcontractors/{sub_id}/update", headers=headers)
+    assert status == 404
+
+    status, body = make_request(
+        f"{base_url}/api/v1/appointments",
+        method="POST",
+        headers=headers,
+        data={"title": "Site walkthrough", "start_time": "2026-09-01T10:00:00"},
+    )
+    assert status == 201
+    appt_id = body["appointment"]["id"]
+
+    status, body = make_request(f"{base_url}/api/v1/appointments/{appt_id}/status", headers=headers)
+    assert status == 404
+
+    # And the generic by-id GET routes must still behave normally for the
+    # plain numeric-id case (no regression from the tightened match).
+    status, body = make_request(f"{base_url}/api/v1/subcontractors/{sub_id}", headers=headers)
+    assert status == 200
+    status, body = make_request(f"{base_url}/api/v1/appointments/{appt_id}", headers=headers)
+    assert status == 200
 
 
 def test_api_appointments_crud(api_server):

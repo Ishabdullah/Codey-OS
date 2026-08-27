@@ -56,8 +56,39 @@ def test_provision_is_idempotent_on_username(tmp_path):
         auth = AuthService(db)
         ctx1 = auth.authenticate_token(token1)
         ctx2 = auth.authenticate_token(token2)
-        assert ctx1 is not None and ctx2 is not None
-        assert ctx1.user_id == ctx2.user_id
+        assert ctx1 is None  # rerun revoked the earlier token (NEW-227)
+        assert ctx2 is not None
+        assert ctx2.username == DEFAULT_USERNAME
+    finally:
+        db.close()
+
+
+def test_provision_rerun_does_not_accumulate_unrevoked_tokens(tmp_path):
+    # NEW-227: a second (and third) run against the same user must leave
+    # exactly one unrevoked token behind, not one more each time.
+    db_path = str(tmp_path / "core.db")
+    provision(db_path=db_path)
+    provision(db_path=db_path)
+    token3 = provision(db_path=db_path)
+
+    db = DatabaseManager(db_path)
+    try:
+        conn = db.get_connection()
+        user_row = conn.execute(
+            "SELECT id FROM users WHERE username = ?;", (DEFAULT_USERNAME,)
+        ).fetchone()
+        live_tokens = conn.execute(
+            "SELECT token FROM api_tokens WHERE user_id = ? AND is_revoked = 0;",
+            (user_row["id"],),
+        ).fetchall()
+        assert len(live_tokens) == 1
+        assert live_tokens[0]["token"] == token3
+
+        revoked_count = conn.execute(
+            "SELECT COUNT(*) AS n FROM api_tokens WHERE user_id = ? AND is_revoked = 1;",
+            (user_row["id"],),
+        ).fetchone()["n"]
+        assert revoked_count == 2  # the two earlier runs' tokens were revoked
     finally:
         db.close()
 

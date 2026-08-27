@@ -42,3 +42,4 @@
 - [Phase B2 task4 comms scoping blocked](project_phase_b2_task4_comms_scoping_blocked.md) — 2026-08-27, NOT handed off; blocked on customers/leads external_id (NEW-232) + no comm_history idempotency key (NEW-233); 2 narrow Ish questions pending
 - [Phase B2 task4 update_subcontractor closed](project_phase_b2_task4_update_subcontractor_closed.md) — 2026-08-27, commit 39c0f98, Core-only (no JS), 789/1 tests; NEW-238/239/240 logged from a recurring-across-3-methods RBAC finding
 - [Phase B2 task4 subcontractor find scoped](project_phase_b2_task4_subcontractor_find_scoped.md) — 2026-08-27, update_subcontractor() alone didn't unblock conversion (NEW-241); 2nd advisor pass caught empty-query bug + overstated claim (NEW-245); spec-only, no code
+- [Cleanup round closed (NEW-227/222/237)](project_cleanup_round_new227_new222_new237_closed.md) — 2026-08-27 committed; reviewer's stderr-warning follow-up applied same-round not deferred; empty-segment residual left open

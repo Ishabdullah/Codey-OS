@@ -12178,3 +12178,96 @@ implemented)
   200-219`; `restoricon_core/services/crm_service.py`'s
   `find_subcontractor()`; `CODEY_MASTER_PLAN.md` §6.4; `NEW-235`
   (prior instance of "looks equivalent" not being checked).
+
+## Cleanup round, 2026-08-27 — three scoped fixes, code-reviewer approved, committed
+
+### [NEW-227] — Closed, fixed and committed
+- **Status: Closed.** Code-reviewer approved per rule 4 (auth token
+  lifecycle change). `tools/provision_ai_agent_auth.py`'s `provision()`
+  now revokes every prior unrevoked token for the `ai_agent` user before
+  issuing a new one on rerun, via `AuthService.revoke_token()` called per
+  stale token (no bulk-revoke method exists on `AuthService`, so this was
+  the smaller addition over adding one). Docstring updated to document
+  the choice and why reuse-existing-token wasn't picked (no "look up
+  valid token(s) for a user" query exists on `AuthService` to support
+  it). `tests/test_provision_ai_agent_auth.py` updated: the idempotency
+  test now asserts the first run's token is revoked after a second run,
+  and a new `test_provision_rerun_does_not_accumulate_unrevoked_tokens`
+  runs `provision()` three times and asserts exactly one unrevoked token
+  and two revoked tokens remain for the user afterward. Full suite:
+  `python -m pytest tests/ -q` → 814 passed, 1 skipped (re-run fresh at
+  commit time, unchanged count).
+- **Same-round addition, not deferred:** the code-reviewer's one
+  non-blocking recommendation — that the docstring-only warning about
+  the operational consequence (a rerun invalidating a currently-deployed
+  token) wasn't loud enough on the actual footgun path — was applied in
+  this same round, not left open. A `print(..., file=sys.stderr)` was
+  added immediately after the revoke loop in `provision()`, firing only
+  when stale tokens were actually revoked, telling the operator exactly
+  how many tokens were revoked and that every deployed `config.json`'s
+  `core_api.token` needs updating now. Purely additive output (no logic
+  change); re-running the full suite afterward showed the same 814
+  passed, 1 skipped.
+- **Action:** none further — closed.
+
+### [NEW-222] / [NEW-237] — Closed for the customers/projects/
+subcontractors/appointments by-id GET branches; residual empty-segment
+case left open (see below, not the same shape)
+- **Status: Closed for the 4 branches this round fixed.** Code-reviewer
+  approved per rule 4 (security-relevant routing/auth boundary). Fixed
+  for all 4 generic by-id `GET` branches currently in
+  `restoricon_core/api/routes.py` that share this shape: `customers`,
+  `projects`, `subcontractors`, `appointments`. Each branch's match
+  condition was tightened from a bare
+  `path.startswith(...)` to also require no further `/`-separated segment
+  after the id (`"/" not in path[len(prefix):]`), so `GET .../{id}/
+  qualification`, `GET .../{id}/update`, and `GET .../{id}/status` now
+  fall through to the router's final 404 catch-all instead of into the
+  by-id branch's `int()` call, which previously raised `ValueError` and
+  surfaced as 400. Verified: `test_api_by_id_get_routes_404_not_400_on_
+  action_suffix` (new) confirms all three named cases now 404, plus that
+  plain `GET .../{id}` still 200s for both resources afterward.
+  `test_api_customer_and_project_get_by_id` (new) adds first-ever direct
+  coverage of `GET /customers/{id}` and `GET /projects/{id}` (neither had
+  a prior test), confirming both the 200 and 404 paths still work after
+  the tightened match. Reviewed every `path.startswith("/api/v1/...")`
+  occurrence in `routes.py` (11 total after this change): the other 7 are
+  all `.endswith("/<action>")`-qualified POST action routes (`/sign`,
+  `/pay`, `/qualification`, `/update`, `/status`, `/match`, `/delete`),
+  a structurally different shape not affected by this bug (they match on
+  an explicit suffix, not prefix-only) — so **this pass found and fixed
+  every instance of the exact bare-prefix-GET pattern currently in this
+  file.**
+- **Closing note:** this round fixed the 4 branches that exist in
+  `routes.py` today and confirmed no other branch shares the exact
+  bare-prefix-GET shape *as of this file's current contents*, but did not
+  audit for whether some other file in the Core (or a future added
+  route) could reintroduce this pattern. Code-reviewer independently
+  confirmed the fix and approved before commit, so NEW-222/NEW-237 are
+  flipped to Closed for the shape addressed here; a future reintroduction
+  of the same pattern elsewhere would be a new finding, not a reopening
+  of this one.
+- **New, related, not fixed here:** `GET /api/v1/customers/` (a bare
+  trailing slash with an empty id segment) still enters the by-id branch
+  and 400s via `int("")` — same 400-instead-of-404 family as NEW-222/
+  NEW-237, but outside the "extra path segments after the id" shape this
+  round's fix targeted (an empty segment isn't an "extra" segment, so the
+  `"/" not in trailing` guard doesn't catch it). Not introduced by this
+  round's edit — pre-existing before and after. Noted per rule 8 so it
+  isn't rediscovered cold; not fixed here since it wasn't in scope and
+  hardening the by-id match to also reject an empty trailing segment
+  should go through the same review as this round's fix, not be slipped
+  in unreviewed. Logged as a new, open, Confirmed finding for a future
+  round.
+- **Action:** none further for the 4 branches fixed here — closed. The
+  empty-trailing-segment case remains open and unfixed, tracked
+  separately above.
+
+### [NEW-226] update — fixed and committed (docs-only, no code-reviewer
+required)
+- **Status: Fixed and committed** (`~/Codey-Aigentik` commit `0398396`,
+  docs-only). `docs/architecture.md:148`, `docs/commands.md:87`, and
+  `docs/data-files.md:18` now describe do-not-contact as Restoricon-Core-
+  backed (no local-JSON fallback) instead of the stale `data/
+  do-not-contact.json` claim. `~/Aigentik-CLI` was not touched by this
+  round (confirmed via `git status --porcelain` before and after).

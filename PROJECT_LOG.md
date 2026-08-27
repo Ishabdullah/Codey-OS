@@ -12,6 +12,57 @@ and Appendix A.
 
 ---
 
+## 2026-08-27 — Cleanup round: NEW-227, NEW-222/NEW-237 — CODE COMPLETE + CODE-REVIEWER APPROVED, COMMITTED
+
+**Task:** close out three small, already-scoped findings — not Phase B2
+work. NEW-227 (`tools/provision_ai_agent_auth.py` accumulates unrevoked
+tokens on rerun), NEW-222/NEW-237 (a routing quirk where 4 by-id `GET`
+branches in `restoricon_core/api/routes.py` fall through to the generic
+by-id handler and 400 instead of 404 on an unmatched action suffix), and
+NEW-226 (already closed separately in `Codey-Aigentik`, commit
+`0398396`, docs-only — confirmed untouched this round).
+
+**What happened:** implementer fixed both in-scope findings; code-reviewer
+approved both under rule 4 (auth token lifecycle change; security-relevant
+routing/auth boundary). NEW-227: `provision()` now revokes every prior
+unrevoked token for the `ai_agent` user before issuing a new one, via
+per-token `AuthService.revoke_token()` calls (no bulk-revoke method
+exists). NEW-222/NEW-237: each of the 4 by-id `GET` branches
+(`customers`, `projects`, `subcontractors`, `appointments`) had its match
+condition tightened from a bare `path.startswith(...)` to also require no
+further `/`-separated segment after the id, so an unmatched action suffix
+(`/qualification`, `/update`, `/status`) now falls through to the 404
+catch-all instead of raising `ValueError` (surfaced as 400). Reviewer's
+one non-blocking recommendation — the docstring-only warning about a
+rerun invalidating a currently-deployed token wasn't loud enough on the
+actual footgun path — was applied same-round, not deferred: a
+`print(..., file=sys.stderr)` was added immediately after the revoke
+loop in `provision()`, firing only when stale tokens were actually
+revoked.
+
+**Verification:** re-ran `python -m pytest tests/ -q` fresh myself at
+commit time: **814 passed, 1 skipped** (unchanged from the implementer's
+and reviewer's own runs; the stderr addition is purely additive output,
+no logic change).
+
+**Residual, logged not fixed:** `GET /api/v1/customers/` (a bare
+trailing slash, empty id segment) still 400s via `int("")` — same family
+as NEW-222/NEW-237 but a different shape (empty segment, not an extra
+one) not covered by this round's fix. Left open in `NEW_ISSUES.md` for a
+future round.
+
+**Files changed:** `tools/provision_ai_agent_auth.py`,
+`tests/test_provision_ai_agent_auth.py`, `restoricon_core/api/routes.py`,
+`tests/test_restoricon_core/test_api.py`, `NEW_ISSUES.md`,
+`CODEY_MASTER_PLAN.md`, plus `.claude/agent-memory/` bookkeeping.
+Nothing in `~/Codey-Aigentik` touched.
+
+**Status: CODE-REVIEWER APPROVED, COMMITTED.** No live-verify component
+— no model loaded, no daemon/process-lifecycle behavior beyond the
+already-reviewed auth/routing change itself.
+
+---
+
 ## 2026-08-27 — Phase B2 task 4, third module continuation — `find_subcontractor()` Core read primitive — CODE COMPLETE + CODE-REVIEWER APPROVED
 
 **Task:** implement the `find_subcontractor()` spec from the prior
