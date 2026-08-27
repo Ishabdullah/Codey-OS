@@ -22,6 +22,7 @@ from ..models import (
     Lead,
     Opportunity,
     Project,
+    ScheduleConfig,
     Subcontractor,
 )
 from ..services.audit_service import AuditService
@@ -372,10 +373,22 @@ class APIRouter:
                     created = self.scheduling.create_appointment(appt, actor)
                     return 201, {"Content-Type": "application/json"}, {"appointment": created.to_dict()}
 
+            if path == "/api/v1/appointments/upsert" and method == "POST":
+                appt = Appointment(**json_body)
+                saved = self.scheduling.upsert_appointment(appt, actor)
+                return 200, {"Content-Type": "application/json"}, {"appointment": saved.to_dict()}
+
             if path.startswith("/api/v1/appointments/") and path.endswith("/status") and method == "POST":
                 appt_id = int(path.split("/")[-2])
                 status = json_body.get("status")
                 updated_appt = self.scheduling.update_appointment_status(appt_id, status, actor)
+                if not updated_appt:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Appointment not found"}
+                return 200, {"Content-Type": "application/json"}, {"appointment": updated_appt.to_dict()}
+
+            if path.startswith("/api/v1/appointments/") and path.endswith("/update") and method == "POST":
+                appt_id = int(path.split("/")[-2])
+                updated_appt = self.scheduling.update_appointment(appt_id, json_body, actor)
                 if not updated_appt:
                     return 404, {"Content-Type": "application/json"}, {"error": "Appointment not found"}
                 return 200, {"Content-Type": "application/json"}, {"appointment": updated_appt.to_dict()}
@@ -386,6 +399,18 @@ class APIRouter:
                 if not appt:
                     return 404, {"Content-Type": "application/json"}, {"error": "Appointment not found"}
                 return 200, {"Content-Type": "application/json"}, {"appointment": appt.to_dict()}
+
+            # Schedule Config (singleton, NEW-216)
+            if path == "/api/v1/schedule-config":
+                if method == "GET":
+                    sc = self.scheduling.get_schedule_config(actor)
+                    if not sc:
+                        return 404, {"Content-Type": "application/json"}, {"error": "Schedule config not configured"}
+                    return 200, {"Content-Type": "application/json"}, {"schedule_config": sc.to_dict()}
+                elif method == "POST":
+                    sc = ScheduleConfig(**json_body)
+                    saved = self.scheduling.upsert_schedule_config(sc, actor)
+                    return 200, {"Content-Type": "application/json"}, {"schedule_config": saved.to_dict()}
 
             # Automation Rules
             if path == "/api/v1/automation-rules":

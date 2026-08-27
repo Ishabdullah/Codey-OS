@@ -227,6 +227,124 @@ class SchedulingService:
         )
         return self.get_appointment(appointment_id, actor)
 
+    ALLOWED_UPDATE_FIELDS = {
+        "title",
+        "start_time",
+        "end_time",
+        "customer_id",
+        "contact_external_id",
+        "attendee_name",
+        "attendee_email",
+        "appointment_type",
+        "status",
+        "rsvp_status",
+        "offered_slots",
+        "requested_datetime",
+        "pending_reschedule",
+        "form_sent",
+        "created_via",
+        "notes",
+        "ics_sequence",
+        "history",
+    }
+
+    def update_appointment(
+        self, appointment_id: int, updates: Dict[str, Any], actor: AuthContext
+    ) -> Optional[Appointment]:
+        """General partial-update method for appointments (B2 task 4, calendar write-through)."""
+        if not actor.has_permission(PERM_WRITE_APPOINTMENTS):
+            raise PermissionError("Actor lacks permission to update appointments")
+
+        unknown = set(updates) - self.ALLOWED_UPDATE_FIELDS
+        if unknown:
+            raise ValueError(f"Unknown field(s) for appointment update: {sorted(unknown)}")
+
+        if "status" in updates and updates["status"] not in VALID_STATUSES:
+            raise ValueError(
+                f"Invalid status '{updates['status']}'. Must be one of {sorted(VALID_STATUSES)}"
+            )
+
+        if not updates:
+            return self.get_appointment(appointment_id, actor)
+
+        conn = self.db.get_connection()
+        row = conn.execute("SELECT * FROM appointments WHERE id = ?;", (appointment_id,)).fetchone()
+        if not row:
+            return None
+
+        # Build column assignments dynamically
+        set_clauses = []
+        params = []
+        for key, value in updates.items():
+            if key == "offered_slots":
+                set_clauses.append("offered_slots_json = ?")
+                params.append(json.dumps(value) if value is not None else "[]")
+            elif key == "pending_reschedule":
+                set_clauses.append("pending_reschedule_json = ?")
+                params.append(json.dumps(value) if value is not None else None)
+            elif key == "history":
+                set_clauses.append("history_json = ?")
+                params.append(json.dumps(value) if value is not None else "[]")
+            elif key == "attendee_email":
+                set_clauses.append("attendee_email = ?")
+                params.append(value.strip().lower() if value else None)
+            elif key == "title":
+                set_clauses.append("title = ?")
+                params.append(value.strip() if value else value)
+            else:
+                set_clauses.append(f"{key} = ?")
+                params.append(value)
+
+        now = utc_now_iso()
+        set_clauses.append("updated_at = ?")
+        params.append(now)
+        params.append(appointment_id)
+
+        with conn:
+            conn.execute(
+                f"UPDATE appointments SET {', '.join(set_clauses)} WHERE id = ?;",
+                params,
+            )
+
+        self.audit.log(
+            action="update",
+            entity_type="appointment",
+            entity_id=appointment_id,
+            change_summary=f"Updated appointment {appointment_id}",
+            actor=actor,
+            details=updates,
+        )
+        return self.get_appointment(appointment_id, actor)
+
+    def upsert_appointment(
+        self, appt: Appointment, actor: AuthContext
+    ) -> Appointment:
+        """Create-or-update an appointment row keyed on external_id or id."""
+        if not actor.has_permission(PERM_WRITE_APPOINTMENTS):
+            raise PermissionError("Actor lacks permission to upsert appointments")
+
+        existing = None
+        if appt.id is not None:
+            existing = self.get_appointment(appt.id, actor)
+        elif appt.external_id and appt.external_id.strip():
+            existing = self.get_appointment_by_external_id(appt.external_id, actor)
+
+        if existing is None:
+            return self.create_appointment(appt, actor)
+
+        immutable = {"external_id", "created_at", "id"}
+        raw = appt.to_dict()
+        updates = {
+            k: v
+            for k, v in raw.items()
+            if k not in immutable and v is not None and k in self.ALLOWED_UPDATE_FIELDS
+        }
+        if not updates:
+            return existing
+
+        updated = self.update_appointment(existing.id, updates, actor)
+        return updated or existing
+
     # ==========================================
     # SCHEDULE CONFIG (singleton, NEW-216, 2026-08-27)
     # ==========================================
