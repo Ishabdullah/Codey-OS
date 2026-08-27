@@ -40,6 +40,7 @@ class User:
 @dataclass
 class Customer:
     id: Optional[int] = None
+    external_id: Optional[str] = None  # NEW-212/NEW-232, 2026-08-27: external system's own string ID
     first_name: str = ""
     last_name: str = ""
     company_name: Optional[str] = None
@@ -65,6 +66,7 @@ class Customer:
 @dataclass
 class Lead:
     id: Optional[int] = None
+    external_id: Optional[str] = None  # NEW-212/NEW-232, 2026-08-27: external system's own string ID
     customer_id: Optional[int] = None
     source: str = "website"
     status: str = "new"  # new, contacted, qualified, unqualified, converted, lost
@@ -366,6 +368,25 @@ class BusinessProfile:
     business_description: Optional[str] = None
     onboarding_sent: int = 0
     setup_date: Optional[str] = None
+    updated_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class ScheduleConfig:
+    """Singleton scheduling configuration, mirrors Aigentik-CLI's
+    schedule-config.json (NEW-216, 2026-08-27). There is exactly one row
+    (id fixed to 1). working_hours maps weekday keys ('mon'..'sun') to
+    {'start': 'HH:MM', 'end': 'HH:MM'} dicts; duration_by_relationship is
+    an opaque dict (empty in the source data today, key shape unknown)."""
+    id: int = 1
+    working_hours: Dict[str, Any] = field(default_factory=dict)
+    default_duration_minutes: int = 30
+    buffer_minutes: int = 15
+    booking_window_days: int = 365
+    duration_by_relationship: Dict[str, Any] = field(default_factory=dict)
     updated_at: str = field(default_factory=utc_now_iso)
 
     def to_dict(self) -> Dict[str, Any]:

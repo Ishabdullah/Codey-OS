@@ -113,6 +113,16 @@ PERM_WRITE_BUSINESS_PROFILE = "write:business_profile"
 PERM_READ_DNC = "read:do_not_contact"
 PERM_WRITE_DNC = "write:do_not_contact"
 
+# NEW-216, 2026-08-27: schedule_config (business hours / booking defaults,
+# mirrors Aigentik-CLI's schedule-config.json) is operational settings, not
+# identity/onboarding like business_profile, so it gets its own pair rather
+# than reusing PERM_READ/WRITE_BUSINESS_PROFILE -- keeping the one-pair-per-
+# table convention this round's other five tables established avoids a
+# future "give sales read access to business hours" change silently also
+# granting business-profile writes.
+PERM_READ_SCHEDULE_CONFIG = "read:schedule_config"
+PERM_WRITE_SCHEDULE_CONFIG = "write:schedule_config"
+
 # Role permissions matrix
 ROLE_PERMISSIONS: Dict[str, Set[str]] = {
     ROLE_ADMIN: {
@@ -145,6 +155,8 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_AUTOMATION_RULES,
         PERM_READ_BUSINESS_PROFILE,
         PERM_WRITE_BUSINESS_PROFILE,
+        PERM_READ_SCHEDULE_CONFIG,
+        PERM_WRITE_SCHEDULE_CONFIG,
         PERM_READ_DNC,
         PERM_WRITE_DNC,
     },
@@ -177,6 +189,8 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_AUTOMATION_RULES,
         PERM_READ_BUSINESS_PROFILE,
         PERM_WRITE_BUSINESS_PROFILE,
+        PERM_READ_SCHEDULE_CONFIG,
+        PERM_WRITE_SCHEDULE_CONFIG,
         PERM_READ_DNC,
         PERM_WRITE_DNC,
     },
@@ -257,6 +271,8 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_AUTOMATION_RULES,
         PERM_READ_BUSINESS_PROFILE,
         PERM_WRITE_BUSINESS_PROFILE,
+        PERM_READ_SCHEDULE_CONFIG,
+        PERM_WRITE_SCHEDULE_CONFIG,
         PERM_READ_DNC,
         PERM_WRITE_DNC,
     },

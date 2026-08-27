@@ -23,6 +23,7 @@ from restoricon_core.models import (
     Appointment,
     AutomationRule,
     BusinessProfile,
+    ScheduleConfig,
     Subcontractor,
 )
 from restoricon_core.services.audit_service import AuditService
@@ -629,6 +630,53 @@ def test_business_profile_methods_reject_zero_permission_actor(setup_ops_service
     _, _, _, _, _, automation_service = setup_ops_services
     with pytest.raises(PermissionError):
         call(automation_service, ZeroPermissionActor())
+
+
+# ==========================================
+# SCHEDULE CONFIG (singleton, NEW-216, 2026-08-27)
+# ==========================================
+
+
+def test_schedule_config_upsert_is_singleton(setup_ops_services, admin_actor):
+    _, _, _, _, scheduling_service, _ = setup_ops_services
+
+    assert scheduling_service.get_schedule_config(admin_actor) is None
+
+    config = ScheduleConfig(
+        working_hours={"mon": {"start": "09:00", "end": "18:00"}},
+        default_duration_minutes=30,
+        buffer_minutes=15,
+        booking_window_days=365,
+        duration_by_relationship={},
+    )
+    scheduling_service.upsert_schedule_config(config, admin_actor)
+    fetched = scheduling_service.get_schedule_config(admin_actor)
+    assert fetched.working_hours == {"mon": {"start": "09:00", "end": "18:00"}}
+    assert fetched.default_duration_minutes == 30
+
+    # Upsert again with a change -- must update the same row, not add a second.
+    config2 = ScheduleConfig(default_duration_minutes=45, buffer_minutes=20)
+    scheduling_service.upsert_schedule_config(config2, admin_actor)
+    fetched2 = scheduling_service.get_schedule_config(admin_actor)
+    assert fetched2.default_duration_minutes == 45
+    assert fetched2.buffer_minutes == 20
+
+    conn = scheduling_service.db.get_connection()
+    count = conn.execute("SELECT COUNT(*) AS c FROM schedule_config;").fetchone()["c"]
+    assert count == 1
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda sched, actor: sched.get_schedule_config(actor),
+        lambda sched, actor: sched.upsert_schedule_config(ScheduleConfig(), actor),
+    ],
+)
+def test_schedule_config_methods_reject_zero_permission_actor(setup_ops_services, call):
+    _, _, _, _, scheduling_service, _ = setup_ops_services
+    with pytest.raises(PermissionError):
+        call(scheduling_service, ZeroPermissionActor())
 
 
 # ==========================================

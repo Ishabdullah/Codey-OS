@@ -11073,9 +11073,30 @@ finding for the same bug. See `NEW-39`.)*
 ## Found during the B2/NEW-209 schema-expansion round (2026-08-27) — building `restoricon_core`'s subcontractors/appointments/automation_rules/business_profile/do_not_contact tables per Ish's decision to expand scope now — code complete + self-tested, NOT yet code-reviewed, NOT committed
 
 ### [NEW-212] `customers`/`leads` (and now the five new B2 tables) have no `external_id` column to anchor an idempotent re-run of the future Aigentik-CLI migration script — a real obstacle for B2's data-migration step, not fixed here
-- **Status: Confirmed, not fixed — logged only, out of this round's
-  scope** (this round's task was schema/models/service/RBAC only, not the
-  migration script itself — see plan §6.4 task 3). **Correction, found
+- **Status: RESOLVED, 2026-08-27 (Ish-approved).** `external_id TEXT`
+  added to both `customers` and `leads` in `restoricon_core/database.py`
+  (no inline `UNIQUE` — SQLite forbids `UNIQUE` on an `ALTER TABLE ADD
+  COLUMN`; enforced instead via `CREATE UNIQUE INDEX IF NOT EXISTS
+  idx_customers_external_id` / `idx_leads_external_id`, functionally
+  identical). A new `DatabaseManager._migrate_schema()` step, run after
+  `init_schema()`'s `executescript`, adds the column to any pre-existing
+  DB file via `PRAGMA table_info()`-gated `ALTER TABLE`; verified against
+  a copy of the real on-device `~/.codey_restoricon/core.db` (see
+  `PROJECT_LOG.md` for verbatim before/after `PRAGMA table_info` output)
+  and against a synthetic legacy-shape DB for idempotency (second open
+  does not raise "duplicate column name"). `get_customer_by_external_id()`
+  / `get_lead_by_external_id()` added to `crm_service.py`, matching the
+  three existing `*_by_external_id` lookups' RBAC-gating pattern. Tests:
+  `tests/test_restoricon_core/test_database.py` (migration + unique-index
+  enforcement) and `test_services.py` (lookup methods). **Code-reviewer
+  pass, 2026-08-27: APPROVED** — reviewer independently reproduced the
+  migration's idempotency, independently opened the real on-device
+  `~/.codey_restoricon/core.db` read-only and confirmed it was genuinely
+  untouched, and independently re-ran `823 passed, 1 skipped`. One
+  non-blocking Warning from that pass spun off as `NEW-248`
+  (`get_customer_by_external_id()`'s permission gate is narrower than
+  `get_customer(id)`'s actual access-scoping logic). Committed
+  2026-08-27. **Correction, found
   during the mandatory code-reviewer pass, per rule 6:** this entry
   originally claimed all five `NEW-209` tables got an `external_id`
   column — false, confirmed directly against `restoricon_core/database.py`'s
@@ -11219,27 +11240,36 @@ finding for the same bug. See `NEW-39`.)*
   exists).
 
 ### [NEW-216] `~/Aigentik-CLI/data/schedule-config.json` (business scheduling defaults) has no destination table in `restoricon_core`
-- **Status: Confirmed** — read directly. Top-level shape is
-  `working_hours, default_duration_minutes, buffer_minutes,
-  booking_window_days, duration_by_relationship` — a singleton
-  configuration object, structurally similar to `profile.json` →
-  `business_profile`, but there is no equivalent table for it. It isn't
-  appointment data itself (that's `calendar.json` → `appointments`,
-  already covered) — it's the *rules* Aigentik-CLI's scheduler uses to
-  decide what slots to offer.
-- **Impact:** this file would be silently dropped by a migration script
-  that only handles the five files with existing table destinations,
-  losing the actual scheduling policy (working hours, buffer, booking
-  window) with no record of it in Restoricon Core.
-- **Not fixed here** — logged per rule 8 rather than improvising a
-  schema addition.
-- **Suggested direction, not applied**: add a `scheduling_config`
-  singleton table (same `id INTEGER PRIMARY KEY CHECK(id = 1)` pattern
-  as `business_profile`) in a future schema-expansion round, once Ish
-  confirms this data is in scope for B2.
+- **Status: RESOLVED, 2026-08-27 (Ish-approved, delegated the shape
+  decision to project-architect — "create best place for it").** Added a
+  new dedicated singleton table `schedule_config` (`id INTEGER PRIMARY
+  KEY CHECK(id = 1)`, same pattern as `business_profile`), owned by
+  `scheduling_service.py` (not folded into `business_profile`/
+  `automation_service.py`) because it's operational scheduling config in
+  the same domain as `appointments`, not business identity/onboarding
+  data. Columns: `working_hours_json`, `default_duration_minutes`,
+  `buffer_minutes`, `booking_window_days`, `duration_by_relationship_json`
+  — source field names kept verbatim (`working_hours`, not "business
+  hours") for migration fidelity; `duration_by_relationship` stored as an
+  opaque JSON blob since the live source file has it as `{}` (empty),
+  so no structure is invented for an unknown key shape. New permission
+  pair `PERM_READ_SCHEDULE_CONFIG`/`PERM_WRITE_SCHEDULE_CONFIG` (not a
+  reuse of the `business_profile` pair) granted to admin/manager/
+  ai_agent, matching this round's one-pair-per-table convention.
+  `get_schedule_config()`/`upsert_schedule_config()` added to
+  `scheduling_service.py`, mirroring `upsert_business_profile()`'s
+  `ON CONFLICT(id) DO UPDATE` singleton-upsert pattern. Tests in
+  `tests/test_restoricon_core/test_operations_services.py`
+  (singleton-upsert + zero-permission-actor rejection). **Code-reviewer
+  pass, 2026-08-27: APPROVED** — reviewer read `~/Aigentik-CLI/data/
+  schedule-config.json` directly and matched its field names/defaults/
+  shape byte-for-byte against the new DDL. Committed 2026-08-27. Not yet
+  exposed via `restoricon_core/api/routes.py` (no route added this
+  round — out of this round's Core-only scope; logged separately as
+  `NEW-247`).
 - **Cross-references:** plan §6.4 (Phase B2 task 3), `restoricon_core/
   database.py` (`business_profile` DDL for the singleton-table pattern
-  to reuse), `~/Aigentik-CLI/data/schedule-config.json`.
+  reused), `~/Aigentik-CLI/data/schedule-config.json`.
 
 ### [NEW-217] `subcontractors`/`appointments`/`automation_rules` services have `create_*` (INSERT-only) but no lookup-by-`external_id` method, so a second migration run would hit `sqlite3.IntegrityError` on the `UNIQUE(external_id)` constraint instead of upserting or skipping
 - **Status: Confirmed**, and in-scope work for the migration-script task
@@ -11728,8 +11758,20 @@ that task, out of scope to fix there
 column — blocks the email/SMS-provider comms write-through from linking
 any `communication_history` row to the customer it's about, found while
 scoping that task (not yet implemented)
-- **Status: Confirmed, elevates the already-logged `NEW-212` from
-  "future migration obstacle" to an active blocker for the next
+- **Status: Blocker discharged, 2026-08-27 — this is NOT the same as the
+  comms write-through itself being built.** `NEW-212`'s fix (see that
+  entry) added `external_id`/`get_customer_by_external_id()`/
+  `get_lead_by_external_id()`, which removes the specific schema gap this
+  entry flagged. The email/SMS-provider comms write-through task itself
+  (`~/Codey-Aigentik/index.js`'s customer/contact resolution wiring into
+  `communication_service.py`) is still unbuilt — this entry closes only
+  the blocking dependency, not the downstream task. Also note (per Ish,
+  2026-08-27): the current Aigentik-CLI/Codey-Aigentik data is Ish's own
+  test data, not live production customer data yet — a future round
+  building the write-through should not assume production-data risk
+  posture that doesn't exist yet. Original finding, retained below for
+  context. **Status was: Confirmed, elevates the already-logged `NEW-212`
+  from "future migration obstacle" to an active blocker for the next
   write-through task.** `restoricon_core/database.py`'s `customers`
   table (`:50-70`) and `leads` table (`:73-90`) have no `external_id`
   column, unlike `automation_rules`, `subcontractors`, and `appointments`,
@@ -12271,3 +12313,87 @@ required)
   backed (no local-JSON fallback) instead of the stale `data/
   do-not-contact.json` claim. `~/Aigentik-CLI` was not touched by this
   round (confirmed via `git status --porcelain` before and after).
+
+### [NEW-247] `customers.external_id`/`leads.external_id` lookups and `schedule_config` have no API route exposure
+- **Status: Confirmed.** This round (`NEW-212`/`NEW-232`/`NEW-216`
+  closure, 2026-08-27) added `get_customer_by_external_id()`,
+  `get_lead_by_external_id()`, and `get_schedule_config()`/
+  `upsert_schedule_config()` to `restoricon_core/services/crm_service.py`
+  and `scheduling_service.py`, but `restoricon_core/api/routes.py` was
+  not touched — it has no route for any of the three. This was
+  deliberate (the round was scoped Core-only, no API/JS changes), not an
+  oversight, but is logged so it isn't silently discovered later as a
+  missing feature.
+- **Impact:** none yet — nothing currently calls these methods over HTTP.
+  Becomes relevant once a client (the migration script's future
+  extension, the Codey-Aigentik write-through, or a GUI settings screen
+  for business hours) needs to reach them remotely rather than via direct
+  Python import.
+- **Not fixed here** — logged per rule 8, queue-level (Appendix A).
+- **Cross-references:** `restoricon_core/api/routes.py` (existing
+  `/api/v1/customers`, `/api/v1/leads`, and `business_profile` GET/POST
+  routes for the pattern to follow), `NEW-212`, `NEW-216`.
+
+### [NEW-248] `crm_service.get_customer_by_external_id()` gates on a narrower permission check than its sibling `get_customer(id)`'s actual access-scoping logic — fourth occurrence of this exact gap class
+- **Status: Confirmed, found live by the code-reviewer subagent during
+  the `NEW-212`/`NEW-216`/`NEW-232` closure review, 2026-08-27.**
+  `get_customer_by_external_id()` gates directly on
+  `has_permission(PERM_READ_ALL_CUSTOMERS)`, but the sibling
+  `get_customer(id)` gates on `can_access_customer(id)`, which contains
+  a special case: a `ROLE_CUSTOMER` actor may read their **own** customer
+  record (`self.customer_id == target_customer_id`) even without
+  `PERM_READ_ALL_CUSTOMERS`. Reproduced live by the reviewer: a
+  `ROLE_CUSTOMER` actor scoped to their own `customer_id` can call
+  `get_customer(own_id)` successfully but gets a `PermissionError` from
+  `get_customer_by_external_id(own_ext_id)` for that same row.
+- **Impact: not currently exploitable** — no API route exposes this
+  method yet (`NEW-247`), and there is no evidence any caller with
+  `ROLE_CUSTOMER` would invoke it. Same "one caller away" latent shape as
+  three prior findings in this project: `NEW-189`, `NEW-194`, `NEW-214`.
+  `get_lead_by_external_id()` has no equivalent issue — there is no
+  single-lead-by-id method with row-level scoping for it to diverge from
+  (only `list_leads`, gated uniformly by `PERM_READ_LEADS`).
+- **Pattern note — this is now the fourth occurrence of the same gap
+  class:** a new lookup method is added alongside an existing one, and
+  its permission gate checks that a broad permission exists rather than
+  reproducing the sibling method's actual (sometimes narrower, sometimes
+  row-scoped) access logic. Four independent instances of this same
+  shape (`NEW-189`, `NEW-194`, `NEW-214`, and now this one) suggests the
+  ad hoc per-method catch via code review, while working so far, is not
+  a reliable long-term control — worth a design-level fix (e.g., a
+  review checklist line or lint rule: "does this lookup's gate call the
+  same scoping logic as its sibling's, not just check a permission
+  exists") rather than continuing to catch each new instance individually.
+- **Not fixed here** — logged per rule 8, out of this round's scope.
+  Suggested fix for whoever picks this one up: either drop the top-level
+  `has_permission(PERM_READ_ALL_CUSTOMERS)` gate on
+  `get_customer_by_external_id()` and delegate the actual permission
+  decision to `get_customer(row["id"], actor)` after resolving the row
+  (which already re-checks correctly via `can_access_customer`), or
+  extend `can_access_customer`-style logic to run directly against the
+  external_id path.
+- **Cross-references:** `restoricon_core/services/crm_service.py`
+  (`get_customer`, `can_access_customer`, `get_customer_by_external_id`),
+  `restoricon_core/auth.py` (`PERM_READ_ALL_CUSTOMERS`), `NEW-189`,
+  `NEW-194`, `NEW-214`, `NEW-247`.
+
+### [NEW-249] `CODEY_MASTER_PLAN.md:929` (`NEW-209`'s five-table B2 schema-expansion entry) still says "NOT yet code-reviewed, NOT committed," but that work was code-reviewer-approved and committed in `c30d755` on 2026-08-26
+- **Status: Confirmed.** Found incidentally while updating the plan for
+  the `NEW-212`/`NEW-216`/`NEW-232` closure round, 2026-08-27 —
+  `git show --stat c30d755` confirms the commit exists
+  ("Phase B2: Restoricon Core schema expansion for all 5 Aigentik-CLI
+  data shapes", 2026-08-26) and matches the described work, but §4's
+  prose describing that same work at line 929 was never updated
+  afterward to reflect its committed status. §6's Appendix A entry near
+  line 5267 has the same stale "pending mandatory code-reviewer pass
+  (rule 4) before commit" wording.
+- **Impact:** low — the work genuinely is committed and reviewed (per
+  git history), so this is a documentation-accuracy gap, not a process
+  gap. But it could mislead a future reader (or agent) into re-scoping a
+  code-reviewer pass that already happened, or into distrusting whether
+  `c30d755` is safe to build on top of.
+- **Not fixed here** — out of this round's scope (this round's task was
+  the `NEW-212`/`NEW-216`/`NEW-232` closure only); flagged per rule 8 for
+  a future doc-accuracy pass to correct both locations.
+- **Cross-references:** `CODEY_MASTER_PLAN.md:929` and `:5267`, commit
+  `c30d755`.

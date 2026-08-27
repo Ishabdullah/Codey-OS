@@ -12,6 +12,189 @@ and Appendix A.
 
 ---
 
+## 2026-08-27 — NEW-212/NEW-232 (`customers`/`leads` `external_id`) + NEW-216 (`schedule_config` table) — CODE-REVIEWER APPROVED, COMMITTED
+
+**Follow-up to the entry immediately below.** The code-reviewer subagent
+ran on this round's diff (`restoricon_core/database.py`,
+`restoricon_core/models.py`, `restoricon_core/auth.py`,
+`restoricon_core/services/crm_service.py`,
+`restoricon_core/services/scheduling_service.py`, plus the three test
+files) and **APPROVED**, with one non-blocking Warning. The reviewer did
+not take the implementer's summary on faith: independently reproduced
+`_migrate_schema()`'s idempotency (fresh DB no-op via `_SCHEMA_SQL`'s own
+`CREATE TABLE`, legacy-shape synthetic DB gets the column added, a second
+`DatabaseManager()` open against an already-migrated file raises nothing),
+independently opened a **read-only copy of the real on-device**
+`~/.codey_restoricon/core.db` (258KB) directly with `sqlite3` in Python
+and confirmed it genuinely has no `external_id` column and no
+`schedule_config` table — i.e. the migration logic was tested only
+against a copy, never the live production file — independently confirmed
+SQLite's UNIQUE-index NULL semantics (multiple NULLs coexist, a real
+duplicate string raises `IntegrityError`), read
+`~/Aigentik-CLI/data/schedule-config.json` directly and matched its
+field names/defaults/shape byte-for-byte against the new `schedule_config`
+DDL, and reproduced the test count.
+
+**Warning (non-blocking, logged as `NEW-248`):**
+`crm_service.get_customer_by_external_id()` gates directly on
+`has_permission(PERM_READ_ALL_CUSTOMERS)`, but its sibling
+`get_customer(id)` gates on `can_access_customer(id)`, which contains a
+special case letting a `ROLE_CUSTOMER` actor read their own record even
+without that permission. The reviewer reproduced this live: a
+`ROLE_CUSTOMER` actor scoped to their own `customer_id` can call
+`get_customer(own_id)` successfully but gets `PermissionError` from
+`get_customer_by_external_id(own_ext_id)`. Not currently exploitable — no
+API route exists yet (`NEW-247`) — but this is the **fourth** occurrence
+of this exact gap shape in this project (`NEW-189`, `NEW-194`, `NEW-214`,
+now `NEW-248`), which the finding itself flags as worth a design-level
+fix (a review checklist item comparing a new lookup's gate against its
+sibling's actual scoping logic) rather than continuing to catch each
+instance ad hoc.
+
+**Test suite re-run fresh by project-architect before commit** (not
+trusting the implementer's or reviewer's pasted counts):
+```
+$ python -m pytest tests/ -q
+........................................................................ [  8%]
+........................................................................ [ 17%]
+........................................................................ [ 26%]
+........................................................................ [ 34%]
+........................................................................ [ 43%]
+.....s.................................................................. [ 52%]
+........................................................................ [ 61%]
+........................................................................ [ 69%]
+........................................................................ [ 78%]
+........................................................................ [ 87%]
+........................................................................ [ 96%]
+................................                                         [100%]
+823 passed, 1 skipped in 67.09s (0:01:07)
+```
+Matches both the implementer's and reviewer's claimed counts exactly.
+
+**Scope confirmed via `git status --short`/`git diff --stat` before
+staging:** exactly the expected file set — `restoricon_core/database.py`,
+`restoricon_core/models.py`, `restoricon_core/auth.py`,
+`restoricon_core/services/crm_service.py`,
+`restoricon_core/services/scheduling_service.py`, the three test files,
+`NEW_ISSUES.md`, `CODEY_MASTER_PLAN.md`, `PROJECT_LOG.md`, and
+`.claude/agent-memory/` files. Nothing outside this round's scope was
+staged.
+
+**Committed in the same commit as this log entry, pushed to
+`origin main`.** `NEW-212`, `NEW-216`, and `NEW-232` (its
+blocking-dependency portion) are now closed; `NEW-247` (no API route
+exposure) and `NEW-248` (permission-gate mismatch) remain open, logged
+in `NEW_ISSUES.md` and `CODEY_MASTER_PLAN.md` Appendix A. Next round
+(separate, not started here): the migration-script extension and the
+context-ceiling bug fix.
+
+---
+
+## 2026-08-27 — NEW-212/NEW-232 (`customers`/`leads` `external_id`) + NEW-216 (`schedule_config` table) — CODE COMPLETE, SELF-REVIEWED, CODE-REVIEWER PASS PENDING, NOT COMMITTED
+
+**Task:** Ish approved two pending decisions from the overnight Phase B2
+round: (1) add `external_id` to `customers`/`leads` (`NEW-212`/`NEW-232`),
+(2) give `schedule-config.json` a destination table, shape decision
+delegated to project-architect (`NEW-216`). Core-side only, no
+`~/Codey-Aigentik`/JS/migration-script changes this round.
+
+**Part A.** Confirmed directly (not assumed) that SQLite's
+`ALTER TABLE ADD COLUMN` rejects `UNIQUE`:
+```
+$ python3 -c "
+import sqlite3
+c=sqlite3.connect(':memory:')
+c.execute('CREATE TABLE t (id INTEGER PRIMARY KEY)')
+try:
+    c.execute('ALTER TABLE t ADD COLUMN external_id TEXT UNIQUE')
+    print('accepted')
+except Exception as e:
+    print('rejected:', e)
+"
+rejected: Cannot add a UNIQUE column
+```
+Added `external_id TEXT` (no inline UNIQUE) to both `customers` and
+`leads` in `restoricon_core/database.py`'s `_SCHEMA_SQL`; uniqueness
+enforced via `CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_external_id`
+/ `idx_leads_external_id`, created in a new `DatabaseManager
+._migrate_schema()` method (not in `_SCHEMA_SQL`, since on a legacy DB
+the index would be created before the ALTER that adds the column,
+failing with "no such column"). This project had no schema-versioning
+mechanism before this round — `_migrate_schema()` runs after
+`init_schema()`'s `executescript`, checking `PRAGMA table_info()` before
+each `ALTER TABLE ADD COLUMN` so it's a no-op on fresh DBs and safe to
+re-run.
+
+Verified against a copy of the real on-device DB (`~/.codey_restoricon/
+core.db`, 258KB), per rule 5/rule 2 — copied to scratch first, not
+touching the live file:
+```
+BEFORE customers: ['id', 'first_name', 'last_name', 'company_name', 'phone', 'email', 'mailing_address', 'service_address', 'customer_type', 'customer_source', 'assigned_user_id', 'status', 'tags_json', 'notes', 'custom_fields_json', 'created_at', 'last_contact_at', 'next_followup_at']
+BEFORE leads: ['id', 'customer_id', 'source', 'status', 'score', 'estimated_value', 'assigned_user_id', 'first_contact_at', 'last_contact_at', 'next_followup_at', 'notes', 'lost_reason', 'created_at', 'updated_at']
+BEFORE tables: False   # (schedule_config not present)
+AFTER customers: [..., 'external_id']
+AFTER leads: [..., 'external_id']
+AFTER has schedule_config: True
+```
+Also verified idempotency against a synthetic legacy-shape DB (a second
+`DatabaseManager()` open does not raise "duplicate column name") and
+that the row inserted before migration survives it unchanged. Added
+`get_customer_by_external_id()`/`get_lead_by_external_id()` to
+`crm_service.py`, matching the three existing `*_by_external_id`
+lookups' permission-gating pattern exactly.
+
+**Part B.** New dedicated singleton table `schedule_config` (same
+pattern as `business_profile`), owned by `scheduling_service.py` — not
+folded into `business_profile`, since that table is identity/onboarding
+data and this is operational scheduling config in the same domain as
+`appointments`. Read the real source file directly:
+`~/Aigentik-CLI/data/schedule-config.json` (`working_hours` per weekday,
+`default_duration_minutes`, `buffer_minutes`, `booking_window_days`,
+`duration_by_relationship` — empty `{}` in the live file, stored as an
+opaque JSON blob with no invented structure). New permission pair
+`PERM_READ_SCHEDULE_CONFIG`/`PERM_WRITE_SCHEDULE_CONFIG` (not a reuse of
+`business_profile`'s pair, to keep this round's one-pair-per-table
+convention), granted to admin/manager/ai_agent — same role set as
+`business_profile`. `get_schedule_config()`/`upsert_schedule_config()`
+added to `scheduling_service.py`, mirroring `upsert_business_profile()`'s
+`ON CONFLICT(id) DO UPDATE` pattern.
+
+**Tests.** 9 new tests: `test_database.py` (legacy-DB migration +
+idempotency + unique-index enforcement, including a NULL-external_id
+multiplicity check), `test_services.py` (customer/lead external_id
+lookups, positive + zero-permission-actor negative), and
+`test_operations_services.py` (schedule_config singleton-upsert +
+zero-permission-actor rejection). Full suite:
+```
+$ python -m pytest tests/ -q
+823 passed, 1 skipped in 68.05s (0:01:08)
+```
+Baseline before this round's edits: `814 passed, 1 skipped` (run fresh
+before any changes) — the +9 are exactly this round's new tests, no
+pre-existing failures introduced or masked.
+
+**Not done this round (logged, not silently skipped):** no
+`restoricon_core/api/routes.py` route added for the new lookup/config
+methods (`NEW-247`, Confirmed, Core-only scope this round); no
+`~/Codey-Aigentik`/migration-script changes (separate future task).
+`NEW-232`'s status note: this closes the schema *blocker*, not the comms
+write-through task itself, which is still unbuilt.
+
+**Scope-relevant context for future rounds (not this round's finding,
+Ish's own clarification, 2026-08-27):** the current Aigentik-CLI/
+Codey-Aigentik data is Ish's own test data, not live production customer
+data yet. Doesn't change this round's scope; a future round building the
+real customer-data migration or the comms write-through should not
+inherit a production-data risk posture that isn't there yet.
+
+**Status: code-complete, self-reviewed.** No code-reviewer subagent was
+available this session — per rule 4, a schema change requires that pass
+before commit, so **nothing from this round has been committed.**
+Docs (`CODEY_MASTER_PLAN.md` §4/Appendix A, `NEW_ISSUES.md`) updated to
+reflect code-complete status, not fixed/closed-and-committed.
+
+---
+
 ## 2026-08-27 — Cleanup round: NEW-227, NEW-222/NEW-237 — CODE COMPLETE + CODE-REVIEWER APPROVED, COMMITTED
 
 **Task:** close out three small, already-scoped findings — not Phase B2

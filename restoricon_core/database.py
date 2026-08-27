@@ -46,9 +46,17 @@ CREATE TABLE IF NOT EXISTS api_tokens (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
--- Customers / Accounts
+-- Customers / Accounts. external_id (NEW-212/NEW-232, 2026-08-27, Ish-
+-- approved) holds an external system's own string ID (e.g. Aigentik-CLI's
+-- contact ID) for idempotent migration/write-through matching, same
+-- purpose as subcontractors.external_id. Added without an inline UNIQUE
+-- constraint -- SQLite's ALTER TABLE ADD COLUMN rejects UNIQUE columns, so
+-- uniqueness is enforced via the separate idx_customers_external_id
+-- unique index below instead, kept identical between fresh and migrated
+-- DBs (see _migrate_schema()).
 CREATE TABLE IF NOT EXISTS customers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    external_id TEXT,
     first_name TEXT NOT NULL,
     last_name TEXT NOT NULL,
     company_name TEXT,
@@ -69,9 +77,11 @@ CREATE TABLE IF NOT EXISTS customers (
     FOREIGN KEY (assigned_user_id) REFERENCES users(id) ON DELETE SET NULL
 );
 
--- Leads
+-- Leads. external_id (NEW-212/NEW-232, 2026-08-27) -- see customers'
+-- external_id comment above for why it has no inline UNIQUE.
 CREATE TABLE IF NOT EXISTS leads (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    external_id TEXT,
     customer_id INTEGER,
     source TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'new' CHECK(status IN ('new', 'contacted', 'qualified', 'unqualified', 'converted', 'lost')),
@@ -369,6 +379,28 @@ CREATE TABLE IF NOT EXISTS business_profile (
     updated_at TEXT NOT NULL
 );
 
+-- Scheduling configuration (NEW-216, 2026-08-27, Ish-approved "create best
+-- place for it"). Deliberately a dedicated singleton table (id fixed to 1
+-- via CHECK), same pattern as business_profile, rather than folding these
+-- columns into business_profile: business_profile is identity/onboarding
+-- data, this is operational scheduling config owned by the same domain as
+-- appointments (calendar.js's counterpart, schedule-config.json). Field
+-- names (working_hours, not "business hours") are kept as source-system
+-- names for migration fidelity, matching how the appointments table
+-- mirrored calendar.js's own field names. duration_by_relationship is
+-- stored as an opaque JSON blob rather than given its own columns because
+-- the live source file has it as `{}` (empty) -- its key shape is
+-- currently unknown, so no structure is invented for it here.
+CREATE TABLE IF NOT EXISTS schedule_config (
+    id INTEGER PRIMARY KEY CHECK(id = 1),
+    working_hours_json TEXT NOT NULL DEFAULT '{}',
+    default_duration_minutes INTEGER NOT NULL DEFAULT 30,
+    buffer_minutes INTEGER NOT NULL DEFAULT 15,
+    booking_window_days INTEGER NOT NULL DEFAULT 365,
+    duration_by_relationship_json TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL
+);
+
 -- Do-Not-Contact list (B2/NEW-209 schema expansion, DAY-ONE-OR-NEVER
 -- permanent-suppression semantics). UNIQUE(type, value) matches
 -- do-not-contact.js's own idempotent add-refreshes-existing behavior.
@@ -406,6 +438,11 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 
 -- Indexing for performance
+-- NOTE: the unique indexes for customers.external_id / leads.external_id
+-- are NOT here -- they're created in _migrate_schema() instead, after the
+-- ALTER TABLE that adds the column on a pre-existing DB file. Creating
+-- them here would run before that ALTER on a legacy DB (executescript
+-- runs top-to-bottom in one pass) and fail with "no such column".
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 CREATE INDEX IF NOT EXISTS idx_api_tokens_token ON api_tokens(token);
@@ -484,10 +521,50 @@ class DatabaseManager:
         return conn
 
     def init_schema(self) -> None:
-        """Execute the DDL schema to set up all tables and indexes."""
+        """Execute the DDL schema to set up all tables and indexes, then
+        run any additive column migrations (see _migrate_schema) needed to
+        bring a pre-existing DB file up to the current column set. Fresh
+        DBs already have every column via CREATE TABLE, so the migration
+        step is a no-op for them; it only does real work against a DB file
+        created before a given column existed."""
         conn = self.get_connection()
         with conn:
             conn.executescript(_SCHEMA_SQL)
+        self._migrate_schema()
+
+    def _migrate_schema(self) -> None:
+        """Additive, idempotent column migrations for existing DB files.
+
+        This project has no schema-versioning mechanism (no PRAGMA
+        user_version tracking, no migration table) -- _SCHEMA_SQL's
+        `CREATE TABLE IF NOT EXISTS` only ever helps a brand-new DB file;
+        it does nothing for a column added to a table that already exists
+        on disk. Each entry here must check PRAGMA table_info() before
+        attempting `ALTER TABLE ... ADD COLUMN`, since re-running ADD
+        COLUMN on a column that already exists raises
+        "duplicate column name" and would break every subsequent
+        DatabaseManager() call against that file.
+        """
+        conn = self.get_connection()
+        migrations = (
+            ("customers", "external_id", "ALTER TABLE customers ADD COLUMN external_id TEXT;"),
+            ("leads", "external_id", "ALTER TABLE leads ADD COLUMN external_id TEXT;"),
+        )
+        with conn:
+            for table, column, ddl in migrations:
+                existing_columns = {
+                    row["name"] for row in conn.execute(f"PRAGMA table_info({table});")
+                }
+                if column not in existing_columns:
+                    conn.execute(ddl)
+            # Unique indexes must run after the ALTERs above (see the note
+            # in _SCHEMA_SQL's index block for why they can't live there).
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_external_id ON customers(external_id);"
+            )
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_leads_external_id ON leads(external_id);"
+            )
 
     @contextmanager
     def transaction(self) -> Generator[sqlite3.Cursor, None, None]:

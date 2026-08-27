@@ -77,13 +77,14 @@ class CRMService:
             cursor = conn.execute(
                 """
                 INSERT INTO customers (
-                    first_name, last_name, company_name, phone, email,
+                    external_id, first_name, last_name, company_name, phone, email,
                     mailing_address, service_address, customer_type,
                     customer_source, assigned_user_id, status, tags_json,
                     notes, custom_fields_json, created_at, last_contact_at, next_followup_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
                 (
+                    customer.external_id,
                     customer.first_name.strip(),
                     customer.last_name.strip(),
                     customer.company_name,
@@ -129,6 +130,7 @@ class CRMService:
 
         return Customer(
             id=row["id"],
+            external_id=row["external_id"],
             first_name=row["first_name"],
             last_name=row["last_name"],
             company_name=row["company_name"],
@@ -147,6 +149,24 @@ class CRMService:
             last_contact_at=row["last_contact_at"],
             next_followup_at=row["next_followup_at"],
         )
+
+    def get_customer_by_external_id(self, external_id: str, actor: AuthContext) -> Optional[Customer]:
+        """Look up by an external system's own string ID (NEW-212/NEW-232,
+        2026-08-27), matching the subcontractors/appointments/
+        automation_rules by_external_id lookup pattern -- lets a migration
+        or write-through check for an existing row before INSERT and skip
+        re-migrating it, instead of hitting the unique-index constraint as
+        an IntegrityError."""
+        if not actor.has_permission(PERM_READ_ALL_CUSTOMERS):
+            raise PermissionError("Actor lacks permission to look up customers by external ID")
+
+        conn = self.db.get_connection()
+        row = conn.execute(
+            "SELECT * FROM customers WHERE external_id = ?;", (external_id,)
+        ).fetchone()
+        if not row:
+            return None
+        return self.get_customer(row["id"], actor)
 
     def list_customers(
         self,
@@ -190,6 +210,7 @@ class CRMService:
             results.append(
                 Customer(
                     id=row["id"],
+                    external_id=row["external_id"],
                     first_name=row["first_name"],
                     last_name=row["last_name"],
                     company_name=row["company_name"],
@@ -228,12 +249,13 @@ class CRMService:
             cursor = conn.execute(
                 """
                 INSERT INTO leads (
-                    customer_id, source, status, score, estimated_value,
+                    external_id, customer_id, source, status, score, estimated_value,
                     assigned_user_id, first_contact_at, last_contact_at,
                     next_followup_at, notes, lost_reason, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
                 (
+                    lead.external_id,
                     lead.customer_id,
                     lead.source,
                     lead.status,
@@ -278,6 +300,7 @@ class CRMService:
         return [
             Lead(
                 id=r["id"],
+                external_id=r["external_id"],
                 customer_id=r["customer_id"],
                 source=r["source"],
                 status=r["status"],
@@ -294,6 +317,37 @@ class CRMService:
             )
             for r in rows
         ]
+
+    def get_lead_by_external_id(self, external_id: str, actor: AuthContext) -> Optional[Lead]:
+        """Look up by an external system's own string ID (NEW-212/NEW-232,
+        2026-08-27), matching the subcontractors/appointments/
+        automation_rules by_external_id lookup pattern."""
+        if not actor.has_permission(PERM_READ_LEADS):
+            raise PermissionError("Actor lacks permission to look up leads by external ID")
+
+        conn = self.db.get_connection()
+        row = conn.execute(
+            "SELECT * FROM leads WHERE external_id = ?;", (external_id,)
+        ).fetchone()
+        if not row:
+            return None
+        return Lead(
+            id=row["id"],
+            external_id=row["external_id"],
+            customer_id=row["customer_id"],
+            source=row["source"],
+            status=row["status"],
+            score=row["score"],
+            estimated_value=row["estimated_value"],
+            assigned_user_id=row["assigned_user_id"],
+            first_contact_at=row["first_contact_at"],
+            last_contact_at=row["last_contact_at"],
+            next_followup_at=row["next_followup_at"],
+            notes=row["notes"],
+            lost_reason=row["lost_reason"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
 
     # ==========================================
     # OPPORTUNITIES / SALES PIPELINE

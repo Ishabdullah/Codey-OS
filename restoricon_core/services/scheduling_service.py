@@ -5,6 +5,13 @@ confirm appointment lifecycle: an appointment can be proposed with
 offered_slots and later confirmed, or created directly as confirmed.
 RBAC-gated and audit-logged on every mutation, matching crm_service.py's
 established pattern.
+
+Also owns schedule_config (NEW-216, 2026-08-27), the singleton business
+scheduling defaults (working hours, slot lengths, booking window) that
+mirror Aigentik-CLI's schedule-config.json -- grouped here rather than in
+automation_service.py's business_profile because it's operational
+scheduling config in the same domain as appointments, not business
+identity/onboarding data.
 """
 
 from __future__ import annotations
@@ -15,10 +22,12 @@ from typing import Any, Dict, List, Optional
 from ..auth import (
     AuthContext,
     PERM_READ_APPOINTMENTS,
+    PERM_READ_SCHEDULE_CONFIG,
     PERM_WRITE_APPOINTMENTS,
+    PERM_WRITE_SCHEDULE_CONFIG,
 )
 from ..database import DatabaseManager
-from ..models import Appointment, utc_now_iso
+from ..models import Appointment, ScheduleConfig, utc_now_iso
 from .audit_service import AuditService
 
 VALID_STATUSES = {"confirmed", "negotiating", "cancelled", "completed"}
@@ -217,3 +226,81 @@ class SchedulingService:
             details={"status": status},
         )
         return self.get_appointment(appointment_id, actor)
+
+    # ==========================================
+    # SCHEDULE CONFIG (singleton, NEW-216, 2026-08-27)
+    # ==========================================
+
+    @staticmethod
+    def _row_to_schedule_config(row) -> ScheduleConfig:
+        return ScheduleConfig(
+            id=row["id"],
+            working_hours=json.loads(row["working_hours_json"]) if row["working_hours_json"] else {},
+            default_duration_minutes=row["default_duration_minutes"],
+            buffer_minutes=row["buffer_minutes"],
+            booking_window_days=row["booking_window_days"],
+            duration_by_relationship=json.loads(row["duration_by_relationship_json"]) if row["duration_by_relationship_json"] else {},
+            updated_at=row["updated_at"],
+        )
+
+    def get_schedule_config(self, actor: AuthContext) -> Optional[ScheduleConfig]:
+        """Fetch the single schedule_config row (id fixed to 1), or None
+        if it has never been set. Returns None rather than raising so a
+        caller can distinguish "not configured yet" from a permission
+        failure (which still raises PermissionError below)."""
+        if not actor.has_permission(PERM_READ_SCHEDULE_CONFIG):
+            raise PermissionError("Actor lacks permission to view the schedule config")
+
+        conn = self.db.get_connection()
+        row = conn.execute("SELECT * FROM schedule_config WHERE id = 1;").fetchone()
+        if not row:
+            return None
+        return self._row_to_schedule_config(row)
+
+    def upsert_schedule_config(self, config: ScheduleConfig, actor: AuthContext) -> ScheduleConfig:
+        """Create or update the single schedule_config row (id fixed to
+        1), mirroring upsert_business_profile()'s ON CONFLICT pattern."""
+        if not actor.has_permission(PERM_WRITE_SCHEDULE_CONFIG):
+            raise PermissionError("Actor lacks permission to update the schedule config")
+
+        now = utc_now_iso()
+        config.id = 1
+        config.updated_at = now
+        working_hours_json = json.dumps(config.working_hours)
+        duration_by_relationship_json = json.dumps(config.duration_by_relationship)
+
+        conn = self.db.get_connection()
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO schedule_config (
+                    id, working_hours_json, default_duration_minutes, buffer_minutes,
+                    booking_window_days, duration_by_relationship_json, updated_at
+                ) VALUES (1, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    working_hours_json = excluded.working_hours_json,
+                    default_duration_minutes = excluded.default_duration_minutes,
+                    buffer_minutes = excluded.buffer_minutes,
+                    booking_window_days = excluded.booking_window_days,
+                    duration_by_relationship_json = excluded.duration_by_relationship_json,
+                    updated_at = excluded.updated_at;
+                """,
+                (
+                    working_hours_json,
+                    config.default_duration_minutes,
+                    config.buffer_minutes,
+                    config.booking_window_days,
+                    duration_by_relationship_json,
+                    now,
+                ),
+            )
+
+        self.audit.log(
+            action="update",
+            entity_type="schedule_config",
+            entity_id=1,
+            change_summary="Schedule config updated",
+            actor=actor,
+            details=config.to_dict(),
+        )
+        return config

@@ -1297,6 +1297,96 @@ separately in `Codey-Aigentik` (commit `0398396`, docs-only). See
 variant of the routing quirk on `GET /api/v1/customers/`) is logged
 open, not fixed this round.
 
+**`NEW-212`/`NEW-232`/`NEW-216` closure, 2026-08-27 — code-complete,
+code-reviewer-APPROVED, committed. This is schema/service-layer only —
+no API routes exposed yet (`NEW-247`, deliberate), no JS/Codey-Aigentik
+changes.** Ish approved both pending decisions this round: (1) add
+`external_id` to `customers`/
+`leads` (small schema change, unblocks the real customer-data migration
+and the comms write-through's `customer_id` resolution), and (2)
+`schedule-config.json` gets "the best place for it," delegated to
+project-architect's judgment. **Part A:** `external_id TEXT` added to
+both tables in `restoricon_core/database.py` — no inline `UNIQUE`
+(SQLite's `ALTER TABLE ADD COLUMN` rejects `UNIQUE` columns, confirmed
+directly rather than assumed); uniqueness instead enforced via
+`CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_external_id` /
+`idx_leads_external_id`. This project had no schema-versioning mechanism
+at all before this round (`_SCHEMA_SQL`'s `CREATE TABLE IF NOT EXISTS`
+only ever helped brand-new DB files); added a `DatabaseManager
+._migrate_schema()` step, run after `init_schema()`'s `executescript`,
+that adds missing columns to a pre-existing DB file via a
+`PRAGMA table_info()` existence check before each `ALTER TABLE`.
+Verified three ways: (a) fresh `:memory:` DB has the column via
+`CREATE TABLE` directly; (b) a synthetic legacy-shape DB (pre-round
+`customers`/`leads` DDL, one seeded row) gets the column added, the row
+preserved, and a second `DatabaseManager()` open against the same file
+does not raise "duplicate column name"; (c) a copy of the real on-device
+`~/.codey_restoricon/core.db` (258KB) was migrated and its
+`PRAGMA table_info(customers)`/`(leads)` output confirmed the column
+present after, absent before — see `PROJECT_LOG.md` for the verbatim
+before/after column lists. `get_customer_by_external_id()`/
+`get_lead_by_external_id()` added to `crm_service.py`, matching the
+three existing `*_by_external_id` lookups' permission-gating pattern.
+**Part B:** new dedicated singleton table `schedule_config` (`id
+INTEGER PRIMARY KEY CHECK(id = 1)`, same pattern as `business_profile`),
+owned by `scheduling_service.py` rather than folded into
+`business_profile` — reasoning: `business_profile` is identity/
+onboarding data, `schedule_config` is operational scheduling config in
+the same domain as `appointments`. Columns: `working_hours_json`,
+`default_duration_minutes`, `buffer_minutes`, `booking_window_days`,
+`duration_by_relationship_json` (source field names kept verbatim for
+migration fidelity; `duration_by_relationship` is an opaque JSON blob
+since the live source file has it as `{}`, so no structure was invented
+for its unknown key shape). New permission pair
+`PERM_READ_SCHEDULE_CONFIG`/`PERM_WRITE_SCHEDULE_CONFIG` (not a reuse of
+the `business_profile` pair — keeps this round's one-pair-per-table
+convention, avoids a future "give sales read access to business hours"
+change silently also granting business-profile writes), granted to
+admin/manager/ai_agent, matching `business_profile`'s role set.
+`get_schedule_config()`/`upsert_schedule_config()` added to
+`scheduling_service.py`, mirroring `upsert_business_profile()`'s
+`ON CONFLICT(id) DO UPDATE` pattern. **Tests:** 9 new tests across
+`test_database.py` (migration + unique-index enforcement),
+`test_services.py` (external_id lookups), and
+`test_operations_services.py` (schedule_config singleton-upsert +
+zero-permission-actor rejection). Full suite re-run fresh: `823 passed,
+1 skipped` (`python -m pytest tests/ -q`, 2026-08-27; baseline before
+this round's changes was `814 passed, 1 skipped`, confirmed by running
+the suite before any edits). **Correction on NEW-232's closure:**
+`NEW-212`'s fix discharges NEW-232's *blocking dependency* — it does
+not build the comms write-through task itself, which remains a separate
+unbuilt future round. **Scope note for future rounds:** Ish clarified
+(2026-08-27) the current Aigentik-CLI/Codey-Aigentik data is his own
+test data, not live production customer data yet — this doesn't change
+this round's scope, but a future round building the actual
+customer-data migration or comms write-through should not assume a
+production-data risk posture that isn't there yet. **Not done this
+round:** no API route exposure for the new lookup/config methods
+(`restoricon_core/api/routes.py` untouched — Core-only scope per
+instruction), logged as `NEW-247`; no `~/Codey-Aigentik`/migration-script
+changes (that's the migration-script extension, a separate next task).
+**Code-reviewer pass, 2026-08-27: APPROVED, one non-blocking Warning.**
+Reviewer independently re-verified rather than trusting the implementer's
+summary: reproduced `_migrate_schema()`'s idempotency directly (fresh DB
+no-op, legacy DB gets the column, second open of an already-migrated file
+raises nothing), independently opened the real on-device
+`~/.codey_restoricon/core.db` read-only and confirmed it genuinely lacks
+`external_id`/`schedule_config` (i.e. the migration was never run against
+production, only a copy), confirmed SQLite's UNIQUE-index NULL semantics
+directly, read `~/Aigentik-CLI/data/schedule-config.json` directly and
+matched its shape byte-for-byte against the new DDL, and reproduced
+`823 passed, 1 skipped` literally. **Warning (not blocking, logged as
+`NEW-248`):** `get_customer_by_external_id()` gates on
+`has_permission(PERM_READ_ALL_CUSTOMERS)` directly rather than
+`get_customer(id)`'s `can_access_customer(id)`, which lets a
+`ROLE_CUSTOMER` actor read their own record without that permission —
+reproduced live by the reviewer, not currently exploitable (no API route
+yet), fourth occurrence of this exact gap shape after `NEW-189`/`NEW-194`/
+`NEW-214`. See `NEW-248` for the full write-up and the recurring-pattern
+note. Full suite independently re-run fresh by project-architect before
+commit: `823 passed, 1 skipped` (`python -m pytest tests/ -q`, 2026-08-27),
+matching both the implementer's and the reviewer's counts exactly.
+
 ---
 
 ## 5. The device, stated once
@@ -5185,7 +5275,14 @@ Then:
       started; step 4 ("point at shared model layer") is a real
       admission-gate design item, not a config edit, due to a same-port
       collision with Codey-OS's own `PRIMARY_SERVER_PORT` default
-      (`NEW-211`).
+      (`NEW-211`). **`NEW-212`/`NEW-232` (customers/leads `external_id`
+      gap) and `NEW-216` (schedule-config.json destination) CLOSED
+      2026-08-27** — see §4's closure entry; code-complete,
+      code-reviewer-approved, committed (823 passed, 1 skipped).
+      Schema/service-layer only, no API routes yet (`NEW-247`), no JS/
+      Codey-Aigentik changes. `NEW-248` (permission-gate mismatch on
+      `get_customer_by_external_id()`, fourth occurrence of this gap
+      class) spun off, open.
 - [ ] **B3** — CRM/Sales domain.
 - [ ] **B3** — Operations domain.
 - [ ] **B3** — first Automated Workflows.

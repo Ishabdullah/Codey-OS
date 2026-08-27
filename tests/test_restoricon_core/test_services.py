@@ -320,3 +320,80 @@ def test_sign_contract_new192_role_matrix(setup_services):
     for role in (ROLE_TECHNICIAN, ROLE_AI_AGENT):
         with pytest.raises(PermissionError):
             crm_service.sign_contract(contract.id, f"sig-{role}", make_actor(role))
+
+
+# ==========================================
+# CUSTOMER/LEAD external_id (NEW-212/NEW-232, 2026-08-27)
+# ==========================================
+
+
+def test_get_customer_by_external_id(setup_services):
+    db, auth_service, audit_service, _, crm_service = setup_services
+    admin_user = auth_service.create_user(
+        username="admin", plain_password="Password123", full_name="Admin", email="admin@test.com", role=ROLE_ADMIN
+    )
+    actor_admin = AuthContext(user_id=admin_user.id, username="admin", role=ROLE_ADMIN, actor_type="human")
+
+    created = crm_service.create_customer(
+        Customer(external_id="contact_0197", first_name="Jane", last_name="Doe"), actor_admin
+    )
+    assert created.external_id == "contact_0197"
+
+    fetched = crm_service.get_customer_by_external_id("contact_0197", actor_admin)
+    assert fetched is not None
+    assert fetched.id == created.id
+
+    assert crm_service.get_customer_by_external_id("does_not_exist", actor_admin) is None
+
+    # Uniqueness is enforced at the DB layer -- inserting a second customer
+    # with the same external_id must fail.
+    import sqlite3
+    with pytest.raises(sqlite3.IntegrityError):
+        crm_service.create_customer(
+            Customer(external_id="contact_0197", first_name="Other", last_name="Person"), actor_admin
+        )
+
+
+def test_get_customer_by_external_id_rejects_zero_permission_actor(setup_services):
+    _, _, _, _, crm_service = setup_services
+
+    class ZeroPermissionActor:
+        role = "nobody"
+
+        def has_permission(self, permission: str) -> bool:
+            return False
+
+    with pytest.raises(PermissionError):
+        crm_service.get_customer_by_external_id("contact_0197", ZeroPermissionActor())
+
+
+def test_get_lead_by_external_id(setup_services):
+    db, auth_service, audit_service, _, crm_service = setup_services
+    admin_user = auth_service.create_user(
+        username="admin", plain_password="Password123", full_name="Admin", email="admin@test.com", role=ROLE_ADMIN
+    )
+    actor_admin = AuthContext(user_id=admin_user.id, username="admin", role=ROLE_ADMIN, actor_type="human")
+
+    created = crm_service.create_lead(
+        Lead(external_id="lead_0042", source="referral"), actor_admin
+    )
+    assert created.external_id == "lead_0042"
+
+    fetched = crm_service.get_lead_by_external_id("lead_0042", actor_admin)
+    assert fetched is not None
+    assert fetched.id == created.id
+
+    assert crm_service.get_lead_by_external_id("does_not_exist", actor_admin) is None
+
+
+def test_get_lead_by_external_id_rejects_zero_permission_actor(setup_services):
+    _, _, _, _, crm_service = setup_services
+
+    class ZeroPermissionActor:
+        role = "nobody"
+
+        def has_permission(self, permission: str) -> bool:
+            return False
+
+    with pytest.raises(PermissionError):
+        crm_service.get_lead_by_external_id("lead_0042", ZeroPermissionActor())
