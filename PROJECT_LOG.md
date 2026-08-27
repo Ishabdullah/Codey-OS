@@ -12,6 +12,60 @@ and Appendix A.
 
 ---
 
+## 2026-08-27 — Phase B2 task 4, third module continuation — `find_subcontractor()` Core read primitive — CODE COMPLETE + CODE-REVIEWER APPROVED
+
+**Task:** implement the `find_subcontractor()` spec from the prior
+round's scoping entry (below), then route it through mandatory
+code-reviewer.
+
+**What happened:** implementer built `CRMService.find_subcontractor()`
+(`restoricon_core/services/crm_service.py`, 78 lines) and its route
+extension (`restoricon_core/api/routes.py`, 16 lines) exactly per spec,
+including the deliberate choice to mirror — not silently fix —
+`findSubcontractor()`'s NULL/blank-phone substring bug (`NEW-246`:
+an empty `pDigits` makes `cleanDigits.includes('')` always `true` in
+JS, so a phoneless record can shadow the true phone-number owner for
+any query with >=7 stripped digits), pinned by a code comment and a
+named regression test in `tests/test_restoricon_core/test_operations_services.py`.
+Code-reviewer approved, with an explicit reasoned endorsement of the
+mirror-not-fix judgment call: no live JS call site exists yet (no
+current production risk), the decision was made at the spec-writing
+layer rather than improvised mid-task, and it is pinned by a named
+test. During review, a negative-control `git checkout` momentarily
+wiped the 78-line method from the working tree; the reviewer caught
+this immediately and fully recovered it — confirmed via
+`git diff --stat` showing the method intact — no data was actually
+lost. Code-reviewer's one non-blocking follow-up (any future spec
+wiring this method to a live JS call site must treat `NEW-246` as
+must-fix-first and cross-reference it explicitly) has been added to
+`NEW-246`'s own entry in `NEW_ISSUES.md`, not filed as a new finding.
+
+**Verification:** re-ran `python -m pytest tests/ -q` fresh this round
+(not reusing the reviewer's number): `811 passed, 1 skipped in 65.10s`
+— matches the reviewer's independently-reported count. This is
+code-complete + code-reviewer-approved, per rule 7 explicitly **not**
+live-verified — no running device session exercised this route.
+
+**Scope discipline:** this round ships no `~/Codey-Aigentik` changes.
+`subcontractor-recruiter.js`'s actual read-path conversion to call this
+new Core method remains a separate future round, gated on `NEW-242`
+(`createOrUpdateSubcontractorLead()`'s upsert/dedup logic, no Core
+equivalent) and `NEW-245` (no documented mapping from a Core
+`Subcontractor` row back to the field names/types five JS consumer
+functions expect) — both still open prerequisites, neither touched
+this round.
+
+**Files changed:** `restoricon_core/services/crm_service.py`,
+`restoricon_core/api/routes.py`,
+`tests/test_restoricon_core/test_operations_services.py`,
+`tests/test_restoricon_core/test_api.py`, `NEW_ISSUES.md` (NEW-246
+amended), `CODEY_MASTER_PLAN.md` (§4, §6.4).
+
+**Do not start further Phase B2 work from this entry** — this round's
+instruction was to close out and stop.
+
+---
+
 ## 2026-08-27 — Phase B2 task 4, third module continuation — `find_subcontractor()` Core read primitive — SCOPED ONLY, NOT IMPLEMENTED
 
 **Task:** continue unblocking `subcontractor-recruiter.js`'s

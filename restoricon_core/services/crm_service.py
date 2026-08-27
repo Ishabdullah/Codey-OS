@@ -7,6 +7,7 @@ Contracts, Invoices, Documents) with RBAC enforcement and automatic audit loggin
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Dict, List, Optional
 
 from ..auth import (
@@ -1054,6 +1055,83 @@ class CRMService:
         if not row:
             return None
         return self._row_to_subcontractor(row)
+
+    def find_subcontractor(
+        self, query: str, actor: AuthContext
+    ) -> Optional[Subcontractor]:
+        """Fuzzy phone/email/name lookup mirroring
+        ~/Codey-Aigentik/subcontractor-recruiter.js's findSubcontractor()
+        (B2 task 4, third module continuation, 2026-08-27, see
+        CODEY_MASTER_PLAN.md Sec6.4). Read-only lookup used as a
+        prerequisite for a future JS cutover -- NOT yet wired to any JS
+        call site.
+
+        Per-record predicate order (must match the JS exactly, not just
+        the overall result set): external_id exact match (case-
+        insensitive) -> email exact match (case-insensitive) ->
+        company_name substring -> legal_name substring -> dba substring
+        -> contact_name substring -> bidirectional phone digit-substring
+        match (only attempted when the query's stripped-digit count is
+        >= 7). Returns the first row (ascending id, the closest analog
+        to the JS array's insertion order) for which any check matches.
+        """
+        if not actor.has_permission(PERM_READ_SUBCONTRACTORS):
+            raise PermissionError("Actor lacks permission to view subcontractors")
+
+        # Empty/blank query must return None before anything else --
+        # mirrors subcontractor-recruiter.js:201's `if (!identifier)
+        # return null`. Without this guard an empty-string query would
+        # substring-match every non-null company_name and silently
+        # return the first row in the table instead of no match.
+        if not query or not query.strip():
+            return None
+
+        q = query.strip().lower()
+        clean_digits = re.sub(r"\D", "", q)
+        phone_match_eligible = len(clean_digits) >= 7
+
+        conn = self.db.get_connection()
+        rows = conn.execute("SELECT * FROM subcontractors ORDER BY id ASC;").fetchall()
+        for row in rows:
+            external_id = row["external_id"]
+            if external_id and external_id.lower() == q:
+                return self._row_to_subcontractor(row)
+            email = row["email"]
+            if email and email.lower() == q:
+                return self._row_to_subcontractor(row)
+            company_name = row["company_name"]
+            if company_name and q in company_name.lower():
+                return self._row_to_subcontractor(row)
+            legal_name = row["legal_name"]
+            if legal_name and q in legal_name.lower():
+                return self._row_to_subcontractor(row)
+            dba = row["dba"]
+            if dba and q in dba.lower():
+                return self._row_to_subcontractor(row)
+            contact_name = row["contact_name"]
+            if contact_name and q in contact_name.lower():
+                return self._row_to_subcontractor(row)
+            if phone_match_eligible:
+                p_digits = re.sub(r"\D", "", row["phone"] or "")
+                # Deliberately mirrors subcontractor-recruiter.js:213-216
+                # exactly, including its bug: `cleanDigits.includes(pDigits)`
+                # is always true when pDigits is '' (empty string is a
+                # substring of every string), so a NULL/empty-phone row
+                # matches any query with >=7 stripped digits. Because this
+                # is the last predicate checked per row and rows are
+                # scanned in ascending id order, a phoneless row earlier
+                # in the table can shadow the real phone-number owner
+                # later in the table -- returning the wrong subcontractor's
+                # record for what looks like an exact phone lookup. This
+                # is a pre-existing JS bug (logged as NEW-246, not fixed
+                # here), mirrored on purpose for drop-in cutover parity
+                # per CODEY_MASTER_PLAN.md Sec6.4 -- do not "fix" this
+                # without also fixing subcontractor-recruiter.js, or the
+                # two lookups will silently diverge.
+                if clean_digits in p_digits or p_digits in clean_digits:
+                    return self._row_to_subcontractor(row)
+
+        return None
 
     def list_subcontractors(
         self,

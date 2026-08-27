@@ -144,6 +144,7 @@ def test_subcontractor_lifecycle(setup_ops_services, admin_actor):
         lambda crm, sched, auto, actor: crm.list_subcontractors(actor),
         lambda crm, sched, auto, actor: crm.update_subcontractor_qualification(1, "QUALIFIED", actor),
         lambda crm, sched, auto, actor: crm.update_subcontractor(1, {"phone": "x"}, actor),
+        lambda crm, sched, auto, actor: crm.find_subcontractor("acme", actor),
     ],
 )
 def test_subcontractor_methods_reject_zero_permission_actor(setup_ops_services, call):
@@ -246,6 +247,182 @@ def test_update_subcontractor_rejects_qualification_status_and_recruitment_step(
     created = _make_test_subcontractor(crm_service, admin_actor)
     with pytest.raises(ValueError):
         crm_service.update_subcontractor(created.id, {excluded_key: "QUALIFIED"}, admin_actor)
+
+
+# ==========================================
+# find_subcontractor() -- B2 task 4, third module continuation,
+# 2026-08-27, CODEY_MASTER_PLAN.md Sec6.4
+# ==========================================
+
+
+def _seed_lookup_subcontractors(crm_service, admin_actor):
+    """Two rows in a known id order, matching several predicates at
+    once by design so the "first match wins, in ascending-id order"
+    behavior is actually exercised, not just individually-true checks."""
+    first = crm_service.create_subcontractor(
+        Subcontractor(
+            external_id="sub_1001",
+            company_name="Acme Roofing Co",
+            legal_name="Acme Roofing LLC",
+            dba="Acme Roofers",
+            contact_name="Bob Acme",
+            email="bob@acmeroofing.com",
+            phone="860-555-0101",
+        ),
+        admin_actor,
+    )
+    second = crm_service.create_subcontractor(
+        Subcontractor(
+            external_id="sub_1002",
+            company_name="Zenith Roofing",
+            legal_name="Zenith Roofing Inc",
+            dba="ZenRoof",
+            contact_name="Alice Zenith",
+            email="alice@zenithroofing.com",
+            phone="860-555-0202",
+        ),
+        admin_actor,
+    )
+    return first, second
+
+
+def test_find_subcontractor_exact_external_id_match_case_insensitive(setup_ops_services, admin_actor):
+    _, _, _, crm_service, _, _ = setup_ops_services
+    first, _ = _seed_lookup_subcontractors(crm_service, admin_actor)
+    found = crm_service.find_subcontractor("SUB_1001", admin_actor)
+    assert found is not None
+    assert found.id == first.id
+
+
+def test_find_subcontractor_exact_email_match_case_insensitive(setup_ops_services, admin_actor):
+    _, _, _, crm_service, _, _ = setup_ops_services
+    _, second = _seed_lookup_subcontractors(crm_service, admin_actor)
+    found = crm_service.find_subcontractor("ALICE@ZENITHROOFING.COM", admin_actor)
+    assert found is not None
+    assert found.id == second.id
+
+
+@pytest.mark.parametrize(
+    "field,query,expected_index",
+    [
+        ("company_name", "roofing co", 0),
+        ("legal_name", "roofing llc", 0),
+        ("dba", "roofers", 0),
+        ("contact_name", "bob acme", 0),
+        ("company_name", "zenith", 1),
+        ("legal_name", "zenith roofing inc", 1),
+        ("dba", "zenroof", 1),
+        ("contact_name", "alice zenith", 1),
+    ],
+)
+def test_find_subcontractor_substring_match_case_insensitive(
+    setup_ops_services, admin_actor, field, query, expected_index
+):
+    _, _, _, crm_service, _, _ = setup_ops_services
+    seeded = _seed_lookup_subcontractors(crm_service, admin_actor)
+    found = crm_service.find_subcontractor(query, admin_actor)
+    assert found is not None
+    assert found.id == seeded[expected_index].id
+
+
+def test_find_subcontractor_returns_lowest_id_when_multiple_rows_match(setup_ops_services, admin_actor):
+    """Pins the spec's ORDER BY id ASC requirement -- distinct from
+    list_subcontractors()'s ORDER BY id DESC a few lines below this
+    method in crm_service.py, a live copy-paste hazard the spec calls
+    out twice (returns the *first* record, not a best/highest-priority
+    match; ascending id is the closest analog to the JS array's
+    insertion order)."""
+    _, _, _, crm_service, _, _ = setup_ops_services
+    first, second = _seed_lookup_subcontractors(crm_service, admin_actor)
+    # "roofing" is a company_name substring of BOTH seeded rows -- the
+    # JS returns the first array element, so ascending id must win.
+    found = crm_service.find_subcontractor("roofing", admin_actor)
+    assert found.id == first.id
+    assert found.id != second.id
+
+
+def test_find_subcontractor_phone_digit_match_query_substring_of_stored(setup_ops_services, admin_actor):
+    _, _, _, crm_service, _, _ = setup_ops_services
+    first, _ = _seed_lookup_subcontractors(crm_service, admin_actor)
+    # query's digits (7) are a substring of the stored 10-digit number
+    found = crm_service.find_subcontractor("5550101", admin_actor)
+    assert found is not None
+    assert found.id == first.id
+
+
+def test_find_subcontractor_phone_digit_match_stored_substring_of_query(setup_ops_services, admin_actor):
+    _, _, _, crm_service, _, _ = setup_ops_services
+    _, second = _seed_lookup_subcontractors(crm_service, admin_actor)
+    # stored digits are a substring of a longer query (e.g. dialed with a
+    # leading country code)
+    found = crm_service.find_subcontractor("18605550202", admin_actor)
+    assert found is not None
+    assert found.id == second.id
+
+
+def test_find_subcontractor_phone_match_not_attempted_under_seven_digits(setup_ops_services, admin_actor):
+    _, _, _, crm_service, _, _ = setup_ops_services
+    _seed_lookup_subcontractors(crm_service, admin_actor)
+    # "555010" is 6 digits -- below the >=7 threshold -- and matches no
+    # other field, so this must return None, not a phone match.
+    assert crm_service.find_subcontractor("555010", admin_actor) is None
+
+
+def test_find_subcontractor_no_match_returns_none(setup_ops_services, admin_actor):
+    _, _, _, crm_service, _, _ = setup_ops_services
+    _seed_lookup_subcontractors(crm_service, admin_actor)
+    assert crm_service.find_subcontractor("nonexistent company xyz", admin_actor) is None
+
+
+def test_find_subcontractor_empty_string_query_returns_none_not_first_row(setup_ops_services, admin_actor):
+    """The bug this spec exists to prevent: an unguarded empty query
+    would substring-match every non-null company_name and silently
+    return the table's first row. Two seeded rows make "returned the
+    first row" unambiguous if the guard is ever removed."""
+    _, _, _, crm_service, _, _ = setup_ops_services
+    _seed_lookup_subcontractors(crm_service, admin_actor)
+    assert crm_service.find_subcontractor("", admin_actor) is None
+
+
+def test_find_subcontractor_whitespace_only_query_returns_none(setup_ops_services, admin_actor):
+    _, _, _, crm_service, _, _ = setup_ops_services
+    _seed_lookup_subcontractors(crm_service, admin_actor)
+    assert crm_service.find_subcontractor("   ", admin_actor) is None
+
+
+def test_find_subcontractor_normalizes_leading_trailing_whitespace(setup_ops_services, admin_actor):
+    _, _, _, crm_service, _, _ = setup_ops_services
+    first, _ = _seed_lookup_subcontractors(crm_service, admin_actor)
+    found = crm_service.find_subcontractor("  sub_1001  ", admin_actor)
+    assert found is not None
+    assert found.id == first.id
+
+
+def test_find_subcontractor_permission_error_for_zero_permission_actor(setup_ops_services, admin_actor):
+    _, _, _, crm_service, _, _ = setup_ops_services
+    _seed_lookup_subcontractors(crm_service, admin_actor)
+    with pytest.raises(PermissionError):
+        crm_service.find_subcontractor("acme", ZeroPermissionActor())
+
+
+def test_find_subcontractor_mirrors_js_nullphone_shadow_bug_new246(setup_ops_services, admin_actor):
+    """Pins NEW-246: a NULL/blank-phone row matches any query with
+    >=7 stripped digits, because this deliberately mirrors
+    subcontractor-recruiter.js:213-216 exactly (see crm_service.py's
+    find_subcontractor() comment) rather than "fixing" it and silently
+    diverging from the JS this Core method exists to be drop-in
+    parity for. If this test starts failing, the phone-match logic
+    changed -- confirm the change is an intentional, jointly-landed fix
+    to both this method and the JS file (NEW-246), not an accidental
+    "improvement"."""
+    _, _, _, crm_service, _, _ = setup_ops_services
+    no_phone = crm_service.create_subcontractor(
+        Subcontractor(external_id="sub_2001", company_name="No Phone Co", phone=None),
+        admin_actor,
+    )
+    found = crm_service.find_subcontractor("5551234567", admin_actor)
+    assert found is not None
+    assert found.id == no_phone.id
 
 
 # ==========================================

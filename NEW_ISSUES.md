@@ -12138,3 +12138,43 @@ implemented)
 - **Cross-reference:** `~/Codey-Aigentik/subcontractor-recruiter.js:351-404`;
   `~/Codey-Aigentik/contacts.js`; `CODEY_MASTER_PLAN.md` §6.4's
   `contacts.js`/`customer-module.js` blocked-module note.
+
+### [NEW-246] `findSubcontractor()`'s phone-digit predicate always matches a NULL/empty-phone row once the query has >=7 stripped digits — a phoneless row can shadow the true phone-number owner
+- **Status: Confirmed** — read `subcontractor-recruiter.js:213-216`
+  directly per rule 12. The phone check is `pDigits.includes(cleanDigits)
+  || cleanDigits.includes(pDigits)`. When a record has no phone,
+  `pDigits === ''`, and `cleanDigits.includes('')` is always `true` in
+  JS (an empty string is a substring of every string, including `''`
+  itself) — so this branch returns `true` for *any* record with a blank
+  phone, for any query whose stripped-digit count is `>= 7`, regardless
+  of whether the digits have anything to do with that record. Because
+  phone is the *last* predicate checked per record and
+  `subcontractor-recruiter.js:206`'s `list.find()` scans in array
+  (insertion) order, a phoneless record earlier in the table shadows
+  the real phone-number owner appearing later — a lookup by an actual,
+  correct 10-digit phone number can silently return the wrong
+  subcontractor's PII (name, email, address fields) instead of `null`
+  or the intended match.
+- **Action:** Deliberately mirrored, not fixed, in
+  `CRMService.find_subcontractor()`
+  (`restoricon_core/services/crm_service.py`, B2 task 4 third-module
+  continuation, 2026-08-27) per `CODEY_MASTER_PLAN.md` §6.4's explicit
+  instruction to reproduce `findSubcontractor()`'s exact per-record
+  predicate order, not an idealized/corrected version of it — advisor
+  review during this round confirmed mirroring (with the quirk pinned
+  by a code comment and a dedicated regression test) rather than
+  silently "fixing" it is correct: a Core-side behavior change here,
+  unannounced, would make the two lookups diverge the moment any JS
+  call site actually cuts over, which is exactly the failure class
+  `NEW-235` already burned this project on once. Fixing the underlying
+  bug (add a `pDigits` non-empty guard) needs to land in
+  `subcontractor-recruiter.js` and `crm_service.py` in the same change,
+  not in this Core-only round, and is left open here for whoever owns
+  that JS file next. Code-reviewer note (2026-08-27, non-blocking): any
+  future spec wiring `find_subcontractor()` to a live JS call site must
+  treat this as a must-fix-first item and cross-reference this entry
+  explicitly, so it is not rediscovered cold at cutover time.
+- **Cross-reference:** `~/Codey-Aigentik/subcontractor-recruiter.js:
+  200-219`; `restoricon_core/services/crm_service.py`'s
+  `find_subcontractor()`; `CODEY_MASTER_PLAN.md` §6.4; `NEW-235`
+  (prior instance of "looks equivalent" not being checked).

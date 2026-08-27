@@ -255,6 +255,22 @@ class APIRouter:
             # Subcontractors
             if path == "/api/v1/subcontractors":
                 if method == "GET":
+                    # find_subcontractor() fuzzy lookup (B2 task 4, third
+                    # module continuation, 2026-08-27, CODEY_MASTER_PLAN.md
+                    # Sec6.4) -- an optional `q` query param branches to
+                    # the fuzzy phone/email/name lookup instead of the
+                    # list behavior below. A blank/whitespace-only `q`
+                    # (?q= or ?q=%20) is treated the same as no `q` at
+                    # all and falls through to list_subcontractors -- the
+                    # method's own empty-query guard must never even be
+                    # reached from a stray trailing `?q=`.
+                    q = query_params.get("q", [None])[0]
+                    if q is not None and q.strip():
+                        found = self.crm.find_subcontractor(q, actor)
+                        if not found:
+                            return 404, {"Content-Type": "application/json"}, {"error": "Subcontractor not found"}
+                        return 200, {"Content-Type": "application/json"}, {"subcontractor": found.to_dict()}
+
                     qualification_status = query_params.get("qualification_status", [None])[0]
                     primary_trade = query_params.get("primary_trade", [None])[0]
                     limit = int(query_params.get("limit", ["50"])[0])

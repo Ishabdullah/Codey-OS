@@ -1250,8 +1250,9 @@ still-blocked `contacts.js`/`customer-module.js`, `calendar.js`, and
 comms/email/SMS-provider modules described above.
 
 **Phase B2 task 4, third module, continuation — `find_subcontractor()`
-Core read primitive scoped 2026-08-27, NOT implemented (desk-only,
-no code written).** Re-reading `subcontractor-recruiter.js` in full
+Core read primitive: code-complete + code-reviewer-approved, 2026-08-27
+(NOT live-verified; 811 passed/1 skipped in the full `pytest tests/`
+run reviewed).** Re-reading `subcontractor-recruiter.js` in full
 this round surfaced that the prior round's `update_subcontractor()`
 unblocked only the write half of the JS conversion — the read half
 (`findSubcontractor()`'s fuzzy phone/email/name lookup, used on every
@@ -1263,15 +1264,25 @@ local-JSON) as unverifiable and divergence-prone; a second advisor
 pass also caught a wrong-answer bug in the first draft of this spec
 (an unguarded empty query would have returned the table's first row
 instead of no match — fixed in the spec before handoff) and an
-overstated claim in this round's own framing. **Correction: closing
+overstated claim in this round's own framing. Implementer built
+`CRMService.find_subcontractor()` and its route from that spec;
+code-reviewer approved, including an explicit endorsement of the
+deliberate decision to mirror — not silently fix —
+`findSubcontractor()`'s NULL/blank-phone predicate bug (`NEW-246`),
+on the grounds that no live JS call site exists yet, the decision was
+made at the spec layer rather than improvised mid-task, and it is
+pinned by a named regression test; `NEW-246` has been amended with a
+note that any future spec wiring this method to a live JS call site
+must treat the bug as must-fix-first. **This round ships no
+`subcontractor-recruiter.js` changes** — the JS read-path conversion
+is still a separate future round. **Correction (still holds): closing
 this read-primitive gap alone does not make a real JS cutover
 possible** — `NEW-242` (`createOrUpdateSubcontractorLead()`'s
-upsert/dedup logic, no Core equivalent) and the newly-logged `NEW-245`
+upsert/dedup logic, no Core equivalent) and `NEW-245`
 (no documented mapping from a Core `Subcontractor` row back to the
-field names/types five JS consumer functions expect) are both still-
-open prerequisites; this method is necessary but not sufficient. Full
-method + route spec is in §6.4's third-module continuation entry,
-ready for implementer; also surfaced `NEW-243` (dual-write-vs-Core-
+field names/types five JS consumer functions expect) both remain
+open prerequisites; this method is necessary but not sufficient. Also
+outstanding from the prior round: `NEW-243` (dual-write-vs-Core-
 primary open design question for the eventual real cutover) and
 `NEW-244` (`contacts.js`'s still-local-JSON cross-write, orthogonal).
 Nothing in `~/Codey-Aigentik` touched.
@@ -3618,7 +3629,21 @@ instance/DB started locally for the test run — same tier as the
 and this round ships no JS changes). Record the tier honestly per
 rule 7.
 
-**Not implemented this round — scoped and handed off only.**
+**Built and code-reviewer-approved, 2026-08-27 — `CRMService.find_subcontractor()`
+and its route landed exactly per this spec, including the deliberate
+predicate-mirroring choice on `NEW-246` (the JS's NULL/blank-phone
+substring bug). Code-reviewer explicitly endorsed mirroring over
+silently fixing it: no live JS call site exists yet, the decision was
+made at this spec layer rather than improvised mid-task, and it is
+pinned by a named regression test. Code-reviewer's one non-blocking
+follow-up — any future spec wiring this method to a live JS call site
+must treat `NEW-246` as must-fix-first and cross-reference it
+explicitly — has been added to `NEW-246`'s own entry in
+`NEW_ISSUES.md`. Full `pytest tests/` run: 811 passed, 1 skipped. Ships
+Core-side method + route only; no `subcontractor-recruiter.js` change.
+`NEW-242` (upsert/dedup) and `NEW-245` (reverse Core-row→JS-record
+shape mapping) remain open prerequisites before any real cutover of
+this module. Not live-verified against a running device session.**
 
 ### 6.5 Track B / Phase B3 — CRM/Sales and Operations
 

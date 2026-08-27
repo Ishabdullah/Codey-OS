@@ -342,6 +342,48 @@ def test_api_subcontractors_update(api_server):
     assert status == 404
 
 
+def test_api_subcontractors_find_query_param(api_server):
+    """GET /api/v1/subcontractors?q=... -- B2 task 4, third module
+    continuation, 2026-08-27, CODEY_MASTER_PLAN.md Sec6.4."""
+    _, base_url, _, _ = api_server
+    headers = _agent_headers(base_url)
+
+    status, body = make_request(
+        f"{base_url}/api/v1/subcontractors",
+        method="POST",
+        headers=headers,
+        data={"company_name": "Acme Roofing", "email": "acme@example.com", "phone": "860-555-0101"},
+    )
+    assert status == 201
+    sub_id = body["subcontractor"]["id"]
+
+    # q matches -> 200 with the found record, taking priority over any
+    # co-present list-style params
+    status, body = make_request(
+        f"{base_url}/api/v1/subcontractors?q=acme&qualification_status=QUALIFICATION_IN_PROGRESS&limit=1",
+        headers=headers,
+    )
+    assert status == 200
+    assert body["subcontractor"]["id"] == sub_id
+
+    # q with no match -> 404, not an exception
+    status, body = make_request(f"{base_url}/api/v1/subcontractors?q=nonexistentxyz", headers=headers)
+    assert status == 404
+    assert body["error"] == "Subcontractor not found"
+
+    # q= (blank) falls through to list_subcontractors, not find_subcontractor
+    status, body = make_request(f"{base_url}/api/v1/subcontractors?q=", headers=headers)
+    assert status == 200
+    assert "subcontractors" in body
+    assert len(body["subcontractors"]) == 1
+
+    # q=%20 (whitespace-only) also falls through to list
+    status, body = make_request(f"{base_url}/api/v1/subcontractors?q=%20", headers=headers)
+    assert status == 200
+    assert "subcontractors" in body
+    assert len(body["subcontractors"]) == 1
+
+
 def test_api_appointments_crud(api_server):
     _, base_url, _, _ = api_server
     headers = _agent_headers(base_url)
