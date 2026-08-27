@@ -2476,7 +2476,7 @@ look like config edits.
 |---|---|---|
 | **7.4** resource gate + slot-aware loader | 5/5 sub-tasks approved; core path live-verified | Re-target the pending production-config live pass at Qwen3.5-4B (M1-E covers it). The old `n_ctx=32768`-with-the-7B script is now obsolete — do not run it. **Re-checked 2026-08-26 against the same rule-6 concern raised for 7.4b's A/C rows: M1-E's own text states it ran via `main.py --no-resume`, "same `_spawn_locked()` code path as `codey-start`" — that phrase is the load-bearing distinction. 7.4's remaining ask is the resource-gate/loader admission path itself, which `_spawn_locked()` shares identically with `codey-start`; unlike 7.4b-A (embed residency across a full session's daemon lifecycle) and 7.4b-C (interactive-vs-daemon-dispatch branching, a daemon-specific code path), nothing about 7.4's ask depends on the daemon/GUI session wrapper `main.py --no-resume` skips. "Covered by M1-E" stands as written, not an inherited overclaim.** |
 | **7.4a** swap-aware budget — **CLOSED 2026-08-26 (risk-acceptance decision, not a fix)** | A/B/C1/C2/D/F built and approved; E and G run | `NEW-135`/`NEW-136` (no `reserved_bytes` deduction on swap-assist; `admitted_via_swap` not persisted to the slot) — **FIXED 2026-08-25, code-complete, mandatory rule-4 code-reviewer pass APPROVED 2026-08-25 (same day, later review pass), not live-verified** (no live component by design — this is admission-accounting logic, not a model-load test). Reviewer independently confirmed lock coverage, no leak on release, no RAM/swap double-counting, and independently re-ran the `..._wiring_actually_uses_persisted_pending_claim` regression test by hand-reverting the fix (confirmed it fails without it); full suite independently rerun, 669 passed/1 skipped, matching the implementer's own count. See `NEW-135`/`NEW-136`'s own updated entries and `core/resource_gate.py` (`compute_swap_assisted_headroom_bytes()`'s `reserved_swap_bytes` param, `GateDecision.swap_bytes_claimed`, `reserve_slot()`'s new PENDING-swap sum, `total_reserved_swap_bytes()`). Fixed for the `reserve_slot()`/`can_admit()` path only — `can_dispatch_task()`'s separate swap-assist consumer (no slot registered, nothing to sum against) is explicitly NOT covered; reviewer treated this as an acceptable disclosed limitation, not a blocking defect, and it is now separately tracked as **`NEW-187`** (open) rather than left as prose only. `NEW-140` scenario 3 and `NEW-141` **confirmed and closed 2026-08-25**, each on its own correct evidence — `NEW-141` (concurrent case) on `core/planner_loader.py`'s confirmed absence from HEAD; `NEW-140` scenario 3 (single-model case, does NOT require `planner_loader.py`) on M1-B's confirmed repoint of every model-role path onto Qwen3.5-4B, since the retired 7B's specific cost figures no longer describe any live production path. `NEW-140`'s OTHER content (the general swap-assist-re-admits-distress mechanism, model-independent) stays open, unaffected by this closure. **7.4a is NOT yet fully closed**: `NEW-187` (new, open) and `NEW-140`'s remaining model-independent content (open, unaffected by this round) are both explicitly left standing rather than folded into this closure. **Status update, 2026-08-26**: `NEW-187` FIXED in `can_dispatch_task()` (reads `total_reserved_swap_bytes()`, one-directional per the fix's own scope — no durable claim of its own to contribute), 2 new tests, full suite 671 passed/1 skipped — **code-complete, mandatory rule-4 code-reviewer pass NOT yet run** (no subagent available this session). `NEW-140`'s remaining content re-measured against real Qwen3.5-4B cost (5,209,547,936 bytes) and current `MAX_SWAP_ASSIST_BYTES` (6.50GiB): the exact historical `NEW-21` fixture now admits at ALL FOUR `MemAvailable` points in its plausible range (2.2/3.5/5.0/6.5GiB), worse than the stale retired-7B figures' 3-of-4 — see **`NEW-188`** (new). Stays open, upgraded severity, not closed. **Status update, 2026-08-26 (confirmatory pass): `NEW-187` APPROVED** — a first review pass on the fix found the read-failure fallback failed in the permissive direction (`reserved_swap_for_dispatch = 0` instead of disabling the swap branch); fixed same round to match the sibling `CODEY_SWAP_ASSIST_ADMISSION` handler's fail-closed pattern, test renamed/flipped accordingly, docstring's "never writes" wording corrected (`total_reserved_swap_bytes()`'s `reap_dead=True` default does mutate the shared store); confirmatory re-review approved with no further changes, 671 passed/1 skipped independently reproduced. **`NEW-187`'s own review chain is now closed.** **Status update, 2026-08-26 (live-verification pass, natural-state-only per Ish's explicit scope choice)**: that previously-missing pass has now been run against real production `python3 main.py --no-resume`. Real `GateDecision`: `admitted=True admitted_via_swap=True swap_bytes_claimed=35,048,904` bytes, `estimated_cost_bytes=5,209,547,936` (matches `NEW-188`'s desk figure exactly); ambient `/proc/meminfo` at the moment of the call showed `MemAvailable=6.0321GiB` (unforced, ~35MiB below the 6.0647GiB required-cost threshold) but `SwapFree=14.415GiB` of 16.000GiB (90.1% free). Two-axis result: (a) swap-assist DOES activate live under real ambient conditions — CONFIRMED for the first time; (b) the compound low-RAM-AND-low-swap `NEW-21`-shaped distress state `NEW-140`/`NEW-188` are actually about — NOT reproduced, third consecutive live session finding this device's swap pool healthy. **7.4a's checkbox stays unchecked, residual narrowed**: pending only the compound-distress axis, not general swap-assist activation (now confirmed). Whether to pursue a deliberately-induced future pass or accept this as a standing documented risk is Ish's call — logged as §8 Q10. **Status update, 2026-08-26: Ish answered §8 Q10 — "accept the residual as a standing documented risk for now." 7.4a CLOSED on that decision, not on a fix or a live reproduction.** General swap-assist activation is confirmed live; the compound low-RAM+low-swap distress scenario was never observed live and is now accepted as a standing risk, not verified safe — see Appendix A's 7.4a entry and §8 Q10 for the full wording. |
-| **7.4b** model lifecycle policy | Reshaped by §1.4 | **A**: embed always resident — implementation landed, code-reviewer pass done 2026-08-23 (§4.4). **LIVE-VERIFIED 2026-08-26 under the real `codey-start` entry point.** Real `codey-start` launch: embed `llama-server` (PID 31070) spawned immediately at daemon startup, before any coder request, and the SAME PID persisted through the coder's load and the subsequent 12-minute stall (`NEW-195`), including a severe RSS-eviction event (`NEW-180`) — the 96-line `~/.codeyOS/codeyOS.log` (spans `Daemon PID: 31066` through `Daemon stopped`, copy preserved at `docs/archive/live-evidence/2026-08-26-7.4b-codey-start/codeyOS.log`) shows no "Embed server died — restarting" line anywhere in that span. This item is now fully closed (code-complete, code-reviewer-approved, live-verified). **B**: planner ceiling 8192 — **moot, no separate planner**; note the correction below. **C**: coder interactive-vs-daemon context branching — landed + `NEW-152` fix, code-reviewer pass done 2026-08-23 (§4.4). **Status update, 2026-08-26 (clean(er) re-run, second live pass): BOTH halves now have real spawn-command-line evidence, closing the live-verification gap this row previously flagged — see the note below on why the parent item still does not close.** Interactive half: on-disk evidence is `~/.codeyOS/llama-server.log:1`'s spawn command line carrying `-c 65536` verbatim, corroborated by `ps`; genuine cold spawn against a clean pre-launch baseline. Background/daemon-dispatch half, tested for the first time this round: a task submitted directly via `core/state.py`'s real `StateStore.add_task()` (the same DB the daemon polls) was picked up with the daemon alone running (no TUI; `is_interactive_session_active()` returned `False`) and spawned `llama-server ... -c 16384 -t 6 ...`, matching `get_coder_background_n_ctx()` (`utils/config.py:137`) exactly; task completed (`status: done`), wall time 319s. **Neither half's spawn ordering exercised the specific race conditions `NEW-145`/`NEW-149`/`NEW-155` describe** (daemon-preload-wins-the-race, and whichever caller spawns first wins the context size for the server's life) — this round's interactive session loaded cold first, and the background test ran afterward against a restarted daemon, not in the interleaved orderings those three findings are about. **`NEW-145`/`NEW-149`/`NEW-155` stay open, unaffected by this round.** The original hang (`NEW-195`) did NOT recur on the same-scenario re-test this time (see `NEW-195`'s own entry for the full, deliberately non-overclaiming framing — this round changed two variables at once, `n_threads` 4→6 alongside the reduced confound, so it cannot be read as "confound proven, defect ruled out"). **C's live-verification-gap half now closes; C as a whole stays open** pending `NEW-145`/`NEW-149`/`NEW-155`'s underlying race conditions and the ceiling re-derivation noted below. **D**: folded into M1-F,
+| **7.4b** model lifecycle policy | Reshaped by §1.4 | **A**: embed always resident — implementation landed, code-reviewer pass done 2026-08-23 (§4.4). **LIVE-VERIFIED 2026-08-26 under the real `codey-start` entry point.** Real `codey-start` launch: embed `llama-server` (PID 31070) spawned immediately at daemon startup, before any coder request, and the SAME PID persisted through the coder's load and the subsequent 12-minute stall (`NEW-195`), including a severe RSS-eviction event (`NEW-180`) — the 96-line `~/.codeyOS/codeyOS.log` (spans `Daemon PID: 31066` through `Daemon stopped`, copy preserved at `docs/archive/live-evidence/2026-08-26-7.4b-codey-start/codeyOS.log`) shows no "Embed server died — restarting" line anywhere in that span. This item is now fully closed (code-complete, code-reviewer-approved, live-verified). **B**: planner ceiling 8192 — **moot, no separate planner**; note the correction below. **C**: coder interactive-vs-daemon context branching — landed + `NEW-152` fix, code-reviewer pass done 2026-08-23 (§4.4). **Status update, 2026-08-26 (clean(er) re-run, second live pass): BOTH halves now have real spawn-command-line evidence, closing the live-verification gap this row previously flagged — see the note below on why the parent item still does not close.** Interactive half: on-disk evidence is `~/.codeyOS/llama-server.log:1`'s spawn command line carrying `-c 65536` verbatim, corroborated by `ps`; genuine cold spawn against a clean pre-launch baseline. Background/daemon-dispatch half, tested for the first time this round: a task submitted directly via `core/state.py`'s real `StateStore.add_task()` (the same DB the daemon polls) was picked up with the daemon alone running (no TUI; `is_interactive_session_active()` returned `False`) and spawned `llama-server ... -c 16384 -t 6 ...`, matching `get_coder_background_n_ctx()` (`utils/config.py:137`) exactly; task completed (`status: done`), wall time 319s. **Neither half's spawn ordering exercised the specific race conditions `NEW-145`/`NEW-149`/`NEW-155` describe** (daemon-preload-wins-the-race, and whichever caller spawns first wins the context size for the server's life) — this round's interactive session loaded cold first, and the background test ran afterward against a restarted daemon, not in the interleaved orderings those three findings are about. **`NEW-145`/`NEW-149`/`NEW-155` stay open, unaffected by this round.** The original hang (`NEW-195`) did NOT recur on the same-scenario re-test this time (see `NEW-195`'s own entry for the full, deliberately non-overclaiming framing — this round changed two variables at once, `n_threads` 4→6 alongside the reduced confound, so it cannot be read as "confound proven, defect ruled out"). **C's live-verification-gap half now closes; C as a whole stays open** pending `NEW-145`/`NEW-149`/`NEW-155`'s underlying race conditions and the ceiling re-derivation noted below. **Status update, 2026-08-27 (scoping only, code not yet written): the `NEW-145`/`NEW-149`/`NEW-155` chain now has a concrete, implementer-ready fix design ("Option C" — detect a too-small resident ceiling only at the point an interactive attach needs more, and safely respawn only when the daemon is confirmed idle) — see Appendix A's 7.4b-C entry below for the full design, the four judgment calls recorded there, and the two new findings (`NEW-250`, `NEW-251`) this scoping pass produced. Not implemented, not code-reviewed, not live-verified yet.** **D**: folded into M1-F,
 **DONE 2026-08-24** — the constant now reflects there being no separate
 planner process, with real re-derived numbers. |
 | **Lease/registry — CLOSED 2026-08-26, code-reviewer-approved** | **Code-complete, mandatory rule-4 code-reviewer pass APPROVED 2026-08-26 (same day).** Reviewer independently traced `stop()`'s control flow line-by-line (no double-release, no leak), confirmed `_reconcile_adopted_slot()`'s try/except wraps its entire body (nothing can propagate into `load_primary()`), confirmed every `resolve_port_owner_pid()`/`pid_cmdline_contains()` caller checks for `None`/`False` before use (rule 3 intact), confirmed the adoption-branch ordering (`_port_is_bound()` before `_check_health()`), independently reproduced `NEW-200`'s `PermissionError` claim live, and — notably — hand-broke `_pid_owning_inode()` locally and confirmed the rewritten test actually fails without the real fix, proving it's a genuine regression guard and not a tautology. Full suite independently rerun: 692 passed/1 skipped, matching. Three non-blocking findings surfaced by the review, logged per rule 8 rather than silently dropped: **`NEW-201`** (a TOCTOU double-registration race between `find_resident_slot()`'s read and `register_slot()`'s write, confirmed NOT currently reachable — gated on `NEW-200`'s dead `/proc/net/tcp` path for `loader_v2.py`, and `embed_server.start()` has only one sequential caller today), **`NEW-202`** (a status-filter divergence between `find_resident_slot()` and `embed_server.py`'s older `_find_pid_via_registered_slot()`, confirmed currently harmless by grepping every embed slot-write site), **`NEW-203`** (an inaccurate docstring claim in `stop()` about when `self.process` is `None` for an adopted server — a real edge case exists, but the resulting behavior stays safe). None of the three block approval; all are logged for future attention if their preconditions ever change. Replaced port-probe adoption with an explicit registry query, built directly against the existing resource-gate slot store rather than a second lease-file format. New: `find_resident_slot()` (query: is a model already resident, at what `n_ctx`/`pid`/`port`), `resolve_port_owner_pid()`/`_pid_owning_inode()`/`pid_cmdline_contains()`/`resolve_spawned_n_ctx()` (generalized from `embed_server.py`'s own pre-existing pattern, for positively identifying a genuinely-foreign process — never a name-based guess, rule 3), `register_slot()`/`reserve_slot()` now persist `n_ctx`. `core/loader_v2.py`'s new `_reconcile_adopted_slot()` registers a previously-unlisted resident coder server on adoption and logs (not respawns, per `NEW-149`'s own scope) an under-provisioned-ceiling mismatch. `core/embed_server.py`'s `start()` now adopts an already-healthy occupant instead of killing it (`NEW-146`'s actual fix — the daemon's own restart path, not just `core/inference.py`'s caller `NEW-144` covered), and `stop()`'s slot-release was moved out of the `if self.process:` block so an adopted server (no `Popen` handle, `self.process is None`) still releases its slot instead of leaking it — a leak this same round's own adoption fix would otherwise have introduced. 15 new tests (`tests/test_loader_resource_gate.py`, `tests/test_resource_gate.py`), full suite **692 passed, 1 skipped** (up from 671/1). **Real platform limitation found and documented, `NEW-200`**: `/proc/net/tcp`/`tcp6` are `PermissionError` on this actual device for every caller, including a process reading its own sockets — confirmed by direct read (rule 12), not assumed. This means `resolve_port_owner_pid()`'s primary path cannot succeed here for `NEW-104`'s original "truly foreign, no pre-existing slot" case; the mechanism degrades safely (returns `None`, never crashes, never falls back to a name-based kill) but is effectively non-functional on THIS device for that one sub-case — kept for portability to a rooted device or non-Android deployment. The two cases that DO work here (a slot this process itself registered; `embed_server.py`'s registered-slot fallback) don't depend on this scan. **Absorbs and updates**: `NEW-104` (partially — see `NEW-200`'s caveat), `NEW-144`/`NEW-146` (embed kill-and-replace of a healthy occupant, now fixed both at the `inference.py` caller AND the daemon's own `start()`/restart path), `NEW-149` (reuse-adopts-under-provisioned-server is now detectable/logged, not silently invisible — not auto-corrected, per this item's own scope). **Mandatory rule-4 code-reviewer pass: APPROVED 2026-08-26** (see this cell's opening sentence for the full review summary) — this item is now DONE: code-complete, code-reviewer-approved. Not live-verified (no live component by design — this is admission/adoption accounting logic, not a model-load test); a future live pass exercising a genuine cross-process adoption scenario would still be informative but is not required to consider this item closed. |
@@ -4852,7 +4852,187 @@ Then:
         policy survives §1.4; the background ceiling still needs
         re-deriving from §5.1 (the interactive ceiling, 65536, already
         was, per §5.1/Ish's 2026-08-22 direction).
-  - [x] **D** — folded into M1-F, **DONE 2026-08-24**: re-derived
+      - **Fix design for the `NEW-145`/`NEW-149`/`NEW-155` chain,
+        2026-08-27 (scoping only — desk work, code not yet written, per
+        rule 4's "design first, review the diff before commit" posture):**
+        a concurrent scoping pass re-verified the whole chain against
+        current code (not assumed unchanged since the 2026-08-11/13
+        rounds that filed it — rule 12) and produced an
+        implementer-ready design, referred to below as **Option C**.
+        **Correction to the chain's own prose, `NEW-250`:** `utils/
+        config.py:64`'s interactive ceiling default has moved from
+        32768 (the value `NEW-145`'s and `NEW-152`'s own narratives are
+        written against, e.g. NEW-145's "the TUI... correctly computes
+        `n_ctx=32768`") to **65536**, confirmed by direct read. Doesn't
+        change the bug's mechanism, but changes the real-world cost of
+        staying stuck at the 16384 background ceiling to a 4x gap, not
+        2x — see `NEW-250` for the full note.
+        - **Re-verification findings:** `core/loader_v2.py:LlamaServer.
+          start()` has three reuse-return branches that never compare
+          the caller's own wanted `n_ctx` against the resident server's
+          actual `n_ctx`: the fast pre-lock check (`:249-252`), the
+          wait-for-another-process's-in-flight-`start()` branch
+          (`:273-306`, reuse fires at `:289-294`), and the post-lock
+          re-check (`:311-316`) — this is `NEW-149`'s exact mechanism,
+          confirmed unchanged. `ModelLoader._ever_spawned` (`:684`,
+          `:1080-1144`) is set `True` only on a genuine spawn (`:863`)
+          and is never reset anywhere, including `unload()` — `NEW-155`'s
+          exact residual, confirmed unchanged. `_reconcile_adopted_slot()`
+          (`:905-979`, the 2026-08-26 lease/registry round) already
+          resolves a resident server's real `n_ctx` via `resource_gate.
+          resolve_spawned_n_ctx()` and logs a mismatch warning on
+          adoption, but deliberately does not respawn — the diagnostic
+          primitive this fix needs (a live, `/proc`-based read of a
+          resident server's actual `-c` value) already exists in
+          production code and does not need to be built new.
+        - **Options considered:** (A) always spawn at the larger of the
+          two ceilings, removing the two-tier system — rejected, an
+          untested RAM posture on a device that has crashed before from
+          concurrent model loads (CLAUDE.md rule 2), and would need its
+          own dedicated live-verification round. (B) reset
+          `_ever_spawned` on confirmed-dead — fixes `NEW-155`'s literal
+          complaint (the watchdog's eager respawn-at-16384) but not the
+          actual "stuck at 16384" symptom, which is produced by
+          `LlamaServer.start()`'s reuse branches at TUI-attach time, not
+          by the watchdog's respawn decision — necessary but not
+          sufficient. **(C), recommended:** detect the ceiling mismatch
+          only at the point an interactive caller with a bigger `n_ctx`
+          need attaches, and safely respawn only then, never in the
+          reverse direction (a background dispatch must never
+          downsize/kill a resident interactive-ceiling server — that
+          would contradict Ish's 2026-08-11 decision 3's intent).
+        - **The real risk Option C must solve (CLAUDE.md rule 4
+          territory — real kill logic):** not the kill mechanics (this
+          codebase already has the right pattern, `stop()`'s
+          TERM-then-8s-wait-then-KILL escalation, `_reconcile_adopted_
+          slot()`'s positive-PID-resolution toolkit) but killing a
+          server that is currently mid-request for someone else — e.g.
+          the background task that caused the original 16384 spawn
+          might still be running when a TUI attaches seconds later.
+          `/slots`' `n_prompt_tokens` was investigated and **rejected**
+          as the busy-detection signal: confirmed via `resource_gate`'s
+          own comments that it reflects resident KV/prefix-cache state,
+          not "is generating right now" — the exact `NEW-207`
+          release-signal/prefix-cache-retention trap, unresolved. **This
+          is `NEW-251`**, recorded so a future implementer doesn't
+          "simplify" this design back onto `/slots` without
+          re-discovering why that's unsafe. The context-budget
+          reservation ledger (`reserve_context_budget()`) was also
+          rejected — it only covers the narrow TOCTOU window between
+          admission and HTTP dispatch, not a request's full lifetime.
+          **What IS reliable:** the daemon's own task-status table
+          (`core/state.py:StateStore`, one task "running" at a time) —
+          query it via the existing `core/daemon.py:send_command
+          ("status", ...)` socket helper (`:1344`; `_handle_status()`,
+          `:309-321`, already returns `tasks.running`), not a raw
+          sqlite3 connection. Confirmed safe: `core/task_executor.py:
+          _execute_task()` (`:96-135`) runs actual inference via
+          `await loop.run_in_executor(...)`, off the asyncio event
+          loop, so the daemon's socket server stays responsive to a
+          concurrent `status` query for a running task's entire
+          duration. **Two failure modes the busy-check helper must
+          handle:** (1) fail-closed on any ambiguity — daemon
+          unreachable, query error, timeout → treat as busy, do not
+          respawn this attach (matches `reserve_context_budget()`'s own
+          degraded-signal posture); (2) a stale `running` task row (the
+          daemon dying ungracefully mid-task, `NEW-146`'s orphan-state
+          shape applied to task rows instead of the embed server) must
+          not permanently disable this fix forever — bound the "busy"
+          reading by the same age `_handle_health()` already uses for
+          its own stuck-task detection (`core/daemon.py:339-343`,
+          `task_timeout` config, default 1800s) rather than inventing a
+          second threshold.
+        - **Concrete design (implementer-ready):** new read-only helper
+          `LlamaServer._resident_n_ctx_if_smaller()` (reuses
+          `resolve_port_owner_pid()`/`pid_cmdline_contains()`/
+          `resolve_spawned_n_ctx()`, `_reconcile_adopted_slot()`'s own
+          pattern, `:944-945`) and a new `daemon_task_in_progress()`
+          gate. Wire `allow_upgrade` (a new explicit flag,
+          `LlamaServer.__init__`/`start()`, set `True` only by
+          `load_primary()`'s interactive path — never inferred from
+          `n_ctx` size alone) into exactly **two of the three** reuse
+          branches — the fast-path check (`:249-252`) and the post-lock
+          re-check (`:311-316`) — and explicitly **not** the
+          wait-for-another-process's-in-flight-`start()` branch
+          (`:273-306`): killing there would kill the server out from
+          under that OTHER process's own in-flight `start()` call,
+          producing a spurious health-wait timeout — a new, worse bug.
+          When a mismatch is found and `daemon_task_in_progress()` is
+          `False`, kill+respawn under the SAME per-port `flock` this
+          method already holds (extend the locked region, don't add a
+          second lock), reusing `stop()`'s existing TERM/wait/KILL body
+          against the resolved PID, polling `_is_port_in_use()` False
+          with a bounded (~10s) timeout before falling through to
+          `_spawn_locked()`, releasing the killed server's resource-gate
+          slot first so accounting doesn't leak a phantom resident slot.
+          **Asymmetry that must be preserved:** a background-dispatched
+          `load_primary()` call must NEVER set `allow_upgrade=True` — a
+          background task killing a live interactive session's server
+          out from under a human mid-conversation would be materially
+          worse than the bug being fixed.
+        - **Four judgment calls recorded per rule 6 (project-architect
+          defaults taken under Ish's blanket "pick it up" instruction,
+          2026-08-26 — NOT individually confirmed by Ish; each is a
+          real safety-relevant tradeoff in kill logic, rule 4 territory,
+          not something to treat as unilaterally settled):**
+          1. **Accept the residual TOCTOU window** between
+             `daemon_task_in_progress()` returning `False` and the kill
+             actually landing (the daemon could claim a new task in
+             that gap) — small (one status round-trip, sub-second in
+             the common case) and self-recovering (the daemon's own
+             in-flight HTTP call fails with a connection error, handled
+             by the existing task-failure path as a normal failure, not
+             a crash). Default taken: accept, document in-code, do not
+             try to close further this round.
+          2. **Accept the bounded (~10s) port-free-wait failing
+             outright** (returning `False`, not silently falling back
+             to the old undersized server) rather than guaranteeing
+             success — the interactive session's first request after
+             attach can fail/retry once. Default taken: accept, mirrors
+             `NEW-145`'s own already-accepted "first real coder request
+             pays full load latency" tradeoff — same shape, same
+             answer.
+          3. **Fix `NEW-155`'s `_ever_spawned` stickiness in the SAME
+             round as Option C**, since Option C makes the residual
+             low-risk (once C ships, a watchdog eager-respawn-at-16384
+             no longer strands anyone — the next interactive attach
+             self-heals it) — but as a clearly separate commit/hunk,
+             not folded silently into Option C's diff, so code-reviewer
+             sees it as its own change.
+          4. **Do NOT add a second re-check point** (re-evaluating the
+             mismatch on a TUI's first `infer()` call, not only at
+             `load_primary()`'s original attach moment) — real scope
+             increase (a second call site, `core/inference.py`'s
+             per-turn path, would need the same logic threaded through
+             it), left as an explicit, documented known limitation
+             instead: `load_primary()` — and therefore this mismatch
+             check — is only ever evaluated ONCE per TUI process
+             invocation (confirmed: `core/inference.py`'s per-turn
+             `ensure_model()` call short-circuits to `True` once
+             `_loaded and server.is_running()`, `core/loader_v2.py:
+             1041`). **A TUI that attaches while the daemon is
+             genuinely busy stays at the smaller ceiling for its ENTIRE
+             session, self-healing only on the NEXT process attach —
+             not later in the same session, even if the daemon goes
+             idle a moment later.** Accepted as a bounded, understood
+             cost matching `NEW-145`'s own precedent, not a silent gap.
+        - **Explicitly out of scope, not silently absorbed:** `NEW-148`
+          (`--init`/`--tdd`/`--fix` one-shot flags never write a TUI
+          session pid file, so they read as non-interactive and never
+          trigger an upgrade — unchanged, `NEW-148`'s own separate
+          scope); Option A (always-max-ceiling); resolving `NEW-207`
+          itself.
+        - **Verdict:** larger than a typical single-round fix but not
+          open-ended — concrete, reuses existing primitives at every
+          step (no new kill mechanism, no new busy-detection mechanism,
+          no new lock). One implementer round for Option C + the
+          `NEW-155` hygiene fix (separate hunk), one mandatory rule-4
+          code-reviewer pass (no exceptions — real kill logic), then a
+          live-verification pass (daemon-only harness, per the `NEW-14`
+          swap-pressure precedent — not a full `codey-start` stack, per
+          rule 2) before this chain can be marked resolved. Not
+          implemented, not code-reviewed, not live-verified yet.
+  - [x] **D** — folded into M1-F,
         `MAX_CONCURRENT_MODEL_BUDGET_BYTES` (§ M1-F entry above) now
         reflects there being no separate planner process, executed with
         real numbers instead of left unchanged by inertia.
@@ -5436,7 +5616,7 @@ for open work. Each appears in §4, §6, or Appendix A above:
 `NEW-105`, `NEW-135`, `NEW-136`, `NEW-137`, `NEW-138`, `NEW-139`,
 `NEW-140`, `NEW-141`, `NEW-142`, `NEW-143`, `NEW-144`, `NEW-145`,
 `NEW-146`, `NEW-149`, `NEW-151`, `NEW-152`, `NEW-153`, `NEW-154`,
-`NEW-155`, `NEW-187`, `NEW-188`.
+`NEW-155`, `NEW-187`, `NEW-188`, `NEW-250`, `NEW-251`.
 
 **Rule-3 (`pkill`) violations, open:** `NEW-85`, `NEW-99`, `NEW-103`.
 

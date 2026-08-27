@@ -12,6 +12,71 @@ and Appendix A.
 
 ---
 
+## 2026-08-27 — NEW-145/NEW-149/NEW-155 context-ceiling chain — FIX DESIGNED (scoping only, docs folded from scratch, no code changed)
+
+A concurrent scoping pass had already fully investigated and designed a
+fix for this chain but written its output to a scratch file (avoiding a
+doc-write collision with a different concurrent round). This round folds
+that spec into the real tracking docs; **no implementation code was
+written this round.**
+
+**Re-verification (rule 12) confirmed the bug chain is real and current,
+unchanged since the 2026-08-11/13 rounds that filed it:**
+`core/loader_v2.py:LlamaServer.start()`'s three reuse-return branches
+(`:249-252`, `:273-306`/reuse at `:289-294`, `:311-316`) never compare
+the caller's own wanted `n_ctx` against the resident server's actual
+`n_ctx` (`NEW-149`'s mechanism); `ModelLoader._ever_spawned` (`:684`,
+`:1080-1144`, set only at `:863`) is never reset (`NEW-155`'s
+mechanism). One number in the chain's own prose had drifted: the
+interactive ceiling default moved from 32768 to 65536
+(`utils/config.py:64`) without the chain's text being updated — logged
+as **`NEW-250`** (documentation-accuracy only, not a functional bug).
+
+**Fix design ("Option C"), concrete and implementer-ready:** detect a
+too-small resident ceiling only at the point an interactive attach needs
+more, and safely respawn only when the daemon is confirmed idle —
+reusing existing primitives throughout (no new kill mechanism: reuses
+`LlamaServer.stop()`'s TERM/wait/KILL pattern; no new busy-detection
+mechanism: queries the daemon's own task-status table via
+`send_command("status", ...)`, fail-closed on any ambiguity, bounded by
+the existing `task_timeout` age so a stale `running` row can't
+permanently disable the fix; no new lock: extends the existing per-port
+`flock`). `/slots`' `n_prompt_tokens` was investigated and rejected as
+the busy signal — it reflects prefix-cache retention, not "generating
+right now," the exact `NEW-207` trap — logged as **`NEW-251`** so a
+future implementer doesn't rediscover this the hard way. Full design,
+including the exact two-of-three reuse branches to wire (`allow_upgrade`
+only in the fast-path and post-lock checks, never the
+wait-for-another-process's-in-flight-`start()` branch, which would kill
+a server out from under that OTHER process's own in-flight call), is in
+`CODEY_MASTER_PLAN.md`'s Appendix A, 7.4b item C.
+
+**Four judgment calls recorded (project-architect defaults taken under
+Ish's blanket "pick it up," NOT individually confirmed by Ish — real
+kill-logic tradeoffs, rule 4 territory, not unilaterally settled):**
+(1) accept the residual TOCTOU window between the busy-check and the
+kill (small, self-recovering via existing task-failure handling); (2)
+accept the bounded ~10s port-free-wait failing outright rather than
+silently keeping the old undersized server (mirrors `NEW-145`'s own
+accepted "first request pays full load latency" tradeoff); (3) fix
+`NEW-155`'s `_ever_spawned` stickiness in the SAME round as Option C, as
+a clearly separate commit/hunk, not folded into the same diff; (4) do
+NOT add a second re-check point on a TUI's first `infer()` call (a real
+scope increase) — documented instead as a known limitation: a TUI
+attaching while the daemon is momentarily busy stays at the smaller
+ceiling for its **entire session**, self-healing only on the **next**
+process attach, never later in the same one.
+
+**Status: scoped only.** Not implemented, not code-reviewed, not
+live-verified. `CODEY_MASTER_PLAN.md` (§4's 7.4b row, Appendix A's 7.4b
+item C, Appendix B's findings index) and `NEW_ISSUES.md` (`NEW-250`,
+`NEW-251` new; status-update lines added to `NEW-145`, `NEW-149`,
+`NEW-155`) both updated. An implementer task prompt for Option C + the
+`NEW-155` hygiene fix, plus the live-verification plan (daemon-only
+harness per rule 2), has been handed off separately for the next round.
+
+---
+
 ## 2026-08-27 — NEW-212/NEW-232 (`customers`/`leads` `external_id`) + NEW-216 (`schedule_config` table) — CODE-REVIEWER APPROVED, COMMITTED
 
 **Follow-up to the entry immediately below.** The code-reviewer subagent

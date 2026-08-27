@@ -8222,6 +8222,15 @@ finding for the same bug. See `NEW-39`.)*
   documented race, not a bug in the interactive/background branch logic
   itself (that logic's unit tests, `tests/test_74b_planner_and_coder_n_ctx.py`,
   confirm the branch computes the correct value in isolation).
+- **Status update, 2026-08-27 (scoping only, no code changed):** a
+  concurrent pass produced a concrete, implementer-ready fix design
+  covering this finding together with `NEW-149`/`NEW-155` (the same
+  underlying reuse-branch/sticky-flag mechanism) — see
+  `CODEY_MASTER_PLAN.md`'s Appendix A, 7.4b item C, for the full design,
+  four recorded judgment calls, and `NEW-250`/`NEW-251` (two new
+  findings from this pass). Not implemented, not code-reviewed, not
+  live-verified yet; this entry's own 32768-vs-65536 numbers are now
+  stale per `NEW-250` (harmless to the bug's mechanism, corrected there).
 
 ### [NEW-146] `core/daemon.py`'s embed-server watchdog (and its own startup call) could still hit `NEW-144`'s kill-and-replace path against a healthy embed server orphaned by a PREVIOUS daemon incarnation that crashed without a graceful shutdown
 
@@ -8355,6 +8364,15 @@ finding for the same bug. See `NEW-39`.)*
   risks its own self-race class if built without a dedicated review
   pass — logged here, not silently fixed or dropped, per CLAUDE.md
   rule 8.
+- **Status update, 2026-08-27 (scoping only, no code changed): the
+  "separate, real design decision" this entry deferred now has a
+  concrete design.** "Option C" — detect the mismatch only at
+  interactive-attach time and respawn only when the daemon is confirmed
+  idle via its own task-status table, reusing `stop()`'s existing kill
+  pattern and `_reconcile_adopted_slot()`'s existing PID-resolution
+  toolkit — is written up in full, together with `NEW-145`/`NEW-155`,
+  in `CODEY_MASTER_PLAN.md`'s Appendix A, 7.4b item C. Not implemented,
+  not code-reviewed, not live-verified yet.
 
 ## Found during the NEW-102/bug_002 config-live-read fix round, 2026-08-13 — NOT fixed, logged only
 
@@ -8567,6 +8585,16 @@ finding for the same bug. See `NEW-39`.)*
   the exact "first spawner wins the context size" mechanism `NEW-149`
   already names. Not fixed here; `NEW-149`'s own resolution (if one is
   ever scoped) should account for this reachable path through it too.
+- **Status update, 2026-08-27 (scoping only, no code changed): a fix is
+  now scoped that accounts for this path.** The `NEW-145`/`NEW-149`
+  fix design ("Option C," `CODEY_MASTER_PLAN.md`'s Appendix A, 7.4b
+  item C) explicitly recommends fixing this finding's literal
+  `_ever_spawned` stickiness in the SAME implementer round as Option C,
+  as a clearly separate commit/hunk — Option C's respawn-on-attach
+  mechanism makes the residual low-risk once it ships (the next
+  interactive attach self-heals a watchdog eager-respawn-at-16384
+  instead of leaving it stuck). Not implemented, not code-reviewed, not
+  live-verified yet.
 
 ### [NEW-162] `NEW-158`'s "the flag is not passed, so it's off" framing may not hold on the installed build — this binary's own `--help` text states `--jinja` defaults to enabled, and `--reasoning-format` defaults to `auto`, not `none`
 
@@ -12397,3 +12425,55 @@ required)
   a future doc-accuracy pass to correct both locations.
 - **Cross-references:** `CODEY_MASTER_PLAN.md:929` and `:5267`, commit
   `c30d755`.
+
+## Found during the NEW-145/149/155 context-ceiling fix-design scoping pass, 2026-08-27 — logged only, no code changed (rule 4: design first, review the diff before commit)
+
+### [NEW-250] (Suspected, documentation-accuracy only, not a functional bug) The `NEW-145`/`NEW-149`/`NEW-152` prose states the interactive coder context ceiling as `n_ctx=32768`, but `utils/config.py:64`'s live default has since moved to `65536`
+- **Status: Confirmed by direct read** (rule 12) — `utils/config.py:64`
+  is `_n_ctx = 65536` (the `CODEY_N_CTX`-overridable default), not
+  32768. `NEW-145`'s own entry states "the TUI... correctly computes
+  `n_ctx=32768`" and "this round measurably SHRANK their real context
+  from 32768 to 16384" in multiple places; `NEW-152`'s reproduction
+  narrative also uses "e.g. 32768 ctx." Neither has been updated to
+  reflect the current default. `CODEY_MASTER_PLAN.md:651` already notes
+  the change ("`n_ctx` default 32768 → 65536 (§8 Q1)") elsewhere in the
+  plan, so the underlying fact is documented somewhere — it just never
+  propagated back into this specific finding chain's own text.
+- **Impact:** none on the bug's mechanism (the reuse-branch/sticky-flag
+  defects `NEW-145`/`NEW-149`/`NEW-155` describe are unaffected by the
+  ceiling's numeric value), but the magnitude of what "stuck at the
+  16384 background ceiling" costs a stranded interactive user has grown
+  from a 2x gap (32768 vs 16384) to a 4x gap (65536 vs 16384) — a future
+  reader relying on the chain's own numbers would under-estimate this.
+- **Not fixed here** — a one-line correction note has been added
+  alongside the fix design in `CODEY_MASTER_PLAN.md`'s Appendix A
+  (7.4b item C); the original `NEW-145`/`NEW-149`/`NEW-152` entries in
+  this file are left as originally written (append-only ledger
+  convention), not edited in place.
+- **Cross-references:** `NEW-145`, `NEW-149`, `NEW-152`,
+  `utils/config.py:64`, `CODEY_MASTER_PLAN.md:651`.
+
+### [NEW-251] (Confirmed, scoping-only — a documented trap this fix design must not fall into, not a new bug) `NEW-207`'s `/slots`/`n_prompt_tokens` release-signal/prefix-cache-retention ambiguity is directly relevant to any future respawn/busy-detection logic in this area, including the `NEW-145`/`NEW-149`/`NEW-155` fix design
+- **Status: Confirmed by re-reading `core/resource_gate.py`'s own
+  comments** (the §8 Q11 concurrency round). `/slots`' `n_prompt_tokens`
+  reflects resident KV/prefix-cache state, not "is generating right
+  now" — a completed request can leave `n_prompt_tokens > 0` via
+  prefix-cache retention, the exact trap `NEW-207` names as its own
+  biggest unresolved open item. Using this field as a busy/liveness
+  signal elsewhere would inherit the same unresolved ambiguity: either
+  treat any nonzero reading as "busy forever" (defeats the purpose of
+  the check) or risk acting against a request that's actually still
+  running.
+- **Why this is logged rather than silently avoided:** the
+  `NEW-145`/`NEW-149`/`NEW-155` fix design (recorded in
+  `CODEY_MASTER_PLAN.md`'s Appendix A, 7.4b item C) deliberately avoids
+  this trap by using the daemon's own task-status table
+  (`core/daemon.py:send_command("status", ...)`) instead of `/slots`,
+  but a future implementer simplifying or re-deriving that design
+  without this note could easily "simplify" it back onto `/slots`
+  without re-discovering why that's unsafe. This entry exists so that
+  doesn't happen silently.
+- **Not a new bug, not fixed here** — `NEW-207` itself remains open and
+  unresolved; this entry is a cross-reference/warning note only.
+- **Cross-references:** `NEW-207`, `NEW-145`, `NEW-149`, `NEW-155`,
+  `core/resource_gate.py`, `CODEY_MASTER_PLAN.md`'s 7.4b item C entry.
