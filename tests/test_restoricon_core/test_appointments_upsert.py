@@ -227,3 +227,67 @@ def test_router_schedule_config_get_and_post(test_setup):
     )
     assert status == 200
     assert body["schedule_config"]["default_duration_minutes"] == 45
+
+
+def test_router_appointment_upsert_partial_preserves_negotiating_state(test_setup):
+    """Verify that POST /api/v1/appointments/upsert with a partial payload
+    (e.g. updating notes on an existing negotiating appointment) does NOT
+    overwrite status='negotiating' with the dataclass default 'confirmed'
+    or wipe offered_slots / history."""
+    router = test_setup["router"]
+    token = test_setup["token"]
+    svc = test_setup["scheduling"]
+    actor = test_setup["agent_actor"]
+
+    # 1. Create a negotiating appointment with offered_slots and history
+    status, headers, body = router.handle_request(
+        "POST",
+        "/api/v1/appointments",
+        headers={"Authorization": f"Bearer {token}"},
+        body_bytes=json.dumps({
+            "external_id": "appt_neg_001",
+            "title": "Roof Negotiation",
+            "status": "negotiating",
+            "offered_slots": [
+                {"start": "2026-08-30T10:00:00Z", "end": "2026-08-30T10:30:00Z"},
+                {"start": "2026-08-30T14:00:00Z", "end": "2026-08-30T14:30:00Z"},
+            ],
+            "history": [{"event": "proposed", "at": "2026-08-27T10:00:00Z"}],
+            "notes": "Initial inquiry",
+        }).encode(),
+    )
+    assert status == 201
+    created_id = body["appointment"]["id"]
+    assert body["appointment"]["status"] == "negotiating"
+    assert len(body["appointment"]["offered_slots"]) == 2
+    assert len(body["appointment"]["history"]) == 1
+
+    # 2. Upsert with a partial payload containing only external_id and new notes
+    status, headers, body = router.handle_request(
+        "POST",
+        "/api/v1/appointments/upsert",
+        headers={"Authorization": f"Bearer {token}"},
+        body_bytes=json.dumps({
+            "external_id": "appt_neg_001",
+            "notes": "Customer requested later time",
+        }).encode(),
+    )
+    assert status == 200
+    appt_res = body["appointment"]
+    assert appt_res["id"] == created_id
+    assert appt_res["notes"] == "Customer requested later time"
+    # Verify status is STILL negotiating (not overwritten by dataclass default "confirmed")
+    assert appt_res["status"] == "negotiating"
+    # Verify offered_slots and history were NOT wiped to empty lists
+    assert len(appt_res["offered_slots"]) == 2
+    assert appt_res["offered_slots"][0]["start"] == "2026-08-30T10:00:00Z"
+    assert len(appt_res["history"]) == 1
+
+    # 3. Direct DB lookup confirmation
+    fetched = svc.get_appointment(created_id, actor)
+    assert fetched is not None
+    assert fetched.status == "negotiating"
+    assert fetched.notes == "Customer requested later time"
+    assert len(fetched.offered_slots) == 2
+    assert len(fetched.history) == 1
+

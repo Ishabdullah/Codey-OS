@@ -317,7 +317,10 @@ class SchedulingService:
         return self.get_appointment(appointment_id, actor)
 
     def upsert_appointment(
-        self, appt: Appointment, actor: AuthContext
+        self,
+        appt: Appointment,
+        actor: AuthContext,
+        raw_updates: Optional[Dict[str, Any]] = None,
     ) -> Appointment:
         """Create-or-update an appointment row keyed on external_id or id."""
         if not actor.has_permission(PERM_WRITE_APPOINTMENTS):
@@ -333,10 +336,10 @@ class SchedulingService:
             return self.create_appointment(appt, actor)
 
         immutable = {"external_id", "created_at", "id"}
-        raw = appt.to_dict()
+        source = raw_updates if raw_updates is not None else appt.to_dict()
         updates = {
             k: v
-            for k, v in raw.items()
+            for k, v in source.items()
             if k not in immutable and v is not None and k in self.ALLOWED_UPDATE_FIELDS
         }
         if not updates:

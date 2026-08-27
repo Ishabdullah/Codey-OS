@@ -375,7 +375,7 @@ class APIRouter:
 
             if path == "/api/v1/appointments/upsert" and method == "POST":
                 appt = Appointment(**json_body)
-                saved = self.scheduling.upsert_appointment(appt, actor)
+                saved = self.scheduling.upsert_appointment(appt, actor, raw_updates=json_body)
                 return 200, {"Content-Type": "application/json"}, {"appointment": saved.to_dict()}
 
             if path.startswith("/api/v1/appointments/") and path.endswith("/status") and method == "POST":
