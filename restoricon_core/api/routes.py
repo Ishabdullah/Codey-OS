@@ -320,6 +320,16 @@ class APIRouter:
                     created = self.crm.create_subcontractor(sub, actor)
                     return 201, {"Content-Type": "application/json"}, {"subcontractor": created.to_dict()}
 
+            # Upsert (create-or-update) endpoint — resolves NEW-242/NEW-245.
+            # Keyed on external_id; returns a JS-compatible dict via
+            # format_subcontractor_for_js.  Always returns 200 (upsert semantics).
+            if path == "/api/v1/subcontractors/upsert" and method == "POST":
+                sub = Subcontractor(**json_body)
+                result = self.crm.upsert_subcontractor(sub, actor)
+                return 200, {"Content-Type": "application/json"}, {
+                    "subcontractor": self.crm.format_subcontractor_for_js(result)
+                }
+
             if path.startswith("/api/v1/subcontractors/") and path.endswith("/qualification") and method == "POST":
                 sub_id = int(path.split("/")[-2])
                 qualification_status = json_body.get("qualification_status")

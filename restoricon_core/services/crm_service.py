@@ -1131,6 +1131,121 @@ class CRMService:
             return None
         return self._row_to_subcontractor(row)
 
+    # ------------------------------------------------------------------
+    # CORE_TO_JS_SUBCONTRACTOR_MAP — resolves NEW-245.
+    # Maps Core Subcontractor field names to the JS-side field names used
+    # by subcontractor-recruiter.js functions (formatSubcontractorSummary,
+    # formatFollowupList, createOrUpdateSubcontractorLead, syncWithContacts).
+    #
+    # IMPORTANT: Must stay in sync with mapCoreToJS() in
+    # subcontractor-recruiter.js (lines 62-76).  The JS function maps:
+    #   external_id → subcontractor_id   (not id)
+    #   last_contact_at → last_contact
+    #   bool-coerced: w9_received, msa_signed, coi_received, msa_sent,
+    #                 workers_comp, license_required, general_liability
+    # The `id` field is kept as-is by JS (jsObj.id = coreObj.id).
+    # ------------------------------------------------------------------
+    CORE_TO_JS_SUBCONTRACTOR_MAP: Dict[str, str] = {
+        "external_id": "subcontractor_id",   # JS: jsObj.subcontractor_id = coreObj.external_id
+        "last_contact_at": "last_contact",   # JS: jsObj.last_contact = coreObj.last_contact_at
+        "next_followup_at": "next_followup",
+        "contact_attempts": "contact_count",
+        "dnc_status": "do_not_contact",
+        "residential_experience": "residential",
+        "commercial_experience": "commercial",
+        "emergency_availability": "emergency_available",
+        # The following are bool-coerced but keep the same key name in JS:
+        "w9_received": "w9_received",
+        "msa_signed": "msa_signed",
+        "coi_received": "coi_received",
+        "msa_sent": "msa_sent",
+        "workers_comp": "workers_comp",
+        "license_required": "license_required",
+        "general_liability": "general_liability",
+    }
+
+    # Fields stored as integers in SQLite that must be converted to bool
+    # before handing off to JS callers.  Must match the `boolFields` array
+    # in subcontractor-recruiter.js mapCoreToJS (lines 69-74).
+    _BOOL_FIELDS: frozenset = frozenset({
+        "w9_received", "msa_signed", "coi_received", "msa_sent",
+        "workers_comp", "license_required", "general_liability",
+        # Additional bool fields not in JS mapCoreToJS but used by JS formatters:
+        "residential_experience", "commercial_experience", "emergency_availability",
+    })
+
+    @classmethod
+    def format_subcontractor_for_js(cls, sub: "Subcontractor") -> Dict:
+        """Convert a Core Subcontractor object to a JS-compatible dict.
+
+        Resolves NEW-245: renames Core field names to the JS-side names
+        expected by subcontractor-recruiter.js (formatSubcontractorSummary,
+        formatFollowupList, createOrUpdateSubcontractorLead, etc.) and
+        coerces integer-boolean SQLite columns to Python bools.  Fields
+        not present in CORE_TO_JS_SUBCONTRACTOR_MAP are passed through
+        unchanged.  Callers should never assume Core field names after
+        this function — use the returned dict keys only.
+        """
+        raw = sub.to_dict()
+        out: Dict = {}
+        for core_key, value in raw.items():
+            # Coerce int booleans before renaming
+            if core_key in cls._BOOL_FIELDS and isinstance(value, int):
+                value = bool(value)
+            js_key = cls.CORE_TO_JS_SUBCONTRACTOR_MAP.get(core_key, core_key)
+            out[js_key] = value
+        return out
+
+    def upsert_subcontractor(
+        self, sub: "Subcontractor", actor: AuthContext
+    ) -> "Subcontractor":
+        """Create-or-update a subcontractor row keyed on external_id.
+
+        Resolves NEW-242: subcontractor-recruiter.js's
+        createOrUpdateSubcontractorLead() performs a lookup then either
+        merges or inserts, but the Core layer previously exposed only pure
+        create_subcontractor and update_subcontractor primitives with no
+        dedup/upsert logic.  This method bridges that gap using a
+        two-step find-then-create/update pattern so there is no raw SQL
+        duplication and both paths go through the same audit trail.
+
+        Requires PERM_WRITE_SUBCONTRACTORS.  If external_id is None or
+        empty a ValueError is raised — callers must supply a stable
+        external_id so the lookup is deterministic.
+
+        Returns the final Subcontractor row (newly created or updated).
+        """
+        if not actor.has_permission(PERM_WRITE_SUBCONTRACTORS):
+            raise PermissionError("Actor lacks permission to upsert subcontractors")
+
+        if not sub.external_id or not sub.external_id.strip():
+            raise ValueError("upsert_subcontractor requires a non-empty external_id")
+
+        existing = self.get_subcontractor_by_external_id(sub.external_id, actor)
+        if existing is None:
+            # INSERT path — delegate entirely to create_subcontractor so
+            # audit, timestamps, and permission checks are consistent.
+            return self.create_subcontractor(sub, actor)
+
+        # UPDATE path — build an updates dict from all non-None fields on
+        # the incoming sub, excluding immutable columns (external_id,
+        # created_at, id) AND restricting to ALLOWED_UPDATE_FIELDS so we
+        # don't accidentally push qualification_status, dnc_status, or
+        # other fields that must go through dedicated update methods.
+        immutable = {"external_id", "created_at", "id"}
+        raw = sub.to_dict()
+        updates = {
+            k: v
+            for k, v in raw.items()
+            if k not in immutable and v is not None
+            and k in self.ALLOWED_UPDATE_FIELDS
+        }
+        if not updates:
+            # Nothing allowed to change; return the existing row.
+            return existing
+
+        return self.update_subcontractor(existing.id, updates, actor)
+
     def find_subcontractor(
         self, query: str, actor: AuthContext
     ) -> Optional[Subcontractor]:

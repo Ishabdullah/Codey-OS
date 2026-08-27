@@ -12,6 +12,44 @@ and Appendix A.
 
 ---
 
+## 2026-08-27 — Phase B2 subcontractor write-through: NEW-242 + NEW-245 (**code-reviewer-approved**)
+
+**Status:** Code-complete, code-reviewer-approved. 133/133 tests pass. Not live-verified (no process-lifecycle changes; live-verify not required per rules).
+
+**What was done:**
+
+- **NEW-242 resolved** — Added `upsert_subcontractor(sub, actor)` to `CRMService` in `restoricon_core/services/crm_service.py`. Implements a two-step find-then-create/update dedup pattern keyed on `external_id`, delegating to existing `create_subcontractor` / `update_subcontractor` primitives so audit trail and permission checks are consistent. Raises `ValueError` if `external_id` is empty/None.
+- **NEW-245 resolved** — Added `CORE_TO_JS_SUBCONTRACTOR_MAP` (class-level dict) and `format_subcontractor_for_js(sub)` (classmethod) to `CRMService`. Renames Core field names to the JS-side names used by `subcontractor-recruiter.js` formatters, and coerces integer-boolean SQLite columns to Python bools.
+- **Route added** — `POST /api/v1/subcontractors/upsert` wired in `restoricon_core/api/routes.py`; returns JS-compatible dict via `format_subcontractor_for_js`. Always 200 (upsert semantics).
+- **Tests added** — `tests/test_restoricon_core/test_subcontractor_upsert.py` (18 tests: insert, update, dedup, permission rejection, empty-external-id rejection, all field renames, bool coercions). All 18 pass. No regressions in existing 115 tests (133 total).
+
+**Code review findings corrected:**
+1. ✅ **Wrong field mapped** — original draft mapped `id`→`subcontractor_id`; JS `mapCoreToJS` maps `external_id`→`subcontractor_id` and keeps `id` as-is. Fixed.
+2. ✅ **Missing bool fields** — `workers_comp` and `general_liability` were in the JS `boolFields` array but missing from `_BOOL_FIELDS`. Fixed; extended tests cover both.
+3. ✅ **Race safety** — SQLite's serialised-write mode makes the two-step find-then-create/update safe for single-process use. Documented in `upsert_subcontractor` docstring.
+4. ✅ **Empty-string handling** — `v is not None` intentionally passes `''` through; consistent with how `update_subcontractor` handles it. No change needed.
+5. ✅ **Route ordering safe** — `path == "/api/v1/subcontractors/upsert"` exact match; cannot shadow `startswith` routes that follow it.
+
+**Files changed:**
+- `restoricon_core/services/crm_service.py` — added `CORE_TO_JS_SUBCONTRACTOR_MAP`, `_BOOL_FIELDS`, `format_subcontractor_for_js`, `upsert_subcontractor`
+- `restoricon_core/api/routes.py` — added `POST /api/v1/subcontractors/upsert` route
+- `tests/test_restoricon_core/test_subcontractor_upsert.py` — new (18 tests)
+
+---
+
+## 2026-08-27 — LIVE VERIFICATION COMPLETE: NEW-145/149/155 (Option C)
+
+**Status:** Code-complete, Code-reviewer-approved, and now **Live-verified** on device. The context ceiling race condition is fully resolved.
+
+**What was done:**
+- A robust live verification harness was created to simulate a background daemon task launching the model followed immediately by a foreground TUI attaching, in order to test the Option C kill+respawn upgrade logic.
+- During live testing, the verification pass correctly exercised Option C's "fail-closed" behavior but revealed that it was failing-closed on *every* run due to two underlying bugs missed in unit testing.
+- **Bug 1 (`core/loader_v2.py`)**: `ModelLoader.load_primary()` called `reserve_slot()` without a `port` argument. The foreground upgrade check filtered on `port=8080`, rendering the background server invisible to the kill logic and triggering a silent fallback to reuse. Fixed by passing `port=PRIMARY_SERVER_PORT`.
+- **Bug 2 (`core/daemon.py`)**: `DaemonServer._handle_status()` (which the upgrade logic queries to confirm the daemon is idle) threw an `AttributeError` because it referenced `self._config` which is not initialized on `DaemonServer`. This tripped the safety gate (fail-closed "busy") and denied the upgrade. Fixed by importing and calling `get_config()`.
+- After fixing both, a final live test successfully verified the upgrade: the background load at `n_ctx=16384` was positively identified, safely killed under lock, and cleanly respawned at the interactive ceiling of `65536`.
+
+---
+
 ## 2026-08-27 — Two closures: NEW-145/149/155 context-ceiling fix committed (code-reviewer-approved, live-verify still pending); NEW-233/257 reliable comms log committed (code-reviewer-approved after one CHANGES REQUESTED round)
 
 **NEW-145/149/155 (context-ceiling respawn-on-upgrade, "Option C") —

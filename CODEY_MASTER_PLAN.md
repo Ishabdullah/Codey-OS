@@ -3884,8 +3884,14 @@ explicitly — has been added to `NEW-246`'s own entry in
 `NEW_ISSUES.md`. Full `pytest tests/` run: 811 passed, 1 skipped. Ships
 Core-side method + route only; no `subcontractor-recruiter.js` change.
 `NEW-242` (upsert/dedup) and `NEW-245` (reverse Core-row→JS-record
-shape mapping) remain open prerequisites before any real cutover of
-this module. Not live-verified against a running device session.**
+shape mapping) **code-complete and code-reviewer-approved 2026-08-27**:
+`upsert_subcontractor`, `CORE_TO_JS_SUBCONTRACTOR_MAP`, and
+`format_subcontractor_for_js` added to `CRMService`; `POST
+/api/v1/subcontractors/upsert` route added; 18 new tests, 133 total
+pass. Code review caught and corrected: (1) wrong field mapped to
+`subcontractor_id` (`external_id`, not `id`); (2) `workers_comp` and
+`general_liability` missing from `_BOOL_FIELDS`. Both fixed. Not
+live-verified (no process-lifecycle changes).**
 
 ### 6.5 Track B / Phase B3 — CRM/Sales and Operations
 
@@ -5218,8 +5224,7 @@ Then:
           live-verification pass (daemon-only harness, per the `NEW-14`
           swap-pressure precedent — not a full `codey-start` stack, per
           rule 2) before this chain can be marked resolved.
-        - **Status update, 2026-08-27 — CODE-COMPLETE, CODE-REVIEWER-
-          APPROVED, NOT YET LIVE-VERIFIED.** Committed `b0d2d86`. Two
+        - **Status update, 2026-08-27 — LIVE-VERIFIED and FULLY RESOLVED.** Committed `b0d2d86`. Two
           deliberate deviations from the literal design above, each
           independently re-verified by code-reviewer against source
           rather than accepted on the implementer's word: (1) PID
@@ -5248,11 +5253,17 @@ Then:
           safety hole, since the kill decision is separately gated by
           `daemon_task_in_progress()` regardless of how `allow_upgrade`
           got set, but a labeling-accuracy gap worth tightening someday).
-          **Still outstanding: the live-verification pass** (§7 of the
-          original design write-up) — unit tests cannot exercise a real
-          port-in-use race or a real TERM-then-KILL cycle against a live
-          daemon process. Do not mark this chain (`NEW-145`/`NEW-149`/
-          `NEW-155`) fully resolved until that pass runs, per rule 7.
+          **Live verification pass findings:** The test proved Option C 
+          was correctly fail-closed but uncovered two distinct bugs that
+          entirely prevented the upgrade path from running: (1) `core/loader_v2.py:load_primary()`
+          did not pass `port` to `reserve_slot()`, rendering the slot 
+          invisible to the foreground TUI's upgrade check. (2) `core/daemon.py:DaemonServer._handle_status()`
+          crashed when checking for idle tasks because it tried to access
+          a missing `self._config` object, tripping the fail-closed "busy"
+          behavior. Both were patched and a final live test successfully
+          spawned a background model at `n_ctx=16384` and correctly killed
+          it and respawned it at `n_ctx=65536` when the TUI attached. This
+          chain (`NEW-145`/`NEW-149`/`NEW-155`) is now fully resolved.
   - [x] **D** — folded into M1-F,
         `MAX_CONCURRENT_MODEL_BUDGET_BYTES` (§ M1-F entry above) now
         reflects there being no separate planner process, executed with
