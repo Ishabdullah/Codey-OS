@@ -190,6 +190,7 @@ def test_repeated_patch_failed_actually_calls_escalate_with_error_context(monkey
         return "peer CLI diagnosed the issue: old_str is stale, re-read the file."
 
     monkeypatch.setattr("core.peer_cli.escalate", fake_escalate)
+    monkeypatch.setattr("core.agent.check_git_and_offer_commit", lambda *a, **kw: None)
 
     response, history = agent.run_agent(
         "add a docstring to shutdown function in main.py",
@@ -227,6 +228,7 @@ def test_repeated_patch_failed_escalate_redirect_branch(monkeypatch):
         "core.peer_cli.escalate",
         lambda user_message, errors, files: "[redirect]: try write_file instead",
     )
+    monkeypatch.setattr("core.agent.check_git_and_offer_commit", lambda *a, **kw: None)
 
     response, history = agent.run_agent(
         "add a docstring to shutdown function in main.py",
@@ -255,6 +257,7 @@ def test_repeated_patch_failed_escalate_skipped_falls_through_to_marker(monkeypa
 
     monkeypatch.setattr(agent, "infer", fake_infer)
     monkeypatch.setattr("core.peer_cli.escalate", lambda user_message, errors, files: None)
+    monkeypatch.setattr("core.agent.check_git_and_offer_commit", lambda *a, **kw: None)
 
     logged = []
     monkeypatch.setattr(agent, "log_error", lambda msg: logged.append(msg))

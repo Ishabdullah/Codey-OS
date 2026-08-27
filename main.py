@@ -7,7 +7,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from core import context as ctx
-from core.agent import run_agent
 from core.dashboard_data import get_render_text
 from core.inference_v2 import was_last_streamed
 from core.loader_v2 import get_loader
@@ -435,6 +434,45 @@ def _extract_filename_from_step(step: str) -> str:
     return ""
 
 
+def _execute_agent_capability(
+    prompt: str = "",
+    history: list = None,
+    yolo: bool = False,
+    use_plan: bool = False,
+    no_plan: bool = False,
+    in_subtask: bool = False,
+    plan_rag_block: str = "",
+    confirm_shell: bool = None,
+    confirm_write: bool = None,
+    shell_fn = None,
+    **kwargs,
+):
+    """
+    Unified agent execution helper routing through CCOS capability `coding.run_agent`.
+    Returns (response, history) compatible with the AgentExecutionResult contract.
+    """
+    from ccos.core.plugin_manager import get_plugin_manager
+
+    pm = get_plugin_manager()
+    if "agent" not in pm._modules:
+        pm.load("agent")
+
+    return pm.call_capability(
+        "coding.run_agent",
+        prompt=prompt,
+        history=history,
+        yolo=yolo,
+        use_plan=use_plan,
+        no_plan=no_plan,
+        in_subtask=in_subtask,
+        plan_rag_block=plan_rag_block,
+        confirm_shell=confirm_shell,
+        confirm_write=confirm_write,
+        shell_fn=shell_fn,
+        **kwargs,
+    )
+
+
 def _run_with_plan(prompt: str, history: list, yolo: bool, use_plan: bool, no_plan: bool):
     """
     Execute a user prompt, routing through the daemon for planning when available.
@@ -480,7 +518,7 @@ def _run_with_plan(prompt: str, history: list, yolo: bool, use_plan: bool, no_pl
         and not _MULTI_STEP_RE.search(prompt)  # no multi-step signals
     )
     if not no_plan and _is_solo_peer:
-        return run_agent(prompt, history, yolo=yolo, use_plan=use_plan, no_plan=no_plan)
+        return _execute_agent_capability(prompt, history, yolo=yolo, use_plan=use_plan, no_plan=no_plan)
     # Multi-peer or multi-step peer prompts fall through to plannd below
 
     # ── Complexity gate: skip the planner for simple, non-complex tasks ───────
@@ -495,7 +533,7 @@ def _run_with_plan(prompt: str, history: list, yolo: bool, use_plan: bool, no_pl
 
     score = _score_message(prompt)
     if not is_complex(prompt, score=score):
-        return run_agent(prompt, history, yolo=yolo, use_plan=use_plan, no_plan=no_plan)
+        return _execute_agent_capability(prompt, history, yolo=yolo, use_plan=use_plan, no_plan=no_plan)
 
     # Medium/hard tier split on the post-easy-gate population: reuses
     # is_complex()'s own existing `length > 300` boundary (NEW-174 notes
@@ -543,8 +581,8 @@ def _run_with_plan(prompt: str, history: list, yolo: bool, use_plan: bool, no_pl
             # planner abbreviates "fibonacci.py" → "fib.py"; agent sees the
             # overall goal and uses the correct name per the system prompt rule).
             step_with_goal = f"Overall goal: {prompt}\n\nCurrent step: {step}"
-            step_resp, history = run_agent(
-                step_with_goal, history, yolo=yolo, no_plan=True, _plan_rag_block=_plan_rag
+            step_resp, history = _execute_agent_capability(
+                step_with_goal, history, yolo=yolo, no_plan=True, plan_rag_block=_plan_rag
             )
             response = step_resp or response
 
@@ -596,19 +634,19 @@ def _run_with_plan(prompt: str, history: list, yolo: bool, use_plan: bool, no_pl
                                 f"You MUST create '{fname}' in the current working directory "
                                 "using write_file. Do not create subdirectories.\n\n"
                             )
-                        step_resp, history = run_agent(
+                        step_resp, history = _execute_agent_capability(
                             _retry_prefix + step_with_goal,
                             history,
                             yolo=yolo,
                             no_plan=True,
-                            _plan_rag_block=_plan_rag,
+                            plan_rag_block=_plan_rag,
                         )
                         response = step_resp or response
 
         return response, history
 
     # No plan available — run directly as before
-    return run_agent(prompt, history, yolo=yolo, use_plan=use_plan, no_plan=no_plan)
+    return _execute_agent_capability(prompt, history, yolo=yolo, use_plan=use_plan, no_plan=no_plan)
 
 
 def print_diff(diff_output: str):
@@ -811,7 +849,7 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
                                 f"There are merge conflicts after merging branch '{arg}'. "
                                 f"Please resolve them.\n\n" + "\n\n".join(conflict_context)
                             )
-                            _, history = run_agent(prompt, history, yolo=yolo)
+                            _, history = _execute_agent_capability(prompt, history, yolo=yolo)
                     else:
                         info("Resolve conflicts manually, then run: /git commit")
                 else:
@@ -1175,7 +1213,7 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
                 ans = console.input("  Ask Codey to explain and fix? [y/N]: ").strip().lower()
                 if ans in ("y", "yes"):
                     ctx_block = "\n".join(review_lines[:15])
-                    response, history = run_agent(
+                    response, history = _execute_agent_capability(
                         f"Review {filepath} and fix these linter issues (read the file first):\n{ctx_block}",
                         history,
                         yolo=yolo,
@@ -1209,7 +1247,7 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
                 info(f"Voice input: {text}")
                 # Run as agent task immediately
                 try:
-                    response, history = run_agent(text, history, yolo=yolo)
+                    response, history = _execute_agent_capability(text, history, yolo=yolo)
                     if response and not response.startswith("["):
                         separator()
                         console.print(f"\n[bold green]Codey-OS:[/bold green] {response}")

@@ -1,0 +1,35 @@
+{
+  "name": "agent",
+  "version": "1.0.0",
+  "description": "Wraps core/agent.py and core/recursive.py as CCOS capabilities for autonomous coding, recursive self-refinement, and breadth classification with scoped permission controls",
+  "category": "coding",
+  "entry_point": "agent.py",
+  "capabilities": [
+    {
+      "name": "coding.run_agent",
+      "description": "Run the full Codey-OS agent loop with scoped permissions, planning, tool execution, and self-healing",
+      "implementation": "agent:run_agent_capability",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.run_recursive",
+      "description": "Self-refining inference using draft -> critique -> refine loop",
+      "implementation": "agent:run_recursive_capability",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    },
+    {
+      "name": "coding.classify_breadth",
+      "description": "Classify task complexity and breadth need (minimal, standard, deep)",
+      "implementation": "agent:classify_breadth_capability",
+      "category": "coding",
+      "dependencies": [],
+      "hardware_requirements": []
+    }
+  ],
+  "author": "CCOS",
+  "license": "MIT"
+}

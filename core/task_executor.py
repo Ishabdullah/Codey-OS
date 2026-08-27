@@ -18,7 +18,6 @@ from typing import Dict, Optional
 from core.daemon_config import DaemonConfig
 from core.state import StateStore
 from core.thermal import end_inference, start_inference
-from utils.config import AGENT_CONFIG
 from utils.logger import error, warning
 
 # ---------------------------------------------------------------------------
@@ -95,18 +94,17 @@ class TaskExecutor:
 
     async def _execute_task(self, prompt: str) -> str:
         """
-        Execute a single task using the full run_agent() pipeline.
+        Execute a single task using the coding.run_agent capability.
 
         Installs a daemon shell guard and disables interactive confirmations
-        for the duration of the call, then unconditionally restores the
-        previous AGENT_CONFIG values so interactive sessions are unaffected.
+        via capability parameters, leaving global AGENT_CONFIG untouched.
 
         The prompt should already be the enriched step string produced by
         daemon._handle_command (includes original task + step number).
         """
         start_inference()
         try:
-            from core.agent import run_agent
+            from ccos.core.plugin_manager import get_plugin_manager
             from prompts.layered_prompt import invalidate_prompt_cache
 
             # Fresh file context for every step — previous steps may have
@@ -120,31 +118,29 @@ class TaskExecutor:
 
             _mem.clear()
 
-            # Save and override AGENT_CONFIG for daemon execution.
-            _saved = {
-                "_shell_fn": AGENT_CONFIG.get("_shell_fn"),
-                "confirm_shell": AGENT_CONFIG.get("confirm_shell"),
-                "confirm_write": AGENT_CONFIG.get("confirm_write"),
-            }
-            AGENT_CONFIG["_shell_fn"] = self._daemon_shell
-            AGENT_CONFIG["confirm_shell"] = False  # guard is in _daemon_shell
-            AGENT_CONFIG["confirm_write"] = False  # daemon writes without prompting
+            pm = get_plugin_manager()
+            if "agent" not in pm._modules:
+                pm.load("agent")
 
-            try:
-                loop = asyncio.get_event_loop()
-                response, _ = await loop.run_in_executor(
-                    None,
-                    lambda: run_agent(
-                        prompt,
-                        history=[],
-                        yolo=True,
-                        no_plan=True,  # each daemon step is already planned
-                        _in_subtask=True,  # suppress git prompts; scale max_steps
-                    ),
-                )
-                return response
-            finally:
-                AGENT_CONFIG.update(_saved)
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                lambda: pm.call_capability(
+                    "coding.run_agent",
+                    prompt=prompt,
+                    history=[],
+                    yolo=True,
+                    no_plan=True,  # each daemon step is already planned
+                    in_subtask=True,  # suppress git prompts; scale max_steps
+                    confirm_shell=False,
+                    confirm_write=False,
+                    shell_fn=self._daemon_shell,
+                ),
+            )
+            response, _ = result
+            if isinstance(result, dict) and not result.get("success", True):
+                raise RuntimeError(result.get("error") or "Agent capability execution failed")
+            return response
 
         except Exception as e:
             import traceback
