@@ -12,6 +12,26 @@ and Appendix A.
 
 ---
 
+## 2026-08-27 — Track A / Phase A2 Item 4.3: wrap core/agent.py as CCOS capability and unify call paths
+
+- **Status**: Code-reviewer approved, unit-test verified across full suite (`897 passed, 1 skipped` in `Codey-OS`).
+- **CCOS Capability Plugin (`ccos/plugins/coding/agent/`)**:
+  - Created plugin `ccos/plugins/coding/agent/` with `manifest.json`, `agent.py`, `test.py`, and `__init__.py`.
+  - Registered capabilities:
+    - `coding.run_agent`: Wraps `core/agent.py`'s `run_agent()` with explicit permission management (`confirm_shell`, `confirm_write`, `shell_fn`).
+    - `coding.run_recursive`: Wraps `core/recursive.py`'s `recursive_infer()`.
+    - `coding.classify_breadth`: Wraps `core/recursive.py`'s `classify_breadth_need()`.
+  - Implemented `scoped_agent_permissions`: Context manager safely overriding and restoring `utils.config.AGENT_CONFIG` (`_shell_fn`, `confirm_shell`, `confirm_write`) on normal return and exception.
+  - Implemented `AgentExecutionResult`: `dict` subclass with `response`, `history`, `success`, `error` keys supporting 2-tuple unpacking `(response, history)` for clean backward compatibility.
+- **Unified Call Paths (Zero Third Path)**:
+  - Migrated `main.py` (`_run_with_plan()`, `/git`, `/lint`, `/voice`) to route through `pm.call_capability("coding.run_agent", ...)`.
+  - Migrated `core/task_executor.py` (`TaskExecutor._execute_task`) to invoke `pm.call_capability("coding.run_agent", ...)` with explicit daemon permission profile (`confirm_shell=False`, `confirm_write=False`, `shell_fn=self._daemon_shell`, `yolo=True`, `no_plan=True`, `in_subtask=True`), eliminating manual global dictionary mutation.
+- **Adversarial Code Review**:
+  - `code-reviewer` caught: (1) silent failure masking in `task_executor.py` when `success=False`, (2) `NameError` in `agent.py:test()`, (3) `kwargs["user_message"]` fallback logic.
+  - All 3 issues fixed and re-reviewed; final verdict **`APPROVED`**.
+
+---
+
 ## 2026-08-27 — Phase B2 Task 4: Adversarial code review, bug fixes, and APPROVED verdict (Codey-OS & Codey-Aigentik)
 
 - **Status**: Code-reviewer approved, unit-test verified (`890 passed, 1 skipped` in `Codey-OS`, `167 passed, 0 failed` across 10 suites in `Codey-Aigentik`).

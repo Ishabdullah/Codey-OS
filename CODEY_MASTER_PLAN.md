@@ -4032,7 +4032,7 @@ order.
 | Item | Depends on | Note |
 |---|---|---|
 | **7.3 sub-task E** — actually dispatch on the tier decision | A1 | **DONE 2026-08-24.** Task A deleted the orphaned, unreachable `classify_tier()`/`planner_service.get_plan()` pair (`NEW-172`, landed `8fe5d07`). Task B built the real medium/hard split — tier decided once in `main.py` (`score.length > 300`), threaded as an additive/defaulted field through `_request_daemon_plan()` → `core/daemon.py`'s socket RPC → `plannd.get_plan(enable_thinking=...)`, with the client-side socket timeout deliberately pinned to hard-tier sizing regardless of tier (old-daemon safety) while the daemon's own internal timeouts scale per-tier. Code-reviewer-approved, code-complete. See Appendix A for the full design and `NEW-178` for the one known gap (the dormant pull-side planning path can't carry a tier value — bounded, that path has zero production callers today). |
-| **4.3** — wrap `core/agent.py` as a real CCOS capability | A1 | Migrate **both** existing call paths (`main.py` for CLI/GUI, `core/task_executor.py` for the daemon) onto one boundary — not a third path alongside them. The wrapper owns its own permission surface (`confirm_shell`/`confirm_write`) explicitly rather than inheriting the caller's. Also where recursive self-refinement gets wrapped. |
+| **4.3** — wrap `core/agent.py` as a real CCOS capability | A1 | **DONE 2026-08-27.** Created plugin `ccos/plugins/coding/agent/` registering `coding.run_agent`, `coding.run_recursive`, and `coding.classify_breadth`. Scoped permissions via `scoped_agent_permissions` context manager. Migrated **both** call paths (`main.py` and `core/task_executor.py`) to `pm.call_capability("coding.run_agent", ...)`. Code-reviewer-approved, unit-test verified (897 passed, 1 skipped). |
 | **7.5** — in-flight context passing + task-context blackboard | 4.3 | `plugin_manager.call_capability` gets a threaded context argument (today a step's output is silently discarded); plus a scoped task-context table for durable cross-step handoffs. **Not** a general shared-memory grant, **not** a repurposing of `ccos_memory`. Per vision §11.2 the threaded content is a compact structured record, not a conversation dump. |
 | **4.5** — peer-CLI escalation redesign | 4.1's queue, 7.5's blackboard | Daemon pulls an item needing escalation off the main queue, parks it on a review list, notifies the user, keeps working. 100% design-only today. |
 | **4.6** — wire `agent_orchestrator` to real execution | 4.3 | Cheap (heuristic, not model-backed) but **the Safety Agent's veto becomes live against real actions for the first time** — a behavior change to flag, not just wiring. |
@@ -5667,8 +5667,8 @@ Then:
       2026-08-24 reconciliation, not a silent implementer choice — stated
       here so it's visible rather than only findable by re-deriving it
       from the character-vs-token distinction.
-- [ ] **4.3** — wrap `core/agent.py` as a CCOS capability, unifying both
-      call paths.
+- [x] **4.3** — wrap `core/agent.py` as a CCOS capability, unifying both
+      call paths (`main.py` and `core/task_executor.py` via `coding.run_agent`).
 - [ ] **7.5** — in-flight context passing + task-context blackboard.
 - [ ] **4.5** — peer-CLI escalation redesign.
 - [ ] **4.6** — wire `agent_orchestrator` to real execution (Safety veto
