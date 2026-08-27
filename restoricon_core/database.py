@@ -241,6 +241,155 @@ CREATE TABLE IF NOT EXISTS communication_history (
     FOREIGN KEY (opportunity_id) REFERENCES opportunities(id) ON DELETE SET NULL
 );
 
+-- Subcontractors (recruitment/qualification pipeline — B2/NEW-209 schema
+-- expansion, per Ish's 2026-08-27 decision to build all five of
+-- Aigentik-CLI's real data shapes now rather than defer four of them).
+-- external_id/contact_external_id hold Aigentik's own string IDs
+-- (e.g. "sub_0001", "contact_0197") so a future migration script can be
+-- re-run idempotently against this table without creating duplicates.
+CREATE TABLE IF NOT EXISTS subcontractors (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    external_id TEXT UNIQUE,
+    contact_external_id TEXT,
+    company_name TEXT NOT NULL,
+    legal_name TEXT,
+    dba TEXT,
+    contact_name TEXT,
+    title TEXT,
+    phone TEXT,
+    email TEXT COLLATE NOCASE,
+    website TEXT,
+    primary_trade TEXT,
+    secondary_trades_json TEXT NOT NULL DEFAULT '[]',
+    service_area TEXT,
+    years_in_business INTEGER,
+    crew_size INTEGER,
+    residential_experience TEXT,
+    commercial_experience TEXT,
+    typical_project_size TEXT,
+    availability TEXT,
+    emergency_availability TEXT,
+    license_required INTEGER CHECK(license_required IN (0, 1) OR license_required IS NULL),
+    license_type TEXT,
+    license_number TEXT,
+    license_expiration TEXT,
+    license_status TEXT,
+    general_liability TEXT,
+    workers_comp TEXT,
+    coi_received INTEGER NOT NULL DEFAULT 0 CHECK(coi_received IN (0, 1)),
+    coi_expiration TEXT,
+    additional_insured_status TEXT,
+    insurance_status TEXT,
+    w9_received INTEGER NOT NULL DEFAULT 0 CHECK(w9_received IN (0, 1)),
+    msa_sent INTEGER NOT NULL DEFAULT 0 CHECK(msa_sent IN (0, 1)),
+    msa_signed INTEGER NOT NULL DEFAULT 0 CHECK(msa_signed IN (0, 1)),
+    references_json TEXT NOT NULL DEFAULT '[]',
+    portfolio_url TEXT,
+    qualification_status TEXT NOT NULL DEFAULT 'QUALIFICATION_IN_PROGRESS',
+    recruitment_step TEXT,
+    lead_source TEXT,
+    last_contact_at TEXT,
+    next_followup_at TEXT,
+    contact_attempts INTEGER NOT NULL DEFAULT 0,
+    dnc_status INTEGER NOT NULL DEFAULT 0 CHECK(dnc_status IN (0, 1)),
+    notes TEXT,
+    qualification_data_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- Appointments / Calendar (B2/NEW-209 schema expansion). Field names and
+-- the negotiate-then-confirm lifecycle (status: negotiating -> confirmed)
+-- mirror Aigentik-CLI's calendar.js directly, since Aigentik deliberately
+-- never books unilaterally when a requested slot isn't free -- it proposes
+-- offered_slots and waits for the other party. customer_id is nullable
+-- and only populated when a match to a known Core customer exists.
+CREATE TABLE IF NOT EXISTS appointments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    external_id TEXT UNIQUE,
+    uid TEXT,
+    ics_sequence INTEGER NOT NULL DEFAULT 0,
+    title TEXT NOT NULL,
+    start_time TEXT,
+    end_time TEXT,
+    customer_id INTEGER,
+    contact_external_id TEXT,
+    attendee_name TEXT,
+    attendee_email TEXT COLLATE NOCASE,
+    appointment_type TEXT CHECK(appointment_type IN ('call', 'in_person') OR appointment_type IS NULL),
+    status TEXT NOT NULL DEFAULT 'confirmed' CHECK(status IN ('confirmed', 'negotiating', 'cancelled', 'completed')),
+    rsvp_status TEXT NOT NULL DEFAULT 'pending',
+    offered_slots_json TEXT NOT NULL DEFAULT '[]',
+    requested_datetime TEXT,
+    pending_reschedule_json TEXT,
+    form_sent INTEGER NOT NULL DEFAULT 0 CHECK(form_sent IN (0, 1)),
+    created_via TEXT NOT NULL DEFAULT 'owner',
+    notes TEXT,
+    history_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL
+);
+
+-- Automation Rules (B2/NEW-209 schema expansion). Covers both
+-- email-rules.json and sms-rules.json in one table (identical field
+-- shapes in the source data) distinguished by `channel`. `match_count`
+-- is a simple hit counter Aigentik-CLI increments on every rule match --
+-- deliberately NOT run through the audit log (see automation_service.py)
+-- since that would flood audit_log with a high-frequency, non-business
+-- event on every inbound message.
+CREATE TABLE IF NOT EXISTS automation_rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    external_id TEXT UNIQUE,
+    channel TEXT NOT NULL CHECK(channel IN ('email', 'sms')),
+    description TEXT,
+    condition_type TEXT NOT NULL,
+    condition_value TEXT NOT NULL,
+    action TEXT NOT NULL,
+    added_by TEXT,
+    match_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- Business Profile (B2/NEW-209 schema expansion). Deliberately a
+-- singleton table (id fixed to 1 via CHECK) -- Restoricon has exactly one
+-- business profile, so this models profile.json's single-object shape
+-- rather than allowing multiple rows.
+CREATE TABLE IF NOT EXISTS business_profile (
+    id INTEGER PRIMARY KEY CHECK(id = 1),
+    configured INTEGER NOT NULL DEFAULT 0 CHECK(configured IN (0, 1)),
+    aigentik_name TEXT,
+    agent_name_set INTEGER NOT NULL DEFAULT 0 CHECK(agent_name_set IN (0, 1)),
+    owner_name TEXT,
+    business_name TEXT,
+    business_description TEXT,
+    onboarding_sent INTEGER NOT NULL DEFAULT 0 CHECK(onboarding_sent IN (0, 1)),
+    setup_date TEXT,
+    updated_at TEXT NOT NULL
+);
+
+-- Do-Not-Contact list (B2/NEW-209 schema expansion, DAY-ONE-OR-NEVER
+-- permanent-suppression semantics). UNIQUE(type, value) matches
+-- do-not-contact.js's own idempotent add-refreshes-existing behavior.
+-- SAFETY-RELEVANT: `value` must be stored using the exact same
+-- normalization do-not-contact.js uses (email lowercased+trimmed; phone
+-- reduced to its last 10 digits) or a suppressed contact could be
+-- silently re-contacted because the stored value no longer matches an
+-- inbound identifier -- see automation_service.py's normalize_* helpers,
+-- which must stay byte-for-byte equivalent to the JS versions.
+CREATE TABLE IF NOT EXISTS do_not_contact (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type TEXT NOT NULL CHECK(type IN ('email', 'phone')),
+    value TEXT NOT NULL,
+    original TEXT,
+    name TEXT,
+    reason TEXT,
+    source TEXT,
+    added_at TEXT NOT NULL,
+    UNIQUE(type, value)
+);
+
 -- Activity / Audit Log (DAY-ONE-OR-NEVER, STRICTLY APPEND-ONLY)
 CREATE TABLE IF NOT EXISTS audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -279,6 +428,13 @@ CREATE INDEX IF NOT EXISTS idx_comms_project_id ON communication_history(project
 CREATE INDEX IF NOT EXISTS idx_comms_timestamp ON communication_history(timestamp);
 CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
 CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_subcontractors_external_id ON subcontractors(external_id);
+CREATE INDEX IF NOT EXISTS idx_subcontractors_qualification_status ON subcontractors(qualification_status);
+CREATE INDEX IF NOT EXISTS idx_appointments_customer_id ON appointments(customer_id);
+CREATE INDEX IF NOT EXISTS idx_appointments_start_time ON appointments(start_time);
+CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status);
+CREATE INDEX IF NOT EXISTS idx_automation_rules_channel ON automation_rules(channel);
+CREATE INDEX IF NOT EXISTS idx_dnc_type_value ON do_not_contact(type, value);
 """
 
 _local = threading.local()

@@ -10924,3 +10924,264 @@ finding for the same bug. See `NEW-39`.)*
   inference_hybrid.py::ChatCompletionBackend.infer()` and `core/
   plannd.py::get_plan()` (the two call sites whose `finally`-block
   release timing produces this).
+
+## Found during Phase B2 scoping (§6.4 of `CODEY_MASTER_PLAN.md`) — desk-only, read `~/Aigentik-CLI`'s real code/data and `restoricon_core/`'s real schema, did NOT touch `~/Aigentik-CLI`, NOT fixed, logged only
+
+### [NEW-209] `restoricon_core`'s schema has no table for four of the five real data shapes in `~/Aigentik-CLI/data/*.json` — the plan's "migrate data/*.json into the Core's schema" undersells the actual scope
+
+- **Status:** Confirmed (read `restoricon_core/database.py`'s full
+  `CREATE TABLE` list and `~/Aigentik-CLI/data/*.json`'s real contents
+  directly, per rule 12 — not inferred from the plan's brief description).
+- **Mechanism:** the Core's schema (`restoricon_core/database.py`) has
+  exactly 12 tables: `users`, `api_tokens`, `customers`, `leads`,
+  `opportunities`, `projects`, `estimates`, `contracts`, `documents`,
+  `invoices`, `communication_history`, `audit_log`. Aigentik-CLI's local
+  store is not one file per shape — grepping every `readFileSync`/
+  `writeFileSync` site in the repo (not just `data/`'s current contents)
+  finds **ten call-site modules**, two of which write files that don't
+  exist on disk yet (`do-not-contact.js` → `data/do-not-contact.json`,
+  `queue.js` → `data/pending.json` — both real code paths, just never
+  triggered on this device so far): `contacts.js`, `calendar.js`
+  (`calendar.json` + `schedule-config.json`), `email-rules.js`,
+  `sms-rules.js`, `do-not-contact.js`, `queue.js`,
+  `subcontractor-recruiter.js` (`subcontractors.json`),
+  `customer-module.js` (`customers.json`), and `index.js`/
+  `owner-command.js` (both write `profile.json`, 6 combined call sites).
+  `config.paths.conversations_dir` is configured but referenced by zero
+  `.js` files — dead config, not an active store. Step 3 of Phase B2
+  ("replace local writes with Core API write-through") is scoped
+  per-module, not per-file — the five *shapes* below sit under those ten
+  modules, not the reverse:
+  1. `contacts.json` (200 real records) — a generic rolodex shape
+     (name/aliases/phones/emails/relationship/type/trade/license/
+     insurance/crew_size/history) with **no clean Core table**: it mixes
+     personal contacts and subcontractor-shaped fields in one file, and
+     neither `customers` (which requires split `first_name`/`last_name`
+     and a constrained `status` enum) nor any subcontractor table (there
+     isn't one) fits without translation.
+  2. `customers.json` — Aigentik's own lead/customer pipeline, richer
+     than Core's `customers`+`leads` combined: it carries
+     restoration-specific insurance/claim fields (`insurance_related`,
+     `insurance_company`, `claim_number`, `adjuster`, `incident_date`)
+     and an `escalation_status`/`dnc_status` pair with **no Core column
+     anywhere**.
+  3. `subcontractors.json` — qualification/recruitment pipeline data
+     (license, insurance, `qualification_status`, `recruitment_step`).
+     **The Core schema has no subcontractors table at all** — this is
+     Compliance/Procurement domain territory (plan §6.7, Phase B5a),
+     not yet built.
+  4. `calendar.json` / `schedule-config.json` — appointments and working
+     hours. **The Core schema has no appointments/calendar table at
+     all** — this is Operations/Calendar-Scheduling (plan §6.5, Phase
+     B3), not yet built.
+  5. `email-rules.json` / `sms-rules.json` (automation rules),
+     `profile.json` (business identity), and the Do-Not-Contact list
+     (`do-not-contact.js`'s own store, `data/do-not-contact.json` — a
+     genuinely separate store, not merely the `dnc_status` field already
+     present on `customers.json` records) — **no Core table for any of
+     these three**; rules map conceptually to the not-yet-built
+     Automated Workflows (Phase B3), profile has no
+     `business_profile`-equivalent table in the current schema at all,
+     and DNC has no equivalent list/flag mechanism at the Core level
+     either.
+  Only `contacts.json` and `customers.json` have any partial overlap
+  with existing Core tables (`customers`/`leads`, via
+  `crm_service.py::create_customer()`/`create_lead()`), and even that
+  overlap requires field-level translation, not a straight import.
+- **Impact:** Phase B2's migration step (plan §6.4 step 2) cannot be a
+  single generic "load `data/*.json`, write to Core" script. Only
+  contacts/customers have a real (translated) destination today;
+  subcontractors, calendar/appointments, rules, and profile have none.
+  Either B2's scope narrows to contacts+customers only (deferring the
+  rest until the relevant Core schema exists in later phases), or B2
+  itself must add the missing tables (`subcontractors`, `appointments`,
+  `automation_rules`, `business_profile`) before it can claim a full
+  migration — this is a real scope decision, not an implementation
+  detail, and is called out explicitly in the B2 task list below rather
+  than assumed away.
+- **Not fixed this round** — desk/design scope only, per this round's
+  explicit instruction not to write integration code.
+- **Cross-references:** plan §6.4 (Phase B2), §6.5 (Phase B3, Operations/
+  calendar), §6.7 (Phase B5a, Compliance/subcontractors),
+  `restoricon_core/database.py` (full schema), `restoricon_core/
+  services/crm_service.py` (`create_customer`/`create_lead`, the only
+  two write paths that currently exist for any of this data).
+
+### [NEW-210] `~/Aigentik-CLI/config.json` (gitignored, untracked) holds live plaintext secrets — Gmail app password and a Vertex AI API key — that must never enter the `Codey-Aigentik` fork's git history
+
+- **Status:** Confirmed (read the real, live `config.json` directly).
+- **Mechanism:** `~/Aigentik-CLI/.gitignore` correctly excludes both
+  `config.json` and `data/` from git, and `git ls-files` in
+  `~/Aigentik-CLI` confirms neither is tracked (`config.json.example` —
+  a placeholder — is the only tracked config file, 55 files tracked
+  total). A normal `git clone`/fork of `~/Aigentik-CLI`'s existing
+  history therefore does **not** carry secrets or business data, which
+  is good, but it also means `Codey-Aigentik`'s own eventual working
+  copy needs its own `config.json` created fresh (or copied out-of-band,
+  never committed) — this is a real step B2's task list must call out
+  explicitly, not an outcome of the fork operation itself.
+- **Impact:** none yet — this is a "make sure future work doesn't get
+  this wrong" finding, not an active leak. Flagged so the follow-up
+  implementer round doesn't assume `git clone` alone produces a working
+  `Codey-Aigentik` config.
+- **Not fixed this round** — nothing to fix; `.gitignore` is already
+  correct. Logged per rule 8 as a scope note for the B2 implementation
+  round.
+- **Cross-references:** plan §6.4 (Phase B2), `~/Aigentik-CLI/.gitignore`,
+  `~/Aigentik-CLI/config.json.example`.
+
+### [NEW-211] `~/Aigentik-CLI/config.json`'s local-model port (`llama.host` = `http://127.0.0.1:8080`) is the exact same default port Codey-OS's shared llama-server binds — Phase B2 step 4 ("point at the shared model layer") is a real admission-control fix, not a no-op or a simple config change
+
+- **Status:** Confirmed (read both artifacts directly, per rule 12 — did
+  not assume from either project's docs).
+- **Mechanism:** `~/Aigentik-CLI/llama.js`'s `chatLocal()` POSTs straight
+  to `${config.llama.host}/v1/chat/completions`, and `config.json`'s live
+  value is `http://127.0.0.1:8080`. Codey-OS's own primary server port
+  (`utils/config.py:15`, `PRIMARY_SERVER_PORT = int(os.environ.get(
+  "CODEY_PRIMARY_PORT", "8080"))`) defaults to the identical `8080`. If
+  Codey-OS's daemon already has its shared `llama-server` resident on
+  `:8080` when Aigentik-CLI (or its `Codey-Aigentik` fork) fires a local
+  chat request, `chatLocal()` would silently land on that same real
+  server and get a real response — **but entirely outside
+  `core/resource_gate.py`'s admission control**: no lease acquired, no
+  slot reserved, no participation in the `reserve_context_budget()`/
+  `wait_and_reserve_context_budget()` machinery §8 Q11 just built to
+  prevent exactly the oversubscription failure mode `NEW-206` found
+  (hard failure of concurrent in-flight requests under combined context
+  pressure). A same-port collision that happens to "work" today is not
+  the same thing as being "pointed at the shared model layer" — it's an
+  unmediated bypass of every admission mechanism Phase A1 built.
+- **Impact:** Phase B2's plan-language step 4 ("point its model calls at
+  the shared model layer, a config change") undersells the real work.
+  The correct fix is not editing `config.llama.host` to a different
+  value — it's routing Aigentik-CLI's model calls through whatever
+  admission-aware surface the Core/A1 exposes (a Core API endpoint that
+  itself acquires a lease before proxying to `llama-server`, or an
+  equivalent lease-acquisition step Aigentik-CLI's Node process performs
+  before calling `:8080` directly), so a real inbound-email/SMS handling
+  cycle can't be the concurrent request that reproduces `NEW-206`/
+  `NEW-208`'s known failure modes in production. This is called out
+  explicitly in the B2 task list rather than left as a "config change."
+- **Not fixed this round** — desk/design scope only, per this round's
+  explicit instruction not to write integration code.
+- **Cross-references:** plan §6.4 (Phase B2 step 4), §8 Q11 (the
+  admission-control mechanism this must route through), `NEW-206`/
+  `NEW-208` (the failure modes an unmediated port collision could
+  reproduce), `~/Aigentik-CLI/llama.js::chatLocal()`, `utils/
+  config.py:15` (`PRIMARY_SERVER_PORT`).
+
+## Found during the B2/NEW-209 schema-expansion round (2026-08-27) — building `restoricon_core`'s subcontractors/appointments/automation_rules/business_profile/do_not_contact tables per Ish's decision to expand scope now — code complete + self-tested, NOT yet code-reviewed, NOT committed
+
+### [NEW-212] `customers`/`leads` (and now the five new B2 tables) have no `external_id` column to anchor an idempotent re-run of the future Aigentik-CLI migration script — a real obstacle for B2's data-migration step, not fixed here
+- **Status: Confirmed, not fixed — logged only, out of this round's
+  scope** (this round's task was schema/models/service/RBAC only, not the
+  migration script itself — see plan §6.4 task 3). **Correction, found
+  during the mandatory code-reviewer pass, per rule 6:** this entry
+  originally claimed all five `NEW-209` tables got an `external_id`
+  column — false, confirmed directly against `restoricon_core/database.py`'s
+  actual DDL. Only THREE of the five (`subcontractors`, `appointments`,
+  `automation_rules`) have an `external_id TEXT UNIQUE` column. The other
+  two were a deliberate, defensible design choice, not an oversight:
+  `business_profile` is a singleton (no external key needed — there is
+  only ever one row), and `do_not_contact` uses its own natural
+  idempotency key (`UNIQUE(type, value)`) instead. `customers` and
+  `leads` — the two tables Phase B1 already built, which B2's migration
+  step 3 will also need to write into (`data/contacts.json`,
+  `data/customers.json`) — have no `external_id`-style column at all,
+  and unlike `business_profile`/`do_not_contact`, have no natural
+  alternative idempotency key either.
+- **Impact:** without it, re-running the contacts/customers migration
+  script (e.g. after a partial failure, or to pick up new records) will
+  either silently duplicate every previously-migrated customer/lead, or
+  the migration script will need to do its own fragile match-by-name-and-
+  email de-duplication instead of a simple upsert.
+- **Suggested direction, not applied**: add `external_id TEXT UNIQUE
+  NULLABLE` to `customers` and `leads` before B2's migration script
+  (task 3) is written, so all entities the migration touches share the
+  same idempotency mechanism.
+- **Cross-references:** plan §6.4 (Phase B2 task 3), `restoricon_core/
+  database.py` (`customers`/`leads` DDL, and the five new tables' own
+  `external_id` columns for comparison).
+
+### [NEW-213] Three of the five new B2 tables create a second, non-authoritative representation of data an existing table already denormalizes onto itself
+- **Status: Confirmed, not fixed — logged only, non-blocking; flagged so
+  it isn't silently discovered as "duplication" later and assumed to be
+  an oversight.**
+  - `projects.subcontractors_json` (`database.py`, Phase B1) already
+    stores a denormalized list of subcontractor names per project. The
+    new `subcontractors` table (this round) is the real per-subcontractor
+    record (qualification pipeline, insurance, licensing, etc.) — the two
+    are not meant to be the same thing, but nothing currently keeps
+    `projects.subcontractors_json`'s names in sync with the
+    `subcontractors` table's `company_name`/`id` values. A future round
+    should either populate `projects.subcontractors_json` from real
+    `subcontractors.id` references or replace it with a join table.
+  - `communication_history.channel` already accepts the value
+    `'appointment'` (Phase B1). The new `appointments` table (this round)
+    is the actual appointment record; a `communication_history` row with
+    `channel='appointment'` is presumably meant to log the *event* of an
+    appointment being scheduled/confirmed/cancelled, not duplicate the
+    appointment's own data — but no code in either direction currently
+    creates one from the other.
+- **Suggested direction, not applied**: decide, in whichever round wires
+  B2's write-through replacement (`calendar.js`/`subcontractor-
+  recruiter.js`), whether `communication_history` rows should be emitted
+  automatically from `SchedulingService`/`CRMService`'s subcontractor
+  methods (mirroring `crm_service.py`'s existing audit-log-on-mutation
+  pattern, but for the comms trail instead), and whether
+  `projects.subcontractors_json` should be deprecated in favor of a real
+  foreign-key relationship.
+- **Cross-references:** `restoricon_core/database.py` (`projects.
+  subcontractors_json`, `communication_history.channel` CHECK
+  constraint, and the new `subcontractors`/`appointments` DDL), plan
+  §6.4 (Phase B2 task 4).
+
+### [NEW-214] `ROLE_SALES`/`ROLE_PROJECT_MANAGER` hold `PERM_LOG_COMMUNICATION` but no `PERM_READ_DNC` — the two roles most likely to be about to contact someone can't check `AutomationService.is_blocked()` before doing so
+- **Status: FIXED, same round.** Trivial and obviously-correct given the
+  finding, so fixed directly rather than deferred: `PERM_READ_DNC` and
+  `PERM_READ_AUTOMATION_RULES` added to both `ROLE_SALES`'s and
+  `ROLE_PROJECT_MANAGER`'s grants in `restoricon_core/auth.py`'s
+  `ROLE_PERMISSIONS`. New regression test added,
+  `test_sales_and_project_manager_can_check_is_blocked`
+  (`tests/test_restoricon_core/test_operations_services.py`), confirming
+  both roles can call `is_blocked()` without a `PermissionError`.
+  `tests/test_restoricon_core/`: 38 passed (up from 37).
+- **Original finding, found during the mandatory code-reviewer pass on
+  the B2 schema-expansion round. `AutomationService.is_blocked()`
+  requires `PERM_READ_DNC` before checking whether a contact identifier
+  is on the do-not-contact list. `restoricon_core/auth.py`'s
+  `ROLE_PERMISSIONS` matrix (this same round's own additions) granted
+  `admin`/`manager` the new DNC permissions, but `ROLE_SALES` and
+  `ROLE_PROJECT_MANAGER` — the two roles that already held the
+  pre-existing `PERM_LOG_COMMUNICATION` from Phase B1, i.e. the roles
+  most plausibly about to actually contact a customer or lead — were not
+  given `PERM_READ_DNC` in this round's grants.
+- **Why this is a real gap and not just an unused permission**: a
+  `sales`/`project_manager` actor calling `is_blocked()` before sending
+  an outreach would get a `PermissionError` instead of a real answer,
+  which — depending on how a future caller handles that exception —
+  could either wrongly block a legitimate contact attempt (fails safe)
+  or, worse, get caught by a broad `except`/ignored and silently skip
+  the DNC check entirely (fails unsafe) if a future caller isn't written
+  carefully. Neither outcome is what a day-one-or-never compliance
+  control (per this project's own framing of the Communication History
+  and DNC list) should do.
+- **Not currently live-exploitable** — same "one caller away" shape as
+  `NEW-189`/`NEW-194`: `is_blocked()` has no caller anywhere yet, and
+  `restoricon_core/api/` (the HTTP layer) was not touched this round, so
+  none of this round's new services are reachable outside direct Python
+  calls (e.g. from tests). The gap is real but dormant until B2's
+  write-through-replacement step (task 4, wiring `Codey-Aigentik`'s own
+  `calendar.js`/outreach code to call the Core) gives it a live caller.
+- **Not fixed this round** — logging only, per rule 8, exactly the
+  category this finding itself is about (a permission-matrix gap found
+  by reading, before it became reachable, rather than after).
+- **Fix direction**: add `PERM_READ_DNC` (and likely `PERM_READ_
+  AUTOMATION_RULES`, for the same "about to act on communication rules"
+  reasoning) to `ROLE_SALES`/`ROLE_PROJECT_MANAGER`'s grants in
+  `ROLE_PERMISSIONS`, before B2's task 4 gives `is_blocked()` a real
+  caller.
+- **Cross-references:** `NEW-189`/`NEW-194` (the same "gap found before
+  a live caller exists" shape from Phase B1's own review), `restoricon_
+  core/auth.py`'s `ROLE_PERMISSIONS` matrix, `restoricon_core/services/
+  automation_service.py::is_blocked()`.

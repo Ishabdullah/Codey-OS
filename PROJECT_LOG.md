@@ -12,7 +12,290 @@ and Appendix A.
 
 ---
 
-## 2026-08-27 (latest) — §8 Q11 / `NEW-206` fix: mandatory rule-4 code-reviewer pass CHANGES REQUESTED (logging-only requirement), `NEW-208` logged
+## 2026-08-27 (latest) — Phase B2 schema expansion: mandatory rule-4 code-reviewer pass CHANGES REQUESTED, required items fixed same round — now APPROVED
+
+Mandatory rule-4 review of the B2 schema/models/services/RBAC round
+(5 new `restoricon_core` tables, 3 new/extended services, 10 new
+permissions) came back CHANGES REQUESTED, with the required items
+fixed in the same round rather than deferred.
+
+**Verified clean, independently:** every new/extended service method
+gates on `has_permission()` before any DB access, with the correct
+read/write constant in every case; `business_profile`'s singleton
+constraint genuinely prevents a second row; `do_not_contact`'s
+`UNIQUE(type, value)` + normalize-before-insert is genuinely idempotent
+— confirmed against `~/Aigentik-CLI/do-not-contact.js`'s actual source,
+not just the Python port's own docstring claim; `external_id`'s
+nullable `UNIQUE` correctly permits multiple `NULL`s; all new queries
+parameterized; every mutation audit-logged except the one documented
+exception (`record_rule_match()`); `ai_agent`'s full 10-permission
+grant applied consistently with no broadening leak. Full suite
+independently reproduced: `tests/test_restoricon_core/` 37 passed,
+full suite 753 passed/1 skipped.
+
+**One doc-accuracy defect, fixed:** `NEW-212`'s entry wrongly claimed
+all five new tables got an `external_id` column. Corrected — only
+three do (`subcontractors`, `appointments`, `automation_rules`);
+`business_profile` (a singleton) and `do_not_contact` (its own
+`UNIQUE(type, value)` key) have their own natural idempotency
+mechanisms instead, a defensible design choice, not an oversight the
+correction needed to walk back.
+
+**One real permission gap, fixed:** `ROLE_SALES`/`ROLE_PROJECT_MANAGER`
+held `PERM_LOG_COMMUNICATION` (the roles most plausibly about to
+actually contact someone) but no `PERM_READ_DNC`, meaning they could
+not call `AutomationService.is_blocked()` before doing so. Not
+live-exploitable yet (no caller exists until B2 task 4 wires
+`Codey-Aigentik`'s outreach code to the Core), but fixed immediately —
+`PERM_READ_DNC` and `PERM_READ_AUTOMATION_RULES` added to both roles'
+grants in `restoricon_core/auth.py`. Logged as `NEW-214`, marked FIXED
+same round with a new regression test,
+`test_sales_and_project_manager_can_check_is_blocked`
+(`tests/test_restoricon_core/test_operations_services.py`) — confirms
+both roles can call `is_blocked()` without a `PermissionError`. (One
+self-inflicted hiccup during this fix: the first edit attempt
+accidentally split an existing test's body across two functions —
+caught immediately by re-running the suite, fixed before it went
+anywhere.)
+
+**Three non-blocking items flagged for later, not required this
+round**: `update_subcontractor_qualification()`/`update_appointment_
+status()` re-check READ permission on their trailing `get_*()` call
+rather than reusing the write result (latent — no role currently has
+WRITE without READ for these two); `add_to_do_not_contact()` returns
+`None` silently on an unparseable identifier rather than raising,
+unlike its sibling create methods; `subcontractors.qualification_
+status` has no `CHECK` constraint unlike `appointments.status`/
+`automation_rules.channel`.
+
+**Verification after both fixes**: `tests/test_restoricon_core/` —
+**38 passed** (up from 37); full repo suite (`--ignore=tests/
+test_restoricon_core` + `test_restoricon_core/` separately, matching
+this project's own established split-verification pattern) — **716
+passed, 1 skipped** + **38 passed** = **754 passed, 1 skipped** total.
+
+**Status: this round's B2 schema/models/services/RBAC work is now
+code-complete, code-reviewer-approved, NOT live-verified** (no live
+component by design). Ready to commit.
+
+Files touched: `restoricon_core/auth.py`,
+`tests/test_restoricon_core/test_operations_services.py`,
+`NEW_ISSUES.md`, `CODEY_MASTER_PLAN.md`.
+
+---
+
+## 2026-08-27 — Phase B2 fork-creation DONE; `NEW-209`'s schema-gap decision resolved by Ish (expand scope, option (a)); `restoricon_core` schema/models/services/RBAC built for all 5 Aigentik-CLI data shapes — code-complete + self-tested, code-reviewer pass still pending
+
+Two updates on top of the prior round's scoping (below): (1) the
+`Codey-Aigentik` fork now exists and is pushed (`~/Codey-Aigentik`,
+`origin` = `Codey-Aigentik.git`, `upstream` = `Aigentik-CLI.git`,
+tracking `origin/main`, clean working tree) — this closes the
+fork-creation step of B2's task list; (2) Ish decided `NEW-209`'s open
+schema-gap question by choosing to expand `restoricon_core`'s schema to
+cover all five of Aigentik-CLI's real data shapes now, not narrow B2 to
+CRM-only as the prior scoping round itself preferred.
+
+Read `~/Codey-Aigentik`'s real code (identical content to
+`~/Aigentik-CLI`) and `~/Aigentik-CLI/data/*.json` directly for the three
+previously-missing shapes — `subcontractors.json` (49-field
+per-subcontractor qualification record), `calendar.js`'s
+`createAppointment()`/`proposeAppointment()` shape (negotiate-then-
+confirm lifecycle, `calendar.json` itself empty at read time),
+`profile.json` (singleton business identity), `email-rules.json`/
+`sms-rules.json` (identical shape, channel-distinguished), and
+`do-not-contact.js`'s idempotent add/remove/classify logic (email
+lowercase+trim, phone last-10-digits normalization) — per rule 12,
+before designing anything.
+
+**Built (code-complete, self-tested — did NOT touch `~/Codey-Aigentik`/
+`~/Aigentik-CLI` themselves, per this round's explicit scope; did NOT
+commit, per rule 4 — auth/RBAC changes require code-reviewer approval
+first):**
+- `restoricon_core/database.py` — 5 new tables: `subcontractors`,
+  `appointments`, `automation_rules`, `business_profile` (singleton, `id`
+  fixed to 1 via CHECK), `do_not_contact` (`UNIQUE(type, value)`,
+  idempotent-add semantics). All five carry an `external_id TEXT UNIQUE`
+  column for future idempotent migration — `customers`/`leads` don't have
+  one, logged as `NEW-212`.
+- `restoricon_core/models.py` — 5 new dataclasses matching the tables:
+  `Subcontractor`, `Appointment`, `AutomationRule`, `BusinessProfile`,
+  `DoNotContactEntry`.
+- `restoricon_core/services/crm_service.py` — extended with
+  `create_subcontractor()`/`get_subcontractor()`/`list_subcontractors()`/
+  `update_subcontractor_qualification()`.
+- `restoricon_core/services/scheduling_service.py` (new) —
+  `create_appointment()`/`get_appointment()`/`list_appointments()`/
+  `update_appointment_status()`.
+- `restoricon_core/services/automation_service.py` (new) —
+  automation-rule create/list, `record_rule_match()` (deliberately not
+  audit-logged — a high-frequency counter increment, not a business
+  event, see its docstring), business-profile get/upsert (real SQLite
+  upsert via `ON CONFLICT`), do-not-contact add/remove/`is_blocked()`/
+  list with normalization pinned to match `do-not-contact.js` exactly
+  (email lowercase+trim; phone last 10 digits) — flagged safety-relevant
+  in both the DDL comment and the code, since a mismatch would mean a
+  suppressed contact could silently be re-contacted.
+- `restoricon_core/auth.py` — 10 new permissions
+  (`PERM_READ/WRITE_SUBCONTRACTORS`/`_APPOINTMENTS`/
+  `_AUTOMATION_RULES`/`_BUSINESS_PROFILE`/`_DNC`). Granted: admin/manager
+  (all 10), sales (read subcontractors, read+write appointments),
+  project_manager (read+write subcontractors, read+write appointments),
+  `ai_agent` (all 10 — it's the actual actor identity B2's write-through
+  replacement will authenticate as). Deliberately withheld from
+  `technician` and `customer` entirely — all five resources are
+  internal-only with no legitimate customer-facing read path, which
+  avoids `NEW-194`'s exact bug shape (a `has_permission()` gate present
+  but the narrowing logic below it keyed on `actor.role` identity instead
+  of the permission held) by construction rather than writing new
+  role-keyed narrowing branches that could drift the same way.
+- Every new method gates on `has_permission()` before touching the
+  database, verified proactively (not found later by review, per this
+  round's own instruction): `tests/test_restoricon_core/
+  test_operations_services.py` (new, 26 tests) includes a
+  `ZeroPermissionActor` (has_permission() returns False
+  unconditionally, same reproduction shape `NEW-189`'s review used)
+  parametrized across every new public method, plus lifecycle tests for
+  each service and a normalization-pinning test.
+  `test_database.py`'s `expected_tables` extended with the 5 new names.
+
+**Test results (real, verbatim counts):**
+- `tests/test_restoricon_core/` alone: **37 passed** (prior baseline: 11).
+- Full suite in one invocation, `python -m pytest tests/ -q`:
+  **753 passed, 1 skipped**.
+- Split the way the prior `NEW-189` round ran it (for direct
+  comparability): `--ignore=tests/test_resource_gate.py` →
+  **539 passed, 1 skipped**; `tests/test_resource_gate.py` alone →
+  **214 passed**. Sums match the combined-invocation total.
+
+**Two new findings logged (`NEW_ISSUES.md`), neither fixed this round,
+neither blocking:**
+- `NEW-212` — `customers`/`leads` have no `external_id` column, unlike
+  the five tables built this round; a real obstacle for B2's own
+  future migration script's idempotency.
+- `NEW-213` — `projects.subcontractors_json` and
+  `communication_history.channel='appointment'` (both Phase B1) now
+  partially overlap with the new `subcontractors`/`appointments` tables;
+  nothing currently keeps them in sync; flagged so it isn't mistaken for
+  an oversight later.
+
+**Status: code-complete, self-tested. NOT code-reviewed. NOT committed.**
+This round touches `restoricon_core/auth.py`'s RBAC matrix directly (new
+permissions, new role grants) — per rule 4 and this project's own B1
+precedent (`NEW-189`'s mandatory confirmatory review), it needs its own
+code-reviewer pass before it can be committed or treated as done for
+this phase. `git status` confirms `restoricon_core/`,
+`tests/test_restoricon_core/` remain fully untracked/uncommitted, same
+as B1's own state — consistent with "don't commit," not a new gap.
+
+**Explicitly out of scope this round, not done:** `~/Codey-Aigentik`/
+`~/Aigentik-CLI` untouched; no migration script written; no new API
+routes added to `restoricon_core/api/routes.py` (B2 task list item 4 now
+needs new routes too, noted in `CODEY_MASTER_PLAN.md` §6.4); no
+customer-facing read path for any of the five new resources.
+
+`CODEY_MASTER_PLAN.md` §4.5, §6.4, and Appendix A's B2 entry updated to
+reflect the fork-creation completion, Ish's resolved schema-scope
+decision, and this round's build.
+
+---
+
+## 2026-08-27 — Phase B2 (§6.4) scoped, not implemented: `NEW-209`/`NEW-210`/`NEW-211` found, exit-criterion decision escalated to Ish
+
+Desk-only scoping round, no code written, `~/Aigentik-CLI` read but not
+touched (per this project's own rule it stays untouched). Read
+`~/Aigentik-CLI`'s real code/data (Node.js/ES-modules, `git remote
+origin` = `https://github.com/Ishabdullah/Aigentik-CLI.git`, local
+`main` 0 ahead/0 behind `origin/main`, 55 tracked files, `config.json`
+and `data/` correctly gitignored — no secrets in git history) and
+`restoricon_core/`'s real schema (`database.py`'s 12 `CREATE TABLE`
+statements, `crm_service.py`'s method list), per rule 12.
+
+**Three findings logged, none fixed this round (desk-only, no code
+changes made):**
+- **`NEW-209`** — the plan's "migrate `data/*.json` (contacts, calendar,
+  rules, profile)" undersells the real scope. Grepping every
+  `readFileSync`/`writeFileSync` site (not just `data/`'s current file
+  list) found **ten write-site modules** across five underlying data
+  shapes: contacts, customers (Aigentik's own lead/customer pipeline,
+  richer than Core's `customers`+`leads`), subcontractors, calendar/
+  scheduling, and a "rules+profile+DNC" group (automation rules,
+  business identity, Do-Not-Contact — three separate stores). The
+  Core's 12-table schema has a destination for only two of the five
+  (contacts, customers — both partial fits, via `crm_service.py`'s
+  `create_customer()`/`create_lead()`); subcontractors, calendar/
+  appointments, automation rules, business profile, and DNC have **no
+  Core table at all**.
+- **`NEW-210`** — `~/Aigentik-CLI/config.json` (gitignored, untracked)
+  holds live plaintext secrets (a Gmail app password, a Vertex AI API
+  key). Confirmed the clone carries none of it (`.gitignore` already
+  correct), but flagged so the implementation round doesn't assume
+  `git clone` alone produces a working `Codey-Aigentik` config.
+- **`NEW-211`** — Aigentik-CLI's local-model URL
+  (`http://127.0.0.1:8080`, `llama.js::chatLocal()`) is the exact same
+  default port as Codey-OS's own `PRIMARY_SERVER_PORT` (`utils/
+  config.py:15`). A same-port collision that happens to return a real
+  response is not the same as being admission-gated — it would bypass
+  `core/resource_gate.py`'s lease/slot mechanism and §8 Q11's new
+  `reserve_context_budget()` machinery entirely. Phase B2's step 4
+  ("point at the shared model layer, a config change") is a real
+  admission-gate design item, not a hostname edit.
+
+**Open decision escalated to Ish, not resolved here:** B2's own stated
+exit criterion ("the fork runs with no local data store") is not
+achievable without a scope call, per `NEW-209` — either (a) B2 also
+builds the four missing Core tables (subcontractors, appointments,
+automation_rules, business_profile), absorbing B3/B5a schema work into
+a round scoped as data/API integration, or (b) B2's exit criterion
+narrows to "no local *CRM* data store" (contacts+customers migrate,
+comms write through, the other four stores stay local with an explicit
+deferral pointer to B3/B5a) and the plan's stated criterion is corrected
+to say so. This round's own preference is (b), on this project's
+documented repeat failure mode of scope absorption across rounds — not
+a recommendation binding without Ish's sign-off.
+
+**Fork-creation sequence determined, NOT executed** (per this round's
+explicit scope — real git history outside this project's directory).
+Destination repo `https://github.com/Ishabdullah/Codey-Aigentik` was
+created empty by Ish mid-round; commands finalized against the real
+URL:
+```
+git clone https://github.com/Ishabdullah/Aigentik-CLI.git ~/Codey-Aigentik
+cd ~/Codey-Aigentik
+git remote rename origin upstream
+git remote add origin https://github.com/Ishabdullah/Codey-Aigentik.git
+git push -u origin main
+```
+Clones from Aigentik-CLI's real GitHub remote (not the local directory)
+so `upstream` tracks Ish's future pushes, matching §3.4's "upstream
+fixes pulled via `git fetch upstream`" language. Awaiting go-ahead to
+execute.
+
+Also confirmed during scoping: A1's lease/registry item is CLOSED and
+code-reviewer-approved at HEAD, so step 4's stated dependency is
+actually satisfied (independent of `NEW-211`'s finding about what step 4
+actually requires); `restoricon_core/api/routes.py` already exposes
+`POST /api/v1/communications`, so no new Core route is needed for step
+3's comms write-through; `auth.py` already has `create_user()`/
+`create_token()` and `ROLE_AI_AGENT`, so the auth-provisioning sub-step
+(new, not in the plan's original four steps — needed before write-through
+can authenticate) needs no new Core-side code, only provisioning +
+config.
+
+Full ordered task list (5 steps: fork creation, auth provisioning, data
+migration, per-module write-through replacement, model-layer repoint)
+and the rule-4 boundary check (B2 itself is not process-supervision
+work; only a hypothetical start/stop sequencing change inside task 5
+would cross into rule-4 territory) are recorded in `CODEY_MASTER_PLAN.md`
+§6.4's own updated entry, not restated here.
+
+**Not live-verified — no live component; this was a desk/design round
+by explicit instruction.** `CODEY_MASTER_PLAN.md` §4.5 (corrected, was
+stale pre-B1) and §6.4, Appendix A's B2 line, and `NEW_ISSUES.md`
+(`NEW-209`/`NEW-210`/`NEW-211`) all updated this round.
+
+---
+
+## 2026-08-27 — §8 Q11 / `NEW-206` fix: mandatory rule-4 code-reviewer pass CHANGES REQUESTED (logging-only requirement), `NEW-208` logged
 
 Ran the mandatory rule-4 code-reviewer pass on the prior round's
 context-budget admission+queue implementation (a second attempt — the

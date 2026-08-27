@@ -28,6 +28,11 @@ def test_database_initialization_in_memory():
         "invoices",
         "communication_history",
         "audit_log",
+        "subcontractors",
+        "appointments",
+        "automation_rules",
+        "business_profile",
+        "do_not_contact",
     }
     
     assert expected_tables.issubset(tables)

@@ -905,9 +905,115 @@ a test-isolation gap, not a regression.
 
 ### 4.5 Business layer
 
-**Nothing is built.** `~/restoricon` is a static marketing site with
-`mailto:` lead forms. No Core, no API, no auth, no portal, no forks
-created. Everything in §3.3–§3.6 is DESIGNED.
+**Updated 2026-08-27.** Phase B1 (Restoricon Core: schema, API, auth) is
+code-complete (see §6.3's full entry) — "nothing is built" no longer
+describes the Core. `~/restoricon` is still a static marketing site with
+`mailto:` lead forms, and the phone-hosted site/portal (B4) is untouched.
+
+**Phase B2 fork-creation step is DONE.** The `Codey-Aigentik` fork
+(`~/Codey-Aigentik`) now exists: `origin` =
+`https://github.com/Ishabdullah/Codey-Aigentik.git`, `upstream` =
+`https://github.com/Ishabdullah/Aigentik-CLI.git`, pushed, tracking
+`origin/main`, working tree clean. This was previously scoped-but-not-
+executed (2026-08-27 scoping pass, see §6.4); it is now executed. The
+remaining B2 steps (auth provisioning, data migration, write-through
+replacement, model-layer repoint) are NOT started.
+
+**`NEW-209`'s schema-gap open decision is RESOLVED — Ish chose to expand
+scope, not narrow it (2026-08-27).** Rather than narrowing B2's exit
+criterion to contacts+customers only (the scoping round's own stated
+preference), Ish decided to build all five of Aigentik-CLI's real data
+shapes into `restoricon_core`'s schema now: subcontractors, appointments/
+calendar, automation rules (email+SMS), business profile, and
+do-not-contact — not deferred to B3/B5a. **Built this round (code-
+complete + self-tested, NOT yet code-reviewed, NOT committed — auth/RBAC
+changes require the mandatory code-reviewer pass per rule 4 before any
+commit):**
+- `restoricon_core/database.py`: 5 new tables (`subcontractors`,
+  `appointments`, `automation_rules`, `business_profile`,
+  `do_not_contact`), all with `external_id` columns for future
+  idempotent migration (see `NEW-212` — `customers`/`leads` lack this).
+- `restoricon_core/models.py`: 5 new dataclasses (`Subcontractor`,
+  `Appointment`, `AutomationRule`, `BusinessProfile`,
+  `DoNotContactEntry`).
+- `restoricon_core/services/crm_service.py`: extended with
+  `create_subcontractor()`/`get_subcontractor()`/`list_subcontractors()`/
+  `update_subcontractor_qualification()`.
+- `restoricon_core/services/scheduling_service.py` (new file):
+  `create_appointment()`/`get_appointment()`/`list_appointments()`/
+  `update_appointment_status()`, mirroring `calendar.js`'s negotiate-
+  then-confirm lifecycle.
+- `restoricon_core/services/automation_service.py` (new file):
+  automation-rule CRUD + `record_rule_match()` (deliberately not
+  audit-logged — see its docstring), singleton business-profile
+  get/upsert, and do-not-contact add/remove/check/list with
+  normalization pinned to match `do-not-contact.js`'s own
+  email-lowercase/phone-last-10-digits logic exactly.
+- `restoricon_core/auth.py`: 10 new permissions (`PERM_READ/WRITE_
+  SUBCONTRACTORS`, `_APPOINTMENTS`, `_AUTOMATION_RULES`,
+  `_BUSINESS_PROFILE`, `_DNC`), granted to admin/manager (all),
+  sales/project_manager (partial, role-appropriate), `ai_agent` (all —
+  it's the actual B2 write-through actor for these five modules),
+  nothing to `technician`/`customer` (all five are internal-only data,
+  deliberately avoiding `NEW-194`'s "gate exists but narrowing logic is
+  role-keyed, not permission-keyed" bug shape by construction rather than
+  writing new customer-scoped narrowing branches).
+- Tests: `tests/test_restoricon_core/test_operations_services.py` (new,
+  26 tests) plus `test_database.py`'s `expected_tables` extended.
+  `tests/test_restoricon_core/`: **37 passed** (up from the prior
+  11-test baseline). Full suite: `python -m pytest tests/ -q` —
+  **753 passed, 1 skipped**; split as the prior NEW-189 round ran it,
+  `--ignore=tests/test_resource_gate.py` — **539 passed, 1 skipped** —
+  plus `tests/test_resource_gate.py` alone — **214 passed** — same total.
+- Two new findings logged, not fixed: `NEW-212` (`customers`/`leads`
+  lack an `external_id` column, an obstacle for B2's own migration step),
+  `NEW-213` (three of the five new tables create a second representation
+  of data an existing table already denormalizes — `projects.
+  subcontractors_json`, `communication_history.channel='appointment'`).
+- **NOT done this round, explicitly out of scope**: `~/Codey-Aigentik`/
+  `~/Aigentik-CLI` were not touched; no migration script was written; no
+  new API routes were added (routes.py extension stays `NEW-193`'s own
+  separate scope); customer-facing read paths for any of the five new
+  resources were deliberately not built this round.
+
+**Mandatory rule-4 code-reviewer pass, 2026-08-27: CHANGES REQUESTED,
+required items fixed same round — now code-reviewer-approved.** Reviewer
+independently verified every new/extended service method gates on
+`has_permission()` before any DB access with the correct read/write
+constant; the `business_profile` singleton constraint genuinely prevents
+a second row; `do_not_contact`'s `UNIQUE(type, value)` + normalize-
+before-insert is genuinely idempotent (confirmed against `~/Aigentik-CLI/
+do-not-contact.js`'s own source, not just the Python port's docstring
+claim); `external_id`'s nullable `UNIQUE` correctly permits multiple
+`NULL`s; all new queries are parameterized; every mutation is
+audit-logged except the one documented, tested exception
+(`record_rule_match()`); `ai_agent`'s full grant is applied consistently
+with no broadening leak. Full suite independently reproduced: `tests/
+test_restoricon_core/` 37 passed, full suite 753 passed/1 skipped.
+**One doc-accuracy defect, fixed same round**: `NEW-212`'s entry wrongly
+claimed all five new tables got an `external_id` column — corrected
+(only three do; `business_profile`/`do_not_contact` have their own
+natural idempotency keys instead, a defensible design choice, not an
+oversight). **One real permission gap, fixed same round**: `ROLE_SALES`/
+`ROLE_PROJECT_MANAGER` held `PERM_LOG_COMMUNICATION` (i.e. are the roles
+most plausibly about to contact someone) but no `PERM_READ_DNC`, meaning
+they couldn't call `AutomationService.is_blocked()` before doing so —
+not live-exploitable yet (no caller exists until B2 task 4), but fixed
+immediately rather than left dormant; logged as `NEW-214`, now marked
+FIXED with a new regression test
+(`test_sales_and_project_manager_can_check_is_blocked`). Full suite after
+both fixes: `tests/test_restoricon_core/` **38 passed**; full repo suite
+**754 passed, 1 skipped**. Three non-blocking items flagged for later,
+not required this round: `update_subcontractor_qualification()`/
+`update_appointment_status()` re-check READ permission on their trailing
+`get_*()` call rather than reusing the write result (latent — no role
+currently has WRITE without READ for these); `add_to_do_not_contact()`
+returns `None` silently on an unparseable identifier instead of raising,
+unlike its sibling create methods; `subcontractors.qualification_status`
+has no `CHECK` constraint unlike `appointments.status`/`automation_
+rules.channel`. **Status: code-complete, code-reviewer-approved, NOT
+live-verified** (no live component by design — schema/service/RBAC
+work, not a model-load or process-lifecycle change).
 
 ---
 
@@ -2102,6 +2208,153 @@ where model calls are involved.
 **Exit criteria:** the fork runs with no local data store, an inbound
 email produces a Communication History record in the Core, and an
 owner-command roundtrip works end to end.
+
+**Scoped 2026-08-27 (desk-only — no code written, `~/Aigentik-CLI`
+untouched, per this project's own rule that it is never modified):**
+read `~/Aigentik-CLI`'s real code and data (a Node.js/ES-modules CLI,
+`git remote origin` already `https://github.com/Ishabdullah/
+Aigentik-CLI.git`, local `main` even with `origin/main` — 0 ahead/0
+behind) and `restoricon_core/`'s real schema directly, per rule 12.
+
+**RESOLVED 2026-08-27 — Ish chose option (a): expand the schema, not
+narrow the round.** Rather than the scoping round's own stated
+preference (option (b), narrowing B2's exit criterion to contacts+
+customers only), Ish decided `restoricon_core`'s schema should cover all
+five of Aigentik-CLI's real data shapes now. The schema/models/service/
+RBAC build for the four previously-missing shapes (subcontractors,
+appointments/calendar, automation rules, business profile+DNC) is
+code-complete and self-tested as of 2026-08-27 — see §4.5's full entry
+for exactly what was built, the test numbers, and the two new findings
+(`NEW-212`, `NEW-213`) it surfaced. **Still pending a mandatory
+code-reviewer pass (rule 4 — this touches auth/RBAC) before it can be
+committed or treated as done for this phase.** The original open-decision
+framing below is left in place as the historical record of the question
+Ish resolved, not as still-open.
+
+**Original open decision (RESOLVED above, kept for context):** `NEW-209`
+found the local store is ten
+write-site modules (`contacts.js`, `calendar.js`, `email-rules.js`,
+`sms-rules.js`, `do-not-contact.js`, `queue.js`,
+`subcontractor-recruiter.js`, `customer-module.js`, `index.js`/
+`owner-command.js`), not the plan's brief "contacts, calendar, rules,
+profile," and `restoricon_core/database.py`'s 12 tables have a
+destination for only two of the five underlying data shapes — contacts
+(partial fit) and customers (partial fit, via `crm_service.py`'s
+`create_customer()`/`create_lead()`). Subcontractors, calendar/
+appointments, automation rules, business profile, and the Do-Not-Contact
+list have **no Core table at all**. Two options, not resolved here:
+(a) B2 also adds the four missing tables, absorbing B3/B5a schema work
+into a round scoped as data/API integration; (b) B2's exit criterion
+narrows to "no local *CRM* data store" — contacts+customers migrate,
+comms write through, the other four stores stay local with an explicit
+deferral pointer to B3 (calendar/rules)/B5a (subcontractors) — and the
+plan's stated exit criterion is corrected to say so rather than marked
+met on a narrower result. No recommendation is binding without Ish's
+sign-off; the scoping round's own preference is (b), on this project's
+documented pattern that absorbing adjacent-phase scope into one round is
+this project's repeat failure mode, not (a)'s specific content.
+
+**Fork creation DONE, 2026-08-27.** `~/Codey-Aigentik` exists: `origin` =
+`https://github.com/Ishabdullah/Codey-Aigentik.git`, `upstream` =
+`https://github.com/Ishabdullah/Aigentik-CLI.git`, pushed to `origin`,
+tracking `origin/main`, working tree clean. The sequence run (recorded
+here for reference, no longer a to-do):
+```
+git clone https://github.com/Ishabdullah/Aigentik-CLI.git ~/Codey-Aigentik
+cd ~/Codey-Aigentik
+git remote rename origin upstream
+git remote add origin https://github.com/Ishabdullah/Codey-Aigentik.git
+git push -u origin main
+```
+Cloned from Aigentik-CLI's real GitHub remote (confirmed even with local
+`main`), not the local `~/Aigentik-CLI` directory, so `upstream` tracks
+Ish's future pushes to the public repo the way "upstream fixes pulled
+via `git fetch upstream`" (§3.4) intends. `git ls-files` in
+`~/Aigentik-CLI` confirms `config.json` and `data/` are both correctly
+gitignored/untracked (55 tracked files, no secrets) — the clone carries
+no secrets or business data, but also means `Codey-Aigentik`'s own
+`config.json` needs to be created fresh in its working copy, never
+committed (`NEW-210`).
+
+**Step 4 is not a simple config change (`NEW-211`):** Aigentik-CLI's
+`chatLocal()` (`llama.js`) already POSTs to `http://127.0.0.1:8080`,
+which is Codey-OS's own `PRIMARY_SERVER_PORT` default (`utils/
+config.py:15`) — the same port. A same-port collision that happens to
+return a real response is not the same as being admission-gated: it
+bypasses `core/resource_gate.py`'s lease/slot mechanism and §8 Q11's new
+`reserve_context_budget()` machinery entirely, built specifically to
+prevent `NEW-206`'s oversubscription failure. Step 4's real content is
+routing Aigentik-CLI's model calls through an admission-aware path (a
+Core API endpoint that itself leases before proxying, or a
+lease-acquisition step in Aigentik-CLI's own process before it calls
+`:8080`), not editing a hostname. A1's lease/registry item is confirmed
+CLOSED and code-reviewer-approved at HEAD (§6.2's "Remaining Phase A1
+items" table), so the dependency this step needs is actually satisfied.
+
+**Ordered task list for the follow-up implementation round** (pending
+Ish's answer on the exit-criterion question above; assumes option (b)
+below, adjust if (a) is chosen):
+
+1. **Fork creation — DONE, 2026-08-27** (see above).
+2. **Auth provisioning** (not in the plan's four steps, but required
+   before step 3 can write anything): create an `ai_agent`-role user +
+   token in the Core (`auth.py`'s existing `create_user()`/
+   `create_token()`, `ROLE_AI_AGENT` already defined), add a `core_api`
+   block (base URL + token) to `Codey-Aigentik`'s own `config.json`
+   (gitignored, per `NEW-210`) — no Core-side code change needed, this
+   is provisioning + config only. Confirmed the API already exposes
+   `POST /api/v1/communications` (`restoricon_core/api/routes.py:211`)
+   for step 3's comms write-through — no new route needed there.
+3. **Data migration — SCOPE EXPANDED per Ish's option (a) decision
+   (2026-08-27):** now that `restoricon_core` has all five schema
+   destinations (§4.5), the migration script should cover
+   `data/contacts.json` (200 records), `data/customers.json`,
+   `data/subcontractors.json`, `data/calendar.json` (currently empty —
+   nothing to migrate yet, but the destination now exists),
+   `data/email-rules.json`/`data/sms-rules.json`, `data/profile.json`,
+   and a `data/do-not-contact.json` if one exists at migration time —
+   translating each into the matching `restoricon_core.models` dataclass
+   (`Customer`/`Lead`, `Subcontractor`, `Appointment`, `AutomationRule`,
+   `BusinessProfile`, `DoNotContactEntry`) field-by-field, populating
+   each new table's `external_id` from Aigentik's own string ID so the
+   script is re-runnable (`customers`/`leads` have no such column yet —
+   see `NEW-212`), calling the matching service's create/upsert method
+   over the Core API. Not written this round — schema/models/service/RBAC
+   only, per this round's own scope.
+4. **Write-through replacement**, per module, not per file — all ten
+   modules from `NEW-209` now have a Core destination and are in scope:
+   `contacts.js`/`customer-module.js` write through to the Core's
+   customer/lead endpoints; every inbound/outbound email and SMS handling
+   path (`email-provider.js`, `gmail.js`, `index.js`'s Google Voice
+   handling) calls `POST /api/v1/communications`; `calendar.js` writes
+   through to the new appointments endpoints; `email-rules.js`/
+   `sms-rules.js` write through to the new automation-rules endpoints;
+   `do-not-contact.js` writes through to the new do-not-contact
+   endpoints; `subcontractor-recruiter.js` writes through to the new
+   subcontractor endpoints. **Note:** `restoricon_core/api/routes.py`
+   currently has no routes for any of the five new resources
+   (`NEW-193`'s write-only-routes gap applies here too) — adding them is
+   part of this step, not assumed already done by this round's schema
+   work.
+5. **Model-layer repoint**: replace `chatLocal()`'s direct `fetch` to
+   `:8080` with a call through whatever admission-aware surface A1's
+   lease/registry exposes for external callers — this needs its own
+   design pass (not just a URL edit) since no such external-caller
+   surface has been designed yet; flagged as a real open design item for
+   the implementation round, not assumed solved by this scoping pass.
+
+**Rule 4 relevance — checked, mostly does not apply:** B2 itself is
+data/API integration, not process supervision. It does not touch
+`ccos/core/plugin_manager.py` (the `external_process` supervision
+plumbing §3.4 describes is explicitly separate work, §6.8's Phase A2,
+"does not exist yet"), and does not touch `~/Aigentik-CLI`'s own
+`start.sh`/`stop.sh`. **The one part that could cross into rule-4
+territory:** if task 5 (model-layer repoint) ends up requiring a
+start/stop sequencing change so `Codey-Aigentik`'s process launch
+doesn't race the shared `llama-server`'s own admission state, that
+specific change is process-lifecycle and needs its own mandatory
+code-reviewer pass — called out here so the implementer doesn't cross
+that line unnoticed.
 
 ### 6.5 Track B / Phase B3 — CRM/Sales and Operations
 
@@ -3615,6 +3868,25 @@ Then:
 - [x] **B1** — Communication History + Audit Log (day-one-or-never, code-complete; append-only verified).
 - [ ] **B2** — create `Codey-Aigentik` fork; migrate `data/*.json` into
       the Core; write-through; point at the shared model layer.
+      **Fork creation DONE 2026-08-27** (`~/Codey-Aigentik`, origin/
+      upstream set, pushed, tracking `origin/main`). **`NEW-209`'s
+      schema-gap decision RESOLVED 2026-08-27 — Ish chose to expand
+      scope**: `restoricon_core`'s schema/models/services/RBAC for all
+      five of Aigentik-CLI's real data shapes (not just contacts/
+      customers) are now code-complete + self-tested (§4.5's full entry;
+      `tests/test_restoricon_core/`: 37 passed; full suite: 753 passed,
+      1 skipped) — **pending mandatory code-reviewer pass (rule 4) before
+      commit.** Two new findings from this build: `NEW-212`
+      (`customers`/`leads` lack an `external_id` column, unlike the five
+      new tables), `NEW-213` (partial data-representation overlap with
+      existing `projects.subcontractors_json`/`communication_history.
+      channel='appointment'`). Remaining B2 steps — auth provisioning,
+      data migration script, write-through replacement (now needs new
+      API routes too, `NEW-193`-shaped), model-layer repoint — are NOT
+      started; step 4 ("point at shared model layer") is a real
+      admission-gate design item, not a config edit, due to a same-port
+      collision with Codey-OS's own `PRIMARY_SERVER_PORT` default
+      (`NEW-211`).
 - [ ] **B3** — CRM/Sales domain.
 - [ ] **B3** — Operations domain.
 - [ ] **B3** — first Automated Workflows.

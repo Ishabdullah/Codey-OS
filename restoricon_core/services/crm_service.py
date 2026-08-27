@@ -30,6 +30,8 @@ from ..auth import (
     PERM_WRITE_DOCUMENTS,
     PERM_READ_FINANCIALS,
     PERM_WRITE_FINANCIALS,
+    PERM_READ_SUBCONTRACTORS,
+    PERM_WRITE_SUBCONTRACTORS,
     ROLE_CUSTOMER,
     ROLE_TECHNICIAN,
 )
@@ -43,6 +45,7 @@ from ..models import (
     Lead,
     Opportunity,
     Project,
+    Subcontractor,
     utc_now_iso,
 )
 from .audit_service import AuditService
@@ -876,3 +879,231 @@ class CRMService:
             details=doc.to_dict(),
         )
         return doc
+
+    # ==========================================
+    # SUBCONTRACTORS (B2/NEW-209 schema expansion, 2026-08-27)
+    # ==========================================
+
+    @staticmethod
+    def _row_to_subcontractor(row) -> Subcontractor:
+        return Subcontractor(
+            id=row["id"],
+            external_id=row["external_id"],
+            contact_external_id=row["contact_external_id"],
+            company_name=row["company_name"],
+            legal_name=row["legal_name"],
+            dba=row["dba"],
+            contact_name=row["contact_name"],
+            title=row["title"],
+            phone=row["phone"],
+            email=row["email"],
+            website=row["website"],
+            primary_trade=row["primary_trade"],
+            secondary_trades=json.loads(row["secondary_trades_json"]) if row["secondary_trades_json"] else [],
+            service_area=row["service_area"],
+            years_in_business=row["years_in_business"],
+            crew_size=row["crew_size"],
+            residential_experience=row["residential_experience"],
+            commercial_experience=row["commercial_experience"],
+            typical_project_size=row["typical_project_size"],
+            availability=row["availability"],
+            emergency_availability=row["emergency_availability"],
+            license_required=row["license_required"],
+            license_type=row["license_type"],
+            license_number=row["license_number"],
+            license_expiration=row["license_expiration"],
+            license_status=row["license_status"],
+            general_liability=row["general_liability"],
+            workers_comp=row["workers_comp"],
+            coi_received=row["coi_received"],
+            coi_expiration=row["coi_expiration"],
+            additional_insured_status=row["additional_insured_status"],
+            insurance_status=row["insurance_status"],
+            w9_received=row["w9_received"],
+            msa_sent=row["msa_sent"],
+            msa_signed=row["msa_signed"],
+            references=json.loads(row["references_json"]) if row["references_json"] else [],
+            portfolio_url=row["portfolio_url"],
+            qualification_status=row["qualification_status"],
+            recruitment_step=row["recruitment_step"],
+            lead_source=row["lead_source"],
+            last_contact_at=row["last_contact_at"],
+            next_followup_at=row["next_followup_at"],
+            contact_attempts=row["contact_attempts"],
+            dnc_status=row["dnc_status"],
+            notes=row["notes"],
+            qualification_data=json.loads(row["qualification_data_json"]) if row["qualification_data_json"] else {},
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    def create_subcontractor(self, sub: Subcontractor, actor: AuthContext) -> Subcontractor:
+        if not actor.has_permission(PERM_WRITE_SUBCONTRACTORS):
+            raise PermissionError("Actor lacks permission to create subcontractors")
+
+        now = utc_now_iso()
+        sub.created_at = now
+        sub.updated_at = now
+        secondary_trades_json = json.dumps(sub.secondary_trades)
+        references_json = json.dumps(sub.references)
+        qualification_data_json = json.dumps(sub.qualification_data)
+
+        conn = self.db.get_connection()
+        with conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO subcontractors (
+                    external_id, contact_external_id, company_name, legal_name, dba,
+                    contact_name, title, phone, email, website, primary_trade,
+                    secondary_trades_json, service_area, years_in_business, crew_size,
+                    residential_experience, commercial_experience, typical_project_size,
+                    availability, emergency_availability, license_required, license_type,
+                    license_number, license_expiration, license_status, general_liability,
+                    workers_comp, coi_received, coi_expiration, additional_insured_status,
+                    insurance_status, w9_received, msa_sent, msa_signed, references_json,
+                    portfolio_url, qualification_status, recruitment_step, lead_source,
+                    last_contact_at, next_followup_at, contact_attempts, dnc_status,
+                    notes, qualification_data_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+                (
+                    sub.external_id,
+                    sub.contact_external_id,
+                    sub.company_name.strip(),
+                    sub.legal_name,
+                    sub.dba,
+                    sub.contact_name,
+                    sub.title,
+                    sub.phone,
+                    sub.email.strip().lower() if sub.email else None,
+                    sub.website,
+                    sub.primary_trade,
+                    secondary_trades_json,
+                    sub.service_area,
+                    sub.years_in_business,
+                    sub.crew_size,
+                    sub.residential_experience,
+                    sub.commercial_experience,
+                    sub.typical_project_size,
+                    sub.availability,
+                    sub.emergency_availability,
+                    sub.license_required,
+                    sub.license_type,
+                    sub.license_number,
+                    sub.license_expiration,
+                    sub.license_status,
+                    sub.general_liability,
+                    sub.workers_comp,
+                    sub.coi_received,
+                    sub.coi_expiration,
+                    sub.additional_insured_status,
+                    sub.insurance_status,
+                    sub.w9_received,
+                    sub.msa_sent,
+                    sub.msa_signed,
+                    references_json,
+                    sub.portfolio_url,
+                    sub.qualification_status,
+                    sub.recruitment_step,
+                    sub.lead_source,
+                    sub.last_contact_at,
+                    sub.next_followup_at,
+                    sub.contact_attempts,
+                    sub.dnc_status,
+                    sub.notes,
+                    qualification_data_json,
+                    now,
+                    now,
+                ),
+            )
+            sub.id = cursor.lastrowid
+
+        self.audit.log(
+            action="create",
+            entity_type="subcontractor",
+            entity_id=sub.id,
+            change_summary=f"Added subcontractor '{sub.company_name}'",
+            actor=actor,
+            details=sub.to_dict(),
+        )
+        return sub
+
+    def get_subcontractor(self, subcontractor_id: int, actor: AuthContext) -> Optional[Subcontractor]:
+        if not actor.has_permission(PERM_READ_SUBCONTRACTORS):
+            raise PermissionError("Actor lacks permission to view subcontractors")
+
+        conn = self.db.get_connection()
+        row = conn.execute("SELECT * FROM subcontractors WHERE id = ?;", (subcontractor_id,)).fetchone()
+        if not row:
+            return None
+        return self._row_to_subcontractor(row)
+
+    def list_subcontractors(
+        self,
+        actor: AuthContext,
+        qualification_status: Optional[str] = None,
+        primary_trade: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> List[Subcontractor]:
+        if not actor.has_permission(PERM_READ_SUBCONTRACTORS):
+            raise PermissionError("Actor lacks permission to list subcontractors")
+
+        query = "SELECT * FROM subcontractors WHERE 1=1"
+        params: List[Any] = []
+
+        if qualification_status:
+            query += " AND qualification_status = ?"
+            params.append(qualification_status)
+
+        if primary_trade:
+            query += " AND primary_trade = ?"
+            params.append(primary_trade)
+
+        query += " ORDER BY id DESC LIMIT ? OFFSET ?;"
+        params.extend([limit, offset])
+
+        conn = self.db.get_connection()
+        rows = conn.execute(query, params).fetchall()
+        return [self._row_to_subcontractor(row) for row in rows]
+
+    def update_subcontractor_qualification(
+        self,
+        subcontractor_id: int,
+        qualification_status: str,
+        actor: AuthContext,
+        recruitment_step: Optional[str] = None,
+    ) -> Optional[Subcontractor]:
+        """Move a subcontractor through the recruitment/qualification pipeline."""
+        if not actor.has_permission(PERM_WRITE_SUBCONTRACTORS):
+            raise PermissionError("Actor lacks permission to update subcontractors")
+
+        now = utc_now_iso()
+        conn = self.db.get_connection()
+        with conn:
+            if recruitment_step is not None:
+                cursor = conn.execute(
+                    """
+                    UPDATE subcontractors SET qualification_status = ?, recruitment_step = ?, updated_at = ?
+                    WHERE id = ?;
+                    """,
+                    (qualification_status, recruitment_step, now, subcontractor_id),
+                )
+            else:
+                cursor = conn.execute(
+                    "UPDATE subcontractors SET qualification_status = ?, updated_at = ? WHERE id = ?;",
+                    (qualification_status, now, subcontractor_id),
+                )
+            if cursor.rowcount == 0:
+                return None
+
+        self.audit.log(
+            action="status_change",
+            entity_type="subcontractor",
+            entity_id=subcontractor_id,
+            change_summary=f"Subcontractor {subcontractor_id} qualification set to '{qualification_status}'",
+            actor=actor,
+            details={"qualification_status": qualification_status, "recruitment_step": recruitment_step},
+        )
+        return self.get_subcontractor(subcontractor_id, actor)

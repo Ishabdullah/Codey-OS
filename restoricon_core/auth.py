@@ -87,6 +87,32 @@ PERM_READ_OWN_COMMUNICATIONS = "read:own_communications"
 PERM_READ_AUDIT_LOG = "read:audit_log"
 PERM_MANAGE_USERS = "manage:users"
 
+# B2/NEW-209, 2026-08-27: Ish decided to build all five of Aigentik-CLI's
+# real data shapes now, not just the two (contacts/customers) that already
+# had a Core-table destination. These five permission pairs cover the
+# newly-added subcontractors/appointments/automation_rules/business_profile/
+# do_not_contact tables. Deliberately no PERM_READ_OWN_* variant for any of
+# them and ROLE_CUSTOMER holds none of them (see ROLE_PERMISSIONS below) --
+# all five are internal-only data with no legitimate customer-facing read
+# path, so there is no customer-scoped narrowing branch to key off
+# `actor.role` the way NEW-194 found `get_project()`/`list_projects()`
+# does. This isn't an oversight; it's how NEW-194's whole class of bug is
+# avoided here instead of retrofitted later.
+PERM_READ_SUBCONTRACTORS = "read:subcontractors"
+PERM_WRITE_SUBCONTRACTORS = "write:subcontractors"
+
+PERM_READ_APPOINTMENTS = "read:appointments"
+PERM_WRITE_APPOINTMENTS = "write:appointments"
+
+PERM_READ_AUTOMATION_RULES = "read:automation_rules"
+PERM_WRITE_AUTOMATION_RULES = "write:automation_rules"
+
+PERM_READ_BUSINESS_PROFILE = "read:business_profile"
+PERM_WRITE_BUSINESS_PROFILE = "write:business_profile"
+
+PERM_READ_DNC = "read:do_not_contact"
+PERM_WRITE_DNC = "write:do_not_contact"
+
 # Role permissions matrix
 ROLE_PERMISSIONS: Dict[str, Set[str]] = {
     ROLE_ADMIN: {
@@ -111,6 +137,16 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_READ_COMMUNICATIONS,
         PERM_READ_AUDIT_LOG,
         PERM_MANAGE_USERS,
+        PERM_READ_SUBCONTRACTORS,
+        PERM_WRITE_SUBCONTRACTORS,
+        PERM_READ_APPOINTMENTS,
+        PERM_WRITE_APPOINTMENTS,
+        PERM_READ_AUTOMATION_RULES,
+        PERM_WRITE_AUTOMATION_RULES,
+        PERM_READ_BUSINESS_PROFILE,
+        PERM_WRITE_BUSINESS_PROFILE,
+        PERM_READ_DNC,
+        PERM_WRITE_DNC,
     },
     ROLE_MANAGER: {
         PERM_READ_ALL_CUSTOMERS,
@@ -133,6 +169,16 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_LOG_COMMUNICATION,
         PERM_READ_COMMUNICATIONS,
         PERM_READ_AUDIT_LOG,
+        PERM_READ_SUBCONTRACTORS,
+        PERM_WRITE_SUBCONTRACTORS,
+        PERM_READ_APPOINTMENTS,
+        PERM_WRITE_APPOINTMENTS,
+        PERM_READ_AUTOMATION_RULES,
+        PERM_WRITE_AUTOMATION_RULES,
+        PERM_READ_BUSINESS_PROFILE,
+        PERM_WRITE_BUSINESS_PROFILE,
+        PERM_READ_DNC,
+        PERM_WRITE_DNC,
     },
     ROLE_SALES: {
         PERM_READ_ALL_CUSTOMERS,
@@ -151,6 +197,11 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_DOCUMENTS,
         PERM_LOG_COMMUNICATION,
         PERM_READ_COMMUNICATIONS,
+        PERM_READ_SUBCONTRACTORS,
+        PERM_READ_APPOINTMENTS,
+        PERM_WRITE_APPOINTMENTS,
+        PERM_READ_AUTOMATION_RULES,
+        PERM_READ_DNC,
     },
     ROLE_PROJECT_MANAGER: {
         PERM_READ_ALL_CUSTOMERS,
@@ -164,6 +215,12 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_READ_FINANCIALS,
         PERM_LOG_COMMUNICATION,
         PERM_READ_COMMUNICATIONS,
+        PERM_READ_SUBCONTRACTORS,
+        PERM_WRITE_SUBCONTRACTORS,
+        PERM_READ_APPOINTMENTS,
+        PERM_WRITE_APPOINTMENTS,
+        PERM_READ_AUTOMATION_RULES,
+        PERM_READ_DNC,
     },
     ROLE_TECHNICIAN: {
         PERM_READ_ASSIGNED_PROJECTS,
@@ -187,6 +244,21 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_FINANCIALS,
         PERM_LOG_COMMUNICATION,
         PERM_READ_COMMUNICATIONS,
+        # ai_agent is the actor identity Codey-Aigentik authenticates as
+        # once B2's write-through replacement lands (§6.4) -- it needs
+        # full read/write on exactly the five modules it owns today
+        # (subcontractors.js, calendar.js, email-rules.js/sms-rules.js,
+        # do-not-contact.js), since those are its own runtime data.
+        PERM_READ_SUBCONTRACTORS,
+        PERM_WRITE_SUBCONTRACTORS,
+        PERM_READ_APPOINTMENTS,
+        PERM_WRITE_APPOINTMENTS,
+        PERM_READ_AUTOMATION_RULES,
+        PERM_WRITE_AUTOMATION_RULES,
+        PERM_READ_BUSINESS_PROFILE,
+        PERM_WRITE_BUSINESS_PROFILE,
+        PERM_READ_DNC,
+        PERM_WRITE_DNC,
     },
     ROLE_CUSTOMER: {
         PERM_READ_OWN_CUSTOMER,
