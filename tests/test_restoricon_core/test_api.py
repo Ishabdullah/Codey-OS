@@ -763,3 +763,119 @@ def test_api_new_resources_permission_denied_for_technician(api_server):
 
     status, _ = make_request(f"{base_url}/api/v1/do-not-contact", headers=tech_headers)
     assert status == 403
+
+
+def test_api_communications_provider_message_id_dedup_and_email_resolution(api_server):
+    """NEW-233: exercises the POST /api/v1/communications write-through
+    route end to end over real HTTP -- customer_id resolution from
+    from_email, provider_message_id dedup on a retried/reprocessed call,
+    and the technician fail-open path (a role with PERM_LOG_COMMUNICATION
+    but not PERM_READ_ALL_CUSTOMERS must still succeed, just without
+    resolution) -- none of which the service-layer unit tests reach,
+    since the resolution logic itself lives in routes.py."""
+    server, base_url, _, _ = api_server
+    headers = _agent_headers(base_url)
+
+    status, body = make_request(
+        f"{base_url}/api/v1/customers",
+        method="POST",
+        headers=headers,
+        data={"first_name": "Carol", "last_name": "Customer", "email": "carol@example.com"},
+    )
+    assert status == 201
+    cust_id = body["customer"]["id"]
+
+    # from_email resolves to the existing customer's id
+    status, body = make_request(
+        f"{base_url}/api/v1/communications",
+        method="POST",
+        headers=headers,
+        data={
+            "channel": "email",
+            "direction": "inbound",
+            "content": "Original inbound message",
+            "from_email": "carol@example.com",
+            "provider_message_id": "<msg-1@mail.gmail.com>",
+        },
+    )
+    assert status == 201
+    assert body["communication"]["customer_id"] == cust_id
+    comm_id = body["communication"]["id"]
+
+    # Same provider_message_id reprocessed with different content (the
+    # \Seen-flag race) -- must return the SAME row, not a duplicate.
+    status, body = make_request(
+        f"{base_url}/api/v1/communications",
+        method="POST",
+        headers=headers,
+        data={
+            "channel": "email",
+            "direction": "inbound",
+            "content": "Reprocessed different content",
+            "from_email": "carol@example.com",
+            "provider_message_id": "<msg-1@mail.gmail.com>",
+        },
+    )
+    assert status == 201
+    assert body["communication"]["id"] == comm_id
+    assert body["communication"]["content"] == "Original inbound message"
+
+    status, body = make_request(f"{base_url}/api/v1/communications", headers=headers)
+    assert status == 200
+    assert len(body["communications"]) == 1
+
+    # Technician holds PERM_LOG_COMMUNICATION but not PERM_READ_ALL_CUSTOMERS
+    # -- the write must still succeed (fail open on resolution), just with
+    # customer_id left unresolved rather than the whole call 403ing.
+    server.auth_service.create_user(
+        username="tech2",
+        plain_password="TechSecretPassword123",
+        full_name="Tech Nician",
+        email="tech2@restoricon.com",
+        role=ROLE_TECHNICIAN,
+    )
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "tech2", "password": "TechSecretPassword123"},
+    )
+    assert status == 200
+    tech_headers = {"Authorization": f"Bearer {body['token']}"}
+
+    status, body = make_request(
+        f"{base_url}/api/v1/communications",
+        method="POST",
+        headers=tech_headers,
+        data={
+            "channel": "phone",
+            "direction": "inbound",
+            "content": "Technician logged a call",
+            "from_email": "carol@example.com",
+        },
+    )
+    assert status == 201
+    assert body["communication"]["customer_id"] is None
+
+
+def test_api_communications_non_string_provider_message_id_returns_400(api_server):
+    """Code-reviewer non-blocking finding on NEW-233/257: a JSON number
+    (or list/dict) in provider_message_id previously flowed unvalidated
+    into CommunicationService.record_communication()'s .strip() call and
+    raised an uncaught AttributeError, surfacing as a 500 instead of a
+    400. routes.py now validates the type before that call."""
+    _, base_url, _, _ = api_server
+    headers = _agent_headers(base_url)
+
+    status, body = make_request(
+        f"{base_url}/api/v1/communications",
+        method="POST",
+        headers=headers,
+        data={
+            "channel": "phone",
+            "direction": "inbound",
+            "content": "Call with a malformed message id",
+            "provider_message_id": 12345,
+        },
+    )
+    assert status == 400
+    assert "error" in body

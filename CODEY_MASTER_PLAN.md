@@ -1209,6 +1209,77 @@ module's shape relative to the DNC/rules precedent:
 - **Not implemented this round per explicit instruction — scoping and
   the blocking-dependency finding only.**
 
+**Comms Core-side reliable-log fix, 2026-08-27 — code-complete, self-
+tested (mandatory code-reviewer pass still pending, rule 4 — schema
+change + reliability-critical logic). NEW-233 resolved on the Core side;
+JS write-through wiring still not built (no code in `~/Codey-Aigentik`
+calls the Core API at all yet).** Ish ruled directly (2026-08-27): the
+comms LOG must be reliable (no duplicates, no silent loss), while
+`sendEmail`/`sendReply` keep their current fast, Core-independent
+behavior unchanged — the log write is a best-effort side effect after a
+real send/receive, never a precondition for it. `NEW-232`'s
+`customers.external_id`/`leads.external_id` landed since the block above
+was written, but that column holds Aigentik's own *internal* string ids
+(e.g. `customer_id` from `customers.json`), not an inbound message's raw
+sender address — so it doesn't directly unblock customer_id resolution
+here; a new `CRMService.get_customer_by_email()` lookup was added
+instead (best-effort, `customers.email` has no UNIQUE constraint, so 0
+or 2+ matches both resolve to `None`). Built:
+`communication_history.provider_message_id TEXT` (nullable, partial
+unique index — see `NEW-257` for the exact SQL and why `_migrate_schema()`
+had to be used rather than `_SCHEMA_SQL`'s index block), keyed on the
+IMAP Message-ID header `email-provider.js` already captures for every
+inbound message (both regular email and Google-Voice-via-email, which
+share the same underlying parse path); `record_communication()`'s
+`ON CONFLICT ... DO NOTHING` dedup (verified directly against a real
+`sqlite3` connection, not assumed); `POST /api/v1/communications`'s new
+`from_email`→`customer_id` resolution, gated on
+`PERM_READ_ALL_CUSTOMERS` so a role like `ROLE_TECHNICIAN` (which lacks
+that permission) still succeeds at logging, just without resolution
+rather than 403ing. Two defects found and fixed in the same round before
+they shipped: (1) the resolution call was originally unconditional and
+would have 403'd every technician-role log write; (2) the dedup
+conflict-return path was originally reachable by `ROLE_CUSTOMER` and
+could have returned a *different* customer's row content on a colliding
+`provider_message_id` — both closed, both covered by new regression
+tests (see `NEW-257`). A third defect (cross-role, not cross-customer)
+was found by code-reviewer on the first review pass and fixed before
+merge: the `ROLE_CUSTOMER`-only strip left `ROLE_TECHNICIAN` (which
+holds `PERM_LOG_COMMUNICATION` but not `PERM_READ_COMMUNICATIONS`) able
+to reach the same conflict-return leak; the strip is now gated on
+`not actor.has_permission(PERM_READ_COMMUNICATIONS)` rather than on the
+`ROLE_CUSTOMER` identity, with its own regression test (this permission
+check alone already covers both `ROLE_CUSTOMER` and `ROLE_TECHNICIAN`,
+since `ROLE_CUSTOMER` holds only `PERM_READ_OWN_COMMUNICATIONS`, a
+distinct permission, so the earlier role-specific branch was dropped
+rather than kept redundantly). Same review pass also required a type
+check on `provider_message_id` in `POST /api/v1/communications`
+(non-string JSON value previously reached `.strip()` unvalidated and
+raised an uncaught 500 instead of a 400) — fixed, with its own new
+HTTP-level test. Migration
+verified against a **copy** of the real production DB file (3902c3f's
+`--apply` target): column + partial index created correctly, re-run
+idempotent, `customers` unchanged at 3 rows. Test count (scoped to
+`tests/test_restoricon_core/` only — not a full-project-suite number,
+since that depends on whatever else is in the working tree at run time,
+per `NEW-223`'s lesson): 108→115 passing (`python -m pytest
+tests/test_restoricon_core/ -q`, verbatim). **JS-side retry queue
+specified, not built** (deferred to a follow-up round per this round's
+own smallest-safe-slice call): a JSON array file alongside Aigentik's
+other JSON state, each entry the exact intended POST body plus a
+`first_attempt_at` timestamp, drained at the top of the next
+`handleNewMail()` poll (no new timer), removed on any 2xx response,
+unbounded rather than capped (Core is a local same-device process,
+outages should be rare, and a drop-oldest cap would reintroduce the
+exact silent-loss failure mode this round exists to close). Note: this
+retry queue is exactly the case that will exercise the
+`ROLE_CUSTOMER`-side idempotency gap already recorded in `NEW-257`
+(customer-role writes drop `provider_message_id` for the leak-prevention
+fix, so a retried customer-portal write would double-log rather than
+dedup) — no customer-portal retry path exists yet, so this is not a
+live bug today, but whoever builds one needs the fix noted here first.
+See `NEW-257` for the full write-up, file list, and exact test names.
+
 **Phase B2 task 4, third module — `subcontractor-recruiter.js`
 write-through, Core-side groundwork only, 2026-08-27 — code-complete,
 code-reviewer-approved. NOT live-verified against real Aigentik-CLI
@@ -1438,6 +1509,25 @@ commit: `829 passed, 1 skipped` (`python -m pytest tests/ -q`,
 the same working tree — that round's files (`core/daemon.py`,
 `core/loader_v2.py`, three of its test files) are untouched and
 unstaged by this commit).
+
+**Comms reliable-log fix (NEW-233), 2026-08-27 — code-complete, self-
+tested, mandatory code-reviewer pass pending (rule 4: schema change +
+reliability-critical logic).** `communication_history` now has a
+nullable `provider_message_id` idempotency key (partial unique index,
+same migration pattern as `NEW-212`/`NEW-232`'s `external_id` columns)
+and `record_communication()` dedups on it via `ON CONFLICT ... DO
+NOTHING`, closing the duplicate-row risk `email-provider.js`'s
+documented `\Seen`-flag reprocessing race created for any future
+write-through. `POST /api/v1/communications` gained `from_email`→
+`customer_id` resolution via a new `CRMService.get_customer_by_email()`.
+Two reliability/RBAC defects were found and fixed within the same
+round (a technician-role 403 on resolution, a customer-role data leak
+on dedup conflict) — see `NEW-257` for the full account. **No JS code
+touched or written** — `~/Codey-Aigentik` has no code calling the Core
+API yet at all; wiring the write-through in, plus building the spec'd
+JS-side retry queue (also in `NEW-257`), is deferred to a follow-up
+round. Full detail, exact file list, and test names: `NEW-257`; design
+narrative: §6.4's "Comms Core-side reliable-log fix" entry.
 
 ---
 

@@ -12,6 +12,189 @@ and Appendix A.
 
 ---
 
+## 2026-08-27 — `communication_history` reliable-log fix (NEW-233 resolved, Core-side) — code-complete, self-tested, code-reviewer pass pending
+
+Ish ruled the comms LOG must be reliable (no duplicates, no silent loss
+of a real communication) while `sendEmail`/`sendReply` in
+`~/Codey-Aigentik/email-provider.js` keep their current fast,
+Core-independent behavior — the log write-through is a best-effort side
+effect after a real send/receive, never a precondition for it. Scoped
+tightly to Core-side changes only; the JS-side retry queue is specified
+(see below) but deferred to a follow-up round, and no code in
+`~/Codey-Aigentik` was touched — a repo-wide grep confirmed nothing
+there calls the Core API yet at all.
+
+**Idempotency key.** `communication_history.provider_message_id TEXT`
+added (`restoricon_core/database.py`: `_SCHEMA_SQL` for fresh DBs,
+`_migrate_schema()` ALTER-then-partial-unique-index for existing DB
+files, matching `NEW-212`/`NEW-232`'s `customers.external_id` pattern
+exactly). Keyed on the IMAP/RFC 5322 Message-ID header, which
+`email-provider.js:392`'s `parseMessage()` already captures for every
+inbound message — both regular email and Google Voice texts, since a
+Voice text is delivered as a Gmail-forwarded email through the same
+parse path before `index.js:1148`'s `isGoogleVoiceText()` branches on
+it. The unique index is **partial** (`WHERE provider_message_id IS NOT
+NULL`), not an inline `UNIQUE` column, so `internal_note`/
+`ai_conversation`/`phone`/`voicemail` rows (no natural external id)
+never collide with each other.
+
+**Dedup on write.** `CommunicationService.record_communication()` now
+inserts with `ON CONFLICT(provider_message_id) WHERE provider_message_id
+IS NOT NULL DO NOTHING` — the partial-index UPSERT syntax was verified
+directly against a live `sqlite3` connection before use (`sqlite3`
+3.53.4 here), not assumed from SQLite version-family knowledge. A blank/
+whitespace-only id is normalized to `None` before insert: SQLite's
+partial index excludes `NULL` but not `''`, so without normalization the
+first headerless message would silently "claim" the empty-string key and
+every subsequent headerless message would be swallowed as a false
+duplicate.
+
+**customer_id resolution.** New `CRMService.get_customer_by_email()`
+(best-effort — `customers.email` has only a non-unique
+`idx_customers_email` COLLATE-NOCASE index, so 0 or 2+ matches both
+resolve to `None` rather than guessing at attribution). Wired into
+`POST /api/v1/communications` in `restoricon_core/api/routes.py`,
+resolving `from_email`→`customer_id` in the same request as the log
+write rather than as a separate lookup call — one HTTP round-trip, not
+two, so a future JS retry queue has one failure point per log entry, not
+two. `communication_history` has no `lead_id` column at all (only
+`customer_id`), so the lead_id half of the original question doesn't
+apply to the current schema; an unmatched sender simply resolves to
+`customer_id=None`, already nullable.
+
+**Two defects found and fixed within this same round, before commit**
+(caught by an advisor review pass against the completed diff, not by the
+test suite as originally written):
+1. The `from_email` resolution call was originally unconditional —
+   `ROLE_TECHNICIAN` holds `PERM_LOG_COMMUNICATION` but not
+   `PERM_READ_ALL_CUSTOMERS`, so it would have turned an otherwise-valid
+   log write into a `PermissionError`/403 for that role. Fixed: gated on
+   `actor.has_permission(PERM_READ_ALL_CUSTOMERS)`, falls open to
+   `customer_id=None` rather than failing the whole write.
+2. The dedup conflict-return path was originally reachable by
+   `ROLE_CUSTOMER` — a customer-role caller supplying a
+   `provider_message_id` that collided with a different customer's
+   already-recorded row would have received that row's own `content`/
+   `subject`/`customer_id` back in the 201 response (message ids are
+   observable by anyone who received the mail, not a theoretical
+   attack). Fixed: `provider_message_id` is dropped to `None` for
+   `ROLE_CUSTOMER` before the insert/conflict logic runs at all.
+
+**Third defect found by code-reviewer's first review pass, fixed before
+commit:** the defect-2 fix above was keyed on `actor.role == ROLE_CUSTOMER`
+specifically, which left the identical leak reachable by any other role
+holding `PERM_LOG_COMMUNICATION` without `PERM_READ_COMMUNICATIONS` —
+concretely `ROLE_TECHNICIAN` (reviewer live-reproduced this: a technician
+POSTing a communication with a guessed/observed `provider_message_id`
+got back another customer's full private content/subject/customer_id).
+Fixed by gating the strip on
+`not actor.has_permission(PERM_READ_COMMUNICATIONS)` alone — the
+permission itself, not the role identity that happened to prompt the
+original fix (same "narrowing keyed on role instead of permission"
+anti-pattern as NEW-189/194/214/248). The earlier `actor.role ==
+ROLE_CUSTOMER` branch was dropped rather than kept alongside the
+permission check: `ROLE_CUSTOMER` holds only
+`PERM_READ_OWN_COMMUNICATIONS` (a distinct permission from
+`PERM_READ_COMMUNICATIONS`), so the permission check alone already
+covers it and an `or actor.role == ROLE_CUSTOMER` clause would have been
+dead code. Red/green-verified: temporarily reverting the gate to
+`actor.role == ROLE_CUSTOMER` only and re-running the new test
+reproduces the exact leak (`result.id == private_row.id`), confirming
+this is a real regression test. New regression test:
+`test_technician_cannot_use_provider_message_id_to_read_another_customers_row`.
+**Consequence this creates, recorded explicitly so a future reader
+doesn't get bitten by it:** `provider_message_id` idempotency is now
+only available to actors holding `PERM_READ_COMMUNICATIONS` — any
+caller without it (customer-role, or any future role with
+log-but-not-read permissions) gets no dedup protection at all, so a
+retried write from such a caller double-logs rather than deduping. The
+JS write-through (not yet built) must authenticate as a role that holds
+`PERM_READ_COMMUNICATIONS` for the retry-queue idempotency guarantee in
+NEW-257's spec to actually hold.
+
+Two non-blocking findings from the same review pass, also fixed:
+`POST /api/v1/communications` now validates `provider_message_id` is a
+string (or absent) before calling `.strip()` on it — a JSON number/
+list/dict in that field previously reached `.strip()` unvalidated and
+raised an uncaught `AttributeError` (500) instead of a 400 (covered by
+new test `test_api_communications_non_string_provider_message_id_returns_400`
+in `tests/test_restoricon_core/test_api.py`); and this log entry's own
+"full project suite 850 passed/1 skipped" claim below was corrected
+(see the scoped number instead) after the reviewer's literal re-run
+produced a different total under concurrent unrelated work in the same
+tree.
+
+**Verification.** `tests/test_restoricon_core/test_services.py`: added
+`test_communication_provider_message_id_dedup`,
+`test_communication_provider_message_id_blank_never_dedups`,
+`test_get_customer_by_email_resolution`,
+`test_customer_role_cannot_use_provider_message_id_to_read_another_customers_row`
+(regression for defect 2),
+`test_technician_cannot_use_provider_message_id_to_read_another_customers_row`
+(regression for defect 3). `tests/test_restoricon_core/test_api.py`:
+added `test_api_communications_provider_message_id_dedup_and_email_resolution`,
+a real-HTTP test against a running `RestoriconAPIServer` covering
+resolution, dedup-on-retry, and the technician fail-open path (defect 1's
+regression), plus
+`test_api_communications_non_string_provider_message_id_returns_400`
+(the type-validation non-blocking fix above) — none of which the
+service-layer tests alone reach, since this logic lives in `routes.py`.
+**Scoped test count only — not a full-project-suite number** (that
+number depends on whatever else is in the working tree when `pytest` is
+invoked with no path argument, per `NEW-223`'s lesson; the earlier
+"850 passed/1 skipped" figure in this entry did not reliably reproduce
+under a concurrent unrelated round and has been corrected here rather
+than left standing):
+`python -m pytest tests/test_restoricon_core/ -q` → **115 passed**
+(108 baseline + 7 new).
+
+Schema migration additionally run against a **copy** of the real
+production DB file (`~/.codey_restoricon/core.db`, the file
+commit-3902c3f's `--apply` already wrote to — copy made to scratchpad,
+original never touched): `provider_message_id` column added, verified
+present via `PRAGMA table_info`; `idx_comms_provider_message_id`
+created with the exact `WHERE provider_message_id IS NOT NULL` clause,
+verified via `sqlite_master`; a second `DatabaseManager()` instantiation
+against the same copy completed with no "duplicate column name" error
+(migration idempotency); `customers` unchanged at its known 3 rows.
+`communication_history` had 0 rows in production at migration time, so
+this demonstrates schema/index correctness against the real file shape,
+not data preservation under a populated table — noted honestly rather
+than overstated.
+
+**Not built this round:** the JS-side retry queue for a failed Core
+write-through call. Spec recorded in `NEW-257`/`CODEY_MASTER_PLAN.md`
+§6.4: a JSON array file alongside Aigentik's other JSON state, each
+entry the exact intended POST body plus a `first_attempt_at` timestamp,
+drained at the top of the next `handleNewMail()` poll (reuses the
+existing IDLE-driven cadence, no new timer), entry removed on any 2xx
+response since `provider_message_id` makes every replay idempotent
+regardless of how many polls it takes to succeed, unbounded rather than
+capped (Core is a same-device local process — a multi-poll-cycle outage
+should be rare, and a drop-oldest cap on overflow would reintroduce the
+exact silent-loss failure mode this round exists to close).
+
+**Status: code-complete, self-tested (real HTTP + a real production-DB-
+copy migration run) — NOT yet code-reviewer-approved.** Mandatory
+per rule 4 (schema change + reliability-critical logic) before commit.
+Not committed yet; not live-verified against real Aigentik-CLI traffic
+(there is none yet — the JS write-through isn't wired in).
+
+Full write-up: `NEW-233` (original finding, now resolved),
+`NEW-257` (this round's resolution). Files: `restoricon_core/database.py`,
+`restoricon_core/models.py`,
+`restoricon_core/services/communication_service.py`,
+`restoricon_core/services/crm_service.py`, `restoricon_core/api/routes.py`,
+`tests/test_restoricon_core/test_services.py`,
+`tests/test_restoricon_core/test_api.py`. Docs updated:
+`CODEY_MASTER_PLAN.md` §4.5 and §6.4, `NEW_ISSUES.md` (`NEW-257`).
+`git status --short` checked immediately before this edit — `NEW_ISSUES.md`
+was already modified by the concurrent NEW-145/149/155 round (not
+`CODEY_MASTER_PLAN.md`/`PROJECT_LOG.md`); this round's `NEW_ISSUES.md`
+addition was appended at EOF after a fresh read, not staged wholesale.
+
+---
+
 ## 2026-08-27 — `migrate_aigentik.py` extended to `customers.json`/`schedule-config.json` — code-complete, code-reviewer-APPROVED, committed
 
 Extended the migration script from `PROJECT_LOG.md`'s prior B2-schema

@@ -168,6 +168,27 @@ class CRMService:
             return None
         return self.get_customer(row["id"], actor)
 
+    def get_customer_by_email(self, email: str, actor: AuthContext) -> Optional[Customer]:
+        """Best-effort lookup for resolving an inbound message's sender
+        address to an existing customer (NEW-233). `customers.email` has
+        no UNIQUE constraint -- only `idx_customers_email` (COLLATE
+        NOCASE) -- so more than one customer row can share an address in
+        real data (e.g. shared household inboxes, or two records created
+        independently before dedup). Returns None on zero matches AND on
+        2+ matches: attaching a communication to the wrong customer is
+        worse than leaving customer_id NULL, so ambiguity is treated the
+        same as "unknown" rather than guessed at."""
+        if not actor.has_permission(PERM_READ_ALL_CUSTOMERS):
+            raise PermissionError("Actor lacks permission to look up customers by email")
+
+        conn = self.db.get_connection()
+        rows = conn.execute(
+            "SELECT id FROM customers WHERE email = ?;", (email,)
+        ).fetchall()
+        if len(rows) != 1:
+            return None
+        return self.get_customer(rows[0]["id"], actor)
+
     def list_customers(
         self,
         actor: AuthContext,

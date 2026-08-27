@@ -7,6 +7,8 @@ import pytest
 from restoricon_core.auth import (
     AuthContext,
     AuthService,
+    PERM_LOG_COMMUNICATION,
+    PERM_READ_COMMUNICATIONS,
     ROLE_ADMIN,
     ROLE_AI_AGENT,
     ROLE_CUSTOMER,
@@ -140,6 +142,218 @@ def test_append_only_communication_history(setup_services):
             actor=actor_cust,
             customer_id=cust.id,
         )
+
+
+def test_communication_provider_message_id_dedup(setup_services):
+    """NEW-233: a reprocessed or retried write-through call carrying the
+    same provider_message_id must not create a duplicate row -- this is
+    the mechanism that makes the comms log safe against
+    email-provider.js's documented \\Seen-flag reprocessing race."""
+    db, auth_service, _, comm_service, crm_service = setup_services
+
+    agent_user = auth_service.create_user(
+        username="aigentik", plain_password="Password123", full_name="Aigentik", email="agent@test.com", role=ROLE_AI_AGENT
+    )
+    actor_agent = AuthContext(user_id=agent_user.id, username="aigentik", role=ROLE_AI_AGENT, actor_type="agent")
+
+    first = comm_service.record_communication(
+        channel="email",
+        direction="inbound",
+        content="Original message body",
+        actor=actor_agent,
+        provider_message_id="<abc123@mail.gmail.com>",
+    )
+    # Same provider_message_id, reprocessed with (deliberately) different
+    # content -- simulates a reprocess race, not just a byte-identical retry.
+    duplicate = comm_service.record_communication(
+        channel="email",
+        direction="inbound",
+        content="Reprocessed duplicate body",
+        actor=actor_agent,
+        provider_message_id="<abc123@mail.gmail.com>",
+    )
+    assert duplicate.id == first.id
+    assert duplicate.content == "Original message body"  # unchanged, not overwritten
+
+    all_comms = comm_service.query_communications(actor_agent)
+    assert len(all_comms) == 1
+
+
+def test_customer_role_cannot_use_provider_message_id_to_read_another_customers_row(setup_services):
+    """A customer-role caller must never be able to supply a
+    provider_message_id that collides with an existing row belonging to
+    a DIFFERENT customer and have that row's content returned to them --
+    message ids are observable by anyone who received the mail, so this
+    isn't purely theoretical. provider_message_id is dropped entirely
+    for ROLE_CUSTOMER before the insert/conflict logic runs."""
+    db, auth_service, _, comm_service, crm_service = setup_services
+
+    agent_user = auth_service.create_user(
+        username="aigentik", plain_password="Password123", full_name="Aigentik", email="agent@test.com", role=ROLE_AI_AGENT
+    )
+    actor_agent = AuthContext(user_id=agent_user.id, username="aigentik", role=ROLE_AI_AGENT, actor_type="agent")
+
+    cust_a = crm_service.create_customer(
+        Customer(first_name="Alice", last_name="Adams", email="alice@test.com"), actor_agent
+    )
+    cust_b = crm_service.create_customer(
+        Customer(first_name="Bob", last_name="Brown", email="bob@test.com"), actor_agent
+    )
+    user_b = auth_service.create_user(
+        username="bob", plain_password="Password123", full_name="Bob Brown", email="bob@test.com",
+        role=ROLE_CUSTOMER, customer_id=cust_b.id,
+    )
+    actor_b = AuthContext(user_id=user_b.id, username="bob", role=ROLE_CUSTOMER, actor_type="human", customer_id=cust_b.id)
+
+    # Agent logs a real row for customer A with a real provider_message_id
+    private_row = comm_service.record_communication(
+        channel="email",
+        direction="inbound",
+        content="Alice's private message content",
+        actor=actor_agent,
+        customer_id=cust_a.id,
+        provider_message_id="<shared-observable-id@mail.gmail.com>",
+    )
+
+    # Customer B (a different customer) tries to log their own communication
+    # while supplying the SAME provider_message_id -- must not return
+    # Alice's row or her content.
+    result = comm_service.record_communication(
+        channel="web_chat",
+        direction="inbound",
+        content="Bob's own message",
+        actor=actor_b,
+        provider_message_id="<shared-observable-id@mail.gmail.com>",
+    )
+    assert result.id != private_row.id
+    assert result.content == "Bob's own message"
+    assert result.customer_id == cust_b.id
+    assert result.provider_message_id is None
+
+
+def test_technician_cannot_use_provider_message_id_to_read_another_customers_row(setup_services):
+    """NEW-257 regression: ROLE_TECHNICIAN holds PERM_LOG_COMMUNICATION
+    (can write) but NOT PERM_READ_COMMUNICATIONS (cannot read) -- the
+    original fix only stripped provider_message_id for ROLE_CUSTOMER, so
+    a technician POSTing a communication with a guessed/observed
+    provider_message_id could hit the dedup-conflict path and get back
+    another customer's full private communication content, subject, and
+    customer_id, despite lacking any read permission at all. The strip
+    must be gated on the PERM_READ_COMMUNICATIONS permission itself, not
+    on which role happened to prompt the original fix."""
+    db, auth_service, _, comm_service, crm_service = setup_services
+
+    agent_user = auth_service.create_user(
+        username="aigentik2", plain_password="Password123", full_name="Aigentik", email="agent2@test.com", role=ROLE_AI_AGENT
+    )
+    actor_agent = AuthContext(user_id=agent_user.id, username="aigentik2", role=ROLE_AI_AGENT, actor_type="agent")
+
+    cust_a = crm_service.create_customer(
+        Customer(first_name="Carol", last_name="Cross", email="carol@test.com"), actor_agent
+    )
+
+    tech_user = auth_service.create_user(
+        username="tim", plain_password="Password123", full_name="Tim Tech", email="tim@test.com", role=ROLE_TECHNICIAN
+    )
+    actor_tech = AuthContext(user_id=tech_user.id, username="tim", role=ROLE_TECHNICIAN, actor_type="human")
+
+    assert actor_tech.has_permission(PERM_LOG_COMMUNICATION)
+    assert not actor_tech.has_permission(PERM_READ_COMMUNICATIONS)
+
+    # Agent logs a real, private row for customer A with a real
+    # provider_message_id -- content/subject a technician has no
+    # business ever seeing.
+    private_row = comm_service.record_communication(
+        channel="email",
+        direction="inbound",
+        content="Carol's private message content",
+        actor=actor_agent,
+        subject="Carol's private subject",
+        customer_id=cust_a.id,
+        provider_message_id="<tech-guessable-id@mail.gmail.com>",
+    )
+
+    # Technician logs their own communication while supplying the SAME
+    # provider_message_id -- must not return Carol's row, content,
+    # subject, or customer_id.
+    result = comm_service.record_communication(
+        channel="phone",
+        direction="outbound",
+        content="Technician's own call note",
+        actor=actor_tech,
+        provider_message_id="<tech-guessable-id@mail.gmail.com>",
+    )
+    assert result.id != private_row.id
+    assert result.content == "Technician's own call note"
+    assert result.subject != "Carol's private subject"
+    assert result.customer_id != cust_a.id
+    assert result.provider_message_id is None
+
+
+def test_communication_provider_message_id_blank_never_dedups(setup_services):
+    """A blank/whitespace-only provider_message_id must be normalized to
+    NULL, not treated as a real duplicate-eligible value -- SQLite's
+    partial unique index only excludes NULL, not empty string, so this
+    normalization is the only thing standing between a headerless
+    message and every subsequent headerless message being silently
+    swallowed as a 'duplicate' of the first."""
+    db, auth_service, _, comm_service, crm_service = setup_services
+
+    agent_user = auth_service.create_user(
+        username="aigentik", plain_password="Password123", full_name="Aigentik", email="agent@test.com", role=ROLE_AI_AGENT
+    )
+    actor_agent = AuthContext(user_id=agent_user.id, username="aigentik", role=ROLE_AI_AGENT, actor_type="agent")
+
+    for provider_id in ("", "   ", None):
+        comm_service.record_communication(
+            channel="email",
+            direction="inbound",
+            content=f"Message with provider_message_id={provider_id!r}",
+            actor=actor_agent,
+            provider_message_id=provider_id,
+        )
+
+    all_comms = comm_service.query_communications(actor_agent)
+    assert len(all_comms) == 3
+    assert all(c.provider_message_id is None for c in all_comms)
+
+
+def test_get_customer_by_email_resolution(setup_services):
+    """NEW-233: resolving an inbound message's sender address to a
+    customer_id must return None on zero OR 2+ matches, not guess --
+    customers.email has no UNIQUE constraint, so ambiguity is a real
+    possibility with migrated production data."""
+    db, auth_service, _, comm_service, crm_service = setup_services
+
+    agent_user = auth_service.create_user(
+        username="aigentik", plain_password="Password123", full_name="Aigentik", email="agent@test.com", role=ROLE_AI_AGENT
+    )
+    actor_agent = AuthContext(user_id=agent_user.id, username="aigentik", role=ROLE_AI_AGENT, actor_type="agent")
+
+    cust = crm_service.create_customer(
+        Customer(first_name="Mary", last_name="Johnson", email="mary@test.com"),
+        actor_agent,
+    )
+
+    # Unique match
+    resolved = crm_service.get_customer_by_email("mary@test.com", actor_agent)
+    assert resolved is not None
+    assert resolved.id == cust.id
+
+    # Case-insensitive match (customers.email is COLLATE NOCASE)
+    resolved_ci = crm_service.get_customer_by_email("MARY@TEST.COM", actor_agent)
+    assert resolved_ci is not None
+    assert resolved_ci.id == cust.id
+
+    # No match
+    assert crm_service.get_customer_by_email("nobody@test.com", actor_agent) is None
+
+    # Ambiguous match (2+ customers share an email) resolves to None
+    crm_service.create_customer(
+        Customer(first_name="Mary", last_name="Smith", email="mary@test.com"),
+        actor_agent,
+    )
+    assert crm_service.get_customer_by_email("mary@test.com", actor_agent) is None
 
 
 def test_crm_entity_lifecycle_with_audit_trail(setup_services):

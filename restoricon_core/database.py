@@ -230,7 +230,18 @@ CREATE TABLE IF NOT EXISTS invoices (
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
 );
 
--- Communication History (DAY-ONE-OR-NEVER, STRICTLY APPEND-ONLY)
+-- Communication History (DAY-ONE-OR-NEVER, STRICTLY APPEND-ONLY).
+-- provider_message_id (NEW-233, 2026-08-27, Ish-approved -- "reliable
+-- log" requirement) holds the originating channel's own message
+-- identifier (e.g. the IMAP/RFC 5322 Message-ID header for email and
+-- Google-Voice-via-email, both of which are captured today by
+-- email-provider.js's parseMessage()) so a write-through call can be
+-- retried after a failure (Core unreachable, timeout) or fired again by
+-- a reprocessed source message (email-provider.js's documented
+-- \Seen-flag race, see NEW-233) without creating a duplicate row. It is
+-- nullable because internal_note/ai_conversation/phone/voicemail rows
+-- have no natural external message id -- see idx_comms_provider_message_id
+-- below (a partial unique index, not an inline UNIQUE column) for why.
 CREATE TABLE IF NOT EXISTS communication_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp TEXT NOT NULL,
@@ -245,6 +256,7 @@ CREATE TABLE IF NOT EXISTS communication_history (
     project_id INTEGER,
     opportunity_id INTEGER,
     metadata_json TEXT NOT NULL DEFAULT '{}',
+    provider_message_id TEXT,
     FOREIGN KEY (actor_id) REFERENCES users(id) ON DELETE SET NULL,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL,
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
@@ -438,11 +450,12 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 
 -- Indexing for performance
--- NOTE: the unique indexes for customers.external_id / leads.external_id
--- are NOT here -- they're created in _migrate_schema() instead, after the
--- ALTER TABLE that adds the column on a pre-existing DB file. Creating
--- them here would run before that ALTER on a legacy DB (executescript
--- runs top-to-bottom in one pass) and fail with "no such column".
+-- NOTE: the unique indexes for customers.external_id / leads.external_id /
+-- communication_history.provider_message_id are NOT here -- they're
+-- created in _migrate_schema() instead, after the ALTER TABLE that adds
+-- the column on a pre-existing DB file. Creating them here would run
+-- before that ALTER on a legacy DB (executescript runs top-to-bottom in
+-- one pass) and fail with "no such column".
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 CREATE INDEX IF NOT EXISTS idx_api_tokens_token ON api_tokens(token);
@@ -549,6 +562,11 @@ class DatabaseManager:
         migrations = (
             ("customers", "external_id", "ALTER TABLE customers ADD COLUMN external_id TEXT;"),
             ("leads", "external_id", "ALTER TABLE leads ADD COLUMN external_id TEXT;"),
+            (
+                "communication_history",
+                "provider_message_id",
+                "ALTER TABLE communication_history ADD COLUMN provider_message_id TEXT;",
+            ),
         )
         with conn:
             for table, column, ddl in migrations:
@@ -564,6 +582,19 @@ class DatabaseManager:
             )
             conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_leads_external_id ON leads(external_id);"
+            )
+            # Partial index (WHERE provider_message_id IS NOT NULL): rows
+            # with no natural external message id (internal_note,
+            # ai_conversation, phone, voicemail) never collide with each
+            # other under a bare UNIQUE column, only real, non-null
+            # provider ids are deduplicated. record_communication() is
+            # responsible for normalizing '' / whitespace-only ids to
+            # NULL before insert -- this index alone does not catch an
+            # empty-string id, since '' IS NOT NULL is true in SQLite.
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_comms_provider_message_id "
+                "ON communication_history(provider_message_id) "
+                "WHERE provider_message_id IS NOT NULL;"
             )
 
     @contextmanager

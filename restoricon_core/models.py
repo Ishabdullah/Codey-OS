@@ -236,6 +236,9 @@ class CommunicationRecord:
     project_id: Optional[int] = None
     opportunity_id: Optional[int] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
+    provider_message_id: Optional[str] = None  # NEW-233: originating channel's own
+    # message id (e.g. IMAP Message-ID header), used as an idempotency key so a
+    # retried or reprocessed write-through call never creates a duplicate row.
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

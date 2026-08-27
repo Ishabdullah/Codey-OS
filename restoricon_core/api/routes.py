@@ -9,7 +9,7 @@ import json
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
-from ..auth import AuthContext, AuthService
+from ..auth import AuthContext, AuthService, PERM_READ_ALL_CUSTOMERS
 from ..models import (
     Appointment,
     AutomationRule,
@@ -226,16 +226,48 @@ class APIRouter:
                     )
                     return 200, {"Content-Type": "application/json"}, {"communications": [c.to_dict() for c in records]}
                 elif method == "POST":
+                    # customer_id resolution (NEW-233): if the caller doesn't
+                    # already know the internal customer_id (true for the
+                    # JS write-through, which only has the sender's raw
+                    # address), resolve it here from from_email before the
+                    # single record_communication() call below, rather than
+                    # making the caller do a separate lookup call first --
+                    # two HTTP calls would give a retry queue two independent
+                    # failure points instead of one atomic attempt. Ambiguous
+                    # (2+ matches) or unmatched emails resolve to None, same
+                    # as if the field were never given. Gated on the actor
+                    # actually holding PERM_READ_ALL_CUSTOMERS -- ROLE_TECHNICIAN
+                    # holds PERM_LOG_COMMUNICATION (checked inside
+                    # record_communication() below) but not
+                    # PERM_READ_ALL_CUSTOMERS, so calling get_customer_by_email()
+                    # unconditionally would turn an otherwise-valid log write
+                    # into a PermissionError for that role. Fail open to
+                    # customer_id=None rather than failing the whole write --
+                    # a communication that can't be auto-linked to a customer
+                    # is still far better than one that's silently never logged.
+                    customer_id = json_body.get("customer_id")
+                    from_email = json_body.get("from_email")
+                    if customer_id is None and from_email and actor.has_permission(PERM_READ_ALL_CUSTOMERS):
+                        resolved = self.crm.get_customer_by_email(from_email, actor)
+                        customer_id = resolved.id if resolved else None
+                    provider_message_id = json_body.get("provider_message_id")
+                    if provider_message_id is not None and not isinstance(provider_message_id, str):
+                        return (
+                            400,
+                            {"Content-Type": "application/json"},
+                            {"error": "provider_message_id must be a string"},
+                        )
                     rec = self.comm.record_communication(
                         channel=json_body.get("channel", "email"),
                         direction=json_body.get("direction", "inbound"),
                         content=json_body.get("content", ""),
                         actor=actor,
                         subject=json_body.get("subject"),
-                        customer_id=json_body.get("customer_id"),
+                        customer_id=customer_id,
                         project_id=json_body.get("project_id"),
                         opportunity_id=json_body.get("opportunity_id"),
                         metadata=json_body.get("metadata"),
+                        provider_message_id=provider_message_id,
                     )
                     return 201, {"Content-Type": "application/json"}, {"communication": rec.to_dict()}
 
