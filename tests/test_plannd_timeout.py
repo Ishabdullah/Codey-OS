@@ -26,7 +26,8 @@ import pytest
 import core.daemon as daemon_mod
 import core.plannd as plannd_mod
 import core.resource_gate as rg
-from core.plannd import PLANNER_PROMPT, compute_planner_timeout, get_plan
+from core.plannd import (PLANNER_PROMPT, compute_outer_plan_timeout,
+                        compute_planner_timeout, get_plan)
 from core.state import StateStore
 from core.tokens import estimate_tokens
 from utils.config import PLANNER_MAX_TOKENS
@@ -105,13 +106,18 @@ def _expected_inner_timeout(prompt: str) -> float:
     return compute_planner_timeout(prompt_tokens_estimate, PLANNER_MAX_TOKENS)
 
 
+def _expected_outer_timeout(prompt: str) -> float:
+    prompt_tokens_estimate = estimate_tokens(PLANNER_PROMPT) + estimate_tokens(prompt)
+    return compute_outer_plan_timeout(prompt_tokens_estimate, PLANNER_MAX_TOKENS)
+
+
 def test_plan_claimed_task_outer_timeout_matches_formula():
     """
-    NEW-165 fix 3: exercises the real core/daemon.py call site (not a
+    NEW-165 fix 3 / NEW-260: exercises the real core/daemon.py call site (not a
     re-derivation in the test) — patches asyncio.wait_for as seen from
     core.daemon's own namespace and asserts the actual `timeout` kwarg
     Daemon._plan_claimed_task passed equals
-    compute_planner_timeout(...) + 30.0, and that this is strictly
+    compute_outer_plan_timeout(...), and that this is strictly
     greater than plannd's own inner timeout for the same inputs.
 
     _plan_claimed_task's body never touches `self`, so it's called
@@ -131,7 +137,7 @@ def test_plan_claimed_task_outer_timeout_matches_formula():
         asyncio.run(daemon_mod.Daemon._plan_claimed_task(None, prompt))
 
     inner_timeout = _expected_inner_timeout(prompt)
-    expected_outer = inner_timeout + 30.0
+    expected_outer = _expected_outer_timeout(prompt)
 
     assert captured["timeout"] == expected_outer
     assert captured["timeout"] > inner_timeout
@@ -153,7 +159,7 @@ def test_handle_command_plan_only_outer_timeout_matches_formula(tmp_path):
         asyncio.run(server._handle_command({"prompt": prompt, "plan_only": True}))
 
     inner_timeout = _expected_inner_timeout(prompt)
-    expected_outer = inner_timeout + 30.0
+    expected_outer = _expected_outer_timeout(prompt)
 
     assert captured["timeout"] == expected_outer
     assert captured["timeout"] > inner_timeout

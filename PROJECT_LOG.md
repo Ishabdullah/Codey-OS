@@ -12,6 +12,13 @@ and Appendix A.
 
 ---
 
+## 2026-08-27 — NEW-260: stale expected outer-timeout formula in test_plannd_timeout.py and test_plannd_tier_split.py resolved
+
+- **Fix**: Replaced hardcoded hand-derived outer-timeout assertions (`expected_outer = inner_timeout + 30.0`) in `tests/test_plannd_timeout.py` and `tests/test_plannd_tier_split.py` with calls to `compute_outer_plan_timeout()`.
+- **Result**: All 23 tests in both files pass; full test suite passes (`883 passed, 1 skipped`). `NEW-260` marked Resolved in `NEW_ISSUES.md`.
+
+---
+
 ## 2026-08-27 — NEW-259: two real bugs found in the already-committed, twice-approved NEW-145/149/155 fix; both fixed, code-reviewer-approved. Also: Antigravity brought in as a second agent on this project, ANTIGRAVITY.md/AGENTS.md doc-consistency fix, HANDOFF.md added
 
 **Correcting the record on this round's own commit title (rule 6):**

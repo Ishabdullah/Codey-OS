@@ -45,7 +45,8 @@ import core.planner_client as planner_client_mod
 import core.planner_service as planner_service
 import core.resource_gate as rg
 from core.orchestrator import _score_message, is_complex
-from core.plannd import (PLANNER_PROMPT, compute_planner_timeout, get_plan)
+from core.plannd import (PLANNER_PROMPT, compute_outer_plan_timeout,
+                        compute_planner_timeout, get_plan)
 from core.state import StateStore
 from core.tokens import estimate_tokens
 from utils.config import PLANNER_MAX_TOKENS, PLANNER_MAX_TOKENS_MEDIUM
@@ -264,9 +265,10 @@ def test_handle_command_missing_tier_defaults_to_hard(tmp_path):
 
     prompt_tokens_estimate = estimate_tokens(PLANNER_PROMPT) + estimate_tokens(prompt)
     inner_timeout = compute_planner_timeout(prompt_tokens_estimate, PLANNER_MAX_TOKENS)
-    expected_outer = inner_timeout + 30.0
+    expected_outer = compute_outer_plan_timeout(prompt_tokens_estimate, PLANNER_MAX_TOKENS)
 
     assert captured["timeout"] == expected_outer
+    assert captured["timeout"] > inner_timeout
 
 
 def test_handle_command_medium_tier_uses_medium_sized_timeout(tmp_path):
@@ -295,10 +297,11 @@ def test_handle_command_medium_tier_uses_medium_sized_timeout(tmp_path):
     prompt_tokens_estimate = estimate_tokens(PLANNER_PROMPT) + estimate_tokens(prompt)
     medium_inner_timeout = compute_planner_timeout(prompt_tokens_estimate, PLANNER_MAX_TOKENS_MEDIUM)
     hard_inner_timeout = compute_planner_timeout(prompt_tokens_estimate, PLANNER_MAX_TOKENS)
-    expected_medium_outer = medium_inner_timeout + 30.0
+    expected_medium_outer = compute_outer_plan_timeout(prompt_tokens_estimate, PLANNER_MAX_TOKENS_MEDIUM)
+    expected_hard_outer = compute_outer_plan_timeout(prompt_tokens_estimate, PLANNER_MAX_TOKENS)
 
     assert captured["timeout"] == expected_medium_outer
-    assert captured["timeout"] < hard_inner_timeout + 30.0
+    assert captured["timeout"] < expected_hard_outer
 
 
 def test_plan_claimed_task_medium_tier_uses_medium_sized_timeout():
@@ -319,10 +322,11 @@ def test_plan_claimed_task_medium_tier_uses_medium_sized_timeout():
     prompt_tokens_estimate = estimate_tokens(PLANNER_PROMPT) + estimate_tokens(prompt)
     medium_inner_timeout = compute_planner_timeout(prompt_tokens_estimate, PLANNER_MAX_TOKENS_MEDIUM)
     hard_inner_timeout = compute_planner_timeout(prompt_tokens_estimate, PLANNER_MAX_TOKENS)
-    expected_medium_outer = medium_inner_timeout + 30.0
+    expected_medium_outer = compute_outer_plan_timeout(prompt_tokens_estimate, PLANNER_MAX_TOKENS_MEDIUM)
+    expected_hard_outer = compute_outer_plan_timeout(prompt_tokens_estimate, PLANNER_MAX_TOKENS)
 
     assert captured["timeout"] == expected_medium_outer
-    assert captured["timeout"] < hard_inner_timeout + 30.0
+    assert captured["timeout"] < expected_hard_outer
 
 
 def test_handle_command_medium_tier_end_to_end_consistency(tmp_path):
@@ -369,6 +373,7 @@ def test_plan_claimed_task_defaults_to_hard_tier():
 
     prompt_tokens_estimate = estimate_tokens(PLANNER_PROMPT) + estimate_tokens(prompt)
     inner_timeout = compute_planner_timeout(prompt_tokens_estimate, PLANNER_MAX_TOKENS)
-    expected_outer = inner_timeout + 30.0
+    expected_outer = compute_outer_plan_timeout(prompt_tokens_estimate, PLANNER_MAX_TOKENS)
 
     assert captured["timeout"] == expected_outer
+    assert captured["timeout"] > inner_timeout

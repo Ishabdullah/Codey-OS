@@ -12889,8 +12889,7 @@ required)
   file).
 
 ### [NEW-260] 6 tests in `test_plannd_timeout.py`/`test_plannd_tier_split.py` fail on a clean `main` checkout, unrelated to any of tonight's Phase B2/context-ceiling work — pre-existing, stale expected-value bug
-- **Status: Confirmed by direct read, not fixed here (out of scope for
-  the round that found it).** Discovered incidentally while
+- **Status: RESOLVED 2026-08-27.** Discovered incidentally while
   investigating whether `core/daemon.py`/`core/loader_v2.py`'s
   uncommitted changes (from a separate live-verification attempt)
   broke anything — `python -m pytest tests/ -q` showed 6 failures
@@ -12904,7 +12903,7 @@ required)
   by any change to those three files either; it's an assertion drift
   between the tests' own hardcoded expected-value formula and the real
   code's current formula.
-- **Root cause**: every failure's actual-vs-expected delta is exactly
+- **Root cause**: every failure's actual-vs-expected delta was exactly
   `600.0` seconds (e.g. `1928.9 == 1328.9`), which is exactly
   `core/resource_gate.py`'s `CONTEXT_QUEUE_TIMEOUT_CAP_SECONDS`. The
   §8 Q11 concurrency-admission round (`dfb655c`) added a context-budget
@@ -12915,14 +12914,11 @@ required)
   silently stale since `dfb655c` landed (an earlier date than tonight's
   session), asserting against the OLD two-term formula while the real
   code has used the newer three-term one ever since.
-- **Not fixed here**: out of scope for the round that discovered it
-  (that round's task was reviewing/finalizing the NEW-145/149/155 fix,
-  not fixing pre-existing plannd test staleness). A real fix needs
-  either updating both test files' expected-value formulas to include
-  the queue-wait term, or refactoring them to call
-  `compute_outer_plan_timeout()` directly rather than re-deriving its
-  formula by hand (the more robust fix, avoiding a second stale-formula
-  recurrence the next time the real formula changes).
+- **Fix**: Updated both `tests/test_plannd_timeout.py` and
+  `tests/test_plannd_tier_split.py` to import and call
+  `compute_outer_plan_timeout()` directly rather than re-deriving the
+  timeout formula by hand. All 23 tests in those two files pass; full test
+  suite passes (883 passed, 1 skipped).
 - **Cross-references**: `core/plannd.py:compute_outer_plan_timeout()`,
   `core/resource_gate.py:CONTEXT_QUEUE_TIMEOUT_CAP_SECONDS` (line
   ~4018), `dfb655c` ("Sec8 Q11/NEW-206: concurrent-context admission
