@@ -61,16 +61,19 @@ tonight, worth knowing before it happens to you:
   passing unit tests alone when live-verification is what the plan calls
   for.**
 
-## What's actually in flight right now
+## What just landed (committed, done as of this writing)
 
-A code-reviewer pass is running (or has just finished — check
-`PROJECT_LOG.md`'s top entry) on the two `NEW-259` bug fixes above, plus
-a small doc-consistency fix (`AGENTS.md` had dropped its `CLAUDE.md`
-reference in favor of `ANTIGRAVITY.md` instead of listing both; the
-master plan's rule 10 had Claude-Code-specific wording that no longer
-matched `ANTIGRAVITY.md`'s own rule 10 — both fixed to be consistent).
-Once that review lands, the tracking docs get updated and this round is
-committed.
+The `NEW-259` bug fixes above are code-reviewer-approved and committed
+(`375dafd`, plus a follow-up `67b61aa` correcting that commit's own
+wrong title — a leftover copy-paste, noted honestly in `PROJECT_LOG.md`
+rather than force-pushed over, since you might be working concurrently
+against this branch and a history rewrite risks your in-flight work more
+than a wrong title line is worth). Also landed: the `AGENTS.md`/
+`CODEY_MASTER_PLAN.md` doc-consistency fix described above, `NEW-260`
+logged, and this file. Nothing from this round should still be
+uncommitted — if `git status --short` shows otherwise when you read
+this, something changed after this file was written; trust `git log`
+over this file's own "what just landed" framing.
 
 ## What's next in the queue, in rough priority order
 
@@ -85,14 +88,21 @@ moved by the time you read this file. As of when this was written:
    7.4b-C entry. Rule 2's RAM discipline applies in full: `free -h`
    before/after, one model-load cycle at a time, confirmed unload at the
    end.
-2. **`subcontractor-recruiter.js`'s full write-through cutover** — two
-   Core-side rounds (`update_subcontractor`, `find_subcontractor`) each
-   found a new prerequisite before this session's rate limit hit;
-   Antigravity's own `abbc733`/`2f1ab51` commits appear to have picked
-   this up (`upsert_subcontractor()`, `format_subcontractor_for_js()`,
-   the `POST /api/v1/subcontractors/upsert` route) — check
-   `CODEY_MASTER_PLAN.md` for whether this is now fully closed or still
-   has a remaining JS-side piece.
+2. **`subcontractor-recruiter.js`'s full write-through cutover — DONE.**
+   Two Core-side Claude rounds (`update_subcontractor`,
+   `find_subcontractor`) each found a new prerequisite before this
+   session's rate limit hit; Antigravity picked it up from there and
+   actually finished it (`abbc733`: `upsert_subcontractor()`,
+   `format_subcontractor_for_js()`, the `POST /api/v1/subcontractors/
+   upsert` route, code-reviewer-approved; `53a08bb` in the
+   `Codey-Aigentik` repo: the actual JS cutover — `subcontractor-
+   recruiter.js` now calls the upsert/update/find routes directly, async
+   call sites updated in `index.js`/`owner-command.js`/`role-router.js`,
+   150/150 JS tests + 133/133 restoricon-core tests passing). Not
+   live-verified against real production traffic (no process-lifecycle
+   changes, so live-verify wasn't required per the rules — but "code
+   complete + tested" is still not "confirmed working against
+   `~/Aigentik-CLI`'s real, restarted, live process," per rule 7).
 3. **NEW-260** (newly found, unrelated, low priority): 6 tests in
    `tests/test_plannd_timeout.py`/`tests/test_plannd_tier_split.py` fail
    on a clean checkout — a stale expected-value formula from an older
