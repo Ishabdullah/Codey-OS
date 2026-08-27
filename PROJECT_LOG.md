@@ -12,7 +12,147 @@ and Appendix A.
 
 ---
 
-## 2026-08-27 (latest) — Phase B2 schema expansion: mandatory rule-4 code-reviewer pass CHANGES REQUESTED, required items fixed same round — now APPROVED
+## 2026-08-27 (latest) — Phase B2 task 2 (data migration script) implemented, code-reviewer-approved — dry-run tested only, no `--apply` against production
+
+**Status: code-complete, code-reviewer-approved. NOT live-verified beyond
+a dry-run against real Aigentik-CLI data — no `--apply` run against the
+real production Restoricon Core DB has happened, per rule 7 that is a
+distinct status this round does not claim.**
+
+Implementer built, per the prior round's scoped spec:
+- `restoricon_core/migrate_aigentik.py` (new) — migrates the 4 of 8 real
+  `~/Aigentik-CLI/data/*.json` files that map cleanly onto the schema
+  landed in `c30d755` (`subcontractors.json`, `calendar.json`,
+  `email-rules.json`+`sms-rules.json`, `profile.json`). Dry-run is the
+  literal default; `--apply` is required to write. Hand-constructs an
+  `ai_agent` `AuthContext` (not a persisted `users` row — documented in
+  the script's own docstring, verified by code-reviewer as unreachable
+  from any API/CLI route). Two idempotency strategies depending on
+  table: skip-if-exists via the three new lookup methods below for
+  `subcontractors`/`appointments`/`automation_rules`, singleton
+  get-or-upsert for `business_profile`. Includes a torn-read guard
+  (`_read_json_stable`) against Aigentik-CLI's non-atomic
+  `writeFileSync`, and per-CHECK-constraint value-domain validation
+  matched against `database.py`'s literal `CHECK(...)` constraints.
+  `contacts.json` (`NEW-215`), `customers.json` (`NEW-212`), and
+  `schedule-config.json` (`NEW-216`) remain explicitly out of scope.
+- 3 new RBAC-gated lookup methods needed for idempotency, one per
+  affected service: `get_subcontractor_by_external_id`
+  (`crm_service.py`), `get_appointment_by_external_id`
+  (`scheduling_service.py`), `get_automation_rule_by_external_id`
+  (`automation_service.py`). `NEW-217` (no lookup method existed,
+  second migration run would hit `sqlite3.IntegrityError`) is closed by
+  this.
+- `tests/test_restoricon_core/test_migrate_aigentik.py` (new, 10 tests).
+
+**Mandatory rule-4 code-reviewer pass (RBAC/auth-context-construction
+code): APPROVED.** Reviewer independently verified (not from
+implementer's summary): all 3 new lookup methods gate on
+`has_permission()` before the query; the hand-constructed `AuthContext`
+is unreachable from any API/CLI route (grepped the whole repo); every
+write call sits behind `if apply:` in both migration drivers, traced
+all 4 call sites with no flag-threading gap; idempotency verified with
+a negative-control test (patched the lookup to always return `None`,
+confirmed `test_idempotent_rerun_no_duplicates` then fails with
+`sqlite3.IntegrityError` as expected — the test genuinely exercises the
+invariant it claims to); the torn-read guard genuinely re-reads and
+compares two parses rather than assuming stability; the script's
+`VALID_APPT_STATUSES`/`VALID_APPT_TYPES`/`VALID_CHANNELS` domain lists
+matched byte-for-byte against `database.py`'s live `CHECK(...)`
+constraints. 10/10 new tests + 48/48 full `tests/test_restoricon_core/`
+suite passed.
+
+**One non-blocking doc-accuracy finding, corrected same round
+(`NEW-218`).** The finding's original text said
+`create_subcontractor`/`create_appointment`/`create_rule` "discard any
+caller-supplied value" for `created_at`/`updated_at`. Reviewer traced
+`migrate_aigentik.py`'s own `map_subcontractor`/`map_appointment`/
+`map_rule` functions and found they never read `rec.get("created_at")`
+from the source JSON at all (grepped, zero occurrences) — so no
+historical value ever reaches the service layer to be discarded in the
+first place. `NEW_ISSUES.md`'s `NEW-218` entry has been corrected to
+describe the real mechanism (value never extracted, not extracted-then-
+overwritten); the practical effect (real historical timestamps end up
+as the migration run's own timestamp) is unchanged and still not fixed
+this round, since fixing it means changing the signature/behavior of
+every `create_*` service method project-wide — out of scope for a
+migration script consuming the existing services as-is.
+
+**Full suite, re-run this round (verbatim):**
+```
+$ python -m pytest tests/ -q
+764 passed, 1 skipped in 45.40s
+```
+Matches the implementer's own reported count from before this
+finalization pass — no regression introduced by the finalization itself
+(only docs/`NEW_ISSUES.md` were touched after the reviewer's pass).
+
+**Not done this round, explicitly out of scope:** no `--apply` run
+against `~/restoricon`'s production Restoricon Core DB — that decision
+belongs to Ish, since it is a real, one-way write of live business data
+into the shared backend; Phase B2 step 3 (write-through replacement);
+`NEW-211`'s port-collision fix (Aigentik-CLI's `chatLocal()` already
+POSTs to Codey-OS's own default port 8080).
+
+## 2026-08-27 — Phase B2 task 2 (data migration) scoped, spec handed to implementer — no code written
+
+**Status: scoping only.** Read the real, live `~/Aigentik-CLI/data/*.json`
+files directly (rule 12) against the schema/service layer landed in
+`c30d755`. `node index.js` (PID 31733) and a real `llama-server` (PID
+31746, port 8080) were confirmed live and running during this read;
+neither was touched, and the migration spec requires the script to be
+strictly read-only against `~/Aigentik-CLI` and idempotent/safely
+re-runnable since the source data changes under it.
+
+Key findings that reshaped the task:
+- Only 4 of 8 real data files map cleanly onto existing tables:
+  `subcontractors.json`→`subcontractors` (1 record), `calendar.json`→
+  `appointments` (1 record), `email-rules.json`/`sms-rules.json`→
+  `automation_rules` (2 + 0 records, verified no id-prefix collision:
+  `er_`/`sr_` via `Date.now()` in the JS source), `profile.json`→
+  `business_profile` (1 record). This first pass is deliberately small —
+  it exists to prove the harness (service-layer calls, `ai_agent`
+  `AuthContext`, dry-run, idempotency) against real data, not to move
+  bulk records.
+- `contacts.json` (201 records) is not customer data — verified it's an
+  Android-contacts phonebook sync (`source: "android_contacts"`, `type`
+  in `person`/`subcontractor`/`unknown`), with no destination table.
+  Logged as `NEW-215`, needs Ish's scope decision before any script
+  touches it.
+- `customers.json` (3 records) is real CRM data but its ~46 fields
+  substantially overflow `Customer`/`Lead` with no dedup key — this
+  confirms and sharpens the already-logged `NEW-212`. Deferred out of
+  this first pass.
+- `schedule-config.json` (scheduling defaults/business config) has no
+  destination table at all — new finding, logged as `NEW-216`.
+- `do-not-contact.json` does not exist on disk yet (0 DNC entries added
+  in production) — spec requires the script treat "file absent" as "0
+  records," distinct from `sms-rules.json`'s "file present, 0 records."
+- `subcontractors`/`appointments`/`automation_rules` services have
+  `create_*` (INSERT-only, `UNIQUE(external_id)`) with no lookup-by-
+  external-id method — a second run would hit `sqlite3.IntegrityError`
+  instead of upserting/skipping. Logged as `NEW-217`; fixing this (3 new
+  service methods) is in-scope for the migration task itself, not
+  deferred to the ledger.
+- Spec requires: dry-run as the literal default (`--apply` to write),
+  source dir as a CLI arg, an explicit written-down `ai_agent`
+  `AuthContext` bootstrap path (flagged because the dataclass is
+  trivially hand-constructible outside the token path — that must be a
+  spec decision, not implementer improvisation), CHECK-constraint value
+  domains derived from the JS writer (not the single sampled record per
+  file) validated in dry-run, and retry-with-backoff + a record-count
+  sanity floor on JSON reads (Aigentik-CLI uses non-atomic
+  `writeFileSync` and is live right now, so a read can land mid-write and
+  return a short-but-valid array that looks like a clean success).
+- `install.sh`: confirmed no change needed (stdlib only).
+
+Not implemented, not code-reviewed. `CODEY_MASTER_PLAN.md` §6.4 task 2
+updated with the full scoping note. `NEW_ISSUES.md` gained `NEW-215`,
+`NEW-216`, `NEW-217`.
+
+---
+
+## 2026-08-27 — Phase B2 schema expansion: mandatory rule-4 code-reviewer pass CHANGES REQUESTED, required items fixed same round — now APPROVED
 
 Mandatory rule-4 review of the B2 schema/models/services/RBAC round
 (5 new `restoricon_core` tables, 3 new/extended services, 10 new

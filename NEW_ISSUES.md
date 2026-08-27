@@ -11185,3 +11185,135 @@ finding for the same bug. See `NEW-39`.)*
   a live caller exists" shape from Phase B1's own review), `restoricon_
   core/auth.py`'s `ROLE_PERMISSIONS` matrix, `restoricon_core/services/
   automation_service.py::is_blocked()`.
+
+### [NEW-215] `~/Aigentik-CLI/data/contacts.json` is not customer/lead data — it's an Android-contacts phonebook sync with no destination table in `restoricon_core`
+- **Status: Confirmed** — read directly, not assumed (rule 12).
+  `contacts.json` (201 real records as of 2026-08-27) has fields `id,
+  name, aliases, phones, emails, address, relationship, type, notes,
+  instructions, reply_behavior, business_name, trade, ..., source,
+  first_seen, last_contact, contact_count, history`; every record's
+  `source` field reads `"android_contacts"`, and its `type` field takes
+  values `person` (199), `subcontractor` (1), `unknown` (1) — not
+  `customer`/`lead`. It's the general phonebook `contacts.js` uses to
+  identify inbound callers/texters and cross-reference
+  `contact_id`/`contact_external_id` on other records (subcontractors,
+  appointments), not a CRM customer source. `restoricon_core` has no
+  table modeling this shape today (not `customers`, not any of the five
+  B2 tables).
+- **Impact:** the originally-assumed "contacts.json → `crm_service`"
+  migration mapping (per the round's kickoff framing) is wrong. A
+  migration script cannot write `contacts.json` into `customers` without
+  fabricating fields that aren't there (first_name/last_name split,
+  customer_type, status) and, worse, would misrepresent 199 phonebook
+  entries with `type: "person"` as CRM customers.
+- **Not fixed here** — this round is scoping only, per rule 8.
+- **Suggested direction, not applied**: either (a) treat `contacts.json`
+  as out of scope for the CRM migration entirely (it's an
+  identification/lookup table, not business data Restoricon Core needs
+  to own), or (b) if Ish wants it preserved, define a new `contacts`
+  table matching its real shape as its own migration task, separate from
+  the customer/subcontractor/appointment migration. Needs an explicit
+  scope decision from Ish before any migration script touches this file.
+- **Cross-references:** plan §6.4 (Phase B2 task 3), `~/Aigentik-CLI/
+  contacts.js`, `restoricon_core/models.py` (no `Contact` dataclass
+  exists).
+
+### [NEW-216] `~/Aigentik-CLI/data/schedule-config.json` (business scheduling defaults) has no destination table in `restoricon_core`
+- **Status: Confirmed** — read directly. Top-level shape is
+  `working_hours, default_duration_minutes, buffer_minutes,
+  booking_window_days, duration_by_relationship` — a singleton
+  configuration object, structurally similar to `profile.json` →
+  `business_profile`, but there is no equivalent table for it. It isn't
+  appointment data itself (that's `calendar.json` → `appointments`,
+  already covered) — it's the *rules* Aigentik-CLI's scheduler uses to
+  decide what slots to offer.
+- **Impact:** this file would be silently dropped by a migration script
+  that only handles the five files with existing table destinations,
+  losing the actual scheduling policy (working hours, buffer, booking
+  window) with no record of it in Restoricon Core.
+- **Not fixed here** — logged per rule 8 rather than improvising a
+  schema addition.
+- **Suggested direction, not applied**: add a `scheduling_config`
+  singleton table (same `id INTEGER PRIMARY KEY CHECK(id = 1)` pattern
+  as `business_profile`) in a future schema-expansion round, once Ish
+  confirms this data is in scope for B2.
+- **Cross-references:** plan §6.4 (Phase B2 task 3), `restoricon_core/
+  database.py` (`business_profile` DDL for the singleton-table pattern
+  to reuse), `~/Aigentik-CLI/data/schedule-config.json`.
+
+### [NEW-217] `subcontractors`/`appointments`/`automation_rules` services have `create_*` (INSERT-only) but no lookup-by-`external_id` method, so a second migration run would hit `sqlite3.IntegrityError` on the `UNIQUE(external_id)` constraint instead of upserting or skipping
+- **Status: Confirmed**, and in-scope work for the migration-script task
+  about to be spec'd (not deferred to the ledger) — noted here per rule
+  8 for visibility since it was found during this round's read, but the
+  fix (adding `get_subcontractor_by_external_id` /
+  `get_appointment_by_external_id` / `get_rule_by_external_id`, or
+  equivalent, to the three service modules) is being handed to
+  implementer as part of the migration task itself, not left open.
+  `upsert_business_profile` (`automation_service.py:217`) and
+  `add_to_do_not_contact` (`automation_service.py:285`) are already
+  idempotent by design and don't need this.
+- **Cross-references:** `restoricon_core/services/crm_service.py`
+  (`create_subcontractor`, no `external_id` lookup),
+  `restoricon_core/services/scheduling_service.py`
+  (`create_appointment`, same gap), `restoricon_core/services/
+  automation_service.py` (`create_rule`, same gap),
+  `restoricon_core/database.py` lines 252-253/309/343 (the
+  `UNIQUE` constraints that make the second run fail hard today).
+- **Update, Phase B2 task 2, 2026-08-27:** closed. `get_subcontractor_by_
+  external_id` (`crm_service.py`), `get_appointment_by_external_id`
+  (`scheduling_service.py`), and `get_automation_rule_by_external_id`
+  (`automation_service.py`) were added and are used by
+  `restoricon_core/migrate_aigentik.py`'s skip-if-exists idempotency
+  check.
+
+## Found during Phase B2 task 2 migration-script implementation, 2026-08-27
+
+### [NEW-218] `create_subcontractor`/`create_appointment`/`create_rule` unconditionally overwrite `created_at`/`updated_at` with the current timestamp, discarding any caller-supplied value
+- **Status: Confirmed** — read directly. All three methods do
+  `now = utc_now_iso(); obj.created_at = now; obj.updated_at = now`
+  before the `INSERT`, then bind `now, now` for the two timestamp
+  columns regardless of what was set on the passed-in dataclass
+  instance. `create_user`/`create_customer`/etc. follow the same
+  pattern elsewhere in the codebase, so this isn't unique to the three
+  new services — it's the established convention for every `create_*`
+  method in `restoricon_core`.
+- **Impact on this round's migration script
+  (`restoricon_core/migrate_aigentik.py`):** real historical timestamps
+  from Aigentik-CLI's source JSON (e.g. `email-rules.json`'s
+  `2026-02-22T03:07:55.570Z` for an email rule created six months before
+  this migration ran) end up as the migration's own run timestamp for
+  `created_at`/`updated_at` instead. **Corrected mechanism (per
+  code-reviewer, 2026-08-27):** this isn't the service layer discarding
+  a caller-supplied value — `migrate_aigentik.py`'s own
+  `map_subcontractor`/`map_appointment`/`map_rule` functions never read
+  `rec.get("created_at")` from the source JSON at all (grepped, zero
+  occurrences), so no historical value ever reaches `create_*` to be
+  discarded. A full fix needs two changes, not one: the mapper functions
+  would need to read and pass through the source timestamp, *and* the
+  three `create_*` methods would need an override parameter to accept
+  it instead of always stamping `now`. Other timestamp-bearing fields
+  that live in their own dedicated columns (`last_contact_at`,
+  `next_followup_at`, `setup_date`) are unaffected and do carry the real
+  source values through correctly — only the two columns every table
+  shares are clobbered.
+- **Not fixed here** — fixing it means changing the signatures/bodies of
+  three (or, given the pattern is universal, potentially every)
+  `create_*` service method to accept and preserve an explicit
+  `created_at`/`updated_at` when the caller supplies one, which is a
+  service-layer behavior change well beyond this task's scope (a
+  migration script consuming the existing services as-is). Documented
+  as a known, accepted limitation in `migrate_aigentik.py`'s own module
+  docstring.
+- **Suggested direction, not applied**: (1) add an optional
+  `created_at`/`updated_at` override parameter (or accept them only when
+  already set non-default on the passed dataclass) to the affected
+  `create_*` methods, and (2) update `migrate_aigentik.py`'s mapper
+  functions to actually read the source JSON's timestamp field and pass
+  it through — both changes are needed together, scoped and reviewed as
+  their own small task before any future migration round that needs
+  historically-accurate timestamps preserved.
+- **Cross-references:** `restoricon_core/services/crm_service.py`
+  (`create_subcontractor`), `restoricon_core/services/
+  scheduling_service.py` (`create_appointment`), `restoricon_core/
+  services/automation_service.py` (`create_rule`), `restoricon_core/
+  migrate_aigentik.py` (module docstring's "Known limitations" section).

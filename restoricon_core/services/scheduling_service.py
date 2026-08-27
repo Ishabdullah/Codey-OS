@@ -134,6 +134,22 @@ class SchedulingService:
             return None
         return self._row_to_appointment(row)
 
+    def get_appointment_by_external_id(self, external_id: str, actor: AuthContext) -> Optional[Appointment]:
+        """Look up by Aigentik-CLI's own string ID (e.g. 'appt_0001').
+        NEW-217: added so migrate_aigentik.py can check for an existing
+        row before INSERT and skip re-migrating it, instead of hitting
+        the `UNIQUE(external_id)` constraint as an IntegrityError."""
+        if not actor.has_permission(PERM_READ_APPOINTMENTS):
+            raise PermissionError("Actor lacks permission to view appointments")
+
+        conn = self.db.get_connection()
+        row = conn.execute(
+            "SELECT * FROM appointments WHERE external_id = ?;", (external_id,)
+        ).fetchone()
+        if not row:
+            return None
+        return self._row_to_appointment(row)
+
     def list_appointments(
         self,
         actor: AuthContext,

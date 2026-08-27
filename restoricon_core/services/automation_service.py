@@ -162,6 +162,22 @@ class AutomationService:
         rows = conn.execute(query, params).fetchall()
         return [self._row_to_rule(row) for row in rows]
 
+    def get_automation_rule_by_external_id(self, external_id: str, actor: AuthContext) -> Optional[AutomationRule]:
+        """Look up by Aigentik-CLI's own string ID (e.g. 'er_1771729675570').
+        NEW-217: added so migrate_aigentik.py can check for an existing
+        row before INSERT and skip re-migrating it, instead of hitting
+        the `UNIQUE(external_id)` constraint as an IntegrityError."""
+        if not actor.has_permission(PERM_READ_AUTOMATION_RULES):
+            raise PermissionError("Actor lacks permission to view automation rules")
+
+        conn = self.db.get_connection()
+        row = conn.execute(
+            "SELECT * FROM automation_rules WHERE external_id = ?;", (external_id,)
+        ).fetchone()
+        if not row:
+            return None
+        return self._row_to_rule(row)
+
     def record_rule_match(self, rule_id: int, actor: AuthContext) -> Optional[AutomationRule]:
         """Increment a rule's hit counter. Deliberately NOT audit-logged:
         this fires on every inbound message a rule matches (a

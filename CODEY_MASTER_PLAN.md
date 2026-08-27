@@ -1015,6 +1015,35 @@ rules.channel`. **Status: code-complete, code-reviewer-approved, NOT
 live-verified** (no live component by design — schema/service/RBAC
 work, not a model-load or process-lifecycle change).
 
+**Phase B2 task 2 (data migration script), 2026-08-27 — code-complete,
+code-reviewer-approved. Dry-run tested against real Aigentik-CLI data
+only — NOT run with `--apply` against production.** Built:
+`restoricon_core/migrate_aigentik.py` (new), 3 new RBAC-gated lookup
+methods (`get_subcontractor_by_external_id`,
+`get_appointment_by_external_id`, `get_automation_rule_by_external_id`
+in `crm_service.py`/`scheduling_service.py`/`automation_service.py`),
+and `tests/test_restoricon_core/test_migrate_aigentik.py` (10 new
+tests). Migrates the 4 of 8 real `~/Aigentik-CLI/data/*.json` files that
+map cleanly onto the schema landed in `c30d755`
+(`subcontractors.json`/`calendar.json`/`email-rules.json`+
+`sms-rules.json`/`profile.json`); `contacts.json` (`NEW-215`),
+`customers.json` (`NEW-212`), and `schedule-config.json` (`NEW-216`)
+remain explicitly out of scope and unmigrated. Dry-run is the literal
+default; `--apply` is required to write. Code-reviewer independently
+verified the permission gates, the dry-run write boundary, idempotency
+(including a negative-control test that a broken lookup correctly fails
+loud), and the torn-read guard against Aigentik-CLI's non-atomic JSON
+writes — approved with one non-blocking doc-accuracy note, since
+corrected (`NEW-218`'s mechanism: the migration script's own mapper
+functions never read the source `created_at` field, so it isn't the
+service layer discarding a caller-supplied value — no historical value
+reaches the service layer to discard in the first place). Full suite:
+**764 passed, 1 skipped**. **No `--apply` run against the real
+production database has happened** — that decision belongs to Ish, not
+this round, since it writes to the live Restoricon Core DB from real
+business data. Step 3 (write-through replacement) and `NEW-211`'s
+port-collision fix remain the next Phase B2 work, not started.
+
 ---
 
 ## 5. The device, stated once
@@ -2275,6 +2304,69 @@ gitignored/untracked (55 tracked files, no secrets) — the clone carries
 no secrets or business data, but also means `Codey-Aigentik`'s own
 `config.json` needs to be created fresh in its working copy, never
 committed (`NEW-210`).
+
+**Task 2 (data migration) scoped 2026-08-27 — spec handed to
+implementer, no code written yet.** Read the real, live `~/Aigentik-CLI/
+data/*.json` files directly (per rule 12) against the schema/service
+layer landed this round (`c30d755`). Findings that reshape task 2:
+- Only 4 of the 8 real data files map cleanly onto existing tables today:
+  `subcontractors.json` → `subcontractors`, `calendar.json` →
+  `appointments`, `email-rules.json`/`sms-rules.json` → `automation_rules`,
+  `profile.json` → `business_profile`. Combined real record count as of
+  2026-08-27: 1 subcontractor, 1 appointment, 2 email rules, 0 SMS rules,
+  1 profile — a small first pass, deliberately, to prove the harness
+  (service-layer calls + `ai_agent` `AuthContext` + dry-run + idempotency)
+  against real data before the bulk migration.
+- `contacts.json` (201 records) is **not** customer data — it's an
+  Android-contacts phonebook sync (`source: "android_contacts"`,
+  `type` in `person`/`subcontractor`/`unknown`) with no destination table
+  today. See `NEW-215` — needs an explicit scope decision from Ish before
+  any script touches it.
+- `customers.json` (3 records) is real CRM data but its ~46 fields
+  substantially overflow the `Customer`/`Lead` models (insurance/claim
+  fields, project scheduling fields, `dnc_status`) with no dedup key
+  (`NEW-212`, already logged) — deferred out of this first migration
+  pass, to be scoped separately once `NEW-212`'s `external_id` decision
+  is made.
+- `schedule-config.json` (scheduling defaults) has no destination table
+  at all — see `NEW-216`, deferred.
+- `do-not-contact.json` does not exist yet on disk (zero DNC entries
+  added in production so far) — the migration script must treat "file
+  absent" as "0 records," not as an error, and must not conflate it with
+  `sms-rules.json`'s "file present, 0 records" state.
+- `subcontractors`/`appointments`/`automation_rules` services have
+  `create_*` (INSERT-only, `UNIQUE(external_id)`) with no lookup method
+  — a second migration run would hit `sqlite3.IntegrityError` instead of
+  upserting or skipping (`NEW-217`). Adding the three lookup methods is
+  in-scope for the migration task itself, not deferred.
+- The spec requires: dry-run as the literal default (`--apply` to
+  write), source directory as a CLI arg (default `~/Aigentik-CLI/data`),
+  an explicit `ai_agent` `AuthContext` bootstrap path written down (not
+  improvised — the dataclass is trivially constructible outside the
+  token path, so the spec pins whether a real `ai_agent` user row/token
+  is created first or whether `AuthContext` is deliberately
+  hand-constructed for this internal script, and why either is safe
+  here), per-CHECK-constraint value-domain validation derived from the
+  JS writer (not just the one sampled record) reported in dry-run rather
+  than discovered as an `IntegrityError`, and retry-with-backoff plus a
+  record-count sanity floor on JSON parses (Aigentik-CLI is a live
+  process using non-atomic `writeFileSync`, so a read can land mid-write
+  and yield a short-but-valid array that looks like a clean success).
+- `install.sh`: no change needed — `json`/`sqlite3`/`argparse` are
+  stdlib only.
+- Not code-reviewed or implemented yet; next step is handing this spec
+  to implementer, then the mandatory code-reviewer pass (rule 4 covers
+  any RBAC/auth-context-construction code) before commit.
+
+**Task 2 implemented and code-reviewer-approved, 2026-08-27 — see §4.5's
+full entry for the built artifacts, the reviewer's verification list,
+the `NEW-218` doc-accuracy correction, and the test count.** Only a
+dry-run against real Aigentik-CLI data has been run; no `--apply` run
+against production has happened — that is a separate decision for Ish,
+since it writes to the live Restoricon Core DB from real business data.
+Do not mark this "done" beyond code-complete/code-reviewer-approved
+until that decision is made and, if approved, the `--apply` run is
+itself verified.
 
 **Step 4 is not a simple config change (`NEW-211`):** Aigentik-CLI's
 `chatLocal()` (`llama.js`) already POSTs to `http://127.0.0.1:8080`,
