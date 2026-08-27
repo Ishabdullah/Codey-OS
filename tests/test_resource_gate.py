@@ -2231,6 +2231,21 @@ def test_reserve_slot_admits_when_committed_sum_stays_under_ceiling(tmp_path):
     assert slot_id is not None
 
 
+def test_reserve_slot_same_port_excludes_resident_slot_for_upgrade(tmp_path):
+    # NEW-261: If a resident slot already exists on port 8080 (e.g. background coder at 3.5GB),
+    # and a new reservation is requested for the SAME port (e.g. foreground coder at ~4.8GB),
+    # the sum (~8.3GB) would exceed MAX_CONCURRENT_MODEL_BUDGET_BYTES (7GB).
+    # Because port 8080 is exclusive and the old server will be replaced/upgraded,
+    # the same-port resident slot must not be double-counted as concurrent.
+    rg.register_slot("primary", cost_bytes=int(3.5 * GIB), port=8080, state_dir=tmp_path, status=rg.SLOT_STATUS_RESIDENT)
+    candidate = rg.ModelSpec(model_id="primary", size_bytes=int(2.6 * GIB), n_ctx=65536, compute_overhead_bytes=0)
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=8.0, mem_available_gib=8.0)
+    decision, slot_id = rg.reserve_slot(candidate, port=8080, meminfo=mi, read_temp_fn=NO_THERMAL, state_dir=tmp_path)
+    assert decision.admitted is True
+    assert decision.budget_ceiling_exceeded is False
+    assert slot_id is not None
+
+
 # ── TODO.md 7.4a sub-task C2: swap-assisted secondary check wired into
 #    can_admit() ───────────────────────────────────────────────────────────
 #

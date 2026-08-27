@@ -12,6 +12,20 @@ and Appendix A.
 
 ---
 
+## 2026-08-27 — 7.4b-C (NEW-145/149/155/259) LIVE-VERIFIED ON-DEVICE; NEW-261 discovered and resolved (reserve_slot same-port committed double-count)
+
+- **Status**: Live-verified on-device against real `llama-server` and `ModelLoader` processes. Item 7.4b-C is now fully closed across all tiers (code-complete, code-reviewer-approved, live-verified).
+- **Discovery (NEW-261)**: During the initial live run, `loader_fg.load_primary()` in interactive mode failed because `reserve_slot()` computed `committed = _sum_committed_bytes(slots)` across all resident slots without excluding the existing resident slot on `port=8080`. Adding the candidate (4968MiB) to the existing slot (3432MiB) totaled 8400MiB > 7168MiB (`MAX_CONCURRENT_MODEL_BUDGET_BYTES`), causing `reserve_slot()` to reject the reservation before `LlamaServer.start()` could execute the upgrade.
+- **Fix for NEW-261**: In `core/resource_gate.py:reserve_slot()`, filter out same-port slots (`s.get("port") != port`) when calculating `concurrent_slots` for `committed` bytes when `port` is provided. Added regression unit test `test_reserve_slot_same_port_excludes_resident_slot_for_upgrade` in `tests/test_resource_gate.py`.
+- **Live Verification Execution**:
+  1. Background model loaded with `interactive=False` $\rightarrow$ spawned `llama-server` at `n_ctx=16384` (PID 5943), registered resident slot in `resource_gate` with `cost_bytes=3598935200`, `n_ctx=16384`.
+  2. Interactive attach loaded with `interactive=True` $\rightarrow$ `LlamaServer._upgrade_resident_if_safe()` detected `n_ctx=16384 < 65536`, confirmed daemon was idle, terminated background PID 5943 (exit code 0), and respawned `llama-server` at `n_ctx=65536` (PID 6300).
+  3. Verified new resident slot registered with `cost_bytes=5209547936`, `pid=6300`, `n_ctx=65536`, and spawn command line contained `-c 65536`.
+  4. Clean teardown verified: server unloaded, 0 lingering `llama-server` processes, RAM recovered to 6.9GiB available.
+- **Suite**: Full pytest test suite passes (`883 passed, 1 skipped`).
+
+---
+
 ## 2026-08-27 — NEW-260: stale expected outer-timeout formula in test_plannd_timeout.py and test_plannd_tier_split.py resolved
 
 - **Fix**: Replaced hardcoded hand-derived outer-timeout assertions (`expected_outer = inner_timeout + 30.0`) in `tests/test_plannd_timeout.py` and `tests/test_plannd_tier_split.py` with calls to `compute_outer_plan_timeout()`.

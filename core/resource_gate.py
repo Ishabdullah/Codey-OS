@@ -3298,7 +3298,16 @@ def reserve_slot(
         # total_committed_bytes() call (which acquires its own lock and
         # would both self-deadlock against the lock already held here and
         # reopen the exact TOCTOU window this function exists to close).
-        committed = _sum_committed_bytes(slots)
+        #
+        # NEW-261 (found during Option C live-verification, 2026-08-27):
+        # If this reservation specifies a port, an existing slot on that exact
+        # same port cannot run concurrently with this reservation (the port
+        # is exclusive, and will either be reused or killed+replaced on upgrade).
+        # Exclude same-port slots from the concurrent sum so an upgrade from
+        # a smaller resident model to a larger model isn't falsely rejected
+        # as a concurrent dual-model load exceeding MAX_CONCURRENT_MODEL_BUDGET_BYTES.
+        concurrent_slots = [s for s in slots if s.get("port") != port] if port is not None else slots
+        committed = _sum_committed_bytes(concurrent_slots)
 
         # NEW-135 fix: same PENDING-only filter as `reserved` above, summing
         # `swap_bytes_claimed` instead of `cost_bytes` — the swap-assist

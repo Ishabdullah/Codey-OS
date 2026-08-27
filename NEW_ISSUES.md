@@ -12924,3 +12924,11 @@ required)
   ~4018), `dfb655c` ("Sec8 Q11/NEW-206: concurrent-context admission
   gate + queue, code-reviewer approved" — the commit that added the
   queue-wait term without updating these two test files).
+
+### [NEW-261] `core/resource_gate.py:reserve_slot()` double-counts resident slot on same port against `MAX_CONCURRENT_MODEL_BUDGET_BYTES`, falsely denying upgrade from background to interactive ceiling
+- **Status: RESOLVED 2026-08-27 (code-complete, unit-tested, live-verified).**
+- **Discovered during Option C live-verification**: When `ModelLoader.load_primary()` runs in interactive mode to upgrade an existing resident background coder on port 8080 (3432MiB, n_ctx=16384) to interactive ceiling (4968MiB, n_ctx=65536), `reserve_slot()` calculated `committed = _sum_committed_bytes(slots)` across all slots indiscriminately. Because `3432 + 4968 = 8400MiB > 7168MiB` (`MAX_CONCURRENT_MODEL_BUDGET_BYTES`), `reserve_slot()` denied the reservation before `LlamaServer.start()` could even be called to execute the upgrade.
+- **Root cause**: Reserving for a specific `port` (e.g. `PRIMARY_SERVER_PORT = 8080`) is mutually exclusive with any existing resident server on that exact port — the old server is either reused or killed and replaced on upgrade, never run concurrently. Including same-port slots in the concurrent committed sum falsely treats an upgrade as two concurrent servers.
+- **Fix**: In `core/resource_gate.py:reserve_slot()`, filter out same-port slots (`s.get("port") != port`) when computing `committed` for the concurrent-budget check if `port` is specified.
+- **Verification**: New unit test `test_reserve_slot_same_port_excludes_resident_slot_for_upgrade` in `tests/test_resource_gate.py` passes; full 883 unit tests pass; on-device live test confirmed background server (n_ctx=16384, PID 5943) terminated and respawned as interactive server (n_ctx=65536, PID 6300) with clean slot transition and zero RAM leaks.
+- **Cross-references**: `core/resource_gate.py:reserve_slot()`, `NEW-145`, `NEW-149`, `NEW-155`, `NEW-259`.
