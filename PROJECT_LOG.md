@@ -14,6 +14,18 @@ and Appendix A.
 
 ## 2026-08-27 — NEW-259: two real bugs found in the already-committed, twice-approved NEW-145/149/155 fix; both fixed, code-reviewer-approved. Also: Antigravity brought in as a second agent on this project, ANTIGRAVITY.md/AGENTS.md doc-consistency fix, HANDOFF.md added
 
+**Correcting the record on this round's own commit title (rule 6):**
+this round's commit, `375dafd`, has a wrong title —
+"NEW-145/149/155: reliable comms log — idempotency key, dedup-on-write,
+customer_id resolution" is a leftover copy-paste from an earlier,
+unrelated commit message and describes nothing in this commit's actual
+diff. The commit body text is accurate and describes the real NEW-259
+work correctly; only the one-line title is wrong. Not amended/force-
+pushed after the fact, since Antigravity may be working concurrently
+against this branch and a history rewrite risks a second agent's
+in-flight work more than a wrong title line is worth — noted here
+instead so anyone scanning `git log` isn't misled by it.
+
 **Context**: Claude Code's session hit a rate limit mid-round (during a
 live-verification dispatch for the NEW-145/149/155 fix and a full-scope
 decision for `subcontractor-recruiter.js`). Ish brought in Antigravity
