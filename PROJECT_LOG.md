@@ -12,6 +12,18 @@ and Appendix A.
 
 ---
 
+## 2026-08-27 — Phase B2 Task 4: subcontractor-recruiter.js write-through cutover complete (Codey-Aigentik)
+
+- **Status**: Code-complete, unit-test verified across both repositories (`889 passed, 1 skipped` in `Codey-OS`, `164 passed, 0 failed` across 10 suites in `Codey-Aigentik`).
+- **Write-Through Cutover (`Codey-Aigentik`)**:
+  - Converted `subcontractor-recruiter.js` from local JSON (`data/subcontractors.json`) to Restoricon Core API (`coreRequest()` over Bearer auth).
+  - Implemented `loadSubcontractors()`, `getSubcontractorById()`, `findSubcontractor()`, `createOrUpdateSubcontractorLead()`, `updateSubcontractor()`, `formatPipelineReport()`, and `formatFollowupList()` to query and mutate via Core API endpoints (`/api/v1/subcontractors`, `/api/v1/subcontractors/upsert`, `/api/v1/subcontractors/:id/update`, `/api/v1/subcontractors/:id/qualification`).
+  - Synced mapped record formats (`mapCoreToJS`, `mapJSToCore`) ensuring boolean type coercion and field conversions (`subcontractor_id` $\leftrightarrow$ `external_id`, `last_contact` $\leftrightarrow$ `last_contact_at`).
+  - Updated all `owner-command.js` call sites with `await`.
+  - Expanded `tests/subcontractor-recruiter.test.js` with mock-fetch unit tests covering Core mapping, listing, lookup by ID/query, upsert, qualification updates, and pipeline reports.
+
+---
+
 ## 2026-08-27 — Phase B2 Task 4: calendar.js & schedule-config write-through cutover complete (Codey-OS & Codey-Aigentik)
 
 - **Status**: Code-complete, unit-test verified across both repositories (`889 passed, 1 skipped` in `Codey-OS`, `157 passed, 0 failed` in `Codey-Aigentik`).

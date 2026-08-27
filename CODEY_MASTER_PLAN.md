@@ -1134,15 +1134,24 @@ pure date/time parsing math, and updated all `owner-command.js` and `index.js`
 call sites with `await`. Unit tests pass in both repos (`889 passed, 1 skipped`
 in `Codey-OS`, `157 passed, 0 failed` in `Codey-Aigentik`).
 
-**Phase B2 write-through progress: 3 of the 10 write-site modules
+**Phase B2 task 4, fourth module (`subcontractor-recruiter.js`
+write-through), 2026-08-27 — code-complete, unit-test verified.** Built in
+`~/Codey-Aigentik`: converted `subcontractor-recruiter.js` from local JSON
+(`data/subcontractors.json`) to Restoricon Core API (`coreRequest()` over
+Bearer auth) calling `/api/v1/subcontractors`, `/api/v1/subcontractors/upsert`,
+`/api/v1/subcontractors/:id/update`, and `/api/v1/subcontractors/:id/qualification`.
+Updated `owner-command.js` call sites with `await`. Unit tests pass in both repos
+(`889 passed, 1 skipped` in `Codey-OS`, `164 passed, 0 failed` across 10 suites
+in `Codey-Aigentik`).
+
+**Phase B2 write-through progress: 4 of the 10 write-site modules
 (§6.4's per-module list) are now done — `do-not-contact.js`,
-`email-rules.js`/`sms-rules.js`, and `calendar.js`.** Remaining modules and their current
-blockers: `contacts.js`/`customer-module.js` (blocked on `NEW-212`/
-`NEW-215`, Ish's scope call, not a design gap); `subcontractor-
-recruiter.js` (Core-side upsert/update implemented via `abbc733`, JS write-through pending); and the comms/email/SMS-provider paths
-(`email-provider.js`/`gmail.js`/`index.js`'s Google Voice handling →
-a communications endpoint) — **re-scoped 2026-08-27 and found to be
-blocked, not the next unblocked candidate as this section previously
+`email-rules.js`/`sms-rules.js`, `calendar.js`, and `subcontractor-recruiter.js`.**
+Remaining modules and their current blockers: `contacts.js`/`customer-module.js`
+(blocked on `NEW-212`/`NEW-215`, Ish's scope call, not a design gap); and the
+comms/email/SMS-provider paths (`email-provider.js`/`gmail.js`/`index.js`'s
+Google Voice handling → a communications endpoint) — **re-scoped 2026-08-27 and
+found to be blocked, not the next unblocked candidate as this section previously
 said; see the "Phase B2 task 4, comms/email/SMS-provider write-through
 — scoping only, blocked" entry immediately above §5 and the pending
 decision it logs for Ish.**
