@@ -2477,8 +2477,11 @@ below, adjust if (a) is chosen):
    through to the new appointments endpoints; `email-rules.js`/
    `sms-rules.js` write through to the new automation-rules endpoints;
    `do-not-contact.js` writes through to the new do-not-contact
-   endpoints; `subcontractor-recruiter.js` writes through to the new
-   subcontractor endpoints. **Note:** `restoricon_core/api/routes.py`
+   endpoints (**code-complete + code-reviewer-approved 2026-08-27, NOT
+   live-verified against real production traffic — see §4's Phase B2
+   task 4 pilot entry; the other nine write-through items in this list
+   remain not started**); `subcontractor-recruiter.js` writes through to
+   the new subcontractor endpoints. **Note:** `restoricon_core/api/routes.py`
    currently has no routes for any of the five new resources
    (`NEW-193`'s write-only-routes gap applies here too) — adding them is
    part of this step, not assumed already done by this round's schema

@@ -11517,13 +11517,26 @@ process
   partly discharged, not closed.** `tools/provision_ai_agent_auth.py`
   (new this round) has now actually connected to
   `~/.codey_restoricon/core.db` at its real, default path and created
-  the schema + one real `ai_agent`-role user + token in it — the "does
-  not exist on disk" half of this finding no longer holds; verified via
-  `ls -la ~/.codey_restoricon/` showing a real `core.db` file. But the
-  second half still holds exactly as written: `ps aux` still shows no
-  `restoricon_core/api/server.py` process, and every HTTP test the
-  do-not-contact pilot's implementer/reviewer ran (18 new + 122 full
-  suite in `~/Codey-Aigentik`) went through a separate locally-started
+  the schema + one real `ai_agent`-role user + token in it. Verified
+  directly by querying the real DB file (not inferred from its
+  existence — rule 5), verbatim:
+  ```
+  tables: ['users', 'sqlite_sequence', 'api_tokens', 'customers', 'leads',
+  'opportunities', 'projects', 'estimates', 'contracts', 'documents',
+  'invoices', 'communication_history', 'subcontractors', 'appointments',
+  'automation_rules', 'business_profile', 'do_not_contact', 'audit_log']
+  users: [{'id': 1, 'username': 'codey-aigentik-agent', 'role': 'ai_agent', 'active': 1}]
+  tokens: [(1, 3)]
+  ```
+  So: one real `ai_agent` user (id 1, active) exists, and it already has
+  **3** accumulated tokens from repeated script reruns — direct, measured
+  confirmation of `NEW-227`'s accumulation concern, not just the
+  script's own docstring claim. The "does not exist on disk" half of
+  this finding no longer holds. But the second half still holds exactly
+  as written: `ps aux` still shows no `restoricon_core/api/server.py`
+  process, and every HTTP test the do-not-contact pilot's
+  implementer/reviewer ran (18 new + 122 full suite in
+  `~/Codey-Aigentik`) went through a separate locally-started
   scratch/`:memory:` Core server, not the real DB path. The Core API
   server has still never served a request against its real persistent
   DB from an external process. Leave open; will close only once a
@@ -11551,19 +11564,29 @@ write-through change
 
 ### [NEW-227] `tools/provision_ai_agent_auth.py` accumulates tokens on
 repeated reruns — no revocation step
-- **Status: Confirmed, low severity, already self-documented.** The
-  script's own docstring states it plainly: "Idempotent: re-running with
-  the same `--username` reuses the existing user and issues it a new
-  token (old tokens for that user are left valid/expiring on their own
-  schedule — this script does not revoke anything)." Each rerun against
-  the same `--username` therefore leaves behind one more live,
-  never-revoked bearer token for the `ai_agent` user, with no cleanup
-  path.
+- **Status: Confirmed, low severity, already self-documented, now
+  measured (not just asserted by the docstring).** The script's own
+  docstring states it plainly: "Idempotent: re-running with the same
+  `--username` reuses the existing user and issues it a new token (old
+  tokens for that user are left valid/expiring on their own schedule —
+  this script does not revoke anything)." Queried the real DB directly
+  (`select user_id, count(*) from api_tokens group by user_id`):
+  `[(1, 3)]` — the `ai_agent` user (id 1) already has 3 live tokens
+  accumulated from this round's provisioning reruns. Each rerun against
+  the same `--username` leaves behind one more live, never-revoked
+  bearer token for the `ai_agent` user, with no cleanup path.
 - **Action:** none taken this round — logged per rule 8 since it's a
-  real loose end even though it's disclosed, not hidden, behavior. A
-  future pass could add a `--revoke-existing` flag or a token-expiry
-  policy in `restoricon_core/auth.py`, but that's new scope, not a bug
-  fix, and wasn't part of this round's pilot task.
+  real loose end even though it's disclosed, not hidden, behavior.
+  Judged **not queue-level** (no Appendix A line added): 3 tokens for a
+  single internal service credential is a minor cleanup nicety today,
+  not a blocker for anything currently scoped. This should be
+  revisited as queue-level (Appendix A + likely a `restoricon_core/
+  auth.py` revocation/expiry mechanism) once real production cutover
+  is scheduled, since an accumulating, never-revoked credential matters
+  more once it's authenticating live business traffic. A future pass
+  could add a `--revoke-existing` flag or a token-expiry policy, but
+  that's new scope, not a bug fix, and wasn't part of this round's
+  pilot task.
 - **Cross-reference:** `tools/provision_ai_agent_auth.py` (docstring and
   `provision()`); `restoricon_core/auth.py::AuthService.create_token`.
 

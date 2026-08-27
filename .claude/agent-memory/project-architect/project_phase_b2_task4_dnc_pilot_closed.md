@@ -32,14 +32,15 @@ path). Don't let a future round collapse "the DB now exists" into
 **Findings from this round:** `NEW-226` (3 stale docs in
 `~/Codey-Aigentik` still describing DNC as a local JSON file, doc-only),
 `NEW-227` (`tools/provision_ai_agent_auth.py` accumulates tokens on
-rerun, no revocation — already self-documented in the script's own
-docstring, logged anyway per rule 8).
+rerun, no revocation — measured at 3 tokens for the one `ai_agent` user
+this round, already self-documented in the script's own docstring,
+logged anyway per rule 8; judged not queue-level for now, revisit at
+real cutover time).
 
 **Remaining scope, explicitly not touched:** 9 more write-through
 modules in `CODEY_MASTER_PLAN.md` §6.4's per-module list, and the real
 production cutover decision (Ish's call, not made).
 
-See also [[project_round_phase_b2_task4a_routes_closed]] (the routes
-this pilot's HTTP calls hit) and [[project_new206_concurrency_
-oversubscription_finding]]-adjacent NEW-225 lineage in NEW_ISSUES.md for
-the Core-API-never-run-in-production thread.
+See also [[project_phase_b2_task4a_routes_closed]] (the routes this
+pilot's HTTP calls hit) and `NEW_ISSUES.md`'s `NEW-225` entry (the
+Core-API-never-run-in-production thread this round's DB query updated).

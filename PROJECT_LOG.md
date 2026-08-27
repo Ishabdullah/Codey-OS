@@ -36,8 +36,8 @@ holds the live bearer token) confirmed still gitignored via `git
 check-ignore -v config.json` → `.gitignore:5:config.json`; not staged,
 not committed.
 
-**`~/Codey-OS` (this repo, commit below):** new
-`tools/provision_ai_agent_auth.py` — one-off script that connects to
+**`~/Codey-OS` (this repo, commit `5c79d16`, pushed to `origin/main`):**
+new `tools/provision_ai_agent_auth.py` — one-off script that connects to
 `restoricon_core`'s real persistent DB (`~/.codey_restoricon/core.db`,
 created via `CREATE TABLE IF NOT EXISTS` on first connection since it
 didn't exist before this round) and creates/reuses one `ai_agent`-role
@@ -47,6 +47,13 @@ committed — that file is gitignored and real). New `tests/
 test_provision_ai_agent_auth.py` — **4 passed**. Full suite re-run fresh
 this round: `python -m pytest tests/ -q` → **774 passed, 1 skipped**
 (53.14s).
+
+Queried the real DB directly, not inferred from file existence (rule 5):
+`tables: [...18 tables including 'users', 'api_tokens', 'do_not_contact'...]`,
+`users: [{'id': 1, 'username': 'codey-aigentik-agent', 'role': 'ai_agent',
+'active': 1}]`, `tokens: [(1, 3)]` — one real `ai_agent` user exists,
+with 3 tokens already accumulated from this round's provisioning
+reruns (see `NEW-227`).
 
 **Verification tier — explicit, per rule 7: code-complete +
 code-reviewer-approved. NOT live-verified against real production
@@ -64,10 +71,11 @@ not made or scheduled here.
 DB now exists on disk with one real `ai_agent` user in it, but the
 Core's HTTP API server has still never been started against that real
 DB path and served a request from an external process — the finding's
-core claim still holds in its second half. Three new findings logged,
+core claim still holds in its second half. Two new findings logged,
 `NEW-226` (3 stale `~/Codey-Aigentik` doc references to the old JSON
 file location, doc-only, not fixed) and `NEW-227` (`provision_ai_agent_
-auth.py`'s tokens accumulate on rerun with no revocation step — already
+auth.py`'s tokens accumulate on rerun with no revocation step, now
+measured at 3 tokens for one user — already
 disclosed in its own docstring, logged per rule 8 anyway since it's a
 real loose end).
 
