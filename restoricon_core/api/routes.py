@@ -283,6 +283,13 @@ class APIRouter:
                     return 404, {"Content-Type": "application/json"}, {"error": "Subcontractor not found"}
                 return 200, {"Content-Type": "application/json"}, {"subcontractor": updated_sub.to_dict()}
 
+            if path.startswith("/api/v1/subcontractors/") and path.endswith("/update") and method == "POST":
+                sub_id = int(path.split("/")[-2])
+                updated_sub = self.crm.update_subcontractor(sub_id, json_body, actor)
+                if not updated_sub:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Subcontractor not found"}
+                return 200, {"Content-Type": "application/json"}, {"subcontractor": updated_sub.to_dict()}
+
             if path.startswith("/api/v1/subcontractors/") and method == "GET":
                 sub_id = int(path.split("/")[-1])
                 sub = self.crm.get_subcontractor(sub_id, actor)

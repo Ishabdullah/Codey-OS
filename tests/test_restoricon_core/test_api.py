@@ -225,6 +225,123 @@ def test_api_subcontractors_crud(api_server):
     assert status == 404
 
 
+def test_api_subcontractors_update(api_server):
+    server, base_url, _, _ = api_server
+    headers = _agent_headers(base_url)
+
+    server.auth_service.create_user(
+        username="tech",
+        plain_password="TechPassword123",
+        full_name="Tech Guy",
+        email="tech@restoricon.com",
+        role=ROLE_TECHNICIAN,
+    )
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "tech", "password": "TechPassword123"},
+    )
+    assert status == 200
+    tech_headers = {"Authorization": f"Bearer {body['token']}"}
+
+    status, body = make_request(
+        f"{base_url}/api/v1/subcontractors",
+        method="POST",
+        headers=headers,
+        data={
+            "company_name": "  Acme Roofing  ",
+            "primary_trade": "roofing",
+            "email": "Acme@Example.com",
+            "qualification_data": {"years_licensed": 5, "notes": "solid"},
+            "secondary_trades": ["gutters"],
+        },
+    )
+    assert status == 201
+    sub_id = body["subcontractor"]["id"]
+
+    # PermissionError (actor lacks PERM_WRITE_SUBCONTRACTORS) -> 403
+    status, body = make_request(
+        f"{base_url}/api/v1/subcontractors/{sub_id}/update",
+        method="POST",
+        headers=tech_headers,
+        data={"phone": "555-1234"},
+    )
+    assert status == 403
+
+    # Unknown key -> 400
+    status, body = make_request(
+        f"{base_url}/api/v1/subcontractors/{sub_id}/update",
+        method="POST",
+        headers=headers,
+        data={"not_a_real_field": "x"},
+    )
+    assert status == 400
+
+    # None-valued key -> 400
+    status, body = make_request(
+        f"{base_url}/api/v1/subcontractors/{sub_id}/update",
+        method="POST",
+        headers=headers,
+        data={"phone": None},
+    )
+    assert status == 400
+
+    # qualification_status/recruitment_step rejected as unknown keys
+    status, body = make_request(
+        f"{base_url}/api/v1/subcontractors/{sub_id}/update",
+        method="POST",
+        headers=headers,
+        data={"qualification_status": "QUALIFIED"},
+    )
+    assert status == 400
+    status, body = make_request(
+        f"{base_url}/api/v1/subcontractors/{sub_id}/update",
+        method="POST",
+        headers=headers,
+        data={"recruitment_step": "onboarded"},
+    )
+    assert status == 400
+
+    # qualification_data merge preserves pre-existing keys; secondary_trades replaces;
+    # email/company_name normalized
+    status, body = make_request(
+        f"{base_url}/api/v1/subcontractors/{sub_id}/update",
+        method="POST",
+        headers=headers,
+        data={
+            "qualification_data": {"notes": "updated note"},
+            "secondary_trades": ["siding"],
+            "email": " New@Example.COM ",
+            "company_name": "  New Name  ",
+        },
+    )
+    assert status == 200
+    updated = body["subcontractor"]
+    assert updated["qualification_data"] == {"years_licensed": 5, "notes": "updated note"}
+    assert updated["secondary_trades"] == ["siding"]
+    assert updated["email"] == "new@example.com"
+    assert updated["company_name"] == "New Name"
+
+    # Empty {} updates dict is a no-op
+    status, body = make_request(
+        f"{base_url}/api/v1/subcontractors/{sub_id}/update",
+        method="POST",
+        headers=headers,
+        data={},
+    )
+    assert status == 200
+    assert body["subcontractor"] == updated
+
+    # 404 on nonexistent id
+    status, body = make_request(
+        f"{base_url}/api/v1/subcontractors/999999/update",
+        method="POST",
+        headers=headers,
+        data={"phone": "555-1234"},
+    )
+    assert status == 404
+
+
 def test_api_appointments_crud(api_server):
     _, base_url, _, _ = api_server
     headers = _agent_headers(base_url)

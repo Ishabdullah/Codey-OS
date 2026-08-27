@@ -12,6 +12,89 @@ and Appendix A.
 
 ---
 
+## 2026-08-27 — Phase B2 task 4, third module — `CRMService.update_subcontractor()` + route — CODE-COMPLETE, CODE-REVIEWER-APPROVED (Core-only, no JS write-through yet)
+
+Built and closed the Core-side half of the `NEW-224` blocker: a general
+partial-update method for subcontractors, plus its route.
+
+- **`restoricon_core/services/crm_service.py`:** new
+  `update_subcontractor(subcontractor_id, updates, actor)` — 22-key
+  `ALLOWED_UPDATE_FIELDS` allow-list; unknown keys rejected with
+  `ValueError` before ever touching SQL; `None`-valued keys rejected
+  (contract: key absent = untouched, key present with `None` = error,
+  never silently written as `NULL`); `qualification_data` shallow-merges
+  with the existing JSON column (same transaction as the read, no
+  split-transaction TOCTOU); `secondary_trades` replaces outright;
+  `email`/`company_name` normalized identically to
+  `create_subcontractor`; empty `updates` dict is a no-op (plain read,
+  zero DB touch, no audit log); nonexistent id returns `None` (→404 at
+  the route); real write always bumps `updated_at` and `last_contact_at`
+  and writes an unconditional audit log naming the changed fields;
+  returns the full updated `Subcontractor`, not a bool.
+- **`restoricon_core/api/routes.py`:** new
+  `POST /api/v1/subcontractors/{id}/update`, placed directly after the
+  existing `.../qualification` POST block and before the generic by-id
+  `GET` block, matching that block's own routing shape.
+- **Tests:** new cases added to
+  `tests/test_restoricon_core/test_operations_services.py` and
+  `tests/test_restoricon_core/test_api.py` covering the allow-list
+  rejection, `None`-value rejection, both JSON-column merge semantics,
+  normalization parity, 404-not-exception on a bad id, empty-dict no-op,
+  `PermissionError` on missing `PERM_WRITE_SUBCONTRACTORS`, and
+  `qualification_status`/`recruitment_step` rejected as unknown keys.
+
+**Code-reviewer approved, no changes requested.** Verified directly
+against a live `:memory:` DB, not from the implementer's summary alone
+— confirmed the allow-list rejects a SQL-fragment-shaped key before it
+ever reaches string-building, confirmed the RBAC gate is the method's
+first statement, confirmed the shallow-merge and replace semantics with
+adversarial live calls, confirmed the empty-dict path makes zero
+`get_connection()` calls, and confirmed the new route's
+`endswith("/update")` vs `.../qualification`'s `endswith("/qualification")`
+checks are mutually exclusive.
+
+**Three findings raised in review, now logged to `NEW_ISSUES.md`**
+(rule 8 — none fixed this round):
+- `NEW-238` — `update_subcontractor({"email": ""})` writes literal `''`
+  to the DB; `create_subcontractor`'s equivalent falsy-email path writes
+  `NULL`. Confirmed, real, minor; not a one-line fix (would need to
+  restructure the None-rejection pre-check to distinguish caller-supplied
+  from internally-derived `None`).
+- `NEW-239` — `qualification_data`/`secondary_trades` values aren't
+  type-checked; a malformed value throws an unhandled `TypeError` that
+  the route's generic exception handler turns into a leaky 500. Same
+  mechanism as the already-open `NEW-221`, not a new one.
+- `NEW-240` — a WRITE-without-READ RBAC latent gap (a service method
+  re-fetches its return value through a READ-gated method after a
+  WRITE-gated write) has now recurred identically in three methods
+  (`update_subcontractor_qualification`, `update_appointment_status`,
+  and this round's `update_subcontractor`) across two review rounds
+  without ever getting its own ledger entry until now. Not exploitable
+  today — no role in `auth.py`'s matrix has write-without-read for the
+  affected resources — but a landmine for a future role-matrix change.
+
+**Verification tier: code-complete + code-reviewer-approved. NOT
+live-verified against real Aigentik-CLI production traffic** — same
+tier as the DNC pilot and the email/sms-rules module, and explicitly:
+**this round ships NO JS changes.**
+`~/Codey-Aigentik/subcontractor-recruiter.js`/`owner-command.js` remain
+untouched; the actual write-through conversion of that JS is a
+separate, still-not-started future round.
+
+**Test suite re-run fresh this round, not reused from any prior
+citation:** `python -m pytest tests/ -q` → `789 passed, 1 skipped in
+64.82s`.
+
+**Files changed:** `restoricon_core/services/crm_service.py`,
+`restoricon_core/api/routes.py`,
+`tests/test_restoricon_core/test_operations_services.py`,
+`tests/test_restoricon_core/test_api.py`, `NEW_ISSUES.md`,
+`CODEY_MASTER_PLAN.md` (§4, §6.4), `PROJECT_LOG.md`,
+`.claude/agent-memory/code-reviewer/` (new approval memory +
+index update).
+
+---
+
 ## 2026-08-27 — Phase B2 task 4, comms/email/SMS-provider write-through — SCOPED ONLY, found BLOCKED, not implemented
 
 Autonomous continuation round (Ish asleep, told not to make product-scope

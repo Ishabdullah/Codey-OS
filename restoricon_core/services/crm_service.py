@@ -1123,3 +1123,95 @@ class CRMService:
             details={"qualification_status": qualification_status, "recruitment_step": recruitment_step},
         )
         return self.get_subcontractor(subcontractor_id, actor)
+
+    # Allow-listed fields for update_subcontractor (B2 task 4, third
+    # module, 2026-08-27) -- matches only what index.js's call sites
+    # actually merge, per CODEY_MASTER_PLAN.md Sec6.4. qualification_status
+    # and recruitment_step are deliberately excluded (single-writer via
+    # update_subcontractor_qualification()); id/external_id/timestamps/
+    # audit-only fields are excluded as not caller-settable.
+    ALLOWED_UPDATE_FIELDS = {
+        "company_name", "legal_name", "dba", "contact_name", "title",
+        "phone", "email", "website", "primary_trade", "secondary_trades",
+        "service_area", "years_in_business", "crew_size",
+        "typical_project_size", "availability", "emergency_availability",
+        "license_number", "license_type", "license_required",
+        "general_liability", "workers_comp", "qualification_data",
+    }
+
+    def update_subcontractor(
+        self, subcontractor_id: int, updates: Dict[str, Any], actor: AuthContext
+    ) -> Optional[Subcontractor]:
+        """General partial-update method for subcontractors (B2 task 4,
+        third module). Deliberately excludes qualification_status/
+        recruitment_step -- see update_subcontractor_qualification()."""
+        if not actor.has_permission(PERM_WRITE_SUBCONTRACTORS):
+            raise PermissionError("Actor lacks permission to update subcontractors")
+
+        unknown = set(updates) - self.ALLOWED_UPDATE_FIELDS
+        if unknown:
+            raise ValueError(f"Unknown field(s) for subcontractor update: {sorted(unknown)}")
+
+        for key, value in updates.items():
+            if value is None:
+                raise ValueError(
+                    f"Field '{key}' cannot be set to None via update_subcontractor; omit the key instead"
+                )
+
+        if not updates:
+            return self.get_subcontractor(subcontractor_id, actor)
+
+        updates = dict(updates)
+        if "email" in updates:
+            updates["email"] = updates["email"].strip().lower()
+        if "company_name" in updates:
+            updates["company_name"] = updates["company_name"].strip()
+
+        now = utc_now_iso()
+        conn = self.db.get_connection()
+        with conn:
+            row = conn.execute(
+                "SELECT qualification_data_json FROM subcontractors WHERE id = ?;",
+                (subcontractor_id,),
+            ).fetchone()
+            if not row:
+                return None
+
+            set_clauses = []
+            params: List[Any] = []
+            for key, value in updates.items():
+                if key == "qualification_data":
+                    existing = json.loads(row["qualification_data_json"]) if row["qualification_data_json"] else {}
+                    merged = {**existing, **value}
+                    set_clauses.append("qualification_data_json = ?")
+                    params.append(json.dumps(merged))
+                elif key == "secondary_trades":
+                    set_clauses.append("secondary_trades_json = ?")
+                    params.append(json.dumps(value))
+                else:
+                    set_clauses.append(f"{key} = ?")
+                    params.append(value)
+
+            set_clauses.append("updated_at = ?")
+            params.append(now)
+            set_clauses.append("last_contact_at = ?")
+            params.append(now)
+            params.append(subcontractor_id)
+
+            cursor = conn.execute(
+                f"UPDATE subcontractors SET {', '.join(set_clauses)} WHERE id = ?;",
+                params,
+            )
+            if cursor.rowcount == 0:
+                return None
+
+        updated_sub = self.get_subcontractor(subcontractor_id, actor)
+        self.audit.log(
+            action="update",
+            entity_type="subcontractor",
+            entity_id=subcontractor_id,
+            change_summary=f"Subcontractor {subcontractor_id} updated ({', '.join(sorted(updates.keys()))})",
+            actor=actor,
+            details=updated_sub.to_dict(),
+        )
+        return updated_sub

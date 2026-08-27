@@ -1209,6 +1209,46 @@ module's shape relative to the DNC/rules precedent:
 - **Not implemented this round per explicit instruction — scoping and
   the blocking-dependency finding only.**
 
+**Phase B2 task 4, third module — `subcontractor-recruiter.js`
+write-through, Core-side groundwork only, 2026-08-27 — code-complete,
+code-reviewer-approved. NOT live-verified against real Aigentik-CLI
+production traffic (same tier as the DNC pilot and the email/sms-rules
+module, rule 7). Ships NO JS changes this round** —
+`~/Codey-Aigentik/subcontractor-recruiter.js`/`owner-command.js`
+themselves are untouched; this is the Core-only half of the
+`NEW-224` blocker, the general partial-update method the JS-side
+write-through conversion still needs. Built `CRMService
+.update_subcontractor()` (22-key `ALLOWED_UPDATE_FIELDS` allow-list,
+unknown-key rejection, `None`-valued-key rejection, shallow-merge for
+`qualification_data`, replace for `secondary_trades`, unconditional
+`updated_at`/`last_contact_at` bump, unconditional audit log on any
+real write, empty-dict no-op) in `restoricon_core/services/
+crm_service.py`, plus `POST /api/v1/subcontractors/{id}/update` in
+`restoricon_core/api/routes.py`. Code-reviewer independently
+live-probed (not just read) the allow-list rejection, the RBAC gate
+ordering, both JSON-column merge semantics, and the empty-dict no-op
+path against a real `:memory:` DB — approved, no changes requested;
+raised three non-blocking findings, now logged as `NEW-238` (create/
+update falsy-email normalization mismatch), `NEW-239` (same class as
+`NEW-221`, unvalidated JSON-column value types → leaky 500), and
+`NEW-240` (WRITE-without-READ RBAC latent gap, recurring across three
+methods, not previously ledgered). Test suite re-run fresh, not
+reused from any prior citation: `789 passed, 1 skipped`
+(`python -m pytest tests/ -q`, 2026-08-27). The actual
+`subcontractor-recruiter.js`/`owner-command.js` write-through
+conversion remains a separate, still-not-started future round — see
+§6.4's third-module entry for the two-Core-call sequencing it will
+need (`update_subcontractor()` then, if status changed, a separate
+`update_subcontractor_qualification()` call).
+
+**Phase B2 write-through progress, updated: 3 of the 10 write-site
+modules are now done at the Core-side level — `do-not-contact.js`,
+`email-rules.js`/`sms-rules.js`, and (Core-only, no JS yet)
+`subcontractor-recruiter.js`'s general-update method.** The JS
+conversion for the third module is still outstanding, alongside the
+still-blocked `contacts.js`/`customer-module.js`, `calendar.js`, and
+comms/email/SMS-provider modules described above.
+
 ---
 
 ## 5. The device, stated once
@@ -3365,8 +3405,11 @@ and the email/sms-rules module, for the same reason (no
 this round in particular ships no JS changes at all yet). Record the
 tier honestly per rule 7.
 
-**Not implemented this round — spec only, handed to implementer next,
-then the mandatory code-reviewer pass.**
+**Built and code-reviewer-approved, 2026-08-27 — see §4's Phase B2
+task 4 third-module entry for the full outcome, the `NEW-238`/`NEW-239`/
+`NEW-240` findings raised in review, and the fresh 789/1 test count.
+Ships the Core-side method + route only; the JS conversion itself
+remains not started.**
 
 ### 6.5 Track B / Phase B3 — CRM/Sales and Operations
 

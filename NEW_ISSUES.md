@@ -11909,3 +11909,74 @@ implemented)
   general router-hardening pass, not patched per-route).
 - **Cross-reference:** `NEW-222`; `restoricon_core/api/routes.py:275-291`;
   `CODEY_MASTER_PLAN.md` §6.4's `update_subcontractor()` route spec.
+
+### [NEW-238] `update_subcontractor({"email": ""})` writes literal `''` to the DB, while `create_subcontractor`'s equivalent falsy-email path writes `NULL` — normalization inconsistency between create and update
+- **Status: Confirmed, real, minor.** Code-reviewer live-verified with a
+  raw `SELECT email` on the row after calling `update_subcontractor`
+  with an empty-string email: the column held `''`. `create_subcontractor`
+  writes `NULL` for the same falsy input
+  (`sub.email.strip().lower() if sub.email else None`,
+  `crm_service.py:973`), so two distinct falsy-email representations
+  can now end up in the same column depending on which code path wrote
+  the row. Not fixed this round: normalizing `updates["email"]` to
+  `None` when falsy would need to skip `update_subcontractor`'s own
+  pre-check `None`-rejection loop (which is designed to reject
+  caller-supplied `None`, not an internally-derived one) — not a
+  one-line fix, needs the two loops restructured slightly.
+- **Action:** none taken this round. Logged so it doesn't get
+  re-discovered and mis-filed as new.
+- **Cross-reference:** `restoricon_core/services/crm_service.py`'s
+  `create_subcontractor` (~line 973) and `update_subcontractor` (new
+  this round); `.claude/agent-memory/code-reviewer/
+  restoricon_core_phase_b2_task4_update_subcontractor_approved.md`.
+
+### [NEW-239] `update_subcontractor`'s `qualification_data`/`secondary_trades` values aren't type-checked — a malformed value throws an unhandled `TypeError` the generic exception handler turns into a leaky 500 — same mechanism as `NEW-221`, not a new one
+- **Status: Confirmed by live probe, same class as `NEW-221`.**
+  Code-reviewer live-probed `{"qualification_data": ["not", "a",
+  "dict"]}` against `update_subcontractor` and got an unhandled
+  `TypeError: 'list' object is not a mapping`. `routes.py`'s existing
+  generic `except Exception` handler converts this into a 500 with the
+  raw exception string in the response body — the same
+  `Model(**json_body)`-shaped defect `NEW-221` already logged, and the
+  same generic-500-leaks-exception-text precedent flagged in the Phase
+  B1 review, recurring here as a fresh instance rather than a new
+  mechanism.
+- **Action:** none — tracked as a suggestion, not fixed this round;
+  disposition follows `NEW-221`'s (a general input-validation/error-
+  handling pass, not a per-method patch).
+- **Cross-reference:** `NEW-221`; `restoricon_core/services/
+  crm_service.py`'s `update_subcontractor`; `restoricon_core/
+  api/routes.py`'s generic exception handler (~line 396-397).
+
+### [NEW-240] Latent WRITE-without-READ RBAC gap has now recurred identically in three service methods across two review rounds without a ledger entry until now — not exploitable today, but a landmine for any future role-matrix change
+- **Status: Confirmed, real, latent (not currently exploitable).** The
+  pattern: a service method internally calls a paired `get_*()`/read
+  method to fetch the return value after performing a write, gated on a
+  READ permission separate from the WRITE permission that gated the
+  write itself. If a role were ever given WRITE without the matching
+  READ for that resource, the write would succeed and then the method
+  would throw a confusing `PermissionError` on its own internal return-
+  value fetch — the caller's write actually happened, but the response
+  path fails. Checked against every role in `auth.py`'s current matrix
+  (admin/manager/PM/ai_agent have both permissions for every resource
+  this shows up in; sales is read-only; technician has neither) — no
+  role today has write-without-read for any of the three affected
+  resources, so this is not live-exploitable now. The three known
+  instances, per the code-reviewer's own count across the schema-
+  expansion round and this round: `update_subcontractor_qualification()`,
+  `update_appointment_status()`, and this round's new
+  `update_subcontractor()`. The schema-expansion round's review first
+  flagged this pattern as needing its own ledger entry, but it was never
+  actually filed until now — filed per rule 8 so it stops recurring
+  un-logged.
+- **Action:** none taken — general pattern, not fixed per-method. Worth
+  a general fix (e.g., have these methods build their return value from
+  data already in hand rather than re-fetching through the read-gated
+  method) if/when the role matrix is ever revisited.
+- **Cross-reference:** `.claude/agent-memory/code-reviewer/
+  restoricon_core_phase_b2_schema_expansion_new212_inaccuracy.md`;
+  `.claude/agent-memory/code-reviewer/
+  restoricon_core_phase_b2_task4_update_subcontractor_approved.md`;
+  `restoricon_core/services/crm_service.py`'s
+  `update_subcontractor_qualification()`, `update_appointment_status()`,
+  and `update_subcontractor()`.

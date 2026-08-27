@@ -143,12 +143,109 @@ def test_subcontractor_lifecycle(setup_ops_services, admin_actor):
         lambda crm, sched, auto, actor: crm.get_subcontractor(1, actor),
         lambda crm, sched, auto, actor: crm.list_subcontractors(actor),
         lambda crm, sched, auto, actor: crm.update_subcontractor_qualification(1, "QUALIFIED", actor),
+        lambda crm, sched, auto, actor: crm.update_subcontractor(1, {"phone": "x"}, actor),
     ],
 )
 def test_subcontractor_methods_reject_zero_permission_actor(setup_ops_services, call):
     _, _, _, crm_service, scheduling_service, automation_service = setup_ops_services
     with pytest.raises(PermissionError):
         call(crm_service, scheduling_service, automation_service, ZeroPermissionActor())
+
+
+# ==========================================
+# update_subcontractor() -- B2 task 4, third module, 2026-08-27
+# ==========================================
+
+
+def _make_test_subcontractor(crm_service, admin_actor, **overrides):
+    kwargs = dict(
+        external_id="sub_9001",
+        company_name="  Acme Roofing  ",
+        email="Acme@Example.com",
+        primary_trade="roofing",
+        qualification_data={"years_licensed": 5, "notes": "solid"},
+        secondary_trades=["gutters"],
+    )
+    kwargs.update(overrides)
+    sub = Subcontractor(**kwargs)
+    return crm_service.create_subcontractor(sub, admin_actor)
+
+
+def test_update_subcontractor_rejects_unknown_key(setup_ops_services, admin_actor):
+    _, _, _, crm_service, _, _ = setup_ops_services
+    created = _make_test_subcontractor(crm_service, admin_actor)
+    with pytest.raises(ValueError):
+        crm_service.update_subcontractor(created.id, {"not_a_real_field": "x"}, admin_actor)
+
+
+def test_update_subcontractor_rejects_none_valued_key(setup_ops_services, admin_actor):
+    _, _, _, crm_service, _, _ = setup_ops_services
+    created = _make_test_subcontractor(crm_service, admin_actor)
+    with pytest.raises(ValueError):
+        crm_service.update_subcontractor(created.id, {"phone": None}, admin_actor)
+
+
+def test_update_subcontractor_qualification_data_merges_preserving_existing_keys(setup_ops_services, admin_actor):
+    _, _, audit_service, crm_service, _, _ = setup_ops_services
+    created = _make_test_subcontractor(crm_service, admin_actor)
+    before = created.last_contact_at
+    updated = crm_service.update_subcontractor(
+        created.id, {"qualification_data": {"notes": "updated note"}}, admin_actor
+    )
+    assert updated.qualification_data == {"years_licensed": 5, "notes": "updated note"}
+
+    # last_contact_at bumps on every real write (spec point 7 / NEW-236)
+    assert updated.last_contact_at is not None
+    assert updated.last_contact_at != before
+
+    # Audit log gets exactly one "update" row naming the changed field
+    logs = audit_service.query_logs(admin_actor, entity_type="subcontractor", entity_id=created.id, action="update")
+    assert len(logs) == 1
+    assert "qualification_data" in logs[0].change_summary
+
+
+def test_update_subcontractor_secondary_trades_replaces_not_merges(setup_ops_services, admin_actor):
+    _, _, _, crm_service, _, _ = setup_ops_services
+    created = _make_test_subcontractor(crm_service, admin_actor)
+    updated = crm_service.update_subcontractor(
+        created.id, {"secondary_trades": ["siding"]}, admin_actor
+    )
+    assert updated.secondary_trades == ["siding"]
+
+
+def test_update_subcontractor_normalizes_email_and_company_name(setup_ops_services, admin_actor):
+    _, _, _, crm_service, _, _ = setup_ops_services
+    created = _make_test_subcontractor(crm_service, admin_actor)
+    updated = crm_service.update_subcontractor(
+        created.id, {"email": " New@Example.COM ", "company_name": "  New Name  "}, admin_actor
+    )
+    assert updated.email == "new@example.com"
+    assert updated.company_name == "New Name"
+
+
+def test_update_subcontractor_returns_none_for_nonexistent_id(setup_ops_services, admin_actor):
+    _, _, _, crm_service, _, _ = setup_ops_services
+    assert crm_service.update_subcontractor(999999, {"phone": "555-1234"}, admin_actor) is None
+
+
+def test_update_subcontractor_empty_updates_is_noop(setup_ops_services, admin_actor):
+    _, _, audit_service, crm_service, _, _ = setup_ops_services
+    created = _make_test_subcontractor(crm_service, admin_actor)
+    before = crm_service.get_subcontractor(created.id, admin_actor)
+    result = crm_service.update_subcontractor(created.id, {}, admin_actor)
+    assert result.to_dict() == before.to_dict()
+    logs = audit_service.query_logs(admin_actor, entity_type="subcontractor", entity_id=created.id, action="update")
+    assert logs == []
+
+
+@pytest.mark.parametrize("excluded_key", ["qualification_status", "recruitment_step"])
+def test_update_subcontractor_rejects_qualification_status_and_recruitment_step(
+    setup_ops_services, admin_actor, excluded_key
+):
+    _, _, _, crm_service, _, _ = setup_ops_services
+    created = _make_test_subcontractor(crm_service, admin_actor)
+    with pytest.raises(ValueError):
+        crm_service.update_subcontractor(created.id, {excluded_key: "QUALIFIED"}, admin_actor)
 
 
 # ==========================================
