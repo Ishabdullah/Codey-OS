@@ -11799,3 +11799,113 @@ implemented)
   `restoricon_core/services/communication_service.py:1-4,43-119`;
   `~/Codey-Aigentik/email-provider.js:359-362`; `CODEY_MASTER_PLAN.md`
   §6.4 task 4's email-provider.js/gmail.js/index.js write-through spec.
+
+## Found during Phase B2 task 4 (`subcontractor-recruiter.js` write-through unblocking) scoping, 2026-08-27 — desk-only, read `~/Codey-Aigentik/subcontractor-recruiter.js` (682 lines) and its callers in `index.js`/`owner-command.js`, `restoricon_core/services/crm_service.py`, `models.py`, `database.py`'s DDL, and `automation_service.py`'s audit-log precedents directly per rule 12; not fixed, logged only. Spec for `CRMService.update_subcontractor()` + its route handed to implementer, see `CODEY_MASTER_PLAN.md` §6.4.
+
+### [NEW-234] `subcontractor-recruiter.js`'s LLM extraction schema and `updateSubcontractor()`'s plain-spread merge can already silently null out or corrupt populated live subcontractor fields today, independent of any Core migration
+- **Status: Confirmed** (read `llama.js:569-586` and
+  `subcontractor-recruiter.js:320-348` directly). `extractRecruiterQualification()`'s
+  system prompt (`llama.js:572`) instructs the model to "Use null for
+  anything not mentioned" across all 27 schema keys, then
+  `updateSubcontractor(id, updates)` merges with a plain
+  `{...current, ...updates}` spread (`subcontractor-recruiter.js:327-329`)
+  — any key present in the LLM's JSON output with a `null` value
+  (not merely omitted) overwrites an already-populated field with
+  `null`. `index.js:958`'s only guard (`Object.keys(extracted).length > 0`)
+  checks for *any* keys being present at all, not for non-null values,
+  so it does not catch this case: an extraction that returns 26 nulls and
+  one real field still passes the guard and wipes 26 populated columns
+  from a single ambiguous SMS reply.
+- **Action:** none taken — this is a pre-existing risk in the live
+  JS-only system, not introduced by this scoping round, and fixing it is
+  a behavior change to a live-serving conversational flow (would need
+  Ish's sign-off, not an implementation detail). Logged so the future
+  Core `update_subcontractor()` write-through's translation layer is
+  built to filter/strip `null`-valued keys from `extracted` before
+  calling the Core (a defensive requirement of the Core contract per
+  this round's spec, §6.4), rather than assuming the JS caller already
+  does this safely today.
+- **Cross-reference:** `~/Codey-Aigentik/llama.js:569-586`;
+  `~/Codey-Aigentik/subcontractor-recruiter.js:320-348,940-960` (via
+  `index.js`); `CODEY_MASTER_PLAN.md` §6.4's `update_subcontractor()` spec.
+
+### [NEW-235] Extraction-schema field names/types don't line up 1:1 with `restoricon_core`'s `Subcontractor` model — a future write-through translation layer needs an explicit mapping table, not a passthrough dict
+- **Status: Confirmed** (read `llama.js:570`'s 27-key JSON schema against
+  `models.py:243-295` and `database.py:250-299`'s DDL field-by-field).
+  Three distinct gaps: (1) **name mismatch** — extraction's `has_license`
+  (boolean) has no matching Core field; it conceptually targets
+  `license_required`, but `license_required` is `INTEGER CHECK(...IN (0,1))`
+  in the DDL, so a translation layer must map the key name *and* cast
+  `true/false` → `1/0`, not just rename it. (2) **type mismatches** —
+  `general_liability`/`workers_comp`/`emergency_availability` are typed
+  `"boolean"` in the extraction schema but are free `TEXT` columns with
+  no CHECK constraint in both the DDL and the `Subcontractor` dataclass
+  (`Optional[str]`), matching `create_subcontractor`'s existing
+  pass-through convention — a literal JS `true`/`false` written as a Core
+  TEXT column produces `"true"`/`"false"` strings, not the `1`/`0` ints
+  `license_required` needs, so these three fields need different
+  handling from `license_required` despite all four looking like the
+  same "boolean field" category. (3) **no Core destination at all** —
+  `availability_2027`, `willing_to_onboard_msa`, `permission_granted`,
+  `interested`, `objection`, `faq_inquiry` (plus `has_license` if the
+  mapping in (1) is skipped) have no matching top-level `Subcontractor`
+  column; today's pre-cutover JS stores them as ad hoc top-level keys on
+  the JSON record (outside its own declared schema) via the same plain
+  spread from `NEW-234`. Per this round's spec (`CODEY_MASTER_PLAN.md`
+  §6.4), these six/seven keys are intended to land inside the existing
+  `qualification_data` JSON blob column on the Core side instead, which
+  requires a real mapping step, not a dict passthrough.
+- **Action:** not fixed here — this round scoped and will hand off only
+  the Core-side `update_subcontractor()` service method + route (task 4a
+  addendum); the JS-side translation layer that must apply this mapping
+  is part of task 4's still-not-started `subcontractor-recruiter.js`
+  write-through conversion itself. Logging now so that implementation
+  round starts from this mapping table instead of rediscovering it.
+- **Cross-reference:** `~/Codey-Aigentik/llama.js:570`; `restoricon_core/
+  models.py:243-295`; `restoricon_core/database.py:250-299`;
+  `restoricon_core/services/crm_service.py:940-1030` (`create_subcontractor`'s
+  existing no-cast pass-through convention for these same TEXT columns).
+
+### [NEW-236] Post-cutover, `owner-command.js`'s status-only subcontractor actions (`qualify_subcontractor`/`approve_subcontractor`/`decline_subcontractor`/`request_subcontractor_docs`) will stop bumping `last_contact_at`, changing existing behavior — same class of gap as `NEW-231`
+- **Status: Confirmed** (read `owner-command.js:1174-1225` and
+  `crm_service.py:1087-1124` directly). Pre-cutover, every
+  `updateSubcontractor()` call — including these four status-only owner
+  actions — unconditionally sets `last_contact: new Date().toISOString()`
+  (`subcontractor-recruiter.js:331`). This round's spec deliberately
+  keeps `qualification_status`/`recruitment_step` writes on the existing
+  `update_subcontractor_qualification()` method only (not the new general
+  `update_subcontractor()`), and that existing method does not touch
+  `last_contact_at` at all (`crm_service.py:1098-1113`). Once
+  `owner-command.js`'s four call sites are converted to call the Core
+  route instead of the local JSON writer, those four owner-driven actions
+  will silently stop advancing `last_contact_at`, the same class of
+  quietly-dropped-field gap `NEW-231` already found for
+  `automation_rules.last_matched`.
+- **Action:** none taken — out of scope for this round (service-method
+  design only, no JS touched yet). Flagged for whoever implements task
+  4's actual `subcontractor-recruiter.js`/`owner-command.js` write-through
+  conversion: either extend `update_subcontractor_qualification()` to
+  also bump `last_contact_at`, or have the JS caller issue a follow-up
+  `update_subcontractor()` call with no allow-listed fields solely to get
+  the timestamp bump (rejected by this round's own empty-dict-is-a-no-op
+  design decision, so the former is the more likely fix) — a decision for
+  that later round, not this one.
+- **Cross-reference:** `~/Codey-Aigentik/owner-command.js:1174-1225`;
+  `restoricon_core/services/crm_service.py:1087-1124`; `NEW-231`.
+
+### [NEW-237] `GET /api/v1/subcontractors/{id}/update` would fall through to the generic by-id GET handler and raise `ValueError` (400) instead of 404 — another instance of the routing quirk `NEW-222` already logged, not a new mechanism
+- **Status: Confirmed by inspection, same mechanism as `NEW-222`.**
+  `routes.py`'s generic `GET /api/v1/subcontractors/{id}` handler
+  (`routes.py:286-291`) does `int(path.split("/")[-1])`, which is what
+  produces `NEW-222`'s 400-instead-of-404 quirk for a misdirected `GET
+  .../qualification` request. The new `POST .../{id}/update` route this
+  round specs is placed the same way `.../qualification` is (a specific
+  `path.endswith(...)` check before the generic by-id block), so a `GET`
+  on `.../{id}/update` will fall through and hit the exact same
+  `int("update")` `ValueError` path. Not a new finding on its own merit —
+  recorded so it isn't independently "discovered" and mis-filed as new
+  once the route ships.
+- **Action:** none — tracked under `NEW-222`'s existing disposition (a
+  general router-hardening pass, not patched per-route).
+- **Cross-reference:** `NEW-222`; `restoricon_core/api/routes.py:275-291`;
+  `CODEY_MASTER_PLAN.md` §6.4's `update_subcontractor()` route spec.

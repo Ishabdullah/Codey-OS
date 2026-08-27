@@ -3123,6 +3123,251 @@ change (new auth-gated write endpoint), which the Workflow section's
 separate "or security" clause already makes mandatory for code-reviewer
 regardless of rule 4's narrower process-lifecycle scope.
 
+**Task 4, third module — `subcontractor-recruiter.js` write-through
+unblocking scoped 2026-08-27, desk-only, no code written, `~/Codey-
+Aigentik`/`~/Aigentik-CLI` untouched.** Ish asleep; proceeding
+autonomously per his standing instruction. This is the `NEW-224` blocker
+itself — designing `CRMService.update_subcontractor()`, the general
+partial-update method `NEW-224` identified as missing. Read
+`~/Codey-Aigentik/subcontractor-recruiter.js` in full (682 lines,
+confirmed byte-identical to `~/Aigentik-CLI`'s copy via `diff`), its
+callers in `index.js` (lines 947-960, 1280-1290) and `owner-command.js`
+(lines 1174, 1189, 1205, 1222), `llama.js`'s `extractRecruiterQualification()`
+(lines 569-586), `restoricon_core/services/crm_service.py`'s real
+subcontractor methods (lines 888-1124), `restoricon_core/models.py`'s
+`Subcontractor` dataclass (lines 243-298), and `restoricon_core/
+database.py`'s `subcontractors` DDL (lines 250-299), per rule 12. **This
+round specs and hands off the Core-side service method + route only —
+not implemented, and the JS-side `subcontractor-recruiter.js`/
+`owner-command.js` conversion itself remains a separate, still-not-
+started task-4 round**, same two-step shape as the routes-then-JS
+sequencing already used for email-rules.js/sms-rules.js.
+
+**Call-site split confirms the field scope, non-arbitrarily.**
+`index.js`'s two call sites (947-960, 1280-1290) merge `extracted` —
+the output of `llama.extractRecruiterQualification()` — into an
+*existing* subcontractor record via `updateSubcontractor(id, extracted)`.
+All four `owner-command.js` call sites (1174, 1189, 1205, 1222) set
+`qualification_status` only (`qualify_subcontractor`/
+`approve_subcontractor`/`decline_subcontractor`/
+`request_subcontractor_docs`), already fully served by the existing
+`update_subcontractor_qualification()`. This is the evidence for
+excluding `qualification_status`/`recruitment_step` from the new
+method's allow-list below, not an arbitrary line: no caller needs the
+general method to touch those two fields, and keeping them
+single-writer avoids two paths racing to set the same column
+inconsistently (the design question this task's brief posed directly).
+
+**Allow-listed field set — matches only what `index.js`'s call sites
+actually merge, not a fully generic update-everything method,** per
+this project's "don't build unrequested features" convention. Cross-
+referencing `llama.js:570`'s 27-key extraction schema against
+`models.py`'s `Subcontractor` fields:
+
+`ALLOWED_UPDATE_FIELDS = {"company_name", "legal_name", "dba",
+"contact_name", "title", "phone", "email", "website", "primary_trade",
+"secondary_trades", "service_area", "years_in_business", "crew_size",
+"typical_project_size", "availability", "emergency_availability",
+"license_number", "license_type", "license_required",
+"general_liability", "workers_comp", "qualification_data"}` (22 keys).
+
+Deliberately excluded because no `index.js`/`owner-command.js` call site
+touches them today: `qualification_status`, `recruitment_step`
+(dedicated method only, see above), `external_id`,
+`contact_external_id`, `id`, `created_at`, `updated_at`,
+`last_contact_at` (auto-managed by the method itself, see below, not
+caller-settable), `contact_attempts`, `dnc_status`, `coi_received`,
+`coi_expiration`, `additional_insured_status`, `insurance_status`,
+`w9_received`, `msa_sent`, `msa_signed`, `license_expiration`,
+`license_status`, `residential_experience`, `commercial_experience`,
+`references`, `portfolio_url`, `lead_source`, `notes`.
+
+**Method signature and behavior
+(`restoricon_core/services/crm_service.py`, added after
+`update_subcontractor_qualification()`):**
+
+```python
+def update_subcontractor(
+    self, subcontractor_id: int, updates: Dict[str, Any], actor: AuthContext
+) -> Optional[Subcontractor]:
+```
+
+1. `actor.has_permission(PERM_WRITE_SUBCONTRACTORS)` — same permission
+   as `create_subcontractor`/`update_subcontractor_qualification`, no
+   new permission constant. Reasoning worth stating explicitly since the
+   brief asked for it: a permission that can already create the row with
+   arbitrary values for every one of these fields cannot be meaningfully
+   protected by restricting which of those same fields a later update
+   may touch — finer-grained field-level permissions would be
+   security theater here, not a real boundary.
+2. **Unknown-key rejection is mandatory, not optional** (the brief's
+   SQL-injection/allow-listing point): `unknown = set(updates) -
+   ALLOWED_UPDATE_FIELDS`; if non-empty, `raise ValueError(f"Unknown
+   field(s) for subcontractor update: {sorted(unknown)}")`. This is what
+   stops an arbitrary JS-side dict's keys from ever reaching a SQL
+   column name. `routes.py:396-397`'s existing global `except ValueError
+   as ve: return 400` handles this with no new route-side code (verified
+   by reading `routes.py`'s exception-mapping block directly, not
+   assumed).
+3. **`None`-valued keys are rejected, not written as `NULL`** — a
+   blocking correctness requirement, not a style choice. `llama.js:572`'s
+   extraction prompt instructs "use null for anything not mentioned"
+   across all 27 schema keys, and `subcontractor-recruiter.js`'s own
+   `updateSubcontractor()` already merges via a plain `{...current,
+   ...updates}` spread with no null-filtering (`NEW-234`, logged this
+   round as a pre-existing, separate live-data risk, not fixed here). If
+   the Core method faithfully wrote whatever it's given, a single
+   ambiguous SMS reply that extracts 26 nulls and one real field would
+   wipe 26 populated columns. Contract: **key absent → column untouched;
+   key present with value `None` → `raise ValueError(f"Field '{key}'
+   cannot be set to None via update_subcontractor; omit the key
+   instead")`.** This forces the future JS-side translation layer (task
+   4's still-unstarted conversion round) to strip null-valued keys from
+   `extracted` before calling, rather than trusting it silently drops
+   them today.
+4. **Empty `updates` dict is a no-op**, not a SQL syntax error: if
+   `not updates`, return `self.get_subcontractor(subcontractor_id,
+   actor)` (a plain read) with no `UPDATE`, no audit log call.
+5. **Normalization parity with `create_subcontractor`**, since `email`
+   and `company_name` are both in the extraction schema and this
+   allow-list: apply `email.strip().lower()` and `company_name.strip()`
+   if either key is present, exactly matching `create_subcontractor`'s
+   existing behavior (`crm_service.py:973,979`) — without this, the
+   update path would write non-normalized values into rows `create`
+   would have normalized.
+6. **Two JSON columns, two different merge semantics — must not be
+   implemented uniformly:**
+   - `qualification_data` **merges** (shallow, one level): read the
+     row's current `qualification_data_json` and shallow-merge the
+     caller's `qualification_data` dict into it — `{**existing, **new}`
+     — exactly matching `subcontractor-recruiter.js:332`'s own
+     `{...(current.qualification_data||{}), ...(updates.qualification_data||{})}`.
+   - `secondary_trades` **replaces**: `json.dumps(updates["secondary_trades"])`
+     directly, matching `subcontractor-recruiter.js:327-329`'s plain
+     top-level spread (no merge semantics exist for this field in the
+     JS today).
+   - The `SELECT` of the current `qualification_data_json` (needed for
+     the merge) must happen inside the same `with conn:` transaction
+     block as the `UPDATE`, not as a separate connection/transaction —
+     this project has a documented history of self-races from
+     split-transaction read-then-write patterns (see rule 4's daemon
+     PID-race precedent), and there's no reason to reintroduce that
+     shape here even though this isn't process-lifecycle code.
+7. Build the `UPDATE subcontractors SET ... WHERE id = ?` from only the
+   keys actually present in `updates` (a true partial update — untouched
+   allow-listed fields are not overwritten), always additionally setting
+   `updated_at = now` **and** `last_contact_at = now` — the latter
+   mirrors `subcontractor-recruiter.js:331`'s unconditional
+   `last_contact` bump on every non-empty `updateSubcontractor()` call.
+   (Note logged as `NEW-236`, not fixed here: `owner-command.js`'s four
+   status-only call sites use `update_subcontractor_qualification()`,
+   not this method, and that existing method does not bump
+   `last_contact_at` — a real, pre-existing behavior change for the
+   still-unstarted JS conversion round to resolve, not this one.)
+8. If the row doesn't exist (checked via the same-transaction `SELECT`
+   in step 6, or `cursor.rowcount == 0` on the `UPDATE` as a race-safety
+   backstop), return `None` — no audit log call, matching every other
+   `get_*`/`update_*` method's `Optional[...]`-return-means-404 pattern
+   already used in this file.
+9. **Return the full updated `Subcontractor` object, not `bool`.** This
+   is load-bearing, not a style preference: post-cutover, the JS side no
+   longer holds the authoritative record, so the still-unstarted
+   conversion round's caller needs the merged post-write state back to
+   run `determineQualificationStatus()` (see below) against it.
+10. Audit log **unconditionally** on any real write (matching
+    `automation_service.py`'s `business_profile` update precedent, the
+    only prior "update" — as opposed to create/delete — case in this
+    codebase, confirmed by grepping `action="update"` repo-wide):
+    `action="update"`, `entity_type="subcontractor"`,
+    `entity_id=subcontractor_id`, `change_summary=f"Subcontractor
+    {subcontractor_id} updated ({', '.join(sorted(updates.keys()))})"`
+    (names which fields changed, per the brief's ask), `details=`
+    the full updated record's `.to_dict()` (matching
+    `create_subcontractor`'s and the `business_profile` precedent's
+    full-object-dump shape, not a per-field old→new diff — no diff-log
+    shape exists anywhere else in this codebase to match, and inventing
+    one here would be a new pattern the brief said to avoid).
+
+**Not ported to the Core: `determineQualificationStatus()`'s
+auto-recalculation logic.** `subcontractor-recruiter.js:434-491` is ~60
+lines of business-rule state-machine logic (document-review thresholds,
+qualification-completeness checks) that `updateSubcontractor()` runs
+automatically after every merge unless `qualification_status` was
+explicitly passed. This is not a product-scope call to defer — it's the
+same trust model already shipped in the two live write-through modules:
+JS computes, Core stores. The still-unstarted JS conversion round's
+sequencing will be: (1) call `update_subcontractor()` with the
+allow-listed fields, (2) using the returned updated record, run the
+existing `determineQualificationStatus()` locally exactly as today, and
+(3) if the computed status differs from the current one, issue a
+*separate* `update_subcontractor_qualification()` call — two Core calls
+per JS-side merge, preserving single-writer-per-field discipline from
+design point 1 above rather than smuggling status writes into the
+general method.
+
+**Route — included in this round's spec** (per `NEW-226`'s precedent of
+shipping method + route together, and `NEW-112`'s finding that a service
+method with zero callers is dead-code risk): `POST
+/api/v1/subcontractors/{id}/update` → `crm.update_subcontractor(id,
+json_body, actor)`; `None` → 404 `{"error": "Subcontractor not found"}`;
+success → 200 `{"subcontractor": updated_sub.to_dict()}`. Placed in
+`routes.py` directly after the existing `.../qualification` POST block
+(line 275-284) and before the generic by-id `GET` block (line
+286-291), matching that block's own `path.startswith(...) and
+path.endswith("/update") and method == "POST"` shape. **Note, not a new
+finding (`NEW-237`, logged as a duplicate instance of the already-open
+`NEW-222`):** a misdirected `GET .../{id}/update` will fall through to
+the generic by-id `GET` handler and raise `ValueError` (400) instead of
+404 — the identical mechanism `NEW-222` already found for `GET
+.../{id}/qualification`, tracked under that finding's existing
+disposition (a general router-hardening pass), not patched per-route
+here.
+
+**`install.sh`: no change needed** — no new dependency, `json`/
+`sqlite3`/`dataclasses` are stdlib, matching every other B2 service-layer
+task so far.
+
+**Test list for the implementer:** unknown key raises `ValueError`
+(→400 via the route); any `None`-valued key raises `ValueError`
+(→400); `qualification_data` merge preserves pre-existing keys not
+present in the new dict; `secondary_trades` replaces rather than
+merges; `email`/`company_name` are normalized identically to
+`create_subcontractor`'s; 404 (not an exception) on a nonexistent
+`subcontractor_id`; an empty `{}` `updates` dict is a no-op (record
+unchanged, no audit-log row created); `PermissionError` when the actor
+lacks `PERM_WRITE_SUBCONTRACTORS`; `qualification_status`/
+`recruitment_step` in `updates` are rejected as unknown keys (proving
+the exclusion is enforced, not just documented).
+
+**Findings logged out of scope this round, not fixed here:** `NEW-234`
+(pre-existing null-overwrite risk in the live JS, independent of this
+migration), `NEW-235` (extraction-schema/Core-model field-name and
+-type mapping gaps the future JS translation layer must handle:
+`has_license`→`license_required` name+type cast,
+`general_liability`/`workers_comp`/`emergency_availability` boolean-vs-
+TEXT typing, and six/seven schema keys with no Core column that must
+land in `qualification_data` instead), `NEW-236` (`last_contact_at`
+stops advancing for `owner-command.js`'s four status-only actions
+post-cutover — same class as `NEW-231`), `NEW-237` (duplicate instance
+of `NEW-222`'s routing quirk, not a new mechanism).
+
+**Rule-4/security note:** no daemon/PID/kill-logic/lock/GUI-bind change.
+The new `.../update` route is a new auth-gated write endpoint on a real
+API surface — mandatory for code-reviewer under the Workflow section's
+"or security" clause regardless of rule 4's narrower process-lifecycle
+scope, same conclusion as every other B2 route addition.
+
+**Verification tier this task can reach once implemented:**
+code-complete + code-reviewer-approved + tested against a Core API
+instance started locally for the test run — same tier as the DNC pilot
+and the email/sms-rules module, for the same reason (no
+`~/Aigentik-CLI`/`~/Codey-Aigentik` production cutover has happened, and
+this round in particular ships no JS changes at all yet). Record the
+tier honestly per rule 7.
+
+**Not implemented this round — spec only, handed to implementer next,
+then the mandatory code-reviewer pass.**
+
 ### 6.5 Track B / Phase B3 — CRM/Sales and Operations
 
 **Depends on:** B1; B2 for real seed data; A1 for anything AI-assisted
