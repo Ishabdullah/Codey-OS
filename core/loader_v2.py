@@ -211,6 +211,69 @@ def confirm_resident_and_mark_slot(
     rg.mark_resident(slot_id, pid=pid)
 
 
+def _kill_single_pid_term_then_kill(pid: int, wait_s: float = 8.0) -> None:
+    """
+    NEW-145/NEW-149/NEW-155 chain, Option C (2026-08-27): kill exactly the
+    ONE positively-identified PID of a resident server this loader did NOT
+    spawn (resolved via the resource-gate slot store / `/proc`, not this
+    process's own `subprocess.Popen` child) — deliberately NOT
+    `os.killpg(os.getpgid(pid), ...)`.
+
+    **Deviation from this round's own prompt, flagged explicitly per its
+    "don't deviate without flagging back" instruction:** the prompt asked
+    for `LlamaServer.stop()`'s TERM-then-8s-wait-then-KILL body to be
+    reused verbatim against the resolved PID. `stop()`'s primary branch
+    calls `os.killpg(os.getpgid(self.process.pid), SIGTERM)` — correct
+    for `stop()`'s own normal case (a real child this loader's own
+    `subprocess.Popen` spawned, in a process group this loader created via
+    `preexec_fn=os.setsid`), but wrong here: `os.killpg()` on a PID merely
+    *resolved* via `/proc` would kill that PID's entire foreign process
+    group, broader than the one PID positively identified — exactly the
+    over-reach `core/embed_server.py:_kill_port_occupant()` already has an
+    explicit, reviewed decision against for this identical
+    foreign-port-occupant scenario (see that method's own docstring).
+    Mirrors `stop()`'s TERM-then-wait-then-KILL *shape* (same escalation,
+    same 8s default), scoped to `os.kill(pid, ...)` instead.
+
+    **Accepted latency note:** liveness is polled via `os.kill(pid, 0)`
+    (same precedent as `resource_gate._pid_alive()`/`core/daemon.py:
+    check_pid_file()`), which reports a PID that has exited but not yet
+    been reaped by ITS OWN parent (a zombie, since this loader is not that
+    parent) as still "alive" — so if the killed server's parent is slow to
+    reap it, this helper burns the full `wait_s` before falling through to
+    SIGKILL. Harmless (the port itself frees at process exit, well before
+    the OS transitions it to a zombie, so the caller's own
+    `_is_port_in_use()` poll is unaffected) but adds up to `wait_s` of
+    latency to an upgrade in that case — not something this round tries
+    to eliminate.
+    """
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return  # already gone
+    deadline = time.time() + wait_s
+    while time.time() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return  # confirmed gone
+        except PermissionError:
+            pass  # exists, not ours — keep waiting (see _pid_alive() precedent)
+        time.sleep(0.2)
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass  # gone between the last poll and here — fine
+
+
+# NEW-145/NEW-149/NEW-155 chain, Option C (2026-08-27):
+# `LlamaServer._upgrade_resident_if_safe()`'s three-way outcome — see that
+# method's docstring for what each means and why a plain bool isn't enough.
+_UPGRADE_NOT_SAFE = "not_safe"
+_UPGRADE_KILLED = "killed"
+_UPGRADE_PORT_STUCK = "port_stuck"
+
+
 class LlamaServer:
     """
     Manages llama-server subprocess and HTTP API communication.
@@ -219,11 +282,31 @@ class LlamaServer:
     via HTTP API for inference.
     """
 
-    def __init__(self, model_path: Path, port: int = SERVER_PORT, n_ctx: Optional[int] = None):
+    def __init__(
+        self,
+        model_path: Path,
+        port: int = SERVER_PORT,
+        n_ctx: Optional[int] = None,
+        allow_upgrade: bool = False,
+    ):
         self.model_path = model_path
         self.process: Optional[subprocess.Popen] = None
         self.port = port
         self._started = False
+        # NEW-145/NEW-149/NEW-155 chain, Option C (2026-08-27): whether
+        # start()'s reuse branches are allowed to kill+respawn a resident
+        # server found sized SMALLER than this instance's own `n_ctx`, when
+        # doing so is confirmed safe (see `_resident_n_ctx_if_smaller()` and
+        # `start()` below). Deliberately an explicit constructor flag, never
+        # inferred from `n_ctx` size alone — a future caller could pass a
+        # large `n_ctx` for unrelated reasons and must not silently gain
+        # kill authority it never asked for. `ModelLoader.load_primary()`
+        # sets this `True` ONLY on its interactive path — a
+        # background-dispatched load must NEVER set it (see that call
+        # site's own comment for why getting this backwards is dangerous:
+        # a background task could kill a live interactive session's server
+        # out from under a human mid-conversation).
+        self.allow_upgrade = allow_upgrade
         # n_ctx=None (the default) preserves this class's original
         # behavior — every server it spawns uses the shared global
         # MODEL_CONFIG["n_ctx"]. TODO.md 7.4b sub-task C gives the
@@ -238,6 +321,197 @@ class LlamaServer:
         # NEW-84 class of gate/spawn desync bug).
         self.n_ctx = n_ctx if n_ctx is not None else MODEL_CONFIG["n_ctx"]
 
+    def _resolve_resident_pid_and_n_ctx(self):
+        """
+        NEW-145/NEW-149/NEW-155 chain, Option C (2026-08-27): shared
+        resolution helper for whatever's currently listening on
+        `self.port` — returns `(pid, n_ctx)`, either of which may be
+        `None` if unresolved. Used both by `_resident_n_ctx_if_smaller()`
+        (pre-lock check) and `_upgrade_resident_if_safe()` (in-lock
+        re-resolve — CLAUDE.md rule 3: never trust a PID resolved before
+        the lock was held, so this is always called again fresh there,
+        not memoized).
+
+        **Slot-store-first, `/proc` scan as fallback only — this ordering
+        is load-bearing, not a style choice.** `resolve_port_owner_pid()`'s
+        own docstring (`NEW-200`) confirms `/proc/net/tcp`/`/proc/net/tcp6`
+        are `PermissionError` for EVERY caller on this project's real
+        target device — its primary path essentially never succeeds in
+        production here. `_reconcile_adopted_slot()` (this module's
+        existing adoption-reconciliation code) already handles this
+        correctly: it checks `resource_gate.find_resident_slot()` FIRST
+        and only falls to the `/proc` scan for a slot the store has never
+        seen. This helper follows the same order for the same reason —
+        checking `/proc` first would make this whole feature a no-op on
+        the device it's for.
+        """
+        try:
+            existing = rg.find_resident_slot(model_id="primary", port=self.port)
+            if existing is not None:
+                pid = existing.get("pid")
+                if pid is None or not rg.pid_cmdline_contains(pid, b"llama-server"):
+                    return None, None
+                return pid, existing.get("n_ctx")
+
+            # Nothing registered for this port — fall back to the /proc
+            # scan (portable to a rooted device/non-Android deployment
+            # where /proc/net/tcp IS readable; a no-op on THIS device per
+            # NEW-200, kept for the same reason resolve_port_owner_pid()
+            # itself is kept as a primary path there).
+            pid = rg.resolve_port_owner_pid(self.port)
+            if pid is None or not rg.pid_cmdline_contains(pid, b"llama-server"):
+                return None, None
+            return pid, rg.resolve_spawned_n_ctx(pid)
+        except Exception:
+            # Best-effort diagnostic only — any failure here must fail
+            # toward "nothing resolved," never toward a false positive
+            # that could trigger an unwanted kill.
+            return None, None
+
+    def _resident_n_ctx_if_smaller(self) -> Optional[int]:
+        """
+        NEW-145/NEW-149/NEW-155 chain, Option C (2026-08-27): read-only
+        check for whether whatever's currently listening on `self.port` is a
+        real `llama-server` resident at an `n_ctx` strictly SMALLER than this
+        instance's own `self.n_ctx`. Returns that resolved (smaller) n_ctx,
+        or `None` if there's nothing to upgrade from — including every
+        failure-to-resolve case (best-effort only, matches
+        `_reconcile_adopted_slot()`'s own error posture: any resolution
+        failure here fails toward today's existing behavior, i.e. "nothing
+        found, don't upgrade," never toward a false positive that could
+        trigger an unwanted kill).
+        """
+        _pid, resident_n_ctx = self._resolve_resident_pid_and_n_ctx()
+        if resident_n_ctx is not None and resident_n_ctx < self.n_ctx:
+            return resident_n_ctx
+        return None
+
+    def _upgrade_resident_if_safe(self, resident_n_ctx: int) -> str:
+        """
+        NEW-145/NEW-149/NEW-155 chain, Option C: called from inside
+        `start()`'s per-port flock (never a second lock — see `start()`'s
+        own comment on why the locked region is extended rather than
+        duplicated) once `_resident_n_ctx_if_smaller()` has already found a
+        real, smaller-than-wanted resident server.
+
+        Returns one of three outcomes — a plain bool isn't enough here
+        because "not safe to upgrade" and "tried to upgrade but the port
+        never freed" must be handled differently by `start()` (judgment
+        call 2, 2026-08-27 scoping pass):
+          - `_UPGRADE_NOT_SAFE`: daemon busy, or the resident PID couldn't
+            be re-confirmed under the lock. Nothing was killed. Caller
+            should fall back to today's existing reuse behavior unchanged.
+          - `_UPGRADE_KILLED`: the resident server was killed and the port
+            is confirmed free. Caller should fall through to
+            `_spawn_locked()`.
+          - `_UPGRADE_PORT_STUCK`: the resident server was killed but the
+            port never freed within the bounded wait. Caller must FAIL
+            this `start()` call outright (`return False`) — must NOT
+            silently fall back to reusing the old (possibly now-dead)
+            server (judgment call 2).
+        """
+        # Local import to avoid a module-level core.daemon <-> core.loader_v2
+        # import cycle — core/daemon.py already imports core.loader_v2 names
+        # lazily inside functions for the same reason (see e.g. its
+        # `_watchdog_check_model()`/`_handle_release_model_slot()` bodies).
+        from core.daemon import daemon_task_in_progress
+
+        if daemon_task_in_progress():
+            # Busy — matches `_reconcile_adopted_slot()`'s own log-only
+            # mismatch-warning posture: found a smaller ceiling, but not
+            # safe to act on it right now. Falls through to today's
+            # existing reuse behavior at the call site.
+            warning(
+                f"resource_gate: resident coder server on port {self.port} is "
+                f"sized smaller (n_ctx={resident_n_ctx}) than this interactive "
+                f"attach needs (n_ctx={self.n_ctx}), but the daemon reports a "
+                "task in progress — not upgrading this attach (NEW-145/"
+                "NEW-149/NEW-155 Option C: safe only when confirmed idle)."
+            )
+            return _UPGRADE_NOT_SAFE
+
+        # Re-resolve BOTH the PID and its n_ctx INSIDE the lock — never
+        # trust either value resolved before the lock was held (CLAUDE.md
+        # rule 3: track and kill only a specific, positively-identified
+        # PID, not a stale one that could have been recycled by an
+        # unrelated process in the window between the pre-lock check and
+        # now). Re-checking n_ctx here too (not just the PID) matters
+        # because the window this closes is real, not just PID recycling:
+        # the undersized resident found pre-lock could have already died
+        # and been replaced — by another TUI attaching, or the watchdog's
+        # own respawn — by a CORRECTLY-sized server before this lock was
+        # acquired. Gating only on "a llama-server PID exists" would kill
+        # that new, already-adequate server for no reason; gating on the
+        # freshly re-resolved n_ctx still being smaller than what we need
+        # closes that gap at zero extra cost (the resolver already returns
+        # n_ctx alongside the pid). Same slot-store-first/`/proc`-fallback
+        # resolver as `_resident_n_ctx_if_smaller()` — see
+        # `_resolve_resident_pid_and_n_ctx()`'s docstring for why that
+        # ordering is load-bearing on this device (NEW-200).
+        pid, in_lock_n_ctx = self._resolve_resident_pid_and_n_ctx()
+        if pid is None or in_lock_n_ctx is None or in_lock_n_ctx >= self.n_ctx:
+            warning(
+                f"resource_gate: could not re-confirm an UNDERSIZED resident "
+                f"server's PID on port {self.port} under lock (in-lock "
+                f"n_ctx={in_lock_n_ctx}) — not upgrading this attach."
+            )
+            return _UPGRADE_NOT_SAFE
+
+        info(
+            f"resource_gate: upgrading undersized resident coder server "
+            f"(pid={pid}, port={self.port}, n_ctx={in_lock_n_ctx} -> "
+            f"{self.n_ctx}) — daemon confirmed idle."
+        )
+
+        # ── Residual TOCTOU window, accepted (judgment call 1, 2026-08-27
+        # scoping pass) ──────────────────────────────────────────────────
+        # A narrow window remains between daemon_task_in_progress()
+        # returning False above and the kill below actually landing — the
+        # daemon could claim a new task in that gap. Accepted as small
+        # (one status round-trip, sub-second in the common case) and
+        # self-recovering: the daemon's own in-flight HTTP call to the
+        # killed server fails with a connection error, handled by the
+        # existing task-failure path as a normal failure, not a crash.
+        # Not something this round tries to close further.
+        #
+        # `_kill_single_pid_term_then_kill()`, not `LlamaServer.stop()` —
+        # see that function's own docstring for the explicit, flagged
+        # deviation from this round's prompt (stop()'s os.killpg() would
+        # over-reach a foreign PID's process group; embed_server.py
+        # already has a reviewed decision against exactly that for this
+        # identical foreign-port-occupant scenario).
+        _kill_single_pid_term_then_kill(pid)
+
+        # Release the killed server's resource-gate slot, if one exists, so
+        # accounting doesn't leak a phantom resident slot for a PID that's
+        # now dead.
+        try:
+            existing_slot = rg.find_resident_slot(model_id="primary", port=self.port)
+            if existing_slot is not None:
+                rg.release_slot(existing_slot["slot_id"])
+        except Exception as e:
+            # Accounting-only — the kill above already happened regardless
+            # of whether this bookkeeping succeeds; must not turn into a
+            # reason to abort the upgrade already committed to.
+            warning(
+                f"resource_gate: failed to release upgraded-away slot for "
+                f"port {self.port}: {e}"
+            )
+
+        deadline = time.time() + 10.0
+        while time.time() < deadline:
+            if not self._is_port_in_use():
+                return _UPGRADE_KILLED
+            time.sleep(0.25)
+
+        error(
+            f"resource_gate: port {self.port} did not free within 10s after "
+            "killing the undersized resident server — failing this start() "
+            "call rather than silently falling back to the (possibly now-"
+            "dead) old server (judgment call 2, 2026-08-27 scoping pass)."
+        )
+        return _UPGRADE_PORT_STUCK
+
     def start(self) -> bool:
         """Start llama-server subprocess."""
         try:
@@ -247,9 +521,21 @@ class LlamaServer:
 
             # Check if llama-server is already running on this port (e.g., from daemon)
             if self._is_port_in_use():
-                info(f"llama-server already running on port {self.port}, using existing server")
-                self._started = True
-                return True
+                # NEW-145/NEW-149/NEW-155 chain, Option C (2026-08-27): if
+                # this instance is allowed to upgrade (interactive attach
+                # only — see __init__'s allow_upgrade docstring) AND the
+                # resident server is confirmed smaller than what we need,
+                # do NOT short-circuit-reuse here. Fall through to acquire
+                # the per-port lock below instead — the actual
+                # busy-check/kill/respawn decision happens ONLY under that
+                # lock, at the post-lock re-check a few lines down, so
+                # there is exactly one call site that ever kills a resident
+                # server, not two independent copies of that logic racing
+                # each other.
+                if not (self.allow_upgrade and self._resident_n_ctx_if_smaller() is not None):
+                    info(f"llama-server already running on port {self.port}, using existing server")
+                    self._started = True
+                    return True
 
             # ── Cross-process lock (NEW-12 item 4) ──────────────────────────
             # The _is_port_in_use() check above is only a TOCTOU-racy HTTP
@@ -309,6 +595,35 @@ class LlamaServer:
                 # Re-check now that we hold the lock — closes the remaining
                 # window between the unlocked check above and lock acquisition.
                 if self._is_port_in_use():
+                    # NEW-145/NEW-149/NEW-155 chain, Option C (2026-08-27):
+                    # the ONLY call site in this method that actually kills
+                    # a resident server — see the fast-path check above,
+                    # which deliberately falls through to here instead of
+                    # duplicating this decision. Re-resolve under the lock
+                    # (never trust the fast-path's pre-lock read — CLAUDE.md
+                    # rule 3) before deciding anything.
+                    smaller = (
+                        self._resident_n_ctx_if_smaller() if self.allow_upgrade else None
+                    )
+                    if smaller is not None:
+                        outcome = self._upgrade_resident_if_safe(smaller)
+                        if outcome == _UPGRADE_KILLED:
+                            # Resident killed, port confirmed free — fall
+                            # through to a genuine spawn at self.n_ctx,
+                            # still under this same lock.
+                            return self._spawn_locked()
+                        if outcome == _UPGRADE_PORT_STUCK:
+                            # Judgment call 2 (2026-08-27 scoping pass):
+                            # the old server is dead but the port never
+                            # freed — fail this start() call outright
+                            # rather than silently reusing a now-dead
+                            # server. _upgrade_resident_if_safe() already
+                            # logged why.
+                            return False
+                        # outcome == _UPGRADE_NOT_SAFE: nothing was killed
+                        # (daemon busy, or PID re-confirmation failed) —
+                        # fall through to today's existing reuse behavior
+                        # below, unchanged.
                     info(
                         f"llama-server already running on port {self.port}, using existing server"
                     )
@@ -791,7 +1106,17 @@ class ModelLoader:
             # See .claude/agent-memory/code-reviewer/
             # resource_gate_subtask2_confirm_mark_slot_leak.md — this
             # replaces exactly the gap documented there.
-            self._server = LlamaServer(model_path, n_ctx=n_ctx)
+            # NEW-145/NEW-149/NEW-155 chain, Option C (2026-08-27):
+            # `allow_upgrade=interactive` — ONLY the interactive attach path
+            # may force a kill+respawn of an undersized resident server (see
+            # `LlamaServer.__init__`'s `allow_upgrade` docstring for the
+            # full reasoning). A background-dispatched load
+            # (`interactive=False`) must behave exactly as before: adopt
+            # whatever's resident, log-only mismatch warning via
+            # `_reconcile_adopted_slot()`, never kill. Getting this backwards
+            # would let a background task kill a live interactive session's
+            # server out from under a human mid-conversation.
+            self._server = LlamaServer(model_path, n_ctx=n_ctx, allow_upgrade=interactive)
             loaded_ok = False
             try:
                 if not self._server.start():
@@ -985,6 +1310,26 @@ class ModelLoader:
             self._server.stop()
             self._server = None
             self._loaded = False
+            # NEW-155 hygiene fix (2026-08-27, landed alongside the
+            # NEW-145/NEW-149/NEW-155 Option C round as its own separate
+            # commit/hunk — see CODEY_MASTER_PLAN.md Appendix A's 7.4b-C
+            # entry, judgment call 3): `_ever_spawned` used to be set once,
+            # on a genuine spawn, and NEVER reset anywhere — including
+            # here — so `_watchdog_check_model()`'s crash-restart gate
+            # (`was_ever_spawned()`) stayed permanently sticky-True for the
+            # rest of this process's lifetime after a single genuine spawn,
+            # even once this loader has explicitly confirmed (via this very
+            # method) that the server is stopped and nobody currently wants
+            # it running. Reset it here, at the one place this loader
+            # itself confirms a genuine stop, so the watchdog stops eagerly
+            # respawning a coder nobody asked for at the smaller
+            # background ceiling. Does NOT weaken crash-restart coverage:
+            # an actual crash (the process dying on its own, not via an
+            # explicit unload() call) never reaches this method — the
+            # watchdog's cold-load branch calls `load_primary()` directly
+            # in that case — so `was_ever_spawned()` stays True across a
+            # real crash exactly as before.
+            self._ever_spawned = False
         if self._slot_id:
             try:
                 rg.release_slot(self._slot_id)

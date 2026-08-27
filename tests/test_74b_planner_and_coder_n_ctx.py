@@ -53,10 +53,12 @@ class FakeServerSpawned:
 
     last_n_ctx = None
     last_port = None
+    last_allow_upgrade = None
 
-    def __init__(self, model_path=None, port=None, n_ctx=None):
+    def __init__(self, model_path=None, port=None, n_ctx=None, allow_upgrade=False):
         FakeServerSpawned.last_n_ctx = n_ctx
         FakeServerSpawned.last_port = port
+        FakeServerSpawned.last_allow_upgrade = allow_upgrade
         self.process = MagicMock(pid=os.getpid())
         self._started = True
 
@@ -75,6 +77,7 @@ class TestCoderInteractiveVsBackgroundNCtx:
     def teardown_method(self):
         FakeServerSpawned.last_n_ctx = None
         FakeServerSpawned.last_port = None
+        FakeServerSpawned.last_allow_upgrade = None
 
     def _run_load_primary(self, monkeypatch, interactive: bool):
         fake_decision = MagicMock(admitted=True, estimated_cost_bytes=1024, reason="ok")
@@ -101,11 +104,20 @@ class TestCoderInteractiveVsBackgroundNCtx:
         reserve_calls = self._run_load_primary(monkeypatch, interactive=True)
         assert reserve_calls[0].n_ctx == cfg.MODEL_CONFIG["n_ctx"]
         assert FakeServerSpawned.last_n_ctx == cfg.MODEL_CONFIG["n_ctx"]
+        # NEW-145/NEW-149/NEW-155 chain, Option C (2026-08-27): only the
+        # interactive path may set allow_upgrade=True.
+        assert FakeServerSpawned.last_allow_upgrade is True
 
     def test_no_interactive_session_uses_background_n_ctx(self, monkeypatch):
         reserve_calls = self._run_load_primary(monkeypatch, interactive=False)
         assert reserve_calls[0].n_ctx == cfg.get_coder_background_n_ctx()
         assert FakeServerSpawned.last_n_ctx == cfg.get_coder_background_n_ctx()
+        # NEW-145/NEW-149/NEW-155 chain, Option C (2026-08-27): a
+        # background-dispatched load must NEVER set allow_upgrade=True — a
+        # background task killing a live interactive session's server out
+        # from under a human mid-conversation would be materially worse
+        # than the bug this fix addresses.
+        assert FakeServerSpawned.last_allow_upgrade is False
 
     def test_gate_spec_and_real_spawn_always_agree(self, monkeypatch):
         """The ModelSpec passed to the gate and the LlamaServer actually

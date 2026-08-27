@@ -32,7 +32,7 @@ import utils.config as cfg
 class _FakeLlamaServer:
     """Always reports a successful spawn."""
 
-    def __init__(self, model_path, port=None, n_ctx=None):
+    def __init__(self, model_path, port=None, n_ctx=None, allow_upgrade=False):
         self.model_path = model_path
         self.process = MagicMock(pid=42)
         self._started = True

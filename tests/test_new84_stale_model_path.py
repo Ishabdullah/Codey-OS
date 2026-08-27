@@ -43,7 +43,7 @@ class _CapturingLlamaServer:
 
     captured_paths: list = []
 
-    def __init__(self, model_path, port=None, n_ctx=None):
+    def __init__(self, model_path, port=None, n_ctx=None, allow_upgrade=False):
         type(self).captured_paths.append(model_path)
         self.model_path = model_path
         self.process = MagicMock(pid=42)

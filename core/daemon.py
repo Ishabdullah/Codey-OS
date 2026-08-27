@@ -309,14 +309,46 @@ class DaemonServer:
     async def _handle_status(self, data: Dict) -> Dict:
         """Handle status query."""
         pending = len(self.state.get_tasks_by_status("pending"))
-        running = len(self.state.get_tasks_by_status("running"))
+        running_tasks = self.state.get_tasks_by_status("running")
+        running = len(running_tasks)
         done = len(self.state.get_tasks_by_status("done"))
+
+        # ── NEW-145/NEW-149/NEW-155 chain, Option C (2026-08-27) ────────────
+        # `running_active` is `running` age-filtered against the
+        # `task_timeout` config value (default 1800s). Note this is NOT
+        # the same threshold as `_handle_health()`'s own stuck-task
+        # detection below (`:370`), which hardcodes a literal `1800`
+        # rather than reading `task_timeout` from config — a known
+        # inconsistency, tracked separately as NEW-256 and out of scope
+        # here. This code path reads the config value correctly; a task
+        # row stuck in 'running' by a daemon that died ungracefully
+        # mid-task (NEW-146's orphan-state shape applied to task rows)
+        # must not read as "busy" forever to a caller like
+        # `daemon_task_in_progress()` below. A task with no `started_at`
+        # (shouldn't happen for a genuinely-running row, but not asserted
+        # here) is conservatively counted as active rather than stale, so
+        # ambiguity resolves toward "busy," matching this whole chain's
+        # fail-closed posture.
+        task_timeout = self._config.get("tasks", "task_timeout", default=1800)
+        now = int(time.time())
+        running_active = len(
+            [
+                t
+                for t in running_tasks
+                if not t.get("started_at") or (now - t["started_at"]) <= task_timeout
+            ]
+        )
 
         return {
             "status": "ok",
             "daemon": "running",
             "pid": os.getpid(),
-            "tasks": {"pending": pending, "running": running, "done": done},
+            "tasks": {
+                "pending": pending,
+                "running": running,
+                "running_active": running_active,
+                "done": done,
+            },
             "state": self.state.get_all(),
         }
 
@@ -1391,6 +1423,62 @@ def send_command(cmd: str, data: Dict = None, timeout: float = 60.0) -> Dict:
 def daemon_status() -> Dict:
     """Get daemon status."""
     return send_command("status")
+
+
+def daemon_task_in_progress() -> bool:
+    """
+    NEW-145/NEW-149/NEW-155 chain, Option C (2026-08-27): is the daemon
+    currently mid-execution of a real task? Used by
+    `core/loader_v2.py:LlamaServer.start()`'s `allow_upgrade` respawn gate
+    to decide whether it's safe to kill+respawn a resident coder server
+    that's undersized for an interactive caller's real `n_ctx` need —
+    killing a server that's mid-request for a background task would be a
+    new, worse bug than the one this fix addresses.
+
+    **Fail-closed on any inability to determine** (daemon reachable but
+    query errors/times out, malformed response, unexpected exception) —
+    returns `True` ("assume busy," do not respawn this attach). The one
+    legitimate `False` short-circuit is `is_daemon_running()` itself
+    returning `False`: no daemon process means nothing can possibly be
+    mid-task, a real (not degraded-signal) idle reading, not a guess.
+
+    Queried via `send_command("status", ...)` — the existing socket RPC,
+    not a second, independent sqlite3 connection against the daemon's own
+    live state DB file (which the daemon process already holds open) — and
+    reads `tasks.running_active` from `_handle_status()`'s response, which
+    is already age-filtered against `task_timeout` so a stale 'running' row
+    left behind by a daemon that died ungracefully mid-task (NEW-146's
+    orphan-state shape) can't wedge this gate permanently busy.
+    """
+    try:
+        if not is_daemon_running():
+            return False
+        response = send_command("status", timeout=3)
+    except Exception as e:
+        # Any failure to reach/parse the daemon here (socket error, timeout,
+        # unexpected response shape) is exactly the "can't tell" case this
+        # helper's docstring commits to treating as busy — a false "busy"
+        # just means Option C's respawn skips this attach and the caller
+        # falls through to today's existing reuse behavior unchanged, which
+        # is always safe; a false "idle" could get a server killed out from
+        # under a real in-flight task, which is not.
+        warning(
+            f"daemon_task_in_progress: could not query daemon status ({e}) — "
+            "assuming busy (fail-closed)"
+        )
+        return True
+
+    tasks = response.get("tasks") if isinstance(response, dict) else None
+    running_active = tasks.get("running_active") if isinstance(tasks, dict) else None
+    if running_active is None:
+        # Malformed/unexpected response shape — same fail-closed reasoning
+        # as the exception branch above, not a silent "treat as idle."
+        warning(
+            "daemon_task_in_progress: status response missing "
+            "tasks.running_active — assuming busy (fail-closed)"
+        )
+        return True
+    return running_active > 0
 
 
 def daemon_health() -> Dict:
