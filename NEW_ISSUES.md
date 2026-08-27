@@ -11418,3 +11418,33 @@ finding for the same bug. See `NEW-39`.)*
 - **Cross-reference:** `restoricon_core/api/routes.py` (subcontractors
   `GET .../{id}` generic branch, and the analogous `appointments`
   `GET .../{id}` branch which has the same shape).
+
+### [NEW-223] Task 4a review's "838 passed" figure came from an
+unscoped `pytest` invocation picking up `ccos/tests/`, not a real
+discrepancy in what's passing
+- **Status: Confirmed, root-caused, resolved same-day, process note
+  only — no code defect.** Ish flagged the code-reviewer's cited "838
+  passed" figure (task 4a review) as inconsistent with the 770 figure
+  this project's convention (`python -m pytest tests/ -q`) produces and
+  the number that actually landed in `PROJECT_LOG.md`/
+  `CODEY_MASTER_PLAN.md` for this round. Verified directly: `python -m
+  pytest tests/ --collect-only -q` → 771 collected (770 passed, 1
+  skipped); `python -m pytest ccos/tests/ --collect-only -q` → 68
+  collected; running bare `pytest --collect-only -q` from the repo root
+  (no path argument, picks up both `tests/` and `ccos/tests/`) → 839
+  collected. 771 + 68 = 839, one off from the reviewer's cited 838 —
+  consistent with a transient single-test collection difference (e.g. a
+  skip/xfail counted differently), not a hidden divergent number.
+- **Cause**: the reviewer's re-run of the suite used a bare `pytest`
+  invocation instead of this project's established `python -m pytest
+  tests/ -q` (CCOS's suite is intentionally kept separate — see the repo
+  structure notes in `CLAUDE.md`), so it silently included `ccos/tests/`
+  as well. No committed doc ended up with the wider/wrong number — the
+  finalize round independently re-ran the correct scoped command and
+  recorded 770 verbatim — so nothing needs correcting in
+  `PROJECT_LOG.md`/`CODEY_MASTER_PLAN.md`.
+- **Action**: none required beyond this record. Noting here so a future
+  round doesn't mistake a scope difference for a regression or a
+  fabricated number if it resurfaces.
+- **Cross-reference:** `PROJECT_LOG.md`'s task-4a entry (has the correct
+  770/1 figure, unaffected).
