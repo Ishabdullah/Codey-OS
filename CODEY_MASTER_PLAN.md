@@ -5721,6 +5721,10 @@ Then:
       unintentionally ran the schema migration against the real
       `~/.codey_restoricon/core.db` during independent verification —
       table added, 0 data rows, not a data-safety incident).
+      **Write-Through Cutover Progress (2026-08-28):** 5 of 10 write-site
+      modules completed and approved: `do-not-contact.js`,
+      `email-rules.js`/`sms-rules.js`, `calendar.js`, `subcontractor-recruiter.js`,
+      and `email-provider.js` (outbound/inbound comms logging + reliable retry queue).
 - [ ] **B3** — CRM/Sales domain.
 - [ ] **B3** — Operations domain.
 - [ ] **B3** — first Automated Workflows.
