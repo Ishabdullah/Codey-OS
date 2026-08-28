@@ -20,9 +20,10 @@ import json
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from ccos.core.capability_registry import get_capability_registry
+from ccos.core.domain_router import get_domain_router
 from ccos.core.performance_tracker import get_performance_tracker
 from ccos.core.sandbox import BLOCKED_COMMANDS
 from ccos.core.task_context import TaskContext
@@ -190,6 +191,7 @@ class PlannerAgent:
     def __init__(self):
         self._registry = get_capability_registry()
         self._tracker = get_performance_tracker()
+        self._domain_router = get_domain_router()
 
     def generate_plan(
         self,
@@ -207,8 +209,86 @@ class PlannerAgent:
         elif isinstance(context, dict):
             ctx_dict = context
 
-        # Analyze available capabilities
         hardware_hints = ctx_dict.get("hardware_hints", [])
+
+        # Check for multi-domain request decomposition
+        domain_info = self._domain_router.classify_request(goal)
+        if domain_info.get("is_multi_domain") and len(domain_info.get("sub_goals", [])) > 1:
+            ordered_subgoals = self._domain_router.build_dependency_dag(domain_info["sub_goals"])
+            steps = []
+            tools = []
+            max_risk = RiskLevel.LOW
+            risk_order = {RiskLevel.LOW: 0, RiskLevel.MEDIUM: 1, RiskLevel.HIGH: 2, RiskLevel.CRITICAL: 3}
+
+            for sg in ordered_subgoals:
+                cap_name = sg.capability
+                tool_impl = ""
+                if cap_name:
+                    cap_obj = self._registry.get(cap_name)
+                    if cap_obj:
+                        tool_impl = cap_obj.implementation
+                    else:
+                        candidates = self._registry.find_for_task(sg.action, hardware_hints)
+                        if candidates:
+                            cap_name = candidates[0].name
+                            tool_impl = candidates[0].implementation
+
+                # Risk mapping
+                sg_risk = sg.risk.lower()
+                if sg_risk == "critical":
+                    step_risk = RiskLevel.CRITICAL
+                elif sg_risk == "high":
+                    step_risk = RiskLevel.HIGH
+                elif sg_risk == "medium":
+                    step_risk = RiskLevel.MEDIUM
+                else:
+                    step_risk = RiskLevel.LOW
+
+                if risk_order.get(step_risk, 0) > risk_order.get(max_risk, 0):
+                    max_risk = step_risk
+
+                if cap_name:
+                    tools.append(cap_name)
+
+                steps.append(PlanStep(
+                    id=sg.id,
+                    action=sg.action,
+                    capability=cap_name,
+                    tool=tool_impl,
+                    risk=step_risk,
+                    notes=f"Domain: {sg.domain}",
+                    context_in_keys=list(sg.context_in_keys),
+                    context_out_keys=list(sg.context_out_keys),
+                ))
+
+            plan = ExecutionPlan(
+                goal=goal,
+                steps=steps,
+                tools_required=tools,
+                risk_level=max_risk,
+                estimated_duration_ms=sum(
+                    self._tracker.get_capability_metrics(t).get("avg_duration_ms", 100)
+                    for t in tools
+                ),
+                metadata={
+                    "is_multi_domain": True,
+                    "domains": domain_info.get("domains", []),
+                },
+            )
+
+            output = AgentOutput(
+                agent=AgentRole.PLANNER,
+                plan_input={"goal": goal, "is_multi_domain": True, "domains": domain_info.get("domains", [])},
+                plan_output=plan.to_dict(),
+                issues=issues,
+                suggestions=suggestions,
+                score=0.85,
+                approved=True,
+                duration_ms=(time.time() - start) * 1000,
+            )
+            return plan, output
+
+        # Analyze available capabilities for single-domain
         candidates = self._registry.find_for_task(goal, hardware_hints)
 
         # Build steps
@@ -297,6 +377,42 @@ class CriticAgent:
         suggestions = []
         score = 1.0
 
+        # Check cross-domain I/O contracts
+        available_keys: Set[str] = set()
+        if isinstance(context, TaskContext):
+            if context.inputs:
+                available_keys.update(context.inputs.keys())
+            if context.state:
+                available_keys.update(context.state.keys())
+        elif isinstance(context, dict):
+            if "inputs" in context and isinstance(context["inputs"], dict):
+                available_keys.update(context["inputs"].keys())
+            if "state" in context and isinstance(context["state"], dict):
+                available_keys.update(context["state"].keys())
+
+        for step in plan.steps:
+            in_keys = []
+            if isinstance(step.context_in_keys, dict):
+                in_keys.extend(step.context_in_keys.values())
+            elif isinstance(step.context_in_keys, (list, tuple)):
+                in_keys.extend(step.context_in_keys)
+
+            for in_k in in_keys:
+                if in_k and in_k not in available_keys:
+                    issues.append(f"Step {step.id} has unmet cross-domain input dependency: '{in_k}' not produced by preceding steps")
+                    suggestions.append(f"Ensure preceding step produces output key '{in_k}' before step {step.id}")
+                    score -= 0.1
+
+            out_keys = []
+            if isinstance(step.context_out_keys, dict):
+                out_keys.extend(step.context_out_keys.keys())
+            elif isinstance(step.context_out_keys, (list, tuple)):
+                out_keys.extend(step.context_out_keys)
+
+            for out_k in out_keys:
+                if out_k:
+                    available_keys.add(out_k)
+
         # Check for redundant steps
         caps_used = [s.capability for s in plan.steps if s.capability]
         if len(caps_used) != len(set(caps_used)):
@@ -373,13 +489,23 @@ class OptimizerAgent:
         # Apply critic suggestions
         for suggestion in critique.suggestions:
             if "consolidate duplicate" in suggestion.lower():
-                # Remove duplicate capability calls
+                # Compute required input keys for downstream steps to protect DAG dependencies
+                needed_output_keys = set()
+                for s in new_steps:
+                    if isinstance(s.context_in_keys, (list, tuple)):
+                        needed_output_keys.update(s.context_in_keys)
+                    elif isinstance(s.context_in_keys, dict):
+                        needed_output_keys.update(s.context_in_keys.values())
+
                 seen_caps = set()
                 deduped = []
                 for step in new_steps:
-                    if step.capability not in seen_caps or not step.capability:
+                    step_outs = set(step.context_out_keys if isinstance(step.context_out_keys, (list, tuple)) else step.context_out_keys.keys() if isinstance(step.context_out_keys, dict) else [])
+                    has_needed_output = bool(step_outs & needed_output_keys)
+                    if step.capability not in seen_caps or not step.capability or has_needed_output:
                         deduped.append(step)
-                        seen_caps.add(step.capability)
+                        if not has_needed_output and step.capability:
+                            seen_caps.add(step.capability)
                     else:
                         rewrites += 1
                 new_steps = deduped

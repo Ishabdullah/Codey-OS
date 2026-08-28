@@ -244,6 +244,17 @@ class TaskBlackboard:
             ).fetchall()
             return [TaskContext.from_json(r["payload"]) for r in rows]
 
+    def get_task(self, task_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve task session information."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT task_id, goal, status, created_at, updated_at, expires_at, metadata FROM task_sessions WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            return dict(row)
+
     def complete_task(self, task_id: str, status: str = "completed") -> bool:
         """Mark a task session as completed or failed."""
         now = time.time()

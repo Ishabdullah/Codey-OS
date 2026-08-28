@@ -64,14 +64,19 @@ class PluginManager:
     Each must have a manifest.json describing its capabilities.
     """
 
-    def __init__(self, plugin_dirs: List[str] = None):
+    def __init__(self, plugin_dirs: List[str] = None, registry: Optional[CapabilityRegistry] = None):
         self._plugin_dirs = plugin_dirs or [
             str(Path(__file__).parent.parent / "plugins"),
         ]
         self._plugins: Dict[str, Plugin] = {}
         self._modules: Dict[str, Any] = {}  # loaded Python modules
-        self._registry = get_capability_registry()
+        self._registry = registry or get_capability_registry()
+        self._handlers: Dict[str, Callable] = {}
         self._discover()
+
+    def register_capability_handler(self, cap_name: str, handler: Callable):
+        """Register an in-memory direct handler for a capability."""
+        self._handlers[cap_name] = handler
 
     def _discover(self):
         """Scan plugin directories for available plugins."""
@@ -229,8 +234,35 @@ class PluginManager:
         Otherwise, context is omitted so legacy capabilities never fail with TypeError.
         """
         cap = self._registry.get(cap_name)
-        if not cap:
+        if not cap and cap_name not in self._handlers:
             raise RuntimeError(f"Capability '{cap_name}' not found")
+
+        # Direct/mock handler registered
+        if cap_name in self._handlers:
+            func = self._handlers[cap_name]
+            start = time.time()
+            call_kwargs = dict(kwargs)
+            if context is not None:
+                try:
+                    sig = inspect.signature(func)
+                    accepts_context = "context" in sig.parameters
+                    accepts_varkw = any(
+                        p.kind == inspect.Parameter.VAR_KEYWORD
+                        for p in sig.parameters.values()
+                    )
+                    if accepts_context or accepts_varkw:
+                        call_kwargs["context"] = context
+                except (ValueError, TypeError):
+                    pass
+            try:
+                result = func(*args, **call_kwargs)
+                duration = (time.time() - start) * 1000
+                self._registry.record_use(cap_name, True, duration)
+                return result
+            except Exception as e:
+                duration = (time.time() - start) * 1000
+                self._registry.record_use(cap_name, False, duration)
+                raise
 
         # Find which plugin owns this capability
         for plugin in self._plugins.values():

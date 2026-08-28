@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional
 
 from ccos.core.capability_registry import get_capability_registry
 from ccos.core.device_manager import get_device_manager
+from ccos.core.domain_router import get_domain_router
 from ccos.core.plugin_manager import get_plugin_manager
 from ccos.core.task_blackboard import get_task_blackboard
 from ccos.core.task_context import TaskContext
@@ -86,6 +87,7 @@ class Plan:
                     "status": s.status.value,
                     "context_in_keys": s.context_in_keys,
                     "context_out_keys": s.context_out_keys,
+                    "metadata": s.metadata,
                 }
                 for s in self.steps
             ],
@@ -108,6 +110,7 @@ class Planner:
         self._registry = get_capability_registry()
         self._router = get_tool_router()
         self._device = get_device_manager()
+        self._domain_router = get_domain_router()
 
     def analyze_request(self, user_request: str) -> Dict[str, Any]:
         """
@@ -116,6 +119,7 @@ class Planner:
         """
         hardware_hints = self._device.get_capabilities_hints()
         candidates = self._registry.find_for_task(user_request, hardware_hints)
+        domain_info = self._domain_router.classify_request(user_request)
 
         analysis = {
             "request": user_request,
@@ -126,6 +130,9 @@ class Planner:
             "missing_capabilities": [],
             "requires_plugin_creation": False,
             "hardware_hints": hardware_hints,
+            "is_multi_domain": domain_info.get("is_multi_domain", False),
+            "domains": domain_info.get("domains", []),
+            "sub_goals": domain_info.get("sub_goals", []),
         }
 
         # Identify potential gaps
@@ -157,10 +164,74 @@ class Planner:
 
         return analysis
 
+    def create_multi_domain_plan(self, user_request: str) -> Plan:
+        """
+        Create an execution plan for a multi-domain request decomposed into a DAG of SubGoals.
+        """
+        domain_info = self._domain_router.classify_request(user_request)
+        sub_goals = domain_info.get("sub_goals", [])
+        ordered_goals = self._domain_router.build_dependency_dag(sub_goals)
+
+        steps: List[PlanStep] = []
+        step_id = 0
+
+        for sg in ordered_goals:
+            step_id += 1
+            cap_name = sg.capability
+            if cap_name and self._registry.get(cap_name):
+                step_type = StepType.CAPABILITY_CALL
+            elif cap_name and cap_name.startswith("coding."):
+                step_type = StepType.CODE_EXEC
+            elif cap_name:
+                step_type = StepType.CAPABILITY_CALL
+            else:
+                step_type = StepType.INFERENCE
+
+            step_meta = dict(sg.metadata)
+            step_meta["domain"] = sg.domain
+            step_meta["risk"] = sg.risk
+            step_meta["depends_on"] = list(sg.depends_on)
+
+            steps.append(PlanStep(
+                id=step_id,
+                description=sg.action,
+                step_type=step_type,
+                capability=cap_name,
+                context_in_keys=list(sg.context_in_keys),
+                context_out_keys=list(sg.context_out_keys),
+                metadata=step_meta,
+            ))
+
+        # Add validation step
+        step_id += 1
+        steps.append(PlanStep(
+            id=step_id,
+            description="Validate multi-domain pipeline results",
+            step_type=StepType.VALIDATION,
+            metadata={"domain": "system"},
+        ))
+
+        # Add memory store step
+        step_id += 1
+        steps.append(PlanStep(
+            id=step_id,
+            description="Store multi-domain result in memory",
+            step_type=StepType.MEMORY_STORE,
+            metadata={"domain": "system"},
+        ))
+
+        return Plan(goal=user_request, steps=steps)
+
     def create_plan(self, user_request: str) -> Plan:
         """
         Create a full execution plan for a user request.
         """
+        analysis = self.analyze_request(user_request)
+
+        # Multi-domain request splitting: decompose compound multi-domain requests
+        if analysis.get("is_multi_domain", False) and len(analysis.get("sub_goals", [])) > 1:
+            return self.create_multi_domain_plan(user_request)
+
         steps = []
         step_id = 0
 
