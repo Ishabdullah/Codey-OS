@@ -12,6 +12,23 @@ and Appendix A.
 
 ---
 
+## 2026-08-28 — Phase B2: Outbound Comms Logging & Reliable Retry Queue in Codey-Aigentik
+
+- **Status**: Code-reviewer approved, unit-test verified across full suites (`176 passed` in `Codey-Aigentik` across 11 suites, `897 passed, 1 skipped` in `Codey-OS`).
+- **Comms Write-Through Logging & Retry Queue (`Codey-Aigentik/email-provider.js`)**:
+  - Implemented `coreRequest()` helper calling Restoricon Core API over Bearer auth with 15s timeout and response parsing.
+  - Implemented `enqueueCommsRetry()` writing to `data/communications-retry.json` with `first_attempt_at` timestamps and deduplication on `provider_message_id`.
+  - Implemented `drainCommsRetryQueue()` at the top of `handleNewMail()`, removing 2xx successes and 4xx bad payloads, while halting cleanly and preserving FIFO queue ordering on 5xx or network errors.
+  - Implemented non-blocking `logCommunication()` catching all internal errors so SMTP/IMAP transmissions are never interrupted or blocked.
+  - Instrumented `sendEmail()`, `replyToGoogleVoiceText()`, and `handleNewMail()` for outbound/inbound email and SMS logging.
+- **Unit Tests (`Codey-Aigentik/tests/comms-write-through.test.js`)**:
+  - Added 9 unit tests covering outbound email/SMS logging, inbound logging, retry queue enqueueing on network/500 errors, dedup on `provider_message_id`, drain on 2xx, and 4xx vs 5xx error isolation.
+- **Adversarial Code Review**:
+  - `code-reviewer` subagent verified exception containment, idempotency, drain safety, filesystem safety, and issued **`APPROVED`** verdict.
+- **Commit**: `Codey-Aigentik` [`b8c94d8`](file:///data/data/com.termux/files/home/Codey-Aigentik).
+
+---
+
 ## 2026-08-27 — Track A / Phase A2 Item 4.3: wrap core/agent.py as CCOS capability and unify call paths
 
 - **Status**: Code-reviewer approved, unit-test verified across full suite (`897 passed, 1 skipped` in `Codey-OS`).

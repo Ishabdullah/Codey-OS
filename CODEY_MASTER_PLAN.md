@@ -1144,17 +1144,15 @@ Updated `owner-command.js` call sites with `await`. Unit tests pass in both repo
 (`889 passed, 1 skipped` in `Codey-OS`, `164 passed, 0 failed` across 10 suites
 in `Codey-Aigentik`).
 
-**Phase B2 write-through progress: 4 of the 10 write-site modules
+**Phase B2 write-through progress: 5 of the 10 write-site modules
 (§6.4's per-module list) are now done — `do-not-contact.js`,
-`email-rules.js`/`sms-rules.js`, `calendar.js`, and `subcontractor-recruiter.js`.**
+`email-rules.js`/`sms-rules.js`, `calendar.js`, `subcontractor-recruiter.js`,
+and `email-provider.js` (outbound/inbound comms logging + reliable retry queue).**
 Remaining modules and their current blockers: `contacts.js`/`customer-module.js`
-(blocked on `NEW-212`/`NEW-215`, Ish's scope call, not a design gap); and the
-comms/email/SMS-provider paths (`email-provider.js`/`gmail.js`/`index.js`'s
-Google Voice handling → a communications endpoint) — **re-scoped 2026-08-27 and
-found to be blocked, not the next unblocked candidate as this section previously
-said; see the "Phase B2 task 4, comms/email/SMS-provider write-through
-— scoping only, blocked" entry immediately above §5 and the pending
-decision it logs for Ish.**
+(blocked on `NEW-212`/`NEW-215`, Ish's scope call, not a design gap); and `index.js`/`queue.js`
+orchestration. Comms logging with durable retry queue (`data/communications-retry.json`)
+and deduplication (`provider_message_id`) landed 2026-08-28 (commit `b8c94d8`),
+code-reviewer approved with 176 passing unit tests in `Codey-Aigentik`.
 
 **Phase B2 task 4, comms/email/SMS-provider write-through — scoping
 only, 2026-08-27, blocked, not handed off for implementation.**
