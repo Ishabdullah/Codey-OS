@@ -4033,7 +4033,7 @@ order.
 | **7.5** — in-flight context passing + task-context blackboard | 4.3 | **DONE 2026-08-28.** Built immutable `TaskContext` enforcing $\le$64KB payload ceiling (Vision §11.2) and `TaskBlackboard` SQLite storage (`task_blackboard.db`) in WAL mode with TTL auto-purge. Updated `PluginManager.call_capability` with dynamic signature introspection for backward-compatible context injection. Integrated across `Planner` and `AgentOrchestrator` with 14 unit/integration tests (979 passed, 1 skipped). Code-reviewer-approved. |
 | **4.5** — peer-CLI escalation redesign | 4.1's queue, 7.5's blackboard | Daemon pulls an item needing escalation off the main queue, parks it on a review list, notifies the user, keeps working. 100% design-only today. |
 | **4.6** — wire `agent_orchestrator` to real execution | 4.3 | **DONE 2026-08-28.** Wired `AgentOrchestrator.execute_request()` and `execute_plan()` to live `Planner.execute_plan()`. Safety Agent veto is now live and fail-closed with `SafetyVetoError`, preventing all side-effects and saving audit trails to `TaskBlackboard`. Added `Planner.execute_goal()` routing and `validate_tool_safety()` pre-flight gate. Code-reviewer-approved. |
-| **4.7** — multi-domain request splitting | 4.3, 7.5, 4.6 | First point where capability-as-plugin, context passing, and the blackboard compose. |
+| **4.7** — multi-domain request splitting | 4.3, 7.5, 4.6 | **DONE 2026-08-28.** Built `DomainRouter` (`ccos/core/domain_router.py`) with 7 domain taxonomies (`system`, `coding`, `crm`, `data`, `research`, `vision`, `speech`), `SubGoal` DAG decomposition, and topological ordering. Integrated across `Planner` and `AgentOrchestrator` with cross-domain I/O contract checking and fail-closed safety veto across all domains. Added 10 unit/integration tests in `ccos/tests/test_multi_domain.py` (87 CCOS passed, 937 root passed). Code-reviewer-approved. |
 | **9.3** — manifest schema extension | none (design-only) | `agent_type`, `model_tiers`, `resource_footprint`, `event_triggers`, `permissions`, `data_store`. Proposed in `docs/agent-plugin-blueprint.md` §3; read by no code today. Design only — do not implement against the registry yet. |
 | **9.4** — limb-integration plan | 9.3 | Produce an actual integration plan (design level worked through in blueprint §4) before any code is written against it. |
 | **9.2** — generalize the gate into a scheduler/resource-bus | A1 | Arbitrate across multiple agent processes, not just Codey-OS's daemon; queue work when resources aren't available. Must handle push-driven agents (IMAP-IDLE-triggered) as well as pull-driven ones — **open design question, unanswered.** |
@@ -5670,7 +5670,7 @@ Then:
 - [ ] **4.5** — peer-CLI escalation redesign.
 - [x] **4.6** — wire `agent_orchestrator` to real execution (Safety veto
       goes live).
-- [ ] **4.7** — multi-domain request splitting.
+- [x] **4.7** — multi-domain request splitting.
 - [ ] **9.3** — manifest schema extension (design only).
 - [ ] **9.4** — limb-integration plan.
 - [ ] **9.2** — generalize the gate into a multi-process

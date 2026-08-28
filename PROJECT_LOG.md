@@ -12,6 +12,28 @@ and Appendix A.
 
 ---
 
+## 2026-08-28 — Track A / Phase A2 Item 4.7: Multi-domain request splitting and composition
+
+- **Status**: Code-reviewer approved, unit-test verified across full suite (`1024 passed, 1 skipped` in `Codey-OS`).
+- **Domain Router & Classification Engine (`ccos/core/domain_router.py`)**:
+  - Implemented `Domain` enum across 7 functional namespaces (`system`, `coding`, `crm`, `data`, `research`, `vision`, `speech`).
+  - Implemented `SubGoal` structured dataclass and `DomainRouter.classify_request()`, distinguishing single-domain from compound multi-domain requests.
+  - Implemented `DomainRouter.build_dependency_dag()` utilizing Kahn's topological sorting algorithm with cycle detection (`ValueError`) and deterministic index remapping.
+- **Cross-Domain Planner & Orchestrator Integration (`ccos/core/planner.py`, `ccos/core/agent_orchestrator.py`)**:
+  - `Planner.analyze_request()` integrates `DomainRouter` classification.
+  - `Planner.create_plan()` automatically decomposes multi-domain requests into staged DAG plans via `create_multi_domain_plan()` with explicit `context_in_keys` and `context_out_keys`.
+  - `PlannerAgent` outputs structured multi-domain `ExecutionPlan`s.
+  - `CriticAgent` validates cross-domain I/O contracts (warning on missing upstream blackboard keys).
+  - `OptimizerAgent` deduplicates redundant capability probes within the same domain while preserving DAG I/O contracts.
+  - `SafetyAgent` strictly validates every step in every domain, failing closed and vetoing execution if any stage contains blocked or destructive commands.
+- **Composition Pipeline**:
+  - Unifies Capability-as-Plugin (Item 4.3), In-flight Context Passing with $\le$64KB ceiling (Item 7.5), Task Blackboard storage (Item 7.5), and Live Safety Orchestration (Item 4.6).
+- **Unit & Integration Tests (`ccos/tests/test_multi_domain.py`)**:
+  - 10 comprehensive tests covering single/multi-domain classification, DAG topological ordering, cycle detection, chained CRM $\to$ Data $\to$ Coding blackboard variable handoffs, cross-domain safety vetoes, optimizer deduplication, and 64KB context enforcement.
+- **Commit**: `Codey-OS` [`29127ab`](file:///data/data/com.termux/files/home/Codey-OS).
+
+---
+
 ## 2026-08-28 — Phase B2: Customer Write-Through Cutover & Core API Groundwork
 
 - **Status**: Code-reviewer approved, unit-test verified across full suites (`182 passed` across 11 suites in `Codey-Aigentik`, `1014 passed, 1 skipped` in `Codey-OS`).
