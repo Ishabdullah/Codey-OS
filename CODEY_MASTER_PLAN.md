@@ -1144,15 +1144,14 @@ Updated `owner-command.js` call sites with `await`. Unit tests pass in both repo
 (`889 passed, 1 skipped` in `Codey-OS`, `164 passed, 0 failed` across 10 suites
 in `Codey-Aigentik`).
 
-**Phase B2 write-through progress: 5 of the 10 write-site modules
+**Phase B2 write-through progress: 6 of the 10 write-site modules
 (§6.4's per-module list) are now done — `do-not-contact.js`,
 `email-rules.js`/`sms-rules.js`, `calendar.js`, `subcontractor-recruiter.js`,
-and `email-provider.js` (outbound/inbound comms logging + reliable retry queue).**
-Remaining modules and their current blockers: `contacts.js`/`customer-module.js`
-(blocked on `NEW-212`/`NEW-215`, Ish's scope call, not a design gap); and `index.js`/`queue.js`
-orchestration. Comms logging with durable retry queue (`data/communications-retry.json`)
-and deduplication (`provider_message_id`) landed 2026-08-28 (commit `b8c94d8`),
-code-reviewer approved with 176 passing unit tests in `Codey-Aigentik`.
+`email-provider.js` (outbound/inbound comms logging + reliable retry queue),
+and `customer-module.js` (Core API groundwork + async write-through cutover).**
+Remaining modules: `contacts.js` and `index.js`/`queue.js` orchestration.
+Customer write-through cutover landed 2026-08-28 (commits `e7980b4` in `Codey-OS`, `3ff9d11` in `Codey-Aigentik`),
+code-reviewer approved with 182 passing unit tests in `Codey-Aigentik` and 1014 passing in `Codey-OS`.
 
 **Phase B2 task 4, comms/email/SMS-provider write-through — scoping
 only, 2026-08-27, blocked, not handed off for implementation.**
@@ -5721,10 +5720,11 @@ Then:
       unintentionally ran the schema migration against the real
       `~/.codey_restoricon/core.db` during independent verification —
       table added, 0 data rows, not a data-safety incident).
-      **Write-Through Cutover Progress (2026-08-28):** 5 of 10 write-site
+      **Write-Through Cutover Progress (2026-08-28):** 6 of 10 write-site
       modules completed and approved: `do-not-contact.js`,
       `email-rules.js`/`sms-rules.js`, `calendar.js`, `subcontractor-recruiter.js`,
-      and `email-provider.js` (outbound/inbound comms logging + reliable retry queue).
+      `email-provider.js` (outbound/inbound comms logging + reliable retry queue),
+      and `customer-module.js` (Core API groundwork + async write-through cutover).
 - [ ] **B3** — CRM/Sales domain.
 - [ ] **B3** — Operations domain.
 - [ ] **B3** — first Automated Workflows.

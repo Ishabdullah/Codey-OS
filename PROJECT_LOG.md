@@ -12,6 +12,26 @@ and Appendix A.
 
 ---
 
+## 2026-08-28 — Phase B2: Customer Write-Through Cutover & Core API Groundwork
+
+- **Status**: Code-reviewer approved, unit-test verified across full suites (`182 passed` across 11 suites in `Codey-Aigentik`, `1014 passed, 1 skipped` in `Codey-OS`).
+- **Core API Groundwork (`restoricon_core/services/crm_service.py`, `restoricon_core/api/routes.py`)**:
+  - Implemented `ALLOWED_CUSTOMER_UPDATE_FIELDS` allow-list.
+  - Implemented `update_customer()` with `PERM_WRITE_CUSTOMERS` RBAC, unknown-field rejection, `None`-value guard, and shallow merge of `custom_fields_json`.
+  - Implemented `upsert_customer()` keyed on `external_id`, seamlessly delegating between insert and partial update.
+  - Implemented `find_customer()` with `PERM_READ_ALL_CUSTOMERS` RBAC, fuzzy-matching on `external_id`, phone digits, email, name, and address.
+  - Added routes for `POST /api/v1/customers/upsert`, `POST /api/v1/customers/<id>/update`, and `GET /api/v1/customers/search`.
+- **Codey-Aigentik Customer Module Cutover (`Codey-Aigentik/customer-module.js`)**:
+  - Replaced synchronous `data/customers.json` operations with async `coreRequest()` calls.
+  - Implemented comprehensive `mapCoreToJS` and `mapJSToCore` mapping ~46 customer attributes, custom properties, and communication timestamps.
+  - Cut over `loadCustomers()`, `findCustomer()`, `getCustomerById()`, `createOrUpdateCustomer()`, `updateCustomer()`, `formatCustomerPipelineReport()`, and `formatCustomerFollowupList()`.
+  - Updated all call sites in `index.js`, `owner-command.js`, and `role-router.js` with `await`.
+- **Unit Tests (`Codey-OS/tests/test_restoricon_core/test_customer_upsert.py`, `Codey-Aigentik/tests/customer-module.test.js`)**:
+  - 26 Python unit tests and 23 JS customer test cases covering CRUD, RBAC permission enforcement, fuzzy matching, and async write-through reporting.
+- **Commits**: `Codey-OS` [`e7980b4`](file:///data/data/com.termux/files/home/Codey-OS), `Codey-Aigentik` [`3ff9d11`](file:///data/data/com.termux/files/home/Codey-Aigentik).
+
+---
+
 ## 2026-08-28 — Track A / Phase A2 Item 4.6: Wire agent_orchestrator to real execution (Safety Agent's veto becomes live)
 
 - **Status**: Code-reviewer approved, unit-test verified across full suite (`911 passed, 1 skipped` in `tests/`, `77 passed` in `ccos/tests/`).
