@@ -12,6 +12,29 @@ and Appendix A.
 
 ---
 
+## 2026-08-28 — Track A / Phase A2 Item 7.5: In-flight context passing and task-context blackboard
+
+- **Status**: Code-reviewer approved, unit-test verified across full suite (`979 passed, 1 skipped` in `Codey-OS`).
+- **TaskContext Data Model (`ccos/core/task_context.py`)**:
+  - Implemented immutable `TaskContext` dataclass with `task_id`, `step_id`, `goal`, `current_app`, `state`, `inputs`, `output`, `next_action`, `confidence`, `parent_step_id`, `created_at`, `metadata`.
+  - Enforced `MAX_CONTEXT_PAYLOAD_BYTES = 64 * 1024` (64 KB ceiling per Vision §11.2) in `__post_init__` and `evolve()` to prevent conversational context dumps and mobile RAM bloat.
+  - Implemented copy-on-write `evolve(...)` linking antecedent lineage across stage boundaries, plus `to_dict`, `to_json`, `from_dict`, `from_json`.
+- **Task Blackboard (`ccos/core/task_blackboard.py`)**:
+  - Implemented ephemeral SQLite storage (`ccos/data/task_blackboard.db`) in WAL mode with cascading foreign keys and indexes.
+  - Tables: `task_sessions`, `blackboard_entries`, `context_checkpoints`.
+  - Operations: `create_task`, `set`, `get`, `get_all`, `delete_key`, `save_checkpoint`, `get_latest_checkpoint`, `complete_task`, `cleanup_task`, and TTL-based `purge_expired` (all synchronized via `threading.RLock`).
+- **Plugin Manager Signature Introspection (`ccos/core/plugin_manager.py`)**:
+  - `PluginManager.call_capability(cap_name, *args, context=context, **kwargs)` inspects target function signatures via `inspect.signature`.
+  - Forwards `context=context` when accepted explicitly or via `**kwargs` (`VAR_KEYWORD`); safely omits `context` for legacy capabilities to prevent `TypeError`.
+- **Planner & Agent Orchestrator Integration (`ccos/core/planner.py`, `ccos/core/agent_orchestrator.py`)**:
+  - `PlanStep` enhanced with `context_in_keys` and `context_out_keys`.
+  - `Planner.execute_plan()` supports multi-step execution chains with automated blackboard input extraction, capability execution, output publication, and linear checkpointing.
+- **Unit & Integration Tests (`ccos/tests/test_task_blackboard.py`, `tests/test_context_passing.py`)**:
+  - 14 tests covering immutability, payload ceilings, blackboard isolation, TTL purge, signature inspection, backward compatibility, and multi-step pipeline handoffs.
+- **Commit**: `Codey-OS` [`68adb8e`](file:///data/data/com.termux/files/home/Codey-OS).
+
+---
+
 ## 2026-08-28 — Phase B2: Outbound Comms Logging & Reliable Retry Queue in Codey-Aigentik
 
 - **Status**: Code-reviewer approved, unit-test verified across full suites (`176 passed` in `Codey-Aigentik` across 11 suites, `897 passed, 1 skipped` in `Codey-OS`).
