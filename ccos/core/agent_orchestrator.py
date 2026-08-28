@@ -52,6 +52,21 @@ class DecisionStatus(str, Enum):
     VETOED = "vetoed"
 
 
+class SafetyVetoError(PermissionError):
+    """Raised when SafetyAgent vetoes an execution plan."""
+
+    def __init__(
+        self,
+        goal: str,
+        reason: str,
+        deliberation: Optional["DeliberationResult"] = None,
+    ):
+        super().__init__(f"Safety agent vetoed plan for goal '{goal}': {reason}")
+        self.goal = goal
+        self.reason = reason
+        self.deliberation = deliberation
+
+
 @dataclass
 class PlanStep:
     """A single step in an execution plan."""
@@ -565,12 +580,21 @@ class SafetyAgent:
             issues.append(f"Plan risk level is {plan.risk_level.value}")
             suggestions.append("Add validation step before high-risk operations")
 
+        # Check system directory modifications in goal
+        for sys_dir in ["/etc/", "/var/", "/usr/", "/root/"]:
+            if sys_dir in goal_lower:
+                if not any(safe_op in goal_lower for safe_op in ["read", "list", "check", "inspect", "get", "status"]):
+                    issues.append(f"Goal modifies system directory: '{sys_dir}'")
+                    veto = True
+                    veto_reason = f"System directory modification in goal: {sys_dir}"
+
         for step in plan.steps:
             action_lower = step.action.lower()
+            step_text = f"{step.action} {step.notes} {step.tool} {json.dumps(step.args)}".lower()
 
             # Check for blocked commands
             for blocked in BLOCKED_COMMANDS:
-                if blocked.lower() in action_lower:
+                if blocked.lower() in step_text:
                     issues.append(f"Step {step.id} contains blocked command pattern: '{blocked}'")
                     veto = True
                     veto_reason = f"Blocked command detected: {blocked}"
@@ -581,7 +605,7 @@ class SafetyAgent:
                 "format disk", "mkfs", "dd if=",
             ]
             for kw in destructive_keywords:
-                if kw in action_lower:
+                if kw in step_text:
                     issues.append(f"Step {step.id} is destructive: '{kw}'")
                     veto = True
                     veto_reason = f"Destructive operation: {kw}"
@@ -597,8 +621,8 @@ class SafetyAgent:
                 suggestions.append(f"Step {step.id} involves network — validate target")
 
             # Check for file system operations outside allowed dirs
-            if any(k in action_lower for k in ["/etc/", "/var/", "/usr/", "/root/"]):
-                if not any(k in action_lower for k in ["read", "list", "check", "inspect"]):
+            if any(k in step_text for k in ["/etc/", "/var/", "/usr/", "/root/"]):
+                if not any(k in step_text for k in ["read", "list", "check", "inspect", "get", "status"]):
                     issues.append(f"Step {step.id} modifies system directories")
                     veto = True
                     veto_reason = f"System directory modification in step {step.id}"
@@ -795,6 +819,241 @@ class AgentOrchestrator:
             "avg_optimization_gain": round(avg_gain, 3),
             "safety_block_rate": round(vetoed / total, 3) if total > 0 else 0,
         }
+
+    def execute_request(
+        self,
+        goal: str,
+        context: Optional[TaskContext] = None,
+        blackboard: Optional[Any] = None,
+        plugin_manager: Optional[Any] = None,
+        raise_on_veto: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Full orchestration and execution pipeline:
+        1. Creates/ensures TaskBlackboard session and TaskContext.
+        2. Deliberates across internal agents (planner -> critic -> optimizer -> capability -> safety).
+        3. Records deliberation metrics in blackboard.
+        4. If vetoed: records veto, aborts before calling tools/subprocess, raises SafetyVetoError if raise_on_veto.
+        5. If approved: translates to Plan, saves checkpoint, executes via Planner.execute_plan.
+        """
+        from ccos.core.plugin_manager import get_plugin_manager
+        from ccos.core.task_blackboard import get_task_blackboard
+        from ccos.core.planner import get_planner
+
+        bb = blackboard or get_task_blackboard()
+        pm = plugin_manager or get_plugin_manager()
+        planner = get_planner()
+
+        if context is None:
+            task_id = f"task_{int(time.time() * 1000)}"
+            context = TaskContext(task_id=task_id, step_id="init", goal=goal)
+            bb.create_task(task_id=task_id, goal=goal)
+        else:
+            bb._ensure_task_session(context.task_id, context.goal or goal)
+
+        bb.save_checkpoint(context)
+
+        # Deliberate
+        deliberation = self.deliberate(goal, context=context)
+
+        # Record deliberation metrics in blackboard
+        bb.set(context.task_id, "deliberation_status", deliberation.status.value)
+        bb.set(context.task_id, "deliberation_agreement", deliberation.agreement_rate)
+        bb.set(context.task_id, "deliberation_gain", deliberation.optimization_gain)
+
+        if deliberation.safety_blocked or deliberation.status == DecisionStatus.VETOED:
+            veto_reason = ""
+            for out in deliberation.agent_outputs:
+                if out.agent == AgentRole.SAFETY and out.veto_reason:
+                    veto_reason = out.veto_reason
+                    break
+            if not veto_reason:
+                veto_reason = "Safety check vetoed execution"
+
+            context = context.evolve(
+                step_id="safety_veto",
+                output={"veto_reason": veto_reason, "status": "vetoed"},
+                next_action="abort",
+            )
+            bb.save_checkpoint(context)
+            bb.complete_task(context.task_id, "vetoed")
+
+            if raise_on_veto:
+                raise SafetyVetoError(goal=goal, reason=veto_reason, deliberation=deliberation)
+
+            return {
+                "status": "vetoed",
+                "goal": goal,
+                "deliberation": deliberation,
+                "plan": None,
+                "context": context,
+                "reason": veto_reason,
+            }
+
+        # Plan approved: translate to Planner Plan
+        planner_plan = execution_plan_to_planner_plan(deliberation.final_plan)
+        context = context.evolve(step_id="plan_approved", next_action="execute_plan")
+        bb.save_checkpoint(context)
+
+        # Execute via Planner
+        exec_res = planner.execute_plan(
+            plan=planner_plan,
+            context=context,
+            blackboard=bb,
+            plugin_manager=pm,
+        )
+
+        return {
+            "status": exec_res.get("status", "completed"),
+            "goal": goal,
+            "deliberation": deliberation,
+            "plan": exec_res.get("plan", planner_plan),
+            "context": exec_res.get("context", context),
+        }
+
+    def execute_plan(
+        self,
+        plan: Union[ExecutionPlan, Any],
+        context: Optional[TaskContext] = None,
+        blackboard: Optional[Any] = None,
+        plugin_manager: Optional[Any] = None,
+        raise_on_veto: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Execute an already formulated ExecutionPlan or Plan after safety validation.
+        """
+        from ccos.core.plugin_manager import get_plugin_manager
+        from ccos.core.task_blackboard import get_task_blackboard
+        from ccos.core.planner import get_planner
+
+        bb = blackboard or get_task_blackboard()
+        pm = plugin_manager or get_plugin_manager()
+        planner = get_planner()
+
+        goal = getattr(plan, "goal", "")
+
+        if context is None:
+            task_id = f"task_{int(time.time() * 1000)}"
+            context = TaskContext(task_id=task_id, step_id="init", goal=goal)
+            bb.create_task(task_id=task_id, goal=goal)
+        else:
+            bb._ensure_task_session(context.task_id, context.goal or goal)
+
+        bb.save_checkpoint(context)
+
+        if isinstance(plan, ExecutionPlan):
+            safety_out = self._safety.validate_safety(plan)
+            if not safety_out.approved:
+                veto_reason = safety_out.veto_reason or "Safety validation vetoed plan"
+                context = context.evolve(
+                    step_id="safety_veto",
+                    output={"veto_reason": veto_reason, "status": "vetoed"},
+                    next_action="abort",
+                )
+                bb.save_checkpoint(context)
+                bb.complete_task(context.task_id, "vetoed")
+                if raise_on_veto:
+                    raise SafetyVetoError(goal=goal, reason=veto_reason)
+                return {
+                    "status": "vetoed",
+                    "goal": goal,
+                    "plan": None,
+                    "context": context,
+                    "reason": veto_reason,
+                }
+            planner_plan = execution_plan_to_planner_plan(plan)
+        else:
+            planner_plan = plan
+            # Validate raw Plan steps against safety rules
+            from ccos.core.tool_router import validate_tool_safety
+            for s in getattr(planner_plan, "steps", []):
+                safe, reason = validate_tool_safety(s.capability, getattr(s, "metadata", {}))
+                if not safe:
+                    veto_reason = f"Safety validation vetoed step '{s.description}': {reason}"
+                    context = context.evolve(
+                        step_id="safety_veto",
+                        output={"veto_reason": veto_reason, "status": "vetoed"},
+                        next_action="abort",
+                    )
+                    bb.save_checkpoint(context)
+                    bb.complete_task(context.task_id, "vetoed")
+                    if raise_on_veto:
+                        raise SafetyVetoError(goal=goal, reason=veto_reason)
+                    return {
+                        "status": "vetoed",
+                        "goal": goal,
+                        "plan": None,
+                        "context": context,
+                        "reason": veto_reason,
+                    }
+
+        context = context.evolve(step_id="plan_approved", next_action="execute_plan")
+        bb.save_checkpoint(context)
+
+        exec_res = planner.execute_plan(
+            plan=planner_plan,
+            context=context,
+            blackboard=bb,
+            plugin_manager=pm,
+        )
+        return {
+            "status": exec_res.get("status", "completed"),
+            "goal": goal,
+            "plan": exec_res.get("plan", planner_plan),
+            "context": exec_res.get("context", context),
+        }
+
+
+def execution_plan_to_planner_plan(exec_plan: ExecutionPlan) -> Any:
+    """
+    Bridge an agent orchestrator ExecutionPlan to a ccos.core.planner.Plan.
+    """
+    from ccos.core.planner import Plan, PlanStep as PlannerPlanStep, StepStatus, StepType
+
+    planner_steps = []
+    for step in exec_plan.steps:
+        action_lower = step.action.lower()
+        if step.capability:
+            step_type = StepType.CAPABILITY_CALL
+        elif "validate" in action_lower or "check" in action_lower:
+            step_type = StepType.VALIDATION
+        elif "store" in action_lower or "memory" in action_lower:
+            step_type = StepType.MEMORY_STORE
+        elif "create" in action_lower and "plugin" in action_lower:
+            step_type = StepType.PLUGIN_CREATE
+        elif "test" in action_lower and "plugin" in action_lower:
+            step_type = StepType.PLUGIN_TEST
+        elif "code" in action_lower or "exec" in action_lower:
+            step_type = StepType.CODE_EXEC
+        else:
+            step_type = StepType.INFERENCE
+
+        metadata = dict(step.args) if hasattr(step, "args") and step.args else {}
+        if step.tool:
+            metadata["tool"] = step.tool
+        if step.risk:
+            metadata["risk"] = step.risk.value if hasattr(step.risk, "value") else str(step.risk)
+        if step.notes:
+            metadata["notes"] = step.notes
+
+        p_step = PlannerPlanStep(
+            id=step.id,
+            description=step.action,
+            step_type=step_type,
+            capability=step.capability,
+            status=StepStatus.PENDING,
+            context_in_keys=dict(step.context_in_keys) if isinstance(step.context_in_keys, dict) else list(step.context_in_keys) if step.context_in_keys else [],
+            context_out_keys=dict(step.context_out_keys) if isinstance(step.context_out_keys, dict) else list(step.context_out_keys) if step.context_out_keys else [],
+            metadata=metadata,
+        )
+        planner_steps.append(p_step)
+
+    return Plan(
+        goal=exec_plan.goal,
+        steps=planner_steps,
+        created_at=time.time(),
+        status="pending",
+    )
 
 
 # Singleton

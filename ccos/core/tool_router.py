@@ -17,6 +17,62 @@ from ccos.core.capability_registry import (
     get_capability_registry,
 )
 from ccos.core.device_manager import get_device_manager
+from ccos.core.sandbox import BLOCKED_COMMANDS
+
+
+def validate_tool_safety(
+    capability_name: str,
+    params: Optional[Dict[str, Any]] = None,
+) -> Tuple[bool, str]:
+    """
+    Validate whether capability name and parameters conform to safety rules.
+    Checks against BLOCKED_COMMANDS and destructive operations.
+
+    Returns:
+        (is_safe, reason)
+    """
+    target_texts = [str(capability_name).lower()]
+
+    if params:
+        def _extract_strings(val: Any) -> List[str]:
+            res = []
+            if isinstance(val, str):
+                res.append(val.lower())
+            elif isinstance(val, dict):
+                for k, v in val.items():
+                    res.append(str(k).lower())
+                    res.extend(_extract_strings(v))
+            elif isinstance(val, (list, tuple, set)):
+                for item in val:
+                    res.extend(_extract_strings(item))
+            elif val is not None:
+                res.append(str(val).lower())
+            return res
+
+        target_texts.extend(_extract_strings(params))
+
+    combined_text = " ".join(target_texts)
+
+    for blocked in BLOCKED_COMMANDS:
+        if blocked.lower() in combined_text:
+            return False, f"Blocked command detected: '{blocked}'"
+
+    destructive_keywords = [
+        "rm -rf", "delete all", "drop table", "truncate",
+        "format disk", "mkfs", "dd if=", ":(){:|:&};:",
+        "chmod 777 /", "chown root", "> /dev/sda",
+    ]
+    for kw in destructive_keywords:
+        if kw in combined_text:
+            return False, f"Destructive operation detected: '{kw}'"
+
+    # System directory modification
+    for sys_dir in ["/etc/", "/var/", "/usr/", "/root/"]:
+        if sys_dir in combined_text:
+            if not any(safe_op in combined_text for safe_op in ["read", "list", "check", "inspect", "get", "status"]):
+                return False, f"System directory modification detected for '{sys_dir}'"
+
+    return True, "Safe"
 
 
 class ToolCandidate:
@@ -160,6 +216,14 @@ class ToolRouter:
             }
             for c in candidates
         ]
+
+    def validate_tool_safety(
+        self,
+        capability_name: str,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[bool, str]:
+        """Validate safety of a tool/capability and its parameters."""
+        return validate_tool_safety(capability_name, params)
 
 
 # Singleton

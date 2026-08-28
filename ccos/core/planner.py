@@ -234,6 +234,39 @@ class Planner:
         analysis = self.analyze_request(user_request)
         return analysis["missing_capabilities"]
 
+    def execute_goal(
+        self,
+        goal: str,
+        context: Optional[TaskContext] = None,
+        blackboard: Optional[Any] = None,
+        plugin_manager: Optional[Any] = None,
+        use_orchestrator: bool = True,
+        raise_on_veto: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Execute a goal end-to-end.
+        When use_orchestrator is True, deliberates via AgentOrchestrator (Safety Agent veto is live).
+        Otherwise generates and executes a single-path Plan.
+        """
+        if use_orchestrator:
+            from ccos.core.agent_orchestrator import get_agent_orchestrator
+            orch = get_agent_orchestrator()
+            return orch.execute_request(
+                goal=goal,
+                context=context,
+                blackboard=blackboard,
+                plugin_manager=plugin_manager,
+                raise_on_veto=raise_on_veto,
+            )
+        else:
+            plan = self.create_plan(goal)
+            return self.execute_plan(
+                plan=plan,
+                context=context,
+                blackboard=blackboard,
+                plugin_manager=plugin_manager,
+            )
+
     def execute_plan(
         self,
         plan: Plan,
