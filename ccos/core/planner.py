@@ -22,6 +22,9 @@ from typing import Any, Dict, List, Optional
 
 from ccos.core.capability_registry import get_capability_registry
 from ccos.core.device_manager import get_device_manager
+from ccos.core.plugin_manager import get_plugin_manager
+from ccos.core.task_blackboard import get_task_blackboard
+from ccos.core.task_context import TaskContext
 from ccos.core.tool_router import get_tool_router
 
 
@@ -55,6 +58,8 @@ class PlanStep:
     result: Any = None
     error: str = ""
     duration_ms: float = 0
+    context_in_keys: List[str] = field(default_factory=list)
+    context_out_keys: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -79,6 +84,8 @@ class Plan:
                     "type": s.step_type.value,
                     "capability": s.capability,
                     "status": s.status.value,
+                    "context_in_keys": s.context_in_keys,
+                    "context_out_keys": s.context_out_keys,
                 }
                 for s in self.steps
             ],
@@ -226,6 +233,112 @@ class Planner:
         """
         analysis = self.analyze_request(user_request)
         return analysis["missing_capabilities"]
+
+    def execute_plan(
+        self,
+        plan: Plan,
+        context: Optional[TaskContext] = None,
+        blackboard: Optional[Any] = None,
+        plugin_manager: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """
+        Execute a plan with threaded TaskContext and TaskBlackboard.
+
+        Args:
+            plan: The execution Plan.
+            context: Initial TaskContext or None to create a default.
+            blackboard: TaskBlackboard instance or None for default singleton.
+            plugin_manager: PluginManager instance or None for default singleton.
+
+        Returns:
+            Dict containing final plan, final context, and status.
+        """
+        bb = blackboard or get_task_blackboard()
+        pm = plugin_manager or get_plugin_manager()
+
+        if context is None:
+            task_id = f"task_{int(time.time() * 1000)}"
+            context = TaskContext(task_id=task_id, step_id="init", goal=plan.goal)
+            bb.create_task(task_id=task_id, goal=plan.goal)
+        else:
+            bb._ensure_task_session(context.task_id, context.goal)
+
+        bb.save_checkpoint(context)
+        plan.status = "executing"
+
+        for step in plan.steps:
+            plan.current_step = step.id
+            step.status = StepStatus.IN_PROGRESS
+
+            # Gather step inputs from blackboard & metadata
+            step_inputs = dict(step.metadata.get("inputs", {}))
+            if isinstance(step.context_in_keys, dict):
+                for param_name, bb_key in step.context_in_keys.items():
+                    bb_val = bb.get(context.task_id, bb_key)
+                    if bb_val is not None:
+                        step_inputs[param_name] = bb_val
+            elif isinstance(step.context_in_keys, (list, tuple)):
+                for in_key in step.context_in_keys:
+                    bb_val = bb.get(context.task_id, in_key)
+                    if bb_val is not None:
+                        step_inputs[in_key] = bb_val
+
+            # Evolve context for this step
+            context = context.evolve(
+                step_id=f"step_{step.id}",
+                inputs=step_inputs,
+                next_action=step.capability or step.description,
+            )
+
+            start_t = time.time()
+            try:
+                if step.step_type == StepType.CAPABILITY_CALL and step.capability:
+                    step.result = pm.call_capability(step.capability, context=context, **step_inputs)
+                else:
+                    step.result = f"Executed {step.step_type.value}: {step.description}"
+                step.status = StepStatus.COMPLETED
+            except Exception as e:
+                step.error = str(e)
+                step.status = StepStatus.FAILED
+            finally:
+                step.duration_ms = (time.time() - start_t) * 1000
+
+            # Store output keys in blackboard if successful
+            if step.status == StepStatus.COMPLETED and step.context_out_keys:
+                if isinstance(step.context_out_keys, dict):
+                    for bb_key, res_key in step.context_out_keys.items():
+                        if isinstance(step.result, dict) and res_key in step.result:
+                            bb.set(context.task_id, bb_key, step.result[res_key])
+                        else:
+                            bb.set(context.task_id, bb_key, step.result)
+                elif isinstance(step.context_out_keys, (list, tuple)):
+                    if isinstance(step.result, dict):
+                        for out_key in step.context_out_keys:
+                            if out_key in step.result:
+                                bb.set(context.task_id, out_key, step.result[out_key])
+                            else:
+                                bb.set(context.task_id, out_key, step.result)
+                    elif len(step.context_out_keys) == 1:
+                        bb.set(context.task_id, step.context_out_keys[0], step.result)
+
+            # Evolve context with step output and save checkpoint
+            context = context.evolve(output=step.result)
+            bb.save_checkpoint(context)
+
+            if step.status == StepStatus.FAILED:
+                plan.status = "failed"
+                bb.complete_task(context.task_id, "failed")
+                break
+
+        if plan.status != "failed":
+            plan.status = "completed"
+            bb.complete_task(context.task_id, "completed")
+
+        return {
+            "plan": plan,
+            "context": context,
+            "status": plan.status,
+        }
 
 
 # Singleton

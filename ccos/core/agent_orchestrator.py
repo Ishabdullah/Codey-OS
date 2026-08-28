@@ -20,11 +20,12 @@ import json
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from ccos.core.capability_registry import get_capability_registry
 from ccos.core.performance_tracker import get_performance_tracker
 from ccos.core.sandbox import BLOCKED_COMMANDS
+from ccos.core.task_context import TaskContext
 
 
 # ── Data structures ────────────────────────────────────────────────
@@ -61,6 +62,8 @@ class PlanStep:
     args: Dict[str, Any] = field(default_factory=dict)
     risk: RiskLevel = RiskLevel.LOW
     notes: str = ""
+    context_in_keys: List[str] = field(default_factory=list)
+    context_out_keys: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -82,6 +85,8 @@ class ExecutionPlan:
                     "id": s.id, "action": s.action,
                     "capability": s.capability, "tool": s.tool,
                     "risk": s.risk.value, "notes": s.notes,
+                    "context_in_keys": s.context_in_keys,
+                    "context_out_keys": s.context_out_keys,
                 }
                 for s in self.steps
             ],
@@ -171,14 +176,24 @@ class PlannerAgent:
         self._registry = get_capability_registry()
         self._tracker = get_performance_tracker()
 
-    def generate_plan(self, goal: str, context: Dict[str, Any] = None) -> Tuple[ExecutionPlan, AgentOutput]:
+    def generate_plan(
+        self,
+        goal: str,
+        context: Optional[Union[Dict[str, Any], TaskContext]] = None,
+    ) -> Tuple[ExecutionPlan, AgentOutput]:
         """Generate an initial execution plan."""
         start = time.time()
         issues = []
         suggestions = []
 
+        ctx_dict: Dict[str, Any] = {}
+        if isinstance(context, TaskContext):
+            ctx_dict = context.to_dict()
+        elif isinstance(context, dict):
+            ctx_dict = context
+
         # Analyze available capabilities
-        hardware_hints = context.get("hardware_hints", []) if context else []
+        hardware_hints = ctx_dict.get("hardware_hints", [])
         candidates = self._registry.find_for_task(goal, hardware_hints)
 
         # Build steps
@@ -256,7 +271,11 @@ class CriticAgent:
     Suggests improvements.
     """
 
-    def review_plan(self, plan: ExecutionPlan, context: Dict[str, Any] = None) -> AgentOutput:
+    def review_plan(
+        self,
+        plan: ExecutionPlan,
+        context: Optional[Union[Dict[str, Any], TaskContext]] = None,
+    ) -> AgentOutput:
         """Critically review an execution plan."""
         start = time.time()
         issues = []
@@ -628,7 +647,11 @@ class AgentOrchestrator:
         self._safety = SafetyAgent()
         self._history: List[DeliberationResult] = []
 
-    def deliberate(self, goal: str, context: Dict[str, Any] = None) -> DeliberationResult:
+    def deliberate(
+        self,
+        goal: str,
+        context: Optional[Union[Dict[str, Any], TaskContext]] = None,
+    ) -> DeliberationResult:
         """
         Full multi-agent deliberation on a goal.
 

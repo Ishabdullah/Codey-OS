@@ -16,6 +16,7 @@ Each plugin is a directory with:
 
 import importlib
 import importlib.util
+import inspect
 import json
 import os
 import shutil
@@ -32,6 +33,7 @@ from ccos.core.capability_registry import (
     CapabilityStatus,
     get_capability_registry,
 )
+from ccos.core.task_context import TaskContext
 
 
 class PluginStatus(str, Enum):
@@ -210,10 +212,21 @@ class PluginManager:
 
         return func(*args, **kwargs)
 
-    def call_capability(self, cap_name: str, *args, **kwargs) -> Any:
+    def call_capability(
+        self,
+        cap_name: str,
+        *args,
+        context: Optional[TaskContext] = None,
+        **kwargs,
+    ) -> Any:
         """
         Execute a capability by its registered name.
         Looks up the implementation and calls it.
+
+        Supports in-flight context passing (Track A Item 7.5):
+        If the target capability function accepts a `context` parameter or `**kwargs`
+        (inspect.Parameter.VAR_KEYWORD), `context` is forwarded.
+        Otherwise, context is omitted so legacy capabilities never fail with TypeError.
         """
         cap = self._registry.get(cap_name)
         if not cap:
@@ -235,8 +248,21 @@ class PluginManager:
                     func = getattr(module, func_name, None)
                     if func:
                         start = time.time()
+                        call_kwargs = dict(kwargs)
+                        if context is not None:
+                            try:
+                                sig = inspect.signature(func)
+                                accepts_context = "context" in sig.parameters
+                                accepts_varkw = any(
+                                    p.kind == inspect.Parameter.VAR_KEYWORD
+                                    for p in sig.parameters.values()
+                                )
+                                if accepts_context or accepts_varkw:
+                                    call_kwargs["context"] = context
+                            except (ValueError, TypeError):
+                                pass
                         try:
-                            result = func(*args, **kwargs)
+                            result = func(*args, **call_kwargs)
                             duration = (time.time() - start) * 1000
                             self._registry.record_use(cap_name, True, duration)
                             return result

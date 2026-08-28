@@ -12,6 +12,7 @@ ensure_repo_root_on_path()
 from contextlib import contextmanager
 from typing import Any, Callable, Dict, List, Optional
 
+from ccos.core.task_context import TaskContext
 import utils.config
 from utils.config import AGENT_CONFIG
 
@@ -106,11 +107,12 @@ def run_agent_capability(
     confirm_shell: Optional[bool] = None,
     confirm_write: Optional[bool] = None,
     shell_fn: Optional[Callable[[str], str]] = None,
+    context: Optional[TaskContext] = None,
     **kwargs,
 ) -> AgentExecutionResult:
     """
     Run the full Codey-OS agent loop with scoped permissions, planning, tool execution,
-    and self-healing.
+    and self-healing. Supports in-flight TaskContext passing.
     """
     from core.agent import run_agent
 
@@ -118,6 +120,13 @@ def run_agent_capability(
         history = []
 
     user_msg = prompt or kwargs.get("user_message", "")
+    if not user_msg and context is not None:
+        user_msg = (
+            context.inputs.get("prompt")
+            or context.inputs.get("user_message")
+            or context.goal
+        )
+
     subtask_flag = in_subtask or kwargs.get("_in_subtask", False)
     rag_block = plan_rag_block or kwargs.get("_plan_rag_block", "")
 
@@ -156,22 +165,38 @@ def run_agent_capability(
 
 
 def run_recursive_capability(
-    messages: List[Dict[str, Any]],
+    messages: Optional[List[Dict[str, Any]]] = None,
     task_type: str = "code",
     user_message: str = "",
     max_depth: Optional[int] = None,
     return_confidence: bool = False,
+    context: Optional[TaskContext] = None,
     **kwargs,
 ) -> Any:
     """
     Self-refining inference using draft -> critique -> refine loop via core/recursive.py.
+    Supports in-flight TaskContext passing.
     """
     from core.recursive import recursive_infer
+
+    if messages is None:
+        if context is not None and "messages" in context.inputs:
+            messages = context.inputs["messages"]
+        else:
+            messages = []
+
+    msg = user_message
+    if not msg and context is not None:
+        msg = (
+            context.inputs.get("user_message")
+            or context.inputs.get("prompt")
+            or context.goal
+        )
 
     return recursive_infer(
         messages=messages,
         task_type=task_type,
-        user_message=user_message,
+        user_message=msg,
         max_depth=max_depth,
         return_confidence=return_confidence,
         **kwargs,
@@ -180,14 +205,22 @@ def run_recursive_capability(
 
 def classify_breadth_capability(
     user_message: str = "",
+    context: Optional[TaskContext] = None,
     **kwargs,
 ) -> str:
     """
     Classify task complexity and breadth need (minimal, standard, deep).
+    Supports in-flight TaskContext passing.
     """
     from core.recursive import classify_breadth_need
 
     msg = user_message or kwargs.get("prompt", "")
+    if not msg and context is not None:
+        msg = (
+            context.inputs.get("user_message")
+            or context.inputs.get("prompt")
+            or context.goal
+        )
     return classify_breadth_need(msg)
 
 
@@ -222,7 +255,9 @@ def test() -> bool:
     assert res.response == "hello"
     assert res.error == ""
 
-    # 3. Breadth classification test
+    # 3. Breadth classification test with context
     assert classify_breadth_capability("what is 2+2?") == "minimal"
+    ctx = TaskContext(task_id="t1", step_id="s1", goal="what is 2+2?")
+    assert classify_breadth_capability(context=ctx) == "minimal"
 
     return True
