@@ -500,7 +500,7 @@ def test_orchestrator_multi_domain_deliberation_and_execution():
 
         # Register capabilities
         global_reg = get_capability_registry()
-        global_pm = get_plugin_manager()
+        local_pm = PluginManager(registry=global_reg)
 
         cap_crm = Capability(name="crm.customer_query", description="CRM query", implementation="builtin", category="crm")
         cap_coding = Capability(name="coding.run_agent", description="Coding agent", implementation="builtin", category="coding")
@@ -508,8 +508,8 @@ def test_orchestrator_multi_domain_deliberation_and_execution():
         global_reg.register(cap_crm)
         global_reg.register(cap_coding)
 
-        global_pm.register_capability_handler("crm.customer_query", lambda **kw: {"crm_output_1": [{"id": 1, "name": "Test Account"}]})
-        global_pm.register_capability_handler("coding.run_agent", lambda crm_output_1=None, **kw: {"code": "print('Report')" if crm_output_1 else "print('No data')"})
+        local_pm.register_capability_handler("crm.customer_query", lambda **kw: {"crm_output_1": [{"id": 1, "name": "Test Account"}]})
+        local_pm.register_capability_handler("coding.run_agent", lambda crm_output_1=None, **kw: {"code": "print('Report')" if crm_output_1 else "print('No data')"})
 
         orch = get_agent_orchestrator()
 
@@ -528,7 +528,7 @@ def test_orchestrator_multi_domain_deliberation_and_execution():
             goal=goal,
             context=context,
             blackboard=bb,
-            plugin_manager=global_pm,
+            plugin_manager=local_pm,
         )
 
         if exec_res.get("plan"):
