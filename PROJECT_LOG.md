@@ -12,6 +12,24 @@ and Appendix A.
 
 ---
 
+## 2026-08-28 — Track A / Phase A2 Item 4.6: Wire agent_orchestrator to real execution (Safety Agent's veto becomes live)
+
+- **Status**: Code-reviewer approved, unit-test verified across full suite (`911 passed, 1 skipped` in `tests/`, `77 passed` in `ccos/tests/`).
+- **Live Safety Veto & Execution Pipeline (`ccos/core/agent_orchestrator.py`)**:
+  - Added `SafetyVetoError(PermissionError)` capturing `goal`, `reason`, and `deliberation`.
+  - Implemented `AgentOrchestrator.execute_request()` and `execute_plan()`:
+    - Runs multi-agent deliberation (`Planner -> Critic -> Optimizer -> Capability -> Safety`).
+    - **Fail-Closed Safety Veto**: If `deliberation.safety_blocked` or status is `DecisionStatus.VETOED`, execution halts immediately before calling any capability, tool, or subprocess. Checkpoints state as `step_id="safety_veto"` with `next_action="abort"`, marks `TaskBlackboard` status as `"vetoed"`, and raises `SafetyVetoError` (or returns structured veto dictionary when `raise_on_veto=False`). Zero side-effects allowed.
+    - If approved: translates `ExecutionPlan` to `Planner.Plan` via `execution_plan_to_planner_plan`, records `step_id="plan_approved"` checkpoint, and executes via `Planner.execute_plan()` with structured `TaskContext` handoffs.
+- **Planner & Tool Router Safety Gates (`ccos/core/planner.py`, `ccos/core/tool_router.py`)**:
+  - Added `Planner.execute_goal()` routing goals through `AgentOrchestrator.execute_request()`.
+  - Added `validate_tool_safety()` in `tool_router.py` inspecting capability payloads for blocked commands (`BLOCKED_COMMANDS`), fork bombs, destructive keywords, and system directory modifications.
+- **Unit & Integration Tests (`tests/test_agent_orchestrator_execution.py`)**:
+  - 8 comprehensive test cases verifying live safety vetoes on `rm -rf` and `/etc/` writes, context handoffs, optimizer rewrite execution, and complete deliberation audit trails.
+- **Commit**: `Codey-OS` [`3ed40cb`](file:///data/data/com.termux/files/home/Codey-OS).
+
+---
+
 ## 2026-08-28 — Track A / Phase A2 Item 7.5: In-flight context passing and task-context blackboard
 
 - **Status**: Code-reviewer approved, unit-test verified across full suite (`979 passed, 1 skipped` in `Codey-OS`).

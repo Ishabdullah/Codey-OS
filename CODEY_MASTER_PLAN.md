@@ -4033,7 +4033,7 @@ order.
 | **4.3** — wrap `core/agent.py` as a real CCOS capability | A1 | **DONE 2026-08-27.** Created plugin `ccos/plugins/coding/agent/` registering `coding.run_agent`, `coding.run_recursive`, and `coding.classify_breadth`. Scoped permissions via `scoped_agent_permissions` context manager. Migrated **both** call paths (`main.py` and `core/task_executor.py`) to `pm.call_capability("coding.run_agent", ...)`. Code-reviewer-approved, unit-test verified (897 passed, 1 skipped). |
 | **7.5** — in-flight context passing + task-context blackboard | 4.3 | **DONE 2026-08-28.** Built immutable `TaskContext` enforcing $\le$64KB payload ceiling (Vision §11.2) and `TaskBlackboard` SQLite storage (`task_blackboard.db`) in WAL mode with TTL auto-purge. Updated `PluginManager.call_capability` with dynamic signature introspection for backward-compatible context injection. Integrated across `Planner` and `AgentOrchestrator` with 14 unit/integration tests (979 passed, 1 skipped). Code-reviewer-approved. |
 | **4.5** — peer-CLI escalation redesign | 4.1's queue, 7.5's blackboard | Daemon pulls an item needing escalation off the main queue, parks it on a review list, notifies the user, keeps working. 100% design-only today. |
-| **4.6** — wire `agent_orchestrator` to real execution | 4.3 | Cheap (heuristic, not model-backed) but **the Safety Agent's veto becomes live against real actions for the first time** — a behavior change to flag, not just wiring. |
+| **4.6** — wire `agent_orchestrator` to real execution | 4.3 | **DONE 2026-08-28.** Wired `AgentOrchestrator.execute_request()` and `execute_plan()` to live `Planner.execute_plan()`. Safety Agent veto is now live and fail-closed with `SafetyVetoError`, preventing all side-effects and saving audit trails to `TaskBlackboard`. Added `Planner.execute_goal()` routing and `validate_tool_safety()` pre-flight gate. Code-reviewer-approved. |
 | **4.7** — multi-domain request splitting | 4.3, 7.5, 4.6 | First point where capability-as-plugin, context passing, and the blackboard compose. |
 | **9.3** — manifest schema extension | none (design-only) | `agent_type`, `model_tiers`, `resource_footprint`, `event_triggers`, `permissions`, `data_store`. Proposed in `docs/agent-plugin-blueprint.md` §3; read by no code today. Design only — do not implement against the registry yet. |
 | **9.4** — limb-integration plan | 9.3 | Produce an actual integration plan (design level worked through in blueprint §4) before any code is written against it. |
@@ -5669,7 +5669,7 @@ Then:
       call paths (`main.py` and `core/task_executor.py` via `coding.run_agent`).
 - [x] **7.5** — in-flight context passing + task-context blackboard.
 - [ ] **4.5** — peer-CLI escalation redesign.
-- [ ] **4.6** — wire `agent_orchestrator` to real execution (Safety veto
+- [x] **4.6** — wire `agent_orchestrator` to real execution (Safety veto
       goes live).
 - [ ] **4.7** — multi-domain request splitting.
 - [ ] **9.3** — manifest schema extension (design only).
