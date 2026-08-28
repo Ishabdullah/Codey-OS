@@ -5550,8 +5550,8 @@ Then:
 
 ### Phase A2 — coding-domain rollout (§6.8)
 
-- [ ] **7.3 sub-task E** — dispatch on the tier decision (A–D built,
-      log-only). Must address `NEW-126` and the missing remote-tier path.
+- [x] **7.3 sub-task E** — dispatch on the tier decision (A–D built,
+      Task A + Task B completed and approved 2026-08-24).
       **Re-scoped 2026-08-24 (`NEW-172`, `NEW-126` further corrected):**
       A–D's `classify_tier()`/log-only integration lives inside
       `core.planner_service.get_plan()`, which has **zero production
