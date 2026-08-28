@@ -12,6 +12,24 @@ and Appendix A.
 
 ---
 
+## 2026-08-28 — Phase B2: Live Data Migration Apply against Restoricon Core DB
+
+- **Status**: Live-verified on device against `~/.codey_restoricon/core.db`.
+- **Pre-Migration DB Backup**:
+  - Created timestamped snapshot: `~/.codey_restoricon/core.db.pre-b2-apply-20260828003846` (286,720 bytes).
+- **Migration Run (`python3 -m restoricon_core.migrate_aigentik --source-dir ~/Aigentik-CLI/data --apply`)**:
+  - `subcontractors`: 1 record inspected, 1 existing record skipped (no duplicate).
+  - `appointments`: 1 record inspected, 1 existing record skipped (no duplicate).
+  - `automation_rules_email`: 2 records inspected, 2 existing records skipped (no duplicates).
+  - `automation_rules_sms`: 0 records.
+  - `business_profile`: 1 record upserted cleanly.
+  - `customers`: 3 records inspected, 3 existing records skipped (no duplicates).
+  - `schedule_config`: 1 record upserted cleanly.
+  - `contacts.json` skipped out of scope per `NEW-215` (phonebook sync).
+- **Post-Migration Verification**: Full pytest suite re-verified with `1024 passed, 1 skipped` in `Codey-OS`.
+
+---
+
 ## 2026-08-28 — Track A / Phase A2 Item 4.7: Multi-domain request splitting and composition
 
 - **Status**: Code-reviewer approved, unit-test verified across full suite (`1024 passed, 1 skipped` in `Codey-OS`).

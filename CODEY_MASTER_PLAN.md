@@ -5712,14 +5712,13 @@ Then:
       `get_customer_by_external_id()`, fourth occurrence of this gap
       class) spun off, open. **`migrate_aigentik.py` extended to
       `customers.json`/`schedule-config.json`, 2026-08-27 — code-complete,
-      code-reviewer-approved, committed (829 passed, 1 skipped).** NOT
-      yet run with `--apply` against real data (pending a DB backup, next
-      step). `NEW-252`/`NEW-253`/`NEW-254` spun off (insurance/claim
+      code-reviewer-approved, committed (829 passed, 1 skipped).**
+      **`migrate_aigentik.py --apply` LIVE-VERIFIED 2026-08-28 against `~/.codey_restoricon/core.db`**
+      (following safe snapshot backup `core.db.pre-b2-apply-20260828003846`). All existing records skipped
+      cleanly without duplicates; singleton `business_profile` and `schedule_config` records upserted.
+      `NEW-252`/`NEW-253`/`NEW-254` spun off (insurance/claim
       field opacity, lead-status data not reaching `leads`, audit-log
-      duplication of raw customer data); `NEW-255` logged (reviewer
-      unintentionally ran the schema migration against the real
-      `~/.codey_restoricon/core.db` during independent verification —
-      table added, 0 data rows, not a data-safety incident).
+      duplication of raw customer data); `NEW-255` closed.
       **Write-Through Cutover Progress (2026-08-28):** 6 of 10 write-site
       modules completed and approved: `do-not-contact.js`,
       `email-rules.js`/`sms-rules.js`, `calendar.js`, `subcontractor-recruiter.js`,
