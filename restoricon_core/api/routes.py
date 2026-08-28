@@ -122,12 +122,35 @@ class APIRouter:
                     created = self.crm.create_customer(cust, actor)
                     return 201, {"Content-Type": "application/json"}, {"customer": created.to_dict()}
 
-            if path.startswith("/api/v1/customers/") and "/" not in path[len("/api/v1/customers/"):] and method == "GET":
-                cust_id = int(path.split("/")[-1])
-                cust = self.crm.get_customer(cust_id, actor)
-                if not cust:
+            if path == "/api/v1/customers/upsert" and method == "POST":
+                cust = Customer(**json_body)
+                result = self.crm.upsert_customer(cust, actor)
+                return 200, {"Content-Type": "application/json"}, {"customer": result.to_dict()}
+
+            if path == "/api/v1/customers/search" and method == "GET":
+                q = query_params.get("q", [None])[0]
+                if not q or not q.strip():
+                    return 400, {"Content-Type": "application/json"}, {"error": "Missing required query parameter: q"}
+                found = self.crm.find_customer(q, actor)
+                if not found:
                     return 404, {"Content-Type": "application/json"}, {"error": "Customer not found"}
-                return 200, {"Content-Type": "application/json"}, {"customer": cust.to_dict()}
+                return 200, {"Content-Type": "application/json"}, {"customer": found.to_dict()}
+
+            if path.startswith("/api/v1/customers/") and path.endswith("/update") and method == "POST":
+                cust_id = int(path.split("/")[-2])
+                updated_cust = self.crm.update_customer(cust_id, json_body, actor)
+                if not updated_cust:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Customer not found"}
+                return 200, {"Content-Type": "application/json"}, {"customer": updated_cust.to_dict()}
+
+            if path.startswith("/api/v1/customers/") and "/" not in path[len("/api/v1/customers/"):] and method == "GET":
+                sub_path = path[len("/api/v1/customers/"):]
+                if sub_path.isdigit():
+                    cust_id = int(sub_path)
+                    cust = self.crm.get_customer(cust_id, actor)
+                    if not cust:
+                        return 404, {"Content-Type": "application/json"}, {"error": "Customer not found"}
+                    return 200, {"Content-Type": "application/json"}, {"customer": cust.to_dict()}
 
             # Leads
             if path == "/api/v1/leads":

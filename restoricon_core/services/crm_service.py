@@ -226,32 +226,198 @@ class CRMService:
 
         results = []
         for row in rows:
-            tags = json.loads(row["tags_json"]) if row["tags_json"] else []
-            custom_fields = json.loads(row["custom_fields_json"]) if row["custom_fields_json"] else {}
-            results.append(
-                Customer(
-                    id=row["id"],
-                    external_id=row["external_id"],
-                    first_name=row["first_name"],
-                    last_name=row["last_name"],
-                    company_name=row["company_name"],
-                    phone=row["phone"],
-                    email=row["email"],
-                    mailing_address=row["mailing_address"],
-                    service_address=row["service_address"],
-                    customer_type=row["customer_type"],
-                    customer_source=row["customer_source"],
-                    assigned_user_id=row["assigned_user_id"],
-                    status=row["status"],
-                    tags=tags,
-                    notes=row["notes"],
-                    custom_fields=custom_fields,
-                    created_at=row["created_at"],
-                    last_contact_at=row["last_contact_at"],
-                    next_followup_at=row["next_followup_at"],
-                )
-            )
+            results.append(self._row_to_customer(row))
         return results
+
+    @staticmethod
+    def _row_to_customer(row) -> Customer:
+        tags = json.loads(row["tags_json"]) if row["tags_json"] else []
+        custom_fields = json.loads(row["custom_fields_json"]) if row["custom_fields_json"] else {}
+        return Customer(
+            id=row["id"],
+            external_id=row["external_id"],
+            first_name=row["first_name"],
+            last_name=row["last_name"],
+            company_name=row["company_name"],
+            phone=row["phone"],
+            email=row["email"],
+            mailing_address=row["mailing_address"],
+            service_address=row["service_address"],
+            customer_type=row["customer_type"],
+            customer_source=row["customer_source"],
+            assigned_user_id=row["assigned_user_id"],
+            status=row["status"],
+            tags=tags,
+            notes=row["notes"],
+            custom_fields=custom_fields,
+            created_at=row["created_at"],
+            last_contact_at=row["last_contact_at"],
+            next_followup_at=row["next_followup_at"],
+        )
+
+    ALLOWED_CUSTOMER_UPDATE_FIELDS = {
+        "first_name",
+        "last_name",
+        "company_name",
+        "phone",
+        "email",
+        "mailing_address",
+        "service_address",
+        "customer_type",
+        "customer_source",
+        "assigned_user_id",
+        "status",
+        "tags",
+        "notes",
+        "custom_fields",
+        "last_contact_at",
+        "next_followup_at",
+    }
+
+    def update_customer(
+        self, customer_id: int, updates: Dict[str, Any], actor: AuthContext
+    ) -> Optional[Customer]:
+        """Partial update for customer records with allow-list enforcement,
+        None-value guard, custom_fields shallow merge, and audit logging."""
+        if not actor.has_permission(PERM_WRITE_CUSTOMERS):
+            raise PermissionError("Actor lacks permission to update customers")
+
+        unknown = set(updates) - self.ALLOWED_CUSTOMER_UPDATE_FIELDS
+        if unknown:
+            raise ValueError(f"Unknown field(s) for customer update: {sorted(unknown)}")
+
+        for key, value in updates.items():
+            if value is None:
+                raise ValueError(
+                    f"Field '{key}' cannot be set to None via update_customer; omit the key instead"
+                )
+
+        if not updates:
+            return self.get_customer(customer_id, actor)
+
+        updates = dict(updates)
+        if "email" in updates and isinstance(updates["email"], str):
+            updates["email"] = updates["email"].strip().lower()
+        if "first_name" in updates and isinstance(updates["first_name"], str):
+            updates["first_name"] = updates["first_name"].strip()
+        if "last_name" in updates and isinstance(updates["last_name"], str):
+            updates["last_name"] = updates["last_name"].strip()
+
+        conn = self.db.get_connection()
+        with conn:
+            row = conn.execute(
+                "SELECT custom_fields_json, tags_json FROM customers WHERE id = ?;",
+                (customer_id,),
+            ).fetchone()
+            if not row:
+                return None
+
+            set_clauses = []
+            params: List[Any] = []
+            for key, value in updates.items():
+                if key == "custom_fields":
+                    existing = json.loads(row["custom_fields_json"]) if row["custom_fields_json"] else {}
+                    merged = {**existing, **value}
+                    set_clauses.append("custom_fields_json = ?")
+                    params.append(json.dumps(merged))
+                elif key == "tags":
+                    set_clauses.append("tags_json = ?")
+                    params.append(json.dumps(value))
+                else:
+                    set_clauses.append(f"{key} = ?")
+                    params.append(value)
+
+            params.append(customer_id)
+            cursor = conn.execute(
+                f"UPDATE customers SET {', '.join(set_clauses)} WHERE id = ?;",
+                params,
+            )
+            if cursor.rowcount == 0:
+                return None
+
+        updated_cust = self.get_customer(customer_id, actor)
+        self.audit.log(
+            action="update",
+            entity_type="customer",
+            entity_id=customer_id,
+            change_summary=f"Customer {customer_id} updated ({', '.join(sorted(updates.keys()))})",
+            actor=actor,
+            details=updated_cust.to_dict() if updated_cust else {},
+        )
+        return updated_cust
+
+    def upsert_customer(self, customer: Customer, actor: AuthContext) -> Customer:
+        """Create or update customer by external_id with write-through semantics."""
+        if not actor.has_permission(PERM_WRITE_CUSTOMERS):
+            raise PermissionError("Actor lacks permission to create or update customers")
+
+        if not customer.external_id or not customer.external_id.strip():
+            raise ValueError("upsert_customer requires a non-empty external_id")
+
+        existing = self.get_customer_by_external_id(customer.external_id, actor)
+        if existing is None:
+            return self.create_customer(customer, actor)
+
+        immutable = {"external_id", "created_at", "id"}
+        raw = customer.to_dict()
+        updates = {
+            k: v
+            for k, v in raw.items()
+            if k not in immutable and v is not None and k in self.ALLOWED_CUSTOMER_UPDATE_FIELDS
+        }
+        if not updates:
+            return existing
+
+        updated = self.update_customer(existing.id, updates, actor)
+        return updated or existing
+
+    def find_customer(self, query: str, actor: AuthContext) -> Optional[Customer]:
+        """Fuzzy phone/email/name/address lookup mirroring findCustomer() in JS.
+        Checks external_id exact match -> phone digit substring match (len >= 7) ->
+        email exact match -> name substring match -> address substring match.
+        Returns first matching customer in ascending id order."""
+        if not actor.has_permission(PERM_READ_ALL_CUSTOMERS):
+            raise PermissionError("Actor lacks permission to search customers")
+
+        if not query or not query.strip():
+            return None
+
+        q = query.strip().lower()
+        clean_digits = re.sub(r"\D", "", q)
+        phone_match_eligible = len(clean_digits) >= 7
+
+        conn = self.db.get_connection()
+        rows = conn.execute("SELECT * FROM customers ORDER BY id ASC;").fetchall()
+        for row in rows:
+            external_id = row["external_id"]
+            if external_id and external_id.lower() == q:
+                return self._row_to_customer(row)
+
+            if phone_match_eligible:
+                p_digits = re.sub(r"\D", "", row["phone"] or "")
+                if p_digits and (clean_digits in p_digits or p_digits in clean_digits):
+                    return self._row_to_customer(row)
+
+            email = row["email"]
+            if email and email.lower() == q:
+                return self._row_to_customer(row)
+
+            first_name = row["first_name"] or ""
+            last_name = row["last_name"] or ""
+            full_name = f"{first_name} {last_name}".strip().lower()
+            company_name = (row["company_name"] or "").lower()
+
+            if (first_name and q in first_name.lower()) or (last_name and q in last_name.lower()) or (full_name and q in full_name):
+                return self._row_to_customer(row)
+            if company_name and q in company_name:
+                return self._row_to_customer(row)
+
+            mailing_address = (row["mailing_address"] or "").lower()
+            service_address = (row["service_address"] or "").lower()
+            if (mailing_address and q in mailing_address) or (service_address and q in service_address):
+                return self._row_to_customer(row)
+
+        return None
 
     # ==========================================
     # LEADS
