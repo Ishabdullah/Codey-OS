@@ -50,6 +50,7 @@ from ..services.crm_service import CRMService
 from ..services.finance_service import FinanceService
 from ..services.operations_service import OperationsService
 from ..services.scheduling_service import SchedulingService
+from .web_surfaces import render_admin_surface, render_portal_surface, render_login_surface
 
 
 class APIRouter:
@@ -121,6 +122,22 @@ class APIRouter:
         # Public endpoints (no auth required)
         if method == "GET" and path in ("/api/v1/health", "/health"):
             return 200, {"Content-Type": "application/json"}, {"status": "ok", "service": "restoricon_core"}
+
+        # Web Surface UI endpoints (Staff Admin & Customer Portal)
+        if method == "GET" and path in ("/admin", "/admin/"):
+            return 200, {"Content-Type": "text/html; charset=utf-8"}, render_admin_surface()
+
+        if method == "GET" and path in ("/admin/login", "/admin/login/"):
+            return 200, {"Content-Type": "text/html; charset=utf-8"}, render_login_surface("admin")
+
+        if method == "GET" and path in ("/portal", "/portal/"):
+            return 200, {"Content-Type": "text/html; charset=utf-8"}, render_portal_surface()
+
+        if method == "GET" and path in ("/portal/login", "/portal/login/"):
+            return 200, {"Content-Type": "text/html; charset=utf-8"}, render_login_surface("customer")
+
+        if method == "GET" and path in ("", "/"):
+            return 200, {"Content-Type": "text/html; charset=utf-8"}, render_login_surface("admin")
 
         if method == "POST" and path == "/api/v1/auth/login":
             return self._handle_login(json_body)
@@ -1234,7 +1251,9 @@ class APIRouter:
 
             if path == "/api/v1/finance/summary" and method == "GET":
                 summary = self.finance.get_financial_summary(actor)
-                return 200, {"Content-Type": "application/json"}, {"financial_summary": summary}
+                res = {"financial_summary": summary}
+                res.update(summary)
+                return 200, {"Content-Type": "application/json"}, res
 
             # -------------------------------------------------------------
             # Phase B5a: Marketing & Review Management Endpoints
@@ -1422,9 +1441,11 @@ class APIRouter:
                 search_res = self.analytics_search.global_search(q, actor, limit_per_category=limit_cat)
                 return 200, {"Content-Type": "application/json"}, search_res
 
-            if path == "/api/v1/reports/summary" and method == "GET":
+            if path in ("/api/v1/reports/summary", "/api/v1/reports/executive") and method == "GET":
                 summary = self.analytics_search.get_executive_dashboard(actor)
-                return 200, {"Content-Type": "application/json"}, {"dashboard": summary}
+                res = {"dashboard": summary}
+                res.update(summary)
+                return 200, {"Content-Type": "application/json"}, res
 
             return 404, {"Content-Type": "application/json"}, {"error": f"Endpoint not found: {method} {path}"}
 

@@ -21,6 +21,9 @@ from ..services.communication_service import CommunicationService
 from ..services.crm_service import CRMService
 from ..services.operations_service import OperationsService
 from ..services.scheduling_service import SchedulingService
+from ..services.finance_service import FinanceService
+from ..services.business_ops_service import BusinessOpsService
+from ..services.analytics_search_service import AnalyticsSearchService
 from .routes import APIRouter
 
 logger = logging.getLogger("restoricon_core.api")
@@ -58,7 +61,13 @@ class RestoriconRequestHandler(BaseHTTPRequestHandler):
             body_bytes=body_bytes,
         )
 
-        resp_bytes = json.dumps(resp_data).encode("utf-8")
+        if isinstance(resp_data, bytes):
+            resp_bytes = resp_data
+        elif isinstance(resp_data, str):
+            resp_bytes = resp_data.encode("utf-8")
+        else:
+            resp_bytes = json.dumps(resp_data).encode("utf-8")
+
         self.send_response(status)
         for h_key, h_val in resp_headers.items():
             self.send_header(h_key, h_val)
@@ -90,6 +99,9 @@ class RestoriconAPIServer:
         self.scheduling_service = SchedulingService(self.db, self.audit_service)
         self.automation_service = AutomationService(self.db, self.audit_service)
         self.operations_service = OperationsService(self.db, self.audit_service)
+        self.finance_service = FinanceService(self.db, self.audit_service)
+        self.business_ops_service = BusinessOpsService(self.db, self.audit_service)
+        self.analytics_search_service = AnalyticsSearchService(self.db)
 
         # RBAC for these services is enforced in the service layer, not here -- see
         # APIRouter's own class docstring.
@@ -101,6 +113,9 @@ class RestoriconAPIServer:
             scheduling_service=self.scheduling_service,
             automation_service=self.automation_service,
             operations_service=self.operations_service,
+            finance_service=self.finance_service,
+            business_ops_service=self.business_ops_service,
+            analytics_search_service=self.analytics_search_service,
         )
 
         class CustomHandler(RestoriconRequestHandler):

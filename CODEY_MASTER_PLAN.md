@@ -907,7 +907,7 @@ a test-isolation gap, not a regression.
 
 ### 4.5 Business layer
 
-**Updated 2026-08-30.** Phase B1 (Core API & Auth), Phase B2 (Aigentik Write-Through & Contacts Directory), Phase B3 (CRM/Sales Pipeline & Operations Domain Engines), Phase B4 (Public Website Intake API, Rate Limiting, & Customer Portal Data Isolation), and Phase B5a (Remaining Business Domain Engines & Cross-Domain Search/Reporting: Finance, Marketing, Compliance, HR, Procurement, Unified Global Search, Executive Dashboard KPIs) are 100% complete and verified (1,138 passed).
+**Updated 2026-08-30.** Phase B1 (Core API & Auth), Phase B2 (Aigentik Write-Through & Contacts Directory), Phase B3 (CRM/Sales Pipeline & Operations Domain Engines), Phase B4 (Public Website Intake API, Rate Limiting, Customer Portal Data Isolation, Staff/Admin Surface & Device Limb Dashboard Integration), Phase B5a (Remaining Business Domain Engines & Cross-Domain Search/Reporting: Finance, Marketing, Compliance, HR, Procurement, Unified Global Search, Executive Dashboard KPIs), and Phase B5b (Third-Party App Automation & Device Bridge IPC Integration) are 100% complete and verified (1,146 passed).
 
 **`NEW-209`'s schema-gap open decision is RESOLVED — Ish chose to expand
 scope, not narrow it (2026-08-27).** Rather than narrowing B2's exit

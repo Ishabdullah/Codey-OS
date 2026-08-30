@@ -12,6 +12,22 @@ and Appendix A.
 
 ---
 
+## 2026-08-30 — Track B / Phase B4: Staff/Admin ERP Surface, Customer Portal SPAs, & Device-Limb Dashboard (Phase B4 100% Complete)
+
+- **Status**: Code-reviewer approved, test verified (`3/3 passed` in `tests/test_b4_dashboard_portal_surfaces.py`, `1,146/1,146 passed` across repository test suite).
+- **Staff/Admin Operations ERP Surface (`restoricon_core/api/web_surfaces.py`, `restoricon_core/api/routes.py`)**:
+  - Full Single Page Application served directly from the Core API at `/admin` and `/admin/login`.
+  - Executive Overview KPI dashboard (Revenue, Gross Margin, Active Sites, Open Leads), project/job site inspection table, and global search trigger with Bearer token authentication.
+- **Customer Portal Surface (`restoricon_core/api/web_surfaces.py`, `restoricon_core/api/routes.py`)**:
+  - Full Single Page Application served directly from the Core API at `/portal` and `/portal/login`.
+  - Customer isolation enforcement: active project tracking with internal cost masking, digital contract/estimate review & e-signature interface, and invoice balance tracking.
+- **Device-Limb Business Dashboard (`Private-Codey-Agent/lib/screens/business_dashboard_screen.dart`, `Private-Codey-Agent/lib/services/restoricon_api_client.dart`)**:
+  - Flutter UI for executive KPIs, today's schedule/appointments, active job sites, and fast messaging/calling triggers.
+  - Client service with in-memory caching and offline resilience connecting to Core API endpoints (`/reports/executive`, `/finance/summary`, `/appointments`, `/projects`).
+- **Phase B4 Completion**: All three client surfaces (Staff Admin, Customer Portal, Device-Limb Dashboard) are unified over the single Restoricon Core API and auth layer.
+
+---
+
 ## 2026-08-30 — Track B / Phase B5b: Third-Party-App Automation & Device Limb IPC Integration (Phase B5b 100% Complete)
 
 - **Status**: Code-reviewer approved, test verified (`5/5 passed` in `tests/test_device_bridge_b5b.py`, `1,143/1,143 passed` across root test suite).
