@@ -1910,11 +1910,14 @@ def run_agent(
             elif (
                 is_error(last_tool_result, name) and auto_retries >= max_retries and not _in_subtask
             ):
-                # Exhausted retries — offer to escalate to a peer CLI
-                from core.peer_cli import escalate
+                # Exhausted retries — offer to escalate to a peer CLI or park for review
+                from core.peer_cli import escalate_or_park
 
-                peer_result = escalate(user_message, error_log, files_touched)
-                if peer_result and peer_result.startswith("[redirect]:"):
+                _task_id = f"task_{int(time.time())}"
+                peer_result = escalate_or_park(_task_id, user_message, error_log, files_touched)
+                if peer_result and peer_result.startswith("[parked]:"):
+                    return f"{peer_result}\n\nTask parked on review queue. Continuing workflow."
+                elif peer_result and peer_result.startswith("[redirect]:"):
                     # User told Codey to try a different approach
                     new_instruction = peer_result[len("[redirect]: ") :]
                     messages.append({"role": "user", "content": new_instruction})
@@ -1941,10 +1944,13 @@ def run_agent(
                 # clearly isn't letting the model reconstruct a working
                 # patch — escalate to the peer CLI instead, reusing the same
                 # escalation path as the exhausted-retries case above.
-                from core.peer_cli import escalate
+                from core.peer_cli import escalate_or_park
 
-                peer_result = escalate(user_message, error_log, files_touched)
-                if peer_result and peer_result.startswith("[redirect]:"):
+                _task_id = f"task_{int(time.time())}"
+                peer_result = escalate_or_park(_task_id, user_message, error_log, files_touched)
+                if peer_result and peer_result.startswith("[parked]:"):
+                    return f"{peer_result}\n\nTask parked on review queue. Continuing workflow."
+                elif peer_result and peer_result.startswith("[redirect]:"):
                     new_instruction = peer_result[len("[redirect]: ") :]
                     messages.append({"role": "user", "content": new_instruction})
                     auto_retries = 0

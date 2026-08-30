@@ -68,6 +68,21 @@ class TaskBlackboard:
                     FOREIGN KEY (task_id) REFERENCES task_sessions(task_id) ON DELETE CASCADE
                 );
 
+                CREATE TABLE IF NOT EXISTS escalation_reviews (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    task_id TEXT NOT NULL UNIQUE,
+                    goal TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    error_summary TEXT,
+                    files_touched TEXT DEFAULT '[]',
+                    preferred_peer TEXT,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    created_at REAL NOT NULL,
+                    resolved_at REAL,
+                    resolution_notes TEXT,
+                    FOREIGN KEY (task_id) REFERENCES task_sessions(task_id) ON DELETE CASCADE
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_blackboard_task_key
                     ON blackboard_entries (task_id, key);
 
@@ -76,6 +91,9 @@ class TaskBlackboard:
 
                 CREATE INDEX IF NOT EXISTS idx_sessions_expires
                     ON task_sessions (expires_at);
+
+                CREATE INDEX IF NOT EXISTS idx_escalation_status
+                    ON escalation_reviews (status);
             """)
             self._conn.commit()
 
@@ -265,6 +283,151 @@ class TaskBlackboard:
             )
             self._conn.commit()
             return cur.rowcount > 0
+
+    def park_escalation(
+        self,
+        task_id: str,
+        goal: str,
+        reason: str,
+        error_summary: str = "",
+        files_touched: Optional[List[str]] = None,
+        preferred_peer: Optional[str] = None,
+    ) -> bool:
+        """
+        Park a task needing escalation onto the review queue.
+        Marks the task session status as 'escalated_pending_review'.
+        """
+        now = time.time()
+        files_json = json.dumps(files_touched or [])
+        with self._lock:
+            try:
+                self._ensure_task_session(task_id, goal)
+                self._conn.execute(
+                    """
+                    INSERT INTO escalation_reviews (
+                        task_id, goal, reason, error_summary, files_touched, preferred_peer, status, created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
+                    ON CONFLICT(task_id) DO UPDATE SET
+                        goal = excluded.goal,
+                        reason = excluded.reason,
+                        error_summary = excluded.error_summary,
+                        files_touched = excluded.files_touched,
+                        preferred_peer = excluded.preferred_peer,
+                        status = 'pending',
+                        created_at = excluded.created_at,
+                        resolved_at = NULL,
+                        resolution_notes = NULL
+                    """,
+                    (task_id, goal, reason, error_summary, files_json, preferred_peer, now),
+                )
+                self._conn.execute(
+                    "UPDATE task_sessions SET status = 'escalated_pending_review', updated_at = ? WHERE task_id = ?",
+                    (now, task_id),
+                )
+                self._conn.commit()
+                return True
+            except Exception:
+                return False
+
+    def list_escalations(self, status: Optional[str] = "pending") -> List[Dict[str, Any]]:
+        """List escalation reviews matching status (or all if status is None)."""
+        with self._lock:
+            if status is not None:
+                rows = self._conn.execute(
+                    """
+                    SELECT id, task_id, goal, reason, error_summary, files_touched, preferred_peer, status, created_at, resolved_at, resolution_notes
+                    FROM escalation_reviews
+                    WHERE status = ?
+                    ORDER BY created_at ASC
+                    """,
+                    (status,),
+                ).fetchall()
+            else:
+                rows = self._conn.execute(
+                    """
+                    SELECT id, task_id, goal, reason, error_summary, files_touched, preferred_peer, status, created_at, resolved_at, resolution_notes
+                    FROM escalation_reviews
+                    ORDER BY created_at ASC
+                    """
+                ).fetchall()
+
+            results = []
+            for r in rows:
+                item = dict(r)
+                try:
+                    item["files_touched"] = json.loads(item["files_touched"])
+                except Exception:
+                    item["files_touched"] = []
+                results.append(item)
+            return results
+
+    def get_escalation(self, task_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve escalation details for a task."""
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT id, task_id, goal, reason, error_summary, files_touched, preferred_peer, status, created_at, resolved_at, resolution_notes
+                FROM escalation_reviews
+                WHERE task_id = ?
+                """,
+                (task_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            item = dict(row)
+            try:
+                item["files_touched"] = json.loads(item["files_touched"])
+            except Exception:
+                item["files_touched"] = []
+            return item
+
+    def resolve_escalation(
+        self,
+        task_id: str,
+        status: str = "resolved",
+        resolution_notes: str = "",
+        preferred_peer: Optional[str] = None,
+    ) -> bool:
+        """
+        Resolve or reject a parked escalation review.
+        Updates task_sessions status accordingly.
+        """
+        now = time.time()
+        with self._lock:
+            try:
+                if preferred_peer is not None:
+                    cur = self._conn.execute(
+                        """
+                        UPDATE escalation_reviews
+                        SET status = ?, resolution_notes = ?, preferred_peer = ?, resolved_at = ?
+                        WHERE task_id = ?
+                        """,
+                        (status, resolution_notes, preferred_peer, now, task_id),
+                    )
+                else:
+                    cur = self._conn.execute(
+                        """
+                        UPDATE escalation_reviews
+                        SET status = ?, resolution_notes = ?, resolved_at = ?
+                        WHERE task_id = ?
+                        """,
+                        (status, resolution_notes, now, task_id),
+                    )
+
+                if cur.rowcount == 0:
+                    return False
+
+                # Update task session status
+                session_status = "active" if status in ("resolved", "approved") else "failed"
+                self._conn.execute(
+                    "UPDATE task_sessions SET status = ?, updated_at = ? WHERE task_id = ?",
+                    (session_status, now, task_id),
+                )
+                self._conn.commit()
+                return True
+            except Exception:
+                return False
 
     def cleanup_task(self, task_id: str) -> bool:
         """Remove a task session and all associated blackboard entries / checkpoints."""

@@ -5639,7 +5639,7 @@ Then:
 - [x] **4.3** — wrap `core/agent.py` as a CCOS capability, unifying both
       call paths (`main.py` and `core/task_executor.py` via `coding.run_agent`).
 - [x] **7.5** — in-flight context passing + task-context blackboard.
-- [x] **4.5** — peer-CLI escalation redesign. **DONE 2026-08-30: code-complete,
+- [x] **4.5** — peer-CLI escalation redesign & review queue. **DONE 2026-08-30: code-complete,
       code-reviewer-approved, and live-verified on-device.** Antigravity CLI (`agy`,
       aliases: `antigravity`, `gemini`) replaces Gemini CLI; Qwen Code CLI (`qwen`,
       aliases: `qwen-code`, `qwen3.5`) aligned with non-interactive `-p` and `-y`;
@@ -5647,8 +5647,12 @@ Then:
       (`enabled=False`, `disabled_reason="Claude Code is currently disabled (no API credits configured)."`)
       with safe warning and redirection fallback; structured tool `peer_delegate`
       and CCOS capability `coding.peer_delegate` implemented; noise-stripping
-      and error sentinels (`[PEER_ERROR: ...]`) generalized; 20 new tests in
-      `tests/test_peer_cli_redesign.py` passing, full suite 1037 passed, 1 skipped.
+      and error sentinels (`[PEER_ERROR: ...]`) generalized; non-blocking review queue
+      integrated on `TaskBlackboard` with `escalation_reviews` schema table,
+      `escalate_or_park()` non-interactive fallback for daemon workers, and review/execution
+      CLI methods (`list_parked_escalations`, `resolve_parked_escalation`, `execute_parked_escalation`);
+      tests in `tests/test_escalation_review_queue.py` and `tests/test_peer_cli_redesign.py` passing,
+      full suite 1,151 passed, 1 skipped.
 - [x] **4.6** — wire `agent_orchestrator` to real execution (Safety veto
       goes live).
 - [x] **4.7** — multi-domain request splitting.

@@ -15,8 +15,10 @@ Flow:
   6. Work continues with the result as context
 """
 
+import os
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
@@ -402,4 +404,142 @@ def escalate(
 
         # Shouldn't reach here, but skip and try next
         excluded.append(cli.name)
+
+
+def is_interactive_environment() -> bool:
+    """Return True if standard input is an interactive TTY and not running as background daemon."""
+    if os.getenv("CODEY_DAEMON_MODE") == "1" or os.getenv("CODEY_NON_INTERACTIVE") == "1":
+        return False
+    try:
+        return sys.stdin.isatty()
+    except Exception:
+        return True
+
+
+def escalate_or_park(
+    task_id: str,
+    user_message: str,
+    errors: List[str],
+    files: List[str],
+    non_blocking: bool = False,
+) -> Optional[str]:
+    """
+    Escalate interactively if in an interactive terminal session, OR park the
+    task onto the TaskBlackboard escalation review queue if running headlessly
+    in a daemon or if non_blocking is requested (Track A / Item 4.5).
+    """
+    # If non-blocking or non-interactive daemon environment, park on blackboard queue
+    if non_blocking or os.getenv("CODEY_DAEMON_MODE") == "1" or os.getenv("CODEY_NON_INTERACTIVE") == "1":
+        try:
+            from ccos.core.task_blackboard import get_task_blackboard
+
+            mgr = get_peer_cli_manager()
+            task_type = mgr.detect_task_type(user_message, errors)
+            suggested_cli = mgr.select_cli(task_type)
+            pref_name = suggested_cli.name if suggested_cli else None
+
+            bb = get_task_blackboard()
+            error_summary = "\n".join(errors) if errors else ""
+            bb.park_escalation(
+                task_id=task_id,
+                goal=user_message,
+                reason="exhausted_retries",
+                error_summary=error_summary,
+                files_touched=files,
+                preferred_peer=pref_name,
+            )
+            warning(
+                f"Task [{task_id}] parked for escalation review on TaskBlackboard "
+                f"(suggested peer: {pref_name or 'none'})."
+            )
+            return f"[parked]: Task {task_id} parked for escalation review."
+        except Exception as e:
+            warning(f"Failed to park task {task_id} to TaskBlackboard: {e}")
+            return None
+
+    # Otherwise run normal interactive escalation
+    return escalate(user_message, errors, files)
+
+
+def list_parked_escalations(status: Optional[str] = "pending") -> List[Dict]:
+    """List parked escalation review items from TaskBlackboard."""
+    try:
+        from ccos.core.task_blackboard import get_task_blackboard
+
+        bb = get_task_blackboard()
+        return bb.list_escalations(status=status)
+    except Exception as e:
+        warning(f"Failed to list escalation reviews: {e}")
+        return []
+
+
+def resolve_parked_escalation(
+    task_id: str,
+    action: str = "approve",
+    peer_name: Optional[str] = None,
+    notes: str = "",
+) -> bool:
+    """
+    Resolve or reject a parked escalation review.
+    action can be 'approve' / 'resolved' or 'reject' / 'failed'.
+    """
+    try:
+        from ccos.core.task_blackboard import get_task_blackboard
+
+        bb = get_task_blackboard()
+        status = "resolved" if action in ("approve", "resolved", "approve_and_run") else "rejected"
+        return bb.resolve_escalation(
+            task_id=task_id,
+            status=status,
+            resolution_notes=notes,
+            preferred_peer=peer_name,
+        )
+    except Exception as e:
+        warning(f"Failed to resolve escalation review for {task_id}: {e}")
+        return False
+
+
+def execute_parked_escalation(task_id: str, peer_name: Optional[str] = None) -> Optional[str]:
+    """
+    Execute a previously parked escalation item using the designated or preferred peer CLI.
+    """
+    try:
+        from ccos.core.task_blackboard import get_task_blackboard
+
+        bb = get_task_blackboard()
+        record = bb.get_escalation(task_id)
+        if not record:
+            warning(f"No escalation review found for task {task_id}")
+            return None
+
+        mgr = get_peer_cli_manager()
+        cli_to_use = peer_name or record.get("preferred_peer") or "antigravity"
+        by_name = {c.name: c for c in mgr.available()}
+        cli = by_name.get(cli_to_use)
+        if not cli:
+            # Fallback to any available
+            avail = mgr.available()
+            if not avail:
+                warning("No peer CLIs available.")
+                return None
+            cli = avail[0]
+
+        prompt = mgr.build_prompt(
+            record.get("goal", ""),
+            [record.get("error_summary", "")],
+            record.get("files_touched", []),
+        )
+        output = mgr.call(cli, prompt)
+        summary = mgr.summarize_result(cli.name, output, record.get("goal", ""))
+        bb.resolve_escalation(
+            task_id=task_id,
+            status="resolved",
+            resolution_notes=f"Executed via {cli.name}",
+            preferred_peer=cli.name,
+        )
+        return summary
+    except Exception as e:
+        warning(f"Failed to execute parked escalation for {task_id}: {e}")
+        return None
+
 

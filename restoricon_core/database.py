@@ -965,22 +965,26 @@ class DatabaseManager:
                 existing_columns = {
                     row["name"] for row in conn.execute(f"PRAGMA table_info({table});")
                 }
-                if column not in existing_columns:
+                if existing_columns and column not in existing_columns:
                     conn.execute(ddl)
             # Unique indexes must run after the ALTERs above (see the note
             # in _SCHEMA_SQL's index block for why they can't live there).
-            conn.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_external_id ON customers(external_id);"
-            )
-            conn.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_leads_external_id ON leads(external_id);"
-            )
-            conn.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_external_id ON contacts(external_id);"
-            )
-            conn.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_external_id ON tasks(external_id);"
-            )
+            if conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='customers';").fetchone():
+                conn.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_external_id ON customers(external_id);"
+                )
+            if conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='leads';").fetchone():
+                conn.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_leads_external_id ON leads(external_id);"
+                )
+            if conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='contacts';").fetchone():
+                conn.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_external_id ON contacts(external_id);"
+                )
+            if conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks';").fetchone():
+                conn.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_external_id ON tasks(external_id);"
+                )
             # Partial index (WHERE provider_message_id IS NOT NULL): rows
             # with no natural external message id (internal_note,
             # ai_conversation, phone, voicemail) never collide with each
@@ -989,11 +993,12 @@ class DatabaseManager:
             # responsible for normalizing '' / whitespace-only ids to
             # NULL before insert -- this index alone does not catch an
             # empty-string id, since '' IS NOT NULL is true in SQLite.
-            conn.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_comms_provider_message_id "
-                "ON communication_history(provider_message_id) "
-                "WHERE provider_message_id IS NOT NULL;"
-            )
+            if conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='communication_history';").fetchone():
+                conn.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_comms_provider_message_id "
+                    "ON communication_history(provider_message_id) "
+                    "WHERE provider_message_id IS NOT NULL;"
+                )
 
     @contextmanager
     def transaction(self) -> Generator[sqlite3.Cursor, None, None]:

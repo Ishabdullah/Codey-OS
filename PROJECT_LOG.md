@@ -12,6 +12,23 @@ and Appendix A.
 
 ---
 
+## 2026-08-30 — Track A / Phase A2: Peer-CLI Escalation Redesign & Review Queue on TaskBlackboard (Item 4.5 Complete)
+
+- **Status**: Code-reviewer approved, test verified (`5/5 passed` in `tests/test_escalation_review_queue.py`, `1,151/1,151 passed` across repository test suite).
+- **TaskBlackboard Escalation Reviews Schema (`ccos/core/task_blackboard.py`)**:
+  - Added SQLite WAL table `escalation_reviews` with foreign keys, thread-safe locking, and status indexing.
+  - Implemented `park_escalation()`, `list_escalations()`, `get_escalation()`, and `resolve_escalation()`.
+  - Automatically transitions task session status to `escalated_pending_review` when parked, and back to `active` or `failed` on resolution.
+- **Non-Blocking Escalation & Fallback (`core/peer_cli.py`, `core/agent.py`)**:
+  - Implemented `is_interactive_environment()` and `escalate_or_park()`: automatically detects non-interactive daemon execution and parks items onto `TaskBlackboard` instead of hanging or blocking standard input.
+  - Added programmatic review management APIs: `list_parked_escalations()`, `resolve_parked_escalation()`, and `execute_parked_escalation()` with context preservation and output injection.
+  - Updated `core/agent.py` to seamlessly handle `[parked]: ...` escalation responses without workflow interruption.
+- **Full Test Suite & Fixes**:
+  - Fixed database migration idempotency checks in `restoricon_core/database.py` to check table existence before ALTER/INDEX operations across in-memory and legacy database shapes.
+  - Added comprehensive test suite `tests/test_escalation_review_queue.py` verifying interactive, non-interactive, and execution paths. Full suite: 1,151 passed, 1 skipped.
+
+---
+
 ## 2026-08-30 — Track B / Phase B4: Staff/Admin ERP Surface, Customer Portal SPAs, & Device-Limb Dashboard (Phase B4 100% Complete)
 
 - **Status**: Code-reviewer approved, test verified (`3/3 passed` in `tests/test_b4_dashboard_portal_surfaces.py`, `1,146/1,146 passed` across repository test suite).
