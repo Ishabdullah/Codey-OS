@@ -1743,17 +1743,9 @@ reliably (3/3).** The `prompts/system_prompt.py` diff (code-reviewer
 approved, now live-verified) remains uncommitted — commit decision
 pending directly with Ish.
 
-### [NEW-61] `core/agent.py`'s JSON-repair regex corrupts `old_str`/`new_str` when the model emits single-quoted string values (Confirmed, live-reproduced)
-`_fix_unquoted_values()` (`core/agent.py:280-303`) only treats a value as
-"already quoted" if it starts with `"` — a Python-style single-quoted
-value (`'return 30'`, invalid JSON but a plausible LLM output) is
-misclassified as unquoted, and the repair wraps the literal single-quote
-characters into the resulting double-quoted string, corrupting the
-`old_str`/`new_str` value it was supposed to fix. Live-reproduced during
-the `NEW-30` third-pass A/B cycle (draw `fixed-1`): the model emitted a
-single-quoted `old_str`, the repair regex mangled it, `patch_file` failed
-to match, and the model gave up with "Done." after a corrective re-read
-rather than retrying correctly. Not yet scoped to an implementer.
+### [NEW-61] `core/agent.py`'s JSON-repair regex corrupts `old_str`/`new_str` when the model emits single-quoted string values (Resolved 2026-08-30)
+- **Status**: Resolved (2026-08-30).
+- `_fix_unquoted_values()` (`core/agent.py`) updated to detect single-quoted values (`len(val) >= 2 and val.startswith("'") and val.endswith("'")`), extract the inner string content, unescape escaped single quotes, and re-wrap in valid double quotes. Tested and verified in `tests/test_json_parser.py::TestJsonExtraction::test_single_quoted_values_new61`.
 
 ### [NEW-56] correction — downgraded, cause reattributed
 The specific observed behavior (wrong paths, dropped content, both
@@ -5253,20 +5245,8 @@ open, not closed, on this basis.
 
 ## Found during CLAUDE.md/QWEN.md consolidation and TODO.md build, 2026-08-08 — NOT fixed, logged only
 
-### [NEW-75] Stray root-level file `=3.9.0` — pip-invocation-typo artifact (Suspected safe to delete)
-- **Status: Suspected, not fixed.** Found during a repo-structure walk for
-  `CLAUDE.md`'s consolidated directory map. `/data/data/com.termux/files/home/Codey-OS/=3.9.0`
-  (~1.7KB) contains `pip` install output (`Collecting aiohttp`,
-  `Downloading aiohttp-3.14.3-...`, etc.) — the classic artifact of running
-  `pip install package>=3.9.0` without quoting the version constraint,
-  which causes the shell to interpret `>=3.9.0` as a redirect and create a
-  file literally named `=3.9.0`.
-- Not referenced by `install.sh`, `requirements.txt`, or any code path
-  (not grepped exhaustively this round, but the content and filename shape
-  make the cause unambiguous). Logged per CLAUDE.md rule 8 rather than
-  deleted unilaterally, since this was found outside this round's scope
-  (documentation consolidation, not a cleanup task) — flagged for a
-  future hygiene pass to confirm-and-delete.
+### [NEW-75] Stray root-level file `=3.9.0` — pip-invocation-typo artifact (Resolved 2026-08-30)
+- **Status: Resolved (2026-08-30).** Verified pip install redirect artifact from unquoted version constraint; safely removed from repository root.
 
 ## Found while beginning `TODO.md` execution, 2026-08-08 — NOT fixed, logged only
 

@@ -95,6 +95,23 @@ class TestJsonExtraction:
         # Command may or may not be extracted depending on regex matching
         assert "name" in result or result.get("name") == "shell"
 
+    def test_single_quoted_values_new61(self):
+        """NEW-61: Single-quoted string values should have outer quotes stripped and inner content preserved."""
+        raw = '{"name": "patch_file", "path": \'test.py\', "old_str": \'return 30\', "new_str": \'return 40\'}'
+        result = extract_json(raw)
+        assert result is not None
+        assert result.get("name") == "patch_file"
+        assert result.get("path") == "test.py"
+        assert result.get("old_str") == "return 30"
+        assert result.get("new_str") == "return 40"
+
+    def test_single_quoted_with_escaped_quotes_new61(self):
+        """NEW-61: Escaped quotes inside single-quoted strings are unescaped properly."""
+        raw = '{"name": "write_file", "path": "notes.txt", "content": \'it\\\'s a test\'}'
+        result = extract_json(raw)
+        assert result is not None
+        assert result.get("content") == "it's a test"
+
     def test_multiline_content(self):
         """Multi-line content in strings should be handled."""
         raw = """{"name": "write_file", "args": {"content": "def foo():\\n    pass"}}"""

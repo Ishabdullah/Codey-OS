@@ -329,7 +329,7 @@ def extract_json(raw):
             """Quote unquoted string values emitted by smaller models.
 
             Handles cases like {"path": /tmp/foo.py} or {"cmd": ls -la}
-            where the model omits quotes around non-JSON-primitive values.
+            or Python single-quoted strings like {"old_str": 'return 30'} (NEW-61).
             """
 
             def _replacer(m):
@@ -340,6 +340,11 @@ def extract_json(raw):
                     return m.group(0)
                 if re.match(r"^-?\d+\.?\d*$", val):
                     return m.group(0)
+                # NEW-61: Handle Python-style single-quoted values
+                if len(val) >= 2 and val.startswith("'") and val.endswith("'"):
+                    inner = val[1:-1].replace(r"\'", "'")
+                    escaped = inner.replace("\\", "\\\\").replace('"', '\\"')
+                    return key_part + '"' + escaped + '"'
                 escaped = val.replace("\\", "\\\\").replace('"', '\\"')
                 return key_part + '"' + escaped + '"'
 

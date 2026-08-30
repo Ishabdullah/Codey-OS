@@ -12,6 +12,21 @@ and Appendix A.
 
 ---
 
+## 2026-08-30 — Track U / Maintenance: Single-Quoted JSON Repair Fix & Hygiene (U.14 / NEW-61 & U.26 / NEW-75 Resolved)
+
+- **Status**: Code-complete, code-reviewer approved, test verified (`20/20 passed` in `tests/test_json_parser.py`, `1,153/1,153 passed` across full repository test suite).
+- **Single-Quoted Value Repair Fix (`core/agent.py`, `tests/test_json_parser.py`, `NEW-61`)**:
+  - Enhanced `_fix_unquoted_values()` to detect Python-style single-quoted string values (`len(val) >= 2 and val.startswith("'") and val.endswith("'")`).
+  - Correctly extracts the inner payload, unescapes embedded single quotes, and re-wraps with valid JSON double quotes rather than embedding literal single quotes into the parsed string.
+  - Added unit test cases `test_single_quoted_values_new61` and `test_single_quoted_with_escaped_quotes_new61` in `tests/test_json_parser.py`.
+- **Repository Hygiene (`NEW-75`)**:
+  - Removed stray pip installation artifact `=3.9.0` from repository root.
+- **Ledger & Status Updates**:
+  - Resolved `[NEW-61]` and `[NEW-75]` in `NEW_ISSUES.md`.
+  - Updated `U.14` and `U.26` in `CODEY_MASTER_PLAN.md` Appendix A. Full test suite: 1,153 passed, 1 skipped.
+
+---
+
 ## 2026-08-30 — Track A / Phase A2: Peer-CLI Escalation Redesign & Review Queue on TaskBlackboard (Item 4.5 Complete)
 
 - **Status**: Code-reviewer approved, test verified (`5/5 passed` in `tests/test_escalation_review_queue.py`, `1,151/1,151 passed` across repository test suite).

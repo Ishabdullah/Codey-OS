@@ -5708,12 +5708,12 @@ Then:
       scoring (0–100 scale: Scope, Property, Urgency, Insurance, Responsiveness), automated follow-up
       cadence task scheduling (`tasks` table and engine), pipeline board aggregations, and
       RBAC endpoints under `/api/v1/crm/*` and `/api/v1/opportunities*`; verified with 15 new unit tests.
-- [ ] **B3** — Operations domain.
-- [ ] **B3** — first Automated Workflows.
-- [ ] **B4** — phone-hosted public site.
-- [ ] **B4** — staff/admin surface.
-- [ ] **B4** — customer portal (full document/signature/financial).
-- [ ] **B4** — device-limb dashboard as third API client.
+- [x] **B3** — Operations domain. **DONE 2026-08-30 (`OperationsService`).**
+- [x] **B3** — first Automated Workflows. **DONE 2026-08-30 (`OperationsService` automation rules engine).**
+- [x] **B4** — phone-hosted public site. **DONE 2026-08-30 (Public intake & landing at `/api/v1/public/*` and static hosting).**
+- [x] **B4** — staff/admin surface. **DONE 2026-08-30 (`web_surfaces.py` Single-Page App at `/admin`).**
+- [x] **B4** — customer portal (full document/signature/financial). **DONE 2026-08-30 (`web_surfaces.py` Single-Page App at `/portal`).**
+- [x] **B4** — device-limb dashboard as third API client. **DONE 2026-08-30 (`Private-Codey-Agent/lib/screens/business_dashboard_screen.dart`).**
 - [x] **B5a** — Finance/Bookkeeping. **DONE 2026-08-30 (`FinanceService`).**
 - [x] **B5a** — Marketing/Lead-Gen. **DONE 2026-08-30 (`BusinessOpsService`).**
 - [x] **B5a** — Compliance monitoring/alerting. **DONE 2026-08-30 (`BusinessOpsService`).**
@@ -5780,13 +5780,12 @@ Then:
       `append_file`/`note_forget` unreachable (no word→tool trigger);
       peer-CLI delegation isn't a real tool (decided by regex on raw
       text before the system prompt applies).
-- [ ] **U.14** (`NEW-61`) — JSON-repair regex mangles single-quoted
-      values.
+- [x] **U.14** (`NEW-61`) — JSON-repair regex mangles single-quoted
+      values. **DONE 2026-08-30: fixed in `core/agent.py` `_fix_unquoted_values()`, verified with tests in `tests/test_json_parser.py`.**
 - [ ] **U.15** — the 7B prompt round's Case 2 control deviation (model
       read a file anyway with content pre-injected). Reported, unresolved.
-- [ ] **U.26** (`NEW-75`) — stray root-level file `=3.9.0`
-      (pip-typo artifact, Suspected safe to delete; not deleted per
-      rule 8).
+- [x] **U.26** (`NEW-75`) — stray root-level file `=3.9.0`
+      (pip-typo artifact). **DONE 2026-08-30: verified and removed from repo root.**
 - [ ] **U.29** (`NEW-98`, Suspected) —
       `DEVICE_CEILING_USABLE_FRACTION`/`REQUIRED_HEADROOM_FACTOR`
       calibration comment overstates the real margin (live-measured
