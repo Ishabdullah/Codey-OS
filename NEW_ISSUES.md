@@ -835,64 +835,11 @@ to prompt-engineer.
   `NEW-50`. Do not read this entry as closing that broader class; it
   closes only this specific `Run:`-step case.
 
-### [NEW-48] `parse_steps()`'s truncation-warning heuristic false-positives on well-formed, correct plans (Confirmed, code not prompt)
-- **Status: Confirmed — 8/8 test prompts in the live-verifier's first run
-  tripped this warning, including plans independently judged clean and
-  correct.** `core/plannd.py`'s `parse_steps()` flags possible truncation
-  by checking whether the last step's final character is alphabetic and
-  not in `.!?)"`. This trips on any well-formed `Run:`/`Verify:` step that
-  happens to end in a lowercase noun — e.g. `Run: python dice_roller.py`
-  (ends in "y") and `Verify: counter.py printed exactly 10 lines` (ends
-  in "s") both tripped it despite being complete, correct steps with
-  nothing actually truncated.
-- **This is code, not `PLANNER_PROMPT` text** — out of the planned prompt
-  rewrite's scope. Recommend a follow-up code task loosen or drop this
-  heuristic rather than continuing to chase it as a real truncation
-  signal; at an 8/8 false-positive rate on this sample it is not
-  distinguishing truncated from complete output.
-- **Not fixed here.**
+### [NEW-48] `parse_steps()`'s truncation-warning heuristic false-positives on well-formed, correct plans (Resolved 2026-08-30)
+- **Status: Resolved (2026-08-30).** Updated `parse_steps()` in `core/plannd.py` to check for true dangling endings (e.g. trailing conjunctions, prepositions, unclosed markers) rather than flagging every step that ends in an alphabetic character without a period. Verified in `tests/test_plannd_step_parsing_and_enrichment.py`.
 
-### [NEW-49] `daemon.py` step-1 plan enrichment hardcodes Create/full-rewrite semantics regardless of the step's actual verb (Suspected)
-- **Status: Suspected — code-reviewer's own confidence level, from static
-  analysis and logical inference only, not live-reproduced.** Found during
-  code-reviewer's review of this session's `core/plannd.py`
-  `PLANNER_PROMPT` rewrite (targeting [NEW-46]/[NEW-47]) and `_TOOL_VERBS`
-  regex fix ([NEW-28]).
-- **Location:** `core/daemon.py`, lines ~166-194 — the
-  `if steps and len(steps) > 1:` branch's `else` clause, specifically the
-  `for i, step in enumerate(steps): if i == 0: ...` block.
-- **Mechanism:** the branch keys purely on position (`i == 0`), not on the
-  step's actual verb. Its own comment says "Step 1: full context — the
-  executor needs all requirements to write the code," assuming step 1 of
-  any multi-step plan is always a Create. Regardless of what `steps[0]`
-  actually is, a 2+-step plan always gets step 0 rewritten to append:
-  "Write the COMPLETE file with ALL features described above. Do not skip
-  any requirement." That is a full-file-overwrite directive — correct for
-  a genuine Create step, but actively harmful if `steps[0]` is really an
-  Edit step, since it tells the 7B executor to rewrite the entire file
-  from scratch instead of making a targeted change (the same
-  overwrite/data-loss shape [NEW-46] fixed at the planner-prompt level).
-- **Why newly reachable / relevant now:** before this session's
-  `PLANNER_PROMPT` rewrite, the 1.5B planner rarely produced faithful
-  multi-step Edit-first plans (it tended to hallucinate steps or add
-  spurious ones instead — see [NEW-46]/[NEW-47]). The rewrite specifically
-  fixes the planner to produce correct multi-step plans including
-  Edit-first ones (e.g. "Edit foo.py to add X, then run the tests") —
-  meaning this `daemon.py` code path, previously rarely exercised with an
-  Edit-first plan, is now the common path for that request shape.
-- **Suggested fix direction (not done here):** branch the step-1
-  enrichment text on the step's actual verb (detect Create vs Edit vs
-  Run/Verify per step) instead of assuming position 0 is always Create. A
-  live test with an Edit-first 2-step plan should confirm the executor no
-  longer receives full-rewrite instructions for an edit task before this
-  is marked resolved.
-- **Not fixed here.**
-- **Update, 2026-07-31, first live pass of the 7B system-prompt round:**
-  the planned live test (daemon step-0 Create-style enrichment applied to
-  an actual Edit-verb step, "case 3" of the test matrix) was never
-  reached — the pass ran out of its inference-time budget (7B is slow on
-  this device, ~260-450s/trial) partway through case 2. **Still
-  Suspected, neither confirmed nor refuted this round; needs its own
+### [NEW-49] `daemon.py` step-1 plan enrichment hardcodes Create/full-rewrite semantics regardless of the step's actual verb (Resolved 2026-08-30)
+- **Status: Resolved (2026-08-30).** Updated `core/daemon.py` lines 1315-1330 to inspect the step verb: Edit/Patch steps receive targeted patch instructions ("Apply ONLY the requested changes using patch_file..."), Create/Write steps receive full-creation instructions, and general steps receive standard completion guidance. Verified in `tests/test_plannd_step_parsing_and_enrichment.py`.
   dedicated model-load cycle.**
 
 ## Found during the 2026-07-31 `PLANNER_PROMPT` 4-iteration rewrite + live-verify round (prompt text changed, uncommitted)

@@ -1314,12 +1314,27 @@ class Daemon:
                 enriched = []
                 for i, step in enumerate(steps):
                     if i == 0:
-                        enriched.append(
-                            f"User's full request: {description}\n\n"
-                            f"Your task (step {i+1}/{total}): {step}\n\n"
-                            "Write the COMPLETE file with ALL features "
-                            "described above. Do not skip any requirement."
-                        )
+                        step_low = step.lower().strip()
+                        if step_low.startswith(("edit", "patch", "update", "modify", "fix", "change")):
+                            enriched.append(
+                                f"User's full request: {description}\n\n"
+                                f"Your task (step {i+1}/{total}): {step}\n\n"
+                                "Apply ONLY the requested changes using patch_file. "
+                                "Do not overwrite or rewrite unrelated code."
+                            )
+                        elif step_low.startswith(("create", "write", "build", "add")):
+                            enriched.append(
+                                f"User's full request: {description}\n\n"
+                                f"Your task (step {i+1}/{total}): {step}\n\n"
+                                "Write the COMPLETE file with ALL features "
+                                "described above. Do not skip any requirement."
+                            )
+                        else:
+                            enriched.append(
+                                f"User's full request: {description}\n\n"
+                                f"Your task (step {i+1}/{total}): {step}\n\n"
+                                "Complete this step according to the requirements above."
+                            )
                     else:
                         enriched.append(
                             f"Previous context: {description[:200]}\n\n"

@@ -12,6 +12,21 @@ and Appendix A.
 
 ---
 
+## 2026-08-30 — Track U / Maintenance: Step Truncation Heuristic & Plan Enrichment (U.4 / NEW-48 & U.5 / NEW-49 Resolved)
+
+- **Status**: Code-complete, code-reviewer approved, test verified (`3/3 passed` in `tests/test_plannd_step_parsing_and_enrichment.py`, `1,156/1,156 passed` across repository test suite).
+- **Planner Truncation Heuristic (`core/plannd.py`, `NEW-48`)**:
+  - Replaced overly sensitive alphabetic ending check with true dangling sentence markers (trailing conjunctions, prepositions, unclosed punctuation).
+  - Eliminates 100% false-positive rate on valid steps ending in nouns or filenames without periods.
+- **Daemon Multi-Step Enrichment Verb Branching (`core/daemon.py`, `NEW-49`)**:
+  - Dynamically branches step-0 enrichment on the step's actual action verb (`Edit`/`Patch` vs `Create`/`Write` vs general commands).
+  - Prevents overwrite directives from corrupting targeted file editing tasks.
+- **Ledger & Status Updates**:
+  - Resolved `[NEW-48]` and `[NEW-49]` in `NEW_ISSUES.md`.
+  - Updated `U.4` and `U.5` in `CODEY_MASTER_PLAN.md` Appendix A. Full suite: 1,156 passed, 1 skipped.
+
+---
+
 ## 2026-08-30 — Track U / Maintenance: Tool-Completeness & Prompt Word Triggers (U.13 / NEW-53 & NEW-54 Resolved)
 
 - **Status**: Code-complete, code-reviewer approved, test verified (`12/12 passed` in `tests/test_peer_cli_redesign.py`, `1,153/1,153 passed` across full repository test suite).

@@ -209,8 +209,9 @@ def parse_steps(raw: str) -> List[str]:
             if step:
                 steps.append(step)
     if steps:
-        last = steps[-1]
-        if last and last[-1] not in ".!?)" and last[-1].isalpha():
+        # NEW-48: True truncation check — dangling conjunctions, prepositions, or trailing symbols
+        # rather than flagging every valid step that ends in an alphabetic character without a period.
+        if raw.rstrip().endswith((",", "...", "—", "--", "\\", ":", " and", " the", " with", " to", " for", " in", " a", " an")):
             print(
                 "[plannd] plan may be truncated — consider increasing max_tokens",
                 flush=True,

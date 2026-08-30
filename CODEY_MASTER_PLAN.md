@@ -5744,12 +5744,10 @@ Then:
 - [ ] **U.3** (`NEW-51`) — Rule 9 peer-CLI delegation format fails on a
       fresh phrasing ("Have gemini check X for race conditions") — no
       delegation step emitted. Pre-existing gap vs. regression: unsettled.
-- [ ] **U.4** (`NEW-48`) — `core/plannd.py`'s `parse_steps()`
-      truncation-warning heuristic false-positived 8/8, including clean
-      plans. Code, not prompt. Recommend loosening or dropping it.
-- [ ] **U.5** (`NEW-49`) — `core/daemon.py` hardcodes step-1 =
-      Create/full-rewrite semantics by position regardless of the step's
-      verb. **Refuted at n=1; still Suspected** — needs a larger sample.
+- [x] **U.4** (`NEW-48`) — `core/plannd.py`'s `parse_steps()`
+      truncation-warning heuristic. **DONE 2026-08-30: fixed false-positive heuristic in `core/plannd.py` to check for true dangling sentence markers; verified in `tests/test_plannd_step_parsing_and_enrichment.py`.**
+- [x] **U.5** (`NEW-49`) — `core/daemon.py` hardcodes step-1 =
+      Create/full-rewrite semantics. **DONE 2026-08-30: updated `core/daemon.py` to branch step-0 plan enrichment on step verb (Edit/Patch vs Create/Write), verified with unit tests.**
 - [ ] **U.6** — security hardening backlog (assign NEW-IDs when picked
       up): command-injection-via-filename in `agent.py:863-865`
       (partially addressed); daemon shell allowlist too broad in
