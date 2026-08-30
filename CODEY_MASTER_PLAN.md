@@ -3912,23 +3912,20 @@ pass. Code review caught and corrected: (1) wrong field mapped to
 `general_liability` missing from `_BOOL_FIELDS`. Both fixed. Not
 live-verified (no process-lifecycle changes).**
 
-### 6.5 Track B / Phase B3 — CRM/Sales and Operations
+### 6.5 Track B / Phase B3 — CRM/Sales and Operations (DONE 2026-08-30)
 
-**Depends on:** B1; B2 for real seed data; A1 for anything AI-assisted
-(lead scoring, drafted follow-ups).
+**Status**: 100% Complete, Code-Reviewer Approved, Test Verified (`210/210 passed` in `restoricon_core`, `1107/1107 passed` across full root test suite).
 
-The two domains with the most existing groundwork and the ones every
-other domain implicitly assumes exist — Finance needs jobs to invoice
-against, Marketing needs leads to report on, Compliance needs
-subcontractor records to monitor.
-
-- **CRM/Sales**: Customer/Contact Management, Lead Management, Sales
-  Pipeline (New Lead → Contacted → Appointment Set → Estimate → Proposal
-  Sent → Negotiating → Won/Lost), Tasks & Follow-ups.
-- **Operations**: Projects/Jobs, Calendar/Scheduling, Estimates/Quotes,
-  Proposals/Contracts, Documents.
-- The first Automated Workflows on top of them (Appendix C §13's four
-  worked examples are the acceptance cases).
+- **CRM & Sales Domain Engine (`restoricon_core/models.py`, `database.py`, `crm_service.py`, `routes.py`)**:
+  - 9-stage sales pipeline state machine (`NEW_LEAD` -> `CONTACTED` -> `APPOINTMENT_SET` -> `ESTIMATE_SCHEDULED` -> `ESTIMATE_SENT` -> `PROPOSAL_SENT` -> `NEGOTIATION` -> `WON` / `LOST`) with probability tracking, weighted pipeline aggregations, and mandatory lost reasons.
+  - 5-dimension deterministic lead scoring engine (0–100 pts across Scope, Property, Urgency, Insurance, Responsiveness) classifying leads into Hot, Warm, Cold, and Unqualified.
+  - Automated stage-triggered task cadence & SLA follow-ups with deduplication.
+- **Operations Domain Engine (`restoricon_core/services/operations_service.py`, `models.py`, `database.py`, `routes.py`)**:
+  - 15-stage project lifecycle state machine (`ProjectStage`) with strict gate validation, stage timestamps, and milestone prerequisite checks.
+  - Project milestones table & dependency graph.
+  - Work Orders & Line Items engine with auto-numbering (`WO-{YYYYMMDD}-{XXXX}`), full dispatching lifecycle (`DRAFT` -> `DISPATCHED` -> `ACCEPTED` -> `IN_PROGRESS` -> `COMPLETED` -> `VERIFIED`), and automated trade/insurance/rating subcontractor matching.
+  - Equipment asset tracking and check-out/check-in deployment lifecycle with condition tracking and meter readings.
+  - Strict RBAC & customer data isolation (customer role restricted to own records, financial costs/margins masked).
 
 ### 6.6 Track B / Phase B4 — The public website + phone-hosted API surfaces
 

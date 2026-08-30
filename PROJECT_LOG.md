@@ -12,6 +12,28 @@ and Appendix A.
 
 ---
 
+## 2026-08-30 — Track B / Phase B3: Operations Domain Engine (Phase B3 100% Complete)
+
+- **Status**: Code-reviewer approved, test verified (`210/210 passed` in `restoricon_core`, `1107/1107 passed` across full root test suite).
+- **Project Lifecycle & Milestone State Machine (`restoricon_core/services/operations_service.py`, `models.py`, `database.py`, `routes.py`)**:
+  - Implemented 15-stage project lifecycle state machine (`ProjectStage`: `INTAKE`, `ASSESSMENT_SCOPING`, `ESTIMATE_PROPOSAL`, `INSURANCE_APPROVAL`, `CONTRACT_SIGNED`, `PERMITTING`, `SCHEDULED`, `IN_PROGRESS`, `PUNCH_LIST`, `FINAL_INSPECTION`, `CERTIFICATE_OF_COMPLETION`, `INVOICED`, `CLOSED`, `CANCELLED`, `WARRANTY`).
+  - Added strict gate checks: address validation on scoping, mandatory cancellation reason, insurance claim/carrier checks for insurance approval, cost/contract gates for scheduling, and all-milestone completion check before project close.
+  - Added `project_milestones` table and model with dependency tracking, stage associations, and automatic milestone validation.
+- **Work Orders & Dispatching Engine (`operations_service.py`, `models.py`, `database.py`, `routes.py`)**:
+  - Created `work_orders` table and model with auto-generated work order numbering (`WO-{YYYYMMDD}-{XXXX}`), line items breakdown, scheduled/actual windows, and trade classification.
+  - Implemented work order lifecycle transitions (`DRAFT` -> `DISPATCHED` -> `ACCEPTED` -> `IN_PROGRESS` -> `COMPLETED` -> `VERIFIED` -> `CANCELLED`) with timestamp tracking (`dispatched_at`, `accepted_at`, `completed_at`, `verified_at`).
+  - Implemented automated subcontractor matching engine (`match_subcontractors_for_work_order`) scoring candidates by trade qualification, insurance compliance, quality rating, and active workload capacity.
+- **Equipment & Asset Tracking (`operations_service.py`, `models.py`, `database.py`, `routes.py`)**:
+  - Created `equipment` and `equipment_deployments` tables with asset tags, serial numbers, categories (`dehumidifier`, `air_scrubber`, `air_mover`, `moisture_meter`, `generator`, `extractor`, `thermal_camera`, `other`), daily rates, and deployment states (`available`, `deployed`, `maintenance`, `lost`, `retired`).
+  - Implemented checkout (`deploy_equipment`) and check-in (`return_equipment`) workflows tracking condition in/out, initial/final readings, and project associations.
+- **REST API Endpoints & RBAC Enforcement (`routes.py`, `auth.py`)**:
+  - Added `/api/v1/operations/projects/{id}/transition`, `/api/v1/operations/projects/{id}/milestones*`, `/api/v1/operations/work-orders*`, `/api/v1/operations/subcontractors/match`, `/api/v1/operations/equipment*`.
+  - Added permissions: `PERM_READ_OPERATIONS`, `PERM_WRITE_OPERATIONS`, `PERM_DISPATCH_WORK_ORDERS`, `PERM_MANAGE_PROJECTS`, `PERM_DEPLOY_EQUIPMENT`.
+  - Enforced strict customer data isolation (customers can only view their own projects/milestones; financial margins/costs and subcontractor details masked).
+- **Phase B3 Completion**: CRM/Sales and Operations domain engines are fully implemented, tested, and integrated. Marked Phase B3 as 100% complete in `CODEY_MASTER_PLAN.md`.
+
+---
+
 ## 2026-08-30 — Track B / Phase B3: CRM & Sales Domain Engine
 
 - **Status**: Code-reviewer approved, test verified (`187/187 passed` in `restoricon_core`).

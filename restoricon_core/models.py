@@ -211,6 +211,268 @@ class Task:
         return asdict(self)
 
 
+class ProjectStage:
+    """Canonical 10-stage lifecycle progression for Restoricon Operations Domain Engine."""
+    INTAKE = "intake"
+    ASSESSMENT_SCOPING = "assessment_scoping"
+    INSURANCE_APPROVAL = "insurance_approval"
+    SCHEDULED = "scheduled"
+    IN_PROGRESS = "in_progress"
+    QUALITY_INSPECTION = "quality_inspection"
+    FINAL_WALKTHROUGH = "final_walkthrough"
+    COMPLETED = "completed"
+    BILLED = "billed"
+    CLOSED = "closed"
+
+    # Exception stages
+    ON_HOLD = "on_hold"
+    CANCELLED = "cancelled"
+
+    STAGE_ORDER: List[str] = [
+        INTAKE,
+        ASSESSMENT_SCOPING,
+        INSURANCE_APPROVAL,
+        SCHEDULED,
+        IN_PROGRESS,
+        QUALITY_INSPECTION,
+        FINAL_WALKTHROUGH,
+        COMPLETED,
+        BILLED,
+        CLOSED,
+    ]
+
+    ALL_STAGES: Set[str] = set(STAGE_ORDER) | {ON_HOLD, CANCELLED}
+
+    # Allowed forward and state transitions
+    TRANSITIONS: Dict[str, List[str]] = {
+        INTAKE: [ASSESSMENT_SCOPING, ON_HOLD, CANCELLED],
+        ASSESSMENT_SCOPING: [INSURANCE_APPROVAL, SCHEDULED, ON_HOLD, CANCELLED],  # Non-insurance jobs can bypass INSURANCE_APPROVAL
+        INSURANCE_APPROVAL: [SCHEDULED, ASSESSMENT_SCOPING, ON_HOLD, CANCELLED],
+        SCHEDULED: [IN_PROGRESS, ON_HOLD, CANCELLED],
+        IN_PROGRESS: [QUALITY_INSPECTION, ON_HOLD, CANCELLED],
+        QUALITY_INSPECTION: [FINAL_WALKTHROUGH, IN_PROGRESS, ON_HOLD],  # Can return to IN_PROGRESS if punch-list items fail
+        FINAL_WALKTHROUGH: [COMPLETED, IN_PROGRESS, ON_HOLD],
+        COMPLETED: [BILLED, ON_HOLD],
+        BILLED: [CLOSED, ON_HOLD],
+        CLOSED: [],
+        ON_HOLD: [INTAKE, ASSESSMENT_SCOPING, INSURANCE_APPROVAL, SCHEDULED, IN_PROGRESS, QUALITY_INSPECTION, FINAL_WALKTHROUGH, COMPLETED, BILLED, CANCELLED],
+        CANCELLED: [],
+    }
+
+    @classmethod
+    def normalize(cls, stage: Optional[str]) -> str:
+        """Normalize stage string to canonical snake_case."""
+        if not stage:
+            return cls.INTAKE
+        normalized = stage.strip().lower().replace(" ", "_").replace("-", "_")
+        aliases = {
+            "lead": cls.INTAKE,
+            "new": cls.INTAKE,
+            "intake": cls.INTAKE,
+            "scoping": cls.ASSESSMENT_SCOPING,
+            "assessment": cls.ASSESSMENT_SCOPING,
+            "assessment_scoping": cls.ASSESSMENT_SCOPING,
+            "insurance": cls.INSURANCE_APPROVAL,
+            "insurance_approval": cls.INSURANCE_APPROVAL,
+            "scheduled": cls.SCHEDULED,
+            "approved": cls.SCHEDULED,
+            "in_progress": cls.IN_PROGRESS,
+            "active": cls.IN_PROGRESS,
+            "quality_inspection": cls.QUALITY_INSPECTION,
+            "inspection": cls.QUALITY_INSPECTION,
+            "final_walkthrough": cls.FINAL_WALKTHROUGH,
+            "walkthrough": cls.FINAL_WALKTHROUGH,
+            "done": cls.COMPLETED,
+            "complete": cls.COMPLETED,
+            "completed": cls.COMPLETED,
+            "billed": cls.BILLED,
+            "invoiced": cls.BILLED,
+            "archive": cls.CLOSED,
+            "closed": cls.CLOSED,
+            "hold": cls.ON_HOLD,
+            "on_hold": cls.ON_HOLD,
+            "cancel": cls.CANCELLED,
+            "cancelled": cls.CANCELLED,
+            "canceled": cls.CANCELLED,
+        }
+        return aliases.get(normalized, normalized)
+
+    @classmethod
+    def is_valid(cls, stage: str) -> bool:
+        return cls.normalize(stage) in cls.ALL_STAGES
+
+    @classmethod
+    def can_transition(cls, current_stage: str, target_stage: str) -> bool:
+        curr = cls.normalize(current_stage)
+        tgt = cls.normalize(target_stage)
+        if curr == tgt:
+            return True
+        allowed = cls.TRANSITIONS.get(curr, [])
+        return tgt in allowed
+
+
+class MilestoneStatus:
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    BLOCKED = "blocked"
+    ALL_STATUSES = {PENDING, IN_PROGRESS, COMPLETED, BLOCKED}
+
+
+@dataclass
+class ProjectMilestone:
+    id: Optional[int] = None
+    project_id: int = 0
+    name: str = ""
+    stage: str = ProjectStage.INTAKE
+    target_date: Optional[str] = None
+    completion_date: Optional[str] = None
+    status: str = MilestoneStatus.PENDING
+    dependencies: List[int] = field(default_factory=list)  # List of prerequisite milestone IDs
+    notes: Optional[str] = None
+    created_at: str = field(default_factory=utc_now_iso)
+    updated_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+class WorkOrderStatus:
+    DRAFT = "draft"
+    DISPATCHED = "dispatched"
+    ACCEPTED = "accepted"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    VERIFIED = "verified"
+    CANCELLED = "cancelled"
+
+    ALL_STATUSES = {DRAFT, DISPATCHED, ACCEPTED, IN_PROGRESS, COMPLETED, VERIFIED, CANCELLED}
+
+    TRANSITIONS: Dict[str, List[str]] = {
+        DRAFT: [DISPATCHED, CANCELLED],
+        DISPATCHED: [ACCEPTED, DRAFT, CANCELLED],  # Returning to draft on sub rejection
+        ACCEPTED: [IN_PROGRESS, DISPATCHED, CANCELLED],
+        IN_PROGRESS: [COMPLETED, CANCELLED],
+        COMPLETED: [VERIFIED, IN_PROGRESS],  # Can be rejected back to in_progress during QA
+        VERIFIED: [],
+        CANCELLED: [],
+    }
+
+
+@dataclass
+class WorkOrderLineItem:
+    description: str = ""
+    quantity: float = 1.0
+    unit: str = "ea"  # ea, sqft, lf, hrs, lsum
+    unit_cost: float = 0.0
+    total_cost: float = 0.0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class WorkOrder:
+    id: Optional[int] = None
+    work_order_number: str = ""  # e.g. "WO-0001"
+    title: str = ""
+    project_id: int = 0
+    trade: str = ""  # e.g. "mitigation", "drywall", "plumbing", "electrical", "flooring", "paint"
+    assigned_subcontractor_id: Optional[int] = None
+    assigned_crew_lead: Optional[str] = None
+    scheduled_start: Optional[str] = None
+    scheduled_end: Optional[str] = None
+    actual_start: Optional[str] = None
+    actual_end: Optional[str] = None
+    status: str = WorkOrderStatus.DRAFT
+    line_items: List[Dict[str, Any]] = field(default_factory=list)
+    total_cost: float = 0.0
+    instructions: Optional[str] = None
+    notes: Optional[str] = None
+    dispatched_at: Optional[str] = None
+    accepted_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    verified_at: Optional[str] = None
+    created_at: str = field(default_factory=utc_now_iso)
+    updated_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+class EquipmentStatus:
+    AVAILABLE = "available"
+    DEPLOYED = "deployed"
+    MAINTENANCE = "maintenance"
+    RETIRED = "retired"
+
+    ALL_STATUSES = {AVAILABLE, DEPLOYED, MAINTENANCE, RETIRED}
+
+
+class EquipmentCategory:
+    DEHUMIDIFIER = "dehumidifier"
+    AIR_MOVER = "air_mover"
+    MOISTURE_METER = "moisture_meter"
+    AIR_SCRUBBER = "air_scrubber"
+    GENERATOR = "generator"
+    HEATER = "heater"
+    EXTRACTOR = "extractor"
+    OTHER = "other"
+
+    ALL_CATEGORIES = {
+        DEHUMIDIFIER,
+        AIR_MOVER,
+        MOISTURE_METER,
+        AIR_SCRUBBER,
+        GENERATOR,
+        HEATER,
+        EXTRACTOR,
+        OTHER,
+    }
+
+
+@dataclass
+class Equipment:
+    id: Optional[int] = None
+    asset_tag: str = ""  # Unique identifier barcode/asset tag (e.g. "EQ-DH-001")
+    name: str = ""
+    category: str = EquipmentCategory.DEHUMIDIFIER
+    model_number: Optional[str] = None
+    serial_number: Optional[str] = None
+    status: str = EquipmentStatus.AVAILABLE
+    daily_rate: float = 0.0
+    current_project_id: Optional[int] = None
+    notes: Optional[str] = None
+    created_at: str = field(default_factory=utc_now_iso)
+    updated_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class EquipmentDeployment:
+    id: Optional[int] = None
+    equipment_id: int = 0
+    project_id: int = 0
+    work_order_id: Optional[int] = None
+    deployed_at: str = field(default_factory=utc_now_iso)
+    return_due_at: Optional[str] = None
+    returned_at: Optional[str] = None
+    deployed_by_user_id: Optional[int] = None
+    received_by_user_id: Optional[int] = None
+    condition_out: str = "good"  # new, good, fair, worn, damaged
+    condition_in: Optional[str] = None
+    initial_reading: Optional[str] = None  # e.g. "Moisture: 42% WME, RH: 75%"
+    final_reading: Optional[str] = None  # e.g. "Moisture: 11% WME, RH: 38%"
+    notes: Optional[str] = None
+    created_at: str = field(default_factory=utc_now_iso)
+    updated_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
 @dataclass
 class Project:
     id: Optional[int] = None
@@ -219,6 +481,7 @@ class Project:
     property_address: str = ""
     project_type: str = "remodel"
     status: str = "planning"  # planning, scheduled, in_progress, on_hold, completed, cancelled
+    stage: str = ProjectStage.INTAKE  # 10 canonical stages in ProjectStage
     start_date: Optional[str] = None
     expected_completion: Optional[str] = None
     actual_completion: Optional[str] = None
@@ -232,6 +495,13 @@ class Project:
     profit: float = 0.0
     notes: Optional[str] = None
     warranty_info: Optional[str] = None
+    stage_entered_at: Optional[str] = None
+    insurance_claim_number: Optional[str] = None
+    insurance_carrier: Optional[str] = None
+    adjuster_name: Optional[str] = None
+    adjuster_phone: Optional[str] = None
+    adjuster_email: Optional[str] = None
+    deductible: Optional[float] = None
     created_at: str = field(default_factory=utc_now_iso)
     updated_at: str = field(default_factory=utc_now_iso)
 

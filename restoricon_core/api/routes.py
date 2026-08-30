@@ -19,19 +19,24 @@ from ..models import (
     Contract,
     Customer,
     Document,
+    Equipment,
+    EquipmentDeployment,
     Estimate,
     Invoice,
     Lead,
     Opportunity,
     Project,
+    ProjectMilestone,
     ScheduleConfig,
     Subcontractor,
     Task,
+    WorkOrder,
 )
 from ..services.audit_service import AuditService
 from ..services.automation_service import AutomationService
 from ..services.communication_service import CommunicationService
 from ..services.crm_service import CRMService
+from ..services.operations_service import OperationsService
 from ..services.scheduling_service import SchedulingService
 
 
@@ -54,6 +59,7 @@ class APIRouter:
         audit_service: AuditService,
         scheduling_service: SchedulingService,
         automation_service: AutomationService,
+        operations_service: Optional[OperationsService] = None,
     ):
         self.auth = auth_service
         self.crm = crm_service
@@ -61,6 +67,7 @@ class APIRouter:
         self.audit = audit_service
         self.scheduling = scheduling_service
         self.automation = automation_service
+        self.operations = operations_service or OperationsService(crm_service.db, audit_service)
 
     def handle_request(
         self,
@@ -775,6 +782,220 @@ class APIRouter:
                             release_context_budget(port, reservation_token)
                         except Exception:
                             pass
+
+            # ==========================================
+            # OPERATIONS DOMAIN ENGINE (Phase B3)
+            # ==========================================
+
+            # Project Lifecycle & Summary
+            if path.startswith("/api/v1/operations/projects/") and (path.endswith("/stage") or path.endswith("/transition")) and method == "POST":
+                proj_id = int(path.split("/")[5])
+                target_stage = json_body.get("target_stage") or json_body.get("stage", "")
+                notes = json_body.get("notes")
+                reason = json_body.get("reason")
+                updated_p = self.operations.transition_project_stage(proj_id, target_stage, actor, notes=notes, reason=reason)
+                return 200, {"Content-Type": "application/json"}, {"status": "ok", "project": updated_p.to_dict()}
+
+            if path.startswith("/api/v1/operations/projects/") and path.endswith("/summary") and method == "GET":
+                proj_id = int(path.split("/")[5])
+                summary = self.operations.get_project_summary(proj_id, actor)
+                return 200, {"Content-Type": "application/json"}, summary
+
+            # Project Milestones
+            if path.startswith("/api/v1/operations/projects/") and path.endswith("/milestones"):
+                proj_id = int(path.split("/")[5])
+                if method == "GET":
+                    milestones = self.operations.list_milestones(proj_id, actor)
+                    return 200, {"Content-Type": "application/json"}, {"milestones": [m.to_dict() for m in milestones]}
+                elif method == "POST":
+                    m_data = dict(json_body)
+                    m_data["project_id"] = proj_id
+                    milestone = ProjectMilestone(**m_data)
+                    created_m = self.operations.create_milestone(milestone, actor)
+                    return 201, {"Content-Type": "application/json"}, {"status": "created", "milestone": created_m.to_dict()}
+
+            if path.startswith("/api/v1/operations/projects/") and path.endswith("/equipment") and method == "GET":
+                proj_id = int(path.split("/")[5])
+                active_only = query_params.get("active_only", ["false"])[0].lower() in ("true", "1")
+                deps = self.operations.list_project_deployments(proj_id, actor, active_only=active_only)
+                return 200, {"Content-Type": "application/json"}, {"deployments": [d.to_dict() for d in deps]}
+
+            if path.startswith("/api/v1/operations/milestones/"):
+                sub_path = path[len("/api/v1/operations/milestones/"):]
+                if "/" not in sub_path:
+                    mid = int(sub_path)
+                    if method == "GET":
+                        m = self.operations.get_milestone(mid, actor)
+                        if not m:
+                            return 404, {"Content-Type": "application/json"}, {"error": "Milestone not found"}
+                        return 200, {"Content-Type": "application/json"}, {"milestone": m.to_dict()}
+                    elif method in ("PATCH", "POST"):
+                        status = json_body.get("status")
+                        notes = json_body.get("notes")
+                        if status:
+                            updated_m = self.operations.update_milestone_status(mid, status, actor, notes=notes)
+                        else:
+                            m = self.operations.get_milestone(mid, actor)
+                            if not m:
+                                return 404, {"Content-Type": "application/json"}, {"error": "Milestone not found"}
+                            for k, v in json_body.items():
+                                if hasattr(m, k):
+                                    setattr(m, k, v)
+                            updated_m = self.operations.update_milestone(m, actor)
+                        return 200, {"Content-Type": "application/json"}, {"status": "ok", "milestone": updated_m.to_dict()}
+                elif sub_path.endswith("/status") and method == "POST":
+                    mid = int(sub_path.split("/")[0])
+                    status = json_body.get("status", "")
+                    notes = json_body.get("notes")
+                    updated_m = self.operations.update_milestone_status(mid, status, actor, notes=notes)
+                    return 200, {"Content-Type": "application/json"}, {"status": "ok", "milestone": updated_m.to_dict()}
+
+            # Work Orders
+            if path == "/api/v1/operations/work-orders":
+                if method == "GET":
+                    pid = query_params.get("project_id", [None])[0]
+                    proj_id = int(pid) if pid else None
+                    trade = query_params.get("trade", [None])[0]
+                    status = query_params.get("status", [None])[0]
+                    sid = query_params.get("subcontractor_id", [None])[0]
+                    sub_id = int(sid) if sid else None
+                    wos = self.operations.list_work_orders(
+                        actor, project_id=proj_id, trade=trade, status=status, subcontractor_id=sub_id
+                    )
+                    return 200, {"Content-Type": "application/json"}, {"work_orders": [wo.to_dict() for wo in wos]}
+                elif method == "POST":
+                    wo = WorkOrder(**json_body)
+                    created_wo = self.operations.create_work_order(wo, actor)
+                    return 201, {"Content-Type": "application/json"}, {"status": "created", "work_order": created_wo.to_dict()}
+
+            if path.startswith("/api/v1/operations/work-orders/") and path.endswith("/dispatch") and method == "POST":
+                wo_id = int(path.split("/")[5])
+                sub_id = int(json_body.get("subcontractor_id", 0))
+                start = json_body.get("scheduled_start")
+                end = json_body.get("scheduled_end")
+                inst = json_body.get("instructions")
+                override = bool(json_body.get("override_compliance", False))
+                dispatched = self.operations.dispatch_work_order(
+                    wo_id, sub_id, actor, scheduled_start=start, scheduled_end=end, instructions=inst, override_compliance=override
+                )
+                return 200, {"Content-Type": "application/json"}, {"status": "dispatched", "work_order": dispatched.to_dict()}
+
+            if path.startswith("/api/v1/operations/work-orders/") and path.endswith("/accept") and method == "POST":
+                wo_id = int(path.split("/")[5])
+                notes = json_body.get("notes")
+                accepted = self.operations.accept_work_order(wo_id, actor, notes=notes)
+                return 200, {"Content-Type": "application/json"}, {"status": "accepted", "work_order": accepted.to_dict()}
+
+            if path.startswith("/api/v1/operations/work-orders/") and path.endswith("/complete") and method == "POST":
+                wo_id = int(path.split("/")[5])
+                actual_end = json_body.get("actual_end")
+                notes = json_body.get("notes")
+                completed = self.operations.complete_work_order(wo_id, actor, actual_end=actual_end, notes=notes)
+                return 200, {"Content-Type": "application/json"}, {"status": "completed", "work_order": completed.to_dict()}
+
+            if path.startswith("/api/v1/operations/work-orders/") and path.endswith("/verify") and method == "POST":
+                wo_id = int(path.split("/")[5])
+                notes = json_body.get("notes")
+                verified = self.operations.verify_work_order(wo_id, actor, notes=notes)
+                return 200, {"Content-Type": "application/json"}, {"status": "verified", "work_order": verified.to_dict()}
+
+            if path.startswith("/api/v1/operations/work-orders/") and path.endswith("/status") and method == "POST":
+                wo_id = int(path.split("/")[5])
+                status = json_body.get("status", "")
+                start = json_body.get("actual_start")
+                end = json_body.get("actual_end")
+                notes = json_body.get("notes")
+                updated_wo = self.operations.update_work_order_execution_status(
+                    wo_id, status, actor, actual_start=start, actual_end=end, notes=notes
+                )
+                return 200, {"Content-Type": "application/json"}, {"status": "ok", "work_order": updated_wo.to_dict()}
+
+            if path.startswith("/api/v1/operations/work-orders/") and "/" not in path[len("/api/v1/operations/work-orders/"):]:
+                wo_id = int(path[len("/api/v1/operations/work-orders/"):])
+                if method == "GET":
+                    wo = self.operations.get_work_order(wo_id, actor)
+                    if not wo:
+                        return 404, {"Content-Type": "application/json"}, {"error": "Work order not found"}
+                    return 200, {"Content-Type": "application/json"}, {"work_order": wo.to_dict()}
+                elif method in ("PATCH", "POST", "PUT"):
+                    existing_wo = self.operations.get_work_order(wo_id, actor)
+                    if not existing_wo:
+                        return 404, {"Content-Type": "application/json"}, {"error": "Work order not found"}
+                    for k, v in json_body.items():
+                        if hasattr(existing_wo, k):
+                            setattr(existing_wo, k, v)
+                    updated_wo = self.operations.update_work_order(existing_wo, actor)
+                    return 200, {"Content-Type": "application/json"}, {"status": "ok", "work_order": updated_wo.to_dict()}
+
+            # Subcontractor Matching
+            if path == "/api/v1/operations/subcontractors/match" and method == "GET":
+                trade = query_params.get("trade", [""])[0]
+                if not trade:
+                    return 400, {"Content-Type": "application/json"}, {"error": "Missing required query parameter: trade"}
+                req_date = query_params.get("date", query_params.get("required_date", [None]))[0]
+                area = query_params.get("service_area", [None])[0]
+                req_ins = query_params.get("require_active_insurance", ["true"])[0].lower() in ("true", "1")
+                matches = self.operations.match_subcontractors_for_trade(
+                    trade, actor, required_date=req_date, service_area=area, require_active_insurance=req_ins
+                )
+                return 200, {"Content-Type": "application/json"}, {"matches": matches}
+
+            # Equipment & Resource Tracking
+            if path == "/api/v1/operations/equipment":
+                if method == "GET":
+                    cat = query_params.get("category", [None])[0]
+                    st = query_params.get("status", [None])[0]
+                    pid = query_params.get("project_id", [None])[0]
+                    proj_id = int(pid) if pid else None
+                    eq_list = self.operations.list_equipment(actor, category=cat, status=st, project_id=proj_id)
+                    return 200, {"Content-Type": "application/json"}, {"equipment": [e.to_dict() for e in eq_list]}
+                elif method == "POST":
+                    eq = Equipment(**json_body)
+                    created_eq = self.operations.create_equipment(eq, actor)
+                    return 201, {"Content-Type": "application/json"}, {"status": "created", "equipment": created_eq.to_dict()}
+
+            if path == "/api/v1/operations/equipment/deploy" and method == "POST":
+                eq_id = int(json_body.get("equipment_id", 0))
+                proj_id = int(json_body.get("project_id", 0))
+                wo_id = int(json_body.get("work_order_id")) if json_body.get("work_order_id") else None
+                return_due = json_body.get("return_due_at")
+                initial_reading = json_body.get("initial_reading")
+                condition_out = json_body.get("condition_out", "good")
+                notes = json_body.get("notes")
+                dep = self.operations.deploy_equipment(
+                    eq_id,
+                    proj_id,
+                    actor,
+                    work_order_id=wo_id,
+                    return_due_at=return_due,
+                    initial_reading=initial_reading,
+                    condition_out=condition_out,
+                    notes=notes,
+                )
+                return 200, {"Content-Type": "application/json"}, {"status": "deployed", "deployment": dep.to_dict()}
+
+            if path == "/api/v1/operations/equipment/return" and method == "POST":
+                dep_id = int(json_body.get("deployment_id", 0))
+                final_reading = json_body.get("final_reading")
+                condition_in = json_body.get("condition_in", "good")
+                mark_maint = bool(json_body.get("mark_for_maintenance", False))
+                notes = json_body.get("notes")
+                dep = self.operations.return_equipment(
+                    dep_id,
+                    actor,
+                    final_reading=final_reading,
+                    condition_in=condition_in,
+                    mark_for_maintenance=mark_maint,
+                    notes=notes,
+                )
+                return 200, {"Content-Type": "application/json"}, {"status": "returned", "deployment": dep.to_dict()}
+
+            if path.startswith("/api/v1/operations/equipment/") and path[len("/api/v1/operations/equipment/"):].isdigit() and method == "GET":
+                eq_id = int(path[len("/api/v1/operations/equipment/"):])
+                eq = self.operations.get_equipment(eq_id, actor)
+                if not eq:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Equipment not found"}
+                return 200, {"Content-Type": "application/json"}, {"equipment": eq.to_dict()}
 
             return 404, {"Content-Type": "application/json"}, {"error": f"Endpoint not found: {method} {path}"}
 

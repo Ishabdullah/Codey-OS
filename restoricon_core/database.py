@@ -167,6 +167,7 @@ CREATE TABLE IF NOT EXISTS projects (
     property_address TEXT NOT NULL,
     project_type TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'planning' CHECK(status IN ('planning', 'scheduled', 'in_progress', 'on_hold', 'completed', 'cancelled')),
+    stage TEXT NOT NULL DEFAULT 'intake',
     start_date TEXT,
     expected_completion TEXT,
     actual_completion TEXT,
@@ -180,6 +181,13 @@ CREATE TABLE IF NOT EXISTS projects (
     profit REAL NOT NULL DEFAULT 0.0,
     notes TEXT,
     warranty_info TEXT,
+    stage_entered_at TEXT,
+    insurance_claim_number TEXT,
+    insurance_carrier TEXT,
+    adjuster_name TEXT,
+    adjuster_phone TEXT,
+    adjuster_email TEXT,
+    deductible REAL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT,
@@ -525,6 +533,92 @@ CREATE TABLE IF NOT EXISTS contacts (
     updated_at TEXT NOT NULL
 );
 
+-- Project Milestones Table (Track B Phase B3 Operations Domain Engine)
+CREATE TABLE IF NOT EXISTS project_milestones (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    stage TEXT NOT NULL,
+    target_date TEXT,
+    completion_date TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'in_progress', 'completed', 'blocked')),
+    dependencies_json TEXT NOT NULL DEFAULT '[]',
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+
+-- Work Orders Table (Track B Phase B3 Operations Domain Engine)
+CREATE TABLE IF NOT EXISTS work_orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    work_order_number TEXT UNIQUE NOT NULL,
+    title TEXT NOT NULL,
+    project_id INTEGER NOT NULL,
+    trade TEXT NOT NULL,
+    assigned_subcontractor_id INTEGER,
+    assigned_crew_lead TEXT,
+    scheduled_start TEXT,
+    scheduled_end TEXT,
+    actual_start TEXT,
+    actual_end TEXT,
+    status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'dispatched', 'accepted', 'in_progress', 'completed', 'verified', 'cancelled')),
+    line_items_json TEXT NOT NULL DEFAULT '[]',
+    total_cost REAL NOT NULL DEFAULT 0.0,
+    instructions TEXT,
+    notes TEXT,
+    dispatched_at TEXT,
+    accepted_at TEXT,
+    completed_at TEXT,
+    verified_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE RESTRICT,
+    FOREIGN KEY (assigned_subcontractor_id) REFERENCES subcontractors(id) ON DELETE SET NULL
+);
+
+-- Equipment Inventory Table (Track B Phase B3 Operations Domain Engine)
+CREATE TABLE IF NOT EXISTS equipment (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    asset_tag TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL,
+    category TEXT NOT NULL CHECK(category IN ('dehumidifier', 'air_mover', 'moisture_meter', 'air_scrubber', 'generator', 'heater', 'extractor', 'other')),
+    model_number TEXT,
+    serial_number TEXT,
+    status TEXT NOT NULL DEFAULT 'available' CHECK(status IN ('available', 'deployed', 'maintenance', 'retired')),
+    daily_rate REAL NOT NULL DEFAULT 0.0,
+    current_project_id INTEGER,
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (current_project_id) REFERENCES projects(id) ON DELETE SET NULL
+);
+
+-- Equipment Deployments Table (Track B Phase B3 Operations Domain Engine)
+CREATE TABLE IF NOT EXISTS equipment_deployments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    equipment_id INTEGER NOT NULL,
+    project_id INTEGER NOT NULL,
+    work_order_id INTEGER,
+    deployed_at TEXT NOT NULL,
+    return_due_at TEXT,
+    returned_at TEXT,
+    deployed_by_user_id INTEGER,
+    received_by_user_id INTEGER,
+    condition_out TEXT NOT NULL DEFAULT 'good',
+    condition_in TEXT,
+    initial_reading TEXT,
+    final_reading TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (equipment_id) REFERENCES equipment(id) ON DELETE RESTRICT,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    FOREIGN KEY (work_order_id) REFERENCES work_orders(id) ON DELETE SET NULL,
+    FOREIGN KEY (deployed_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
+    FOREIGN KEY (received_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
 -- Indexing for performance
 -- NOTE: the unique indexes for customers.external_id / leads.external_id /
 -- contacts.external_id / communication_history.provider_message_id are
@@ -545,6 +639,7 @@ CREATE INDEX IF NOT EXISTS idx_opportunities_customer_id ON opportunities(custom
 CREATE INDEX IF NOT EXISTS idx_opportunities_stage ON opportunities(pipeline_stage);
 CREATE INDEX IF NOT EXISTS idx_projects_customer_id ON projects(customer_id);
 CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
+CREATE INDEX IF NOT EXISTS idx_projects_stage ON projects(stage);
 CREATE INDEX IF NOT EXISTS idx_estimates_customer_id ON estimates(customer_id);
 CREATE INDEX IF NOT EXISTS idx_estimates_number ON estimates(estimate_number);
 CREATE INDEX IF NOT EXISTS idx_contracts_customer_id ON contracts(customer_id);
@@ -570,6 +665,20 @@ CREATE INDEX IF NOT EXISTS idx_tasks_customer_id ON tasks(customer_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_opportunity_id ON tasks(opportunity_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_lead_id ON tasks(lead_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_assigned_user_id ON tasks(assigned_user_id);
+CREATE INDEX IF NOT EXISTS idx_milestones_project_id ON project_milestones(project_id);
+CREATE INDEX IF NOT EXISTS idx_milestones_status ON project_milestones(status);
+CREATE INDEX IF NOT EXISTS idx_milestones_stage ON project_milestones(stage);
+CREATE INDEX IF NOT EXISTS idx_work_orders_project_id ON work_orders(project_id);
+CREATE INDEX IF NOT EXISTS idx_work_orders_subcontractor_id ON work_orders(assigned_subcontractor_id);
+CREATE INDEX IF NOT EXISTS idx_work_orders_status ON work_orders(status);
+CREATE INDEX IF NOT EXISTS idx_work_orders_trade ON work_orders(trade);
+CREATE INDEX IF NOT EXISTS idx_equipment_asset_tag ON equipment(asset_tag);
+CREATE INDEX IF NOT EXISTS idx_equipment_category ON equipment(category);
+CREATE INDEX IF NOT EXISTS idx_equipment_status ON equipment(status);
+CREATE INDEX IF NOT EXISTS idx_equipment_current_project ON equipment(current_project_id);
+CREATE INDEX IF NOT EXISTS idx_deployments_equipment_id ON equipment_deployments(equipment_id);
+CREATE INDEX IF NOT EXISTS idx_deployments_project_id ON equipment_deployments(project_id);
+CREATE INDEX IF NOT EXISTS idx_deployments_work_order_id ON equipment_deployments(work_order_id);
 """
 
 _local = threading.local()
@@ -666,6 +775,15 @@ class DatabaseManager:
                 "provider_message_id",
                 "ALTER TABLE communication_history ADD COLUMN provider_message_id TEXT;",
             ),
+            ("projects", "stage", "ALTER TABLE projects ADD COLUMN stage TEXT NOT NULL DEFAULT 'intake';"),
+            ("projects", "stage_entered_at", "ALTER TABLE projects ADD COLUMN stage_entered_at TEXT;"),
+            ("projects", "insurance_claim_number", "ALTER TABLE projects ADD COLUMN insurance_claim_number TEXT;"),
+            ("projects", "insurance_carrier", "ALTER TABLE projects ADD COLUMN insurance_carrier TEXT;"),
+            ("projects", "adjuster_name", "ALTER TABLE projects ADD COLUMN adjuster_name TEXT;"),
+            ("projects", "adjuster_phone", "ALTER TABLE projects ADD COLUMN adjuster_phone TEXT;"),
+            ("projects", "adjuster_email", "ALTER TABLE projects ADD COLUMN adjuster_email TEXT;"),
+            ("projects", "deductible", "ALTER TABLE projects ADD COLUMN deductible REAL;"),
+            ("equipment", "current_project_id", "ALTER TABLE equipment ADD COLUMN current_project_id INTEGER;"),
         )
         with conn:
             for table, column, ddl in migrations:

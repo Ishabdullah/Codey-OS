@@ -133,6 +133,12 @@ PERM_WRITE_CRM = "write:crm"
 PERM_MANAGE_PIPELINE = "manage:pipeline"
 PERM_SCORE_LEADS = "score:leads"
 
+# Operations Domain permissions (Track B Phase B3)
+PERM_READ_OPERATIONS = "read:operations"
+PERM_WRITE_OPERATIONS = "write:operations"
+PERM_MANAGE_PROJECTS = "manage:projects"
+PERM_DISPATCH_WORK_ORDERS = "dispatch:work_orders"
+
 # Role permissions matrix
 ROLE_PERMISSIONS: Dict[str, Set[str]] = {
     ROLE_ADMIN: {
@@ -175,6 +181,10 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_DNC,
         PERM_READ_CONTACTS,
         PERM_WRITE_CONTACTS,
+        PERM_READ_OPERATIONS,
+        PERM_WRITE_OPERATIONS,
+        PERM_MANAGE_PROJECTS,
+        PERM_DISPATCH_WORK_ORDERS,
     },
     ROLE_MANAGER: {
         PERM_READ_ALL_CUSTOMERS,
@@ -215,6 +225,10 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_DNC,
         PERM_READ_CONTACTS,
         PERM_WRITE_CONTACTS,
+        PERM_READ_OPERATIONS,
+        PERM_WRITE_OPERATIONS,
+        PERM_MANAGE_PROJECTS,
+        PERM_DISPATCH_WORK_ORDERS,
     },
     ROLE_SALES: {
         PERM_READ_ALL_CUSTOMERS,
@@ -244,6 +258,7 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_READ_DNC,
         PERM_READ_CONTACTS,
         PERM_WRITE_CONTACTS,
+        PERM_READ_OPERATIONS,
     },
     ROLE_PROJECT_MANAGER: {
         PERM_READ_ALL_CUSTOMERS,
@@ -268,12 +283,18 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_READ_DNC,
         PERM_READ_CONTACTS,
         PERM_WRITE_CONTACTS,
+        PERM_READ_OPERATIONS,
+        PERM_WRITE_OPERATIONS,
+        PERM_MANAGE_PROJECTS,
+        PERM_DISPATCH_WORK_ORDERS,
     },
     ROLE_TECHNICIAN: {
         PERM_READ_ASSIGNED_PROJECTS,
         PERM_READ_DOCUMENTS,
         PERM_WRITE_DOCUMENTS,
         PERM_LOG_COMMUNICATION,
+        PERM_READ_OPERATIONS,
+        PERM_WRITE_OPERATIONS,
     },
     ROLE_AI_AGENT: {
         PERM_READ_ALL_CUSTOMERS,
@@ -312,6 +333,10 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_DNC,
         PERM_READ_CONTACTS,
         PERM_WRITE_CONTACTS,
+        PERM_READ_OPERATIONS,
+        PERM_WRITE_OPERATIONS,
+        PERM_MANAGE_PROJECTS,
+        PERM_DISPATCH_WORK_ORDERS,
     },
     ROLE_CUSTOMER: {
         PERM_READ_OWN_CUSTOMER,

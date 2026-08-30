@@ -19,6 +19,7 @@ from ..services.audit_service import AuditService
 from ..services.automation_service import AutomationService
 from ..services.communication_service import CommunicationService
 from ..services.crm_service import CRMService
+from ..services.operations_service import OperationsService
 from ..services.scheduling_service import SchedulingService
 from .routes import APIRouter
 
@@ -88,9 +89,9 @@ class RestoriconAPIServer:
         self.crm_service = CRMService(self.db, self.audit_service)
         self.scheduling_service = SchedulingService(self.db, self.audit_service)
         self.automation_service = AutomationService(self.db, self.audit_service)
+        self.operations_service = OperationsService(self.db, self.audit_service)
 
-        # RBAC for these two services (and CRMService's subcontractor
-        # methods) is enforced in the service layer, not here -- see
+        # RBAC for these services is enforced in the service layer, not here -- see
         # APIRouter's own class docstring.
         self.router = APIRouter(
             auth_service=self.auth_service,
@@ -99,6 +100,7 @@ class RestoriconAPIServer:
             audit_service=self.audit_service,
             scheduling_service=self.scheduling_service,
             automation_service=self.automation_service,
+            operations_service=self.operations_service,
         )
 
         class CustomHandler(RestoriconRequestHandler):

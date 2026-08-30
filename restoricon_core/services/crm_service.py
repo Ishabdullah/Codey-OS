@@ -54,6 +54,7 @@ from ..models import (
     Opportunity,
     PipelineStage,
     Project,
+    ProjectStage,
     STAGE_DEFAULT_PROBABILITIES,
     STAGE_ORDER,
     Subcontractor,
@@ -1479,6 +1480,45 @@ class CRMService:
     # PROJECTS / JOBS
     # ==========================================
 
+    @staticmethod
+    def _row_to_project(row: Any, actor_role: str = "") -> Project:
+        keys = row.keys() if hasattr(row, "keys") else []
+        assigned_employees = json.loads(row["assigned_employees_json"]) if "assigned_employees_json" in keys and row["assigned_employees_json"] else []
+        subcontractors = json.loads(row["subcontractors_json"]) if "subcontractors_json" in keys and row["subcontractors_json"] else []
+        is_customer = actor_role == ROLE_CUSTOMER
+
+        return Project(
+            id=row["id"],
+            customer_id=row["customer_id"],
+            title=row["title"],
+            property_address=row["property_address"],
+            project_type=row["project_type"],
+            status=row["status"],
+            stage=ProjectStage.normalize(row["stage"]) if "stage" in keys and row["stage"] else ProjectStage.INTAKE,
+            start_date=row["start_date"] if "start_date" in keys else None,
+            expected_completion=row["expected_completion"] if "expected_completion" in keys else None,
+            actual_completion=row["actual_completion"] if "actual_completion" in keys else None,
+            project_manager_id=row["project_manager_id"] if "project_manager_id" in keys else None,
+            assigned_employees=assigned_employees,
+            subcontractors=subcontractors if not is_customer else [],
+            scope_of_work=row["scope_of_work"] if "scope_of_work" in keys else None,
+            estimated_cost=row["estimated_cost"] if "estimated_cost" in keys and not is_customer else 0.0,
+            contract_amount=row["contract_amount"] if "contract_amount" in keys else 0.0,
+            actual_cost=row["actual_cost"] if "actual_cost" in keys and not is_customer else 0.0,
+            profit=row["profit"] if "profit" in keys and not is_customer else 0.0,
+            notes=row["notes"] if "notes" in keys and not is_customer else None,
+            warranty_info=row["warranty_info"] if "warranty_info" in keys else None,
+            stage_entered_at=row["stage_entered_at"] if "stage_entered_at" in keys else None,
+            insurance_claim_number=row["insurance_claim_number"] if "insurance_claim_number" in keys else None,
+            insurance_carrier=row["insurance_carrier"] if "insurance_carrier" in keys else None,
+            adjuster_name=row["adjuster_name"] if "adjuster_name" in keys else None,
+            adjuster_phone=row["adjuster_phone"] if "adjuster_phone" in keys else None,
+            adjuster_email=row["adjuster_email"] if "adjuster_email" in keys else None,
+            deductible=row["deductible"] if "deductible" in keys else None,
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
     def create_project(self, project: Project, actor: AuthContext) -> Project:
         if not actor.has_permission(PERM_WRITE_PROJECTS):
             raise PermissionError("Actor lacks permission to create projects")
@@ -1495,11 +1535,13 @@ class CRMService:
                 """
                 INSERT INTO projects (
                     customer_id, title, property_address, project_type, status,
-                    start_date, expected_completion, actual_completion,
+                    stage, start_date, expected_completion, actual_completion,
                     project_manager_id, assigned_employees_json, subcontractors_json,
                     scope_of_work, estimated_cost, contract_amount, actual_cost,
-                    profit, notes, warranty_info, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                    profit, notes, warranty_info, stage_entered_at,
+                    insurance_claim_number, insurance_carrier, adjuster_name,
+                    adjuster_phone, adjuster_email, deductible, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
                 (
                     project.customer_id,
@@ -1507,6 +1549,7 @@ class CRMService:
                     project.property_address.strip(),
                     project.project_type,
                     project.status,
+                    ProjectStage.normalize(project.stage),
                     project.start_date,
                     project.expected_completion,
                     project.actual_completion,
@@ -1520,6 +1563,13 @@ class CRMService:
                     project.profit,
                     project.notes,
                     project.warranty_info,
+                    project.stage_entered_at or now,
+                    project.insurance_claim_number,
+                    project.insurance_carrier,
+                    project.adjuster_name,
+                    project.adjuster_phone,
+                    project.adjuster_email,
+                    project.deductible,
                     now,
                     now,
                 ),
@@ -1555,35 +1605,12 @@ class CRMService:
                 raise PermissionError("Customer cannot view other customers' projects")
 
         assigned_employees = json.loads(row["assigned_employees_json"]) if row["assigned_employees_json"] else []
-        subcontractors = json.loads(row["subcontractors_json"]) if row["subcontractors_json"] else []
 
         # Technician assigned check
         if actor.role == ROLE_TECHNICIAN and actor.user_id not in assigned_employees:
             raise PermissionError("Technician can only view assigned projects")
 
-        return Project(
-            id=row["id"],
-            customer_id=row["customer_id"],
-            title=row["title"],
-            property_address=row["property_address"],
-            project_type=row["project_type"],
-            status=row["status"],
-            start_date=row["start_date"],
-            expected_completion=row["expected_completion"],
-            actual_completion=row["actual_completion"],
-            project_manager_id=row["project_manager_id"],
-            assigned_employees=assigned_employees,
-            subcontractors=subcontractors if actor.role != ROLE_CUSTOMER else [],
-            scope_of_work=row["scope_of_work"],
-            estimated_cost=row["estimated_cost"] if actor.role != ROLE_CUSTOMER else 0.0,
-            contract_amount=row["contract_amount"],
-            actual_cost=row["actual_cost"] if actor.role != ROLE_CUSTOMER else 0.0,
-            profit=row["profit"] if actor.role != ROLE_CUSTOMER else 0.0,
-            notes=row["notes"] if actor.role != ROLE_CUSTOMER else None,
-            warranty_info=row["warranty_info"],
-            created_at=row["created_at"],
-            updated_at=row["updated_at"],
-        )
+        return self._row_to_project(row, actor.role)
 
     def list_projects(self, actor: AuthContext, customer_id: Optional[int] = None) -> List[Project]:
         if not (
@@ -1617,31 +1644,7 @@ class CRMService:
             if actor.role == ROLE_TECHNICIAN and actor.user_id not in assigned:
                 continue
 
-            results.append(
-                Project(
-                    id=r["id"],
-                    customer_id=r["customer_id"],
-                    title=r["title"],
-                    property_address=r["property_address"],
-                    project_type=r["project_type"],
-                    status=r["status"],
-                    start_date=r["start_date"],
-                    expected_completion=r["expected_completion"],
-                    actual_completion=r["actual_completion"],
-                    project_manager_id=r["project_manager_id"],
-                    assigned_employees=assigned,
-                    subcontractors=json.loads(r["subcontractors_json"]) if actor.role != ROLE_CUSTOMER and r["subcontractors_json"] else [],
-                    scope_of_work=r["scope_of_work"],
-                    estimated_cost=r["estimated_cost"] if actor.role != ROLE_CUSTOMER else 0.0,
-                    contract_amount=r["contract_amount"],
-                    actual_cost=r["actual_cost"] if actor.role != ROLE_CUSTOMER else 0.0,
-                    profit=r["profit"] if actor.role != ROLE_CUSTOMER else 0.0,
-                    notes=r["notes"] if actor.role != ROLE_CUSTOMER else None,
-                    warranty_info=r["warranty_info"],
-                    created_at=r["created_at"],
-                    updated_at=r["updated_at"],
-                )
-            )
+            results.append(self._row_to_project(r, actor.role))
         return results
 
     # ==========================================
