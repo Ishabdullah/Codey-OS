@@ -12,6 +12,23 @@ and Appendix A.
 
 ---
 
+## 2026-08-30 — Track B / Phase B2: Final Write-Through Cutover & NEW-215 Resolution (100% B2 Complete)
+
+- **Status**: Code-reviewer approved, test verified across full suites (`226/226 passed` in `Codey-Aigentik`, `1069/1069 passed` in `Codey-OS`).
+- **Restoricon Core Contacts Directory (NEW-215) (`restoricon_core/database.py`, `models.py`, `auth.py`, `crm_service.py`, `routes.py`)**:
+  - Added dedicated `contacts` table (31 unified columns, unique `external_id` index, performance indexes) to canonically store phonebook and Android sync records without polluting CRM customer data.
+  - Added `Contact` dataclass and RBAC permissions (`PERM_READ_CONTACTS`, `PERM_WRITE_CONTACTS`) granted to `admin`, `manager`, `sales`, `project_manager`, `ai_agent` (and denied to `technician`, `customer`).
+  - Implemented CRUD, fuzzy multi-field search (`find_contact`), trade filtering, and batch sync (`sync_contacts_batch`) in `CRMService`.
+  - Added REST endpoints under `/api/v1/contacts*` (list, find, upsert, update, delete, batch sync).
+- **Codey-Aigentik Complete Cutover (`Codey-Aigentik/contacts.js`, `contacts-sync.js`, `queue.js`)**:
+  - Replaced all local `contacts.json` filesystem writes with Core API write-through (`coreRequest`).
+  - Updated all call sites in `index.js`, `owner-command.js`, `subcontractor-recruiter.js`, `role-router.js` to async.
+  - Cut over `contacts-sync.js` to POST Android phonebook batches to `/api/v1/contacts/sync`.
+  - Configured sandboxed queue file path in `queue.js` for clean test isolation.
+- **Phase B2 Completion**: All 10 of 10 write-site modules are now cut over with zero local JSON dependencies. Marked Phase B2 as 100% complete in `CODEY_MASTER_PLAN.md` and closed `[NEW-215]`.
+
+---
+
 ## 2026-08-30 — Track A / Phase A2 Item 9.2: Multi-Process Resource Bus & External Process Supervision
 
 - **Status**: Code-reviewer approved, test verified (`1063 passed, 1 skipped` in `Codey-OS`).

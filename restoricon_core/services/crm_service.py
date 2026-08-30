@@ -33,11 +33,14 @@ from ..auth import (
     PERM_WRITE_FINANCIALS,
     PERM_READ_SUBCONTRACTORS,
     PERM_WRITE_SUBCONTRACTORS,
+    PERM_READ_CONTACTS,
+    PERM_WRITE_CONTACTS,
     ROLE_CUSTOMER,
     ROLE_TECHNICIAN,
 )
 from ..database import DatabaseManager
 from ..models import (
+    Contact,
     Contract,
     Customer,
     Document,
@@ -1649,3 +1652,518 @@ class CRMService:
             details=updated_sub.to_dict(),
         )
         return updated_sub
+
+    # ==========================================
+    # CONTACTS (Aigentik Memory System)
+    # ==========================================
+
+    @staticmethod
+    def _row_to_contact(row) -> Contact:
+        aliases = json.loads(row["aliases_json"]) if row["aliases_json"] else []
+        phones = json.loads(row["phones_json"]) if row["phones_json"] else []
+        emails = json.loads(row["emails_json"]) if row["emails_json"] else []
+        roles = json.loads(row["roles_json"]) if row["roles_json"] else []
+        references = json.loads(row["references_json"]) if row["references_json"] else []
+        history = json.loads(row["history_json"]) if row["history_json"] else []
+        return Contact(
+            id=row["id"],
+            external_id=row["external_id"],
+            name=row["name"],
+            aliases=aliases,
+            phones=phones,
+            emails=emails,
+            address=row["address"],
+            relationship=row["relationship"],
+            type=row["type"],
+            notes=row["notes"],
+            instructions=row["instructions"],
+            reply_behavior=row["reply_behavior"],
+            roles=roles,
+            active_role=row["active_role"],
+            business_name=row["business_name"],
+            trade=row["trade"],
+            trade_raw=row["trade_raw"],
+            licensed=row["licensed"],
+            license_number=row["license_number"],
+            gl_insurance=row["gl_insurance"],
+            wc_insurance=row["wc_insurance"],
+            has_tools=row["has_tools"],
+            crew_size=row["crew_size"],
+            weekly_capacity=row["weekly_capacity"],
+            references=references,
+            source=row["source"],
+            first_seen=row["first_seen"],
+            last_contact=row["last_contact"],
+            contact_count=row["contact_count"],
+            history=history,
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    def create_contact(self, contact: Contact, actor: AuthContext) -> Contact:
+        if not actor.has_permission(PERM_WRITE_CONTACTS):
+            raise PermissionError("Actor lacks permission to create contacts")
+
+        now = utc_now_iso()
+        contact.created_at = contact.created_at or now
+        contact.updated_at = now
+        if not contact.first_seen:
+            contact.first_seen = now
+
+        aliases_json = json.dumps(contact.aliases)
+        phones_json = json.dumps(contact.phones)
+        emails_json = json.dumps(contact.emails)
+        roles_json = json.dumps(contact.roles)
+        references_json = json.dumps(contact.references)
+        history_json = json.dumps(contact.history)
+
+        conn = self.db.get_connection()
+        with conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO contacts (
+                    external_id, name, aliases_json, phones_json, emails_json,
+                    address, relationship, type, notes, instructions,
+                    reply_behavior, roles_json, active_role, business_name,
+                    trade, trade_raw, licensed, license_number, gl_insurance,
+                    wc_insurance, has_tools, crew_size, weekly_capacity,
+                    references_json, source, first_seen, last_contact,
+                    contact_count, history_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+                (
+                    contact.external_id,
+                    contact.name.strip() if contact.name else None,
+                    aliases_json,
+                    phones_json,
+                    emails_json,
+                    contact.address,
+                    contact.relationship,
+                    contact.type,
+                    contact.notes,
+                    contact.instructions,
+                    contact.reply_behavior,
+                    roles_json,
+                    contact.active_role,
+                    contact.business_name,
+                    contact.trade,
+                    contact.trade_raw,
+                    contact.licensed,
+                    contact.license_number,
+                    contact.gl_insurance,
+                    contact.wc_insurance,
+                    contact.has_tools,
+                    contact.crew_size,
+                    contact.weekly_capacity,
+                    references_json,
+                    contact.source,
+                    contact.first_seen,
+                    contact.last_contact,
+                    contact.contact_count,
+                    history_json,
+                    contact.created_at,
+                    now,
+                ),
+            )
+            contact.id = cursor.lastrowid
+
+        self.audit.log(
+            action="create",
+            entity_type="contact",
+            entity_id=contact.id,
+            change_summary=f"Created contact {contact.name or contact.external_id or contact.id}",
+            actor=actor,
+            details=contact.to_dict(),
+        )
+        return contact
+
+    def get_contact(self, contact_id: int, actor: AuthContext) -> Optional[Contact]:
+        if not actor.has_permission(PERM_READ_CONTACTS):
+            raise PermissionError("Actor lacks permission to view contacts")
+
+        conn = self.db.get_connection()
+        row = conn.execute("SELECT * FROM contacts WHERE id = ?;", (contact_id,)).fetchone()
+        if not row:
+            return None
+        return self._row_to_contact(row)
+
+    def get_contact_by_external_id(self, external_id: str, actor: AuthContext) -> Optional[Contact]:
+        if not actor.has_permission(PERM_READ_CONTACTS):
+            raise PermissionError("Actor lacks permission to view contacts")
+
+        conn = self.db.get_connection()
+        row = conn.execute(
+            "SELECT * FROM contacts WHERE external_id = ?;", (external_id,)
+        ).fetchone()
+        if not row:
+            return None
+        return self._row_to_contact(row)
+
+    def find_contact(self, query: str, actor: AuthContext) -> Optional[Contact]:
+        """Fuzzy lookup for contacts matching findContact() in JS.
+        Checks: external_id exact match -> phones normalized digit substring match (>=7 digits) ->
+        emails exact lowercase match -> name exact/substring match -> aliases exact/substring match ->
+        relationship exact lowercase match -> business_name substring match -> address substring match.
+        Returns first matching contact ordered by id ASC."""
+        if not actor.has_permission(PERM_READ_CONTACTS):
+            raise PermissionError("Actor lacks permission to search contacts")
+
+        if not query or not query.strip():
+            return None
+
+        q = query.strip().lower()
+        clean_digits = re.sub(r"\D", "", q)
+        norm_phone = clean_digits[-10:] if len(clean_digits) >= 7 else None
+
+        conn = self.db.get_connection()
+        rows = conn.execute("SELECT * FROM contacts ORDER BY id ASC;").fetchall()
+        for row in rows:
+            # 1. external_id exact match
+            external_id = row["external_id"]
+            if external_id and external_id.lower() == q:
+                return self._row_to_contact(row)
+
+            # 2. phones match
+            phones = json.loads(row["phones_json"]) if row["phones_json"] else []
+            if norm_phone:
+                for p in phones:
+                    p_digits = re.sub(r"\D", "", str(p))
+                    p_norm = p_digits[-10:] if len(p_digits) >= 7 else None
+                    if p_norm and (norm_phone == p_norm or norm_phone in p_digits or p_digits in clean_digits):
+                        return self._row_to_contact(row)
+
+            # 3. emails match
+            emails = json.loads(row["emails_json"]) if row["emails_json"] else []
+            if any(e.lower().strip() == q for e in emails if isinstance(e, str)):
+                return self._row_to_contact(row)
+
+            # 4. name exact or substring match
+            name = (row["name"] or "").lower()
+            if name and (name == q or q in name):
+                return self._row_to_contact(row)
+
+            # 5. aliases match
+            aliases = json.loads(row["aliases_json"]) if row["aliases_json"] else []
+            if any((a.lower() == q or q in a.lower()) for a in aliases if isinstance(a, str)):
+                return self._row_to_contact(row)
+
+            # 6. relationship match
+            rel = (row["relationship"] or "").lower()
+            if rel and rel == q:
+                return self._row_to_contact(row)
+
+            # 7. business_name substring match
+            biz = (row["business_name"] or "").lower()
+            if biz and q in biz:
+                return self._row_to_contact(row)
+
+            # 8. address substring match
+            addr = (row["address"] or "").lower()
+            if addr and q in addr:
+                return self._row_to_contact(row)
+
+        return None
+
+    def list_contacts(
+        self,
+        actor: AuthContext,
+        type: Optional[str] = None,
+        active_role: Optional[str] = None,
+        trade: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> List[Contact]:
+        if not actor.has_permission(PERM_READ_CONTACTS):
+            raise PermissionError("Actor lacks permission to list contacts")
+
+        query = "SELECT * FROM contacts WHERE 1=1"
+        params: List[Any] = []
+
+        if type:
+            query += " AND type = ?"
+            params.append(type)
+
+        if active_role:
+            query += " AND active_role = ?"
+            params.append(active_role)
+
+        if trade:
+            query += " AND (trade = ? OR trade_raw LIKE ?)"
+            params.extend([trade, f"%{trade}%"])
+
+        query += " ORDER BY id ASC LIMIT ? OFFSET ?;"
+        params.extend([limit, offset])
+
+        conn = self.db.get_connection()
+        rows = conn.execute(query, params).fetchall()
+        return [self._row_to_contact(r) for r in rows]
+
+    ALLOWED_CONTACT_UPDATE_FIELDS = {
+        "name", "aliases", "phones", "emails", "address", "relationship",
+        "type", "notes", "instructions", "reply_behavior", "roles",
+        "active_role", "business_name", "trade", "trade_raw", "licensed",
+        "license_number", "gl_insurance", "wc_insurance", "has_tools",
+        "crew_size", "weekly_capacity", "references", "source", "first_seen",
+        "last_contact", "contact_count", "history",
+    }
+
+    def update_contact(
+        self, contact_id: int, updates: Dict[str, Any], actor: AuthContext
+    ) -> Optional[Contact]:
+        if not actor.has_permission(PERM_WRITE_CONTACTS):
+            raise PermissionError("Actor lacks permission to update contacts")
+
+        unknown = set(updates) - self.ALLOWED_CONTACT_UPDATE_FIELDS
+        if unknown:
+            raise ValueError(f"Unknown field(s) for contact update: {sorted(unknown)}")
+
+        for key, value in updates.items():
+            if value is None and key not in {
+                "name", "address", "relationship", "notes", "instructions",
+                "business_name", "trade", "trade_raw", "license_number",
+                "weekly_capacity", "licensed", "gl_insurance", "wc_insurance",
+                "has_tools", "crew_size", "last_contact"
+            }:
+                raise ValueError(
+                    f"Field '{key}' cannot be set to None via update_contact; omit the key instead"
+                )
+
+        if not updates:
+            return self.get_contact(contact_id, actor)
+
+        updates = dict(updates)
+        if "name" in updates and isinstance(updates["name"], str):
+            updates["name"] = updates["name"].strip()
+
+        now = utc_now_iso()
+        conn = self.db.get_connection()
+        with conn:
+            row = conn.execute("SELECT * FROM contacts WHERE id = ?;", (contact_id,)).fetchone()
+            if not row:
+                return None
+
+            set_clauses = []
+            params: List[Any] = []
+
+            for key, value in updates.items():
+                if key in {"aliases", "phones", "emails", "roles", "references", "history"}:
+                    set_clauses.append(f"{key}_json = ?")
+                    params.append(json.dumps(value if isinstance(value, list) else [value]))
+                else:
+                    set_clauses.append(f"{key} = ?")
+                    params.append(value)
+
+            set_clauses.append("updated_at = ?")
+            params.append(now)
+            params.append(contact_id)
+
+            cursor = conn.execute(
+                f"UPDATE contacts SET {', '.join(set_clauses)} WHERE id = ?;",
+                params,
+            )
+            if cursor.rowcount == 0:
+                return None
+
+        updated_c = self.get_contact(contact_id, actor)
+        self.audit.log(
+            action="update",
+            entity_type="contact",
+            entity_id=contact_id,
+            change_summary=f"Contact {contact_id} updated ({', '.join(sorted(updates.keys()))})",
+            actor=actor,
+            details=updated_c.to_dict() if updated_c else {},
+        )
+        return updated_c
+
+    def upsert_contact(self, contact: Contact, actor: AuthContext) -> Contact:
+        if not actor.has_permission(PERM_WRITE_CONTACTS):
+            raise PermissionError("Actor lacks permission to create or update contacts")
+
+        if not contact.external_id or not contact.external_id.strip():
+            raise ValueError("upsert_contact requires a non-empty external_id")
+
+        existing = self.get_contact_by_external_id(contact.external_id, actor)
+        if existing is None:
+            return self.create_contact(contact, actor)
+
+        immutable = {"external_id", "created_at", "id"}
+        raw = contact.to_dict()
+        updates = {
+            k: v
+            for k, v in raw.items()
+            if k not in immutable and v is not None and k in self.ALLOWED_CONTACT_UPDATE_FIELDS
+        }
+        if not updates:
+            return existing
+
+        updated = self.update_contact(existing.id, updates, actor)
+        return updated or existing
+
+    def delete_contact(self, contact_id: int, actor: AuthContext) -> bool:
+        if not actor.has_permission(PERM_WRITE_CONTACTS):
+            raise PermissionError("Actor lacks permission to delete contacts")
+
+        contact = self.get_contact(contact_id, actor)
+        if not contact:
+            return False
+
+        conn = self.db.get_connection()
+        with conn:
+            cursor = conn.execute("DELETE FROM contacts WHERE id = ?;", (contact_id,))
+            if cursor.rowcount == 0:
+                return False
+
+        self.audit.log(
+            action="delete",
+            entity_type="contact",
+            entity_id=contact_id,
+            change_summary=f"Deleted contact {contact.name or contact.external_id or contact_id}",
+            actor=actor,
+            details=contact.to_dict(),
+        )
+        return True
+
+    def sync_contacts_batch(self, contacts: List[Contact], actor: AuthContext) -> Dict[str, Any]:
+        """Batch sync endpoint for external/Android contact lists."""
+        if not actor.has_permission(PERM_WRITE_CONTACTS):
+            raise PermissionError("Actor lacks permission to sync contacts")
+
+        added = 0
+        updated = 0
+
+        conn = self.db.get_connection()
+        with conn:
+            existing_rows = conn.execute("SELECT * FROM contacts ORDER BY id ASC;").fetchall()
+            existing_contacts = [self._row_to_contact(r) for r in existing_rows]
+
+            max_id = 0
+            for c in existing_contacts:
+                if c.external_id and c.external_id.startswith("contact_"):
+                    try:
+                        num = int(c.external_id.replace("contact_", ""))
+                        if num > max_id:
+                            max_id = num
+                    except ValueError:
+                        pass
+
+            for incoming in contacts:
+                matched: Optional[Contact] = None
+                if incoming.external_id:
+                    matched = next((c for c in existing_contacts if c.external_id == incoming.external_id), None)
+
+                if not matched and incoming.phones:
+                    for in_p in incoming.phones:
+                        in_digits = re.sub(r"\D", "", str(in_p))[-10:]
+                        if not in_digits:
+                            continue
+                        for ec in existing_contacts:
+                            if any(re.sub(r"\D", "", str(p))[-10:] == in_digits for p in ec.phones if re.sub(r"\D", "", str(p))):
+                                matched = ec
+                                break
+                        if matched:
+                            break
+
+                if not matched:
+                    max_id += 1
+                    ext_id = incoming.external_id or f"contact_{str(max_id).zfill(4)}"
+                    incoming.external_id = ext_id
+                    now = utc_now_iso()
+                    incoming.created_at = incoming.created_at or now
+                    incoming.updated_at = now
+                    if not incoming.first_seen:
+                        incoming.first_seen = now
+
+                    cursor = conn.execute(
+                        """
+                        INSERT INTO contacts (
+                            external_id, name, aliases_json, phones_json, emails_json,
+                            address, relationship, type, notes, instructions,
+                            reply_behavior, roles_json, active_role, business_name,
+                            trade, trade_raw, licensed, license_number, gl_insurance,
+                            wc_insurance, has_tools, crew_size, weekly_capacity,
+                            references_json, source, first_seen, last_contact,
+                            contact_count, history_json, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                        """,
+                        (
+                            incoming.external_id,
+                            incoming.name.strip() if incoming.name else None,
+                            json.dumps(incoming.aliases),
+                            json.dumps(incoming.phones),
+                            json.dumps(incoming.emails),
+                            incoming.address,
+                            incoming.relationship,
+                            incoming.type,
+                            incoming.notes,
+                            incoming.instructions,
+                            incoming.reply_behavior,
+                            json.dumps(incoming.roles),
+                            incoming.active_role,
+                            incoming.business_name,
+                            incoming.trade,
+                            incoming.trade_raw,
+                            incoming.licensed,
+                            incoming.license_number,
+                            incoming.gl_insurance,
+                            incoming.wc_insurance,
+                            incoming.has_tools,
+                            incoming.crew_size,
+                            incoming.weekly_capacity,
+                            json.dumps(incoming.references),
+                            incoming.source,
+                            incoming.first_seen,
+                            incoming.last_contact,
+                            incoming.contact_count,
+                            json.dumps(incoming.history),
+                            incoming.created_at,
+                            now,
+                        ),
+                    )
+                    incoming.id = cursor.lastrowid
+                    existing_contacts.append(incoming)
+                    added += 1
+                else:
+                    needs_update = False
+                    up_name = matched.name
+                    if not matched.name and incoming.name:
+                        up_name = incoming.name
+                        needs_update = True
+
+                    up_aliases = list(matched.aliases)
+                    if incoming.name:
+                        name_lower = incoming.name.lower()
+                        if name_lower not in up_aliases:
+                            up_aliases.append(name_lower)
+                            needs_update = True
+
+                    up_source = matched.source
+                    if matched.source in ("auto", "sms") and incoming.source:
+                        up_source = incoming.source
+                        needs_update = True
+
+                    if needs_update:
+                        now = utc_now_iso()
+                        conn.execute(
+                            """
+                            UPDATE contacts SET name = ?, aliases_json = ?, source = ?, updated_at = ?
+                            WHERE id = ?;
+                            """,
+                            (up_name, json.dumps(up_aliases), up_source, now, matched.id),
+                        )
+                        matched.name = up_name
+                        matched.aliases = up_aliases
+                        matched.source = up_source
+                        matched.updated_at = now
+                        updated += 1
+
+            total_count = conn.execute("SELECT COUNT(*) as cnt FROM contacts;").fetchone()["cnt"]
+
+        self.audit.log(
+            action="update",
+            entity_type="contact",
+            entity_id=None,
+            change_summary=f"Synced batch of {len(contacts)} contacts (added: {added}, updated: {updated})",
+            actor=actor,
+            details={"android": len(contacts), "added": added, "updated": updated, "total": total_count},
+        )
+        return {"android": len(contacts), "added": added, "updated": updated, "total": total_count}

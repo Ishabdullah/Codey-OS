@@ -11241,28 +11241,14 @@ finding for the same bug. See `NEW-39`.)*
   automation_service.py::is_blocked()`.
 
 ### [NEW-215] `~/Aigentik-CLI/data/contacts.json` is not customer/lead data — it's an Android-contacts phonebook sync with no destination table in `restoricon_core`
-- **Status: Confirmed** — read directly, not assumed (rule 12).
-  `contacts.json` (201 real records as of 2026-08-27) has fields `id,
-  name, aliases, phones, emails, address, relationship, type, notes,
-  instructions, reply_behavior, business_name, trade, ..., source,
-  first_seen, last_contact, contact_count, history`; every record's
-  `source` field reads `"android_contacts"`, and its `type` field takes
-  values `person` (199), `subcontractor` (1), `unknown` (1) — not
-  `customer`/`lead`. It's the general phonebook `contacts.js` uses to
-  identify inbound callers/texters and cross-reference
-  `contact_id`/`contact_external_id` on other records (subcontractors,
-  appointments), not a CRM customer source. `restoricon_core` has no
-  table modeling this shape today (not `customers`, not any of the five
-  B2 tables).
-- **Impact:** the originally-assumed "contacts.json → `crm_service`"
-  migration mapping (per the round's kickoff framing) is wrong. A
-  migration script cannot write `contacts.json` into `customers` without
-  fabricating fields that aren't there (first_name/last_name split,
-  customer_type, status) and, worse, would misrepresent 199 phonebook
-  entries with `type: "person"` as CRM customers.
-- **Not fixed here** — this round is scoping only, per rule 8.
-- **Suggested direction, not applied**: either (a) treat `contacts.json`
-  as out of scope for the CRM migration entirely (it's an
+- **Status: CLOSED, 2026-08-30 (Code-reviewer approved, test verified)** —
+  Resolved by adding a dedicated `contacts` table and `Contact` model in `restoricon_core`,
+  providing explicit RBAC permissions (`PERM_READ_CONTACTS`, `PERM_WRITE_CONTACTS`),
+  implementing full CRUD, fuzzy phone/email/name search, and batch sync (`/api/v1/contacts/sync`),
+  and cutting over `Codey-Aigentik/contacts.js` and `Codey-Aigentik/contacts-sync.js` to
+  Core API write-through via `coreRequest` (226 unit tests passing).
+- **Impact:** Phonebook contacts and Android phonebook sync are canonically preserved in
+  Core DB without polluting the CRM customers table. All modules now write through to Core.
   identification/lookup table, not business data Restoricon Core needs
   to own), or (b) if Ish wants it preserved, define a new `contacts`
   table matching its real shape as its own migration task, separate from

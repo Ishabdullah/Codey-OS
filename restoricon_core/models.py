@@ -417,6 +417,46 @@ class DoNotContactEntry:
 
 
 @dataclass
+class Contact:
+    """Aigentik contact directory entity."""
+    id: Optional[int] = None
+    external_id: Optional[str] = None
+    name: Optional[str] = None
+    aliases: List[str] = field(default_factory=list)
+    phones: List[str] = field(default_factory=list)
+    emails: List[str] = field(default_factory=list)
+    address: Optional[str] = None
+    relationship: Optional[str] = None
+    type: str = "unknown"
+    notes: Optional[str] = None
+    instructions: Optional[str] = None
+    reply_behavior: str = "auto"
+    roles: List[str] = field(default_factory=list)
+    active_role: Optional[str] = None
+    business_name: Optional[str] = None
+    trade: Optional[str] = None
+    trade_raw: Optional[str] = None
+    licensed: Optional[int] = None
+    license_number: Optional[str] = None
+    gl_insurance: Optional[int] = None
+    wc_insurance: Optional[int] = None
+    has_tools: Optional[int] = None
+    crew_size: Optional[int] = None
+    weekly_capacity: Optional[str] = None
+    references: List[Dict[str, Any]] = field(default_factory=list)
+    source: str = "auto"
+    first_seen: Optional[str] = None
+    last_contact: Optional[str] = None
+    contact_count: int = 0
+    history: List[Dict[str, Any]] = field(default_factory=list)
+    created_at: str = field(default_factory=utc_now_iso)
+    updated_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class AuditRecord:
     """Strictly append-only audit log record."""
     id: Optional[int] = None

@@ -449,13 +449,49 @@ CREATE TABLE IF NOT EXISTS audit_log (
     FOREIGN KEY (actor_id) REFERENCES users(id) ON DELETE SET NULL
 );
 
+-- Contacts (Aigentik contact memory system)
+CREATE TABLE IF NOT EXISTS contacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    external_id TEXT,
+    name TEXT,
+    aliases_json TEXT NOT NULL DEFAULT '[]',
+    phones_json TEXT NOT NULL DEFAULT '[]',
+    emails_json TEXT NOT NULL DEFAULT '[]',
+    address TEXT,
+    relationship TEXT,
+    type TEXT NOT NULL DEFAULT 'unknown',
+    notes TEXT,
+    instructions TEXT,
+    reply_behavior TEXT NOT NULL DEFAULT 'auto',
+    roles_json TEXT NOT NULL DEFAULT '[]',
+    active_role TEXT,
+    business_name TEXT,
+    trade TEXT,
+    trade_raw TEXT,
+    licensed INTEGER CHECK(licensed IN (0, 1) OR licensed IS NULL),
+    license_number TEXT,
+    gl_insurance INTEGER CHECK(gl_insurance IN (0, 1) OR gl_insurance IS NULL),
+    wc_insurance INTEGER CHECK(wc_insurance IN (0, 1) OR wc_insurance IS NULL),
+    has_tools INTEGER CHECK(has_tools IN (0, 1) OR has_tools IS NULL),
+    crew_size INTEGER,
+    weekly_capacity TEXT,
+    references_json TEXT NOT NULL DEFAULT '[]',
+    source TEXT NOT NULL DEFAULT 'auto',
+    first_seen TEXT,
+    last_contact TEXT,
+    contact_count INTEGER NOT NULL DEFAULT 0,
+    history_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 -- Indexing for performance
 -- NOTE: the unique indexes for customers.external_id / leads.external_id /
--- communication_history.provider_message_id are NOT here -- they're
--- created in _migrate_schema() instead, after the ALTER TABLE that adds
--- the column on a pre-existing DB file. Creating them here would run
--- before that ALTER on a legacy DB (executescript runs top-to-bottom in
--- one pass) and fail with "no such column".
+-- contacts.external_id / communication_history.provider_message_id are
+-- NOT here -- they're created in _migrate_schema() instead, after the ALTER
+-- TABLE that adds the column on a pre-existing DB file. Creating them here
+-- would run before that ALTER on a legacy DB (executescript runs top-to-bottom
+-- in one pass) and fail with "no such column".
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 CREATE INDEX IF NOT EXISTS idx_api_tokens_token ON api_tokens(token);
@@ -485,6 +521,8 @@ CREATE INDEX IF NOT EXISTS idx_appointments_start_time ON appointments(start_tim
 CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status);
 CREATE INDEX IF NOT EXISTS idx_automation_rules_channel ON automation_rules(channel);
 CREATE INDEX IF NOT EXISTS idx_dnc_type_value ON do_not_contact(type, value);
+CREATE INDEX IF NOT EXISTS idx_contacts_type ON contacts(type);
+CREATE INDEX IF NOT EXISTS idx_contacts_active_role ON contacts(active_role);
 """
 
 _local = threading.local()
@@ -582,6 +620,9 @@ class DatabaseManager:
             )
             conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_leads_external_id ON leads(external_id);"
+            )
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_external_id ON contacts(external_id);"
             )
             # Partial index (WHERE provider_message_id IS NOT NULL): rows
             # with no natural external message id (internal_note,

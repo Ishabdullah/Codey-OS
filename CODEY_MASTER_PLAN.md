@@ -5714,47 +5714,21 @@ Then:
 - [x] **B1** — the HTTP API boundary (code-complete; rule-4 adversarial review pending for binding & auth).
 - [x] **B1** — auth, roles, permissions (code-complete; 7 roles, PBKDF2 hashing, bearer tokens, customer isolation).
 - [x] **B1** — Communication History + Audit Log (day-one-or-never, code-complete; append-only verified).
-- [ ] **B2** — create `Codey-Aigentik` fork; migrate `data/*.json` into
+- [x] **B2** — create `Codey-Aigentik` fork; migrate `data/*.json` into
       the Core; write-through; point at the shared model layer.
-      **Fork creation DONE 2026-08-27** (`~/Codey-Aigentik`, origin/
-      upstream set, pushed, tracking `origin/main`). **`NEW-209`'s
-      schema-gap decision RESOLVED 2026-08-27 — Ish chose to expand
-      scope**: `restoricon_core`'s schema/models/services/RBAC for all
-      five of Aigentik-CLI's real data shapes (not just contacts/
-      customers) are now code-complete + self-tested (§4.5's full entry;
-      `tests/test_restoricon_core/`: 37 passed; full suite: 753 passed,
-      1 skipped) — **pending mandatory code-reviewer pass (rule 4) before
-      commit.** Two new findings from this build: `NEW-212`
-      (`customers`/`leads` lack an `external_id` column, unlike the five
-      new tables), `NEW-213` (partial data-representation overlap with
-      existing `projects.subcontractors_json`/`communication_history.
-      channel='appointment'`). Remaining B2 steps — auth provisioning,
-      data migration script, write-through replacement (now needs new
-      API routes too, `NEW-193`-shaped), model-layer repoint — are NOT
-      started; step 4 ("point at shared model layer") is a real
-      admission-gate design item, not a config edit, due to a same-port
-      collision with Codey-OS's own `PRIMARY_SERVER_PORT` default
-      (`NEW-211`). **`NEW-212`/`NEW-232` (customers/leads `external_id`
-      gap) and `NEW-216` (schedule-config.json destination) CLOSED
-      2026-08-27** — see §4's closure entry; code-complete,
-      code-reviewer-approved, committed (823 passed, 1 skipped).
-      Schema/service-layer only, no API routes yet (`NEW-247`), no JS/
-      Codey-Aigentik changes. `NEW-248` (permission-gate mismatch on
-      `get_customer_by_external_id()`, fourth occurrence of this gap
-      class) spun off, open. **`migrate_aigentik.py` extended to
-      `customers.json`/`schedule-config.json`, 2026-08-27 — code-complete,
-      code-reviewer-approved, committed (829 passed, 1 skipped).**
-      **`migrate_aigentik.py --apply` LIVE-VERIFIED 2026-08-28 against `~/.codey_restoricon/core.db`**
-      (following safe snapshot backup `core.db.pre-b2-apply-20260828003846`). All existing records skipped
-      cleanly without duplicates; singleton `business_profile` and `schedule_config` records upserted.
-      `NEW-252`/`NEW-253`/`NEW-254` spun off (insurance/claim
-      field opacity, lead-status data not reaching `leads`, audit-log
-      duplication of raw customer data); `NEW-255` closed.
-      **Write-Through Cutover Progress (2026-08-28):** 6 of 10 write-site
-      modules completed and approved: `do-not-contact.js`,
-      `email-rules.js`/`sms-rules.js`, `calendar.js`, `subcontractor-recruiter.js`,
-      `email-provider.js` (outbound/inbound comms logging + reliable retry queue),
-      and `customer-module.js` (Core API groundwork + async write-through cutover).
+      **DONE 2026-08-30: 100% code-complete, code-reviewer-approved, full test suites passing.**
+      All 10 of 10 write-site modules cut over to Restoricon Core API with zero local JSON writes:
+      1. `do-not-contact.js` (`/api/v1/do-not-contact*`)
+      2. `email-rules.js` & `sms-rules.js` (`/api/v1/automation-rules*`)
+      3. `calendar.js` & `schedule_config` (`/api/v1/appointments*`, `/api/v1/schedule-config`)
+      4. `subcontractor-recruiter.js` (`/api/v1/subcontractors*`)
+      5. `email-provider.js` (outbound/inbound comms history + reliable retry queue)
+      6. `customer-module.js` (`/api/v1/customers*`, `/api/v1/leads*`)
+      7. `business_profile` in `index.js` & `owner-command.js` (`/api/v1/business-profile`)
+      8. `llama.js` model layer repoint (`POST /api/v1/ai/chat` via context budget reservation, `NEW-211`)
+      9. `contacts.js` phonebook sync & directory (`/api/v1/contacts*`, resolving `NEW-215`)
+      10. `contacts-sync.js` & `queue.js` (batch sync via `/api/v1/contacts/sync`, sandboxed review queue).
+      Full test suites: 16/16 suites (226/226 tests) passing in `Codey-Aigentik`; 1069 tests passing in `Codey-OS`.
 - [ ] **B3** — CRM/Sales domain.
 - [ ] **B3** — Operations domain.
 - [ ] **B3** — first Automated Workflows.

@@ -15,6 +15,7 @@ from ..models import (
     Appointment,
     AutomationRule,
     BusinessProfile,
+    Contact,
     Contract,
     Customer,
     Document,
@@ -379,6 +380,85 @@ class APIRouter:
                 if not sub:
                     return 404, {"Content-Type": "application/json"}, {"error": "Subcontractor not found"}
                 return 200, {"Content-Type": "application/json"}, {"subcontractor": sub.to_dict()}
+
+            # Contacts (Aigentik Contact Directory)
+            if path == "/api/v1/contacts":
+                if method == "GET":
+                    type_filter = query_params.get("type", [None])[0]
+                    role_filter = query_params.get("active_role", [None])[0]
+                    trade_filter = query_params.get("trade", [None])[0]
+                    limit = int(query_params.get("limit", ["50"])[0])
+                    offset = int(query_params.get("offset", ["0"])[0])
+                    contacts_list = self.crm.list_contacts(
+                        actor,
+                        type=type_filter,
+                        active_role=role_filter,
+                        trade=trade_filter,
+                        limit=limit,
+                        offset=offset,
+                    )
+                    return 200, {"Content-Type": "application/json"}, {"contacts": [c.to_dict() for c in contacts_list]}
+                elif method == "POST":
+                    contact = Contact(**json_body)
+                    created = self.crm.create_contact(contact, actor)
+                    return 201, {"Content-Type": "application/json"}, {"contact": created.to_dict()}
+
+            if path in ("/api/v1/contacts/find", "/api/v1/contacts/search") and method == "GET":
+                q = query_params.get("q", [None])[0]
+                if not q or not q.strip():
+                    return 400, {"Content-Type": "application/json"}, {"error": "Missing required query parameter: q"}
+                found = self.crm.find_contact(q, actor)
+                if not found:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Contact not found"}
+                return 200, {"Content-Type": "application/json"}, {"contact": found.to_dict()}
+
+            if path == "/api/v1/contacts/upsert" and method == "POST":
+                contact = Contact(**json_body)
+                result = self.crm.upsert_contact(contact, actor)
+                return 200, {"Content-Type": "application/json"}, {"contact": result.to_dict()}
+
+            if path == "/api/v1/contacts/sync" and method == "POST":
+                contact_list = [Contact(**c) for c in json_body.get("contacts", [])]
+                stats = self.crm.sync_contacts_batch(contact_list, actor)
+                return 200, {"Content-Type": "application/json"}, {"status": "ok", "stats": stats}
+
+            if path.startswith("/api/v1/contacts/") and path.endswith("/update") and method == "POST":
+                id_str = path.split("/")[-2]
+                if id_str.isdigit():
+                    cid = int(id_str)
+                else:
+                    existing = self.crm.get_contact_by_external_id(id_str, actor)
+                    cid = existing.id if existing else None
+                if not cid:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Contact not found"}
+                updated_c = self.crm.update_contact(cid, json_body, actor)
+                if not updated_c:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Contact not found"}
+                return 200, {"Content-Type": "application/json"}, {"contact": updated_c.to_dict()}
+
+            if path.startswith("/api/v1/contacts/") and (path.endswith("/delete") and method == "POST" or method == "DELETE"):
+                id_str = path.split("/")[-2] if path.endswith("/delete") else path[len("/api/v1/contacts/"):]
+                if id_str.isdigit():
+                    cid = int(id_str)
+                else:
+                    existing = self.crm.get_contact_by_external_id(id_str, actor)
+                    cid = existing.id if existing else None
+                if not cid:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Contact not found"}
+                deleted = self.crm.delete_contact(cid, actor)
+                if not deleted:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Contact not found"}
+                return 200, {"Content-Type": "application/json"}, {"deleted": True}
+
+            if path.startswith("/api/v1/contacts/") and "/" not in path[len("/api/v1/contacts/"):] and method == "GET":
+                sub_path = path[len("/api/v1/contacts/"):]
+                if sub_path.isdigit():
+                    c = self.crm.get_contact(int(sub_path), actor)
+                else:
+                    c = self.crm.get_contact_by_external_id(sub_path, actor)
+                if not c:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Contact not found"}
+                return 200, {"Content-Type": "application/json"}, {"contact": c.to_dict()}
 
             # Appointments
             if path == "/api/v1/appointments":

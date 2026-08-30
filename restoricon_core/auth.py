@@ -123,6 +123,10 @@ PERM_WRITE_DNC = "write:do_not_contact"
 PERM_READ_SCHEDULE_CONFIG = "read:schedule_config"
 PERM_WRITE_SCHEDULE_CONFIG = "write:schedule_config"
 
+# Contacts permissions (Track B Phase B2 cutover)
+PERM_READ_CONTACTS = "read:contacts"
+PERM_WRITE_CONTACTS = "write:contacts"
+
 # Role permissions matrix
 ROLE_PERMISSIONS: Dict[str, Set[str]] = {
     ROLE_ADMIN: {
@@ -159,6 +163,8 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_SCHEDULE_CONFIG,
         PERM_READ_DNC,
         PERM_WRITE_DNC,
+        PERM_READ_CONTACTS,
+        PERM_WRITE_CONTACTS,
     },
     ROLE_MANAGER: {
         PERM_READ_ALL_CUSTOMERS,
@@ -193,6 +199,8 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_SCHEDULE_CONFIG,
         PERM_READ_DNC,
         PERM_WRITE_DNC,
+        PERM_READ_CONTACTS,
+        PERM_WRITE_CONTACTS,
     },
     ROLE_SALES: {
         PERM_READ_ALL_CUSTOMERS,
@@ -216,6 +224,8 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_APPOINTMENTS,
         PERM_READ_AUTOMATION_RULES,
         PERM_READ_DNC,
+        PERM_READ_CONTACTS,
+        PERM_WRITE_CONTACTS,
     },
     ROLE_PROJECT_MANAGER: {
         PERM_READ_ALL_CUSTOMERS,
@@ -235,6 +245,8 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_APPOINTMENTS,
         PERM_READ_AUTOMATION_RULES,
         PERM_READ_DNC,
+        PERM_READ_CONTACTS,
+        PERM_WRITE_CONTACTS,
     },
     ROLE_TECHNICIAN: {
         PERM_READ_ASSIGNED_PROJECTS,
@@ -260,9 +272,7 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_READ_COMMUNICATIONS,
         # ai_agent is the actor identity Codey-Aigentik authenticates as
         # once B2's write-through replacement lands (§6.4) -- it needs
-        # full read/write on exactly the five modules it owns today
-        # (subcontractors.js, calendar.js, email-rules.js/sms-rules.js,
-        # do-not-contact.js), since those are its own runtime data.
+        # full read/write on exactly the modules it owns today.
         PERM_READ_SUBCONTRACTORS,
         PERM_WRITE_SUBCONTRACTORS,
         PERM_READ_APPOINTMENTS,
@@ -275,6 +285,8 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_SCHEDULE_CONFIG,
         PERM_READ_DNC,
         PERM_WRITE_DNC,
+        PERM_READ_CONTACTS,
+        PERM_WRITE_CONTACTS,
     },
     ROLE_CUSTOMER: {
         PERM_READ_OWN_CUSTOMER,
