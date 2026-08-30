@@ -1,0 +1,157 @@
+{
+  "schema_version": "2.0.0",
+  "name": "device_bridge",
+  "version": "2.0.0",
+  "description": "Limb Integration Bridge connecting CCOS with Android device limbs (Private-Codey-Agent) with safety vetoes",
+  "domain": "device",
+  "execution_mode": "in_process",
+  "entry_point": "bridge.py",
+  "permissions": [
+    "device:read",
+    "device:write",
+    "device:telephony",
+    "device:ui"
+  ],
+  "dependencies": [],
+  "capabilities": [
+    {
+      "name": "device.inspect_ui",
+      "description": "Inspect the Android device UI hierarchy and active application",
+      "implementation": "bridge:inspect_ui_capability",
+      "category": "device",
+      "dependencies": [],
+      "hardware_requirements": [],
+      "inputs_schema": {
+        "type": "object",
+        "properties": {
+          "package_name": {"type": "string"}
+        }
+      },
+      "outputs_schema": {
+        "type": "object",
+        "properties": {
+          "ui_hierarchy": {"type": "object"},
+          "screen_width": {"type": "integer"},
+          "screen_height": {"type": "integer"},
+          "focused_app": {"type": "string"}
+        }
+      }
+    },
+    {
+      "name": "device.perform_gesture",
+      "description": "Execute touch gestures (tap, swipe, long-press) on the Android screen",
+      "implementation": "bridge:perform_gesture_capability",
+      "category": "device",
+      "dependencies": [],
+      "hardware_requirements": [],
+      "inputs_schema": {
+        "type": "object",
+        "required": ["gesture"],
+        "properties": {
+          "gesture": {"type": "string", "enum": ["tap", "swipe", "long_press", "scroll"]},
+          "x": {"type": "integer"},
+          "y": {"type": "integer"}
+        }
+      },
+      "outputs_schema": {
+        "type": "object",
+        "properties": {
+          "performed": {"type": "boolean"},
+          "gesture": {"type": "string"}
+        }
+      }
+    },
+    {
+      "name": "device.send_sms",
+      "description": "Send SMS to a destination phone number with emergency shortcode veto protection",
+      "implementation": "bridge:send_sms_capability",
+      "category": "device",
+      "dependencies": [],
+      "hardware_requirements": [],
+      "inputs_schema": {
+        "type": "object",
+        "required": ["phone_number", "message"],
+        "properties": {
+          "phone_number": {"type": "string"},
+          "message": {"type": "string"}
+        }
+      },
+      "outputs_schema": {
+        "type": "object",
+        "properties": {
+          "sent": {"type": "boolean"},
+          "recipient": {"type": "string"},
+          "message_id": {"type": "string"}
+        }
+      }
+    },
+    {
+      "name": "device.make_call",
+      "description": "Initiate phone call to a destination phone number with emergency shortcode veto protection",
+      "implementation": "bridge:make_call_capability",
+      "category": "device",
+      "dependencies": [],
+      "hardware_requirements": [],
+      "inputs_schema": {
+        "type": "object",
+        "required": ["phone_number"],
+        "properties": {
+          "phone_number": {"type": "string"}
+        }
+      },
+      "outputs_schema": {
+        "type": "object",
+        "properties": {
+          "initiated": {"type": "boolean"},
+          "recipient": {"type": "string"},
+          "call_id": {"type": "string"}
+        }
+      }
+    },
+    {
+      "name": "device.launch_app",
+      "description": "Launch an installed Android app package",
+      "implementation": "bridge:launch_app_capability",
+      "category": "device",
+      "dependencies": [],
+      "hardware_requirements": [],
+      "inputs_schema": {
+        "type": "object",
+        "required": ["package_name"],
+        "properties": {
+          "package_name": {"type": "string"},
+          "activity": {"type": "string"}
+        }
+      },
+      "outputs_schema": {
+        "type": "object",
+        "properties": {
+          "launched": {"type": "boolean"},
+          "package_name": {"type": "string"}
+        }
+      }
+    },
+    {
+      "name": "device.read_notifications",
+      "description": "Read recent system and application notifications",
+      "implementation": "bridge:read_notifications_capability",
+      "category": "device",
+      "dependencies": [],
+      "hardware_requirements": [],
+      "inputs_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {"type": "integer", "default": 10}
+        }
+      },
+      "outputs_schema": {
+        "type": "object",
+        "properties": {
+          "notifications": {"type": "array"}
+        }
+      }
+    }
+  ],
+  "author": "CCOS",
+  "license": "MIT"
+}

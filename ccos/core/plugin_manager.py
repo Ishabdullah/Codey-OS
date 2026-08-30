@@ -33,6 +33,7 @@ from ccos.core.capability_registry import (
     CapabilityStatus,
     get_capability_registry,
 )
+from ccos.core.manifest_schema_v2 import normalize_manifest
 from ccos.core.task_context import TaskContext
 
 
@@ -51,6 +52,10 @@ class Plugin:
     manifest: Dict[str, Any]
     status: PluginStatus = PluginStatus.INSTALLED
     version: str = "1.0.0"
+    domain: str = "general"
+    execution_mode: str = "in_process"
+    permissions: List[str] = field(default_factory=list)
+    resource_limits: Dict[str, Any] = field(default_factory=dict)
     installed_at: float = field(default_factory=time.time)
     capabilities: List[str] = field(default_factory=list)
     error: str = ""
@@ -93,13 +98,18 @@ class PluginManager:
                     manifest_path = plugin_subdir / "manifest.json"
                     if manifest_path.exists():
                         try:
-                            manifest = json.loads(manifest_path.read_text())
+                            raw_manifest = json.loads(manifest_path.read_text())
+                            manifest = normalize_manifest(raw_manifest)
                             name = manifest.get("name", plugin_subdir.name)
                             self._plugins[name] = Plugin(
                                 name=name,
                                 path=str(plugin_subdir),
                                 manifest=manifest,
                                 version=manifest.get("version", "1.0.0"),
+                                domain=manifest.get("domain", "general"),
+                                execution_mode=manifest.get("execution_mode", "in_process"),
+                                permissions=manifest.get("permissions", []),
+                                resource_limits=manifest.get("resource_limits", {}),
                             )
                         except Exception as e:
                             pass  # skip malformed manifests
@@ -165,12 +175,17 @@ class PluginManager:
                     name=cap_def.get("name", f"{name}.{cap_def.get('id', 'unknown')}"),
                     description=cap_def.get("description", ""),
                     implementation=cap_def.get("implementation", str(plugin_path)),
-                    category=cap_def.get("category", plugin.manifest.get("category", "general")),
+                    category=cap_def.get("category", plugin.manifest.get("domain", plugin.manifest.get("category", "general"))),
                     dependencies=cap_def.get("dependencies", []),
                     hardware_requirements=cap_def.get("hardware_requirements", []),
                     test_path=cap_def.get("test", ""),
                     status=CapabilityStatus.ACTIVE,
                     version=plugin.version,
+                    execution_mode=cap_def.get("execution_mode", plugin.manifest.get("execution_mode", "in_process")),
+                    resource_limits=cap_def.get("resource_limits", plugin.manifest.get("resource_limits", {})),
+                    permissions=cap_def.get("permissions", plugin.manifest.get("permissions", [])),
+                    inputs_schema=cap_def.get("inputs_schema", {}),
+                    outputs_schema=cap_def.get("outputs_schema", {}),
                 )
                 self._registry.register(capability)
                 plugin.capabilities.append(capability.name)

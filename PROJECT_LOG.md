@@ -12,6 +12,27 @@ and Appendix A.
 
 ---
 
+## 2026-08-30 — Track A / Phase A2 Items 9.3, 9.4 & Device Limb Fork Setup (B5b)
+
+- **Status**: Code-reviewer approved, test verified (`1053 passed, 1 skipped` in `Codey-OS`).
+- **Device Limb Fork Creation (`~/Private-Codey-Agent`)**:
+  - Cloned pristine `~/private-agent` to `~/Private-Codey-Agent`.
+  - Configured git remotes: `upstream` -> `https://github.com/Ishabdullah/private-agent.git`, `origin` -> `https://github.com/Ishabdullah/Private-Codey-Agent.git`.
+  - Pushed `main` to `origin` tracking `origin/main`. Upstream `~/private-agent` left untouched.
+- **Manifest Schema v2 (Item 9.3) (`ccos/core/manifest_schema_v2.py`)**:
+  - Created declarative JSON Schema v2 for CCOS capabilities (`schema_version: "2.0.0"`, `domain`, `execution_mode`, `entry_point`, `process_spec`, `event_triggers`, `data_store`, `resource_limits`, `permissions`, `dependencies`, `capabilities` with `inputs_schema`/`outputs_schema`).
+  - Implemented pure Python `validate_manifest_v2()` and backward-compatible v1 normalizer `normalize_manifest()`.
+  - Updated `Capability` dataclass in `ccos/core/capability_registry.py` and `PluginManager` in `ccos/core/plugin_manager.py` to parse and track v2 metadata.
+  - Verified with 9 new tests in `ccos/tests/test_manifest_schema_v2.py`.
+- **Limb Integration Plan & Device Bridge (Item 9.4) (`ccos/core/device_bridge.py`)**:
+  - Settled §8 Q2 with Local Loopback WebSocket/HTTP IPC bridge protocol (`ws://127.0.0.1:8088/ws/device`).
+  - Implemented `DeviceBridgeServer` and `DeviceBridgeClient` supporting loopback requests (`inspect_ui`, `perform_gesture`, `send_sms`, `make_call`, `launch_app`, `read_notifications`).
+  - Implemented fail-closed emergency shortcode safety veto engine (`validate_telephony_safety`) blocking 911, 112, 999, etc.
+  - Created CCOS device plugin in `ccos/plugins/device/bridge/` wrapping device limb capabilities.
+  - Verified with 7 new tests in `ccos/tests/test_device_bridge.py`.
+
+---
+
 ## 2026-08-30 — Track A / Phase A2 Item 4.5: Peer-CLI Escalation Redesign
 
 - **Status**: Code-reviewer approved, live-verified on-device on Android/Termux (`1037 passed, 1 skipped` in `Codey-OS`).

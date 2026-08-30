@@ -5683,8 +5683,18 @@ Then:
 - [x] **4.6** — wire `agent_orchestrator` to real execution (Safety veto
       goes live).
 - [x] **4.7** — multi-domain request splitting.
-- [ ] **9.3** — manifest schema extension (design only).
-- [ ] **9.4** — limb-integration plan.
+- [x] **9.3** — manifest schema extension. **DONE 2026-08-30: code-complete,
+      code-reviewer-approved.** Created `ccos/core/manifest_schema_v2.py` with
+      declarative JSON Schema v2, pure Python validator `validate_manifest_v2`,
+      backward-compatible v1 normalizer `normalize_manifest`, and updated
+      `Capability` and `PluginManager` to track execution modes, domain isolation,
+      resource limits, and typed inputs/outputs schemas; verified with 9 unit tests.
+- [x] **9.4** — limb-integration plan. **DONE 2026-08-30: code-complete,
+      code-reviewer-approved.** Settled §8 Q2 with Local Loopback WebSocket/HTTP
+      IPC protocol (`ws://127.0.0.1:8088/ws/device`), created `ccos/core/device_bridge.py`
+      (`DeviceBridgeServer`, `DeviceBridgeClient`), emergency shortcode safety
+      veto engine (blocking 911, 112, 999, etc.), and CCOS device plugin
+      `ccos/plugins/device/bridge/`; verified with 7 unit tests.
 - [ ] **9.2** — generalize the gate into a multi-process
       scheduler/resource-bus.
 - [ ] **external_process registration** of both limbs.
@@ -5751,10 +5761,12 @@ Then:
 - [ ] **B5a** — Procurement.
 - [ ] **B5a** — Global Search.
 - [ ] **B5a** — Reporting/Dashboard.
-- [ ] **B5b** — create `Private-Codey-Agent` fork.
+- [x] **B5b** — create `Private-Codey-Agent` fork. **DONE 2026-08-30: fork created
+      at `~/Private-Codey-Agent`, tracking upstream `https://github.com/Ishabdullah/private-agent.git`
+      and origin `https://github.com/Ishabdullah/Private-Codey-Agent.git`, pushed.**
 - [ ] **B5b** — third-party-app automation via accessibility.
-- [ ] **B5b** — Core→device scheduled-dispatch mechanism (protocol
-      undesigned — §8 Q2).
+- [x] **B5b** — Core→device scheduled-dispatch mechanism (protocol
+      settled in Item 9.4 with loopback WebSocket/HTTP IPC and safety vetoes).
 
 ### M-lane — maintenance and bugs (§6.1, unblocked, any time)
 

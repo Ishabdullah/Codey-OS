@@ -41,6 +41,11 @@ class Capability:
     success_count: int = 0
     failure_count: int = 0
     avg_duration_ms: float = 0
+    execution_mode: str = "in_process"
+    resource_limits: Dict[str, Any] = field(default_factory=dict)
+    permissions: List[str] = field(default_factory=list)
+    inputs_schema: Dict[str, Any] = field(default_factory=dict)
+    outputs_schema: Dict[str, Any] = field(default_factory=dict)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     @property
