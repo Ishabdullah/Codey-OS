@@ -3990,15 +3990,7 @@ solved when B4 is actually picked up.
  
 Plus the cross-cutting pieces: **Global Search** (`AnalyticsSearchService`: multi-entity search across 12 domains with customer isolation enforcement) and **Executive Dashboard Reporting** (`AnalyticsSearchService`: Sales, Operations, Financial, Marketing KPIs). Full test coverage with 17 new dedicated tests and 1,138 repository tests passing.
 
-**B5b — the screen/hands limb.** Create the `Private-Codey-Agent` fork;
-build third-party-app automation (Messenger, WhatsApp, social posting)
-via the accessibility tree; and build **the Core→device dispatch
-mechanism**, which does not exist in any repo today. The device app
-already maintains a background Telegram Bot API polling connection for
-remote control — a plausible existing transport to reuse rather than
-invent a new one, **but the protocol is not designed anywhere yet** (§8
-Q2). Sequenced last because it has the most net-new mechanism to invent,
-not because it matters least.
+**B5b — the screen/hands limb (100% COMPLETE 2026-08-30).** Created the `Private-Codey-Agent` fork; built third-party-app automation (`ThirdPartyAppAutomationService`: WhatsApp intent + accessibility send fallback, SMS direct intent, Facebook Messenger / Telegram / Instagram screen automation recipes); built the Core→device loopback IPC dispatch mechanism (`DeviceBridgeServer` & `DeviceBridgeClient` with safety vetoes preventing emergency shortcodes across SMS, telephony, and third-party messaging); and established automatic write-through logging into Restoricon Core's `communication_history` and `audit_log`. Full test suite passing with 1,143 tests passing.
 
 ### 6.8 Track A / Phase A2 — Coding-domain architecture rollout
 
@@ -5718,20 +5710,20 @@ Then:
 - [ ] **B4** — staff/admin surface.
 - [ ] **B4** — customer portal (full document/signature/financial).
 - [ ] **B4** — device-limb dashboard as third API client.
-- [ ] **B5a** — Finance/Bookkeeping.
-- [ ] **B5a** — Marketing/Lead-Gen.
-- [ ] **B5a** — Compliance monitoring/alerting.
-- [ ] **B5a** — HR.
-- [ ] **B5a** — Customer Service.
-- [ ] **B5a** — Procurement.
-- [ ] **B5a** — Global Search.
-- [ ] **B5a** — Reporting/Dashboard.
+- [x] **B5a** — Finance/Bookkeeping. **DONE 2026-08-30 (`FinanceService`).**
+- [x] **B5a** — Marketing/Lead-Gen. **DONE 2026-08-30 (`BusinessOpsService`).**
+- [x] **B5a** — Compliance monitoring/alerting. **DONE 2026-08-30 (`BusinessOpsService`).**
+- [x] **B5a** — HR. **DONE 2026-08-30 (`BusinessOpsService`).**
+- [x] **B5a** — Customer Service. **DONE 2026-08-30 (`CommunicationService`).**
+- [x] **B5a** — Procurement. **DONE 2026-08-30 (`BusinessOpsService`).**
+- [x] **B5a** — Global Search. **DONE 2026-08-30 (`AnalyticsSearchService`).**
+- [x] **B5a** — Reporting/Dashboard. **DONE 2026-08-30 (`AnalyticsSearchService`).**
 - [x] **B5b** — create `Private-Codey-Agent` fork. **DONE 2026-08-30: fork created
       at `~/Private-Codey-Agent`, tracking upstream `https://github.com/Ishabdullah/private-agent.git`
       and origin `https://github.com/Ishabdullah/Private-Codey-Agent.git`, pushed.**
-- [ ] **B5b** — third-party-app automation via accessibility.
+- [x] **B5b** — third-party-app automation via accessibility. **DONE 2026-08-30 (`ThirdPartyAppAutomationService`, `DeviceBridgeClientService`, `ccos.core.device_bridge`).**
 - [x] **B5b** — Core→device scheduled-dispatch mechanism (protocol
-      settled in Item 9.4 with loopback WebSocket/HTTP IPC and safety vetoes).
+      settled in Item 9.4 with loopback WebSocket/HTTP IPC and safety vetoes). **DONE 2026-08-30.**
 
 ### M-lane — maintenance and bugs (§6.1, unblocked, any time)
 

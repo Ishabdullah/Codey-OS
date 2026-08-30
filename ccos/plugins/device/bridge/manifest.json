@@ -150,6 +150,60 @@
           "notifications": {"type": "array"}
         }
       }
+    },
+    {
+      "name": "device.third_party_message",
+      "description": "Send messaging through third-party apps (WhatsApp, Messenger, Instagram) with safety vetoes",
+      "implementation": "bridge:third_party_message_capability",
+      "category": "device",
+      "dependencies": [],
+      "hardware_requirements": [],
+      "inputs_schema": {
+        "type": "object",
+        "required": ["app", "recipient", "message"],
+        "properties": {
+          "app": {"type": "string"},
+          "recipient": {"type": "string"},
+          "message": {"type": "string"},
+          "customer_id": {"type": "integer"},
+          "project_id": {"type": "integer"}
+        }
+      },
+      "outputs_schema": {
+        "type": "object",
+        "properties": {
+          "sent": {"type": "boolean"},
+          "app": {"type": "string"},
+          "recipient": {"type": "string"},
+          "message_id": {"type": "string"}
+        }
+      }
+    },
+    {
+      "name": "device.execute_task",
+      "description": "Execute multi-step screen automation task via Android accessibility engine",
+      "implementation": "bridge:execute_task_capability",
+      "category": "device",
+      "dependencies": [],
+      "hardware_requirements": [],
+      "inputs_schema": {
+        "type": "object",
+        "required": ["goal"],
+        "properties": {
+          "goal": {"type": "string"},
+          "max_steps": {"type": "integer", "default": 15},
+          "context": {"type": "object"}
+        }
+      },
+      "outputs_schema": {
+        "type": "object",
+        "properties": {
+          "success": {"type": "boolean"},
+          "goal": {"type": "string"},
+          "steps_executed": {"type": "integer"},
+          "final_status": {"type": "string"}
+        }
+      }
     }
   ],
   "author": "CCOS",

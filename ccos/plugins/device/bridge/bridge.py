@@ -49,6 +49,20 @@ def read_notifications_capability(limit: int = 10, **kwargs) -> Dict[str, Any]:
     return _get_client().read_notifications(limit=limit)
 
 
+def third_party_message_capability(
+    app: str, recipient: str, message: str, customer_id: Optional[int] = None, project_id: Optional[int] = None, **kwargs
+) -> Dict[str, Any]:
+    """Send message via third party app (WhatsApp, Messenger, etc.) with safety validation."""
+    return _get_client().send_third_party_message(
+        app=app, recipient=recipient, message=message, customer_id=customer_id, project_id=project_id, **kwargs
+    )
+
+
+def execute_task_capability(goal: str, max_steps: int = 15, context: Optional[Dict[str, Any]] = None, **kwargs) -> Dict[str, Any]:
+    """Execute multi-step screen automation task via Android accessibility."""
+    return _get_client().execute_task(goal=goal, max_steps=max_steps, context=context, **kwargs)
+
+
 def install() -> bool:
     """Plugin install lifecycle hook."""
     return True

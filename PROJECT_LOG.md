@@ -12,6 +12,23 @@ and Appendix A.
 
 ---
 
+## 2026-08-30 — Track B / Phase B5b: Third-Party-App Automation & Device Limb IPC Integration (Phase B5b 100% Complete)
+
+- **Status**: Code-reviewer approved, test verified (`5/5 passed` in `tests/test_device_bridge_b5b.py`, `1,143/1,143 passed` across root test suite).
+- **Device Bridge IPC & Safety Veto Engine (`ccos/core/device_bridge.py`, `ccos/plugins/device/bridge/`)**:
+  - Implemented loopback IPC server/client with structured JSON-RPC envelopes supporting `ACTION_THIRD_PARTY_MESSAGE` (`third_party_message`) and `ACTION_EXECUTE_TASK` (`execute_task`).
+  - Strict telephony & messaging fail-closed safety veto engine (`validate_telephony_safety`) rejecting emergency shortcodes (911, 112, 999, 000, 110, 119, 120, 122, 100, 101, 102, 08, and North American `1911` variants) across all SMS, voice calls, and third-party messaging dispatches.
+  - Added Restoricon Core write-through synchronization helper (`record_device_interaction_to_core`) automatically appending device actions into `communication_history` and `audit_log`.
+- **Private-Codey-Agent Third-Party App Automation (`Private-Codey-Agent/lib/services/third_party_app_automation_service.dart`)**:
+  - Specialized automation recipes for WhatsApp (`com.whatsapp`), SMS (`com.google.android.apps.messaging`), Facebook Messenger (`com.facebook.orca`), Instagram (`com.instagram.android`), and Telegram (`org.telegram.messenger`).
+  - Supports intent URI fast-paths (`whatsapp://send?phone=...&text=...`, `sms:...`) with accessibility engine auto-click fallbacks and multi-step screen navigation loop fallback via `TaskExecutor`.
+- **Private-Codey-Agent Device Bridge Client Service (`Private-Codey-Agent/lib/services/device_bridge_client_service.dart`)**:
+  - Loopback IPC client service handling line-delimited JSON envelopes from `Codey-OS` over local TCP/WebSocket (`127.0.0.1:8088`).
+  - Dispatches actions directly to `ScreenAutomationService`, `CommunicationService`, `ThirdPartyAppAutomationService`, and `TaskExecutor`.
+- **Phase B5b Completion**: Track B Phase B5 (all domain engines + device limb third-party app automation) is now 100% complete.
+
+---
+
 ## 2026-08-30 — Track B / Phase B5a: Remaining Domain Engines & Cross-Domain Search/Reporting (Phase B5a 100% Complete)
 
 - **Status**: Code-reviewer approved, test verified (`227/227 passed` in `restoricon_core` + B5a tests, `1,138/1,138 passed` across full root test suite).

@@ -23,6 +23,8 @@ ACTION_SEND_SMS = "send_sms"
 ACTION_MAKE_CALL = "make_call"
 ACTION_LAUNCH_APP = "launch_app"
 ACTION_READ_NOTIFICATIONS = "read_notifications"
+ACTION_THIRD_PARTY_MESSAGE = "third_party_message"
+ACTION_EXECUTE_TASK = "execute_task"
 
 ALL_ACTIONS = {
     ACTION_INSPECT_UI,
@@ -31,6 +33,8 @@ ALL_ACTIONS = {
     ACTION_MAKE_CALL,
     ACTION_LAUNCH_APP,
     ACTION_READ_NOTIFICATIONS,
+    ACTION_THIRD_PARTY_MESSAGE,
+    ACTION_EXECUTE_TASK,
 }
 
 # Emergency Numbers Veto Set
@@ -82,9 +86,15 @@ def validate_telephony_safety(phone_number: str) -> Tuple[bool, Optional[str]]:
     if digits in EMERGENCY_NUMBERS:
         return False, f"Safety veto: Emergency number '{phone_number}' is blocked"
 
-    # Also block 911 / 112 anywhere in short codes (< 5 digits)
-    if len(digits) <= 4 and any(em == digits for em in EMERGENCY_NUMBERS):
-        return False, f"Safety veto: Emergency short code '{phone_number}' is blocked"
+    # Handle +1 prefix for North America e.g. +1-911 -> digits '1911'
+    if digits.startswith("1") and len(digits) == 4 and digits[1:] in EMERGENCY_NUMBERS:
+        return False, f"Safety veto: Emergency number '{phone_number}' is blocked"
+
+    # Also block 911 / 112 / 999 anywhere in short codes (<= 4 digits)
+    if len(digits) <= 4:
+        for em in EMERGENCY_NUMBERS:
+            if em == digits or em in digits:
+                return False, f"Safety veto: Emergency short code '{phone_number}' is blocked"
 
     return True, None
 
@@ -225,6 +235,18 @@ class DeviceBridgeServer:
                 }
             ][: p.get("limit", 10)]
         }
+        self._handlers[ACTION_THIRD_PARTY_MESSAGE] = lambda p: {
+            "sent": True,
+            "app": p.get("app", "whatsapp"),
+            "recipient": p.get("recipient"),
+            "message_id": f"msg_{p.get('app', 'app')}_{int(time.time())}",
+        }
+        self._handlers[ACTION_EXECUTE_TASK] = lambda p: {
+            "success": True,
+            "goal": p.get("goal"),
+            "steps_executed": p.get("steps_executed", 1),
+            "final_status": "completed",
+        }
 
     def handle_envelope(self, req_dict: Dict[str, Any]) -> Dict[str, Any]:
         """Validate safety, authenticate, and dispatch a request envelope."""
@@ -245,7 +267,7 @@ class DeviceBridgeServer:
                 error="Unauthorized: Invalid auth_token",
             ).to_dict()
 
-        # Check Safety Vetoes for telephony
+        # Check Safety Vetoes for telephony and third-party messaging
         if req.action_type in (ACTION_SEND_SMS, ACTION_MAKE_CALL):
             phone = req.payload.get("phone_number", "")
             is_safe, reason = validate_telephony_safety(phone)
@@ -255,6 +277,18 @@ class DeviceBridgeServer:
                     status="blocked",
                     error=reason,
                 ).to_dict()
+
+        if req.action_type == ACTION_THIRD_PARTY_MESSAGE:
+            recipient = str(req.payload.get("recipient", "") or req.payload.get("phone_number", "")).strip()
+            # If recipient looks like a phone number, validate against emergency numbers
+            if any(char.isdigit() for char in recipient):
+                digits = normalize_phone_number(recipient)
+                if digits in EMERGENCY_NUMBERS or (len(digits) <= 4 and any(em == digits for em in EMERGENCY_NUMBERS)):
+                    return DeviceBridgeResponse(
+                        request_id=req.request_id,
+                        status="blocked",
+                        error=f"Safety veto: Emergency number '{recipient}' is blocked for third-party messaging",
+                    ).to_dict()
 
         handler = self._handlers.get(req.action_type)
         if not handler:
@@ -442,6 +476,86 @@ class DeviceBridgeClient:
         """Read recent device notifications."""
         payload = {"limit": limit}
         return self.send_request(ACTION_READ_NOTIFICATIONS, payload)
+
+    def send_third_party_message(
+        self,
+        app: str,
+        recipient: str,
+        message: str,
+        customer_id: Optional[int] = None,
+        project_id: Optional[int] = None,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        """Send message via third party app (WhatsApp, Messenger, Instagram, etc.)."""
+        payload = {
+            "app": app.lower(),
+            "recipient": recipient,
+            "message": message,
+            "customer_id": customer_id,
+            "project_id": project_id,
+            **kwargs,
+        }
+        return self.send_request(ACTION_THIRD_PARTY_MESSAGE, payload)
+
+    def execute_task(
+        self,
+        goal: str,
+        max_steps: int = 15,
+        context: Optional[Dict[str, Any]] = None,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        """Dispatch a multi-step accessibility screen automation task on device."""
+        payload = {
+            "goal": goal,
+            "max_steps": max_steps,
+            "context": context or {},
+            **kwargs,
+        }
+        return self.send_request(ACTION_EXECUTE_TASK, payload)
+
+
+def record_device_interaction_to_core(
+    comm_service: Any,
+    actor: Any,
+    customer_id: int,
+    channel: str,
+    direction: str,
+    body: str,
+    subject: Optional[str] = None,
+    sender: Optional[str] = None,
+    recipient: Optional[str] = None,
+    provider_message_id: Optional[str] = None,
+    project_id: Optional[int] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Any:
+    """Helper to record device limb interactions into Restoricon Core communication history."""
+    if comm_service is None:
+        return None
+
+    # Map app channels into valid Core channels if needed
+    mapped_channel = channel
+    if mapped_channel not in ("phone", "email", "sms", "voicemail", "web_chat", "social", "internal_note", "ai_conversation", "appointment"):
+        mapped_channel = "social"
+
+    meta = metadata or {}
+    if sender:
+        meta["sender"] = sender
+    if recipient:
+        meta["recipient"] = recipient
+    if channel != mapped_channel:
+        meta["original_channel"] = channel
+
+    return comm_service.record_communication(
+        channel=mapped_channel,
+        direction=direction,
+        content=body,
+        actor=actor,
+        subject=subject,
+        customer_id=customer_id,
+        project_id=project_id,
+        metadata=meta,
+        provider_message_id=provider_message_id,
+    )
 
 
 # Global Default Server Instance
