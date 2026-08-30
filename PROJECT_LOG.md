@@ -12,6 +12,28 @@ and Appendix A.
 
 ---
 
+## 2026-08-30 — Track B / Phase B5a: Remaining Domain Engines & Cross-Domain Search/Reporting (Phase B5a 100% Complete)
+
+- **Status**: Code-reviewer approved, test verified (`227/227 passed` in `restoricon_core` + B5a tests, `1,138/1,138 passed` across full root test suite).
+- **Finance & Bookkeeping Domain (`restoricon_core/services/finance_service.py`, `tests/test_finance_service.py`)**:
+  - Implemented immutable `financial_transactions` double-entry ledger with automatic category and project association.
+  - Project P&L job costing engine (`get_project_pnl`) aggregating contract value, actual payments collected, itemized expenses (materials, labor, subcontractors, equipment, other), and gross margin percentage.
+  - Accounts Receivable Aging engine (`get_ar_aging`) computing overdue buckets: Current (0-30 days), 31-60 days, 61-90 days, and 90+ days past due.
+  - Organization-wide financial performance summary (`get_financial_summary`) with revenue, expense, and net profit calculations.
+- **Marketing, Compliance, HR, and Procurement Domains (`restoricon_core/services/business_ops_service.py`, `tests/test_business_ops.py`)**:
+  - **Marketing**: Campaign tracking lifecycle with budget vs actual spend, lead attribution, and automated customer review requests (Google/Yelp/Direct).
+  - **Compliance**: License, insurance (GL, WC), and certification registry with automated expiration scanning (`scan_expirations`) and auto-tagging of `expiring_soon` / `expired` records.
+  - **HR & Timesheets**: Employee roster with wage tiers, project/work-order timesheet logging, and supervisor approval workflow.
+  - **Procurement**: Vendor catalog with payment terms, itemized purchase orders with tax/shipping calculations, and line-item reception status.
+- **Cross-Domain Search & Executive Reporting (`restoricon_core/services/analytics_search_service.py`, `tests/test_global_search_reports.py`)**:
+  - Unified multi-entity global search across 12 business entities with strict customer data isolation.
+  - Executive KPI dashboard aggregating CRM & Sales, Operations, Financial, and Marketing metrics into a single real-time snapshot.
+- **REST API Router Integration (`restoricon_core/api/routes.py`, `tests/test_b5a_api_routes.py`)**:
+  - Added 25+ new REST API endpoints under `/api/v1/finance/*`, `/api/v1/marketing/*`, `/api/v1/compliance/*`, `/api/v1/hr/*`, `/api/v1/procurement/*`, `/api/v1/search`, and `/api/v1/reports/*`.
+  - Enforces role-based permissions (`PERM_READ_FINANCE`, `PERM_WRITE_FINANCE`, `PERM_MANAGE_MARKETING`, `PERM_MANAGE_COMPLIANCE`, `PERM_MANAGE_HR`, `PERM_MANAGE_PROCUREMENT`, `PERM_VIEW_REPORTS`, `PERM_GLOBAL_SEARCH`).
+
+---
+
 ## 2026-08-30 — Track B / Phase B4: Public Website Intake & Customer Portal API (Phase B4 100% Complete)
 
 - **Status**: Code-reviewer approved, test verified (`224/224 passed` in `restoricon_core` + B4 tests, `1121/1121 passed` across full root test suite).

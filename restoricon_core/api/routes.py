@@ -15,28 +15,39 @@ from ..models import (
     Appointment,
     AutomationRule,
     BusinessProfile,
+    ComplianceItem,
     Contact,
     Contract,
     Customer,
     Document,
+    Employee,
     Equipment,
     EquipmentDeployment,
     Estimate,
+    FinancialTransaction,
     Invoice,
     Lead,
+    MarketingCampaign,
     Opportunity,
     Project,
     ProjectMilestone,
+    PurchaseOrder,
+    ReviewRequest,
     ScheduleConfig,
     Subcontractor,
     Task,
+    Timesheet,
+    Vendor,
     WorkOrder,
 )
 from .rate_limiter import RateLimiter
+from ..services.analytics_search_service import AnalyticsSearchService
 from ..services.audit_service import AuditService
 from ..services.automation_service import AutomationService
+from ..services.business_ops_service import BusinessOpsService
 from ..services.communication_service import CommunicationService
 from ..services.crm_service import CRMService
+from ..services.finance_service import FinanceService
 from ..services.operations_service import OperationsService
 from ..services.scheduling_service import SchedulingService
 
@@ -62,6 +73,9 @@ class APIRouter:
         automation_service: AutomationService,
         operations_service: Optional[OperationsService] = None,
         rate_limiter: Optional[RateLimiter] = None,
+        finance_service: Optional[FinanceService] = None,
+        business_ops_service: Optional[BusinessOpsService] = None,
+        analytics_search_service: Optional[AnalyticsSearchService] = None,
     ):
         self.auth = auth_service
         self.crm = crm_service
@@ -70,6 +84,9 @@ class APIRouter:
         self.scheduling = scheduling_service
         self.automation = automation_service
         self.operations = operations_service or OperationsService(crm_service.db, audit_service)
+        self.finance = finance_service or FinanceService(crm_service.db, audit_service)
+        self.business_ops = business_ops_service or BusinessOpsService(crm_service.db, audit_service)
+        self.analytics_search = analytics_search_service or AnalyticsSearchService(crm_service.db)
         self.rate_limiter = rate_limiter or RateLimiter(max_requests=60, window_seconds=60)
 
     def handle_request(
@@ -1175,6 +1192,239 @@ class APIRouter:
                 if not eq:
                     return 404, {"Content-Type": "application/json"}, {"error": "Equipment not found"}
                 return 200, {"Content-Type": "application/json"}, {"equipment": eq.to_dict()}
+
+            # -------------------------------------------------------------
+            # Phase B5a: Finance & Bookkeeping Domain Endpoints
+            # -------------------------------------------------------------
+            if path == "/api/v1/finance/transactions" and method == "POST":
+                txn = FinancialTransaction(
+                    transaction_number=json_body.get("transaction_number", ""),
+                    transaction_type=json_body.get("transaction_type", "payment_received"),
+                    amount=float(json_body.get("amount", 0.0)),
+                    category=json_body.get("category"),
+                    payment_method=json_body.get("payment_method"),
+                    reference_number=json_body.get("reference_number"),
+                    customer_id=json_body.get("customer_id"),
+                    project_id=json_body.get("project_id"),
+                    invoice_id=json_body.get("invoice_id"),
+                    vendor_id=json_body.get("vendor_id"),
+                    transaction_date=json_body.get("transaction_date", ""),
+                    notes=json_body.get("notes"),
+                )
+                res = self.finance.record_transaction(txn, actor)
+                return 201, {"Content-Type": "application/json"}, {"status": "created", "transaction": res.to_dict()}
+
+            if path == "/api/v1/finance/transactions" and method == "GET":
+                proj_id = int(query_params["project_id"][0]) if "project_id" in query_params else None
+                cust_id = int(query_params["customer_id"][0]) if "customer_id" in query_params else None
+                ttype = query_params["transaction_type"][0] if "transaction_type" in query_params else None
+                limit = int(query_params.get("limit", [50])[0])
+                offset = int(query_params.get("offset", [0])[0])
+                txns = self.finance.list_transactions(actor, project_id=proj_id, customer_id=cust_id, transaction_type=ttype, limit=limit, offset=offset)
+                return 200, {"Content-Type": "application/json"}, {"transactions": [t.to_dict() for t in txns]}
+
+            if path.startswith("/api/v1/finance/projects/") and path.endswith("/pnl") and method == "GET":
+                proj_id = int(path.split("/")[-2])
+                pnl = self.finance.get_project_pnl(proj_id, actor)
+                return 200, {"Content-Type": "application/json"}, {"pnl": pnl}
+
+            if path == "/api/v1/finance/ar-aging" and method == "GET":
+                aging = self.finance.get_ar_aging(actor)
+                return 200, {"Content-Type": "application/json"}, {"ar_aging": aging}
+
+            if path == "/api/v1/finance/summary" and method == "GET":
+                summary = self.finance.get_financial_summary(actor)
+                return 200, {"Content-Type": "application/json"}, {"financial_summary": summary}
+
+            # -------------------------------------------------------------
+            # Phase B5a: Marketing & Review Management Endpoints
+            # -------------------------------------------------------------
+            if path == "/api/v1/marketing/campaigns" and method == "POST":
+                camp = MarketingCampaign(
+                    name=json_body.get("name", ""),
+                    channel=json_body.get("channel", "google_ads"),
+                    status=json_body.get("status", "planning"),
+                    budget=float(json_body.get("budget", 0.0)),
+                    actual_spend=float(json_body.get("actual_spend", 0.0)),
+                    leads_generated=int(json_body.get("leads_generated", 0)),
+                    revenue_attributed=float(json_body.get("revenue_attributed", 0.0)),
+                    start_date=json_body.get("start_date"),
+                    end_date=json_body.get("end_date"),
+                    notes=json_body.get("notes"),
+                )
+                res = self.business_ops.create_campaign(camp, actor)
+                return 201, {"Content-Type": "application/json"}, {"status": "created", "campaign": res.to_dict()}
+
+            if path == "/api/v1/marketing/campaigns" and method == "GET":
+                camps = self.business_ops.list_campaigns(actor)
+                return 200, {"Content-Type": "application/json"}, {"campaigns": [c.to_dict() for c in camps]}
+
+            if path == "/api/v1/marketing/reviews/request" and method == "POST":
+                req = ReviewRequest(
+                    customer_id=int(json_body.get("customer_id", 0)),
+                    project_id=json_body.get("project_id"),
+                    platform=json_body.get("platform", "google"),
+                )
+                res = self.business_ops.create_review_request(req, actor)
+                return 201, {"Content-Type": "application/json"}, {"status": "sent", "review_request": res.to_dict()}
+
+            if path.startswith("/api/v1/marketing/reviews/") and path.endswith("/submit") and method == "POST":
+                req_id = int(path.split("/")[-2])
+                rating = int(json_body.get("rating", 5))
+                feedback = json_body.get("feedback", "")
+                res = self.business_ops.submit_review(req_id, rating, feedback)
+                return 200, {"Content-Type": "application/json"}, {"status": "submitted", "review": res.to_dict()}
+
+            if path == "/api/v1/marketing/reviews" and method == "GET":
+                reviews = self.business_ops.list_reviews(actor)
+                return 200, {"Content-Type": "application/json"}, {"reviews": [r.to_dict() for r in reviews]}
+
+            # -------------------------------------------------------------
+            # Phase B5a: Compliance & Certifications Endpoints
+            # -------------------------------------------------------------
+            if path == "/api/v1/compliance/items" and method == "POST":
+                item = ComplianceItem(
+                    title=json_body.get("title", ""),
+                    category=json_body.get("category", "general_liability"),
+                    entity_type=json_body.get("entity_type", "company"),
+                    entity_id=json_body.get("entity_id"),
+                    license_number=json_body.get("license_number"),
+                    issuer=json_body.get("issuer"),
+                    issue_date=json_body.get("issue_date"),
+                    expiration_date=json_body.get("expiration_date", ""),
+                    document_id=json_body.get("document_id"),
+                    notes=json_body.get("notes"),
+                )
+                res = self.business_ops.create_compliance_item(item, actor)
+                return 201, {"Content-Type": "application/json"}, {"status": "created", "compliance_item": res.to_dict()}
+
+            if path == "/api/v1/compliance/items" and method == "GET":
+                etype = query_params["entity_type"][0] if "entity_type" in query_params else None
+                stat = query_params["status"][0] if "status" in query_params else None
+                items = self.business_ops.list_compliance_items(actor, entity_type=etype, status=stat)
+                return 200, {"Content-Type": "application/json"}, {"compliance_items": [i.to_dict() for i in items]}
+
+            if path == "/api/v1/compliance/scan" and method == "POST":
+                days = int(json_body.get("threshold_days", 30))
+                scan_res = self.business_ops.scan_compliance_expirations(actor, threshold_days=days)
+                return 200, {"Content-Type": "application/json"}, {"status": "scanned", "results": scan_res}
+
+            # -------------------------------------------------------------
+            # Phase B5a: HR & Timesheets Endpoints
+            # -------------------------------------------------------------
+            if path == "/api/v1/hr/employees" and method == "POST":
+                emp = Employee(
+                    user_id=json_body.get("user_id"),
+                    first_name=json_body.get("first_name", ""),
+                    last_name=json_body.get("last_name", ""),
+                    role_title=json_body.get("role_title", ""),
+                    department=json_body.get("department", "operations"),
+                    phone=json_body.get("phone"),
+                    email=json_body.get("email"),
+                    hourly_rate=float(json_body.get("hourly_rate", 0.0)),
+                    hire_date=json_body.get("hire_date"),
+                    status=json_body.get("status", "active"),
+                    emergency_contact=json_body.get("emergency_contact"),
+                )
+                res = self.business_ops.create_employee(emp, actor)
+                return 201, {"Content-Type": "application/json"}, {"status": "created", "employee": res.to_dict()}
+
+            if path == "/api/v1/hr/employees" and method == "GET":
+                dept = query_params["department"][0] if "department" in query_params else None
+                stat = query_params["status"][0] if "status" in query_params else None
+                emps = self.business_ops.list_employees(actor, department=dept, status=stat)
+                return 200, {"Content-Type": "application/json"}, {"employees": [e.to_dict() for e in emps]}
+
+            if path == "/api/v1/hr/timesheets" and method == "POST":
+                ts = Timesheet(
+                    employee_id=int(json_body.get("employee_id", 0)),
+                    project_id=json_body.get("project_id"),
+                    work_order_id=json_body.get("work_order_id"),
+                    work_date=json_body.get("work_date", ""),
+                    hours_worked=float(json_body.get("hours_worked", 0.0)),
+                    work_type=json_body.get("work_type", "regular"),
+                    hourly_rate=float(json_body.get("hourly_rate", 0.0)),
+                    notes=json_body.get("notes"),
+                    status=json_body.get("status", "submitted"),
+                )
+                res = self.business_ops.submit_timesheet(ts, actor)
+                return 201, {"Content-Type": "application/json"}, {"status": "submitted", "timesheet": res.to_dict()}
+
+            if path == "/api/v1/hr/timesheets" and method == "GET":
+                emp_id = int(query_params["employee_id"][0]) if "employee_id" in query_params else None
+                proj_id = int(query_params["project_id"][0]) if "project_id" in query_params else None
+                stat = query_params["status"][0] if "status" in query_params else None
+                timesheets = self.business_ops.list_timesheets(actor, employee_id=emp_id, project_id=proj_id, status=stat)
+                return 200, {"Content-Type": "application/json"}, {"timesheets": [t.to_dict() for t in timesheets]}
+
+            if path.startswith("/api/v1/hr/timesheets/") and path.endswith("/approve") and method == "POST":
+                ts_id = int(path.split("/")[-2])
+                res = self.business_ops.approve_timesheet(ts_id, actor)
+                return 200, {"Content-Type": "application/json"}, {"status": "approved", "timesheet": res.to_dict()}
+
+            # -------------------------------------------------------------
+            # Phase B5a: Procurement & Vendors Endpoints
+            # -------------------------------------------------------------
+            if path == "/api/v1/procurement/vendors" and method == "POST":
+                vendor = Vendor(
+                    company_name=json_body.get("company_name", ""),
+                    contact_name=json_body.get("contact_name"),
+                    phone=json_body.get("phone"),
+                    email=json_body.get("email"),
+                    address=json_body.get("address"),
+                    category=json_body.get("category", "building_materials"),
+                    payment_terms=json_body.get("payment_terms", "net_30"),
+                    rating=float(json_body.get("rating")) if json_body.get("rating") is not None else None,
+                    notes=json_body.get("notes"),
+                )
+                res = self.business_ops.create_vendor(vendor, actor)
+                return 201, {"Content-Type": "application/json"}, {"status": "created", "vendor": res.to_dict()}
+
+            if path == "/api/v1/procurement/vendors" and method == "GET":
+                cat = query_params["category"][0] if "category" in query_params else None
+                vendors = self.business_ops.list_vendors(actor, category=cat)
+                return 200, {"Content-Type": "application/json"}, {"vendors": [v.to_dict() for v in vendors]}
+
+            if path == "/api/v1/procurement/purchase-orders" and method == "POST":
+                po = PurchaseOrder(
+                    po_number=json_body.get("po_number", ""),
+                    vendor_id=int(json_body.get("vendor_id", 0)),
+                    project_id=json_body.get("project_id"),
+                    status=json_body.get("status", "draft"),
+                    items=json_body.get("items", []),
+                    subtotal=float(json_body.get("subtotal", 0.0)),
+                    tax_amount=float(json_body.get("tax_amount", 0.0)),
+                    total_amount=float(json_body.get("total_amount", 0.0)),
+                    expected_date=json_body.get("expected_date"),
+                    notes=json_body.get("notes"),
+                )
+                res = self.business_ops.create_purchase_order(po, actor)
+                return 201, {"Content-Type": "application/json"}, {"status": "created", "purchase_order": res.to_dict()}
+
+            if path == "/api/v1/procurement/purchase-orders" and method == "GET":
+                ven_id = int(query_params["vendor_id"][0]) if "vendor_id" in query_params else None
+                proj_id = int(query_params["project_id"][0]) if "project_id" in query_params else None
+                stat = query_params["status"][0] if "status" in query_params else None
+                pos = self.business_ops.list_purchase_orders(actor, vendor_id=ven_id, project_id=proj_id, status=stat)
+                return 200, {"Content-Type": "application/json"}, {"purchase_orders": [p.to_dict() for p in pos]}
+
+            if path.startswith("/api/v1/procurement/purchase-orders/") and path.endswith("/receive") and method == "POST":
+                po_id = int(path.split("/")[-2])
+                res = self.business_ops.receive_purchase_order(po_id, actor)
+                return 200, {"Content-Type": "application/json"}, {"status": "received", "purchase_order": res.to_dict()}
+
+            # -------------------------------------------------------------
+            # Phase B5a: Global Search & Executive Reporting Endpoints
+            # -------------------------------------------------------------
+            if path == "/api/v1/search" and method == "GET":
+                q = query_params.get("q", [""])[0]
+                limit_cat = int(query_params.get("limit", [10])[0])
+                search_res = self.analytics_search.global_search(q, actor, limit_per_category=limit_cat)
+                return 200, {"Content-Type": "application/json"}, search_res
+
+            if path == "/api/v1/reports/summary" and method == "GET":
+                summary = self.analytics_search.get_executive_dashboard(actor)
+                return 200, {"Content-Type": "application/json"}, {"dashboard": summary}
 
             return 404, {"Content-Type": "application/json"}, {"error": f"Endpoint not found: {method} {path}"}
 

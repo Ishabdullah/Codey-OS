@@ -139,6 +139,20 @@ PERM_WRITE_OPERATIONS = "write:operations"
 PERM_MANAGE_PROJECTS = "manage:projects"
 PERM_DISPATCH_WORK_ORDERS = "dispatch:work_orders"
 
+# Phase B5a Domain Permissions
+PERM_READ_FINANCE = "read:finance"
+PERM_WRITE_FINANCE = "write:finance"
+PERM_READ_MARKETING = "read:marketing"
+PERM_WRITE_MARKETING = "write:marketing"
+PERM_READ_COMPLIANCE = "read:compliance"
+PERM_WRITE_COMPLIANCE = "write:compliance"
+PERM_READ_HR = "read:hr"
+PERM_WRITE_HR = "write:hr"
+PERM_READ_PROCUREMENT = "read:procurement"
+PERM_WRITE_PROCUREMENT = "write:procurement"
+PERM_GLOBAL_SEARCH = "search:global"
+PERM_VIEW_REPORTS = "view:reports"
+
 # Role permissions matrix
 ROLE_PERMISSIONS: Dict[str, Set[str]] = {
     ROLE_ADMIN: {
@@ -185,6 +199,18 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_OPERATIONS,
         PERM_MANAGE_PROJECTS,
         PERM_DISPATCH_WORK_ORDERS,
+        PERM_READ_FINANCE,
+        PERM_WRITE_FINANCE,
+        PERM_READ_MARKETING,
+        PERM_WRITE_MARKETING,
+        PERM_READ_COMPLIANCE,
+        PERM_WRITE_COMPLIANCE,
+        PERM_READ_HR,
+        PERM_WRITE_HR,
+        PERM_READ_PROCUREMENT,
+        PERM_WRITE_PROCUREMENT,
+        PERM_GLOBAL_SEARCH,
+        PERM_VIEW_REPORTS,
     },
     ROLE_MANAGER: {
         PERM_READ_ALL_CUSTOMERS,
@@ -229,6 +255,18 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_OPERATIONS,
         PERM_MANAGE_PROJECTS,
         PERM_DISPATCH_WORK_ORDERS,
+        PERM_READ_FINANCE,
+        PERM_WRITE_FINANCE,
+        PERM_READ_MARKETING,
+        PERM_WRITE_MARKETING,
+        PERM_READ_COMPLIANCE,
+        PERM_WRITE_COMPLIANCE,
+        PERM_READ_HR,
+        PERM_WRITE_HR,
+        PERM_READ_PROCUREMENT,
+        PERM_WRITE_PROCUREMENT,
+        PERM_GLOBAL_SEARCH,
+        PERM_VIEW_REPORTS,
     },
     ROLE_SALES: {
         PERM_READ_ALL_CUSTOMERS,
@@ -259,6 +297,11 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_READ_CONTACTS,
         PERM_WRITE_CONTACTS,
         PERM_READ_OPERATIONS,
+        PERM_READ_MARKETING,
+        PERM_WRITE_MARKETING,
+        PERM_READ_PROCUREMENT,
+        PERM_GLOBAL_SEARCH,
+        PERM_VIEW_REPORTS,
     },
     ROLE_PROJECT_MANAGER: {
         PERM_READ_ALL_CUSTOMERS,
@@ -287,6 +330,14 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_OPERATIONS,
         PERM_MANAGE_PROJECTS,
         PERM_DISPATCH_WORK_ORDERS,
+        PERM_READ_FINANCE,
+        PERM_READ_COMPLIANCE,
+        PERM_WRITE_COMPLIANCE,
+        PERM_READ_HR,
+        PERM_READ_PROCUREMENT,
+        PERM_WRITE_PROCUREMENT,
+        PERM_GLOBAL_SEARCH,
+        PERM_VIEW_REPORTS,
     },
     ROLE_TECHNICIAN: {
         PERM_READ_ASSIGNED_PROJECTS,
@@ -295,6 +346,9 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_LOG_COMMUNICATION,
         PERM_READ_OPERATIONS,
         PERM_WRITE_OPERATIONS,
+        PERM_READ_HR,
+        PERM_WRITE_HR,
+        PERM_READ_COMPLIANCE,
     },
     ROLE_AI_AGENT: {
         PERM_READ_ALL_CUSTOMERS,
@@ -316,9 +370,6 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_FINANCIALS,
         PERM_LOG_COMMUNICATION,
         PERM_READ_COMMUNICATIONS,
-        # ai_agent is the actor identity Codey-Aigentik authenticates as
-        # once B2's write-through replacement lands (§6.4) -- it needs
-        # full read/write on exactly the modules it owns today.
         PERM_READ_SUBCONTRACTORS,
         PERM_WRITE_SUBCONTRACTORS,
         PERM_READ_APPOINTMENTS,
@@ -337,6 +388,17 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_OPERATIONS,
         PERM_MANAGE_PROJECTS,
         PERM_DISPATCH_WORK_ORDERS,
+        PERM_READ_FINANCE,
+        PERM_WRITE_FINANCE,
+        PERM_READ_MARKETING,
+        PERM_WRITE_MARKETING,
+        PERM_READ_COMPLIANCE,
+        PERM_WRITE_COMPLIANCE,
+        PERM_READ_HR,
+        PERM_READ_PROCUREMENT,
+        PERM_WRITE_PROCUREMENT,
+        PERM_GLOBAL_SEARCH,
+        PERM_VIEW_REPORTS,
     },
     ROLE_CUSTOMER: {
         PERM_READ_OWN_CUSTOMER,
@@ -348,6 +410,7 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_READ_OWN_FINANCIALS,
         PERM_READ_OWN_COMMUNICATIONS,
         PERM_LOG_COMMUNICATION,
+        PERM_GLOBAL_SEARCH,
     },
 }
 

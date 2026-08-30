@@ -619,6 +619,159 @@ CREATE TABLE IF NOT EXISTS equipment_deployments (
     FOREIGN KEY (received_by_user_id) REFERENCES users(id) ON DELETE SET NULL
 );
 
+-- Financial Transactions Table (Track B Phase B5a Finance Domain Engine)
+CREATE TABLE IF NOT EXISTS financial_transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    transaction_number TEXT UNIQUE NOT NULL,
+    transaction_type TEXT NOT NULL CHECK(transaction_type IN ('payment_received', 'vendor_expense', 'payroll', 'material_cost', 'equipment_rental', 'refund', 'other')),
+    amount REAL NOT NULL,
+    category TEXT,
+    payment_method TEXT,
+    reference_number TEXT,
+    customer_id INTEGER,
+    project_id INTEGER,
+    invoice_id INTEGER,
+    vendor_id INTEGER,
+    recorded_by_id INTEGER,
+    transaction_date TEXT NOT NULL,
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
+    FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE SET NULL,
+    FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE SET NULL,
+    FOREIGN KEY (recorded_by_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- Marketing Campaigns Table (Track B Phase B5a Marketing Domain Engine)
+CREATE TABLE IF NOT EXISTS marketing_campaigns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    channel TEXT NOT NULL CHECK(channel IN ('google_ads', 'meta_ads', 'local_seo', 'direct_mail', 'email_blast', 'referral', 'billboard', 'other')),
+    status TEXT NOT NULL DEFAULT 'planning' CHECK(status IN ('planning', 'active', 'paused', 'completed')),
+    budget REAL NOT NULL DEFAULT 0.0,
+    actual_spend REAL NOT NULL DEFAULT 0.0,
+    leads_generated INTEGER NOT NULL DEFAULT 0,
+    revenue_attributed REAL NOT NULL DEFAULT 0.0,
+    start_date TEXT,
+    end_date TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- Review Requests Table (Track B Phase B5a Marketing Domain Engine)
+CREATE TABLE IF NOT EXISTS review_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL,
+    project_id INTEGER,
+    platform TEXT NOT NULL CHECK(platform IN ('google', 'yelp', 'facebook', 'direct', 'other')),
+    rating INTEGER CHECK(rating BETWEEN 1 AND 5 OR rating IS NULL),
+    feedback TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'sent', 'opened', 'completed', 'declined')),
+    sent_at TEXT,
+    completed_at TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
+);
+
+-- Compliance Items Table (Track B Phase B5a Compliance Domain Engine)
+CREATE TABLE IF NOT EXISTS compliance_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    category TEXT NOT NULL CHECK(category IN ('business_license', 'contractor_license', 'general_liability', 'workers_comp', 'epa_lead_cert', 'iicrc_cert', 'osha_inspection', 'vehicle_insurance', 'other')),
+    entity_type TEXT NOT NULL CHECK(entity_type IN ('company', 'subcontractor', 'employee', 'vehicle')),
+    entity_id INTEGER,
+    license_number TEXT,
+    issuer TEXT,
+    issue_date TEXT,
+    expiration_date TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'expiring_soon', 'expired', 'renewed')),
+    document_id INTEGER,
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE SET NULL
+);
+
+-- Employees Table (Track B Phase B5a HR Domain Engine)
+CREATE TABLE IF NOT EXISTS employees (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER UNIQUE,
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,
+    role_title TEXT NOT NULL,
+    department TEXT NOT NULL CHECK(department IN ('management', 'sales', 'operations', 'field_technician', 'admin', 'other')),
+    phone TEXT,
+    email TEXT,
+    hourly_rate REAL NOT NULL DEFAULT 0.0,
+    hire_date TEXT,
+    status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'on_leave', 'terminated')),
+    emergency_contact TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- Timesheets Table (Track B Phase B5a HR Domain Engine)
+CREATE TABLE IF NOT EXISTS timesheets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id INTEGER NOT NULL,
+    project_id INTEGER,
+    work_order_id INTEGER,
+    work_date TEXT NOT NULL,
+    hours_worked REAL NOT NULL,
+    work_type TEXT NOT NULL DEFAULT 'regular' CHECK(work_type IN ('regular', 'overtime', 'travel', 'admin', 'other')),
+    hourly_rate REAL NOT NULL DEFAULT 0.0,
+    total_cost REAL NOT NULL DEFAULT 0.0,
+    notes TEXT,
+    approved_by_id INTEGER,
+    status TEXT NOT NULL DEFAULT 'submitted' CHECK(status IN ('submitted', 'approved', 'rejected')),
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
+    FOREIGN KEY (work_order_id) REFERENCES work_orders(id) ON DELETE SET NULL,
+    FOREIGN KEY (approved_by_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- Vendors Table (Track B Phase B5a Procurement Domain Engine)
+CREATE TABLE IF NOT EXISTS vendors (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_name TEXT NOT NULL,
+    contact_name TEXT,
+    phone TEXT,
+    email TEXT,
+    address TEXT,
+    category TEXT NOT NULL CHECK(category IN ('building_materials', 'equipment_rental', 'safety_supplies', 'specialty_contractor', 'office', 'other')),
+    payment_terms TEXT NOT NULL DEFAULT 'net_30' CHECK(payment_terms IN ('due_on_receipt', 'net_15', 'net_30', 'net_60', 'cod')),
+    rating REAL,
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- Purchase Orders Table (Track B Phase B5a Procurement Domain Engine)
+CREATE TABLE IF NOT EXISTS purchase_orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    po_number TEXT UNIQUE NOT NULL,
+    vendor_id INTEGER NOT NULL,
+    project_id INTEGER,
+    status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'submitted', 'partially_received', 'received', 'invoiced', 'cancelled')),
+    items_json TEXT NOT NULL DEFAULT '[]',
+    subtotal REAL NOT NULL DEFAULT 0.0,
+    tax_amount REAL NOT NULL DEFAULT 0.0,
+    total_amount REAL NOT NULL DEFAULT 0.0,
+    ordered_date TEXT,
+    expected_date TEXT,
+    received_date TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE RESTRICT,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
+);
+
 -- Indexing for performance
 -- NOTE: the unique indexes for customers.external_id / leads.external_id /
 -- contacts.external_id / communication_history.provider_message_id are
@@ -679,6 +832,27 @@ CREATE INDEX IF NOT EXISTS idx_equipment_current_project ON equipment(current_pr
 CREATE INDEX IF NOT EXISTS idx_deployments_equipment_id ON equipment_deployments(equipment_id);
 CREATE INDEX IF NOT EXISTS idx_deployments_project_id ON equipment_deployments(project_id);
 CREATE INDEX IF NOT EXISTS idx_deployments_work_order_id ON equipment_deployments(work_order_id);
+CREATE INDEX IF NOT EXISTS idx_fin_txn_project_id ON financial_transactions(project_id);
+CREATE INDEX IF NOT EXISTS idx_fin_txn_customer_id ON financial_transactions(customer_id);
+CREATE INDEX IF NOT EXISTS idx_fin_txn_type ON financial_transactions(transaction_type);
+CREATE INDEX IF NOT EXISTS idx_fin_txn_date ON financial_transactions(transaction_date);
+CREATE INDEX IF NOT EXISTS idx_mkt_camp_status ON marketing_campaigns(status);
+CREATE INDEX IF NOT EXISTS idx_mkt_camp_channel ON marketing_campaigns(channel);
+CREATE INDEX IF NOT EXISTS idx_rev_req_customer_id ON review_requests(customer_id);
+CREATE INDEX IF NOT EXISTS idx_rev_req_status ON review_requests(status);
+CREATE INDEX IF NOT EXISTS idx_comp_items_exp_date ON compliance_items(expiration_date);
+CREATE INDEX IF NOT EXISTS idx_comp_items_status ON compliance_items(status);
+CREATE INDEX IF NOT EXISTS idx_comp_items_entity ON compliance_items(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_employees_status ON employees(status);
+CREATE INDEX IF NOT EXISTS idx_employees_user_id ON employees(user_id);
+CREATE INDEX IF NOT EXISTS idx_timesheets_employee_id ON timesheets(employee_id);
+CREATE INDEX IF NOT EXISTS idx_timesheets_project_id ON timesheets(project_id);
+CREATE INDEX IF NOT EXISTS idx_timesheets_work_date ON timesheets(work_date);
+CREATE INDEX IF NOT EXISTS idx_timesheets_status ON timesheets(status);
+CREATE INDEX IF NOT EXISTS idx_vendors_category ON vendors(category);
+CREATE INDEX IF NOT EXISTS idx_po_vendor_id ON purchase_orders(vendor_id);
+CREATE INDEX IF NOT EXISTS idx_po_project_id ON purchase_orders(project_id);
+CREATE INDEX IF NOT EXISTS idx_po_status ON purchase_orders(status);
 """
 
 _local = threading.local()

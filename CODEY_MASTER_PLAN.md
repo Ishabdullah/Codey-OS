@@ -907,7 +907,7 @@ a test-isolation gap, not a regression.
 
 ### 4.5 Business layer
 
-**Updated 2026-08-30.** Phase B1 (Core API & Auth), Phase B2 (Aigentik Write-Through & Contacts Directory), Phase B3 (CRM/Sales Pipeline & Operations Domain Engines), and Phase B4 (Public Website Intake API, Rate Limiting, & Customer Portal Data Isolation) are 100% complete and verified. `~/restoricon` static site forms submit directly to the phone's Core API `/api/v1/public/*` endpoints, and the Customer Portal (`/api/v1/portal/*`) enforces strict tenant isolation and internal cost masking.
+**Updated 2026-08-30.** Phase B1 (Core API & Auth), Phase B2 (Aigentik Write-Through & Contacts Directory), Phase B3 (CRM/Sales Pipeline & Operations Domain Engines), Phase B4 (Public Website Intake API, Rate Limiting, & Customer Portal Data Isolation), and Phase B5a (Remaining Business Domain Engines & Cross-Domain Search/Reporting: Finance, Marketing, Compliance, HR, Procurement, Unified Global Search, Executive Dashboard KPIs) are 100% complete and verified (1,138 passed).
 
 **`NEW-209`'s schema-gap open decision is RESOLVED — Ish chose to expand
 scope, not narrow it (2026-08-27).** Rather than narrowing B2's exit
@@ -3985,22 +3985,10 @@ work this phase didn't previously account for — not a detail to assume
 solved when B4 is actually picked up.
 
 ### 6.7 Track B / Phase B5 — The remaining domains, then the device limb
-
-**B5a — the remaining domains.** Finance/Bookkeeping (invoicing, payment
-tracking, project financial summary — track money, don't rebuild an
-accounting system; connect a real one later), Marketing/Lead-Gen
-(campaigns, segmentation, ad-platform integrations, review requests),
-Compliance (expiration monitoring and alerting), HR (onboarding,
-recruiting, documents, PTO), Customer Service (ticketing, warranty
-claims, satisfaction), Procurement (vendors, POs). These can build in
-parallel with each other once B1 exists — none depends on another the
-way B3's domains are depended on. Each is real scoped work: its own
-schema on top of §3.3's shared entities, plus its own rules.
-
-Plus the cross-cutting pieces they all feed: **Global Search** (one query
-across customers → leads → jobs → estimates → contracts → emails → SMS →
-appointments → payments → documents → tasks, a first-class feature) and
-**Reporting/Dashboard** (Sales, Operations, Financial, Marketing views).
+ 
+**B5a — the remaining domains (100% COMPLETE 2026-08-30).** Finance/Bookkeeping (`FinanceService`: transaction ledger, project P&L job costing, AR aging buckets, financial summary), Marketing/Lead-Gen (`BusinessOpsService`: campaign tracking, Google/Yelp review requests), Compliance (`BusinessOpsService`: certification and license expiration monitoring scanner), HR (`BusinessOpsService`: employee directory, hourly timesheet tracking & manager approval), Procurement (`BusinessOpsService`: vendor catalog, purchase orders lifecycle & inventory reception).
+ 
+Plus the cross-cutting pieces: **Global Search** (`AnalyticsSearchService`: multi-entity search across 12 domains with customer isolation enforcement) and **Executive Dashboard Reporting** (`AnalyticsSearchService`: Sales, Operations, Financial, Marketing KPIs). Full test coverage with 17 new dedicated tests and 1,138 repository tests passing.
 
 **B5b — the screen/hands limb.** Create the `Private-Codey-Agent` fork;
 build third-party-app automation (Messenger, WhatsApp, social posting)

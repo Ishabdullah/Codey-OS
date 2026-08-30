@@ -848,3 +848,174 @@ class AuditRecord:
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
+
+
+@dataclass
+class FinancialTransaction:
+    """Finance domain transaction ledger record."""
+    id: Optional[int] = None
+    transaction_number: str = ""
+    transaction_type: str = "payment_received"  # payment_received, vendor_expense, payroll, material_cost, equipment_rental, refund, other
+    amount: float = 0.0
+    category: Optional[str] = None
+    payment_method: Optional[str] = None
+    reference_number: Optional[str] = None
+    customer_id: Optional[int] = None
+    project_id: Optional[int] = None
+    invoice_id: Optional[int] = None
+    vendor_id: Optional[int] = None
+    recorded_by_id: Optional[int] = None
+    transaction_date: str = field(default_factory=utc_now_iso)
+    notes: Optional[str] = None
+    created_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class MarketingCampaign:
+    """Marketing domain campaign record."""
+    id: Optional[int] = None
+    name: str = ""
+    channel: str = "google_ads"  # google_ads, meta_ads, local_seo, direct_mail, email_blast, referral, billboard, other
+    status: str = "planning"  # planning, active, paused, completed
+    budget: float = 0.0
+    actual_spend: float = 0.0
+    leads_generated: int = 0
+    revenue_attributed: float = 0.0
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    notes: Optional[str] = None
+    created_at: str = field(default_factory=utc_now_iso)
+    updated_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class ReviewRequest:
+    """Customer satisfaction and online review tracking."""
+    id: Optional[int] = None
+    customer_id: int = 0
+    project_id: Optional[int] = None
+    platform: str = "google"  # google, yelp, facebook, direct, other
+    rating: Optional[int] = None  # 1-5
+    feedback: Optional[str] = None
+    status: str = "pending"  # pending, sent, opened, completed, declined
+    sent_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    created_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class ComplianceItem:
+    """Compliance domain certification, license, and insurance tracking."""
+    id: Optional[int] = None
+    title: str = ""
+    category: str = "general_liability"  # business_license, contractor_license, general_liability, workers_comp, epa_lead_cert, iicrc_cert, osha_inspection, vehicle_insurance, other
+    entity_type: str = "company"  # company, subcontractor, employee, vehicle
+    entity_id: Optional[int] = None
+    license_number: Optional[str] = None
+    issuer: Optional[str] = None
+    issue_date: Optional[str] = None
+    expiration_date: str = ""
+    status: str = "active"  # active, expiring_soon, expired, renewed
+    document_id: Optional[int] = None
+    notes: Optional[str] = None
+    created_at: str = field(default_factory=utc_now_iso)
+    updated_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class Employee:
+    """HR domain employee record."""
+    id: Optional[int] = None
+    user_id: Optional[int] = None
+    first_name: str = ""
+    last_name: str = ""
+    role_title: str = ""
+    department: str = "operations"  # management, sales, operations, field_technician, admin, other
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    hourly_rate: float = 0.0
+    hire_date: Optional[str] = None
+    status: str = "active"  # active, on_leave, terminated
+    emergency_contact: Optional[str] = None
+    created_at: str = field(default_factory=utc_now_iso)
+    updated_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class Timesheet:
+    """HR domain labor hours tracking and job costing record."""
+    id: Optional[int] = None
+    employee_id: int = 0
+    project_id: Optional[int] = None
+    work_order_id: Optional[int] = None
+    work_date: str = ""
+    hours_worked: float = 0.0
+    work_type: str = "regular"  # regular, overtime, travel, admin, other
+    hourly_rate: float = 0.0
+    total_cost: float = 0.0
+    notes: Optional[str] = None
+    approved_by_id: Optional[int] = None
+    status: str = "submitted"  # submitted, approved, rejected
+    created_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class Vendor:
+    """Procurement domain vendor and supplier record."""
+    id: Optional[int] = None
+    company_name: str = ""
+    contact_name: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    address: Optional[str] = None
+    category: str = "building_materials"  # building_materials, equipment_rental, safety_supplies, specialty_contractor, office, other
+    payment_terms: str = "net_30"  # due_on_receipt, net_15, net_30, net_60, cod
+    rating: Optional[float] = None
+    notes: Optional[str] = None
+    created_at: str = field(default_factory=utc_now_iso)
+    updated_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class PurchaseOrder:
+    """Procurement domain purchase order record."""
+    id: Optional[int] = None
+    po_number: str = ""
+    vendor_id: int = 0
+    project_id: Optional[int] = None
+    status: str = "draft"  # draft, submitted, partially_received, received, invoiced, cancelled
+    items: List[Dict[str, Any]] = field(default_factory=list)
+    subtotal: float = 0.0
+    tax_amount: float = 0.0
+    total_amount: float = 0.0
+    ordered_date: Optional[str] = None
+    expected_date: Optional[str] = None
+    received_date: Optional[str] = None
+    notes: Optional[str] = None
+    created_at: str = field(default_factory=utc_now_iso)
+    updated_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+

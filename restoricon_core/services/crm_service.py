@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import secrets
 from typing import Any, Dict, List, Optional
 
 from ..auth import (
@@ -2022,6 +2023,8 @@ class CRMService:
             raise PermissionError("Actor lacks permission to create invoices")
 
         now = utc_now_iso()
+        if not invoice.invoice_number:
+            invoice.invoice_number = f"INV-{now[:10].replace('-', '')}-{secrets.token_hex(2).upper()}"
         invoice.created_at = now
         invoice.updated_at = now
         invoice.balance_due = invoice.amount - invoice.deposit_amount
