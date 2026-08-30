@@ -5695,9 +5695,18 @@ Then:
       (`DeviceBridgeServer`, `DeviceBridgeClient`), emergency shortcode safety
       veto engine (blocking 911, 112, 999, etc.), and CCOS device plugin
       `ccos/plugins/device/bridge/`; verified with 7 unit tests.
-- [ ] **9.2** — generalize the gate into a multi-process
-      scheduler/resource-bus.
-- [ ] **external_process registration** of both limbs.
+- [x] **9.2** — generalize the gate into a multi-process
+      scheduler/resource-bus. **DONE 2026-08-30: code-complete, code-reviewer-approved.**
+      Created `core/resource_bus.py` with cross-process SQLite WAL + flock coordination,
+      priority queue scheduling (`CRITICAL`, `HIGH`, `NORMAL`, `LOW`), dynamic aging
+      anti-starvation, thermal throttling integration (`core/thermal.py`), memory
+      pressure guards (`core/sysmon.py`), zombie PID reaping (Rule 3 compliant), and
+      delegated context leasing in `core/resource_gate.py` with 100% backward compatibility.
+- [x] **external_process registration** of both limbs. **DONE 2026-08-30: code-complete,
+      code-reviewer-approved.** Extended `ccos/core/manifest_schema_v2.py` for
+      `external_process` and `remote_bridge`, implemented `ProcessSupervisor` in
+      `ccos/core/plugin_manager.py` with exact PID tracking and HTTP/IPC capability
+      forwarding, and deployed manifests for `Codey-Aigentik` and `Private-Codey-Agent`.
 - [ ] **11.x** — Model Orchestrator. **Parked** until a domain agent
       needing it is scoped.
 

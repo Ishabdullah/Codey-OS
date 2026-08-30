@@ -4406,67 +4406,50 @@ def reserve_context_budget(
     if slots_signal_degraded:
         slots_tokens = 0
 
-    with _LockedState(
-        state_dir, state_filename=_CONTEXT_STATE_FILENAME, lock_filename=_CONTEXT_LOCK_FILENAME
-    ) as records:
-        if reap_dead:
-            now = time.time()
-            records[:] = [
-                r
-                for r in records
-                if (r.get("pid") is None or _pid_alive(r["pid"]))
-                and (now - r.get("created_at", 0)) < CONTEXT_RESERVATION_MAX_AGE_SECONDS
-            ]
+    from core.resource_bus import acquire_context_lease
 
-        other_reserved_tokens = sum(r.get("reserved_tokens", 0) for r in records)
-        combined = slots_tokens + other_reserved_tokens + reserved_tokens
+    admitted, reservation_id, other_reserved_tokens, ceiling_tokens, bus_reason = acquire_context_lease(
+        port=port,
+        reserved_tokens=reserved_tokens,
+        effective_n_ctx=n_ctx,
+        safety_margin_fraction=safety_margin_fraction,
+        slots_tokens=slots_tokens,
+        pid=pid,
+        state_dir=state_dir,
+        metadata={
+            "prompt_tokens": prompt_tokens,
+            "max_tokens": max_tokens,
+            "estimate_source": estimate_source,
+        },
+    )
 
-        if combined > ceiling_tokens:
-            reason = (
-                f"combined estimated context {combined} tokens would exceed "
-                f"the {safety_margin_fraction:.0%}-margin ceiling "
-                f"{ceiling_tokens} of n_ctx={n_ctx} "
-                f"(slots={slots_tokens}, other_reservations={other_reserved_tokens}, "
-                f"this_request={reserved_tokens})"
-            )
-            if slots_signal_degraded:
-                reason += " — /slots unreachable, degraded to local reservation ledger only"
-            return ContextBudgetDecision(
-                admitted=False,
-                reservation_id=None,
-                reserved_tokens=reserved_tokens,
-                effective_n_ctx=n_ctx,
-                ceiling_tokens=ceiling_tokens,
-                slots_occupied_tokens=slots_tokens,
-                other_reserved_tokens=other_reserved_tokens,
-                estimate_source=estimate_source,
-                reason=reason,
-            )
-
-        reservation_id = uuid.uuid4().hex
-        records.append(
-            {
-                "reservation_id": reservation_id,
-                "port": port,
-                "pid": pid,
-                "reserved_tokens": reserved_tokens,
-                "prompt_tokens": prompt_tokens,
-                "max_tokens": max_tokens,
-                "estimate_source": estimate_source,
-                "created_at": time.time(),
-            }
-        )
+    if not admitted:
+        reason = bus_reason
+        if slots_signal_degraded:
+            reason += " — /slots unreachable, degraded to local reservation ledger only"
         return ContextBudgetDecision(
-            admitted=True,
-            reservation_id=reservation_id,
+            admitted=False,
+            reservation_id=None,
             reserved_tokens=reserved_tokens,
             effective_n_ctx=n_ctx,
             ceiling_tokens=ceiling_tokens,
             slots_occupied_tokens=slots_tokens,
             other_reserved_tokens=other_reserved_tokens,
             estimate_source=estimate_source,
-            reason="admitted",
+            reason=reason,
         )
+
+    return ContextBudgetDecision(
+        admitted=True,
+        reservation_id=reservation_id,
+        reserved_tokens=reserved_tokens,
+        effective_n_ctx=n_ctx,
+        ceiling_tokens=ceiling_tokens,
+        slots_occupied_tokens=slots_tokens,
+        other_reserved_tokens=other_reserved_tokens,
+        estimate_source=estimate_source,
+        reason="admitted",
+    )
 
 
 def release_context_budget(reservation_id: str, state_dir: Optional[Path] = None) -> bool:
@@ -4476,31 +4459,10 @@ def release_context_budget(reservation_id: str, state_dir: Optional[Path] = None
     `finally` block at the call site (matching this module's own
     `release_slot()` precedent).
 
-    Releasing on HTTP-return is correct HERE for a reason distinct from why
-    the design round's original "release on HTTP-return" idea was flagged
-    WRONG for tracking real occupancy (see this section's header comment):
-    this ledger was never meant to track occupancy for a request's whole
-    lifetime — only to close the TOCTOU gap between an admission check and
-    that request actually reaching the server. By the time the HTTP call
-    returns, the server has already been sending/processing it the whole
-    time, so `/slots`' `n_prompt_tokens` figure has already had the real
-    figures visible to any OTHER caller's admission check for as long as
-    this one has been in flight — continuing to hold this reservation after
-    return would double-count against that now-authoritative live signal
-    for every later admission check, not protect against anything.
-
-    Returns `True` if a matching reservation was found/removed, `False`
-    otherwise (e.g. it already expired via `CONTEXT_RESERVATION_MAX_AGE_
-    SECONDS` reaping — not an error, safe to ignore).
+    Delegates to core/resource_bus.py's release_context_lease().
     """
-    found = False
-    with _LockedState(
-        state_dir, state_filename=_CONTEXT_STATE_FILENAME, lock_filename=_CONTEXT_LOCK_FILENAME
-    ) as records:
-        remaining = [r for r in records if r.get("reservation_id") != reservation_id]
-        found = len(remaining) != len(records)
-        records[:] = remaining
-    return found
+    from core.resource_bus import release_context_lease
+    return release_context_lease(reservation_id, state_dir=state_dir)
 
 
 def wait_and_reserve_context_budget(

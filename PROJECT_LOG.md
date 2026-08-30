@@ -12,6 +12,26 @@ and Appendix A.
 
 ---
 
+## 2026-08-30 — Track A / Phase A2 Item 9.2: Multi-Process Resource Bus & External Process Supervision
+
+- **Status**: Code-reviewer approved, test verified (`1063 passed, 1 skipped` in `Codey-OS`).
+- **Multi-Process Resource Bus (Item 9.2) (`core/resource_bus.py`)**:
+  - Implemented cross-process SQLite WAL + `fcntl.flock` arbiter at `~/.codey/resource_bus.db`.
+  - Implemented priority tiers: `CRITICAL` (100, interactive CLI), `HIGH` (75, inbound comms), `NORMAL` (50, autonomous agent), `LOW` (25, background indexing).
+  - Implemented dynamic anti-starvation aging (+5 per 5s in queue, capped at +30).
+  - Integrated thermal throttling check with `core/thermal.py` and memory pressure check with `core/sysmon.py`.
+  - Implemented exact-PID zombie reaper (`reap_stale_records`) with zero wildcard `pkill` calls (Rule 3).
+  - Integrated `core/resource_gate.py` to delegate context leasing (`acquire_context_lease`, `release_context_lease`) while maintaining 100% backward compatibility for all existing tests.
+- **External Process Supervision (`ccos/core/plugin_manager.py`, `ccos/core/manifest_schema_v2.py`)**:
+  - Extended Manifest Schema v2 to support `external_process` and `remote_bridge` execution modes with complete `process_spec` validation.
+  - Implemented `ProcessSupervisor` in `PluginManager` with exact PID tracking, PID file lifecycle, health check polling, auto-restart backoff, and graceful SIGTERM -> SIGKILL escalation.
+  - Implemented HTTP/IPC capability forwarder in `PluginManager.call_capability()` for external processes.
+  - Deployed Schema v2 manifests for `Codey-Aigentik` (`ccos/plugins/voice/aigentik/manifest.json`) and `Private-Codey-Agent` (`ccos/plugins/device/private_agent/manifest.json`).
+- **Test Verification (`tests/test_resource_bus.py`, `ccos/tests/test_external_plugin_supervision.py`)**:
+  - Verified priority ordering, aging, dead PID reaping, thermal gating, multi-process contention, supervisor lifecycle, and clean shutdown.
+
+---
+
 ## 2026-08-30 — Track A / Phase A2 Items 9.3, 9.4 & Device Limb Fork Setup (B5b)
 
 - **Status**: Code-reviewer approved, test verified (`1053 passed, 1 skipped` in `Codey-OS`).

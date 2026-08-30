@@ -238,3 +238,50 @@ def test_plugin_manager_v2_metadata_parsing(tmp_path):
     assert cap.permissions == ["system:read"]
     assert cap.resource_limits == {"max_memory_mb": 512}
     assert cap.inputs_schema == {"type": "object"}
+
+
+def test_manifest_v2_external_modes_and_process_spec():
+    manifest = {
+        "schema_version": "2.0.0",
+        "name": "external_service",
+        "version": "1.0.0",
+        "description": "External process service",
+        "execution_mode": "external_process",
+        "process_spec": {
+            "start_command": ["python3", "srv.py"],
+            "stop_command": ["python3", "stop.py"],
+            "health_endpoint": "http://127.0.0.1:8080/health",
+            "pid_file": "srv.pid",
+            "restart_policy": "on_failure",
+            "max_restarts": 5,
+            "restart_backoff_sec": 2,
+        },
+        "capabilities": [
+            {
+                "name": "service.query",
+                "description": "Query external service",
+                "implementation": "http://127.0.0.1:8080/query",
+            }
+        ],
+    }
+    valid, errors = validate_manifest_v2(manifest)
+    assert valid is True
+    assert len(errors) == 0
+
+    # Test remote_bridge mode
+    manifest["execution_mode"] = "remote_bridge"
+    valid, errors = validate_manifest_v2(manifest)
+    assert valid is True
+    assert len(errors) == 0
+
+    # Bad process spec fields
+    bad = copy.deepcopy(manifest)
+    bad["process_spec"]["start_command"] = "not_a_list"
+    bad["process_spec"]["restart_policy"] = "invalid_policy"
+    bad["process_spec"]["max_restarts"] = "not_a_number"
+    valid, errors = validate_manifest_v2(bad)
+    assert valid is False
+    assert any("start_command" in e for e in errors)
+    assert any("restart_policy" in e for e in errors)
+    assert any("max_restarts" in e for e in errors)
+

@@ -1,0 +1,75 @@
+{
+  "schema_version": "2.0.0",
+  "name": "private_agent",
+  "version": "1.0.0",
+  "description": "Private-Codey-Agent secure on-device automation and local relay",
+  "domain": "device",
+  "category": "device",
+  "execution_mode": "external_process",
+  "entry_point": "__init__.py",
+  "process_spec": {
+    "start_command": ["python3", "agent.py"],
+    "health_endpoint": "http://127.0.0.1:8766/health",
+    "pid_file": "private_agent.pid",
+    "restart_policy": "on_failure",
+    "max_restarts": 3,
+    "restart_backoff_sec": 5
+  },
+  "resource_limits": {
+    "max_memory_mb": 256,
+    "max_cpu_percent": 40,
+    "timeout_seconds": 20
+  },
+  "permissions": ["device:control", "fs:private"],
+  "capabilities": [
+    {
+      "id": "device_secure_relay",
+      "name": "device.secure_relay",
+      "description": "Execute secure isolated actions on the local device",
+      "implementation": "http://127.0.0.1:8766/relay",
+      "category": "device",
+      "dependencies": [],
+      "hardware_requirements": [],
+      "inputs_schema": {
+        "type": "object",
+        "properties": {
+          "action": {"type": "string"},
+          "payload": {"type": "object"}
+        }
+      },
+      "outputs_schema": {
+        "type": "object",
+        "properties": {
+          "status": {"type": "string"},
+          "result": {"type": "object"}
+        }
+      },
+      "timeout_seconds": 20
+    },
+    {
+      "id": "device_local_action",
+      "name": "device.local_action",
+      "description": "Perform sandboxed device-level operations",
+      "implementation": "http://127.0.0.1:8766/action",
+      "category": "device",
+      "dependencies": [],
+      "hardware_requirements": [],
+      "inputs_schema": {
+        "type": "object",
+        "properties": {
+          "command": {"type": "string"}
+        }
+      },
+      "outputs_schema": {
+        "type": "object",
+        "properties": {
+          "success": {"type": "boolean"},
+          "output": {"type": "string"}
+        }
+      },
+      "timeout_seconds": 15
+    }
+  ],
+  "author": "Codey-OS Team",
+  "license": "MIT"
+}

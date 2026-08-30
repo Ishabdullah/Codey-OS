@@ -1,0 +1,75 @@
+{
+  "schema_version": "2.0.0",
+  "name": "aigentik",
+  "version": "1.0.0",
+  "description": "Codey-Aigentik voice agent integration with low-latency dialogue streaming",
+  "domain": "voice",
+  "category": "voice",
+  "execution_mode": "external_process",
+  "entry_point": "__init__.py",
+  "process_spec": {
+    "start_command": ["python3", "-m", "aigentik.server"],
+    "health_endpoint": "http://127.0.0.1:8765/health",
+    "pid_file": "aigentik.pid",
+    "restart_policy": "on_failure",
+    "max_restarts": 3,
+    "restart_backoff_sec": 5
+  },
+  "resource_limits": {
+    "max_memory_mb": 512,
+    "max_cpu_percent": 60,
+    "timeout_seconds": 30
+  },
+  "permissions": ["audio:record", "audio:playback", "network:local"],
+  "capabilities": [
+    {
+      "id": "voice_stream_dialogue",
+      "name": "voice.stream_dialogue",
+      "description": "Stream bidirectional conversational dialogue via Codey-Aigentik",
+      "implementation": "http://127.0.0.1:8765/dialogue/stream",
+      "category": "voice",
+      "dependencies": [],
+      "hardware_requirements": ["microphone", "audio_output"],
+      "inputs_schema": {
+        "type": "object",
+        "properties": {
+          "session_id": {"type": "string"},
+          "audio_chunk": {"type": "string"}
+        }
+      },
+      "outputs_schema": {
+        "type": "object",
+        "properties": {
+          "response_audio": {"type": "string"},
+          "transcript": {"type": "string"}
+        }
+      },
+      "timeout_seconds": 30
+    },
+    {
+      "id": "voice_synthesize",
+      "name": "voice.synthesize",
+      "description": "Synthesize voice response with emotional inflection",
+      "implementation": "http://127.0.0.1:8765/synthesize",
+      "category": "voice",
+      "dependencies": [],
+      "hardware_requirements": ["audio_output"],
+      "inputs_schema": {
+        "type": "object",
+        "properties": {
+          "text": {"type": "string"},
+          "voice": {"type": "string"}
+        }
+      },
+      "outputs_schema": {
+        "type": "object",
+        "properties": {
+          "audio_data": {"type": "string"}
+        }
+      },
+      "timeout_seconds": 15
+    }
+  ],
+  "author": "Codey-OS Team",
+  "license": "MIT"
+}

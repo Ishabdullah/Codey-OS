@@ -10,7 +10,13 @@ Defines the structure and contracts for CCOS v2 plugins and capabilities:
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 # Valid execution modes in v2
-VALID_EXECUTION_MODES = {"in_process", "sandboxed_process", "isolated_daemon"}
+VALID_EXECUTION_MODES = {
+    "in_process",
+    "sandboxed_process",
+    "isolated_daemon",
+    "external_process",
+    "remote_bridge",
+}
 
 # JSON Schema for Manifest v2.0.0
 MANIFEST_V2_JSON_SCHEMA: Dict[str, Any] = {
@@ -31,7 +37,13 @@ MANIFEST_V2_JSON_SCHEMA: Dict[str, Any] = {
         "category": {"type": "string"},
         "execution_mode": {
             "type": "string",
-            "enum": ["in_process", "sandboxed_process", "isolated_daemon"],
+            "enum": [
+                "in_process",
+                "sandboxed_process",
+                "isolated_daemon",
+                "external_process",
+                "remote_bridge",
+            ],
             "default": "in_process",
         },
         "entry_point": {"type": "string", "default": "__init__.py"},
@@ -39,8 +51,15 @@ MANIFEST_V2_JSON_SCHEMA: Dict[str, Any] = {
             "type": "object",
             "properties": {
                 "command": {"type": "array", "items": {"type": "string"}},
-                "env": {"type": "object", "additionalProperties": {"type": "string"}},
+                "start_command": {"type": "array", "items": {"type": "string"}},
+                "stop_command": {"type": "array", "items": {"type": "string"}},
+                "health_endpoint": {"type": ["string", "null"]},
+                "pid_file": {"type": ["string", "null"]},
                 "working_dir": {"type": ["string", "null"]},
+                "env": {"type": "object", "additionalProperties": {"type": "string"}},
+                "restart_policy": {"type": "string", "enum": ["always", "on_failure", "never"]},
+                "max_restarts": {"type": ["integer", "number"]},
+                "restart_backoff_sec": {"type": ["integer", "number"]},
             },
         },
         "event_triggers": {
@@ -176,12 +195,39 @@ def validate_manifest_v2(manifest_dict: Dict[str, Any]) -> Tuple[bool, List[str]
                 cmd = process_spec["command"]
                 if not isinstance(cmd, list) or not all(isinstance(c, str) for c in cmd):
                     errors.append("process_spec.command must be a list of strings")
+            if "start_command" in process_spec:
+                scmd = process_spec["start_command"]
+                if not isinstance(scmd, list) or not all(isinstance(c, str) for c in scmd):
+                    errors.append("process_spec.start_command must be a list of strings")
+            if "stop_command" in process_spec:
+                stop_cmd = process_spec["stop_command"]
+                if not isinstance(stop_cmd, list) or not all(isinstance(c, str) for c in stop_cmd):
+                    errors.append("process_spec.stop_command must be a list of strings")
+            if "health_endpoint" in process_spec and process_spec["health_endpoint"] is not None:
+                if not isinstance(process_spec["health_endpoint"], str):
+                    errors.append("process_spec.health_endpoint must be a string")
+            if "pid_file" in process_spec and process_spec["pid_file"] is not None:
+                if not isinstance(process_spec["pid_file"], str):
+                    errors.append("process_spec.pid_file must be a string")
+            if "working_dir" in process_spec and process_spec["working_dir"] is not None:
+                if not isinstance(process_spec["working_dir"], str):
+                    errors.append("process_spec.working_dir must be a string")
             if "env" in process_spec:
                 env = process_spec["env"]
                 if not isinstance(env, dict) or not all(
                     isinstance(k, str) and isinstance(v, str) for k, v in env.items()
                 ):
                     errors.append("process_spec.env must be a dict of string key-values")
+            if "restart_policy" in process_spec:
+                policy = process_spec["restart_policy"]
+                if policy not in ("always", "on_failure", "never"):
+                    errors.append("process_spec.restart_policy must be one of 'always', 'on_failure', 'never'")
+            if "max_restarts" in process_spec:
+                if not isinstance(process_spec["max_restarts"], (int, float)):
+                    errors.append("process_spec.max_restarts must be a number")
+            if "restart_backoff_sec" in process_spec:
+                if not isinstance(process_spec["restart_backoff_sec"], (int, float)):
+                    errors.append("process_spec.restart_backoff_sec must be a number")
 
     # Event triggers
     event_triggers = manifest_dict.get("event_triggers")
