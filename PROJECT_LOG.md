@@ -12,6 +12,18 @@ and Appendix A.
 
 ---
 
+## 2026-08-30 — Track U / Maintenance: Orchestrator Tool Hint Verb Branching (U.12 / NEW-52 Resolved)
+
+- **Status**: Code-complete, code-reviewer approved, test verified (`9/9 passed` in `tests/test_agent_orchestrator_execution.py`, `1,156/1,156 passed` across repository test suite).
+- **Orchestrator Tool Hint Branching (`core/orchestrator.py`, `NEW-52`)**:
+  - Replaced unconditional `write_file` tool hint injection with action-verb-aware hint generation.
+  - Generates `patch_file` hints for edit/patch steps, `read_file` hints for review/read steps, `append_file` hints for append steps, `shell` hints for execute/run steps, and `write_file` hints for creation steps.
+- **Ledger & Status Updates**:
+  - Resolved `[NEW-52]` in `NEW_ISSUES.md`.
+  - Updated `U.12` in `CODEY_MASTER_PLAN.md` Appendix A. Full suite: 1,156 passed, 1 skipped.
+
+---
+
 ## 2026-08-30 — Track U / Maintenance: Step Truncation Heuristic & Plan Enrichment (U.4 / NEW-48 & U.5 / NEW-49 Resolved)
 
 - **Status**: Code-complete, code-reviewer approved, test verified (`3/3 passed` in `tests/test_plannd_step_parsing_and_enrichment.py`, `1,156/1,156 passed` across repository test suite).

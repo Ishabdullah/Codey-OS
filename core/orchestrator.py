@@ -651,22 +651,40 @@ def run_queue(queue, yolo=False):
                 pass  # Retrieval unavailable — continue without
 
             # Remind model to use tools (7B models often forget)
-            # Prefer filenames from the original user request — planner sometimes uses wrong names
-            _target_files = _FILE_RE.findall(original) if original else []
-            if not _target_files:
-                _target_files = _FILE_RE.findall(task.description)
-            if _target_files:
+            # NEW-52: Branch hints based on step's actual verb rather than forcing write_file
+            _task_desc_low = task.description.lower().strip()
+            _target_files = _FILE_RE.findall(task.description) or (_FILE_RE.findall(original) if original else [])
+
+            if any(k in _task_desc_low for k in ["run", "execute", "pytest", "python"]) and not _task_desc_low.startswith(("create", "write", "edit", "patch", "modify", "update")):
+                _cmd_match = re.search(
+                    r"(?:run|execute|python)\s+(.+)", task.description, re.IGNORECASE
+                )
+                _cmd_hint = _cmd_match.group(1).strip() if _cmd_match else "pytest"
+                prompt += f'\n\nUse shell tool. Output ONLY: <tool>\n{{"name": "shell", "args": {{"command": "{_cmd_hint}"}}}}\n</tool>'
+            elif _task_desc_low.startswith(("edit", "patch", "update", "modify", "fix", "change")) and _target_files:
+                _fname = _target_files[0]
+                prompt += (
+                    f"\n\nUse patch_file to edit {_fname}. "
+                    f'Output ONLY: <tool>\n{{"name": "patch_file", "args": {{"path": "{_fname}", "old_str": "...", "new_str": "..."}}}}\n</tool>'
+                )
+            elif _task_desc_low.startswith(("read", "review", "inspect", "view", "show")) and _target_files:
+                _fname = _target_files[0]
+                prompt += (
+                    f"\n\nUse read_file to inspect {_fname}. "
+                    f'Output ONLY: <tool>\n{{"name": "read_file", "args": {{"path": "{_fname}"}}}}\n</tool>'
+                )
+            elif _task_desc_low.startswith(("append", "add")) and _target_files:
+                _fname = _target_files[0]
+                prompt += (
+                    f"\n\nUse append_file to add content to {_fname}. "
+                    f'Output ONLY: <tool>\n{{"name": "append_file", "args": {{"path": "{_fname}", "content": "..."}}}}\n</tool>'
+                )
+            elif _target_files:
                 _fname = _target_files[0]
                 prompt += (
                     f"\n\nUse write_file to create {_fname} with the COMPLETE code. "
                     f'Output ONLY: <tool>\n{{"name": "write_file", "args": {{"path": "{_fname}", "content": "...ALL CODE HERE..."}}}}\n</tool>'
                 )
-            elif any(k in task.description.lower() for k in ["run", "execute", "test", "python"]):
-                _cmd_match = re.search(
-                    r"(?:run|execute|python)\s+(.+)", task.description, re.IGNORECASE
-                )
-                _cmd_hint = _cmd_match.group(1).strip() if _cmd_match else "python -m unittest"
-                prompt += f'\n\nUse shell tool. Output ONLY: <tool>\n{{"name": "shell", "args": {{"command": "{_cmd_hint}"}}}}\n</tool>'
 
             history = []  # isolated message history per subtask
 

@@ -965,28 +965,8 @@ live-reproduced, all rated per rule 8 on static-analysis confidence only,
 consistent with how `NEW-49` (same class of finding, different file) was
 rated.
 
-### [NEW-52] `core/orchestrator.py`'s `run_queue` appends a hardcoded "use write_file... COMPLETE code" tool hint whenever a filename is found in the goal/step text, regardless of the step's actual verb (Suspected)
-- **Location:** `core/orchestrator.py:583-591`. When `_FILE_RE` finds a
-  filename in `original` (the overall goal) or, failing that, in
-  `task.description`, the code unconditionally appends: `"\n\nUse
-  write_file to create {fname} with the COMPLETE code. Output ONLY:
-  <tool>...write_file...`" — with no check of whether `task.description`
-  is actually a Create step or an Edit/Patch step.
-- **Why this matters:** this is the same shape as the already-logged
-  `NEW-49` (`core/daemon.py`'s step-1 enrichment hardcoding Create/
-  full-rewrite semantics by position), but on a different code path
-  (`orchestrator.run_queue`, used by `is_complex()`'s in-process planning,
-  not `daemon.py`'s plannd-fed task queue). An Edit step whose goal/step
-  text happens to name the target file gets told to `write_file` the
-  "COMPLETE code" — a full-rewrite directive — even though the step is a
-  targeted edit. Not live-reproduced; rated Suspected on the same basis
-  `NEW-49` was.
-- **Not fixed here.** Flagged so the 7B system-prompt test round scoped
-  below can either avoid this contamination in its Edit-step test prompts
-  (drive the model via `task_executor`'s path instead, which does not
-  have this injection) or deliberately include one variant that exercises
-  it, to convert this from Suspected to Confirmed/Refuted alongside
-  `NEW-49`.
+### [NEW-52] `core/orchestrator.py`'s `run_queue` appends a hardcoded "use write_file... COMPLETE code" tool hint whenever a filename is found in the goal/step text, regardless of the step's actual verb (Resolved 2026-08-30)
+- **Status: Resolved (2026-08-30).** Updated `core/orchestrator.py` to inspect the action verb: `edit`/`patch` steps emit `patch_file` hints, `read`/`review` steps emit `read_file` hints, `append`/`add` steps emit `append_file` hints, `run`/`execute` emit `shell` hints, and `create`/`write` emit `write_file` hints. Verified in `tests/test_agent_orchestrator_execution.py`.
 
 ### [NEW-53] `append_file` and `note_forget` are listed in `system_prompt.py`'s AVAILABLE TOOLS table but have no corresponding word→tool trigger anywhere in the prompt text (Resolved 2026-08-30)
 - **Status: Resolved (2026-08-30).** Added explicit word→tool mappings for `append_file` ("Append:" / "Add") and `note_forget` ("Forget:" / "Drop") across both mapping blocks in `prompts/system_prompt.py`.

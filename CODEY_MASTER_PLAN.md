@@ -5772,8 +5772,8 @@ Then:
       failure spiral (wrong-path writes, blocked shell, wandering reads,
       premature "Done."). Production-reachable independent of
       `NEW-30`/`NEW-56`. Not scoped. **High value.**
-- [ ] **U.12** (`NEW-52`) — `orchestrator.py`'s own write_file-hint
-      hardcoding (routed around, not fixed).
+- [x] **U.12** (`NEW-52`) — `orchestrator.py`'s own write_file-hint
+      hardcoding. **DONE 2026-08-30: updated `core/orchestrator.py` to branch tool hint generation by verb (`edit/patch` -> `patch_file`, `read/review` -> `read_file`, `append/add` -> `append_file`, `run/execute` -> `shell`, `create/write` -> `write_file`).**
 - [x] **U.13** (`NEW-53`/`NEW-54`) — tool-completeness gaps:
       `append_file`/`note_forget` unreachable (no word→tool trigger);
       peer-CLI delegation isn't a real tool. **DONE 2026-08-30: added explicit word→tool mappings for `append_file`, `note_forget`, and `peer_delegate` in `prompts/system_prompt.py`, added peer triggers in `core/agent.py`, and structured `peer_delegate` tool in `core/agent.py`.**
