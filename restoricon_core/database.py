@@ -909,6 +909,7 @@ class DatabaseManager:
         step is a no-op for them; it only does real work against a DB file
         created before a given column existed."""
         conn = self.get_connection()
+        self._migrate_schema()
         with conn:
             conn.executescript(_SCHEMA_SQL)
         self._migrate_schema()
