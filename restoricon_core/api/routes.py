@@ -26,6 +26,7 @@ from ..models import (
     Project,
     ScheduleConfig,
     Subcontractor,
+    Task,
 )
 from ..services.audit_service import AuditService
 from ..services.automation_service import AutomationService
@@ -154,6 +155,60 @@ class APIRouter:
                         return 404, {"Content-Type": "application/json"}, {"error": "Customer not found"}
                     return 200, {"Content-Type": "application/json"}, {"customer": cust.to_dict()}
 
+            # CRM Pipeline Summary
+            if path == "/api/v1/crm/pipeline" and method == "GET":
+                summary = self.crm.get_pipeline_summary(actor)
+                return 200, {"Content-Type": "application/json"}, {"pipeline": summary, "summary": summary}
+
+            # CRM Tasks & Follow-up Cadence
+            if path == "/api/v1/crm/tasks":
+                if method == "GET":
+                    status = query_params.get("status", [None])[0]
+                    cid = query_params.get("customer_id", [None])[0]
+                    oid = query_params.get("opportunity_id", [None])[0]
+                    lid = query_params.get("lead_id", [None])[0]
+                    uid = query_params.get("assigned_user_id", [None])[0]
+                    tasks = self.crm.list_tasks(
+                        actor,
+                        status=status,
+                        customer_id=int(cid) if cid else None,
+                        opportunity_id=int(oid) if oid else None,
+                        lead_id=int(lid) if lid else None,
+                        assigned_user_id=int(uid) if uid else None,
+                    )
+                    return 200, {"Content-Type": "application/json"}, {"tasks": [t.to_dict() for t in tasks]}
+                elif method == "POST":
+                    task = Task(**json_body)
+                    created = self.crm.create_task(task, actor)
+                    return 201, {"Content-Type": "application/json"}, {"task": created.to_dict()}
+
+            if path.startswith("/api/v1/crm/tasks/") and path.endswith("/complete") and method == "POST":
+                task_id = int(path.split("/")[-2])
+                notes = json_body.get("notes")
+                completed = self.crm.complete_task(task_id, actor, notes=notes)
+                return 200, {"Content-Type": "application/json"}, {"task": completed.to_dict()}
+
+            if path.startswith("/api/v1/crm/tasks/") and path.endswith("/update") and method == "POST":
+                task_id = int(path.split("/")[-2])
+                updated = self.crm.update_task(task_id, json_body, actor)
+                if not updated:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Task not found"}
+                return 200, {"Content-Type": "application/json"}, {"task": updated.to_dict()}
+
+            if path.startswith("/api/v1/crm/tasks/") and "/" not in path[len("/api/v1/crm/tasks/"):] and method == "GET":
+                task_id = int(path.split("/")[-1])
+                task = self.crm.get_task(task_id, actor)
+                if not task:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Task not found"}
+                return 200, {"Content-Type": "application/json"}, {"task": task.to_dict()}
+
+            if path == "/api/v1/crm/generate-cadence-tasks" and method == "POST":
+                opp_id = json_body.get("opportunity_id")
+                if not opp_id:
+                    return 400, {"Content-Type": "application/json"}, {"error": "Missing opportunity_id parameter"}
+                cadence_tasks = self.crm.generate_cadence_tasks(int(opp_id), actor)
+                return 200, {"Content-Type": "application/json"}, {"tasks": [t.to_dict() for t in cadence_tasks]}
+
             # Leads
             if path == "/api/v1/leads":
                 if method == "GET":
@@ -165,16 +220,74 @@ class APIRouter:
                     created = self.crm.create_lead(lead, actor)
                     return 201, {"Content-Type": "application/json"}, {"lead": created.to_dict()}
 
+            if path.startswith("/api/v1/leads/") and path.endswith("/score"):
+                lead_id = int(path.split("/")[4])
+                if method == "GET":
+                    score_res = self.crm.score_lead(lead_id, actor)
+                    return 200, {"Content-Type": "application/json"}, score_res
+                elif method == "POST":
+                    score_res = self.crm.score_lead(lead_id, actor, factors=json_body)
+                    return 200, {"Content-Type": "application/json"}, score_res
+
+            if path.startswith("/api/v1/leads/") and path.endswith("/update") and method == "POST":
+                lead_id = int(path.split("/")[-2])
+                updated = self.crm.update_lead(lead_id, json_body, actor)
+                if not updated:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Lead not found"}
+                return 200, {"Content-Type": "application/json"}, {"lead": updated.to_dict()}
+
+            if path.startswith("/api/v1/leads/") and "/" not in path[len("/api/v1/leads/"):] and method == "GET":
+                sub = path[len("/api/v1/leads/"):]
+                if sub.isdigit():
+                    lead_id = int(sub)
+                    lead = self.crm.get_lead(lead_id, actor)
+                    if not lead:
+                        return 404, {"Content-Type": "application/json"}, {"error": "Lead not found"}
+                    return 200, {"Content-Type": "application/json"}, {"lead": lead.to_dict()}
+
             # Opportunities
             if path == "/api/v1/opportunities":
                 if method == "GET":
                     stage = query_params.get("pipeline_stage", [None])[0]
-                    opps = self.crm.list_opportunities(actor, pipeline_stage=stage)
+                    cid = query_params.get("customer_id", [None])[0]
+                    uid = query_params.get("assigned_user_id", [None])[0]
+                    opps = self.crm.list_opportunities(
+                        actor,
+                        pipeline_stage=stage,
+                        customer_id=int(cid) if cid else None,
+                        assigned_user_id=int(uid) if uid else None,
+                    )
                     return 200, {"Content-Type": "application/json"}, {"opportunities": [o.to_dict() for o in opps]}
                 elif method == "POST":
                     opp = Opportunity(**json_body)
                     created = self.crm.create_opportunity(opp, actor)
                     return 201, {"Content-Type": "application/json"}, {"opportunity": created.to_dict()}
+
+            if path.startswith("/api/v1/opportunities/") and path.endswith("/transition") and method == "POST":
+                opp_id = int(path.split("/")[-2])
+                new_stage = json_body.get("stage", json_body.get("pipeline_stage", ""))
+                lost_reason = json_body.get("lost_reason")
+                notes = json_body.get("notes")
+                trans = self.crm.transition_opportunity_stage(
+                    opp_id, new_stage=new_stage, actor=actor, lost_reason=lost_reason, notes=notes
+                )
+                return 200, {"Content-Type": "application/json"}, {"opportunity": trans.to_dict()}
+
+            if path.startswith("/api/v1/opportunities/") and path.endswith("/update") and method == "POST":
+                opp_id = int(path.split("/")[-2])
+                updated = self.crm.update_opportunity(opp_id, json_body, actor)
+                if not updated:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Opportunity not found"}
+                return 200, {"Content-Type": "application/json"}, {"opportunity": updated.to_dict()}
+
+            if path.startswith("/api/v1/opportunities/") and "/" not in path[len("/api/v1/opportunities/"):] and method == "GET":
+                sub = path[len("/api/v1/opportunities/"):]
+                if sub.isdigit():
+                    opp_id = int(sub)
+                    opp = self.crm.get_opportunity(opp_id, actor)
+                    if not opp:
+                        return 404, {"Content-Type": "application/json"}, {"error": "Opportunity not found"}
+                    return 200, {"Content-Type": "application/json"}, {"opportunity": opp.to_dict()}
 
             # Projects
             if path == "/api/v1/projects":

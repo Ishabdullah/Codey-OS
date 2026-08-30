@@ -127,6 +127,12 @@ PERM_WRITE_SCHEDULE_CONFIG = "write:schedule_config"
 PERM_READ_CONTACTS = "read:contacts"
 PERM_WRITE_CONTACTS = "write:contacts"
 
+# CRM & Sales Domain permissions (Track B Phase B3)
+PERM_READ_CRM = "read:crm"
+PERM_WRITE_CRM = "write:crm"
+PERM_MANAGE_PIPELINE = "manage:pipeline"
+PERM_SCORE_LEADS = "score:leads"
+
 # Role permissions matrix
 ROLE_PERMISSIONS: Dict[str, Set[str]] = {
     ROLE_ADMIN: {
@@ -136,6 +142,10 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_LEADS,
         PERM_READ_OPPORTUNITIES,
         PERM_WRITE_OPPORTUNITIES,
+        PERM_READ_CRM,
+        PERM_WRITE_CRM,
+        PERM_MANAGE_PIPELINE,
+        PERM_SCORE_LEADS,
         PERM_READ_ALL_PROJECTS,
         PERM_WRITE_PROJECTS,
         PERM_READ_ESTIMATES,
@@ -173,6 +183,10 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_LEADS,
         PERM_READ_OPPORTUNITIES,
         PERM_WRITE_OPPORTUNITIES,
+        PERM_READ_CRM,
+        PERM_WRITE_CRM,
+        PERM_MANAGE_PIPELINE,
+        PERM_SCORE_LEADS,
         PERM_READ_ALL_PROJECTS,
         PERM_WRITE_PROJECTS,
         PERM_READ_ESTIMATES,
@@ -209,6 +223,10 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_LEADS,
         PERM_READ_OPPORTUNITIES,
         PERM_WRITE_OPPORTUNITIES,
+        PERM_READ_CRM,
+        PERM_WRITE_CRM,
+        PERM_MANAGE_PIPELINE,
+        PERM_SCORE_LEADS,
         PERM_READ_ALL_PROJECTS,
         PERM_READ_ESTIMATES,
         PERM_WRITE_ESTIMATES,
@@ -229,6 +247,9 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
     },
     ROLE_PROJECT_MANAGER: {
         PERM_READ_ALL_CUSTOMERS,
+        PERM_READ_CRM,
+        PERM_WRITE_CRM,
+        PERM_MANAGE_PIPELINE,
         PERM_READ_ALL_PROJECTS,
         PERM_WRITE_PROJECTS,
         PERM_READ_ESTIMATES,
@@ -261,6 +282,10 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_LEADS,
         PERM_READ_OPPORTUNITIES,
         PERM_WRITE_OPPORTUNITIES,
+        PERM_READ_CRM,
+        PERM_WRITE_CRM,
+        PERM_MANAGE_PIPELINE,
+        PERM_SCORE_LEADS,
         PERM_READ_ALL_PROJECTS,
         PERM_READ_ESTIMATES,
         PERM_READ_CONTRACTS,

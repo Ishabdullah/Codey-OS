@@ -12,6 +12,26 @@ and Appendix A.
 
 ---
 
+## 2026-08-30 — Track B / Phase B3: CRM & Sales Domain Engine
+
+- **Status**: Code-reviewer approved, test verified (`187/187 passed` in `restoricon_core`).
+- **Sales Pipeline & Opportunities (`restoricon_core/models.py`, `database.py`, `crm_service.py`, `routes.py`)**:
+  - Implemented 9-stage pipeline state machine (`PipelineStage`: `NEW_LEAD`, `CONTACTED`, `APPOINTMENT_SET`, `ESTIMATE_SCHEDULED`, `ESTIMATE_SENT`, `PROPOSAL_SENT`, `NEGOTIATION`, `WON`, `LOST`) with probability defaults (0.10 to 1.0) and stage-entry timestamps.
+  - Enforced lost reason validation (strictly requires non-empty `lost_reason` on `LOST`).
+  - Added insurance claim fields (`insurance_carrier`, `claim_number`, `adjuster_name`, `adjuster_phone`, `adjuster_email`, `deductible`, `insurance_claim_status`).
+  - Implemented pipeline board summary aggregations (deal counts, total value, weighted value per stage, win rate).
+- **Lead Qualification Scoring Engine (`crm_service.py`, `routes.py`)**:
+  - Implemented deterministic 5-dimension scoring algorithm (0–100 pts: Scope [25], Property [15], Urgency [25], Insurance [20], Responsiveness [15]) with classification grades ("Hot", "Warm", "Cold", "Unqualified").
+  - Stored granular scoring factor breakdown in `score_factors_json` on lead records.
+- **Automated Follow-up Cadence & Task Scheduling (`models.py`, `database.py`, `crm_service.py`, `routes.py`)**:
+  - Created `tasks` table with indexes and lifecycle states (`pending`, `in_progress`, `completed`, `cancelled`, `deferred`).
+  - Implemented stage-triggered follow-up task generation and SLA reminders with deduplication guards.
+- **REST API Endpoints & RBAC (`routes.py`, `auth.py`)**:
+  - Added `/api/v1/crm/pipeline`, `/api/v1/opportunities*`, `/api/v1/leads/{id}/score`, `/api/v1/crm/tasks*`.
+  - Added permissions: `PERM_READ_CRM`, `PERM_WRITE_CRM`, `PERM_MANAGE_PIPELINE`, `PERM_SCORE_LEADS`.
+
+---
+
 ## 2026-08-30 — Track B / Phase B2: Final Write-Through Cutover & NEW-215 Resolution (100% B2 Complete)
 
 - **Status**: Code-reviewer approved, test verified across full suites (`226/226 passed` in `Codey-Aigentik`, `1069/1069 passed` in `Codey-OS`).

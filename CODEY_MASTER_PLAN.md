@@ -5729,7 +5729,12 @@ Then:
       9. `contacts.js` phonebook sync & directory (`/api/v1/contacts*`, resolving `NEW-215`)
       10. `contacts-sync.js` & `queue.js` (batch sync via `/api/v1/contacts/sync`, sandboxed review queue).
       Full test suites: 16/16 suites (226/226 tests) passing in `Codey-Aigentik`; 1069 tests passing in `Codey-OS`.
-- [ ] **B3** — CRM/Sales domain.
+- [x] **B3** — CRM/Sales domain. **DONE 2026-08-30: code-complete, code-reviewer-approved.**
+      Implemented 9-stage pipeline state machine (`PipelineStage`), insurance claim tracking
+      (carrier, claim #, adjuster info, deductible), deterministic 5-dimension lead qualification
+      scoring (0–100 scale: Scope, Property, Urgency, Insurance, Responsiveness), automated follow-up
+      cadence task scheduling (`tasks` table and engine), pipeline board aggregations, and
+      RBAC endpoints under `/api/v1/crm/*` and `/api/v1/opportunities*`; verified with 15 new unit tests.
 - [ ] **B3** — Operations domain.
 - [ ] **B3** — first Automated Workflows.
 - [ ] **B4** — phone-hosted public site.

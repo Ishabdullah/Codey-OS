@@ -63,6 +63,72 @@ class Customer:
         return asdict(self)
 
 
+class PipelineStage:
+    """Canonical 9-stage pipeline progression for Restoricon CRM & Sales Domain Engine."""
+    NEW_LEAD = "new_lead"
+    CONTACTED = "contacted"
+    APPOINTMENT_SET = "appointment_set"
+    ESTIMATE_SCHEDULED = "estimate_scheduled"
+    ESTIMATE_SENT = "estimate_sent"
+    PROPOSAL_SENT = "proposal_sent"
+    NEGOTIATION = "negotiation"
+    WON = "won"
+    LOST = "lost"
+
+    STAGE_ORDER: List[str] = [
+        NEW_LEAD,
+        CONTACTED,
+        APPOINTMENT_SET,
+        ESTIMATE_SCHEDULED,
+        ESTIMATE_SENT,
+        PROPOSAL_SENT,
+        NEGOTIATION,
+        WON,
+        LOST,
+    ]
+
+    STAGE_DEFAULT_PROBABILITIES: Dict[str, float] = {
+        NEW_LEAD: 0.10,
+        CONTACTED: 0.20,
+        APPOINTMENT_SET: 0.40,
+        ESTIMATE_SCHEDULED: 0.50,
+        ESTIMATE_SENT: 0.60,
+        PROPOSAL_SENT: 0.70,
+        NEGOTIATION: 0.85,
+        WON: 1.0,
+        LOST: 0.0,
+    }
+
+    @classmethod
+    def normalize(cls, stage: Optional[str]) -> str:
+        """Normalize stage string (e.g. 'New Lead', 'new_lead', 'ESTIMATE SENT') to canonical stage."""
+        if not stage:
+            return cls.NEW_LEAD
+        normalized = stage.strip().lower().replace(" ", "_").replace("-", "_")
+        if normalized in cls.STAGE_ORDER:
+            return normalized
+        aliases = {
+            "lead": cls.NEW_LEAD,
+            "new": cls.NEW_LEAD,
+            "appointment": cls.APPOINTMENT_SET,
+            "estimate": cls.ESTIMATE_SCHEDULED,
+            "proposal": cls.PROPOSAL_SENT,
+            "negotiating": cls.NEGOTIATION,
+            "negotiate": cls.NEGOTIATION,
+            "closed_won": cls.WON,
+            "closed_lost": cls.LOST,
+        }
+        return aliases.get(normalized, normalized)
+
+    @classmethod
+    def is_valid(cls, stage: str) -> bool:
+        return cls.normalize(stage) in cls.STAGE_ORDER
+
+
+STAGE_ORDER = PipelineStage.STAGE_ORDER
+STAGE_DEFAULT_PROBABILITIES = PipelineStage.STAGE_DEFAULT_PROBABILITIES
+
+
 @dataclass
 class Lead:
     id: Optional[int] = None
@@ -71,6 +137,11 @@ class Lead:
     source: str = "website"
     status: str = "new"  # new, contacted, qualified, unqualified, converted, lost
     score: int = 0
+    score_factors: Dict[str, Any] = field(default_factory=dict)
+    property_type: Optional[str] = None
+    project_scope: Optional[str] = None
+    urgency_level: Optional[str] = None
+    insurance_status: Optional[str] = None
     estimated_value: float = 0.0
     assigned_user_id: Optional[int] = None
     first_contact_at: Optional[str] = None
@@ -93,10 +164,45 @@ class Opportunity:
     title: str = ""
     estimated_value: float = 0.0
     probability: float = 0.0
-    pipeline_stage: str = "New Lead"  # New Lead, Contacted, Appointment Set, Estimate, Proposal Sent, Negotiating, Won, Lost
+    pipeline_stage: str = PipelineStage.NEW_LEAD  # 9 canonical stages in PipelineStage
     expected_close_date: Optional[str] = None
     assigned_user_id: Optional[int] = None
     competitor_info: Optional[str] = None
+    notes: Optional[str] = None
+    lost_reason: Optional[str] = None
+    insurance_carrier: Optional[str] = None
+    claim_number: Optional[str] = None
+    adjuster_name: Optional[str] = None
+    adjuster_phone: Optional[str] = None
+    adjuster_email: Optional[str] = None
+    deductible: Optional[float] = None
+    insurance_claim_status: Optional[str] = None
+    stage_entered_at: Optional[str] = None
+    created_at: str = field(default_factory=utc_now_iso)
+    updated_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class Task:
+    """Follow-up task / CRM activity record."""
+    id: Optional[int] = None
+    external_id: Optional[str] = None
+    title: str = ""
+    description: Optional[str] = None
+    task_type: str = "follow_up"  # follow_up, phone_call, email, inspection, estimate_follow_up, negotiation, production_handoff, lost_review
+    status: str = "pending"  # pending, in_progress, completed, cancelled
+    priority: str = "medium"  # low, medium, high, urgent
+    due_date: Optional[str] = None
+    completed_at: Optional[str] = None
+    customer_id: Optional[int] = None
+    opportunity_id: Optional[int] = None
+    lead_id: Optional[int] = None
+    assigned_user_id: Optional[int] = None
+    trigger_source: Optional[str] = None
+    rule_name: Optional[str] = None
     notes: Optional[str] = None
     created_at: str = field(default_factory=utc_now_iso)
     updated_at: str = field(default_factory=utc_now_iso)

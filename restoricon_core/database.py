@@ -86,6 +86,11 @@ CREATE TABLE IF NOT EXISTS leads (
     source TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'new' CHECK(status IN ('new', 'contacted', 'qualified', 'unqualified', 'converted', 'lost')),
     score INTEGER NOT NULL DEFAULT 0,
+    score_factors_json TEXT NOT NULL DEFAULT '{}',
+    property_type TEXT,
+    project_scope TEXT,
+    urgency_level TEXT,
+    insurance_status TEXT,
     estimated_value REAL NOT NULL DEFAULT 0.0,
     assigned_user_id INTEGER,
     first_contact_at TEXT,
@@ -107,15 +112,50 @@ CREATE TABLE IF NOT EXISTS opportunities (
     title TEXT NOT NULL,
     estimated_value REAL NOT NULL DEFAULT 0.0,
     probability REAL NOT NULL DEFAULT 0.0,
-    pipeline_stage TEXT NOT NULL DEFAULT 'New Lead' CHECK(pipeline_stage IN ('New Lead', 'Contacted', 'Appointment Set', 'Estimate', 'Proposal Sent', 'Negotiating', 'Won', 'Lost')),
+    pipeline_stage TEXT NOT NULL DEFAULT 'new_lead',
     expected_close_date TEXT,
     assigned_user_id INTEGER,
     competitor_info TEXT,
     notes TEXT,
+    lost_reason TEXT,
+    insurance_carrier TEXT,
+    claim_number TEXT,
+    adjuster_name TEXT,
+    adjuster_phone TEXT,
+    adjuster_email TEXT,
+    deductible REAL,
+    insurance_claim_status TEXT,
+    stage_entered_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
+    FOREIGN KEY (assigned_user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- Tasks & Follow-up Cadences (Phase B3)
+CREATE TABLE IF NOT EXISTS tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    external_id TEXT,
+    title TEXT NOT NULL,
+    description TEXT,
+    task_type TEXT NOT NULL DEFAULT 'follow_up',
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'in_progress', 'completed', 'cancelled')),
+    priority TEXT NOT NULL DEFAULT 'medium' CHECK(priority IN ('low', 'medium', 'high', 'urgent')),
+    due_date TEXT,
+    completed_at TEXT,
+    customer_id INTEGER,
+    opportunity_id INTEGER,
+    lead_id INTEGER,
+    assigned_user_id INTEGER,
+    trigger_source TEXT,
+    rule_name TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL,
+    FOREIGN KEY (opportunity_id) REFERENCES opportunities(id) ON DELETE CASCADE,
+    FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE,
     FOREIGN KEY (assigned_user_id) REFERENCES users(id) ON DELETE SET NULL
 );
 
@@ -500,6 +540,7 @@ CREATE INDEX IF NOT EXISTS idx_customers_email ON customers(email);
 CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone);
 CREATE INDEX IF NOT EXISTS idx_leads_customer_id ON leads(customer_id);
 CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status);
+CREATE INDEX IF NOT EXISTS idx_leads_score ON leads(score);
 CREATE INDEX IF NOT EXISTS idx_opportunities_customer_id ON opportunities(customer_id);
 CREATE INDEX IF NOT EXISTS idx_opportunities_stage ON opportunities(pipeline_stage);
 CREATE INDEX IF NOT EXISTS idx_projects_customer_id ON projects(customer_id);
@@ -523,6 +564,12 @@ CREATE INDEX IF NOT EXISTS idx_automation_rules_channel ON automation_rules(chan
 CREATE INDEX IF NOT EXISTS idx_dnc_type_value ON do_not_contact(type, value);
 CREATE INDEX IF NOT EXISTS idx_contacts_type ON contacts(type);
 CREATE INDEX IF NOT EXISTS idx_contacts_active_role ON contacts(active_role);
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+CREATE INDEX IF NOT EXISTS idx_tasks_due_date ON tasks(due_date);
+CREATE INDEX IF NOT EXISTS idx_tasks_customer_id ON tasks(customer_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_opportunity_id ON tasks(opportunity_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_lead_id ON tasks(lead_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_assigned_user_id ON tasks(assigned_user_id);
 """
 
 _local = threading.local()
@@ -600,6 +647,20 @@ class DatabaseManager:
         migrations = (
             ("customers", "external_id", "ALTER TABLE customers ADD COLUMN external_id TEXT;"),
             ("leads", "external_id", "ALTER TABLE leads ADD COLUMN external_id TEXT;"),
+            ("leads", "score_factors_json", "ALTER TABLE leads ADD COLUMN score_factors_json TEXT NOT NULL DEFAULT '{}';"),
+            ("leads", "property_type", "ALTER TABLE leads ADD COLUMN property_type TEXT;"),
+            ("leads", "project_scope", "ALTER TABLE leads ADD COLUMN project_scope TEXT;"),
+            ("leads", "urgency_level", "ALTER TABLE leads ADD COLUMN urgency_level TEXT;"),
+            ("leads", "insurance_status", "ALTER TABLE leads ADD COLUMN insurance_status TEXT;"),
+            ("opportunities", "lost_reason", "ALTER TABLE opportunities ADD COLUMN lost_reason TEXT;"),
+            ("opportunities", "insurance_carrier", "ALTER TABLE opportunities ADD COLUMN insurance_carrier TEXT;"),
+            ("opportunities", "claim_number", "ALTER TABLE opportunities ADD COLUMN claim_number TEXT;"),
+            ("opportunities", "adjuster_name", "ALTER TABLE opportunities ADD COLUMN adjuster_name TEXT;"),
+            ("opportunities", "adjuster_phone", "ALTER TABLE opportunities ADD COLUMN adjuster_phone TEXT;"),
+            ("opportunities", "adjuster_email", "ALTER TABLE opportunities ADD COLUMN adjuster_email TEXT;"),
+            ("opportunities", "deductible", "ALTER TABLE opportunities ADD COLUMN deductible REAL;"),
+            ("opportunities", "insurance_claim_status", "ALTER TABLE opportunities ADD COLUMN insurance_claim_status TEXT;"),
+            ("opportunities", "stage_entered_at", "ALTER TABLE opportunities ADD COLUMN stage_entered_at TEXT;"),
             (
                 "communication_history",
                 "provider_message_id",
@@ -623,6 +684,9 @@ class DatabaseManager:
             )
             conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_external_id ON contacts(external_id);"
+            )
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_external_id ON tasks(external_id);"
             )
             # Partial index (WHERE provider_message_id IS NOT NULL): rows
             # with no natural external message id (internal_note,

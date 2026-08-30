@@ -18,6 +18,10 @@ from ..auth import (
     PERM_WRITE_LEADS,
     PERM_READ_OPPORTUNITIES,
     PERM_WRITE_OPPORTUNITIES,
+    PERM_READ_CRM,
+    PERM_WRITE_CRM,
+    PERM_MANAGE_PIPELINE,
+    PERM_SCORE_LEADS,
     PERM_READ_ALL_PROJECTS,
     PERM_READ_ASSIGNED_PROJECTS,
     PERM_READ_OWN_PROJECTS,
@@ -48,8 +52,12 @@ from ..models import (
     Invoice,
     Lead,
     Opportunity,
+    PipelineStage,
     Project,
+    STAGE_DEFAULT_PROBABILITIES,
+    STAGE_ORDER,
     Subcontractor,
+    Task,
     utc_now_iso,
 )
 from .audit_service import AuditService
@@ -426,23 +434,57 @@ class CRMService:
     # LEADS
     # ==========================================
 
+    @staticmethod
+    def _row_to_lead(row: Any) -> Lead:
+        keys = row.keys() if hasattr(row, "keys") else []
+        score_factors: Dict[str, Any] = {}
+        if "score_factors_json" in keys and row["score_factors_json"]:
+            try:
+                score_factors = json.loads(row["score_factors_json"])
+            except Exception:
+                score_factors = {}
+        return Lead(
+            id=row["id"],
+            external_id=row["external_id"] if "external_id" in keys else None,
+            customer_id=row["customer_id"] if "customer_id" in keys else None,
+            source=row["source"],
+            status=row["status"],
+            score=row["score"],
+            score_factors=score_factors,
+            property_type=row["property_type"] if "property_type" in keys else None,
+            project_scope=row["project_scope"] if "project_scope" in keys else None,
+            urgency_level=row["urgency_level"] if "urgency_level" in keys else None,
+            insurance_status=row["insurance_status"] if "insurance_status" in keys else None,
+            estimated_value=row["estimated_value"],
+            assigned_user_id=row["assigned_user_id"] if "assigned_user_id" in keys else None,
+            first_contact_at=row["first_contact_at"] if "first_contact_at" in keys else None,
+            last_contact_at=row["last_contact_at"] if "last_contact_at" in keys else None,
+            next_followup_at=row["next_followup_at"] if "next_followup_at" in keys else None,
+            notes=row["notes"] if "notes" in keys else None,
+            lost_reason=row["lost_reason"] if "lost_reason" in keys else None,
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
     def create_lead(self, lead: Lead, actor: AuthContext) -> Lead:
-        if not actor.has_permission(PERM_WRITE_LEADS):
+        if not (actor.has_permission(PERM_WRITE_LEADS) or actor.has_permission(PERM_WRITE_CRM)):
             raise PermissionError("Actor lacks permission to create leads")
 
         now = utc_now_iso()
         lead.created_at = now
         lead.updated_at = now
+        factors_json = json.dumps(lead.score_factors) if lead.score_factors else "{}"
 
         conn = self.db.get_connection()
         with conn:
             cursor = conn.execute(
                 """
                 INSERT INTO leads (
-                    external_id, customer_id, source, status, score, estimated_value,
-                    assigned_user_id, first_contact_at, last_contact_at,
+                    external_id, customer_id, source, status, score, score_factors_json,
+                    property_type, project_scope, urgency_level, insurance_status,
+                    estimated_value, assigned_user_id, first_contact_at, last_contact_at,
                     next_followup_at, notes, lost_reason, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
                 (
                     lead.external_id,
@@ -450,6 +492,11 @@ class CRMService:
                     lead.source,
                     lead.status,
                     lead.score,
+                    factors_json,
+                    lead.property_type,
+                    lead.project_scope,
+                    lead.urgency_level,
+                    lead.insurance_status,
                     lead.estimated_value,
                     lead.assigned_user_id,
                     lead.first_contact_at,
@@ -473,8 +520,18 @@ class CRMService:
         )
         return lead
 
+    def get_lead(self, lead_id: int, actor: AuthContext) -> Optional[Lead]:
+        if not (actor.has_permission(PERM_READ_LEADS) or actor.has_permission(PERM_READ_CRM)):
+            raise PermissionError("Actor lacks permission to view leads")
+
+        conn = self.db.get_connection()
+        row = conn.execute("SELECT * FROM leads WHERE id = ?;", (lead_id,)).fetchone()
+        if not row:
+            return None
+        return self._row_to_lead(row)
+
     def list_leads(self, actor: AuthContext, status: Optional[str] = None) -> List[Lead]:
-        if not actor.has_permission(PERM_READ_LEADS):
+        if not (actor.has_permission(PERM_READ_LEADS) or actor.has_permission(PERM_READ_CRM)):
             raise PermissionError("Actor lacks permission to view leads")
 
         query = "SELECT * FROM leads WHERE 1=1"
@@ -486,33 +543,13 @@ class CRMService:
 
         conn = self.db.get_connection()
         rows = conn.execute(query, params).fetchall()
-
-        return [
-            Lead(
-                id=r["id"],
-                external_id=r["external_id"],
-                customer_id=r["customer_id"],
-                source=r["source"],
-                status=r["status"],
-                score=r["score"],
-                estimated_value=r["estimated_value"],
-                assigned_user_id=r["assigned_user_id"],
-                first_contact_at=r["first_contact_at"],
-                last_contact_at=r["last_contact_at"],
-                next_followup_at=r["next_followup_at"],
-                notes=r["notes"],
-                lost_reason=r["lost_reason"],
-                created_at=r["created_at"],
-                updated_at=r["updated_at"],
-            )
-            for r in rows
-        ]
+        return [self._row_to_lead(r) for r in rows]
 
     def get_lead_by_external_id(self, external_id: str, actor: AuthContext) -> Optional[Lead]:
         """Look up by an external system's own string ID (NEW-212/NEW-232,
         2026-08-27), matching the subcontractors/appointments/
         automation_rules by_external_id lookup pattern."""
-        if not actor.has_permission(PERM_READ_LEADS):
+        if not (actor.has_permission(PERM_READ_LEADS) or actor.has_permission(PERM_READ_CRM)):
             raise PermissionError("Actor lacks permission to look up leads by external ID")
 
         conn = self.db.get_connection()
@@ -521,35 +558,267 @@ class CRMService:
         ).fetchone()
         if not row:
             return None
-        return Lead(
-            id=row["id"],
-            external_id=row["external_id"],
-            customer_id=row["customer_id"],
-            source=row["source"],
-            status=row["status"],
-            score=row["score"],
-            estimated_value=row["estimated_value"],
-            assigned_user_id=row["assigned_user_id"],
-            first_contact_at=row["first_contact_at"],
-            last_contact_at=row["last_contact_at"],
-            next_followup_at=row["next_followup_at"],
-            notes=row["notes"],
-            lost_reason=row["lost_reason"],
-            created_at=row["created_at"],
-            updated_at=row["updated_at"],
+        return self._row_to_lead(row)
+
+    def update_lead(self, lead_id: int, updates: Dict[str, Any], actor: AuthContext) -> Optional[Lead]:
+        if not (actor.has_permission(PERM_WRITE_LEADS) or actor.has_permission(PERM_WRITE_CRM)):
+            raise PermissionError("Actor lacks permission to update leads")
+
+        lead = self.get_lead(lead_id, actor)
+        if not lead:
+            return None
+
+        allowed_fields = {
+            "customer_id", "source", "status", "score", "score_factors",
+            "property_type", "project_scope", "urgency_level", "insurance_status",
+            "estimated_value", "assigned_user_id", "first_contact_at",
+            "last_contact_at", "next_followup_at", "notes", "lost_reason"
+        }
+        for k, v in updates.items():
+            if k in allowed_fields:
+                setattr(lead, k, v)
+
+        now = utc_now_iso()
+        lead.updated_at = now
+        factors_json = json.dumps(lead.score_factors) if lead.score_factors else "{}"
+
+        conn = self.db.get_connection()
+        with conn:
+            conn.execute(
+                """
+                UPDATE leads SET
+                    customer_id = ?, source = ?, status = ?, score = ?, score_factors_json = ?,
+                    property_type = ?, project_scope = ?, urgency_level = ?, insurance_status = ?,
+                    estimated_value = ?, assigned_user_id = ?, first_contact_at = ?,
+                    last_contact_at = ?, next_followup_at = ?, notes = ?, lost_reason = ?,
+                    updated_at = ?
+                WHERE id = ?;
+                """,
+                (
+                    lead.customer_id, lead.source, lead.status, lead.score, factors_json,
+                    lead.property_type, lead.project_scope, lead.urgency_level, lead.insurance_status,
+                    lead.estimated_value, lead.assigned_user_id, lead.first_contact_at,
+                    lead.last_contact_at, lead.next_followup_at, lead.notes, lead.lost_reason,
+                    now, lead_id,
+                ),
+            )
+
+        self.audit.log(
+            action="update",
+            entity_type="lead",
+            entity_id=lead_id,
+            change_summary=f"Updated lead {lead_id}",
+            actor=actor,
+            details=updates,
         )
+        return lead
+
+    def score_lead(
+        self,
+        lead_id_or_obj: int | Lead | Dict[str, Any],
+        actor: AuthContext,
+        factors: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Deterministic 5-dimension lead qualification scoring (0-100 pts):
+        1. Project scope (25 pts)
+        2. Property type (15 pts)
+        3. Urgency level (25 pts)
+        4. Insurance claim status (20 pts)
+        5. Responsiveness / engagement (15 pts)
+        """
+        if not (
+            actor.has_permission(PERM_SCORE_LEADS)
+            or actor.has_permission(PERM_WRITE_LEADS)
+            or actor.has_permission(PERM_READ_LEADS)
+            or actor.has_permission(PERM_READ_CRM)
+        ):
+            raise PermissionError("Actor lacks permission to score leads")
+
+        lead_id: Optional[int] = None
+        db_lead: Optional[Lead] = None
+
+        if isinstance(lead_id_or_obj, int):
+            lead_id = lead_id_or_obj
+            db_lead = self.get_lead(lead_id, actor)
+            if not db_lead:
+                raise ValueError(f"Lead {lead_id} not found")
+            input_dict = db_lead.to_dict()
+        elif isinstance(lead_id_or_obj, Lead):
+            db_lead = lead_id_or_obj
+            lead_id = db_lead.id
+            input_dict = db_lead.to_dict()
+        elif isinstance(lead_id_or_obj, dict):
+            input_dict = dict(lead_id_or_obj)
+            lead_id = input_dict.get("id")
+            if lead_id and not db_lead:
+                db_lead = self.get_lead(int(lead_id), actor)
+        else:
+            input_dict = {}
+
+        if factors:
+            input_dict.update(factors)
+
+        scope = str(input_dict.get("project_scope", "") or "").lower().strip()
+        prop = str(input_dict.get("property_type", "") or "").lower().strip()
+        urgency = str(input_dict.get("urgency_level", "") or "").lower().strip()
+        insurance = str(input_dict.get("insurance_status", "") or "").lower().strip()
+        responsiveness = str(input_dict.get("responsiveness", "") or "").lower().strip()
+
+        # Dimension 1: Scope (max 25 pts)
+        if any(w in scope for w in ["full_restoration", "reconstruction", "rebuild", "commercial", "large", "multi_room"]):
+            scope_pts = 25
+        elif any(w in scope for w in ["water_mitigation", "mold_remediation", "fire_damage", "smoke", "medium", "storm"]):
+            scope_pts = 20
+        elif any(w in scope for w in ["roofing", "repairs", "small", "leak_repair", "patch"]):
+            scope_pts = 12
+        elif any(w in scope for w in ["inspection", "consultation", "minor", "assessment"]):
+            scope_pts = 5
+        elif scope:
+            scope_pts = 10
+        else:
+            scope_pts = 0
+
+        # Dimension 2: Property (max 15 pts)
+        if any(w in prop for w in ["commercial", "multi_family", "industrial", "enterprise"]):
+            prop_pts = 15
+        elif any(w in prop for w in ["residential", "single_family", "home"]):
+            prop_pts = 12
+        elif any(w in prop for w in ["condo", "townhouse", "apartment", "other"]):
+            prop_pts = 8
+        elif prop:
+            prop_pts = 5
+        else:
+            prop_pts = 0
+
+        # Dimension 3: Urgency (max 25 pts)
+        if any(w in urgency for w in ["emergency", "immediate", "urgent", "active_leak", "standing_water", "within_24h", "24h"]):
+            urgency_pts = 25
+        elif any(w in urgency for w in ["high", "this_week", "1_3_days", "soon", "48h"]):
+            urgency_pts = 20
+        elif any(w in urgency for w in ["medium", "standard", "within_month", "2_weeks"]):
+            urgency_pts = 12
+        elif any(w in urgency for w in ["low", "flexible", "planning", "future"]):
+            urgency_pts = 5
+        elif urgency:
+            urgency_pts = 5
+        else:
+            urgency_pts = 0
+
+        # Dimension 4: Insurance (max 20 pts)
+        if any(w in insurance for w in ["claim_filed", "approved", "active_claim", "adjuster_assigned", "carrier_approved"]):
+            ins_pts = 20
+        elif any(w in insurance for w in ["filing_claim", "in_process", "insurance_covered", "filing"]):
+            ins_pts = 15
+        elif any(w in insurance for w in ["self_pay", "out_of_pocket", "private_pay", "cash"]):
+            ins_pts = 12
+        elif any(w in insurance for w in ["uninsured", "denied", "unknown"]):
+            ins_pts = 5
+        elif insurance:
+            ins_pts = 5
+        else:
+            ins_pts = 0
+
+        # Dimension 5: Responsiveness (max 15 pts)
+        if any(w in responsiveness for w in ["high", "immediate_response", "has_appointment", "instant"]):
+            resp_pts = 15
+        elif any(w in responsiveness for w in ["medium", "contacted", "responsive", "normal"]):
+            resp_pts = 10
+        elif any(w in responsiveness for w in ["low", "unresponsive", "first_contact", "slow"]):
+            resp_pts = 5
+        elif responsiveness:
+            resp_pts = 5
+        else:
+            resp_pts = 10
+
+        total_score = min(100, max(0, scope_pts + prop_pts + urgency_pts + ins_pts + resp_pts))
+
+        if total_score >= 80:
+            grade = "Hot"
+        elif total_score >= 60:
+            grade = "Warm"
+        elif total_score >= 40:
+            grade = "Cold"
+        else:
+            grade = "Unqualified"
+
+        breakdown = {
+            "project_scope": {"value": scope or None, "points": scope_pts, "max": 25},
+            "property_type": {"value": prop or None, "points": prop_pts, "max": 15},
+            "urgency_level": {"value": urgency or None, "points": urgency_pts, "max": 25},
+            "insurance_status": {"value": insurance or None, "points": ins_pts, "max": 20},
+            "responsiveness": {"value": responsiveness or None, "points": resp_pts, "max": 15},
+            "total_score": total_score,
+            "grade": grade,
+        }
+
+        # If lead exists in DB, update lead record
+        if lead_id and db_lead:
+            db_updates: Dict[str, Any] = {
+                "score": total_score,
+                "score_factors": breakdown,
+            }
+            if scope:
+                db_updates["project_scope"] = scope
+            if prop:
+                db_updates["property_type"] = prop
+            if urgency:
+                db_updates["urgency_level"] = urgency
+            if insurance:
+                db_updates["insurance_status"] = insurance
+            self.update_lead(lead_id, db_updates, actor)
+
+        return {
+            "lead_id": lead_id,
+            "score": total_score,
+            "grade": grade,
+            "score_factors": breakdown,
+        }
 
     # ==========================================
     # OPPORTUNITIES / SALES PIPELINE
     # ==========================================
 
+    @staticmethod
+    def _row_to_opportunity(row: Any) -> Opportunity:
+        keys = row.keys() if hasattr(row, "keys") else []
+        return Opportunity(
+            id=row["id"],
+            customer_id=row["customer_id"],
+            project_id=row["project_id"] if "project_id" in keys else None,
+            title=row["title"],
+            estimated_value=row["estimated_value"],
+            probability=row["probability"],
+            pipeline_stage=PipelineStage.normalize(row["pipeline_stage"]),
+            expected_close_date=row["expected_close_date"] if "expected_close_date" in keys else None,
+            assigned_user_id=row["assigned_user_id"] if "assigned_user_id" in keys else None,
+            competitor_info=row["competitor_info"] if "competitor_info" in keys else None,
+            notes=row["notes"] if "notes" in keys else None,
+            lost_reason=row["lost_reason"] if "lost_reason" in keys else None,
+            insurance_carrier=row["insurance_carrier"] if "insurance_carrier" in keys else None,
+            claim_number=row["claim_number"] if "claim_number" in keys else None,
+            adjuster_name=row["adjuster_name"] if "adjuster_name" in keys else None,
+            adjuster_phone=row["adjuster_phone"] if "adjuster_phone" in keys else None,
+            adjuster_email=row["adjuster_email"] if "adjuster_email" in keys else None,
+            deductible=row["deductible"] if "deductible" in keys else None,
+            insurance_claim_status=row["insurance_claim_status"] if "insurance_claim_status" in keys else None,
+            stage_entered_at=row["stage_entered_at"] if "stage_entered_at" in keys else None,
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
     def create_opportunity(self, opp: Opportunity, actor: AuthContext) -> Opportunity:
-        if not actor.has_permission(PERM_WRITE_OPPORTUNITIES):
+        if not (actor.has_permission(PERM_WRITE_OPPORTUNITIES) or actor.has_permission(PERM_WRITE_CRM)):
             raise PermissionError("Actor lacks permission to create opportunities")
 
         now = utc_now_iso()
         opp.created_at = now
         opp.updated_at = now
+        opp.pipeline_stage = PipelineStage.normalize(opp.pipeline_stage)
+        if not opp.stage_entered_at:
+            opp.stage_entered_at = now
+        if opp.probability == 0.0 and opp.pipeline_stage in PipelineStage.STAGE_DEFAULT_PROBABILITIES:
+            opp.probability = PipelineStage.STAGE_DEFAULT_PROBABILITIES[opp.pipeline_stage]
 
         conn = self.db.get_connection()
         with conn:
@@ -558,8 +827,11 @@ class CRMService:
                 INSERT INTO opportunities (
                     customer_id, project_id, title, estimated_value, probability,
                     pipeline_stage, expected_close_date, assigned_user_id,
-                    competitor_info, notes, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                    competitor_info, notes, lost_reason, insurance_carrier,
+                    claim_number, adjuster_name, adjuster_phone, adjuster_email,
+                    deductible, insurance_claim_status, stage_entered_at,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
                 (
                     opp.customer_id,
@@ -572,6 +844,15 @@ class CRMService:
                     opp.assigned_user_id,
                     opp.competitor_info,
                     opp.notes,
+                    opp.lost_reason,
+                    opp.insurance_carrier,
+                    opp.claim_number,
+                    opp.adjuster_name,
+                    opp.adjuster_phone,
+                    opp.adjuster_email,
+                    opp.deductible,
+                    opp.insurance_claim_status,
+                    opp.stage_entered_at,
                     now,
                     now,
                 ),
@@ -588,38 +869,611 @@ class CRMService:
         )
         return opp
 
-    def list_opportunities(self, actor: AuthContext, pipeline_stage: Optional[str] = None) -> List[Opportunity]:
-        if not actor.has_permission(PERM_READ_OPPORTUNITIES):
+    def get_opportunity(self, opp_id: int, actor: AuthContext) -> Optional[Opportunity]:
+        if not (actor.has_permission(PERM_READ_OPPORTUNITIES) or actor.has_permission(PERM_READ_CRM)):
+            raise PermissionError("Actor lacks permission to view opportunities")
+
+        conn = self.db.get_connection()
+        row = conn.execute("SELECT * FROM opportunities WHERE id = ?;", (opp_id,)).fetchone()
+        if not row:
+            return None
+        return self._row_to_opportunity(row)
+
+    def list_opportunities(
+        self,
+        actor: AuthContext,
+        pipeline_stage: Optional[str] = None,
+        customer_id: Optional[int] = None,
+        assigned_user_id: Optional[int] = None,
+    ) -> List[Opportunity]:
+        if not (actor.has_permission(PERM_READ_OPPORTUNITIES) or actor.has_permission(PERM_READ_CRM)):
             raise PermissionError("Actor lacks permission to view opportunities")
 
         query = "SELECT * FROM opportunities WHERE 1=1"
         params: List[Any] = []
         if pipeline_stage:
+            norm_stage = PipelineStage.normalize(pipeline_stage)
             query += " AND pipeline_stage = ?"
-            params.append(pipeline_stage)
+            params.append(norm_stage)
+        if customer_id is not None:
+            query += " AND customer_id = ?"
+            params.append(customer_id)
+        if assigned_user_id is not None:
+            query += " AND assigned_user_id = ?"
+            params.append(assigned_user_id)
         query += " ORDER BY id DESC;"
 
         conn = self.db.get_connection()
         rows = conn.execute(query, params).fetchall()
+        return [self._row_to_opportunity(r) for r in rows]
 
-        return [
-            Opportunity(
-                id=r["id"],
-                customer_id=r["customer_id"],
-                project_id=r["project_id"],
-                title=r["title"],
-                estimated_value=r["estimated_value"],
-                probability=r["probability"],
-                pipeline_stage=r["pipeline_stage"],
-                expected_close_date=r["expected_close_date"],
-                assigned_user_id=r["assigned_user_id"],
-                competitor_info=r["competitor_info"],
-                notes=r["notes"],
-                created_at=r["created_at"],
-                updated_at=r["updated_at"],
+    def update_opportunity(
+        self, opp_id: int, updates: Dict[str, Any], actor: AuthContext
+    ) -> Optional[Opportunity]:
+        if not (actor.has_permission(PERM_WRITE_OPPORTUNITIES) or actor.has_permission(PERM_WRITE_CRM)):
+            raise PermissionError("Actor lacks permission to update opportunities")
+
+        opp = self.get_opportunity(opp_id, actor)
+        if not opp:
+            return None
+
+        if "pipeline_stage" in updates and PipelineStage.normalize(updates["pipeline_stage"]) != opp.pipeline_stage:
+            return self.transition_opportunity_stage(
+                opp_id,
+                updates["pipeline_stage"],
+                actor,
+                lost_reason=updates.get("lost_reason"),
+                notes=updates.get("notes"),
             )
-            for r in rows
-        ]
+
+        allowed_fields = {
+            "customer_id", "project_id", "title", "estimated_value", "probability",
+            "expected_close_date", "assigned_user_id", "competitor_info", "notes",
+            "lost_reason", "insurance_carrier", "claim_number", "adjuster_name",
+            "adjuster_phone", "adjuster_email", "deductible", "insurance_claim_status",
+            "stage_entered_at",
+        }
+        for k, v in updates.items():
+            if k in allowed_fields:
+                setattr(opp, k, v)
+
+        now = utc_now_iso()
+        opp.updated_at = now
+
+        conn = self.db.get_connection()
+        with conn:
+            conn.execute(
+                """
+                UPDATE opportunities SET
+                    customer_id = ?, project_id = ?, title = ?, estimated_value = ?,
+                    probability = ?, pipeline_stage = ?, expected_close_date = ?,
+                    assigned_user_id = ?, competitor_info = ?, notes = ?, lost_reason = ?,
+                    insurance_carrier = ?, claim_number = ?, adjuster_name = ?,
+                    adjuster_phone = ?, adjuster_email = ?, deductible = ?,
+                    insurance_claim_status = ?, stage_entered_at = ?, updated_at = ?
+                WHERE id = ?;
+                """,
+                (
+                    opp.customer_id, opp.project_id, opp.title, opp.estimated_value,
+                    opp.probability, opp.pipeline_stage, opp.expected_close_date,
+                    opp.assigned_user_id, opp.competitor_info, opp.notes, opp.lost_reason,
+                    opp.insurance_carrier, opp.claim_number, opp.adjuster_name,
+                    opp.adjuster_phone, opp.adjuster_email, opp.deductible,
+                    opp.insurance_claim_status, opp.stage_entered_at, now, opp_id,
+                ),
+            )
+
+        self.audit.log(
+            action="update",
+            entity_type="opportunity",
+            entity_id=opp_id,
+            change_summary=f"Updated opportunity {opp_id}",
+            actor=actor,
+            details=updates,
+        )
+        return opp
+
+    def transition_opportunity_stage(
+        self,
+        opp_id: int,
+        new_stage: str,
+        actor: AuthContext,
+        lost_reason: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> Opportunity:
+        """
+        Transition an opportunity to a new pipeline stage with validation:
+        - Validates that new_stage is one of the 9 canonical stages.
+        - Enforces lost_reason requirement when transitioning to LOST.
+        - Updates stage_entered_at, probability, and logs audit.
+        - Generates automated cadence tasks for the target stage.
+        """
+        if not (
+            actor.has_permission(PERM_MANAGE_PIPELINE)
+            or actor.has_permission(PERM_WRITE_OPPORTUNITIES)
+            or actor.has_permission(PERM_WRITE_CRM)
+        ):
+            raise PermissionError("Actor lacks permission to manage sales pipeline stages")
+
+        opp = self.get_opportunity(opp_id, actor)
+        if not opp:
+            raise ValueError(f"Opportunity {opp_id} not found")
+
+        canonical_stage = PipelineStage.normalize(new_stage)
+        if not PipelineStage.is_valid(canonical_stage):
+            raise ValueError(f"Invalid pipeline stage: '{new_stage}'")
+
+        if canonical_stage == PipelineStage.LOST:
+            if not lost_reason or not str(lost_reason).strip():
+                raise ValueError("A lost_reason is required when transitioning an opportunity to LOST")
+            opp.lost_reason = str(lost_reason).strip()
+            opp.probability = 0.0
+        elif canonical_stage == PipelineStage.WON:
+            opp.probability = 1.0
+        else:
+            opp.probability = PipelineStage.STAGE_DEFAULT_PROBABILITIES.get(canonical_stage, opp.probability)
+
+        old_stage = opp.pipeline_stage
+        opp.pipeline_stage = canonical_stage
+        now = utc_now_iso()
+        opp.stage_entered_at = now
+        opp.updated_at = now
+        if notes:
+            opp.notes = f"{opp.notes}\n{notes}".strip() if opp.notes else str(notes).strip()
+
+        conn = self.db.get_connection()
+        with conn:
+            conn.execute(
+                """
+                UPDATE opportunities SET
+                    pipeline_stage = ?, probability = ?, lost_reason = ?,
+                    stage_entered_at = ?, notes = ?, updated_at = ?
+                WHERE id = ?;
+                """,
+                (
+                    opp.pipeline_stage,
+                    opp.probability,
+                    opp.lost_reason,
+                    opp.stage_entered_at,
+                    opp.notes,
+                    now,
+                    opp_id,
+                ),
+            )
+
+        # Generate cadence follow-up tasks for the new stage
+        try:
+            self.generate_cadence_tasks(opp, actor)
+        except Exception:
+            pass
+
+        self.audit.log(
+            action="stage_transition",
+            entity_type="opportunity",
+            entity_id=opp_id,
+            change_summary=f"Transitioned opportunity '{opp.title}' ({opp_id}) from '{old_stage}' to '{canonical_stage}'",
+            actor=actor,
+            details={
+                "from_stage": old_stage,
+                "to_stage": canonical_stage,
+                "probability": opp.probability,
+                "lost_reason": opp.lost_reason,
+            },
+        )
+        return opp
+
+    def get_pipeline_summary(self, actor: AuthContext) -> Dict[str, Any]:
+        """
+        Aggregate deal count, total value, and weighted value grouped by stage.
+        """
+        if not (actor.has_permission(PERM_READ_OPPORTUNITIES) or actor.has_permission(PERM_READ_CRM)):
+            raise PermissionError("Actor lacks permission to view sales pipeline summary")
+
+        all_opps = self.list_opportunities(actor)
+        stage_metrics: Dict[str, Dict[str, Any]] = {}
+
+        for stage in PipelineStage.STAGE_ORDER:
+            stage_metrics[stage] = {
+                "stage": stage,
+                "count": 0,
+                "total_value": 0.0,
+                "weighted_value": 0.0,
+                "avg_value": 0.0,
+            }
+
+        total_pipeline_value = 0.0
+        total_weighted_value = 0.0
+        won_count = 0
+        won_value = 0.0
+        lost_count = 0
+        lost_value = 0.0
+
+        for o in all_opps:
+            st = PipelineStage.normalize(o.pipeline_stage)
+            if st not in stage_metrics:
+                stage_metrics[st] = {
+                    "stage": st,
+                    "count": 0,
+                    "total_value": 0.0,
+                    "weighted_value": 0.0,
+                    "avg_value": 0.0,
+                }
+            val = float(o.estimated_value or 0.0)
+            prob = float(o.probability or 0.0)
+            weighted = val * prob
+
+            stage_metrics[st]["count"] += 1
+            stage_metrics[st]["total_value"] += val
+            stage_metrics[st]["weighted_value"] += weighted
+
+            if st == PipelineStage.WON:
+                won_count += 1
+                won_value += val
+            elif st == PipelineStage.LOST:
+                lost_count += 1
+                lost_value += val
+            else:
+                total_pipeline_value += val
+                total_weighted_value += weighted
+
+        for st, data in stage_metrics.items():
+            if data["count"] > 0:
+                data["avg_value"] = round(data["total_value"] / data["count"], 2)
+            data["total_value"] = round(data["total_value"], 2)
+            data["weighted_value"] = round(data["weighted_value"], 2)
+
+        closed_total = won_count + lost_count
+        win_rate = round(won_count / closed_total, 4) if closed_total > 0 else 0.0
+
+        return {
+            "stages": stage_metrics,
+            "stage_order": PipelineStage.STAGE_ORDER,
+            "total_deals": len(all_opps),
+            "active_pipeline_value": round(total_pipeline_value, 2),
+            "active_weighted_value": round(total_weighted_value, 2),
+            "won_deals": won_count,
+            "won_value": round(won_value, 2),
+            "lost_deals": lost_count,
+            "lost_value": round(lost_value, 2),
+            "win_rate": win_rate,
+        }
+
+    # ==========================================
+    # TASKS & FOLLOW-UP CADENCE
+    # ==========================================
+
+    @staticmethod
+    def _row_to_task(row: Any) -> Task:
+        keys = row.keys() if hasattr(row, "keys") else []
+        return Task(
+            id=row["id"],
+            external_id=row["external_id"] if "external_id" in keys else None,
+            title=row["title"],
+            description=row["description"] if "description" in keys else None,
+            task_type=row["task_type"],
+            status=row["status"],
+            priority=row["priority"],
+            due_date=row["due_date"] if "due_date" in keys else None,
+            completed_at=row["completed_at"] if "completed_at" in keys else None,
+            customer_id=row["customer_id"] if "customer_id" in keys else None,
+            opportunity_id=row["opportunity_id"] if "opportunity_id" in keys else None,
+            lead_id=row["lead_id"] if "lead_id" in keys else None,
+            assigned_user_id=row["assigned_user_id"] if "assigned_user_id" in keys else None,
+            trigger_source=row["trigger_source"] if "trigger_source" in keys else None,
+            rule_name=row["rule_name"] if "rule_name" in keys else None,
+            notes=row["notes"] if "notes" in keys else None,
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    def create_task(self, task: Task, actor: AuthContext) -> Task:
+        if not (
+            actor.has_permission(PERM_WRITE_CRM)
+            or actor.has_permission(PERM_WRITE_OPPORTUNITIES)
+            or actor.has_permission(PERM_WRITE_LEADS)
+        ):
+            raise PermissionError("Actor lacks permission to create tasks")
+
+        now = utc_now_iso()
+        task.created_at = now
+        task.updated_at = now
+
+        conn = self.db.get_connection()
+        with conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO tasks (
+                    external_id, title, description, task_type, status,
+                    priority, due_date, completed_at, customer_id,
+                    opportunity_id, lead_id, assigned_user_id, trigger_source,
+                    rule_name, notes, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+                (
+                    task.external_id,
+                    task.title.strip(),
+                    task.description,
+                    task.task_type,
+                    task.status,
+                    task.priority,
+                    task.due_date,
+                    task.completed_at,
+                    task.customer_id,
+                    task.opportunity_id,
+                    task.lead_id,
+                    task.assigned_user_id,
+                    task.trigger_source,
+                    task.rule_name,
+                    task.notes,
+                    now,
+                    now,
+                ),
+            )
+            task.id = cursor.lastrowid
+
+        self.audit.log(
+            action="create",
+            entity_type="task",
+            entity_id=task.id,
+            change_summary=f"Created task '{task.title}'",
+            actor=actor,
+            details=task.to_dict(),
+        )
+        return task
+
+    def get_task(self, task_id: int, actor: AuthContext) -> Optional[Task]:
+        if not (
+            actor.has_permission(PERM_READ_CRM)
+            or actor.has_permission(PERM_READ_OPPORTUNITIES)
+            or actor.has_permission(PERM_READ_LEADS)
+        ):
+            raise PermissionError("Actor lacks permission to view tasks")
+
+        conn = self.db.get_connection()
+        row = conn.execute("SELECT * FROM tasks WHERE id = ?;", (task_id,)).fetchone()
+        if not row:
+            return None
+        return self._row_to_task(row)
+
+    def list_tasks(
+        self,
+        actor: AuthContext,
+        status: Optional[str] = None,
+        customer_id: Optional[int] = None,
+        opportunity_id: Optional[int] = None,
+        lead_id: Optional[int] = None,
+        assigned_user_id: Optional[int] = None,
+    ) -> List[Task]:
+        if not (
+            actor.has_permission(PERM_READ_CRM)
+            or actor.has_permission(PERM_READ_OPPORTUNITIES)
+            or actor.has_permission(PERM_READ_LEADS)
+        ):
+            raise PermissionError("Actor lacks permission to view tasks")
+
+        query = "SELECT * FROM tasks WHERE 1=1"
+        params: List[Any] = []
+        if status:
+            query += " AND status = ?"
+            params.append(status)
+        if customer_id is not None:
+            query += " AND customer_id = ?"
+            params.append(customer_id)
+        if opportunity_id is not None:
+            query += " AND opportunity_id = ?"
+            params.append(opportunity_id)
+        if lead_id is not None:
+            query += " AND lead_id = ?"
+            params.append(lead_id)
+        if assigned_user_id is not None:
+            query += " AND assigned_user_id = ?"
+            params.append(assigned_user_id)
+        query += " ORDER BY id DESC;"
+
+        conn = self.db.get_connection()
+        rows = conn.execute(query, params).fetchall()
+        return [self._row_to_task(r) for r in rows]
+
+    def update_task(self, task_id: int, updates: Dict[str, Any], actor: AuthContext) -> Optional[Task]:
+        if not (
+            actor.has_permission(PERM_WRITE_CRM)
+            or actor.has_permission(PERM_WRITE_OPPORTUNITIES)
+            or actor.has_permission(PERM_WRITE_LEADS)
+        ):
+            raise PermissionError("Actor lacks permission to update tasks")
+
+        task = self.get_task(task_id, actor)
+        if not task:
+            return None
+
+        allowed_fields = {
+            "title", "description", "task_type", "status", "priority",
+            "due_date", "completed_at", "customer_id", "opportunity_id",
+            "lead_id", "assigned_user_id", "trigger_source", "rule_name", "notes"
+        }
+        for k, v in updates.items():
+            if k in allowed_fields:
+                setattr(task, k, v)
+
+        now = utc_now_iso()
+        task.updated_at = now
+
+        conn = self.db.get_connection()
+        with conn:
+            conn.execute(
+                """
+                UPDATE tasks SET
+                    title = ?, description = ?, task_type = ?, status = ?,
+                    priority = ?, due_date = ?, completed_at = ?, customer_id = ?,
+                    opportunity_id = ?, lead_id = ?, assigned_user_id = ?,
+                    trigger_source = ?, rule_name = ?, notes = ?, updated_at = ?
+                WHERE id = ?;
+                """,
+                (
+                    task.title, task.description, task.task_type, task.status,
+                    task.priority, task.due_date, task.completed_at, task.customer_id,
+                    task.opportunity_id, task.lead_id, task.assigned_user_id,
+                    task.trigger_source, task.rule_name, task.notes, now, task_id,
+                ),
+            )
+
+        self.audit.log(
+            action="update",
+            entity_type="task",
+            entity_id=task_id,
+            change_summary=f"Updated task {task_id}",
+            actor=actor,
+            details=updates,
+        )
+        return task
+
+    def complete_task(self, task_id: int, actor: AuthContext, notes: Optional[str] = None) -> Task:
+        if not (
+            actor.has_permission(PERM_WRITE_CRM)
+            or actor.has_permission(PERM_WRITE_OPPORTUNITIES)
+            or actor.has_permission(PERM_WRITE_LEADS)
+        ):
+            raise PermissionError("Actor lacks permission to complete tasks")
+
+        task = self.get_task(task_id, actor)
+        if not task:
+            raise ValueError(f"Task {task_id} not found")
+
+        now = utc_now_iso()
+        task.status = "completed"
+        task.completed_at = now
+        task.updated_at = now
+        if notes:
+            task.notes = f"{task.notes}\n{notes}".strip() if task.notes else str(notes).strip()
+
+        conn = self.db.get_connection()
+        with conn:
+            conn.execute(
+                "UPDATE tasks SET status = 'completed', completed_at = ?, notes = ?, updated_at = ? WHERE id = ?;",
+                (now, task.notes, now, task_id),
+            )
+
+        self.audit.log(
+            action="complete",
+            entity_type="task",
+            entity_id=task_id,
+            change_summary=f"Completed task '{task.title}'",
+            actor=actor,
+            details={"completed_at": now, "notes": notes},
+        )
+        return task
+
+    def generate_cadence_tasks(
+        self, opportunity_or_id: int | Opportunity, actor: AuthContext
+    ) -> List[Task]:
+        """
+        Generate automated follow-up cadence tasks triggered by opportunity stage progression.
+        """
+        if isinstance(opportunity_or_id, int):
+            opp = self.get_opportunity(opportunity_or_id, actor)
+            if not opp:
+                raise ValueError(f"Opportunity {opportunity_or_id} not found")
+        else:
+            opp = opportunity_or_id
+
+        stage = PipelineStage.normalize(opp.pipeline_stage)
+        cadence_templates: Dict[str, Dict[str, Any]] = {
+            PipelineStage.NEW_LEAD: {
+                "title": "Initial Outreach / Contact Lead",
+                "description": f"Perform first contact outreach for opportunity '{opp.title}'.",
+                "task_type": "phone_call",
+                "priority": "high",
+                "rule_name": "cadence_new_lead",
+            },
+            PipelineStage.CONTACTED: {
+                "title": "Schedule Site Inspection / Assessment",
+                "description": f"Follow up with customer to schedule property inspection for '{opp.title}'.",
+                "task_type": "follow_up",
+                "priority": "medium",
+                "rule_name": "cadence_contacted",
+            },
+            PipelineStage.APPOINTMENT_SET: {
+                "title": "Prepare Inspection Scope & Measurements",
+                "description": f"Gather property details and prepare moisture/damage checklist for '{opp.title}'.",
+                "task_type": "inspection",
+                "priority": "medium",
+                "rule_name": "cadence_appointment_set",
+            },
+            PipelineStage.ESTIMATE_SCHEDULED: {
+                "title": "Conduct Property Inspection & Take Measurements",
+                "description": f"Execute on-site inspection and document damage for '{opp.title}'.",
+                "task_type": "inspection",
+                "priority": "high",
+                "rule_name": "cadence_estimate_scheduled",
+            },
+            PipelineStage.ESTIMATE_SENT: {
+                "title": "Follow up on Estimate with Customer & Adjuster",
+                "description": f"Verify receipt of estimate and follow up with adjuster for '{opp.title}'.",
+                "task_type": "estimate_follow_up",
+                "priority": "high",
+                "rule_name": "cadence_estimate_sent",
+            },
+            PipelineStage.PROPOSAL_SENT: {
+                "title": "Proposal Review & Contract Closing Follow-up",
+                "description": f"Follow up on sent proposal and review contract terms for '{opp.title}'.",
+                "task_type": "follow_up",
+                "priority": "high",
+                "rule_name": "cadence_proposal_sent",
+            },
+            PipelineStage.NEGOTIATION: {
+                "title": "Address Scope Adjustments & Finalize Contract Terms",
+                "description": f"Resolve pending questions, adjust line items if needed, and secure signature for '{opp.title}'.",
+                "task_type": "negotiation",
+                "priority": "urgent",
+                "rule_name": "cadence_negotiation",
+            },
+            PipelineStage.WON: {
+                "title": "Hand-off to Production / Schedule Job Kickoff",
+                "description": f"Transition won deal '{opp.title}' to project management and schedule kickoff.",
+                "task_type": "production_handoff",
+                "priority": "high",
+                "rule_name": "cadence_won",
+            },
+            PipelineStage.LOST: {
+                "title": "Log Lost Reason & Archive Opportunity",
+                "description": f"Document lost analysis: '{opp.lost_reason or 'No reason specified'}' for '{opp.title}'.",
+                "task_type": "lost_review",
+                "priority": "low",
+                "rule_name": "cadence_lost",
+            },
+        }
+
+        tpl = cadence_templates.get(stage)
+        if not tpl:
+            return []
+
+        # Check for existing pending task with the same rule_name for this opportunity
+        conn = self.db.get_connection()
+        existing = conn.execute(
+            """
+            SELECT id FROM tasks
+            WHERE opportunity_id = ? AND rule_name = ? AND status IN ('pending', 'in_progress');
+            """,
+            (opp.id, tpl["rule_name"]),
+        ).fetchone()
+
+        if existing:
+            return []
+
+        new_task = Task(
+            title=tpl["title"],
+            description=tpl["description"],
+            task_type=tpl["task_type"],
+            status="pending",
+            priority=tpl["priority"],
+            customer_id=opp.customer_id,
+            opportunity_id=opp.id,
+            assigned_user_id=opp.assigned_user_id,
+            trigger_source="pipeline_stage_transition",
+            rule_name=tpl["rule_name"],
+        )
+        created = self.create_task(new_task, actor)
+        return [created]
 
     # ==========================================
     # PROJECTS / JOBS
