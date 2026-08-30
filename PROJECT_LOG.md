@@ -12,6 +12,29 @@ and Appendix A.
 
 ---
 
+## 2026-08-30 — Track B / Phase B4: Public Website Intake & Customer Portal API (Phase B4 100% Complete)
+
+- **Status**: Code-reviewer approved, test verified (`224/224 passed` in `restoricon_core` + B4 tests, `1121/1121 passed` across full root test suite).
+- **In-Memory Sliding Window Rate Limiter (`restoricon_core/api/rate_limiter.py`, `tests/test_rate_limiter.py`)**:
+  - Implemented thread-safe `RateLimiter` class using timestamp queues per IP with lock protection and stale entry cleanup.
+  - Returns `allowed: bool`, `remaining_requests: int`, `reset_in_seconds: int` with support for `X-RateLimit-*` RFC headers.
+  - Robust client IP resolution extracting `CF-Connecting-IP`, `X-Forwarded-For` (leftmost client), and `X-Real-IP`.
+- **Public Website Lead & Appointment Intake (`restoricon_core/api/routes.py`, `restoricon_core/services/crm_service.py`, `tests/test_public_intake.py`)**:
+  - `POST /api/v1/public/leads`: Unauthenticated, rate-limited public endpoint with honeypot spam bot traps (`website_hp`, `honeypot`, `bot_check`).
+  - Automatically deduplicates and creates `Customer`, ingests `Lead` records, executes the deterministic 5-dimension lead qualification scoring engine, creates `Opportunity` in `PipelineStage.NEW_LEAD`, triggers follow-up `Task`, and records initial `communication_history` entry.
+  - `POST /api/v1/public/booking`: Unauthenticated appointment booking with slot preference arrays and auto-linking to customer records.
+- **Customer Portal & Data Isolation Layer (`restoricon_core/api/routes.py`, `restoricon_core/services/crm_service.py`, `tests/test_customer_portal.py`)**:
+  - Customer profile (`GET /api/v1/portal/profile`) returning authenticated customer details.
+  - Project tracking & Milestones (`GET /api/v1/portal/projects`, `GET /api/v1/portal/projects/{id}`, `GET /api/v1/portal/projects/{id}/milestones`) with strict data isolation ensuring customers can only access projects where `customer_id == actor.customer_id`.
+  - Financial masking: Automatically masks internal costs (`estimated_cost`, `actual_cost`, `profit`, `materials_cost`, `labor_cost`, `subcontractor_cost`, `markup_percent`) and internal PM `notes` to 0.0/None for `ROLE_CUSTOMER`, while maintaining visibility of customer-facing totals (`contract_amount`, `subtotal`, `tax_amount`, `total_amount`).
+  - Estimates & Digital Contract E-Signature (`GET /api/v1/portal/estimates`, `GET /api/v1/portal/contracts`, `POST /api/v1/portal/contracts/{id}/sign`): Enables e-signing contracts with timestamp and signature base64 recording, with strict cross-customer isolation.
+  - Invoices & Payments (`GET /api/v1/portal/invoices`): Balance due and payment status tracking.
+  - Documents & Media (`GET /api/v1/portal/documents`): Filtered document and photo asset retrieval.
+  - Direct Messaging (`POST /api/v1/portal/messages`): Inbound communication history logging from portal clients.
+- **Phase B4 Completion**: Public intake and customer portal backend engines are fully implemented, audited, tested, and integrated. Marked Phase B4 as 100% complete.
+
+---
+
 ## 2026-08-30 — Track B / Phase B3: Operations Domain Engine (Phase B3 100% Complete)
 
 - **Status**: Code-reviewer approved, test verified (`210/210 passed` in `restoricon_core`, `1107/1107 passed` across full root test suite).

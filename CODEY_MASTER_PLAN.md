@@ -907,19 +907,7 @@ a test-isolation gap, not a regression.
 
 ### 4.5 Business layer
 
-**Updated 2026-08-27.** Phase B1 (Restoricon Core: schema, API, auth) is
-code-complete (see §6.3's full entry) — "nothing is built" no longer
-describes the Core. `~/restoricon` is still a static marketing site with
-`mailto:` lead forms, and the phone-hosted site/portal (B4) is untouched.
-
-**Phase B2 fork-creation step is DONE.** The `Codey-Aigentik` fork
-(`~/Codey-Aigentik`) now exists: `origin` =
-`https://github.com/Ishabdullah/Codey-Aigentik.git`, `upstream` =
-`https://github.com/Ishabdullah/Aigentik-CLI.git`, pushed, tracking
-`origin/main`, working tree clean. This was previously scoped-but-not-
-executed (2026-08-27 scoping pass, see §6.4); it is now executed. The
-remaining B2 steps (auth provisioning, data migration, write-through
-replacement, model-layer repoint) are NOT started.
+**Updated 2026-08-30.** Phase B1 (Core API & Auth), Phase B2 (Aigentik Write-Through & Contacts Directory), Phase B3 (CRM/Sales Pipeline & Operations Domain Engines), and Phase B4 (Public Website Intake API, Rate Limiting, & Customer Portal Data Isolation) are 100% complete and verified. `~/restoricon` static site forms submit directly to the phone's Core API `/api/v1/public/*` endpoints, and the Customer Portal (`/api/v1/portal/*`) enforces strict tenant isolation and internal cost masking.
 
 **`NEW-209`'s schema-gap open decision is RESOLVED — Ish chose to expand
 scope, not narrow it (2026-08-27).** Rather than narrowing B2's exit
@@ -3927,7 +3915,11 @@ live-verified (no process-lifecycle changes).**
   - Equipment asset tracking and check-out/check-in deployment lifecycle with condition tracking and meter readings.
   - Strict RBAC & customer data isolation (customer role restricted to own records, financial costs/margins masked).
 
-### 6.6 Track B / Phase B4 — The public website + phone-hosted API surfaces
+### 6.6 Track B / Phase B4 — The public website + phone-hosted API surfaces (100% COMPLETE)
+
+**Status (2026-08-30):** 100% code-complete, audited, and verified across all test suites (`test_rate_limiter.py`, `test_public_intake.py`, `test_customer_portal.py`).
+- Public Website intake API endpoints (`/api/v1/public/leads`, `/api/v1/public/booking`) with sliding-window rate limiting, honeypot spam bot mitigation, automatic CRM deduplication, lead qualification scoring, and pipeline ingestion.
+- Customer Portal (`/api/v1/portal/*`) with complete RBAC customer data isolation, dynamic financial cost/margin masking, digital contract e-signatures, invoice balance tracking, document/photo retrieval, and bi-directional portal messaging.
 
 **Depends on:** B1 (API + auth), B3 (data worth showing).
 

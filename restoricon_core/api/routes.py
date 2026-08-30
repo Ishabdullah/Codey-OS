@@ -32,6 +32,7 @@ from ..models import (
     Task,
     WorkOrder,
 )
+from .rate_limiter import RateLimiter
 from ..services.audit_service import AuditService
 from ..services.automation_service import AutomationService
 from ..services.communication_service import CommunicationService
@@ -60,6 +61,7 @@ class APIRouter:
         scheduling_service: SchedulingService,
         automation_service: AutomationService,
         operations_service: Optional[OperationsService] = None,
+        rate_limiter: Optional[RateLimiter] = None,
     ):
         self.auth = auth_service
         self.crm = crm_service
@@ -68,6 +70,7 @@ class APIRouter:
         self.scheduling = scheduling_service
         self.automation = automation_service
         self.operations = operations_service or OperationsService(crm_service.db, audit_service)
+        self.rate_limiter = rate_limiter or RateLimiter(max_requests=60, window_seconds=60)
 
     def handle_request(
         self,
@@ -90,12 +93,48 @@ class APIRouter:
             except Exception:
                 return 400, {"Content-Type": "application/json"}, {"error": "Invalid JSON body"}
 
+        # Resolve client IP (supporting reverse proxy / Cloudflare Tunnel headers)
+        client_ip = (
+            headers.get("cf-connecting-ip")
+            or headers.get("x-forwarded-for", "").split(",")[0].strip()
+            or headers.get("x-real-ip")
+            or "127.0.0.1"
+        )
+
         # Public endpoints (no auth required)
         if method == "GET" and path in ("/api/v1/health", "/health"):
             return 200, {"Content-Type": "application/json"}, {"status": "ok", "service": "restoricon_core"}
 
         if method == "POST" and path == "/api/v1/auth/login":
             return self._handle_login(json_body)
+
+        # Public intake endpoints (rate-limited, no Bearer auth required)
+        if path.startswith("/api/v1/public/"):
+            allowed, remaining, reset_in = self.rate_limiter.is_allowed(client_ip)
+            rate_headers = {
+                "Content-Type": "application/json",
+                "X-RateLimit-Limit": str(self.rate_limiter.max_requests),
+                "X-RateLimit-Remaining": str(remaining),
+                "X-RateLimit-Reset": str(reset_in),
+            }
+            if not allowed:
+                return 429, rate_headers, {"error": "Rate limit exceeded. Please try again later."}
+
+            if method == "POST" and path == "/api/v1/public/leads":
+                try:
+                    result = self.crm.submit_public_lead(json_body, client_ip=client_ip)
+                    return 201, rate_headers, result
+                except ValueError as e:
+                    return 400, rate_headers, {"error": str(e)}
+
+            if method == "POST" and path == "/api/v1/public/booking":
+                try:
+                    result = self.crm.submit_public_booking(json_body, client_ip=client_ip)
+                    return 201, rate_headers, result
+                except ValueError as e:
+                    return 400, rate_headers, {"error": str(e)}
+
+            return 404, rate_headers, {"error": f"Not found: {method} {path}"}
 
         # Authenticate all other endpoints
         auth_header = headers.get("authorization", headers.get("Authorization", ""))
@@ -317,17 +356,49 @@ class APIRouter:
 
             # Estimates
             if path == "/api/v1/estimates":
-                if method == "POST":
+                if method == "GET":
+                    cid = query_params.get("customer_id", [None])[0]
+                    pid = query_params.get("project_id", [None])[0]
+                    estimates = self.crm.list_estimates(
+                        actor,
+                        customer_id=int(cid) if cid else None,
+                        project_id=int(pid) if pid else None,
+                    )
+                    return 200, {"Content-Type": "application/json"}, {"estimates": [e.to_dict() for e in estimates]}
+                elif method == "POST":
                     est = Estimate(**json_body)
                     created = self.crm.create_estimate(est, actor)
                     return 201, {"Content-Type": "application/json"}, {"estimate": created.to_dict()}
 
+            if path.startswith("/api/v1/estimates/") and "/" not in path[len("/api/v1/estimates/"):] and method == "GET":
+                est_id = int(path.split("/")[-1])
+                estimate = self.crm.get_estimate(est_id, actor)
+                if not estimate:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Estimate not found"}
+                return 200, {"Content-Type": "application/json"}, {"estimate": estimate.to_dict()}
+
             # Contracts
             if path == "/api/v1/contracts":
-                if method == "POST":
+                if method == "GET":
+                    cid = query_params.get("customer_id", [None])[0]
+                    pid = query_params.get("project_id", [None])[0]
+                    contracts = self.crm.list_contracts(
+                        actor,
+                        customer_id=int(cid) if cid else None,
+                        project_id=int(pid) if pid else None,
+                    )
+                    return 200, {"Content-Type": "application/json"}, {"contracts": [c.to_dict() for c in contracts]}
+                elif method == "POST":
                     contract = Contract(**json_body)
                     created = self.crm.create_contract(contract, actor)
                     return 201, {"Content-Type": "application/json"}, {"contract": created.to_dict()}
+
+            if path.startswith("/api/v1/contracts/") and "/" not in path[len("/api/v1/contracts/"):] and method == "GET":
+                contract_id = int(path.split("/")[-1])
+                contract = self.crm.get_contract(contract_id, actor)
+                if not contract:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Contract not found"}
+                return 200, {"Content-Type": "application/json"}, {"contract": contract.to_dict()}
 
             if path.startswith("/api/v1/contracts/") and path.endswith("/sign") and method == "POST":
                 contract_id = int(path.split("/")[-2])
@@ -337,10 +408,26 @@ class APIRouter:
 
             # Invoices
             if path == "/api/v1/invoices":
-                if method == "POST":
+                if method == "GET":
+                    cid = query_params.get("customer_id", [None])[0]
+                    pid = query_params.get("project_id", [None])[0]
+                    invoices = self.crm.list_invoices(
+                        actor,
+                        customer_id=int(cid) if cid else None,
+                        project_id=int(pid) if pid else None,
+                    )
+                    return 200, {"Content-Type": "application/json"}, {"invoices": [i.to_dict() for i in invoices]}
+                elif method == "POST":
                     inv = Invoice(**json_body)
                     created = self.crm.create_invoice(inv, actor)
                     return 201, {"Content-Type": "application/json"}, {"invoice": created.to_dict()}
+
+            if path.startswith("/api/v1/invoices/") and "/" not in path[len("/api/v1/invoices/"):] and method == "GET":
+                inv_id = int(path.split("/")[-1])
+                invoice = self.crm.get_invoice(inv_id, actor)
+                if not invoice:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Invoice not found"}
+                return 200, {"Content-Type": "application/json"}, {"invoice": invoice.to_dict()}
 
             if path.startswith("/api/v1/invoices/") and path.endswith("/pay") and method == "POST":
                 inv_id = int(path.split("/")[-2])
@@ -352,10 +439,102 @@ class APIRouter:
 
             # Documents
             if path == "/api/v1/documents":
-                if method == "POST":
+                if method == "GET":
+                    cid = query_params.get("customer_id", [None])[0]
+                    pid = query_params.get("project_id", [None])[0]
+                    dtype = query_params.get("document_type", [None])[0]
+                    documents = self.crm.list_documents(
+                        actor,
+                        customer_id=int(cid) if cid else None,
+                        project_id=int(pid) if pid else None,
+                        document_type=dtype,
+                    )
+                    return 200, {"Content-Type": "application/json"}, {"documents": [d.to_dict() for d in documents]}
+                elif method == "POST":
                     doc = Document(**json_body)
                     created = self.crm.create_document(doc, actor)
                     return 201, {"Content-Type": "application/json"}, {"document": created.to_dict()}
+
+            if path.startswith("/api/v1/documents/") and "/" not in path[len("/api/v1/documents/"):] and method == "GET":
+                doc_id = int(path.split("/")[-1])
+                doc = self.crm.get_document(doc_id, actor)
+                if not doc:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Document not found"}
+                return 200, {"Content-Type": "application/json"}, {"document": doc.to_dict()}
+
+            # Customer Portal Endpoints (/api/v1/portal/*)
+            if path.startswith("/api/v1/portal/"):
+                if path == "/api/v1/portal/profile" and method == "GET":
+                    if not actor.customer_id:
+                        return 403, {"Content-Type": "application/json"}, {"error": "Actor is not linked to a customer record"}
+                    cust = self.crm.get_customer(actor.customer_id, actor)
+                    return 200, {"Content-Type": "application/json"}, {"profile": cust.to_dict() if cust else None}
+
+                if path == "/api/v1/portal/projects" and method == "GET":
+                    projects = self.crm.list_projects(actor, customer_id=actor.customer_id)
+                    return 200, {"Content-Type": "application/json"}, {"projects": [p.to_dict() for p in projects]}
+
+                if path.startswith("/api/v1/portal/projects/") and path.endswith("/milestones") and method == "GET":
+                    proj_id = int(path.split("/")[-2])
+                    milestones = self.operations.list_milestones(proj_id, actor)
+                    return 200, {"Content-Type": "application/json"}, {"milestones": [m.to_dict() for m in milestones]}
+
+                if path.startswith("/api/v1/portal/projects/") and "/" not in path[len("/api/v1/portal/projects/"):] and method == "GET":
+                    proj_id = int(path.split("/")[-1])
+                    proj = self.crm.get_project(proj_id, actor)
+                    if not proj:
+                        return 404, {"Content-Type": "application/json"}, {"error": "Project not found"}
+                    return 200, {"Content-Type": "application/json"}, {"project": proj.to_dict()}
+
+                if path == "/api/v1/portal/estimates" and method == "GET":
+                    pid = query_params.get("project_id", [None])[0]
+                    proj_id = int(pid) if pid else None
+                    estimates = self.crm.list_estimates(actor, customer_id=actor.customer_id, project_id=proj_id)
+                    return 200, {"Content-Type": "application/json"}, {"estimates": [e.to_dict() for e in estimates]}
+
+                if path == "/api/v1/portal/contracts" and method == "GET":
+                    pid = query_params.get("project_id", [None])[0]
+                    proj_id = int(pid) if pid else None
+                    contracts = self.crm.list_contracts(actor, customer_id=actor.customer_id, project_id=proj_id)
+                    return 200, {"Content-Type": "application/json"}, {"contracts": [c.to_dict() for c in contracts]}
+
+                if path.startswith("/api/v1/portal/contracts/") and path.endswith("/sign") and method == "POST":
+                    contract_id = int(path.split("/")[-2])
+                    signature = json_body.get("signature_data", "")
+                    if not signature:
+                        return 400, {"Content-Type": "application/json"}, {"error": "signature_data is required"}
+                    signed = self.crm.sign_contract(contract_id, signature, actor)
+                    return 200, {"Content-Type": "application/json"}, {"contract": signed.to_dict()}
+
+                if path == "/api/v1/portal/invoices" and method == "GET":
+                    pid = query_params.get("project_id", [None])[0]
+                    proj_id = int(pid) if pid else None
+                    invoices = self.crm.list_invoices(actor, customer_id=actor.customer_id, project_id=proj_id)
+                    return 200, {"Content-Type": "application/json"}, {"invoices": [i.to_dict() for i in invoices]}
+
+                if path == "/api/v1/portal/documents" and method == "GET":
+                    pid = query_params.get("project_id", [None])[0]
+                    proj_id = int(pid) if pid else None
+                    dtype = query_params.get("document_type", [None])[0]
+                    documents = self.crm.list_documents(actor, customer_id=actor.customer_id, project_id=proj_id, document_type=dtype)
+                    return 200, {"Content-Type": "application/json"}, {"documents": [d.to_dict() for d in documents]}
+
+                if path == "/api/v1/portal/messages" and method == "POST":
+                    content = json_body.get("message", json_body.get("content", ""))
+                    if not content:
+                        return 400, {"Content-Type": "application/json"}, {"error": "Message content is required"}
+                    pid = json_body.get("project_id")
+                    rec = self.comm.record_communication(
+                        channel="web_chat",
+                        direction="inbound",
+                        content=content,
+                        actor=actor,
+                        subject=json_body.get("subject", "Portal Message"),
+                        customer_id=actor.customer_id,
+                        project_id=int(pid) if pid else None,
+                        metadata={"source": "customer_portal", "ip": client_ip},
+                    )
+                    return 201, {"Content-Type": "application/json"}, {"message": rec.to_dict()}
 
             # Communication History (Append-only)
             if path == "/api/v1/communications":

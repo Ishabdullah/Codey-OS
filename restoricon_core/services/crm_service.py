@@ -14,6 +14,7 @@ from ..auth import (
     AuthContext,
     PERM_READ_ALL_CUSTOMERS,
     PERM_WRITE_CUSTOMERS,
+    PERM_READ_OWN_CUSTOMER,
     PERM_READ_LEADS,
     PERM_WRITE_LEADS,
     PERM_READ_OPPORTUNITIES,
@@ -28,22 +29,32 @@ from ..auth import (
     PERM_WRITE_PROJECTS,
     PERM_READ_ESTIMATES,
     PERM_WRITE_ESTIMATES,
+    PERM_READ_OWN_ESTIMATES,
     PERM_READ_CONTRACTS,
     PERM_WRITE_CONTRACTS,
+    PERM_READ_OWN_CONTRACTS,
     PERM_SIGN_CONTRACTS,
     PERM_READ_DOCUMENTS,
     PERM_WRITE_DOCUMENTS,
+    PERM_READ_OWN_DOCUMENTS,
     PERM_READ_FINANCIALS,
     PERM_WRITE_FINANCIALS,
+    PERM_READ_OWN_FINANCIALS,
+    PERM_LOG_COMMUNICATION,
+    PERM_READ_COMMUNICATIONS,
+    PERM_READ_OWN_COMMUNICATIONS,
     PERM_READ_SUBCONTRACTORS,
     PERM_WRITE_SUBCONTRACTORS,
     PERM_READ_CONTACTS,
     PERM_WRITE_CONTACTS,
     ROLE_CUSTOMER,
     ROLE_TECHNICIAN,
+    ROLE_ADMIN,
 )
 from ..database import DatabaseManager
 from ..models import (
+    Appointment,
+    CommunicationRecord,
     Contact,
     Contract,
     Customer,
@@ -1704,6 +1715,75 @@ class CRMService:
         )
         return estimate
 
+    @staticmethod
+    def _row_to_estimate(row: Any, actor_role: str = "") -> Estimate:
+        keys = row.keys() if hasattr(row, "keys") else []
+        line_items = json.loads(row["line_items_json"]) if "line_items_json" in keys and row["line_items_json"] else []
+        is_customer = actor_role in (ROLE_CUSTOMER, ROLE_TECHNICIAN)
+
+        return Estimate(
+            id=row["id"],
+            estimate_number=row["estimate_number"],
+            customer_id=row["customer_id"],
+            project_id=row["project_id"] if "project_id" in keys else None,
+            line_items=line_items,
+            subtotal=row["subtotal"] if "subtotal" in keys else 0.0,
+            materials_cost=row["materials_cost"] if "materials_cost" in keys and not is_customer else 0.0,
+            labor_cost=row["labor_cost"] if "labor_cost" in keys and not is_customer else 0.0,
+            subcontractor_cost=row["subcontractor_cost"] if "subcontractor_cost" in keys and not is_customer else 0.0,
+            markup_percent=row["markup_percent"] if "markup_percent" in keys and not is_customer else 0.0,
+            tax_amount=row["tax_amount"] if "tax_amount" in keys else 0.0,
+            discount_amount=row["discount_amount"] if "discount_amount" in keys else 0.0,
+            total_amount=row["total_amount"] if "total_amount" in keys else 0.0,
+            status=row["status"] if "status" in keys else "draft",
+            expiration_date=row["expiration_date"] if "expiration_date" in keys else None,
+            version=row["version"] if "version" in keys else 1,
+            notes=row["notes"] if "notes" in keys and not is_customer else None,
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    def get_estimate(self, estimate_id: int, actor: AuthContext) -> Optional[Estimate]:
+        if not (actor.has_permission(PERM_READ_ESTIMATES) or actor.has_permission(PERM_READ_OWN_ESTIMATES)):
+            raise PermissionError("Actor lacks permission to read estimates")
+
+        conn = self.db.get_connection()
+        row = conn.execute("SELECT * FROM estimates WHERE id = ?;", (estimate_id,)).fetchone()
+        if not row:
+            return None
+
+        if actor.role == ROLE_CUSTOMER and (not actor.customer_id or actor.customer_id != row["customer_id"]):
+            raise PermissionError("Customer cannot access another customer's estimate")
+
+        return self._row_to_estimate(row, actor.role)
+
+    def list_estimates(
+        self,
+        actor: AuthContext,
+        customer_id: Optional[int] = None,
+        project_id: Optional[int] = None,
+    ) -> List[Estimate]:
+        if not (actor.has_permission(PERM_READ_ESTIMATES) or actor.has_permission(PERM_READ_OWN_ESTIMATES)):
+            raise PermissionError("Actor lacks permission to read estimates")
+
+        if actor.role == ROLE_CUSTOMER:
+            customer_id = actor.customer_id
+
+        conn = self.db.get_connection()
+        query = "SELECT * FROM estimates WHERE 1=1"
+        params: List[Any] = []
+
+        if customer_id is not None:
+            query += " AND customer_id = ?"
+            params.append(customer_id)
+        if project_id is not None:
+            query += " AND project_id = ?"
+            params.append(project_id)
+
+        query += " ORDER BY id DESC;"
+        rows = conn.execute(query, params).fetchall()
+        return [self._row_to_estimate(r, actor.role) for r in rows]
+
     # ==========================================
     # CONTRACTS / PROPOSALS
     # ==========================================
@@ -1750,6 +1830,67 @@ class CRMService:
             details=contract.to_dict(),
         )
         return contract
+
+    @staticmethod
+    def _row_to_contract(row: Any) -> Contract:
+        keys = row.keys() if hasattr(row, "keys") else []
+        return Contract(
+            id=row["id"],
+            contract_number=row["contract_number"],
+            customer_id=row["customer_id"],
+            project_id=row["project_id"] if "project_id" in keys else None,
+            estimate_id=row["estimate_id"] if "estimate_id" in keys else None,
+            title=row["title"],
+            template_name=row["template_name"] if "template_name" in keys else None,
+            content=row["content"] if "content" in keys else "",
+            status=row["status"] if "status" in keys else "draft",
+            customer_signed_at=row["customer_signed_at"] if "customer_signed_at" in keys else None,
+            customer_signature_data=row["customer_signature_data"] if "customer_signature_data" in keys else None,
+            version=row["version"] if "version" in keys else 1,
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    def get_contract(self, contract_id: int, actor: AuthContext) -> Optional[Contract]:
+        if not (actor.has_permission(PERM_READ_CONTRACTS) or actor.has_permission(PERM_READ_OWN_CONTRACTS)):
+            raise PermissionError("Actor lacks permission to read contracts")
+
+        conn = self.db.get_connection()
+        row = conn.execute("SELECT * FROM contracts WHERE id = ?;", (contract_id,)).fetchone()
+        if not row:
+            return None
+
+        if actor.role == ROLE_CUSTOMER and (not actor.customer_id or actor.customer_id != row["customer_id"]):
+            raise PermissionError("Customer cannot access another customer's contract")
+
+        return self._row_to_contract(row)
+
+    def list_contracts(
+        self,
+        actor: AuthContext,
+        customer_id: Optional[int] = None,
+        project_id: Optional[int] = None,
+    ) -> List[Contract]:
+        if not (actor.has_permission(PERM_READ_CONTRACTS) or actor.has_permission(PERM_READ_OWN_CONTRACTS)):
+            raise PermissionError("Actor lacks permission to read contracts")
+
+        if actor.role == ROLE_CUSTOMER:
+            customer_id = actor.customer_id
+
+        conn = self.db.get_connection()
+        query = "SELECT * FROM contracts WHERE 1=1"
+        params: List[Any] = []
+
+        if customer_id is not None:
+            query += " AND customer_id = ?"
+            params.append(customer_id)
+        if project_id is not None:
+            query += " AND project_id = ?"
+            params.append(project_id)
+
+        query += " ORDER BY id DESC;"
+        rows = conn.execute(query, params).fetchall()
+        return [self._row_to_contract(r) for r in rows]
 
     def sign_contract(
         self,
@@ -1814,6 +1955,67 @@ class CRMService:
     # ==========================================
     # INVOICES & PAYMENTS
     # ==========================================
+
+    @staticmethod
+    def _row_to_invoice(row: Any) -> Invoice:
+        keys = row.keys() if hasattr(row, "keys") else []
+        payments = json.loads(row["payments_json"]) if "payments_json" in keys and row["payments_json"] else []
+        return Invoice(
+            id=row["id"],
+            invoice_number=row["invoice_number"],
+            customer_id=row["customer_id"],
+            project_id=row["project_id"] if "project_id" in keys else None,
+            status=row["status"] if "status" in keys else "draft",
+            amount=row["amount"] if "amount" in keys else 0.0,
+            deposit_amount=row["deposit_amount"] if "deposit_amount" in keys else 0.0,
+            balance_due=row["balance_due"] if "balance_due" in keys else 0.0,
+            due_date=row["due_date"] if "due_date" in keys else None,
+            payments=payments,
+            notes=row["notes"] if "notes" in keys else None,
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    def get_invoice(self, invoice_id: int, actor: AuthContext) -> Optional[Invoice]:
+        if not (actor.has_permission(PERM_READ_FINANCIALS) or actor.has_permission(PERM_READ_OWN_FINANCIALS)):
+            raise PermissionError("Actor lacks permission to read invoices")
+
+        conn = self.db.get_connection()
+        row = conn.execute("SELECT * FROM invoices WHERE id = ?;", (invoice_id,)).fetchone()
+        if not row:
+            return None
+
+        if actor.role == ROLE_CUSTOMER and (not actor.customer_id or actor.customer_id != row["customer_id"]):
+            raise PermissionError("Customer cannot access another customer's invoice")
+
+        return self._row_to_invoice(row)
+
+    def list_invoices(
+        self,
+        actor: AuthContext,
+        customer_id: Optional[int] = None,
+        project_id: Optional[int] = None,
+    ) -> List[Invoice]:
+        if not (actor.has_permission(PERM_READ_FINANCIALS) or actor.has_permission(PERM_READ_OWN_FINANCIALS)):
+            raise PermissionError("Actor lacks permission to read invoices")
+
+        if actor.role == ROLE_CUSTOMER:
+            customer_id = actor.customer_id
+
+        conn = self.db.get_connection()
+        query = "SELECT * FROM invoices WHERE 1=1"
+        params: List[Any] = []
+
+        if customer_id is not None:
+            query += " AND customer_id = ?"
+            params.append(customer_id)
+        if project_id is not None:
+            query += " AND project_id = ?"
+            params.append(project_id)
+
+        query += " ORDER BY id DESC;"
+        rows = conn.execute(query, params).fetchall()
+        return [self._row_to_invoice(r) for r in rows]
 
     def create_invoice(self, invoice: Invoice, actor: AuthContext) -> Invoice:
         if not actor.has_permission(PERM_WRITE_FINANCIALS):
@@ -1934,6 +2136,72 @@ class CRMService:
     # ==========================================
     # DOCUMENTS
     # ==========================================
+
+    @staticmethod
+    def _row_to_document(row: Any) -> Document:
+        keys = row.keys() if hasattr(row, "keys") else []
+        tags = json.loads(row["tags_json"]) if "tags_json" in keys and row["tags_json"] else []
+        perms = json.loads(row["permissions_json"]) if "permissions_json" in keys and row["permissions_json"] else []
+        return Document(
+            id=row["id"],
+            customer_id=row["customer_id"] if "customer_id" in keys else None,
+            project_id=row["project_id"] if "project_id" in keys else None,
+            document_type=row["document_type"],
+            title=row["title"],
+            file_path=row["file_path"],
+            file_size_bytes=row["file_size_bytes"] if "file_size_bytes" in keys else 0,
+            mime_type=row["mime_type"] if "mime_type" in keys else "application/octet-stream",
+            tags=tags,
+            permissions=perms,
+            expiration_date=row["expiration_date"] if "expiration_date" in keys else None,
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    def get_document(self, document_id: int, actor: AuthContext) -> Optional[Document]:
+        if not (actor.has_permission(PERM_READ_DOCUMENTS) or actor.has_permission(PERM_READ_OWN_DOCUMENTS)):
+            raise PermissionError("Actor lacks permission to read documents")
+
+        conn = self.db.get_connection()
+        row = conn.execute("SELECT * FROM documents WHERE id = ?;", (document_id,)).fetchone()
+        if not row:
+            return None
+
+        if actor.role == ROLE_CUSTOMER and (not actor.customer_id or actor.customer_id != row["customer_id"]):
+            raise PermissionError("Customer cannot access another customer's document")
+
+        return self._row_to_document(row)
+
+    def list_documents(
+        self,
+        actor: AuthContext,
+        customer_id: Optional[int] = None,
+        project_id: Optional[int] = None,
+        document_type: Optional[str] = None,
+    ) -> List[Document]:
+        if not (actor.has_permission(PERM_READ_DOCUMENTS) or actor.has_permission(PERM_READ_OWN_DOCUMENTS)):
+            raise PermissionError("Actor lacks permission to read documents")
+
+        if actor.role == ROLE_CUSTOMER:
+            customer_id = actor.customer_id
+
+        conn = self.db.get_connection()
+        query = "SELECT * FROM documents WHERE 1=1"
+        params: List[Any] = []
+
+        if customer_id is not None:
+            query += " AND customer_id = ?"
+            params.append(customer_id)
+        if project_id is not None:
+            query += " AND project_id = ?"
+            params.append(project_id)
+        if document_type:
+            query += " AND document_type = ?"
+            params.append(document_type)
+
+        query += " ORDER BY id DESC;"
+        rows = conn.execute(query, params).fetchall()
+        return [self._row_to_document(r) for r in rows]
 
     def create_document(self, doc: Document, actor: AuthContext) -> Document:
         if not actor.has_permission(PERM_WRITE_DOCUMENTS):
@@ -3024,3 +3292,267 @@ class CRMService:
             details={"android": len(contacts), "added": added, "updated": updated, "total": total_count},
         )
         return {"android": len(contacts), "added": added, "updated": updated, "total": total_count}
+
+    # ==========================================
+    # PUBLIC INTAKE / WEB FORM SUBMISSIONS
+    # ==========================================
+
+    def submit_public_lead(self, data: Dict[str, Any], client_ip: str = "") -> Dict[str, Any]:
+        """Process public lead form submission from restoricon.com with spam mitigation,
+        deduplication, lead qualification scoring, and opportunity creation."""
+        # 1. Honeypot / Bot check
+        if data.get("website_hp") or data.get("honeypot") or data.get("bot_check"):
+            return {"success": True, "lead_id": 0, "status": "received"}
+
+        # 2. Extract & Sanitize fields
+        name = str(data.get("name", "")).strip()
+        if not name:
+            raise ValueError("Name is required for lead submission")
+
+        phone = str(data.get("phone", "")).strip()
+        email = str(data.get("email", "")).strip()
+        address = str(data.get("property_address", data.get("address", ""))).strip()
+        project_type = str(data.get("project_type", "remodel")).strip()
+        description = str(data.get("description", data.get("message", ""))).strip()
+        urgency = str(data.get("urgency", "medium")).strip().lower()
+        has_insurance = bool(data.get("insurance", data.get("has_insurance", False)))
+        insurance_carrier = data.get("insurance_carrier")
+
+        system_actor = AuthContext(
+            user_id=1,
+            username="system_web_intake",
+            role=ROLE_ADMIN,
+            actor_type="agent",
+        )
+
+        # 3. Customer Deduplication & Upsert
+        customer: Optional[Customer] = None
+        if email:
+            customer = self.get_customer_by_email(email, system_actor)
+        if not customer and phone:
+            customer = self.find_customer(phone, system_actor)
+
+        parts = name.split(maxsplit=1)
+        first_name = parts[0] if parts else ""
+        last_name = parts[1] if len(parts) > 1 else ""
+
+        if not customer:
+            new_cust = Customer(
+                first_name=first_name,
+                last_name=last_name,
+                email=email if email else None,
+                phone=phone if phone else None,
+                service_address=address if address else None,
+                customer_source="website",
+                notes=f"Created via website intake from {client_ip}" if client_ip else "Created via website intake",
+            )
+            customer = self.create_customer(new_cust, system_actor)
+        else:
+            # Update customer address if newly supplied
+            if address and not customer.service_address:
+                self.update_customer(customer.id, {"service_address": address}, system_actor)
+
+        # 4. Create Lead Record
+        lead = Lead(
+            customer_id=customer.id,
+            source="website",
+            status="new",
+            property_type=project_type,
+            project_scope=description,
+            urgency_level=urgency,
+            insurance_status="insured" if has_insurance else "none",
+            notes=f"Carrier: {insurance_carrier}" if insurance_carrier else None,
+        )
+        created_lead = self.create_lead(lead, system_actor)
+
+        # 5. Score Lead using Deterministic Scoring Engine
+        score_res = self.score_lead(created_lead.id, system_actor)
+
+        # 6. Create Opportunity in NEW_LEAD Pipeline Stage
+        est_val = float(data.get("estimated_value", 0.0))
+        opp = Opportunity(
+            customer_id=customer.id,
+            title=f"Website Lead: {name} - {project_type.capitalize()}",
+            estimated_value=est_val,
+            pipeline_stage=PipelineStage.NEW_LEAD,
+            probability=STAGE_DEFAULT_PROBABILITIES[PipelineStage.NEW_LEAD],
+            notes=description if description else None,
+            insurance_carrier=insurance_carrier,
+        )
+        created_opp = self.create_opportunity(opp, system_actor)
+
+        # 7. Create Follow-up Task for Sales Team
+        task_priority = "urgent" if urgency in ("emergency", "urgent") else "high"
+        task = Task(
+            title=f"Follow up with website lead: {name}",
+            description=f"Inquiry for {project_type} ({urgency} priority): {description}",
+            task_type="follow_up",
+            priority=task_priority,
+            customer_id=customer.id,
+            opportunity_id=created_opp.id,
+            lead_id=created_lead.id,
+            trigger_source="website_form",
+            rule_name="inbound_web_lead",
+        )
+        self.create_task(task, system_actor)
+
+        # 8. Record Inbound Communication Entry
+        now = utc_now_iso()
+        comm = CommunicationRecord(
+            timestamp=now,
+            channel="web_chat",
+            direction="inbound",
+            subject=f"Website Lead: {project_type}",
+            content=description if description else f"New lead submission from {name} ({phone}, {email})",
+            actor_role="customer",
+            actor_type="human",
+            customer_id=customer.id,
+            opportunity_id=created_opp.id,
+            metadata={"ip": client_ip, "form": "website_contact", "urgency": urgency},
+        )
+        conn = self.db.get_connection()
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO communication_history (
+                    timestamp, channel, direction, subject, content,
+                    actor_id, actor_role, actor_type, customer_id,
+                    project_id, opportunity_id, metadata_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+                (
+                    comm.timestamp,
+                    comm.channel,
+                    comm.direction,
+                    comm.subject,
+                    comm.content,
+                    None,
+                    comm.actor_role,
+                    comm.actor_type,
+                    comm.customer_id,
+                    comm.project_id,
+                    comm.opportunity_id,
+                    json.dumps(comm.metadata),
+                ),
+            )
+
+        self.audit.log(
+            action="submit",
+            entity_type="lead",
+            entity_id=created_lead.id,
+            change_summary=f"Inbound website lead from {name} (Score: {score_res.get('score', 0)})",
+            actor=system_actor,
+            details={"lead_id": created_lead.id, "customer_id": customer.id, "opportunity_id": created_opp.id, "score": score_res},
+        )
+
+        return {
+            "success": True,
+            "lead_id": created_lead.id,
+            "customer_id": customer.id,
+            "opportunity_id": created_opp.id,
+            "score": score_res.get("score"),
+            "grade": score_res.get("grade"),
+            "status": "received",
+        }
+
+    def submit_public_booking(self, data: Dict[str, Any], client_ip: str = "") -> Dict[str, Any]:
+        """Process public appointment booking request from restoricon.com."""
+        if data.get("website_hp") or data.get("honeypot") or data.get("bot_check"):
+            return {"success": True, "appointment_id": 0, "status": "received"}
+
+        name = str(data.get("name", data.get("customer_name", ""))).strip()
+        if not name:
+            raise ValueError("Name is required for booking request")
+
+        phone = str(data.get("phone", "")).strip()
+        email = str(data.get("email", "")).strip()
+        address = str(data.get("address", data.get("property_address", ""))).strip()
+        service_type = str(data.get("service_type", "estimate")).strip()
+        preferred_date = str(data.get("preferred_date", "")).strip()
+        preferred_time_slot = str(data.get("preferred_time_slot", "morning")).strip()
+        notes = str(data.get("notes", data.get("description", ""))).strip()
+
+        system_actor = AuthContext(
+            user_id=1,
+            username="system_web_intake",
+            role=ROLE_ADMIN,
+            actor_type="agent",
+        )
+
+        customer: Optional[Customer] = None
+        if email:
+            customer = self.get_customer_by_email(email, system_actor)
+        if not customer and phone:
+            customer = self.find_customer(phone, system_actor)
+
+        parts = name.split(maxsplit=1)
+        first_name = parts[0] if parts else ""
+        last_name = parts[1] if len(parts) > 1 else ""
+
+        if not customer:
+            new_cust = Customer(
+                first_name=first_name,
+                last_name=last_name,
+                email=email if email else None,
+                phone=phone if phone else None,
+                service_address=address if address else None,
+                customer_source="website_booking",
+            )
+            customer = self.create_customer(new_cust, system_actor)
+
+        now = utc_now_iso()
+        start_time = f"{preferred_date}T{preferred_time_slot}" if preferred_date else None
+        conn = self.db.get_connection()
+        with conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO appointments (
+                    title, start_time, end_time, customer_id,
+                    attendee_name, attendee_email, appointment_type, status,
+                    offered_slots_json, notes, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+                (
+                    f"Consultation: {name} ({service_type})",
+                    start_time,
+                    None,
+                    customer.id,
+                    name,
+                    email if email else None,
+                    "in_person",
+                    "negotiating",
+                    json.dumps([{"date": preferred_date, "slot": preferred_time_slot}]) if preferred_date else "[]",
+                    f"Service: {service_type}. Notes: {notes}" if notes else f"Service: {service_type}",
+                    now,
+                    now,
+                ),
+            )
+            appt_id = cursor.lastrowid
+
+        # Follow-up task
+        task = Task(
+            title=f"Confirm booking request from {name}",
+            description=f"Requested {service_type} on {preferred_date} ({preferred_time_slot}): {notes}",
+            task_type="follow_up",
+            priority="high",
+            customer_id=customer.id,
+            trigger_source="website_booking",
+        )
+        self.create_task(task, system_actor)
+
+        self.audit.log(
+            action="submit",
+            entity_type="appointment",
+            entity_id=appt_id,
+            change_summary=f"Inbound booking request from {name} for {preferred_date}",
+            actor=system_actor,
+            details={"appointment_id": appt_id, "customer_id": customer.id},
+        )
+
+        return {
+            "success": True,
+            "appointment_id": appt_id,
+            "customer_id": customer.id,
+            "status": "pending_confirmation",
+        }
+
