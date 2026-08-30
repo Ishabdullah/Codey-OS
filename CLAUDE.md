@@ -217,47 +217,32 @@ Codey-OS/
   linter, and type checker before claiming a task is done. If you can't
   run them, say so explicitly.
 
-## Workflow
+### Workflow: Hub-and-Spoke Coordinator Delegation
 
-project-architect is the entry point for any new piece of work: read
-context first, then decide which specialist(s) the task actually needs
-before delegating.
+The main agent (Claude / Antigravity coordinator) strictly coordinates each task step-by-step with specialized subagents. **Every subagent reports back to the coordinator before the next agent is dispatched:**
 
-- **CCOS capability/plugin work** (wrapping a function as a capability,
-  writing or auditing a plugin manifest.json, deciding whether something
-  is safe to expose to agent-driven planning, deciding which of
-  Codey-OS's internal agents — Planner, Critic, Optimizer, Capability,
-  Safety — should call a given capability): project-architect delegates
-  design/scoping to **agent-tool-designer** first, then hands the scoped
-  task to implementer.
-- **Qwen prompt work** (system_prompt.py, layered_prompt.py,
-  critique_prompts.py, plannd.py's PLANNER_PROMPT — tuning or debugging
-  how the local model follows instructions — Qwen3.5-4B as of
-  2026-08-22, including its thinking mode; formerly a 7B coder + 1.5B
-  planner, see `CODEY_MASTER_PLAN.md` §1.4):
-  project-architect delegates to **prompt-engineer** first, then hands
-  the scoped task to implementer if a separate implementation pass is
-  needed.
-- **General coding work** that doesn't fit either specialty above goes
-  straight to **implementer**.
-- **Every task**, regardless of which specialist scoped or built it,
-  goes through **code-reviewer** before commit — mandatory for anything
-  touching process control, daemon/kill logic, or security; a lighter
-  pass otherwise. Loop back to whichever agent built it on rejection.
-- **live-verifier** confirms on-device when a change needs real
-  confirmation, not just unit/mock tests — after code-reviewer approves,
-  before the round is considered done.
-- **code-hygiene-auditor** runs as a periodic or explicitly requested
-  read-only pass, separate from the per-task chain above. It never edits
-  code. Its findings go to project-architect and get scoped into normal
-  tasks through this same pipeline, exactly like any other finding.
-- project-architect updates the tracking docs once a round is fully
-  done, and adds a short explanatory note to any code touched for the
-  first time in that round (see project-architect's own instructions).
+```
+User Request -> Coordinator
+   │
+   ├─► 1. Dispatch project-architect (scope & design spec) ──► Reports back to Coordinator
+   │
+   ├─► 2. Dispatch implementer (build & run unit tests)    ──► Reports back to Coordinator (diff + test output)
+   │
+   ├─► 3. Dispatch code-reviewer (mandatory audit)         ──► Reports back to Coordinator (APPROVED / CHANGES REQUESTED)
+   │      (If CHANGES REQUESTED -> Coordinator routes back to implementer/architect)
+   │
+   ├─► 4. Dispatch live-verifier (if real on-device test)  ──► Reports back to Coordinator
+   │
+   └─► 5. Coordinator runs test suites, updates ledgers (CODEY_MASTER_PLAN.md §4 + App A, PROJECT_LOG.md, NEW_ISSUES.md), and commits.
+```
 
-This pipeline applies to every issue, with no shortcuts for changes that
-look small or obvious — that assumption is exactly what's caused this
-project's worst bugs before.
+- **1. Scoping & Architecture**: Coordinator invokes **`project-architect`** (or **`agent-tool-designer`** / **`prompt-engineer`** via architect recommendation) to inspect context and produce a technical specification. Reports back to Coordinator.
+- **2. Implementation**: Coordinator hands the scoped specification to **`implementer`**. The implementer writes code, runs unit tests, and reports the exact diff and test output back to Coordinator.
+- **3. Mandatory Adversarial Review**: Coordinator hands the diff directly to **`code-reviewer`** for adversarial audit before any commit — mandatory for anything touching process control, concurrency, daemon/kill logic, or security/RBAC. `code-reviewer` reports `APPROVED` or `CHANGES REQUESTED` back to Coordinator. If rejected, Coordinator routes back to implementer.
+- **4. Live Verification**: If the task requires on-device live validation (model loading, RAM/swap tracking, live process lifecycle), Coordinator invokes **`live-verifier`** to run tests and capture verbatim output back to Coordinator.
+- **5. Ledger Updates & Final Commit**: Coordinator runs full test suites, updates the authoritative tracking ledgers (`CODEY_MASTER_PLAN.md` §4 + Appendix A, `PROJECT_LOG.md`, `NEW_ISSUES.md`), and commits the changes.
+
+This pipeline applies to every task, with no shortcuts for changes that look small or obvious — that assumption is exactly what's caused this project's worst bugs before.
 
 ## When to stop and escalate instead of proceeding
 

@@ -38,3 +38,23 @@ front — the full list is `CODEY_MASTER_PLAN.md` §2:
    logic, model load/unload, API/GUI binding and auth) needs an explicit
    adversarial code review before commit — no exceptions for small-looking
    changes.
+
+## Mandatory Hub-and-Spoke Subagent Delegation Workflow
+
+**The coordinator (Antigravity) MUST explicitly dispatch and receive reports from each specialist subagent individually step-by-step. Subagents never bypass the coordinator:**
+
+```
+User Request -> Coordinator (Antigravity)
+   │
+   ├─► 1. Dispatch project-architect (scope & design spec) ──► Reports back to Coordinator
+   │
+   ├─► 2. Dispatch implementer (build & run unit tests)    ──► Reports back to Coordinator (diff + test output)
+   │
+   ├─► 3. Dispatch code-reviewer (mandatory audit)         ──► Reports back to Coordinator (APPROVED / CHANGES REQUESTED)
+   │      (If CHANGES REQUESTED -> Coordinator routes back to implementer/architect)
+   │
+   ├─► 4. Dispatch live-verifier (if real on-device test)  ──► Reports back to Coordinator
+   │
+   └─► 5. Coordinator runs test suites, updates ledgers (CODEY_MASTER_PLAN.md §4 + App A, PROJECT_LOG.md, NEW_ISSUES.md), and commits.
+```
+
