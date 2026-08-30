@@ -879,3 +879,64 @@ def test_api_communications_non_string_provider_message_id_returns_400(api_serve
     )
     assert status == 400
     assert "error" in body
+
+
+def test_api_ai_chat_auth_and_validation(api_server, monkeypatch):
+    _, base_url, _, _ = api_server
+    headers = _agent_headers(base_url)
+
+    # 1. Unauthenticated -> 401
+    status, body = make_request(
+        f"{base_url}/api/v1/ai/chat",
+        method="POST",
+        data={"messages": [{"role": "user", "content": "hello"}]},
+    )
+    assert status == 401
+
+    # 2. Missing messages -> 400
+    status, body = make_request(
+        f"{base_url}/api/v1/ai/chat",
+        method="POST",
+        headers=headers,
+        data={},
+    )
+    assert status == 400
+    assert "Missing messages" in body.get("error", "")
+
+    # 3. Successful proxy with mocked urlopen
+    class MockHTTPResponse:
+        def __init__(self, data, status=200):
+            self.data = json.dumps(data).encode("utf-8")
+            self.status = status
+
+        def read(self):
+            return self.data
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    mock_resp_payload = {
+        "choices": [{"message": {"role": "assistant", "content": "Hello there!"}}]
+    }
+
+    def mock_urlopen(req, timeout=180.0):
+        return MockHTTPResponse(mock_resp_payload)
+
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+
+    status, body = make_request(
+        f"{base_url}/api/v1/ai/chat",
+        method="POST",
+        headers=headers,
+        data={
+            "messages": [{"role": "user", "content": "hello"}],
+            "max_tokens": 100,
+            "temperature": 0.2,
+        },
+    )
+    assert status == 200
+    assert body["choices"][0]["message"]["content"] == "Hello there!"
+

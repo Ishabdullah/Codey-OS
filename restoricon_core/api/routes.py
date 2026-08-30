@@ -3,13 +3,14 @@ HTTP API request routing and endpoint handlers for Restoricon Core.
 Exposes JSON REST endpoints with strict Bearer token authentication and RBAC.
 """
 
-from __future__ import annotations
-
 import json
+import os
+import urllib.error
+import urllib.request
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
-from ..auth import AuthContext, AuthService, PERM_READ_ALL_CUSTOMERS
+from ..auth import AuthContext, AuthService, PERM_READ_ALL_CUSTOMERS, PERM_LOG_COMMUNICATION
 from ..models import (
     Appointment,
     AutomationRule,
@@ -501,6 +502,86 @@ class APIRouter:
                 identifier = query_params.get("identifier", [""])[0]
                 blocked = self.automation.is_blocked(identifier, actor)
                 return 200, {"Content-Type": "application/json"}, {"blocked": blocked}
+
+            # AI Chat Proxy with Context-Budget Admission Gating (Phase B2, NEW-211)
+            if path == "/api/v1/ai/chat" and method == "POST":
+                if not (
+                    actor.role in ("admin", "manager", "sales", "project_manager", "ai_agent")
+                    or actor.has_permission(PERM_READ_ALL_CUSTOMERS)
+                    or actor.has_permission(PERM_LOG_COMMUNICATION)
+                ):
+                    raise PermissionError("Actor lacks permission to invoke AI completion")
+
+                messages = json_body.get("messages", [])
+                if not messages:
+                    return 400, {"Content-Type": "application/json"}, {"error": "Missing messages in request body"}
+                max_tokens = int(json_body.get("max_tokens", 512))
+                temperature = float(json_body.get("temperature", 0.3))
+                enable_thinking = bool(json_body.get("enable_thinking", False))
+                model_name = json_body.get("model", "codey")
+
+                port = int(os.getenv("PRIMARY_SERVER_PORT", "8080"))
+                host = os.getenv("PRIMARY_SERVER_HOST", "127.0.0.1")
+
+                reservation_token = None
+                try:
+                    from core.resource_gate import (
+                        release_context_budget,
+                        wait_and_reserve_context_budget,
+                    )
+
+                    budget_decision = wait_and_reserve_context_budget(
+                        port, messages, max_tokens, host=host
+                    )
+                    if not budget_decision.admitted:
+                        return 429, {"Content-Type": "application/json"}, {
+                            "error": f"AI model context-budget admission refused: {budget_decision.reason}"
+                        }
+                    reservation_token = budget_decision.reservation_token
+                except ImportError:
+                    pass
+                except Exception as e:
+                    return 503, {"Content-Type": "application/json"}, {
+                        "error": f"Context budget gate error: {str(e)}"
+                    }
+
+                try:
+                    req_payload = {
+                        "model": model_name,
+                        "messages": messages,
+                        "max_tokens": max_tokens,
+                        "temperature": temperature,
+                        "chat_template_kwargs": {"enable_thinking": enable_thinking},
+                    }
+                    data_bytes = json.dumps(req_payload).encode("utf-8")
+                    req = urllib.request.Request(
+                        f"http://{host}:{port}/v1/chat/completions",
+                        data=data_bytes,
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(req, timeout=180.0) as resp:
+                        resp_data = json.loads(resp.read().decode("utf-8"))
+                        return resp.status, {"Content-Type": "application/json"}, resp_data
+                except urllib.error.HTTPError as http_err:
+                    err_body = http_err.read().decode("utf-8", errors="replace")
+                    try:
+                        err_json = json.loads(err_body)
+                    except Exception:
+                        err_json = {"error": err_body or str(http_err)}
+                    return http_err.code, {"Content-Type": "application/json"}, err_json
+                except Exception as e:
+                    return 502, {"Content-Type": "application/json"}, {
+                        "error": f"AI completion upstream error: {str(e)}"
+                    }
+                finally:
+                    if reservation_token:
+                        try:
+                            from core.resource_gate import release_context_budget
+
+                            release_context_budget(port, reservation_token)
+                        except Exception:
+                            pass
 
             return 404, {"Content-Type": "application/json"}, {"error": f"Endpoint not found: {method} {path}"}
 

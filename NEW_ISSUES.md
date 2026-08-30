@@ -11060,8 +11060,13 @@ finding for the same bug. See `NEW-39`.)*
 
 ### [NEW-211] `~/Aigentik-CLI/config.json`'s local-model port (`llama.host` = `http://127.0.0.1:8080`) is the exact same default port Codey-OS's shared llama-server binds — Phase B2 step 4 ("point at the shared model layer") is a real admission-control fix, not a no-op or a simple config change
 
-- **Status:** Confirmed (read both artifacts directly, per rule 12 — did
-  not assume from either project's docs).
+- **Status: CLOSED, 2026-08-30 (Code-reviewer approved).** Resolved by
+  routing `chatLocal()` in `~/Codey-Aigentik/llama.js` through Core API
+  `POST /api/v1/ai/chat` via `coreRequest` whenever `config.core_api` is
+  configured. The Core API endpoint invokes `wait_and_reserve_context_budget()`
+  before proxying to `llama-server` and guarantees budget release in a
+  `finally` block upon response delivery or error, preventing unmediated
+  admission collisions. Unit tested in `tests/llama.test.js` (8/8 passing).
 - **Mechanism:** `~/Aigentik-CLI/llama.js`'s `chatLocal()` POSTs straight
   to `${config.llama.host}/v1/chat/completions`, and `config.json`'s live
   value is `http://127.0.0.1:8080`. Codey-OS's own primary server port
@@ -11090,8 +11095,8 @@ finding for the same bug. See `NEW-39`.)*
   cycle can't be the concurrent request that reproduces `NEW-206`/
   `NEW-208`'s known failure modes in production. This is called out
   explicitly in the B2 task list rather than left as a "config change."
-- **Not fixed this round** — desk/design scope only, per this round's
-  explicit instruction not to write integration code.
+- **Addressed 2026-08-30**: `Codey-Aigentik/llama.js` routed through
+  Core API `POST /api/v1/ai/chat` proxy with context budget reservation.
 - **Cross-references:** plan §6.4 (Phase B2 step 4), §8 Q11 (the
   admission-control mechanism this must route through), `NEW-206`/
   `NEW-208` (the failure modes an unmediated port collision could

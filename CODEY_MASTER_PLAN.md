@@ -1144,14 +1144,17 @@ Updated `owner-command.js` call sites with `await`. Unit tests pass in both repo
 (`889 passed, 1 skipped` in `Codey-OS`, `164 passed, 0 failed` across 10 suites
 in `Codey-Aigentik`).
 
-**Phase B2 write-through progress: 6 of the 10 write-site modules
+**Phase B2 write-through progress: 8 of the 10 write-site modules
 (§6.4's per-module list) are now done — `do-not-contact.js`,
 `email-rules.js`/`sms-rules.js`, `calendar.js`, `subcontractor-recruiter.js`,
 `email-provider.js` (outbound/inbound comms logging + reliable retry queue),
-and `customer-module.js` (Core API groundwork + async write-through cutover).**
-Remaining modules: `contacts.js` and `index.js`/`queue.js` orchestration.
-Customer write-through cutover landed 2026-08-28 (commits `e7980b4` in `Codey-OS`, `3ff9d11` in `Codey-Aigentik`),
-code-reviewer approved with 182 passing unit tests in `Codey-Aigentik` and 1014 passing in `Codey-OS`.
+`customer-module.js` (Core API groundwork + async write-through cutover),
+`business_profile` (`index.js` `loadProfile`/`sendOnboardingEmail` and
+`owner-command.js` `handleRename`/`handleSetBusinessInfo`/`handleSetOwnerName`),
+and `llama.js` (model-layer admission routing through Core API `POST /api/v1/ai/chat`, resolving `NEW-211`).**
+Remaining modules: `contacts.js` and `queue.js` orchestration.
+Business profile and model-layer routing landed 2026-08-30,
+code-reviewer approved with 200 passing unit tests in `Codey-Aigentik` and 166 passing in `Codey-OS` `test_restoricon_core`.
 
 **Phase B2 task 4, comms/email/SMS-provider write-through — scoping
 only, 2026-08-27, blocked, not handed off for implementation.**

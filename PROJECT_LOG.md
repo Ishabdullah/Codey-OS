@@ -12,6 +12,25 @@ and Appendix A.
 
 ---
 
+## 2026-08-30 — Option 1: Track B / Phase B2 Write-Through Cutover & Model-Layer Admission Routing (NEW-211)
+
+- **Status**: Code-reviewer approved, unit-test verified across full suites (`200 passed` across 13 suites in `Codey-Aigentik`, `166 passed` in `Codey-OS` `test_restoricon_core`).
+- **Business Profile Write-Through (`Codey-Aigentik/index.js`, `Codey-Aigentik/owner-command.js`)**:
+  - Implemented `coreRequest()` in `index.js` and `owner-command.js` with Bearer auth token, timeout signals, and network exception safety.
+  - Converted `loadProfile()` in `index.js` to async querying Core API `GET /api/v1/business-profile`, updating `config.aigentik_name`, `config.owner_name`, `config.business_name`, `config.business_description`, and maintaining local fallback cache `profile.json`.
+  - Updated `sendOnboardingEmail()` in `index.js` to check `onboarding_sent` from Core API and write through `POST /api/v1/business-profile` with `{ onboarding_sent: 1 }` after sending the owner onboarding notification.
+  - Converted `handleRename()`, `handleSetBusinessInfo()`, and `handleSetOwnerName()` in `owner-command.js` to write through to Core API `POST /api/v1/business-profile` while keeping local cache and `config` in sync. Normalized SQLite integer flags (`configured`, `agent_name_set`, `onboarding_sent`) to 1/0.
+- **Model-Layer Admission Routing (NEW-211) (`Codey-Aigentik/llama.js`)**:
+  - Routed `chatLocal()` in `llama.js` through Core API `POST /api/v1/ai/chat` via `coreRequest` whenever `config.core_api` is present.
+  - Core API proxy acquires and releases context budget reservations (`wait_and_reserve_context_budget()`), preventing collision and concurrent oversubscription against shared `llama-server`.
+  - Propagates HTTP 429 admission refusal and 502/503 upstream errors with informative context.
+- **Unit Tests (`Codey-Aigentik/tests/business-profile.test.js`, `Codey-Aigentik/tests/llama.test.js`)**:
+  - Added 8 tests for business profile Core write-through, fallback, and owner commands.
+  - Added 8 tests for `llama.js` model proxy routing, admission refusal handling, and timeout behavior.
+- **Review**: Passed mandatory adversarial code review (`APPROVE` by `code-reviewer`).
+
+---
+
 ## 2026-08-28 — Phase B2: Live Data Migration Apply against Restoricon Core DB
 
 - **Status**: Live-verified on device against `~/.codey_restoricon/core.db`.
