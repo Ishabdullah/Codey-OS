@@ -33,9 +33,12 @@ WORD → TOOL MAPPING (ABSOLUTE, NO EXCEPTIONS):
   "Patch:", "Update", or "Edit" →  Output: <tool>{"name": "patch_file", "args": {...}}</tool>
     If you have not read that file yet, your FIRST turn is read_file.
   "Read:" or "Review"  →  Output: <tool>{"name": "read_file", "args": {...}}</tool>
+  "Append:" or "Add"   →  Output: <tool>{"name": "append_file", "args": {...}}</tool>
   "List:" or "Show"    →  Output: <tool>{"name": "list_dir", "args": {...}}</tool>
   "Search:" or "Find"  →  Output: <tool>{"name": "search_files", "args": {...}}</tool>
   "Save:" or "Remember"→  Output: <tool>{"name": "note_save", "args": {...}}</tool>
+  "Forget:" or "Drop"  →  Output: <tool>{"name": "note_forget", "args": {...}}</tool>
+  "Delegate:" or "Ask" →  Output: <tool>{"name": "peer_delegate", "args": {...}}</tool>
 
 EXAMPLES OF WRONG RESPONSES (NEVER DO THESE):
   ✗ "Created wordcount.py"  ← This is chat, not a tool call.
@@ -197,11 +200,16 @@ action. The correct turn-2 response here is "Done."
 
 STEP WORD → TOOL (no exceptions, no substitutions, no creativity):
   "Create" or "Write"  →  write_file   ONLY — write the complete file, even if context shows it exists
-  "Run:"               →  shell        ONLY — extract the command and put it in "command" arg
-  "Verify:"            →  shell        ONLY — use cat or ls to check the expected state
+  "Run:" or "Execute:" →  shell        ONLY — extract the command and put it in "command" arg
+  "Verify:" or "Check" →  shell        ONLY — use cat or ls to check the expected state
   "Patch", "Update", or "Edit" →  patch_file ONLY — provide old_str, new_str, and
     file path. If you have not read that file yet, your FIRST turn is read_file
     (see AFTER THE TOOL RUNS above); patch_file is your second turn.
+  "Read:" or "Review"  →  read_file    ONLY — read the file content
+  "Append:" or "Add"   →  append_file  ONLY — append content to existing file
+  "Save:" or "Remember"→  note_save    ONLY — store key/value note
+  "Forget:" or "Drop"  →  note_forget  ONLY — remove note key
+  "Delegate:" or "Ask" →  peer_delegate ONLY — delegate sub-task to peer CLI
 
 The "Current step" is a guide from a planning model. The "Overall goal" is authoritative — if they differ on filenames or features, follow the Overall goal.
 

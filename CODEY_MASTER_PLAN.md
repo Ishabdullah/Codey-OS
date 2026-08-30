@@ -5776,10 +5776,9 @@ Then:
       `NEW-30`/`NEW-56`. Not scoped. **High value.**
 - [ ] **U.12** (`NEW-52`) — `orchestrator.py`'s own write_file-hint
       hardcoding (routed around, not fixed).
-- [ ] **U.13** (`NEW-53`/`NEW-54`) — tool-completeness gaps:
+- [x] **U.13** (`NEW-53`/`NEW-54`) — tool-completeness gaps:
       `append_file`/`note_forget` unreachable (no word→tool trigger);
-      peer-CLI delegation isn't a real tool (decided by regex on raw
-      text before the system prompt applies).
+      peer-CLI delegation isn't a real tool. **DONE 2026-08-30: added explicit word→tool mappings for `append_file`, `note_forget`, and `peer_delegate` in `prompts/system_prompt.py`, added peer triggers in `core/agent.py`, and structured `peer_delegate` tool in `core/agent.py`.**
 - [x] **U.14** (`NEW-61`) — JSON-repair regex mangles single-quoted
       values. **DONE 2026-08-30: fixed in `core/agent.py` `_fix_unquoted_values()`, verified with tests in `tests/test_json_parser.py`.**
 - [ ] **U.15** — the 7B prompt round's Case 2 control deviation (model

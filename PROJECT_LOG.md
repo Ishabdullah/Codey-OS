@@ -12,6 +12,20 @@ and Appendix A.
 
 ---
 
+## 2026-08-30 — Track U / Maintenance: Tool-Completeness & Prompt Word Triggers (U.13 / NEW-53 & NEW-54 Resolved)
+
+- **Status**: Code-complete, code-reviewer approved, test verified (`12/12 passed` in `tests/test_peer_cli_redesign.py`, `1,153/1,153 passed` across full repository test suite).
+- **Prompt Word-to-Tool Alignment (`prompts/system_prompt.py`, `NEW-53`, `NEW-54`)**:
+  - Added explicit word→tool mappings for `append_file` ("Append:" / "Add"), `note_forget` ("Forget:" / "Drop"), and `peer_delegate` ("Delegate:" / "Ask") across both word→tool instruction blocks.
+  - Added `peer_delegate` into `AVAILABLE TOOLS` documentation table with required arguments `peer, task`.
+- **Agent Action Keywords (`core/agent.py`)**:
+  - Added `"ask antigravity"`, `"ask agy"`, `"ask qwen"`, `"call antigravity"`, `"call agy"`, `"call qwen"`, `"delegate"`, and `"peer delegate"` to `_action_kws` in `core/agent.py` to prevent peer CLI delegation from misclassifying as plain QA conversational responses.
+- **Ledger & Status Updates**:
+  - Resolved `[NEW-53]` and `[NEW-54]` in `NEW_ISSUES.md`.
+  - Updated `U.13` in `CODEY_MASTER_PLAN.md` Appendix A. Full suite: 1,153 passed, 1 skipped.
+
+---
+
 ## 2026-08-30 — Track U / Maintenance: Single-Quoted JSON Repair Fix & Hygiene (U.14 / NEW-61 & U.26 / NEW-75 Resolved)
 
 - **Status**: Code-complete, code-reviewer approved, test verified (`20/20 passed` in `tests/test_json_parser.py`, `1,153/1,153 passed` across full repository test suite).

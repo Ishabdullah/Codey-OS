@@ -1041,46 +1041,11 @@ rated.
   it, to convert this from Suspected to Confirmed/Refuted alongside
   `NEW-49`.
 
-### [NEW-53] `append_file` and `note_forget` are listed in `system_prompt.py`'s AVAILABLE TOOLS table but have no corresponding word→tool trigger anywhere in the prompt text, making them unreachable via the documented step-word protocol (Confirmed)
-- **Location:** `prompts/system_prompt.py:171-181` (AVAILABLE TOOLS table,
-  lists `append_file` and `note_forget` as valid tools with required args)
-  vs. both word→tool mapping blocks (`:29-37` and `:159-163`), neither of
-  which maps any step word to `append_file` or to `note_forget`. `:37`
-  maps "Save:"/"Remember" to `note_save` only — there is no corresponding
-  word for "forget"/"remove note."
-- **Confirmed by direct text read** (no live test needed to establish the
-  gap exists — it is an objective absence in the prompt text itself). Not
-  yet confirmed whether this causes real failures in practice (e.g.
-  whether the 7B ever needs to call these tools and cannot find a
-  documented trigger word) — that would need a live scenario, which is a
-  candidate test case for the round scoped below.
-- **Not fixed here.**
+### [NEW-53] `append_file` and `note_forget` are listed in `system_prompt.py`'s AVAILABLE TOOLS table but have no corresponding word→tool trigger anywhere in the prompt text (Resolved 2026-08-30)
+- **Status: Resolved (2026-08-30).** Added explicit word→tool mappings for `append_file` ("Append:" / "Add") and `note_forget` ("Forget:" / "Drop") across both mapping blocks in `prompts/system_prompt.py`.
 
-### [NEW-54] Peer-CLI delegation is advertised in `CAPABILITIES_PROMPT` as an agent capability, but is not an available tool in `system_prompt.py`'s AVAILABLE TOOLS list nor in `core/agent.py`'s tool-dispatch table (`TOOL_MAP`, `agent.py:49-70`) — it is decided entirely upstream via regex on the raw message, before the 7B ever sees a tool-calling turn (Confirmed)
-- **Location:** `prompts/system_prompt.py:257-260`
-  (`CAPABILITIES_PROMPT`: "...delegate to peer CLIs (Claude, Gemini, Qwen)
-  for second opinions") vs. `core/agent.py:49-70` (the tool dispatch
-  table — no `peer_cli`/`delegate` entry) vs. `core/agent.py:739`
-  (`_detect_peer_delegation(user_message)`, a regex-based detector run
-  against the raw `user_message` at `agent.py:991-993`, before
-  `system_prompt.py`'s tool-calling protocol is even invoked for that
-  turn).
-- **Why this matters for the round scoped below:** the 7B coder itself
-  never chooses to delegate via a tool call — delegation is fully decided
-  before the model runs, by pattern-matching the incoming text. This means
-  an "Ask-peer-CLI" plan step's behavior is NOT a test of
-  `system_prompt.py`'s tool-calling instructions at all; it is a test of
-  whether the *enriched step string* (built by whichever caller feeds the
-  step to `run_agent`) happens to match `_detect_peer_delegation`'s regex.
-  Any peer-CLI-delegation test scenario in the round below needs to be
-  understood and reported as testing that regex/step-string interaction,
-  not as testing `system_prompt.py`'s own instructions — a real
-  tool-completeness gap relative to the "does the 7B coder have all the
-  tools it needs" question Ish asked, since delegation isn't something
-  the model can invoke on its own via the documented tool-call protocol.
-- **Confirmed by direct text/code read** (dispatch table and prompt table
-  both directly inspectable; the absence is objective). **Not fixed
-  here.**
+### [NEW-54] Peer-CLI delegation is advertised in `CAPABILITIES_PROMPT` as an agent capability, but is not an available tool in `system_prompt.py`'s AVAILABLE TOOLS list nor in `core/agent.py`'s tool-dispatch table (Resolved 2026-08-30)
+- **Status: Resolved (2026-08-30).** Added `peer_delegate` tool into `system_prompt.py` (AVAILABLE TOOLS table, word→tool mapping: "Delegate:" / "Ask") and registered `peer_delegate` in `core/agent.py` (`TOOLS`, `ROGUE_TAG_MAP`, and `_action_kws`). Tests verified in `tests/test_peer_cli_redesign.py`.
 
 ## Found during the 2026-07-31 7B coder system-prompt round's first live pass (NEW-30 test, 7B-only, port 8080, one clean load/unload cycle, PID-tracked; RAM/PID compliance relayed from live-verifier's report, not independently witnessed here) — no code or prompt text touched, `system_prompt.py`'s diff stays uncommitted
 

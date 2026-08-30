@@ -1454,11 +1454,19 @@ def run_agent(
         "remember",
         "don't forget",
         "forget",
-        # Peer delegation triggers — "ask gemini to X" should never be QA:
+        # Peer delegation triggers — "ask antigravity to X" / "delegate to qwen" should never be QA:
+        "ask antigravity",
+        "ask agy",
         "ask gemini",
+        "ask qwen",
         "ask claude",
+        "call antigravity",
+        "call agy",
         "call gemini",
+        "call qwen",
         "call claude",
+        "delegate",
+        "peer delegate",
         # Planner step verbs — daemon steps like "verify the output" must use shell,
         # not return plain text answers:
         "verify",
