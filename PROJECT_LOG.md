@@ -12,6 +12,27 @@ and Appendix A.
 
 ---
 
+## 2026-08-30 — Track A / Phase A2 Item 4.5: Peer-CLI Escalation Redesign
+
+- **Status**: Code-reviewer approved, live-verified on-device on Android/Termux (`1037 passed, 1 skipped` in `Codey-OS`).
+- **Peer-CLI Registry & Enablement (`core/peer_cli.py`)**:
+  - Replaced Gemini CLI with Antigravity CLI (`agy`, aliases `['agy', 'gemini']`, prompt flag `-p`, yolo flag `--dangerously-skip-permissions`, `enabled=True`).
+  - Aligned Qwen Code CLI (`qwen`, aliases `['qwen-code', 'qwen3.5']`, prompt flag `-p`, yolo flag `-y`, `enabled=True`).
+  - Set Claude Code CLI (`claude`, aliases `['claude-code']`, `enabled=False`, `disabled_reason="Claude Code is currently disabled (no API credits configured)."`) to explicitly disabled with graceful warning and redirection fallback.
+  - Implemented `resolve_peer_name()`, `is_peer_enabled()`, `PeerCLIManager.available(include_disabled=...)`, and `PeerCLIManager.select_cli()`.
+- **Shell Runner & Noise Stripping (`core/peer_shell.py`)**:
+  - Implemented `_strip_peer_noise()` stripping keychain initialization errors, Node.js require-stack traces, and credential/yolo banners for `antigravity`/`agy`/`gemini`.
+  - Generalized non-interactive execution in `run_prompted()` with error sentinel capture (`[PEER_ERROR: ...]`).
+- **Structured Tool Calling & CCOS Integration (`core/agent.py`, `ccos/plugins/coding/peer_escalation/`)**:
+  - Implemented `tool_peer_delegate()` supporting `peer`, `task`, `context_files`, and `mode` (`code`, `design`, `review`).
+  - Implemented CCOS capability `coding.peer_delegate` and updated capability manifest `manifest.json`.
+  - Updated `main.py` `/peer` command to display enabled/disabled statuses and handle direct CLI delegation.
+- **Unit & Live Verification (`tests/test_peer_cli_redesign.py`, `ccos/plugins/coding/peer_escalation/test.py`)**:
+  - 20 unit tests covering metadata, alias resolution, disabled fallback, noise filtering, and tool execution.
+  - Live verified on-device: binary checks (`agy`, `qwen`, `claude`), alias resolutions, Claude disabled redirection to Antigravity, and clean memory footprint (`free -h` pre/post).
+
+---
+
 ## 2026-08-30 — Option 1: Track B / Phase B2 Write-Through Cutover & Model-Layer Admission Routing (NEW-211)
 
 - **Status**: Code-reviewer approved, unit-test verified across full suites (`200 passed` across 13 suites in `Codey-Aigentik`, `166 passed` in `Codey-OS` `test_restoricon_core`).

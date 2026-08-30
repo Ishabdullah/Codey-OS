@@ -500,7 +500,16 @@ def _run_with_plan(prompt: str, history: list, yolo: bool, use_plan: bool, no_pl
     # implement it."), fall through to plannd so ALL steps get planned and
     # executed in sequence. plannd Rule 8 preserves "Ask gemini to X" phrasing,
     # and filter_tool_steps keeps peer steps in the plan.
-    _PEER_NAMES = ["claude", "gemini", "qwen"]
+    _PEER_NAMES = [
+        "antigravity",
+        "agy",
+        "gemini",
+        "qwen",
+        "qwen-code",
+        "qwen3.5",
+        "claude",
+        "claude-code",
+    ]
     _peer_directive_re = re.compile(
         r"\b(?:ask|call|have|tell|use|get|let)\s+(" + "|".join(_PEER_NAMES) + r")\b",
         re.IGNORECASE,
@@ -1296,33 +1305,54 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
         return True, history
 
     if low.startswith("/peer"):
-        from core.peer_cli import get_peer_cli_manager
+        from core.peer_cli import (get_peer_cli_manager, is_peer_enabled,
+                                   resolve_peer_name)
 
         mgr = get_peer_cli_manager()
         parts = cmd.split(maxsplit=2)
-        available = mgr.available()
-        if not available:
-            warning("No peer CLIs found (claude / gemini / qwen).")
+        all_clis = mgr.available(include_disabled=True)
+        enabled_clis = mgr.available(include_disabled=False)
+        if not all_clis:
+            warning("No peer CLIs found (antigravity / qwen / claude).")
             return True, history
 
         # /peer → list available CLIs
         if len(parts) == 1:
             console.print("[bold]Available peer CLIs:[/bold]")
-            for c in available:
-                console.print(f"  [cyan]{c.name}[/cyan]  —  {c.description}")
+            for c in all_clis:
+                if c.enabled:
+                    alias_str = f" [dim](aliases: {', '.join(c.aliases)})[/dim]" if c.aliases else ""
+                    console.print(f"  [cyan]{c.name}[/cyan]  —  {c.description}{alias_str}")
+                else:
+                    reason = f" [dim]({c.disabled_reason})[/dim]" if c.disabled_reason else " [dim](disabled)[/dim]"
+                    console.print(f"  [dim red]{c.name}[/dim red]  —  [dim]{c.description}{reason}[/dim]")
             console.print("\nUsage: /peer <name> <task>  or  /peer <name>  (open interactive)")
-            console.print("       /peer gemini explain this function")
+            console.print("       /peer antigravity explain this function")
             console.print("       /peer qwen write a hello world in Python")
             return True, history
 
         # /peer <name> <task>  OR  /peer <task>  (auto-pick)
-        by_name = {c.name: c for c in available}
-        if len(parts) >= 3 and parts[1].lower() in by_name:
-            cli = by_name[parts[1].lower()]
-            task = parts[2]
-        elif len(parts) >= 2 and parts[1].lower() in by_name:
-            cli = by_name[parts[1].lower()]
-            task = ""
+        canonical_target = resolve_peer_name(parts[1].lower())
+        by_name = {c.name: c for c in all_clis}
+        if canonical_target and canonical_target in by_name:
+            if not is_peer_enabled(canonical_target):
+                peer_obj = by_name[canonical_target]
+                reason = peer_obj.disabled_reason or "disabled"
+                warning(f"Peer '{canonical_target}' is disabled ({reason}).")
+                task = parts[2] if len(parts) >= 3 else ""
+                if task:
+                    fallback_cli = mgr.select_cli(mgr.detect_task_type(task, []))
+                    if fallback_cli:
+                        info(f"Redirecting to {fallback_cli.description}...")
+                        cli = fallback_cli
+                    else:
+                        error(f"No enabled fallback peer available.")
+                        return True, history
+                else:
+                    return True, history
+            else:
+                cli = by_name[canonical_target]
+                task = parts[2] if len(parts) >= 3 else ""
         else:
             # No CLI name given — auto-pick based on task
             task = " ".join(parts[1:])
@@ -1494,7 +1524,7 @@ def handle_command(user_input: str, history: list, yolo: bool = False) -> tuple[
 
 [bold]Peer CLIs:[/bold]
   /peer                  List available peer CLIs
-  /peer <name> <task>    Call a specific CLI (claude/gemini/copilot/qwen)
+  /peer <name> <task>    Call a specific CLI (antigravity/qwen)
   /peer <task>           Auto-pick best CLI for the task
 
 [bold]CLI flags:[/bold]

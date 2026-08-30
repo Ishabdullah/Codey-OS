@@ -21,7 +21,7 @@ If the user mentions git operations (commit, init, add), include EACH git comman
 Example: "4. Run: git init", "5. Run: git add file1.py", "6. Run: git commit -m 'message
 
 Co-authored-by: Qwen-Coder <qwen-coder@alibabacloud.com>'"
-PEER CLI STEPS: If the user says "ask claude to X", "use gemini to X", "have qwen do X", etc., copy that as a step EXACTLY: "Ask claude to X". Never rephrase peer delegation steps as "Create X" or "Write X".
+PEER CLI STEPS: If the user says "ask antigravity to X", "ask gemini to X", "use agy to X", "have qwen do X", etc., copy that as a step EXACTLY: "Ask antigravity to X" (or the respective peer). Never rephrase peer delegation steps as "Create X" or "Write X".
 NEVER create .db files (sqlite3.connect() creates them automatically).
 NEVER use port 8080 (reserved). Use 8765 or 9000.
 Output ONLY the numbered list."""
@@ -52,18 +52,26 @@ COMPLEX_SIGNALS = [
     "initialize git",
     "commit",
     # Peer CLI delegation — each peer name counts as a complexity signal
-    "ask claude",
+    "ask antigravity",
+    "ask agy",
     "ask gemini",
     "ask qwen",
-    "use claude",
+    "ask claude",
+    "use antigravity",
+    "use agy",
     "use gemini",
     "use qwen",
-    "have claude",
+    "use claude",
+    "have antigravity",
+    "have agy",
     "have gemini",
     "have qwen",
-    "call claude",
+    "have claude",
+    "call antigravity",
+    "call agy",
     "call gemini",
     "call qwen",
+    "call claude",
 ]
 
 # Conversational patterns that should NOT trigger orchestration

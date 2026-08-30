@@ -227,7 +227,7 @@ _TOOL_VERBS = re.compile(
 )
 
 # Peer CLI names — steps mentioning these are always kept regardless of verb
-_PEER_NAME_RE = re.compile(r"\b(claude|gemini|qwen)\b", re.IGNORECASE)
+_PEER_NAME_RE = re.compile(r"\b(antigravity|agy|gemini|qwen|claude)\b", re.IGNORECASE)
 
 
 def filter_tool_steps(steps: List[str]) -> List[str]:
@@ -240,7 +240,7 @@ def filter_tool_steps(steps: List[str]) -> List[str]:
     - Step 1 is always kept (create/write the file — enriched with full prompt).
     - Subsequent steps are kept if they start with a recognised action verb,
       contain 'Run:' / 'Verify' / 'Check', or mention a peer CLI by name
-      (claude/gemini/qwen — these are delegation steps and must be preserved).
+      (antigravity/agy/gemini/qwen/claude — these are delegation steps and must be preserved).
     """
     if not steps:
         return steps

@@ -17,7 +17,7 @@ Flow:
 
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 from utils.logger import info, separator, success, warning
@@ -30,6 +30,9 @@ class PeerCLI:
     cmd: str  # base shell command
     check_cmd: str  # command to test if installed
     strengths: List[str]
+    aliases: List[str] = field(default_factory=list)
+    enabled: bool = True
+    disabled_reason: str = ""
     interactive: bool = True  # True = open full interactive session
     prompt_flag: str = ""  # flag for non-interactive prompt injection
     prompt_prefix: str = ""  # prefix before the prompt string
@@ -42,48 +45,82 @@ class PeerCLI:
 
 PEER_REGISTRY: List[PeerCLI] = [
     PeerCLI(
-        name="claude",
-        description="Claude Code (Anthropic)",
-        cmd="claude",
-        check_cmd="claude --version",
-        strengths=["debugging", "refactor", "architecture", "complex", "review"],
-        interactive=False,
-        use_pty=False,
-        prompt_flag="-p",  # claude -p "task" → non-interactive, clean output
-    ),
-    PeerCLI(
-        name="gemini",
-        description="Gemini CLI (Google)",
-        cmd="gemini",
-        check_cmd="",  # No Node.js native modules — shutil.which check is sufficient
-        strengths=["explain", "analysis", "large_context", "review", "generate"],
+        name="antigravity",
+        description="Antigravity CLI (Google/Gemini)",
+        cmd="agy",
+        check_cmd="",
+        strengths=["explain", "analysis", "large_context", "review", "generate", "debugging", "refactor", "architecture", "complex"],
+        aliases=["agy", "gemini"],
+        enabled=True,
         interactive=False,
         use_pty=False,
         prompt_flag="-p",
+        yolo_flag="--dangerously-skip-permissions",
     ),
     PeerCLI(
         name="qwen",
         description="Qwen CLI",
         cmd="qwen",
         check_cmd="",  # No Node.js native modules — shutil.which check is sufficient
-        strengths=["generate", "code", "completion", "quick_fix"],
+        strengths=["generate", "code", "completion", "quick_fix", "refactor"],
+        aliases=["qwen-code", "qwen3.5"],
+        enabled=True,
         interactive=False,
         use_pty=False,
         prompt_flag="-p",
         yolo_flag="-y",  # qwen -p "task" -y → auto-approve its own tool calls
     ),
+    PeerCLI(
+        name="claude",
+        description="Claude Code (Anthropic)",
+        cmd="claude",
+        check_cmd="claude --version",
+        strengths=["debugging", "refactor", "architecture", "complex", "review"],
+        aliases=["claude-code"],
+        enabled=False,
+        disabled_reason="Claude Code is currently disabled (no API credits configured).",
+        interactive=False,
+        use_pty=False,
+        prompt_flag="-p",  # claude -p "task" → non-interactive, clean output
+    ),
 ]
 
-# Task type → preferred CLI order (first available wins)
+# Task type → preferred CLI order (first available & enabled wins)
 TASK_CLI_PREFERENCE: Dict[str, List[str]] = {
-    "debugging": ["claude", "gemini", "qwen"],
-    "refactor": ["claude", "gemini", "qwen"],
-    "generate": ["qwen", "claude", "gemini"],
-    "review": ["gemini", "claude", "qwen"],
-    "explain": ["gemini", "claude", "qwen"],
-    "complex": ["claude", "gemini", "qwen"],
-    "default": ["claude", "gemini", "qwen"],
+    "debugging": ["antigravity", "qwen"],
+    "refactor": ["antigravity", "qwen"],
+    "generate": ["qwen", "antigravity"],
+    "review": ["antigravity", "qwen"],
+    "explain": ["antigravity", "qwen"],
+    "complex": ["antigravity", "qwen"],
+    "default": ["antigravity", "qwen"],
 }
+
+
+def resolve_peer_name(name: str) -> Optional[str]:
+    """Resolve an alias or canonical name to a canonical peer name in PEER_REGISTRY."""
+    if not name:
+        return None
+    cleaned = name.strip().lower()
+    for cli in PEER_REGISTRY:
+        if cli.name.lower() == cleaned:
+            return cli.name
+        if any(alias.lower() == cleaned for alias in cli.aliases):
+            return cli.name
+    return None
+
+
+def is_peer_enabled(name_or_cli: str | PeerCLI) -> bool:
+    """Check if a peer is enabled by canonical name, alias, or PeerCLI object."""
+    if isinstance(name_or_cli, PeerCLI):
+        return name_or_cli.enabled
+    canonical = resolve_peer_name(name_or_cli)
+    if not canonical:
+        return False
+    for cli in PEER_REGISTRY:
+        if cli.name == canonical:
+            return cli.enabled
+    return False
 
 
 # ── Manager ───────────────────────────────────────────────────────────────────
@@ -95,11 +132,17 @@ class PeerCLIManager:
     def __init__(self):
         self._available: Optional[List[PeerCLI]] = None
 
-    def available(self) -> List[PeerCLI]:
-        """Return cached list of installed peer CLIs."""
+    def available(self, include_disabled: bool = False) -> List[PeerCLI]:
+        """Return cached list of installed peer CLIs.
+
+        If include_disabled is False (default), returns only installed AND enabled CLIs.
+        If include_disabled is True, returns all installed CLIs.
+        """
         if self._available is None:
             self._available = [c for c in PEER_REGISTRY if self._is_installed(c)]
-        return self._available
+        if include_disabled:
+            return list(self._available)
+        return [c for c in self._available if c.enabled]
 
     def _is_installed(self, cli: PeerCLI) -> bool:
         # shutil.which is the most reliable check — works even if
@@ -154,15 +197,17 @@ class PeerCLIManager:
 
     def select_cli(self, task_type: str, exclude: List[str] = None) -> Optional[PeerCLI]:
         """
-        Pick the best available CLI for the task type.
+        Pick the best available and enabled CLI for the task type.
         Falls back through preference list, skipping excluded names.
         """
-        exclude = exclude or []
-        available_names = {c.name for c in self.available()}
+        exclude_resolved = {resolve_peer_name(x) or x for x in (exclude or [])}
+        available_clis = self.available(include_disabled=False)
+        available_names = {c.name for c in available_clis}
         preference = TASK_CLI_PREFERENCE.get(task_type, TASK_CLI_PREFERENCE["default"])
         for name in preference:
-            if name not in exclude and name in available_names:
-                return next(c for c in self.available() if c.name == name)
+            canonical = resolve_peer_name(name) or name
+            if canonical not in exclude_resolved and canonical in available_names:
+                return next((c for c in available_clis if c.name == canonical), None)
         return None
 
     def build_prompt(self, user_message: str, errors: List[str], files: List[str]) -> str:
@@ -246,10 +291,11 @@ class PeerCLIManager:
             return True, None
         if ans.lower() in ("n", "no"):
             return False, None
-        # Check if the answer is a known CLI name
+        # Check if the answer is a known CLI name or alias
+        canonical_ans = resolve_peer_name(ans.lower()) or ans.lower()
         by_name = {c.name: c for c in self.available()}
-        if ans.lower() in by_name:
-            return "switch", ans.lower()
+        if canonical_ans in by_name:
+            return "switch", canonical_ans
         # Otherwise treat as a redirect instruction to Codey
         return "redirect", ans
 
@@ -316,7 +362,7 @@ def escalate(
     mgr = get_peer_cli_manager()
 
     if not mgr.available():
-        warning("No peer CLIs found. Install claude / gemini / qwen " "to enable escalation.")
+        warning("No peer CLIs found. Install antigravity / qwen " "to enable escalation.")
         return None
 
     task_type = mgr.detect_task_type(user_message, errors)
@@ -335,11 +381,12 @@ def escalate(
             return None
 
         if result == "switch":
+            canonical_payload = resolve_peer_name(payload) or payload
             by_name = {c.name: c for c in mgr.available()}
-            cli = by_name.get(payload)
+            cli = by_name.get(canonical_payload)
             if not cli:
                 warning(f"CLI '{payload}' is not available.")
-                excluded.append(payload)
+                excluded.append(canonical_payload)
                 continue
             result = True  # fall through to call
 
@@ -355,3 +402,4 @@ def escalate(
 
         # Shouldn't reach here, but skip and try next
         excluded.append(cli.name)
+

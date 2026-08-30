@@ -176,19 +176,23 @@ _PEER_ERROR_KEYWORDS = (
     "An unexpected critical error occurred",
 )
 
-# Startup noise lines emitted by Gemini CLI before the actual response.
+# Startup noise lines emitted by Gemini / Antigravity CLI before the actual response.
 # These are informational and should be stripped so the agent sees clean output.
-_GEMINI_NOISE_PREFIXES = (
+_PEER_NOISE_PREFIXES = (
     "Keychain initialization encountered an error",
     "Require stack:",
     "Using FileKeychain fallback",
     "Loaded cached credentials",
     "Using default credentials",
+    "Yolo mode is enabled",
+    "Loaded cached token",
+    "Authenticating with",
 )
+_GEMINI_NOISE_PREFIXES = _PEER_NOISE_PREFIXES
 
 
-def _strip_gemini_noise(output: str) -> str:
-    """Remove Gemini CLI startup/credential lines from captured output."""
+def _strip_peer_noise(output: str, cli_name: str = "") -> str:
+    """Remove Gemini/Antigravity CLI startup/credential lines from captured output."""
     cleaned = []
     for line in output.splitlines():
         stripped = line.strip()
@@ -197,12 +201,16 @@ def _strip_gemini_noise(output: str) -> str:
             if not cleaned:  # leading blank lines only
                 continue
         # Skip known noise prefixes and node require-stack entries
-        if any(stripped.startswith(p) for p in _GEMINI_NOISE_PREFIXES):
+        if any(stripped.startswith(p) for p in _PEER_NOISE_PREFIXES):
             continue
         if stripped.startswith("- /data/data/com.termux") and "node_modules" in stripped:
             continue
         cleaned.append(line)
     return "\n".join(cleaned).strip()
+
+
+def _strip_gemini_noise(output: str) -> str:
+    return _strip_peer_noise(output, "gemini")
 
 
 def _detect_peer_error(output: str, returncode: int) -> Optional[str]:
@@ -227,7 +235,7 @@ def run_prompted(cli_name: str, cmd: str, flag: str, prompt_text: str, yolo_flag
     """
     Run a peer CLI in non-interactive mode by passing the prompt as a flag.
     e.g.  claude -p "write a function that reverses a string"
-          gemini --model gemini-2.0-flash -p "explain this"
+          agy -p "explain this" --dangerously-skip-permissions
           qwen -p "task" -y   (yolo_flag="-y" to auto-approve qwen's own tools)
 
     Streams output live to the terminal and captures it for Codey.
@@ -278,8 +286,8 @@ def run_prompted(cli_name: str, cmd: str, flag: str, prompt_text: str, yolo_flag
     output = "".join(captured)
     # Strip startup noise before error detection so noise lines don't
     # interfere, then return the clean output to the agent.
-    if cli_name == "gemini":
-        output = _strip_gemini_noise(output)
+    if cli_name in ("gemini", "antigravity", "agy"):
+        output = _strip_peer_noise(output, cli_name)
     reason = _detect_peer_error(output, returncode)
     if reason:
         msg = f"[PEER_ERROR: {cli_name} failed — {reason}]"
@@ -434,7 +442,7 @@ def _wait_for_ready(child, cli_name: str, pexpect_mod) -> None:
     """
     if cli_name == "claude":
         _wait_for_claude(child, pexpect_mod)
-    elif cli_name == "gemini":
+    elif cli_name in ("gemini", "antigravity", "agy"):
         _wait_for_gemini(child, pexpect_mod)
     else:
         patterns_map = {

@@ -220,6 +220,7 @@ shell                      command
 search_files               pattern, path (usually ".")
 note_save                  key, value
 note_forget                key
+peer_delegate              peer, task
 
 SYNTAX: Wrap the tool name in quotes. Put all arguments in an "args" object with braces.
 
@@ -301,7 +302,7 @@ SYSTEM_PROMPT = get_system_prompt()
 CAPABILITIES_PROMPT = """You can: write/edit/read files, run shell commands, search projects,
 plan multi-step tasks, review code with linters, git operations, voice interaction,
 learn user preferences, remember facts, search a knowledge base, and delegate to
-peer CLIs (Claude, Gemini, Qwen) for second opinions."""
+peer CLIs (Antigravity, Qwen) for second opinions."""
 
 
 # Domain-specific guidance injected into orchestrator subtask prompts.

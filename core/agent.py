@@ -45,6 +45,47 @@ def _note_forget(args):
     return f"No note found for: {args['key']}"
 
 
+def tool_peer_delegate(peer: str, task: str) -> str:
+    """Delegate a task to a peer CLI (e.g. antigravity, qwen, claude).
+
+    If the requested peer is disabled (e.g. claude), it warns and gracefully
+    redirects to an enabled peer (e.g. antigravity or qwen).
+    """
+    from core.peer_cli import (PEER_REGISTRY, get_peer_cli_manager,
+                               is_peer_enabled, resolve_peer_name)
+
+    if not peer or not task:
+        return "[Peer delegate error: 'peer' and 'task' arguments are required]"
+
+    canonical = resolve_peer_name(peer)
+    if not canonical:
+        return f"[Peer delegate error: unknown peer '{peer}']"
+
+    mgr = get_peer_cli_manager()
+
+    # Check if disabled
+    if not is_peer_enabled(canonical):
+        peer_obj = next((c for c in PEER_REGISTRY if c.name == canonical), None)
+        reason = peer_obj.disabled_reason if peer_obj else f"{canonical} is disabled"
+        fallback_cli = mgr.select_cli(mgr.detect_task_type(task, []))
+        if fallback_cli:
+            warning(f"Peer '{canonical}' disabled ({reason}). Redirecting to {fallback_cli.name}...")
+            output = mgr.call(fallback_cli, task)
+            summary = mgr.summarize_result(fallback_cli.name, output, task)
+            return f"[{canonical} was disabled: {reason}. Redirected to {fallback_cli.name}]\n\n{summary}"
+        else:
+            return f"[Peer error: {canonical} is disabled ({reason}) and no fallback peer is available]"
+
+    # Peer is enabled — check if installed
+    by_name = {c.name: c for c in mgr.available(include_disabled=False)}
+    cli = by_name.get(canonical)
+    if not cli:
+        return f"[Peer error: peer '{canonical}' is not installed on this system]"
+
+    output = mgr.call(cli, task)
+    return mgr.summarize_result(cli.name, output, task)
+
+
 TOOLS = {
     "read_file": lambda args: tool_read_file(args["path"]),
     "write_file": lambda args: tool_write_file(args["path"], args["content"]),
@@ -57,6 +98,10 @@ TOOLS = {
     "search_files": lambda args: search_files(args["pattern"], args.get("path", ".")),
     "note_save": _note_save,
     "note_forget": _note_forget,
+    "peer_delegate": lambda args: tool_peer_delegate(
+        args.get("peer") or args.get("peer_name") or args.get("name") or "",
+        args.get("task") or args.get("prompt") or args.get("command") or "",
+    ),
 }
 ROGUE_TAG_MAP = {
     "write_file": "write_file",
@@ -68,6 +113,7 @@ ROGUE_TAG_MAP = {
     "search_files": "search_files",
     "note_save": "note_save",
     "note_forget": "note_forget",
+    "peer_delegate": "peer_delegate",
 }
 
 HALLUCINATION_MARKERS = [
@@ -712,40 +758,57 @@ def _extract_peer_output_from_history(history: list, peer_name: str) -> str:
     Fallback: if not in history (e.g. session resumed after compression),
     reads {peer_name}_design.md from the current working directory.
     """
-    prefix = f"[Peer CLI — {peer_name.lower()}]"
+    import os as _os
+    from core.peer_cli import resolve_peer_name
+
+    canonical = resolve_peer_name(peer_name) or peer_name.lower()
+    prefixes = [f"[Peer CLI — {canonical}]", f"[Peer CLI — {peer_name.lower()}]"]
+    if canonical == "antigravity":
+        prefixes.extend(["[Peer CLI — gemini]", "[Peer CLI — agy]"])
+
     for msg in reversed(history):
         if msg.get("role") == "assistant":
             content = msg.get("content", "")
-            if content.lower().startswith(prefix):
+            if any(content.lower().startswith(p.lower()) for p in prefixes):
                 return content
     # Disk fallback — design tasks write raw output here for cross-step durability
-    import os as _os
-
-    _design_path = _os.path.join(_os.getcwd(), f"{peer_name.lower()}_design.md")
-    if _os.path.exists(_design_path):
-        try:
-            with open(_design_path, "r", encoding="utf-8") as _df:
-                _content = _df.read().strip()
-            if _content:
-                info(
-                    f"[peer] Loaded {peer_name} design from {peer_name.lower()}_design.md (history fallback)"
-                )
-                return _content
-        except Exception:
-            pass
+    for name in [canonical, peer_name.lower()]:
+        _design_path = _os.path.join(_os.getcwd(), f"{name}_design.md")
+        if _os.path.exists(_design_path):
+            try:
+                with open(_design_path, "r", encoding="utf-8") as _df:
+                    _content = _df.read().strip()
+                if _content:
+                    info(
+                        f"[peer] Loaded {peer_name} design from {name}_design.md (history fallback)"
+                    )
+                    return _content
+            except Exception:
+                pass
     return ""
 
 
 def _detect_peer_delegation(user_message: str):
     """
     Detect phrases like:
-      "ask gemini to X"   "have claude do X"   "call qwen and X"
-      "use gemini to X"   "tell claude to X"   "let qwen X"
-      "get claude to X"
+      "ask antigravity to X" "ask agy to X" "ask gemini to X"
+      "have claude do X"     "call qwen and X" "use agy to X"
+      "tell antigravity to X" "let qwen X"     "get claude to X"
 
-    Returns (peer_name, task_string) or (None, None).
+    Returns (canonical_peer_name, task_string) or (None, None).
     """
-    _PEER_NAMES = ["claude", "gemini", "qwen"]
+    from core.peer_cli import resolve_peer_name
+
+    _PEER_NAMES = [
+        "antigravity",
+        "agy",
+        "gemini",
+        "qwen",
+        "qwen-code",
+        "qwen3.5",
+        "claude",
+        "claude-code",
+    ]
     _pattern = re.compile(
         r"\b(?:ask|call|have|tell|use|get|let)\s+("
         + "|".join(_PEER_NAMES)
@@ -754,16 +817,20 @@ def _detect_peer_delegation(user_message: str):
     )
     m = _pattern.search(user_message)
     if m:
-        return m.group(1).lower(), m.group(2).strip()
+        raw_name = m.group(1).lower()
+        canonical = resolve_peer_name(raw_name) or raw_name
+        return canonical, m.group(2).strip()
 
-    # Also match direct-name patterns: "gemini, X" / "qwen: X" / "claude - X"
+    # Also match direct-name patterns: "agy, X" / "antigravity: X" / "gemini, X" / "qwen: X" / "claude - X"
     _direct = re.compile(
         r"^(" + "|".join(_PEER_NAMES) + r")[\s,:\-]+(.+)",
         re.IGNORECASE,
     )
     m2 = _direct.match(user_message.strip())
     if m2:
-        return m2.group(1).lower(), m2.group(2).strip()
+        raw_name = m2.group(1).lower()
+        canonical = resolve_peer_name(raw_name) or raw_name
+        return canonical, m2.group(2).strip()
 
     return None, None
 
@@ -985,16 +1052,34 @@ def run_agent(
             warning(f"Symbolic pipeline failed: {e}, falling back to direct agent")
 
     # ── Explicit peer delegation ──────────────────────────────────────────────
-    # Handle: "ask gemini to X", "have claude do X", etc.
+    # Handle: "ask antigravity to X", "ask gemini to X", "have claude do X", etc.
     # The peer runs, its output is injected as context, then the agent applies it.
     if not _in_subtask:
         _peer_name, _peer_task = _detect_peer_delegation(user_message)
         if _peer_name and _peer_task:
-            from core.peer_cli import get_peer_cli_manager
+            from core.peer_cli import (PEER_REGISTRY, get_peer_cli_manager,
+                                       is_peer_enabled, resolve_peer_name)
 
+            _canonical_peer = resolve_peer_name(_peer_name) or _peer_name
             _mgr = get_peer_cli_manager()
-            _by_name = {c.name: c for c in _mgr.available()}
-            if _peer_name in _by_name:
+
+            if not is_peer_enabled(_canonical_peer):
+                _peer_obj = next((c for c in PEER_REGISTRY if c.name == _canonical_peer), None)
+                _reason = _peer_obj.disabled_reason if _peer_obj else f"{_canonical_peer} is disabled"
+                _fallback = _mgr.select_cli(_mgr.detect_task_type(_peer_task, []))
+                if _fallback:
+                    warning(
+                        f"Peer '{_canonical_peer}' disabled ({_reason}). Redirecting to {_fallback.name}..."
+                    )
+                    _canonical_peer = _fallback.name
+                else:
+                    warning(
+                        f"Peer '{_canonical_peer}' is disabled ({_reason}) and no fallback peer is available."
+                    )
+
+            _by_name = {c.name: c for c in _mgr.available(include_disabled=False)}
+            if _canonical_peer in _by_name:
+                _peer_name = _canonical_peer
                 _cli = _by_name[_peer_name]
 
                 # For review/check/verify tasks, build rich context with current file contents
@@ -1072,10 +1157,17 @@ def run_agent(
                 # Only relevant for implementation steps that reference a prior peer's design.
                 # Design steps (step 1 of a pipeline) never have a prior peer to inject.
                 if not _is_design_only:
-                    _OTHER_PEERS = [p for p in ["claude", "gemini", "qwen"] if p != _peer_name]
+                    _OTHER_PEERS = [p for p in ["antigravity", "qwen", "claude"] if p != _peer_name]
                     _referenced_peer = None
                     for _op in _OTHER_PEERS:
-                        if _op in _peer_task.lower():
+                        _op_aliases = [_op]
+                        if _op == "antigravity":
+                            _op_aliases.extend(["agy", "gemini"])
+                        elif _op == "qwen":
+                            _op_aliases.extend(["qwen-code", "qwen3.5"])
+                        elif _op == "claude":
+                            _op_aliases.extend(["claude-code"])
+                        if any(alias in _peer_task.lower() for alias in _op_aliases):
                             _referenced_peer = _op
                             break
                     # Also catch implicit references ("the previous design", "what was planned")
