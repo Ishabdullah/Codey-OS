@@ -26,6 +26,7 @@ class User:
     role: str = "technician"  # admin, manager, sales, project_manager, technician, ai_agent, customer
     department: Optional[str] = None
     customer_id: Optional[int] = None
+    custom_permissions: Dict[str, bool] = field(default_factory=dict)
     active: int = 1
     created_at: str = field(default_factory=utc_now_iso)
     updated_at: str = field(default_factory=utc_now_iso)

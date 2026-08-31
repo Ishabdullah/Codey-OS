@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS users (
     role TEXT NOT NULL CHECK(role IN ('admin', 'manager', 'sales', 'project_manager', 'technician', 'ai_agent', 'customer')),
     department TEXT,
     customer_id INTEGER, -- Only populated if role == 'customer'
+    custom_permissions_json TEXT NOT NULL DEFAULT '{}',
     active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1)),
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -959,6 +960,7 @@ class DatabaseManager:
             ("projects", "adjuster_email", "ALTER TABLE projects ADD COLUMN adjuster_email TEXT;"),
             ("projects", "deductible", "ALTER TABLE projects ADD COLUMN deductible REAL;"),
             ("equipment", "current_project_id", "ALTER TABLE equipment ADD COLUMN current_project_id INTEGER;"),
+            ("users", "custom_permissions_json", "ALTER TABLE users ADD COLUMN custom_permissions_json TEXT NOT NULL DEFAULT '{}';"),
         )
         with conn:
             for table, column, ddl in migrations:

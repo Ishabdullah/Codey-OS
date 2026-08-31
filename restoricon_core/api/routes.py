@@ -10,7 +10,14 @@ import urllib.request
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
-from ..auth import AuthContext, AuthService, PERM_READ_ALL_CUSTOMERS, PERM_LOG_COMMUNICATION
+from ..auth import (
+    AuthContext,
+    AuthService,
+    PERM_READ_ALL_CUSTOMERS,
+    PERM_LOG_COMMUNICATION,
+    PERM_MANAGE_USERS,
+    PERMISSIONS_CATALOG,
+)
 from ..models import (
     Appointment,
     AutomationRule,
@@ -230,6 +237,105 @@ class APIRouter:
                 self.auth.revoke_token(actor.token or "")
                 self.audit.log("auth_logout", "user", actor.user_id, f"User {actor.username} logged out", actor=actor)
                 return 200, {"Content-Type": "application/json"}, {"message": "Logged out successfully"}
+
+            # Permissions Catalog
+            if path == "/api/v1/permissions/catalog" and method == "GET":
+                return 200, {"Content-Type": "application/json"}, {"catalog": PERMISSIONS_CATALOG}
+
+            # Users Management Endpoints
+            if path == "/api/v1/users":
+                if method == "GET":
+                    role = query_params.get("role", [None])[0]
+                    active_param = query_params.get("active", [None])[0]
+                    active_int = int(active_param) if active_param is not None and active_param != "" else None
+                    users = self.auth.list_users(actor, role=role, active=active_int)
+                    return 200, {"Content-Type": "application/json"}, {"users": [u.to_dict() for u in users], "total": len(users)}
+                elif method == "POST":
+                    user = self.auth.create_user(
+                        username=json_body.get("username", ""),
+                        plain_password=json_body.get("password") or json_body.get("plain_password", ""),
+                        full_name=json_body.get("full_name", ""),
+                        email=json_body.get("email", ""),
+                        role=json_body.get("role", "technician"),
+                        phone=json_body.get("phone"),
+                        department=json_body.get("department"),
+                        customer_id=json_body.get("customer_id"),
+                        custom_permissions=json_body.get("custom_permissions"),
+                        actor_context=actor,
+                    )
+                    self.audit.log("user_created", "user", user.id, f"User {user.username} ({user.role}) created", actor=actor)
+                    return 201, {"Content-Type": "application/json"}, {"user": user.to_dict()}
+
+            if path.startswith("/api/v1/users/") and path.endswith("/password") and method == "POST":
+                user_id = int(path.split("/")[4])
+                new_pw = json_body.get("new_password") or json_body.get("password", "")
+                old_pw = json_body.get("old_password")
+                self.auth.change_password(user_id, new_pw, actor, old_password=old_pw)
+                self.audit.log("user_password_changed", "user", user_id, f"Password changed for user ID {user_id}", actor=actor)
+                return 200, {"Content-Type": "application/json"}, {"success": True, "message": "Password updated successfully"}
+
+            if path.startswith("/api/v1/users/") and path.endswith("/suspend") and method == "POST":
+                user_id = int(path.split("/")[4])
+                updated = self.auth.set_user_active(user_id, 0, actor)
+                if not updated:
+                    return 404, {"Content-Type": "application/json"}, {"error": "User not found"}
+                self.audit.log("user_suspended", "user", user_id, f"User {updated.username} suspended", actor=actor)
+                return 200, {"Content-Type": "application/json"}, {"user": updated.to_dict(), "message": "User suspended"}
+
+            if path.startswith("/api/v1/users/") and path.endswith("/activate") and method == "POST":
+                user_id = int(path.split("/")[4])
+                updated = self.auth.set_user_active(user_id, 1, actor)
+                if not updated:
+                    return 404, {"Content-Type": "application/json"}, {"error": "User not found"}
+                self.audit.log("user_activated", "user", user_id, f"User {updated.username} activated", actor=actor)
+                return 200, {"Content-Type": "application/json"}, {"user": updated.to_dict(), "message": "User activated"}
+
+            if path.startswith("/api/v1/users/") and path.endswith("/permissions"):
+                user_id = int(path.split("/")[4])
+                if method == "GET":
+                    if actor.user_id != user_id and not actor.has_permission(PERM_MANAGE_USERS):
+                        raise PermissionError("Actor lacks permission to view user permissions")
+                    target_user = self.auth.get_user_by_id(user_id)
+                    if not target_user:
+                        return 404, {"Content-Type": "application/json"}, {"error": "User not found"}
+                    return 200, {"Content-Type": "application/json"}, {
+                        "user_id": user_id,
+                        "custom_permissions": target_user.custom_permissions,
+                        "effective_permissions": self.auth.get_effective_permissions(target_user),
+                    }
+                elif method in ("PUT", "POST"):
+                    perms = json_body.get("custom_permissions", json_body)
+                    updated = self.auth.set_user_permissions(user_id, perms, actor)
+                    self.audit.log("user_permissions_updated", "user", user_id, f"Permissions updated for user {updated.username}", actor=actor)
+                    return 200, {"Content-Type": "application/json"}, {
+                        "user": updated.to_dict(),
+                        "custom_permissions": updated.custom_permissions,
+                        "effective_permissions": self.auth.get_effective_permissions(updated),
+                    }
+
+            if path.startswith("/api/v1/users/") and "/" not in path[len("/api/v1/users/"):]:
+                sub_path = path[len("/api/v1/users/"):]
+                if sub_path.isdigit():
+                    user_id = int(sub_path)
+                    if method == "GET":
+                        if actor.user_id != user_id and not actor.has_permission(PERM_MANAGE_USERS):
+                            raise PermissionError("Actor lacks permission to view user details")
+                        target_user = self.auth.get_user_by_id(user_id)
+                        if not target_user:
+                            return 404, {"Content-Type": "application/json"}, {"error": "User not found"}
+                        return 200, {"Content-Type": "application/json"}, {"user": target_user.to_dict()}
+                    elif method in ("PUT", "POST"):
+                        updated = self.auth.update_user(user_id, json_body, actor)
+                        if not updated:
+                            return 404, {"Content-Type": "application/json"}, {"error": "User not found"}
+                        self.audit.log("user_updated", "user", user_id, f"User {updated.username} updated", actor=actor)
+                        return 200, {"Content-Type": "application/json"}, {"user": updated.to_dict()}
+                    elif method == "DELETE":
+                        deleted = self.auth.delete_user(user_id, actor)
+                        if not deleted:
+                            return 404, {"Content-Type": "application/json"}, {"error": "User not found"}
+                        self.audit.log("user_deleted", "user", user_id, f"User ID {user_id} deleted", actor=actor)
+                        return 200, {"Content-Type": "application/json"}, {"deleted": True, "user_id": user_id}
 
             # Customers
             if path == "/api/v1/customers":

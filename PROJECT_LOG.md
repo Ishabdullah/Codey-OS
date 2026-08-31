@@ -12,7 +12,26 @@ and Appendix A.
 
 ---
 
-## 2026-08-31 — Track B / Restoricon: Portals Fully Integrated, Branded, & Live-Verified
+## 2026-08-31 — Track B / Restoricon: Universal Website Navigation Drawer, Dynamic User Permissions & Complete Web Surfaces Redesign
+
+- **Status**: Code-complete, code-reviewer approved, test verified (`16/16 passed` across user management & surface suites, `1,165/1,165 passed` repository-wide).
+- **Universal Website Navigation & Hamburger Drawer (`restoricon/`)**:
+  - Top-left hamburger button and sliding navigation drawer on `restoricon.com` (`_partials/header.html`, `style.css`, `script.js`) linking directly to:
+    - ⚡ Quote & Emergency Intake (`https://quote.restoricon.com` / `/quote`)
+    - 👤 Customer Portal (`https://portal.restoricon.com` / `/portal`)
+    - 🛡️ Staff & Admin ERP (`https://admin.restoricon.com` / `/admin`)
+    - Standard site navigation links, emergency dispatch phone `(860) 337-1820`, and CT HIC licensure.
+  - Recompiled all 9 HTML pages and minified CSS/JS via `build.sh`.
+- **Dynamic User Permissions & User Management Engine (`restoricon_core/auth.py`, `restoricon_core/api/routes.py`, `restoricon_core/database.py`)**:
+  - Added `custom_permissions_json` to `users` schema with automatic additive schema migration.
+  - Granular RBAC dynamic override engine in `AuthContext.has_permission`: explicit custom boolean overrides take immediate precedence over standard `ROLE_PERMISSIONS`, enabling admins to grant or revoke access to any domain/feature directly from the portal for any user.
+  - Full User Management backend in `AuthService`: `list_users`, `update_user`, `set_user_active` (with instant session revocation on suspension), `change_password` (with PBKDF2 100,000 rounds + HMAC validation), `delete_user` (with self-deletion guard), and `set_user_permissions`.
+  - REST endpoints added: `GET /api/v1/permissions/catalog`, `GET/POST /api/v1/users`, `GET/PUT/DELETE /api/v1/users/{id}`, `POST /api/v1/users/{id}/password`, `POST /api/v1/users/{id}/suspend`, `POST /api/v1/users/{id}/activate`, `GET/PUT /api/v1/users/{id}/permissions`.
+- **Complete Web Surfaces Redesign (`restoricon_core/api/web_surfaces.py`)**:
+  - Redesigned all 4 surfaces (`render_login_surface`, `render_quote_surface`, `render_portal_surface`, `render_admin_surface`) matching `restoricon.com` Deep Navy (`#0A192F`), Charcoal (`#1E293B`), Metallic Gold (`#D4AF37`), Cards (`#112240` with `#233554` border), with universal top-left navigation drawer on every surface.
+  - Real, non-mock functional SPAs for Quote (live submission, dynamic scope calculator, structural drying estimator), Customer Portal (5-phase tracker, canvas e-signature pad, invoice balance, PM messaging), and Admin ERP (11 comprehensive tabs exposing all business data from Aigentik-CLI, Codey-OS, and private-agent, plus User Accounts & Dynamic Permissions Matrix).
+- **Ledger & Status Updates**:
+  - Created `tests/test_user_management.py` (7 tests). Full suite: 1,165 passed, 1 skipped.
 
 - **Status**: Code-complete, code-reviewer approved, test verified (`9/9 passed` across surface test suites, `1,158/1,158 passed` repository-wide), and **LIVE-VERIFIED on-device by User**.
 - **Live Ingress & Subdomain Routing**:

@@ -907,7 +907,7 @@ a test-isolation gap, not a regression.
 
 ### 4.5 Business layer
 
-**Updated 2026-08-30.** Phase B1 (Core API & Auth), Phase B2 (Aigentik Write-Through & Contacts Directory), Phase B3 (CRM/Sales Pipeline & Operations Domain Engines), Phase B4 (Public Website Intake API, Rate Limiting, Customer Portal Data Isolation, Staff/Admin Surface & Device Limb Dashboard Integration), Phase B5a (Remaining Business Domain Engines & Cross-Domain Search/Reporting: Finance, Marketing, Compliance, HR, Procurement, Unified Global Search, Executive Dashboard KPIs), and Phase B5b (Third-Party App Automation & Device Bridge IPC Integration) are 100% complete and verified (1,146 passed).
+**Updated 2026-08-31.** Phase B1 (Core API & Auth), Phase B2 (Aigentik Write-Through & Contacts Directory), Phase B3 (CRM/Sales Pipeline & Operations Domain Engines), Phase B4 (Public Website Intake API, Rate Limiting, Customer Portal Data Isolation, Staff/Admin Surface & Device Limb Dashboard Integration), Phase B5a (Remaining Business Domain Engines & Cross-Domain Search/Reporting), and Phase B5b (Third-Party App Automation & Device Bridge IPC Integration) are 100% complete and verified (1,165 passed). All three surfaces (`quote`, `portal`, `admin`) plus the static `restoricon.com` site are unified under a top-left hamburger navigation drawer, redesigned with exact Deep Navy & Bronze branding, and backed by comprehensive User Management with granular dynamic permission overrides.
 
 **`NEW-209`'s schema-gap open decision is RESOLVED — Ish chose to expand
 scope, not narrow it (2026-08-27).** Rather than narrowing B2's exit
@@ -5710,9 +5710,9 @@ Then:
       RBAC endpoints under `/api/v1/crm/*` and `/api/v1/opportunities*`; verified with 15 new unit tests.
 - [x] **B3** — Operations domain. **DONE 2026-08-30 (`OperationsService`).**
 - [x] **B3** — first Automated Workflows. **DONE 2026-08-30 (`OperationsService` automation rules engine).**
-- [x] **B4** — phone-hosted public site. **DONE 2026-08-30 (Public intake & landing at `/api/v1/public/*` and static hosting).**
-- [x] **B4** — staff/admin surface. **DONE 2026-08-30 (`web_surfaces.py` Single-Page App at `/admin`).**
-- [x] **B4** — customer portal (full document/signature/financial). **DONE 2026-08-30 (`web_surfaces.py` Single-Page App at `/portal`).**
+- [x] **B4** — phone-hosted public site. **DONE 2026-08-31 (Public intake, top-left hamburger navigation drawer, and static hosting).**
+- [x] **B4** — staff/admin surface. **DONE 2026-08-31 (`web_surfaces.py` Single-Page App at `/admin` with full user management, dynamic domain permissions, and comprehensive business data editing).**
+- [x] **B4** — customer portal (full document/signature/financial). **DONE 2026-08-31 (`web_surfaces.py` Single-Page App at `/portal` with 5-phase tracker, canvas e-signature, and invoice payment).**
 - [x] **B4** — device-limb dashboard as third API client. **DONE 2026-08-30 (`Private-Codey-Agent/lib/screens/business_dashboard_screen.dart`).**
 - [x] **B5a** — Finance/Bookkeeping. **DONE 2026-08-30 (`FinanceService`).**
 - [x] **B5a** — Marketing/Lead-Gen. **DONE 2026-08-30 (`BusinessOpsService`).**

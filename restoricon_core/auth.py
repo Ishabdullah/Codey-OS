@@ -7,9 +7,10 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import os
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Set
 
@@ -414,6 +415,149 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
     },
 }
 
+# Permissions catalog grouped by domain for dynamic permissions UI and validation
+PERMISSIONS_CATALOG: Dict[str, Dict[str, Any]] = {
+    "customers": {
+        "title": "Customer Accounts",
+        "description": "Manage and view customer records",
+        "permissions": [
+            {"id": PERM_READ_ALL_CUSTOMERS, "name": "Read All Customers", "description": "View all customer accounts"},
+            {"id": PERM_WRITE_CUSTOMERS, "name": "Write Customers", "description": "Create and edit customer accounts"},
+            {"id": PERM_READ_OWN_CUSTOMER, "name": "Read Own Customer", "description": "View own customer profile"},
+        ],
+    },
+    "crm": {
+        "title": "CRM, Leads & Pipeline",
+        "description": "Sales pipeline, lead scoring, and opportunities",
+        "permissions": [
+            {"id": PERM_READ_LEADS, "name": "Read Leads", "description": "View incoming leads"},
+            {"id": PERM_WRITE_LEADS, "name": "Write Leads", "description": "Create and edit leads"},
+            {"id": PERM_READ_OPPORTUNITIES, "name": "Read Opportunities", "description": "View deal opportunities"},
+            {"id": PERM_WRITE_OPPORTUNITIES, "name": "Write Opportunities", "description": "Create and edit opportunities"},
+            {"id": PERM_READ_CRM, "name": "Read CRM", "description": "Access CRM overview"},
+            {"id": PERM_WRITE_CRM, "name": "Write CRM", "description": "Manage CRM activities"},
+            {"id": PERM_MANAGE_PIPELINE, "name": "Manage Pipeline", "description": "Move stages and configure pipeline"},
+            {"id": PERM_SCORE_LEADS, "name": "Score Leads", "description": "Run lead qualification scoring"},
+        ],
+    },
+    "operations": {
+        "title": "Field Operations & Projects",
+        "description": "Projects, work orders, and drying fleet",
+        "permissions": [
+            {"id": PERM_READ_ALL_PROJECTS, "name": "Read All Projects", "description": "View all job sites and projects"},
+            {"id": PERM_READ_ASSIGNED_PROJECTS, "name": "Read Assigned Projects", "description": "View assigned project jobs"},
+            {"id": PERM_READ_OWN_PROJECTS, "name": "Read Own Projects", "description": "View own customer projects"},
+            {"id": PERM_WRITE_PROJECTS, "name": "Write Projects", "description": "Create and update project records"},
+            {"id": PERM_MANAGE_PROJECTS, "name": "Manage Projects", "description": "Full project lifecycle management"},
+            {"id": PERM_READ_OPERATIONS, "name": "Read Operations", "description": "View operations dashboard"},
+            {"id": PERM_WRITE_OPERATIONS, "name": "Write Operations", "description": "Modify operational assets and equipment"},
+            {"id": PERM_DISPATCH_WORK_ORDERS, "name": "Dispatch Work Orders", "description": "Assign and dispatch work orders"},
+        ],
+    },
+    "estimates_contracts": {
+        "title": "Estimates, Contracts & Documents",
+        "description": "Scoping, agreements, and document repository",
+        "permissions": [
+            {"id": PERM_READ_ESTIMATES, "name": "Read Estimates", "description": "View project estimates"},
+            {"id": PERM_WRITE_ESTIMATES, "name": "Write Estimates", "description": "Generate and revise estimates"},
+            {"id": PERM_READ_OWN_ESTIMATES, "name": "Read Own Estimates", "description": "View own estimates in portal"},
+            {"id": PERM_READ_CONTRACTS, "name": "Read Contracts", "description": "View contracts and agreements"},
+            {"id": PERM_WRITE_CONTRACTS, "name": "Write Contracts", "description": "Generate and edit contracts"},
+            {"id": PERM_SIGN_CONTRACTS, "name": "Sign Contracts", "description": "Execute digital signatures on contracts"},
+            {"id": PERM_READ_OWN_CONTRACTS, "name": "Read Own Contracts", "description": "View own contracts in portal"},
+            {"id": PERM_READ_DOCUMENTS, "name": "Read Documents", "description": "Access document repository"},
+            {"id": PERM_WRITE_DOCUMENTS, "name": "Write Documents", "description": "Upload and manage documents"},
+            {"id": PERM_READ_OWN_DOCUMENTS, "name": "Read Own Documents", "description": "Access customer portal documents"},
+        ],
+    },
+    "finance": {
+        "title": "Finance & Invoicing",
+        "description": "Invoices, double-entry bookkeeping, AR aging",
+        "permissions": [
+            {"id": PERM_READ_FINANCIALS, "name": "Read Financials", "description": "View financial summary data"},
+            {"id": PERM_WRITE_FINANCIALS, "name": "Write Financials", "description": "Post financial adjustments"},
+            {"id": PERM_READ_OWN_FINANCIALS, "name": "Read Own Financials", "description": "View invoice balances in portal"},
+            {"id": PERM_READ_FINANCE, "name": "Read Finance Domain", "description": "Full finance domain reading"},
+            {"id": PERM_WRITE_FINANCE, "name": "Write Finance Domain", "description": "Full finance domain management"},
+        ],
+    },
+    "communications": {
+        "title": "Communications & Rules",
+        "description": "Messaging history, automation triggers, DNC",
+        "permissions": [
+            {"id": PERM_LOG_COMMUNICATION, "name": "Log Communication", "description": "Log interactions and messages"},
+            {"id": PERM_READ_COMMUNICATIONS, "name": "Read Communications", "description": "View complete communication log"},
+            {"id": PERM_READ_OWN_COMMUNICATIONS, "name": "Read Own Communications", "description": "View own portal message thread"},
+            {"id": PERM_READ_AUTOMATION_RULES, "name": "Read Automation Rules", "description": "View automated message rules"},
+            {"id": PERM_WRITE_AUTOMATION_RULES, "name": "Write Automation Rules", "description": "Configure automated rules"},
+            {"id": PERM_READ_DNC, "name": "Read Do Not Contact", "description": "View DNC suppression list"},
+            {"id": PERM_WRITE_DNC, "name": "Write Do Not Contact", "description": "Manage DNC suppression list"},
+        ],
+    },
+    "subcontractors_contacts": {
+        "title": "Subcontractors & Contacts",
+        "description": "Trade partner network and external contact sync",
+        "permissions": [
+            {"id": PERM_READ_SUBCONTRACTORS, "name": "Read Subcontractors", "description": "View trade partner network"},
+            {"id": PERM_WRITE_SUBCONTRACTORS, "name": "Write Subcontractors", "description": "Onboard and edit subcontractors"},
+            {"id": PERM_READ_CONTACTS, "name": "Read Contacts", "description": "View unified contact directory"},
+            {"id": PERM_WRITE_CONTACTS, "name": "Write Contacts", "description": "Create and update contacts"},
+        ],
+    },
+    "scheduling": {
+        "title": "Scheduling & Operating Hours",
+        "description": "Appointment calendar and booking rules",
+        "permissions": [
+            {"id": PERM_READ_APPOINTMENTS, "name": "Read Appointments", "description": "View scheduled appointments"},
+            {"id": PERM_WRITE_APPOINTMENTS, "name": "Write Appointments", "description": "Book and reschedule appointments"},
+            {"id": PERM_READ_SCHEDULE_CONFIG, "name": "Read Schedule Config", "description": "View booking availability rules"},
+            {"id": PERM_WRITE_SCHEDULE_CONFIG, "name": "Write Schedule Config", "description": "Update booking parameters and hours"},
+        ],
+    },
+    "business_ops": {
+        "title": "Business Operations & Enterprise",
+        "description": "Marketing, Compliance, HR, Procurement, Profile",
+        "permissions": [
+            {"id": PERM_READ_BUSINESS_PROFILE, "name": "Read Business Profile", "description": "View company identity info"},
+            {"id": PERM_WRITE_BUSINESS_PROFILE, "name": "Write Business Profile", "description": "Update company profile and LLM prompt"},
+            {"id": PERM_READ_MARKETING, "name": "Read Marketing", "description": "View campaigns and reviews"},
+            {"id": PERM_WRITE_MARKETING, "name": "Write Marketing", "description": "Manage campaigns and review requests"},
+            {"id": PERM_READ_COMPLIANCE, "name": "Read Compliance", "description": "View licenses and expirations"},
+            {"id": PERM_WRITE_COMPLIANCE, "name": "Write Compliance", "description": "Manage compliance items"},
+            {"id": PERM_READ_HR, "name": "Read HR", "description": "View employees and timesheets"},
+            {"id": PERM_WRITE_HR, "name": "Write HR", "description": "Manage employees and payroll records"},
+            {"id": PERM_READ_PROCUREMENT, "name": "Read Procurement", "description": "View vendors and purchase orders"},
+            {"id": PERM_WRITE_PROCUREMENT, "name": "Write Procurement", "description": "Create and manage purchase orders"},
+            {"id": PERM_GLOBAL_SEARCH, "name": "Global Search", "description": "Execute cross-system keyword search"},
+            {"id": PERM_VIEW_REPORTS, "name": "View Reports", "description": "Access executive intelligence and reporting"},
+        ],
+    },
+    "administration": {
+        "title": "Administration & Security",
+        "description": "User accounts, dynamic permissions, audit log",
+        "permissions": [
+            {"id": PERM_MANAGE_USERS, "name": "Manage Users", "description": "Create, edit, suspend users and grant permissions"},
+            {"id": PERM_READ_AUDIT_LOG, "name": "Read Audit Log", "description": "Inspect immutable system audit trail"},
+        ],
+    },
+}
+
+
+def _parse_custom_permissions(raw: Any) -> Dict[str, bool]:
+    """Safely parse custom_permissions_json from string or dict into Dict[str, bool]."""
+    if not raw:
+        return {}
+    if isinstance(raw, dict):
+        return {str(k): bool(v) for k, v in raw.items()}
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                return {str(k): bool(v) for k, v in parsed.items()}
+        except Exception:
+            return {}
+    return {}
+
 
 @dataclass
 class AuthContext:
@@ -424,9 +568,12 @@ class AuthContext:
     actor_type: str  # 'human' or 'agent'
     customer_id: Optional[int] = None
     token: Optional[str] = None
+    custom_permissions: Dict[str, bool] = field(default_factory=dict)
 
     def has_permission(self, permission: str) -> bool:
-        """Check if role grants specific permission."""
+        """Check if custom permissions or role grants specific permission."""
+        if permission in self.custom_permissions:
+            return bool(self.custom_permissions[permission])
         perms = ROLE_PERMISSIONS.get(self.role, set())
         return permission in perms
 
@@ -475,9 +622,10 @@ class AuthService:
         phone: Optional[str] = None,
         department: Optional[str] = None,
         customer_id: Optional[int] = None,
+        custom_permissions: Optional[Dict[str, bool]] = None,
         actor_context: Optional[AuthContext] = None,
     ) -> User:
-        """Create a new user with hashed credentials."""
+        """Create a new user with hashed credentials and optional custom permissions."""
         if role not in ALL_ROLES:
             raise ValueError(f"Invalid role '{role}'. Must be one of {sorted(ALL_ROLES)}")
 
@@ -489,6 +637,8 @@ class AuthService:
 
         now = utc_now_iso()
         password_hash = self.hash_password(plain_password)
+        cleaned_perms = _parse_custom_permissions(custom_permissions)
+        perms_json = json.dumps(cleaned_perms)
 
         conn = self.db.get_connection()
         with conn:
@@ -496,8 +646,8 @@ class AuthService:
                 """
                 INSERT INTO users (
                     username, password_hash, full_name, email, phone, role,
-                    department, customer_id, active, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?);
+                    department, customer_id, custom_permissions_json, active, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?);
                 """,
                 (
                     username.strip().lower(),
@@ -508,6 +658,7 @@ class AuthService:
                     role,
                     department,
                     customer_id,
+                    perms_json,
                     now,
                     now,
                 ),
@@ -524,6 +675,7 @@ class AuthService:
             role=role,
             department=department,
             customer_id=customer_id,
+            custom_permissions=cleaned_perms,
             active=1,
             created_at=now,
             updated_at=now,
@@ -546,6 +698,7 @@ class AuthService:
         if not self.verify_password(plain_password, row["password_hash"]):
             return None
 
+        perms = _parse_custom_permissions(row["custom_permissions_json"] if "custom_permissions_json" in row.keys() else None)
         return User(
             id=row["id"],
             username=row["username"],
@@ -556,6 +709,7 @@ class AuthService:
             role=row["role"],
             department=row["department"],
             customer_id=row["customer_id"],
+            custom_permissions=perms,
             active=row["active"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
@@ -587,7 +741,7 @@ class AuthService:
         row = conn.execute(
             """
             SELECT t.token, t.user_id, t.role, t.expires_at, t.is_revoked,
-                   u.username, u.customer_id, u.active
+                   u.username, u.customer_id, u.active, u.custom_permissions_json
             FROM api_tokens t
             JOIN users u ON t.user_id = u.id
             WHERE t.token = ? AND t.is_revoked = 0 AND u.active = 1;
@@ -604,6 +758,7 @@ class AuthService:
             return None
 
         actor_type = "agent" if row["role"] == ROLE_AI_AGENT else "human"
+        perms = _parse_custom_permissions(row["custom_permissions_json"] if "custom_permissions_json" in row.keys() else None)
         return AuthContext(
             user_id=row["user_id"],
             username=row["username"],
@@ -611,6 +766,7 @@ class AuthService:
             actor_type=actor_type,
             customer_id=row["customer_id"],
             token=token,
+            custom_permissions=perms,
         )
 
     def revoke_token(self, token: str) -> bool:
@@ -629,6 +785,7 @@ class AuthService:
         row = conn.execute("SELECT * FROM users WHERE id = ?;", (user_id,)).fetchone()
         if not row:
             return None
+        perms = _parse_custom_permissions(row["custom_permissions_json"] if "custom_permissions_json" in row.keys() else None)
         return User(
             id=row["id"],
             username=row["username"],
@@ -639,7 +796,232 @@ class AuthService:
             role=row["role"],
             department=row["department"],
             customer_id=row["customer_id"],
+            custom_permissions=perms,
             active=row["active"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
+
+    def list_users(
+        self,
+        actor_context: AuthContext,
+        role: Optional[str] = None,
+        active: Optional[int] = None,
+    ) -> List[User]:
+        """List all users with optional role and active filters (requires PERM_MANAGE_USERS)."""
+        if not actor_context.has_permission(PERM_MANAGE_USERS):
+            raise PermissionError("Actor lacks permission to list users")
+
+        query = "SELECT * FROM users WHERE 1=1"
+        params: List[Any] = []
+
+        if role:
+            query += " AND role = ?"
+            params.append(role)
+        if active is not None:
+            query += " AND active = ?"
+            params.append(active)
+
+        query += " ORDER BY id ASC;"
+
+        conn = self.db.get_connection()
+        rows = conn.execute(query, tuple(params)).fetchall()
+        users: List[User] = []
+        for r in rows:
+            perms = _parse_custom_permissions(r["custom_permissions_json"] if "custom_permissions_json" in r.keys() else None)
+            users.append(
+                User(
+                    id=r["id"],
+                    username=r["username"],
+                    password_hash=r["password_hash"],
+                    full_name=r["full_name"],
+                    email=r["email"],
+                    phone=r["phone"],
+                    role=r["role"],
+                    department=r["department"],
+                    customer_id=r["customer_id"],
+                    custom_permissions=perms,
+                    active=r["active"],
+                    created_at=r["created_at"],
+                    updated_at=r["updated_at"],
+                )
+            )
+        return users
+
+    def update_user(
+        self,
+        user_id: int,
+        updates: Dict[str, Any],
+        actor_context: AuthContext,
+    ) -> Optional[User]:
+        """Update user profile fields (requires PERM_MANAGE_USERS)."""
+        if not actor_context.has_permission(PERM_MANAGE_USERS):
+            raise PermissionError("Actor lacks permission to update users")
+
+        user = self.get_user_by_id(user_id)
+        if not user:
+            return None
+
+        allowed_fields = {"full_name", "email", "phone", "role", "department", "customer_id", "active"}
+        set_clauses: List[str] = []
+        params: List[Any] = []
+
+        for k, v in updates.items():
+            if k in allowed_fields:
+                if k == "role":
+                    if v not in ALL_ROLES:
+                        raise ValueError(f"Invalid role '{v}'. Must be one of {sorted(ALL_ROLES)}")
+                if k == "email" and v:
+                    v = str(v).strip().lower()
+                set_clauses.append(f"{k} = ?")
+                params.append(v)
+
+        if "custom_permissions" in updates and isinstance(updates["custom_permissions"], dict):
+            cleaned_perms = _parse_custom_permissions(updates["custom_permissions"])
+            set_clauses.append("custom_permissions_json = ?")
+            params.append(json.dumps(cleaned_perms))
+
+        if not set_clauses:
+            return user
+
+        now = utc_now_iso()
+        set_clauses.append("updated_at = ?")
+        params.append(now)
+        params.append(user_id)
+
+        conn = self.db.get_connection()
+        with conn:
+            conn.execute(
+                f"UPDATE users SET {', '.join(set_clauses)} WHERE id = ?;",
+                tuple(params),
+            )
+
+        return self.get_user_by_id(user_id)
+
+    def set_user_active(
+        self,
+        user_id: int,
+        active: int,
+        actor_context: AuthContext,
+    ) -> Optional[User]:
+        """Activate or suspend user account (requires PERM_MANAGE_USERS)."""
+        if not actor_context.has_permission(PERM_MANAGE_USERS):
+            raise PermissionError("Actor lacks permission to manage users")
+
+        if active not in (0, 1):
+            raise ValueError("Active status must be 0 (suspended) or 1 (active)")
+
+        user = self.get_user_by_id(user_id)
+        if not user:
+            return None
+
+        now = utc_now_iso()
+        conn = self.db.get_connection()
+        with conn:
+            conn.execute(
+                "UPDATE users SET active = ?, updated_at = ? WHERE id = ?;",
+                (active, now, user_id),
+            )
+            # If suspending, immediately revoke all active sessions
+            if active == 0:
+                conn.execute(
+                    "UPDATE api_tokens SET is_revoked = 1 WHERE user_id = ?;",
+                    (user_id,),
+                )
+
+        return self.get_user_by_id(user_id)
+
+    def change_password(
+        self,
+        user_id: int,
+        new_password: str,
+        actor_context: AuthContext,
+        old_password: Optional[str] = None,
+    ) -> bool:
+        """Change user password. Self-service requires old_password; admin requires PERM_MANAGE_USERS."""
+        is_self = (actor_context.user_id == user_id)
+        is_admin = actor_context.has_permission(PERM_MANAGE_USERS)
+
+        if not is_self and not is_admin:
+            raise PermissionError("Actor lacks permission to change this password")
+
+        user = self.get_user_by_id(user_id)
+        if not user:
+            raise ValueError("User not found")
+
+        if is_self and not is_admin:
+            if not old_password or not self.verify_password(old_password, user.password_hash):
+                raise ValueError("Current password verification failed")
+
+        if len(new_password) < 6:
+            raise ValueError("Password must be at least 6 characters long")
+
+        new_hash = self.hash_password(new_password)
+        now = utc_now_iso()
+
+        conn = self.db.get_connection()
+        with conn:
+            conn.execute(
+                "UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?;",
+                (new_hash, now, user_id),
+            )
+            # Invalidate other active sessions
+            conn.execute(
+                "UPDATE api_tokens SET is_revoked = 1 WHERE user_id = ? AND token != ?;",
+                (user_id, actor_context.token or ""),
+            )
+        return True
+
+    def delete_user(self, user_id: int, actor_context: AuthContext) -> bool:
+        """Delete user account and all associated tokens (requires PERM_MANAGE_USERS)."""
+        if not actor_context.has_permission(PERM_MANAGE_USERS):
+            raise PermissionError("Actor lacks permission to delete users")
+
+        if actor_context.user_id == user_id:
+            raise ValueError("Cannot delete currently authenticated user")
+
+        conn = self.db.get_connection()
+        with conn:
+            conn.execute("DELETE FROM api_tokens WHERE user_id = ?;", (user_id,))
+            cursor = conn.execute("DELETE FROM users WHERE id = ?;", (user_id,))
+            return cursor.rowcount > 0
+
+    def set_user_permissions(
+        self,
+        user_id: int,
+        custom_permissions: Dict[str, bool],
+        actor_context: AuthContext,
+    ) -> User:
+        """Assign or revoke custom permissions directly for a user (requires PERM_MANAGE_USERS)."""
+        if not actor_context.has_permission(PERM_MANAGE_USERS):
+            raise PermissionError("Actor lacks permission to manage user permissions")
+
+        user = self.get_user_by_id(user_id)
+        if not user:
+            raise ValueError(f"User with ID {user_id} not found")
+
+        cleaned_perms = _parse_custom_permissions(custom_permissions)
+        perms_json = json.dumps(cleaned_perms)
+        now = utc_now_iso()
+
+        conn = self.db.get_connection()
+        with conn:
+            conn.execute(
+                "UPDATE users SET custom_permissions_json = ?, updated_at = ? WHERE id = ?;",
+                (perms_json, now, user_id),
+            )
+
+        updated = self.get_user_by_id(user_id)
+        return updated or user
+
+    update_user_permissions = set_user_permissions  # alias for backward compatibility
+
+    def get_effective_permissions(self, user: User) -> List[str]:
+        """Compute the full set of active permissions for a user taking role + custom into account."""
+        perms = set(ROLE_PERMISSIONS.get(user.role, set()))
+        for perm, enabled in user.custom_permissions.items():
+            if enabled:
+                perms.add(perm)
+            elif perm in perms:
+                perms.remove(perm)
+        return sorted(list(perms))
