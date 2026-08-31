@@ -1,48 +1,17 @@
 #!/data/data/com.termux/files/usr/bin/bash
 #
-# codey-stop - Codey-OS Orchestrator (stop daemon + GUI + confirm clean exit)
+# codey-stop - Codey-OS Orchestrator (stop all running services cleanly)
 #
-# Shuts down everything codey-start brought up: the main daemon (via
-# codeydOS stop), the GUI server, and sweeps for any orphaned llama-server
-# model processes left behind. (M1-D, 2026-08-23: the separate planner
-# daemon "plannd" this comment used to also mention is retired — planning
-# now shares the same primary server the main daemon already manages.)
+# Shuts down all running Codey-OS services (Cloudflare tunnel, Aigentik,
+# Restoricon API, GUI server, and main daemon) following Rule 3 PID-tracked lifecycle.
 #
 
 set -e
 
 CODEY_OS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DAEMON_DIR="$HOME/.codeyOS"
-GUI_PID_FILE="$DAEMON_DIR/gui-server.pid"
+export CODEY_OS_DIR
+export CODEY_DIR="$CODEY_OS_DIR"
 
-# ── 1. Daemon (main + plannd) ───────────────────────────────────────────────
-echo "  Daemon → stopping..."
-bash "$CODEY_OS_DIR/codeydOS" stop
+source "$CODEY_OS_DIR/lib/service_manager.sh"
 
-# ── 2. GUI server ────────────────────────────────────────────────────────────
-if [ -f "$GUI_PID_FILE" ]; then
-    GUI_PID=$(cat "$GUI_PID_FILE" 2>/dev/null || echo "")
-    if [ -n "$GUI_PID" ] && kill -0 "$GUI_PID" 2>/dev/null; then
-        echo "  GUI    → stopping (PID $GUI_PID)..."
-        kill -TERM "$GUI_PID" 2>/dev/null || true
-        sleep 0.5
-        kill -0 "$GUI_PID" 2>/dev/null && kill -9 "$GUI_PID" 2>/dev/null || true
-    fi
-    rm -f "$GUI_PID_FILE"
-fi
-# Safety sweep for any stray GUI server not tracked by the PID file
-pkill -9 -f "gui/server.py" 2>/dev/null || true
-echo "  GUI    → stopped"
-
-# ── 3. Orphaned model server sweep ──────────────────────────────────────────
-pkill -9 -f "llama-server" 2>/dev/null || true
-sleep 0.5
-
-if pgrep -f "llama-server" >/dev/null 2>&1; then
-    echo "  Model  → WARNING: llama-server process(es) still running"
-else
-    echo "  Model  → no llama-server processes remain"
-fi
-
-echo
-echo "  Codey-OS stopped."
+stop_all_services

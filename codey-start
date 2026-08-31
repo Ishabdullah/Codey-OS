@@ -1,66 +1,22 @@
 #!/data/data/com.termux/files/usr/bin/bash
 #
-# codey-start - Codey-OS Orchestrator (daemon + GUI + TUI, all at once)
+# codey-start - Codey-OS Orchestrator (services + GUI + TUI)
 #
-# Brings up the daemon (if not already running), starts the GUI server in
-# the background, then drops into the interactive TUI (codeyOS) in the
-# foreground — TUI and GUI stay live simultaneously, with the daemon
-# guaranteed up first.
-#
-# By design, exiting the TUI (Ctrl+C or natural exit) stops the GUI server
-# but leaves the daemon running — daemon mode's whole point is to keep
-# serving in the background after an interactive session ends. Use
-# `codey-stop` to bring everything down explicitly.
+# Brings up daemon, Restoricon Core API, Aigentik, Cloudflare tunnel, and GUI
+# in background, then drops into the interactive TUI (codeyOS) in foreground.
 #
 
 set -e
 
 CODEY_OS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DAEMON_DIR="$HOME/.codeyOS"
-PID_FILE="$DAEMON_DIR/codeyOS.pid"
-SOCKET_FILE="$DAEMON_DIR/codeyOS.sock"
+export CODEY_OS_DIR
+export CODEY_DIR="$CODEY_OS_DIR"
 
-mkdir -p "$DAEMON_DIR"
+source "$CODEY_OS_DIR/lib/service_manager.sh"
 
-# Check if daemon is running (same detection logic codeyOS uses)
-is_daemon_running() {
-    if [ ! -f "$PID_FILE" ]; then
-        return 1
-    fi
+start_all_services true
 
-    PID=$(cat "$PID_FILE" 2>/dev/null || echo "")
-    if [ -z "$PID" ]; then
-        return 1
-    fi
-
-    if ! kill -0 "$PID" 2>/dev/null; then
-        return 1
-    fi
-
-    if [ ! -S "$SOCKET_FILE" ]; then
-        return 1
-    fi
-
-    return 0
-}
-
-# ── 1. Daemon ────────────────────────────────────────────────────────────────
-if is_daemon_running; then
-    echo "  Daemon → already running (PID $(cat "$PID_FILE"))"
-else
-    echo "  Daemon → starting..."
-    bash "$CODEY_OS_DIR/codeydOS" start
-fi
-
-# ── 2. GUI server (background) ──────────────────────────────────────────────
-# Shared start/PID-file/trap-kill logic lives in lib/gui_launch.sh (NEW-22
-# residual dedup) — only tear down the GUI here if we're the one who
-# started it this invocation; the daemon is never touched by this.
-source "$CODEY_OS_DIR/lib/gui_launch.sh"
-gui_launch_ensure_running
-
-echo "  TUI    → launching codeyOS..."
+echo "  TUI         → launching codeyOS..."
 echo
 
-# ── 3. TUI (foreground) ─────────────────────────────────────────────────────
-bash "$CODEY_OS_DIR/codeyOS" "$@"
+exec bash "$CODEY_OS_DIR/codeyOS" "$@"

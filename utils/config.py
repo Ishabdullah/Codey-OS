@@ -1,7 +1,8 @@
+import json
 import os
 import shutil
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional, Union
 
 CODEY_DIR = Path(os.environ.get("CODEY_DIR", Path.home() / "Codey-OS"))
 MODEL_PATH = Path(
@@ -596,3 +597,189 @@ PLANNER_MAX_TOKENS_MEDIUM = 1024
 PLANNER_MIN_PREFILL_TPS = 10
 PLANNER_MIN_GEN_TPS = 2
 PLANNER_TIMEOUT_MARGIN_SECONDS = 30
+
+
+# ── User Configuration & Service Orchestration Settings ─────────────────────
+
+def get_config_file_path() -> Path:
+    """
+    Return the active config.json path.
+    Precedence:
+      1. CODEY_CONFIG_PATH environment variable (if set and non-empty)
+      2. ~/.codeyOS/config.json (if exists)
+      3. <CODEY_DIR>/config.json (if exists)
+      4. Default fallback: <CODEY_DIR>/config.json
+    """
+    env_path = os.environ.get("CODEY_CONFIG_PATH")
+    if env_path and env_path.strip():
+        return Path(env_path.strip()).expanduser().resolve()
+
+    state_config = CODEY_STATE_DIR / "config.json"
+    repo_config = CODEY_DIR / "config.json"
+
+    if state_config.is_file():
+        return state_config
+    if repo_config.is_file():
+        return repo_config
+
+    return repo_config
+
+
+def load_user_config(config_path: Optional[Union[str, Path]] = None) -> Dict[str, Any]:
+    """
+    Load JSON configuration from config_path or active get_config_file_path().
+    Returns an empty dict if the file is missing or invalid JSON.
+    """
+    path = Path(config_path).expanduser().resolve() if config_path else get_config_file_path()
+    if not path.is_file():
+        return {}
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def get_cloudflare_tunnel_token(config: Optional[Dict[str, Any]] = None) -> Optional[str]:
+    """
+    Extract Cloudflare tunnel token.
+    Precedence:
+      1. CLOUDFLARE_TUNNEL_TOKEN or CLOUDFLARED_TOKEN env var
+      2. config["cloudflare"]["tunnel_token"] or config["cloudflare_tunnel_token"]
+    Returns string token if set and non-empty, otherwise None.
+    """
+    env_token = os.environ.get("CLOUDFLARE_TUNNEL_TOKEN") or os.environ.get("CLOUDFLARED_TOKEN")
+    if env_token is not None and env_token.strip():
+        return env_token.strip()
+
+    cfg = config if config is not None else load_user_config()
+    cf_section = cfg.get("cloudflare", {}) if isinstance(cfg, dict) else {}
+    token = None
+    if isinstance(cf_section, dict):
+        token = cf_section.get("tunnel_token")
+    if not token and isinstance(cfg, dict):
+        token = cfg.get("cloudflare_tunnel_token") or cfg.get("tunnel_token")
+
+    if token and isinstance(token, str) and token.strip():
+        return token.strip()
+    return None
+
+
+def get_restoricon_api_config(config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Extract Restoricon Core API server configuration.
+    Precedence:
+      1. RESTORICON_API_HOST / RESTORICON_API_PORT / RESTORICON_DB_PATH env vars
+      2. config["restoricon"]["api_host"] / ["api_port"] / ["db_path"]
+      3. Defaults: host="127.0.0.1", port=8770, db_path="~/.codeyOS/restoricon.db"
+    """
+    cfg = config if config is not None else load_user_config()
+    rest_section = cfg.get("restoricon", {}) if isinstance(cfg, dict) else {}
+    if not isinstance(rest_section, dict):
+        rest_section = {}
+
+    host = (
+        os.environ.get("RESTORICON_API_HOST")
+        or rest_section.get("api_host")
+        or rest_section.get("host")
+        or "127.0.0.1"
+    )
+
+    port_raw = (
+        os.environ.get("RESTORICON_API_PORT")
+        or rest_section.get("api_port")
+        or rest_section.get("port")
+        or 8770
+    )
+    try:
+        port = int(port_raw)
+    except (ValueError, TypeError):
+        port = 8770
+
+    db_path_raw = (
+        os.environ.get("RESTORICON_DB_PATH")
+        or rest_section.get("db_path")
+        or str(CODEY_STATE_DIR / "restoricon.db")
+    )
+    db_path = str(Path(os.path.expanduser(str(db_path_raw))).resolve())
+
+    return {
+        "host": str(host),
+        "port": port,
+        "db_path": db_path,
+    }
+
+
+def get_aigentik_config(config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Extract Codey-Aigentik configuration.
+    Precedence:
+      1. AIGENTIK_DIR / AIGENTIK_PORT env vars
+      2. config["aigentik"]["dir"] / ["port"]
+      3. Defaults: dir="~/Codey-Aigentik", port=8000
+    """
+    cfg = config if config is not None else load_user_config()
+    aig_section = cfg.get("aigentik", {}) if isinstance(cfg, dict) else {}
+    if not isinstance(aig_section, dict):
+        aig_section = {}
+
+    dir_raw = (
+        os.environ.get("AIGENTIK_DIR")
+        or aig_section.get("dir")
+        or str(Path.home() / "Codey-Aigentik")
+    )
+    dir_path = str(Path(os.path.expanduser(str(dir_raw))).resolve())
+
+    port_raw = (
+        os.environ.get("AIGENTIK_PORT")
+        or aig_section.get("port")
+        or 8000
+    )
+    try:
+        port = int(port_raw)
+    except (ValueError, TypeError):
+        port = 8000
+
+    return {
+        "dir": dir_path,
+        "port": port,
+    }
+
+
+def get_gui_config(config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Extract GUI server configuration.
+    Precedence:
+      1. CODEY_GUI_HOST / CODEY_GUI_PORT / GUI_PORT env vars
+      2. config["gui"]["host"] / ["port"]
+      3. Defaults: host="127.0.0.1", port=8888
+    """
+    cfg = config if config is not None else load_user_config()
+    gui_section = cfg.get("gui", {}) if isinstance(cfg, dict) else {}
+    if not isinstance(gui_section, dict):
+        gui_section = {}
+
+    host = (
+        os.environ.get("CODEY_GUI_HOST")
+        or gui_section.get("host")
+        or "127.0.0.1"
+    )
+
+    port_raw = (
+        os.environ.get("CODEY_GUI_PORT")
+        or os.environ.get("GUI_PORT")
+        or gui_section.get("port")
+        or 8888
+    )
+    try:
+        port = int(port_raw)
+    except (ValueError, TypeError):
+        port = 8888
+
+    return {
+        "host": str(host),
+        "port": port,
+    }
+

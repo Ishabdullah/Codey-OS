@@ -332,6 +332,7 @@ download_models() {
 # ── 6. Executables & PATH ─────────────────────────────────────────────────────
 make_executable() {
     print_step "Permissions"
+    chmod +x "$CODEY_OS_DIR/codey"
     chmod +x "$CODEY_OS_DIR/codeyOS"
     chmod +x "$CODEY_OS_DIR/codeydOS"
     chmod +x "$CODEY_OS_DIR/codey-start"
@@ -343,6 +344,39 @@ make_executable() {
 setup_daemon_dir() {
     mkdir -p "$HOME/.codeyOS"
     print_success "Daemon directory: $HOME/.codeyOS"
+}
+
+setup_config() {
+    print_step "Configuration"
+    if [ ! -f "$CODEY_OS_DIR/config.json" ] && [ -f "$CODEY_OS_DIR/config.json.example" ]; then
+        cp "$CODEY_OS_DIR/config.json.example" "$CODEY_OS_DIR/config.json"
+        print_success "Created initial config.json from template"
+    else
+        print_success "config.json ready"
+    fi
+}
+
+setup_symlinks() {
+    print_step "Symlinks"
+    local bin_dir=""
+    if [ -n "$PREFIX" ] && [ -w "$PREFIX/bin" ]; then
+        bin_dir="$PREFIX/bin"
+    elif [ -w "/usr/local/bin" ]; then
+        bin_dir="/usr/local/bin"
+    elif [ -d "$HOME/bin" ] || mkdir -p "$HOME/bin" 2>/dev/null; then
+        bin_dir="$HOME/bin"
+    fi
+
+    if [ -n "$bin_dir" ]; then
+        for bin_name in codey codey-start codey-stop codeyOS codeydOS; do
+            if [ -f "$CODEY_OS_DIR/$bin_name" ]; then
+                ln -sf "$CODEY_OS_DIR/$bin_name" "$bin_dir/$bin_name"
+            fi
+        done
+        print_success "Symlinks created in $bin_dir (codey, codey-start, codey-stop, codeyOS, codeydOS)"
+    else
+        print_warning "No writable bin directory found for symlinks; relying on PATH in $SHELL_CONFIG"
+    fi
 }
 
 setup_path() {
@@ -390,6 +424,7 @@ verify_installation() {
         && print_success "Embedding model: ready" \
         || print_warning "Embedding model: missing"
 
+    command -v codey        &>/dev/null && print_success "codey:        in PATH"  || print_warning "codey:        not in PATH yet (restart terminal)"
     command -v codeyOS      &>/dev/null && print_success "codeyOS:      in PATH"  || print_warning "codeyOS:      not in PATH yet (restart terminal)"
     command -v codeydOS     &>/dev/null && print_success "codeydOS:     in PATH"  || print_warning "codeydOS:     not in PATH yet (restart terminal)"
     command -v codey-start  &>/dev/null && print_success "codey-start:  in PATH"  || print_warning "codey-start:  not in PATH yet (restart terminal)"
@@ -407,17 +442,18 @@ print_completion() {
 
     echo -e "${CYAN}${BOLD}QUICK START${NC}"
     echo
-    echo -e "  Reload shell:   ${BLUE}source $SHELL_CONFIG${NC}"
-    echo -e "  Start everything: ${BLUE}codey-start${NC}  (daemon + GUI + TUI together)"
-    echo -e "    → browser:    ${BLUE}http://localhost:8888${NC}"
-    echo -e "  Stop everything:  ${BLUE}codey-stop${NC}"
+    echo -e "  Reload shell:     ${BLUE}source $SHELL_CONFIG${NC}"
+    echo -e "  One-word start:   ${BLUE}codey${NC}        (launches all services + interactive TUI)"
+    echo -e "  Or background:    ${BLUE}codey start${NC}  (daemon + API + GUI in background)"
+    echo -e "  Stop everything:  ${BLUE}codey stop${NC}"
+    echo -e "  Check status:     ${BLUE}codey status${NC}"
+    echo -e "    → browser:      ${BLUE}http://localhost:8888${NC}"
     echo
     echo -e "  Individual pieces still work as before:"
-    echo -e "  Start daemon:   ${BLUE}codeydOS start${NC}"
-    echo -e "  Run Codey:      ${BLUE}codeyOS${NC}"
-    echo -e "    → opens the interactive TUI ${BOLD}and${NC} the browser GUI automatically"
-    echo -e "  Stop daemon:    ${BLUE}codeydOS stop${NC}"
-    echo -e "  Daemon status:  ${BLUE}codeydOS status${NC}"
+    echo -e "  Start daemon:     ${BLUE}codeydOS start${NC}"
+    echo -e "  Run Codey:        ${BLUE}codeyOS${NC}"
+    echo -e "  Start orchestrator: ${BLUE}codey-start${NC}"
+    echo -e "  Stop orchestrator:  ${BLUE}codey-stop${NC}"
     echo
 
     echo -e "${CYAN}${BOLD}BACKEND SWITCHING  (local models are the default — no key needed)${NC}"
@@ -520,7 +556,9 @@ main() {
 
     make_executable
     setup_daemon_dir
+    setup_config
     setup_path
+    setup_symlinks
     verify_installation
     print_completion
 }

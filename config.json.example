@@ -1,0 +1,18 @@
+{
+  "cloudflare": {
+    "tunnel_token": ""
+  },
+  "restoricon": {
+    "api_host": "127.0.0.1",
+    "api_port": 8770,
+    "db_path": "~/.codeyOS/restoricon.db"
+  },
+  "gui": {
+    "host": "127.0.0.1",
+    "port": 8888
+  },
+  "aigentik": {
+    "dir": "~/Codey-Aigentik",
+    "port": 8000
+  }
+}

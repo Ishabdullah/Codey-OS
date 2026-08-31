@@ -1,0 +1,73 @@
+#!/data/data/com.termux/files/usr/bin/bash
+#
+# codey - Single-command unified entry point for Codey-OS
+#
+# Commands:
+#   start           - Start all services in the background
+#   stop            - Stop all running Codey-OS services cleanly
+#   status          - Show status of all services and loaded models
+#   restart         - Restart all services
+#   logs [service]  - View service logs
+#   config          - View active configuration
+#   help / --help   - Show help message
+#
+# Default (no arguments or arbitrary flags/prompts):
+#   Ensures all services are running, then launches the interactive TUI (codeyOS).
+#
+
+set -e
+
+CODEY_OS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export CODEY_OS_DIR
+export CODEY_DIR="$CODEY_OS_DIR"
+
+source "$CODEY_OS_DIR/lib/service_manager.sh"
+
+cmd="${1:-}"
+
+case "$cmd" in
+    start)
+        shift
+        if [ "$#" -eq 0 ]; then
+            echo "Starting all Codey-OS services in background..."
+            start_all_services false
+        elif [ "$1" = "--daemon" ] || [ "$1" = "--bg" ] || [ "$1" = "-d" ]; then
+            start_all_services false
+        else
+            start_all_services true
+            exec bash "$CODEY_OS_DIR/codeyOS" "$@"
+        fi
+        ;;
+    stop)
+        shift
+        stop_all_services
+        ;;
+    status)
+        shift
+        status_all_services
+        ;;
+    restart)
+        shift
+        echo "Restarting all Codey-OS services..."
+        stop_all_services
+        sleep 1
+        start_all_services false
+        ;;
+    logs|log)
+        shift
+        show_service_logs "$@"
+        ;;
+    config)
+        shift
+        show_service_config
+        ;;
+    help|--help|-h)
+        show_help
+        ;;
+    *)
+        start_all_services true
+        echo "  TUI         → launching codeyOS..."
+        echo
+        exec bash "$CODEY_OS_DIR/codeyOS" "$@"
+        ;;
+esac

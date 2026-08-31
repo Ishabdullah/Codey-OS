@@ -572,9 +572,7 @@ scoped to what it actually proved.
 
 ### 4.1 Built and live-verified
 
-- **Unified entry points** `codey-start` / `codey-stop` — replaced the
-  fragmented `codey3`/`codeyd3` scripts; `ccos_main.py` and
-  `gui/start.sh` removed as dead code.
+- **Unified entry points** `codey`, `codey-start`, `codey-stop` — root `codey` executable supporting interactive launch and subcommands (`start`, `stop`, `status`, `restart`, `logs`, `config`), orchestrating Daemon, Restoricon API, Codey-Aigentik, Cloudflare tunnel, and GUI via `lib/service_manager.sh` with exact PID-tracked lifecycle.
 - **CCOS Phases 1–3** (capability wrapping pilot, remaining capability
   migration, entry-point unification) — complete per the archived
   `PROJECT_PLAN.md`.

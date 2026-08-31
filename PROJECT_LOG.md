@@ -12,7 +12,29 @@ and Appendix A.
 
 ---
 
-## 2026-08-31 — Track B / Restoricon: Universal Website Navigation Drawer, Dynamic User Permissions & Complete Web Surfaces Redesign
+## 2026-08-31 — Track A & B: Unified One-Word `codey` CLI, Cloudflare Tunnel & Multi-Service Orchestrator
+
+- **Status**: Code-complete, code-reviewer approved, test verified (`17/17 passed` in `tests/test_service_manager_config.py`, `1,182/1,182 passed` repository-wide).
+- **One-Word `codey` CLI & Service Orchestrator (`codey`, `lib/service_manager.sh`)**:
+  - Created root executable `codey` supporting subcommands (`start`, `stop`, `status`, `restart`, `logs`, `config`, `help`) and defaulting to interactive TUI with all background services launched.
+  - Built unified lifecycle management in `lib/service_manager.sh` with exact PID-tracked termination (`svc_stop_by_pid`: `SIGTERM` -> 5.0s wait loop -> `SIGKILL`) complying strictly with Rule 3 (never bare `pkill -f`).
+  - Automated orchestration across:
+    1. Codey-OS Daemon (`codeyOS.pid`, `codeyOS.sock`, port 8080)
+    2. Restoricon Core API (`restoricon-api.pid`, port 8770)
+    3. Codey-Aigentik (`aigentik.pid`, `~/Codey-Aigentik`)
+    4. Cloudflare Tunnel (`cloudflared.pid`, `cloudflared tunnel run --token <TOKEN>`)
+    5. Web GUI Server (`gui-server.pid`, port 8888)
+  - Refactored `codey-start` and `codey-stop` to delegate cleanly to `lib/service_manager.sh`.
+- **Cloudflare Tunnel Token & Secret Management (`config.json.example`, `utils/config.py`, `.gitignore`)**:
+  - Added gitignore protection for `config.json`, `config.*.json`, and `*.secret.json` with whitelisted `!config.json.example`.
+  - Created `config.json.example` template with dedicated `cloudflare.tunnel_token` field.
+  - Added configuration loaders and getters in `utils/config.py`: `get_config_file_path()`, `load_user_config()`, `get_cloudflare_tunnel_token()` (with `CLOUDFLARE_TUNNEL_TOKEN` env override), `get_restoricon_api_config()`, `get_aigentik_config()`, `get_gui_config()`.
+  - Fault-tolerant start: if the token is not configured or `cloudflared` is not installed, the tunnel skips gracefully with an informational notice without halting daemon or API startup.
+- **Symlinks & Installer (`install.sh`)**:
+  - Automated symlink generation into `$PREFIX/bin` or `$HOME/bin` for `codey`, `codey-start`, `codey-stop`, `codeyOS`, `codeydOS`.
+  - Template initialization: creates `config.json` on fresh installs if not already present.
+- **Ledger & Status Updates**:
+  - Created `tests/test_service_manager_config.py` (17 tests). Full suite: 1,182 passed, 1 skipped.
 
 - **Status**: Code-complete, code-reviewer approved, test verified (`16/16 passed` across user management & surface suites, `1,165/1,165 passed` repository-wide).
 - **Universal Website Navigation & Hamburger Drawer (`restoricon/`)**:
