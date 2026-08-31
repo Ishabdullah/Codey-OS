@@ -426,6 +426,27 @@ def _get_common_script() -> str:
         else localStorage.removeItem('restoricon_token');
     }
 
+    async function validateSession(redirectTarget) {
+        const token = getAuthToken();
+        if (!token) {
+            window.location.href = redirectTarget;
+            return false;
+        }
+        try {
+            const res = await fetch('/api/v1/auth/me', {
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            if (res.status === 401 || res.status === 403) {
+                setAuthToken('');
+                window.location.href = redirectTarget;
+                return false;
+            }
+            return true;
+        } catch (e) {
+            return true;
+        }
+    }
+
     function logoutUser() {
         const token = getAuthToken();
         if (token) {
@@ -1323,6 +1344,8 @@ def render_portal_surface() -> str:
                 body: JSON.stringify({ message: text })
             }).catch(() => {});
         }
+        
+        validateSession('/portal/login');
     </script>
 </body>
 </html>"""
@@ -1664,9 +1687,7 @@ def render_admin_surface() -> str:
                         </tr>
                     </thead>
                     <tbody>
-                        <tr><td><code>#DRY-LGR-101</code></td><td>LGR Dehumidifier (130 Pints)</td><td>123 Main St, Hartford, CT</td><td><span style="color: var(--success); font-weight:700;">● Deployed</span></td></tr>
-                        <tr><td><code>#DRY-AIR-204</code></td><td>Axial Air Mover (3000 CFM)</td><td>123 Main St, Hartford, CT</td><td><span style="color: var(--success); font-weight:700;">● Deployed</span></td></tr>
-                        <tr><td><code>#DRY-SCP-301</code></td><td>HEPA Air Scrubber (500 CFM)</td><td>Warehouse / Ready</td><td><span style="color: var(--info); font-weight:700;">● Available</span></td></tr>
+                        <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">No records found.</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -2010,7 +2031,11 @@ def render_admin_surface() -> str:
         }
 
         // Initial load
-        loadUsersList();
+        validateSession('/admin/login').then(valid => {
+            if (valid) {
+                loadUsersList();
+            }
+        });
     </script>
 </body>
 </html>"""

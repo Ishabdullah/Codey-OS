@@ -195,6 +195,10 @@ print(f\"{c['dir']}|{c['port']}\")
         entrypoint="python3 server.py"
     elif [ -f "$a_dir/run.sh" ]; then
         entrypoint="bash run.sh"
+    elif [ -f "$a_dir/start.sh" ]; then
+        entrypoint="bash start.sh"
+    elif [ -f "$a_dir/index.js" ]; then
+        entrypoint="node index.js"
     fi
 
     if [ -z "$entrypoint" ]; then
