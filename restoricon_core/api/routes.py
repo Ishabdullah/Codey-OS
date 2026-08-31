@@ -104,6 +104,9 @@ class APIRouter:
         path = parsed_url.path.rstrip("/")
         query_params = parse_qs(parsed_url.query)
 
+        # Case-insensitive header dictionary
+        headers_lower = {str(k).lower(): v for k, v in headers.items()}
+
         json_body: Dict[str, Any] = {}
         if body_bytes:
             try:
@@ -113,9 +116,9 @@ class APIRouter:
 
         # Resolve client IP (supporting reverse proxy / Cloudflare Tunnel headers)
         client_ip = (
-            headers.get("cf-connecting-ip")
-            or headers.get("x-forwarded-for", "").split(",")[0].strip()
-            or headers.get("x-real-ip")
+            headers_lower.get("cf-connecting-ip")
+            or headers_lower.get("x-forwarded-for", "").split(",")[0].strip()
+            or headers_lower.get("x-real-ip")
             or "127.0.0.1"
         )
 
@@ -123,7 +126,29 @@ class APIRouter:
         if method == "GET" and path in ("/api/v1/health", "/health"):
             return 200, {"Content-Type": "application/json"}, {"status": "ok", "service": "restoricon_core"}
 
-        host = headers.get("host", "").lower().split(":")[0].strip()
+        # Static asset serving for website assets (logos, images, manifests, icons)
+        if method == "GET" and (path.startswith("/assets/") or path in ("/favicon.ico", "/site.webmanifest")):
+            static_base = "/data/data/com.termux/files/home/restoricon"
+            rel_path = path.lstrip("/")
+            full_path = os.path.normpath(os.path.join(static_base, rel_path))
+            if full_path.startswith(static_base) and os.path.isfile(full_path):
+                content_type = "application/octet-stream"
+                if full_path.endswith(".png"): content_type = "image/png"
+                elif full_path.endswith(".jpg") or full_path.endswith(".jpeg"): content_type = "image/jpeg"
+                elif full_path.endswith(".svg"): content_type = "image/svg+xml"
+                elif full_path.endswith(".ico"): content_type = "image/x-icon"
+                elif full_path.endswith(".css"): content_type = "text/css"
+                elif full_path.endswith(".js"): content_type = "application/javascript"
+                elif full_path.endswith(".json") or full_path.endswith(".webmanifest"): content_type = "application/json"
+                try:
+                    with open(full_path, "rb") as f:
+                        file_data = f.read()
+                    return 200, {"Content-Type": content_type, "Cache-Control": "public, max-age=86400"}, file_data
+                except Exception:
+                    return 500, {"Content-Type": "application/json"}, {"error": "Failed to read static asset"}
+            return 404, {"Content-Type": "application/json"}, {"error": f"Static asset not found: {path}"}
+
+        host = headers_lower.get("host", "").lower().split(":")[0].strip()
 
         # Web Surface UI endpoints (Subdomain Host & Direct Path Routing)
         if method == "GET":
@@ -186,7 +211,7 @@ class APIRouter:
             return 404, rate_headers, {"error": f"Not found: {method} {path}"}
 
         # Authenticate all other endpoints
-        auth_header = headers.get("authorization", headers.get("Authorization", ""))
+        auth_header = headers_lower.get("authorization", "")
         token = ""
         if auth_header.lower().startswith("bearer "):
             token = auth_header[7:].strip()

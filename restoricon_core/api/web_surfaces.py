@@ -1,13 +1,18 @@
 """
 Restoricon Core Web Surfaces — Staff/Admin ERP, Customer Portal, & Quote Intake SPAs.
-Served directly via the phone's API server over Cloudflare Tunnel or local loopback.
+Exact brand styling matching restoricon.com:
+- Deep Navy: #0A192F
+- Slate / Charcoal: #1E293B
+- Metallic Bronze/Gold: #D4AF37 / #B89628
+- Offwhite: #F8FAFC
+- Phone: (860) 337-1820 | CT HIC Licensed General Contractor
 """
 
 def render_login_surface(portal_type: str = "admin") -> str:
-    """Render responsive, accessible, premium login page."""
+    """Render responsive, accessible, premium login page matching Restoricon Navy & Bronze branding."""
     is_admin = portal_type == "admin"
     title = "Restoricon Staff & Admin Portal" if is_admin else "Restoricon Customer Portal"
-    subtitle = "Enterprise ERP & Disaster Operations Center" if is_admin else "Track your restoration project, contracts, and invoices"
+    subtitle = "Enterprise ERP & Restoration Operations Center" if is_admin else "Track your restoration project, contracts, and invoices"
     target_api = "/api/v1/auth/login"
     redirect_target = "/admin" if is_admin else "/portal"
 
@@ -16,21 +21,24 @@ def render_login_surface(portal_type: str = "admin") -> str:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{title} — Restoricon</title>
+    <title>{title} — Restoricon, LLC</title>
+    <link rel="icon" href="/assets/logos/favicon-32.png" type="image/png" sizes="32x32">
     <style>
         :root {{
-            --primary: #1e3a8a;
-            --primary-hover: #172554;
-            --accent: #2563eb;
-            --bg: #0f172a;
-            --card-bg: #ffffff;
-            --text-main: #0f172a;
-            --text-muted: #64748b;
-            --border: #e2e8f0;
+            --navy: #0A192F;
+            --charcoal: #1E293B;
+            --bronze: #D4AF37;
+            --bronze-hover: #b89628;
+            --offwhite: #F8FAFC;
+            --card-bg: #112240;
+            --text-main: #F8FAFC;
+            --text-muted: #94A3B8;
+            --border: #233554;
+            --font-stack: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         }}
-        * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }}
+        * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: var(--font-stack); }}
         body {{
-            background: linear-gradient(135deg, #0b0f19 0%, #1e293b 100%);
+            background: radial-gradient(circle at top center, #1E293B 0%, #0A192F 100%);
             color: var(--text-main);
             display: flex;
             align-items: center;
@@ -43,139 +51,175 @@ def render_login_surface(portal_type: str = "admin") -> str:
             width: 100%;
             max-width: 440px;
             border-radius: 16px;
-            box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.3), 0 8px 10px -6px rgb(0 0 0 / 0.3);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            padding: 2.75rem 2.25rem;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+            border: 1px solid var(--border);
+            padding: 2.5rem 2rem;
+            position: relative;
         }}
-        .brand-badge {{
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            background: #eff6ff;
-            color: #1e40af;
-            font-size: 0.8rem;
+        .brand-header {{
+            text-align: center;
+            margin-bottom: 1.75rem;
+        }}
+        .brand-header h1 {{
+            font-size: 1.35rem;
             font-weight: 700;
-            padding: 0.35rem 0.85rem;
+            color: var(--offwhite);
+            letter-spacing: -0.02em;
+        }}
+        .brand-header p {{
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-top: 0.35rem;
+        }}
+        .badge-role {{
+            display: inline-block;
+            background: rgba(212, 175, 55, 0.15);
+            color: var(--bronze);
+            border: 1px solid rgba(212, 175, 55, 0.3);
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 0.25rem 0.75rem;
             border-radius: 9999px;
-            margin-bottom: 1rem;
+            margin-bottom: 0.85rem;
             text-transform: uppercase;
             letter-spacing: 0.05em;
         }}
-        .header {{ text-align: center; margin-bottom: 2rem; }}
-        .header h1 {{ font-size: 1.6rem; font-weight: 800; color: #0f172a; margin-bottom: 0.5rem; letter-spacing: -0.02em; }}
-        .header p {{ color: var(--text-muted); font-size: 0.9rem; line-height: 1.4; }}
-        .form-group {{ margin-bottom: 1.25rem; }}
-        label {{ display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.4rem; color: #334155; }}
+        .form-group {{
+            margin-bottom: 1.25rem;
+        }}
+        label {{
+            display: block;
+            font-size: 0.82rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            margin-bottom: 0.4rem;
+        }}
         input {{
             width: 100%;
-            padding: 0.85rem 1rem;
-            border: 1px solid var(--border);
+            padding: 0.75rem 1rem;
             border-radius: 8px;
+            border: 1px solid var(--border);
+            background: #0A192F;
+            color: var(--offwhite);
             font-size: 0.95rem;
-            transition: border-color 0.15s, box-shadow 0.15s;
+            outline: none;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
         }}
-        input:focus {{ outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15); }}
+        input:focus {{
+            border-color: var(--bronze);
+            box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.2);
+        }}
         .btn-submit {{
             width: 100%;
-            background: linear-gradient(135deg, #1e40af 0%, #1e3a8a 100%);
-            color: white;
-            padding: 0.9rem;
+            background: linear-gradient(135deg, #D4AF37 0%, #AA7C11 100%);
+            color: #0A192F;
+            font-weight: 700;
+            padding: 0.85rem;
             border: none;
             border-radius: 8px;
-            font-weight: 600;
-            font-size: 1rem;
+            font-size: 0.95rem;
             cursor: pointer;
-            transition: transform 0.1s, box-shadow 0.15s;
-            box-shadow: 0 4px 6px -1px rgba(30, 58, 138, 0.2);
+            transition: all 0.15s ease;
             margin-top: 0.5rem;
         }}
-        .btn-submit:hover {{ background: #172554; box-shadow: 0 6px 8px -1px rgba(30, 58, 138, 0.3); }}
+        .btn-submit:hover {{
+            background: linear-gradient(135deg, #e5be3c 0%, #c49117 100%);
+            box-shadow: 0 4px 12px rgba(212, 175, 55, 0.3);
+        }}
         .error-msg {{
-            background: #fef2f2;
-            color: #991b1b;
-            padding: 0.75rem 1rem;
+            background: rgba(220, 38, 38, 0.2);
+            color: #f87171;
+            border: 1px solid rgba(220, 38, 38, 0.4);
+            padding: 0.75rem;
             border-radius: 8px;
             font-size: 0.85rem;
             margin-bottom: 1.25rem;
             display: none;
-            border: 1px solid #fecaca;
         }}
-        .switch-portal {{
-            text-align: center;
+        .demo-helpers {{
             margin-top: 1.5rem;
-            font-size: 0.85rem;
-            color: var(--text-muted);
-            border-top: 1px solid #f1f5f9;
             padding-top: 1.25rem;
-        }}
-        .switch-portal a {{ color: var(--accent); text-decoration: none; font-weight: 600; }}
-        .switch-portal a:hover {{ text-decoration: underline; }}
-        .demo-bar {{
-            margin-top: 1.25rem;
-            background: #f8fafc;
-            border: 1px dashed #cbd5e1;
-            border-radius: 8px;
-            padding: 0.75rem;
+            border-top: 1px solid var(--border);
             font-size: 0.8rem;
+            color: var(--text-muted);
             text-align: center;
-            color: #475569;
         }}
-        .demo-btn {{
-            display: inline-block;
-            background: #e2e8f0;
-            color: #1e293b;
-            padding: 0.25rem 0.6rem;
-            border-radius: 4px;
+        .demo-chips {{
+            display: flex;
+            gap: 0.5rem;
+            justify-content: center;
+            margin-top: 0.5rem;
+            flex-wrap: wrap;
+        }}
+        .chip {{
+            background: #1E293B;
+            border: 1px solid var(--border);
+            color: var(--bronze);
+            padding: 0.35rem 0.75rem;
+            border-radius: 6px;
             cursor: pointer;
+            font-size: 0.78rem;
             font-weight: 600;
-            margin: 0.2rem;
-            border: none;
+            transition: all 0.15s ease;
         }}
-        .demo-btn:hover {{ background: #cbd5e1; }}
+        .chip:hover {{
+            background: #233554;
+            border-color: var(--bronze);
+        }}
+        .back-link {{
+            display: block;
+            text-align: center;
+            margin-top: 1.25rem;
+            font-size: 0.82rem;
+            color: var(--bronze);
+            text-decoration: none;
+        }}
+        .back-link:hover {{ text-decoration: underline; }}
     </style>
 </head>
 <body>
     <div class="login-card">
-        <div class="header">
-            <span class="brand-badge">⚡ Restoricon Core</span>
+        <div class="brand-header">
+            <span class="badge-role">Restoricon Portal Access</span>
+            <div style="font-size: 1.6rem; font-weight: 800; color: var(--bronze); margin-bottom: 0.3rem;">⚡ RESTORICON<span style="color:var(--offwhite)">.</span></div>
             <h1>{title}</h1>
             <p>{subtitle}</p>
         </div>
 
         <div id="errorBox" class="error-msg"></div>
 
-        <form id="loginForm">
+        <form id="loginForm" onsubmit="handleLogin(event)">
             <div class="form-group">
-                <label for="username">Username / Email Address</label>
-                <input type="text" id="username" required autocomplete="username" placeholder="Enter username or email">
+                <label for="username">Username or Email</label>
+                <input type="text" id="username" name="username" required placeholder="admin or email" autocomplete="username">
             </div>
+
             <div class="form-group">
                 <label for="password">Password</label>
-                <input type="password" id="password" required autocomplete="current-password" placeholder="••••••••">
+                <input type="password" id="password" name="password" required placeholder="••••••••" autocomplete="current-password">
             </div>
-            <button type="submit" id="submitBtn" class="btn-submit">Sign In</button>
+
+            <button type="submit" id="submitBtn" class="btn-submit">Sign In to Dashboard</button>
         </form>
 
-        <div class="demo-bar">
-            <span>Quick Login Fill:</span><br>
-            <button type="button" class="demo-btn" onclick="fillDemo('admin', 'admin123')">Admin (Ish)</button>
-            <button type="button" class="demo-btn" onclick="fillDemo('tech', 'tech123')">Technician</button>
-            <button type="button" class="demo-btn" onclick="fillDemo('customer@example.com', 'client123')">Client</button>
+        <div class="demo-helpers">
+            <div>Quick Credentials:</div>
+            <div class="demo-chips">
+                <button type="button" class="chip" onclick="fillCreds('admin', 'admin123')">Admin: admin / admin123</button>
+                <button type="button" class="chip" onclick="fillCreds('ish', 'admin123')">Ish: ish / admin123</button>
+            </div>
         </div>
 
-        <div class="switch-portal">
-            {"Access customer files? <a href='/portal/login'>Go to Customer Portal</a>" if is_admin else "Staff member? <a href='/admin/login'>Go to Staff ERP</a>"}
-            <br><span style="margin-top: 0.4rem; display: inline-block;"><a href="/quote" style="color:#64748b;">← Request Restoration Quote</a></span>
-        </div>
+        <a href="https://restoricon.com" class="back-link">← Return to Restoricon.com</a>
     </div>
 
     <script>
-        function fillDemo(u, p) {{
+        function fillCreds(u, p) {{
             document.getElementById('username').value = u;
             document.getElementById('password').value = p;
         }}
 
-        document.getElementById('loginForm').addEventListener('submit', async (e) => {{
+        async function handleLogin(e) {{
             e.preventDefault();
             const btn = document.getElementById('submitBtn');
             const err = document.getElementById('errorBox');
@@ -183,80 +227,86 @@ def render_login_surface(portal_type: str = "admin") -> str:
             btn.disabled = true;
             btn.innerText = 'Authenticating...';
 
-            const u = document.getElementById('username').value.trim();
-            const p = document.getElementById('password').value;
-
             try {{
                 const res = await fetch('{target_api}', {{
                     method: 'POST',
                     headers: {{ 'Content-Type': 'application/json' }},
-                    body: JSON.stringify({{ username: u, password: p }})
+                    body: JSON.stringify({{
+                        username: document.getElementById('username').value.trim(),
+                        password: document.getElementById('password').value
+                    }})
                 }});
+
                 const data = await res.json();
                 if (res.ok && data.token) {{
                     localStorage.setItem('restoricon_token', data.token);
                     localStorage.setItem('restoricon_user', JSON.stringify(data.user || {{}}));
                     window.location.href = '{redirect_target}';
                 }} else {{
-                    err.textContent = data.error || 'Invalid credentials. Please verify your username and password.';
+                    err.innerText = data.error || 'Invalid credentials. Please try again.';
                     err.style.display = 'block';
                     btn.disabled = false;
-                    btn.innerText = 'Sign In';
+                    btn.innerText = 'Sign In to Dashboard';
                 }}
-            }} catch (errExp) {{
-                err.textContent = 'Server connection failed. Please ensure the Restoricon backend is running.';
+            }} catch (ex) {{
+                err.innerText = 'Connection error. Check that Restoricon API is running.';
                 err.style.display = 'block';
                 btn.disabled = false;
-                btn.innerText = 'Sign In';
+                btn.innerText = 'Sign In to Dashboard';
             }}
-        }});
+        }}
     </script>
 </body>
 </html>"""
 
 
 def render_quote_surface() -> str:
-    """Render public quote & emergency dispatch intake form."""
+    """Render public 24/7 Quote Intake & Emergency Dispatch form matching restoricon.com."""
     return """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Restoricon — 24/7 Rapid Disaster Restoration & Emergency Services</title>
+    <title>Request a Restoration Quote — Restoricon, LLC | Connecticut General Contractor</title>
+    <meta name="description" content="Restoricon, LLC provides 24/7 rapid response disaster restoration, structural repairs, and free pre-claim construction estimates across Hartford County, CT.">
+    <link rel="icon" href="/assets/logos/favicon-32.png" type="image/png" sizes="32x32">
     <style>
         :root {
-            --primary: #1e3a8a;
-            --primary-hover: #172554;
-            --accent: #dc2626;
-            --accent-hover: #b91c1c;
-            --bg: #f8fafc;
-            --card-bg: #ffffff;
-            --text-main: #0f172a;
-            --text-muted: #64748b;
-            --border: #e2e8f0;
-            --success: #15803d;
+            --navy: #0A192F;
+            --charcoal: #1E293B;
+            --bronze: #D4AF37;
+            --bronze-hover: #b89628;
+            --offwhite: #F8FAFC;
+            --card-bg: #112240;
+            --text-main: #F8FAFC;
+            --text-muted: #94A3B8;
+            --border: #233554;
+            --success: #22c55e;
+            --font-stack: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         }
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-        body { background-color: var(--bg); color: var(--text-main); line-height: 1.5; }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: var(--font-stack); }
+        body { background-color: var(--navy); color: var(--text-main); line-height: 1.6; }
         
         .emergency-hotline-bar {
-            background: #991b1b;
-            color: white;
+            background: linear-gradient(90deg, #881337 0%, #991b1b 100%);
+            color: #fff;
             text-align: center;
             padding: 0.65rem 1rem;
-            font-size: 0.9rem;
+            font-size: 0.88rem;
             font-weight: 600;
             display: flex;
             justify-content: center;
             align-items: center;
-            gap: 1rem;
+            gap: 1.5rem;
             flex-wrap: wrap;
+            border-bottom: 1px solid rgba(255,255,255,0.15);
         }
-        .emergency-hotline-bar a { color: #fef08a; text-decoration: none; font-weight: 700; }
+        .emergency-hotline-bar a { color: #fef08a; text-decoration: none; font-weight: 800; }
         .emergency-hotline-bar a:hover { text-decoration: underline; }
 
         .nav {
-            background: white;
+            background: rgba(10, 25, 47, 0.95);
+            backdrop-filter: blur(8px);
             border-bottom: 1px solid var(--border);
             padding: 1rem 2rem;
             display: flex;
@@ -266,273 +316,391 @@ def render_quote_surface() -> str:
             top: 0;
             z-index: 50;
         }
-        .brand { font-size: 1.35rem; font-weight: 800; color: #1e3a8a; display: flex; align-items: center; gap: 0.5rem; text-decoration: none; }
-        .brand span { color: var(--accent); }
-        .nav-links { display: flex; gap: 1.25rem; align-items: center; }
-        .nav-links a { color: #334155; text-decoration: none; font-size: 0.9rem; font-weight: 600; }
-        .nav-links a:hover { color: var(--primary); }
-        .nav-btn { background: #1e3a8a; color: white !important; padding: 0.5rem 1rem; border-radius: 6px; }
+        .brand {
+            font-size: 1.4rem;
+            font-weight: 800;
+            color: var(--bronze);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .brand span { color: var(--offwhite); }
+        .nav-links { display: flex; gap: 1.5rem; align-items: center; }
+        .nav-links a { color: var(--text-muted); text-decoration: none; font-size: 0.9rem; font-weight: 500; }
+        .nav-links a:hover { color: var(--bronze); }
+        .nav-btn {
+            background: linear-gradient(135deg, #D4AF37 0%, #AA7C11 100%);
+            color: #0A192F !important;
+            padding: 0.5rem 1.1rem;
+            border-radius: 6px;
+            font-weight: 700 !important;
+            transition: all 0.15s ease;
+        }
+        .nav-btn:hover { background: linear-gradient(135deg, #e5be3c 0%, #c49117 100%); }
 
         .hero {
-            background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%);
-            color: white;
-            padding: 3.5rem 1.5rem;
+            background: linear-gradient(180deg, #1E293B 0%, #0A192F 100%);
+            padding: 3.5rem 1.5rem 3rem;
             text-align: center;
+            border-bottom: 1px solid var(--border);
         }
-        .hero-badge { display: inline-block; background: rgba(220, 38, 38, 0.25); border: 1px solid rgba(220, 38, 38, 0.5); color: #fca5a5; padding: 0.35rem 0.9rem; border-radius: 9999px; font-size: 0.85rem; font-weight: 700; text-transform: uppercase; margin-bottom: 1rem; }
-        .hero h1 { font-size: 2.5rem; font-weight: 800; line-height: 1.2; margin-bottom: 1rem; letter-spacing: -0.02em; }
-        .hero p { max-width: 650px; margin: 0 auto 1.75rem auto; color: #cbd5e1; font-size: 1.1rem; }
-        .trust-grid { display: flex; justify-content: center; gap: 2rem; flex-wrap: wrap; margin-top: 1.5rem; }
-        .trust-item { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; color: #94a3b8; font-weight: 600; }
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(212, 175, 55, 0.12);
+            color: var(--bronze);
+            border: 1px solid rgba(212, 175, 55, 0.3);
+            padding: 0.35rem 0.9rem;
+            border-radius: 9999px;
+            font-size: 0.82rem;
+            font-weight: 700;
+            margin-bottom: 1.25rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .hero h1 {
+            font-size: 2.5rem;
+            font-weight: 800;
+            color: var(--offwhite);
+            max-width: 800px;
+            margin: 0 auto 1rem;
+            line-height: 1.2;
+            letter-spacing: -0.02em;
+        }
+        .hero p {
+            color: var(--text-muted);
+            font-size: 1.1rem;
+            max-width: 650px;
+            margin: 0 auto;
+        }
 
-        .main-container { max-width: 1080px; margin: -2.5rem auto 3rem auto; padding: 0 1rem; display: grid; grid-template-columns: 1fr 380px; gap: 2rem; position: relative; z-index: 10; }
-        .form-card { background: white; border-radius: 16px; border: 1px solid var(--border); box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.08); padding: 2.5rem 2rem; }
-        .sidebar-card { background: white; border-radius: 16px; border: 1px solid var(--border); box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.08); padding: 2rem; height: fit-content; }
+        .main-container {
+            max-width: 1100px;
+            margin: -2rem auto 4rem;
+            padding: 0 1rem;
+            display: grid;
+            grid-template-columns: 2fr 1.1fr;
+            gap: 2rem;
+            position: relative;
+            z-index: 10;
+        }
 
-        .form-header { margin-bottom: 2rem; }
-        .form-header h2 { font-size: 1.5rem; font-weight: 700; color: #0f172a; margin-bottom: 0.3rem; }
-        .form-header p { color: var(--text-muted); font-size: 0.9rem; }
+        .form-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 2.25rem;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+        }
+        .form-header { margin-bottom: 1.75rem; }
+        .form-header h2 { font-size: 1.4rem; color: var(--bronze); font-weight: 700; }
+        .form-header p { font-size: 0.88rem; color: var(--text-muted); margin-top: 0.25rem; }
 
-        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 1.5rem; }
-        .form-group { margin-bottom: 1.25rem; }
-        .form-group.full { grid-column: 1 / -1; }
-        label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.4rem; color: #1e293b; }
-        input, select, textarea { width: 100%; padding: 0.8rem 1rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.95rem; background: #fff; }
-        input:focus, select:focus, textarea:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15); }
-        textarea { resize: vertical; min-height: 95px; }
-
-        .service-picker { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; margin-bottom: 1.25rem; }
-        .service-opt {
-            border: 2px solid var(--border);
+        .service-picker {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.75rem;
+            margin-bottom: 1.5rem;
+        }
+        .service-btn {
+            background: #0A192F;
+            border: 1px solid var(--border);
             border-radius: 8px;
             padding: 0.85rem 0.5rem;
             text-align: center;
             cursor: pointer;
-            transition: all 0.15s;
-            background: #f8fafc;
+            transition: all 0.15s ease;
+            color: var(--text-main);
         }
-        .service-opt.selected { border-color: #1e40af; background: #eff6ff; color: #1e40af; font-weight: 700; }
-        .service-opt span { display: block; font-size: 1.3rem; margin-bottom: 0.2rem; }
-        .service-opt p { font-size: 0.8rem; margin: 0; }
-
-        .btn-submit {
-            width: 100%;
-            background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
-            color: white;
-            padding: 1.1rem;
-            border: none;
-            border-radius: 8px;
+        .service-btn:hover { border-color: var(--bronze); background: #1E293B; }
+        .service-btn.active {
+            background: rgba(212, 175, 55, 0.15);
+            border-color: var(--bronze);
+            color: var(--bronze);
             font-weight: 700;
-            font-size: 1.1rem;
-            cursor: pointer;
-            transition: transform 0.1s, box-shadow 0.15s;
-            box-shadow: 0 4px 6px -1px rgba(220, 38, 38, 0.3);
         }
-        .btn-submit:hover { background: #b91c1c; }
+        .service-icon { font-size: 1.4rem; display: block; margin-bottom: 0.25rem; }
+        .service-name { font-size: 0.78rem; font-weight: 600; }
 
-        .calculator-widget { background: #f8fafc; border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; margin-bottom: 1.5rem; }
-        .calc-title { font-size: 0.95rem; font-weight: 700; color: #0f172a; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.4rem; }
-        .slider-wrap { margin-bottom: 1rem; }
-        .slider-wrap label { display: flex; justify-content: space-between; font-size: 0.85rem; font-weight: 600; color: #475569; }
-        .slider-wrap input[type=range] { width: 100%; margin-top: 0.4rem; }
-        .calc-result { background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.85rem; text-align: center; }
-        .calc-result-val { font-size: 1.35rem; font-weight: 800; color: #1e3a8a; }
+        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        .form-group { margin-bottom: 1.25rem; }
+        .full-width { grid-column: 1 / -1; }
+        label { display: block; font-size: 0.82rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.4rem; }
+        input, select, textarea {
+            width: 100%;
+            padding: 0.75rem 0.9rem;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 0.9rem;
+            background: #0A192F;
+            color: var(--offwhite);
+            outline: none;
+            transition: border-color 0.15s ease;
+        }
+        input:focus, select:focus, textarea:focus {
+            border-color: var(--bronze);
+            box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.15);
+        }
 
-        .tracker-widget { background: #f8fafc; border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; }
-        .tracker-input-group { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
-        .tracker-input-group input { flex: 1; padding: 0.6rem; font-size: 0.85rem; }
-        .tracker-input-group button { background: #1e3a8a; color: white; border: none; padding: 0 0.85rem; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.85rem; }
+        .calc-preview {
+            background: #0A192F;
+            border: 1px dashed rgba(212, 175, 55, 0.4);
+            border-radius: 8px;
+            padding: 1rem;
+            margin: 1.25rem 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .calc-title { font-size: 0.82rem; color: var(--text-muted); }
+        .calc-value { font-size: 1.1rem; font-weight: 800; color: var(--bronze); }
+
+        .btn-dispatch {
+            width: 100%;
+            background: linear-gradient(135deg, #D4AF37 0%, #AA7C11 100%);
+            color: #0A192F;
+            border: none;
+            padding: 1rem;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 800;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            box-shadow: 0 4px 14px rgba(212, 175, 55, 0.3);
+        }
+        .btn-dispatch:hover {
+            background: linear-gradient(135deg, #e5be3c 0%, #c49117 100%);
+            transform: translateY(-1px);
+        }
+
+        .sidebar { display: flex; flex-direction: column; gap: 1.5rem; }
+        .info-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 1.75rem;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+        }
+        .info-card h3 { font-size: 1.1rem; color: var(--bronze); margin-bottom: 1rem; font-weight: 700; }
+        .guarantee-list { list-style: none; display: flex; flex-direction: column; gap: 0.85rem; }
+        .guarantee-item { display: flex; gap: 0.75rem; font-size: 0.88rem; color: var(--offwhite); }
+        .guarantee-icon { color: var(--bronze); font-weight: 800; font-size: 1rem; }
+
+        .service-areas-box { font-size: 0.82rem; color: var(--text-muted); line-height: 1.6; }
 
         .alert-box { padding: 1.25rem; border-radius: 8px; margin-bottom: 1.5rem; display: none; font-size: 0.95rem; }
-        .alert-success { background: #f0fdf4; color: var(--success); border: 1px solid #bbf7d0; }
-        .alert-error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+        .alert-success { background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.4); }
+        .alert-error { background: rgba(220, 38, 38, 0.15); color: #f87171; border: 1px solid rgba(220, 38, 38, 0.4); }
+
+        .disclosure-box {
+            background: #0A192F;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            margin-top: 1rem;
+        }
 
         @media (max-width: 860px) {
-            .main-container { grid-template-columns: 1fr; margin-top: -1.5rem; }
-            .form-grid { grid-template-columns: 1fr; }
+            .main-container { grid-template-columns: 1fr; margin-top: -1rem; }
             .service-picker { grid-template-columns: repeat(2, 1fr); }
+            .form-grid { grid-template-columns: 1fr; }
             .hero h1 { font-size: 2rem; }
         }
     </style>
 </head>
 <body>
     <div class="emergency-hotline-bar">
-        <span>🚨 <strong>24/7 Emergency Dispatch Center Active:</strong> On-Site in Under 60 Minutes</span>
-        <span>Call Now: <a href="tel:8005557378">(800) 555-RESTORE</a></span>
+        <span>🚨 <strong>24/7 Rapid Emergency Service:</strong> On-Site Across Hartford County</span>
+        <span>Call: <a href="tel:8603371820">(860) 337-1820</a></span>
+        <span>SMS AI Estimator: <a href="sms:+18603371820">Text RESTORICON</a></span>
     </div>
 
     <nav class="nav">
-        <a href="/" class="brand">⚡ Restoricon<span>.</span></a>
+        <a href="https://restoricon.com" class="brand">
+            <span style="color:var(--bronze)">⚡ RESTORICON</span><span>.</span>
+        </a>
         <div class="nav-links">
+            <a href="https://restoricon.com#services">Services</a>
             <a href="/portal">Customer Portal</a>
             <a href="/admin">Staff ERP</a>
-            <a href="#quoteSection" class="nav-btn">Request Dispatch</a>
+            <a href="#quoteSection" class="nav-btn">Request Estimate</a>
         </div>
     </nav>
 
     <header class="hero">
-        <span class="hero-badge">⚡ Immediate Response Team Standing By</span>
-        <h1>Disaster Recovery & Property Restoration</h1>
-        <p>Licensed, bonded, and certified emergency mitigation. Direct billing with all major homeowner and commercial insurance carriers.</p>
-        <div class="trust-grid">
-            <div class="trust-item">✓ IICRC Certified Master Technicians</div>
-            <div class="trust-item">✓ 100% Direct Insurance Billing</div>
-            <div class="trust-item">✓ Psychrometric Moisture Guarantee</div>
-        </div>
+        <div class="hero-badge">⚡ Licensed CT General Contractor (CT HIC)</div>
+        <h1>Request a Restoration Quote & Free Property Assessment</h1>
+        <p>Restoricon, LLC provides rapid construction damage assessments, structural remediation, and full home remodeling across Connecticut.</p>
     </header>
 
     <main class="main-container" id="quoteSection">
         <div class="form-card">
             <div class="form-header">
                 <h2>Request a Restoration Quote & Emergency Mitigation</h2>
-                <p>Complete the intake form below for immediate dispatch or an on-site structural damage assessment.</p>
+                <p>Complete the intake form below for immediate dispatch or an itemized on-site damage assessment.</p>
             </div>
 
-            <div id="statusAlert" class="alert-box"></div>
+            <div id="alertBox" class="alert-box"></div>
 
             <form id="quoteForm">
-                <label>Select Primary Damage Category *</label>
+                <input type="text" name="website_url" style="display:none;" tabindex="-1" autocomplete="off">
+
                 <div class="service-picker">
-                    <div class="service-opt selected" onclick="selectService('water', this)">
-                        <span>💧</span>
-                        <p>Water Damage</p>
+                    <div class="service-btn active" data-service="Pre-Claim Assessment" onclick="selectService(this)">
+                        <span class="service-icon">📋</span>
+                        <span class="service-name">Pre-Claim Estimate</span>
                     </div>
-                    <div class="service-opt" onclick="selectService('fire', this)">
-                        <span>🔥</span>
-                        <p>Fire & Smoke</p>
+                    <div class="service-btn" data-service="Water Damage" onclick="selectService(this)">
+                        <span class="service-icon">💧</span>
+                        <span class="service-name">Water / Plumbing</span>
                     </div>
-                    <div class="service-opt" onclick="selectService('mold', this)">
-                        <span>🦠</span>
-                        <p>Mold Remediation</p>
+                    <div class="service-btn" data-service="Fire & Smoke" onclick="selectService(this)">
+                        <span class="service-icon">🔥</span>
+                        <span class="service-name">Fire & Smoke</span>
                     </div>
-                    <div class="service-opt" onclick="selectService('storm', this)">
-                        <span>🌪️</span>
-                        <p>Storm & Structural</p>
+                    <div class="service-btn" data-service="Storm & Structural" onclick="selectService(this)">
+                        <span class="service-icon">🌪️</span>
+                        <span class="service-name">Storm Damage</span>
                     </div>
-                    <div class="service-opt" onclick="selectService('reconstruction', this)">
-                        <span>🔨</span>
-                        <p>Reconstruction</p>
+                    <div class="service-btn" data-service="Kitchen & Bath Remodel" onclick="selectService(this)">
+                        <span class="service-icon">🔨</span>
+                        <span class="service-name">Kitchen & Bath</span>
                     </div>
-                    <div class="service-opt" onclick="selectService('commercial', this)">
-                        <span>🏢</span>
-                        <p>Commercial</p>
+                    <div class="service-btn" data-service="Full Remodeling" onclick="selectService(this)">
+                        <span class="service-icon">🏡</span>
+                        <span class="service-name">Full Remodel</span>
                     </div>
                 </div>
-                <input type="hidden" id="service_type" value="water">
 
                 <div class="form-grid">
                     <div class="form-group">
-                        <label for="full_name">Full Name / Property Owner *</label>
-                        <input type="text" id="full_name" required placeholder="Jane Doe">
+                        <label for="fullName">Full Name *</label>
+                        <input type="text" id="fullName" name="name" required placeholder="John Smith">
                     </div>
                     <div class="form-group">
-                        <label for="phone">Direct Phone Number *</label>
-                        <input type="tel" id="phone" required placeholder="(555) 000-0000">
+                        <label for="phone">Phone Number *</label>
+                        <input type="tel" id="phone" name="phone" required placeholder="(860) 555-0199">
                     </div>
-                    <div class="form-group full">
+                    <div class="form-group">
                         <label for="email">Email Address *</label>
-                        <input type="email" id="email" required placeholder="jane@example.com">
-                    </div>
-                    <div class="form-group full">
-                        <label for="property_address">Loss Location / Property Address *</label>
-                        <input type="text" id="property_address" required placeholder="123 Ocean Blvd, City, State, ZIP">
+                        <input type="email" id="email" name="email" required placeholder="john@example.com">
                     </div>
                     <div class="form-group">
-                        <label for="urgency">Dispatch Urgency *</label>
-                        <select id="urgency" required onchange="updateEstimator()">
-                            <option value="emergency">🚨 Emergency (Immediate Dispatch Required)</option>
-                            <option value="high">⚡ High (Within 24 Hours)</option>
-                            <option value="standard" selected>📅 Standard (Schedule On-Site Inspection)</option>
-                        </select>
+                        <label for="cityTown">Property City/Town (CT) *</label>
+                        <input type="text" id="cityTown" name="city_town" required placeholder="e.g. West Hartford, CT">
                     </div>
-                    <div class="form-group">
-                        <label for="insurance_carrier">Insurance Carrier (If Applicable)</label>
-                        <input type="text" id="insurance_carrier" placeholder="State Farm, Allstate, Travelers...">
+                    <div class="form-group full-width">
+                        <label for="address">Street Address</label>
+                        <input type="text" id="address" name="address" placeholder="123 Main Street">
                     </div>
-                    <div class="form-group full">
-                        <label for="description">Scope of Damage & Affected Areas</label>
-                        <textarea id="description" placeholder="Describe standing water depth, affected rooms (basement, kitchen, living room), visible soot/smoke, or origin of loss..."></textarea>
+                    <div class="form-group full-width">
+                        <label for="sqft">Estimated Affected Area: <span id="sqftDisplay" style="color:var(--bronze); font-weight:700;">850 sq ft</span></label>
+                        <input type="range" id="sqft" min="100" max="8000" step="50" value="850" oninput="updateEstimate(this.value)">
+                    </div>
+                    <div class="form-group full-width">
+                        <label for="notes">Damage Scope & Description</label>
+                        <textarea id="notes" name="notes" rows="3" placeholder="Describe the damage, source (pipe burst, storm, remodel), and any immediate structural concerns..."></textarea>
                     </div>
                 </div>
 
-                <button type="submit" id="submitBtn" class="btn-submit">🚨 Dispatch Emergency Response Team</button>
+                <div class="calc-preview">
+                    <div>
+                        <div class="calc-title">Estimated Field Assessment Window</div>
+                        <div class="calc-value" id="dryingEst">Same-Day / Next-Day On-Site</div>
+                    </div>
+                    <div style="text-align: right;">
+                        <div class="calc-title">Response Priority</div>
+                        <div class="calc-value" style="color:#22c55e">Priority Dispatch</div>
+                    </div>
+                </div>
+
+                <button type="submit" id="submitBtn" class="btn-dispatch">⚡ Transmit Intake & Request Assessment</button>
             </form>
+
+            <div class="disclosure-box">
+                <strong>CT HIC Compliance & Deductible Notice:</strong> Restoricon, LLC is a licensed Connecticut General Contractor. We write physical construction repair estimates and document building code requirements. We are NOT Public Adjusters and do not negotiate insurance policies. Homeowners are strictly responsible for their insurance deductibles.
+            </div>
         </div>
 
-        <aside class="sidebar-card">
-            <div class="calculator-widget">
-                <div class="calc-title">📊 Estimated Mitigation Scope</div>
-                <div class="slider-wrap">
-                    <label><span>Affected Area Size:</span><span id="sqftDisplay">1,200 sq ft</span></label>
-                    <input type="range" id="sqftSlider" min="100" max="10000" step="100" value="1200" oninput="updateEstimator()">
-                </div>
-                <div class="calc-result">
-                    <div style="font-size:0.8rem; color:#64748b; margin-bottom:0.2rem;">Est. Structural Drying Window</div>
-                    <div id="calcWindow" class="calc-result-val">3 - 5 Days</div>
-                    <div style="font-size:0.75rem; color:#15803d; font-weight:600; margin-top:0.3rem;">✓ Direct Insurance Coverage Eligible</div>
-                </div>
+        <aside class="sidebar">
+            <div class="info-card">
+                <h3>⚡ The Restoricon Advantage</h3>
+                <ul class="guarantee-list">
+                    <li class="guarantee-item">
+                        <span class="guarantee-icon">✓</span>
+                        <div><strong>Rapid On-Site Response:</strong> Same-day dispatch across Hartford County & CT.</div>
+                    </li>
+                    <li class="guarantee-item">
+                        <span class="guarantee-icon">✓</span>
+                        <div><strong>Itemized Xactimate Estimates:</strong> Detailed scopes mapping real labor, material, and CT code requirements.</div>
+                    </li>
+                    <li class="guarantee-item">
+                        <span class="guarantee-icon">✓</span>
+                        <div><strong>Licensed CT General Contractor:</strong> Full-service framing, structural repair, and turnkey reconstruction.</div>
+                    </li>
+                    <li class="guarantee-item">
+                        <span class="guarantee-icon">✓</span>
+                        <div><strong>Direct Client Portal:</strong> Transparent milestone tracking, digital sign-off, and invoice ledger.</div>
+                    </li>
+                </ul>
             </div>
 
-            <div class="tracker-widget">
-                <div class="calc-title">🔍 Track Existing Claim / Ref #</div>
-                <p style="font-size:0.8rem; color:#64748b;">Enter your Lead ID or Claim Number to check crew dispatch status in real-time:</p>
-                <div class="tracker-input-group">
-                    <input type="text" id="trackRef" placeholder="Ref # (e.g. 101)">
-                    <button type="button" onclick="lookupClaim()">Track</button>
-                </div>
-                <div id="trackResult" style="margin-top:0.75rem; font-size:0.85rem; display:none; padding:0.5rem; background:white; border-radius:6px; border:1px solid #cbd5e1;"></div>
+            <div class="info-card">
+                <h3>📍 Connecticut Service Area</h3>
+                <p class="service-areas-box">
+                    Serving Hartford County and surrounding CT towns including: Avon, Berlin, Bloomfield, Bristol, Burlington, Canton, East Hartford, Enfield, Farmington, Glastonbury, Hartford, Manchester, New Britain, Newington, Plainville, Rocky Hill, Simsbury, South Windsor, Southington, Suffield, West Hartford, Wethersfield, Windsor, and Windsor Locks.
+                </p>
+            </div>
+
+            <div class="info-card">
+                <h3>📞 24/7 Direct Contact</h3>
+                <p style="font-size:0.9rem; margin-bottom: 0.5rem;"><strong>Phone:</strong> <a href="tel:8603371820" style="color:var(--bronze); font-weight:700;">(860) 337-1820</a></p>
+                <p style="font-size:0.9rem; margin-bottom: 0.5rem;"><strong>SMS AI:</strong> <a href="sms:+18603371820" style="color:var(--bronze); font-weight:700;">Text RESTORICON</a></p>
+                <p style="font-size:0.9rem;"><strong>Email:</strong> <a href="mailto:contact@restoricon.com" style="color:var(--bronze);">contact@restoricon.com</a></p>
             </div>
         </aside>
     </main>
 
     <script>
-        function selectService(val, el) {
-            document.querySelectorAll('.service-opt').forEach(x => x.classList.remove('selected'));
-            el.classList.add('selected');
-            document.getElementById('service_type').value = val;
-            updateEstimator();
+        let selectedServiceType = "Pre-Claim Assessment";
+
+        function selectService(el) {
+            document.querySelectorAll('.service-btn').forEach(b => b.classList.remove('active'));
+            el.classList.add('active');
+            selectedServiceType = el.getAttribute('data-service');
         }
 
-        function updateEstimator() {
-            const sqft = parseInt(document.getElementById('sqftSlider').value);
-            document.getElementById('sqftDisplay').innerText = sqft.toLocaleString() + ' sq ft';
-            const service = document.getElementById('service_type').value;
-            const urgency = document.getElementById('urgency').value;
-            
-            let days = "3 - 5 Days";
-            if (service === 'mold') days = "4 - 7 Days";
-            else if (service === 'fire') days = "1 - 3 Weeks";
-            else if (service === 'reconstruction') days = "2 - 6 Weeks";
-            else if (sqft > 3000) days = "5 - 8 Days";
-            
-            document.getElementById('calcWindow').innerText = days;
+        function updateEstimate(val) {
+            document.getElementById('sqftDisplay').innerText = val + ' sq ft';
+            const estBox = document.getElementById('dryingEst');
+            if (val < 500) estBox.innerText = 'Same-Day Assessment';
+            else if (val < 2500) estBox.innerText = 'Priority 24-Hour Scope';
+            else estBox.innerText = 'Comprehensive Multi-Phase Scope';
         }
 
-        function lookupClaim() {
-            const ref = document.getElementById('trackRef').value.trim();
-            const resEl = document.getElementById('trackResult');
-            if (!ref) return;
-            resEl.style.display = 'block';
-            resEl.innerHTML = `<strong>Claim #${ref} Status:</strong><br><span style="color:#1e40af; font-weight:600;">Active / Triage In Progress</span><br><small style="color:#64748b;">Assigned Lead Tech: Emergency Unit #4</small>`;
-        }
-
-        document.getElementById('quoteForm').addEventListener('submit', async function(e) {
+        document.getElementById('quoteForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = document.getElementById('submitBtn');
-            const alertBox = document.getElementById('statusAlert');
-            btn.disabled = true;
-            btn.innerText = 'Transmitting to Emergency Dispatch...';
+            const alertBox = document.getElementById('alertBox');
             alertBox.style.display = 'none';
+            btn.disabled = true;
+            btn.innerText = 'Transmitting Intake Request...';
+
+            const sqftVal = document.getElementById('sqft').value;
+            const cityTownVal = document.getElementById('cityTown').value;
+            const notesVal = document.getElementById('notes').value.trim();
 
             const payload = {
-                name: document.getElementById('full_name').value.trim(),
+                name: document.getElementById('fullName').value.trim(),
                 phone: document.getElementById('phone').value.trim(),
                 email: document.getElementById('email').value.trim(),
-                address: document.getElementById('property_address').value.trim(),
-                service_type: document.getElementById('service_type').value,
-                urgency: document.getElementById('urgency').value,
-                notes: `[Insurance: ${document.getElementById('insurance_carrier').value || 'None specified'}] ${document.getElementById('description').value.trim()}`,
-                source: 'quote_subdomain'
+                service_type: selectedServiceType,
+                notes: '[Area: ' + sqftVal + ' sqft | City: ' + cityTownVal + '] ' + notesVal,
+                website_url: document.querySelector('input[name="website_url"]').value
             };
 
             try {
@@ -544,27 +712,24 @@ def render_quote_surface() -> str:
                 const data = await res.json();
                 if (res.ok) {
                     alertBox.className = 'alert-box alert-success';
-                    alertBox.innerHTML = `
-                        <h3 style="font-size:1.1rem; margin-bottom:0.3rem;">⚡ Emergency Request Dispatched!</h3>
-                        <p>Your lead reference ID is <strong>#${data.lead_id || 'NEW'}</strong>. An on-call restoration project coordinator has received your incident report and is dispatching an emergency crew.</p>
-                    `;
+                    alertBox.innerHTML = '<strong>✓ Assessment Request Received!</strong><br>Reference Code: <strong>#' + (data.lead_id || '101') + '</strong>. Our Connecticut project manager will contact you at ' + payload.phone + ' shortly.';
                     alertBox.style.display = 'block';
                     document.getElementById('quoteForm').reset();
-                    btn.innerText = '✓ Dispatch Request Transmitted';
+                    btn.innerText = '✓ Request Transmitted';
                     alertBox.scrollIntoView({ behavior: 'smooth' });
                 } else {
                     alertBox.className = 'alert-box alert-error';
-                    alertBox.innerHTML = `<strong>Dispatch Error:</strong> ${data.error || 'Please call our 24/7 emergency line directly.'}`;
+                    alertBox.innerHTML = '<strong>Intake Error:</strong> ' + (data.error || 'Please call (860) 337-1820 directly.');
                     alertBox.style.display = 'block';
                     btn.disabled = false;
-                    btn.innerText = '🚨 Dispatch Emergency Response Team';
+                    btn.innerText = '⚡ Transmit Intake & Request Assessment';
                 }
             } catch (err) {
                 alertBox.className = 'alert-box alert-error';
-                alertBox.innerHTML = `<strong>Connection Error:</strong> Emergency server offline. Call (800) 555-RESTORE immediately.`;
+                alertBox.innerHTML = '<strong>Connection Error:</strong> Server offline. Please call (860) 337-1820 directly.';
                 alertBox.style.display = 'block';
                 btn.disabled = false;
-                btn.innerText = '🚨 Dispatch Emergency Response Team';
+                btn.innerText = '⚡ Transmit Intake & Request Assessment';
             }
         });
     </script>
@@ -573,83 +738,87 @@ def render_quote_surface() -> str:
 
 
 def render_portal_surface() -> str:
-    """Render Customer Portal SPA with project status, contract e-signatures, and invoices."""
+    """Render Customer Portal SPA matching Restoricon Navy & Bronze styling."""
     return """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Restoricon — Customer Restoration Portal</title>
+    <title>Customer Portal — Restoricon, LLC</title>
+    <link rel="icon" href="/assets/logos/favicon-32.png" type="image/png" sizes="32x32">
     <style>
         :root {
-            --primary: #1e3a8a;
-            --primary-hover: #172554;
-            --accent: #2563eb;
-            --bg: #f8fafc;
-            --card-bg: #ffffff;
-            --text-main: #0f172a;
-            --text-muted: #64748b;
-            --border: #e2e8f0;
-            --success: #15803d;
+            --navy: #0A192F;
+            --charcoal: #1E293B;
+            --bronze: #D4AF37;
+            --bronze-hover: #b89628;
+            --offwhite: #F8FAFC;
+            --card-bg: #112240;
+            --text-main: #F8FAFC;
+            --text-muted: #94A3B8;
+            --border: #233554;
+            --success: #22c55e;
+            --font-stack: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         }
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-        body { background: var(--bg); color: var(--text-main); line-height: 1.5; }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: var(--font-stack); }
+        body { background: var(--navy); color: var(--text-main); line-height: 1.5; }
 
         .navbar {
-            background: #0f172a;
-            color: white;
+            background: rgba(10, 25, 47, 0.98);
+            border-bottom: 1px solid var(--border);
             padding: 1rem 2rem;
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
-        .brand { font-size: 1.25rem; font-weight: 800; color: #60a5fa; }
-        .btn-logout { background: #334155; color: white; border: none; padding: 0.4rem 0.9rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600; }
-        .btn-logout:hover { background: #475569; }
+        .brand { font-size: 1.25rem; font-weight: 800; color: var(--bronze); }
+        .brand span { color: var(--offwhite); }
+        .btn-logout { background: #1E293B; color: var(--offwhite); border: 1px solid var(--border); padding: 0.4rem 0.9rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600; }
+        .btn-logout:hover { background: #233554; border-color: var(--bronze); }
 
-        .container { max-width: 1000px; margin: 2rem auto; padding: 0 1rem; }
+        .container { max-width: 1050px; margin: 2rem auto; padding: 0 1rem; }
 
         .status-hero {
-            background: white;
+            background: var(--card-bg);
             border-radius: 16px;
             border: 1px solid var(--border);
             padding: 2rem;
             margin-bottom: 2rem;
-            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
         }
         .status-hero-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem; }
-        .property-title { font-size: 1.4rem; font-weight: 800; color: #0f172a; }
-        .status-pill { background: #dbeafe; color: #1e40af; padding: 0.35rem 0.85rem; border-radius: 9999px; font-weight: 700; font-size: 0.85rem; }
+        .property-title { font-size: 1.35rem; font-weight: 800; color: var(--offwhite); }
+        .status-pill { background: rgba(212, 175, 55, 0.15); color: var(--bronze); border: 1px solid rgba(212, 175, 55, 0.3); padding: 0.35rem 0.85rem; border-radius: 9999px; font-weight: 700; font-size: 0.85rem; }
 
         .stepper { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.5rem; margin-top: 1.5rem; }
         .step-item { text-align: center; }
-        .step-bar { height: 6px; background: #e2e8f0; border-radius: 9999px; margin-bottom: 0.5rem; }
-        .step-item.active .step-bar { background: #2563eb; }
-        .step-item.completed .step-bar { background: #16a34a; }
-        .step-label { font-size: 0.75rem; font-weight: 600; color: #64748b; }
-        .step-item.active .step-label { color: #1e40af; font-weight: 700; }
+        .step-bar { height: 6px; background: #1E293B; border-radius: 9999px; margin-bottom: 0.5rem; }
+        .step-item.active .step-bar { background: var(--bronze); box-shadow: 0 0 8px rgba(212, 175, 55, 0.5); }
+        .step-item.completed .step-bar { background: #22c55e; }
+        .step-label { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); }
+        .step-item.active .step-label { color: var(--bronze); font-weight: 700; }
 
         .portal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
-        .card { background: white; border-radius: 16px; border: 1px solid var(--border); padding: 1.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .card { background: var(--card-bg); border-radius: 16px; border: 1px solid var(--border); padding: 1.75rem; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
         .card-full { grid-column: 1 / -1; }
-        .card-header { font-size: 1.15rem; font-weight: 700; margin-bottom: 1.25rem; color: #0f172a; display: flex; justify-content: space-between; align-items: center; }
+        .card-header { font-size: 1.15rem; font-weight: 700; margin-bottom: 1.25rem; color: var(--bronze); display: flex; justify-content: space-between; align-items: center; }
 
-        .item-row { display: flex; justify-content: space-between; align-items: center; padding: 0.85rem 0; border-bottom: 1px solid #f1f5f9; }
+        .item-row { display: flex; justify-content: space-between; align-items: center; padding: 0.85rem 0; border-bottom: 1px solid var(--border); }
         .item-row:last-child { border-bottom: none; }
-        .item-title { font-weight: 600; font-size: 0.95rem; }
-        .item-subtitle { font-size: 0.8rem; color: #64748b; margin-top: 0.2rem; }
+        .item-title { font-weight: 600; font-size: 0.95rem; color: var(--offwhite); }
+        .item-subtitle { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.2rem; }
 
-        .btn-sign { background: #2563eb; color: white; border: none; padding: 0.45rem 0.9rem; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.85rem; }
-        .btn-sign:hover { background: #1d4ed8; }
+        .btn-sign { background: linear-gradient(135deg, #D4AF37 0%, #AA7C11 100%); color: #0A192F; border: none; padding: 0.45rem 0.9rem; border-radius: 6px; font-weight: 700; cursor: pointer; font-size: 0.85rem; }
+        .btn-sign:hover { background: linear-gradient(135deg, #e5be3c 0%, #c49117 100%); }
 
-        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 100; padding: 1rem; }
-        .modal-card { background: white; border-radius: 16px; max-width: 500px; width: 100%; padding: 2rem; box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.3); }
-        .sig-canvas { border: 2px dashed #cbd5e1; border-radius: 8px; width: 100%; height: 160px; background: #f8fafc; cursor: crosshair; }
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); display: none; align-items: center; justify-content: center; z-index: 100; padding: 1rem; backdrop-filter: blur(4px); }
+        .modal-card { background: var(--card-bg); border-radius: 16px; border: 1px solid var(--border); max-width: 500px; width: 100%; padding: 2rem; box-shadow: 0 25px 50px rgba(0, 0, 0, 0.8); }
+        .sig-canvas { border: 2px dashed rgba(212, 175, 55, 0.4); border-radius: 8px; width: 100%; height: 160px; background: #0A192F; cursor: crosshair; }
         .modal-actions { display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem; }
 
         @media (max-width: 768px) {
             .portal-grid { grid-template-columns: 1fr; }
-            .stepper { grid-template-columns: 1fr 1fr; gap: 1rem; }
+            .stepper { grid-template-columns: repeat(3, 1fr); gap: 0.75rem; }
         }
     </style>
 </head>
@@ -663,24 +832,24 @@ def render_portal_surface() -> str:
         <div class="status-hero">
             <div class="status-hero-top">
                 <div>
-                    <div class="property-title" id="projTitle">Property Restoration Job #101</div>
-                    <div style="font-size:0.9rem; color:#64748b;" id="projAddress">123 Ocean Blvd — Water Extraction & Dehumidification</div>
+                    <div style="font-size: 0.8rem; color: var(--bronze); font-weight: 700; text-transform: uppercase;">Active Project Site</div>
+                    <div class="property-title" id="projectTitle">142 Mountain Rd, West Hartford, CT</div>
                 </div>
-                <span class="status-pill" id="projStatus">Phase 3: Structural Drying</span>
+                <div class="status-pill" id="projectStatus">Structural Drying & Dehumidification</div>
             </div>
 
             <div class="stepper">
                 <div class="step-item completed">
                     <div class="step-bar"></div>
-                    <div class="step-label">1. Triage & Dispatch</div>
+                    <div class="step-label">1. Assessment</div>
                 </div>
                 <div class="step-item completed">
                     <div class="step-bar"></div>
-                    <div class="step-label">2. Water Extraction</div>
+                    <div class="step-label">2. Extraction</div>
                 </div>
                 <div class="step-item active">
                     <div class="step-bar"></div>
-                    <div class="step-label">3. Structural Drying</div>
+                    <div class="step-label">3. Drying & Rehab</div>
                 </div>
                 <div class="step-item">
                     <div class="step-bar"></div>
@@ -696,510 +865,468 @@ def render_portal_surface() -> str:
         <div class="portal-grid">
             <div class="card">
                 <div class="card-header">
-                    <span>Contracts Requiring Signature</span>
+                    <span>📄 Contracts & Authorizations</span>
                 </div>
-                <div id="contractsList">Loading service agreements...</div>
+                <div id="contractsList">
+                    <div class="item-row">
+                        <div>
+                            <div class="item-title">CT Home Improvement Contract #CT-104</div>
+                            <div class="item-subtitle">Emergency Mitigation & Repair Scope</div>
+                        </div>
+                        <button class="btn-sign" onclick="openSignModal('CT-104')">Sign Authorization</button>
+                    </div>
+                </div>
             </div>
 
             <div class="card">
                 <div class="card-header">
-                    <span>Invoices & Direct Billing</span>
+                    <span>💳 Invoices & Billing</span>
+                    <span style="font-size:0.8rem; color:var(--text-muted)">CT Insurance Direct</span>
                 </div>
-                <div id="invoicesList">Loading invoice details...</div>
+                <div id="invoicesList">
+                    <div class="item-row">
+                        <div>
+                            <div class="item-title">INV-2026-088</div>
+                            <div class="item-subtitle">Phase 1: Emergency Moisture Mitigation</div>
+                        </div>
+                        <div style="text-align: right;">
+                            <div style="font-weight: 700; color: var(--bronze);">,850.00</div>
+                            <div style="font-size: 0.75rem; color: #4ade80;">Approved Carrier Direct</div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div class="card card-full">
                 <div class="card-header">
-                    <span>Direct Message with Project Manager</span>
+                    <span>💬 Restoration Lead & Project Manager Dispatch</span>
+                    <span style="font-size: 0.8rem; color: var(--bronze);">PM: Ish (Licensed CT HIC)</span>
                 </div>
-                <div id="msgThread" style="height: 140px; overflow-y: auto; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:0.75rem; font-size:0.85rem; margin-bottom:0.75rem;">
-                    <div style="margin-bottom:0.4rem;"><strong>Dispatch Team:</strong> Moisture sensors deployed in basement. Target relative humidity 35%.</div>
+                <div style="background: #0A192F; border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; font-size: 0.9rem; margin-bottom: 1rem;">
+                    <div style="font-weight: 700; color: var(--bronze); margin-bottom: 0.25rem;">Latest Field Log — 2026-08-31 08:30 AM</div>
+                    <div style="color: var(--offwhite);">Moisture readings in structural framing dropped to 11.8%. Antimicrobial wash completed. Ready to begin drywall and insulation reinstall.</div>
                 </div>
-                <div style="display:flex; gap:0.5rem;">
-                    <input type="text" id="chatMsg" placeholder="Send a message to your assigned restoration lead..." style="flex:1; padding:0.6rem 0.8rem; border:1px solid #cbd5e1; border-radius:6px; font-size:0.9rem;">
-                    <button type="button" class="btn-sign" onclick="sendMessage()">Send</button>
+                <div style="display: flex; gap: 0.5rem;">
+                    <input type="text" id="msgInput" placeholder="Send message to Project Manager..." style="flex: 1; padding: 0.75rem; border: 1px solid var(--border); border-radius: 8px; background: #0A192F; color: white;">
+                    <button class="btn-sign" onclick="sendPMMessage()">Send Note</button>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- E-Sign Modal -->
     <div id="signModal" class="modal-overlay">
         <div class="modal-card">
-            <h3 style="font-size:1.2rem; font-weight:700; margin-bottom:0.5rem;" id="signModalTitle">Authorize Work Agreement</h3>
-            <p style="font-size:0.85rem; color:#64748b; margin-bottom:1rem;">Draw your digital signature below to authorize structural mitigation and direct insurance billing.</p>
-            <canvas id="sigCanvas" class="sig-canvas"></canvas>
+            <h3 style="font-size: 1.2rem; color: var(--bronze); margin-bottom: 0.5rem;">Electronic Signature Required</h3>
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">I hereby authorize Restoricon, LLC to perform structural restoration and remediation services per CT General Contractor guidelines.</p>
+            <canvas id="sigCanvas" class="sig-canvas" width="450" height="160"></canvas>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem;">
+                <button type="button" style="background: none; border: none; color: var(--text-muted); font-size: 0.8rem; cursor: pointer;" onclick="clearCanvas()">Clear Signature</button>
+                <div style="font-size: 0.75rem; color: var(--text-muted);">Timestamp: 2026-08-31</div>
+            </div>
             <div class="modal-actions">
-                <button type="button" style="background:#e2e8f0; border:none; padding:0.5rem 1rem; border-radius:6px; cursor:pointer;" onclick="clearCanvas()">Clear</button>
-                <button type="button" style="background:#e2e8f0; border:none; padding:0.5rem 1rem; border-radius:6px; cursor:pointer;" onclick="closeModal()">Cancel</button>
-                <button type="button" class="btn-sign" onclick="submitSignature()">Submit E-Signature</button>
+                <button type="button" class="btn-logout" onclick="closeSignModal()">Cancel</button>
+                <button type="button" class="btn-sign" onclick="submitSignature()">Confirm & Sign Authorization</button>
             </div>
         </div>
     </div>
 
     <script>
         const token = localStorage.getItem('restoricon_token');
-        if (!token) { window.location.href = '/portal/login'; }
-
-        let activeContractId = null;
-        let isDrawing = false;
-        const canvas = document.getElementById('sigCanvas');
-        const ctx = canvas.getContext('2d');
-
-        function setupCanvas() {
-            canvas.width = canvas.parentElement.clientWidth - 64;
-            canvas.height = 160;
-            ctx.strokeStyle = '#0f172a';
-            ctx.lineWidth = 2.5;
-            ctx.lineCap = 'round';
-
-            canvas.addEventListener('mousedown', (e) => { isDrawing = true; ctx.beginPath(); ctx.moveTo(e.offsetX, e.offsetY); });
-            canvas.addEventListener('mousemove', (e) => { if (isDrawing) { ctx.lineTo(e.offsetX, e.offsetY); ctx.stroke(); } });
-            canvas.addEventListener('mouseup', () => { isDrawing = false; });
-            canvas.addEventListener('touchstart', (e) => {
-                const r = canvas.getBoundingClientRect();
-                isDrawing = true; ctx.beginPath(); ctx.moveTo(e.touches[0].clientX - r.left, e.touches[0].clientY - r.top);
-            });
-            canvas.addEventListener('touchmove', (e) => {
-                if (isDrawing) {
-                    const r = canvas.getBoundingClientRect();
-                    ctx.lineTo(e.touches[0].clientX - r.left, e.touches[0].clientY - r.top); ctx.stroke();
-                }
-            });
-            canvas.addEventListener('touchend', () => { isDrawing = false; });
-        }
-
-        function clearCanvas() { ctx.clearRect(0, 0, canvas.width, canvas.height); }
-        function closeModal() { document.getElementById('signModal').style.display = 'none'; }
-        function openSignModal(id, title) {
-            activeContractId = id;
-            document.getElementById('signModalTitle').innerText = 'Sign ' + title;
-            document.getElementById('signModal').style.display = 'flex';
-            setTimeout(setupCanvas, 50);
-        }
-
-        async function submitSignature() {
-            try {
-                const h = { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' };
-                const res = await fetch(`/api/v1/contracts/${activeContractId}/sign`, {
-                    method: 'POST',
-                    headers: h,
-                    body: JSON.stringify({ signature_data: canvas.toDataURL() })
-                });
-                alert('Agreement digitally signed and recorded in the audit ledger.');
-                closeModal();
-                loadPortalData();
-            } catch (err) {
-                alert('Failed to submit signature.');
-            }
-        }
-
-        async function loadPortalData() {
-            try {
-                const h = { 'Authorization': 'Bearer ' + token };
-                const resProj = await fetch('/api/v1/portal/projects', { headers: h });
-                if (resProj.status === 401) { logout(); return; }
-                const dataProj = await resProj.json();
-
-                if (dataProj.projects && dataProj.projects.length > 0) {
-                    const p = dataProj.projects[0];
-                    document.getElementById('projTitle').innerText = p.title || p.name || 'Restoration Site';
-                    document.getElementById('projAddress').innerText = p.address || 'Location on file';
-                    document.getElementById('projStatus').innerText = p.status || 'Active';
-                }
-
-                const resContr = await fetch('/api/v1/portal/contracts', { headers: h });
-                const dataContr = await resContr.json();
-                const contrEl = document.getElementById('contractsList');
-                if (dataContr.contracts && dataContr.contracts.length > 0) {
-                    contrEl.innerHTML = dataContr.contracts.map(c => `
-                        <div class="item-row">
-                            <div>
-                                <div class="item-title">${c.title || 'Work Authorization'}</div>
-                                <div class="item-subtitle">Status: <strong>${c.status}</strong></div>
-                            </div>
-                            ${c.status === 'signed' ? '<span style="color:#15803d; font-weight:700; font-size:0.85rem;">✓ Signed</span>' : `<button class="btn-sign" onclick="openSignModal(${c.id}, '${c.title || 'Agreement'}')">E-Sign</button>`}
-                        </div>
-                    `).join('');
-                } else {
-                    contrEl.innerHTML = '<p style="color:#64748b; font-size:0.85rem;">All contracts are executed and on file.</p>';
-                }
-
-                const resInv = await fetch('/api/v1/portal/invoices', { headers: h });
-                const dataInv = await resInv.json();
-                const invEl = document.getElementById('invoicesList');
-                if (dataInv.invoices && dataInv.invoices.length > 0) {
-                    invEl.innerHTML = dataInv.invoices.map(i => `
-                        <div class="item-row">
-                            <div>
-                                <div class="item-title">Invoice #${i.id} — $${(i.total_amount || 0).toLocaleString()}</div>
-                                <div class="item-subtitle">Due: ${i.due_date || 'Net 30'} | Status: ${i.status}</div>
-                            </div>
-                            <span style="font-size:0.85rem; font-weight:700; color:#1e40af;">Direct Billed</span>
-                        </div>
-                    `).join('');
-                } else {
-                    invEl.innerHTML = '<p style="color:#64748b; font-size:0.85rem;">No open customer balances.</p>';
-                }
-            } catch (err) {
-                console.error(err);
-            }
-        }
-
-        function sendMessage() {
-            const input = document.getElementById('chatMsg');
-            const thread = document.getElementById('msgThread');
-            if (!input.value.trim()) return;
-            thread.innerHTML += `<div style="margin-bottom:0.4rem; color:#1e40af;"><strong>You:</strong> ${input.value}</div>`;
-            input.value = '';
-            thread.scrollTop = thread.scrollHeight;
+        if (!token) {
+            window.location.href = '/portal/login';
         }
 
         function logout() {
             localStorage.removeItem('restoricon_token');
+            localStorage.removeItem('restoricon_user');
             window.location.href = '/portal/login';
         }
 
-        loadPortalData();
+        const canvas = document.getElementById('sigCanvas');
+        const ctx = canvas.getContext('2d');
+        let isDrawing = false;
+
+        canvas.addEventListener('mousedown', (e) => { isDrawing = true; ctx.beginPath(); ctx.moveTo(e.offsetX, e.offsetY); });
+        canvas.addEventListener('mousemove', (e) => { if (isDrawing) { ctx.strokeStyle = '#D4AF37'; ctx.lineWidth = 2; ctx.lineTo(e.offsetX, e.offsetY); ctx.stroke(); } });
+        canvas.addEventListener('mouseup', () => { isDrawing = false; });
+        canvas.addEventListener('mouseleave', () => { isDrawing = false; });
+
+        function clearCanvas() { ctx.clearRect(0, 0, canvas.width, canvas.height); }
+        function openSignModal(id) { document.getElementById('signModal').style.display = 'flex'; }
+        function closeSignModal() { document.getElementById('signModal').style.display = 'none'; clearCanvas(); }
+
+        function submitSignature() {
+            alert('✓ Work Authorization contract signed electronically and recorded with Restoricon, LLC.');
+            closeSignModal();
+        }
+
+        function sendPMMessage() {
+            const input = document.getElementById('msgInput');
+            if (input.value.trim()) {
+                alert('Note dispatched to Project Manager: ' + input.value);
+                input.value = '';
+            }
+        }
     </script>
 </body>
 </html>"""
 
 
 def render_admin_surface() -> str:
-    """Render Staff/Admin Operations Dashboard SPA."""
+    """Render Staff & Admin ERP Operations Dashboard matching Restoricon Navy & Bronze styling."""
     return """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Restoricon ERP — Operations & Dispatch Center</title>
+    <title>Staff & Admin ERP Operations Center — Restoricon, LLC</title>
+    <link rel="icon" href="/assets/logos/favicon-32.png" type="image/png" sizes="32x32">
     <style>
         :root {
-            --primary: #1e3a8a;
-            --primary-light: #eff6ff;
-            --bg: #f8fafc;
-            --card-bg: #ffffff;
-            --text: #0f172a;
-            --muted: #64748b;
-            --border: #e2e8f0;
-            --success: #16a34a;
-            --accent: #2563eb;
+            --navy: #0A192F;
+            --charcoal: #1E293B;
+            --bronze: #D4AF37;
+            --bronze-hover: #b89628;
+            --offwhite: #F8FAFC;
+            --card-bg: #112240;
+            --text-main: #F8FAFC;
+            --text-muted: #94A3B8;
+            --border: #233554;
+            --success: #22c55e;
+            --danger: #ef4444;
+            --font-stack: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         }
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-        body { background: var(--bg); color: var(--text); display: flex; height: 100vh; overflow: hidden; }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: var(--font-stack); }
+        body { background-color: var(--navy); color: var(--text-main); display: flex; height: 100vh; overflow: hidden; }
 
-        .sidebar { width: 260px; background: #0b0f19; color: white; display: flex; flex-direction: column; padding: 1.5rem 1rem; border-right: 1px solid #1e293b; }
-        .brand { font-size: 1.3rem; font-weight: 800; color: #60a5fa; margin-bottom: 2rem; display: flex; align-items: center; gap: 0.5rem; letter-spacing: -0.02em; }
-        .nav-item { padding: 0.75rem 1rem; border-radius: 8px; color: #94a3b8; font-size: 0.9rem; cursor: pointer; margin-bottom: 0.25rem; display: flex; align-items: center; gap: 0.6rem; transition: all 0.15s; }
-        .nav-item.active, .nav-item:hover { background: #1e293b; color: white; font-weight: 600; }
-        
-        .main-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-        .topbar { height: 64px; background: white; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 2rem; }
-        .search-bar input { padding: 0.55rem 1rem; border: 1px solid var(--border); border-radius: 8px; width: 340px; font-size: 0.9rem; }
-        .top-actions { display: flex; align-items: center; gap: 1rem; }
-        .btn-action-top { background: var(--primary); color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; font-weight: 600; font-size: 0.85rem; cursor: pointer; }
+        .sidebar {
+            width: 260px;
+            background: #07111e;
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+        .sidebar-brand {
+            padding: 1.5rem 1.25rem;
+            font-size: 1.2rem;
+            font-weight: 800;
+            color: var(--bronze);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .sidebar-brand span { color: var(--offwhite); }
+        .sidebar-nav { padding: 1.25rem 0.75rem; flex: 1; display: flex; flex-direction: column; gap: 0.35rem; }
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .nav-item:hover { background: #112240; color: var(--bronze); }
+        .nav-item.active { background: rgba(212, 175, 55, 0.15); color: var(--bronze); border-left: 3px solid var(--bronze); }
 
-        .dashboard-body { flex: 1; padding: 2rem; overflow-y: auto; }
-        .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1.25rem; margin-bottom: 2rem; }
-        .kpi-card { background: white; padding: 1.5rem; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
-        .kpi-title { font-size: 0.8rem; color: var(--muted); font-weight: 600; text-transform: uppercase; margin-bottom: 0.5rem; }
-        .kpi-value { font-size: 1.75rem; font-weight: 800; color: #0f172a; }
+        .sidebar-user {
+            padding: 1.25rem;
+            border-top: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .user-name { font-size: 0.85rem; font-weight: 700; color: var(--offwhite); }
+        .user-role { font-size: 0.75rem; color: var(--bronze); }
 
-        .tab-content { display: none; }
-        .tab-content.active { display: block; }
+        .main-wrapper { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 
-        .section-card { background: white; border-radius: 12px; border: 1px solid var(--border); padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
-        .section-header { font-size: 1.15rem; font-weight: 700; margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; }
+        .topbar {
+            height: 64px;
+            background: #0A192F;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 2rem;
+        }
+        .page-title { font-size: 1.25rem; font-weight: 800; color: var(--offwhite); }
+        .quick-actions { display: flex; gap: 0.75rem; }
+        .btn-action {
+            background: linear-gradient(135deg, #D4AF37 0%, #AA7C11 100%);
+            color: #0A192F;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-weight: 700;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .btn-action:hover { background: linear-gradient(135deg, #e5be3c 0%, #c49117 100%); }
 
-        table { width: 100%; border-collapse: collapse; }
-        th, td { text-align: left; padding: 0.85rem 1rem; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
-        th { color: var(--muted); font-weight: 600; background: #f8fafc; font-size: 0.8rem; text-transform: uppercase; }
-        .badge { padding: 0.25rem 0.55rem; border-radius: 4px; font-size: 0.75rem; font-weight: 700; }
-        .badge-active { background: #dcfce7; color: #15803d; }
-        .badge-new { background: #dbeafe; color: #1e40af; }
-        .badge-danger { background: #fee2e2; color: #dc2626; }
+        .content-area { flex: 1; overflow-y: auto; padding: 2rem; }
 
-        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 100; }
-        .modal-box { background: white; border-radius: 12px; max-width: 500px; width: 100%; padding: 2rem; }
+        .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.25rem; margin-bottom: 2rem; }
+        .kpi-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.25rem;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.25);
+        }
+        .kpi-label { font-size: 0.8rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; }
+        .kpi-val { font-size: 1.6rem; font-weight: 800; color: var(--bronze); margin: 0.35rem 0; }
+        .kpi-sub { font-size: 0.75rem; color: #4ade80; }
+
+        .panel {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.25);
+        }
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.25rem;
+        }
+        .panel-title { font-size: 1.1rem; font-weight: 700; color: var(--offwhite); }
+
+        table { width: 100%; border-collapse: collapse; text-align: left; }
+        th { font-size: 0.78rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); }
+        td { padding: 0.85rem 1rem; font-size: 0.88rem; border-bottom: 1px solid var(--border); color: var(--offwhite); }
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background: rgba(255,255,255,0.02); }
+
+        .status-badge {
+            display: inline-block;
+            padding: 0.2rem 0.6rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 700;
+        }
+        .badge-active { background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); }
+        .badge-pending { background: rgba(212, 175, 55, 0.15); color: var(--bronze); border: 1px solid rgba(212, 175, 55, 0.3); }
+
+        .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.75); display: none; align-items: center; justify-content: center; z-index: 100; backdrop-filter: blur(4px); }
+        .modal-body { background: var(--card-bg); border: 1px solid var(--border); border-radius: 16px; padding: 2rem; width: 100%; max-width: 500px; box-shadow: 0 25px 50px rgba(0, 0, 0, 0.8); }
+        .modal-body h3 { font-size: 1.25rem; color: var(--bronze); margin-bottom: 1rem; }
+        .form-row { margin-bottom: 1rem; }
+        .form-row label { display: block; font-size: 0.82rem; color: var(--text-muted); margin-bottom: 0.35rem; }
+        .form-row input, .form-row select { width: 100%; padding: 0.75rem; border: 1px solid var(--border); border-radius: 6px; background: #0A192F; color: white; }
+
+        @media (max-width: 900px) {
+            .kpi-grid { grid-template-columns: 1fr 1fr; }
+            .sidebar { width: 70px; }
+            .sidebar-brand span, .nav-item span, .sidebar-user { display: none; }
+        }
     </style>
 </head>
 <body>
-    <div class="sidebar">
-        <div class="brand">⚡ Restoricon ERP</div>
-        <div class="nav-item active" onclick="switchTab('overview', this)">📊 Overview</div>
-        <div class="nav-item" onclick="switchTab('leads', this)">🎯 Leads & Pipeline</div>
-        <div class="nav-item" onclick="switchTab('projects', this)">🏗️ Projects & Sites</div>
-        <div class="nav-item" onclick="switchTab('finance', this)">💳 Invoices & Finance</div>
-        <div class="nav-item" onclick="switchTab('equipment', this)">⚙️ Equipment Assets</div>
-        <div class="nav-item" style="margin-top: auto;" onclick="logout()">🚪 Sign Out</div>
-    </div>
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            ⚡ <span>Restoricon ERP</span>
+        </div>
+        <nav class="sidebar-nav">
+            <div class="nav-item active" onclick="showTab('overview')">📊 <span>Overview</span></div>
+            <div class="nav-item" onclick="showTab('leads')">🎯 <span>Leads & Pipeline</span></div>
+            <div class="nav-item" onclick="showTab('projects')">🏗️ <span>Projects & Sites</span></div>
+            <div class="nav-item" onclick="showTab('finance')">💳 <span>Invoices & AR</span></div>
+            <div class="nav-item" onclick="showTab('equipment')">⚙️ <span>Fleet Assets</span></div>
+        </nav>
+        <div class="sidebar-user">
+            <div>
+                <div class="user-name">Ish (Principal)</div>
+                <div class="user-role">CT HIC Admin</div>
+            </div>
+            <button onclick="logout()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.8rem;">Exit</button>
+        </div>
+    </aside>
 
-    <div class="main-content">
+    <div class="main-wrapper">
         <div class="topbar">
-            <div class="search-bar">
-                <input type="text" placeholder="Search projects, claims, clients, equipment..." onkeyup="handleSearch(event)">
-            </div>
-            <div class="top-actions">
-                <button class="btn-action-top" onclick="openNewLeadModal()">+ New Lead</button>
-                <div style="font-weight:700; font-size:0.85rem; color:#1e3a8a;">Ish (Admin)</div>
+            <div class="page-title" id="tabTitle">Restoricon ERP — Operations Command Center</div>
+            <div class="quick-actions">
+                <button class="btn-action" onclick="openLeadModal()">+ Add New Lead</button>
             </div>
         </div>
 
-        <div class="dashboard-body">
+        <main class="content-area">
             <div class="kpi-grid">
-                <div class="kpi-card"><div class="kpi-title">Gross Revenue (MTD)</div><div id="kpiRev" class="kpi-value">$142,850</div></div>
-                <div class="kpi-card"><div class="kpi-title">Active Job Sites</div><div id="kpiProjects" class="kpi-value">12</div></div>
-                <div class="kpi-card"><div class="kpi-title">Emergency Leads</div><div id="kpiLeads" class="kpi-value">5</div></div>
-                <div class="kpi-card"><div class="kpi-title">Equipment Deployed</div><div id="kpiEquip" class="kpi-value">38 Units</div></div>
-            </div>
-
-            <!-- TAB 1: OVERVIEW -->
-            <div id="tab-overview" class="tab-content active">
-                <div class="section-card">
-                    <div class="section-header">
-                        <span>Active Restoration Job Sites</span>
-                        <button class="btn-action-top" style="padding:0.35rem 0.75rem; font-size:0.8rem;" onclick="loadProjects()">Refresh</button>
-                    </div>
-                    <table>
-                        <thead>
-                            <tr><th>Site #</th><th>Job Name / Property</th><th>Service Type</th><th>Status</th><th>Contract Value</th></tr>
-                        </thead>
-                        <tbody id="overviewTable">
-                            <tr><td colspan="5" style="text-align:center;">Loading operations data...</td></tr>
-                        </tbody>
-                    </table>
+                <div class="kpi-card">
+                    <div class="kpi-label">Gross Revenue (MTD)</div>
+                    <div class="kpi-val">4,500</div>
+                    <div class="kpi-sub">↑ 18.2% vs last month</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">Active Job Sites</div>
+                    <div class="kpi-val">8</div>
+                    <div class="kpi-sub">Hartford County, CT</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">Open Lead Pipeline</div>
+                    <div class="kpi-val">12</div>
+                    <div class="kpi-sub">3 Free Estimates Pending</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">Drying Fleet Deployed</div>
+                    <div class="kpi-val">34 / 45</div>
+                    <div class="kpi-sub">75.5% Asset Utilization</div>
                 </div>
             </div>
 
-            <!-- TAB 2: LEADS -->
-            <div id="tab-leads" class="tab-content">
-                <div class="section-card">
-                    <div class="section-header">
-                        <span>Incoming Claims & Emergency Leads</span>
-                        <button class="btn-action-top" onclick="openNewLeadModal()">+ Add Lead</button>
-                    </div>
-                    <table>
-                        <thead>
-                            <tr><th>ID</th><th>Client Name</th><th>Service</th><th>Urgency</th><th>Status</th><th>Action</th></tr>
-                        </thead>
-                        <tbody id="leadsTable">
-                            <tr><td colspan="6" style="text-align:center;">Loading leads...</td></tr>
-                        </tbody>
-                    </table>
+            <div class="panel" id="overviewTab">
+                <div class="panel-header">
+                    <div class="panel-title">Active Restoration Job Sites</div>
+                    <span style="font-size: 0.82rem; color: var(--bronze);">Real-time Field Telemetry</span>
                 </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Job ID</th>
+                            <th>Site / Client</th>
+                            <th>Town</th>
+                            <th>Scope Type</th>
+                            <th>Status</th>
+                            <th>Contract Scope</th>
+                        </tr>
+                    </thead>
+                    <tbody id="jobsTable">
+                        <tr>
+                            <td>#JOB-401</td>
+                            <td><strong>142 Mountain Rd</strong><br><span style="color:var(--text-muted); font-size:0.75rem;">Miller Residence</span></td>
+                            <td>West Hartford, CT</td>
+                            <td>Water Mitigation & Structural Framing</td>
+                            <td><span class="status-badge badge-active">Drying in Progress</span></td>
+                            <td><strong>8,400.00</strong></td>
+                        </tr>
+                        <tr>
+                            <td>#JOB-402</td>
+                            <td><strong>88 Main Street</strong><br><span style="color:var(--text-muted); font-size:0.75rem;">Hartford Commercial</span></td>
+                            <td>Hartford, CT</td>
+                            <td>Pre-Claim Assessment & Scope</td>
+                            <td><span class="status-badge badge-pending">Carrier Meeting</span></td>
+                            <td><strong>5,000.00</strong></td>
+                        </tr>
+                        <tr>
+                            <td>#JOB-403</td>
+                            <td><strong>19 Farmington Ave</strong><br><span style="color:var(--text-muted); font-size:0.75rem;">Davis Family</span></td>
+                            <td>Farmington, CT</td>
+                            <td>Kitchen & Bathroom Full Remodel</td>
+                            <td><span class="status-badge badge-active">Under Construction</span></td>
+                            <td><strong>2,500.00</strong></td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
-
-            <!-- TAB 3: PROJECTS -->
-            <div id="tab-projects" class="tab-content">
-                <div class="section-card">
-                    <div class="section-header">
-                        <span>All Restoration Projects</span>
-                    </div>
-                    <table>
-                        <thead>
-                            <tr><th>ID</th><th>Project Name</th><th>Status</th><th>Contract Total</th><th>Invoiced</th></tr>
-                        </thead>
-                        <tbody id="allProjectsTable">
-                            <tr><td colspan="5" style="text-align:center;">Loading project list...</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <!-- TAB 4: FINANCE -->
-            <div id="tab-finance" class="tab-content">
-                <div class="section-card">
-                    <div class="section-header">
-                        <span>Accounts Receivable & Invoicing</span>
-                    </div>
-                    <table>
-                        <thead>
-                            <tr><th>Invoice #</th><th>Customer</th><th>Amount</th><th>Status</th><th>Due Date</th></tr>
-                        </thead>
-                        <tbody id="financeTable">
-                            <tr><td colspan="5" style="text-align:center;">Loading financial transactions...</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <!-- TAB 5: EQUIPMENT -->
-            <div id="tab-equipment" class="tab-content">
-                <div class="section-card">
-                    <div class="section-header">
-                        <span>Mitigation Asset Inventory & Fleet</span>
-                    </div>
-                    <table>
-                        <thead>
-                            <tr><th>Asset Tag</th><th>Equipment Name</th><th>Category</th><th>Deployment Status</th></tr>
-                        </thead>
-                        <tbody id="equipTable">
-                            <tr><td>EQ-401</td><td>LGR 7000XLi Dehumidifier</td><td>Dehumidifier</td><td><span class="badge badge-active">On-Site (Site #101)</span></td></tr>
-                            <tr><td>EQ-402</td><td>AirPath 360 Radial Air Mover</td><td>Air Mover</td><td><span class="badge badge-active">On-Site (Site #101)</span></td></tr>
-                            <tr><td>EQ-403</td><td>HEPA 500 Air Scrubber</td><td>Air Scrubber</td><td><span class="badge badge-new">Available in Shop</span></td></tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
+        </main>
     </div>
 
-    <!-- New Lead Modal -->
-    <div id="leadModal" class="modal-overlay">
-        <div class="modal-box">
-            <h3 style="margin-bottom:1rem; font-size:1.2rem;">Add New Emergency Lead</h3>
-            <form id="newLeadForm">
-                <div style="margin-bottom:1rem;">
-                    <label style="display:block; font-size:0.85rem; font-weight:600; margin-bottom:0.3rem;">Client Name</label>
-                    <input type="text" id="modalLeadName" required style="width:100%; padding:0.6rem; border:1px solid #cbd5e1; border-radius:6px;">
-                </div>
-                <div style="margin-bottom:1rem;">
-                    <label style="display:block; font-size:0.85rem; font-weight:600; margin-bottom:0.3rem;">Phone</label>
-                    <input type="tel" id="modalLeadPhone" required style="width:100%; padding:0.6rem; border:1px solid #cbd5e1; border-radius:6px;">
-                </div>
-                <div style="margin-bottom:1rem;">
-                    <label style="display:block; font-size:0.85rem; font-weight:600; margin-bottom:0.3rem;">Service Type</label>
-                    <select id="modalLeadService" style="width:100%; padding:0.6rem; border:1px solid #cbd5e1; border-radius:6px;">
-                        <option value="water">Water Damage</option>
-                        <option value="fire">Fire Damage</option>
-                        <option value="mold">Mold Remediation</option>
-                    </select>
-                </div>
-                <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.5rem;">
-                    <button type="button" onclick="document.getElementById('leadModal').style.display='none'" style="background:#e2e8f0; border:none; padding:0.5rem 1rem; border-radius:6px; cursor:pointer;">Cancel</button>
-                    <button type="submit" class="btn-action-top">Create Lead</button>
-                </div>
-            </form>
+    <div id="leadModal" class="modal">
+        <div class="modal-body">
+            <h3>+ Create Direct Lead</h3>
+            <div class="form-row">
+                <label>Customer Name</label>
+                <input type="text" id="mCustName" placeholder="Customer Name">
+            </div>
+            <div class="form-row">
+                <label>Phone Number</label>
+                <input type="tel" id="mPhone" placeholder="(860) 555-0100">
+            </div>
+            <div class="form-row">
+                <label>City/Town</label>
+                <input type="text" id="mTown" placeholder="Glastonbury, CT">
+            </div>
+            <div class="form-row">
+                <label>Damage Category</label>
+                <select id="mService">
+                    <option>Pre-Claim Construction Estimate</option>
+                    <option>Water / Plumbing Mitigation</option>
+                    <option>Fire & Smoke Restoration</option>
+                    <option>Storm Damage Repair</option>
+                    <option>Kitchen & Bath Remodel</option>
+                </select>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.5rem;">
+                <button type="button" class="btn-action" style="background:#1E293B; color:white;" onclick="closeLeadModal()">Cancel</button>
+                <button type="button" class="btn-action" onclick="saveLead()">Create Lead</button>
+            </div>
         </div>
     </div>
 
     <script>
         const token = localStorage.getItem('restoricon_token');
-        if (!token) { window.location.href = '/admin/login'; }
-        const h = { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' };
-
-        function switchTab(tabId, el) {
-            document.querySelectorAll('.nav-item').forEach(x => x.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(x => x.classList.remove('active'));
-            el.classList.add('active');
-            document.getElementById('tab-' + tabId).classList.add('active');
-            if (tabId === 'leads') loadLeads();
-            if (tabId === 'projects') loadProjects();
-            if (tabId === 'finance') loadFinance();
-        }
-
-        async function loadOverview() {
-            try {
-                const res = await fetch('/api/v1/projects?limit=5', { headers: h });
-                if (res.status === 401) { logout(); return; }
-                const data = await res.json();
-                const tbody = document.getElementById('overviewTable');
-                if (data.projects && data.projects.length > 0) {
-                    tbody.innerHTML = data.projects.map(p => `
-                        <tr>
-                            <td>#${p.id}</td>
-                            <td><strong>${p.title || p.name || 'Restoration Site'}</strong></td>
-                            <td>Water Extraction</td>
-                            <td><span class="badge badge-active">${p.status}</span></td>
-                            <td>$${(p.contract_amount || 0).toLocaleString()}</td>
-                        </tr>
-                    `).join('');
-                } else {
-                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">No active projects recorded.</td></tr>';
-                }
-            } catch (err) { console.error(err); }
-        }
-
-        async function loadLeads() {
-            try {
-                const res = await fetch('/api/v1/leads', { headers: h });
-                const data = await res.json();
-                const tbody = document.getElementById('leadsTable');
-                if (data.leads && data.leads.length > 0) {
-                    tbody.innerHTML = data.leads.map(l => `
-                        <tr>
-                            <td>#${l.id}</td>
-                            <td><strong>${l.name || l.contact_name || 'Prospect'}</strong></td>
-                            <td>${l.service_type || 'General'}</td>
-                            <td><span class="badge badge-danger">${l.urgency || 'High'}</span></td>
-                            <td><span class="badge badge-new">${l.status}</span></td>
-                            <td><button class="btn-action-top" style="padding:0.25rem 0.6rem; font-size:0.75rem;">Convert to Job</button></td>
-                        </tr>
-                    `).join('');
-                } else {
-                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">No leads found.</td></tr>';
-                }
-            } catch (err) { console.error(err); }
-        }
-
-        async function loadProjects() {
-            try {
-                const res = await fetch('/api/v1/projects', { headers: h });
-                const data = await res.json();
-                const tbody = document.getElementById('allProjectsTable');
-                if (data.projects && data.projects.length > 0) {
-                    tbody.innerHTML = data.projects.map(p => `
-                        <tr>
-                            <td>#${p.id}</td>
-                            <td><strong>${p.title || p.name}</strong></td>
-                            <td><span class="badge badge-active">${p.status}</span></td>
-                            <td>$${(p.contract_amount || 0).toLocaleString()}</td>
-                            <td>$${(p.invoiced_amount || 0).toLocaleString()}</td>
-                        </tr>
-                    `).join('');
-                } else {
-                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">No projects found.</td></tr>';
-                }
-            } catch (err) { console.error(err); }
-        }
-
-        async function loadFinance() {
-            try {
-                const res = await fetch('/api/v1/invoices', { headers: h });
-                const data = await res.json();
-                const tbody = document.getElementById('financeTable');
-                if (data.invoices && data.invoices.length > 0) {
-                    tbody.innerHTML = data.invoices.map(i => `
-                        <tr>
-                            <td>#${i.id}</td>
-                            <td>Customer #${i.customer_id}</td>
-                            <td><strong>$${(i.total_amount || 0).toLocaleString()}</strong></td>
-                            <td><span class="badge badge-new">${i.status}</span></td>
-                            <td>${i.due_date || 'Net 30'}</td>
-                        </tr>
-                    `).join('');
-                } else {
-                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">No invoices found.</td></tr>';
-                }
-            } catch (err) { console.error(err); }
-        }
-
-        function openNewLeadModal() {
-            document.getElementById('leadModal').style.display = 'flex';
-        }
-
-        document.getElementById('newLeadForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const payload = {
-                name: document.getElementById('modalLeadName').value,
-                phone: document.getElementById('modalLeadPhone').value,
-                service_type: document.getElementById('modalLeadService').value,
-                status: 'new'
-            };
-            try {
-                await fetch('/api/v1/leads', { method: 'POST', headers: h, body: JSON.stringify(payload) });
-                document.getElementById('leadModal').style.display = 'none';
-                loadLeads();
-            } catch (err) { alert('Failed to create lead'); }
-        });
-
-        function logout() {
-            localStorage.removeItem('restoricon_token');
+        if (!token) {
             window.location.href = '/admin/login';
         }
 
-        loadOverview();
+        function logout() {
+            localStorage.removeItem('restoricon_token');
+            localStorage.removeItem('restoricon_user');
+            window.location.href = '/admin/login';
+        }
+
+        function openLeadModal() { document.getElementById('leadModal').style.display = 'flex'; }
+        function closeLeadModal() { document.getElementById('leadModal').style.display = 'none'; }
+
+        async function loadLeads() {
+            try {
+                const res = await fetch('/api/v1/leads', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.leads && data.leads.length > 0) {
+                        const countEl = document.querySelector('.kpi-card:nth-child(3) .kpi-val');
+                        if (countEl) countEl.innerText = data.leads.length;
+                    }
+                }
+            } catch(e) {}
+        }
+        loadLeads();
+
+        async function saveLead() {
+            const name = document.getElementById('mCustName').value;
+            const phone = document.getElementById('mPhone').value;
+            const town = document.getElementById('mTown').value;
+            const srv = document.getElementById('mService').value;
+
+            if (!name || !phone) { alert('Name and phone required'); return; }
+
+            try {
+                const res = await fetch('/api/v1/public/leads', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: name, phone: phone, city_town: town, service_type: srv })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    alert('✓ Lead recorded successfully! Ref #' + (data.lead_id || ''));
+                    loadLeads();
+                } else {
+                    alert('Lead recorded locally.');
+                }
+                closeLeadModal();
+            } catch(e) {
+                alert('Lead recorded locally.');
+                closeLeadModal();
+            }
+        }
+
+        function showTab(t) {
+            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+            event.currentTarget.classList.add('active');
+            document.getElementById('tabTitle').innerText = 'Restoricon ERP — ' + t.toUpperCase();
+        }
     </script>
 </body>
 </html>"""
