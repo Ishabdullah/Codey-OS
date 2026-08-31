@@ -50,7 +50,7 @@ from ..services.crm_service import CRMService
 from ..services.finance_service import FinanceService
 from ..services.operations_service import OperationsService
 from ..services.scheduling_service import SchedulingService
-from .web_surfaces import render_admin_surface, render_portal_surface, render_login_surface
+from .web_surfaces import render_admin_surface, render_portal_surface, render_login_surface, render_quote_surface
 
 
 class APIRouter:
@@ -123,21 +123,36 @@ class APIRouter:
         if method == "GET" and path in ("/api/v1/health", "/health"):
             return 200, {"Content-Type": "application/json"}, {"status": "ok", "service": "restoricon_core"}
 
-        # Web Surface UI endpoints (Staff Admin & Customer Portal)
-        if method == "GET" and path in ("/admin", "/admin/"):
-            return 200, {"Content-Type": "text/html; charset=utf-8"}, render_admin_surface()
+        host = headers.get("host", "").lower().split(":")[0].strip()
 
-        if method == "GET" and path in ("/admin/login", "/admin/login/"):
-            return 200, {"Content-Type": "text/html; charset=utf-8"}, render_login_surface("admin")
+        # Web Surface UI endpoints (Subdomain Host & Direct Path Routing)
+        if method == "GET":
+            # Subdomain Host-based routing (e.g. quote.restoricon.com, admin.restoricon.com, portal.restoricon.com)
+            if host.startswith("quote.") and path in ("", "/"):
+                return 200, {"Content-Type": "text/html; charset=utf-8"}, render_quote_surface()
+            if host.startswith("portal.") and path in ("", "/"):
+                return 200, {"Content-Type": "text/html; charset=utf-8"}, render_portal_surface()
+            if host.startswith("admin.") and path in ("", "/"):
+                return 200, {"Content-Type": "text/html; charset=utf-8"}, render_admin_surface()
 
-        if method == "GET" and path in ("/portal", "/portal/"):
-            return 200, {"Content-Type": "text/html; charset=utf-8"}, render_portal_surface()
+            # Path-based routing
+            if path in ("/quote", "/quote/"):
+                return 200, {"Content-Type": "text/html; charset=utf-8"}, render_quote_surface()
 
-        if method == "GET" and path in ("/portal/login", "/portal/login/"):
-            return 200, {"Content-Type": "text/html; charset=utf-8"}, render_login_surface("customer")
+            if path in ("/admin", "/admin/"):
+                return 200, {"Content-Type": "text/html; charset=utf-8"}, render_admin_surface()
 
-        if method == "GET" and path in ("", "/"):
-            return 200, {"Content-Type": "text/html; charset=utf-8"}, render_login_surface("admin")
+            if path in ("/admin/login", "/admin/login/"):
+                return 200, {"Content-Type": "text/html; charset=utf-8"}, render_login_surface("admin")
+
+            if path in ("/portal", "/portal/"):
+                return 200, {"Content-Type": "text/html; charset=utf-8"}, render_portal_surface()
+
+            if path in ("/portal/login", "/portal/login/"):
+                return 200, {"Content-Type": "text/html; charset=utf-8"}, render_login_surface("customer")
+
+            if path in ("", "/"):
+                return 200, {"Content-Type": "text/html; charset=utf-8"}, render_quote_surface()
 
         if method == "POST" and path == "/api/v1/auth/login":
             return self._handle_login(json_body)

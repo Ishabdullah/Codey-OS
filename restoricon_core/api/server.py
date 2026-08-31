@@ -145,3 +145,32 @@ class RestoriconAPIServer:
                 self._thread.join(timeout=5.0)
             self.db.close()
             logger.info("Restoricon Core API server stopped")
+
+
+if __name__ == "__main__":
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(description="Restoricon Core HTTP REST API Server & Web Surfaces")
+    parser.add_argument("--host", default=DEFAULT_HOST, help=f"Bind host (default: {DEFAULT_HOST})")
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"Bind port (default: {DEFAULT_PORT})")
+    parser.add_argument("--db", default=None, help="Custom SQLite DB path")
+    args = parser.parse_args()
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+    print(f"\n=======================================================")
+    print(f"  Restoricon Core Server Live")
+    print(f"  • Quote Surface:   http://{args.host}:{args.port}/quote")
+    print(f"  • Admin Dashboard: http://{args.host}:{args.port}/admin")
+    print(f"  • Customer Portal: http://{args.host}:{args.port}/portal")
+    print(f"  • REST API Base:   http://{args.host}:{args.port}/api/v1")
+    print(f"=======================================================\n")
+
+    server = RestoriconAPIServer(db_path=args.db, host=args.host, port=args.port)
+    try:
+        server.start(background=False)
+    except KeyboardInterrupt:
+        print("\nShutting down Restoricon Core Server...")
+        server.stop()
+        sys.exit(0)
+

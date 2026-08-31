@@ -12,6 +12,23 @@ and Appendix A.
 
 ---
 
+## 2026-08-31 — Track B / Restoricon: Live Subdomain Ingress & Web Surfaces Verified
+
+- **Status**: Code-complete, code-reviewer approved, and **LIVE-VERIFIED on-device by User**.
+- **Live Ingress & Subdomain Routing**:
+  - `admin.restoricon.com`: Live verified — renders Staff ERP Operations Dashboard and secure login.
+  - `portal.restoricon.com`: Live verified — renders Customer Project Tracker, invoice review, and contract e-signing.
+  - `quote.restoricon.com`: Live verified — renders 24/7 Rapid Response Quote Request & emergency dispatch intake form.
+- **Backend Implementations (`restoricon_core/api/`)**:
+  - Added `render_quote_surface()` to `web_surfaces.py`.
+  - Added Host header subdomain routing in `routes.py` (`quote.*`, `portal.*`, `admin.*`).
+  - Added CLI launcher and arguments in `server.py` (`--port`, `--host`, `--db`).
+  - Added unit test suite in `tests/test_subdomain_and_web_surfaces.py` (`2/2 passed`).
+- **Ledger & Status Updates**:
+  - Full test suite: 1,158 passed, 1 skipped.
+
+---
+
 ## 2026-08-30 — Track U / Maintenance: Orchestrator Tool Hint Verb Branching (U.12 / NEW-52 Resolved)
 
 - **Status**: Code-complete, code-reviewer approved, test verified (`9/9 passed` in `tests/test_agent_orchestrator_execution.py`, `1,156/1,156 passed` across repository test suite).

@@ -331,3 +331,158 @@ def render_portal_surface() -> str:
     </script>
 </body>
 </html>"""
+
+
+def render_quote_surface() -> str:
+    """Render public quote & emergency dispatch intake form."""
+    return """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Restoricon — Request Restoration Quote & Emergency Service</title>
+    <style>
+        :root {
+            --primary: #1e3a8a;
+            --primary-hover: #172554;
+            --accent: #dc2626;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --success: #15803d;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+        body { background-color: var(--bg); color: var(--text-main); line-height: 1.5; padding: 2rem 1rem; }
+        .container { max-width: 680px; margin: 0 auto; background: var(--card-bg); border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); padding: 2.5rem 2rem; }
+        .header { text-align: center; margin-bottom: 2rem; }
+        .header h1 { font-size: 1.75rem; color: var(--primary); margin-bottom: 0.5rem; font-weight: 700; }
+        .header p { color: var(--text-muted); font-size: 0.95rem; }
+        .badge-emergency { display: inline-block; background: #fee2e2; color: var(--accent); padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.8rem; font-weight: 700; text-transform: uppercase; margin-bottom: 0.75rem; }
+        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem; }
+        .form-group { margin-bottom: 1.25rem; }
+        .form-group.full { grid-column: 1 / -1; }
+        label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.4rem; color: var(--text-main); }
+        input, select, textarea { width: 100%; padding: 0.75rem 1rem; border: 1px solid var(--border); border-radius: 6px; font-size: 0.95rem; background: #fff; }
+        input:focus, select:focus, textarea:focus { outline: 2px solid var(--primary); outline-offset: 1px; }
+        textarea { resize: vertical; min-height: 100px; }
+        .btn-submit { width: 100%; background: var(--primary); color: white; padding: 0.9rem; border: none; border-radius: 6px; font-weight: 600; font-size: 1.05rem; cursor: pointer; transition: background 0.15s ease; }
+        .btn-submit:hover { background: var(--primary-hover); }
+        .alert-box { padding: 1rem; border-radius: 6px; margin-bottom: 1.5rem; display: none; font-size: 0.95rem; }
+        .alert-success { background: #f0fdf4; color: var(--success); border: 1px solid #bbf7d0; }
+        .alert-error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+        @media (max-width: 600px) {
+            .form-grid { grid-template-columns: 1fr; }
+            .container { padding: 1.5rem 1rem; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <span class="badge-emergency">24/7 Rapid Response</span>
+            <h1>Request a Restoration Quote</h1>
+            <p>Immediate mitigation, water damage, fire & smoke repair, mold remediation, and reconstruction services.</p>
+        </div>
+
+        <div id="statusAlert" class="alert-box"></div>
+
+        <form id="quoteForm">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="full_name">Your Full Name *</label>
+                    <input type="text" id="full_name" required placeholder="Jane Doe">
+                </div>
+                <div class="form-group">
+                    <label for="phone">Phone Number *</label>
+                    <input type="tel" id="phone" required placeholder="(555) 000-0000">
+                </div>
+                <div class="form-group full">
+                    <label for="email">Email Address *</label>
+                    <input type="email" id="email" required placeholder="jane@example.com">
+                </div>
+                <div class="form-group full">
+                    <label for="property_address">Property Address / Location *</label>
+                    <input type="text" id="property_address" required placeholder="123 Main St, City, State, ZIP">
+                </div>
+                <div class="form-group">
+                    <label for="service_type">Damage / Service Type *</label>
+                    <select id="service_type" required>
+                        <option value="water">Water Damage & Extraction</option>
+                        <option value="fire">Fire & Smoke Damage</option>
+                        <option value="mold">Mold Remediation</option>
+                        <option value="storm">Storm & Structural Damage</option>
+                        <option value="reconstruction">Full Reconstruction</option>
+                        <option value="commercial">Commercial Restoration</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="urgency">Urgency Level *</label>
+                    <select id="urgency" required>
+                        <option value="emergency">Emergency (Immediate Dispatch Needed)</option>
+                        <option value="high">High (Within 24 Hours)</option>
+                        <option value="standard" selected>Standard (Schedule an Inspection)</option>
+                    </select>
+                </div>
+                <div class="form-group full">
+                    <label for="description">Describe the Damage / Scope of Work</label>
+                    <textarea id="description" placeholder="Briefly describe the affected areas, visible damage, source of water/fire, or insurance claims in progress..."></textarea>
+                </div>
+            </div>
+            <button type="submit" id="submitBtn" class="btn-submit">Submit Quote Request</button>
+        </form>
+    </div>
+
+    <script>
+        document.getElementById('quoteForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const btn = document.getElementById('submitBtn');
+            const alertBox = document.getElementById('statusAlert');
+            btn.disabled = true;
+            btn.innerText = 'Submitting Request...';
+            alertBox.style.display = 'none';
+
+            const payload = {
+                name: document.getElementById('full_name').value.trim(),
+                phone: document.getElementById('phone').value.trim(),
+                email: document.getElementById('email').value.trim(),
+                address: document.getElementById('property_address').value.trim(),
+                service_type: document.getElementById('service_type').value,
+                urgency: document.getElementById('urgency').value,
+                notes: document.getElementById('description').value.trim(),
+                source: 'quote_subdomain'
+            };
+
+            try {
+                const res = await fetch('/api/v1/public/leads', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    alertBox.className = 'alert-box alert-success';
+                    alertBox.innerHTML = '<strong>Request Received!</strong> Your quote request has been logged (Ref #' + (data.lead_id || 'NEW') + '). Our emergency dispatch team is reviewing your details and will contact you immediately.';
+                    alertBox.style.display = 'block';
+                    document.getElementById('quoteForm').reset();
+                    btn.innerText = 'Request Submitted Successfully';
+                } else {
+                    alertBox.className = 'alert-box alert-error';
+                    alertBox.innerHTML = '<strong>Submission Error:</strong> ' + (data.error || 'Failed to process your request. Please call our emergency dispatch directly.');
+                    alertBox.style.display = 'block';
+                    btn.disabled = false;
+                    btn.innerText = 'Submit Quote Request';
+                }
+            } catch (err) {
+                alertBox.className = 'alert-box alert-error';
+                alertBox.innerHTML = '<strong>Network Error:</strong> Unable to reach dispatch server. Please try again or call support.';
+                alertBox.style.display = 'block';
+                btn.disabled = false;
+                btn.innerText = 'Submit Quote Request';
+            }
+        });
+    </script>
+</body>
+</html>"""
+
