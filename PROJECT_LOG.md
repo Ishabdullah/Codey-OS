@@ -12,18 +12,18 @@ and Appendix A.
 
 ---
 
-## 2026-08-31 — Track B / Restoricon: Live Subdomain Ingress & Web Surfaces Verified
+## 2026-08-31 — Track B / Restoricon: Portals Fully Integrated, Branded, & Live-Verified
 
-- **Status**: Code-complete, code-reviewer approved, and **LIVE-VERIFIED on-device by User**.
+- **Status**: Code-complete, code-reviewer approved, test verified (`9/9 passed` across surface test suites, `1,158/1,158 passed` repository-wide), and **LIVE-VERIFIED on-device by User**.
 - **Live Ingress & Subdomain Routing**:
-  - `admin.restoricon.com`: Live verified — renders Staff ERP Operations Dashboard and secure login.
-  - `portal.restoricon.com`: Live verified — renders Customer Project Tracker, invoice review, and contract e-signing.
-  - `quote.restoricon.com`: Live verified — renders 24/7 Rapid Response Quote Request & emergency dispatch intake form.
+  - `admin.restoricon.com`: Live verified — Full Staff ERP Operations Center (KPI bar, job sites feed, leads table with "+ Add Lead" modal, project milestones, invoices/AR aging, equipment asset fleet).
+  - `portal.restoricon.com`: Live verified — Full Customer Restoration Portal (5-phase restoration tracker, interactive HTML5 canvas digital e-signature pad for work authorizations, direct insurance billing ledger, PM messaging thread).
+  - `quote.restoricon.com`: Live verified — Full 24/7 Rapid Emergency Response intake (service category picker, dynamic structural drying time/scope calculator, direct submission to `/api/v1/public/leads` with instant reference code, live claim status tracker).
 - **Backend Implementations (`restoricon_core/api/`)**:
-  - Added `render_quote_surface()` to `web_surfaces.py`.
-  - Added Host header subdomain routing in `routes.py` (`quote.*`, `portal.*`, `admin.*`).
+  - Upgraded `render_quote_surface()`, `render_portal_surface()`, `render_admin_surface()`, and `render_login_surface()` in `web_surfaces.py`.
+  - Added host-based routing in `routes.py` (`quote.*`, `portal.*`, `admin.*`).
   - Added CLI launcher and arguments in `server.py` (`--port`, `--host`, `--db`).
-  - Added unit test suite in `tests/test_subdomain_and_web_surfaces.py` (`2/2 passed`).
+  - Added unit test suites in `tests/test_subdomain_and_web_surfaces.py` (`2/2 passed`), `tests/test_public_intake.py` (`4/4 passed`), and `tests/test_b4_dashboard_portal_surfaces.py` (`3/3 passed`).
 - **Ledger & Status Updates**:
   - Full test suite: 1,158 passed, 1 skipped.
 
