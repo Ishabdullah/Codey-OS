@@ -10,6 +10,138 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-01 — restoricon_core: `create_contact()` auto-assigns `external_id` (Codey-Aigentik SMS-intake bug #2)
+
+- **Status**: Code-complete, **code-reviewer APPROVED** (2 warnings, both
+  addressed — see below), **live-verified on-device** against the
+  canonical DB (`~/.codeyOS/restoricon.db`, port 8770), **committed** this
+  round (`fix(restoricon_core): create_contact auto-assigns external_id
+  for inbound leads` — see `git log`).
+- **Scope**: `~/Codey-OS` was read-only for the prior round; opened for
+  this one fix only, per Ish's explicit decision ("go with fix option
+  (a)").
+
+### The bug (diagnosed in the prior round, `NEW-262`/`263` context)
+
+`CRMService.create_contact()` (`restoricon_core/services/crm_service.py`)
+inserted a contact and never assigned an `external_id` when the caller
+didn't provide one. Only the Android-sync path
+(`sync_contacts_batch`) assigns `contact_NNNN` ids. Contacts created via
+the inbound SMS/email path (`POST /api/v1/contacts`, from Aigentik's
+`contacts.js` `createContact()`, `source: sms`/`email`) got
+`external_id = NULL`. Aigentik's `mapCoreToJS` then synthesises a local
+`contact_%04d` id and addresses Core by it, but Core resolves a
+non-numeric contact id ONLY by exact `external_id` match → 404 → every
+`updateContact()` / `applyExtractedDetails()` for that contact was a
+silent no-op. This is the second of the two compounding causes of the
+SMS-intake re-ask bug (bug #1 — the escalation-keyword substring
+false-positive — was fixed in `~/Codey-Aigentik` `7dde92d`).
+
+### The fix
+
+- `restoricon_core/services/crm_service.py` `create_contact()`: after the
+  `INSERT`, when `external_id` was not supplied, assign
+  `f"contact_{id:04d}"` (same shape as the sync path) via an `UPDATE`
+  inside the same `with conn:` transaction. A bounded `SELECT`-then-bump
+  loop avoids the `UNIQUE(external_id)` `IntegrityError` if that exact
+  string is already held by an out-of-step sync-assigned id.
+- Only `create_contact` and `sync_contacts_batch` `INSERT INTO contacts`;
+  sync already assigns. `upsert_contact` calls `create_contact` only
+  after validating a non-empty `external_id`, so the new branch can't
+  fire there. An explicitly-supplied `external_id` is still honoured.
+- **No backfill** of existing NULL rows (deliberate — logged `NEW-263`).
+- Test: `tests/test_restoricon_core/test_contacts.py::
+  test_create_contact_auto_assigns_external_id_for_inbound_lead` — creates
+  a contact via the SMS path, asserts `external_id == f"contact_{id:04d}"`,
+  then drives the real HTTP `GET /api/v1/contacts/{external_id}` and
+  `POST .../update` via `router.handle_request` and checks the mutation
+  persisted. Negative control: reverting the fix makes it fail with
+  `assert None == 'contact_0001'`.
+
+### Code-reviewer warnings (both addressed before commit)
+
+- **W1** (comment overclaimed the collision loop's guarantee): comment
+  reworded; residual logged as **`NEW-262`** (Suspected) — if the
+  collision branch ever fires, a caller deriving the id purely from the
+  numeric row id (rather than reading it back from the create response,
+  which Aigentik does) would still miss.
+- **W2** (no `NEW_ISSUES.md` line for the no-backfill decision): logged
+  as **`NEW-263`** (Confirmed) — pre-fix NULL-`external_id` contacts (2 of
+  198 in the main DB) still 404 on update until re-created or backfilled.
+
+### Test results (real counts)
+
+- `python3 -m pytest tests/test_restoricon_core/ -q`: **210 passed**
+  before this round → **211 passed** after (the one new test).
+  `test_contacts.py` alone: 7 passed. Verified the delta by
+  `git stash` / run / `stash pop` / run.
+
+### Live verification (real API, canonical DB, no model needed)
+
+Started `python3 -m restoricon_core.api.server --db ~/.codeyOS/restoricon.db`
+(same invocation as `service_manager.sh start_restoricon`), PID tracked
+and killed by exact PID afterward; 0 stray processes; port 8770 closed.
+Ran Aigentik's **real client path** (`contacts.js`
+`createContact → applyExtractedDetails → getContactById`):
+
+```
+1) createContact(source: sms)      -> id "contact_0408", external_id "contact_0408" (was NULL)
+2) GET /api/v1/contacts/contact_0408 -> HTTP 200            (was 404)
+3) applyExtractedDetails(id,{name,email,address}) -> "Contact updated: contact_0408"  (was silent no-op)
+4) re-read from Core: name="Maria", emails=["cadre.projectmanager@gmail.com"],
+   address="38 Clinton Street Manchester, CT 06040";  getMissingFields -> []
+   RESULT: PASS
+5) deleteContact(contact_0408) -> true;  re-read -> null
+```
+
+### Test-data teardown
+
+- **Backups taken first this time** (prior round flagged a
+  no-backup deletion): full file copies of both DBs to
+  `scratchpad/restoricon.db.PRE-BUG2-VERIFY-20260901-170241` and
+  `core.db.PRE-BUG2-VERIFY-20260901-170241` before the live run.
+- The verify script created and deleted its own test contact (phone
+  `5550142857`, `contact_0408`). Post-run inventory across
+  `contacts`/`customers`/`leads`/`communication_history`/`appointments`
+  in **both** DBs: **0 rows** matching `5550142857` / `contact_0408`.
+  No net change to either DB (`restoricon.db` `MAX(id)` advanced 407→407
+  with row 408 deleted; `null_external_id` counts unchanged: 4 and 1
+  respectively — the pre-existing `NEW-263` rows).
+
+### Is bug #2 fully resolved?
+
+**Yes, for its scope** — new SMS/email contacts are now addressable and
+their intake details persist (proven live end-to-end via the real client
+path). **Remaining, out of scope and logged:** `NEW-262` (rare
+collision-branch id divergence, Suspected, no worse than pre-fix),
+`NEW-263` (pre-fix NULL rows need a separate backfill), and the
+prior round's store-split item (scheduling-completeness check reads
+`contacts` only, not `customers`). The full three-message live IMAP
+round-trip (Maria's exact conversation) is the natural next step but is
+deliberately deferred for a manual checkpoint with Ish.
+
+- **Master plan**: deliberately not edited this round — the task scoped
+  `~/Codey-OS` changes to this one fix only. Rule 9 would normally want a
+  §4/Appendix touch; flagging instead: the B2 `external_id`
+  write-through discussion (master plan around §6.4 / the
+  `NEW-212`/`NEW-232` lines) may want a pointer to this fix and to
+  `NEW-263`'s backfill question. Left for Ish / next round.
+
+### Housekeeping notes for the next reader
+
+- Committed only my four files (`crm_service.py`, `test_contacts.py`,
+  `NEW_ISSUES.md`, `PROJECT_LOG.md`) by explicit path. `lib/service_manager.sh`,
+  `tests/test_service_manager_config.py`, and the two `*.pid` files were
+  already modified before this round (another agent's in-flight work) and
+  were left untouched. A `git stash` / run / `stash pop` was used once to
+  measure the 210→211 test delta — it round-tripped those files cleanly
+  (`git status` identical before and after).
+- The code-reviewer subagent left `.claude/agent-memory/code-reviewer/
+  MEMORY.md` modified and a new untracked note file — its own memory,
+  intentionally left uncommitted.
+
+---
+
 ## 2026-09-01 — Codey-Aigentik: Clean up Gemini's 4h session + real root cause of the SMS intake re-ask bug
 
 - **Status**: Phase-1 cleanup committed. Phase-2: the re-ask bug is

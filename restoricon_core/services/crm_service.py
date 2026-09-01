@@ -2895,6 +2895,36 @@ class CRMService:
             )
             contact.id = cursor.lastrowid
 
+            # Auto-assign a string external_id when the caller didn't supply
+            # one. The Android-sync path (sync_contacts_batch) already does
+            # this as "contact_NNNN"; direct creates (inbound SMS/email leads
+            # via POST /api/v1/contacts) previously left external_id NULL,
+            # and Core resolves a non-numeric contact id ONLY by exact
+            # external_id match -- so GET/POST /api/v1/contacts/{a string id}
+            # 404s for those rows and any follow-up update by string id is a
+            # silent no-op. Same "contact_NNNN" shape as the sync path.
+            # The create response returns this id (routes.py -> to_dict()),
+            # which is what the caller should address the contact by
+            # afterwards. The loop only avoids a UNIQUE-index IntegrityError
+            # if the row-id-derived string is already taken by an
+            # out-of-step sync-assigned id; when it fires, a caller that
+            # instead derives the id purely from the numeric row id would
+            # still miss -- see NEW-262.
+            if not contact.external_id or not str(contact.external_id).strip():
+                candidate_num = contact.id
+                new_external_id = f"contact_{candidate_num:04d}"
+                while conn.execute(
+                    "SELECT 1 FROM contacts WHERE external_id = ? AND id != ?;",
+                    (new_external_id, contact.id),
+                ).fetchone():
+                    candidate_num += 1
+                    new_external_id = f"contact_{candidate_num:04d}"
+                conn.execute(
+                    "UPDATE contacts SET external_id = ? WHERE id = ?;",
+                    (new_external_id, contact.id),
+                )
+                contact.external_id = new_external_id
+
         self.audit.log(
             action="create",
             entity_type="contact",

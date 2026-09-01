@@ -12795,3 +12795,52 @@ required)
 - **Fix**: In `core/resource_gate.py:reserve_slot()`, filter out same-port slots (`s.get("port") != port`) when computing `committed` for the concurrent-budget check if `port` is specified.
 - **Verification**: New unit test `test_reserve_slot_same_port_excludes_resident_slot_for_upgrade` in `tests/test_resource_gate.py` passes; full 883 unit tests pass; on-device live test confirmed background server (n_ctx=16384, PID 5943) terminated and respawned as interactive server (n_ctx=65536, PID 6300) with clean slot transition and zero RAM leaks.
 - **Cross-references**: `core/resource_gate.py:reserve_slot()`, `NEW-145`, `NEW-149`, `NEW-155`, `NEW-259`.
+
+## Found during the Codey-Aigentik SMS-intake bug #2 fix (contact `external_id` auto-assign in `restoricon_core`), 2026-09-01 — code-reviewer approved; NEW-262 Suspected, NEW-263 Confirmed; logged per rule 8
+
+Context: the round fixed `CRMService.create_contact()` so inbound SMS/email
+contacts get a `contact_NNNN` `external_id` (previously NULL, which made
+every downstream update-by-string-id 404 silently). Two residuals fall
+outside that fix's scope.
+
+### [NEW-262] `create_contact()`'s collision-avoidance loop can assign an `external_id` a numeric-id-deriving caller won't reproduce
+- **Status:** Suspected (depends on a caller in `~/Codey-Aigentik`, a
+  forked standalone product, not in this repo — not fully verified here).
+- **Mechanism:** the new auto-assign block sets
+  `external_id = f"contact_{id:04d}"` from the SQLite row id, but if that
+  exact string is already taken (an out-of-step `contact_NNNN` handed out
+  earlier by `sync_contacts_batch`, which tracks the max *number* used,
+  not the row id), the loop bumps to `contact_{id+k:04d}`. Aigentik's
+  `contacts.js` `mapCoreToJS` uses `coreObj.external_id` when present and
+  `createContact()` returns `mapCoreToJS(res.data.contact)`, so the normal
+  create→use flow is fine. The risk is any code path that formats
+  `contact_%04d` from a bare numeric id *without* the create response in
+  hand; if one exists it would 404 for the bumped rows.
+- **Impact:** rare (needs a pre-existing `contact_{that row id}` on
+  another row) and no worse than the pre-fix NULL. Not a regression.
+- **Fix direction (if ever needed):** have Aigentik always address
+  contacts by the `external_id` from the create/read response, never by a
+  locally-formatted numeric-id string; or add a Core route that resolves
+  `contact_NNNN` by stripping the prefix to the numeric id as a fallback.
+- **Not fixed this round** — out of scope; the fix's own scope was the
+  NULL-external_id no-op.
+
+### [NEW-263] Pre-fix SMS/email contacts still have `external_id = NULL` and still silently 404 on update (no backfill)
+- **Status:** Confirmed (direct DB read: `~/.codeyOS/restoricon.db` and
+  `~/.codey_restoricon/core.db` each have a small number of
+  `external_id IS NULL` contact rows from the `sms`/`email` source path).
+- **Mechanism:** the `create_contact()` fix only assigns at creation
+  time. Existing rows written before it keep `external_id = NULL`, so
+  `updateContact()` / `applyExtractedDetails()` from Aigentik continue to
+  no-op for them exactly as described in the bug #2 diagnosis.
+- **Impact:** low and shrinking — only 2 of 198 contacts affected in the
+  main DB, and any such contact that ever gets re-created (e.g. after a
+  test-data cleanup) picks up an id. But an untouched pre-fix lead stays
+  un-updatable.
+- **Fix direction:** a one-shot backfill —
+  `UPDATE contacts SET external_id = 'contact_' || printf('%04d', id)
+  WHERE external_id IS NULL` — guarded against colliding with existing
+  `contact_NNNN` ids. Deliberately not done automatically this round
+  (the task scoped it out and asked for it to be proposed separately, not
+  applied); propose as its own reviewed change if Ish wants it.
+- **Not fixed this round** — explicit scoping decision.

@@ -143,6 +143,55 @@ def test_contact_crud_lifecycle(setup_core):
     assert crm_service.get_contact(created.id, actor) is None
 
 
+def test_create_contact_auto_assigns_external_id_for_inbound_lead(setup_core):
+    """Inbound SMS/email leads reach create_contact with no external_id.
+    Core must auto-assign a resolvable "contact_NNNN" id (same shape as the
+    Android-sync path), otherwise Aigentik's updateContact()/apply of
+    extracted intake details silently 404s and never persists."""
+    db, auth_service, crm_service, router, actor_admin, actor = setup_core
+
+    admin_user = auth_service.get_user_by_id(actor_admin.user_id)
+    headers = {"Authorization": f"Bearer {auth_service.create_token(admin_user)}"}
+
+    # exactly what contacts.js createContact() sends for a new SMS contact
+    contact = Contact(
+        phones=["8609822868"], emails=[], type="unknown", reply_behavior="auto",
+        roles=["CUSTOMER"], active_role="CUSTOMER", source="sms",
+    )
+    created = crm_service.create_contact(contact, actor)
+
+    assert created.external_id == f"contact_{created.id:04d}"
+
+    # resolvable by that external_id immediately (the path that was 404ing)
+    by_ext = crm_service.get_contact_by_external_id(created.external_id, actor)
+    assert by_ext is not None and by_ext.id == created.id
+
+    # HTTP layer: GET and POST .../update by the auto-assigned external_id
+    # (the exact calls contacts.js getContactById()/updateContact() make)
+    status, _, res = router.handle_request(
+        "GET", f"/api/v1/contacts/{created.external_id}", headers, b""
+    )
+    assert status == 200 and res["contact"]["id"] == created.id
+
+    status, _, res = router.handle_request(
+        "POST", f"/api/v1/contacts/{created.external_id}/update", headers,
+        json.dumps({"name": "Maria", "emails": ["cadre.projectmanager@gmail.com"]}).encode("utf-8"),
+    )
+    assert status == 200
+    assert res["contact"]["name"] == "Maria"
+    assert res["contact"]["emails"] == ["cadre.projectmanager@gmail.com"]
+
+    # an email-sourced create gets the same treatment
+    c2 = crm_service.create_contact(Contact(emails=["x@y.com"], source="email"), actor)
+    assert c2.external_id == f"contact_{c2.id:04d}"
+
+    # an explicitly-provided external_id is still honored, not overwritten
+    c3 = crm_service.create_contact(
+        Contact(external_id="contact_9999", phones=["5551112222"], source="manual"), actor
+    )
+    assert c3.external_id == "contact_9999"
+
+
 def test_find_contact(setup_core):
     db, auth_service, crm_service, _, actor, _ = setup_core
 
