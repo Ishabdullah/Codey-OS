@@ -10,6 +10,110 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-01 — Codey-Aigentik: phone number shown as the customer's name on bookings
+
+- **Status**: Code-complete, self-reviewed (Codey-Aigentik's lighter
+  process — no hub-and-spoke mandate in its CLAUDE.md), **partially
+  live-verified** against the running Core (:8770). Committed
+  `b58a36e` in `~/Codey-Aigentik`. End-to-end `handleSchedulingMessage`
+  wiring **not** run — needs a real inbound text and a restart of Ish's
+  live `node index.js` (deferred to Ish; restart sends a real admin email
+  and `start.sh` uses `pkill -f "node index.js"`).
+
+### Root cause — differs from the task's stated premise (verified against the live DB)
+
+The reported symptom: a booking summary showed `👤 Name: 8609822868`
+for a customer who said "Hello, this is Jake." **The contact record's
+`name` field was never wrong** — `contact_0409.name` was `"Jake"` in
+`~/.codeyOS/restoricon.db`, and `extractContactDetails` handled the
+"this is Jake" phrasing correctly (so **no secondary extraction finding**
+— report item 7). The phone number leaked into
+**`appointments.attendee_name`** and **`appointments.title`**, not the
+contact:
+
+- An SMS from a Google Voice number that isn't a saved contact on the GV
+  account arrives with no `sender_name`, so `senderLabel` in
+  `handleGoogleVoiceText` falls back to `voiceMsg.sender_phone` (the raw
+  number).
+- `handleSchedulingMessage` then calls
+  `proposeAppointment({ title: \`Appointment with ${contact?.name ||
+  senderLabel}\`, attendeeName: contact?.name || senderLabel })`. At
+  proposal time `contact.name` is still empty (the name is extracted
+  ~20 s later in `sendIntakeForm`), so both the persisted `title` and
+  `attendee_name` were set to the phone number.
+- Nothing ever refreshed the appointment once the name was known.
+- `customerDetailBlock` read `appt.attendee_name` **before**
+  `bookedContact?.name`, so the owner booking notification, the
+  "information I have saved for you" customer summary, and the customer's
+  calendar invite (`.ics SUMMARY` = `appt.title`) all showed the phone
+  number.
+- Log/DB evidence: `contact_0409` / `appt_1788300899777` — the single
+  `Contact updated: ["name"]` at 22:15:20 wrote `"Jake"` (correct); the
+  appointment kept `attendee_name = "8609822868"`, `title = "Appointment
+  with 8609822868"` through confirmation.
+
+### Fix (`b58a36e`, `~/Codey-Aigentik`)
+
+- `index.js handleSchedulingMessage`: never seed `title`/`attendeeName`
+  with `senderLabel`. Pass `attendeeName: contact?.name || null` and a
+  generic `'New appointment request'` title until the name is known.
+- `calendar.js confirmNegotiation`: optional `attendeeName` param — when
+  given, sets `attendee_name` + `Appointment with <name>` title in the
+  same confirmation write (no extra round-trip).
+- `index.js confirmAndClose`: resolves the name from the linked contact
+  and threads it into `confirmNegotiation`.
+- `index.js customerDetailBlock`: reads `bookedContact?.name` before
+  `appt.attendee_name` — matches the function's own doc comment and how
+  phone/email/address are already resolved (contact record first).
+- `calendar.js updateAppointment`: `attendee_name` passthrough.
+- `customerDetailBlock` exported from `index.js` for the regression test.
+
+### Tests: 227 → 232 pass
+
+New: `tests/customer-detail-block.test.js` (×2 — contact name wins over a
+phone-number `attendee_name`; fallback chain when no contact name);
+`tests/calendar.test.js` (×3 — `updateAppointment` `attendee_name`
+passthrough; `confirmNegotiation` overwrites stale name/title when a name
+is resolved, and leaves them untouched when none is).
+
+### Live verification (real API + real DB, `~/.codeyOS/restoricon.db`, no restart)
+
+Exercised every changed line against the running Core:
+
+```
+1) createContact(source:sms)  -> contact_0410, name null
+2) proposeAppointment(fixed call site: attendeeName null, title generic)
+     stored title "New appointment request", attendee_name null   -> phone NOT persisted  PASS
+3) applyExtractedDetails(id,{name:"Jake"})  -> contact.name "Jake"
+4) confirmNegotiation(..., "Jake")
+     stored title "Appointment with Jake", attendee_name "Jake", status confirmed
+5) customerDetailBlock(appt, "<phone>", null)  ->  "👤 Name: Jake"     PASS
+```
+
+Not proven: that `handleSchedulingMessage` wires proposal → intake →
+confirm together at runtime. That's the full 3-message live IMAP
+round-trip — held for Ish (his live `node index.js` PID 17670 is running
+pre-fix code).
+
+### Test-data teardown (backup first)
+
+- Backed up `~/.codeyOS/restoricon.db` →
+  `scratchpad/restoricon.db.PRE-NAMEBUG-20260901-184258` before the run.
+- Full inventory shown before delete. Deleted by explicit id: my test
+  data (contact `contact_0410` / phone `5550137777`, appointment
+  `appt_1788302623711`) **and** Ish's manual "Jake" test on the shared
+  number (contact `contact_0409`, appointment `appt_1788300899777`,
+  `communication_history` 96–99 — same shared test identity; prior rounds
+  cleaned all `8609822868` data, so this stays consistent).
+- Post-delete: **0 rows** for `8609822868` / `5550137777` / `Jake` /
+  `contact_0409` / `contact_0410` / `Chestnut` across
+  `contacts`/`appointments`/`communication_history`/`customers`/`leads`
+  in **both** DBs.
+- Ish's running `restoricon_core` + `node index.js` processes were not
+  touched.
+
+---
+
 ## 2026-09-01 — restoricon_core: `create_contact()` auto-assigns `external_id` (Codey-Aigentik SMS-intake bug #2)
 
 - **Status**: Code-complete, **code-reviewer APPROVED** (2 warnings, both
