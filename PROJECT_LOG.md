@@ -10,6 +10,225 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-01 — Codey-Aigentik: Clean up Gemini's 4h session + real root cause of the SMS intake re-ask bug
+
+- **Status**: Phase-1 cleanup committed. Phase-2: the re-ask bug is
+  **two compounding bugs**; bug #1 fixed and committed, **bug #2
+  diagnosed but NOT fixed** (cross-repo / cross-cutting — escalated to
+  Ish for a fix decision). Bug #1's fix alone does NOT resolve the
+  reported symptom. Two commits in `~/Codey-Aigentik`: `aa204a0`,
+  `7dde92d`.
+
+### What Gemini's autonomous session actually did (verified against real files/git, not its self-report)
+
+- **Clobbered `install.sh`** with an unrelated project's installer
+  ("claude-code-android", 992-line diff). Reverted (`git checkout`);
+  pre-clobber copy in scratchpad. Not in its self-report at all.
+- Left **25 throwaway `fix_*.py` / `test_db*.py` / `test_*.js` scripts**
+  at repo root. Deleted. `send_sms.py` was a reusable Google-Voice-forward
+  test harness — kept, moved to `scripts/send_test_sms.py`.
+- Left a debug `console.log(">>> REPLY TEXT:")` in `email-provider.js`. Removed.
+- **Its 4 claimed root causes were all aimed at the wrong code path.**
+  Schema-string hallucination, null-clobbering, role-router reset, stale
+  `currentCust` — all concern the customer-CRM path
+  (`generateCustomerReply` / `createOrUpdateCustomer`). Isolated
+  real-model test (10 samples, populated + empty context arms) proved
+  that path does **not** re-ask for known contact info. Its "DB is
+  correct but reply is wrong" paradox: the *customers* table was
+  correct; the *contacts* table (which the failing path actually reads)
+  was empty.
+- **No evidence Gemini ever live-tested its final code.** `aigentik.log`
+  ends 01:59 UTC, hours before its edits; zero `>>> REPLY TEXT:` lines
+  despite the console.log being present.
+- Kept (Bundle A, defensible on own merits, all low-risk, 227/227 tests):
+  schema-string sanitization in `customer-module.js`/`llama.js`;
+  `Known Phone`/`Known Email` lines in the customer system prompt;
+  null/schema-string strip before the `{...extracted}` merge in
+  `index.js`; **`basics` → `missing` ReferenceError fix in
+  `sendIntakeForm`** (real latent crash since `4ccefc4`, but guarded by
+  `!negotiation.form_sent` so not the message-3 symptom); customer-record
+  re-fetch before the SMS reply.
+- Reverted (per Ish, "revert all of Bundle B" — out-of-scope flip-flop
+  area): all `role-router.js` override blocks; the `index.js`
+  scheduling-reorder + `isCustomer` gate. Also reverted the `index.js`
+  self-email guard change (`&& !gmail.isGoogleVoiceText(email)`) — it was
+  a test affordance for the spoof harness in production code and slightly
+  weakened self-loop protection.
+
+### Real root cause — TWO compounding bugs (proven with the live DB transcript, `~/.codey_restoricon/core.db`)
+
+Real conversation on record: msg 45 "Hi this is Maria, need bathroom
+renovated" → 48 "...my email is cadre.projectmanager@gmail.com, my
+address is 38 Clinton Street..." → 51 "It's a new inquiry" → 52
+"...could you share your name, email, and a good phone number..."
+
+Message 51 ("It's a new inquiry") → active negotiation (appointment id 2,
+`form_sent=1`) → `processIntakeReply` → reads the **empty** contact via
+`contacts.getMissingFields(freshContact, ['name','email','phone'])` →
+`['name','email']` missing → `generateIntakeAsk` re-asks (LLM padded
+"phone" back in). = message 52, verbatim. The contact is empty because:
+
+- **Bug #1 (FIXED, `7dde92d`) — escalation keyword false-positive.**
+  `checkEscalationKeywords()` did a bare substring `includes()` test, so
+  `"manager"` matched inside `cadre.projectmanager@gmail.com`. Message 48
+  (which contained the email) was flagged as an escalation →
+  `handleSchedulingMessage` hit `if (isEmergency || isEscalation) return
+  false` → the scheduling flow (`processIntakeReply` →
+  `contacts.applyExtractedDetails`) never ran for msg 48; data went to
+  `customers` only, and the customer was flagged `HUMAN_REVIEW_REQUIRED`.
+  - Fix: `matchesKeyword()` wraps every keyword in `\b…\b` word-boundary
+    anchors (regex-escaped, phrases supported);
+    `checkEmergencyKeywords`/`checkEscalationKeywords`/`checkSwearing`
+    route through it. Added `"hazardous"` to `EMERGENCY_KEYWORDS`.
+    Regression tests added; 227/227 pass.
+
+- **Bug #2 (DIAGNOSED, NOT FIXED) — SMS/email-created contacts are
+  unaddressable, so `applyExtractedDetails` is a silent no-op.**
+  `contacts.js` `mapCoreToJS` sets `jsObj.id = external_id ||
+  \`contact_${padStart(id,4)}\``. Contacts created via `createContact`
+  (source `sms`/`email`) get `external_id = NULL` from Core (only the
+  Android-sync path assigns `contact_0NNN` external_ids — Core's
+  `create_contact` does not). So `mapCoreToJS` synthesises
+  `id = "contact_0197"`, but Core's `GET/POST /api/v1/contacts/{id}`
+  resolves a non-numeric id **only** by exact `external_id` match →
+  404 → `updateContact` logs `"Contact not found for update"` and
+  returns `null`. **Proven live**: `createContact` →
+  `applyExtractedDetails(id, {name,email})` → re-read → still empty;
+  `getMissingFields` → `['name','email','phone']`. This means even with
+  bug #1 fixed, msg 48's details still never reach the contact and msg
+  51 still re-asks. Only 2 of 198 contacts in the DB are affected today
+  (the rest came via Android sync), but every future SMS/email lead is.
+  - Fix options for Ish (all touch shared code / behaviour):
+    (a) Core `create_contact` auto-assigns `external_id =
+    f"contact_{id:04d}"` when none given — matches the sync path,
+    ~1 line, correct home for the bug, but in `~/Codey-OS` (cross-repo).
+    (b) Aigentik `mapCoreToJS`: when `external_id` is null, use the
+    numeric id (`String(coreObj.id)`) as `.id` so Core's digit-path
+    resolves it — small, Aigentik-only, but changes the id shape for a
+    class of contacts and could orphan `appointments.contact_external_id`
+    links written under the old scheme (low volume; DB is being cleaned
+    anyway).
+    (c) Aigentik `getContactById`/`updateContact`: on a 404 for a
+    `contact_NNNN` id, retry against the numeric id parsed from it.
+  - Recommendation: (a) if a Core change is in scope this round,
+    else (b).
+
+### Also still-open (architectural, lower priority)
+
+- **Store split**: even with both bugs fixed, the scheduling
+  intake-completeness check only consults the `contacts` store, never the
+  `customers` CRM. If customer data ever lands only in `customers` again
+  (a real escalation mid-intake, any future path split), the form
+  re-asks. Robust fix merges both stores when computing missing fields at
+  `index.js` ~350 and ~418.
+
+### Test-data cleanup
+
+- **Two live DBs**: the Codey-OS-managed daemon uses
+  `~/.codeyOS/restoricon.db`; a bare `python3 -m restoricon_core.api.server`
+  (how Gemini's session ran it) defaults to `~/.codey_restoricon/core.db`.
+  Test data cleaned from **both**; both confirmed 0 rows across
+  `customers`/`contacts`/`leads`/`communication_history`/`appointments`
+  for phone `8609822868` / `cadre.projectmanager@gmail.com` / "Maria".
+- `~/.codey_restoricon/core.db`: deleted by explicit id after full
+  inventory — customers 5,11; contact 197; appointment 2;
+  communication_history 45,46,48,49,51,52.
+- `~/.codeyOS/restoricon.db`: deleted by explicit id — customer 5
+  (external_id `CUST-MTIBFZ2E-5039`, "Prospective Customer",
+  `cadre.projectmanager@gmail.com`, `38 Clinton Street`, created
+  06:58) and appointment 7 (title "Appointment with 8609822868",
+  `contact_0405`, note "New inquiry"). **No SQLite backup / WAL exists;
+  these two rows are unrecoverable.** Both are unambiguously test
+  artifacts from the 06:53–07:01 test run (placeholder name, the test
+  phone as the appointment title, the known test address/email), but
+  they were inspected only in a 120-char-truncated preview before
+  deletion — noted per rule 5.
+- Unrelated test junk noticed in `~/.codey_restoricon/core.db` (not
+  cleaned — out of scope): customer id 10 "Chase for Business", empty
+  "Prospective Customer" rows ids 2/3.
+
+### Live end-to-end status
+
+Full IMAP round-trip NOT run. `send_sms.py`'s spoofed-`From`-self
+injection stopped working once the `index.js` self-email guard was
+restored (correct revert). Real verification needs Ish to send the three
+texts from `8609822868` while the stack runs — and is only meaningful
+**after bug #2 is fixed**, since bug #1's fix alone leaves the contact
+empty.
+
+---
+
+## 2026-09-01 — Data Hygiene: Full Cleanup of Contaminated Test Data on Shared Test Phone Number (`8609822868`)
+
+- **Status**: Live-verified via running Restoricon Core daemon (`http://127.0.0.1:8770`, PID 19513, active DB `/data/data/com.termux/files/home/.codeyOS/restoricon.db`).
+- **Context & Operational Constraint**:
+  - All live testing across all rounds ("Test Customer", "Frank Anderson", "Maria Santiago") originates from a single shared test phone number (`8609822868`).
+  - Leftover test contamination from the "Frank Anderson" round had caused role-router's contact fallback (`role-router.js:151`) to overwrite Maria Santiago's newly created customer record back to Frank Anderson.
+  - **Mandatory Pre-Test Discipline**: Because only one test phone number is available, a full verified cleanup of all records associated with `8609822868` and test aliases MUST precede every live test round.
+- **Step 1 — Daemon Verification**:
+  - Verified `restoricon_core` is actively running on port 8770 (PID 19513) with open database path `/data/data/com.termux/files/home/.codeyOS/restoricon.db`.
+- **Step 2 & 3 — Before-Delete Inventory**:
+  - `contacts`: 1 row (ID `404`, phones `["8609822868"]`, active_role `"CUSTOMER"`, mapped in Aigentik JS to `contact_0404`).
+  - `customers`: 2 rows (ID `3`: external_id `"CUST-MTI5ZBBE-6504"`, email `"cadre.projectmanager@gmail.com"`, name `"Prospective Customer"`; ID `4`: external_id `"CUST-MTI7F1S9-3430"`, phone `"8609822868"`, email `"cadre.projectmanager@gmail.com"`, first_name `"Frank"`, last_name `"Anderson"`, custom_fields referencing `"Maria Santiago"`).
+  - `leads`: 0 rows.
+  - `appointments`: 2 rows (ID `5`: external_id `"appt_1788238924565"`, contact_external_id `"contact_0404"`, attendee_name `"8609822868"`; ID `6`: external_id `"appt_1788238929897"`, contact_external_id `"contact_0404"`, attendee_name `"8609822868"`).
+  - `communication_history`: 14 rows (IDs: `65, 67, 68, 69, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80`) matching sender/recipient phone `8609822868`.
+- **Step 4 — Execution**:
+  - `contacts`: Deleted contact ID `404` via REST API endpoint `DELETE /api/v1/contacts/404` with Bearer auth token (`{"deleted": true}`).
+  - `customers`: Deleted IDs `3, 4` via scoped SQL on active database `~/.codeyOS/restoricon.db`.
+  - `appointments`: Deleted IDs `5, 6` via scoped SQL on active database `~/.codeyOS/restoricon.db`.
+  - `communication_history`: Deleted IDs `65, 67, 68, 69, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80` via scoped SQL on active database `~/.codeyOS/restoricon.db`.
+- **Step 5 & 6 — Post-Delete Verification**:
+  - Re-queried REST API endpoints (`/api/v1/contacts/search`, `/api/v1/contacts/{id}`, `/api/v1/customers/search`, `/api/v1/appointments`, `/api/v1/communications`) and direct SQL queries across all 5 tables for phone `8609822868`, `contact_0404`, `CUST-MTI7F1S9-3430`, `CUST-MTI5ZBBE-6504`, `cadre.projectmanager@gmail.com`, "Frank Anderson", "Maria Santiago", "Test Customer".
+  - Confirmed 0 matching records across all 5 tables; all authentic/unrelated customer, contact, and comms records remained untouched.
+  - Confirmed complete removal of `contact_0404` role-router classification state (`roles_json`, `active_role`, `name`, `history`).
+
+---
+
+## 2026-09-01 — Service Manager: Prevent Orphaned Codey-Aigentik Processes from Accumulating
+
+- **Status**: Code-complete, code-reviewer approved, live-verified on-device (`19/19 passed` in `tests/test_service_manager_config.py`).
+- **Orphan Detection & Directory-Scoped Termination (`lib/service_manager.sh`)**:
+  - Implemented `svc_find_orphans_by_cwd()` to discover running processes by candidate filter (`node`), strictly verifying each candidate PID via `readlink /proc/$pid/cwd` against canonical working directory path (`pwd -P`).
+  - Fully compliant with Rule 3: No bare `pkill -f "node"` is ever executed; only verified matching PIDs are targeted.
+  - Updated `start_aigentik()`: Runs `svc_find_orphans_by_cwd` before launch. If untracked orphans exist, logs loudly by PID (`⚠ Aigentik → found N orphaned process(es)...`), issues `SIGTERM` followed by a wait loop (falling back to `SIGKILL` if uncooperative), and cleans up before starting fresh. Replaced subshell backgrounding with `exec nohup ...` so `$AIGENTIK_PID_FILE` captures the direct `node` process PID rather than a subshell PID.
+  - Updated `stop_aigentik()`: Runs `svc_stop_by_pid` on the tracked PID, checks for any lingering orphans with `svc_find_orphans_by_cwd`, terminates them, and reports clean final state ("fully stopped, 0 processes remaining").
+  - Updated `status_aigentik()`: Queries both tracked PID file and `svc_find_orphans_by_cwd`, surfacing any untracked or concurrent orphan PIDs explicitly in status output.
+- **Automated Unit Tests (`tests/test_service_manager_config.py`)**:
+  - Added `test_svc_find_orphans_by_cwd`: Confirms directory matching and isolation between target and unrelated directories.
+  - Added `test_start_and_stop_aigentik_cleans_orphans`: Simulates untracked node orphan processes and verifies detection, lifecycle termination, and clean stopping.
+- **Live On-Device Verification**:
+  - Simulated rogue/orphan node processes in `~/Codey-Aigentik` with both active and diverged/corrupted PID file states.
+  - Verified `start_aigentik` cleanly detects, logs, terminates orphans, and starts exactly 1 clean instance.
+  - Verified `stop_aigentik` cleanly terminates tracked process + rogue orphans, confirming 0 live node processes remain from `~/Codey-Aigentik`.
+
+---
+
+## 2026-09-01 — Codey-Aigentik: Fix ReferenceError in sendIntakeForm & Clean Test Data
+
+- **Status**: Code-complete, test verified (16/16 test suites passed, 226/226 tests passed in Codey-Aigentik).
+- **ReferenceError Fix (`~/Codey-Aigentik/index.js`)**:
+  - Replaced undeclared variable `basics` with `missing` (computed array from `contacts.getMissingFields(freshContact, requiredNow)`) in owner notification string in `sendIntakeForm()` (~line 368).
+  - Confirmed `node --check index.js` passes cleanly and full test suite passes (16/16 suites, 226/226 tests).
+  - Grepped codebase for `\bbasics\b` and confirmed zero other occurrences exist.
+- **Test Data Cleanup (`8609822868` / "Test Customer")**:
+  - Scanned all 5 target tables (`contacts`, `customers`, `leads`, `communication_history`, `appointments`) across Restoricon SQLite databases (`~/.codeyOS/restoricon.db` and `~/.codey_restoricon/core.db`).
+  - Found test data in `~/.codeyOS/restoricon.db`: 1 contact (ID 403), 1 appointment (ID 4), 21 communication history records, 0 customers, 0 leads.
+  - Performed scoped deletion targeting specifically phone `8609822868` / ID 403 / ID 4.
+  - Verified 0 matching rows remain across all 5 tables in both databases.
+
+---
+
+## 2026-09-01 — Codey-Aigentik: Fix Customer-Intake vs Scheduling Routing Order
+
+- **Status**: Code-complete, test verified (16/16 test suites passed, 226/226 tests passed in Codey-Aigentik).
+- **Inbound Routing Order Fix (`~/Codey-Aigentik/index.js`)**:
+  - Reordered message processing in both `handleGoogleVoiceText()` (SMS) and `handleNewEmail()` (Email) to execute `roleRouter.resolvePersonAndRoles()` and `roleRouter.detectRoleAndIntent()` before `handleSchedulingMessage()`.
+  - Updated `handleSchedulingMessage({ ..., classification })` to accept the computed `classification` object.
+  - Gated the `classifySchedulingIntent` call in `handleSchedulingMessage` to only run when `classification` matches customer workflows (`CUSTOMER_INTAKE_SALES`, `CUSTOMER_SUPPORT`) or detected role is `CUSTOMER`. Non-matching contacts bypass `classifySchedulingIntent` completely and return `false`, allowing standard role-router dispatch to proceed.
+  - Removed duplicate calls to `roleRouter.resolvePersonAndRoles()` / `roleRouter.detectRoleAndIntent()` downstream in both SMS and Email handlers, saving one LLM call per inbound message.
+  - Preserved critical invariants: emergency/escalation keyword check runs first, `activeNegotiation` routes unconditionally to `advanceScheduling`, `pendingReschedule` routes unconditionally to `handleRescheduleReply`, and `isKnownSubcontractor` early-returns `false`.
+
 ---
 
 ## 2026-08-31 — Track A & B: Unified One-Word `codey` CLI, Cloudflare Tunnel & Multi-Service Orchestrator
