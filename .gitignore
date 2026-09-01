@@ -37,6 +37,12 @@ config.*.json
 ccos/data/capabilities.json
 ccos/data/reflections.jsonl
 
+# PID files
+*.pid
+
+# Session log directories (32-char hex)
+[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]/
+
 # live-verifier scratch test files — must live inside WORKSPACE_ROOT so
 # core/filesystem.py's _validate_path() boundary check passes (NEW-60),
 # but never committed.

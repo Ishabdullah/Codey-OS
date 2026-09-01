@@ -1082,7 +1082,7 @@ class APIRouter:
                 port = int(os.getenv("PRIMARY_SERVER_PORT", "8080"))
                 host = os.getenv("PRIMARY_SERVER_HOST", "127.0.0.1")
 
-                reservation_token = None
+                reservation_id = None
                 try:
                     from core.resource_gate import (
                         release_context_budget,
@@ -1096,7 +1096,7 @@ class APIRouter:
                         return 429, {"Content-Type": "application/json"}, {
                             "error": f"AI model context-budget admission refused: {budget_decision.reason}"
                         }
-                    reservation_token = budget_decision.reservation_token
+                    reservation_id = budget_decision.reservation_id
                 except ImportError:
                     pass
                 except Exception as e:
@@ -1134,11 +1134,11 @@ class APIRouter:
                         "error": f"AI completion upstream error: {str(e)}"
                     }
                 finally:
-                    if reservation_token:
+                    if reservation_id:
                         try:
                             from core.resource_gate import release_context_budget
 
-                            release_context_budget(port, reservation_token)
+                            release_context_budget(port, reservation_id)
                         except Exception:
                             pass
 
@@ -1603,7 +1603,7 @@ class APIRouter:
             return 500, {"Content-Type": "application/json"}, {"error": f"Internal server error: {str(ex)}"}
 
     def _handle_login(self, body: Dict[str, Any]) -> Tuple[int, Dict[str, str], Dict[str, Any]]:
-        username_or_email = body.get("username", body.get("email", ""))
+        username_or_email = body.get("username_or_email", body.get("username", body.get("email", "")))
         password = body.get("password", "")
         if not username_or_email or not password:
             return 400, {"Content-Type": "application/json"}, {"error": "Missing username/email or password"}

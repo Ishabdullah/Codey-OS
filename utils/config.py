@@ -100,7 +100,7 @@ MODEL_CONFIG = {
     "stop": ["<|im_end|>", "<|im_start|>", "\nUser:", "\nHuman:", "\nA:"],
 }
 
-# ── Coder (7B) BACKGROUND context ceiling — TODO.md 7.4b sub-task C ─────────
+# ── Coder (4B) BACKGROUND context ceiling — TODO.md 7.4b sub-task C ─────────
 # Ish confirmed 2026-08-11: the coder's context stays at full n_ctx
 # (MODEL_CONFIG["n_ctx"] / CODEY_N_CTX above, 65536 by default) whenever a
 # human is actively using it interactively (core.resource_gate.

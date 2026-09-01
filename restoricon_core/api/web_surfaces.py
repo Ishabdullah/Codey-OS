@@ -590,6 +590,72 @@ def render_login_surface(portal_type: str = "admin") -> str:
         </div>
     </div>
 
+
+    <!-- Add Customer Modal -->
+    <div id="addCustomerModal" class="erp-modal-overlay">
+        <div class="erp-modal">
+            <div class="modal-header">
+                <h3>Add Customer</h3>
+                <button onclick="closeCustomerModal()" style="background:none; border:none; color:#94A3B8; font-size:1.5rem; cursor:pointer;">&times;</button>
+            </div>
+            <form onsubmit="submitCustomer(event)">
+                <div class="form-group">
+                    <label>First Name</label>
+                    <input type="text" id="custFirst" required>
+                </div>
+                <div class="form-group">
+                    <label>Last Name</label>
+                    <input type="text" id="custLast" required>
+                </div>
+                <div class="form-group">
+                    <label>Email</label>
+                    <input type="email" id="custEmail" required>
+                </div>
+                <div class="form-group">
+                    <label>Phone</label>
+                    <input type="text" id="custPhone">
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+                    <button type="button" onclick="closeCustomerModal()" class="btn-gold" style="background:transparent; border:1px solid var(--card-border); color:#CBD5E1;">Cancel</button>
+                    <button type="submit" class="btn-gold">Save Customer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add Project Modal -->
+    <div id="addProjectModal" class="erp-modal-overlay">
+        <div class="erp-modal">
+            <div class="modal-header">
+                <h3>Create Project</h3>
+                <button onclick="closeProjectModal()" style="background:none; border:none; color:#94A3B8; font-size:1.5rem; cursor:pointer;">&times;</button>
+            </div>
+            <form onsubmit="submitProject(event)">
+                <div class="form-group">
+                    <label>Select Customer</label>
+                    <select id="projCustomer" required></select>
+                </div>
+                <div class="form-group">
+                    <label>Project Title</label>
+                    <input type="text" id="projTitle" required placeholder="e.g. Water Mitigation">
+                </div>
+                <div class="form-group">
+                    <label>Project Type</label>
+                    <select id="projType" required>
+                        <option value="Water">Water Damage</option>
+                        <option value="Fire">Fire Damage</option>
+                        <option value="Mold">Mold Remediation</option>
+                        <option value="Reconstruction">Reconstruction</option>
+                    </select>
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+                    <button type="button" onclick="closeProjectModal()" class="btn-gold" style="background:transparent; border:1px solid var(--card-border); color:#CBD5E1;">Cancel</button>
+                    <button type="submit" class="btn-gold">Save Project</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script>
         {_get_common_script()}
 
@@ -874,6 +940,72 @@ def render_quote_surface() -> str:
             </div>
         </div>
     </main>
+
+
+    <!-- Add Customer Modal -->
+    <div id="addCustomerModal" class="erp-modal-overlay">
+        <div class="erp-modal">
+            <div class="modal-header">
+                <h3>Add Customer</h3>
+                <button onclick="closeCustomerModal()" style="background:none; border:none; color:#94A3B8; font-size:1.5rem; cursor:pointer;">&times;</button>
+            </div>
+            <form onsubmit="submitCustomer(event)">
+                <div class="form-group">
+                    <label>First Name</label>
+                    <input type="text" id="custFirst" required>
+                </div>
+                <div class="form-group">
+                    <label>Last Name</label>
+                    <input type="text" id="custLast" required>
+                </div>
+                <div class="form-group">
+                    <label>Email</label>
+                    <input type="email" id="custEmail" required>
+                </div>
+                <div class="form-group">
+                    <label>Phone</label>
+                    <input type="text" id="custPhone">
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+                    <button type="button" onclick="closeCustomerModal()" class="btn-gold" style="background:transparent; border:1px solid var(--card-border); color:#CBD5E1;">Cancel</button>
+                    <button type="submit" class="btn-gold">Save Customer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add Project Modal -->
+    <div id="addProjectModal" class="erp-modal-overlay">
+        <div class="erp-modal">
+            <div class="modal-header">
+                <h3>Create Project</h3>
+                <button onclick="closeProjectModal()" style="background:none; border:none; color:#94A3B8; font-size:1.5rem; cursor:pointer;">&times;</button>
+            </div>
+            <form onsubmit="submitProject(event)">
+                <div class="form-group">
+                    <label>Select Customer</label>
+                    <select id="projCustomer" required></select>
+                </div>
+                <div class="form-group">
+                    <label>Project Title</label>
+                    <input type="text" id="projTitle" required placeholder="e.g. Water Mitigation">
+                </div>
+                <div class="form-group">
+                    <label>Project Type</label>
+                    <select id="projType" required>
+                        <option value="Water">Water Damage</option>
+                        <option value="Fire">Fire Damage</option>
+                        <option value="Mold">Mold Remediation</option>
+                        <option value="Reconstruction">Reconstruction</option>
+                    </select>
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+                    <button type="button" onclick="closeProjectModal()" class="btn-gold" style="background:transparent; border:1px solid var(--card-border); color:#CBD5E1;">Cancel</button>
+                    <button type="submit" class="btn-gold">Save Project</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <script>
         """ + _get_common_script() + """
@@ -1244,6 +1376,72 @@ def render_portal_surface() -> str:
             </table>
         </div>
     </main>
+
+
+    <!-- Add Customer Modal -->
+    <div id="addCustomerModal" class="erp-modal-overlay">
+        <div class="erp-modal">
+            <div class="modal-header">
+                <h3>Add Customer</h3>
+                <button onclick="closeCustomerModal()" style="background:none; border:none; color:#94A3B8; font-size:1.5rem; cursor:pointer;">&times;</button>
+            </div>
+            <form onsubmit="submitCustomer(event)">
+                <div class="form-group">
+                    <label>First Name</label>
+                    <input type="text" id="custFirst" required>
+                </div>
+                <div class="form-group">
+                    <label>Last Name</label>
+                    <input type="text" id="custLast" required>
+                </div>
+                <div class="form-group">
+                    <label>Email</label>
+                    <input type="email" id="custEmail" required>
+                </div>
+                <div class="form-group">
+                    <label>Phone</label>
+                    <input type="text" id="custPhone">
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+                    <button type="button" onclick="closeCustomerModal()" class="btn-gold" style="background:transparent; border:1px solid var(--card-border); color:#CBD5E1;">Cancel</button>
+                    <button type="submit" class="btn-gold">Save Customer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add Project Modal -->
+    <div id="addProjectModal" class="erp-modal-overlay">
+        <div class="erp-modal">
+            <div class="modal-header">
+                <h3>Create Project</h3>
+                <button onclick="closeProjectModal()" style="background:none; border:none; color:#94A3B8; font-size:1.5rem; cursor:pointer;">&times;</button>
+            </div>
+            <form onsubmit="submitProject(event)">
+                <div class="form-group">
+                    <label>Select Customer</label>
+                    <select id="projCustomer" required></select>
+                </div>
+                <div class="form-group">
+                    <label>Project Title</label>
+                    <input type="text" id="projTitle" required placeholder="e.g. Water Mitigation">
+                </div>
+                <div class="form-group">
+                    <label>Project Type</label>
+                    <select id="projType" required>
+                        <option value="Water">Water Damage</option>
+                        <option value="Fire">Fire Damage</option>
+                        <option value="Mold">Mold Remediation</option>
+                        <option value="Reconstruction">Reconstruction</option>
+                    </select>
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+                    <button type="button" onclick="closeProjectModal()" class="btn-gold" style="background:transparent; border:1px solid var(--card-border); color:#CBD5E1;">Cancel</button>
+                    <button type="submit" class="btn-gold">Save Project</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <script>
         """ + _get_common_script() + """
@@ -1657,16 +1855,30 @@ def render_admin_surface() -> str:
             </div>
         </div>
 
+        
         <!-- Tab 5: CRM & Pipeline -->
         <div id="tab-crm" class="tab-pane">
             <div class="erp-card">
                 <div class="card-title-row">
-                    <h2><span>💼</span> CRM Accounts & Lead Pipeline</h2>
+                    <h2><span>💼</span> CRM & Projects</h2>
+                    <div>
+                        <button class="btn-gold" onclick="openCustomerModal()">+ Add Customer</button>
+                        <button class="btn-gold" style="background:transparent; border:1px solid var(--bronze); color:var(--bronze);" onclick="openProjectModal()">+ Add Project</button>
+                    </div>
                 </div>
                 <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
-                    <input type="text" id="crmSearch" placeholder="Search customer name, email, or Hartford County address..." oninput="filterCrm()">
+                    <input type="text" id="crmSearch" placeholder="Search customers or projects..." oninput="filterCrm()">
                 </div>
-                <div id="crmListContainer" style="color: var(--text-muted);">Syncing CRM records...</div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div>
+                        <h3 style="color: var(--offwhite); margin-bottom: 0.5rem; border-bottom: 1px solid var(--card-border); padding-bottom: 0.5rem;">Customers</h3>
+                        <div id="crmListContainer" style="color: var(--text-muted); max-height: 400px; overflow-y: auto;">Syncing CRM records...</div>
+                    </div>
+                    <div>
+                        <h3 style="color: var(--offwhite); margin-bottom: 0.5rem; border-bottom: 1px solid var(--card-border); padding-bottom: 0.5rem;">Projects</h3>
+                        <div id="projectListContainer" style="color: var(--text-muted); max-height: 400px; overflow-y: auto;">Syncing Projects...</div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -1814,10 +2026,183 @@ def render_admin_surface() -> str:
         </div>
     </div>
 
+
+    <!-- Add Customer Modal -->
+    <div id="addCustomerModal" class="erp-modal-overlay">
+        <div class="erp-modal">
+            <div class="modal-header">
+                <h3>Add Customer</h3>
+                <button onclick="closeCustomerModal()" style="background:none; border:none; color:#94A3B8; font-size:1.5rem; cursor:pointer;">&times;</button>
+            </div>
+            <form onsubmit="submitCustomer(event)">
+                <div class="form-group">
+                    <label>First Name</label>
+                    <input type="text" id="custFirst" required>
+                </div>
+                <div class="form-group">
+                    <label>Last Name</label>
+                    <input type="text" id="custLast" required>
+                </div>
+                <div class="form-group">
+                    <label>Email</label>
+                    <input type="email" id="custEmail" required>
+                </div>
+                <div class="form-group">
+                    <label>Phone</label>
+                    <input type="text" id="custPhone">
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+                    <button type="button" onclick="closeCustomerModal()" class="btn-gold" style="background:transparent; border:1px solid var(--card-border); color:#CBD5E1;">Cancel</button>
+                    <button type="submit" class="btn-gold">Save Customer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add Project Modal -->
+    <div id="addProjectModal" class="erp-modal-overlay">
+        <div class="erp-modal">
+            <div class="modal-header">
+                <h3>Create Project</h3>
+                <button onclick="closeProjectModal()" style="background:none; border:none; color:#94A3B8; font-size:1.5rem; cursor:pointer;">&times;</button>
+            </div>
+            <form onsubmit="submitProject(event)">
+                <div class="form-group">
+                    <label>Select Customer</label>
+                    <select id="projCustomer" required></select>
+                </div>
+                <div class="form-group">
+                    <label>Project Title</label>
+                    <input type="text" id="projTitle" required placeholder="e.g. Water Mitigation">
+                </div>
+                <div class="form-group">
+                    <label>Project Type</label>
+                    <select id="projType" required>
+                        <option value="Water">Water Damage</option>
+                        <option value="Fire">Fire Damage</option>
+                        <option value="Mold">Mold Remediation</option>
+                        <option value="Reconstruction">Reconstruction</option>
+                    </select>
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+                    <button type="button" onclick="closeProjectModal()" class="btn-gold" style="background:transparent; border:1px solid var(--card-border); color:#CBD5E1;">Cancel</button>
+                    <button type="submit" class="btn-gold">Save Project</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script>
         """ + _get_common_script() + """
 
         let permissionsCatalog = {};
+
+        function openCustomerModal() { document.getElementById('addCustomerModal').classList.add('active'); }
+        function closeCustomerModal() { document.getElementById('addCustomerModal').classList.remove('active'); }
+        function openProjectModal() { 
+            document.getElementById('addProjectModal').classList.add('active'); 
+            populateCustomerDropdown();
+        }
+        function closeProjectModal() { document.getElementById('addProjectModal').classList.remove('active'); }
+
+        async function submitCustomer(e) {
+            e.preventDefault();
+            const payload = {
+                first_name: document.getElementById('custFirst').value,
+                last_name: document.getElementById('custLast').value,
+                email: document.getElementById('custEmail').value,
+                phone: document.getElementById('custPhone').value,
+                customer_type: 'residential'
+            };
+            const res = await fetch('/api/v1/customers', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + getAuthToken(), 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (res.ok) {
+                closeCustomerModal();
+                loadCrmList();
+            } else {
+                alert('Failed to save customer');
+            }
+        }
+
+        async function submitProject(e) {
+            e.preventDefault();
+            const payload = {
+                customer_id: parseInt(document.getElementById('projCustomer').value),
+                title: document.getElementById('projTitle').value,
+                project_type: document.getElementById('projType').value,
+                stage: 'Lead'
+            };
+            const res = await fetch('/api/v1/projects', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + getAuthToken(), 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (res.ok) {
+                closeProjectModal();
+                loadCrmList();
+            } else {
+                alert('Failed to save project');
+            }
+        }
+
+        let currentCustomers = [];
+
+        async function loadCrmList() {
+            const token = getAuthToken();
+            
+            // Load Customers
+            try {
+                const res = await fetch('/api/v1/customers', { headers: { 'Authorization': 'Bearer ' + token } });
+                const data = await res.json();
+                if (data.customers) {
+                    currentCustomers = data.customers;
+                    const html = data.customers.map(c => `
+                        <div style="padding: 0.75rem; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                            <div style="color: var(--offwhite); font-weight: 500;">${c.first_name || ''} ${c.last_name || ''}</div>
+                            <div style="font-size: 0.85rem;">${c.email || ''} | ${c.phone || ''}</div>
+                        </div>
+                    `).join('');
+                    document.getElementById('crmListContainer').innerHTML = html || 'No customers found.';
+                }
+            } catch (e) {
+                document.getElementById('crmListContainer').innerHTML = 'Failed to load customers.';
+            }
+
+            // Load Projects
+            try {
+                const res = await fetch('/api/v1/projects', { headers: { 'Authorization': 'Bearer ' + token } });
+                const data = await res.json();
+                if (data.projects) {
+                    const html = data.projects.map(p => `
+                        <div style="padding: 0.75rem; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                            <div style="color: var(--offwhite); font-weight: 500;">${p.title || 'Untitled'}</div>
+                            <div style="font-size: 0.85rem;"><span class="badge" style="background: rgba(212,175,55,0.1); color: var(--bronze); padding: 0.1rem 0.4rem; border-radius: 4px;">${p.stage}</span> - ${p.project_type}</div>
+                        </div>
+                    `).join('');
+                    document.getElementById('projectListContainer').innerHTML = html || 'No projects found.';
+                }
+            } catch (e) {
+                document.getElementById('projectListContainer').innerHTML = 'Failed to load projects.';
+            }
+        }
+
+        function populateCustomerDropdown() {
+            const sel = document.getElementById('projCustomer');
+            sel.innerHTML = currentCustomers.map(c => `<option value="${c.id}">${c.first_name} ${c.last_name}</option>`).join('');
+        }
+
+        function filterCrm() {
+            // Basic filtering (visual only)
+            const term = document.getElementById('crmSearch').value.toLowerCase();
+            const items = document.getElementById('crmListContainer').children;
+            for (let i = 0; i < items.length; i++) {
+                items[i].style.display = items[i].innerText.toLowerCase().includes(term) ? '' : 'none';
+            }
+        }
+
         let currentEditingUserId = null;
         let userPermissionsState = {};
 
@@ -1829,6 +2214,7 @@ def render_admin_surface() -> str:
             if (target) target.classList.add('active');
             
             if (tabId === 'users') loadUsersList();
+            if (tabId === 'crm') loadCrmList();
             if (tabId === 'telemetry') loadAuditLogs();
         }
 
