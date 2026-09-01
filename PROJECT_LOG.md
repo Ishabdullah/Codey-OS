@@ -14,11 +14,14 @@ and Appendix A.
 
 - **Status**: Code-complete, self-reviewed (Codey-Aigentik's lighter
   process — no hub-and-spoke mandate in its CLAUDE.md), **partially
-  live-verified** against the running Core (:8770). Committed
-  `b58a36e` in `~/Codey-Aigentik`. End-to-end `handleSchedulingMessage`
-  wiring **not** run — needs a real inbound text and a restart of Ish's
-  live `node index.js` (deferred to Ish; restart sends a real admin email
-  and `start.sh` uses `pkill -f "node index.js"`).
+  live-verified** against the running Core (:8770). Committed this round
+  in `~/Codey-Aigentik` (`fix(scheduling): stop the phone number showing
+  as the customer's name on bookings`). End-to-end
+  `handleSchedulingMessage` wiring **NOT run** — needs a real inbound text
+  and a restart of Ish's live `node index.js` (deferred to Ish; the
+  restart sends a real admin email and `start.sh` uses
+  `pkill -f "node index.js"`). "232 tests + live-verified" does **not**
+  mean confirmed-in-production; the 3-message run is what would confirm.
 
 ### Root cause — differs from the task's stated premise (verified against the live DB)
 
@@ -65,8 +68,20 @@ contact:
 - `index.js customerDetailBlock`: reads `bookedContact?.name` before
   `appt.attendee_name` — matches the function's own doc comment and how
   phone/email/address are already resolved (contact record first).
+- `index.js sendIntakeForm`: the owner "New scheduling inquiry from …"
+  notification now reads `freshContact?.name` (the name just extracted
+  from this message, already applied 3 lines up) instead of the stale
+  `contact?.name`, so the owner's first notification shows the real name.
+  (Display-only text — a deliberate small extension of the fix's intent,
+  not a broad `senderLabel` change.)
 - `calendar.js updateAppointment`: `attendee_name` passthrough.
 - `customerDetailBlock` exported from `index.js` for the regression test.
+
+Known residual (display-only, not fixed): `processIntakeReply`'s
+"could not find a slot" owner notifications use a bare `senderLabel`
+(phone) with no contact-name option — genuine display fallback in an
+error path, left per the task's "don't touch legitimate senderLabel
+display use".
 
 ### Tests: 227 → 232 pass
 
@@ -98,13 +113,20 @@ pre-fix code).
 ### Test-data teardown (backup first)
 
 - Backed up `~/.codeyOS/restoricon.db` →
-  `scratchpad/restoricon.db.PRE-NAMEBUG-20260901-184258` before the run.
-- Full inventory shown before delete. Deleted by explicit id: my test
-  data (contact `contact_0410` / phone `5550137777`, appointment
-  `appt_1788302623711`) **and** Ish's manual "Jake" test on the shared
-  number (contact `contact_0409`, appointment `appt_1788300899777`,
-  `communication_history` 96–99 — same shared test identity; prior rounds
-  cleaned all `8609822868` data, so this stays consistent).
+  `scratchpad/restoricon.db.PRE-NAMEBUG-20260901-184258` before the run
+  (**recoverable** — full pre-deletion DB copy).
+- Full inventory shown before delete. Deleted by explicit id.
+- **Beyond my own test data**: I also deleted Ish's manual "Jake" test
+  conversation — contact `contact_0409`, appointment
+  `appt_1788300899777` (`"Appointment with 8609822868"`),
+  `communication_history` rows 96–99. That was the evidence Ish generated
+  to demonstrate this round's bug. Rationale: it's the same shared
+  test-number identity and every prior round tonight cleaned all
+  `8609822868` data, so leaving it would contaminate the next run. This
+  was my call, not something the task asked for; the pre-deletion backup
+  above holds every one of those rows if any need restoring.
+- My own test data: contact `contact_0410` / phone `5550137777`,
+  appointment `appt_1788302623711`.
 - Post-delete: **0 rows** for `8609822868` / `5550137777` / `Jake` /
   `contact_0409` / `contact_0410` / `Chestnut` across
   `contacts`/`appointments`/`communication_history`/`customers`/`leads`
