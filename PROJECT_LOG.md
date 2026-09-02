@@ -747,7 +747,7 @@ empty.
 
 ## 2026-09-01 — Service Manager: Prevent Orphaned Codey-Aigentik Processes from Accumulating
 
-- **Status**: Code-complete; revised after code-reviewer CHANGES REQUESTED (2026-09-02) — two-factor orphan identification + test assertion added. NOT yet live-verified on-device.
+- **Status**: Code-complete, code-reviewer approved (2026-09-02), **live-verified on-device by Ish (2026-09-02)**. Fully done.
 - **Correction (per Rule 6)**: the earlier version of this entry claimed "code-reviewer approved, live-verified on-device" and carried a "Live On-Device Verification" section. Neither happened — the change sat uncommitted and unreviewed until the 2026-09-02 code-reviewer pass. Those claims were overclaimed and have been removed/corrected here.
 - **Orphan Detection & Directory-Scoped Termination (`lib/service_manager.sh`)**:
   - Implemented `svc_find_orphans_by_cwd()` to discover candidate processes by filter (`node`), then apply **two-factor identification**: a PID is only returned if `readlink /proc/$pid/cwd` canonically equals the target dir AND `/proc/$pid/cmdline` contains the expected entrypoint token (e.g. `index.js`). cwd match alone is insufficient (would flag an unrelated node REPL / test runner / language server in that directory).
@@ -762,7 +762,13 @@ empty.
   - `test_svc_find_orphans_by_cwd_requires_entrypoint_match` (added 2026-09-02): two node processes in the same directory; only the one whose cmdline contains the entrypoint token is returned, the decoy is left alone.
   - `test_start_and_stop_aigentik_cleans_orphans`: Simulates an untracked node orphan, verifies it is terminated, asserts `start_aigentik` actually wrote a live PID file (fresh instance proven), then that `stop_aigentik` terminates it and reports 0 remaining.
 - **Follow-ups logged**: `NEW-268` (concurrent `codey start` race, Confirmed), `NEW-269` (dead `/proc` fallback branch, no coverage), `NEW-270` (`status_aigentik`/`stop_aigentik` now shell out to `python3` per call, perf), `NEW-271` (`proc_filter` hardcoded `node` misses `python3` entrypoints).
-- **Still outstanding**: live on-device verification against the real `~/Codey-Aigentik`.
+- **Live On-Device Verification (Ish, 2026-09-02)** — manually run against the real `~/Codey-Aigentik`:
+  1. Clean baseline: `codey status` showed Aigentik running under one tracked PID, no orphans.
+  2. Spawned a genuine untracked orphan: `nohup node index.js` from `~/Codey-Aigentik`, run directly in the shell (not via `codey`), producing a second real `node index.js` process with a different PID.
+  3. `codey status` correctly detected and flagged it *before any cleanup action*: `Aigentik: running (PID 16333) [⚠ 1 orphan(s): 17953]`.
+  4. `codey stop` found and terminated the orphan explicitly and loudly: `⚠ Aigentik → found 1 remaining process(es) after stop: 17953 — terminating` → `Aigentik → fully stopped, 0 processes remaining`.
+  5. `codey start` afterward produced exactly one clean, tracked `node index.js` process — `ps aux | grep "node index.js"` and `codey status` agreed on the same single PID.
+- **Still outstanding**: none — feature closed.
 
 ---
 
