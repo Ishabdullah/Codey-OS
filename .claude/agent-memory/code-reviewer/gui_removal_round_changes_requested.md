@@ -75,3 +75,30 @@ Those two `test_embed_server_*` failures are genuinely pre-existing and
 environmental (adopt branch taken against the live embed server on 8082);
 `EmbedServer.stop()` never kills an adopted server, so running the full
 suite with models resident is safe.
+
+## Round 2 — APPROVED (one required text correction, no re-review)
+
+All four blockers and four warnings fixed; core code byte-identical to
+round 1 (`--numstat` unchanged: `core/resource_gate.py` 24/80,
+`utils/config.py` 7/46, `codeyOS` 0/7). B-3 resolved the right way —
+they **restored** both pipeline `aiohttp` entries (annotated
+`# pipeline: transitive via fsspec[http]/datasets`) rather than editing
+`docs/installation.md`, so `requirements.txt:42-46` and
+`installation.md:125-130` now list identical packages. Ledger work is
+unusually good: `NEW-280`'s corrected fix direction says *in the entry*
+that the first version named the wrong gate (rule 6 in practice, not
+a silent swap), and `NEW-282` records the `/admin` gap with an explicit
+fail-closed requirement.
+
+**One defect the fix itself introduced:** `docs/security.md:95` now says
+`/admin` "is covered by section 8 rather than here" — `grep -n '^### '`
+shows the file only has sections 1-7. Dangling pointer, and the real
+gap behind it is that the Core API's web surface has **no** security.md
+section at all now that §6 is a tombstone. Flagged as required-before-
+commit text fix, not a re-review.
+
+**Process note:** they used `git add -A` (28 paths). It was clean this
+time and `.claude/agent-memory/` is legitimately tracked here (66
+commits touch it, no `.gitignore` entry), but the standing project rule
+is still to stage an explicit file list — verify the staged path list
+by hand whenever `add -A` is reported.

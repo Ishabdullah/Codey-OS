@@ -10,6 +10,121 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-02 — Browser GUI removed; working tree and repo-root litter cleaned
+
+- **Status**: **Code-complete, mandatory rule-4 code-reviewer pass
+  CHANGES REQUESTED then APPROVED, partially live-verified.** Landed as
+  `65c9f10`. Live-verified: the running GUI server was stopped on-device
+  and the CLI smoke paths were exercised for real (verbatim below).
+  **Not** live-verified: a full `codey start` cycle after removal — the
+  services were already up and rule 2 governs restarting them; the
+  removal touches no model-load path.
+- **Driver**: Ish, in session — "could we remove the gui for now and only
+  use the web dashboard later we can add a gui back if we need to."
+- **This was a resource-gate change, not a UI deletion.** The finding
+  that reshaped the round: `core/resource_gate.py`'s
+  `is_gui_client_connected()` was **signal source 5** feeding
+  `is_interactive_session_active()` → `can_dispatch_task()`. Its final
+  branch returns `True` when `gui-clients.count` holds a nonzero value
+  and **no** `gui-server.pid` exists to cross-check. Deleting the GUI
+  removes the only writer of that count file, so the branch becomes
+  permanently reachable and never self-heals — **all daemon background
+  dispatch deferred, silently, forever.** The stale file on this device
+  happened to contain `0`; a GUI crash with a client connected would have
+  left it nonzero. **Code-reviewer added the part the first analysis
+  missed: the hazard ships to anyone who merely `git pull`s**, since
+  their own `~/.codeyOS/gui-clients.count` survives the pull. Removed
+  outright rather than left as a vestigial always-False stub.
+- **Scope**: 28 files, **1,657 deletions / 317 insertions**. Deleted
+  `gui/`, `lib/gui_launch.sh`, `tests/test_gui_clients_signal.py`;
+  stripped `start_gui`/`stop_gui`/`status_gui` + GUI PID/log files from
+  `lib/service_manager.sh`; removed `gui_launch` sourcing from `codeyOS`;
+  de-argumented `start_all_services()` at all 6 call sites;
+  `utils/config.py` lost `GUI_PID_FILE`/`GUI_CLIENTS_FILE`/
+  `get_gui_config()`.
+- **Two mistakes of mine, both caught in review, both recorded rather
+  than quietly fixed:**
+  1. **The `aiohttp` removal was over-broad.** "Its only importer was
+     `gui/server.py`" is an import-graph argument that holds for the
+     **core** install block and never applied to the **pipeline** block,
+     where `aiohttp` arrives transitively via `fsspec[http]`/`datasets`.
+     Reviewer proved it with `git blame` (pipeline entries predate the
+     GUI line by three days) plus installed `fsspec` metadata. Pipeline
+     entries restored; core removal stands. Had this shipped, a fresh
+     clone's training pipeline would have broken (rule 11).
+  2. **`NEW-280`'s fix direction named the wrong gate.** It said to patch
+     `_is_port_open`, which the tests already do to no effect — the real
+     gate is `_port_is_bound() and _check_health()`
+     (`core/embed_server.py:83`). Corrected *in the entry itself*, per
+     rule 6, rather than silently swapped.
+- **Reviewer's generalizable lesson, worth keeping**: a case-insensitive
+  `gui` sweep missed a live `install.sh` line because it was named after
+  its **effect** ("browser: http://localhost:8888"), not the thing.
+  Keyword-only sweeps are not sufficient for a removal.
+- **Verbatim verification (rule 5):**
+  - `tests/` + `ccos/tests/`: `2 failed, 1175 passed, 1 skipped, 68
+    warnings in 126.27s`.
+  - The 2 failures are `test_embed_server_registers_slot_as_resident_on_start`
+    and `test_embed_server_releases_slot_on_stop`. **Proven pre-existing,
+    not asserted**: a `git worktree` was created at unmodified `HEAD`
+    (confirmed pre-change via `grep -c is_gui_client_connected` → 2) and
+    both failed identically there. Cause: a live embed `llama-server` on
+    port 8082 gets adopted by tests that expect to start their own
+    (`NEW-280`).
+  - `codey status` → exit 0, four services listed, no GUI line.
+    `codey config`, `codey logs` → exit 0.
+  - GUI server stopped by **exact tracked PID** after verifying its
+    identity was `gui/server.py` (rule 3): `18856 exited after ~1s
+    (SIGTERM)`, both zombies reaped.
+- **Resolved by removal, not by fix** (stated this way deliberately —
+  nobody wrote the missing logic): `NEW-111` (`gui/server.py`
+  unimportable under pytest), `NEW-279` (`gui/server.py` never reaped its
+  children; two `[python3] <defunct>` zombies were resident under it),
+  and the old audit finding **C-2** (unauthenticated GUI command
+  console). `docs/security.md` §6 rewritten as a tombstone that keeps its
+  four mitigations as the bar a future GUI must meet again.
+- **`docs/security.md` gained a real §8** for the Restoricon Core API /
+  `/admin` surface, which had **no security section at all** — the
+  replacement for the surface just removed was undocumented. Facts
+  verified from code, not assumed: loopback bind default
+  (`server.py:31-32`), Bearer auth (`routes.py:226`), RBAC enforced in
+  the service layer rather than the router (`routes.py:68`), public
+  intake rate limiting (20 req/60s, `rate_limiter.py:16`). The
+  "Current Hardening Summary" was also still advertising the deleted GUI
+  as a live mitigation; corrected.
+- **Findings logged (rule 8)**: `NEW-280` (pre-existing embed test
+  isolation), `NEW-281` (**`codey config` prints the live Cloudflare
+  tunnel token in plaintext** — found while smoke-testing; the concrete
+  risk is that it pipes a real credential straight into an AI agent's
+  transcript, which is a routine diagnostic here), `NEW-282` (`/admin`
+  feeds the gate no interactive signal, so background dispatch no longer
+  defers for a human at the dashboard — a real consequence of the product
+  decision; any replacement signal must fail **closed**).
+
+## 2026-09-02 — Working tree and repo-root cleanup (PID files, agent memories, 187 scratch dirs)
+
+- **Status**: Done, committed `8ebd4dd`. Docs/index-only for the git half;
+  no application code changed.
+- **Three chronically-dirty entries diagnosed and cleared.** Root cause of
+  the `.pid` half: `.gitignore:41` already had `*.pid`, but **gitignore
+  only affects untracked files** and both had been committed — so the rule
+  was structurally incapable of suppressing them. Untracked via
+  `git rm --cached`; working-tree files deliberately left in place, since
+  they are live supervisor state.
+- **Agent memories were not noise.** `.claude/agent-memory/` is a
+  deliberately tracked knowledge base (90+ files already committed); the
+  modified index plus two new code-reviewer notes are content and were
+  committed.
+- **187 gitignored 32-hex scratch directories removed** from the repo root
+  (5.8MB), each guarded on containing nothing but
+  `resource_bus.db`/`.lock`, and only after confirming no live process
+  held any of them. None were skipped.
+- **Findings logged**: `NEW-278` (`plugin_manager.py` resolves a
+  manifest's `pid_file` relative to `plugin.path`, writing runtime state
+  into the source tree — should use the runtime state dir as
+  `lib/service_manager.sh` already does), `NEW-279` (see the GUI entry
+  above), `NEW-277` (the scratch-dir leak itself).
+
 ## 2026-09-02 — Phase B6/B7 planned: admin dashboard, portals, RBAC completion, and GCS backup (docs-only round)
 
 - **Status**: **Planning and interview round. No application code was
