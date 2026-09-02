@@ -13867,10 +13867,19 @@ outside that fix's scope.
   sides of the diff. Low frequency (needs a malformed or concurrent
   write), audit-accuracy only.
 - **Fix direction:** in B6.2b-2, migrate to `build_audit_details` with
-  `after` taken from a post-write `get_project()` / stored row, and
+  `after` taken from a post-write stored row, and
   `fields=_AUDITABLE_PROJECT_FIELDS` (`NEW-314`).
-- **Cross-reference:** `restoricon_core/services/crm_service.py:1796`;
-  `NEW-308`, `NEW-310`, `NEW-314`.
+- **Partially resolved (B6.2b-2, 2026-09-02):** the audit-accuracy half
+  is fixed — `update_project`'s audit `before`/`after` are now both built
+  from raw `SELECT *` rows through `_row_to_project(row, actor.role)`
+  (was: pre-txn row vs. the raw `updates` input dict), and `audit.log`
+  fires before the return-path `get_project()` so a read-restricted
+  actor's raise can't drop the row (`NEW-317`-adjacent). `fields=` is the
+  new `_AUDITABLE_PROJECT_FIELDS` drift-guard frozenset. **Still open:**
+  project fields are accepted without referential/type validation (same
+  as `create_project`) — a data-validation concern, not an audit defect.
+- **Cross-reference:** `restoricon_core/services/crm_service.py`
+  `update_project`; `NEW-308`, `NEW-310`, `NEW-314`.
 
 ### [NEW-313] `operations_service.py` passes unguarded params into `COALESCE(?, col)` at two sites, inconsistent with two other sites in the same file
 - **Status:** Confirmed (B6.2b architect, 2026-09-02). Pre-existing.
@@ -13950,6 +13959,12 @@ outside that fix's scope.
   `changed_fields`/`snapshot` is populated), then pick ONE canonical
   shape for "create" rows and note it for B6.2c. Decide during B6.2b-4
   or as a B6.2c prerequisite.
+- **Pattern established (B6.2b-2):** for a C-none site that mutates only
+  a known small set of columns (`update_subcontractor_qualification`
+  writes exactly `qualification_status` + `recruitment_step`), emit a
+  snapshot **scoped to those columns** rather than a full-row
+  `X.to_dict()` — a complete change record that also can't leak
+  unrelated sensitive fields. Reusable for the other C-none sites.
 - **Cross-reference:** `restoricon_core/services/audit_service.py`
   `build_audit_details`; `NEW-314`, `NEW-309`.
 
@@ -13967,3 +13982,37 @@ outside that fix's scope.
   upserts.
 - **Cross-reference:** `restoricon_core/services/automation_service.py`
   `add_to_do_not_contact`; B6.2b-4 in `CODEY_MASTER_PLAN.md` Appendix A.
+
+## Found during B6.2b-2 — crm_service update-site audit migration (2026-09-02)
+
+### [NEW-317] `crm_service.update_subcontractor` logged `updated_sub.to_dict()` on an unguarded `Optional` post-commit re-read
+- **Status:** Confirmed (B6.2b-2 implementer + code-reviewer,
+  2026-09-02). Pre-existing; **fixed in-round B6.2b-2.**
+- **Mechanism:** `update_subcontractor` ended with
+  `updated_sub = self.get_subcontractor(subcontractor_id, actor)` then
+  `details=updated_sub.to_dict()`. `get_subcontractor` returns
+  `Optional[Subcontractor]`; if the row were deleted between the
+  committed `UPDATE` and the re-read (concurrent-delete race, or a
+  future visibility filter), `.to_dict()` raised `AttributeError` past a
+  committed write — the mutation persists with no audit row.
+- **Impact:** narrow race; audit-completeness.
+- **Fix (shipped):** `after=updated_sub.to_dict() if updated_sub else None`
+  — the same guard `update_customer` already uses. Regression test
+  `test_update_subcontractor_after_image_none_guard` patches the re-read
+  to `None` and asserts no raise + a row still written.
+- **Cross-reference:** `restoricon_core/services/crm_service.py`
+  `update_subcontractor`; `NEW-306` (same write-then-refused-read class).
+
+### [NEW-318] B6.2b Round 2 classification listed `complete_task` as `snapshot + side_effect`; it has a real pre-image
+- **Status:** Confirmed (B6.2b-2 implementer, 2026-09-02).
+  Classification-table correction, no code defect.
+- **Mechanism:** `complete_task` fetches `task = self.get_task(task_id,
+  actor)` at the top, so a genuine `before` image exists — identical
+  shape to `update_task`. B6.2b-2 implemented it as a real
+  `before`/`after` diff (`status`, `completed_at`, `updated_at` in
+  `changed_fields`; `notes_appended` as `side_effects` when a note is
+  passed), not a snapshot.
+- **Impact:** none — the delivered shape is strictly better than the
+  classification predicted.
+- **Cross-reference:** the B6.2b architect classification (this
+  session); `restoricon_core/services/crm_service.py` `complete_task`.

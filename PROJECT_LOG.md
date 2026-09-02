@@ -10,6 +10,75 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-02 — `B6.2b-2` landed: 11 crm_service real-update audit sites migrated to before/after diffs
+
+- **Status**: **Code-complete + code-reviewer APPROVED (rule-4, audit
+  surface). NOT live-verified beyond the suite** — no live-model
+  component. `tests/test_restoricon_core/` 309 passed (+21 new in
+  `test_b6_2b2_audit_details.py`). Broader run (+ user_management +
+  b5a_api_routes + b4_dashboard) 335 passed. (Two pre-existing unrelated
+  failures in `tests/test_loader_resource_gate.py` — already logged, an
+  environmental adopt-vs-restart artifact, not this diff; confirmed via
+  `git stash`.)
+- **Scope**: Round 2 of B6.2b's 4 sub-rounds — the `crm_service.py`
+  real-update sites. All 11 now emit `build_audit_details(before=…,
+  after=…)` real diffs instead of `details=updates` / hand-rolled dicts:
+  `update_customer`, `update_lead`, `update_opportunity`,
+  `transition_opportunity_stage`, `update_task`, `complete_task`,
+  `update_project`, `sign_contract`, `record_payment`,
+  `update_subcontractor_qualification`, `update_subcontractor`.
+- **`before`/`after` discipline** (NEW-311 fallback rule): getter-based
+  sites capture `_before = model.to_dict()` immediately after the
+  `if not model` guard and strictly above the first mutation; raw-row
+  sites build both `before` and `after` through the same `_row_to_X`
+  builder (never `dict(row)` — avoids a `stage`-normalisation phantom
+  diff on `update_project`). After-images are post-commit re-reads,
+  every one `Optional`-guarded.
+- **`update_project` migration (`NEW-312` audit half)**: replaced the
+  block that diffed a pre-txn `SELECT *` row against the raw `updates`
+  input dict. Now both sides go through `_row_to_project(row,
+  actor.role)`, and `audit.log` fires *before* the return-path
+  `get_project()` so a read-restricted actor's raise can't drop the row
+  for a mutation that committed. No-op-update-writes-no-row contract
+  preserved via `_meaningful = changed_fields − {updated_at}`;
+  `change_summary` byte-identical. Input-validation half of `NEW-312`
+  stays open (data concern, not audit).
+- **Traced `side_effects`** (against actual code, not method names):
+  `transition_opportunity_stage` → `cadence_task_created` (id/rule_name
+  cross-ref to the task's own `create` audit row — not a double-log) +
+  `notes_appended`; `record_payment` → `payment_recorded`
+  {amount/method/reference/new_balance/new_status}; `sign_contract` →
+  `signature_captured: true` (never the blob); `complete_task` →
+  `notes_appended`.
+- **`update_subcontractor_qualification`** (C-none — no pre-image read
+  in the method): emits a 2-key scoped `snapshot`
+  (`qualification_status`, `recruitment_step` — the only columns it
+  writes), not a full-row `to_dict()`. Sidesteps `NEW-315`'s
+  unfilterable-snapshot leak and is a complete change record. Pattern
+  noted in `NEW-315` for the other C-none sites.
+- **New constant**: `_AUDITABLE_PROJECT_FIELDS` (5th `NEW-314` frozenset).
+  Excludes nothing — `Project` has no secret/PII fields — but exists as
+  a drift guard; a test asserts it equals the full `Project` dataclass
+  field set, failing loudly if a field is added without a reviewer
+  decision.
+- **Findings**: `NEW-317` (Confirmed — unguarded post-commit `.to_dict()`
+  in `update_subcontractor`, pre-existing, **fixed in-round**),
+  `NEW-318` (classification correction — `complete_task` had a real
+  pre-image, delivered as a full diff), `NEW-312` downgraded to
+  partially-resolved, `NEW-315` gains the scoped-snapshot pattern note.
+- **`install.sh`**: no change — no new dependency.
+- **Pipeline**: architect B6.2b-2 spec → implementer (found the spec's
+  `_row_to_customer`-doesn't-exist claim wrong — followed the explicit
+  hand-rolled loop, verified equivalent; found the literal `if _changed:`
+  gate would break the no-op contract, gated on `_meaningful` instead,
+  advisor-checked) → code-reviewer **APPROVED** with one Warning
+  (`update_project` audit-after-`get_project`-raise ordering) →
+  implementer applied the reviewer's recommended fix (raw-SELECT
+  after-image, log before the return) → clean.
+- **Ledgers**: `CODEY_MASTER_PLAN.md` progress banner + Appendix A
+  (B6.2b-2 checked); `NEW_ISSUES.md` `NEW-312` partial-resolution,
+  `NEW-315` note, `NEW-317`/`NEW-318` appended.
+
 ## 2026-09-02 — `B6.2b-1` landed: 25 mechanical service-layer audit sites canonicalized
 
 - **Status**: **Code-complete + code-reviewer APPROVED (rule-4, audit

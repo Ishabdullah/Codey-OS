@@ -63,6 +63,21 @@ _AUDITABLE_EMPLOYEE_FIELDS = frozenset({
     "phone", "email", "hire_date", "status", "created_at", "updated_at",
 })
 
+# NEW-314: Project diff domain. Unlike the other NEW-314 constants this
+# excludes nothing -- Project carries no secret/PII-grade fields. It exists
+# as a drift guard: a future Project field cannot enter the audit payload
+# without an edit here (mirrors _AUDITABLE_USER_FIELDS' rationale).
+_AUDITABLE_PROJECT_FIELDS = frozenset({
+    "id", "customer_id", "title", "property_address", "project_type",
+    "status", "stage", "start_date", "expected_completion",
+    "actual_completion", "project_manager_id", "assigned_employees",
+    "subcontractors", "scope_of_work", "estimated_cost", "contract_amount",
+    "actual_cost", "profit", "notes", "warranty_info", "stage_entered_at",
+    "insurance_claim_number", "insurance_carrier", "adjuster_name",
+    "adjuster_phone", "adjuster_email", "deductible", "created_at",
+    "updated_at",
+})
+
 
 def build_audit_details(
     *,

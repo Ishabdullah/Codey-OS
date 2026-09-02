@@ -77,7 +77,7 @@ from ..models import (
     Task,
     utc_now_iso,
 )
-from .audit_service import AuditService, build_audit_details, _AUDITABLE_CONTRACT_FIELDS, _AUDITABLE_INVOICE_FIELDS, _AUDITABLE_SUBCONTRACTOR_FIELDS
+from .audit_service import AuditService, build_audit_details, _AUDITABLE_CONTRACT_FIELDS, _AUDITABLE_INVOICE_FIELDS, _AUDITABLE_SUBCONTRACTOR_FIELDS, _AUDITABLE_PROJECT_FIELDS
 
 
 class CRMService:
@@ -334,11 +334,24 @@ class CRMService:
         conn = self.db.get_connection()
         with conn:
             row = conn.execute(
-                "SELECT custom_fields_json, tags_json FROM customers WHERE id = ?;",
+                "SELECT * FROM customers WHERE id = ?;",
                 (customer_id,),
             ).fetchone()
             if not row:
                 return None
+
+            # Pre-image scoped to the submitted keys only. No _row_to_customer
+            # pre-image is used here: the after-image builder (get_customer ->
+            # _row_to_customer) is a straight column pass-through for every
+            # allowed scalar field, so reading row[k] directly is equivalent.
+            _before = {}
+            for k in updates:
+                if k == "custom_fields":
+                    _before[k] = json.loads(row["custom_fields_json"]) if row["custom_fields_json"] else {}
+                elif k == "tags":
+                    _before[k] = json.loads(row["tags_json"]) if row["tags_json"] else []
+                else:
+                    _before[k] = row[k]
 
             set_clauses = []
             params: List[Any] = []
@@ -364,13 +377,22 @@ class CRMService:
                 return None
 
         updated_cust = self.get_customer(customer_id, actor)
+        # fields=sorted(updates) here is a diff-domain scope, not a security
+        # filter -- Customer.to_dict() carries nothing sensitive, so there is
+        # no _AUDITABLE_CUSTOMER_FIELDS constant. It bounds changed_fields to
+        # the keys actually submitted.
+        details = build_audit_details(
+            before=_before,
+            after=updated_cust.to_dict() if updated_cust else None,
+            fields=sorted(updates),
+        )
         self.audit.log(
             action="update",
             entity_type="customer",
             entity_id=customer_id,
             change_summary=f"Customer {customer_id} updated ({', '.join(sorted(updates.keys()))})",
             actor=actor,
-            details=updated_cust.to_dict() if updated_cust else {},
+            details=details,
         )
         return updated_cust
 
@@ -585,6 +607,8 @@ class CRMService:
         if not lead:
             return None
 
+        _before = lead.to_dict()
+
         allowed_fields = {
             "customer_id", "source", "status", "score", "score_factors",
             "property_type", "project_scope", "urgency_level", "insurance_status",
@@ -620,13 +644,17 @@ class CRMService:
                 ),
             )
 
+        _after = self.get_lead(lead_id, actor)
         self.audit.log(
             action="update",
             entity_type="lead",
             entity_id=lead_id,
             change_summary=f"Updated lead {lead_id}",
             actor=actor,
-            details=updates,
+            details=build_audit_details(
+                before=_before,
+                after=_after.to_dict() if _after else None,
+            ),
         )
         return lead
 
@@ -934,6 +962,8 @@ class CRMService:
         if not opp:
             return None
 
+        _before = opp.to_dict()
+
         if "pipeline_stage" in updates and PipelineStage.normalize(updates["pipeline_stage"]) != opp.pipeline_stage:
             return self.transition_opportunity_stage(
                 opp_id,
@@ -980,13 +1010,17 @@ class CRMService:
                 ),
             )
 
+        _after = self.get_opportunity(opp_id, actor)
         self.audit.log(
             action="update",
             entity_type="opportunity",
             entity_id=opp_id,
             change_summary=f"Updated opportunity {opp_id}",
             actor=actor,
-            details=updates,
+            details=build_audit_details(
+                before=_before,
+                after=_after.to_dict() if _after else None,
+            ),
         )
         return opp
 
@@ -1015,6 +1049,8 @@ class CRMService:
         opp = self.get_opportunity(opp_id, actor)
         if not opp:
             raise ValueError(f"Opportunity {opp_id} not found")
+
+        _before = opp.to_dict()
 
         canonical_stage = PipelineStage.normalize(new_stage)
         if not PipelineStage.is_valid(canonical_stage):
@@ -1058,11 +1094,27 @@ class CRMService:
                 ),
             )
 
-        # Generate cadence follow-up tasks for the new stage
+        _after = self.get_opportunity(opp_id, actor)
+
+        # Generate cadence follow-up tasks for the new stage.
+        # Initialized before the try so the except path can't NameError.
+        _cadence_tasks = []
         try:
-            self.generate_cadence_tasks(opp, actor)
+            _cadence_tasks = self.generate_cadence_tasks(opp, actor)
         except Exception:
             pass
+
+        # generate_cadence_tasks creates 0 or 1 Task via self.create_task,
+        # which writes its OWN create audit row. Recording the id here is a
+        # cross-reference pointer, not a double-log.
+        _side_effects = {}
+        if _cadence_tasks:
+            t = _cadence_tasks[0]
+            _side_effects["cadence_task_created"] = {
+                "id": t.id, "rule_name": t.rule_name, "title": t.title,
+            }
+        if notes:
+            _side_effects["notes_appended"] = notes
 
         self.audit.log(
             action="stage_transition",
@@ -1070,12 +1122,11 @@ class CRMService:
             entity_id=opp_id,
             change_summary=f"Transitioned opportunity '{opp.title}' ({opp_id}) from '{old_stage}' to '{canonical_stage}'",
             actor=actor,
-            details={
-                "from_stage": old_stage,
-                "to_stage": canonical_stage,
-                "probability": opp.probability,
-                "lost_reason": opp.lost_reason,
-            },
+            details=build_audit_details(
+                before=_before,
+                after=_after.to_dict() if _after else None,
+                side_effects=_side_effects or None,
+            ),
         )
         return opp
 
@@ -1303,6 +1354,8 @@ class CRMService:
         if not task:
             return None
 
+        _before = task.to_dict()
+
         allowed_fields = {
             "title", "description", "task_type", "status", "priority",
             "due_date", "completed_at", "customer_id", "opportunity_id",
@@ -1334,13 +1387,17 @@ class CRMService:
                 ),
             )
 
+        _after = self.get_task(task_id, actor)
         self.audit.log(
             action="update",
             entity_type="task",
             entity_id=task_id,
             change_summary=f"Updated task {task_id}",
             actor=actor,
-            details=updates,
+            details=build_audit_details(
+                before=_before,
+                after=_after.to_dict() if _after else None,
+            ),
         )
         return task
 
@@ -1356,6 +1413,8 @@ class CRMService:
         if not task:
             raise ValueError(f"Task {task_id} not found")
 
+        _before = task.to_dict()
+
         now = utc_now_iso()
         task.status = "completed"
         task.completed_at = now
@@ -1370,13 +1429,18 @@ class CRMService:
                 (now, task.notes, now, task_id),
             )
 
+        _after = self.get_task(task_id, actor)
         self.audit.log(
             action="complete",
             entity_type="task",
             entity_id=task_id,
             change_summary=f"Completed task '{task.title}'",
             actor=actor,
-            details={"completed_at": now, "notes": notes},
+            details=build_audit_details(
+                before=_before,
+                after=_after.to_dict() if _after else None,
+                side_effects=({"notes_appended": notes} if notes else None),
+            ),
         )
         return task
 
@@ -1744,6 +1808,8 @@ class CRMService:
         if row is None:
             return None
 
+        _before = self._row_to_project(row, actor.role).to_dict()
+
         if self._PROJECT_REASSIGNMENT_FIELDS & set(updates):
             if not _actor_may_reassign_project_staff(actor, row):
                 raise PermissionError("Actor may not reassign staff on this project")
@@ -1773,33 +1839,33 @@ class CRMService:
         except sqlite3.IntegrityError as e:
             raise ValueError(f"Update violates a data constraint: {e}") from e
 
-        # Audit with a nested changed_fields map: submit_review's flat
-        # old_*/new_* shape scales to ~5 fields; update_project touches 20+.
-        # B6.2 generalizes this shape.
-        _json_cols = {"assigned_employees": "assigned_employees_json", "subcontractors": "subcontractors_json"}
-        changed: Dict[str, Any] = {}
-        for key in updates:
-            col = _json_cols.get(key, key)
-            old_raw = row[col]
-            if key in _json_cols:
-                old_val = json.loads(old_raw) if old_raw else []
-                new_val = updates[key]
-                # Compare parsed lists, order-sensitive: [1,2] vs [2,1] counts
-                # as a change (a reorder is a real reassignment of primacy).
-                if old_val != new_val:
-                    changed[key] = {"old": old_val, "new": new_val}
-            else:
-                if old_raw != updates[key]:
-                    changed[key] = {"old": old_raw, "new": updates[key]}
-
-        if changed:
+        # NEW-312: build the audit after-image from a raw row read + the same
+        # _row_to_project builder used for _before, and emit audit.log BEFORE
+        # the final get_project() -- get_project raises for a
+        # read-restricted actor (technician not on the project, customer on
+        # another's project), and the audit trail must not depend on that
+        # read-permission raise firing after the UPDATE has already committed.
+        _after_row = conn.execute(
+            "SELECT * FROM projects WHERE id = ?;", (project_id,)
+        ).fetchone()
+        _after = self._row_to_project(_after_row, actor.role).to_dict() if _after_row else None
+        _details = build_audit_details(
+            before=_before,
+            after=_after,
+            fields=_AUDITABLE_PROJECT_FIELDS,
+        )
+        _changed = _details.get("changed_fields", {})
+        # updated_at bumps on every call, so it can't participate in the
+        # "did anything change" decision -- see this method's docstring.
+        _meaningful = sorted(set(_changed) - {"updated_at"})
+        if _meaningful:
             self.audit.log(
                 action="update",
                 entity_type="project",
                 entity_id=project_id,
-                change_summary=f"Project {project_id} updated ({', '.join(sorted(changed))})",
+                change_summary=f"Project {project_id} updated ({', '.join(_meaningful)})",
                 actor=actor,
-                details={"changed_fields": changed},
+                details=_details,
             )
 
         return self.get_project(project_id, actor)
@@ -2053,6 +2119,8 @@ class CRMService:
         if not row:
             raise ValueError(f"Contract {contract_id} not found")
 
+        _before = self._row_to_contract(row).to_dict()
+
         # Customer isolation
         if actor.role == ROLE_CUSTOMER:
             if not actor.customer_id or actor.customer_id != row["customer_id"]:
@@ -2072,16 +2140,7 @@ class CRMService:
                 (now, signature_data, now, contract_id),
             )
 
-        self.audit.log(
-            action="sign",
-            entity_type="contract",
-            entity_id=contract_id,
-            change_summary=f"Signed contract #{row['contract_number']}",
-            actor=actor,
-            details={"signed_at": now},
-        )
-
-        return Contract(
+        _signed = Contract(
             id=row["id"],
             contract_number=row["contract_number"],
             customer_id=row["customer_id"],
@@ -2097,6 +2156,23 @@ class CRMService:
             created_at=row["created_at"],
             updated_at=now,
         )
+
+        self.audit.log(
+            action="sign",
+            entity_type="contract",
+            entity_id=contract_id,
+            change_summary=f"Signed contract #{row['contract_number']}",
+            actor=actor,
+            details=build_audit_details(
+                before=_before,
+                after=_signed.to_dict(),
+                fields=_AUDITABLE_CONTRACT_FIELDS,
+                # Never surface the signature blob in the audit payload.
+                side_effects={"signature_captured": True},
+            ),
+        )
+
+        return _signed
 
     # ==========================================
     # INVOICES & PAYMENTS
@@ -2229,6 +2305,8 @@ class CRMService:
         if not row:
             raise ValueError(f"Invoice {invoice_id} not found")
 
+        _before = self._row_to_invoice(row).to_dict()
+
         now = utc_now_iso()
         payments = json.loads(row["payments_json"]) if row["payments_json"] else []
         payments.append({
@@ -2256,16 +2334,7 @@ class CRMService:
                 (new_status, new_balance, json.dumps(payments), now, invoice_id),
             )
 
-        self.audit.log(
-            action="pay",
-            entity_type="invoice",
-            entity_id=invoice_id,
-            change_summary=f"Recorded payment ${payment_amount:.2f} on invoice #{row['invoice_number']} via {payment_method}",
-            actor=actor,
-            details={"payment_amount": payment_amount, "new_balance": new_balance, "status": new_status},
-        )
-
-        return Invoice(
+        _updated = Invoice(
             id=row["id"],
             invoice_number=row["invoice_number"],
             customer_id=row["customer_id"],
@@ -2280,6 +2349,28 @@ class CRMService:
             created_at=row["created_at"],
             updated_at=now,
         )
+
+        self.audit.log(
+            action="pay",
+            entity_type="invoice",
+            entity_id=invoice_id,
+            change_summary=f"Recorded payment ${payment_amount:.2f} on invoice #{row['invoice_number']} via {payment_method}",
+            actor=actor,
+            details=build_audit_details(
+                before=_before,
+                after=_updated.to_dict(),
+                fields=_AUDITABLE_INVOICE_FIELDS,
+                side_effects={"payment_recorded": {
+                    "amount": payment_amount,
+                    "method": payment_method,
+                    "reference": transaction_reference,
+                    "new_balance": new_balance,
+                    "new_status": new_status,
+                }},
+            ),
+        )
+
+        return _updated
 
     # ==========================================
     # DOCUMENTS
@@ -2830,7 +2921,14 @@ class CRMService:
             entity_id=subcontractor_id,
             change_summary=f"Subcontractor {subcontractor_id} qualification set to '{qualification_status}'",
             actor=actor,
-            details={"qualification_status": qualification_status, "recruitment_step": recruitment_step},
+            details=build_audit_details(snapshot={
+                # NEW-311: no pre-image read in this method; NEW-315: snapshot
+                # can't be filtered. This method mutates only these two columns,
+                # so a scoped snapshot is a complete change record -- not a
+                # manufactured diff.
+                "qualification_status": qualification_status,
+                "recruitment_step": recruitment_step,
+            }),
         )
         return self.get_subcontractor(subcontractor_id, actor)
 
@@ -2881,11 +2979,13 @@ class CRMService:
         conn = self.db.get_connection()
         with conn:
             row = conn.execute(
-                "SELECT qualification_data_json FROM subcontractors WHERE id = ?;",
+                "SELECT * FROM subcontractors WHERE id = ?;",
                 (subcontractor_id,),
             ).fetchone()
             if not row:
                 return None
+
+            _before = self._row_to_subcontractor(row).to_dict()
 
             set_clauses = []
             params: List[Any] = []
@@ -2922,7 +3022,11 @@ class CRMService:
             entity_id=subcontractor_id,
             change_summary=f"Subcontractor {subcontractor_id} updated ({', '.join(sorted(updates.keys()))})",
             actor=actor,
-            details=updated_sub.to_dict(),
+            details=build_audit_details(
+                before=_before,
+                after=updated_sub.to_dict() if updated_sub else None,
+                fields=_AUDITABLE_SUBCONTRACTOR_FIELDS,
+            ),
         )
         return updated_sub
 

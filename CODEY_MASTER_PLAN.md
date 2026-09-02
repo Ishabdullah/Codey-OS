@@ -1051,11 +1051,14 @@ unrestricted), the ownership narrowing keyed on permission not
 old/new+side-effects payload helper and wired it into the 9 user-mutation
 audit sites in `api/routes.py` (code-reviewer-approved, rule-4).
 `B6.2b-1` (2026-09-02) canonicalized 25 mechanical service-layer
-create/delete audit sites onto the same helper + added four
-`_AUDITABLE_*_FIELDS` allow-lists (contract/invoice/subcontractor/
-employee, `NEW-314`); code-reviewer-approved (rule-4). Next: `B6.2b-2`
-(11 crm_service update sites), `-3` (8 operations sites), `-4` (~10
-remaining), then `B6.2c` (admin audit-search screen).
+create/delete audit sites + added four `_AUDITABLE_*_FIELDS` allow-lists.
+`B6.2b-2` (2026-09-02) migrated the 11 `crm_service` real-update audit
+sites to `before`/`after` diffs — incl. `update_project` off its
+hand-rolled diff (`NEW-312` audit-accuracy half) — added
+`_AUDITABLE_PROJECT_FIELDS`, and fixed an unguarded post-commit
+`.to_dict()` in `update_subcontractor` (`NEW-317`); code-reviewer-approved
+(rule-4). Next: `B6.2b-3` (8 operations sites), `-4` (~10 remaining),
+then `B6.2c` (admin audit-search screen).
 **The round-by-round build narrative that used to live here — 627 lines
 covering Phase B2's write-through rounds, their code-reviewer passes, and
 their test counts — was moved verbatim to `PROJECT_LOG.md` on 2026-09-02
@@ -5990,9 +5993,16 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
         `snapshot`; two create shapes now in `audit_log`), `NEW-316`
         (`add_to_do_not_contact` deferred to `-4`). No live-model
         component.
-      - [ ] **B6.2b-2** — 11 `crm_service` real-update sites, incl.
-        migrating `update_project`'s hand-rolled `changed_fields`
-        (`NEW-312`). Gated on `NEW-311`.
+      - [x] **B6.2b-2** — 11 `crm_service` real-update sites migrated to
+        `build_audit_details` `before`/`after` diffs; `update_project`
+        off its hand-rolled diff (`NEW-312` audit half);
+        `transition_opportunity_stage` / `record_payment` / `sign_contract`
+        gain traced `side_effects`; `update_subcontractor_qualification`
+        uses a 2-key scoped `snapshot` (C-none, `NEW-311`/`NEW-315`).
+        New `_AUDITABLE_PROJECT_FIELDS` (5th `NEW-314` constant, drift
+        guard). `NEW-317` fixed in-round. Code-complete + rule-4
+        code-reviewer-approved 2026-09-02; `tests/test_restoricon_core/`
+        309 passed (+21). No live-model component.
       - [ ] **B6.2b-3** — 8 `operations_service` real-update sites
         (heaviest side-effect surface: stage cascade → `projects.status`,
         milestone auto-creation, `actual_completion`; `COALESCE` after-
