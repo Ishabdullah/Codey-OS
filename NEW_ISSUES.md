@@ -13844,8 +13844,12 @@ outside that fix's scope.
   boundary that spans read+write with `BEGIN IMMEDIATE`, or (b) accept
   the workable B6.2b rule — reuse a pre-image read that already exists;
   never add a new SELECT to manufacture a diff; where no full pre-image
-  read exists, `snapshot`/after-image only with a recorded reason. Ish
-  decision pending (2026-09-02).
+  read exists, `snapshot`/after-image only with a recorded reason.
+  **Ish decision 2026-09-02: accept the fallback rule (b)** — no
+  `BEGIN IMMEDIATE` DB-layer change; the millisecond race is theoretical
+  on a single-user deployment and is the same tradeoff already accepted
+  in `NEW-307` / `NEW-310`. B6.2b rounds 2–4 proceed under the fallback
+  rule; `NEW-311` stays open as a revisit-if-multi-process marker.
 - **Cross-reference:** `restoricon_core/database.py:886`, `:1005`;
   `NEW-307`, `NEW-310`.
 
