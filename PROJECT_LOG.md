@@ -10,6 +10,308 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-02 — Restoricon Core Phase 1 RBAC fixes: `submit_review` authorization, stale-role tokens, per-session login
+
+- **Status**: Fixes 1 and 2 **live-verified** against a real running API.
+  Fix 3 is **code-complete and code-reviewer-approved, NOT browser-verified**
+  (rule 7 — the quit-and-reopen test needs Ish at a real browser; steps below).
+  code-reviewer: **APPROVED** (rule 4 — this is auth/RBAC code). Full suite
+  `1085 passed, 1 skipped in 92.28s`. **Not committed** — see "Commit scoping".
+- Follows a read-only RBAC investigation that found three independent issues.
+  Its scratchpad (`scratchpad/RBAC_INVESTIGATION.md`) was already gone by the
+  time this round started; the work was re-derived from the code directly.
+
+### Fix 1 — `submit_review()` had no authorization at all
+
+- `restoricon_core/services/business_ops_service.py`. The method took no
+  `actor` and performed **zero** permission checks, so any authenticated
+  caller — a technician, or any customer — could overwrite the rating and
+  feedback on **any** review request, not just their own.
+- Deliberately **not** fixed the way its neighbour `create_review_request`
+  is. That one is staff-only (`PERM_WRITE_MARKETING`); gating `submit_review`
+  the same way would lock out its actual intended users, since the docstring
+  and the endpoint's purpose make it customer-reachable. New rule: allow if
+  `actor.has_permission(PERM_WRITE_MARKETING)` **or** the actor is a customer
+  whose `customer_id` matches the row's. Ownership predicate copied verbatim
+  in shape from `crm_service.get_estimate` (`crm_service.py:1756`) rather than
+  invented.
+- Verified the permission matrix by dumping the **whole** `ROLE_PERMISSIONS`
+  dict, not grepping for expected keys (rule 12). `write:marketing` is held by
+  `admin`/`manager`/`sales`/`ai_agent` and **not** by `technician` or
+  `customer` — so the ownership branch is load-bearing and technicians are
+  genuinely excluded. The code-reviewer re-dumped it independently and agreed.
+- Added the audit call the method never had, with **old and new** values —
+  most existing audit calls in this file record only the new state.
+- `actor` threaded through from `api/routes.py:1440`. Confirmed non-None:
+  every path past `routes.py:226` is behind the auth gate; the public
+  allowlist (`/api/v1/public/*`, health, static assets) never reaches it.
+
+**Live verification** (real HTTP, scratch DB, port 8791):
+
+```
+[1] owning customer alice   POST /marketing/reviews/1/submit  HTTP_STATUS=200
+    {"status": "submitted", "review": {... "rating": 5, "feedback": "Alice: excellent work" ...}}
+[2] other customer eve      POST /marketing/reviews/1/submit  HTTP_STATUS=403
+    {"error": "Actor lacks permission to submit this review"}
+[3] technician              POST /marketing/reviews/1/submit  HTTP_STATUS=403
+    {"error": "Actor lacks permission to submit this review"}
+[4] staff admin on behalf   POST /marketing/reviews/1/submit  HTTP_STATUS=200
+    {"status": "submitted", "review": {... "rating": 4, "feedback": "Admin: corrected to 4" ...}}
+```
+
+Audit rows written by that sequence, read back from the live DB — the full
+old→new chain, with actor role, exactly as required:
+
+```
+03:29:26 | customer | submit_review | entity 1
+   {"customer_id": 1, "old_rating": null, "new_rating": 5,
+    "old_feedback": null, "new_feedback": "Alice: excellent work",
+    "old_status": "sent", "new_status": "completed"}
+03:29:27 | admin    | submit_review | entity 1
+   {"customer_id": 1, "old_rating": 5, "new_rating": 4,
+    "old_feedback": "Alice: excellent work", "new_feedback": "Admin: phoned-in rating",
+    "old_status": "completed", "new_status": "completed"}
+03:29:40 | customer | submit_review | entity 1
+   {"customer_id": 1, "old_rating": 4, "new_rating": 5, ...}
+03:29:40 | admin    | submit_review | entity 1
+   {"customer_id": 1, "old_rating": 5, "new_rating": 4,
+    "old_feedback": "Alice: excellent work", "new_feedback": "Admin: corrected to 4", ...}
+```
+
+- **Scope disclosure**: the customer branch is **direct-API only today**.
+  `web_surfaces.py` contains no `marketing/reviews` surface, so the live
+  "owning customer 200" above was an HTTP probe, not a UI path. Related:
+  a customer can submit a review but cannot read it back — `list_reviews`
+  requires `PERM_READ_MARKETING`, which no customer holds.
+- Unit tests added to `tests/test_business_ops.py`: owning customer allowed,
+  other customer denied (and the original review confirmed **unchanged** after
+  the denial), technician denied, audit captures old+new across two
+  submissions. The pre-existing `test_review_request_and_submission` was
+  updated for the new signature.
+
+### Fix 2 — role changes did not revoke existing tokens
+
+- `restoricon_core/auth.py:update_user`. `api_tokens.role` is a snapshot taken
+  at login (`create_token`), and `authenticate_token` reads **that snapshot**
+  rather than the live `users.role`. Suspend, password-change and delete all
+  revoke tokens; `update_user` — the only role-change path — did not. A
+  demoted user therefore kept acting under their **old** role for up to the
+  token's remaining 7-day life.
+- Now revokes all of that user's `api_tokens` when `role` actually changes,
+  reusing the exact query `set_user_active()` already uses, inside the **same**
+  `with conn:` as the users UPDATE so both commit or roll back together.
+- Three deliberate choices, all confirmed by the code-reviewer:
+  - Compared against the **pre-update** `user.role`, so a no-op role write
+    (`{"role": "technician"}` on a technician) does not force a re-login.
+  - Non-role edits (`full_name`, `phone`, …) do not revoke anything.
+  - The actor's **own** token is **not** spared, unlike `change_password`'s
+    `AND token != ?`. A self-demotion leaving a stale-role token alive is
+    precisely the bug being fixed.
+- Bounded to `role` on purpose: `authenticate_token`'s SELECT pulls `t.role`
+  from the token row but `u.customer_id`, `u.active` and
+  `u.custom_permissions_json` from the live user row, so permission and
+  `customer_id` changes need no revocation. Role is the only snapshotted field.
+
+**Live verification** (real HTTP, same scratch server):
+
+```
+BEFORE                     GET /auth/me   HTTP_STATUS=200   "role": "technician"
+
+A) PUT /users/4 {"phone": "860-555-0000"}          HTTP_STATUS=200
+   old token  GET /auth/me   HTTP_STATUS=200   "role": "technician"   <- survives
+
+B) PUT /users/4 {"role": "manager"}                HTTP_STATUS=200
+   old token  GET /auth/me           HTTP_STATUS=401  {"error": "Unauthorized or expired token"}
+   old token  GET /marketing/reviews HTTP_STATUS=401  {"error": "Unauthorized or expired token"}
+
+C) fresh login GET /auth/me   HTTP_STATUS=200   "role": "manager"
+```
+
+- Unit tests added to `tests/test_user_management.py`: role change rejects the
+  old token and a fresh login gets the new role; self-demotion revokes the
+  actor's own token; non-role updates and no-op role writes leave tokens alive.
+
+### Fix 3 — sessions persisted 7 days via `localStorage`
+
+- `restoricon_core/api/web_surfaces.py:_get_common_script()` —
+  `getAuthToken`/`setAuthToken` moved from `localStorage` to `sessionStorage`,
+  so the token is cleared when the browser closes. This is the single shared
+  helper every surface embeds, and every token read in the file goes through
+  `getAuthToken()`, so it is a three-line change with no other call sites.
+- **The 7-day server-side `api_tokens.expires_at` was left unchanged**, per
+  the task's instruction to flag rather than guess. **Recommendation: keep it
+  as-is.** With `sessionStorage`, the 7-day window no longer produces
+  auto-login at all — every browser restart forces a fresh username/password
+  login, which is what Ish asked for. What the server expiry still bounds is
+  the one case client storage cannot: a tab left open for days. Removing or
+  shortening it would only add forced mid-session re-logins without changing
+  the persistence behaviour that was the actual complaint.
+- **Verified so far (code-level, not browser):** fetched all five surfaces
+  from a real running server and grepped the served HTML —
+  `/admin`, `/portal`, `/quote` each emit `sessionStorage` at the three token
+  call sites; `/admin/login` and `/portal/login` each show 4 `sessionStorage`
+  references and **0** `localStorage` token calls. Repo-wide, the only
+  remaining occurrence of the string `localStorage` is inside the explanatory
+  comment. In-app navigation is unaffected: every surface transition uses
+  same-tab `window.location.href`, and the only `target="_blank"` links point
+  at the external `restoricon.com` marketing site.
+- **Still needs Ish at a real browser** (rule 7 — this is why Fix 3 sits in
+  §4.2, not §4.1). Exact steps:
+  1. Log in at `/admin/login`; confirm the dashboard loads.
+  2. Navigate between in-app pages — confirm **no** re-login is demanded.
+  3. DevTools → Application → **Session Storage** shows `restoricon_token`;
+     **Local Storage** does not.
+  4. **Fully quit the browser** (not just the tab), reopen, hit `/admin` —
+     expect a redirect to the login page.
+  Note for step 4: closing one tab while another window stays open will
+  **not** clear it. Quitting the browser is the test.
+- One-time effect on deploy: anyone holding a pre-existing `localStorage`
+  token is logged out once on first load, and that dead `localStorage` entry
+  lingers harmlessly until the browser clears site data.
+
+### Live-test hygiene
+
+- All live verification ran against a **scratch** DB
+  (`<scratchpad>/live.db`, seeded fresh) on port **8791** — never
+  `~/.codeyOS/restoricon.db` or `~/.codey_restoricon/core.db`. Fix 2's test
+  revokes tokens and Fix 1's overwrites review rows; pointing either at real
+  business data would have been destructive.
+- **Teardown disclosure (rule 3 / rule 5).** The PID recorded at spawn
+  (`24213`) was the backgrounded **subshell**, not the server. Killing it
+  reported success while `curl` still got `{"status": "ok"}` on 8791. The
+  actual server was then located by scanning `/proc/*/cmdline` for an **exact**
+  match on `restoricon_core.api.server` **plus** this session's own scratchpad
+  DB path — PID `24215`, whose `PPid: 1` confirmed it had been reparented when
+  the subshell exited. That exact PID was killed, `ps -p 24215` confirmed gone,
+  and port 8791 confirmed closed. No bare-name pattern kill was used at any
+  point. Worth carrying forward: `nohup cmd &` inside a compound shell line
+  gives you the subshell's PID, not the process you actually care about.
+- No model was loaded at any point in this round, so rule 2 did not bind.
+
+### Findings logged, not fixed (rule 8)
+
+Four, all Confirmed, all reproduced with real output. Full entries in
+`NEW_ISSUES.md`; queue lines as `U.35`/`U.36`/`U.37` in
+`CODEY_MASTER_PLAN.md` Appendix A M-lane.
+
+- **`NEW-264`** — `update_user(uid, {"active": 0})` is a second suspension
+  path that never revokes tokens. **This is not a bypass**: while suspended,
+  the tokens do not authenticate, because `authenticate_token` joins
+  `u.active = 1` regardless of `is_revoked`. The real defect is **token
+  resurrection** on re-activation:
+
+  ```
+  update_user(active=0)  -> while suspended:                 None (correctly rejected)
+  update_user(active=1)  -> after re-activation, OLD token:  ALIVE
+  set_user_active(0)/(1) -> after re-activation, OLD token:  dead
+  ```
+
+  A user suspended for cause and later reinstated keeps whatever sessions
+  existed at suspension time. Reachable via `PUT /api/v1/users/{id}` only;
+  the web UI uses `/suspend` + `/activate`, which are unaffected. Deliberately
+  **not** fixed — one line from Fix 2 in the same function, but the task
+  scoped this round to `role` and listed adjacent auth surfaces as out of
+  scope. Escalating rather than expanding scope.
+- **`NEW-265`** — `create_review_request()` has no audit call at all.
+  Worth flagging because the round's task text said to model the new
+  `submit_review` audit call on `create_review_request`'s pattern; there was
+  no pattern to follow, so `create_campaign`'s was used instead.
+- **`NEW-266`** — `update_user` accepts `role = "customer"` with a NULL
+  `customer_id`, a shape `create_user` explicitly refuses
+  (`ValueError: Customer user role requires an associated customer_id`).
+  Fails **closed** — `can_access_customer()` returns False and Fix 1's
+  ownership predicate requires `customer_id is not None` — so it produces an
+  unusable account, not a leak.
+- **`NEW-267`** — the revocation Fix 2 adds is itself unaudited: it silently
+  terminates every session a user holds, while the only record is
+  `routes.py:329`'s bare `"User {username} updated"` with no `details=`.
+  Inconsistent with the old/new standard Fix 1 sets in the same diff. Raised
+  by the code-reviewer as a non-blocking Suggestion.
+
+### Code-reviewer pass (rule 4)
+
+**APPROVED**, no Critical issues. Beyond re-running the suite
+(`1085 passed, 1 skipped in 90.76s`) and re-dumping the permission matrix
+independently, it ran three **negative controls** confirming every new test
+actually fails when its fix is removed — neutering the `submit_review` gate
+failed both denial tests; neutering the no-op role guard failed the
+non-revocation test; neutering the revoke failed both revocation tests.
+Attacks that found nothing: `customer_id` type coercion (SQLite INTEGER
+affinity makes it a sound int-to-int compare), NULL-matches-NULL
+(`review_requests.customer_id` is `NOT NULL`), transaction atomicity
+(`get_connection()` does not set `isolation_level=None`, so `with conn:` is a
+real deferred transaction), role-comparison coercion (validated against
+`ALL_ROLES` before the comparison), and the self-referential case (the actor's
+`AuthContext` is already materialized, so the demoting request completes and
+only the *next* one 401s — not a self-race of the kind `NEW-259` was).
+
+Non-blocking observations recorded rather than acted on: a review-request
+**ID existence oracle** (400 "not found" vs 403 distinguishes which IDs
+exist) — real, but identical to the pre-existing `crm_service.get_estimate`
+convention this fix was told to copy, so it is a project-wide convention
+question, not a regression in this diff; and the note that `submit_review`'s
+customer branch keys on `actor.role` rather than a permission constant —
+fail-closed for any future role, but a `PERM_WRITE_OWN_REVIEWS`-style constant
+would be more consistent with the `NEW-194` lesson.
+
+### Commit scoping — NOT committed
+
+Left uncommitted deliberately. The working tree mixes this round's six files
+with **another agent's** in-progress work, and `lib/service_manager.sh`
+(+183 lines) is **process-lifecycle code** — rule-4 category needing its own
+code-reviewer approval. A `git add -A` here would ship an unreviewed
+process-lifecycle change under this round's RBAC approval. This round's exact
+paths, to be staged individually if Ish wants them committed:
+
+```
+restoricon_core/api/routes.py
+restoricon_core/api/web_surfaces.py
+restoricon_core/auth.py
+restoricon_core/services/business_ops_service.py
+tests/test_business_ops.py
+tests/test_user_management.py
+CODEY_MASTER_PLAN.md
+NEW_ISSUES.md
+PROJECT_LOG.md
+```
+
+Not this round's, must not be swept in: `lib/service_manager.sh`,
+`tests/test_service_manager_config.py`, `ccos/plugins/device/private_agent/private_agent.pid`,
+`ccos/plugins/voice/aigentik/aigentik.pid`, and the `.claude/agent-memory/`
+files.
+
+## 2026-09-01 — Session close-out: test-data cleanup for tomorrow's fresh live round
+
+- **Status**: Done, verified. No code changes — data cleanup only.
+- Purpose: leave a genuine clean slate after tonight's debugging (name-persistence
+  bug, escalation false-positive, Core `external_id` assignment — all fixed/committed
+  tonight: `ee97279` / `6d0bc71` / `364a8bf` across the relevant repos) so tomorrow's
+  results aren't confused by leftover test data.
+- **The test phone number `8609822868` is now clean and ready for tomorrow's
+  testing round.** Zero rows remain for it (or `cadre.projectmanager@gmail.com`,
+  `contact_0411`, `appt_1788303586589`) across `contacts` / `customers` / `leads` /
+  `communication_history` / `appointments` in **both** DB files
+  (`~/.codeyOS/restoricon.db` and `~/.codey_restoricon/core.db`).
+- What was deleted (all in `~/.codeyOS/restoricon.db`; `core.db` had no tonight-test
+  rows in the five tables):
+  - `contacts`: `contact_0411` ("Chris") — via REST `DELETE /api/v1/contacts/contact_0411`
+    (Core API started on :8770 for this, then stopped by tracked PID; all services
+    left stopped, as found).
+  - `appointments`: `id=10` / `appt_1788303586589` — scoped SQL (no REST delete endpoint).
+  - `communication_history`: 10 rows (`id 104–113`, all `sender_phone 8609822868`) —
+    scoped SQL (no REST delete endpoint).
+- Backups first: consistent `sqlite3 .backup()` copies of both DBs in the session
+  scratchpad (`restoricon.db.backup-20260901-194057`, `core.db.backup-20260901-194057`).
+- Left untouched (confirmed present after): "Chase for Business" (`core.db` contact 198 /
+  customer 10, `CUST-MTIZ1RJ2-8539`); the real Android contact "Chris Painting JOB"
+  (`contact_0043`, `+15512197314`, `source: android_contacts`, in both DBs — matched
+  only on the word "Chris"); the `LinkedIn` stray customer in `restoricon.db`
+  (`CUST-MTIOFT3T-6862`, `jobs-listings@linkedin.com` — matches none of tonight's
+  identifiers, so out of scope for this cleanup); older pre-tonight test rows in
+  `core.db` (`Alice Johnson`, `Jane Doe`, `Prospective Customer` ×2, leads 1–2).
+  `audit_log` rows referencing the phone were left intact (append-only audit trail,
+  not one of the five in-scope tables).
+
 ## 2026-09-01 — Codey-Aigentik: phone number shown as the customer's name on bookings
 
 - **Status**: Code-complete, self-reviewed (Codey-Aigentik's lighter

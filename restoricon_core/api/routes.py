@@ -1437,7 +1437,7 @@ class APIRouter:
                 req_id = int(path.split("/")[-2])
                 rating = int(json_body.get("rating", 5))
                 feedback = json_body.get("feedback", "")
-                res = self.business_ops.submit_review(req_id, rating, feedback)
+                res = self.business_ops.submit_review(req_id, rating, feedback, actor)
                 return 200, {"Content-Type": "application/json"}, {"status": "submitted", "review": res.to_dict()}
 
             if path == "/api/v1/marketing/reviews" and method == "GET":

@@ -884,6 +884,14 @@ class AuthService:
         if not set_clauses:
             return user
 
+        # api_tokens.role is a snapshot taken at login time and
+        # authenticate_token reads that snapshot, not the live user row --
+        # so a role change must revoke existing tokens or the user keeps
+        # acting under the old role until they expire. The actor's own
+        # token is deliberately NOT spared (unlike change_password): a
+        # self-demotion leaving a stale-role token alive is the exact bug.
+        role_changed = "role" in updates and updates["role"] != user.role
+
         now = utc_now_iso()
         set_clauses.append("updated_at = ?")
         params.append(now)
@@ -895,6 +903,11 @@ class AuthService:
                 f"UPDATE users SET {', '.join(set_clauses)} WHERE id = ?;",
                 tuple(params),
             )
+            if role_changed:
+                conn.execute(
+                    "UPDATE api_tokens SET is_revoked = 1 WHERE user_id = ?;",
+                    (user_id,),
+                )
 
         return self.get_user_by_id(user_id)
 

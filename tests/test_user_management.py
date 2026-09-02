@@ -115,6 +115,58 @@ def test_user_updates_and_profile_modification(user_mgmt_env):
     assert updated.department == "Drying Fleet"
 
 
+def test_role_change_revokes_existing_tokens(user_mgmt_env):
+    """api_tokens.role is a login-time snapshot, so a role change must
+    revoke outstanding tokens or the user keeps their old role."""
+    auth = user_mgmt_env["auth"]
+    admin_ctx = user_mgmt_env["admin_ctx"]
+    tech = user_mgmt_env["tech"]
+    tech_token = user_mgmt_env["tech_token"]
+
+    ctx_before = auth.authenticate_token(tech_token)
+    assert ctx_before is not None
+    assert ctx_before.role == ROLE_TECHNICIAN
+
+    updated = auth.update_user(tech.id, {"role": ROLE_MANAGER}, admin_ctx)
+    assert updated.role == ROLE_MANAGER
+
+    # The stale-role token must no longer authenticate
+    assert auth.authenticate_token(tech_token) is None
+
+    # A fresh login picks up the new role
+    relogged = auth.authenticate_user("tech_dan", "TechSecret123!")
+    new_ctx = auth.authenticate_token(auth.create_token(relogged))
+    assert new_ctx.role == ROLE_MANAGER
+
+
+def test_role_change_revokes_actors_own_token(user_mgmt_env):
+    """Self-demotion must not leave the actor's own stale-role token alive."""
+    auth = user_mgmt_env["auth"]
+    admin = user_mgmt_env["admin"]
+    admin_ctx = user_mgmt_env["admin_ctx"]
+    admin_token = user_mgmt_env["admin_token"]
+
+    auth.update_user(admin.id, {"role": ROLE_MANAGER}, admin_ctx)
+    assert auth.authenticate_token(admin_token) is None
+
+
+def test_non_role_update_does_not_revoke_tokens(user_mgmt_env):
+    """Profile edits must not force a re-login."""
+    auth = user_mgmt_env["auth"]
+    admin_ctx = user_mgmt_env["admin_ctx"]
+    tech = user_mgmt_env["tech"]
+    tech_token = user_mgmt_env["tech_token"]
+
+    auth.update_user(tech.id, {"full_name": "Dan Renamed", "phone": "860-555-9999"}, admin_ctx)
+    ctx = auth.authenticate_token(tech_token)
+    assert ctx is not None
+    assert ctx.role == ROLE_TECHNICIAN
+
+    # A no-op role write (same role) is also not a role change
+    auth.update_user(tech.id, {"role": ROLE_TECHNICIAN}, admin_ctx)
+    assert auth.authenticate_token(tech_token) is not None
+
+
 def test_user_suspension_activation_and_token_revocation(user_mgmt_env):
     auth = user_mgmt_env["auth"]
     admin_ctx = user_mgmt_env["admin_ctx"]

@@ -108,10 +108,109 @@ def test_review_request_and_submission(ops_setup):
         request_id=req.id,
         rating=5,
         feedback="Outstanding 24/7 emergency water extraction service!",
+        actor=admin_ctx,
     )
     assert completed_review.status == "completed"
     assert completed_review.rating == 5
     assert "water extraction" in completed_review.feedback
+
+
+def test_submit_review_owning_customer_allowed(ops_setup):
+    """The customer a review request belongs to may submit it."""
+    ops = ops_setup["ops"]
+    admin_ctx = ops_setup["admin_ctx"]
+    cust_ctx = ops_setup["cust_ctx"]
+    cust = ops_setup["cust"]
+
+    req = ops.create_review_request(
+        ReviewRequest(customer_id=cust.id, platform="google"), admin_ctx
+    )
+
+    res = ops.submit_review(request_id=req.id, rating=4, feedback="Great crew.", actor=cust_ctx)
+    assert res.status == "completed"
+    assert res.rating == 4
+    assert res.feedback == "Great crew."
+
+
+def test_submit_review_other_customer_denied(ops_setup):
+    """A customer cannot submit or overwrite another customer's review."""
+    ops = ops_setup["ops"]
+    crm = ops_setup["crm"]
+    auth = ops_setup["auth"]
+    admin_ctx = ops_setup["admin_ctx"]
+    cust = ops_setup["cust"]
+
+    other = crm.create_customer(
+        Customer(first_name="Eve", last_name="Intruder", email="eve@opstest.com"), admin_ctx
+    )
+    other_user = auth.create_user(
+        "cust_other", "OtherPass123!", "Eve Intruder", "eve@opstest.com",
+        ROLE_CUSTOMER, customer_id=other.id,
+    )
+    other_ctx = AuthContext(
+        user_id=other_user.id, username=other_user.username, role=ROLE_CUSTOMER,
+        customer_id=other.id, actor_type="human",
+    )
+
+    req = ops.create_review_request(
+        ReviewRequest(customer_id=cust.id, platform="google"), admin_ctx
+    )
+    ops.submit_review(request_id=req.id, rating=5, feedback="Perfect.", actor=ops_setup["cust_ctx"])
+
+    with pytest.raises(PermissionError):
+        ops.submit_review(request_id=req.id, rating=1, feedback="Terrible.", actor=other_ctx)
+
+    # The original review is untouched
+    stored = [r for r in ops.list_reviews(admin_ctx) if r.id == req.id][0]
+    assert stored.rating == 5
+    assert stored.feedback == "Perfect."
+
+
+def test_submit_review_technician_denied(ops_setup):
+    """A technician holds neither write:marketing nor ownership."""
+    ops = ops_setup["ops"]
+    admin_ctx = ops_setup["admin_ctx"]
+    tech_ctx = ops_setup["tech_ctx"]
+    cust = ops_setup["cust"]
+
+    req = ops.create_review_request(
+        ReviewRequest(customer_id=cust.id, platform="google"), admin_ctx
+    )
+    with pytest.raises(PermissionError):
+        ops.submit_review(request_id=req.id, rating=1, feedback="nope", actor=tech_ctx)
+
+
+def test_submit_review_audit_records_old_and_new_values(ops_setup):
+    """The audit entry captures both the prior and the new rating/feedback."""
+    ops = ops_setup["ops"]
+    audit = ops_setup["audit"]
+    admin_ctx = ops_setup["admin_ctx"]
+    cust_ctx = ops_setup["cust_ctx"]
+    cust = ops_setup["cust"]
+
+    req = ops.create_review_request(
+        ReviewRequest(customer_id=cust.id, platform="google"), admin_ctx
+    )
+    ops.submit_review(request_id=req.id, rating=2, feedback="Slow start.", actor=cust_ctx)
+    ops.submit_review(request_id=req.id, rating=5, feedback="They made it right.", actor=cust_ctx)
+
+    logs = audit.query_logs(admin_ctx, entity_type="review_request", entity_id=req.id, action="submit_review")
+    assert len(logs) == 2
+
+    latest = logs[0]
+    assert latest.actor_id == cust_ctx.user_id
+    assert latest.details["old_rating"] == 2
+    assert latest.details["old_feedback"] == "Slow start."
+    assert latest.details["new_rating"] == 5
+    assert latest.details["new_feedback"] == "They made it right."
+    assert latest.details["old_status"] == "completed"
+    assert latest.details["new_status"] == "completed"
+
+    first = logs[1]
+    assert first.details["old_rating"] is None
+    assert first.details["old_feedback"] is None
+    assert first.details["new_rating"] == 2
+    assert first.details["old_status"] == "sent"
 
 
 def test_compliance_expiration_scanner(ops_setup):

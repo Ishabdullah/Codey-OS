@@ -12844,3 +12844,107 @@ outside that fix's scope.
   (the task scoped it out and asked for it to be proposed separately, not
   applied); propose as its own reviewed change if Ish wants it.
 - **Not fixed this round** — explicit scoping decision.
+
+## Found during the 2026-09-02 Phase 1 RBAC fixes round (`submit_review` authorization, stale-role tokens, sessionStorage) — adjacent to the code changed, NOT fixed, logged only
+
+### [NEW-264] `update_user(uid, {"active": 0})` suspends without revoking tokens — re-activation then resurrects every pre-suspension token
+- **Status:** Confirmed (reproduced independently twice — by the
+  implementing session and again by the code-reviewer during the
+  2026-09-02 approval pass; verbatim output in `PROJECT_LOG.md`'s
+  2026-09-02 entry).
+- **Not an authentication bypass.** While the user is suspended their
+  tokens do *not* authenticate, because `authenticate_token`'s SQL joins
+  `u.active = 1` regardless of `is_revoked`. Suspension via this path is
+  immediately effective. Stating it as "suspends without revoking, so the
+  user stays logged in" would be wrong.
+- **Mechanism (the real defect — token resurrection):** `active` is in
+  `update_user`'s `allowed_fields`, making it a second suspension path
+  alongside `set_user_active()`. Only `set_user_active()` carries the
+  `UPDATE api_tokens SET is_revoked = 1 WHERE user_id = ?` follow-up, so
+  after `update_user(active=0)` the token rows keep `is_revoked = 0`. A
+  later `update_user(active=1)` revives all of them. Measured contrast:
+  - `update_user(active=0)` → re-activate → old token **ALIVE**
+  - `set_user_active(0)` → `set_user_active(1)` → old token **dead**
+  A user suspended for cause and later reinstated therefore keeps
+  whatever sessions existed at suspension time, including the ones the
+  suspension was meant to cut off.
+- **Exposure:** direct-API clients only. `PUT /api/v1/users/{id}`
+  (`restoricon_core/api/routes.py:328`) passes raw `json_body` straight
+  into `update_user`. The web UI uses the `/suspend` and `/activate`
+  routes instead (`restoricon_core/api/web_surfaces.py:2335`), which go
+  through `set_user_active()` and are unaffected.
+- **Same-entry cosmetic defect:** `users.active` carries a DB
+  `CHECK(active IN (0,1))`, so `update_user(uid, {"active": "banana"})`
+  raises `sqlite3.IntegrityError`, which the route's blanket
+  `except Exception` turns into a **500** rather than a 400.
+- **Fix direction:** drop `active` from `update_user`'s `allowed_fields`
+  and force callers through `set_user_active()` — one suspension path,
+  not two. (Alternative: give `update_user` the same revoke-on-deactivate
+  branch the role change now has, but that leaves two paths to keep in
+  sync.)
+- **Not fixed this round** — the task scoped the fix to `role` only and
+  explicitly listed adjacent auth surfaces as out of scope. Rated low
+  severity.
+
+### [NEW-265] `create_review_request()` writes no audit-log entry
+- **Status:** Confirmed (read directly; the method returns after its
+  INSERT with no `self.audit.log(...)` call, unlike `create_campaign`
+  and the other mutations in `business_ops_service.py`).
+- **Mechanism:** simple omission. Dispatching a review request to a
+  customer is an outbound customer-facing action with no record of who
+  triggered it.
+- **Impact:** low — the resulting row is visible via `list_reviews` — but
+  it breaks the "every human and AI agent action" promise in
+  `audit_service.py`'s own docstring, and the `submit_review` audit trail
+  added in this round has no matching "request created" event to anchor
+  against.
+- **Note on provenance:** the round's task text said to model the new
+  `submit_review` audit call on `create_review_request`'s pattern. That
+  method has no audit call at all, so `create_campaign`'s pattern was
+  followed instead and this gap was logged rather than silently fixed.
+- **Fix direction:** one `self.audit.log(action="create",
+  entity_type="review_request", ...)` call matching `create_campaign`.
+- **Not fixed this round** — out of scope (rule 8).
+
+### [NEW-266] `update_user` can set `role = "customer"` without a `customer_id`, a shape `create_user` explicitly refuses
+- **Status:** Confirmed (reproduced: `update_user(t.id, {"role":
+  "customer"})` on a technician yields `role: customer,
+  customer_id: None`, while `create_user(..., ROLE_CUSTOMER)` with no
+  `customer_id` raises `ValueError: Customer user role requires an
+  associated customer_id`).
+- **Mechanism:** `update_user`'s role branch validates only
+  `v in ALL_ROLES`. It does not replicate `create_user`'s
+  customer-role/`customer_id` coupling check.
+- **Impact:** fails closed, not open. `can_access_customer()` returns
+  `False` for a customer-role context with `customer_id is None`, and
+  this round's `submit_review` ownership predicate requires
+  `actor.customer_id is not None`, so no cross-customer access is
+  created. The result is an unusable account (a customer who can see
+  nothing) plus a data-integrity invariant that holds on create and not
+  on update.
+- **Fix direction:** lift `create_user`'s check into a shared validation
+  helper called by both, evaluated against the post-update state (role
+  and `customer_id` may be set in the same call).
+- **Not fixed this round** — out of scope; found while verifying the
+  role-change revocation fix in that same function.
+
+### [NEW-267] The role-change token revocation added in this round writes no audit record, and `user_updated` never captures the old role
+- **Status:** Confirmed (raised by the code-reviewer as a non-blocking
+  Suggestion during the 2026-09-02 approval pass; verified by reading
+  `restoricon_core/api/routes.py:329`).
+- **Mechanism:** `update_user`'s new revoke branch (2026-09-02) silently
+  terminates every session a user holds. The only audit record is the
+  route's `self.audit.log("user_updated", "user", user_id, f"User
+  {updated.username} updated", actor=actor)` — no `details=` payload, so
+  neither the prior role, the new role, nor the fact that sessions were
+  revoked is recorded anywhere.
+- **Impact:** an admin reading the audit trail cannot tell that a role
+  change occurred, what the role changed from, or that all of that user's
+  sessions were terminated as a result. Inconsistent with the standard
+  this same round set for `submit_review`, which deliberately captures
+  old *and* new values.
+- **Fix direction:** give the `user_updated` audit call a `details=`
+  payload with old/new role (and the other changed fields), plus an
+  explicit note or separate audit action when tokens were revoked.
+- **Not fixed this round** — out of scope; the task scoped the change to
+  the revocation behavior itself. Cheap to add when picked up.

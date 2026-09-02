@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 
 from ..auth import (
     AuthContext,
+    ROLE_CUSTOMER,
     PERM_READ_MARKETING,
     PERM_WRITE_MARKETING,
     PERM_READ_COMPLIANCE,
@@ -162,8 +163,14 @@ class BusinessOpsService:
 
         return req
 
-    def submit_review(self, request_id: int, rating: int, feedback: str) -> ReviewRequest:
-        """Submit review feedback from a customer."""
+    def submit_review(self, request_id: int, rating: int, feedback: str, actor: AuthContext) -> ReviewRequest:
+        """Submit review feedback from a customer.
+
+        Unlike the other marketing methods this endpoint is deliberately
+        reachable by ROLE_CUSTOMER -- the customer the review request was
+        sent to is its intended caller. Staff may also submit on a
+        customer's behalf, which requires PERM_WRITE_MARKETING.
+        """
         if not (1 <= rating <= 5):
             raise ValueError("Rating must be between 1 and 5")
 
@@ -172,6 +179,14 @@ class BusinessOpsService:
         row = conn.execute("SELECT * FROM review_requests WHERE id = ?;", (request_id,)).fetchone()
         if not row:
             raise ValueError(f"Review request {request_id} not found")
+
+        is_own_request = (
+            actor.role == ROLE_CUSTOMER
+            and actor.customer_id is not None
+            and actor.customer_id == row["customer_id"]
+        )
+        if not (actor.has_permission(PERM_WRITE_MARKETING) or is_own_request):
+            raise PermissionError("Actor lacks permission to submit this review")
 
         with conn:
             conn.execute(
@@ -182,6 +197,23 @@ class BusinessOpsService:
                 """,
                 (rating, feedback, now, request_id),
             )
+
+        self.audit.log(
+            action="submit_review",
+            entity_type="review_request",
+            entity_id=request_id,
+            change_summary=f"Submitted review for request {request_id} (rating {rating})",
+            actor=actor,
+            details={
+                "customer_id": row["customer_id"],
+                "old_rating": row["rating"],
+                "new_rating": rating,
+                "old_feedback": row["feedback"],
+                "new_feedback": feedback,
+                "old_status": row["status"],
+                "new_status": "completed",
+            },
+        )
 
         return ReviewRequest(
             id=row["id"],

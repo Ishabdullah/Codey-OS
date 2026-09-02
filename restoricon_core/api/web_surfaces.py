@@ -417,13 +417,16 @@ def _get_common_script() -> str:
         if (e.key === 'Escape') closeUniversalDrawer();
     });
 
+    // sessionStorage (not localStorage): the token is cleared when the
+    // browser/tab closes, so every new browser session requires a fresh
+    // username/password login rather than silently auto-logging in.
     function getAuthToken() {
-        return localStorage.getItem('restoricon_token') || '';
+        return sessionStorage.getItem('restoricon_token') || '';
     }
 
     function setAuthToken(token) {
-        if (token) localStorage.setItem('restoricon_token', token);
-        else localStorage.removeItem('restoricon_token');
+        if (token) sessionStorage.setItem('restoricon_token', token);
+        else sessionStorage.removeItem('restoricon_token');
     }
 
     async function validateSession(redirectTarget) {

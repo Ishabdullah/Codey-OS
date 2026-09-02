@@ -596,9 +596,58 @@ scoped to what it actually proved.
 - **20+ audit-remediation rounds** (NEW-1 … NEW-20 and the prompt
   rounds), including the `NEW-30` read-before-patch fix — decisive live
   A/B: 3/3 read-before-patch with the fix, 0/3 without.
+- **Restoricon Core Phase 1 RBAC fixes, 2026-09-02** — two of the three
+  fixes are live-verified against a real running API (a scratch DB on
+  port 8791, never the business DB; server killed by exact tracked PID,
+  port confirmed closed). Full suite `1085 passed, 1 skipped`;
+  code-reviewer **APPROVED** with three independent negative controls
+  confirming every new test is load-bearing.
+  - **`submit_review()` authorization** (`services/business_ops_service.py`)
+    — the method previously took no actor and had no permission check at
+    all, so any authenticated caller could overwrite the rating and
+    feedback on **any** review request. It is now gated on
+    `PERM_WRITE_MARKETING` **or** customer-ownership
+    (`actor.role == ROLE_CUSTOMER` and `actor.customer_id` matching the
+    row), deliberately *not* staff-only — the endpoint is meant to be
+    reachable by the customer the request belongs to. Ownership predicate
+    copied from `crm_service.get_estimate`. An audit call was added
+    capturing old **and** new rating/feedback/status. Live: owning
+    customer 200, other customer 403, technician 403, staff 200.
+  - **Role changes now revoke tokens** (`auth.py:update_user`) —
+    `api_tokens.role` is a login-time snapshot that `authenticate_token`
+    reads instead of the live user row, so a demoted user kept acting
+    under their old role for up to the token's 7-day life. `update_user`
+    now revokes all of that user's tokens when `role` actually changes,
+    in the same transaction as the UPDATE. Non-role edits and no-op role
+    writes deliberately do not force a re-login; the actor's own token is
+    deliberately **not** spared, because self-demotion leaving a
+    stale-role token alive is the exact bug. Live: role change → old
+    token 401, phone change → old token still 200.
+  - Scope note: the customer branch of `submit_review` is **direct-API
+    only** — `web_surfaces.py` has no `marketing/reviews` surface, so the
+    live "owning customer 200" was an HTTP probe, not a UI path.
+  - Four out-of-scope findings logged, none fixed: `NEW-264`
+    (`update_user(active=0)` doesn't revoke, so re-activation resurrects
+    pre-suspension tokens), `NEW-265` (`create_review_request` has no
+    audit call), `NEW-266` (`update_user` allows `role=customer` with a
+    NULL `customer_id`), `NEW-267` (the new revocation writes no audit
+    record and `user_updated` never captures the old role).
 
 ### 4.2 Built, approved, not live-verified
 
+- **Restoricon Core session persistence, 2026-09-02** — the web surfaces'
+  `getAuthToken`/`setAuthToken` (`api/web_surfaces.py:_get_common_script`)
+  moved from `localStorage` to `sessionStorage`, so the session token dies
+  with the browser session instead of auto-logging users back in for 7
+  days. This is what Ish asked for: username/password every session.
+  **Code-complete and code-reviewer-approved, NOT browser-verified** —
+  verification so far is that all five served surfaces (`/admin`,
+  `/portal`, `/quote`, `/admin/login`, `/portal/login`) emit
+  `sessionStorage` and zero `localStorage` token calls, fetched from a
+  real running server. The actual quit-the-browser-and-reopen test needs
+  Ish at a real browser; steps are in the 2026-09-02 `PROJECT_LOG.md`
+  entry. The 7-day server-side `api_tokens.expires_at` was deliberately
+  left unchanged (see §8).
 - 7.4 sub-tasks 1–5 (gate module, slot-aware loaders, daemon outcome
   surface, `release_model_slot` socket command, CLI gate recovery).
 - 7.4a sub-tasks A/B/C1/C2/D (swap signal sourcing, swap-assisted
@@ -5803,6 +5852,33 @@ Then:
       anyway" every time. Reasoned cause: `mmap`'d weight pages produce
       no clean `MemAvailable` drop. Retuning candidate: an RSS-based
       signal — needs real investigation, not a guess.
+
+- [ ] **U.35** (`NEW-264`, Confirmed) — `restoricon_core`
+      `update_user(uid, {"active": 0})` is a second suspension path that
+      never revokes tokens, so a later `update_user(active=1)` resurrects
+      every pre-suspension session. Not a bypass while suspended
+      (`authenticate_token` joins `u.active = 1`); the defect is
+      resurrection. Fix: drop `active` from `update_user`'s
+      `allowed_fields` and force callers through `set_user_active()` —
+      one suspension path, not two. Same entry covers the 500-not-400 on
+      `active` values rejected by the DB CHECK constraint. Rule-4
+      category (auth).
+- [ ] **U.36** (`NEW-266`, Confirmed) — `restoricon_core`
+      `update_user` accepts `role = "customer"` with no `customer_id`, a
+      shape `create_user` explicitly refuses. Fails closed (an unusable
+      account, not a leak), but the invariant holds on create and not on
+      update. Fix: shared validation helper evaluated against the
+      post-update state. **Do with U.35** — same function. Rule-4
+      category (auth).
+- [ ] **U.37** (`NEW-265`, `NEW-267`, both Confirmed) — audit-coverage
+      gaps in `restoricon_core`: `create_review_request()` writes no
+      audit entry at all, and the 2026-09-02 role-change revocation
+      terminates every session a user holds while the only record is a
+      bare `"User {username} updated"` with no `details=` payload — no
+      old role, no new role, no note that sessions were revoked. Fix:
+      one `audit.log` call matching `create_campaign` for the former; a
+      `details=` payload with old/new values for the latter, matching
+      the standard `submit_review` now sets.
 
 ### D-lane — documentation (§6.1)
 
