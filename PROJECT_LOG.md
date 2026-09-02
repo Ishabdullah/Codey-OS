@@ -10,6 +10,49 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-02 — `B2-fin-1` landed: business profile is Core-first read in the Aigentik fork
+
+- **Status**: **Code-complete + code-reviewer APPROVED (round 2). NOT
+  live-verified** — no live-model component; the full jest suite
+  (239 passed / 18 suites) was the verification bar, and the reviewer
+  agreed that is sufficient here (no process-lifecycle change). Fork
+  commit `~/Codey-Aigentik` `2056524`. Codey-OS tracking-doc commit
+  separate.
+- **What it fixes**: `owner-command.js`'s three profile handlers
+  (`handleRename`, `handleSetBusinessInfo`, `handleSetOwnerName`) read the
+  local `data/profile.json`, then POST `{...profile, <changed field>}` to
+  `/api/v1/business-profile` — an unconditional full-row overwrite. A
+  stale local read therefore silently reverted any field another client
+  had changed in Core. Now Core-first via a new `readProfile()` helper;
+  `data/profile.json` demoted to a write-through cache.
+- **Rule-6 correction to `NEW-292`**: the finding also named `index.js`,
+  but `loadProfile()`/`sendOnboardingEmail()` were *already* Core-first
+  with local fallback. The real gap was `owner-command.js` only.
+  `NEW-292` updated.
+- **Pipeline**: project-architect scoped → implementer built (238 tests)
+  → **code-reviewer CHANGES REQUESTED**: (1) `coreRequest()` returns
+  `{ok:false}` without throwing on a non-2xx, so an expired token turned
+  every profile command into a silent no-op with a false "Done!" reply
+  and no log line; (2) `handleSetOwnerName` built the POST `configured`
+  field from the boot-time `config` cache, not the Core-fresh profile —
+  same lost-update class, in the touched code; (3) test-isolation
+  warning (parallel jest could clobber real prod `data/profile.json`).
+  → implementer fixed all three (239 tests) → **code-reviewer APPROVED**,
+  each fix verified load-bearing by negative control.
+- **Also**: `config.json.example` gained its missing `core_api` block
+  (`install.sh` already emits one into `config.json` — no `install.sh`
+  change needed).
+- **B6 impact**: with `queue.js` ruled out (`NEW-291`) and
+  `business_profile` now cut over, **all 8 of B2's write-site groups are
+  cut over at the code-complete tier — B6's "B2 complete" prerequisite is
+  satisfied.** The real front is now **B6.1**, itself gated on
+  `U.35`/`U.36` (`update_user` partial-update fixes). Front-matter
+  banner, §6.4, and Appendix A updated.
+- **Findings, none fixed (rule 8)**: `NEW-295` (residual GET-fails/
+  POST-succeeds lost-update window — reviewer-accepted for this round),
+  `NEW-296` (`business-profile.test.js` still save/restores the real
+  prod `data/profile.json`), `NEW-297` (missing trailing newlines).
+
 ## 2026-09-02 — `queue.js` ruled out of B2 scope; `B2-fin-1` sent into the pipeline
 
 - **Status**: Doc-only. Ish's decision given in session.

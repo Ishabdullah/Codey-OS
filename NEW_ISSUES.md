@@ -13437,9 +13437,27 @@ outside that fix's scope.
 - **Fix direction (own scoped round, rule 4 — auth-adjacent singleton):**
   make `GET /api/v1/business-profile` the read source, keep the local
   file as a cache/fallback at most.
-- **Cross-reference:** `~/Codey-Aigentik/owner-command.js`,
-  `index.js`; `restoricon_core` `POST/GET /api/v1/business-profile`;
-  `NEW-288`.
+- **Rule-6 correction 2026-09-02 (B2-fin-1 scoping):** the "**and
+  `index.js`**" half of the Mechanism above was **overclaimed**.
+  `index.js`'s `loadProfile()` and `sendOnboardingEmail()` were *already*
+  Core-first with local fallback; lines 154/1566 are the fallback reads
+  inside those Core-first blocks, not primary reads, and
+  `tests/business-profile.test.js` already covered the Core-GET path.
+  **The real gap was `owner-command.js` only** — its three handlers.
+- **RESOLVED 2026-09-02 — B2-fin-1, fork commit `2056524`, code-reviewer
+  APPROVED (round 2), NOT live-verified** (no live-model component;
+  239 jest tests / 18 suites was the bar). `owner-command.js` gained a
+  Core-first `readProfile()`; `getAigentikName()` reads the in-process
+  `config` cache; `data/profile.json` is now a write-through cache
+  refreshed from the POST response; a `coreRequest` `{ok:false}` (expired
+  token / 5xx — returned, not thrown) persists the edit locally and
+  replies honestly that it didn't sync. `config.json.example` gained its
+  missing `core_api` block. Round: architect → implementer →
+  code-reviewer CHANGES REQUESTED → implementer → APPROVED. See
+  `NEW-295`…`NEW-297`.
+- **Cross-reference:** `~/Codey-Aigentik/owner-command.js` (commit
+  `2056524`); `restoricon_core` `POST/GET /api/v1/business-profile`;
+  `NEW-288`; `CODEY_MASTER_PLAN.md` Appendix A `B2-fin-1`.
 
 ### [NEW-293] `~/Codey-Aigentik` working tree: dead 0-byte `data/aigentik.db` plus ~12 untracked hash-named dirs, none gitignored
 - **Status:** Confirmed (2026-09-02, `NEW-288` audit).
@@ -13481,3 +13499,55 @@ outside that fix's scope.
   `NEW-209` prose is left as the historical record with the correction
   in the same section.
 - **Cross-reference:** `CODEY_MASTER_PLAN.md` §6.4; `NEW-288`; `NEW-291`.
+
+### [NEW-295] Aigentik business-profile edits: residual lost-update window when the Core GET fails but the POST succeeds
+- **Status:** Confirmed (B2-fin-1 code review, 2026-09-02). Acceptable
+  for that round per code-reviewer; logged not fixed.
+- **Mechanism:** `owner-command.js`'s `readProfile()` is Core-first with
+  a local fallback. If the `GET /api/v1/business-profile` fails
+  (transient network / 5xx) but the subsequent `POST` in the same
+  handler call succeeds, the handler built its body from the **stale
+  local cache**, and the Core upsert is an unconditional full-row
+  overwrite (`automation_service.upsert_business_profile`) — so any field
+  another client changed in Core since this instance's cache last
+  refreshed is reverted. Strictly narrower than the pre-B2-fin-1 bug
+  (which used the local cache on *every* write), not eliminated.
+- **Impact:** low — requires a GET failure and a POST success in the same
+  ~1s window, and only reverts fields changed by another client since
+  the last cache refresh. No other client writes the profile today.
+- **Fix direction:** if the `readProfile()` GET fails, the handler should
+  either abort the write (reply "couldn't reach the main system") rather
+  than POST from stale data, or do a second GET immediately before the
+  POST. Defer until a second profile-writing client exists.
+- **Cross-reference:** `~/Codey-Aigentik/owner-command.js` `readProfile()`
+  (commit `2056524`); `NEW-292`.
+
+### [NEW-296] `~/Codey-Aigentik/tests/business-profile.test.js` save/restores the real `data/profile.json`, which holds live Restoricon production data
+- **Status:** Confirmed (B2-fin-1 work, 2026-09-02). Pre-existing;
+  B2-fin-1 added more cases to the same file. The **new**
+  `business-profile-nocore.test.js` was written to a scratch tmpdir
+  instead (fixed in `2056524`), but the older file was left as-is.
+- **Mechanism:** `data/profile.json` contains real data (`business_name:
+  "RESTORICON LLC"`, owner name, real description). The test file's
+  `beforeAll`/`afterAll` snapshot and restore it around the suite. A
+  crash or hard-kill mid-suite leaves the file holding a test fixture,
+  not the real profile. Jest runs suites in parallel by default
+  (`jest.config.mjs` sets no `runInBand`).
+- **Impact:** a corrupted or hard-interrupted `business-profile.test.js`
+  run can clobber the live business profile the running Aigentik process
+  reads on next boot (when Core is unreachable — the fallback path).
+- **Fix direction:** same fix already applied to
+  `business-profile-nocore.test.js` — mock `config.json`'s
+  `paths.data_dir` to a `mkdtempSync` scratch dir so the suite never
+  touches the real file. Own small round.
+- **Cross-reference:** `~/Codey-Aigentik/tests/business-profile.test.js`;
+  `~/Codey-Aigentik/tests/business-profile-nocore.test.js` (the fixed
+  pattern to copy); `NEW-293`.
+
+### [NEW-297] `~/Codey-Aigentik/config.json.example` and `index.js` end without a trailing newline
+- **Status:** Suspected minor (noticed during B2-fin-1; pre-existing, not
+  touched). `git diff` shows `\ No newline at end of file` on both.
+- **Impact:** cosmetic — POSIX-tool and some editor friction only.
+- **Fix direction:** add the trailing newline next time either file is
+  edited for another reason; not worth its own commit.
+- **Cross-reference:** `~/Codey-Aigentik/config.json.example`, `index.js`.

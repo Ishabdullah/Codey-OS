@@ -1247,12 +1247,13 @@ points, named below.
 > job, not something to start unprompted. Ish's most recent direction
 > (2026-09-02) added Phases B6 and B7; **B6 is the live front.** Its
 > "Phase B2 complete" prerequisite was audited 2026-09-02 (`NEW-288`
-> resolved): 7 of B2's 8 write-site groups are cut over (`queue.js` ruled
-> out of scope, `NEW-291` closed). The one gap left — `business_profile`
-> dual-write with the local file still authoritative (`NEW-292`) — is in
-> the pipeline as Appendix A **B2-fin-1**, and **B6.1 and every
-> B2-dependent B6 item stay blocked until it lands.** B2-fin-1 is the
-> real front for a coding round.
+> resolved) and is now **satisfied at the code-complete tier**: all 8 of
+> B2's write-site groups are cut over (`queue.js` ruled out of scope,
+> `NEW-291`; `business_profile` closed via **B2-fin-1**, fork commit
+> `2056524`, code-reviewer-approved, NOT live-verified). **The real
+> front is B6.1** — itself gated on `U.35`/`U.36` (`update_user`
+> partial-update fixes; `NEW-264`/`NEW-266`), which give B6.1 a correct
+> pattern to copy. So the next coding round is `U.35`/`U.36`, then B6.1.
 >
 > --- original 2026-08-22 direction, kept as the record ---
 >
@@ -2465,15 +2466,17 @@ below, adjust if (a) is chosen):
    — `contacts.js` (+ `contacts-sync.js`), `calendar.js`, `email-rules.js`,
    `sms-rules.js`, `do-not-contact.js`, `subcontractor-recruiter.js`,
    `customer-module.js` (each has `coreRequest` on every path and zero
-   local `fs`). **`index.js`/`owner-command.js` is partial** — the
-   comms/Google-Voice path is cut over via `email-provider.js` → `POST
-   /api/v1/communications` (`data/communications-retry.json` is a
-   failure-retry spool only), but `business_profile` is **dual-write**
-   with `data/profile.json` still authoritative for every read
-   (`NEW-292`, now in the pipeline as Appendix A **B2-fin-1**). B6's
-   "B2 complete" prerequisite is **not yet** satisfied — see Appendix A's
-   B6 dependency
-   block and `NEW-288`'s resolution.
+   local `fs`). **`index.js`/`owner-command.js` — the comms/Google-Voice
+   path is cut over via `email-provider.js` → `POST /api/v1/communications`
+   (`data/communications-retry.json` is a failure-retry spool only), and
+   `business_profile` was closed by **B2-fin-1** on 2026-09-02 (fork
+   commit `2056524`): `owner-command.js`'s three profile handlers now
+   read Core-first, `data/profile.json` is a write-through cache. Rule-6
+   note: `index.js` was already Core-first — only `owner-command.js` was
+   the gap. **All eight groups are now cut over at the code-complete
+   tier** (not live-verified — jest was the bar). B6's "B2 complete"
+   prerequisite is satisfied — see Appendix A's B6 dependency block and
+   `NEW-288`'s resolution.
 
    **Note:** `restoricon_core/api/routes.py`
    currently has no routes for any of the five new resources
@@ -5814,35 +5817,50 @@ only this heading was inserted.
 dependency, then risk, then value; §6.9 states the reasoning for the
 order. Every item below is a separate scoped session, not one task.
 
-**⚠ Dependency, surfaced by the `U.38` audit 2026-09-02 (`NEW-288`),
-RESOLVED by static audit 2026-09-02.** B6 is scoped on top of Phase B2
-being complete. The audit (against `NEW-209`/§6.4's canonical list,
+**✅ Dependency (`NEW-288`) — CLEARED 2026-09-02.** B6 is scoped on top
+of Phase B2 being complete; the audit that surfaced this and the
+follow-up cutover (**B2-fin-1**) are both done. B6 items may now treat
+the B2 prerequisite as satisfied (code-complete tier). The audit
+(against `NEW-209`/§6.4's canonical list,
 corrected to **8 groups** — `queue.js` ruled out of B2 scope by Ish
 2026-09-02, `NEW-291` closed; `~/Codey-Aigentik` HEAD `ee97279`):
-**seven groups are fully cut over** (code-complete, NOT live-verified —
-only `do-not-contact.js` was ever code-reviewed); **`index.js`/`owner-command.js`
-is partial** (`NEW-292` — the comms/Google-Voice path is cut over, but
-`business_profile` is dual-write with the local `data/profile.json`
-still authoritative for every read). **B6's "B2 complete" prerequisite
-is NOT yet satisfied** — the one remaining gap is `NEW-292`, now in the
-pipeline as **B2-fin-1**. B6.1 and any other B6 item with a B2
-prerequisite stay blocked until B2-fin-1 lands. Full per-module evidence
-and the count with its measurement date are in `NEW-288`'s resolution
-block; `NEW-294` records that §6.4's list said "ten" but named nine
-(now eight).
+all **eight groups are now cut over** (code-complete, NOT live-verified —
+only `do-not-contact.js` and the `business_profile` half of
+`index.js`/`owner-command.js` were code-reviewed). `business_profile`
+was the last gap (`NEW-292`) and closed via **B2-fin-1** on 2026-09-02
+(fork commit `2056524`, code-reviewer APPROVED round 2, 239 jest tests):
+`owner-command.js`'s three profile handlers now read Core-first, the
+local `data/profile.json` is a write-through cache, and a Core failure
+persists locally with an honest "didn't sync" reply. **B6's "B2 complete"
+prerequisite is now SATISFIED at the code-complete tier** (not
+live-verified — no live-model component, jest was the bar). Full
+per-module evidence and the count with its measurement date are in
+`NEW-288`'s resolution block; `NEW-294` records that §6.4's list said
+"ten" but named nine (now eight).
 
-**Phase B2 completion — the one gap left after the 2026-09-02 audit
-(`NEW-288`). Blocks B6's B2 prerequisite; do it first.**
+**Phase B2 completion — both gaps from the 2026-09-02 audit (`NEW-288`)
+now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
 
-- [ ] **B2-fin-1** — `business_profile` read cutover (`NEW-292`).
-      **IN THE PIPELINE 2026-09-02 (project-architect scoping).**
-      **Rule-4 category** (auth-adjacent singleton). Today the Aigentik
-      fork POSTs `/api/v1/business-profile` but reads every value from
-      the local `data/profile.json`. Make `GET /api/v1/business-profile`
-      the read source (local file demoted to cache/fallback at most).
-      `~/Codey-Aigentik`: `owner-command.js` (`getAigentikName`,
-      `handleRename`, `handleSetBusinessInfo`, `handleSetOwnerName`),
-      `index.js` (`ensureProfile`, onboarding).
+- [x] **B2-fin-1** — `business_profile` read cutover. **DONE 2026-09-02
+      — code-complete + code-reviewer APPROVED (round 2), NOT
+      live-verified** (no live-model component; full jest suite,
+      239 passed / 18 suites, was the verification bar). Fork commit
+      `2056524`. **Rule-6 correction to `NEW-292`:** `index.js` was
+      already Core-first with local fallback — the real gap was
+      `owner-command.js` only, where the three profile handlers
+      (`handleRename`, `handleSetBusinessInfo`, `handleSetOwnerName`)
+      read the local file then POSTed a full-row overwrite, silently
+      reverting fields another client had changed in Core. Now:
+      `readProfile()` Core-first helper; `getAigentikName()` reads the
+      in-process `config` cache (stays sync); local `profile.json`
+      demoted to a write-through cache refreshed from the POST response;
+      a `coreRequest` `{ok:false}` (expired token / 5xx — returned, not
+      thrown) persists the edit locally and tells the owner it didn't
+      sync instead of a false "Done!". `config.json.example` gained its
+      missing `core_api` block. Round history: architect scoped →
+      implementer → code-reviewer CHANGES REQUESTED (silent-data-loss on
+      the non-throwing failure path + a stale-cache `configured` field) →
+      implementer → APPROVED. Findings: `NEW-295`…`NEW-297`.
 - [x] **B2-fin-2** — `queue.js` (`NEW-291`). **RULED OUT OF B2 SCOPE by
       Ish 2026-09-02.** It holds transient owner-approval state (drafts
       awaiting approve/skip, self-clearing), not a system of record —
