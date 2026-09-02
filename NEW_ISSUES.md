@@ -13229,7 +13229,7 @@ outside that fix's scope.
 - **Fix direction:** re-anchor `U.6` to symbol names rather than line
   numbers when it is next scoped. **Not fixed this round.**
 
-### [NEW-288] Two blocks in the former `CODEY_MASTER_PLAN.md` §4.5 state contradictory Phase B2 write-through completion counts (8 of 10 vs 3 of 10)
+### [NEW-288] Two blocks in the former `CODEY_MASTER_PLAN.md` §4.5 state contradictory Phase B2 write-through completion counts (8 of 10 vs 3 of 10) — RESOLVED 2026-09-02
 - **Status:** Confirmed (both blocks read verbatim before the `U.38`
   step-3 move; both now in `PROJECT_LOG.md`'s 2026-09-02 de-ledger entry).
 - **Mechanism:** one block reads "**Phase B2 write-through progress: 8 of
@@ -13270,6 +13270,16 @@ outside that fix's scope.
     with no local data store." Per module: Core API write call present
     AND the local read/write path *removed* (not dual-written, not merely
     bypassed).
+  - **Two scoping calls made explicit** (not silent substitutions —
+    `NEW-294` is about exactly that trap): (i) `contacts-sync.js` is
+    **not** in `NEW-209`'s nine and is folded into the `contacts.js` row
+    because it has no persistence path of its own — it imports
+    `coreRequest` from `contacts.js`. (ii) Each "cut over" verdict is
+    absence-of-local-`fs` in that module's own file; only one indirect
+    path was traced (`subcontractor-recruiter.js`'s `syncWithContacts()`
+    persists *through* `contacts.js`, verified Core-backed — see
+    `NEW-244`). No systematic sweep for persistence via another module's
+    exports was done beyond that case.
   - **Chronology of the two blocks, from `git log -S`:** the "**3 of
     10**" block dates to **2026-08-27** (commits `34e4bf7`/`ef43191`);
     the "**8 of 10**" block is **~2026-08-30** (`2bf8980`, the
