@@ -3,7 +3,7 @@
 # codey-stop - Codey-OS Orchestrator (stop all running services cleanly)
 #
 # Shuts down all running Codey-OS services (Cloudflare tunnel, Aigentik,
-# Restoricon API, GUI server, and main daemon) following Rule 3 PID-tracked lifecycle.
+# Restoricon API, and main daemon) following Rule 3 PID-tracked lifecycle.
 #
 
 set -e

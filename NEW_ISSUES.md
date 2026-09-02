@@ -13071,3 +13071,57 @@ outside that fix's scope.
   1. Slow PID-table leak across a long-lived GUI server session.
   2. **Stale PID files that read as live.** Both `ccos/plugins/*/​*.pid` files still contain these zombie PIDs. A liveness probe implemented as `kill -0 <pid>` **succeeds against a zombie** — the process entry exists. Any supervisor or status path using that check would report a dead plugin as running. Whether the current code does exactly that was not traced this round; flagged as the reason the staleness matters rather than asserted as a live bug.
 - **Not fixed this round.** **Rule-4 category** (process lifecycle). Fix direction: reap spawned children in `gui/server.py` (`Popen.poll()`/`wait()` on exit, or a `SIGCHLD` handler), and have the supervisor clear a PID file when the process it names is gone. Note per Rule 3 that a zombie cannot be killed — it needs its parent to reap it; no `kill` was attempted here and none would have helped.
+
+## Found during the GUI removal round, 2026-09-02 — logged per Rule 8
+
+### [NEW-280] `test_embed_server_*` slot tests fail whenever a real embed server is already running on port 8082
+- **Status:** Confirmed (reproduced at unmodified HEAD in an isolated `git worktree`, so it is provably not caused by that round's changes).
+- **Mechanism:** `tests/test_loader_resource_gate.py::test_embed_server_registers_slot_as_resident_on_start` and `::test_embed_server_releases_slot_on_stop` patch `_check_health` to return `True`. With a genuine embed `llama-server` live on port 8082, `EmbedServer.start()` takes its "already healthy → adopt, don't restart" branch (captured stdout: `ℹ Adopting already-healthy embed server on port 8082, not restarting it`) and returns success **without** registering a gate slot. The tests then assert a slot was registered/released and fail.
+- **Impact:** two failing tests in every full-suite run performed on a device where the normal `codey start` stack is up — i.e. the ordinary state of this phone. This is expected-noise of the `NEW-150` family: it trains readers to skim past red, which is the real cost.
+- **Proof it is environmental, not a regression:** a `git worktree` was created at `HEAD` (verified pre-change by `grep -c is_gui_client_connected core/resource_gate.py` → 2) and both tests failed there identically. Recorded because "pre-existing" is exactly the kind of claim rules 5/6 require evidence for rather than assertion.
+- **Fix direction (corrected 2026-09-02 after code-reviewer challenge — the first version of this line named the wrong gate):** the adopt branch is gated on `self._port_is_bound() and self._check_health()` at `core/embed_server.py:83`. The tests already patch `_is_port_open`, which is a **different method** and does not affect that gate at all — so "patch `_is_port_open`" was not a fix, it was a description of what the tests already do ineffectively. Patch **`_port_is_bound`** (or `_port_is_bound` together with `_check_health`) so the adopt branch cannot be entered, or point the test at a port guaranteed unused. Do **not** "fix" it by stopping the real embed server before test runs; that hides the coupling instead of removing it.
+- **Not fixed this round** — out of scope for a GUI removal.
+
+### [NEW-281] `codey config` prints the live Cloudflare tunnel token in plaintext, including into agent transcripts
+- **Status:** Confirmed (observed directly while smoke-testing the `config` subcommand during the 2026-09-02 GUI-removal round; the token value is deliberately NOT reproduced here).
+- **Mechanism:** `lib/service_manager.sh`'s `config` subcommand dumps the parsed config and then the **raw** `config.json` contents to stdout. The `Active configurations:` summary is careful — it prints `Cloudflare Token: configured` rather than the value — but the `Loaded raw config:` block immediately after prints the whole file, including `cloudflare.tunnel_token` in full.
+- **Impact:** the token is a real credential fronting the phone's API (§6.6's tunnel architecture). Printing it to stdout means it lands in terminal scrollback, in any redirected log, and — the specific reason this is being logged rather than shrugged at — **directly into the context/transcript of any AI agent that runs `codey config`**, which is a routine diagnostic in this project. That is an exfiltration path that exists regardless of intent. Note `.gitignore` already treats this class of value as sensitive (`*token*`, `config.json` both excluded), so the project's own posture is that this value should not travel; the CLI contradicts that.
+- **Not a new regression:** the raw-dump behavior predates the GUI-removal round and was untouched by it. Found while smoke-testing, logged per rule 8.
+- **Fix direction:** mask secret-shaped keys in the raw dump the same way the summary line already does — redact `tunnel_token` (and any key matching the `.gitignore` sensitivity patterns: `*token*`, `*secret*`, `*api_key*`) to `"***redacted***"`, and put the unmasked dump behind an explicit opt-in flag if it is ever genuinely needed.
+- **Not fixed this round** — out of scope for a GUI removal, and it touches the config surface rather than the GUI surface.
+
+## Status updates from the GUI removal round, 2026-09-02
+
+- **`NEW-111` — RESOLVED BY REMOVAL, not by fix.** The finding was that
+  `gui/server.py`'s module-level `PORT = int(sys.argv[1]) ...` made the
+  module unimportable under `pytest`. `gui/server.py` was deleted
+  2026-09-02 along with the rest of the GUI, so the defect no longer has
+  a subject. Stated as *resolved by removal* rather than *fixed*, per
+  rule 6 — nobody corrected the argv parsing, and if a GUI is ever
+  reintroduced this exact mistake is available to be made again. The
+  companion test (`tests/test_gui_clients_signal.py`) was deleted in the
+  same round.
+- **`NEW-279` — SYMPTOM CLEARED, ROOT CAUSE REMOVED WITH ITS OWNER.**
+  The two `[python3] <defunct>` zombies (PIDs 18860/18861) were children
+  of the live `gui/server.py` (PID 18856), which never reaped them. That
+  process was stopped by its exact tracked PID on 2026-09-02 (identity
+  verified as `gui/server.py` before signalling, per rule 3), the zombies
+  were reaped on its exit, and `gui/server.py` itself has since been
+  deleted — so the non-reaping parent no longer exists to recreate them.
+  **Deliberately NOT marked "fixed":** no reaping logic was ever written.
+  If a future long-lived Python service in this repo spawns children, the
+  same defect is available again, and `NEW-279`'s fix direction still
+  applies to whatever that service is. The stale
+  `~/.codeyOS/gui-clients.count` / `gui-server.pid` / `gui-server.log`
+  files it referenced were removed in the same round.
+- **`NEW-278` — the two committed plugin `.pid` files remain untracked
+  (fixed 2026-09-02); the `plugin_manager.py` path-resolution half is
+  still open** and is unaffected by the GUI removal.
+
+### [NEW-282] The interactive-session signal is now TUI-only, so a human watching `/admin` no longer defers daemon background dispatch
+- **Status:** Confirmed (consequence of the 2026-09-02 GUI removal; raised by the code-reviewer on that round and logged rather than fixed).
+- **Mechanism:** `core/resource_gate.py`'s `is_interactive_session_active()` composed two signals — TUI sessions and connected GUI clients. The GUI half was removed with the GUI (correctly — its no-PID-file branch failed *open*, see the removal's own rationale in that function's docstring). The replacement surface, the Restoricon Core web dashboard at `/admin`, feeds the gate **nothing**.
+- **Impact:** before, opening the GUI deferred daemon background dispatch while a human was watching. Now, a human actively using `/admin` gets background model work scheduled on top of them, on a ~10.8GB device where that contention is exactly what the signal existed to avoid. Not a regression introduced by a bug — it is a real consequence of a product decision (removing the GUI), stated plainly rather than left as an unnoticed behavioral gap.
+- **Checked, not assumed:** `/admin` (`restoricon_core/api/web_surfaces.py`) reads no CPU/RAM/thermal of its own, so it is not silently duplicating `core/dashboard_data.py` — that module's "shared-by-design for a future surface" docstring is accurate.
+- **Fix direction:** if this proves annoying in practice, have the Core API record an interactive-session marker while an authenticated dashboard session is live, and add it as a third signal source. **Any such signal must fail CLOSED** — the removed GUI signal's defect was returning True when it could not verify liveness, which would have deferred all background work forever. Do not reintroduce that shape.
+- **Not fixed this round.** Whether it matters at all is an empirical question best answered after `/admin` is actually in daily use (Phase B6).

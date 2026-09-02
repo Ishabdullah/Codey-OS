@@ -92,7 +92,7 @@ class ChatCompletionBackend:
         formula-based timeout elapses (Ish's confirmed fix direction, §8
         Q11: "(b) as a safety AFTER (c)" — one mechanism, two behaviors, not
         a separate rejection). Blocking here is safe on both live call
-        paths that reach `infer()`: the interactive TUI/GUI path is a
+        paths that reach `infer()`: the interactive TUI path is a
         synchronous CLI process with no event loop to stall, and the
         daemon's background-dispatch path already runs this whole function
         off the daemon's asyncio loop via `run_in_executor`

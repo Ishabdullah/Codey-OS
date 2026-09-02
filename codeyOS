@@ -394,13 +394,6 @@ if [ "$BG_MODE" = "true" ]; then
     done
     send_to_daemon "${PROMPT_PARTS[*]}" "$YOLO"
 else
-    # ── Start GUI server if not already running ────────────────────────────
-    # Shared start/PID-file/trap-kill logic lives in lib/gui_launch.sh
-    # (NEW-22 residual dedup) — only kills the GUI on exit if this
-    # invocation is the one that started it.
-    source "$CODEY_OS_DIR/lib/gui_launch.sh"
-    gui_launch_ensure_running
-
     # Direct mode: always spawn Python interactively (foreground, streamed output).
     # Daemon running or not — interactive prompts never go to the socket.
     TMPSCRIPT="$(mktemp "$DAEMON_DIR/run_XXXX.py")"

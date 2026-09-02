@@ -87,35 +87,36 @@ Loads external GGUF files; supports importing LoRA adapters.
 
 ---
 
-### 6. GUI / Dashboard Server
+### 6. GUI / Dashboard Server — REMOVED 2026-09-02
 
-`gui/server.py` serves a local web dashboard (metrics + a command console)
-over WebSocket. It's started directly (backgrounded, PID-tracked for
-teardown) by `codey-start` and by `codeyOS` when run standalone.
+`gui/server.py` and its browser dashboard **no longer exist.** The GUI was
+removed outright (Ish's decision) in favour of the Restoricon Core web
+dashboard at `/admin`, which is served by the Core API and is covered by
+**section 8** rather than here. A GUI may be reintroduced later; if it is,
+this section's mitigations are the baseline it must meet again, which is
+why they are recorded below rather than deleted.
 
-**Risk:** A web server that accepts commands is a much larger attack
-surface than a CLI — if reachable from other devices on the network or by
-other local processes, it could allow unauthenticated command execution.
+**This entire attack surface is therefore closed by removal, not by a
+fix** — the same distinction `NEW-111` and `NEW-279` are marked with. The
+prior audit's **finding C-2 is resolved by removal** on that basis: nobody
+hardened the WebSocket command console, it ceased to exist.
 
-**Mitigations:**
-- Binds to `127.0.0.1` (loopback-only) by default — not reachable from
-  other devices on the LAN. Override via `CODEY_GUI_HOST` only if you
-  understand the risk.
-- WebSocket (`/ws`) connections are rejected unless the `Origin` header
-  matches an allowlist of `http://localhost:<port>` / `http://127.0.0.1:<port>`.
-- A per-process session token (`secrets.token_urlsafe(32)`), generated
-  fresh on each server start and required as a query parameter on the
-  `/ws` upgrade, is checked with a timing-safe comparison
-  (`hmac.compare_digest`) independently of the Origin check — both must
-  pass before the connection is accepted.
-- The server's `access_log` is disabled (`access_log=None`) so the
-  session token embedded in the WebSocket URL is never written to disk
-  in an access log.
+**What the removed server did, and what protected it** (retained as the
+bar for any future reintroduction): it served metrics plus a command
+console over WebSocket, started backgrounded and PID-tracked by
+`codey-start`/`codeyOS`. A web server accepting commands is a far larger
+attack surface than a CLI. It was mitigated by loopback-only binding
+(`127.0.0.1`, overridable via `CODEY_GUI_HOST`), an `Origin`-header
+allowlist on `/ws`, a per-process session token
+(`secrets.token_urlsafe(32)`) regenerated each start and compared with
+`hmac.compare_digest` independently of the Origin check, and a disabled
+`access_log` so the token in the WebSocket URL never reached disk.
 
-**Recommendation:** Leave `CODEY_GUI_HOST` at its default (loopback-only)
-unless you have a specific, trusted reason to expose the dashboard on
-your LAN, and understand that doing so removes the loopback boundary
-(Origin/token checks remain, but are then your only protection).
+**If a GUI is reintroduced:** meet all four of the above, and note that
+the interactive-session signal it used to feed
+(`core/resource_gate.py`'s `is_gui_client_connected()`) was removed with
+it because its no-PID-file branch failed *open* — any replacement must
+fail closed. See `NEW-282`.
 
 ---
 
@@ -134,14 +135,63 @@ Runs with Termux permissions (storage, potentially network if tools are expanded
 
 ---
 
+### 8. Restoricon Core API and the `/admin` web dashboard
+
+The surface that replaced the GUI (section 6). `restoricon_core/api/server.py`
+serves a JSON REST API plus three rendered web surfaces (`/admin`,
+`/portal`, `/quote`) over a `ThreadingHTTPServer`.
+
+**Risk:** this is the highest-risk surface in the project. It is
+authenticated, multi-role, and holds every customer, contract, invoice and
+financial record the business has. One authorization bug means one customer
+sees another's contract. Unlike the removed GUI, it is *intended* to become
+reachable from the public internet (via Cloudflare Tunnel — see
+`CODEY_MASTER_PLAN.md` §6.6), which removes the loopback boundary that the
+GUI relied on as its primary protection.
+
+**Mitigations (verified in code, not assumed):**
+- Binds `127.0.0.1:8770` by default (`server.py:31-32`), overridable via
+  `RESTORICON_API_HOST` / `RESTORICON_API_PORT` or `--host`/`--port`.
+- Bearer-token authentication on every endpoint except the deliberately
+  public intake routes; the token is resolved to an `AuthContext` by
+  `authenticate_token()` (`routes.py:226`).
+- **RBAC is enforced in the service layer, not the router** — the router's
+  only auth job is resolving the token (`routes.py:68`). This is
+  deliberate: it means a new route cannot accidentally skip the permission
+  check, because the check lives with the data access.
+- Customer isolation is enforced service-side (e.g. `sign_contract()`
+  rejects signing another customer's contract and fails closed).
+- The public intake endpoints (`/api/v1/public/*`) are intentionally
+  unauthenticated and are protected instead by a sliding-window rate
+  limiter (20 requests / 60s per client IP, `api/rate_limiter.py:16`) plus
+  honeypot spam mitigation.
+
+**Known open items on this surface** (tracked in `NEW_ISSUES.md`, not yet
+fixed): `NEW-264` / `NEW-266` (`update_user` accepts a suspension path
+that never revokes tokens, and a role/customer_id shape `create_user`
+refuses), `NEW-276` (audit `details=` payloads capture new state only at
+59 of 63 call sites, so most changes are visible but not reconstructible),
+and `NEW-273` (two admin save buttons discard input while reporting
+success). Phase B6 covers the web layer's completion.
+
+**Recommendation:** keep the API on loopback until the Cloudflare Tunnel
+configuration itself has had a dedicated review. `CODEY_MASTER_PLAN.md`
+§6.6 requires a mandatory code-reviewer pass on the tunnel/DNS setup and a
+dedicated authorization test suite — "it works when I log in" is
+explicitly not the bar.
+
+---
+
 ## Current Hardening Summary
 
 - User confirmation required for all shell commands; dangerous commands receive an explicit warning
 - Opt-in self-modification with mandatory checkpoints
 - Workspace and file boundary enforcement
 - Socket permissions locked to owner-only (`0600`)
-- GUI dashboard binds loopback-only by default, enforces WebSocket Origin
-  allowlist + timing-safe session token, and disables access logging
+- Restoricon Core API binds loopback-only by default, authenticates every
+  non-public endpoint with a Bearer token, and enforces RBAC in the service
+  layer rather than the router (the browser GUI that previously held this
+  line was removed 2026-09-02 — see section 6)
 - Fully local — no network calls by default
 - Thermal throttling prevents sustained CPU abuse
 - Daemon mode shell allowlist (explicit prefix-based)

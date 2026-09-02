@@ -80,9 +80,8 @@ Codey-OS/
 │   │                    architecture, security, fine-tuning, pipeline,
 │   │                    knowledge-base, troubleshooting, version-history,
 │   │                    agent-plugin-blueprint, TODO2 [old, needs re-verification])
-├── gui/                  Browser-based GUI: index.html + server.py (WebSocket server)
-├── lib/                  Shared shell-script helpers (e.g. gui_launch.sh, sourced
-│                        by both codey-start and codeyOS)
+├── lib/                  Shared shell-script helpers (service_manager.sh,
+│                        sourced by codey / codey-start / codey-stop)
 ├── pipeline/             Training data pipeline: ingestion, normalization,
 │                        transformation, embedding, storage, export, run.py
 ├── prompts/              Prompt templates: system_prompt.py, layered_prompt.py,
@@ -135,7 +134,7 @@ Codey-OS/
    `pkill -f llama-server` killed unrelated model servers).
 
 4. **Any process-lifecycle change** (daemon start/stop, PID files, kill
-   logic, locks, the GUI server's binding/auth) requires the
+   logic, locks, the Core API server's binding/auth) requires the
    code-reviewer subagent's explicit approval before commit, regardless
    of how small the change looks. This category has produced this
    project's worst bugs — including a well-intentioned, already-reviewed

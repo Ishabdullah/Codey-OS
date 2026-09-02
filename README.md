@@ -53,15 +53,14 @@ and hardware requirements.
 Once installed, bring the whole system up with one command:
 
 ```bash
-codey-start   # daemon + GUI + TUI, all together
+codey-start   # daemon + services + TUI, all together
 codey-stop    # clean shutdown of everything codey-start brought up
 ```
 
 `codey-start` is the primary entry point. It starts the daemon (if not
-already running), launches the GUI server in the background
-(`http://localhost:8888` by default), and drops you into the interactive
-TUI in the foreground — both stay live simultaneously and read from the
-same dashboard data, so neither shows a different picture from the other.
+already running) along with the Restoricon Core API, Codey-Aigentik, and
+the Cloudflare tunnel in the background, then drops you into the
+interactive TUI in the foreground.
 
 Underneath, `codey-start` delegates to `codeyOS` (the CLI/TUI client) and
 `codeydOS` (the daemon manager) — call either directly for scripting or
@@ -126,20 +125,23 @@ Also already native to CCOS (no wrapping needed): `system_info`,
 that chain two of the above together (e.g. capture a photo → speak the
 result).
 
-### Unified dashboard
+### Dashboard
 
-The GUI (`http://localhost:8888`) and the TUI both render from the same
-live data source — CPU/thermal state, RAM, daemon health, model status per
-backend, and what capabilities are registered and active. They're started
-together by `codey-start` and are guaranteed to never disagree about system
-state.
+The TUI renders from a single live data source (`core/dashboard_data.py`) —
+CPU/thermal state, RAM, daemon health, model status per backend, and what
+capabilities are registered and active.
+
+The browser GUI that previously shared this data source was **removed
+2026-09-02**; the web-facing surface is now the Restoricon Core web
+dashboard (`/admin`), served by the Core API. A GUI can be reintroduced
+later if needed — see `CODEY_MASTER_PLAN.md`.
 
 ---
 
 ## Architecture
 
 Short version: a Unix-socket daemon (`codeydOS`) runs local models behind
-a CLI/TUI client (`codeyOS`) and the browser GUI. **As of 2026-08-22 that
+a CLI/TUI client (`codeyOS`). **As of 2026-08-22 that
 is one general model — Qwen3.5-4B, handling coding, planning (via its
 thinking mode) and summarization — plus a small embedding encoder for
 RAG.** It replaces the previous three-model split (a 7B coding agent, a

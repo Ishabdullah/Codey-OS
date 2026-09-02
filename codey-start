@@ -1,8 +1,8 @@
 #!/data/data/com.termux/files/usr/bin/bash
 #
-# codey-start - Codey-OS Orchestrator (services + GUI + TUI)
+# codey-start - Codey-OS Orchestrator (services + TUI)
 #
-# Brings up daemon, Restoricon Core API, Aigentik, Cloudflare tunnel, and GUI
+# Brings up daemon, Restoricon Core API, Aigentik, and Cloudflare tunnel
 # in background, then drops into the interactive TUI (codeyOS) in foreground.
 #
 
@@ -14,7 +14,7 @@ export CODEY_DIR="$CODEY_OS_DIR"
 
 source "$CODEY_OS_DIR/lib/service_manager.sh"
 
-start_all_services true
+start_all_services
 
 echo "  TUI         → launching codeyOS..."
 echo

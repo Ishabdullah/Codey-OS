@@ -46,7 +46,7 @@ LLAMA_LIB = os.environ.get("CODEY_LLAMA_LIB") or str(_HOME_LLAMA)
 # same case (TODO.md 7.4b sub-task C). Since that sub-task, it is NOT the
 # only n_ctx value in play: get_coder_background_n_ctx() (below) returns
 # the coder's ceiling for
-# daemon-dispatched BACKGROUND tasks (no interactive TUI/GUI session
+# daemon-dispatched BACKGROUND tasks (no interactive TUI session
 # active) — both are functions, not constants, so they re-read
 # MODEL_CONFIG["n_ctx"] live and pick up a runtime --ctx override (NEW-102/
 # bug_002 fix) rather than freezing a value at import time; each clamps
@@ -106,7 +106,7 @@ MODEL_CONFIG = {
 # human is actively using it interactively (core.resource_gate.
 # is_interactive_session_active() is True), and drops to this smaller fixed
 # ceiling for daemon-dispatched BACKGROUND coder tasks (no interactive
-# TUI/GUI session active) — a two-value branch, not the fuller per-task
+# TUI session active) — a two-value branch, not the fuller per-task
 # adaptive n_ctx that stays parked as CODEY_OS_MASTER_VISION.md Section
 # 11.9's future item. 16384 is the exact value TODO.md 7.4a sub-task E's
 # own live-verification pass already proved admits cleanly with real,
@@ -314,10 +314,9 @@ CHECKPOINT_DIR = CODEY_STATE_DIR / "checkpoints"
 NOTES_FILE = CODEY_STATE_DIR / "notes.json"
 PLANND_PID_FILE = CODEY_STATE_DIR / "plannd.pid"        # unchanged, already generic
 PLANND_LOG_FILE = CODEY_STATE_DIR / "plannd.log"        # unchanged, already generic
-GUI_PID_FILE = CODEY_STATE_DIR / "gui-server.pid"       # unchanged, already generic
 
-# Track 3 Phase 5a / 7.4 sub-task B: the "is a user actively using the TUI or
-# GUI right now" interactive-session signal (core/resource_gate.py's
+# Track 3 Phase 5a / 7.4 sub-task B: the "is a user actively using the TUI
+# right now" interactive-session signal (core/resource_gate.py's
 # is_interactive_session_active()). TUI_SESSIONS_DIR holds one per-session
 # file per interactive main.py process (TUI_SESSIONS_DIR / f"{pid}.pid"),
 # written/removed around main()'s repl(...) call site (see main.py's
@@ -326,11 +325,10 @@ GUI_PID_FILE = CODEY_STATE_DIR / "gui-server.pid"       # unchanged, already gen
 # sessions are a normal, supported case here and a single shared file
 # cannot hold two sessions' presence at once (a second session's write, or
 # even its crash, would silently erase the first session's signal).
-# GUI_CLIENTS_FILE is written by gui/server.py whenever its `clients`
-# websocket set changes. Neither is a single-instance-enforcement lock like
-# DAEMON_PID_FILE — see each writer's own docstring.
+# Not a single-instance-enforcement lock like DAEMON_PID_FILE — see the
+# writer's own docstring. (The companion GUI_CLIENTS_FILE was removed
+# 2026-09-02 along with the GUI itself.)
 TUI_SESSIONS_DIR = CODEY_STATE_DIR / "tui-sessions"
-GUI_CLIENTS_FILE = CODEY_STATE_DIR / "gui-clients.count"
 
 # Recursive Inference — Phase 2 (v2.6.2)
 # Controls the draft → critique → refine self-improvement loop.
@@ -746,40 +744,3 @@ def get_aigentik_config(config: Optional[Dict[str, Any]] = None) -> Dict[str, An
         "dir": dir_path,
         "port": port,
     }
-
-
-def get_gui_config(config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """
-    Extract GUI server configuration.
-    Precedence:
-      1. CODEY_GUI_HOST / CODEY_GUI_PORT / GUI_PORT env vars
-      2. config["gui"]["host"] / ["port"]
-      3. Defaults: host="127.0.0.1", port=8888
-    """
-    cfg = config if config is not None else load_user_config()
-    gui_section = cfg.get("gui", {}) if isinstance(cfg, dict) else {}
-    if not isinstance(gui_section, dict):
-        gui_section = {}
-
-    host = (
-        os.environ.get("CODEY_GUI_HOST")
-        or gui_section.get("host")
-        or "127.0.0.1"
-    )
-
-    port_raw = (
-        os.environ.get("CODEY_GUI_PORT")
-        or os.environ.get("GUI_PORT")
-        or gui_section.get("port")
-        or 8888
-    )
-    try:
-        port = int(port_raw)
-    except (ValueError, TypeError):
-        port = 8888
-
-    return {
-        "host": str(host),
-        "port": port,
-    }
-

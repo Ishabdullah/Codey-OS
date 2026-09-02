@@ -30,11 +30,11 @@ case "$cmd" in
         shift
         if [ "$#" -eq 0 ]; then
             echo "Starting all Codey-OS services in background..."
-            start_all_services false
+            start_all_services
         elif [ "$1" = "--daemon" ] || [ "$1" = "--bg" ] || [ "$1" = "-d" ]; then
-            start_all_services false
+            start_all_services
         else
-            start_all_services true
+            start_all_services
             exec bash "$CODEY_OS_DIR/codeyOS" "$@"
         fi
         ;;
@@ -51,7 +51,7 @@ case "$cmd" in
         echo "Restarting all Codey-OS services..."
         stop_all_services
         sleep 1
-        start_all_services false
+        start_all_services
         ;;
     logs|log)
         shift
@@ -65,7 +65,7 @@ case "$cmd" in
         show_help
         ;;
     *)
-        start_all_services true
+        start_all_services
         echo "  TUI         → launching codeyOS..."
         echo
         exec bash "$CODEY_OS_DIR/codeyOS" "$@"

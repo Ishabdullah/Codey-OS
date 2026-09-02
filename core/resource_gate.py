@@ -2322,7 +2322,7 @@ def would_model_fit(
 # avoid claiming a task the executor would immediately fail on for a resource
 # reason, and to enforce the interactive-lock rule `can_admit()` knows nothing
 # about (never do daemon-initiated background work while a human is watching
-# the TUI/GUI — see `is_interactive_session_active()` above).
+# the TUI — see `is_interactive_session_active()` above).
 #
 # Both inputs (`snapshot`, `interactive_active`) are passed in rather than
 # read internally, matching `can_admit()`'s own inject-everything test
@@ -2390,7 +2390,7 @@ def can_dispatch_task(
     Checks, in this exact priority order (first match wins):
       1. `interactive_active` True -> refuse. The rule `can_admit()` has no
          equivalent of: never do daemon-initiated background work while a
-         human is watching the TUI/GUI.
+         human is watching the TUI.
       2. `temperature_c is not None and temperature_c >=
          THERMAL_CONFIG["temp_critical"]` -> refuse. Same threshold
          `can_admit()` already uses — one authority, not a second number to
@@ -2493,7 +2493,7 @@ def can_dispatch_task(
     if interactive_active:
         return DispatchDecision(
             allowed=False,
-            reason="interactive TUI/GUI session active — deferring background dispatch",
+            reason="interactive TUI session active — deferring background dispatch",
         )
 
     from utils.config import THERMAL_CONFIG
@@ -3626,15 +3626,11 @@ def resolve_spawned_n_ctx(pid: int) -> Optional[int]:
     return None
 
 
-# ── Signal source 5: interactive-session activity (TUI + GUI) ───────────────
-# Track 3 Phase 5a / 7.4 sub-task B. "Is a human actively watching a TUI or
-# GUI session right now" — a distinct question from "is the GUI SERVER
-# PROCESS alive": the GUI server can run for an entire codey-start session
-# with no browser tab ever opened (or since closed), and treating server-
-# liveness as this signal would leave the daemon silently blocked from any
-# background work for the whole session regardless of whether anyone's
-# actually watching (explicitly flagged as the wrong substitution in
-# WORK_QUEUE.md's 7.4 sub-task B scoping).
+# ── Signal source 5: interactive-session activity (TUI) ─────────────────────
+# Track 3 Phase 5a / 7.4 sub-task B. "Is a human actively watching a TUI
+# session right now." The GUI half of this signal was removed 2026-09-02
+# with the GUI itself — see is_interactive_session_active() for why it was
+# removed outright rather than left as a dead always-False branch.
 #
 # Only the signal/predicate itself is built here — NOT wired into any
 # daemon dispatch decision (that's 7.4 sub-task C, out of scope for this
@@ -3738,79 +3734,27 @@ def is_tui_session_active(sessions_dir: Optional[Path] = None) -> bool:
     return any_live
 
 
-def is_gui_client_connected(
-    clients_file: Optional[Path] = None, gui_pid_file: Optional[Path] = None
-) -> bool:
-    """
-    True if gui/server.py's live client-count file (written by
-    gui/server.py's `_write_gui_clients_count()` whenever its `clients`
-    websocket set changes) currently records at least one connected
-    browser session.
-
-    Also cross-checks the GUI server's own PID file (existing convention,
-    `lib/gui_launch.sh`'s `gui-server.pid` / `utils.config.GUI_PID_FILE`):
-    if that PID is no longer alive, a nonzero count is treated as stale
-    (0) rather than trusted, because a crashed/killed GUI server process
-    has no further opportunity to write a fresh "0" itself — without this
-    check, a crash while clients were connected would leave the count file
-    reporting a false-positive "someone's watching" forever. This mirrors
-    this module's existing self-healing posture (`list_slots()`'s
-    PID-liveness reaping) rather than inventing new machinery.
-    """
-    if clients_file is None:
-        from utils.config import GUI_CLIENTS_FILE
-
-        clients_file = GUI_CLIENTS_FILE
-    if gui_pid_file is None:
-        from utils.config import GUI_PID_FILE
-
-        gui_pid_file = GUI_PID_FILE
-
-    if not clients_file.exists():
-        return False
-    try:
-        with open(clients_file, "r") as f:
-            count = int(f.read().strip())
-    except (OSError, ValueError):
-        # Unreadable/corrupt count file — fail closed toward "don't block
-        # background work on a signal that isn't legible", matching this
-        # module's existing best-effort posture for auxiliary signals
-        # (get_resource_snapshot()'s thermal/battery/queue-depth reads).
-        return False
-    if count <= 0:
-        return False
-
-    if gui_pid_file.exists():
-        try:
-            with open(gui_pid_file, "r") as f:
-                gui_pid = int(f.read().strip())
-        except (OSError, ValueError):
-            # Can't confirm the GUI server's PID either — fail open toward
-            # trusting the count file rather than discarding a real signal
-            # over an unrelated read failure.
-            return True
-        return _pid_alive(gui_pid)
-
-    # No GUI PID file at all: nothing to cross-check against, so trust the
-    # count file as-is rather than assuming stale.
-    return True
-
-
 def is_interactive_session_active(
     tui_sessions_dir: Optional[Path] = None,
-    gui_clients_file: Optional[Path] = None,
-    gui_pid_file: Optional[Path] = None,
 ) -> bool:
     """
-    Composed "is a human actively using Codey-OS's TUI or GUI right now"
-    signal: any TUI session active OR at least one connected GUI client.
-    Consumed by 7.4 sub-task C (not built here — see this section's header
-    comment) to decide whether the daemon should defer background work
-    while a user is actively watching.
+    "Is a human actively using Codey-OS's TUI right now" signal. Consumed
+    by 7.4 sub-task C to decide whether the daemon should defer background
+    work while a user is actively watching.
+
+    **The GUI half of this signal was removed 2026-09-02** along with the
+    GUI itself (Ish's decision; the web dashboard replaces it). This was
+    deliberately a removal rather than a vestigial always-False branch,
+    because the old `is_gui_client_connected()` had a live trap: with a
+    stale `gui-clients.count` holding a nonzero value and no
+    `gui-server.pid` to cross-check against, it returned True
+    unconditionally — which would have deferred ALL background dispatch
+    forever. With no process left to write that count file, keeping the
+    read path would have been a permanent, silent hazard. If a GUI is ever
+    reintroduced, restore the signal WITH a freshness/liveness guard that
+    does not fail open.
     """
-    return is_tui_session_active(tui_sessions_dir) or is_gui_client_connected(
-        gui_clients_file, gui_pid_file
-    )
+    return is_tui_session_active(tui_sessions_dir)
 
 
 def total_reserved_bytes(state_dir: Optional[Path] = None, reap_dead: bool = True) -> int:

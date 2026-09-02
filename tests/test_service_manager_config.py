@@ -16,7 +16,6 @@ from utils.config import (
     get_cloudflare_tunnel_token,
     get_restoricon_api_config,
     get_aigentik_config,
-    get_gui_config,
 )
 
 
@@ -173,39 +172,6 @@ def test_get_aigentik_config_env_overrides(monkeypatch):
     cfg = get_aigentik_config(config_dict)
     assert cfg["dir"] == str(Path("/srv/codey-aigentik").resolve())
     assert cfg["port"] == 8200
-
-
-def test_get_gui_config_defaults():
-    cfg = get_gui_config({})
-    assert cfg["host"] == "127.0.0.1"
-    assert cfg["port"] == 8888
-
-
-def test_get_gui_config_from_dict():
-    config_dict = {
-        "gui": {
-            "host": "0.0.0.0",
-            "port": 8899,
-        }
-    }
-    cfg = get_gui_config(config_dict)
-    assert cfg["host"] == "0.0.0.0"
-    assert cfg["port"] == 8899
-
-
-def test_get_gui_config_env_overrides(monkeypatch):
-    config_dict = {
-        "gui": {
-            "host": "0.0.0.0",
-            "port": 8899,
-        }
-    }
-    monkeypatch.setenv("CODEY_GUI_HOST", "127.0.0.2")
-    monkeypatch.setenv("CODEY_GUI_PORT", "9900")
-
-    cfg = get_gui_config(config_dict)
-    assert cfg["host"] == "127.0.0.2"
-    assert cfg["port"] == 9900
 
 
 def test_codey_script_cli_help_and_config():

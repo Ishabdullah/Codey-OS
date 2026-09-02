@@ -3,7 +3,7 @@
 # lib/service_manager.sh - Codey-OS Unified Service Manager
 #
 # Orchestrates daemon, Restoricon API server, Codey-Aigentik, Cloudflare tunnel,
-# and GUI server lifecycles with PID tracking and clean signal handling.
+# lifecycles with PID tracking and clean signal handling.
 # Follows Rule 3: Never kill processes by bare name pattern.
 #
 
@@ -21,9 +21,6 @@ AIGENTIK_LOG_FILE="$DAEMON_DIR/aigentik.log"
 
 CLOUDFLARED_PID_FILE="$DAEMON_DIR/cloudflared.pid"
 CLOUDFLARED_LOG_FILE="$DAEMON_DIR/cloudflared.log"
-
-GUI_PID_FILE="$DAEMON_DIR/gui-server.pid"
-GUI_LOG_FILE="$DAEMON_DIR/gui-server.log"
 
 mkdir -p "$DAEMON_DIR"
 
@@ -523,73 +520,14 @@ status_cloudflare() {
     fi
 }
 
-# ── Service: GUI Server ─────────────────────────────────────────────────────
-
-start_gui() {
-    local with_trap="${1:-false}"
-
-    local gui_cfg
-    gui_cfg=$(python3 -c "
-import sys; sys.path.insert(0, '$CODEY_OS_DIR')
-from utils.config import get_gui_config
-c = get_gui_config()
-print(f\"{c['host']}|{c['port']}\")
-" 2>/dev/null || echo "127.0.0.1|8888")
-
-    local g_host g_port
-    IFS='|' read -r g_host g_port <<< "$gui_cfg"
-    g_host="${g_host:-127.0.0.1}"
-    g_port="${g_port:-8888}"
-
-    export CODEY_GUI_PORT="$g_port"
-    export CODEY_GUI_HOST="$g_host"
-    export PYTHONUNBUFFERED=1
-
-    local started_here="false"
-    if svc_is_running "$GUI_PID_FILE"; then
-        echo "  GUI         → http://${g_host}:${g_port} (already running)"
-    elif [ -f "$CODEY_OS_DIR/gui/server.py" ]; then
-        nohup python3 "$CODEY_OS_DIR/gui/server.py" >> "$GUI_LOG_FILE" 2>&1 &
-        local g_pid=$!
-        echo "$g_pid" > "$GUI_PID_FILE"
-        started_here="true"
-        sleep 0.5
-        if kill -0 "$g_pid" 2>/dev/null; then
-            echo "  GUI         → http://${g_host}:${g_port} (PID $g_pid)"
-        else
-            echo "  GUI         → ERROR: failed to start. Check $GUI_LOG_FILE"
-            rm -f "$GUI_PID_FILE"
-            return 1
-        fi
-    fi
-
-    if [ "$with_trap" = "true" ] && [ "$started_here" = "true" ]; then
-        trap 'echo; echo "  Stopping GUI server..."; kill "$(cat "$GUI_PID_FILE" 2>/dev/null)" 2>/dev/null; rm -f "$GUI_PID_FILE"' EXIT
-    fi
-}
-
-stop_gui() {
-    svc_stop_by_pid "$GUI_PID_FILE" "GUI server"
-}
-
-status_gui() {
-    if svc_is_running "$GUI_PID_FILE"; then
-        echo "  GUI server:      running (PID $(cat "$GUI_PID_FILE"))"
-    else
-        echo "  GUI server:      stopped"
-    fi
-}
-
 # ── Composite Management Operations ──────────────────────────────────────────
 
 start_all_services() {
-    local with_gui_trap="${1:-false}"
     mkdir -p "$DAEMON_DIR"
     start_daemon
     start_restoricon
     start_aigentik
     start_cloudflare
-    start_gui "$with_gui_trap"
 }
 
 stop_all_services() {
@@ -597,7 +535,6 @@ stop_all_services() {
     stop_cloudflare
     stop_aigentik
     stop_restoricon
-    stop_gui
     stop_daemon
     echo
     echo "  All Codey-OS services stopped."
@@ -610,7 +547,6 @@ status_all_services() {
     status_restoricon
     status_aigentik
     status_cloudflare
-    status_gui
     echo "──────────────────────────────────────────────"
     if [ -f "$CODEY_OS_DIR/codeydOS" ]; then
         bash "$CODEY_OS_DIR/codeydOS" status || true
@@ -632,13 +568,10 @@ show_service_logs() {
         cloudflare|cloudflared|tunnel)
             tail -n 50 "$CLOUDFLARED_LOG_FILE" 2>/dev/null || echo "No log found for cloudflare ($CLOUDFLARED_LOG_FILE)."
             ;;
-        gui)
-            tail -n 50 "$GUI_LOG_FILE" 2>/dev/null || echo "No log found for gui ($GUI_LOG_FILE)."
-            ;;
         *)
-            echo "Available logs: daemon, restoricon, aigentik, cloudflare, gui"
+            echo "Available logs: daemon, restoricon, aigentik, cloudflare"
             echo
-            for logfile in "$DAEMON_LOG_FILE" "$RESTORICON_LOG_FILE" "$AIGENTIK_LOG_FILE" "$CLOUDFLARED_LOG_FILE" "$GUI_LOG_FILE"; do
+            for logfile in "$DAEMON_LOG_FILE" "$RESTORICON_LOG_FILE" "$AIGENTIK_LOG_FILE" "$CLOUDFLARED_LOG_FILE"; do
                 if [ -f "$logfile" ]; then
                     echo "=== $(basename "$logfile") (last 10 lines) ==="
                     tail -n 10 "$logfile"
@@ -656,7 +589,7 @@ sys.path.insert(0, '$CODEY_OS_DIR')
 from utils.config import (
     get_config_file_path, load_user_config,
     get_cloudflare_tunnel_token, get_restoricon_api_config,
-    get_aigentik_config, get_gui_config
+    get_aigentik_config
 )
 cfg_path = get_config_file_path()
 print(f'Config file: {cfg_path} (exists: {cfg_path.is_file()})')
@@ -664,7 +597,6 @@ print('\nActive configurations:')
 print(f'  • Cloudflare Token: {\"configured\" if get_cloudflare_tunnel_token() else \"not set\"}')
 print(f'  • Restoricon API:   {get_restoricon_api_config()}')
 print(f'  • Aigentik:         {get_aigentik_config()}')
-print(f'  • GUI Server:       {get_gui_config()}')
 print('\nLoaded raw config:')
 print(json.dumps(load_user_config(), indent=2))
 "
@@ -683,7 +615,7 @@ Commands:
   stop            Stop all Codey-OS services cleanly
   status          Show status of all services and daemon model health
   restart         Restart all services cleanly
-  logs [service]  Show service logs (daemon, restoricon, aigentik, cloudflare, gui)
+  logs [service]  Show service logs (daemon, restoricon, aigentik, cloudflare)
   config          Show active configuration settings
   help, --help    Show this help message
 

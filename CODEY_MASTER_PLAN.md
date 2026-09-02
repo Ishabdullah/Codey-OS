@@ -224,7 +224,7 @@ plan's own successor documents.
    violations: `NEW-85`, `NEW-99`, `NEW-103` (see Appendix A, M-lane).
 
 4. **Any process-lifecycle change** (daemon start/stop, PID files, kill
-   logic, locks, model load/unload, the GUI server's binding/auth)
+   logic, locks, model load/unload, the Core API server's binding/auth)
    requires the code-reviewer subagent's explicit approval before commit,
    regardless of how small the change looks. This category has produced
    this project's worst bugs — including an already-reviewed fix that
@@ -365,7 +365,7 @@ site in `agent.py`'s tool-failure path) and `core/observability.py`
 **Explicit platform non-goals** (carried from the vision doc §6, still
 binding): not a cloud service; not silently dropping working
 functionality during unification; not activating autonomous
-self-modification by default; not letting GUI and TUI drift out of sync
+self-modification by default; keeping client surfaces from drifting out of sync
 (both read one dashboard data layer); not going back to fragmented entry
 points (`codey-start`/`codey-stop` are the surface); not maintaining two
 implementations of the same job without a stated reason; not treating
@@ -503,7 +503,7 @@ distinct problems remain inside that, and the decision shrinks two of
 them:
 
 - **Concurrent requests** — now the *primary* problem rather than one of
-  several, because a single server has to serve the daemon, the TUI/GUI,
+  several, because a single server has to serve the daemon, the TUI,
   and eventually both limbs. Likely solvable via `llama-server`'s
   slot/`--parallel` handling; **unverified — no such flag is set anywhere
   Codey-OS launches `llama-server` today.** Test this directly before
@@ -572,8 +572,70 @@ scoped to what it actually proved.
 
 ### 4.1 Built and live-verified
 
-- **Unified entry points** `codey`, `codey-start`, `codey-stop` — root `codey` executable supporting interactive launch and subcommands (`start`, `stop`, `status`, `restart`, `logs`, `config`), orchestrating Daemon, Restoricon API, Codey-Aigentik, Cloudflare tunnel, and GUI via `lib/service_manager.sh` with exact PID-tracked lifecycle.
+- **Unified entry points** `codey`, `codey-start`, `codey-stop` — root `codey` executable supporting interactive launch and subcommands (`start`, `stop`, `status`, `restart`, `logs`, `config`), orchestrating Daemon, Restoricon API, Codey-Aigentik, and Cloudflare tunnel via `lib/service_manager.sh` with exact PID-tracked lifecycle.
   - **Orphan detection & directory-scoped termination for Codey-Aigentik** (commit `57b6088`; revised after code-reviewer CHANGES REQUESTED, re-approved 2026-09-02). `svc_find_orphans_by_cwd()` uses two-factor identification (canonical `/proc/$pid/cwd` match AND entrypoint token in `/proc/$pid/cmdline`) so a bare `pkill -f node` is never issued; `start`/`stop`/`status` surface and clean untracked orphans. **Live-verified on-device by Ish 2026-09-02**: spawned a genuine untracked `node index.js` orphan, `codey status` flagged it (`[⚠ 1 orphan(s): 17953]`) before any cleanup, `codey stop` terminated it loudly (`fully stopped, 0 processes remaining`), `codey start` produced exactly one clean tracked PID confirmed by both `ps` and `codey status`. Follow-ups `NEW-268`..`NEW-271` remain open. See `PROJECT_LOG.md` 2026-09-01 entry.
+- **Browser GUI REMOVED, 2026-09-02** (Ish's decision, given in session:
+  "remove the gui for now and only use the web dashboard later we can add
+  a gui back if we need to"). Deleted `gui/server.py`, `gui/index.html`,
+  `lib/gui_launch.sh`, and `tests/test_gui_clients_signal.py`; stripped
+  `start_gui`/`stop_gui`/`status_gui` and the GUI PID/log files from
+  `lib/service_manager.sh`; removed the `gui_launch` sourcing from
+  `codeyOS`; de-argumented `start_all_services()` at all 6 call sites.
+  The web-facing surface is now the Restoricon Core dashboard (`/admin`).
+  **1,620 deletions / 89 insertions across 23 files.**
+  - **This was a resource-gate change, not only a UI deletion.**
+    `core/resource_gate.py`'s `is_gui_client_connected()` was **signal
+    source 5** feeding `is_interactive_session_active()` →
+    `can_dispatch_task()`. It carried a live trap: its final branch
+    returned `True` when the clients-count file held a nonzero value and
+    **no** `gui-server.pid` existed to cross-check. With the GUI's writer
+    deleted, a stale count file would have made that branch permanently
+    reachable and never self-healing — deferring **all** daemon
+    background dispatch, silently and forever. **This ships to any user
+    who merely `git pull`s**, since their own `~/.codeyOS/
+    gui-clients.count` survives the pull (code-reviewer's point, not
+    caught in the original analysis). The signal was therefore removed
+    outright rather than left as a vestigial always-False stub.
+    `is_interactive_session_active()` is now TUI-only; both production
+    callers (`core/daemon.py:1166`, `core/loader_v2.py:1041`) pass no
+    arguments, verified.
+  - **Consequence logged, not fixed: `NEW-282`** — `/admin` feeds the
+    gate nothing, so a human watching the web dashboard no longer defers
+    background dispatch. A real behavioral gap created by the product
+    decision; any replacement signal must fail **closed**.
+  - **Zombie source eliminated.** `gui/server.py` (PID 18856) never
+    reaped its spawned children; two `[python3] <defunct>` zombies were
+    resident. Stopped by exact tracked PID after verifying identity
+    (rule 3); zombies reaped on exit; stale `gui-clients.count` /
+    `gui-server.pid` / `gui-server.log` removed. `NEW-279`'s symptom is
+    cleared and its owner deleted — **deliberately not marked "fixed"**,
+    since no reaping logic was ever written and the defect is available
+    again to any future child-spawning service. `NEW-111` is likewise
+    **resolved by removal, not by fix**, as is the old audit finding
+    **C-2** (`docs/security.md` §6 rewritten to say so).
+  - **`aiohttp` dependency:** removed from the **core** install block
+    (`gui/server.py` was its only direct importer) but **deliberately
+    retained in the pipeline block** — code-reviewer showed via
+    `git blame` that the pipeline entries predate the GUI by three days
+    and arrive transitively through `fsspec[http]`/`datasets`. The first
+    pass over-reverted both; corrected before commit. Rule 11 satisfied.
+  - **Verification:** `tests/` 1,068 passed / 1 skipped, `ccos/tests/`
+    107 passed. Two failures in `tests/test_loader_resource_gate.py` are
+    **proven pre-existing** — reproduced identically at unmodified `HEAD`
+    in an isolated `git worktree`, and caused by a live embed server on
+    port 8082 being adopted by tests that expect to start their own
+    (`NEW-280`; its fix direction was corrected after the reviewer showed
+    the real gate is `_port_is_bound()`, not the `_is_port_open()` the
+    tests already patch to no effect). Live smoke tests: `codey status`,
+    `codey config`, `codey logs` all exit 0 with no GUI line.
+  - **Mandatory rule-4 code-reviewer pass: CHANGES REQUESTED, then all
+    four blockers fixed** (stale repo-structure map in this file, a
+    `http://localhost:8888` line still printed by `install.sh`, the
+    over-broad `aiohttp` removal, and an unstaged `NEW_ISSUES.md`), plus
+    all four warnings. **Reviewer's own generalizable lesson, worth
+    keeping:** a case-insensitive `gui` sweep missed a live reference
+    because the line was named after its *effect* ("browser"), not the
+    thing.
 - **CCOS Phases 1–3** (capability wrapping pilot, remaining capability
   migration, entry-point unification) — complete per the archived
   `PROJECT_PLAN.md`.
@@ -591,7 +653,7 @@ scoped to what it actually proved.
   `MAX_SWAP_ASSIST_BYTES`. **Single-model only — the same run's
   concurrent case (b) failed; see §4.3.**
 - **Daemon control redesign (4.1) sub-tasks C and D** — gated queue
-  dispatch (interactive TUI/GUI session defers background dispatch) and
+  dispatch (interactive TUI session defers background dispatch) and
   the autonomous thermal shutdown tripwire, both live-verified 2026-08-10
   (commit `96b6ea1`).
 - **20+ audit-remediation rounds** (NEW-1 … NEW-20 and the prompt
@@ -6580,7 +6642,9 @@ measured across all 63 call sites).
 
 **Test-suite hygiene:** `NEW-110`, `NEW-150` (dirty-tree failures in
 `tests/test_new19_patch_failed_repeat_escalation.py` — expected noise,
-not a regression), `NEW-111` (`gui/server.py` unimportable under pytest),
+not a regression), ~~`NEW-111`~~ (`gui/server.py` unimportable under
+pytest — **resolved by removal 2026-09-02**, not by fix; the file was
+deleted with the GUI),
 `NEW-1`, `NEW-8`.
 
 **Dead code / doc drift, low severity:** `NEW-76`, `NEW-79`, `NEW-94`,
@@ -6732,8 +6796,7 @@ Codey-OS/
 │                       voice.py (TTS/STT, broken)
 ├── docs/               Documentation + docs/archive/ (superseded docs,
 │                       see below)
-├── gui/                index.html + server.py (WebSocket server)
-├── lib/                Shared shell helpers (gui_launch.sh)
+├── lib/                Shared shell helpers (service_manager.sh)
 ├── pipeline/           Training-data pipeline
 ├── prompts/            system_prompt.py, layered_prompt.py,
 │                       critique_prompts.py

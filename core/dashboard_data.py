@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
 """
-Shared dashboard data layer for the TUI and GUI.
+Shared dashboard data layer for the TUI.
 
 CODEY_OS_MASTER_VISION.md Section 3 ("Unified system dashboard") and
-Section 6 require the GUI and TUI to read CPU/RAM/temperature from the
-same source instead of each maintaining its own status logic. This
+Section 6 require dashboard surfaces to read CPU/RAM/temperature from a
+single source instead of each maintaining its own status logic. This
 module is that shared source: it calls through the CCOS capability
 layer (`system.monitor_snapshot`, backed by the thermal_monitor plugin,
 which itself just wraps core/sysmon.py's SystemMonitor singleton)
 instead of main.py/core/recursive.py holding a direct SystemMonitor
-reference and gui/server.py parsing /proc/meminfo on its own.
+reference.
+
+The browser GUI was the second consumer of this module until it was
+removed 2026-09-02; the module stays shared-by-design rather than being
+folded back into the TUI, so a future surface has one place to read from.
 
 Only CPU/RAM/temperature are covered here — that's all the TUI status
-bar and GUI metrics currently display. observability_full_status
+bar currently displays. observability_full_status
 reports this *process's own* CPU/RSS usage (a different question,
 see ccos/plugins/system/observability/observability.py's docstring),
 not the system-wide numbers the dashboard shows, so it isn't used here.

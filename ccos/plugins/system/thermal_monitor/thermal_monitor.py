@@ -8,7 +8,7 @@ throttling logic stays in core/sysmon.py and core/thermal.py.
 
 core/sysmon.py's SystemMonitor is the shared data source for the
 "unified system dashboard" requirement (CODEY_OS_MASTER_VISION.md
-Section 3) — GUI and TUI must read the same live numbers, so
+Section 3) — every dashboard surface must read the same live numbers, so
 `monitor_snapshot` returns a plain dict rather than the Rich-formatted
 bar. `monitor_render_text` exposes the TUI bar too, as plain text,
 for callers that just want to display it.

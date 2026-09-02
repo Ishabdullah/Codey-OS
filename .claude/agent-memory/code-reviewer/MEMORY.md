@@ -86,3 +86,4 @@
 - [NEW-259 daemon._config + loader_v2 reserve_slot port fix — approved](new259_daemon_config_and_loader_port_fix_approved.md) — 2 real bugs in twice-approved code, both negative-control-verified; ccos-inclusive test count reconciled, not a red flag
 - [service_manager.sh Aigentik orphan-by-cwd kill — round1 CHANGES REQUESTED](service_manager_aigentik_orphan_cwd_changes_requested.md) — cwd-alone weaker than logged /proc/cmdline+session-path precedent; committed PROJECT_LOG falsely claims approval
 - [submit_review RBAC + role-change token revoke + sessionStorage — approved](submit_review_rbac_and_role_token_revoke_approved.md) — a "missing revoke" may be resurrection-on-reactivation, not continued access; check what the auth query already filters on
+- [GUI removal round (2026-09-02) — changes requested](gui_removal_round_changes_requested.md) — code sound, blocked on docs/ledger; keyword-only greps miss effect-named refs ("browser", not "gui")

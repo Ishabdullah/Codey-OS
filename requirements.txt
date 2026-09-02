@@ -1,10 +1,9 @@
-# ── Core (required for agent, GUI, and daemon) ─────────────────────────────
+# ── Core (required for agent and daemon) ───────────────────────────────────
 # install.sh installs these automatically.
 # On Termux, run first:  pkg install python-pyarrow python-pandas
 rich>=14.0.0
 numpy>=1.24.0
 watchdog>=3.0.0
-aiohttp>=3.9.0          # GUI server + HTTP inference calls
 requests>=2.31.0
 httpx>=0.27.0
 pyyaml>=6.0
@@ -70,7 +69,7 @@ httpx>=0.27.0
 typer>=0.9.0
 tqdm>=4.65.0
 hnswlib>=0.7.0
-aiohttp>=3.9.0
+aiohttp>=3.9.0          # pipeline: transitive via fsspec[http]/datasets
 multiprocess>=0.70.0
 dill>=0.3.7
 xxhash>=3.4.0

@@ -35,7 +35,7 @@ front — the full list is `CODEY_MASTER_PLAN.md` §2:
 2. Never kill a process by bare name pattern (`pkill -f llama-server`).
    Track and kill the specific PID your own code spawned.
 3. Any process-lifecycle change (daemon start/stop, PID files, kill
-   logic, model load/unload, API/GUI binding and auth) needs an explicit
+   logic, model load/unload, API binding and auth) needs an explicit
    adversarial code review before commit — no exceptions for small-looking
    changes.
 

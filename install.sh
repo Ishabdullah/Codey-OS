@@ -162,7 +162,7 @@ install_python_deps() {
 
     cd "$CODEY_OS_DIR"
 
-    # Install only what's needed for the core agent + GUI
+    # Install only what's needed for the core agent
     # (pipeline/training deps are optional — see requirements.txt for full list)
     PIP_INSTALL_ARGS=""
     if [ "$(id -u)" -eq 0 ] || [ -n "$SUDO_USER" ]; then
@@ -173,7 +173,6 @@ install_python_deps() {
         "rich>=14.0.0" \
         "numpy>=1.24.0" \
         "watchdog>=3.0.0" \
-        "aiohttp>=3.9.0" \
         "requests>=2.31.0" \
         "httpx>=0.27.0" \
         "pyyaml>=6.0" \
@@ -444,10 +443,9 @@ print_completion() {
     echo
     echo -e "  Reload shell:     ${BLUE}source $SHELL_CONFIG${NC}"
     echo -e "  One-word start:   ${BLUE}codey${NC}        (launches all services + interactive TUI)"
-    echo -e "  Or background:    ${BLUE}codey start${NC}  (daemon + API + GUI in background)"
+    echo -e "  Or background:    ${BLUE}codey start${NC}  (daemon + API in background)"
     echo -e "  Stop everything:  ${BLUE}codey stop${NC}"
     echo -e "  Check status:     ${BLUE}codey status${NC}"
-    echo -e "    → browser:      ${BLUE}http://localhost:8888${NC}"
     echo
     echo -e "  Individual pieces still work as before:"
     echo -e "  Start daemon:     ${BLUE}codeydOS start${NC}"

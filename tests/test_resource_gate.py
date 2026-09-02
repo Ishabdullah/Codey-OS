@@ -1223,10 +1223,10 @@ def test_get_resource_snapshot_queue_read_failure_does_not_blank_other_signals()
     assert snap.battery_percent == 99
 
 
-# ── is_tui_session_active / is_gui_client_connected / is_interactive_session_active ──
+# ── is_tui_session_active / is_interactive_session_active ───────────────────
 # Track 3 Phase 5a / 7.4 sub-task B. Synthetic fixtures throughout (tmp_path
 # directories/files, subprocess.Popen(["true"]) for a real-but-dead PID) —
-# no dependency on a real running main.py/gui/server.py instance, matching
+# no dependency on a real running main.py instance, matching
 # this module's existing test convention. TUI sessions live one-per-file
 # under a directory (TUI_SESSIONS_DIR / f"{pid}.pid"), not a single shared
 # file, so two concurrent sessions can never overwrite each other's entry.
@@ -1346,84 +1346,10 @@ def test_is_tui_session_active_crashed_session_is_reaped_without_hiding_live_one
     assert session_a.exists()
 
 
-def test_is_gui_client_connected_missing_file_is_false(tmp_path):
-    assert (
-        rg.is_gui_client_connected(
-            clients_file=tmp_path / "gui-clients.count",
-            gui_pid_file=tmp_path / "gui-server.pid",
-        )
-        is False
-    )
-
-
-def test_is_gui_client_connected_zero_count_is_false(tmp_path):
-    clients_file = tmp_path / "gui-clients.count"
-    clients_file.write_text("0")
-    assert (
-        rg.is_gui_client_connected(
-            clients_file=clients_file, gui_pid_file=tmp_path / "gui-server.pid"
-        )
-        is False
-    )
-
-
-def test_is_gui_client_connected_positive_count_no_pid_file_is_true(tmp_path):
-    # No GUI PID file to cross-check against at all — nothing to invalidate
-    # the count with, so it's trusted as-is.
-    clients_file = tmp_path / "gui-clients.count"
-    clients_file.write_text("2")
-    assert (
-        rg.is_gui_client_connected(
-            clients_file=clients_file, gui_pid_file=tmp_path / "gui-server.pid"
-        )
-        is True
-    )
-
-
-def test_is_gui_client_connected_positive_count_live_gui_pid_is_true(tmp_path):
-    clients_file = tmp_path / "gui-clients.count"
-    clients_file.write_text("1")
-    gui_pid_file = tmp_path / "gui-server.pid"
-    gui_pid_file.write_text(str(os.getpid()))
-    assert (
-        rg.is_gui_client_connected(clients_file=clients_file, gui_pid_file=gui_pid_file) is True
-    )
-
-
-def test_is_gui_client_connected_positive_count_dead_gui_pid_is_stale(tmp_path):
-    # A GUI server that crashed while clients were connected must not leave
-    # a false-positive "someone's watching" signal behind forever.
-    proc = subprocess.Popen(["true"])
-    dead_pid = proc.pid
-    proc.wait()
-
-    clients_file = tmp_path / "gui-clients.count"
-    clients_file.write_text("3")
-    gui_pid_file = tmp_path / "gui-server.pid"
-    gui_pid_file.write_text(str(dead_pid))
-
-    assert (
-        rg.is_gui_client_connected(clients_file=clients_file, gui_pid_file=gui_pid_file) is False
-    )
-
-
-def test_is_gui_client_connected_corrupt_count_file_is_false(tmp_path):
-    clients_file = tmp_path / "gui-clients.count"
-    clients_file.write_text("not-a-count")
-    assert (
-        rg.is_gui_client_connected(
-            clients_file=clients_file, gui_pid_file=tmp_path / "gui-server.pid"
-        )
-        is False
-    )
-
-
-def test_is_interactive_session_active_false_when_neither_active(tmp_path):
+def test_is_interactive_session_active_false_when_no_tui_active(tmp_path):
     assert (
         rg.is_interactive_session_active(
             tui_sessions_dir=tmp_path / "tui-sessions",
-            gui_clients_file=tmp_path / "gui-clients.count",
-            gui_pid_file=tmp_path / "gui-server.pid",
         )
         is False
     )
@@ -1436,31 +1362,9 @@ def test_is_interactive_session_active_true_when_only_tui_active(tmp_path):
     assert (
         rg.is_interactive_session_active(
             tui_sessions_dir=tui_sessions_dir,
-            gui_clients_file=tmp_path / "gui-clients.count",
-            gui_pid_file=tmp_path / "gui-server.pid",
         )
         is True
     )
-
-
-def test_is_interactive_session_active_true_when_only_gui_active(tmp_path):
-    clients_file = tmp_path / "gui-clients.count"
-    clients_file.write_text("1")
-    gui_pid_file = tmp_path / "gui-server.pid"
-    gui_pid_file.write_text(str(os.getpid()))
-    assert (
-        rg.is_interactive_session_active(
-            tui_sessions_dir=tmp_path / "tui-sessions",
-            gui_clients_file=clients_file,
-            gui_pid_file=gui_pid_file,
-        )
-        is True
-    )
-
-
-# ── can_dispatch_task() (7.4 sub-task C) ─────────────────────────────────────
-# Every check below uses a synthetic ResourceSnapshot built directly — no real
-# hardware/model reads, matching this module's existing test convention.
 
 
 def _snapshot(
