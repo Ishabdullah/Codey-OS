@@ -10,6 +10,84 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-02 — `U.38` steps 1/1b/2: obsolescence audit of the whole open register; nothing is moot
+
+- **Status**: **Doc-only round, complete for steps 1, 1b and 2 (plus
+  step 4, folded in). `U.38` stays `[ ]`** — steps 3 (de-ledger §4) and 5
+  (the four boot docs) are outstanding. No code touched, no model loaded,
+  nothing fixed. Rule 4 does not bind (no process control, concurrency,
+  daemon/kill or security surface in the diff).
+- **Driver**: Ish, in session — "are you ready to pick up the U38 in
+  appendix A."
+- **The headline, and it contradicts the ask's premise: nothing purges.**
+  Ish queued this expecting dead weight — "old things ... that may no
+  longer be required like the 7B model issues." Across all 45 open items,
+  §8's 11 questions, and a swept §1/§3/§5/§6/§7/§10: **0 moot.** The
+  retired 7B/1.5B left a **re-verification debt, not a deletion
+  backlog**. A purge run on the ask's premise would have deleted eight
+  live items.
+- **Verdicts**: 0 moot / 8 needs-re-verification (`U.3`, `U.11`, `U.15`,
+  `U.17`, `U.20`, `U.29`, plus one split sub-claim each in `U.21` and
+  `U.34`) / 34 still real / **2 stale in the opposite direction**.
+- **The brief's own scoping was wrong, and correcting it is what found
+  the only real defect (rule 6).** `U.38` scoped the audit to Appendix A
+  + §8. The reference mapping said otherwise: of 54 retired-model
+  references in the plan, only **2** sit inside an open Appendix A item;
+  ~43 live in §1 (6), §5 (8), §6 (15), §4 (8). A **step 1b** was added to
+  sweep those. All 43 turned out to be correct historical narration —
+  and the sweep is what surfaced the one genuine live leak, which is in
+  **shipped code, not docs**: `core/resource_gate.py:418-433` still
+  justifies `DEVICE_CEILING_USABLE_FRACTION = 0.60` as "comfortably
+  admits the project's own primary 7B model's ~6.4GiB cost estimate (the
+  normal case)" and points its follow-up at the archived `TODO.md`.
+  `NEW-156`/M1-F re-derived the two *sibling* constants and did not cover
+  this one. Logged `NEW-283`.
+- **`U.1` and `U.2` were stale the other way — a rule-6 correction that
+  nearly went the wrong direction.** Both read as pure 7B/1.5B-era
+  findings, so both were initially headed for "needs re-verification /
+  unknown." Reading M1-G's full Appendix A entry showed it **already
+  re-measured them live on Qwen3.5-4B (2026-08-25)**: `NEW-50`'s
+  verbatim-leak did not reproduce, 5/5 clean, non-circularity confirmed
+  via `git log -L` against `d674a0c`; `NEW-7`'s grounding came back 3/3
+  (G2) and 3/3 + 3/3 (G2b, no-preload domain). Filing them as unknown
+  would have been its own overclaim. Annotated, **not closed** — per rule
+  5 "not reproduced" is not "fixed," the `NEW-50` leak source is still in
+  `PLANNER_PROMPT`, and `NEW-183` records the G3 prompt is now a weakened
+  discriminator.
+- **Two items were split rather than given a blended verdict.** `U.21`
+  ("no daemon-mode integration tests, no path-traversal tests") — the
+  path-traversal half is still real, the daemon half needs
+  re-verification (five daemon-named test files exist at HEAD; whether
+  any is an integration test is unassessed). `U.34` — the mechanism claim
+  (`mmap`'d pages produce no clean `MemAvailable` drop) is
+  model-independent and still real; the "has never once confirmed a real
+  load" frequency claim is retired-model evidence and needs re-measuring.
+  A single hybrid verdict on either would have been exactly the
+  confident-looking status rules 5/6 forbid.
+- **Status drift corrected**: Appendix B's header read `NEW-1 … NEW-277`;
+  the ledger was at `NEW-282`. Now `NEW-287`. The `U.38` brief noted this
+  same header had been stale by 122 ids until 2026-09-02 — it went stale
+  again by 5 within the same day.
+- **§8**: 11 questions, 4 open (Q2, Q4, Q6, Q7, Q9), 7 answered. All four
+  open ones are model-independent. No obsolescence found.
+- **New findings (rule 8), none fixed**: `NEW-283` (the
+  `DEVICE_CEILING_USABLE_FRACTION` rationale + archived-`TODO.md`
+  pointer), `NEW-284` (two distinct open items both carry the ID `B4`),
+  `NEW-285` (`U.20` tracks flake8 counts but `python -m flake8` →
+  `No module named flake8` and flake8 is in neither `install.sh` nor
+  `requirements*.txt` — rule 11), `NEW-286` (`NEW-7` cites the archived
+  `WORK_QUEUE.md` for its task spec), `NEW-287` (`U.6`'s
+  `agent.py:863-865` anchor no longer points at the code it describes;
+  its `task_executor.py` half is intact).
+- **Diff shape**: purely additive — 291 insertions, 1 deletion (the
+  Appendix B header line). Open-item count unchanged at 45 before and
+  after; **no item was deleted or closed by this pass.**
+- **Not done, deliberately**: step 3 (move §4's round-narrative into this
+  file — §4.5 alone is ~650 lines) and step 5 (collapse `CLAUDE.md` /
+  `ANTIGRAVITY.md` / `AGENTS.md` / `HANDOFF.md`). Step 5 is a **hard
+  stop**: the brief requires proposing a shape to Ish first, and those
+  four files are what agents boot from. No edits made to them.
+
 ## 2026-09-02 — Browser GUI removed; working tree and repo-root litter cleaned
 
 - **Status**: **Code-complete, mandatory rule-4 code-reviewer pass

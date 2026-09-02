@@ -13125,3 +13125,99 @@ outside that fix's scope.
 - **Checked, not assumed:** `/admin` (`restoricon_core/api/web_surfaces.py`) reads no CPU/RAM/thermal of its own, so it is not silently duplicating `core/dashboard_data.py` — that module's "shared-by-design for a future surface" docstring is accurate.
 - **Fix direction:** if this proves annoying in practice, have the Core API record an interactive-session marker while an authenticated dashboard session is live, and add it as a third signal source. **Any such signal must fail CLOSED** — the removed GUI signal's defect was returning True when it could not verify liveness, which would have deferred all background work forever. Do not reintroduce that shape.
 - **Not fixed this round.** Whether it matters at all is an empirical question best answered after `/admin` is actually in daily use (Phase B6).
+
+## Found during the U.38 documentation-consolidation + obsolescence audit, 2026-09-02 — desk-only, no model loaded, nothing fixed, logged only
+
+### [NEW-283] `DEVICE_CEILING_USABLE_FRACTION = 0.60`'s calibration rationale is argued entirely against the retired 7B, and its follow-up pointer names the archived `TODO.md`
+- **Status:** Confirmed (read directly from `core/resource_gate.py:418-433`).
+- **Mechanism:** the comment block justifying `0.60` reads, verbatim,
+  "~6.5GiB on this device, which still comfortably admits the project's
+  own primary 7B model's ~6.4GiB cost estimate (the normal case) while
+  actually refusing something meaningfully larger." The primary model is
+  Qwen3.5-4B at 3.852GiB (32768) / 4.852GiB (65536, the shipped default
+  per §8 Q1). The stated "normal case" the fraction was tuned to sit just
+  above no longer exists, and the real margin is now ~1.6GiB wider than
+  the rationale reasons about — so `0.60` is materially *more* permissive
+  relative to the actual model than the comment claims it is.
+- **Not a duplicate of `NEW-156`,** which covers
+  `MAX_CONCURRENT_MODEL_BUDGET_BYTES` and `MAX_SWAP_ASSIST_BYTES` only
+  (both re-derived by M1-F, 2026-08-24). Checked before filing.
+  `DEVICE_CEILING_USABLE_FRACTION` was not in M1-F's scope and was not
+  re-derived.
+- **Second defect, same comment block:** it ends "sub-task 3's live
+  wiring (per TODO.md's 7.4 entry) should validate/retune both knobs."
+  `TODO.md` was superseded 2026-08-21 and moved to `docs/archive/`;
+  CLAUDE.md forbids planning from it. The live pointer for that work is
+  now Appendix A's `7.4`.
+- **Impact:** admission safety is not currently *unsafe* — a wider margin
+  errs toward refusing less, not admitting more than the ceiling allows —
+  but the number's stated basis is false, which is exactly the condition
+  `NEW-156` was filed for on its two sibling constants.
+- **Fix direction:** re-derive `0.60` against M1-E's measured Qwen3.5-4B
+  resident cost the way M1-F did for its two constants, or state
+  explicitly that the value is retained un-retuned and why. Repoint the
+  `TODO.md` reference at Appendix A `7.4`. **Not fixed this round** —
+  `U.29`/`NEW-98` already own this knob's calibration question and this
+  is evidence for that item, not separate work.
+
+### [NEW-284] Two distinct open items in `CODEY_MASTER_PLAN.md` Appendix A share the ID `B4`
+- **Status:** Confirmed (`CODEY_MASTER_PLAN.md:6244` and `:6256`).
+- **Mechanism:** `- [ ] **B4** — staff/admin surface.` and
+  `- [ ] **B4** — customer portal (full document/signature/financial).`
+  are two separate open items carrying one ID.
+- **Impact:** any cross-reference to "B4" is ambiguous, and the
+  2026-09-02 `B4` PARTIAL downgrade is not attributable to one of them
+  from the ID alone. Appendix A is supposed to be the single register
+  (U.38 step 4); a duplicate key defeats that.
+- **Fix direction:** renumber, preserving the existing text. Deliberately
+  **not** renumbered in this round's commit — `B4` is cited from §6 and
+  from `PROJECT_LOG.md`, so the rename needs its own scoped pass that
+  updates every citation, not an in-place edit here.
+
+### [NEW-285] `U.20` tracks flake8 counts, but flake8 is installed nowhere and appears in neither `install.sh` nor `requirements*.txt` (rule 11)
+- **Status:** Confirmed (`python -m flake8` → `No module named flake8`;
+  `grep -n "flake8\|lint" install.sh requirements*.txt` → no matches).
+- **Mechanism:** Appendix A `U.20` carries three precise measurements —
+  "129 F401 unused imports, 1343 E501 line length, 74 E712 comparison
+  style" — that cannot be reproduced or refreshed on a fresh clone,
+  because nothing in the project's setup installs the tool that produced
+  them.
+- **Impact:** `U.20`'s numbers are unfalsifiable at HEAD. Its obsolescence
+  verdict is therefore "needs re-verification" for a reason that has
+  nothing to do with the model migration — it is a tooling gap.
+- **Fix direction:** add flake8 to `install.sh` (and a dev-requirements
+  entry) per rule 11, then re-measure `U.20`'s three counts and restate
+  them with the measurement date. **Not fixed this round** — adding a
+  dependency is its own change and belongs with `U.20`, not with a doc
+  audit.
+
+### [NEW-286] `NEW-7`'s own ledger entry points at the archived `WORK_QUEUE.md` for its task definition
+- **Status:** Confirmed (`NEW_ISSUES.md:3358`).
+- **Mechanism:** the entry ends "Round 22, 2026-07-31: scoped a
+  pre-registered, two-fixture, taxonomy'd reproducibility re-run — see
+  `WORK_QUEUE.md` for the full task; not yet run." `WORK_QUEUE.md` was
+  superseded 2026-08-21 into `docs/archive/`, which CLAUDE.md forbids
+  planning from — so the task spec for `U.1`'s next step is reachable
+  only through a pointer the project's own rules say not to follow.
+- **Impact:** low severity, but it is the load-bearing pointer for the
+  one item Ish's ask most directly touches.
+- **Fix direction:** either re-home that re-run spec into Appendix A
+  `U.1` or cite the archive path explicitly as evidence-only. **Not fixed
+  this round.**
+
+### [NEW-287] `U.6`'s security-backlog line anchor `agent.py:863-865` no longer points at the code it describes
+- **Status:** Confirmed (read `core/agent.py:855-875`).
+- **Mechanism:** `U.6` describes "command-injection-via-filename in
+  `agent.py:863-865` (partially addressed)". That range at HEAD is inside
+  a `_safe_write()` docstring and its `_CODE_EXTS`/syntax-check body — not
+  the described injection surface. The second anchor,
+  `task_executor.py:47-52`, is likewise now a security *comment*;
+  `_DAEMON_ALLOWED_PREFIXES` begins at ~line 52 and the allowlist is
+  still broad (`cat`, `grep`, `find`, `cd `, `env`, …), so that half of
+  the item is intact — only its line number drifted.
+- **Impact:** the underlying concerns are not disproven; they are
+  **unlocatable from the item as written**, which is the same practical
+  outcome as a stale finding and the reason `U.6` has never been picked
+  up.
+- **Fix direction:** re-anchor `U.6` to symbol names rather than line
+  numbers when it is next scoped. **Not fixed this round.**

@@ -5112,6 +5112,90 @@ Every open item from the superseded `TODO.md`, re-homed. IDs are kept
 unchanged so the archived evidence stays findable. `[ ]` = open,
 `[x]` = done (kept only where the note carries live information).
 
+### Obsolescence audit — pass 1, 2026-09-02 (`U.38` steps 1/1b/2)
+
+**Scope of this pass:** all 45 `[ ]` items below, §8's 11 numbered
+questions, and — added mid-pass, because the reference mapping said the
+retired-model problem was not where the `U.38` brief assumed — a sweep of
+every `7B`/`1.5B`/`Qwen2.5` reference in §1, §3, §5, §6, §7 and §10.
+
+**Where the retired-model references actually are.** 54 in this file:
+§6 (15), Appendix A (11, of which only 2 sit inside an open item), §5
+(8), §4 (8), §1 (6), §2 (2), §3/§7/§8/§10 (1 each). The `U.38` brief
+measured 51 at scoping time and scoped the audit to Appendix A + §8;
+that scoping would have missed ~43 of them.
+
+**Verdicts, per the brief's three-verdict rule:**
+
+| Verdict | Count | Meaning |
+|---|---|---|
+| **Moot** | **0** | Nothing below describes a thing that no longer exists. |
+| **Needs re-verification** | 8 | `U.3`, `U.11`, `U.15`, `U.17`, `U.20`, `U.29`, plus one split sub-claim each in `U.21` and `U.34`. |
+| **Still real** | 34 | Model-independent, or already re-derived against Qwen3.5-4B. |
+| **Stale entry — already re-verified** | 2 | `U.1`, `U.2` — see below. |
+
+**The headline result, stated plainly because it contradicts the ask's
+premise: nothing purges.** Ish's ask assumed retired-model items were
+sitting in the queue as dead weight ("old things ... that may no longer
+be required like the 7B model issues"). Among Appendix A's open items,
+**zero** are moot. The retired model left behind a *re-verification*
+debt, not a deletion backlog — which is precisely the distinction the
+three-verdict rule exists to force, and a careless purge would have
+deleted eight live items.
+
+**§1/§3/§5/§6/§7/§10's 43 references are all correct historical
+narration** — retirement decisions, comparison tables explicitly labelled
+`(retired)`, and closed sub-task text deliberately kept verbatim as the
+record of what was asked for. Two places already applied the three-verdict
+discipline unprompted and correctly: §6 re-derived `NEW-21`'s fixture
+against real Qwen3.5-4B numbers and *raised* its severity 3/4 → 4/4
+(`NEW-188`), and §6 retired `NEW-141` as structurally unreachable once
+`core/planner_loader.py` was deleted — a Moot verdict, correctly reached.
+**No live present-tense claim against a retired model was found in this
+document's prose.** The one real leak is in shipped code, not docs:
+`core/resource_gate.py:418-433` still argues
+`DEVICE_CEILING_USABLE_FRACTION = 0.60` against "the project's own
+primary 7B model's ~6.4GiB cost estimate" and points its follow-up at the
+archived `TODO.md` — logged as **`NEW-283`**.
+
+**`U.1` and `U.2` were stale in the opposite direction, and this is a
+rule-6 correction.** Both are written entirely around 7B/1.5B-era
+evidence and neither mentions that **M1-G already re-measured them live
+on Qwen3.5-4B** (2026-08-25): `NEW-50`'s verbatim-leak did **not**
+reproduce, 5/5 clean with non-circularity confirmed via `git log -L`
+against `d674a0c`; `NEW-7`'s grounding came back 3/3 (G2) and 3/3 + 3/3
+(G2b, in a genuine no-preload domain). Filing these as "unknown, needs
+re-verification" would have been its own overclaim. They are annotated
+below rather than closed — per rule 5 "not reproduced" is not "fixed,"
+the `NEW-50` leak source is still present in `PLANNER_PROMPT`, and
+`NEW-183` records that the G3 test prompt is now a weakened
+discriminator.
+
+**Status drift found and corrected in this pass:** Appendix B's header
+read `NEW-1 … NEW-277`; `NEW_ISSUES.md` was at `NEW-282`. Corrected.
+(The brief noted this header had been stale by 122 ids until 2026-09-02
+and warned to assume more of the same — it was stale again by 5 within
+the day.)
+
+**§8:** 11 numbered questions, **4 open** (Q2 Core→device dispatch, Q4
+off-phone deployment, Q6 = `U.8`/`NEW-9`, Q7 = `U.9`/`NEW-69`, Q9 =
+`U.10`), 7 answered and struck through. All four open questions are
+model-independent — **Still real**. No obsolescence found in §8.
+
+**Rule-8 findings raised by this pass:** `NEW-283` (the
+`DEVICE_CEILING_USABLE_FRACTION` rationale + archived-`TODO.md` pointer),
+`NEW-284` (two open items share the ID `B4`), `NEW-285` (`U.20` tracks
+flake8 counts but flake8 is in neither `install.sh` nor
+`requirements*.txt` — rule 11), `NEW-286` (`NEW-7` cites the archived
+`WORK_QUEUE.md` for its task spec), `NEW-287` (`U.6`'s
+`agent.py:863-865` anchor no longer points at the code it describes).
+None fixed here.
+
+**Still outstanding on `U.38` after this pass:** step 3 (de-ledger §4
+into `PROJECT_LOG.md`) and step 5 (the `CLAUDE.md` / `ANTIGRAVITY.md` /
+`AGENTS.md` / `HANDOFF.md` shape — **proposal to Ish first, per the
+brief; no edits made to those four files**).
+
 ### Phase A1 — model foundation (§6.2)
 
 **▶ START HERE — M1: migrate to Qwen3.5-4B as the single model** (§1.4,
@@ -6379,12 +6463,36 @@ order. Every item below is a separate scoped session, not one task.
       on `main.py`-sized fixtures (3/12, same hallucinated one-line-stub
       pattern). Reinforce the existing `0026565` grounding fix against
       that pattern; do **not** add new wrong-target instructions.
+      **Audit 2026-09-02 — STALE ENTRY, partially re-verified (rule 6).**
+      Everything above is 7B-era evidence. **M1-G already re-measured
+      this on Qwen3.5-4B, 2026-08-25: grounding 3/3 clean (G2) and
+      3/3 + 3/3 (G2b, no-preload domain).** Narrow positive evidence, not
+      a close: the wide re-run is still outstanding, `NEW-182` records
+      that `.py`/`.json`-domain sequencing has no reachable test design at
+      HEAD, and `NEW-286` records that this item's task spec is cited only
+      from the archived `WORK_QUEUE.md`.
 - [ ] **U.2** (`NEW-50`) — worked examples in prompt text leak verbatim
       content into unrelated requests regardless of ✓/✗ labeling.
       Residual of `NEW-46`. Not scoped.
+      **Audit 2026-09-02 — STALE ENTRY, partially re-verified (rule 6).**
+      The 1/3 leak frequency above was measured on the retired 1.5B.
+      **M1-G's G3 ran this live on Qwen3.5-4B, 2026-08-25: 5/5 clean on
+      both `content` and `reasoning_content`, leak did NOT reproduce**,
+      non-circularity confirmed via `git log -L` against `d674a0c`.
+      Per rule 5 this is "not reproduced," **not** "fixed": the fibonacci
+      worked example `NEW-50` traced as the leak source is still in
+      `PLANNER_PROMPT` at HEAD, and `NEW-183` notes the G3 test prompt's
+      answer is now embedded verbatim twice in that prompt, weakening it
+      as a future discriminator. Stays open.
 - [ ] **U.3** (`NEW-51`) — Rule 9 peer-CLI delegation format fails on a
       fresh phrasing ("Have gemini check X for race conditions") — no
       delegation step emitted. Pre-existing gap vs. regression: unsettled.
+      **Audit 2026-09-02 — NEEDS RE-VERIFICATION.** The 0/3 result is
+      retired-model evidence and **M1-G did not cover delegation** (G1–G4
+      tested grounding, sequencing and prompt-leak only). The code path is
+      intact — `U.13` added an explicit `peer_delegate` word→tool mapping
+      2026-08-30 — so the behaviour is unmeasured on Qwen3.5-4B, not
+      disproven. Status is unknown, not open-and-confirmed.
 - [x] **U.4** (`NEW-48`) — `core/plannd.py`'s `parse_steps()`
       truncation-warning heuristic. **DONE 2026-08-30: fixed false-positive heuristic in `core/plannd.py` to check for true dangling sentence markers; verified in `tests/test_plannd_step_parsing_and_enrichment.py`.**
 - [x] **U.5** (`NEW-49`) — `core/daemon.py` hardcodes step-1 =
@@ -6394,6 +6502,13 @@ order. Every item below is a separate scoped session, not one task.
       (partially addressed); daemon shell allowlist too broad in
       `task_executor.py:47-52`; Unix socket auth in `core/daemon.py`
       (peer-UID check exists; token auth recommended).
+      **Audit 2026-09-02 — STILL REAL, but re-anchor before scoping
+      (`NEW-287`).** `agent.py:863-865` at HEAD is inside `_safe_write()`'s
+      docstring/body, not the described injection surface — that anchor
+      has drifted and the concern is currently unlocatable from this item.
+      The `task_executor.py` half is intact: `_DAEMON_ALLOWED_PREFIXES`
+      begins ~line 52 and still admits `cat`, `grep`, `find`, `cd `,
+      `env`. Re-anchor to symbol names, not line numbers.
 - [ ] **U.7** — H-1 fallback path is mechanism-verified only, never
       live-triggered (rule 5).
 - [ ] **U.8** (`NEW-9`) — residual atfork race. **Escalation, not a fix
@@ -6413,6 +6528,14 @@ order. Every item below is a separate scoped session, not one task.
       failure spiral (wrong-path writes, blocked shell, wandering reads,
       premature "Done."). Production-reachable independent of
       `NEW-30`/`NEW-56`. Not scoped. **High value.**
+      **Audit 2026-09-02 — NEEDS RE-VERIFICATION** (the `U.38` brief's own
+      worked example, and it holds). Evidence traced to the 2026-07-31
+      correction round on the **7B coder**, failure-shape sample **n=2**.
+      The mechanism is intact and model-independent — `core/filesystem.py`
+      `_validate_path()` still denies out-of-workspace reads — but the
+      *spiral* is a behavioural claim measured on a model that no longer
+      runs. Do **not** delete; re-file as unknown until re-measured on
+      Qwen3.5-4B.
 - [x] **U.12** (`NEW-52`) — `orchestrator.py`'s own write_file-hint
       hardcoding. **DONE 2026-08-30: updated `core/orchestrator.py` to branch tool hint generation by verb (`edit/patch` -> `patch_file`, `read/review` -> `read_file`, `append/add` -> `append_file`, `run/execute` -> `shell`, `create/write` -> `write_file`).**
 - [x] **U.13** (`NEW-53`/`NEW-54`) — tool-completeness gaps:
@@ -6422,12 +6545,30 @@ order. Every item below is a separate scoped session, not one task.
       values. **DONE 2026-08-30: fixed in `core/agent.py` `_fix_unquoted_values()`, verified with tests in `tests/test_json_parser.py`.**
 - [ ] **U.15** — the 7B prompt round's Case 2 control deviation (model
       read a file anyway with content pre-injected). Reported, unresolved.
+      **Audit 2026-09-02 — NEEDS RE-VERIFICATION.** Same 2026-07-31 7B
+      round as `U.11`, and the same disposition. Note the confound is now
+      better understood: `core/context.py`'s auto-preload (`NEW-182`)
+      loads any named file into context before inference, which is a
+      plausible mechanical explanation for a "control" draw reading a file
+      it was given — re-measure with `NEW-182` in hand rather than
+      re-running the old design.
 - [x] **U.26** (`NEW-75`) — stray root-level file `=3.9.0`
       (pip-typo artifact). **DONE 2026-08-30: verified and removed from repo root.**
 - [ ] **U.29** (`NEW-98`, Suspected) —
       `DEVICE_CEILING_USABLE_FRACTION`/`REQUIRED_HEADROOM_FACTOR`
       calibration comment overstates the real margin (live-measured
       137MiB, not "comfortable").
+      **Audit 2026-09-02 — NEEDS RE-VERIFICATION, and worse than filed
+      (`NEW-283`).** The 137MiB figure is a retired-7B measurement, so the
+      original overstatement claim is unproven at HEAD. But the comment
+      block at `core/resource_gate.py:418-433` is *itself* now false in a
+      second way: it still justifies `0.60` as "comfortably admits the
+      project's own primary 7B model's ~6.4GiB cost estimate (the normal
+      case)" — a model that no longer exists — and points its follow-up at
+      the archived `TODO.md`. `NEW-156`/M1-F re-derived the two sibling
+      constants and did **not** cover this one. Re-derive against M1-E's
+      measured Qwen3.5-4B cost, or state explicitly that it is retained
+      un-retuned and why.
 - [ ] **U.30** (`NEW-99`) — `codeydOS`'s port-scoped
       `pkill -9 -f "llama-server.*8080"`/`*8081`. Rule-3 class.
       **Do with U.32.**
@@ -6446,6 +6587,15 @@ order. Every item below is a separate scoped session, not one task.
       anyway" every time. Reasoned cause: `mmap`'d weight pages produce
       no clean `MemAvailable` drop. Retuning candidate: an RSS-based
       signal — needs real investigation, not a guess.
+      **Audit 2026-09-02 — SPLIT, two different verdicts.** The
+      *mechanism* claim (`mmap`'d weight pages produce no clean
+      `MemAvailable` drop, so the poll falls through to "mark resident
+      anyway") is model-independent and holds — Qwen3.5-4B is `mmap`'d on
+      the same path: **Still real**. The *frequency* claim ("has never
+      once confirmed a real load") is measured evidence from retired-model
+      load cycles: **needs re-verification** against the M1-E-era 4B
+      loads. Do not repeat the "never once" figure until it is
+      re-measured.
 
 - [ ] **U.35** (`NEW-264`, Confirmed) — `restoricon_core`
       `update_user(uid, {"active": 0})` is a second suspension path that
@@ -6483,14 +6633,34 @@ order. Every item below is a separate scoped session, not one task.
 - [ ] **U.16** — `docs/architecture.md` rewrite. Best after 4.3 lands.
 - [ ] **U.17** — `docs/commands.md`: 12 missing slash commands, ~13
       missing CLI flags, one possibly-stale flag (`--rollback`).
+      **Audit 2026-09-02 — NEEDS RE-VERIFICATION (count drift, not
+      model).** `docs/commands.md` was edited 2026-08-23, *after* the
+      audit that produced these counts, and now documents 30 slash
+      commands. The three numbers above are stale by construction;
+      re-derive them against HEAD before scoping the fix.
 - [ ] **U.19** — TTS broken on **both** `core/voice.py` and
       `ccos/plugins/speech/tts_speech`. Get one working, verify it,
       remove the other. STT has no CCOS equivalent, so `core/voice.py`
       (or a rewrite) is needed regardless.
 - [ ] **U.20** — code quality backlog: 129 F401 unused imports, 1343
       E501 line length, 74 E712 comparison style.
+      **Audit 2026-09-02 — NEEDS RE-VERIFICATION, and currently
+      unfalsifiable (`NEW-285`).** `python -m flake8` → `No module named
+      flake8`, and flake8 appears in neither `install.sh` nor
+      `requirements*.txt`. These three counts cannot be reproduced on a
+      fresh clone. Rule 11 applies: add the tool, then re-measure and
+      restate the numbers with their measurement date.
 - [ ] **U.21** — testing gaps: no daemon-mode integration tests, no
       path-traversal tests.
+      **Audit 2026-09-02 — SPLIT, two different verdicts.**
+      *"No path-traversal tests"* — **Still real** (no matching test file
+      exists). *"No daemon-mode integration tests"* — **needs
+      re-verification**: five daemon-named test files exist at HEAD
+      (`test_daemon_dispatch_gate.py`, `test_daemon_handle_command.py`,
+      `test_daemon_model_watchdog.py`, `test_daemon_release_model_slot.py`,
+      `test_planner_service_daemon_socket_timeout.py`). Whether any is an
+      *integration* test rather than a unit test is unassessed; the claim
+      as written is no longer safe to repeat.
 - [ ] **U.22** — security guide docs: unclear whether they reflect
       recent changes; needs a read-through.
 - [ ] **U.24** (`NEW-27`, Suspected) — `docs/TODO2.md` needs a scoped
@@ -6580,6 +6750,30 @@ order. Every item below is a separate scoped session, not one task.
       verdict needs evidence, not a plausible story), and rule 8
       (anything found along the way gets a `NEW-id`, not a silent fix).
 
+      **PROGRESS 2026-09-02 — steps 1, 1b and 2 DONE; 3 and 5 outstanding.
+      Item stays `[ ]`.** See the *Obsolescence audit — pass 1* block at
+      the head of this Appendix for the full result. Headline: **0 moot,
+      8 needs-re-verification, 34 still real, 2 stale-in-the-opposite-
+      direction (`U.1`/`U.2`, already re-measured on Qwen3.5-4B by
+      M1-G).** Nothing purges — the retired model left a re-verification
+      debt, not a deletion backlog.
+
+      **A correction to this brief's own scoping, per rule 6.** The brief
+      scoped the audit to Appendix A + §8 + open `NEW-id`s. That scoping
+      was wrong: only **2 of 44** open items carry a retired-model
+      reference, while ~43 of the file's 54 references live in §1/§5/§6.
+      A **step 1b** was added to sweep those, and it is what found the one
+      genuine live leak (`NEW-283`, in shipped code, not docs). Anyone
+      resuming should keep 1b, not the brief's original step 1 boundary.
+
+      **Step 4 was folded into steps 1–2** rather than run separately —
+      making Appendix A trustworthy *is* the audit result, and no new
+      queue file was created (the brief forbids it).
+
+      **Step 5 is a hard stop.** The brief says propose a shape to Ish
+      before collapsing `CLAUDE.md` / `ANTIGRAVITY.md` / `AGENTS.md` /
+      `HANDOFF.md`. No edits have been made to those four files.
+
 - [ ] **U.25** (`NEW-27`) — README docs-table discoverability:
       `MODEL_COMPARISON.md`, `PRIVACY.md`, `docs/importantdoc.md` have
       real current content and no inbound link.
@@ -6598,7 +6792,7 @@ A–E (all committed and approved; C and D live-verified).
 
 ---
 
-## Appendix B — Findings register (NEW-1 … NEW-277)
+## Appendix B — Findings register (NEW-1 … NEW-287)
 
 `NEW_ISSUES.md` remains the authoritative, append-only findings ledger
 and keeps its own per-issue status. **This merge deliberately did not
