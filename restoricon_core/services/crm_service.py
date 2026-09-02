@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import re
 import secrets
+import sqlite3
 from typing import Any, Dict, List, Optional
 
 from ..auth import (
@@ -28,6 +29,8 @@ from ..auth import (
     PERM_READ_ASSIGNED_PROJECTS,
     PERM_READ_OWN_PROJECTS,
     PERM_WRITE_PROJECTS,
+    PERM_REASSIGN_PROJECT_STAFF,
+    PERM_REASSIGN_ANY_PROJECT_STAFF,
     PERM_READ_ESTIMATES,
     PERM_WRITE_ESTIMATES,
     PERM_READ_OWN_ESTIMATES,
@@ -51,6 +54,7 @@ from ..auth import (
     ROLE_CUSTOMER,
     ROLE_TECHNICIAN,
     ROLE_ADMIN,
+    _actor_may_reassign_project_staff,
 )
 from ..database import DatabaseManager
 from ..models import (
@@ -1532,6 +1536,11 @@ class CRMService:
         )
 
     def create_project(self, project: Project, actor: AuthContext) -> Project:
+        """Create a project. Does NO referential validation of
+        ``project_manager_id`` / ``assigned_employees`` / ``subcontractors``
+        beyond the DB foreign key on ``project_manager_id`` -- element ids in
+        the two JSON lists are not checked against any table. ``update_project``
+        matches this intentionally."""
         if not actor.has_permission(PERM_WRITE_PROJECTS):
             raise PermissionError("Actor lacks permission to create projects")
 
@@ -1658,6 +1667,142 @@ class CRMService:
 
             results.append(self._row_to_project(r, actor.role))
         return results
+
+    ALLOWED_PROJECT_UPDATE_FIELDS = {
+        "title", "property_address", "project_type",
+        "start_date", "expected_completion", "actual_completion",
+        "project_manager_id", "assigned_employees", "subcontractors",
+        "scope_of_work", "estimated_cost", "contract_amount", "actual_cost",
+        "profit", "notes", "warranty_info",
+        "insurance_claim_number", "insurance_carrier", "adjuster_name",
+        "adjuster_phone", "adjuster_email", "deductible",
+    }
+
+    # The three fields whose modification is a "staff reassignment" and needs
+    # the reassignment permission rather than plain PERM_WRITE_PROJECTS.
+    _PROJECT_REASSIGNMENT_FIELDS = {"project_manager_id", "assigned_employees", "subcontractors"}
+
+    def update_project(
+        self, project_id: int, updates: Dict[str, Any], actor: AuthContext
+    ) -> Optional[Project]:
+        """Partial update for a project, allow-list enforced (see
+        ``ALLOWED_PROJECT_UPDATE_FIELDS``). The three assignment fields
+        (``project_manager_id``, ``assigned_employees``, ``subcontractors``)
+        additionally require the reassignment permission -- unrestricted for
+        admin/manager, scoped-to-owned for ``project_manager`` (only projects
+        where they are the pre-update ``project_manager_id``); every other
+        field needs only ``PERM_WRITE_PROJECTS``. The reassignment check runs
+        against the pre-update row, so a PM may hand a project off to someone
+        else but may not grab one they do not manage. ``stage``/``status`` are
+        rejected with a pointer to the stage-transition endpoint;
+        ``customer_id`` is simply not in the allow-list. ``project_manager_id``
+        cannot be nulled (None-value guard) -- omit the key instead. Like
+        ``create_project`` this does NO referential validation beyond the DB
+        foreign key on ``project_manager_id``; element ids in the two JSON
+        lists are not checked. Read-then-write is not atomic, matching the
+        rest of this service layer. When every submitted value already equals
+        the stored value, ``updated_at`` still bumps but no audit row is
+        written."""
+        if not actor.has_permission(PERM_WRITE_PROJECTS):
+            raise PermissionError("Actor lacks permission to update projects")
+
+        _transition_only = {"stage", "status"} & set(updates)
+        if _transition_only:
+            raise ValueError(
+                f"Field(s) {sorted(_transition_only)} cannot be changed via update_project; "
+                "use the project stage-transition endpoint"
+            )
+
+        unknown = set(updates) - self.ALLOWED_PROJECT_UPDATE_FIELDS
+        if unknown:
+            raise ValueError(f"Unknown field(s) for project update: {sorted(unknown)}")
+
+        for key, value in updates.items():
+            if value is None:
+                raise ValueError(
+                    f"Field '{key}' cannot be set to None via update_project; omit the key instead"
+                )
+
+        if not updates:
+            return self.get_project(project_id, actor)
+
+        for key in ("assigned_employees", "subcontractors"):
+            if key in updates and not isinstance(updates[key], list):
+                # Must be a JSON array. A dict here would be silently json.dumps'd
+                # and later json.loads'd back into a dict, corrupting the
+                # `actor.user_id not in assigned` technician-visibility filter
+                # in list_projects()/get_project() (a dict membership test hits
+                # keys, not values).
+                raise ValueError(f"Field '{key}' must be a list")
+
+        conn = self.db.get_connection()
+        # RAW row read -- never self.get_project(), which zeroes financial
+        # fields for the customer role and raises for an unassigned technician.
+        row = conn.execute(
+            "SELECT * FROM projects WHERE id = ?;", (project_id,)
+        ).fetchone()
+        if row is None:
+            return None
+
+        if self._PROJECT_REASSIGNMENT_FIELDS & set(updates):
+            if not _actor_may_reassign_project_staff(actor, row):
+                raise PermissionError("Actor may not reassign staff on this project")
+
+        set_clauses: List[str] = []
+        params: List[Any] = []
+        for key, value in updates.items():
+            if key == "assigned_employees":
+                set_clauses.append("assigned_employees_json = ?")
+                params.append(json.dumps(value))
+            elif key == "subcontractors":
+                set_clauses.append("subcontractors_json = ?")
+                params.append(json.dumps(value))
+            else:
+                set_clauses.append(f"{key} = ?")
+                params.append(value)
+        set_clauses.append("updated_at = ?")
+        params.append(utc_now_iso())
+        params.append(project_id)
+
+        try:
+            with conn:
+                conn.execute(
+                    f"UPDATE projects SET {', '.join(set_clauses)} WHERE id = ?;",
+                    params,
+                )
+        except sqlite3.IntegrityError as e:
+            raise ValueError(f"Update violates a data constraint: {e}") from e
+
+        # Audit with a nested changed_fields map: submit_review's flat
+        # old_*/new_* shape scales to ~5 fields; update_project touches 20+.
+        # B6.2 generalizes this shape.
+        _json_cols = {"assigned_employees": "assigned_employees_json", "subcontractors": "subcontractors_json"}
+        changed: Dict[str, Any] = {}
+        for key in updates:
+            col = _json_cols.get(key, key)
+            old_raw = row[col]
+            if key in _json_cols:
+                old_val = json.loads(old_raw) if old_raw else []
+                new_val = updates[key]
+                # Compare parsed lists, order-sensitive: [1,2] vs [2,1] counts
+                # as a change (a reorder is a real reassignment of primacy).
+                if old_val != new_val:
+                    changed[key] = {"old": old_val, "new": new_val}
+            else:
+                if old_raw != updates[key]:
+                    changed[key] = {"old": old_raw, "new": updates[key]}
+
+        if changed:
+            self.audit.log(
+                action="update",
+                entity_type="project",
+                entity_id=project_id,
+                change_summary=f"Project {project_id} updated ({', '.join(sorted(changed))})",
+                actor=actor,
+                details={"changed_fields": changed},
+            )
+
+        return self.get_project(project_id, actor)
 
     # ==========================================
     # ESTIMATES

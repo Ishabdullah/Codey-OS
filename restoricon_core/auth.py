@@ -58,6 +58,24 @@ PERM_READ_ASSIGNED_PROJECTS = "read:assigned_projects"
 PERM_READ_OWN_PROJECTS = "read:own_projects"
 PERM_WRITE_PROJECTS = "write:projects"
 
+# B6.1, 2026-09-02: reassigning the PM, employees, or subcontractors
+# on an existing project is split from ordinary project edits into two
+# additive permissions, mirroring the PERM_SIGN_CONTRACTS / NEW-192 scoped-vs-
+# unrestricted precedent. PERM_REASSIGN_PROJECT_STAFF is the scoped grant --
+# the holder may reassign staff only on projects where they are the
+# project_manager_id. PERM_REASSIGN_ANY_PROJECT_STAFF is the unrestricted
+# grant -- reassign on any project regardless of ownership. admin/manager
+# hold both; project_manager holds only the scoped one; sales, technician,
+# and customer hold neither. ai_agent holds neither -- a placeholder policy
+# exactly like PERM_SIGN_CONTRACTS, pending Ish's real rule for what an
+# autonomous agent may reassign; revisit when that policy is settled.
+# PERM_MANAGE_PROJECTS already sits with project_manager, so it cannot be
+# the "unrestricted reassign" discriminator -- hence these two new perms.
+# Deliberately no implication logic: PERM_MANAGE_PROJECTS / PERM_WRITE_PROJECTS
+# do NOT imply either of these.
+PERM_REASSIGN_PROJECT_STAFF = "reassign:project_staff"
+PERM_REASSIGN_ANY_PROJECT_STAFF = "reassign:any_project_staff"
+
 PERM_READ_ESTIMATES = "read:estimates"
 PERM_WRITE_ESTIMATES = "write:estimates"
 PERM_READ_OWN_ESTIMATES = "read:own_estimates"
@@ -170,6 +188,8 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_SCORE_LEADS,
         PERM_READ_ALL_PROJECTS,
         PERM_WRITE_PROJECTS,
+        PERM_REASSIGN_PROJECT_STAFF,
+        PERM_REASSIGN_ANY_PROJECT_STAFF,
         PERM_READ_ESTIMATES,
         PERM_WRITE_ESTIMATES,
         PERM_READ_CONTRACTS,
@@ -239,6 +259,8 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_LOG_COMMUNICATION,
         PERM_READ_COMMUNICATIONS,
         PERM_READ_AUDIT_LOG,
+        PERM_REASSIGN_PROJECT_STAFF,
+        PERM_REASSIGN_ANY_PROJECT_STAFF,
         PERM_READ_SUBCONTRACTORS,
         PERM_WRITE_SUBCONTRACTORS,
         PERM_READ_APPOINTMENTS,
@@ -312,6 +334,7 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_MANAGE_PIPELINE,
         PERM_READ_ALL_PROJECTS,
         PERM_WRITE_PROJECTS,
+        PERM_REASSIGN_PROJECT_STAFF,
         PERM_READ_ESTIMATES,
         PERM_READ_CONTRACTS,
         PERM_SIGN_CONTRACTS,
@@ -449,6 +472,8 @@ PERMISSIONS_CATALOG: Dict[str, Dict[str, Any]] = {
             {"id": PERM_READ_ASSIGNED_PROJECTS, "name": "Read Assigned Projects", "description": "View assigned project jobs"},
             {"id": PERM_READ_OWN_PROJECTS, "name": "Read Own Projects", "description": "View own customer projects"},
             {"id": PERM_WRITE_PROJECTS, "name": "Write Projects", "description": "Create and update project records"},
+            {"id": PERM_REASSIGN_PROJECT_STAFF, "name": "Reassign Project Staff (Own Projects)", "description": "Reassign the PM, employees, or subcontractors on projects where the actor is the project manager"},
+            {"id": PERM_REASSIGN_ANY_PROJECT_STAFF, "name": "Reassign Project Staff (Any Project)", "description": "Reassign the PM, employees, or subcontractors on any project regardless of ownership"},
             {"id": PERM_MANAGE_PROJECTS, "name": "Manage Projects", "description": "Full project lifecycle management"},
             {"id": PERM_READ_OPERATIONS, "name": "Read Operations", "description": "View operations dashboard"},
             {"id": PERM_WRITE_OPERATIONS, "name": "Write Operations", "description": "Modify operational assets and equipment"},
@@ -593,6 +618,20 @@ class AuthContext:
         if self.role == ROLE_CUSTOMER:
             return self.customer_id is not None and self.customer_id == target_customer_id
         return self.has_permission(PERM_READ_ALL_CUSTOMERS)
+
+
+def _actor_may_reassign_project_staff(actor: AuthContext, project_row) -> bool:
+    """Permission-keyed ownership narrowing for project staff reassignment (B6.1 / decision 2).
+    Keyed on permissions, never actor.role, to avoid NEW-194's 'gate exists but
+    narrowing is role-keyed' shape. Unrestricted grant bypasses ownership; scoped
+    grant is limited to projects the actor manages.
+    """
+    if actor.has_permission(PERM_REASSIGN_ANY_PROJECT_STAFF):
+        return True
+    if actor.has_permission(PERM_REASSIGN_PROJECT_STAFF):
+        pm_id = project_row["project_manager_id"]
+        return pm_id is not None and pm_id == actor.user_id
+    return False
 
 
 class AuthService:

@@ -534,6 +534,13 @@ class APIRouter:
                     return 404, {"Content-Type": "application/json"}, {"error": "Project not found"}
                 return 200, {"Content-Type": "application/json"}, {"project": proj.to_dict()}
 
+            if path.startswith("/api/v1/projects/") and path.endswith("/update") and method == "POST":
+                proj_id = int(path.split("/")[-2])
+                updated_proj = self.crm.update_project(proj_id, json_body, actor)
+                if not updated_proj:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Project not found"}
+                return 200, {"Content-Type": "application/json"}, {"project": updated_proj.to_dict()}
+
             # Estimates
             if path == "/api/v1/estimates":
                 if method == "GET":
