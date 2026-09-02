@@ -71,6 +71,7 @@ def user_mgmt_env(tmp_path):
     return {
         "db": db,
         "auth": auth,
+        "crm": crm,
         "router": router,
         "admin": admin,
         "admin_token": admin_token,
@@ -353,3 +354,165 @@ def test_user_management_api_routes(user_mgmt_env):
     status, _, del_res = router.handle_request("DELETE", f"/api/v1/users/{created_id}", admin_headers, b"")
     assert status == 200
     assert del_res["deleted"] is True
+
+
+# ---------------------------------------------------------------------------
+# U.35 / U.36 — update_user auth defects
+#   NEW-264: update_user must not be a second, token-unaware suspension path
+#   NEW-266: customer-role users must carry a customer_id (cross-field invariant)
+# ---------------------------------------------------------------------------
+
+
+def test_update_user_active_change_rejected_and_not_persisted(user_mgmt_env):
+    """U.35 resurrection regression (load-bearing): a real `active` change via
+    update_user raises AND the guard runs before any SQL, so nothing persists."""
+    auth = user_mgmt_env["auth"]
+    admin_ctx = user_mgmt_env["admin_ctx"]
+    tech = user_mgmt_env["tech"]
+
+    with pytest.raises(ValueError) as exc:
+        auth.update_user(tech.id, {"full_name": "X", "active": 0}, admin_ctx)
+    assert "suspend" in str(exc.value) or "set_user_active" in str(exc.value)
+
+    after = auth.get_user_by_id(tech.id)
+    assert after.full_name == "Dan Technician"  # unchanged — guard ran pre-SQL
+    assert after.active == 1
+
+
+def test_update_user_active_noop_echoback_passes(user_mgmt_env):
+    """U.35: echoing the current active value back is tolerated as a no-op."""
+    auth = user_mgmt_env["auth"]
+    admin_ctx = user_mgmt_env["admin_ctx"]
+    tech = user_mgmt_env["tech"]
+
+    updated = auth.update_user(tech.id, {"department": "Y", "active": 1}, admin_ctx)
+    assert updated.department == "Y"
+    assert updated.active == 1
+
+    # JSON-string form of the same current value also passes as a no-op
+    updated2 = auth.update_user(tech.id, {"active": "1"}, admin_ctx)
+    assert updated2.active == 1
+
+
+def test_route_put_user_active_returns_400(user_mgmt_env):
+    """U.35: PUT /api/v1/users/{id} with {"active": 0} -> 400, not 500/200."""
+    router = user_mgmt_env["router"]
+    admin_token = user_mgmt_env["admin_token"]
+    tech = user_mgmt_env["tech"]
+    admin_headers = {"authorization": f"Bearer {admin_token}"}
+
+    body = json.dumps({"active": 0}).encode("utf-8")
+    status, _, res = router.handle_request("PUT", f"/api/v1/users/{tech.id}", admin_headers, body)
+    assert status == 400
+    assert "suspend" in res["error"] or "set_user_active" in res["error"]
+
+
+def test_update_user_role_customer_without_customer_id_rejected(user_mgmt_env):
+    """U.36: moving a user to the customer role with no customer_id is rejected."""
+    auth = user_mgmt_env["auth"]
+    admin_ctx = user_mgmt_env["admin_ctx"]
+    tech = user_mgmt_env["tech"]
+
+    with pytest.raises(ValueError) as exc:
+        auth.update_user(tech.id, {"role": "customer"}, admin_ctx)
+    assert str(exc.value) == "Customer user role requires an associated customer_id"
+
+
+def test_update_user_role_customer_with_customer_id_accepted(user_mgmt_env):
+    """U.36: role+customer_id together is accepted; role change still revokes tokens."""
+    auth = user_mgmt_env["auth"]
+    crm = user_mgmt_env["crm"]
+    admin_ctx = user_mgmt_env["admin_ctx"]
+    tech = user_mgmt_env["tech"]
+    tech_token = user_mgmt_env["tech_token"]
+
+    cust = crm.create_customer(
+        Customer(first_name="Cara", last_name="Client", email="cara@client.com"),
+        admin_ctx,
+    )
+
+    assert auth.authenticate_token(tech_token) is not None
+    updated = auth.update_user(
+        tech.id, {"role": "customer", "customer_id": cust.id}, admin_ctx
+    )
+    assert updated.role == ROLE_CUSTOMER
+    assert updated.customer_id == cust.id
+    # role change -> outstanding tokens revoked
+    assert auth.authenticate_token(tech_token) is None
+
+
+def test_update_user_move_away_from_customer_role(user_mgmt_env):
+    """U.36: leaving the customer role succeeds; a stale customer_id may remain."""
+    auth = user_mgmt_env["auth"]
+    crm = user_mgmt_env["crm"]
+    admin_ctx = user_mgmt_env["admin_ctx"]
+
+    cust = crm.create_customer(
+        Customer(first_name="Cody", last_name="Customer", email="cody@client.com"),
+        admin_ctx,
+    )
+    cust_user = auth.create_user(
+        "cody_c", "CodyPass123!", "Cody Customer", "cody@client.com",
+        ROLE_CUSTOMER, customer_id=cust.id, actor_context=admin_ctx,
+    )
+
+    updated = auth.update_user(cust_user.id, {"role": ROLE_TECHNICIAN}, admin_ctx)
+    assert updated.role == ROLE_TECHNICIAN
+
+
+def test_create_user_customer_role_without_customer_id_still_raises(user_mgmt_env):
+    """U.36 helper-refactor regression guard: create_user behaviour unchanged."""
+    auth = user_mgmt_env["auth"]
+    admin_ctx = user_mgmt_env["admin_ctx"]
+
+    with pytest.raises(ValueError) as exc:
+        auth.create_user(
+            "bad_cust", "BadPass123!", "Bad Customer", "bad@client.com",
+            ROLE_CUSTOMER, customer_id=None, actor_context=admin_ctx,
+        )
+    assert str(exc.value) == "Customer user role requires an associated customer_id"
+
+
+def test_update_user_duplicate_email_maps_to_400(user_mgmt_env):
+    """U.35 (in scope): sqlite3.IntegrityError -> ValueError at the boundary,
+    and 400 (not 500) at the route."""
+    auth = user_mgmt_env["auth"]
+    router = user_mgmt_env["router"]
+    admin = user_mgmt_env["admin"]
+    admin_ctx = user_mgmt_env["admin_ctx"]
+    admin_token = user_mgmt_env["admin_token"]
+    tech = user_mgmt_env["tech"]
+
+    with pytest.raises(ValueError):
+        auth.update_user(tech.id, {"email": admin.email}, admin_ctx)
+
+    admin_headers = {"authorization": f"Bearer {admin_token}"}
+    body = json.dumps({"email": admin.email}).encode("utf-8")
+    status, _, res = router.handle_request("PUT", f"/api/v1/users/{tech.id}", admin_headers, body)
+    assert status == 400
+
+
+def test_update_user_unlink_customer_id_while_stored_role_is_customer(user_mgmt_env):
+    """U.36: `effective_role` fallback to the STORED role is load-bearing —
+    clearing customer_id on a customer-role user (role not in the patch) is
+    rejected, and the row is left untouched."""
+    auth = user_mgmt_env["auth"]
+    crm = user_mgmt_env["crm"]
+    admin_ctx = user_mgmt_env["admin_ctx"]
+
+    cust = crm.create_customer(
+        Customer(first_name="Cleo", last_name="Client", email="cleo@client.com"),
+        admin_ctx,
+    )
+    cust_user = auth.create_user(
+        "cleo_c", "CleoPass123!", "Cleo Client", "cleo@client.com",
+        ROLE_CUSTOMER, customer_id=cust.id, actor_context=admin_ctx,
+    )
+
+    with pytest.raises(ValueError) as exc:
+        auth.update_user(cust_user.id, {"customer_id": None}, admin_ctx)
+    assert str(exc.value) == "Customer user role requires an associated customer_id"
+
+    after = auth.get_user_by_id(cust_user.id)
+    assert after.customer_id == cust.id
+    assert after.role == ROLE_CUSTOMER

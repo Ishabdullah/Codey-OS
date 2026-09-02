@@ -10,6 +10,7 @@ import hmac
 import json
 import os
 import secrets
+import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Set
@@ -559,6 +560,16 @@ def _parse_custom_permissions(raw: Any) -> Dict[str, bool]:
     return {}
 
 
+def _validate_user_role_invariants(role: str, customer_id: Optional[int]) -> None:
+    """Enforce cross-field invariants for a user row, on create or update.
+    Currently: a ``customer``-role user must have a ``customer_id``. Evaluate
+    against the *resulting* state — update callers pass post-update values.
+    Raises ValueError; the API layer maps that to 400.
+    """
+    if role == ROLE_CUSTOMER and customer_id is None:
+        raise ValueError("Customer user role requires an associated customer_id")
+
+
 @dataclass
 class AuthContext:
     """Represents authenticated caller identity and permissions."""
@@ -629,8 +640,7 @@ class AuthService:
         if role not in ALL_ROLES:
             raise ValueError(f"Invalid role '{role}'. Must be one of {sorted(ALL_ROLES)}")
 
-        if role == ROLE_CUSTOMER and customer_id is None:
-            raise ValueError("Customer user role requires an associated customer_id")
+        _validate_user_role_invariants(role, customer_id)
 
         if actor_context and not actor_context.has_permission(PERM_MANAGE_USERS):
             raise PermissionError("Actor lacks permission to create users")
@@ -854,7 +864,16 @@ class AuthService:
         updates: Dict[str, Any],
         actor_context: AuthContext,
     ) -> Optional[User]:
-        """Update user profile fields (requires PERM_MANAGE_USERS)."""
+        """Update user profile fields (requires PERM_MANAGE_USERS).
+
+        ``active`` is deliberately not settable here: token revocation on
+        suspend/activate stays on a single path via ``set_user_active``, or a
+        re-activation would resurrect pre-suspension tokens (NEW-264). A
+        real ``active`` change is rejected with a pointer; a no-op echo-back
+        of the current value is tolerated. Cross-field invariants (e.g. a
+        ``customer`` role needs a ``customer_id``) are validated against the
+        post-update state via ``_validate_user_role_invariants`` (NEW-266).
+        """
         if not actor_context.has_permission(PERM_MANAGE_USERS):
             raise PermissionError("Actor lacks permission to update users")
 
@@ -862,7 +881,7 @@ class AuthService:
         if not user:
             return None
 
-        allowed_fields = {"full_name", "email", "phone", "role", "department", "customer_id", "active"}
+        allowed_fields = {"full_name", "email", "phone", "role", "department", "customer_id"}
         set_clauses: List[str] = []
         params: List[Any] = []
 
@@ -881,6 +900,23 @@ class AuthService:
             set_clauses.append("custom_permissions_json = ?")
             params.append(json.dumps(cleaned_perms))
 
+        if "active" in updates:
+            try:
+                requested_active = int(updates["active"])
+            except (TypeError, ValueError):
+                raise ValueError(
+                    "active must be 0 or 1; use the suspend/activate endpoints to change account status"
+                )
+            if requested_active not in (0, 1) or requested_active != user.active:
+                raise ValueError(
+                    "active status cannot be changed here; use set_user_active "
+                    "(POST /api/v1/users/{id}/suspend or /activate) so session tokens are revoked correctly"
+                )
+
+        effective_role = updates["role"] if "role" in updates else user.role
+        effective_customer_id = updates["customer_id"] if "customer_id" in updates else user.customer_id
+        _validate_user_role_invariants(effective_role, effective_customer_id)
+
         if not set_clauses:
             return user
 
@@ -898,16 +934,19 @@ class AuthService:
         params.append(user_id)
 
         conn = self.db.get_connection()
-        with conn:
-            conn.execute(
-                f"UPDATE users SET {', '.join(set_clauses)} WHERE id = ?;",
-                tuple(params),
-            )
-            if role_changed:
+        try:
+            with conn:
                 conn.execute(
-                    "UPDATE api_tokens SET is_revoked = 1 WHERE user_id = ?;",
-                    (user_id,),
+                    f"UPDATE users SET {', '.join(set_clauses)} WHERE id = ?;",
+                    tuple(params),
                 )
+                if role_changed:
+                    conn.execute(
+                        "UPDATE api_tokens SET is_revoked = 1 WHERE user_id = ?;",
+                        (user_id,),
+                    )
+        except sqlite3.IntegrityError as e:
+            raise ValueError(f"Update violates a data constraint: {e}") from e
 
         return self.get_user_by_id(user_id)
 
