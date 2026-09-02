@@ -1247,11 +1247,12 @@ points, named below.
 > job, not something to start unprompted. Ish's most recent direction
 > (2026-09-02) added Phases B6 and B7; **B6 is the live front.** Its
 > "Phase B2 complete" prerequisite was audited 2026-09-02 (`NEW-288`
-> resolved): 7 of `NEW-209`'s 9 write-site groups are cut over, but
-> `queue.js` is not started (`NEW-291`) and `business_profile` is
-> dual-write with the local file still authoritative (`NEW-292`) — **so
-> B6.1 and any B2-dependent B6 item stay blocked pending `NEW-291` +
-> `NEW-292`.** Those two are the real front for a coding round.
+> resolved): 7 of B2's 8 write-site groups are cut over (`queue.js` ruled
+> out of scope, `NEW-291` closed). The one gap left — `business_profile`
+> dual-write with the local file still authoritative (`NEW-292`) — is in
+> the pipeline as Appendix A **B2-fin-1**, and **B6.1 and every
+> B2-dependent B6 item stay blocked until it lands.** B2-fin-1 is the
+> real front for a coding round.
 >
 > --- original 2026-08-22 direction, kept as the record ---
 >
@@ -2457,20 +2458,21 @@ below, adjust if (a) is chosen):
 
    **Status audit 2026-09-02 (`NEW-288` resolution — static read of
    `~/Codey-Aigentik` HEAD `ee97279`; NOT live-verified).** This list
-   says "ten" but `NEW-209` names **nine** groups (`NEW-294`). Of the
-   nine: **seven are cut over** (code-complete) — `contacts.js` (+
-   `contacts-sync.js`), `calendar.js`, `email-rules.js`, `sms-rules.js`,
-   `do-not-contact.js`, `subcontractor-recruiter.js`, `customer-module.js`
-   (each has `coreRequest` on every path and zero local `fs`).
-   **`queue.js` is not started** (`coreRequest` 0, still full
-   `data/pending.json` read/write — `NEW-291`; whether it belongs in B2
-   at all is an open Ish call). **`index.js`/`owner-command.js` is
-   partial** — the comms/Google-Voice path is cut over via
-   `email-provider.js` → `POST /api/v1/communications`
-   (`data/communications-retry.json` is a failure-retry spool only), but
-   `business_profile` is **dual-write** with `data/profile.json` still
-   authoritative for every read (`NEW-292`). B6's "B2 complete"
-   prerequisite is **not** satisfied — see Appendix A's B6 dependency
+   said "ten" but `NEW-209` named **nine** groups (`NEW-294`); `queue.js`
+   was then **ruled out of B2 scope by Ish** (2026-09-02 — transient
+   owner-approval buffer, not a system of record; `NEW-291` closed),
+   leaving **eight**. Of the eight: **seven are cut over** (code-complete)
+   — `contacts.js` (+ `contacts-sync.js`), `calendar.js`, `email-rules.js`,
+   `sms-rules.js`, `do-not-contact.js`, `subcontractor-recruiter.js`,
+   `customer-module.js` (each has `coreRequest` on every path and zero
+   local `fs`). **`index.js`/`owner-command.js` is partial** — the
+   comms/Google-Voice path is cut over via `email-provider.js` → `POST
+   /api/v1/communications` (`data/communications-retry.json` is a
+   failure-retry spool only), but `business_profile` is **dual-write**
+   with `data/profile.json` still authoritative for every read
+   (`NEW-292`, now in the pipeline as Appendix A **B2-fin-1**). B6's
+   "B2 complete" prerequisite is **not yet** satisfied — see Appendix A's
+   B6 dependency
    block and `NEW-288`'s resolution.
 
    **Note:** `restoricon_core/api/routes.py`
@@ -5814,25 +5816,26 @@ order. Every item below is a separate scoped session, not one task.
 
 **⚠ Dependency, surfaced by the `U.38` audit 2026-09-02 (`NEW-288`),
 RESOLVED by static audit 2026-09-02.** B6 is scoped on top of Phase B2
-being complete. The audit (against `NEW-209`/§6.4's canonical nine
-write-site module groups, `~/Codey-Aigentik` HEAD `ee97279`): **seven
-groups are fully cut over** (code-complete, NOT live-verified — only
-`do-not-contact.js` was ever code-reviewed); **`queue.js` is not
-started** (`NEW-291` — and whether it is even in B2 scope is an open Ish
-call); **`index.js`/`owner-command.js` is partial** (`NEW-292` — the
-comms/Google-Voice path is cut over, but `business_profile` is dual-write
-with the local `data/profile.json` still authoritative for every read).
-**B6's "B2 complete" prerequisite is NOT satisfied** — `NEW-292` is a
-real gap regardless of how `NEW-291` is ruled. B6.1 and any other B6 item
-with a B2 prerequisite stay blocked pending `NEW-291` + `NEW-292`. Full
-per-module evidence and the count with its measurement date are in
-`NEW-288`'s resolution block; `NEW-294` records that §6.4's list says
-"ten" but names nine.
+being complete. The audit (against `NEW-209`/§6.4's canonical list,
+corrected to **8 groups** — `queue.js` ruled out of B2 scope by Ish
+2026-09-02, `NEW-291` closed; `~/Codey-Aigentik` HEAD `ee97279`):
+**seven groups are fully cut over** (code-complete, NOT live-verified —
+only `do-not-contact.js` was ever code-reviewed); **`index.js`/`owner-command.js`
+is partial** (`NEW-292` — the comms/Google-Voice path is cut over, but
+`business_profile` is dual-write with the local `data/profile.json`
+still authoritative for every read). **B6's "B2 complete" prerequisite
+is NOT yet satisfied** — the one remaining gap is `NEW-292`, now in the
+pipeline as **B2-fin-1**. B6.1 and any other B6 item with a B2
+prerequisite stay blocked until B2-fin-1 lands. Full per-module evidence
+and the count with its measurement date are in `NEW-288`'s resolution
+block; `NEW-294` records that §6.4's list said "ten" but named nine
+(now eight).
 
-**Phase B2 completion — the two gaps the 2026-09-02 audit found
-(`NEW-288`). Both block B6's B2 prerequisite; do them first.**
+**Phase B2 completion — the one gap left after the 2026-09-02 audit
+(`NEW-288`). Blocks B6's B2 prerequisite; do it first.**
 
 - [ ] **B2-fin-1** — `business_profile` read cutover (`NEW-292`).
+      **IN THE PIPELINE 2026-09-02 (project-architect scoping).**
       **Rule-4 category** (auth-adjacent singleton). Today the Aigentik
       fork POSTs `/api/v1/business-profile` but reads every value from
       the local `data/profile.json`. Make `GET /api/v1/business-profile`
@@ -5840,12 +5843,16 @@ per-module evidence and the count with its measurement date are in
       `~/Codey-Aigentik`: `owner-command.js` (`getAigentikName`,
       `handleRename`, `handleSetBusinessInfo`, `handleSetOwnerName`),
       `index.js` (`ensureProfile`, onboarding).
-- [ ] **B2-fin-2** — `queue.js` (`NEW-291`). **First decide with Ish
-      whether it is in B2 scope at all** — it holds transient
-      owner-approval state, not business data, and there is no Core table
-      for it. If out of scope: correct `NEW-209`'s list to 8 groups and
-      close. If in scope: new Core pending-queue table + cutover
-      (schema + routes + JS write-through).
+- [x] **B2-fin-2** — `queue.js` (`NEW-291`). **RULED OUT OF B2 SCOPE by
+      Ish 2026-09-02.** It holds transient owner-approval state (drafts
+      awaiting approve/skip, self-clearing), not a system of record —
+      same class as the accepted `communications-retry.json` spool.
+      Every *approved* reply already write-throughs to
+      `/api/v1/communications`. `NEW-209`'s canonical list is corrected
+      to **8 groups** (drop `queue.js`). `NEW-291` closed as "not a gap."
+      **Would reopen only if** web-dashboard approval of pending AI
+      replies is wanted — that is a new B6 feature with its own Core
+      table, not B2 debt.
 
 - [ ] **B6.1** — `update_project` + the reassignment permission model.
       **Rule-4 category (permissions).** No `update_project` exists

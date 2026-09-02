@@ -13405,9 +13405,18 @@ outside that fix's scope.
   pending-review queue. Options: (a) accept `queue.js` + the
   `communications-retry.json` spool as legitimately-local execution state
   and correct `NEW-209`'s list to 8 groups; (b) B2 adds a Core
-  pending-queue table + cutover. Not decided — escalated.
+  pending-queue table + cutover.
+- **CLOSED 2026-09-02 — Ish ruled `queue.js` OUT of B2 scope (option a).**
+  It is a transient, self-clearing owner-approval buffer, not a system of
+  record — same class as the accepted `communications-retry.json` spool —
+  and every *approved* reply already write-throughs to
+  `/api/v1/communications`. `NEW-209`'s canonical list corrected to **8
+  groups** (`NEW-294`); Appendix A `B2-fin-2` marked done on this ruling.
+  Not a gap. **Would reopen only if** web-dashboard approval of pending
+  AI replies is wanted — that would be a new B6 feature with its own Core
+  table, not B2 debt.
 - **Cross-reference:** `~/Codey-Aigentik/queue.js`; `CODEY_MASTER_PLAN.md`
-  §6.4 / `NEW-209`; `NEW-288`.
+  §6.4 / `NEW-209` / Appendix A `B2-fin-2`; `NEW-288`.
 
 ### [NEW-292] `business_profile` is dual-write in the Aigentik fork — the Core is written but every read is still from the local `data/profile.json`
 - **Status:** Confirmed (`~/Codey-Aigentik` HEAD `ee97279`, static read
@@ -13464,4 +13473,11 @@ outside that fix's scope.
 - **Fix direction:** in §6.4, either name the tenth group explicitly
   (the comms path as its own row) or correct the count to nine. Fold in
   whatever `NEW-291` decides about `queue.js`.
-- **Cross-reference:** `CODEY_MASTER_PLAN.md` §6.4; `NEW-288`.
+- **RESOLVED 2026-09-02:** §6.4's status-audit paragraph now states the
+  count as **eight** — "nine named, minus `queue.js` (ruled out of B2
+  scope, `NEW-291`)." The comms path is treated as part of the
+  `index.js`/`owner-command.js` row rather than promoted to its own,
+  matching how the audit counted. The original "ten" claim in §6.4's
+  `NEW-209` prose is left as the historical record with the correction
+  in the same section.
+- **Cross-reference:** `CODEY_MASTER_PLAN.md` §6.4; `NEW-288`; `NEW-291`.

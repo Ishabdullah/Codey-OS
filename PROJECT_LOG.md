@@ -10,6 +10,27 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-02 — `queue.js` ruled out of B2 scope; `B2-fin-1` sent into the pipeline
+
+- **Status**: Doc-only. Ish's decision given in session.
+- **Decision**: `queue.js` (`NEW-291`) is **out of B2 scope** — it is a
+  transient, self-clearing owner-approval buffer, not a system of record
+  (same class as the accepted `communications-retry.json` spool), and
+  every approved reply already write-throughs to `/api/v1/communications`.
+  `NEW-291` closed as "not a gap." `NEW-209`'s canonical write-site list
+  corrected from nine (claimed "ten") to **eight** — see `NEW-294`.
+  Appendix A `B2-fin-2` marked done on the ruling. Would only reopen if
+  web-dashboard approval of pending AI replies is later wanted (a new B6
+  feature, not B2 debt).
+- **Consequence**: the one remaining B2 gap is `NEW-292` —
+  `business_profile` dual-write with the local file still authoritative
+  for reads. Now **`B2-fin-1`, in the pipeline** (project-architect
+  scoping this round). Rule-4 category (auth-adjacent singleton). B6.1
+  and every B2-dependent B6 item stay blocked until it lands.
+- **Docs updated**: `CODEY_MASTER_PLAN.md` front-matter banner, §6.4
+  status-audit paragraph, Appendix A B6 dependency block + `B2-fin-1/2`;
+  `NEW_ISSUES.md` `NEW-291` (closed), `NEW-294` (resolved).
+
 ## 2026-09-02 — `NEW-288` resolved: static audit of the Phase B2 write-through modules
 
 - **Status**: **Doc-only, complete.** No code touched, no model loaded,
