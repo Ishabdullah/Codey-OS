@@ -13248,3 +13248,35 @@ outside that fix's scope.
   doc-consolidation round** — resolving it means a 10-module code audit,
   which is implementation work, not documentation work. Both blocks were
   preserved verbatim through the move rather than reconciled.
+
+### [NEW-289] `HANDOFF.md` carries a fifth, stale, and now-contradicted Phase B2 queue, and `CLAUDE.md`/`ANTIGRAVITY.md` are ~97% byte-duplicates
+- **Status:** Confirmed (measured during `U.38` step 5's assessment;
+  nothing changed in any of the four files).
+- **`HANDOFF.md`:** dated **2026-08-27**, six days stale as of
+  2026-09-02. Its "What's next in the queue, in rough priority order"
+  section is a **fifth work queue**, after the four `§6.0` deliberately
+  killed (`TODO.md`, `WORK_QUEUE.md`, `PROJECT_PLAN.md`, and the plan's
+  own §4.5 accretion, de-ledgered this round). It is not merely stale —
+  it is **contradicted**: it lists `do-not-contact.js`,
+  `email-rules.js`/`sms-rules.js` and `calendar.js` as "next modules for
+  write-through," while the §4.5 blocks now in `PROJECT_LOG.md` record
+  the first two as **done** in both of their mutually-inconsistent counts
+  (see `NEW-288`). So Phase B2's state is now recorded three different
+  ways across the project's own documents.
+- **`CLAUDE.md` vs `ANTIGRAVITY.md`:** 15,748 and 15,901 bytes; a full
+  `diff` yields **29 changed lines total**, and every one is either a
+  Claude↔Antigravity name substitution, a markdown heading level, backticks
+  around an agent name, or rule 10's mechanism (`.claude/agents/`
+  directory listing vs `define_subagent`). `HANDOFF.md` itself states the
+  two "must stay consistent," which makes the duplication a **standing
+  manual-drift obligation rather than a design**.
+- **`AGENTS.md`:** correctly a thin start-here pointer, except that it
+  embeds its **own third copy** of the hub-and-spoke delegation diagram
+  already present verbatim in both of the other two.
+- **Impact:** four files that agents boot from, with one real ground-rules
+  payload between them, a hand-maintained consistency requirement, and a
+  stale contradicted queue. Getting a boot doc wrong is expensive
+  precisely because every agent reads it first.
+- **Fix direction:** `U.38` step 5. **Deliberately not acted on** — the
+  `U.38` brief requires proposing a shape to Ish before collapsing these,
+  and no edit has been made to any of the four.

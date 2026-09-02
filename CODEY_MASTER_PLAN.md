@@ -6165,9 +6165,17 @@ order. Every item below is a separate scoped session, not one task.
       `NEW-288` rather than reconciled — resolving it is a 10-module code
       audit, not documentation work.
 
-      **Step 5 is a hard stop.** The brief says propose a shape to Ish
-      before collapsing `CLAUDE.md` / `ANTIGRAVITY.md` / `AGENTS.md` /
-      `HANDOFF.md`. No edits have been made to those four files.
+      **Step 5 is a hard stop, and is the only part of `U.38` still
+      open.** The brief says propose a shape to Ish before collapsing
+      `CLAUDE.md` / `ANTIGRAVITY.md` / `AGENTS.md` / `HANDOFF.md`. **No
+      edits have been made to those four files.** The assessment behind
+      the proposal is logged as `NEW-289`: `CLAUDE.md` and
+      `ANTIGRAVITY.md` differ by 29 diff lines out of ~15.8KB each (all
+      of them tool-naming or rule 10's mechanism), `AGENTS.md` embeds a
+      third copy of the hub-and-spoke diagram, and `HANDOFF.md` is a
+      2026-08-27 point-in-time doc whose "what's next" section is a fifth
+      work queue that now **contradicts** the Phase B2 records (see
+      `NEW-288`). Proposal put to Ish 2026-09-02; awaiting his call.
 
 - [ ] **U.25** (`NEW-27`) — README docs-table discoverability:
       `MODEL_COMPARISON.md`, `PRIVACY.md`, `docs/importantdoc.md` have
@@ -6187,7 +6195,7 @@ A–E (all committed and approved; C and D live-verified).
 
 ---
 
-## Appendix B — Findings register (NEW-1 … NEW-288)
+## Appendix B — Findings register (NEW-1 … NEW-289)
 
 `NEW_ISSUES.md` remains the authoritative, append-only findings ledger
 and keeps its own per-issue status. **This merge deliberately did not
