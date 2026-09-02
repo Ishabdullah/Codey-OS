@@ -2474,9 +2474,11 @@ below, adjust if (a) is chosen):
    read Core-first, `data/profile.json` is a write-through cache. Rule-6
    note: `index.js` was already Core-first — only `owner-command.js` was
    the gap. **All eight groups are now cut over at the code-complete
-   tier** (not live-verified — jest was the bar). B6's "B2 complete"
-   prerequisite is satisfied — see Appendix A's B6 dependency block and
-   `NEW-288`'s resolution.
+   tier** (not live-verified — jest was the bar; and 7 of the 8 verdicts
+   rest on `NEW-288`'s static `fs`-absence sweep, which did not check for
+   indirect persistence via another module's exports — see `NEW-288` for
+   the stated limits). B6's "B2 complete" prerequisite is satisfied — see
+   Appendix A's B6 dependency block and `NEW-288`'s resolution.
 
    **Note:** `restoricon_core/api/routes.py`
    currently has no routes for any of the five new resources
@@ -5824,7 +5826,7 @@ the B2 prerequisite as satisfied (code-complete tier). The audit
 (against `NEW-209`/§6.4's canonical list,
 corrected to **8 groups** — `queue.js` ruled out of B2 scope by Ish
 2026-09-02, `NEW-291` closed; `~/Codey-Aigentik` HEAD `ee97279`):
-all **eight groups are now cut over** (code-complete, NOT live-verified —
+all **eight groups are now cut over** (code-complete, NOT live-verified; 7 of 8 verdicts from `NEW-288`'s static sweep, see its stated limits —
 only `do-not-contact.js` and the `business_profile` half of
 `index.js`/`owner-command.js` were code-reviewed). `business_profile`
 was the last gap (`NEW-292`) and closed via **B2-fin-1** on 2026-09-02
