@@ -1231,7 +1231,25 @@ Two tracks run in parallel, plus standing lanes that never close.
 (business)** is the Jan-1 deliverable. They intersect at exactly two
 points, named below.
 
-> ### ▶ Start here: M1, the model migration (§6.2)
+> ### ✅ M1, the model migration — CLOSED 2026-08-25. Not the start point any more.
+>
+> **All seven sub-items M1-A…M1-G are `[x]` done** (2026-08-22 → 08-25,
+> M1-E fully live-verified). This banner said "start here" until
+> 2026-09-02, when it was found still pointing at finished work — a
+> navigation-drift defect logged as `NEW-290`. The original direction is
+> kept below verbatim because its *reasoning* is what stopped the
+> re-sequencing, and that reasoning is still worth reading.
+>
+> **Where a fresh session should actually look:** Appendix A's
+> `Obsolescence audit — pass 1` block for current verdicts, then the
+> lanes. Phase A1's one remaining item (`7.4`) is a production-config
+> **live pass only** — rule 2 governs it, so it is a `live-verifier`
+> job, not something to start unprompted. Ish's most recent direction
+> (2026-09-02) added Phases B6 and B7; **B6 is the live front, and
+> `NEW-288` gates it** — Phase B2's completion state is not currently
+> determinable from this project's own records.
+>
+> --- original 2026-08-22 direction, kept as the record ---
 >
 > **Ish's direction, 2026-08-22: do the model change fully, before
 > anything else on Track A.** Not after the review debt, not alongside
@@ -1311,7 +1329,7 @@ two previously-unreviewed diffs; live-verification runs under the real
 `codey-start` entry point; and if M1 slips, the debt reverts to
 standalone).
 
-#### M1 — migrate to Qwen3.5-4B as the single model ◀ START HERE
+#### M1 — migrate to Qwen3.5-4B as the single model ✅ CLOSED 2026-08-25 (A–G all done; this heading said START HERE until 2026-09-02 — see `NEW-290`)
 
 **Ish's direction, 2026-08-22: do the model change fully before anything
 else on Track A.** Sub-tasks in dependency order. A/B/C/D/E all touch
@@ -4601,9 +4619,11 @@ produced.**
 
 ### Phase A1 — model foundation (§6.2)
 
-**▶ START HERE — M1: migrate to Qwen3.5-4B as the single model** (§1.4,
-§6.2). Ish's direction 2026-08-22: do this fully before anything else on
-Track A. Every other item in this phase is calibrated against a model
+**✅ M1: migrate to Qwen3.5-4B as the single model — CLOSED 2026-08-25**
+(§1.4, §6.2). **A–G are all `[x]`.** This line read "▶ START HERE" until
+2026-09-02, when it was found still routing fresh sessions at completed
+work (`NEW-290`). Ish's direction 2026-08-22 was to do this fully before
+anything else on Track A. Every other item in this phase is calibrated against a model
 being retired, so doing them first means doing them twice. All of
 A/B/C/D/E are rule-4 category; mandatory code-reviewer pass, and that
 pass **also covers the two previously-unreviewed diffs** from §4.4.
@@ -6253,7 +6273,7 @@ A–E (all committed and approved; C and D live-verified).
 
 ---
 
-## Appendix B — Findings register (NEW-1 … NEW-289)
+## Appendix B — Findings register (NEW-1 … NEW-290)
 
 `NEW_ISSUES.md` remains the authoritative, append-only findings ledger
 and keeps its own per-issue status. **This merge deliberately did not

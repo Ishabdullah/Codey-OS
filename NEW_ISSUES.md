@@ -13280,3 +13280,32 @@ outside that fix's scope.
 - **Fix direction:** `U.38` step 5. **Deliberately not acted on** — the
   `U.38` brief requires proposing a shape to Ish before collapsing these,
   and no edit has been made to any of the four.
+
+### [NEW-290] Three `▶ START HERE` markers in `CODEY_MASTER_PLAN.md` routed every fresh session at M1, which closed 2026-08-25
+- **Status:** Confirmed (found 2026-09-02 by asking the plan the question
+  a new session asks it: "what's next?").
+- **Mechanism:** `CODEY_MASTER_PLAN.md` carried three navigation markers
+  — `:1234` (`▶ Start here: M1, the model migration`), `:1314`
+  (`#### M1 … ◀ START HERE`) and Appendix A `:4604` (`▶ START HERE —
+  M1`) — while **all seven M1 sub-items `M1-A` … `M1-G` are `[x]` done**,
+  the last on 2026-08-25. §0's stated reading order for a fresh session
+  (§2 → §4 → §6 → Appendix A) walks straight into two of the three.
+- **Impact:** the single highest-traffic answer this document gives —
+  "what do I do next" — was **wrong for eight days**, and wrong in the
+  most expensive direction: pointing a new agent at a migration that has
+  already happened, on a plan whose whole §0 premise is that a fresh
+  session can trust its reading order.
+- **Why the `U.38` audit missed it, stated plainly (rule 6):** that pass
+  audited whether open *items* were obsolete. It never asked whether the
+  *navigation* was current — a checkbox-level audit cannot see a stale
+  pointer, because the pointer is not a checkbox. **Any future
+  status-drift pass must check the markers, not only the items.**
+- **Fixed 2026-09-02** (same round it was found — this is a doc pointer,
+  not code): all three markers now state M1 CLOSED and route to the
+  actual front. The 2026-08-22 direction text is kept verbatim beneath
+  the corrected banner, because its reasoning about not re-sequencing is
+  still live guidance.
+- **What the markers now say is next:** Phase A1's remaining `7.4` is a
+  production-config **live pass only** (rule 2 — a `live-verifier` job,
+  not startable unprompted); Ish's most recent direction (2026-09-02)
+  added Phases B6/B7; **B6 is the live front and `NEW-288` gates it.**
