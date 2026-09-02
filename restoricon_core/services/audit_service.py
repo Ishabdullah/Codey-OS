@@ -7,11 +7,86 @@ and entity details. Strict append-only semantics.
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 from ..auth import AuthContext, PERM_READ_AUDIT_LOG
 from ..database import DatabaseManager
 from ..models import AuditRecord, utc_now_iso
+
+
+# Fields that are safe to surface as old/new values in a user-entity audit
+# payload. Used as the diff domain / filter by the api/routes.py user-mutation
+# sites. This is an allow-list rather than a try/except around json.dumps
+# because AuditService.log serializes `details` with an *unguarded*
+# json.dumps that runs AFTER the mutation's `with conn:` block has already
+# committed -- a serialization failure there would raise past a committed row
+# with no audit trail. Keeping password_hash / raw passwords / unserializable
+# objects out of the payload by construction is the only safe design.
+_AUDITABLE_USER_FIELDS = frozenset({
+    "full_name", "email", "phone", "role", "department",
+    "customer_id", "custom_permissions", "active",
+})
+
+
+def build_audit_details(
+    *,
+    before: Optional[Dict[str, Any]] = None,
+    after: Optional[Dict[str, Any]] = None,
+    fields: Optional[Iterable[str]] = None,
+    side_effects: Optional[Dict[str, Any]] = None,
+    snapshot: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Build the canonical audit-details envelope for a mutation.
+
+    The envelope has up to three slots -- ``changed_fields`` (a
+    ``{field: {"old": <v>, "new": <v>}}`` map derived by diffing ``before``
+    against ``after``), ``side_effects`` (verbatim), and ``snapshot``
+    (verbatim) -- and each slot is omitted when empty. ``old`` comes from
+    ``before`` and ``new`` from ``after``; both must be already-sanitized
+    plain dicts (e.g. ``User.to_dict()``), never model objects, because this
+    payload is handed to ``AuditService.log`` which json.dumps it *unguarded*
+    and *after* the caller's transaction has already committed -- an
+    unserializable value would raise past a committed row. For that reason
+    ``changed_fields`` keys are additionally filtered to ``fields`` when a
+    diff domain is supplied, so within ``changed_fields`` a stray
+    ``password_hash`` or raw password can never reach serialization even if
+    the caller passes a fuller dict. This filter applies to
+    ``changed_fields`` only -- ``side_effects`` and ``snapshot`` pass through
+    verbatim and unfiltered, so their callers are responsible for not
+    handing in sensitive or unserializable values.
+    """
+    details: Dict[str, Any] = {}
+
+    if before is not None or after is not None:
+        b = before or {}
+        a = after or {}
+        if fields is not None:
+            domain: Iterable[str] = fields
+        else:
+            domain = set(b) | set(a)
+
+        changed: Dict[str, Any] = {}
+        for key in domain:
+            in_b = key in b
+            in_a = key in a
+            if not in_b and not in_a:
+                continue
+            old = b.get(key)
+            new = a.get(key)
+            if in_b and in_a and old == new:
+                continue
+            changed[key] = {"old": old, "new": new}
+
+        if changed:
+            details["changed_fields"] = changed
+
+    if side_effects:
+        details["side_effects"] = side_effects
+
+    if snapshot:
+        details["snapshot"] = snapshot
+
+    return details
 
 
 class AuditService:
@@ -103,7 +178,7 @@ class AuditService:
             query += " AND action = ?"
             params.append(action)
 
-        query += " ORDER BY timestamp DESC LIMIT ? OFFSET ?;"
+        query += " ORDER BY timestamp DESC, id DESC LIMIT ? OFFSET ?;"
         params.extend([limit, offset])
 
         conn = self.db.get_connection()

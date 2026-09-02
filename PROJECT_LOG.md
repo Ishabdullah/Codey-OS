@@ -10,6 +10,65 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-02 — `B6.2a` landed: canonical audit-detail payload helper + 9 user-mutation sites
+
+- **Status**: **Code-complete + code-reviewer APPROVED (rule-4,
+  audit/RBAC surface). NOT live-verified beyond the test suite** — no
+  live-model component. `tests/test_restoricon_core/` 260 passed (+21 new
+  in `test_b6_2a_audit_details.py`: 10 helper unit, 9 per-site route
+  reading `details_json` back from the DB, 1 nine-action secret-leak
+  sweep). Not yet committed at time of this entry / committed same round.
+- **Scope decision**: B6.2 as written (64 `audit.log()` sites + an admin
+  audit-search screen) was split into `B6.2a` (this round — the payload
+  helper + the 9 `api/routes.py` user-mutation/session sites that passed
+  **no `details=`** at all), `B6.2b` (~55 service-layer sites), `B6.2c`
+  (the search screen, a rule-4 read surface). The 9 route sites went
+  first per the plan — a role change is the least-reconstructible change
+  in the system and was the least logged.
+- **What it delivers**: `build_audit_details(*, before, after, fields,
+  side_effects, snapshot)` in `services/audit_service.py` — a nested
+  `changed_fields {field:{old,new}}` envelope (generalizing `B6.1`'s
+  `update_project` shape) plus `side_effects` and `snapshot` slots, each
+  omitted when empty. A `_AUDITABLE_USER_FIELDS` frozenset is the diff
+  domain / filter — an allow-list, not a try/except, because
+  `AuditService.log` json.dumps `details` **unguarded and after the
+  mutation's `with conn:` has already committed**, so a serialization
+  failure would raise past a committed row with no audit trail.
+- **Old vs new**: old values come from a pre-mutation
+  `before = self.auth.get_user_by_id(user_id)`; new values from the
+  **returned model object**, never `json_body` — a deliberate
+  correctness improvement over `B6.1`'s `update_project` (which uses
+  `updates[key]`), because user fields are normalized server-side
+  (email lowercased, permissions coerced, names stripped).
+- **Side effects**: `sessions_revoked` enum
+  (`none` / `current_only` / `all_except_actor` / `all`), plus
+  `session_created` (login) and `tokens_deleted` (delete — distinct key,
+  the rows are `DELETE`d not `is_revoked=1`). Site 331 (`user_updated`)
+  derives `all`-vs-`none` from `before.role != updated.role`, matching
+  `auth.py`'s `role_changed` revoke-all condition; the reviewer traced
+  echo-role / absent-role / real-change / early-return paths and
+  confirmed equivalence in the non-concurrent case.
+- **Pipeline**: architect scoped (B6.2a only) → implementer (helper + 9
+  sites + 20 tests) → code-reviewer **CHANGES REQUESTED** (site 274
+  logged `all_except_actor` for the admin-resets-*other* case, where the
+  actor's token is in a different `user_id` partition and all target
+  sessions are in fact revoked → now branches on `actor.user_id ==
+  user_id`; helper docstring overclaimed the allow-list guard's scope →
+  scoped to `changed_fields`) → implementer fix (+1 test, +`id DESC`
+  tiebreak in `query_logs`) → code-reviewer **APPROVED** round-2 delta.
+- **Findings**: `NEW-309` (Confirmed — the site-274 revoke-enum bug,
+  fixed the same round), `NEW-310` (Confirmed, non-blocking — site-331
+  `before` fetched outside `update_user`'s transaction, TOCTOU on the
+  logged enum under concurrent role change; same shape as `NEW-307`).
+- **`install.sh`**: no change — no new dependency (rule 11).
+- **Not touched**: `auth.py` (read-only this round), no new endpoints,
+  no service-layer audit sites, no rollback/restore helper (decision 4,
+  barred even for a subset), no renamed `action`/`change_summary`
+  strings.
+- **Ledgers**: `CODEY_MASTER_PLAN.md` progress banner, §6.9 (rule-6
+  count correction 63/4 → 64/5, `B6.2` split into a/b/c), and Appendix A
+  all updated; `NEW_ISSUES.md` `NEW-309`/`NEW-310` appended.
+
 ## 2026-09-02 — `B6.1` landed: `update_project` + permission-keyed staff reassignment
 
 - **Status**: **Code-complete + code-reviewer APPROVED (rule-4

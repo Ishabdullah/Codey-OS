@@ -1046,8 +1046,12 @@ gap. `B6.1` (2026-09-02) delivered `CRMService.update_project` +
 `POST /api/v1/projects/{id}/update` + two additive reassignment
 permissions (`PERM_REASSIGN_PROJECT_STAFF` scoped / `PERM_REASSIGN_ANY_PROJECT_STAFF`
 unrestricted), the ownership narrowing keyed on permission not
-`actor.role`. Both code-reviewer-approved (rule-4). Next: `B6.2`
-(audit-detail completion + search).
+`actor.role`. Both code-reviewer-approved (rule-4). `B6.2a`
+(2026-09-02) delivered the canonical `build_audit_details()`
+old/new+side-effects payload helper and wired it into the 9 user-mutation
+audit sites in `api/routes.py` (code-reviewer-approved, rule-4). Next:
+`B6.2b` (~55 service-layer audit sites), then `B6.2c` (admin
+audit-search screen).
 **The round-by-round build narrative that used to live here — 627 lines
 covering Phase B2's write-through rounds, their code-reviewer passes, and
 their test counts — was moved verbatim to `PROJECT_LOG.md` on 2026-09-02
@@ -3771,11 +3775,14 @@ field it changes is logged with **old and new values**.
 
 **B6.2 — Audit detail completion.** Bring the write paths up to the
 old/new-value standard, and give an admin a way to read the result.
-Measured on 2026-09-02: **63 `audit.log()` call sites** across
-`restoricon_core` (54 in services, 9 in `api/routes.py`). Only **four**
-carry genuine before/after pairs — `business_ops_service.py:207`
-(`submit_review`, the recent fix that set the standard),
-`operations_service.py:342` (`previous_stage`), `:568` and `:1141`
+Measured on 2026-09-02: **64 `audit.log()` call sites** across
+`restoricon_core` (55 in services, 9 in `api/routes.py`). **Rule-6
+correction:** an earlier draft of this item said "63 sites / four with
+old-new pairs"; the real figure was 64 / five — `B6.1` (`26d950d`) landed
+the fifth (`crm_service.py` `update_project`, nested `changed_fields`)
+the same day the count was taken. The other four: `business_ops_service.py:207`
+(`submit_review`, flat `old_*/new_*`, the fix that set the standard),
+`operations_service.py:343` (`previous_stage`), `:568` and `:1141`
 (`previous_status`). The rest log new state only, as `X.to_dict()` or a
 bare `updates` dict.
 
@@ -3796,6 +3803,27 @@ screen, not by revert semantics.
 **Absorbs `U.37` (`NEW-265`, `NEW-267`) in full** — that M-lane item's
 fix direction is verbatim this item's scope. `U.37` stays in M-lane as a
 pointer so its NEW-ids remain findable; it is not separate work.
+
+**Split into sub-rounds (2026-09-02):**
+- **`B6.2a` — DONE (code-complete + rule-4 code-reviewer-approved,
+  2026-09-02).** The canonical `build_audit_details(*, before, after,
+  fields, side_effects, snapshot)` helper in `services/audit_service.py`
+  (nested `changed_fields {field:{old,new}}` envelope, generalizing
+  `B6.1`'s shape, plus `side_effects` and `snapshot` slots; a
+  `_AUDITABLE_USER_FIELDS` allow-list guards the unguarded post-commit
+  `json.dumps` in `AuditService.log`), wired into all 9 `api/routes.py`
+  user-mutation/session sites. Old values from a pre-mutation `before`
+  fetch, new values from the returned model — never the request body.
+  Token-revocation side effects recorded as a `sessions_revoked` enum
+  (`none`/`current_only`/`all_except_actor`/`all`). Findings `NEW-309`
+  (mis-recorded revoke enum, fixed same round), `NEW-310` (site-331
+  TOCTOU, non-blocking).
+- **`B6.2b` — the ~55 service-layer `audit.log()` sites** (`crm` 27,
+  `operations` 11, `business_ops` 7, `automation` 5, `scheduling` 4,
+  `finance` 1). Bring them to the `build_audit_details` standard.
+- **`B6.2c` — the admin audit-search screen.** Rule-4 read surface
+  (exposes old/new values of user records): check the RBAC gate on the
+  read and add audit-table indexes on the filtered columns.
 
 **B6.3 — Rewire the Customer Portal to the API it already has.**
 Replace `render_portal_surface()`'s hardcoded timeline, invoice table,
@@ -5935,12 +5963,23 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       **Prerequisite `U.35`/`U.36` (`NEW-264`, `NEW-266`) — DONE
       2026-09-02 (`5e03b4c`).** Pattern it established, copied here:
       `update_user` (see this item's prose above).
-- [ ] **B6.2** — audit detail completion + an audit-search screen.
-      63 `audit.log()` sites measured 2026-09-02; only 4 carry old/new
-      pairs. **`api/routes.py`'s 9 user-mutation sites pass no `details=`
-      at all** — do those first. **No rollback engine** (Ish, 2026-09-02:
-      "see exactly what changed and fix it manually" — not even for a
-      subset). **Absorbs `U.37` (`NEW-265`, `NEW-267`) in full.**
+- [x] **B6.2a** — canonical `build_audit_details()` old/new + side-effects
+      payload helper (`services/audit_service.py`), wired into the 9
+      user-mutation/session audit sites in `api/routes.py`. Old from a
+      pre-mutation fetch, new from the returned model; `sessions_revoked`
+      enum for token-revocation side effects. Code-complete + rule-4
+      code-reviewer-approved 2026-09-02. `NEW-309` (fixed same round),
+      `NEW-310`. Not live-verified beyond the suite (no live-model
+      component); `tests/test_restoricon_core/` 260 passed, +21 new in
+      `test_b6_2a_audit_details.py`.
+- [ ] **B6.2b** — the ~55 service-layer `audit.log()` sites (crm 27,
+      operations 11, business_ops 7, automation 5, scheduling 4,
+      finance 1) brought to the `build_audit_details` standard.
+- [ ] **B6.2c** — admin audit-search screen. **Rule-4 read surface.**
+      RBAC gate on the read + audit-table indexes on filtered columns.
+      **No rollback engine** (Ish, 2026-09-02: "see exactly what changed
+      and fix it manually" — not even for a subset). **Absorbs `U.37`
+      (`NEW-265`, `NEW-267`) in full.**
 - [ ] **B6.3** — rewire the Customer Portal to its existing API.
       Replace hardcoded demo content with real fetches against the 10
       live `/api/v1/portal/*` routes; fix `NEW-272`. Establishes the

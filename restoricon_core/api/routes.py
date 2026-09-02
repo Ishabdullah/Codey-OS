@@ -49,7 +49,7 @@ from ..models import (
 )
 from .rate_limiter import RateLimiter
 from ..services.analytics_search_service import AnalyticsSearchService
-from ..services.audit_service import AuditService
+from ..services.audit_service import AuditService, build_audit_details, _AUDITABLE_USER_FIELDS
 from ..services.automation_service import AutomationService
 from ..services.business_ops_service import BusinessOpsService
 from ..services.communication_service import CommunicationService
@@ -235,7 +235,12 @@ class APIRouter:
 
             if path == "/api/v1/auth/logout" and method == "POST":
                 self.auth.revoke_token(actor.token or "")
-                self.audit.log("auth_logout", "user", actor.user_id, f"User {actor.username} logged out", actor=actor)
+                # Session event, not a row mutation -- only the current token is revoked.
+                logout_details = build_audit_details(side_effects={"sessions_revoked": "current_only"})
+                self.audit.log(
+                    "auth_logout", "user", actor.user_id, f"User {actor.username} logged out",
+                    actor=actor, details=logout_details,
+                )
                 return 200, {"Content-Type": "application/json"}, {"message": "Logged out successfully"}
 
             # Permissions Catalog
@@ -263,7 +268,15 @@ class APIRouter:
                         custom_permissions=json_body.get("custom_permissions"),
                         actor_context=actor,
                     )
-                    self.audit.log("user_created", "user", user.id, f"User {user.username} ({user.role}) created", actor=actor)
+                    # Divergence from B6.1: new values come from the server-normalized
+                    # returned object, not json_body (user fields are normalized
+                    # server-side). Creation has no `before`, so record a full snapshot
+                    # rather than a changed_fields diff.
+                    created_details = build_audit_details(snapshot=user.to_dict())
+                    self.audit.log(
+                        "user_created", "user", user.id, f"User {user.username} ({user.role}) created",
+                        actor=actor, details=created_details,
+                    )
                     return 201, {"Content-Type": "application/json"}, {"user": user.to_dict()}
 
             if path.startswith("/api/v1/users/") and path.endswith("/password") and method == "POST":
@@ -271,23 +284,55 @@ class APIRouter:
                 new_pw = json_body.get("new_password") or json_body.get("password", "")
                 old_pw = json_body.get("old_password")
                 self.auth.change_password(user_id, new_pw, actor, old_password=old_pw)
-                self.audit.log("user_password_changed", "user", user_id, f"Password changed for user ID {user_id}", actor=actor)
+                # Never log the hash, the plaintext, or even its length -- record only
+                # the side effect. change_password's revoke SQL keeps the actor's own
+                # token (WHERE token != actor_token). That only spares a session when
+                # the actor IS the target user; when an admin resets someone else's
+                # password the actor's token belongs to a different user_id and is not
+                # in the target's token set, so every target session is revoked.
+                pw_details = build_audit_details(side_effects={
+                    "sessions_revoked": "all_except_actor" if actor.user_id == user_id else "all"
+                })
+                self.audit.log(
+                    "user_password_changed", "user", user_id, f"Password changed for user ID {user_id}",
+                    actor=actor, details=pw_details,
+                )
                 return 200, {"Content-Type": "application/json"}, {"success": True, "message": "Password updated successfully"}
 
             if path.startswith("/api/v1/users/") and path.endswith("/suspend") and method == "POST":
                 user_id = int(path.split("/")[4])
+                before = self.auth.get_user_by_id(user_id)
                 updated = self.auth.set_user_active(user_id, 0, actor)
                 if not updated:
                     return 404, {"Content-Type": "application/json"}, {"error": "User not found"}
-                self.audit.log("user_suspended", "user", user_id, f"User {updated.username} suspended", actor=actor)
+                suspend_details = build_audit_details(
+                    before=before.to_dict() if before else None,
+                    after=updated.to_dict(),
+                    fields=_AUDITABLE_USER_FIELDS,
+                    side_effects={"sessions_revoked": "all"},
+                )
+                self.audit.log(
+                    "user_suspended", "user", user_id, f"User {updated.username} suspended",
+                    actor=actor, details=suspend_details,
+                )
                 return 200, {"Content-Type": "application/json"}, {"user": updated.to_dict(), "message": "User suspended"}
 
             if path.startswith("/api/v1/users/") and path.endswith("/activate") and method == "POST":
                 user_id = int(path.split("/")[4])
+                before = self.auth.get_user_by_id(user_id)
                 updated = self.auth.set_user_active(user_id, 1, actor)
                 if not updated:
                     return 404, {"Content-Type": "application/json"}, {"error": "User not found"}
-                self.audit.log("user_activated", "user", user_id, f"User {updated.username} activated", actor=actor)
+                activate_details = build_audit_details(
+                    before=before.to_dict() if before else None,
+                    after=updated.to_dict(),
+                    fields=_AUDITABLE_USER_FIELDS,
+                    side_effects={"sessions_revoked": "none"},
+                )
+                self.audit.log(
+                    "user_activated", "user", user_id, f"User {updated.username} activated",
+                    actor=actor, details=activate_details,
+                )
                 return 200, {"Content-Type": "application/json"}, {"user": updated.to_dict(), "message": "User activated"}
 
             if path.startswith("/api/v1/users/") and path.endswith("/permissions"):
@@ -305,8 +350,21 @@ class APIRouter:
                     }
                 elif method in ("PUT", "POST"):
                     perms = json_body.get("custom_permissions", json_body)
+                    before = self.auth.get_user_by_id(user_id)
                     updated = self.auth.set_user_permissions(user_id, perms, actor)
-                    self.audit.log("user_permissions_updated", "user", user_id, f"Permissions updated for user {updated.username}", actor=actor)
+                    # New value is the cleaned/normalized custom_permissions dict from
+                    # the returned User, not the raw json_body.
+                    perms_details = build_audit_details(
+                        before=before.to_dict() if before else None,
+                        after=updated.to_dict(),
+                        fields=_AUDITABLE_USER_FIELDS,
+                        side_effects={"sessions_revoked": "none"},
+                    )
+                    self.audit.log(
+                        "user_permissions_updated", "user", user_id,
+                        f"Permissions updated for user {updated.username}",
+                        actor=actor, details=perms_details,
+                    )
                     return 200, {"Content-Type": "application/json"}, {
                         "user": updated.to_dict(),
                         "custom_permissions": updated.custom_permissions,
@@ -325,16 +383,42 @@ class APIRouter:
                             return 404, {"Content-Type": "application/json"}, {"error": "User not found"}
                         return 200, {"Content-Type": "application/json"}, {"user": target_user.to_dict()}
                     elif method in ("PUT", "POST"):
+                        before = self.auth.get_user_by_id(user_id)
                         updated = self.auth.update_user(user_id, json_body, actor)
                         if not updated:
                             return 404, {"Content-Type": "application/json"}, {"error": "User not found"}
-                        self.audit.log("user_updated", "user", user_id, f"User {updated.username} updated", actor=actor)
+                        # `before` is non-None here: update_user returns a User only for
+                        # an existing row (a missing row returns None -> 404 above).
+                        # auth.update_user revokes all tokens only on a role change,
+                        # so derive sessions_revoked from before/updated, not json_body.
+                        role_changed = before.role != updated.role
+                        update_details = build_audit_details(
+                            before=before.to_dict(),
+                            after=updated.to_dict(),
+                            fields=_AUDITABLE_USER_FIELDS,
+                            side_effects={"sessions_revoked": "all" if role_changed else "none"},
+                        )
+                        self.audit.log(
+                            "user_updated", "user", user_id, f"User {updated.username} updated",
+                            actor=actor, details=update_details,
+                        )
                         return 200, {"Content-Type": "application/json"}, {"user": updated.to_dict()}
                     elif method == "DELETE":
+                        before = self.auth.get_user_by_id(user_id)
                         deleted = self.auth.delete_user(user_id, actor)
                         if not deleted:
                             return 404, {"Content-Type": "application/json"}, {"error": "User not found"}
-                        self.audit.log("user_deleted", "user", user_id, f"User ID {user_id} deleted", actor=actor)
+                        # No changed_fields for a delete -- record the final-state
+                        # snapshot instead. "tokens_deleted" (not sessions_revoked):
+                        # delete_user DELETEs the token rows, it does not revoke them.
+                        delete_details = build_audit_details(
+                            snapshot=before.to_dict() if before else None,
+                            side_effects={"tokens_deleted": "all"},
+                        )
+                        self.audit.log(
+                            "user_deleted", "user", user_id, f"User ID {user_id} deleted",
+                            actor=actor, details=delete_details,
+                        )
                         return 200, {"Content-Type": "application/json"}, {"deleted": True, "user_id": user_id}
 
             # Customers
@@ -1628,7 +1712,11 @@ class APIRouter:
             customer_id=user.customer_id,
             token=token,
         )
-        self.audit.log("auth_login", "user", user.id, f"User {user.username} authenticated", actor=actor_ctx)
+        login_details = build_audit_details(side_effects={"session_created": True})
+        self.audit.log(
+            "auth_login", "user", user.id, f"User {user.username} authenticated",
+            actor=actor_ctx, details=login_details,
+        )
 
         return 200, {"Content-Type": "application/json"}, {
             "token": token,

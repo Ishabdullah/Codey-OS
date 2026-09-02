@@ -13782,3 +13782,38 @@ outside that fix's scope.
   `update_project`, `create_project`; `operations_service.py`
   `transition_project_stage`; `NEW-300` (same missing-input-validation
   class, auth side — `custom_permissions` keys unvalidated).
+
+## Found during B6.2a — audit-detail payloads on the 9 user-mutation sites (2026-09-02)
+
+### [NEW-309] `change_password` audit side-effect was mis-recorded as `all_except_actor` for the admin-resets-other case (fixed in B6.2a)
+- **Status:** Confirmed (B6.2a code-reviewer, 2026-09-02). **Fixed the
+  same round** — logged per rule 8 because the mistake was in the first
+  B6.2a implementation, not pre-existing code.
+- **Mechanism:** `AuthService.change_password` revokes with
+  `WHERE user_id = ? AND token != <actor_token>`. When an admin resets a
+  *different* user's password, the actor's token lives in another
+  `user_id` partition and is never in the target's token set, so **every**
+  target session is revoked. The initial B6.2a site hardcoded
+  `sessions_revoked: "all_except_actor"`, permanently asserting in an
+  append-only ledger that one session survived when none did.
+- **Fix (shipped):** call site now emits
+  `"all_except_actor" if actor.user_id == user_id else "all"`; new test
+  `test_admin_resets_other_user_password_revokes_all` covers the branch.
+- **Cross-reference:** `restoricon_core/api/routes.py` password site
+  (~line 288); `restoricon_core/auth.py` `change_password`.
+
+### [NEW-310] B6.2a site 331 (`user_updated`) derives `sessions_revoked` from a `before` row read outside `update_user`'s own transaction (TOCTOU)
+- **Status:** Confirmed (B6.2a code-reviewer, 2026-09-02). Non-blocking.
+- **Mechanism:** the route fetches `before = get_user_by_id(user_id)`
+  separately from `update_user`, which does its own fresh fetch and
+  computes `role_changed` against that. Under a concurrent role change on
+  the same user by another actor, the route can log `"all"`/`"none"`
+  disagreeing with the revocation `update_user` actually performed.
+- **Impact:** low — SQLite serializes writes, the connection is
+  process-local, and the window is ~1ms. Audit-accuracy only, not an
+  authz decision. Same shape as `NEW-307`.
+- **Fix direction:** have `update_user` return whether it revoked tokens
+  (or the pre-update role) rather than re-deriving at the route. Revisit
+  if the Core ever runs multi-process.
+- **Cross-reference:** `restoricon_core/api/routes.py` `user_updated`
+  site (~line 331); `restoricon_core/auth.py` `update_user`.
