@@ -13631,7 +13631,11 @@ outside that fix's scope.
 - **Fix direction:** validate keys against the catalog at write time in
   a shared helper (both call sites), rejecting or dropping unknowns.
 - **Cross-reference:** `restoricon_core/auth.py` `update_user`
-  `custom_permissions` branch, `set_user_permissions`.
+  `custom_permissions` branch, `set_user_permissions`; `NEW-308`
+  (same missing-input-validation class, project side). B6.1 added two
+  new ids to `PERMISSIONS_CATALOG` and its tests grant
+  `"reassign:project_staff"` by literal string — a catalog-key
+  validator would need to stay in step with such additions.
 
 ### [NEW-301] The `test_user_management.py` route harness never asserted 400-vs-500 on constraint violations — how `NEW-264`'s cosmetic half went unnoticed
 - **Status:** Confirmed (project-architect, U.35/U.36 scoping,
@@ -13776,4 +13780,5 @@ outside that fix's scope.
   scoped method on `operations_service`, not `update_project`.
 - **Cross-reference:** `restoricon_core/services/crm_service.py`
   `update_project`, `create_project`; `operations_service.py`
-  `transition_project_stage`.
+  `transition_project_stage`; `NEW-300` (same missing-input-validation
+  class, auth side — `custom_permissions` keys unvalidated).

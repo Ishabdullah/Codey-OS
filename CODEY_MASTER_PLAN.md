@@ -3733,17 +3733,27 @@ assignment-shaped: `project_manager_id`, `assigned_employees_json`, and
 `POST /api/v1/projects/{id}/update`, built to `update_customer`'s shape
 and the `update_user` pattern.
 
-The permission design, per decision 2 — **delivered with two additive
-permissions, not one**, because `project_manager` already holds
-`PERM_MANAGE_PROJECTS` so that could not be the "unrestricted"
-discriminator: `PERM_REASSIGN_PROJECT_STAFF` (scoped — reassign only
-where `project_manager_id == actor.user_id`) and
-`PERM_REASSIGN_ANY_PROJECT_STAFF` (unrestricted). admin/manager hold
-both, `project_manager` the scoped one, `sales` neither. The ownership
-narrowing is in `_actor_may_reassign_project_staff()` with **no
-`actor.role` branch** — `NEW-194`'s "gate exists but narrowing is
-role-keyed" shape avoided by construction. Overridable per-user through
-the existing permission UI (both perms are in `PERMISSIONS_CATALOG`).
+The permission design, per decision 2 (Ish, 2026-09-02 interview — his
+words): a new scoped permission (rather than a role check) so it stays
+overridable per-user through the permission UI that already works —
+admin/manager hold it unrestricted; a `project_manager` may reassign
+only on projects where `project_manager_id == actor.user_id`; `sales`
+does not hold it. Deliberately permission-keyed, not role-keyed, to
+avoid `NEW-194`'s "gate exists but narrowing logic is role-keyed" bug
+shape by construction.
+
+**Delivered as (B6.1, 2026-09-02) — two additive permissions, not one:**
+implementation found `project_manager` already holds
+`PERM_MANAGE_PROJECTS`, so a single permission could not be both the
+grant and the "unrestricted" discriminator without re-creating the
+role-keyed shape. So: `PERM_REASSIGN_PROJECT_STAFF` (the scoped grant
+decision 2 describes) and `PERM_REASSIGN_ANY_PROJECT_STAFF` (the
+unrestricted one). admin/manager hold both; `project_manager` the
+scoped one; `sales` neither. Narrowing is in
+`_actor_may_reassign_project_staff()` with **no `actor.role` branch**.
+Both are in `PERMISSIONS_CATALOG`, so per-user override works as
+decision 2 required. This split is the precedent for B6.7/B6.8's new
+permissions.
 
 **Prerequisite `U.35`/`U.36` (`NEW-264`, `NEW-266`) — DONE 2026-09-02
 (commit `5e03b4c`, code-reviewer-approved).** Both were defects in
