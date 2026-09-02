@@ -13221,3 +13221,30 @@ outside that fix's scope.
   up.
 - **Fix direction:** re-anchor `U.6` to symbol names rather than line
   numbers when it is next scoped. **Not fixed this round.**
+
+### [NEW-288] Two blocks in the former `CODEY_MASTER_PLAN.md` §4.5 state contradictory Phase B2 write-through completion counts (8 of 10 vs 3 of 10)
+- **Status:** Confirmed (both blocks read verbatim before the `U.38`
+  step-3 move; both now in `PROJECT_LOG.md`'s 2026-09-02 de-ledger entry).
+- **Mechanism:** one block reads "**Phase B2 write-through progress: 8 of
+  the 10 write-site modules** (§6.4's per-module list) are now done" and
+  names eight: `do-not-contact.js`, `email-rules.js`/`sms-rules.js`,
+  `calendar.js`, `subcontractor-recruiter.js`, `email-provider.js`,
+  `customer-module.js`, `business_profile`. A later block reads "**Phase
+  B2 write-through progress, updated: 3 of the 10 write-site modules** are
+  now done including JS-side cutovers" and names three:
+  `do-not-contact.js`, `email-rules.js`/`sms-rules.js`,
+  `subcontractor-recruiter.js` — explicitly listing `customer-module.js`,
+  `calendar.js` and comms/email/SMS-provider logging as **remaining**.
+- **The two may be measuring different things** — the second says
+  "including JS-side cutovers," which the first does not claim — but
+  neither states the distinction, and the word "updated" on the smaller
+  number reads as a supersession, not a narrower metric.
+- **Impact:** Phase B2's real completion state is not determinable from
+  the project's own records. B2 is cited as complete in §4.5's snapshot
+  paragraph, and B6 work is being scoped on top of it.
+- **Fix direction:** audit the 10 write-site modules against `§6.4`'s
+  per-module list and state one count with its measurement date and its
+  definition of "done." **Deliberately NOT resolved during the `U.38`
+  doc-consolidation round** — resolving it means a 10-module code audit,
+  which is implementation work, not documentation work. Both blocks were
+  preserved verbatim through the move rather than reconciled.

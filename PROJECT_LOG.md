@@ -10,6 +10,665 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-02 — §4.5 business-layer round narrative, de-ledgered from `CODEY_MASTER_PLAN.md` §4.5 (`U.38` step 3)
+
+**Moved verbatim, not rewritten.** 627 lines / 40,864 bytes lifted
+unchanged out of the master plan's §4.5, which rule 9 says belongs here
+and which the `U.38` brief named as the reason the plan "has quietly
+become a third ledger." Byte-identity was verified by checksum across the
+cut (`md5 ede16f6f63f6a6e97348aa2a3d330078`), not by eye. §4.5 keeps its
+current-state snapshot and its rule-6 B4 correction; only the
+round-by-round build narrative moved.
+
+**Two things to know before reading it.** First, every block below
+carries its own original date inline — those dates, not this heading's,
+are when the work happened. Second, **these blocks are NOT in
+reverse-chronological order internally**; they were appended to §4.5
+non-chronologically and are preserved in their original order rather than
+re-sorted, because re-sorting 627 lines of someone else's dated records
+would be an unverifiable rewrite. This file's top-level reverse-
+chronological contract still holds at the heading level.
+
+**A contradiction inside this slab was found and deliberately left
+unresolved: `NEW-288`.** One block reads "Phase B2 write-through
+progress: **8** of the 10 write-site modules are now done"; a later block
+reads "Phase B2 write-through progress, updated: **3** of the 10
+write-site modules are now done including JS-side cutovers." Both are
+preserved verbatim. Resolving which is current means auditing 10 modules,
+which is not a doc-consolidation task — logged per rule 8, not fixed.
+
+---
+
+
+**`NEW-209`'s schema-gap open decision is RESOLVED — Ish chose to expand
+scope, not narrow it (2026-08-27).** Rather than narrowing B2's exit
+criterion to contacts+customers only (the scoping round's own stated
+preference), Ish decided to build all five of Aigentik-CLI's real data
+shapes into `restoricon_core`'s schema now: subcontractors, appointments/
+calendar, automation rules (email+SMS), business profile, and
+do-not-contact — not deferred to B3/B5a. **Built this round (code-
+complete + self-tested, NOT yet code-reviewed, NOT committed — auth/RBAC
+changes require the mandatory code-reviewer pass per rule 4 before any
+commit):**
+- `restoricon_core/database.py`: 5 new tables (`subcontractors`,
+  `appointments`, `automation_rules`, `business_profile`,
+  `do_not_contact`), all with `external_id` columns for future
+  idempotent migration (see `NEW-212` — `customers`/`leads` lack this).
+- `restoricon_core/models.py`: 5 new dataclasses (`Subcontractor`,
+  `Appointment`, `AutomationRule`, `BusinessProfile`,
+  `DoNotContactEntry`).
+- `restoricon_core/services/crm_service.py`: extended with
+  `create_subcontractor()`/`get_subcontractor()`/`list_subcontractors()`/
+  `update_subcontractor_qualification()`.
+- `restoricon_core/services/scheduling_service.py` (new file):
+  `create_appointment()`/`get_appointment()`/`list_appointments()`/
+  `update_appointment_status()`, mirroring `calendar.js`'s negotiate-
+  then-confirm lifecycle.
+- `restoricon_core/services/automation_service.py` (new file):
+  automation-rule CRUD + `record_rule_match()` (deliberately not
+  audit-logged — see its docstring), singleton business-profile
+  get/upsert, and do-not-contact add/remove/check/list with
+  normalization pinned to match `do-not-contact.js`'s own
+  email-lowercase/phone-last-10-digits logic exactly.
+- `restoricon_core/auth.py`: 10 new permissions (`PERM_READ/WRITE_
+  SUBCONTRACTORS`, `_APPOINTMENTS`, `_AUTOMATION_RULES`,
+  `_BUSINESS_PROFILE`, `_DNC`), granted to admin/manager (all),
+  sales/project_manager (partial, role-appropriate), `ai_agent` (all —
+  it's the actual B2 write-through actor for these five modules),
+  nothing to `technician`/`customer` (all five are internal-only data,
+  deliberately avoiding `NEW-194`'s "gate exists but narrowing logic is
+  role-keyed, not permission-keyed" bug shape by construction rather than
+  writing new customer-scoped narrowing branches).
+- Tests: `tests/test_restoricon_core/test_operations_services.py` (new,
+  26 tests) plus `test_database.py`'s `expected_tables` extended.
+  `tests/test_restoricon_core/`: **37 passed** (up from the prior
+  11-test baseline). Full suite: `python -m pytest tests/ -q` —
+  **753 passed, 1 skipped**; split as the prior NEW-189 round ran it,
+  `--ignore=tests/test_resource_gate.py` — **539 passed, 1 skipped** —
+  plus `tests/test_resource_gate.py` alone — **214 passed** — same total.
+- Two new findings logged, not fixed: `NEW-212` (`customers`/`leads`
+  lack an `external_id` column, an obstacle for B2's own migration step),
+  `NEW-213` (three of the five new tables create a second representation
+  of data an existing table already denormalizes — `projects.
+  subcontractors_json`, `communication_history.channel='appointment'`).
+- **NOT done this round, explicitly out of scope**: `~/Codey-Aigentik`/
+  `~/Aigentik-CLI` were not touched; no migration script was written; no
+  new API routes were added (routes.py extension stays `NEW-193`'s own
+  separate scope); customer-facing read paths for any of the five new
+  resources were deliberately not built this round.
+
+**Mandatory rule-4 code-reviewer pass, 2026-08-27: CHANGES REQUESTED,
+required items fixed same round — now code-reviewer-approved.** Reviewer
+independently verified every new/extended service method gates on
+`has_permission()` before any DB access with the correct read/write
+constant; the `business_profile` singleton constraint genuinely prevents
+a second row; `do_not_contact`'s `UNIQUE(type, value)` + normalize-
+before-insert is genuinely idempotent (confirmed against `~/Aigentik-CLI/
+do-not-contact.js`'s own source, not just the Python port's docstring
+claim); `external_id`'s nullable `UNIQUE` correctly permits multiple
+`NULL`s; all new queries are parameterized; every mutation is
+audit-logged except the one documented, tested exception
+(`record_rule_match()`); `ai_agent`'s full grant is applied consistently
+with no broadening leak. Full suite independently reproduced: `tests/
+test_restoricon_core/` 37 passed, full suite 753 passed/1 skipped.
+**One doc-accuracy defect, fixed same round**: `NEW-212`'s entry wrongly
+claimed all five new tables got an `external_id` column — corrected
+(only three do; `business_profile`/`do_not_contact` have their own
+natural idempotency keys instead, a defensible design choice, not an
+oversight). **One real permission gap, fixed same round**: `ROLE_SALES`/
+`ROLE_PROJECT_MANAGER` held `PERM_LOG_COMMUNICATION` (i.e. are the roles
+most plausibly about to contact someone) but no `PERM_READ_DNC`, meaning
+they couldn't call `AutomationService.is_blocked()` before doing so —
+not live-exploitable yet (no caller exists until B2 task 4), but fixed
+immediately rather than left dormant; logged as `NEW-214`, now marked
+FIXED with a new regression test
+(`test_sales_and_project_manager_can_check_is_blocked`). Full suite after
+both fixes: `tests/test_restoricon_core/` **38 passed**; full repo suite
+**754 passed, 1 skipped**. Three non-blocking items flagged for later,
+not required this round: `update_subcontractor_qualification()`/
+`update_appointment_status()` re-check READ permission on their trailing
+`get_*()` call rather than reusing the write result (latent — no role
+currently has WRITE without READ for these); `add_to_do_not_contact()`
+returns `None` silently on an unparseable identifier instead of raising,
+unlike its sibling create methods; `subcontractors.qualification_status`
+has no `CHECK` constraint unlike `appointments.status`/`automation_
+rules.channel`. **Status: code-complete, code-reviewer-approved, NOT
+live-verified** (no live component by design — schema/service/RBAC
+work, not a model-load or process-lifecycle change).
+
+**Phase B2 task 2 (data migration script), 2026-08-27 — code-complete,
+code-reviewer-approved. Dry-run tested against real Aigentik-CLI data
+only — NOT run with `--apply` against production.** Built:
+`restoricon_core/migrate_aigentik.py` (new), 3 new RBAC-gated lookup
+methods (`get_subcontractor_by_external_id`,
+`get_appointment_by_external_id`, `get_automation_rule_by_external_id`
+in `crm_service.py`/`scheduling_service.py`/`automation_service.py`),
+and `tests/test_restoricon_core/test_migrate_aigentik.py` (10 new
+tests). Migrates the 4 of 8 real `~/Aigentik-CLI/data/*.json` files that
+map cleanly onto the schema landed in `c30d755`
+(`subcontractors.json`/`calendar.json`/`email-rules.json`+
+`sms-rules.json`/`profile.json`); `contacts.json` (`NEW-215`),
+`customers.json` (`NEW-212`), and `schedule-config.json` (`NEW-216`)
+remain explicitly out of scope and unmigrated. Dry-run is the literal
+default; `--apply` is required to write. Code-reviewer independently
+verified the permission gates, the dry-run write boundary, idempotency
+(including a negative-control test that a broken lookup correctly fails
+loud), and the torn-read guard against Aigentik-CLI's non-atomic JSON
+writes — approved with one non-blocking doc-accuracy note, since
+corrected (`NEW-218`'s mechanism: the migration script's own mapper
+functions never read the source `created_at` field, so it isn't the
+service layer discarding a caller-supplied value — no historical value
+reaches the service layer to discard in the first place). Full suite:
+**764 passed, 1 skipped**. **No `--apply` run against the real
+production database has happened** — that decision belongs to Ish, not
+this round, since it writes to the live Restoricon Core DB from real
+business data. Step 3 (write-through replacement) and `NEW-211`'s
+port-collision fix remain the next Phase B2 work, not started.
+
+**Phase B2 task 4a (Core API routes for the five new resources),
+2026-08-27 — code-complete, code-reviewer-approved. Routes exist and are
+wired; NOT live-verified against a real running server instance with
+real network calls (rule 7 — mock/test-suite verification only, no
+process was actually started and hit over HTTP this round), and NO
+Aigentik-CLI/Codey-Aigentik JS code has been changed to call any of
+them yet — that write-through replacement is the separate, later step
+(§6.4 step 4) this round explicitly does not touch.** Built: 17 new
+routes across `restoricon_core/api/routes.py` (the 13 in §6.4's spec
+table plus DELETE-free GET/POST pairs for all five resources) and
+`restoricon_core/api/server.py` (wires `SchedulingService`/
+`AutomationService` into `RestoriconAPIServer.__init__` and threads them
+through `APIRouter.__init__` as two new constructor args, per the
+scoping pass's confirmed single construction site), plus 6 new tests in
+`tests/test_restoricon_core/test_api.py`. Code-reviewer approved with 2
+non-blocking notes, neither requiring a code change this round: (1) the
+pre-existing `GET .../subcontractors/{id}/qualification` routing quirk
+— falls through to the generic by-id handler and raises `ValueError`
+(400) instead of 404, not introduced by this round — now logged as
+`NEW-222`; (2) a general note on the router's prefix-matching pattern
+being shared and worth hardening in its own pass rather than patched
+piecemeal. Full suite re-run this round (not reused from a prior
+citation, since the reviewer found the previously-cited 764/770
+baselines were already stale from unrelated same-day commits):
+`python -m pytest tests/ -q` — **770 passed, 1 skipped**.
+
+**Phase B2 task 4 pilot module (`do-not-contact.js` write-through),
+2026-08-27 — code-complete, code-reviewer-approved with zero findings.
+NOT live-verified against real Aigentik-CLI production traffic (rule
+7).** Built in `~/Codey-Aigentik` (a separate repo from this one;
+`~/Aigentik-CLI`, the live original, was never touched): converted
+`do-not-contact.js`'s four I/O functions from local JSON
+(`data/do-not-contact.json`, which never existed on disk) to Restoricon
+Core API calls, Core-only with no local-file fallback per the
+scoping-round decision above, plus async-correctness fixes in
+`owner-command.js`'s `forEach`/`filter` call sites (both silently
+dropped awaits on the now-async DNC calls; `filter`'s truthy-`Promise`
+bug would have made `handleUnblockContact`'s "removed" check always
+true). New `tools/provision_ai_agent_auth.py` (this repo) provisions the
+one-off `ai_agent` Core user + bearer token the fork's `config.json`
+needs; 4 passing tests in `tests/test_provision_ai_agent_auth.py`.
+Tested: 18/18 new do-not-contact unit tests, 122/122 full
+`~/Codey-Aigentik` suite, all against a locally-started scratch Core
+server — not the real persistent DB path. **`NEW-225` is only partly
+discharged by this round:** the real Core DB (`~/.codey_restoricon/
+core.db`) now exists on disk with one `ai_agent` user provisioned in
+it, but the Core's HTTP API server has never actually been started
+against that real DB path and served a request from an external
+process — every reviewer/implementer HTTP test this round ran against a
+separate in-memory or scratch-file DB, matching `NEW-225`'s original
+distinction exactly. Cutting real production DNC traffic over from
+`~/Aigentik-CLI` to `~/Codey-Aigentik`/Core is a separate decision for
+Ish, not made or scheduled this round. Remaining 9 write-through modules
+(§6.4's per-module list) not started.
+
+**Phase B2 task 4, second module (`email-rules.js`/`sms-rules.js`
+write-through), 2026-08-27 — code-complete, code-reviewer-approved.
+NOT live-verified against real Aigentik-CLI production traffic (same
+tier as the DNC pilot, rule 7).** Built in `~/Codey-Aigentik`: converted
+`email-rules.js`'s and `sms-rules.js`'s local-JSON I/O to Restoricon
+Core API calls, following the DNC pilot's `coreRequest()` pattern, plus
+associated `index.js`/`owner-command.js` call-site fixes. Required a new
+Core-side capability (`NEW-230`): `AutomationService.delete_rule(rule_id,
+actor)` in `restoricon_core/services/automation_service.py` and
+`POST /api/v1/automation-rules/{id}/delete` in
+`restoricon_core/api/routes.py`, since `removeRule()`'s fuzzy
+id-or-description match (kept client-side) had no Core-side deletion
+target before this round. Code-reviewer approved with one non-blocking
+doc-accuracy note (corrected in `NEW_ISSUES.md`'s `NEW-230` entry:
+`delete_rule`'s audit logging is conditional on a successful delete,
+matching `remove_from_do_not_contact`'s pattern, not `create_rule`'s
+unconditional log as originally written). Tested against a
+locally-started scratch Core server, not the real persistent DB path —
+150/150 `~/Codey-Aigentik` suite (`npm test`), 778 passed/1 skipped in
+this repo's own `tests/` (`python -m pytest tests/ -q`).
+
+**Phase B2 task 4, third module (`calendar.js` & schedule-config
+write-through), 2026-08-27 — code-complete, unit-test verified.** Built in
+`~/Codey-Aigentik` and `Codey-OS`: added `update_appointment()` and
+`upsert_appointment()` in `SchedulingService` plus routes for
+`POST /api/v1/appointments/upsert`, `POST /api/v1/appointments/:id/update`,
+`GET /api/v1/schedule-config`, and `POST /api/v1/schedule-config`. Converted
+`calendar.js` to Restoricon Core API (`coreRequest()` over Bearer auth),
+updated all mutations and queries to write-through asynchronously, preserved
+pure date/time parsing math, and updated all `owner-command.js` and `index.js`
+call sites with `await`. Unit tests pass in both repos (`889 passed, 1 skipped`
+in `Codey-OS`, `157 passed, 0 failed` in `Codey-Aigentik`).
+
+**Phase B2 task 4, fourth module (`subcontractor-recruiter.js`
+write-through), 2026-08-27 — code-complete, unit-test verified.** Built in
+`~/Codey-Aigentik`: converted `subcontractor-recruiter.js` from local JSON
+(`data/subcontractors.json`) to Restoricon Core API (`coreRequest()` over
+Bearer auth) calling `/api/v1/subcontractors`, `/api/v1/subcontractors/upsert`,
+`/api/v1/subcontractors/:id/update`, and `/api/v1/subcontractors/:id/qualification`.
+Updated `owner-command.js` call sites with `await`. Unit tests pass in both repos
+(`889 passed, 1 skipped` in `Codey-OS`, `164 passed, 0 failed` across 10 suites
+in `Codey-Aigentik`).
+
+**Phase B2 write-through progress: 8 of the 10 write-site modules
+(§6.4's per-module list) are now done — `do-not-contact.js`,
+`email-rules.js`/`sms-rules.js`, `calendar.js`, `subcontractor-recruiter.js`,
+`email-provider.js` (outbound/inbound comms logging + reliable retry queue),
+`customer-module.js` (Core API groundwork + async write-through cutover),
+`business_profile` (`index.js` `loadProfile`/`sendOnboardingEmail` and
+`owner-command.js` `handleRename`/`handleSetBusinessInfo`/`handleSetOwnerName`),
+and `llama.js` (model-layer admission routing through Core API `POST /api/v1/ai/chat`, resolving `NEW-211`).**
+Remaining modules: `contacts.js` and `queue.js` orchestration.
+Business profile and model-layer routing landed 2026-08-30,
+code-reviewer approved with 200 passing unit tests in `Codey-Aigentik` and 166 passing in `Codey-OS` `test_restoricon_core`.
+
+**Phase B2 task 4, comms/email/SMS-provider write-through — scoping
+only, 2026-08-27, blocked, not handed off for implementation.**
+Read `~/Codey-Aigentik/email-provider.js` in full and the Google
+Voice/SMS handling in `~/Codey-Aigentik/index.js`
+(`handleGoogleVoiceText`, ~line 820-1100). Findings that changed this
+module's shape relative to the DNC/rules precedent:
+- **This is not a migration of an existing local write.** Unlike DNC
+  and rules, there is no `data/communications.json` (or equivalent) in
+  `~/Codey-Aigentik/data/` today — that directory holds only
+  `customers.json` (1.5KB) and `subcontractors.json` (2 bytes). The
+  fork has never logged comms locally; per-contact activity trails go
+  through `contacts.addHistory()` (a different, not-yet-migrated data
+  shape), not a dedicated comms log. A write-through here means adding
+  brand-new Core calls into a live send/receive path, not converting an
+  existing one. (Production comms history, if any exists, lives in the
+  untouched `~/Aigentik-CLI/data/contacts.json` (149KB) — out of this
+  task's path entirely, not touched or at risk.)
+- **Blocked: `customers`/`leads` have no `external_id` column
+  (`NEW-232`).** `communication_service.record_communication()` takes
+  an integer `customer_id` FK into Core's own `customers` table.
+  Aigentik's JS side only has its own string/local contact and customer
+  identifiers, and — unlike `automation_rules`/`subcontractors`/
+  `appointments`, which each got an `external_id` column and a
+  `get_*_by_external_id()` lookup in the B2 schema-expansion round —
+  there is no Core-side method to translate one into the other. Writing
+  through today would mean every comms record lands with
+  `customer_id=NULL`, defeating the one query path
+  (`query_communications(customer_id=...)`) that makes the log useful.
+  This is a hard sequencing dependency, not a design preference: the
+  `NEW-212`/`external_id` schema gap must close before this module's
+  write-through can be implemented correctly.
+- **Confirmed separately, independent of the above: no idempotency key
+  on `communication_history` (`NEW-233`).** Combined with
+  `email-provider.js`'s own documented IMAP `\Seen`-flag race (a failed
+  flag update causes the same email to be "reprocessed and re-replied
+  to on every poll" — comment at `email-provider.js:359-362`), an
+  inbound write-through would append a duplicate row to an
+  append-only/immutable table on every such reprocess, silently
+  corrupting the historical record.
+- **Risk-profile question answered directly, not deferred to Ish:**
+  outbound logging should be best-effort/non-blocking (a Core failure
+  must never propagate into `sendEmail`/`sendReply`, which throw on
+  failure and whose callers act on that throw — a Core outage placed in
+  that path would either suppress a real send or risk a caller retrying
+  a send that already succeeded). This is the opposite of the DNC
+  pilot's Core-only pattern, correctly so: DNC is a read-gate where
+  failing loud is the safe direction, comms logging is an after-the-fact
+  record where failing loud is the unsafe direction. This conclusion is
+  settled and doesn't need Ish's input — it constrains how the
+  eventual implementation should be built, once unblocked.
+- **What does need Ish (two narrow questions only, not the whole
+  module — logged here as a pending decision, not yet asked/answered):**
+  (1) whether closing `NEW-212`/`NEW-232` (adding `external_id` to
+  `customers`/`leads`, the same shape of change already done for the
+  other three tables) should be prioritized now to unblock this task,
+  and (2) whether a knowingly-lossy, best-effort comms log (no durable
+  outbox/retry — a Core-write failure is swallowed, not queued) is an
+  acceptable interim state for what's meant to become the single
+  backend for all Restoricon data, including real customer
+  communications.
+- **Smallest safely-separable slice, once unblocked:** provider-level
+  outbound only — instrument `sendEmail`/`sendReply`/
+  `replyToGoogleVoiceText` in `email-provider.js`, the single chokepoint
+  every outbound customer message passes through, fire-and-forget.
+  Explicitly excluded from that slice: `sendOwnerNotification`
+  (internal, not customer-facing), `sendCalendarInvite`/
+  `sendCalendarCancellation` (channel `appointment`, belongs with the
+  `calendar.js` round, already blocked on its own general-update gap),
+  and all inbound handling (blocked on `NEW-233`'s dedup gap
+  independent of the customer_id question).
+- **Not implemented this round per explicit instruction — scoping and
+  the blocking-dependency finding only.**
+
+**Comms Core-side reliable-log fix, 2026-08-27 — code-complete, self-
+tested (mandatory code-reviewer pass still pending, rule 4 — schema
+change + reliability-critical logic). NEW-233 resolved on the Core side;
+JS write-through wiring still not built (no code in `~/Codey-Aigentik`
+calls the Core API at all yet).** Ish ruled directly (2026-08-27): the
+comms LOG must be reliable (no duplicates, no silent loss), while
+`sendEmail`/`sendReply` keep their current fast, Core-independent
+behavior unchanged — the log write is a best-effort side effect after a
+real send/receive, never a precondition for it. `NEW-232`'s
+`customers.external_id`/`leads.external_id` landed since the block above
+was written, but that column holds Aigentik's own *internal* string ids
+(e.g. `customer_id` from `customers.json`), not an inbound message's raw
+sender address — so it doesn't directly unblock customer_id resolution
+here; a new `CRMService.get_customer_by_email()` lookup was added
+instead (best-effort, `customers.email` has no UNIQUE constraint, so 0
+or 2+ matches both resolve to `None`). Built:
+`communication_history.provider_message_id TEXT` (nullable, partial
+unique index — see `NEW-257` for the exact SQL and why `_migrate_schema()`
+had to be used rather than `_SCHEMA_SQL`'s index block), keyed on the
+IMAP Message-ID header `email-provider.js` already captures for every
+inbound message (both regular email and Google-Voice-via-email, which
+share the same underlying parse path); `record_communication()`'s
+`ON CONFLICT ... DO NOTHING` dedup (verified directly against a real
+`sqlite3` connection, not assumed); `POST /api/v1/communications`'s new
+`from_email`→`customer_id` resolution, gated on
+`PERM_READ_ALL_CUSTOMERS` so a role like `ROLE_TECHNICIAN` (which lacks
+that permission) still succeeds at logging, just without resolution
+rather than 403ing. Two defects found and fixed in the same round before
+they shipped: (1) the resolution call was originally unconditional and
+would have 403'd every technician-role log write; (2) the dedup
+conflict-return path was originally reachable by `ROLE_CUSTOMER` and
+could have returned a *different* customer's row content on a colliding
+`provider_message_id` — both closed, both covered by new regression
+tests (see `NEW-257`). A third defect (cross-role, not cross-customer)
+was found by code-reviewer on the first review pass and fixed before
+merge: the `ROLE_CUSTOMER`-only strip left `ROLE_TECHNICIAN` (which
+holds `PERM_LOG_COMMUNICATION` but not `PERM_READ_COMMUNICATIONS`) able
+to reach the same conflict-return leak; the strip is now gated on
+`not actor.has_permission(PERM_READ_COMMUNICATIONS)` rather than on the
+`ROLE_CUSTOMER` identity, with its own regression test (this permission
+check alone already covers both `ROLE_CUSTOMER` and `ROLE_TECHNICIAN`,
+since `ROLE_CUSTOMER` holds only `PERM_READ_OWN_COMMUNICATIONS`, a
+distinct permission, so the earlier role-specific branch was dropped
+rather than kept redundantly). Same review pass also required a type
+check on `provider_message_id` in `POST /api/v1/communications`
+(non-string JSON value previously reached `.strip()` unvalidated and
+raised an uncaught 500 instead of a 400) — fixed, with its own new
+HTTP-level test. Migration
+verified against a **copy** of the real production DB file (3902c3f's
+`--apply` target): column + partial index created correctly, re-run
+idempotent, `customers` unchanged at 3 rows. Test count (scoped to
+`tests/test_restoricon_core/` only — not a full-project-suite number,
+since that depends on whatever else is in the working tree at run time,
+per `NEW-223`'s lesson): 108→115 passing (`python -m pytest
+tests/test_restoricon_core/ -q`, verbatim). **JS-side retry queue
+specified, not built** (deferred to a follow-up round per this round's
+own smallest-safe-slice call): a JSON array file alongside Aigentik's
+other JSON state, each entry the exact intended POST body plus a
+`first_attempt_at` timestamp, drained at the top of the next
+`handleNewMail()` poll (no new timer), removed on any 2xx response,
+unbounded rather than capped (Core is a local same-device process,
+outages should be rare, and a drop-oldest cap would reintroduce the
+exact silent-loss failure mode this round exists to close). Note: this
+retry queue is exactly the case that will exercise the
+`ROLE_CUSTOMER`-side idempotency gap already recorded in `NEW-257`
+(customer-role writes drop `provider_message_id` for the leak-prevention
+fix, so a retried customer-portal write would double-log rather than
+dedup) — no customer-portal retry path exists yet, so this is not a
+live bug today, but whoever builds one needs the fix noted here first.
+See `NEW-257` for the full write-up, file list, and exact test names.
+
+**Phase B2 task 4, third module — `subcontractor-recruiter.js`
+write-through, Core-side groundwork only, 2026-08-27 — code-complete,
+code-reviewer-approved. NOT live-verified against real Aigentik-CLI
+production traffic (same tier as the DNC pilot and the email/sms-rules
+module, rule 7). Ships NO JS changes this round** —
+`~/Codey-Aigentik/subcontractor-recruiter.js`/`owner-command.js`
+themselves are untouched; this is the Core-only half of the
+`NEW-224` blocker, the general partial-update method the JS-side
+write-through conversion still needs. Built `CRMService
+.update_subcontractor()` (22-key `ALLOWED_UPDATE_FIELDS` allow-list,
+unknown-key rejection, `None`-valued-key rejection, shallow-merge for
+`qualification_data`, replace for `secondary_trades`, unconditional
+`updated_at`/`last_contact_at` bump, unconditional audit log on any
+real write, empty-dict no-op) in `restoricon_core/services/
+crm_service.py`, plus `POST /api/v1/subcontractors/{id}/update` in
+`restoricon_core/api/routes.py`. Code-reviewer independently
+live-probed (not just read) the allow-list rejection, the RBAC gate
+ordering, both JSON-column merge semantics, and the empty-dict no-op
+path against a real `:memory:` DB — approved, no changes requested;
+raised three non-blocking findings, now logged as `NEW-238` (create/
+update falsy-email normalization mismatch), `NEW-239` (same class as
+`NEW-221`, unvalidated JSON-column value types → leaky 500), and
+`NEW-240` (WRITE-without-READ RBAC latent gap, recurring across three
+methods, not previously ledgered). Test suite re-run fresh, not
+reused from any prior citation: `789 passed, 1 skipped`
+(`python -m pytest tests/ -q`, 2026-08-27). The actual
+`subcontractor-recruiter.js`/`owner-command.js` write-through
+conversion remains a separate, still-not-started future round — see
+§6.4's third-module entry for the two-Core-call sequencing it will
+need (`update_subcontractor()` then, if status changed, a separate
+`update_subcontractor_qualification()` call).
+
+**Phase B2 write-through progress, updated: 3 of the 10 write-site
+modules are now done including JS-side cutovers — `do-not-contact.js`,
+`email-rules.js`/`sms-rules.js`, and `subcontractor-recruiter.js` (Core upsert
+and JS write-through both complete, 150/150 Codey-Aigentik tests pass).**
+Remaining modules: `customer-module.js` (CRM customer intake), `calendar.js`,
+and comms/email/SMS-provider logging.
+
+**Phase B2 task 4, third module, continuation — `find_subcontractor()`
+Core read primitive: code-complete + code-reviewer-approved, 2026-08-27
+(NOT live-verified; 811 passed/1 skipped in the full `pytest tests/`
+run reviewed).** Re-reading `subcontractor-recruiter.js` in full
+this round surfaced that the prior round's `update_subcontractor()`
+unblocked only the write half of the JS conversion — the read half
+(`findSubcontractor()`'s fuzzy phone/email/name lookup, used on every
+inbound SMS/email via `role-router.js` plus six `owner-command.js`
+call sites) has no Core equivalent at all (`NEW-241`). Advisor review
+rejected a shadow-write slice (converting only the two
+`updateSubcontractor()` write call sites while reads stayed
+local-JSON) as unverifiable and divergence-prone; a second advisor
+pass also caught a wrong-answer bug in the first draft of this spec
+(an unguarded empty query would have returned the table's first row
+instead of no match — fixed in the spec before handoff) and an
+overstated claim in this round's own framing. Implementer built
+`CRMService.find_subcontractor()` and its route from that spec;
+code-reviewer approved, including an explicit endorsement of the
+deliberate decision to mirror — not silently fix —
+`findSubcontractor()`'s NULL/blank-phone predicate bug (`NEW-246`),
+on the grounds that no live JS call site exists yet, the decision was
+made at the spec layer rather than improvised mid-task, and it is
+pinned by a named regression test; `NEW-246` has been amended with a
+note that any future spec wiring this method to a live JS call site
+must treat the bug as must-fix-first. **This round ships no
+`subcontractor-recruiter.js` changes** — the JS read-path conversion
+is still a separate future round. **Correction (still holds): closing
+this read-primitive gap alone does not make a real JS cutover
+possible** — `NEW-242` (`createOrUpdateSubcontractorLead()`'s
+upsert/dedup logic, no Core equivalent) and `NEW-245`
+(no documented mapping from a Core `Subcontractor` row back to the
+field names/types five JS consumer functions expect) both remain
+open prerequisites; this method is necessary but not sufficient. Also
+outstanding from the prior round: `NEW-243` (dual-write-vs-Core-
+primary open design question for the eventual real cutover) and
+`NEW-244` (`contacts.js`'s still-local-JSON cross-write, orthogonal).
+Nothing in `~/Codey-Aigentik` touched.
+
+**Cleanup round, 2026-08-27 — not Phase B2 work, three small findings
+closed.** `NEW-227` (token accumulation on `provision_ai_agent_auth.py`
+rerun) and `NEW-222`/`NEW-237` (the by-id-GET routing quirk, fixed for
+its 4 known instances in `restoricon_core/api/routes.py`) are both
+code-reviewer-approved and committed. `NEW-226` was already closed
+separately in `Codey-Aigentik` (commit `0398396`, docs-only). See
+`NEW_ISSUES.md` for full detail; one residual (an empty-trailing-segment
+variant of the routing quirk on `GET /api/v1/customers/`) is logged
+open, not fixed this round.
+
+**`NEW-212`/`NEW-232`/`NEW-216` closure, 2026-08-27 — code-complete,
+code-reviewer-APPROVED, committed. This is schema/service-layer only —
+no API routes exposed yet (`NEW-247`, deliberate), no JS/Codey-Aigentik
+changes.** Ish approved both pending decisions this round: (1) add
+`external_id` to `customers`/
+`leads` (small schema change, unblocks the real customer-data migration
+and the comms write-through's `customer_id` resolution), and (2)
+`schedule-config.json` gets "the best place for it," delegated to
+project-architect's judgment. **Part A:** `external_id TEXT` added to
+both tables in `restoricon_core/database.py` — no inline `UNIQUE`
+(SQLite's `ALTER TABLE ADD COLUMN` rejects `UNIQUE` columns, confirmed
+directly rather than assumed); uniqueness instead enforced via
+`CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_external_id` /
+`idx_leads_external_id`. This project had no schema-versioning mechanism
+at all before this round (`_SCHEMA_SQL`'s `CREATE TABLE IF NOT EXISTS`
+only ever helped brand-new DB files); added a `DatabaseManager
+._migrate_schema()` step, run after `init_schema()`'s `executescript`,
+that adds missing columns to a pre-existing DB file via a
+`PRAGMA table_info()` existence check before each `ALTER TABLE`.
+Verified three ways: (a) fresh `:memory:` DB has the column via
+`CREATE TABLE` directly; (b) a synthetic legacy-shape DB (pre-round
+`customers`/`leads` DDL, one seeded row) gets the column added, the row
+preserved, and a second `DatabaseManager()` open against the same file
+does not raise "duplicate column name"; (c) a copy of the real on-device
+`~/.codey_restoricon/core.db` (258KB) was migrated and its
+`PRAGMA table_info(customers)`/`(leads)` output confirmed the column
+present after, absent before — see `PROJECT_LOG.md` for the verbatim
+before/after column lists. `get_customer_by_external_id()`/
+`get_lead_by_external_id()` added to `crm_service.py`, matching the
+three existing `*_by_external_id` lookups' permission-gating pattern.
+**Part B:** new dedicated singleton table `schedule_config` (`id
+INTEGER PRIMARY KEY CHECK(id = 1)`, same pattern as `business_profile`),
+owned by `scheduling_service.py` rather than folded into
+`business_profile` — reasoning: `business_profile` is identity/
+onboarding data, `schedule_config` is operational scheduling config in
+the same domain as `appointments`. Columns: `working_hours_json`,
+`default_duration_minutes`, `buffer_minutes`, `booking_window_days`,
+`duration_by_relationship_json` (source field names kept verbatim for
+migration fidelity; `duration_by_relationship` is an opaque JSON blob
+since the live source file has it as `{}`, so no structure was invented
+for its unknown key shape). New permission pair
+`PERM_READ_SCHEDULE_CONFIG`/`PERM_WRITE_SCHEDULE_CONFIG` (not a reuse of
+the `business_profile` pair — keeps this round's one-pair-per-table
+convention, avoids a future "give sales read access to business hours"
+change silently also granting business-profile writes), granted to
+admin/manager/ai_agent, matching `business_profile`'s role set.
+`get_schedule_config()`/`upsert_schedule_config()` added to
+`scheduling_service.py`, mirroring `upsert_business_profile()`'s
+`ON CONFLICT(id) DO UPDATE` pattern. **Tests:** 9 new tests across
+`test_database.py` (migration + unique-index enforcement),
+`test_services.py` (external_id lookups), and
+`test_operations_services.py` (schedule_config singleton-upsert +
+zero-permission-actor rejection). Full suite re-run fresh: `823 passed,
+1 skipped` (`python -m pytest tests/ -q`, 2026-08-27; baseline before
+this round's changes was `814 passed, 1 skipped`, confirmed by running
+the suite before any edits). **Correction on NEW-232's closure:**
+`NEW-212`'s fix discharges NEW-232's *blocking dependency* — it does
+not build the comms write-through task itself, which remains a separate
+unbuilt future round. **Scope note for future rounds:** Ish clarified
+(2026-08-27) the current Aigentik-CLI/Codey-Aigentik data is his own
+test data, not live production customer data yet — this doesn't change
+this round's scope, but a future round building the actual
+customer-data migration or comms write-through should not assume a
+production-data risk posture that isn't there yet. **Not done this
+round:** no API route exposure for the new lookup/config methods
+(`restoricon_core/api/routes.py` untouched — Core-only scope per
+instruction), logged as `NEW-247`; no `~/Codey-Aigentik`/migration-script
+changes (that's the migration-script extension, a separate next task).
+**Code-reviewer pass, 2026-08-27: APPROVED, one non-blocking Warning.**
+Reviewer independently re-verified rather than trusting the implementer's
+summary: reproduced `_migrate_schema()`'s idempotency directly (fresh DB
+no-op, legacy DB gets the column, second open of an already-migrated file
+raises nothing), independently opened the real on-device
+`~/.codey_restoricon/core.db` read-only and confirmed it genuinely lacks
+`external_id`/`schedule_config` (i.e. the migration was never run against
+production, only a copy), confirmed SQLite's UNIQUE-index NULL semantics
+directly, read `~/Aigentik-CLI/data/schedule-config.json` directly and
+matched its shape byte-for-byte against the new DDL, and reproduced
+`823 passed, 1 skipped` literally. **Warning (not blocking, logged as
+`NEW-248`):** `get_customer_by_external_id()` gates on
+`has_permission(PERM_READ_ALL_CUSTOMERS)` directly rather than
+`get_customer(id)`'s `can_access_customer(id)`, which lets a
+`ROLE_CUSTOMER` actor read their own record without that permission —
+reproduced live by the reviewer, not currently exploitable (no API route
+yet), fourth occurrence of this exact gap shape after `NEW-189`/`NEW-194`/
+`NEW-214`. See `NEW-248` for the full write-up and the recurring-pattern
+note. Full suite independently re-run fresh by project-architect before
+commit: `823 passed, 1 skipped` (`python -m pytest tests/ -q`, 2026-08-27),
+matching both the implementer's and the reviewer's counts exactly.
+
+**`migrate_aigentik.py` extended to `customers.json`/`schedule-config.json`,
+2026-08-27 — code-complete, code-reviewer-APPROVED, committed. NOT yet
+run with `--apply` against real data** (deliberate — pending a DB backup,
+which is Ish's/the coordinator's next step, not this round's). Added
+`map_customer()` (`customers.json` -> `Customer` via
+`crm_service.create_customer()`, skip-if-exists via
+`get_customer_by_external_id()`) and `map_schedule_config()`/
+`_migrate_schedule_config_file()` (`schedule-config.json` ->
+`ScheduleConfig` via `scheduling_service.upsert_schedule_config()`,
+mirroring the existing `profile.json` pattern). Of customers.json's ~46
+fields, only 8 get a direct, non-lossy column mapping; everything else
+(insurance/claim fields, project-scheduling fields, `lead_status`, etc.)
+is preserved verbatim in `custom_fields["aigentik_raw"]` rather than
+dropped or guessed into a CHECK-constrained column — see `NEW-252`/
+`NEW-253` for the follow-up questions this raises. `contacts.json` remains
+the sole `OUT_OF_SCOPE_FILES` entry (phonebook shape, no customer fields,
+reconfirmed by direct read). **Verified against the real, live
+`customers.json`/`schedule-config.json`** (dry-run, in-memory DB, no
+writes): 3/3 customers would-insert, 0 would-skip, 0 invalid; 1/1
+schedule_config would-upsert. Real on-device `~/.codey_restoricon/core.db`
+confirmed still at 0 rows in `customers`/`leads`/`schedule_config` (via a
+throwaway copy, not the live file) — `--apply` will be a clean set of 3
+inserts + 1 upsert, no dedup/collision risk. API routes are confirmed not
+a prerequisite (`migrate_aigentik.py` calls services directly, no HTTP
+client) — `NEW-247` remains open separately, for other future callers.
+**Two follow-on findings, both Confirmed, neither fixed this round:**
+`NEW-252` (insurance/claim fields opaque in `custom_fields`, a real
+Restoricon-relevant schema question) and `NEW-253` (lead-shaped data in
+customers.json never reaches `leads`). **One storage/PII-shaped finding,
+Confirmed by direct read of `audit_service.py`:** `NEW-254` —
+`create_customer()` duplicates the full `custom_fields["aigentik_raw"]`
+blob into the permanent, append-only `audit_log` table on every call;
+inert for today's placeholder data, but a real concern once real
+insurance/claim data flows through this path, since `audit_log` has no
+update/delete path at all. **One process-note finding, Confirmed and
+self-disclosed by the code-reviewer (rule 5/6 — correcting the record
+honestly):** while independently verifying this round, the reviewer
+unintentionally instantiated `DatabaseManager` against the real
+`~/.codey_restoricon/core.db` (rather than the intended throwaway copy),
+which auto-ran the schema migration and added the `schedule_config` TABLE
+to the live file (258048 -> 270336 bytes). No data rows were written
+(customers/leads/schedule_config confirmed still 0 rows) and table
+creation is idempotent — not a data-safety incident, but logged as
+`NEW-255` so the record is accurate. Full suite re-run fresh before
+commit: `829 passed, 1 skipped` (`python -m pytest tests/ -q`,
+2026-08-27), matching the implementer's own count exactly (16/16 new in
+`test_migrate_aigentik.py`, plus whatever the concurrently in-progress
+`NEW-145`/`NEW-149`/`NEW-155` context-ceiling round has already added to
+the same working tree — that round's files (`core/daemon.py`,
+`core/loader_v2.py`, three of its test files) are untouched and
+unstaged by this commit).
+
+**Comms reliable-log fix (NEW-233), 2026-08-27 — code-complete, self-
+tested, mandatory code-reviewer pass pending (rule 4: schema change +
+reliability-critical logic).** `communication_history` now has a
+nullable `provider_message_id` idempotency key (partial unique index,
+same migration pattern as `NEW-212`/`NEW-232`'s `external_id` columns)
+and `record_communication()` dedups on it via `ON CONFLICT ... DO
+NOTHING`, closing the duplicate-row risk `email-provider.js`'s
+documented `\Seen`-flag reprocessing race created for any future
+write-through. `POST /api/v1/communications` gained `from_email`→
+`customer_id` resolution via a new `CRMService.get_customer_by_email()`.
+Two reliability/RBAC defects were found and fixed within the same
+round (a technician-role 403 on resolution, a customer-role data leak
+on dedup conflict) — see `NEW-257` for the full account. **No JS code
+touched or written** — `~/Codey-Aigentik` has no code calling the Core
+API yet at all; wiring the write-through in, plus building the spec'd
+JS-side retry queue (also in `NEW-257`), is deferred to a follow-up
+round. Full detail, exact file list, and test names: `NEW-257`; design
+narrative: §6.4's "Comms Core-side reliable-log fix" entry.
+
+---
+
 ## 2026-09-02 — `U.38` steps 1/1b/2: obsolescence audit of the whole open register; nothing is moot
 
 - **Status**: **Doc-only round, complete for steps 1, 1b and 2 (plus
@@ -87,6 +746,9 @@ and Appendix A.
   `ANTIGRAVITY.md` / `AGENTS.md` / `HANDOFF.md`). Step 5 is a **hard
   stop**: the brief requires proposing a shape to Ish first, and those
   four files are what agents boot from. No edits made to them.
+- **Update, same day**: step 3 was completed in a follow-on commit — see
+  the de-ledger entry above. **Step 5 remains the only outstanding part
+  of `U.38`, and remains a hard stop pending Ish's decision.**
 
 ## 2026-09-02 — Browser GUI removed; working tree and repo-root litter cleaned
 
