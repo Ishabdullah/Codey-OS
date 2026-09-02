@@ -12892,6 +12892,17 @@ outside that fix's scope.
 - **Not fixed this round** — the task scoped the fix to `role` only and
   explicitly listed adjacent auth surfaces as out of scope. Rated low
   severity.
+- **FIXED 2026-09-02 — U.35, commit `5e03b4c`, code-reviewer APPROVED
+  (rule-4 auth), NOT live-verified beyond the test suite.** `"active"`
+  removed from `update_user`'s `allowed_fields`; a real `active` change
+  now raises `ValueError` (→ 400) pointing at `set_user_active`, while a
+  no-op echo-back of the current value passes. The `UPDATE` is wrapped
+  `try/except sqlite3.IntegrityError → ValueError`, so the cosmetic
+  500-not-400 half is fixed too (and duplicate-email / bad-FK now 400).
+  Reviewer independently checked the live `core.db`: 0 rows with
+  `u.active = 0 AND t.is_revoked = 0`, 0 suspended users — no data
+  remediation needed. 9 new tests in `tests/test_user_management.py`,
+  full auth suite 230 passed. Closed.
 
 ### [NEW-265] `create_review_request()` writes no audit-log entry
 - **Status:** Confirmed (read directly; the method returns after its
@@ -12934,6 +12945,21 @@ outside that fix's scope.
   and `customer_id` may be set in the same call).
 - **Not fixed this round** — out of scope; found while verifying the
   role-change revocation fix in that same function.
+- **FIXED 2026-09-02 — U.36, commit `5e03b4c`, same code-reviewer pass
+  as U.35.** New module-level `_validate_user_role_invariants(role,
+  customer_id)` in `auth.py`, called by both `create_user` and
+  `update_user`. On the update path it is evaluated against post-update
+  state, using `"key" in updates` membership so an explicit
+  `{"customer_id": None}` unlink is honored (not masked by the stored
+  value). Reject-only — no normalization. Closed.
+- **Addendum (accepted narrow edge, not new work):** moving a user *to*
+  `role = "customer"` in an `update_user` call that omits `customer_id`
+  while the row already carries a stale, FK-valid `customer_id` passes
+  validation and silently re-links that user to the old customer. It
+  satisfies the stated invariant (post-update state has a non-null
+  `customer_id`); requires a `PERM_MANAGE_USERS` actor and a
+  pre-existing stale link. Tightening this is a separate question, not
+  part of U.36. Code-reviewer rated it Warning, not blocking.
 
 ### [NEW-267] The role-change token revocation added in this round writes no audit record, and `user_updated` never captures the old role
 - **Status:** Confirmed (raised by the code-reviewer as a non-blocking
@@ -13551,3 +13577,75 @@ outside that fix's scope.
 - **Fix direction:** add the trailing newline next time either file is
   edited for another reason; not worth its own commit.
 - **Cross-reference:** `~/Codey-Aigentik/config.json.example`, `index.js`.
+
+### [NEW-298] `update_user` silently ignores keys not in `allowed_fields` — including `username` and `password`, and any typo'd field name
+- **Status:** Suspected (raised by project-architect while scoping
+  U.35/U.36, 2026-09-02; pre-existing, not introduced by that round).
+- **Mechanism:** `restoricon_core/auth.py::update_user`'s
+  `for k, v in updates.items(): if k in allowed_fields:` loop drops any
+  other key with no error and no echo. `username` and `password` are not
+  in `allowed_fields` and there is no other endpoint to change a
+  username after creation. A `PUT /api/v1/users/{id}` body with a
+  misspelled field name returns 200 having changed nothing.
+- **Impact:** low-to-moderate — no way to rename a user account; a
+  client typo in a mutation body fails silent-success. Not a security
+  hole (unknown keys can't write).
+- **Fix direction:** either add `username` to `allowed_fields` (with the
+  same `UNIQUE COLLATE NOCASE` → `ValueError` mapping the U.35 round
+  added for `email`), or have `update_user` raise on any key that is
+  neither in `allowed_fields` nor `custom_permissions`. Password changes
+  should stay on `change_password` (one path — same principle as U.35).
+- **Cross-reference:** `restoricon_core/auth.py::update_user`; `NEW-264`.
+
+### [NEW-299] `create_user` accepts a non-null `customer_id` for any role — the customer↔customer_id coupling is enforced one-directionally
+- **Status:** Suspected (project-architect, U.35/U.36 scoping,
+  2026-09-02). Pre-existing; `_validate_user_role_invariants` (added by
+  U.36) deliberately did not change this.
+- **Mechanism:** `create_user` (and now `update_user` via the shared
+  helper) rejects `role = customer` with no `customer_id`, but never
+  rejects e.g. `role = "admin", customer_id = 5`. A privileged user row
+  can carry a customer link that nothing reads but that could confuse a
+  future `can_access_customer()`-style check if one starts consulting
+  `customer_id` regardless of role.
+- **Impact:** low — arguably deliberate (allows staging a role change),
+  but undocumented and asymmetric.
+- **Fix direction:** decide the intended contract and either document it
+  or add the inverse check to `_validate_user_role_invariants` (non-
+  customer role ⇒ `customer_id` must be `None`). Coordinate with
+  `NEW-266`'s addendum.
+- **Cross-reference:** `restoricon_core/auth.py::create_user`,
+  `_validate_user_role_invariants`; `NEW-266`.
+
+### [NEW-300] `update_user` / `set_user_permissions` write `custom_permissions_json` without validating keys against the permission catalog
+- **Status:** Suspected (project-architect, U.35/U.36 scoping,
+  2026-09-02). May already be logged elsewhere — **check for dedup
+  before acting.**
+- **Mechanism:** `update_user`'s `custom_permissions` branch
+  (`auth.py` ~879-882) and `set_user_permissions` persist the JSON blob
+  without checking keys against `PERMISSIONS_CATALOG` / the known
+  `PERM_*` set. A caller with `PERM_MANAGE_USERS` can store arbitrary
+  permission strings on a user row.
+- **Impact:** low — an unknown permission string is never checked by
+  `has_permission()` so it grants nothing, but it pollutes the row and
+  any admin UI that renders `custom_permissions`.
+- **Fix direction:** validate keys against the catalog at write time in
+  a shared helper (both call sites), rejecting or dropping unknowns.
+- **Cross-reference:** `restoricon_core/auth.py` `update_user`
+  `custom_permissions` branch, `set_user_permissions`.
+
+### [NEW-301] The `test_user_management.py` route harness never asserted 400-vs-500 on constraint violations — how `NEW-264`'s cosmetic half went unnoticed
+- **Status:** Confirmed (project-architect, U.35/U.36 scoping,
+  2026-09-02). **Partly closed** by U.35's new tests 3 and 8 (which do
+  assert route-level 400 on the `active` guard and on a duplicate-email
+  `PUT`).
+- **Mechanism:** the end-to-end route test (`~:280-355`) drove
+  `POST /api/v1/users`, `PUT /api/v1/users/{id}`, `/suspend`, `/activate`
+  and asserted on success shapes only — never on the status code
+  returned when the service raises `sqlite3.IntegrityError` (which was
+  surfacing as 500). So the 500-not-400 behaviour on rejected `active`
+  values sat unobserved.
+- **Impact:** test-coverage gap, not a runtime defect.
+- **Fix direction:** when B6.1/B6.2 touch this harness, add a general
+  "constraint violation → 400" assertion pattern rather than the two
+  point cases U.35 added.
+- **Cross-reference:** `tests/test_user_management.py`; `NEW-264`.

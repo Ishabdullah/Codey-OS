@@ -10,6 +10,52 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-02 — `U.35` + `U.36` landed: `update_user` is no longer a token-unaware suspension path
+
+- **Status**: **Code-complete + code-reviewer APPROVED (rule-4 auth,
+  round 1). NOT live-verified beyond the test suite** — no live-model
+  component. Commit `5e03b4c`. The reviewer additionally inspected the
+  live `~/.codey_restoricon/core.db` and found **0 rows** with
+  `u.active = 0 AND api_tokens.is_revoked = 0` and 0 suspended users —
+  no data remediation from the historical bug needed.
+- **U.35 (`NEW-264`)**: `update_user(uid, {"active": 0})` was a second
+  suspension path that never revoked tokens, so `update_user(active=1)`
+  later resurrected every pre-suspension session. Fix: `"active"` removed
+  from `allowed_fields`; a real `active` change now raises `ValueError`
+  (→ 400) naming `set_user_active`, while a no-op echo-back of the
+  current value passes. The `UPDATE` is wrapped
+  `try/except sqlite3.IntegrityError → ValueError`, closing the cosmetic
+  500-not-400 half and giving duplicate-email / bad-FK a 400 too.
+- **U.36 (`NEW-266`)**: `update_user` accepted `role="customer"` with no
+  `customer_id`, an invariant `create_user` enforces. Fix: new
+  module-level `_validate_user_role_invariants()` shared by both,
+  evaluated against post-update state (`"key" in updates` membership so
+  an explicit `{"customer_id": None}` unlink is honored). Reject-only.
+- **Pipeline**: architect scoped both as one round (same function) →
+  implementer (8 tests, 230 auth-suite passed) → code-reviewer APPROVED
+  → one reviewer-suggested test-only addition (the `{"customer_id":
+  None}` unlink-while-stored-role-is-customer case — the direction the
+  helper was written for) → 9 tests, still green → committed.
+- **The reusable pattern for B6.1** (its whole reason for being the
+  prerequisite): (a) `allowed_fields` whitelist, unknown keys ignored;
+  (b) cross-field invariants in one create/update helper, post-update
+  state; (c) `sqlite3.IntegrityError` → `ValueError` at the service
+  boundary, whole `with conn:` inside the `try`; (d) each state
+  transition's side effects on exactly one path.
+- **B6 impact**: **B6.1's prerequisite is now met — B6.1 is the next
+  coding round.** Front-matter banner, §6.9 prose, and Appendix A
+  (`U.35`/`U.36` → `[x]`, B6.1 prereq line) updated.
+- **`NEW-264` / `NEW-266` closed**; `NEW-266` gained an addendum for a
+  narrow accepted edge (move-to-customer omitting `customer_id` while a
+  stale valid one sits on the row → silently re-links; reviewer:
+  Warning not blocking). `NEW-267` (audit record for the role-change
+  revoke) stays open — folded into B6.2, not this round.
+- **Findings, none fixed (rule 8)**: `NEW-298` (`update_user` silently
+  ignores unknown keys incl. `username`/`password`), `NEW-299`
+  (`customer_id` coupling is one-directional), `NEW-300` (`custom_permissions`
+  written unvalidated — check dedup), `NEW-301` (route harness never
+  asserted 400-vs-500, partly closed this round).
+
 ## 2026-09-02 — `B2-fin-1` landed: business profile is Core-first read in the Aigentik fork
 
 - **Status**: **Code-complete + code-reviewer APPROVED (round 2). NOT

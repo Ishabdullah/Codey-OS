@@ -1251,9 +1251,14 @@ points, named below.
 > B2's write-site groups are cut over (`queue.js` ruled out of scope,
 > `NEW-291`; `business_profile` closed via **B2-fin-1**, fork commit
 > `2056524`, code-reviewer-approved, NOT live-verified). **The real
-> front is B6.1** — itself gated on `U.35`/`U.36` (`update_user`
-> partial-update fixes; `NEW-264`/`NEW-266`), which give B6.1 a correct
-> pattern to copy. So the next coding round is `U.35`/`U.36`, then B6.1.
+> front is B6.1.** Its prerequisite `U.35`/`U.36` (`update_user`
+> partial-update fixes, `NEW-264`/`NEW-266`) **landed 2026-09-02
+> (commit `5e03b4c`, code-reviewer-approved)** and established the
+> partial-update-on-an-auth-table pattern B6.1 copies: `allowed_fields`
+> whitelist; cross-field invariants in one create/update helper checked
+> post-update; `sqlite3.IntegrityError` → `ValueError` → 400 at the
+> service boundary; each state transition's side effects on one path.
+> **So the next coding round is B6.1 itself.**
 >
 > --- original 2026-08-22 direction, kept as the record ---
 >
@@ -3723,11 +3728,16 @@ Deliberately permission-keyed, not role-keyed, to avoid `NEW-194`'s
 "gate exists but narrowing logic is role-keyed" bug shape by
 construction.
 
-**Prerequisite, do first or in the same session: `U.35`/`U.36`
-(`NEW-264`, `NEW-266`).** Both are defects in `update_user` — the exact
-partial-update-on-an-auth-table shape `update_project` is about to copy.
-Fixing them first means B6.1 copies a correct pattern instead of
-propagating a broken one.
+**Prerequisite `U.35`/`U.36` (`NEW-264`, `NEW-266`) — DONE 2026-09-02
+(commit `5e03b4c`, code-reviewer-approved).** Both were defects in
+`update_user`, the exact partial-update-on-an-auth-table shape
+`update_project` copies. The pattern to follow, now established there:
+(a) `allowed_fields` whitelist, unknown keys ignored; (b) cross-field
+invariants in one helper shared by create + update, evaluated against
+post-update state; (c) `sqlite3.IntegrityError` → `ValueError` at the
+service-method boundary (whole `with conn:` inside the `try`), so the
+route's `ValueError → 400` handles it; (d) each state transition's side
+effects on exactly one code path.
 
 This item sets the audit standard B6.2 then applies everywhere: every
 field it changes is logged with **old and new values**.
@@ -5883,9 +5893,9 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       role-keyed: admin/manager unrestricted, `project_manager` scoped to
       own projects, `sales` excluded (Ish, 2026-09-02). Logs old/new
       values from the start — sets B6.2's standard.
-      **Prerequisite: `U.35`/`U.36` (`NEW-264`, `NEW-266`)** — the same
-      partial-update-on-an-auth-table shape, in `update_user`; fix first
-      so B6.1 copies a correct pattern.
+      **Prerequisite `U.35`/`U.36` (`NEW-264`, `NEW-266`) — DONE
+      2026-09-02 (`5e03b4c`).** Copy the pattern it established in
+      `update_user` (see this item's prose above).
 - [ ] **B6.2** — audit detail completion + an audit-search screen.
       63 `audit.log()` sites measured 2026-09-02; only 4 carry old/new
       pairs. **`api/routes.py`'s 9 user-mutation sites pass no `details=`
@@ -6105,23 +6115,24 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       loads. Do not repeat the "never once" figure until it is
       re-measured.
 
-- [ ] **U.35** (`NEW-264`, Confirmed) — `restoricon_core`
-      `update_user(uid, {"active": 0})` is a second suspension path that
-      never revokes tokens, so a later `update_user(active=1)` resurrects
-      every pre-suspension session. Not a bypass while suspended
-      (`authenticate_token` joins `u.active = 1`); the defect is
-      resurrection. Fix: drop `active` from `update_user`'s
-      `allowed_fields` and force callers through `set_user_active()` —
-      one suspension path, not two. Same entry covers the 500-not-400 on
-      `active` values rejected by the DB CHECK constraint. Rule-4
-      category (auth).
-- [ ] **U.36** (`NEW-266`, Confirmed) — `restoricon_core`
-      `update_user` accepts `role = "customer"` with no `customer_id`, a
-      shape `create_user` explicitly refuses. Fails closed (an unusable
-      account, not a leak), but the invariant holds on create and not on
-      update. Fix: shared validation helper evaluated against the
-      post-update state. **Do with U.35** — same function. Rule-4
-      category (auth).
+- [x] **U.35** (`NEW-264`) — **DONE 2026-09-02, commit `5e03b4c`,
+      code-reviewer APPROVED (rule-4 auth), NOT live-verified beyond the
+      test suite** (no live-model component; reviewer additionally
+      checked the live `core.db` — 0 pre-existing resurrected token
+      rows). `"active"` dropped from `update_user`'s `allowed_fields`; a
+      real `active` change is now rejected with a 400 pointing at
+      `set_user_active` (a no-op echo-back of the current value still
+      passes). The `UPDATE` is wrapped `try/except sqlite3.IntegrityError
+      → ValueError`, so the 500-not-400 half (and duplicate-email / bad-FK)
+      now return 400. `NEW-264` closed.
+- [x] **U.36** (`NEW-266`) — **DONE 2026-09-02, commit `5e03b4c`, same
+      code-reviewer pass.** New module-level `_validate_user_role_invariants()`
+      called by both `create_user` and `update_user`, evaluated against
+      post-update state (`"key" in updates` membership, so an explicit
+      `{"customer_id": None}` unlink is honored). `NEW-266` closed; a
+      narrow accepted edge (move-to-customer omitting `customer_id` while
+      a stale valid one sits on the row → silently re-links) is recorded
+      as an addendum on `NEW-266`, not new work.
 - [ ] **U.37** (`NEW-265`, `NEW-267`, both Confirmed) — audit-coverage
       gaps in `restoricon_core`: `create_review_request()` writes no
       audit entry at all, and the 2026-09-02 role-change revocation
