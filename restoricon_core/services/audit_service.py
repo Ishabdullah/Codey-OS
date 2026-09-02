@@ -27,6 +27,42 @@ _AUDITABLE_USER_FIELDS = frozenset({
     "customer_id", "custom_permissions", "active",
 })
 
+# NEW-314: Contract diff domain -- excludes customer_signature_data / content.
+_AUDITABLE_CONTRACT_FIELDS = frozenset({
+    "id", "contract_number", "customer_id", "project_id", "estimate_id",
+    "title", "template_name", "status", "customer_signed_at", "version",
+    "created_at", "updated_at",
+})
+
+# NEW-314: Invoice diff domain -- excludes payments.
+_AUDITABLE_INVOICE_FIELDS = frozenset({
+    "id", "invoice_number", "customer_id", "project_id", "status", "amount",
+    "deposit_amount", "balance_due", "due_date", "notes",
+    "created_at", "updated_at",
+})
+
+# NEW-314: Subcontractor diff domain -- excludes license_number,
+# general_liability, workers_comp, references, qualification_data.
+_AUDITABLE_SUBCONTRACTOR_FIELDS = frozenset({
+    "id", "external_id", "contact_external_id", "company_name", "legal_name",
+    "dba", "contact_name", "title", "phone", "email", "website",
+    "primary_trade", "secondary_trades", "service_area", "years_in_business",
+    "crew_size", "residential_experience", "commercial_experience",
+    "typical_project_size", "availability", "emergency_availability",
+    "license_required", "license_type", "license_expiration", "license_status",
+    "coi_received", "coi_expiration", "additional_insured_status",
+    "insurance_status", "w9_received", "msa_sent", "msa_signed",
+    "portfolio_url", "qualification_status", "recruitment_step", "lead_source",
+    "last_contact_at", "next_followup_at", "contact_attempts", "dnc_status",
+    "notes", "created_at", "updated_at",
+})
+
+# NEW-314: Employee diff domain -- excludes hourly_rate / emergency_contact.
+_AUDITABLE_EMPLOYEE_FIELDS = frozenset({
+    "id", "user_id", "first_name", "last_name", "role_title", "department",
+    "phone", "email", "hire_date", "status", "created_at", "updated_at",
+})
+
 
 def build_audit_details(
     *,

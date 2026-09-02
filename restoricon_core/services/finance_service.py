@@ -17,7 +17,7 @@ from ..auth import (
 )
 from ..database import DatabaseManager
 from ..models import FinancialTransaction
-from .audit_service import AuditService
+from .audit_service import AuditService, build_audit_details
 
 
 def utc_now_iso() -> str:
@@ -120,6 +120,7 @@ class FinanceService:
             txn.id = cursor.lastrowid
 
             # If this is a project cost/expense, update project's actual_cost
+            cost_applied = False
             if txn.project_id and txn.transaction_type in ("vendor_expense", "payroll", "material_cost", "equipment_rental"):
                 conn.execute(
                     """
@@ -130,6 +131,7 @@ class FinanceService:
                     """,
                     (txn.amount, now, txn.project_id),
                 )
+                cost_applied = True
 
         self.audit.log(
             action="create",
@@ -137,7 +139,14 @@ class FinanceService:
             entity_id=txn.id,
             change_summary=f"Recorded {txn.transaction_type} of ${txn.amount:.2f} (#{txn.transaction_number})",
             actor=actor,
-            details=txn.to_dict(),
+            details=build_audit_details(
+                after=txn.to_dict(),
+                side_effects=(
+                    {"project_actual_cost_delta": {"project_id": txn.project_id, "amount": txn.amount}}
+                    if cost_applied
+                    else None
+                ),
+            ),
         )
         return txn
 

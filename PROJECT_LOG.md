@@ -10,6 +10,62 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-02 — `B6.2b-1` landed: 25 mechanical service-layer audit sites canonicalized
+
+- **Status**: **Code-complete + code-reviewer APPROVED (rule-4, audit
+  surface). NOT live-verified beyond the suite** — no live-model
+  component. `tests/test_restoricon_core/` 288 passed (+28 new in
+  `test_b6_2b1_audit_details.py`: 25 parametrized per-site envelope
+  checks reading `details_json` back from the DB, 1 all-25 secret-leak
+  sweep, 1 helper `fields=`/`before=None` unit test). Broader run
+  (`+ test_user_management + test_b5a_api_routes`) 311 passed.
+- **Scope**: Round 1 of B6.2b's 4 sub-rounds — the mechanical pure
+  create / pure delete `audit.log()` sites. 22 creates changed from
+  `details=X.to_dict()` to `details=build_audit_details(after=X.to_dict())`;
+  3 deletes to `snapshot=`. No `action` / `change_summary` string
+  touched. The 30 real-update sites are B6.2b-2/-3/-4.
+- **Count correction**: the architect spec headline said "26" but its
+  body enumerated 25 (22 creates + 3 deletes). `add_to_do_not_contact`
+  (an `ON CONFLICT DO UPDATE` upsert, not a pure create) was
+  deliberately deferred to B6.2b-4 — logged as `NEW-316`, not silently
+  dropped.
+- **NEW-314 allow-lists** (four `frozenset` literals in
+  `services/audit_service.py`, next to `_AUDITABLE_USER_FIELDS`):
+  `_AUDITABLE_CONTRACT_FIELDS` (excl. `customer_signature_data`,
+  `content`), `_AUDITABLE_INVOICE_FIELDS` (excl. `payments`),
+  `_AUDITABLE_SUBCONTRACTOR_FIELDS` (43 names, excl. `license_number`,
+  `general_liability`, `workers_comp`, `references`,
+  `qualification_data`), and — **scope expansion** —
+  `_AUDITABLE_EMPLOYEE_FIELDS` (excl. `hourly_rate`, `emergency_contact`,
+  which `Employee.to_dict()` carries). Reviewer verified all 4 lists
+  field-by-field against `models.py` — no typo'd names. Negative control
+  (verbatim in the implementer report): reverting `fields=` on
+  `create_subcontractor`/`create_employee` lands the secret values in
+  `changed_fields` and fails the sweep — the filter is load-bearing.
+- **One non-uniform site**: `automation_service.delete_rule` previously
+  passed no `details=`; now does a `SELECT * FROM automation_rules`
+  inside the existing `with conn:` before the `DELETE` and snapshots
+  `_row_to_rule(row).to_dict()`. A delete-snapshot inside the txn, not a
+  diff — permitted under the `NEW-311` fallback rule.
+- **`record_transaction`**: added a `cost_applied` bool set right after
+  the conditional `UPDATE projects SET actual_cost = actual_cost + ?`;
+  emits `side_effects={"project_actual_cost_delta": {...}}` only when the
+  cost row was written (delta only — old/new `actual_cost` would need a
+  read, barred by `NEW-311`).
+- **Findings**: `NEW-315` (Confirmed — `build_audit_details` has no
+  filtered-`snapshot` capability, so "create" rows now exist in two
+  envelope shapes in the append-only log; B6.2c's diff reader must
+  handle both, or B6.2b-4 picks one canonical shape), `NEW-316`
+  (Confirmed — `add_to_do_not_contact` deferred to B6.2b-4).
+- **`install.sh`**: no change — no new dependency.
+- **Pipeline**: architect classification → architect B6.2b-1 spec →
+  implementer (one run hit the session limit with no writes; re-run
+  clean) → code-reviewer **APPROVED** (3 non-blocking notes, all folded
+  into `NEW-315`/`NEW-316` and the ledger).
+- **Ledgers**: `CODEY_MASTER_PLAN.md` progress banner + Appendix A
+  (B6.2b-1 checked, B6.2b-4 note expanded); `NEW_ISSUES.md` `NEW-314`
+  progress note + `NEW-315`/`NEW-316` appended.
+
 ## 2026-09-02 — `B6.2a` landed: canonical audit-detail payload helper + 9 user-mutation sites
 
 - **Status**: **Code-complete + code-reviewer APPROVED (rule-4,

@@ -36,7 +36,7 @@ from ..models import (
     WorkOrderStatus,
     utc_now_iso,
 )
-from .audit_service import AuditService
+from .audit_service import AuditService, build_audit_details
 
 
 class OperationsService:
@@ -460,7 +460,7 @@ class OperationsService:
             entity_id=milestone.id,
             change_summary=f"Created milestone '{milestone.name}' for project #{milestone.project_id}",
             actor=actor,
-            details=milestone.to_dict(),
+            details=build_audit_details(after=milestone.to_dict()),
         )
         return milestone
 
@@ -665,7 +665,7 @@ class OperationsService:
             entity_id=work_order.id,
             change_summary=f"Created work order {work_order.work_order_number} ('{work_order.title}')",
             actor=actor,
-            details=work_order.to_dict(),
+            details=build_audit_details(after=work_order.to_dict()),
         )
         return work_order
 
@@ -1214,7 +1214,7 @@ class OperationsService:
             entity_id=equipment.id,
             change_summary=f"Added equipment '{equipment.name}' ({equipment.asset_tag})",
             actor=actor,
-            details=equipment.to_dict(),
+            details=build_audit_details(after=equipment.to_dict()),
         )
         return equipment
 

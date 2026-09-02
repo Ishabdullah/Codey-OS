@@ -77,7 +77,7 @@ from ..models import (
     Task,
     utc_now_iso,
 )
-from .audit_service import AuditService
+from .audit_service import AuditService, build_audit_details, _AUDITABLE_CONTRACT_FIELDS, _AUDITABLE_INVOICE_FIELDS, _AUDITABLE_SUBCONTRACTOR_FIELDS
 
 
 class CRMService:
@@ -140,7 +140,7 @@ class CRMService:
             entity_id=customer.id,
             change_summary=f"Created customer {customer.first_name} {customer.last_name}",
             actor=actor,
-            details=customer.to_dict(),
+            details=build_audit_details(after=customer.to_dict()),
         )
         return customer
 
@@ -533,7 +533,7 @@ class CRMService:
             entity_id=lead.id,
             change_summary=f"Created lead from source '{lead.source}' (est. ${lead.estimated_value:.2f})",
             actor=actor,
-            details=lead.to_dict(),
+            details=build_audit_details(after=lead.to_dict()),
         )
         return lead
 
@@ -882,7 +882,7 @@ class CRMService:
             entity_id=opp.id,
             change_summary=f"Created opportunity '{opp.title}' at stage '{opp.pipeline_stage}'",
             actor=actor,
-            details=opp.to_dict(),
+            details=build_audit_details(after=opp.to_dict()),
         )
         return opp
 
@@ -1234,7 +1234,7 @@ class CRMService:
             entity_id=task.id,
             change_summary=f"Created task '{task.title}'",
             actor=actor,
-            details=task.to_dict(),
+            details=build_audit_details(after=task.to_dict()),
         )
         return task
 
@@ -1603,7 +1603,7 @@ class CRMService:
             entity_id=project.id,
             change_summary=f"Created project '{project.title}' for customer ID {project.customer_id}",
             actor=actor,
-            details=project.to_dict(),
+            details=build_audit_details(after=project.to_dict()),
         )
         return project
 
@@ -1857,7 +1857,7 @@ class CRMService:
             entity_id=estimate.id,
             change_summary=f"Created estimate #{estimate.estimate_number} (${estimate.total_amount:.2f})",
             actor=actor,
-            details=estimate.to_dict(),
+            details=build_audit_details(after=estimate.to_dict()),
         )
         return estimate
 
@@ -1973,7 +1973,7 @@ class CRMService:
             entity_id=contract.id,
             change_summary=f"Created contract #{contract.contract_number} '{contract.title}'",
             actor=actor,
-            details=contract.to_dict(),
+            details=build_audit_details(after=contract.to_dict(), fields=_AUDITABLE_CONTRACT_FIELDS),
         )
         return contract
 
@@ -2208,7 +2208,7 @@ class CRMService:
             entity_id=invoice.id,
             change_summary=f"Created invoice #{invoice.invoice_number} for ${invoice.amount:.2f}",
             actor=actor,
-            details=invoice.to_dict(),
+            details=build_audit_details(after=invoice.to_dict(), fields=_AUDITABLE_INVOICE_FIELDS),
         )
         return invoice
 
@@ -2394,7 +2394,7 @@ class CRMService:
             entity_id=doc.id,
             change_summary=f"Added document '{doc.title}' ({doc.document_type})",
             actor=actor,
-            details=doc.to_dict(),
+            details=build_audit_details(after=doc.to_dict()),
         )
         return doc
 
@@ -2543,7 +2543,7 @@ class CRMService:
             entity_id=sub.id,
             change_summary=f"Added subcontractor '{sub.company_name}'",
             actor=actor,
-            details=sub.to_dict(),
+            details=build_audit_details(after=sub.to_dict(), fields=_AUDITABLE_SUBCONTRACTOR_FIELDS),
         )
         return sub
 
@@ -3076,7 +3076,7 @@ class CRMService:
             entity_id=contact.id,
             change_summary=f"Created contact {contact.name or contact.external_id or contact.id}",
             actor=actor,
-            details=contact.to_dict(),
+            details=build_audit_details(after=contact.to_dict()),
         )
         return contact
 
@@ -3322,7 +3322,7 @@ class CRMService:
             entity_id=contact_id,
             change_summary=f"Deleted contact {contact.name or contact.external_id or contact_id}",
             actor=actor,
-            details=contact.to_dict(),
+            details=build_audit_details(snapshot=contact.to_dict()),
         )
         return True
 

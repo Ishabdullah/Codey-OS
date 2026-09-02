@@ -25,7 +25,7 @@ from ..auth import (
 )
 from ..database import DatabaseManager
 from ..models import AutomationRule, BusinessProfile, DoNotContactEntry, utc_now_iso
-from .audit_service import AuditService
+from .audit_service import AuditService, build_audit_details
 
 VALID_CHANNELS = {"email", "sms"}
 VALID_DNC_TYPES = {"email", "phone"}
@@ -134,7 +134,7 @@ class AutomationService:
             entity_id=rule.id,
             change_summary=f"Created {rule.channel} rule: {rule.description or rule.condition_type}",
             actor=actor,
-            details=rule.to_dict(),
+            details=build_audit_details(after=rule.to_dict()),
         )
         return rule
 
@@ -190,6 +190,10 @@ class AutomationService:
 
         conn = self.db.get_connection()
         with conn:
+            row = conn.execute(
+                "SELECT * FROM automation_rules WHERE id = ?;",
+                (rule_id,),
+            ).fetchone()
             cursor = conn.execute(
                 "DELETE FROM automation_rules WHERE id = ?;",
                 (rule_id,),
@@ -203,6 +207,7 @@ class AutomationService:
                 entity_id=rule_id,
                 change_summary=f"Deleted automation rule {rule_id}",
                 actor=actor,
+                details=build_audit_details(snapshot=self._row_to_rule(row).to_dict()) if row else None,
             )
         return deleted
 
@@ -408,6 +413,7 @@ class AutomationService:
                 entity_id=None,
                 change_summary=f"Removed {classified['type']} from do-not-contact: {classified['value']}",
                 actor=actor,
+                details=build_audit_details(snapshot={"type": classified["type"], "value": classified["value"]}),
             )
         return removed
 

@@ -13910,5 +13910,60 @@ outside that fix's scope.
   `_AUDITABLE_INVOICE_FIELDS`, `_AUDITABLE_SUBCONTRACTOR_FIELDS`,
   `_AUDITABLE_APPOINTMENT_FIELDS`) as B6.2b sites need them; for
   `snapshot` sites, filter the dict before passing it in.
+- **Progress (B6.2b-1, 2026-09-02, `9250b1`-era commit):**
+  `_AUDITABLE_CONTRACT_FIELDS` / `_AUDITABLE_INVOICE_FIELDS` /
+  `_AUDITABLE_SUBCONTRACTOR_FIELDS` added and wired to the four
+  create sites via `fields=` on `after=`. **Scope expansion:**
+  `create_employee` also carries compensation/PII —
+  `Employee.to_dict()` includes `hourly_rate` and `emergency_contact` —
+  so `_AUDITABLE_EMPLOYEE_FIELDS` was added the same round. Still open:
+  `_AUDITABLE_PROJECT_FIELDS` (B6.2b-2, `NEW-312`),
+  `_AUDITABLE_APPOINTMENT_FIELDS` (B6.2b-4), and the general
+  filtered-`snapshot` gap (`NEW-315`).
 - **Cross-reference:** `restoricon_core/services/audit_service.py:117`,
-  `build_audit_details`; `NEW-309`.
+  `build_audit_details`; `NEW-309`, `NEW-315`.
+
+## Found during B6.2b-1 — mechanical create/delete audit canonicalization (2026-09-02)
+
+### [NEW-315] `build_audit_details` has no filtered-`snapshot` capability, so create/delete audit rows use two different envelope shapes for the same semantic op
+- **Status:** Confirmed (B6.2b-1 code-reviewer, 2026-09-02).
+- **Mechanism:** the helper filters only `changed_fields` (via `fields=`);
+  `snapshot` and `side_effects` pass through verbatim. So a "create" of a
+  sensitive entity must be logged as `after=<dict>` + `fields=<allow-list>`
+  → a `changed_fields` payload of `{field: {"old": None, "new": v}}`,
+  whereas a non-sensitive create *could* be a flat `snapshot`. B6.2a's
+  `user_created` chose `snapshot=` (full-state, no diff); B6.2b-1's 22
+  creates chose `after=` (forced — 4 of them need `fields=` filtering and
+  `snapshot` has no filter param). Both shapes are now permanent in the
+  append-only `audit_log`.
+- **Impact:** (1) B6.2c's audit-search diff renderer must handle both a
+  `changed_fields`-with-all-None-olds shape and a `snapshot` shape for
+  "create" rows. (2) delete rows are `snapshot`-only and unfiltered —
+  `delete_contact` and `create_compliance_item` both emit
+  `license_number` in the clear while `create_subcontractor` strips it
+  (reviewer-confirmed not a regression — those entities were never in
+  `NEW-314` scope — but an inconsistency a future NEW-314 revision should
+  resolve). `FinancialTransaction.reference_number` / `payment_method`
+  are likewise emitted unfiltered by `record_transaction`.
+- **Fix direction:** give `build_audit_details` a `snapshot_fields=`
+  param (or a single `fields=` that applies to whichever of
+  `changed_fields`/`snapshot` is populated), then pick ONE canonical
+  shape for "create" rows and note it for B6.2c. Decide during B6.2b-4
+  or as a B6.2c prerequisite.
+- **Cross-reference:** `restoricon_core/services/audit_service.py`
+  `build_audit_details`; `NEW-314`, `NEW-309`.
+
+### [NEW-316] `automation_service.add_to_do_not_contact` still logs a flat `details=` payload — deferred from B6.2b-1, not missed
+- **Status:** Confirmed (B6.2b-1, 2026-09-02). Deliberate deferral,
+  logged per rule 8.
+- **Mechanism:** `add_to_do_not_contact` is an `INSERT … ON CONFLICT DO
+  UPDATE` upsert, so it is neither a pure create nor a pure delete and
+  fell outside B6.2b-1's mechanical scope — same category as the
+  `upsert_business_profile` / `upsert_schedule_config` singletons already
+  slated for B6.2b-4. Its sibling `remove_from_do_not_contact` (a real
+  delete) *was* canonicalized this round.
+- **Impact:** one service audit site still on the pre-B6.2b flat shape.
+- **Fix direction:** B6.2b-4 — canonicalize alongside the two singleton
+  upserts.
+- **Cross-reference:** `restoricon_core/services/automation_service.py`
+  `add_to_do_not_contact`; B6.2b-4 in `CODEY_MASTER_PLAN.md` Appendix A.

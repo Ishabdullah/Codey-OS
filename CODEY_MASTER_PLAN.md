@@ -1049,9 +1049,13 @@ unrestricted), the ownership narrowing keyed on permission not
 `actor.role`. Both code-reviewer-approved (rule-4). `B6.2a`
 (2026-09-02) delivered the canonical `build_audit_details()`
 old/new+side-effects payload helper and wired it into the 9 user-mutation
-audit sites in `api/routes.py` (code-reviewer-approved, rule-4). Next:
-`B6.2b` (~55 service-layer audit sites), then `B6.2c` (admin
-audit-search screen).
+audit sites in `api/routes.py` (code-reviewer-approved, rule-4).
+`B6.2b-1` (2026-09-02) canonicalized 25 mechanical service-layer
+create/delete audit sites onto the same helper + added four
+`_AUDITABLE_*_FIELDS` allow-lists (contract/invoice/subcontractor/
+employee, `NEW-314`); code-reviewer-approved (rule-4). Next: `B6.2b-2`
+(11 crm_service update sites), `-3` (8 operations sites), `-4` (~10
+remaining), then `B6.2c` (admin audit-search screen).
 **The round-by-round build narrative that used to live here — 627 lines
 covering Phase B2's write-through rounds, their code-reviewer passes, and
 their test counts — was moved verbatim to `PROJECT_LOG.md` on 2026-09-02
@@ -5975,8 +5979,17 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
 - [ ] **B6.2b** — the 55 service-layer `audit.log()` sites brought to
       the `build_audit_details` standard. Split into 4 sub-rounds
       (architect classification 2026-09-02):
-      - [ ] **B6.2b-1** — 26 mechanical create/delete sites (`snapshot`/
-        `after` only, no side-effect tracing). Unblocked.
+      - [x] **B6.2b-1** — 25 mechanical create/delete sites (22 creates
+        `after=`; 3 deletes `snapshot=`; `record_transaction` gains a
+        `side_effects` cost-delta slot). Four `_AUDITABLE_*_FIELDS`
+        allow-lists added (`NEW-314`, +`employee` expansion). One
+        non-uniform site: `delete_rule` gains an in-txn pre-image SELECT.
+        Code-complete + rule-4 code-reviewer-approved 2026-09-02;
+        `tests/test_restoricon_core/` 288 passed (+28 in
+        `test_b6_2b1_audit_details.py`). Findings `NEW-315` (no filtered
+        `snapshot`; two create shapes now in `audit_log`), `NEW-316`
+        (`add_to_do_not_contact` deferred to `-4`). No live-model
+        component.
       - [ ] **B6.2b-2** — 11 `crm_service` real-update sites, incl.
         migrating `update_project`'s hand-rolled `changed_fields`
         (`NEW-312`). Gated on `NEW-311`.
@@ -5985,7 +5998,10 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
         milestone auto-creation, `actual_completion`; `COALESCE` after-
         image trap `NEW-313`). Gated on `NEW-311`.
       - [ ] **B6.2b-4** — ~10 remaining sites: business_ops(2),
-        automation(2), scheduling(3), crm special shapes(3).
+        automation(3 incl. `add_to_do_not_contact` per `NEW-316` +
+        2 singleton upserts), scheduling(3), crm special shapes(3).
+        Resolve `NEW-315` (canonical create shape / filtered `snapshot`)
+        here or as a `B6.2c` prerequisite.
       **Gate:** rounds 2–4 need `NEW-311` resolved — sqlite3 deferred
       isolation means "capture pre-image inside the write txn" is not
       atomic without a `BEGIN IMMEDIATE` DB-layer change; the accepted

@@ -34,7 +34,7 @@ from ..models import (
     Vendor,
     PurchaseOrder,
 )
-from .audit_service import AuditService
+from .audit_service import AuditService, build_audit_details, _AUDITABLE_EMPLOYEE_FIELDS
 
 
 def utc_now_iso() -> str:
@@ -115,7 +115,7 @@ class BusinessOpsService:
             entity_id=camp.id,
             change_summary=f"Created marketing campaign '{camp.name}' ({camp.channel})",
             actor=actor,
-            details=camp.to_dict(),
+            details=build_audit_details(after=camp.to_dict()),
         )
         return camp
 
@@ -333,7 +333,7 @@ class BusinessOpsService:
             entity_id=item.id,
             change_summary=f"Registered compliance item '{item.title}' (Exp: {item.expiration_date})",
             actor=actor,
-            details=item.to_dict(),
+            details=build_audit_details(after=item.to_dict()),
         )
         return item
 
@@ -479,7 +479,7 @@ class BusinessOpsService:
             entity_id=emp.id,
             change_summary=f"Added employee {emp.first_name} {emp.last_name} ({emp.role_title})",
             actor=actor,
-            details=emp.to_dict(),
+            details=build_audit_details(after=emp.to_dict(), fields=_AUDITABLE_EMPLOYEE_FIELDS),
         )
         return emp
 
@@ -703,7 +703,7 @@ class BusinessOpsService:
             entity_id=vendor.id,
             change_summary=f"Added vendor '{vendor.company_name}' ({vendor.category})",
             actor=actor,
-            details=vendor.to_dict(),
+            details=build_audit_details(after=vendor.to_dict()),
         )
         return vendor
 
@@ -800,7 +800,7 @@ class BusinessOpsService:
             entity_id=po.id,
             change_summary=f"Created PO #{po.po_number} (${po.total_amount:.2f})",
             actor=actor,
-            details=po.to_dict(),
+            details=build_audit_details(after=po.to_dict()),
         )
         return po
 

@@ -28,7 +28,7 @@ from ..auth import (
 )
 from ..database import DatabaseManager
 from ..models import Appointment, ScheduleConfig, utc_now_iso
-from .audit_service import AuditService
+from .audit_service import AuditService, build_audit_details
 
 VALID_STATUSES = {"confirmed", "negotiating", "cancelled", "completed"}
 
@@ -129,7 +129,7 @@ class SchedulingService:
             entity_id=appt.id,
             change_summary=f"Created appointment '{appt.title}' ({appt.status})",
             actor=actor,
-            details=appt.to_dict(),
+            details=build_audit_details(after=appt.to_dict()),
         )
         return appt
 
