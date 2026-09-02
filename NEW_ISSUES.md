@@ -12948,3 +12948,32 @@ outside that fix's scope.
   explicit note or separate audit action when tokens were revoked.
 - **Not fixed this round** — out of scope; the task scoped the change to
   the revocation behavior itself. Cheap to add when picked up.
+
+## Found during the Service Manager orphan-cleanup code-reviewer revision (`lib/service_manager.sh`), 2026-09-02 — code-reviewer CHANGES REQUESTED round; logged per Rule 8
+
+### [NEW-268] Concurrent `codey start` runs are unserialized — process B can kill process A's freshly-spawned Aigentik node, and A then deletes B's PID entry
+- **Status:** Confirmed (read `start_aigentik` in `lib/service_manager.sh`).
+- **Mechanism:** `start_aigentik` has no lock. With two concurrent invocations A and B: A spawns its node child and, before A writes `$AIGENTIK_PID_FILE`, B runs `svc_find_orphans_by_cwd` and sees A's child as an untracked orphan (it is not the tracked PID, and its cwd + entrypoint token match). B `SIGTERM`/`SIGKILL`s it. A's post-spawn `kill -0 "$a_pid"` then fails, so A runs `rm -f "$AIGENTIK_PID_FILE"` — deleting the entry B just wrote for its own freshly-started node. Result: B's node runs untracked, and a later `stop`/`status` won't find it via the PID file (it would still be caught by the two-factor orphan scan, but is no longer cleanly tracked).
+- **Impact:** race window is small (between spawn and the `echo "$a_pid" > pidfile`), but the outcome is an untracked live process plus a spurious ERROR message. `codey start` is idempotently re-run by the CLI passthrough, raising the odds.
+- **Fix direction:** a flock-based lockfile around `start_aigentik` (and ideally the whole `start_all_services`). Out of scope this round — a comment marking the race is in place at the spawn site.
+- **Not fixed this round.**
+
+### [NEW-269] `svc_find_orphans_by_cwd` `/proc`-scan fallback branch is dead on this device and has zero test coverage
+- **Status:** Confirmed (dead-on-device); Suspected (correctness of the branch itself).
+- **Mechanism:** the `elif [ -d /proc ]` branch (used only when `pgrep` is absent) iterates `/proc/[0-9]*` and regex-matches `cmdline` against `$proc_filter`. `pgrep` is installed on this device (Termux `procps`), so the branch never executes and no test exercises it. It also uses `[[ "$cmd" =~ $proc_filter ]]` — an unanchored regex, not a literal match — so a `proc_filter` containing regex metacharacters would behave differently from the `pgrep` path.
+- **Impact:** none today; latent divergence if `pgrep` ever goes missing.
+- **Fix direction:** either drop the fallback (require `pgrep`, assert it in `install.sh`) or add a test that forces the branch by shadowing `pgrep`.
+- **Not fixed this round.**
+
+### [NEW-270] `status_aigentik` and `stop_aigentik` now shell out to `python3` on every call
+- **Status:** Suspected (perf only).
+- **Mechanism:** both functions were rewritten to call `python3 -c "...get_aigentik_config()..."` to learn `a_dir`. `status_aigentik` was previously a pure PID-file check with no subprocess. `status_all_services` calls it on every `codey status`.
+- **Impact:** adds one Python interpreter start (~100-300ms on-device) per status/stop call. Minor, but it is a regression in `status` cost.
+- **Fix direction:** cache the resolved `a_dir` once in `service_manager.sh` at source time, or read it from a cheap config path.
+- **Not fixed this round.**
+
+### [NEW-271] `svc_find_orphans_by_cwd` `proc_filter` is hardcoded to `node` at all Aigentik call sites — a `python3`/`bash` entrypoint's orphans are never detected
+- **Status:** Confirmed (read the three call sites).
+- **Mechanism:** `start_aigentik`/`stop_aigentik`/`status_aigentik` all pass `"node"` as `$2`. `svc_detect_entrypoint_script` supports `main.py`/`app.py`/`server.py`/`run.sh`/`start.sh` too, but if Aigentik were launched via `python3 main.py`, `pgrep node` returns nothing and orphan cleanup silently does nothing. The real `~/Codey-Aigentik` is `node index.js` today, so this is latent.
+- **Fix direction:** derive `$2` from the detected entrypoint (`.py` → `python3`, `.sh` → `bash`, `.js` → `node`) alongside the existing token derivation.
+- **Not fixed this round** — scope was the two-factor identification fix; noted per Rule 8.

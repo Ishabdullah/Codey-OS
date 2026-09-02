@@ -276,3 +276,181 @@ def test_service_manager_pid_lifecycle(tmp_path):
     proc.poll()
     assert proc.returncode is not None or not proc.is_running() if hasattr(proc, 'is_running') else True
 
+
+def test_svc_find_orphans_by_cwd(tmp_path):
+    repo_root = Path(__file__).parent.parent.resolve()
+    svc_lib = repo_root / "lib" / "service_manager.sh"
+
+    # Create two temporary directories
+    target_dir = tmp_path / "target_app"
+    target_dir.mkdir()
+    other_dir = tmp_path / "other_app"
+    other_dir.mkdir()
+
+    # Spawn a process in target_dir and one in other_dir
+    p_target = subprocess.Popen(["sleep", "30"], cwd=str(target_dir))
+    p_other = subprocess.Popen(["sleep", "30"], cwd=str(other_dir))
+
+    try:
+        script = f"""
+        source "{svc_lib}"
+        found=$(svc_find_orphans_by_cwd "{target_dir}" "sleep")
+        echo "FOUND:$found"
+        """
+        res = subprocess.run(
+            ["bash", "-c", script],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+        )
+        assert res.returncode == 0
+        output = res.stdout
+        assert f"FOUND:{p_target.pid}" in output or str(p_target.pid) in output
+        assert str(p_other.pid) not in output.split("FOUND:")[1].strip()
+    finally:
+        p_target.terminate()
+        p_other.terminate()
+        p_target.wait()
+        p_other.wait()
+
+
+def test_svc_find_orphans_by_cwd_requires_entrypoint_match(tmp_path):
+    """Rule 3: a cwd match ALONE must not flag a PID for termination.
+
+    Two node processes share the same cwd and the same `node` proc_filter;
+    only the one whose cmdline contains the expected entrypoint token may be
+    returned. The decoy (a REPL / test runner / unrelated script in the same
+    directory) must be left alone.
+    """
+    if subprocess.run(["bash", "-c", "command -v node"],
+                      capture_output=True).returncode != 0:
+        pytest.skip("node not installed")
+
+    repo_root = Path(__file__).parent.parent.resolve()
+    svc_lib = repo_root / "lib" / "service_manager.sh"
+
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    (app_dir / "index.js").write_text("setTimeout(() => {}, 60000);\n", encoding="utf-8")
+    (app_dir / "decoy.js").write_text("setTimeout(() => {}, 60000);\n", encoding="utf-8")
+
+    p_real = subprocess.Popen(["node", "index.js"], cwd=str(app_dir))
+    p_decoy = subprocess.Popen(["node", "decoy.js"], cwd=str(app_dir))
+
+    try:
+        script = f"""
+        source "{svc_lib}"
+        found=$(svc_find_orphans_by_cwd "{app_dir}" "node" "index.js")
+        echo "FOUND:$found"
+        """
+        res = subprocess.run(
+            ["bash", "-c", script],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+        )
+        assert res.returncode == 0
+        found = res.stdout.split("FOUND:")[1].split()
+        assert str(p_real.pid) in found, res.stdout
+        assert str(p_decoy.pid) not in found, (
+            f"decoy PID {p_decoy.pid} matched on cwd alone — Rule 3 violation\n{res.stdout}"
+        )
+    finally:
+        for p in (p_real, p_decoy):
+            p.terminate()
+            p.wait()
+
+
+def test_start_and_stop_aigentik_cleans_orphans(tmp_path, monkeypatch):
+    repo_root = Path(__file__).parent.parent.resolve()
+    svc_lib = repo_root / "lib" / "service_manager.sh"
+
+    if subprocess.run(["bash", "-c", "command -v node"],
+                      capture_output=True).returncode != 0:
+        pytest.skip("node not installed")
+
+    app_dir = tmp_path / "mock_aigentik"
+    app_dir.mkdir()
+    state_dir = tmp_path / "codey_state"
+    state_dir.mkdir()
+
+    # Mock entrypoint script: index.js
+    entrypoint = app_dir / "index.js"
+    entrypoint.write_text("setTimeout(() => {}, 60000);\n", encoding="utf-8")
+
+    # Spawn an untracked orphan node process in app_dir
+    p_orphan = subprocess.Popen(["node", "index.js"], cwd=str(app_dir))
+
+    script = f"""
+    export CODEY_STATE_DIR="{state_dir}"
+    export AIGENTIK_DIR="{app_dir}"
+    source "{svc_lib}"
+
+    # Verify orphan is discovered by status
+    status_aigentik
+
+    # Start should kill the orphan and launch fresh
+    start_aigentik
+    """
+
+    res = subprocess.run(
+        ["bash", "-c", script],
+        cwd=str(repo_root),
+        capture_output=True,
+        text=True,
+    )
+
+    started_pid = None
+    try:
+        assert res.returncode == 0
+        assert "UNTRACKED orphan" in res.stdout or "orphaned process" in res.stdout
+        assert str(p_orphan.pid) in res.stdout
+
+        # Orphan must be terminated
+        p_orphan.poll()
+        assert p_orphan.returncode is not None
+
+        # A fresh instance must actually have been launched: PID file present,
+        # holding a real PID, and that process alive. Without this the
+        # "0 remaining" assertion below passes even if start_aigentik ran
+        # nothing.
+        pid_file = state_dir / "aigentik.pid"
+        assert pid_file.exists(), f"start_aigentik wrote no PID file\n{res.stdout}"
+        raw = pid_file.read_text().strip()
+        assert raw.isdigit(), f"PID file contents not a PID: {raw!r}"
+        started_pid = int(raw)
+        assert started_pid != p_orphan.pid
+        os.kill(started_pid, 0)  # raises if the fresh instance is not alive
+        # ...and it must be the Aigentik entrypoint, not some unrelated process.
+        cmdline = Path(f"/proc/{started_pid}/cmdline").read_bytes().replace(b"\0", b" ").decode()
+        assert "index.js" in cmdline, f"PID {started_pid} is not the entrypoint: {cmdline!r}"
+
+        # Stop should cleanly stop the tracked instance and confirm 0 processes
+        stop_script = f"""
+        export CODEY_STATE_DIR="{state_dir}"
+        export AIGENTIK_DIR="{app_dir}"
+        source "{svc_lib}"
+        stop_aigentik
+        """
+        res_stop = subprocess.run(
+            ["bash", "-c", stop_script],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+        )
+        assert res_stop.returncode == 0
+        assert "fully stopped, 0 processes remaining" in res_stop.stdout
+        if started_pid is not None:
+            try:
+                os.kill(started_pid, 0)
+                raise AssertionError(f"fresh instance {started_pid} survived stop_aigentik")
+            except ProcessLookupError:
+                pass
+    finally:
+        if p_orphan.poll() is None:
+            p_orphan.kill()
+        if started_pid is not None:
+            try:
+                os.kill(started_pid, 9)
+            except ProcessLookupError:
+                pass
