@@ -6434,6 +6434,90 @@ order. Every item below is a separate scoped session, not one task.
 - [ ] **U.24** (`NEW-27`, Suspected) — `docs/TODO2.md` needs a scoped
       re-verification pass (2026-03-29-era list; at least one item
       already contradicted by current code).
+- [ ] **U.38** — **THE DOCUMENTATION CONSOLIDATION + OBSOLESCENCE AUDIT.**
+      Queued by Ish 2026-09-02, deliberately for a **fresh session** — it
+      was scoped, not started, in the session that raised it. Big task;
+      read this whole entry before starting.
+
+      **Ish's ask, verbatim:** "clean up all the docs and make one source
+      of truth with everything in that one file thats left to work on and
+      also make sure old things are not left in things that need to get
+      done that may no longer be required like the 7B model issues that
+      are probably obsolete now that we are using the 4B model."
+
+      **Shape Ish chose, after being shown the numbers: *curated register
+      + ledgers stay*.** He was offered a literal merge of all three big
+      docs and **declined it**. Do not re-open that as though it were
+      undecided. The reasoning, so it isn't second-guessed: the three
+      docs total **~34,750 lines / 2.1MB**; a single merged file would
+      exceed most context windows, and every agent is told to read the
+      start-here doc *every session* — so merging would make it unread,
+      not authoritative. It would also collapse the append-only evidence
+      discipline rules 5/6/8 depend on (§9 says exactly this).
+
+      **The three-verdict rule — the load-bearing constraint. A careless
+      purge here deletes live bugs.** "Calibrated against a retired
+      model" is **not** the same as "obsolete." Every open item gets one
+      of three verdicts, with evidence:
+      - **Moot** — the thing it describes no longer exists (e.g. the
+        second planner server `M1-D` deleted outright).
+      - **Needs re-verification** — the failure mode may well persist,
+        but its evidence came from a retired model, so its status is
+        **unknown, not proven**. Re-file it as unknown; do **not** delete
+        it and do **not** leave the old claim standing (rule 6).
+      - **Still real** — model-independent; leave alone.
+
+      Worked example of the trap: `U.11` (`NEW-60`) is written around
+      "the 7B agent" spiralling on an access-denied `read_file`. The
+      model is retired; **the failure mode probably is not.** That is
+      "needs re-verification," not "moot."
+
+      **Measured scope at scoping time (2026-09-02), so drift is
+      visible:** 51 retired-model references (`7B`/`1.5B`/`Qwen2.5`) in
+      this file; **44 open `[ ]` items** in Appendix A; this file is
+      6,678 lines.
+
+      **The actual diagnosis, which is not what the ask sounds like.**
+      The problem is not that several docs exist — it is that **this
+      plan has quietly become a third ledger.** §4.5 in particular is a
+      wall of round-by-round narrative that belongs in `PROJECT_LOG.md`.
+      That accretion is what makes the plan unreadable in one sitting,
+      and it is why it *feels* like there is no single source of truth.
+
+      **Method, in order:**
+      1. **Obsolescence audit first** — every open item in Appendix A
+         (`U.x`, all lanes), every open question in §8, and every
+         `NEW-id` cited as open. Assign one of the three verdicts above,
+         with the evidence for it. This is the highest-value half and
+         the half Ish actually named.
+      2. **Reconcile status drift** — items marked open that are
+         demonstrably done, and `NEW-id`s fixed but still listed open.
+         Appendix B's header was stale by 122 ids until 2026-09-02;
+         assume more of the same.
+      3. **De-ledger the plan** — move accumulated round-narrative out
+         of §4 into `PROJECT_LOG.md` (where rule 9 already puts it),
+         leaving §4 a genuine current-state *snapshot*. Move, don't
+         delete: the evidence keeps its value, it just stops living in
+         the start-here doc.
+      4. **Make Appendix A the single register** — complete, current,
+         trustworthy, every lane represented. It is already supposed to
+         be this; make it actually be it. **Do not create a new
+         queue file** — this project already killed `TODO.md`,
+         `WORK_QUEUE.md`, and `PROJECT_PLAN.md` by merging them in
+         precisely to stop queue-file fragmentation (§6.0). Re-creating
+         one under a new name would undo that.
+      5. **Consolidate the redundant operating docs** — `CLAUDE.md` and
+         `ANTIGRAVITY.md` are near-duplicates that `HANDOFF.md` itself
+         says "must stay consistent," which is a standing drift risk
+         rather than a design. `AGENTS.md` and `HANDOFF.md` overlap
+         both. Propose a shape to Ish before collapsing them; these are
+         the files agents boot from, so getting it wrong is expensive.
+
+      **Rules that bind this task specifically:** rule 6 (downgrade
+      claims that don't hold, don't quietly delete them), rule 5 (a
+      verdict needs evidence, not a plausible story), and rule 8
+      (anything found along the way gets a `NEW-id`, not a silent fix).
+
 - [ ] **U.25** (`NEW-27`) — README docs-table discoverability:
       `MODEL_COMPARISON.md`, `PRIVACY.md`, `docs/importantdoc.md` have
       real current content and no inbound link.
