@@ -166,10 +166,11 @@ Codey-OS/
    `PROJECT_LOG.md`** after every completed round, with specifics — not
    "improved" or "done."
 
-10. Before creating a new subagent, check the current contents of
-    `.claude/agents/` for one that already fits the job. Only create a
-    new one if none of the existing agents genuinely cover it —
-    subagent sprawl makes the pipeline harder to reason about, not
+10. Before creating a new subagent, check whether an existing one
+    already fits the job — in Claude Code, list `.claude/agents/`; in
+    Antigravity, check the already-defined agents before
+    `define_subagent`. Only create a new one if none genuinely cover it
+    — subagent sprawl makes the pipeline harder to reason about, not
     easier.
 
 11. **Keep `install.sh` current with anything we add.** Any time a task
@@ -242,6 +243,37 @@ User Request -> Coordinator
 - **5. Ledger Updates & Final Commit**: Coordinator runs full test suites, updates the authoritative tracking ledgers (`CODEY_MASTER_PLAN.md` §4 + Appendix A, `PROJECT_LOG.md`, `NEW_ISSUES.md`), and commits the changes.
 
 This pipeline applies to every task, with no shortcuts for changes that look small or obvious — that assumption is exactly what's caused this project's worst bugs before.
+
+## Working alongside another agent
+
+Both Claude and Antigravity work on this repo, sometimes in the same
+session or close together in time. Moved here verbatim in substance from
+`HANDOFF.md` when that file was archived (2026-09-02, `U.38` step 5) —
+it is standing policy, not a dated handoff note.
+
+- **Doc-write collisions are real and silent.**
+  `CODEY_MASTER_PLAN.md` / `NEW_ISSUES.md` / `PROJECT_LOG.md` are plain
+  files with no merge mechanism between two agents editing them
+  concurrently — whoever saves second silently overwrites whoever saved
+  first, and both can allocate the same next `NEW-###` id. **Before
+  saving any of the three tracking docs, run `git status --short`
+  immediately beforehand** and confirm nothing changed out from under you
+  since you last read them. For a long task where another agent might be
+  touching the tracking docs, write findings to a scratch file first and
+  fold them in once you have exclusive access.
+- **Never `git add -A` or `git commit -a`** when another agent might have
+  uncommitted work in the same tree. Stage exact file paths.
+- **A fix that passes every test can still be wrong.** The
+  `NEW-145`/`149`/`155` context-ceiling fix (`b0d2d86`) shipped
+  code-complete and was approved across *two* separate code-reviewer
+  passes — and still had two real bugs that would have either crashed
+  (`AttributeError` on a `DaemonServer._config` that never existed) or
+  silently done nothing in production (a missing `port=` kwarg on the
+  only `reserve_slot()` call site, making the whole upgrade mechanism a
+  permanent no-op). Both were caught by *attempting live verification*,
+  not by re-reading the diff harder (`NEW-259`). This is why rule 7's
+  code-complete / approved / live-verified tiers are separate — the gap
+  between them is real, not theoretical.
 
 ## When to stop and escalate instead of proceeding
 

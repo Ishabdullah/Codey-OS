@@ -11,14 +11,14 @@ Then, for context on what just happened and what's known-broken:
 - `NEW_ISSUES.md` — append-only findings ledger (`NEW-##` IDs);
   authoritative for any individual finding's status.
 
-`CLAUDE.md` and `ANTIGRAVITY.md` hold the same ground rules, each in the
-format its own tool reads (Claude Code and Antigravity respectively —
-both work on this repo). If you are a different agent, read whichever
-one exists for your tool, or `CLAUDE.md` if neither does — everything in
-either applies to you, and their rules 1–11 are reproduced in
-`CODEY_MASTER_PLAN.md` §2 (kept tool-neutral there on any point where the
-two files use different terminology for the same policy, e.g. rule 10's
-subagent-registry check).
+**`CLAUDE.md` is the single copy of this project's ground rules**,
+whatever agent you are. `ANTIGRAVITY.md` is a short pointer at it listing
+the only three tool-specific differences; it was a full parallel copy
+until 2026-09-02, when the two were collapsed because keeping two ~16KB
+files hand-consistent was a drift risk rather than a design (`U.38` step
+5, `NEW-289`). The rules are also reproduced tool-neutrally in
+`CODEY_MASTER_PLAN.md` §2. There is no longer a second full rules file to
+cross-check.
 
 **Superseded 2026-08-21:** `CODEY_OS_MASTER_VISION.md`, `TODO.md`,
 `WORK_QUEUE.md`, `PROJECT_PLAN.md`, and `Codey-Restoricon-OS.md` were
@@ -39,22 +39,16 @@ front — the full list is `CODEY_MASTER_PLAN.md` §2:
    adversarial code review before commit — no exceptions for small-looking
    changes.
 
-## Mandatory Hub-and-Spoke Subagent Delegation Workflow
+## The delegation pipeline
 
-**The coordinator (Antigravity) MUST explicitly dispatch and receive reports from each specialist subagent individually step-by-step. Subagents never bypass the coordinator:**
+Every task runs through it, with no shortcuts for changes that look small
+— that assumption is what has caused this project's worst bugs.
+**`CLAUDE.md` has the diagram and the step-by-step; read it there.** It
+is deliberately not duplicated here: this file used to carry a third copy
+of it, which is exactly the drift the 2026-09-02 consolidation removed.
 
-```
-User Request -> Coordinator (Antigravity)
-   │
-   ├─► 1. Dispatch project-architect (scope & design spec) ──► Reports back to Coordinator
-   │
-   ├─► 2. Dispatch implementer (build & run unit tests)    ──► Reports back to Coordinator (diff + test output)
-   │
-   ├─► 3. Dispatch code-reviewer (mandatory audit)         ──► Reports back to Coordinator (APPROVED / CHANGES REQUESTED)
-   │      (If CHANGES REQUESTED -> Coordinator routes back to implementer/architect)
-   │
-   ├─► 4. Dispatch live-verifier (if real on-device test)  ──► Reports back to Coordinator
-   │
-   └─► 5. Coordinator runs test suites, updates ledgers (CODEY_MASTER_PLAN.md §4 + App A, PROJECT_LOG.md, NEW_ISSUES.md), and commits.
-```
-
+In one line: architect scopes → implementer builds and unit-tests →
+**code-reviewer approves before every commit** → live-verifier confirms
+on-device when the change needs real (not mocked) evidence → coordinator
+updates `CODEY_MASTER_PLAN.md` §4 + Appendix A, `PROJECT_LOG.md`,
+`NEW_ISSUES.md`, and commits.

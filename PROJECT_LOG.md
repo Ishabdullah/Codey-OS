@@ -10,6 +10,56 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-02 — `U.38` step 5: the four boot docs collapsed to one rules file; `U.38` CLOSED
+
+- **Status**: **Doc-only, complete. `U.38` is now closed — all five
+  brief steps plus the added step 1b.** No code touched, no model loaded;
+  rule 4 does not bind.
+- **Ish's decision, given in session** after being shown the measurement
+  and four options: *collapse to one rules file plus thin deltas.* The
+  `U.38` brief made this a hard stop — "propose a shape to Ish before
+  collapsing them; these are the files agents boot from, so getting it
+  wrong is expensive" — so nothing was touched until he chose.
+- **What the measurement showed (`NEW-289`)**: `CLAUDE.md` (15,748 B) and
+  `ANTIGRAVITY.md` (15,901 B) differed by **29 diff lines total**, every
+  one a Claude↔Antigravity name swap, a markdown heading level, backticks
+  around an agent name, or rule 10's mechanism. `HANDOFF.md` itself said
+  the two "must stay consistent" — a standing hand-maintenance obligation,
+  not a design. `AGENTS.md` carried a **third** copy of the hub-and-spoke
+  diagram.
+- **`HANDOFF.md` was worse than duplicative.** Dated 2026-08-27, its
+  "what's next in the queue" was a **fifth work queue** after the four
+  §6.0 killed — and it had gone from stale to wrong: it listed
+  `do-not-contact.js` and `email-rules.js`/`sms-rules.js` as pending
+  write-through while the de-ledgered §4.5 blocks record both as done.
+  Phase B2's state was recorded three different ways across the project's
+  own documents.
+- **Executed**:
+  - `CLAUDE.md` — the single rules payload. Rule 10 restated
+    tool-neutrally (`.claude/agents/` listing *or* `define_subagent`).
+    **`HANDOFF.md`'s durable half was moved in, not dropped**: the
+    doc-write-collision protocol (`git status --short` immediately before
+    saving any of the three tracking docs; never `git add -A` when
+    another agent may have uncommitted work; write to scratch first on
+    long tasks) and the `NEW-259` worked example of why
+    code-reviewer-approved ≠ live-verified.
+  - `ANTIGRAVITY.md` — **15,901 → 1,652 bytes.** A pointer at `CLAUDE.md`
+    plus the only three genuine tool deltas.
+  - `AGENTS.md` — 3,118 → 2,790 bytes; the duplicate diagram replaced by
+    a pointer and a one-line summary of the pipeline.
+  - `HANDOFF.md` — `git mv` to `docs/archive/`, listed in §9's archived
+    set with the reason.
+- **Net**: four boot docs at **41,570 bytes → three at 22,088**, with **no
+  policy lost** and, more to the point, **no two files left that have to
+  be kept consistent by hand.** That obligation was the actual defect.
+- **`U.38` closed.** Appendix A open items: 45 → 44. **The eight
+  needs-re-verification items the audit produced are the real work it
+  generated** — `U.3`, `U.11`, `U.15`, `U.17`, `U.20`, `U.29`, and the
+  split sub-claims in `U.21`/`U.34` — and they stand open on their own
+  lines rather than being folded into the closed item.
+- **Findings from the whole `U.38` round, none fixed (rule 8)**:
+  `NEW-283` … `NEW-289`.
+
 ## 2026-09-02 — §4.5 business-layer round narrative, de-ledgered from `CODEY_MASTER_PLAN.md` §4.5 (`U.38` step 3)
 
 **Moved verbatim, not rewritten.** 627 lines / 40,864 bytes lifted

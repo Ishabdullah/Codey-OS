@@ -4400,14 +4400,25 @@ Numbered for reference. Nothing here is guessed at in this document.
 **Authoritative:**
 - **`CODEY_MASTER_PLAN.md`** (this file) — the plan, the rules, the
   architecture, the current state, the open register. Start here.
-- `CLAUDE.md` — agent operating instructions; points here.
+- **`CLAUDE.md`** — **the single copy of the agent ground rules**
+  (rules 1–12, working conventions, the delegation pipeline, and the
+  multi-agent coexistence policy absorbed from the archived
+  `HANDOFF.md`). Points here. Applies to every agent, not just Claude
+  Code.
+- `AGENTS.md` — start-here pointer at this file and at `CLAUDE.md`.
+- `ANTIGRAVITY.md` — a ~40-line pointer at `CLAUDE.md` listing the only
+  three tool-specific differences. It was a full parallel copy of the
+  rules until 2026-09-02; collapsed by Ish's decision (`U.38` step 5,
+  `NEW-289`) because keeping two ~16KB files hand-consistent was a
+  standing drift risk rather than a design.
 - `README.md` — user-facing; points here.
 
 **Live append-only ledgers, owned by this plan** (deliberately *not*
 archived — archiving them would break rules 8 and 9 immediately, since
 both are written to on every round):
-- **`NEW_ISSUES.md`** — the findings ledger (rule 8). NEW-1 … NEW-277
-  today. Per-issue status is authoritative *there*; this merge did not
+- **`NEW_ISSUES.md`** — the findings ledger (rule 8). NEW-1 … NEW-289
+  today (header last reconciled 2026-09-02, `U.38` step 2 — it had gone
+  stale twice; re-check it rather than trusting it). Per-issue status is authoritative *there*; this merge did not
   re-adjudicate 155 statuses, and Appendix B says so plainly rather than
   guessing.
 - **`PROJECT_LOG.md`** — reverse-chronological record of every round
@@ -4438,6 +4449,11 @@ both are written to on every round):
 - `docs/archive/WORK_QUEUE.md`
 - `docs/archive/PROJECT_PLAN.md`
 - `docs/archive/AUDIT_REPORT.md` (archived earlier, June-2026 pre-CCOS era)
+- `docs/archive/HANDOFF.md` (archived 2026-09-02, `U.38` step 5 — a dated
+  2026-08-27 Claude→Antigravity handoff whose "what's next" section was a
+  fifth work queue and had come to contradict the Phase B2 records; its
+  durable multi-agent-coexistence policy was moved into `CLAUDE.md`, not
+  dropped. See `NEW-288`/`NEW-289`.)
 
 They hold the full evidence trail — verbatim live-test output, byte-exact
 gate decisions, review histories, the reasoning behind every scoped
@@ -4575,10 +4591,13 @@ flake8 counts but flake8 is in neither `install.sh` nor
 `agent.py:863-865` anchor no longer points at the code it describes).
 None fixed here.
 
-**Still outstanding on `U.38` after this pass:** step 3 (de-ledger §4
-into `PROJECT_LOG.md`) and step 5 (the `CLAUDE.md` / `ANTIGRAVITY.md` /
-`AGENTS.md` / `HANDOFF.md` shape — **proposal to Ish first, per the
-brief; no edits made to those four files**).
+**`U.38` steps 3 and 5 also completed the same day** — see the closed
+`U.38` entry below for both. Step 3 moved 627 lines of Phase-B2 round
+narrative out of §4.5 into `PROJECT_LOG.md` (byte-identity checked by
+checksum, 0 lines lost). Step 5 collapsed the four boot docs to one rules
+file plus thin deltas, on Ish's decision. **`U.38` is closed; the eight
+needs-re-verification items in the table above are the work it
+produced.**
 
 ### Phase A1 — model foundation (§6.2)
 
@@ -6050,7 +6069,24 @@ order. Every item below is a separate scoped session, not one task.
 - [ ] **U.24** (`NEW-27`, Suspected) — `docs/TODO2.md` needs a scoped
       re-verification pass (2026-03-29-era list; at least one item
       already contradicted by current code).
-- [ ] **U.38** — **THE DOCUMENTATION CONSOLIDATION + OBSOLESCENCE AUDIT.**
+- [x] **U.38** — **DONE 2026-09-02, all five steps. Doc-only; no code
+      touched, no model loaded, rule 4 does not bind. Landed across four
+      commits** (`9d65f04` audit, `4b66b94` de-ledger, `81a6e13` step-5
+      assessment, plus the step-5 execution commit). **Result headline:
+      0 moot** — nothing purged, because the retired 7B/1.5B left a
+      re-verification debt, not a deletion backlog. Full verdict table in
+      the *Obsolescence audit — pass 1* block at the head of this
+      Appendix. Step 5 executed on Ish's decision, given in session
+      2026-09-02: collapse to one rules file plus thin deltas —
+      `ANTIGRAVITY.md` 15,901 → 1,652 bytes, `AGENTS.md`'s duplicate
+      hub-and-spoke diagram removed, `HANDOFF.md` archived with its
+      durable policy moved into `CLAUDE.md`. **The eight
+      needs-re-verification items below are the real outstanding work
+      this audit produced** (`U.3`, `U.11`, `U.15`, `U.17`, `U.20`,
+      `U.29`, and the split sub-claims in `U.21`/`U.34`); they are open
+      on their own lines, not here. Original brief kept verbatim below as
+      the record of what was asked for.
+      **THE DOCUMENTATION CONSOLIDATION + OBSOLESCENCE AUDIT.**
       Queued by Ish 2026-09-02, deliberately for a **fresh session** — it
       was scoped, not started, in the session that raised it. Big task;
       read this whole entry before starting.
@@ -6134,8 +6170,8 @@ order. Every item below is a separate scoped session, not one task.
       verdict needs evidence, not a plausible story), and rule 8
       (anything found along the way gets a `NEW-id`, not a silent fix).
 
-      **PROGRESS 2026-09-02 — steps 1, 1b, 2, 3 and 4 DONE; **step 5 is
-      the only one outstanding**. Item stays `[ ]` until Ish rules on it.** See the *Obsolescence audit — pass 1* block at
+      **PROGRESS 2026-09-02 — all five steps DONE (plus the added step
+      1b). Item closed.** See the *Obsolescence audit — pass 1* block at
       the head of this Appendix for the full result. Headline: **0 moot,
       8 needs-re-verification, 34 still real, 2 stale-in-the-opposite-
       direction (`U.1`/`U.2`, already re-measured on Qwen3.5-4B by
@@ -6165,17 +6201,23 @@ order. Every item below is a separate scoped session, not one task.
       `NEW-288` rather than reconciled — resolving it is a 10-module code
       audit, not documentation work.
 
-      **Step 5 is a hard stop, and is the only part of `U.38` still
-      open.** The brief says propose a shape to Ish before collapsing
-      `CLAUDE.md` / `ANTIGRAVITY.md` / `AGENTS.md` / `HANDOFF.md`. **No
-      edits have been made to those four files.** The assessment behind
-      the proposal is logged as `NEW-289`: `CLAUDE.md` and
-      `ANTIGRAVITY.md` differ by 29 diff lines out of ~15.8KB each (all
-      of them tool-naming or rule 10's mechanism), `AGENTS.md` embeds a
-      third copy of the hub-and-spoke diagram, and `HANDOFF.md` is a
-      2026-08-27 point-in-time doc whose "what's next" section is a fifth
-      work queue that now **contradicts** the Phase B2 records (see
-      `NEW-288`). Proposal put to Ish 2026-09-02; awaiting his call.
+      **Step 5 DONE 2026-09-02, on Ish's decision given in session** —
+      the brief's required proposal was put to him with four options and
+      he chose *collapse to one file plus thin deltas*. The assessment
+      behind it is `NEW-289`: `CLAUDE.md` and `ANTIGRAVITY.md` differed
+      by 29 diff lines out of ~15.8KB each (all tool-naming or rule 10's
+      mechanism), `AGENTS.md` embedded a third copy of the hub-and-spoke
+      diagram, and `HANDOFF.md` was a 2026-08-27 point-in-time doc whose
+      "what's next" section was a fifth work queue that had come to
+      **contradict** the Phase B2 records (`NEW-288`). Executed:
+      `CLAUDE.md` is now the single rules payload (rule 10 restated
+      tool-neutrally; the archived `HANDOFF.md`'s durable multi-agent
+      coexistence policy moved in, not dropped); `ANTIGRAVITY.md`
+      15,901 → 1,652 bytes as a pointer plus its three real tool deltas;
+      `AGENTS.md`'s duplicate diagram removed; `HANDOFF.md` moved to
+      `docs/archive/`. Four boot docs totalling 41,570 bytes → three
+      totalling 22,088, **with no policy lost** — and no two files left
+      that have to be kept consistent by hand.
 
 - [ ] **U.25** (`NEW-27`) — README docs-table discoverability:
       `MODEL_COMPARISON.md`, `PRIVACY.md`, `docs/importantdoc.md` have
