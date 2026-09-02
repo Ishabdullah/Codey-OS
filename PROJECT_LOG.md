@@ -10,6 +10,68 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-02 — `B6.1` landed: `update_project` + permission-keyed staff reassignment
+
+- **Status**: **Code-complete + code-reviewer APPROVED (rule-4
+  permissions/RBAC). NOT live-verified beyond the test suite** — no
+  live-model component; full `restoricon_core` scope 271 passed (28 new
+  in `tests/test_restoricon_core/test_b6_1_update_project.py`). Code
+  commit `26d950d`; ledger commit separate.
+- **What it delivers**: `CRMService.update_project(project_id, updates,
+  actor)` + `POST /api/v1/projects/{id}/update`. Before this there was a
+  `create_project` and **no update path at all** — `project_manager_id`,
+  `assigned_employees_json`, `subcontractors_json` were write-once.
+- **The permission model** (decision 2, §6.9) — delivered with **two
+  additive permissions, not one**, because `project_manager` already
+  holds `PERM_MANAGE_PROJECTS` so it could not be the "unrestricted"
+  discriminator:
+  - `PERM_REASSIGN_PROJECT_STAFF` — scoped: reassign only where
+    `project_manager_id == actor.user_id` on the pre-update row.
+  - `PERM_REASSIGN_ANY_PROJECT_STAFF` — unrestricted.
+  - admin/manager: both. `project_manager`: scoped only. sales,
+    technician, customer, `ai_agent`: neither (`ai_agent` also lacks
+    `PERM_WRITE_PROJECTS` → blocked at the base gate; the
+    `PERM_SIGN_CONTRACTS`/`NEW-192` placeholder-policy pattern).
+  - `_actor_may_reassign_project_staff()` has **no `actor.role`
+    branch** — `NEW-194`'s "gate exists but narrowing is role-keyed"
+    shape avoided by construction. The reviewer confirmed a negative
+    control test fails if the helper is changed to check
+    `role == "project_manager"`.
+- **Scope boundaries**: only the 3 assignment fields need a reassignment
+  perm; the other 19 allowed fields need only `PERM_WRITE_PROJECTS`.
+  `stage`/`status` rejected with a pointer to the stage-transition path
+  (`status` verified to be fully derived from `stage`); `customer_id`
+  not in the allow-list. Built to the `update_user` pattern
+  (allow-list, None-guard, `sqlite3.IntegrityError` → `ValueError` →
+  400, whole `with conn:` inside the `try`).
+- **Audit**: nested `changed_fields` `{field: {old, new}}` payload
+  rather than `submit_review`'s flat `old_*/new_*` — `update_project`
+  can touch 20+ fields in one call. **B6.2 generalizes this shape.**
+- **Pipeline**: architect scoped → implementer (26 tests, found
+  `import sqlite3` was missing from `crm_service.py` — would have been
+  `NameError` → 500) → advisor review (+2 tests) → code-reviewer
+  **APPROVED** with non-blocking warnings, verified live: role matrix,
+  `has_permission` custom-override precedence, no `actor.role` branch,
+  route non-collision, FK→400→rollback.
+- **Rule-6 correction**: §6.9 claimed `operations_service` had an
+  ownership-narrowed assignment mechanism "to follow" — it has none.
+  Corrected in `CODEY_MASTER_PLAN.md` §6.9 this round (`NEW-302`).
+- **Plan reconciliation**: `CODEY_MASTER_PLAN.md` §4.5, §6.9 prose,
+  front-matter banner, and Appendix A `B6.1` checkbox all updated —
+  they had said "no `update_project` anywhere in the codebase."
+- **B6 impact**: **B6.1 done → `B6.2` is the next coding round**
+  (audit-detail completion + audit-search screen; absorbs `U.37` /
+  `NEW-265` / `NEW-267`).
+- **Findings, none fixed (rule 8)**: `NEW-302` (§6.9 overclaim,
+  corrected), `NEW-303` (no referential validation of assignment ids),
+  `NEW-304` (`subcontractors_json` semantics undefined — needs Ish
+  decision), `NEW-305` (`project_manager_id` un-nullable via
+  `update_project`), `NEW-306` (post-commit `get_project` can 403 after
+  the write lands — shared with `update_customer`), `NEW-307`
+  (auth-check TOCTOU — row read outside the write txn), `NEW-308`
+  (no value-type validation at the API boundary; no standalone `status`
+  edit path — needs decision).
+
 ## 2026-09-02 — `U.35` + `U.36` landed: `update_user` is no longer a token-unaware suspension path
 
 - **Status**: **Code-complete + code-reviewer APPROVED (rule-4 auth,

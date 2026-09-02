@@ -1039,6 +1039,15 @@ granular dynamic permission overrides is genuinely real** — that part of
 the claim stands and was re-verified. Everything else in the web layer is
 finished by **§6.9 / Phase B6**. See §6.6's correction block for the
 file-and-line evidence and `NEW-272`…`NEW-276`.
+
+**Phase B6 progress (code-complete tier, none live-verified):**
+`B2-fin-1` (2026-09-02, fork `2056524`) closed the last B2 write-through
+gap. `B6.1` (2026-09-02) delivered `CRMService.update_project` +
+`POST /api/v1/projects/{id}/update` + two additive reassignment
+permissions (`PERM_REASSIGN_PROJECT_STAFF` scoped / `PERM_REASSIGN_ANY_PROJECT_STAFF`
+unrestricted), the ownership narrowing keyed on permission not
+`actor.role`. Both code-reviewer-approved (rule-4). Next: `B6.2`
+(audit-detail completion + search).
 **The round-by-round build narrative that used to live here — 627 lines
 covering Phase B2's write-through rounds, their code-reviewer passes, and
 their test counts — was moved verbatim to `PROJECT_LOG.md` on 2026-09-02
@@ -1250,15 +1259,14 @@ points, named below.
 > resolved) and is now **satisfied at the code-complete tier**: all 8 of
 > B2's write-site groups are cut over (`queue.js` ruled out of scope,
 > `NEW-291`; `business_profile` closed via **B2-fin-1**, fork commit
-> `2056524`, code-reviewer-approved, NOT live-verified). **The real
-> front is B6.1.** Its prerequisite `U.35`/`U.36` (`update_user`
-> partial-update fixes, `NEW-264`/`NEW-266`) **landed 2026-09-02
-> (commit `5e03b4c`, code-reviewer-approved)** and established the
-> partial-update-on-an-auth-table pattern B6.1 copies: `allowed_fields`
-> whitelist; cross-field invariants in one create/update helper checked
-> post-update; `sqlite3.IntegrityError` → `ValueError` → 400 at the
-> service boundary; each state transition's side effects on one path.
-> **So the next coding round is B6.1 itself.**
+> `2056524`, code-reviewer-approved, NOT live-verified). Its prerequisite
+> `U.35`/`U.36` landed 2026-09-02 (`5e03b4c`), and **`B6.1` itself
+> landed 2026-09-02** (code-reviewer APPROVED, rule-4 permissions;
+> `CRMService.update_project` + `POST /api/v1/projects/{id}/update` +
+> two additive reassignment permissions keyed on permission not role).
+> **The next coding round is `B6.2`** — audit-detail completion (it
+> generalizes B6.1's nested `changed_fields` payload) plus the
+> audit-search screen. Absorbs `U.37` (`NEW-265`, `NEW-267`).
 >
 > --- original 2026-08-22 direction, kept as the record ---
 >
@@ -3658,6 +3666,9 @@ reading the code on 2026-09-02, not inferred from the prior status line:
 - Equipment deploy/return (`/api/v1/operations/equipment/deploy`,
   `/return`) — already a working assignment mechanism, and the model the
   staff-assignment work below should follow rather than reinvent.
+  **Correction (2026-09-02, B6.1):** `deploy_equipment` has *no* ownership
+  narrowing — B6.1 invents the permission-keyed ownership-narrowing pattern
+  (modelled on `PERM_SIGN_CONTRACTS` / `NEW-192`), it does not follow one.
 
 **Ish's goals for this phase, in his own framing (2026-09-02):**
 everything in the admin dashboard reachable by admins and whoever admins
@@ -3710,23 +3721,29 @@ staff portals come last because they consume everything above them.
 
 ---
 
-**B6.1 — `update_project` and the reassignment permission model.**
-**Rule-4 category (permissions).** The blocker for everything
+**B6.1 — `update_project` and the reassignment permission model. DONE
+2026-09-02 (code-reviewer APPROVED, rule-4 permissions; not
+live-verified beyond the test suite). See Appendix A's `B6.1` entry for
+the delivered design and finding IDs.**
+**Rule-4 category (permissions).** Was the blocker for everything
 assignment-shaped: `project_manager_id`, `assigned_employees_json`, and
-`subcontractors_json` are **write-once at creation today** — there is a
-`create_project` (`crm_service.py:1534`) and no `update_project` anywhere
-in the codebase. Build `update_project(project_id, updates, actor)` plus
-`POST /api/v1/projects/{id}/update`, following `update_customer`'s
-existing partial-update shape rather than inventing a new one.
+`subcontractors_json` were **write-once at creation** — a
+`create_project` with no `update_project` anywhere. Now
+`CRMService.update_project(project_id, updates, actor)` +
+`POST /api/v1/projects/{id}/update`, built to `update_customer`'s shape
+and the `update_user` pattern.
 
-The permission design, per decision 2: a new scoped permission (rather
-than a role check) so it stays overridable per-user through the
-permission UI that already works — admin/manager hold it unrestricted; a
-`project_manager` may reassign only on projects where
-`project_manager_id == actor.user_id`; `sales` does not hold it.
-Deliberately permission-keyed, not role-keyed, to avoid `NEW-194`'s
-"gate exists but narrowing logic is role-keyed" bug shape by
-construction.
+The permission design, per decision 2 — **delivered with two additive
+permissions, not one**, because `project_manager` already holds
+`PERM_MANAGE_PROJECTS` so that could not be the "unrestricted"
+discriminator: `PERM_REASSIGN_PROJECT_STAFF` (scoped — reassign only
+where `project_manager_id == actor.user_id`) and
+`PERM_REASSIGN_ANY_PROJECT_STAFF` (unrestricted). admin/manager hold
+both, `project_manager` the scoped one, `sales` neither. The ownership
+narrowing is in `_actor_may_reassign_project_staff()` with **no
+`actor.role` branch** — `NEW-194`'s "gate exists but narrowing is
+role-keyed" shape avoided by construction. Overridable per-user through
+the existing permission UI (both perms are in `PERMISSIONS_CATALOG`).
 
 **Prerequisite `U.35`/`U.36` (`NEW-264`, `NEW-266`) — DONE 2026-09-02
 (commit `5e03b4c`, code-reviewer-approved).** Both were defects in
@@ -5884,17 +5901,29 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       replies is wanted — that is a new B6 feature with its own Core
       table, not B2 debt.
 
-- [ ] **B6.1** — `update_project` + the reassignment permission model.
-      **Rule-4 category (permissions).** No `update_project` exists
-      anywhere today; `project_manager_id`/`assigned_employees_json`/
-      `subcontractors_json` are write-once at creation. Build the service
-      method + `POST /api/v1/projects/{id}/update`, following
-      `update_customer`'s partial-update shape. Permission-keyed, not
-      role-keyed: admin/manager unrestricted, `project_manager` scoped to
-      own projects, `sales` excluded (Ish, 2026-09-02). Logs old/new
-      values from the start — sets B6.2's standard.
+- [x] **B6.1** — `update_project` + the reassignment permission model.
+      **DONE 2026-09-02 — code-complete + code-reviewer APPROVED (rule-4
+      permissions/RBAC), NOT live-verified beyond the test suite** (no
+      live-model component; full `restoricon_core` scope 271 passed).
+      Commit `26d950d`. `CRMService.update_project(project_id,
+      updates, actor)` + `POST /api/v1/projects/{id}/update`, built to the
+      `update_user` pattern. **Reassignment is keyed on two new additive
+      permissions, never on `actor.role`** (avoids `NEW-194`'s shape by
+      construction): `PERM_REASSIGN_PROJECT_STAFF` (scoped — own projects
+      only, `project_manager_id == actor.user_id` on the pre-update row)
+      and `PERM_REASSIGN_ANY_PROJECT_STAFF` (unrestricted). admin/manager
+      hold both; `project_manager` the scoped one; sales/technician/
+      customer/`ai_agent` neither (and `ai_agent` also lacks
+      `PERM_WRITE_PROJECTS`, so it's blocked at the base gate — the
+      `PERM_SIGN_CONTRACTS`/`NEW-192` placeholder-policy pattern). The
+      three assignment fields need a reassignment perm; the other 19
+      allowed fields need only `PERM_WRITE_PROJECTS`. `stage`/`status`
+      rejected with a pointer to the stage-transition path (`status` is
+      fully derived from `stage`); `customer_id` not in the allow-list.
+      Audit uses a **nested `changed_fields` `{field: {old, new}}`**
+      payload — B6.2 generalizes that shape. Findings `NEW-302`…`NEW-308`.
       **Prerequisite `U.35`/`U.36` (`NEW-264`, `NEW-266`) — DONE
-      2026-09-02 (`5e03b4c`).** Copy the pattern it established in
+      2026-09-02 (`5e03b4c`).** Pattern it established, copied here:
       `update_user` (see this item's prose above).
 - [ ] **B6.2** — audit detail completion + an audit-search screen.
       63 `audit.log()` sites measured 2026-09-02; only 4 carry old/new

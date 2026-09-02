@@ -13649,3 +13649,131 @@ outside that fix's scope.
   "constraint violation → 400" assertion pattern rather than the two
   point cases U.35 added.
 - **Cross-reference:** `tests/test_user_management.py`; `NEW-264`.
+
+### [NEW-302] `CODEY_MASTER_PLAN.md` §6.9 claimed `operations_service` had an ownership-narrowed assignment mechanism "to follow" — it does not
+- **Status:** Confirmed (B6.1 architect + implementer + code-reviewer,
+  2026-09-02). **Corrected same round** — the §6.9 sentence now says
+  B6.1 invents the permission-keyed ownership-narrowing pattern.
+- **Mechanism:** §6.9's B4-reality block listed "Equipment deploy/return
+  … already a working assignment mechanism, and the model the
+  staff-assignment work below should follow." `deploy_equipment`
+  (`operations_service.py`) gates on `PERM_WRITE_OPERATIONS or
+  PERM_MANAGE_PROJECTS` with **zero ownership narrowing**. A repo-wide
+  grep of `services/` for `actor.user_id`-based checks finds only
+  role-keyed technician branches. B6.1 built the first permission-keyed
+  ownership-narrowing helper in the codebase.
+- **Impact:** documentation only; would have misled B6.1's implementer
+  into copying a non-existent pattern. Caught at scoping.
+- **Cross-reference:** `CODEY_MASTER_PLAN.md` §6.9; `NEW-194`.
+
+### [NEW-303] Neither `create_project` nor `update_project` validates `project_manager_id` list-membership, `assigned_employees`, or `subcontractors` element ids against any table
+- **Status:** Confirmed (B6.1 scoping, 2026-09-02). Pre-existing in
+  `create_project`; `update_project` matched it intentionally.
+- **Mechanism:** `project_manager_id` is covered by the DB FK
+  (`→ users(id)`), so a bad scalar there → `IntegrityError` → 400. But
+  `assigned_employees_json` / `subcontractors_json` have **no FK, no
+  CHECK** — `create_project` and `update_project` both `json.dumps` the
+  list with no check that the ids exist or reference the right table.
+- **Impact:** low today (nothing reads those lists as authoritative FKs)
+  but a project can carry assigned-employee ids for users that don't
+  exist or were deleted, and any future feature that trusts the list
+  inherits the gap.
+- **Fix direction:** a shared `_validate_project_assignment_refs()`
+  helper called by both, checking each id against `users` /
+  `subcontractors`. Its own hardening round.
+- **Cross-reference:** `restoricon_core/services/crm_service.py`
+  `create_project`, `update_project`.
+
+### [NEW-304] `subcontractors_json` semantics are undefined — external_id vs name vs `users.id`
+- **Status:** Suspected / needs-decision (B6.1 scoping, 2026-09-02).
+- **Mechanism:** `create_project` stores `project.subcontractors:
+  List[str]` verbatim. Nothing in `models.py`, the schema, or any
+  consumer pins down whether an element is a `subcontractors.external_id`,
+  a company name, or a `users.id`. `update_project` inherits the
+  ambiguity.
+- **Impact:** blocks `NEW-303`'s validation helper (can't validate
+  against a table until the referent is decided) and blocks B6.8's
+  subcontractor portal from reliably resolving "which projects am I on."
+- **Fix direction:** Ish/architect decision on the referent, then a
+  one-time data check of existing `subcontractors_json` values.
+- **Cross-reference:** `restoricon_core/models.py` `Project.subcontractors`;
+  `NEW-303`; B6.8.
+
+### [NEW-305] `update_project`'s inherited None-value guard makes `project_manager_id` un-nullable, though the column and its FK (`ON DELETE SET NULL`) allow NULL
+- **Status:** Confirmed (B6.1, 2026-09-02). Deliberate — matches
+  `update_customer`'s convention; documented in `update_project`'s
+  docstring.
+- **Mechanism:** `update_project` rejects any key whose value is `None`
+  (copied from `update_customer`), so there is no way to un-assign a
+  project's PM via this method even though `projects.project_manager_id`
+  is nullable.
+- **Impact:** low — a project can be reassigned PM-to-PM but not
+  PM-to-none through the API. Un-assignment currently only happens via
+  the FK's `ON DELETE SET NULL` when a user is deleted.
+- **Fix direction:** if un-assignment is a real need, add a sentinel
+  (an explicit `{"project_manager_id": null}` allowed only for that one
+  field) or a dedicated route. Not built pending a stated need.
+- **Cross-reference:** `restoricon_core/services/crm_service.py`
+  `update_project`, `update_customer`.
+
+### [NEW-306] `update_project` / `update_customer` call `get_project` / `get_customer` on the return path *after* the write commits — a write-capable, read-refused actor gets a 403 with the change already landed
+- **Status:** Confirmed (B6.1 implementer + code-reviewer, 2026-09-02).
+  Pre-existing shape in `update_customer`; `update_project` matches it.
+- **Mechanism:** both methods `return self.get_<entity>(id, actor)` as
+  their last line. An actor holding `write:projects` (custom-granted)
+  but whose read scope `get_project` refuses (e.g. `read:own_projects`
+  only, not a technician assignment) commits the UPDATE, then the return
+  read raises `PermissionError` → 403 to the caller. The write is not
+  rolled back.
+- **Impact:** low — requires an unusual custom-permission combination —
+  but the caller sees a failure for a change that succeeded, and may
+  retry, doubling any non-idempotent effect (here there is none, but the
+  pattern is copied forward).
+- **Fix direction:** return the raw updated row mapped without the read
+  gate, or re-fetch with a service-internal context. Fix `update_customer`
+  and `update_project` together.
+- **Cross-reference:** `restoricon_core/services/crm_service.py`
+  `update_project`, `update_customer`.
+
+### [NEW-307] `update_project`'s authorization check is evaluated against a row read outside the write transaction (TOCTOU)
+- **Status:** Confirmed (B6.1 code-reviewer, 2026-09-02). Non-blocking;
+  matches the service layer's general read-then-write non-atomicity,
+  flagged because this read feeds an **authorization** decision.
+- **Mechanism:** `update_project` does `SELECT * FROM projects` to get
+  the pre-update `project_manager_id`, then `_actor_may_reassign_project_staff`
+  decides scoped-reassign access from it, then a separate `with conn:
+  UPDATE`. Between the SELECT and the UPDATE another writer could change
+  `project_manager_id`, so a scoped `project_manager` could be
+  authorized against a stale ownership state.
+- **Impact:** low — requires a concurrent PM reassignment in a ~1ms
+  window, and the SQLite connection is process-local with short-lived
+  writes. No cross-process concurrency on this DB today.
+- **Fix direction:** re-check `project_manager_id` inside the `with
+  conn:` transaction, or `UPDATE … WHERE id = ? AND project_manager_id
+  = ?` for the scoped path. Revisit if the Core ever runs multi-process.
+- **Cross-reference:** `restoricon_core/services/crm_service.py`
+  `update_project`; `NEW-207` (similar single-eval auth-check shape).
+
+### [NEW-308] No value-type validation at the project-update API boundary, and no standalone project `status` edit path
+- **Status:** Confirmed (value-type) + Suspected/needs-decision (status
+  path). B6.1 code-reviewer, 2026-09-02.
+- **Mechanism (value-type):** `update_project` allow-lists keys but not
+  value types for the numeric fields. SQLite affinity stores
+  `{"estimated_cost": "lots"}` as TEXT in a `REAL NOT NULL` column with
+  no `IntegrityError`, so the 400 mapping never fires and `_row_to_project`
+  later hands a string-valued cost downstream. Matches `create_project`
+  (also unvalidated), but CLAUDE.md's working conventions put validation
+  at exactly this system boundary.
+- **Mechanism (status):** `projects.status` is written **only** as a
+  derived side effect of `stage` transitions (`operations_service`'s
+  `status_map`) and by `finance_service` as an `actual_cost +=`
+  byproduct. `update_project` rejects `status`. If the dashboard needs a
+  direct "put this project on hold" control independent of a stage
+  move, that path does not exist.
+- **Fix direction (value-type):** a shared numeric/date coercion-and-
+  validate helper for `create_project` + `update_project`. **(status):**
+  Ish decision on whether direct status editing is wanted; if so, a
+  scoped method on `operations_service`, not `update_project`.
+- **Cross-reference:** `restoricon_core/services/crm_service.py`
+  `update_project`, `create_project`; `operations_service.py`
+  `transition_project_stage`.
