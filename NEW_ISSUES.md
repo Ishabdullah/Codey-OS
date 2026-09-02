@@ -12988,3 +12988,59 @@ outside that fix's scope.
 - **Mechanism:** `start_aigentik`/`stop_aigentik`/`status_aigentik` all pass `"node"` as `$2`. `svc_detect_entrypoint_script` supports `main.py`/`app.py`/`server.py`/`run.sh`/`start.sh` too, but if Aigentik were launched via `python3 main.py`, `pgrep node` returns nothing and orphan cleanup silently does nothing. The real `~/Codey-Aigentik` is `node index.js` today, so this is latent.
 - **Fix direction:** derive `$2` from the detected entrypoint (`.py` → `python3`, `.sh` → `bash`, `.js` → `node`) alongside the existing token derivation.
 - **Not fixed this round** — scope was the two-factor identification fix; noted per Rule 8.
+
+## Found during the B6 (admin dashboard / portal / RBAC) planning round, 2026-09-02 — planning/interview task, docs-only; logged per Rule 8
+
+> **Context:** this round was a planning task, not a build task. No
+> application code was changed. These six findings came out of reading
+> `restoricon_core/` in full to re-derive the current state before
+> writing `CODEY_MASTER_PLAN.md` §6.9 (Phase B6). Four of them
+> (`NEW-272`…`NEW-275`) contradict status claims the plan itself was
+> carrying, and the plan has been corrected per Rule 6 — see §4.5, §6.6,
+> and Appendix A's two `B4` lines.
+
+### [NEW-272] Customer portal signs a hardcoded contract id (`contracts/1/sign`) regardless of which contract is displayed
+- **Status:** Confirmed (read `web_surfaces.py:1503` and `routes.py:681`).
+- **Mechanism:** `render_portal_surface()`'s e-signature pad posts to a literal `'/api/v1/portal/contracts/1/sign'`. The contract id is not derived from anything rendered — it is part of the demo HTML.
+- **Impact:** two distinct outcomes, neither correct. For a customer who does not own contract 1, `sign_contract` raises `PermissionError` and the signature silently fails. For the customer who *does* own contract 1, they sign contract 1 no matter which contract the page showed them — a wrong-document signature on a legally meaningful action.
+- **NOT an authorization hole — checked specifically, stated so it isn't re-escalated later:** `crm_service.py:1912-1914` enforces `actor.customer_id != row["customer_id"]` and raises. It fails closed. This is a correctness bug on a legally-significant action, not a data leak.
+- **Fix direction:** derive the contract id from the contract actually rendered, as part of `B6.3`'s portal rewiring.
+- **Not fixed this round** — planning task, docs-only.
+
+### [NEW-273] Admin `saveBusinessProfile()` and `saveScheduleConfig()` are `alert()` stubs that discard the operator's input while reporting success
+- **Status:** Confirmed (read `web_surfaces.py:2413-2420`).
+- **Mechanism:** both functions are bare `alert('...updated.')` calls. `saveBusinessProfile()` even fetches an auth token into a local `const token` and then never uses it. Neither reads its form fields; neither issues a request. `POST /api/v1/business-profile` and `POST /api/v1/schedule-config` both exist, work, and are RBAC-gated.
+- **Impact:** **worse than an unimplemented tab.** An operator edits the business profile — including the `AI Agent Master System Instructions` textarea that shapes agent behavior — clicks Save, is told "Business Profile context updated", and nothing is written. The failure is silent and the UI actively asserts the opposite. Same shape for booking/schedule parameters. Rated Confirmed and called out separately from `NEW-274` because "does nothing" and "lies about having done something" are different severities.
+- **Fix direction:** wire both to their existing routes. Scheduled as `B6.4a`, ahead of higher-value tabs specifically because of the misleading-success behavior.
+- **Not fixed this round** — planning task, docs-only.
+
+### [NEW-274] 8 of the admin surface's 11 tabs are hardcoded placeholders, against a plan status of "comprehensive business data editing"
+- **Status:** Confirmed (read `web_surfaces.py:1555-2428` in full).
+- **Mechanism:** `switchErpTab` (`:2212-2222`) lazy-loads exactly three tabs — `users`, `crm`, `telemetry`. The remaining eight (pipeline board, business profile, schedule config, equipment, subcontractors, communications, finance, business ops) render static markup. The pipeline board hardcodes "5 Leads", "4 Deals ($62,000)", "6 Active ($85,500)"; equipment shows "No records found." unconditionally; four tabs are a heading plus one sentence of prose. Several carry `onclick="alert('...')"` buttons.
+- **Impact:** the backing services (`FinanceService`, `OperationsService`, `BusinessOpsService`, `AnalyticsSearchService`) are all complete and tested — the data exists and is simply not reachable from the web. Hardcoded pipeline figures are the more dangerous half: they are plausible-looking numbers that an operator could mistake for real ones.
+- **Doc-accuracy half:** `CODEY_MASTER_PLAN.md` §4.5, §6.6's header, and Appendix A's `B4 — staff/admin surface` line all claimed this complete. **Corrected this round per Rule 6.** User management with dynamic permissions was re-verified and is genuinely real — that part of the claim stands.
+- **Fix direction:** `B6.4b`…`B6.4f`.
+- **Not fixed this round** — planning task, docs-only.
+
+### [NEW-275] Customer portal is static demo HTML and calls 2 of the 10 real portal routes that exist for it
+- **Status:** Confirmed (read `web_surfaces.py:1155-1554` and `routes.py:645-716`).
+- **Mechanism:** the 5-phase timeline, invoice/payment ledger, and PM chat feed are hardcoded markup. The only two fetches are the `NEW-272` contract sign and `POST /api/v1/portal/messages`. `GET /api/v1/portal/profile`, `/projects`, `/projects/{id}`, `/projects/{id}/milestones`, `/estimates`, `/contracts`, `/invoices`, and `/documents` are all implemented, RBAC-gated, customer-isolated, tested — and never called by the portal.
+- **Impact:** a logged-in customer sees another customer's-shaped fabricated project state — phase progress, invoice amounts, and PM messages that belong to no one. The isolation logic is correct; it is simply not exercised, so its correctness buys nothing today.
+- **Root-cause note worth carrying forward:** `test_customer_portal.py` passes and tests the API. No test asserts that the rendered surface calls the routes it is documented as consuming. That missing assertion is what allowed a demo page to be marked done — `B6.3` adds it as an explicit exit criterion.
+- **Fix direction:** `B6.3`.
+- **Not fixed this round** — planning task, docs-only.
+
+### [NEW-276] Audit `details=` payloads capture new state only at 59 of 63 call sites; `routes.py`'s 9 user-mutation sites capture nothing
+- **Status:** Confirmed (counted across `restoricon_core/`).
+- **Mechanism:** 63 `audit.log()` call sites — 54 in `services/`, 9 in `api/routes.py`. Only four pass genuine before/after pairs: `business_ops_service.py:207` (`submit_review`, the 2026-09-02 fix that set the standard), `operations_service.py:342` (`previous_stage`), `:568` and `:1141` (`previous_status`). The rest pass `X.to_dict()` of the post-change entity, or a bare `updates` dict, or a narrow slice like `{"signed_at": now}`. All nine `routes.py` sites pass no `details=` at all.
+- **Impact:** most changes are visible in history but not reconstructible — an admin can see *that* a field changed and its new value, not what it was before. The `routes.py` gap is the sharpest: a role change records the bare string `"User {username} updated"` with no old role, no new role, and no record that every session that user held was revoked as a side effect.
+- **Relationship to existing entries:** `NEW-265`/`NEW-267` (tracked as `U.37`) are two specific instances of this pattern. This entry is the measured breadth of it; `U.37` is now absorbed into `B6.2` rather than tracked as separate work.
+- **Fix direction:** `B6.2` — bring all sites to the `submit_review` standard, `routes.py` first, plus an admin audit-search screen with a before/after diff. **Explicitly no rollback engine** (Ish, 2026-09-02).
+- **Not fixed this round** — planning task, docs-only.
+
+### [NEW-277] 187 gitignored 32-hex-char scratch directories have accumulated in the repo root
+- **Status:** Suspected (cleanup-discipline issue; no functional impact observed).
+- **Mechanism:** the repo root holds 187 directories matching `[0-9a-f]{32}`, each containing `resource_bus.db`/`resource_bus.lock`. `.gitignore:44` already excludes the pattern, so the tree stays clean in git — but the directories are never removed, and timestamps show them accruing across sessions (many within the same hour). Presumably per-run scratch state from `core/resource_bus.py` or its tests.
+- **Impact:** none on correctness. It makes `ls` in the repo root unusable without filtering, and it is unbounded growth on a phone's storage.
+- **Fix direction:** have whatever creates them remove them on teardown, or relocate them under a single scratch parent directory outside the repo root. Needs a look at `resource_bus.py`'s own lifecycle before choosing — not guessed at here.
+- **Not fixed this round** — entirely outside a docs-only planning task's scope; logged per Rule 8 rather than silently dropped.

@@ -207,7 +207,7 @@ plan's own successor documents.
    `capability_optimizer`, `skill_recombiner`) are permanently gated off
    from live execution. Never activate, wire up, or remove this gate
    without an explicit, direct instruction from Ish given in that exact
-   session — not inferred, not implied by a task description. See §6.9.
+   session — not inferred, not implied by a task description. See §6.11.
 
 2. **RAM discipline.** ~10.8GB RAM; this device has crashed from
    concurrent model loads. Before any live test that loads any local
@@ -955,7 +955,28 @@ a test-isolation gap, not a regression.
 
 ### 4.5 Business layer
 
-**Updated 2026-08-31.** Phase B1 (Core API & Auth), Phase B2 (Aigentik Write-Through & Contacts Directory), Phase B3 (CRM/Sales Pipeline & Operations Domain Engines), Phase B4 (Public Website Intake API, Rate Limiting, Customer Portal Data Isolation, Staff/Admin Surface & Device Limb Dashboard Integration), Phase B5a (Remaining Business Domain Engines & Cross-Domain Search/Reporting), and Phase B5b (Third-Party App Automation & Device Bridge IPC Integration) are 100% complete and verified (1,165 passed). All three surfaces (`quote`, `portal`, `admin`) plus the static `restoricon.com` site are unified under a top-left hamburger navigation drawer, redesigned with exact Deep Navy & Bronze branding, and backed by comprehensive User Management with granular dynamic permission overrides.
+**Updated 2026-08-31; B4's web-layer claim corrected 2026-09-02 (rule 6).**
+Phase B1 (Core API & Auth), Phase B2 (Aigentik Write-Through & Contacts
+Directory), Phase B3 (CRM/Sales Pipeline & Operations Domain Engines),
+Phase B4 (Public Website Intake API, Rate Limiting, Customer Portal Data
+Isolation, Staff/Admin Surface & Device Limb Dashboard Integration), Phase
+B5a (Remaining Business Domain Engines & Cross-Domain Search/Reporting),
+and Phase B5b (Third-Party App Automation & Device Bridge IPC Integration)
+are complete and verified **at the service and API layer** (1,165 passed).
+All three surfaces (`quote`, `portal`, `admin`) plus the static
+`restoricon.com` site are unified under a top-left hamburger navigation
+drawer and redesigned with exact Deep Navy & Bronze branding.
+
+**⚠ The "100% complete" claim this paragraph previously carried is
+withdrawn for B4's web layer.** Verified by reading
+`restoricon_core/api/web_surfaces.py` in full on 2026-09-02: the customer
+portal renders hardcoded demo content and calls 2 of its 10 real routes;
+the admin surface wires 3 of its 11 tabs and ships two save buttons that
+silently discard input while reporting success. User Management **with
+granular dynamic permission overrides is genuinely real** — that part of
+the claim stands and was re-verified. Everything else in the web layer is
+finished by **§6.9 / Phase B6**. See §6.6's correction block for the
+file-and-line evidence and `NEW-272`…`NEW-276`.
 
 **`NEW-209`'s schema-gap open decision is RESOLVED — Ish chose to expand
 scope, not narrow it (2026-08-27).** Rather than narrowing B2's exit
@@ -3963,11 +3984,41 @@ live-verified (no process-lifecycle changes).**
   - Equipment asset tracking and check-out/check-in deployment lifecycle with condition tracking and meter readings.
   - Strict RBAC & customer data isolation (customer role restricted to own records, financial costs/margins masked).
 
-### 6.6 Track B / Phase B4 — The public website + phone-hosted API surfaces (100% COMPLETE)
+### 6.6 Track B / Phase B4 — The public website + phone-hosted API surfaces (API layer COMPLETE; web layer DOWNGRADED 2026-09-02 — see §6.9/B6)
 
-**Status (2026-08-30):** 100% code-complete, audited, and verified across all test suites (`test_rate_limiter.py`, `test_public_intake.py`, `test_customer_portal.py`).
-- Public Website intake API endpoints (`/api/v1/public/leads`, `/api/v1/public/booking`) with sliding-window rate limiting, honeypot spam bot mitigation, automatic CRM deduplication, lead qualification scoring, and pipeline ingestion.
-- Customer Portal (`/api/v1/portal/*`) with complete RBAC customer data isolation, dynamic financial cost/margin masking, digital contract e-signatures, invoice balance tracking, document/photo retrieval, and bi-directional portal messaging.
+**⚠ Status corrected 2026-09-02 per rule 6.** This section previously read
+"(100% COMPLETE)". That claim held for the **API layer** and does not hold
+for the **web layer**. The correction, with the evidence that forced it:
+
+- **The API half is real and stands.** All ten `/api/v1/portal/*` routes
+  exist, enforce customer isolation in the service layer, and are covered
+  by tests (`restoricon_core/api/routes.py:645-716`).
+- **The web half is static demo HTML.** `render_portal_surface()`
+  (`restoricon_core/api/web_surfaces.py:1155-1554`) hardcodes its
+  timeline, invoice table, and PM chat. It issues exactly **two** fetches
+  — `POST /api/v1/portal/contracts/1/sign` (a hardcoded contract id,
+  `NEW-272`) and `POST /api/v1/portal/messages`. **Eight of the ten real
+  portal routes are never called by the portal.**
+- **The admin surface is mostly static too.** Of eleven tabs, **three**
+  are wired to real APIs (Users/Permissions, CRM & Projects list, Audit
+  Log — lazy-loaded in `switchErpTab`, `web_surfaces.py:2212-2222`). The
+  other eight are hardcoded placeholders. `saveBusinessProfile()` and
+  `saveScheduleConfig()` (`web_surfaces.py:2413-2420`) are bare `alert()`
+  calls that **discard the operator's input while reporting success**,
+  even though `POST /api/v1/business-profile` and
+  `POST /api/v1/schedule-config` both exist and work (`NEW-273`).
+
+Stated plainly per rules 5 and 6: the test suites cited below are real and
+they pass, but they test the **API**, not the rendered surfaces — no test
+asserts that a portal or admin page actually calls the routes it is
+described as consuming. That is precisely the code-complete-vs-live-
+verified gap rule 7 exists for, and it is why **§6.9 / Phase B6 exists to
+finish B4's own unmet exit criteria**, not to add new scope on top of
+finished work.
+
+**Status (2026-08-30, unchanged and still accurate for the API layer):** code-complete, audited, and verified across all API test suites (`test_rate_limiter.py`, `test_public_intake.py`, `test_customer_portal.py`).
+- Public Website intake API endpoints (`/api/v1/public/leads`, `/api/v1/public/booking`) with sliding-window rate limiting, honeypot spam bot mitigation, automatic CRM deduplication, lead qualification scoring, and pipeline ingestion. **REAL.**
+- Customer Portal API (`/api/v1/portal/*`) with complete RBAC customer data isolation, dynamic financial cost/margin masking, digital contract e-signatures, invoice balance tracking, document/photo retrieval, and bi-directional portal messaging. **REAL as an API; not consumed by the rendered portal — see the correction above.**
 
 **Depends on:** B1 (API + auth), B3 (data worth showing).
 
@@ -4072,7 +4123,349 @@ pipeline. `core/resource_gate.py`'s existing admission logic is unchanged
 by it — it names the layer *above* the gate, not a revision to what's
 built.
 
-### 6.9 Parked — do not start without Ish's explicit sign-off
+### 6.9 Track B / Phase B6 — The web-facing layer: dashboard, portals, RBAC completion
+
+**Added 2026-09-02, scoped in an interview with Ish that same session.
+This phase finishes Phase B4's own unmet exit criteria; it is not new
+scope layered on top of finished work.** §6.6 carries the rule-6
+correction and the file-and-line evidence for why B4's web layer was
+downgraded. The one-sentence version: B5 built the domain *services* and
+B4 built the *API*, but the layer that puts them in front of a human was
+never given a phase of its own, so it shipped as demo HTML and got marked
+done.
+
+**What is genuinely REAL today and is not re-built here** — verified by
+reading the code on 2026-09-02, not inferred from the prior status line:
+
+- The permission model. `users` carries a real seven-value role CHECK
+  constraint plus `custom_permissions_json`
+  (`restoricon_core/database.py:22-37`) — re-read this round. Enforcement
+  breadth (**65 of 66 mutation-shaped service methods** gating on
+  `AuthContext.has_permission()` before touching the DB, with
+  `submit_review` the one gap, since fixed) is carried from the
+  2026-09-02 RBAC investigation and was **not re-counted this round** —
+  attributed rather than restated as verified, per rule 5.
+- The role/permission admin UI. View, assign, and edit any user's role and
+  custom permissions, backed by real routes
+  (`/api/v1/users`, `/api/v1/permissions/catalog`,
+  `/api/v1/users/{id}/permissions`), taking effect immediately. **This
+  part of B4's claim stands.**
+- All ten `/api/v1/portal/*` routes, with customer isolation enforced in
+  the service layer. `sign_contract` was checked specifically because the
+  portal calls it with a hardcoded id: it **fails closed**
+  (`crm_service.py:1912-1914`), so `NEW-272` is a correctness bug, not an
+  authorization hole. Stated explicitly so a later reader doesn't
+  re-escalate it.
+- Equipment deploy/return (`/api/v1/operations/equipment/deploy`,
+  `/return`) — already a working assignment mechanism, and the model the
+  staff-assignment work below should follow rather than reinvent.
+
+**Ish's goals for this phase, in his own framing (2026-09-02):**
+everything in the admin dashboard reachable by admins and whoever admins
+grant access to — not just CRM, but financials, tools/equipment, customer
+info, technicians, subs, projects, notes, documents/photos. Assign and
+reassign techs, subs, PMs, and equipment to any job from the web. One
+genuine source of truth, no independently-drifting views. Every change
+logged with who/what/when in enough detail to understand and correct a
+mistake. Every role logs in with username/password every session (already
+done). Workers, salespeople, and subs schedulable, with schedule changes
+visible on their own portal.
+
+**Explicitly out of scope for B6 (Ish, 2026-09-02):** the SMS/email
+messaging agent itself. Aigentik is a separate, already-mostly-working
+system. B6 *calls* it (B6.6) but does not modify its internals.
+
+#### Decisions taken in the 2026-09-02 interview
+
+Recorded here so later sessions don't re-litigate them. Each was put to
+Ish with real options and a stated recommendation.
+
+| # | Question | Ish's answer |
+|---|---|---|
+| 1 | The eight static admin tabs — B6 scope, own phase, or partial? | **In B6, phased by domain.** Makes B6 the largest phase in the plan; stated honestly rather than hidden in a later phase. |
+| 2 | Who may reassign a PM/tech/sub on an existing project? | **PM self-serve on own projects.** Admin/manager unrestricted; a project_manager may reassign only where they are that project's `project_manager_id`; sales may not. |
+| 3 | Customer-portal rewire before or after net-new staff portals? | **Rewire first.** Lower risk, and it establishes the fetch/render/auth pattern the staff portals copy. |
+| 4 | How deep does audit "revert" go? | **See exactly what changed and fix it manually.** No one-click rollback — not even for a subset. |
+| 5 | File upload storage and limits? | **Local disk under the Core's data dir, streamed, 25MB cap**, images + PDF + common docs. |
+| 6 | Where do per-person schedules live? | **A new `staff_schedules` table** — `appointments` stays untouched. |
+| 7 | Notify on assignment? | **Yes, now** — overriding the recommendation to defer. See B6.6 for the constraint this ran into and how it was resolved. |
+| 8 | What does "propagate everywhere" mean technically? | **Refetch from the one API.** No surface keeps its own copy; §3.5 already commits to this. **No realtime push layer** — not needed, not built. |
+| 9 | (Follow-up) Notification channel? | **Email now; SMS is an investigation item, not a deliverable.** Ish's own reasoning, since confirmed from source — see B6.6. |
+
+**Decision 8 is a constraint on every item below, not a task:** each new
+surface reads from the Core API on load and after every user action, and
+holds no local store. This is free — §3.5's one-API-one-auth design
+already gives it — but it has to be *stated*, because the cheap way to
+build a fast-feeling dashboard is exactly the local cache that would
+break it.
+
+#### The ordering, and why
+
+Dependency first, then risk, then value. `update_project` blocks every
+reassignment surface, so it leads. The audit standard lands second so
+every later write path is built to it rather than retrofitted. The
+customer-portal rewire comes third because it is the cheapest conversion
+of a *misleading* surface into a real one and it sets the pattern. File
+upload sits deliberately late — see B6.5 for the measured reason. The
+staff portals come last because they consume everything above them.
+
+---
+
+**B6.1 — `update_project` and the reassignment permission model.**
+**Rule-4 category (permissions).** The blocker for everything
+assignment-shaped: `project_manager_id`, `assigned_employees_json`, and
+`subcontractors_json` are **write-once at creation today** — there is a
+`create_project` (`crm_service.py:1534`) and no `update_project` anywhere
+in the codebase. Build `update_project(project_id, updates, actor)` plus
+`POST /api/v1/projects/{id}/update`, following `update_customer`'s
+existing partial-update shape rather than inventing a new one.
+
+The permission design, per decision 2: a new scoped permission (rather
+than a role check) so it stays overridable per-user through the
+permission UI that already works — admin/manager hold it unrestricted; a
+`project_manager` may reassign only on projects where
+`project_manager_id == actor.user_id`; `sales` does not hold it.
+Deliberately permission-keyed, not role-keyed, to avoid `NEW-194`'s
+"gate exists but narrowing logic is role-keyed" bug shape by
+construction.
+
+**Prerequisite, do first or in the same session: `U.35`/`U.36`
+(`NEW-264`, `NEW-266`).** Both are defects in `update_user` — the exact
+partial-update-on-an-auth-table shape `update_project` is about to copy.
+Fixing them first means B6.1 copies a correct pattern instead of
+propagating a broken one.
+
+This item sets the audit standard B6.2 then applies everywhere: every
+field it changes is logged with **old and new values**.
+
+**B6.2 — Audit detail completion.** Bring the write paths up to the
+old/new-value standard, and give an admin a way to read the result.
+Measured on 2026-09-02: **63 `audit.log()` call sites** across
+`restoricon_core` (54 in services, 9 in `api/routes.py`). Only **four**
+carry genuine before/after pairs — `business_ops_service.py:207`
+(`submit_review`, the recent fix that set the standard),
+`operations_service.py:342` (`previous_stage`), `:568` and `:1141`
+(`previous_status`). The rest log new state only, as `X.to_dict()` or a
+bare `updates` dict.
+
+**Highest priority within this item: `api/routes.py`'s nine
+user-mutation sites, which pass no `details=` at all.** A role change
+today records the bare string `"User {username} updated"` — no old role,
+no new role, and no note that every one of that user's sessions was
+revoked as a side effect. That is the least reconstructible change in the
+system and the least well logged.
+
+Also build the read side: an admin screen to search audit history by
+entity and read a before/after diff. **Per decision 4 there is no
+rollback engine** — not one-click-everywhere, and not one-click for a
+subset. "See exactly what changed, then fix it in the normal UI" is the
+requirement, and it is met by good `details=` payloads plus a search
+screen, not by revert semantics.
+
+**Absorbs `U.37` (`NEW-265`, `NEW-267`) in full** — that M-lane item's
+fix direction is verbatim this item's scope. `U.37` stays in M-lane as a
+pointer so its NEW-ids remain findable; it is not separate work.
+
+**B6.3 — Rewire the Customer Portal to the API it already has.**
+Replace `render_portal_surface()`'s hardcoded timeline, invoice table,
+and PM chat with real fetches against the ten existing
+`/api/v1/portal/*` routes. Fix the hardcoded
+`POST /api/v1/portal/contracts/1/sign` (`NEW-272`) to sign the contract
+actually being displayed. Establishes the fetch/render/auth/error pattern
+that B6.7's four staff portals then copy — which is the second reason
+this comes before them, beyond being lower-risk.
+
+Exit criterion, stated because B4's absence of one is what let this ship
+as a demo: **a test asserts the rendered surface calls the routes it is
+described as consuming.** An API test passing is not evidence the page
+uses the API.
+
+**B6.4 — Admin dashboard tab completion, phased by domain** (decision 1).
+The largest item in this phase. Every tab below already has a real
+service and real routes behind it; the work is the wired UI, not new
+backend. Ordered by damage-done-today, then by value:
+
+- **B6.4a — the two lying save buttons, first.** `saveBusinessProfile()`
+  and `saveScheduleConfig()` (`web_surfaces.py:2413-2420`) are bare
+  `alert()` calls that report success and write nothing, against routes
+  (`POST /api/v1/business-profile`, `POST /api/v1/schedule-config`) that
+  exist and work. This is worse than an unimplemented tab: an operator
+  who edits the business profile the AI agent uses for context, clicks
+  Save, and is told it worked has been actively misled. Fix ahead of
+  everything else in B6.4 regardless of relative value (`NEW-273`).
+- **B6.4b — pipeline board.** Replace the hardcoded "5 Leads /
+  $62,000 / 6 Active" tiles with real aggregations —
+  `AnalyticsSearchService` already computes them.
+- **B6.4c — operations: equipment and subcontractors.** Both tabs are
+  placeholders with `alert()` buttons; both services are complete, and
+  equipment deploy/return already works end to end at the API.
+- **B6.4d — finance.** P&L, AR aging, invoice reconciliation from
+  `FinanceService`. Financial data reaches customer-visible surfaces, so
+  the cost/margin masking rules already in the service layer must be
+  honored by the UI, not re-implemented in it.
+- **B6.4e — communications.** Comms history and DNC controls from
+  `CommunicationService`/`AutomationService`. Read/manage only — this is
+  a view onto Aigentik's data, not a change to Aigentik.
+- **B6.4f — business ops.** Marketing, HR, procurement, and the
+  compliance expiry scanner from `BusinessOpsService`.
+
+**B6.5 — File and document upload.** Not implemented at all today: the
+`documents` table is metadata-only (`file_path TEXT`), `create_document`
+stores a row, and **no multipart handling exists anywhere in the request
+path** (verified by grep: zero hits across `restoricon_core`).
+
+**Placed late for a measured reason, not a guessed one.**
+`RestoriconRequestHandler._dispatch` (`api/server.py:52-54`) does
+`self.rfile.read(content_length)` — it reads the entire request body into
+memory before routing, with no streaming and no multipart parser. On a
+device with ~10.8GB shared with a resident model (§5), a naive
+25MB-per-upload path that also holds the body in RAM is a genuine
+resource-gate concern, not a theoretical one. This is **new request-path
+plumbing**, not a route addition, and it is the item most likely to be
+underestimated.
+
+Per decision 5: files on local disk under the Core's data directory
+(`~/.codey_restoricon/documents/`), **streamed to disk in chunks**, 25MB
+cap, images (jpg/png/heic/webp) + PDF + common documents.
+
+**Rule-4 category** — a new request-path surface accepting caller-named
+files is a path-traversal and content-type surface, and it is reachable
+from the customer portal. **Rule 11 applies:** `install.sh` must create
+the storage directory and carry any new dependency in the same task, not
+later.
+
+**B6.6 — The Core→Aigentik outbound notification path.** Per decision 7,
+Ish chose notification-on-assignment now, over a recommendation to defer
+it alongside the rest of the messaging work. Recorded as his decision.
+
+**The direction of this dependency is new and is the real work here.**
+Today Aigentik writes *through to* the Core (all ten B2 modules). Nothing
+in the Core calls *out to* Aigentik. Per §3.4 the Core must not grow its
+own SMTP or SMS — the voice/inbox limb owns those channels — so this is a
+Core→limb call path that does not exist yet. Scope it as such.
+
+**Email now; SMS is an investigation item, not a deliverable** (decision
+9). Ish's stated reasoning was that Aigentik can only reply to Google
+Voice texts it has already received, not initiate one. **Confirmed from
+source, not accepted on report:**
+`Codey-Aigentik/email-provider.js:1041-1055`'s
+`replyToGoogleVoiceText()` sends to `voiceMessage.reply_to_email` — a
+relay address that exists only because Google Voice forwarded an inbound
+text. There is no path to originate an SMS to a number that has not
+texted first. The investigation Ish framed — whether a still-live
+`reply_to_email` thread can be held open and reused to originate a
+message — is a real, bounded question with real caveats (those relay
+addresses may expire, and it requires the recipient to have texted
+first). **It gets investigated and reported; it is not planned as
+working.**
+
+**Calendar invites are largely a wiring job, not net-new** — also
+confirmed from source rather than assumed.
+`Codey-Aigentik/email-provider.js:1080-1121` already builds a
+`VCALENDAR`/`VEVENT` block with `METHOD:REQUEST` and reads
+`appointment.ics_sequence`; `gmail.js:95` already sends it. The Core's
+own `appointments` table already carries the matching `uid` and
+`ics_sequence` columns. What is missing is the Core-side trigger, not the
+ICS machinery.
+
+**B6.7 — Staff scheduling.** Per decision 6, a **new `staff_schedules`
+table** — `appointments` is left alone. The reason is concrete:
+`appointments` models customer bookings, has no staff-assignee column,
+and is the live write-through target of Aigentik's `calendar.js` with
+`external_id` idempotency matching. Overloading it would put a working
+integration at risk to save a table. `schedule_config` is separately
+unsuitable — it is a hard singleton (`id INTEGER PRIMARY KEY CHECK(id =
+1)`) holding one global business-hours row, not per-person anything.
+
+New table linked to `users`/`employees`, with its own read/write
+permissions following the existing `PERM_READ_*`/`PERM_WRITE_*`
+convention, plus the admin-side scheduling UI. **Rule-4 category** (new
+permissions). On a schedule change, Aigentik sends an ICS invite to the
+person's email via B6.6 — Ish's explicit ask.
+
+**B6.8 — The four staff portals: PM, sales, technician, subcontractor.**
+Net-new; none exist today, though all four roles exist in the `users`
+table and the permission system. Each copies B6.3's established pattern
+and is filtered by the same permission system rather than
+reimplementing access rules per portal.
+
+**Every one of them opens on "where am I assigned"** — Ish's explicit
+requirement: the dashboard shows where people are assigned when they log
+in, plus their own calendar from B6.7. That is the primary screen, not a
+sub-tab.
+
+**Rule-4 category.** Four new authenticated surfaces over the same
+customer and financial data is the highest-risk item in this phase for
+exactly the reason §6.6 already gives — and a subcontractor portal is the
+first surface in this system exposing project data to someone outside the
+company. Its narrowing rules deserve their own review pass, not a shared
+one.
+
+**Depends on:** B1 (API + auth), B3/B5a (the services), B4 (the API
+layer). **Blocks:** nothing in Track A.
+
+### 6.10 Track B / Phase B7 — Backup and disaster recovery to Google Cloud Storage
+
+**Added 2026-09-02 at Ish's request, in his words "its own section to
+implement."** This **resolves §8 Q5** ("backup and maintenance windows —
+real requirements, explicitly deferred, to be figured out"), which had
+been open since the 2026-08-21 merge. §3.6 named the deferral; this phase
+closes it.
+
+**Trigger (Ish, 2026-09-02): a continuous local journal plus periodic
+snapshot,** not a literal per-write upload. Ish's phrasing was "backed up
+after every new entry"; asked directly, he chose the journal+snapshot
+shape over per-write upload. Every write appends to a durable local
+journal immediately, and the journal plus a full DB snapshot ship to GCS
+on a short interval and on clean shutdown. The exposure is a few minutes
+of data in a total-device-loss scenario, without a network call per audit
+row on a phone that may be on mobile data. Stated plainly: this is the
+standard point-in-time-recovery shape, chosen deliberately over the
+literal reading of the request.
+
+**Scope (Ish's selection, 2026-09-02):**
+
+1. **The Core database** — `~/.codey_restoricon/core.db`. Every customer,
+   lead, project, estimate, contract, invoice, comms record, and audit
+   row. The irreplaceable thing.
+2. **Uploaded documents and photos** — the B6.5 file store. Also
+   irreplaceable, much larger, and changes differently: needs
+   **incremental** upload of new/changed files, not a full re-push per
+   cycle. **Depends on B6.5** — there is nothing to back up until upload
+   exists.
+3. **Config, secrets, and tokens** — `config.json`, API tokens,
+   provisioned credentials. Needed to restore a *working system* rather
+   than just data.
+
+**Deliberately excluded: the code repos** (Codey-OS, Codey-Aigentik, the
+website). Already in git and pushed to GitHub; a second backup of a
+backup. Offered and **not selected** by Ish — stated that way rather than
+as an active rejection, since it was one unchosen option in a multi-select.
+
+**The named risk, stated before the work starts rather than discovered
+during it:** item 3 puts secrets in cloud storage. That requires
+**encryption before upload**, with the key held somewhere the backup
+itself does not contain — a careless implementation here is worse than
+having no backup, because it converts a device-loss problem into a
+credential-disclosure problem. **Rule-4 category** on the credential
+handling specifically.
+
+**Exit criterion: a restore drill, not a successful upload.** A backup
+that has never been restored is not a backup — restoring to a scratch
+path and verifying row counts and file integrity against the live DB is
+what closes this phase. Per rule 7 this is a **live-verified** item by
+its nature; code-complete does not close it.
+
+**Rule 11 applies:** `install.sh` must carry the GCS client dependency
+and the credential-setup step in the same task.
+
+**Depends on:** B6.5 (for the document store). The database half has no
+dependency on B6 and could run earlier if Ish wants data protection
+before the web layer is finished — worth flagging as a genuine option,
+since the DB is the irreplaceable part and it is already full of real
+business data today.
+
+### 6.11 Parked — do not start without Ish's explicit sign-off
 
 **P.1 — self-improvement activation** (`auto_improvement_loop`,
 `capability_optimizer`, `skill_recombiner`, `goal_engine`). Gated by rule
@@ -4171,8 +4564,27 @@ Numbered for reference. Nothing here is guessed at in this document.
 4. **Deployment migration off-phone.** Firebase, a bigger server, or
    something else. Explicitly not decided; revisit after the
    phone-hosted version is real.
-5. **Backup and maintenance windows.** Real requirements, explicitly
-   deferred, "to be figured out."
+5. ~~**Backup and maintenance windows.** Real requirements, explicitly
+   deferred, "to be figured out."~~ **The backup half is ANSWERED by Ish,
+   2026-09-02: Google Cloud Storage, continuous local journal plus
+   periodic snapshot, and it gets its own phase — now §6.10 / Phase B7.**
+   Kept here, struck through, so the answer is visible rather than the
+   question quietly vanishing (same pattern as Q1/Q3/Q8/Q10 above). Ish
+   raised this unprompted while answering B6's file-upload question:
+   "i do have google cloud storage i would like to have everything inside
+   the whole Codey-OS, Aigentik, website, etc. backed up to after every
+   new entry to protect our business data. but that should get its own
+   section to impliment." Asked directly about the trigger, he chose
+   journal+snapshot over a literal per-write upload; asked about scope, he
+   selected the Core DB, uploaded documents/photos, and config/secrets/
+   tokens, and declined the code repos as already-in-git. See §6.10 for
+   the full scope, the encryption-before-upload risk on the secrets half,
+   and the restore-drill exit criterion.
+
+   **The maintenance-windows half of this question is still open** and is
+   deliberately not folded into B7 — scheduled maintenance windows are a
+   separate concern from backup, and Ish's 2026-09-02 answer addressed
+   only backup. Not treated as answered by proximity.
 6. **`NEW-9`'s residual atfork race.** Already escalated twice; each
    attempt an improvement, neither a full close. The question is
    accept-residual-risk vs. a third attempt with a genuinely new angle —
@@ -4548,7 +4960,7 @@ Numbered for reference. Nothing here is guessed at in this document.
 **Live append-only ledgers, owned by this plan** (deliberately *not*
 archived — archiving them would break rules 8 and 9 immediately, since
 both are written to on every round):
-- **`NEW_ISSUES.md`** — the findings ledger (rule 8). NEW-1 … NEW-155
+- **`NEW_ISSUES.md`** — the findings ledger (rule 8). NEW-1 … NEW-277
   today. Per-issue status is authoritative *there*; this merge did not
   re-adjudicate 155 statuses, and Appendix B says so plainly rather than
   guessing.
@@ -5731,6 +6143,14 @@ Then:
 - [ ] **11.x** — Model Orchestrator. **Parked** until a domain agent
       needing it is scoped.
 
+### Phase B — business layer (§6.3–§6.10)
+
+**Header added 2026-09-02.** These items previously sat physically under
+the `Phase A2 — coding-domain rollout` heading above, with no heading of
+their own — a structural quirk of the 2026-08-21 merge, not a claim that
+business-layer work belongs to Track A. Nothing was moved or re-scoped;
+only this heading was inserted.
+
 - [x] **B1** — Core schema + canonical IDs (code-complete, 11 tests passing in `tests/test_restoricon_core/`).
 - [x] **B1** — the HTTP API boundary (code-complete; rule-4 adversarial review pending for binding & auth).
 - [x] **B1** — auth, roles, permissions (code-complete; 7 roles, PBKDF2 hashing, bearer tokens, customer isolation).
@@ -5759,8 +6179,27 @@ Then:
 - [x] **B3** — Operations domain. **DONE 2026-08-30 (`OperationsService`).**
 - [x] **B3** — first Automated Workflows. **DONE 2026-08-30 (`OperationsService` automation rules engine).**
 - [x] **B4** — phone-hosted public site. **DONE 2026-08-31 (Public intake, top-left hamburger navigation drawer, and static hosting).**
-- [x] **B4** — staff/admin surface. **DONE 2026-08-31 (`web_surfaces.py` Single-Page App at `/admin` with full user management, dynamic domain permissions, and comprehensive business data editing).**
-- [x] **B4** — customer portal (full document/signature/financial). **DONE 2026-08-31 (`web_surfaces.py` Single-Page App at `/portal` with 5-phase tracker, canvas e-signature, and invoice payment).**
+- [ ] **B4** — staff/admin surface. **PARTIAL — downgraded 2026-09-02 per
+      rule 6; was marked DONE 2026-08-31.** What is real: the `/admin`
+      SPA exists, and **user management with dynamic domain permissions
+      genuinely works** (real routes, changes take effect immediately) —
+      that half of the original claim was re-verified and stands. What
+      is not: "comprehensive business data editing" is withdrawn. **3 of
+      11 tabs are wired** (Users/Permissions, CRM & Projects list, Audit
+      Log — `web_surfaces.py:2212-2222`); the other 8 are hardcoded
+      placeholders, and `saveBusinessProfile()`/`saveScheduleConfig()`
+      (`web_surfaces.py:2413-2420`) are `alert()` stubs that discard
+      input while reporting success (`NEW-273`, `NEW-274`). Finished by
+      **B6.4**.
+- [ ] **B4** — customer portal (full document/signature/financial).
+      **PARTIAL — downgraded 2026-09-02 per rule 6; was marked DONE
+      2026-08-31.** The `/portal` SPA renders, but its 5-phase tracker,
+      invoice table, and PM chat are **hardcoded demo HTML**
+      (`web_surfaces.py:1155-1554`). It calls **2 of the 10 real
+      `/api/v1/portal/*` routes**, one of them at a hardcoded contract id
+      (`NEW-272`, a correctness bug — `sign_contract` fails closed, so
+      not an authorization hole). The **API layer is genuinely complete**
+      and is not re-done. Finished by **B6.3**.
 - [x] **B4** — device-limb dashboard as third API client. **DONE 2026-08-30 (`Private-Codey-Agent/lib/screens/business_dashboard_screen.dart`).**
 - [x] **B5a** — Finance/Bookkeeping. **DONE 2026-08-30 (`FinanceService`).**
 - [x] **B5a** — Marketing/Lead-Gen. **DONE 2026-08-30 (`BusinessOpsService`).**
@@ -5776,6 +6215,98 @@ Then:
 - [x] **B5b** — third-party-app automation via accessibility. **DONE 2026-08-30 (`ThirdPartyAppAutomationService`, `DeviceBridgeClientService`, `ccos.core.device_bridge`).**
 - [x] **B5b** — Core→device scheduled-dispatch mechanism (protocol
       settled in Item 9.4 with loopback WebSocket/HTTP IPC and safety vetoes). **DONE 2026-08-30.**
+
+**Phase B6 — the web-facing layer (§6.9).** Added 2026-09-02. Ordered by
+dependency, then risk, then value; §6.9 states the reasoning for the
+order. Every item below is a separate scoped session, not one task.
+
+- [ ] **B6.1** — `update_project` + the reassignment permission model.
+      **Rule-4 category (permissions).** No `update_project` exists
+      anywhere today; `project_manager_id`/`assigned_employees_json`/
+      `subcontractors_json` are write-once at creation. Build the service
+      method + `POST /api/v1/projects/{id}/update`, following
+      `update_customer`'s partial-update shape. Permission-keyed, not
+      role-keyed: admin/manager unrestricted, `project_manager` scoped to
+      own projects, `sales` excluded (Ish, 2026-09-02). Logs old/new
+      values from the start — sets B6.2's standard.
+      **Prerequisite: `U.35`/`U.36` (`NEW-264`, `NEW-266`)** — the same
+      partial-update-on-an-auth-table shape, in `update_user`; fix first
+      so B6.1 copies a correct pattern.
+- [ ] **B6.2** — audit detail completion + an audit-search screen.
+      63 `audit.log()` sites measured 2026-09-02; only 4 carry old/new
+      pairs. **`api/routes.py`'s 9 user-mutation sites pass no `details=`
+      at all** — do those first. **No rollback engine** (Ish, 2026-09-02:
+      "see exactly what changed and fix it manually" — not even for a
+      subset). **Absorbs `U.37` (`NEW-265`, `NEW-267`) in full.**
+- [ ] **B6.3** — rewire the Customer Portal to its existing API.
+      Replace hardcoded demo content with real fetches against the 10
+      live `/api/v1/portal/*` routes; fix `NEW-272`. Establishes the
+      pattern B6.8's staff portals copy. **Exit criterion: a test asserts
+      the rendered surface calls the routes it claims to consume** — the
+      missing check that let B4 ship as a demo.
+- [ ] **B6.4** — admin dashboard tab completion, phased by domain
+      (Ish, 2026-09-02). Backends all exist; this is wired UI.
+      **a)** the two `alert()` save stubs (`NEW-273`) — first, ahead of
+      value, because they actively mislead; **b)** pipeline board → real
+      aggregations; **c)** equipment + subcontractors; **d)** finance
+      (honor the service layer's existing cost/margin masking, don't
+      re-implement it in the UI); **e)** communications; **f)** marketing/
+      HR/procurement/compliance.
+- [ ] **B6.5** — file/document upload. **Rule-4 category** (new
+      request-path surface, path-traversal and content-type exposure,
+      reachable from the customer portal). **Rule 11: `install.sh` must
+      gain the storage dir + any dependency in the same task.** Not a
+      route addition — `api/server.py:52-54` reads whole bodies into
+      memory with no multipart or streaming, so the request path itself
+      is the work. Local disk under `~/.codey_restoricon/documents/`,
+      streamed, 25MB cap, images + PDF + common docs (Ish, 2026-09-02).
+- [ ] **B6.6** — the Core→Aigentik outbound notification path.
+      **New dependency direction** — today Aigentik writes through to the
+      Core and nothing calls out to it; per §3.4 the Core must not grow
+      its own SMTP/SMS. **Email now. SMS is an investigation item, not a
+      deliverable** — confirmed from source that
+      `replyToGoogleVoiceText()` can only reply to a relay address
+      created by an inbound text, so outbound SMS to an arbitrary number
+      has no path today. ICS calendar invites are largely wiring:
+      Aigentik already builds and sends `VEVENT`/`METHOD:REQUEST` and
+      reads `ics_sequence`, a column the Core's `appointments` table
+      already has.
+- [ ] **B6.7** — staff scheduling. **Rule-4 category** (new permissions).
+      New `staff_schedules` table (Ish, 2026-09-02) — `appointments` is
+      left untouched because it is Aigentik's live `calendar.js`
+      write-through target with `external_id` idempotency, and
+      `schedule_config` is a hard singleton, not per-person. Plus the
+      admin-side scheduling UI; schedule changes send an ICS invite via
+      B6.6.
+- [ ] **B6.8** — the PM / sales / technician / subcontractor portals.
+      **Rule-4 category** — four new authenticated surfaces over the same
+      customer and financial data, and the subcontractor portal is the
+      first surface exposing project data outside the company; its
+      narrowing rules get their own review pass. Each opens on **"where
+      am I assigned"** plus that person's own calendar (Ish's explicit
+      requirement), and each refetches from the one API rather than
+      keeping a local store (§6.9 decision 8).
+
+**Phase B7 — backup and DR to Google Cloud Storage (§6.10).** Added
+2026-09-02 at Ish's request; **resolves §8 Q5's backup half.**
+
+- [ ] **B7.1** — the Core DB half: continuous local journal + periodic
+      GCS snapshot of `~/.codey_restoricon/core.db`. **No dependency on
+      B6** — could run earlier than the rest of B7, and arguably should,
+      since the DB already holds real business data today.
+- [ ] **B7.2** — incremental upload of the B6.5 document/photo store.
+      **Depends on B6.5** (nothing to back up until upload exists).
+      Incremental, not a full re-push per cycle.
+- [ ] **B7.3** — config/secrets/tokens. **Rule-4 category** on the
+      credential handling. **Encryption before upload, with the key held
+      outside the backup** — done carelessly this converts a device-loss
+      problem into a credential-disclosure problem.
+- [ ] **B7.4** — the restore drill. **Live-verified by nature (rule 7);
+      code-complete does not close B7.** Restore to a scratch path,
+      verify row counts and file integrity against the live DB. A backup
+      never restored is not a backup.
+      **Rule 11: `install.sh` carries the GCS client dependency and the
+      credential-setup step.**
 
 ### M-lane — maintenance and bugs (§6.1, unblocked, any time)
 
@@ -5880,6 +6411,10 @@ Then:
       one `audit.log` call matching `create_campaign` for the former; a
       `details=` payload with old/new values for the latter, matching
       the standard `submit_review` now sets.
+      **Absorbed into `B6.2` 2026-09-02** — B6.2's scope is verbatim this
+      fix direction, applied across all 63 audit call sites rather than
+      these two. Kept here as a pointer so both NEW-ids stay findable;
+      **this is not separate work.**
 
 ### D-lane — documentation (§6.1)
 
@@ -5905,7 +6440,7 @@ Then:
 
 ### Parked
 
-- [ ] **P.1** — self-improvement activation. Gated by rule 1. See §6.9.
+- [ ] **P.1** — self-improvement activation. Gated by rule 1. See §6.11.
 
 **Closed items retained for context:** `U.18` (telemetry dedup-key
 collision, fixed 2026-08-08 — closes one *plausible* collision source,
@@ -5917,7 +6452,7 @@ A–E (all committed and approved; C and D live-verified).
 
 ---
 
-## Appendix B — Findings register (NEW-1 … NEW-155)
+## Appendix B — Findings register (NEW-1 … NEW-277)
 
 `NEW_ISSUES.md` remains the authoritative, append-only findings ledger
 and keeps its own per-issue status. **This merge deliberately did not
@@ -5949,6 +6484,15 @@ permission-denied → CPU unmeasurable), `NEW-119` (its log-volume
 consequence), `NEW-106`/`NEW-107`/`NEW-109` (observability's
 `temperature`/`cpu_usage`/`memory_usage` are per-process or sampling
 values, not system readings).
+
+**Shaping Phase B6 / B7 (the web-facing layer), added 2026-09-02:**
+`NEW-264` and `NEW-266` (`update_user` partial-update defects —
+prerequisites for `B6.1`), `NEW-265` and `NEW-267` (audit-detail gaps —
+absorbed into `B6.2`), `NEW-272` (portal signs a hardcoded contract id —
+`B6.3`), `NEW-273` (admin save buttons discard input while reporting
+success — `B6.4a`), `NEW-274` (8 of 11 admin tabs static), `NEW-275`
+(portal calls 2 of its 10 real routes), `NEW-276` (audit old/new coverage
+measured across all 63 call sites).
 
 **Test-suite hygiene:** `NEW-110`, `NEW-150` (dirty-tree failures in
 `tests/test_new19_patch_failed_repeat_escalation.py` — expected noise,

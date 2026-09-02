@@ -10,6 +10,101 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-02 — Phase B6/B7 planned: admin dashboard, portals, RBAC completion, and GCS backup (docs-only round)
+
+- **Status**: **Planning and interview round. No application code was
+  changed** — `git status --short` shows only `CODEY_MASTER_PLAN.md`,
+  `NEW_ISSUES.md`, and this file modified. No test suite was run because
+  nothing runnable changed; stated explicitly rather than citing a stale
+  pass count.
+- **Deliverable**: two new phases in `CODEY_MASTER_PLAN.md` —
+  **§6.9 / Phase B6** (the web-facing layer: dashboard, portals, RBAC
+  completion) in eight ordered sub-phases `B6.1`–`B6.8`, and
+  **§6.10 / Phase B7** (backup and DR to Google Cloud Storage) in four,
+  `B7.1`–`B7.4`. `§6.9 Parked` renumbered to `§6.11`; both inbound
+  references updated.
+- **Rule-6 correction, the round's most important output.** Re-derived
+  the current state by reading `restoricon_core/` rather than trusting
+  the prior status line, and found the plan was carrying an overclaim:
+  **Phase B4's web layer was marked 100% complete and is not.**
+  - Customer portal: hardcoded demo HTML; calls **2 of the 10** real
+    `/api/v1/portal/*` routes (`web_surfaces.py:1155-1554`).
+  - Admin surface: **3 of 11** tabs wired (`:2212-2222`);
+    `saveBusinessProfile()`/`saveScheduleConfig()` (`:2413-2420`) are
+    `alert()` stubs that discard input while reporting success.
+  - Corrected in place at §4.5, §6.6's header and body, and Appendix A's
+    two `B4` lines (now `[~]` PARTIAL with the file-and-line evidence).
+  - **What was re-verified and stands:** the API layer is genuinely
+    complete, and user management with dynamic permission overrides
+    genuinely works. Both said plainly so the correction doesn't
+    overshoot into claiming more is broken than is.
+- **`sign_contract` checked specifically and cleared.** The portal signs
+  a hardcoded `contracts/1/sign`, which looked like it might be an
+  authorization hole on the plan's own "highest-risk security surface."
+  It is not — `crm_service.py:1912-1914` enforces customer isolation and
+  fails closed. Logged as a correctness bug (`NEW-272`), not a leak, and
+  the entry says so explicitly so it isn't re-escalated later.
+- **Two source claims verified rather than assumed (rule 12)**, both in
+  `~/Codey-Aigentik`, both load-bearing for B6.6's design:
+  - Outbound SMS genuinely has no path today.
+    `email-provider.js:1041-1055`'s `replyToGoogleVoiceText()` sends to
+    `voiceMessage.reply_to_email` — a relay address that exists only
+    because Google Voice forwarded an inbound text. Ish's own read;
+    confirmed from source before writing it into the plan.
+  - ICS calendar invites are largely already built.
+    `email-provider.js:1080-1121` emits `VCALENDAR`/`VEVENT` with
+    `METHOD:REQUEST` and reads `appointment.ics_sequence`; `gmail.js:95`
+    sends it. The Core's `appointments` table already carries matching
+    `uid`/`ics_sequence` columns. Missing piece is the Core-side trigger.
+- **Nine decisions taken with Ish in-session**, recorded as a table in
+  §6.9 so later rounds don't re-litigate them: admin tabs in B6 phased by
+  domain; PM self-serve reassignment on own projects; customer-portal
+  rewire before net-new staff portals; audit = read-and-fix with **no
+  rollback engine**; upload local/streamed/25MB; a new `staff_schedules`
+  table rather than overloading `appointments`; notify-on-assignment now;
+  "propagate everywhere" = refetch from the one API with **no realtime
+  push layer**; email now with SMS as an investigation item.
+  - **Ish overrode one recommendation** — notification was recommended
+    for deferral alongside the messaging agent, and he chose to include
+    it. Recorded as his decision in §6.9's table, and the new Core→limb
+    dependency direction it creates is named as real scoped work rather
+    than assumed to be a route addition.
+  - **Ish raised GCS backup unprompted** while answering the upload
+    question, and asked for it as its own section. That **resolves §8
+    Q5**'s backup half, open since the 2026-08-21 merge — struck through
+    with the answer, per the document's own convention. **The
+    maintenance-windows half was left open deliberately** rather than
+    treated as answered by proximity.
+- **Consolidation done this round** (rather than adding redundant
+  entries alongside existing ones):
+  - Appendix A gained a **`### Phase B — business layer` header**.
+    `B1`…`B5b` had been sitting physically under
+    `### Phase A2 — coding-domain rollout` with no heading of their own —
+    a structural quirk of the 2026-08-21 merge. Header inserted only;
+    nothing moved or re-scoped.
+  - **`U.37` (`NEW-265`, `NEW-267`) absorbed into `B6.2`** — its fix
+    direction is verbatim B6.2's scope. Kept in M-lane as a pointer so
+    the NEW-ids stay findable.
+  - **`U.35`/`U.36` (`NEW-264`, `NEW-266`) cross-linked as `B6.1`
+    prerequisites** — they are `update_user` defects in exactly the
+    partial-update-on-an-auth-table shape `update_project` is about to
+    copy.
+- **Six findings logged (rule 8)**: `NEW-272` (hardcoded contract sign),
+  `NEW-273` (save buttons discard input while reporting success — rated
+  separately from `NEW-274` because misleading success is a different
+  severity from missing feature), `NEW-274` (8 of 11 admin tabs static),
+  `NEW-275` (portal calls 2 of 10 routes), `NEW-276` (audit old/new
+  coverage measured at 4 of 63 call sites), `NEW-277` (187 gitignored
+  `resource_bus` scratch dirs accumulating in the repo root — entirely
+  outside this task's scope, logged rather than dropped).
+- **Rule-4 and rule-11 obligations marked in the plan itself**, so a
+  later session can't skip them: `B6.1`, `B6.5`, `B6.7`, `B6.8`, and
+  `B7.3` are tagged rule-4 category; `B6.5` and `B7.4` carry explicit
+  `install.sh` obligations.
+- **Not started**: every B6/B7 item. This round ends at an approved,
+  written plan — build work happens in separate scoped sessions, one
+  sub-phase at a time.
+
 ## 2026-09-02 — Restoricon Core Phase 1 RBAC fixes: `submit_review` authorization, stale-role tokens, per-session login
 
 - **Status**: Fixes 1 and 2 **live-verified** against a real running API.
