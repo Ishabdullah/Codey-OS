@@ -13044,3 +13044,30 @@ outside that fix's scope.
 - **Impact:** none on correctness. It makes `ls` in the repo root unusable without filtering, and it is unbounded growth on a phone's storage.
 - **Fix direction:** have whatever creates them remove them on teardown, or relocate them under a single scratch parent directory outside the repo root. Needs a look at `resource_bus.py`'s own lifecycle before choosing — not guessed at here.
 - **Not fixed this round** — entirely outside a docs-only planning task's scope; logged per Rule 8 rather than silently dropped.
+
+## Found while clearing the persistently-dirty working tree, 2026-09-02 — logged per Rule 8
+
+> **Context:** Ish asked for the three chronically-dirty working-tree
+> entries to be cleaned up. The cleanup itself was a git-index change
+> only (`git rm --cached`; no on-disk file altered, no code touched), but
+> diagnosing *why* they kept re-dirtying surfaced two real defects, both
+> in Rule-4 process-lifecycle territory. **Neither is fixed here** —
+> untracking a file and changing supervisor/GUI process code are very
+> different risk classes, and the second requires a code-reviewer pass.
+
+### [NEW-278] CCOS plugin PID files are written into the repo source tree, and two were committed — so `.gitignore`'s `*.pid` could never suppress them
+- **Status:** Confirmed (read `ccos/core/plugin_manager.py:108-129`, both plugin `manifest.json` files, and `git ls-files`).
+- **Mechanism:** two independent causes compounding.
+  1. `ProcessSupervisor` reads `process_spec.pid_file` from the manifest and, when the value is not absolute, resolves it **relative to `plugin.path`** (`plugin_manager.py:111-114`) before `pid_path.write_text(str(proc.pid))` at `:129`. Both manifests specify a bare filename (`"pid_file": "aigentik.pid"`, `"private_agent.pid"`), so live runtime state is written *inside the tracked source tree*.
+  2. Both files were committed to git at some point. **`.gitignore` only affects untracked files**, so the existing `*.pid` rule at `.gitignore:41` was structurally incapable of suppressing them — they re-dirtied the working tree on every service start, indefinitely.
+- **Impact:** a permanently dirty `git status` on two files nobody intends to version, on a repo whose own `HANDOFF.md` tells every agent to run `git status --short` before touching the tracking docs and "figure out whose it is" for anything uncommitted. Persistent expected-noise trains agents to ignore exactly the signal that document relies on. Also a live-data hazard: committed PID values from an unrelated machine/session would be checked out over real ones on a fresh clone.
+- **Fixed this round (the git half only):** `git rm --cached` on both. Working-tree files deliberately left untouched (they are live supervisor state); `.gitignore:41` now governs them.
+- **NOT fixed (the code half):** `plugin_manager.py` still resolves `pid_file` into the source tree. Correct fix is to resolve relative paths against the runtime state dir (`$DAEMON_DIR`, the convention `lib/service_manager.sh` already follows for all five of its own PID files) rather than `plugin.path`. **Rule-4 category** — needs a code-reviewer pass, not a drive-by edit.
+
+### [NEW-279] `gui/server.py` does not reap the plugin processes it spawns — two zombies are resident right now
+- **Status:** Confirmed (live-observed on-device, not inferred).
+- **Mechanism:** `ps -o pid,ppid,stat -p 18860,18861` reports both as `Z` (`[python3] <defunct>`) with `PPID 18856`, which is a live `python3 .../Codey-OS/gui/server.py`. The children have exited; the parent has never `wait()`ed on them, so their entries persist. A zombie is only reaped when its parent waits or itself dies — so these accumulate for as long as the GUI server keeps running.
+- **Impact:** two-fold, and the second is the more serious.
+  1. Slow PID-table leak across a long-lived GUI server session.
+  2. **Stale PID files that read as live.** Both `ccos/plugins/*/​*.pid` files still contain these zombie PIDs. A liveness probe implemented as `kill -0 <pid>` **succeeds against a zombie** — the process entry exists. Any supervisor or status path using that check would report a dead plugin as running. Whether the current code does exactly that was not traced this round; flagged as the reason the staleness matters rather than asserted as a live bug.
+- **Not fixed this round.** **Rule-4 category** (process lifecycle). Fix direction: reap spawned children in `gui/server.py` (`Popen.poll()`/`wait()` on exit, or a `SIGCHLD` handler), and have the supervisor clear a PID file when the process it names is gone. Note per Rule 3 that a zombie cannot be killed — it needs its parent to reap it; no `kill` was attempted here and none would have helped.
