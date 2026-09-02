@@ -12071,6 +12071,13 @@ implemented)
 - **Cross-reference:** `~/Codey-Aigentik/subcontractor-recruiter.js:351-404`;
   `~/Codey-Aigentik/contacts.js`; `CODEY_MASTER_PLAN.md` §6.4's
   `contacts.js`/`customer-module.js` blocked-module note.
+- **RESOLVED 2026-09-02 (`NEW-288` audit):** `contacts.js` was cut over
+  to the Core API (commit `be242f7`, 2026-08-30) — `coreRequest` on every
+  path, zero `fs`. `syncWithContacts()` still exists in
+  `subcontractor-recruiter.js` (now lines ~375-424) but its
+  `contacts.loadContacts()`/`updateContact()`/`createContact()` calls are
+  all Core-backed now, so the cross-write this finding flagged no longer
+  targets local JSON. Closed.
 
 ### [NEW-246] `findSubcontractor()`'s phone-digit predicate always matches a NULL/empty-phone row once the query has >=7 stripped digits — a phoneless row can shadow the true phone-number owner
 - **Status: Confirmed** — read `subcontractor-recruiter.js:213-216`
@@ -13248,6 +13255,63 @@ outside that fix's scope.
   doc-consolidation round** — resolving it means a 10-module code audit,
   which is implementation work, not documentation work. Both blocks were
   preserved verbatim through the move rather than reconciled.
+- **RESOLVED 2026-09-02 — static code audit of `~/Codey-Aigentik` at
+  HEAD `ee97279`.** Doc-only round, no code touched, no model loaded.
+  - **Denominator adopted:** `NEW-209` / §6.4's canonical list, verbatim.
+    It names **nine groups** — `contacts.js`, `calendar.js`,
+    `email-rules.js`, `sms-rules.js`, `do-not-contact.js`, `queue.js`,
+    `subcontractor-recruiter.js`, `customer-module.js`,
+    `index.js`/`owner-command.js` — while claiming "ten." That internal
+    inconsistency is itself logged as `NEW-294`; it is exactly what let
+    two different denominators (the "8 of 10" block substitutes
+    `email-provider.js` + `business_profile` for `queue.js` +
+    `index.js`/`owner-command.js`) both look canonical.
+  - **Definition of "done":** B2's own exit criterion — "the fork runs
+    with no local data store." Per module: Core API write call present
+    AND the local read/write path *removed* (not dual-written, not merely
+    bypassed).
+  - **Chronology of the two blocks, from `git log -S`:** the "**3 of
+    10**" block dates to **2026-08-27** (commits `34e4bf7`/`ef43191`);
+    the "**8 of 10**" block is **~2026-08-30** (`2bf8980`, the
+    `llama.js`/`NEW-211` work it references). `NEW-288`'s premise was
+    backwards — the "updated: 3 of 10" label was relative to an even
+    earlier "2 of 10" (former §4.5, now `PROJECT_LOG.md:3480`), not a
+    supersession of "8 of 10." The "8 of 10" block is the more recent
+    documented count.
+  - **Verdict against `NEW-209`'s nine groups:** **7 fully cut over**
+    (code-complete, NOT live-verified — only `do-not-contact.js` ever had
+    a code-reviewer pass): `contacts.js` (+ `contacts-sync.js` helper),
+    `calendar.js`, `email-rules.js`, `sms-rules.js`, `do-not-contact.js`,
+    `subcontractor-recruiter.js`, `customer-module.js` — each has
+    `coreRequest` calls and **zero** `fs` read/write and **zero**
+    `data/*.json` references. **`queue.js` — NOT started** (`NEW-291`):
+    `coreRequest` count 0, still full read/write of `data/pending.json`;
+    commit `be242f7`'s "(Phase B2 100% complete)" subject only
+    parameterized the file path for tests. **`index.js`/`owner-command.js`
+    — PARTIAL** (`NEW-292`): the comms / Google Voice path *is* cut over
+    (via `email-provider.js`'s `logCommunication()` → `POST
+    /api/v1/communications`, with `data/communications-retry.json` as a
+    failure-retry spool only, drained to the Core), but the
+    `business_profile` writes are **dual-write** — `POST
+    /api/v1/business-profile` *and* `fs.writeFileSync(PROFILE_FILE)`
+    (`owner-command.js:110,229,275`; `index.js:173,1594`), and **every
+    read is still local** (`getAigentikName`, `handleRename`,
+    `handleSetBusinessInfo`, `ensureProfile`, onboarding). `data/profile.json`
+    is on disk with live business data.
+  - **`data/aigentik.db`:** 0 bytes, no `sqlite`/`Database(`/`better-sqlite3`
+    reference anywhere in the fork's 19 `.js` files — a dead file
+    (`NEW-293`).
+  - **One count, stated:** *of `NEW-209`'s nine canonical write-site
+    module groups, seven are fully cut over (code-complete, not
+    live-verified); `queue.js` is not started; `index.js`/`owner-command.js`
+    is partial — comms cut over, `business_profile` dual-write with the
+    local file still authoritative for all reads. Measured 2026-09-02
+    against HEAD `ee97279` by static read.*
+  - **Answer for B6:** **B6's "B2 complete" prerequisite is NOT
+    satisfied** — independently of how the `queue.js` scope question
+    (`NEW-291`) is ruled, `business_profile`'s local-read authority
+    (`NEW-292`) is a real remaining gap. B6.1's Phase-B2 dependency line
+    in Appendix A stays blocked pending `NEW-291`/`NEW-292`.
 
 ### [NEW-289] `HANDOFF.md` carries a fifth, stale, and now-contradicted Phase B2 queue, and `CLAUDE.md`/`ANTIGRAVITY.md` are ~97% byte-duplicates
 - **Status:** Confirmed (measured during `U.38` step 5's assessment;
@@ -13309,3 +13373,85 @@ outside that fix's scope.
   production-config **live pass only** (rule 2 — a `live-verifier` job,
   not startable unprompted); Ish's most recent direction (2026-09-02)
   added Phases B6/B7; **B6 is the live front and `NEW-288` gates it.**
+
+### [NEW-291] `queue.js` was never cut over to the Core API, though commit `be242f7`'s subject says "Phase B2 100% complete"
+- **Status:** Confirmed (`~/Codey-Aigentik` HEAD `ee97279`, static read
+  2026-09-02 during the `NEW-288` audit).
+- **Mechanism:** `queue.js` (the owner-approval pending-review queue) has
+  `coreRequest` count 0 and still does full `fs.readFileSync` /
+  `fs.writeFileSync` of `data/pending.json` (`queue.js:19-42`). Commit
+  `be242f7` ("feat(b2): cut over contacts.js, contacts-sync.js, and
+  queue.js … (Phase B2 100% complete)") touched `queue.js` only to
+  replace the hardcoded `QUEUE_FILE` constant with a
+  `getQueueFile()`/`setQueueFilePath()` pair so tests can point it at a
+  temp path — no write-through was added.
+- **Impact:** one of `NEW-209`'s nine canonical B2 write-site module
+  groups is not started. Also: a commit subject asserting "100% complete"
+  is the same class of unverified self-report as the two contradictory
+  plan blocks `NEW-288` is about — rule 5.
+- **Open scoping question for Ish:** is `queue.js` actually in B2 scope?
+  It holds transient execution state (emails/SMS awaiting owner
+  approval), not business data, and there is **no Core table** for a
+  pending-review queue. Options: (a) accept `queue.js` + the
+  `communications-retry.json` spool as legitimately-local execution state
+  and correct `NEW-209`'s list to 8 groups; (b) B2 adds a Core
+  pending-queue table + cutover. Not decided — escalated.
+- **Cross-reference:** `~/Codey-Aigentik/queue.js`; `CODEY_MASTER_PLAN.md`
+  §6.4 / `NEW-209`; `NEW-288`.
+
+### [NEW-292] `business_profile` is dual-write in the Aigentik fork — the Core is written but every read is still from the local `data/profile.json`
+- **Status:** Confirmed (`~/Codey-Aigentik` HEAD `ee97279`, static read
+  2026-09-02 during the `NEW-288` audit).
+- **Mechanism:** `owner-command.js` (`handleRename`, `handleSetBusinessInfo`,
+  `handleSetOwnerName` — lines 110, 229, 275) and `index.js`
+  (`ensureProfile`/onboarding — lines 173, 1594) each `POST
+  /api/v1/business-profile` **and** `fs.writeFileSync(PROFILE_FILE, …)`.
+  Every consumer reads the local file: `getAigentikName()`
+  (`owner-command.js:74`), the three handlers' own pre-read
+  (`:98,:206,:269`), `index.js:154,1566`. The Core copy is write-only —
+  nothing reads it back — so `data/profile.json` remains the source of
+  truth.
+- **Impact:** fails B2's "no local data store" exit criterion for this
+  shape. Commit `badd556` ("cut over business_profile …") added the
+  write-through half only. Independently of `NEW-291`'s scope question,
+  this keeps B6's "B2 complete" prerequisite unsatisfied.
+- **Fix direction (own scoped round, rule 4 — auth-adjacent singleton):**
+  make `GET /api/v1/business-profile` the read source, keep the local
+  file as a cache/fallback at most.
+- **Cross-reference:** `~/Codey-Aigentik/owner-command.js`,
+  `index.js`; `restoricon_core` `POST/GET /api/v1/business-profile`;
+  `NEW-288`.
+
+### [NEW-293] `~/Codey-Aigentik` working tree: dead 0-byte `data/aigentik.db` plus ~12 untracked hash-named dirs, none gitignored
+- **Status:** Confirmed (2026-09-02, `NEW-288` audit).
+- **Mechanism:** `data/aigentik.db` is 0 bytes and no `sqlite` /
+  `better-sqlite3` / `new Database(` / `aigentik.db` reference exists in
+  any of the fork's 19 `.js` files — a leftover from a superseded
+  storage approach. Separately, `git status --short` shows ~12 untracked
+  `[0-9a-f]{32}/` directories in the repo root, each containing
+  `resource_bus.db` / `resource_bus.lock` (test-isolation artifacts from
+  the Core's resource bus). `.gitignore` covers `data/` and `*.log` but
+  not these hash dirs.
+- **Impact:** cosmetic / working-tree noise, mirrors `NEW-277` in the
+  main repo. No functional effect.
+- **Fix direction:** delete `data/aigentik.db`; add a `[0-9a-f]{32}/` or
+  `*/resource_bus.*` rule to the fork's `.gitignore` and clean the dirs.
+- **Cross-reference:** `NEW-277` (same pattern, `Codey-OS` repo root).
+
+### [NEW-294] `NEW-209` / §6.4's "ten write-site modules" list names only nine groups
+- **Status:** Confirmed (2026-09-02, `NEW-288` audit).
+- **Mechanism:** `CODEY_MASTER_PLAN.md` §6.4 states "the local store is
+  ten write-site modules" then names nine: `contacts.js`, `calendar.js`,
+  `email-rules.js`, `sms-rules.js`, `do-not-contact.js`, `queue.js`,
+  `subcontractor-recruiter.js`, `customer-module.js`,
+  `index.js`/`owner-command.js`. §6.4 step 4's prose separately pulls
+  `email-provider.js` / `gmail.js` into the comms path, and the former
+  §4.5 "8 of 10" block silently swapped in `email-provider.js` +
+  `business_profile` for `queue.js` + `index.js`/`owner-command.js`.
+- **Impact:** the off-by-one is why `NEW-288` had two denominators that
+  both looked authoritative. `NEW-288`'s resolution adopts `NEW-209`'s
+  nine groups verbatim and counts against those.
+- **Fix direction:** in §6.4, either name the tenth group explicitly
+  (the comms path as its own row) or correct the count to nine. Fold in
+  whatever `NEW-291` decides about `queue.js`.
+- **Cross-reference:** `CODEY_MASTER_PLAN.md` §6.4; `NEW-288`.

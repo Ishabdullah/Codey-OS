@@ -1245,9 +1245,13 @@ points, named below.
 > lanes. Phase A1's one remaining item (`7.4`) is a production-config
 > **live pass only** — rule 2 governs it, so it is a `live-verifier`
 > job, not something to start unprompted. Ish's most recent direction
-> (2026-09-02) added Phases B6 and B7; **B6 is the live front, and
-> `NEW-288` gates it** — Phase B2's completion state is not currently
-> determinable from this project's own records.
+> (2026-09-02) added Phases B6 and B7; **B6 is the live front.** Its
+> "Phase B2 complete" prerequisite was audited 2026-09-02 (`NEW-288`
+> resolved): 7 of `NEW-209`'s 9 write-site groups are cut over, but
+> `queue.js` is not started (`NEW-291`) and `business_profile` is
+> dual-write with the local file still authoritative (`NEW-292`) — **so
+> B6.1 and any B2-dependent B6 item stay blocked pending `NEW-291` +
+> `NEW-292`.** Those two are the real front for a coding round.
 >
 > --- original 2026-08-22 direction, kept as the record ---
 >
@@ -2448,9 +2452,28 @@ below, adjust if (a) is chosen):
    `do-not-contact.js` writes through to the new do-not-contact
    endpoints (**code-complete + code-reviewer-approved 2026-08-27, NOT
    live-verified against real production traffic — see §4's Phase B2
-   task 4 pilot entry; the other nine write-through items in this list
-   remain not started**); `subcontractor-recruiter.js` writes through to
-   the new subcontractor endpoints. **Note:** `restoricon_core/api/routes.py`
+   task 4 pilot entry**); `subcontractor-recruiter.js` writes through to
+   the new subcontractor endpoints.
+
+   **Status audit 2026-09-02 (`NEW-288` resolution — static read of
+   `~/Codey-Aigentik` HEAD `ee97279`; NOT live-verified).** This list
+   says "ten" but `NEW-209` names **nine** groups (`NEW-294`). Of the
+   nine: **seven are cut over** (code-complete) — `contacts.js` (+
+   `contacts-sync.js`), `calendar.js`, `email-rules.js`, `sms-rules.js`,
+   `do-not-contact.js`, `subcontractor-recruiter.js`, `customer-module.js`
+   (each has `coreRequest` on every path and zero local `fs`).
+   **`queue.js` is not started** (`coreRequest` 0, still full
+   `data/pending.json` read/write — `NEW-291`; whether it belongs in B2
+   at all is an open Ish call). **`index.js`/`owner-command.js` is
+   partial** — the comms/Google-Voice path is cut over via
+   `email-provider.js` → `POST /api/v1/communications`
+   (`data/communications-retry.json` is a failure-retry spool only), but
+   `business_profile` is **dual-write** with `data/profile.json` still
+   authoritative for every read (`NEW-292`). B6's "B2 complete"
+   prerequisite is **not** satisfied — see Appendix A's B6 dependency
+   block and `NEW-288`'s resolution.
+
+   **Note:** `restoricon_core/api/routes.py`
    currently has no routes for any of the five new resources
    (`NEW-193`'s write-only-routes gap applies here too) — adding them is
    part of this step, not assumed already done by this round's schema
@@ -5789,16 +5812,40 @@ only this heading was inserted.
 dependency, then risk, then value; §6.9 states the reasoning for the
 order. Every item below is a separate scoped session, not one task.
 
-**⚠ Unstated dependency, surfaced by the `U.38` audit 2026-09-02:
-`NEW-288`.** B6 is scoped on top of Phase B2 being complete, but B2's
-own records give **two different completion counts** for the same
-write-through metric (8 of 10 vs 3 of 10, the smaller one labelled
-"updated"), and the archived `HANDOFF.md` gave a third reading
-(`NEW-289`). **Phase B2's real completion state is currently not
-determinable from this project's own records.** Resolve `NEW-288` — a
-10-module audit against §6.4's per-module list — before treating any B6
-item's B2 prerequisite as satisfied. Deliberately not resolved during
-the `U.38` doc round: it is implementation work, not documentation.
+**⚠ Dependency, surfaced by the `U.38` audit 2026-09-02 (`NEW-288`),
+RESOLVED by static audit 2026-09-02.** B6 is scoped on top of Phase B2
+being complete. The audit (against `NEW-209`/§6.4's canonical nine
+write-site module groups, `~/Codey-Aigentik` HEAD `ee97279`): **seven
+groups are fully cut over** (code-complete, NOT live-verified — only
+`do-not-contact.js` was ever code-reviewed); **`queue.js` is not
+started** (`NEW-291` — and whether it is even in B2 scope is an open Ish
+call); **`index.js`/`owner-command.js` is partial** (`NEW-292` — the
+comms/Google-Voice path is cut over, but `business_profile` is dual-write
+with the local `data/profile.json` still authoritative for every read).
+**B6's "B2 complete" prerequisite is NOT satisfied** — `NEW-292` is a
+real gap regardless of how `NEW-291` is ruled. B6.1 and any other B6 item
+with a B2 prerequisite stay blocked pending `NEW-291` + `NEW-292`. Full
+per-module evidence and the count with its measurement date are in
+`NEW-288`'s resolution block; `NEW-294` records that §6.4's list says
+"ten" but names nine.
+
+**Phase B2 completion — the two gaps the 2026-09-02 audit found
+(`NEW-288`). Both block B6's B2 prerequisite; do them first.**
+
+- [ ] **B2-fin-1** — `business_profile` read cutover (`NEW-292`).
+      **Rule-4 category** (auth-adjacent singleton). Today the Aigentik
+      fork POSTs `/api/v1/business-profile` but reads every value from
+      the local `data/profile.json`. Make `GET /api/v1/business-profile`
+      the read source (local file demoted to cache/fallback at most).
+      `~/Codey-Aigentik`: `owner-command.js` (`getAigentikName`,
+      `handleRename`, `handleSetBusinessInfo`, `handleSetOwnerName`),
+      `index.js` (`ensureProfile`, onboarding).
+- [ ] **B2-fin-2** — `queue.js` (`NEW-291`). **First decide with Ish
+      whether it is in B2 scope at all** — it holds transient
+      owner-approval state, not business data, and there is no Core table
+      for it. If out of scope: correct `NEW-209`'s list to 8 groups and
+      close. If in scope: new Core pending-queue table + cutover
+      (schema + routes + JS write-through).
 
 - [ ] **B6.1** — `update_project` + the reassignment permission model.
       **Rule-4 category (permissions).** No `update_project` exists

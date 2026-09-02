@@ -10,6 +10,59 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-02 — `NEW-288` resolved: static audit of the Phase B2 write-through modules
+
+- **Status**: **Doc-only, complete.** No code touched, no model loaded,
+  rule 4 does not bind. Static read of `~/Codey-Aigentik` at HEAD
+  `ee97279` — **NOT live-verified**; every "cut over" verdict below is
+  code-complete at best, and only `do-not-contact.js` ever had a
+  code-reviewer pass.
+- **Why it was doable now**: `NEW-288` was explicitly deferred out of the
+  `U.38` doc round as "implementation work" — it needs reading the fork's
+  code, not just the docs. Ish asked for it directly this session.
+- **Denominator** (the actual deliverable, per the advisor): adopted
+  `NEW-209`/§6.4's canonical list **verbatim**. It names **nine** groups
+  while saying "ten" — logged as `NEW-294`. The former §4.5 "8 of 10"
+  block had silently swapped `email-provider.js` + `business_profile` in
+  for `queue.js` + `index.js`/`owner-command.js`; that substitution is
+  what made two denominators both look canonical.
+- **Chronology fixed** (`git log -S`): the "3 of 10" block is
+  **2026-08-27**, the "8 of 10" block **~2026-08-30**. `NEW-288`'s
+  premise that "updated: 3 of 10" superseded "8 of 10" was backwards —
+  "updated" was relative to a still-earlier "2 of 10".
+- **Result** — of `NEW-209`'s nine write-site groups:
+  - **7 cut over (code-complete)**: `contacts.js` (+`contacts-sync.js`),
+    `calendar.js`, `email-rules.js`, `sms-rules.js`, `do-not-contact.js`,
+    `subcontractor-recruiter.js`, `customer-module.js` — `coreRequest` on
+    every path, zero local `fs`, zero `data/*.json`.
+  - **`queue.js` — not started** (`NEW-291`). `coreRequest` count 0,
+    still reads/writes `data/pending.json`. Commit `be242f7`'s "(Phase B2
+    100% complete)" subject only parameterized the file path for tests.
+    Open question for Ish: is it even in B2 scope (transient
+    owner-approval state, no Core table)?
+  - **`index.js`/`owner-command.js` — partial** (`NEW-292`). Comms /
+    Google Voice path cut over via `email-provider.js`'s
+    `logCommunication()` → `POST /api/v1/communications`
+    (`communications-retry.json` is a failure spool only). But
+    `business_profile` is **dual-write** — Core POSTed *and*
+    `data/profile.json` written, and every read is still local, so the
+    local file is the source of truth.
+- **The count, stated once**: *seven of `NEW-209`'s nine canonical
+  write-site groups are fully cut over (code-complete, not live-verified);
+  `queue.js` is not started; `index.js`/`owner-command.js` is partial.
+  Measured 2026-09-02 against HEAD `ee97279` by static read.*
+- **Answer for B6**: **B6's "B2 complete" prerequisite is NOT satisfied.**
+  `NEW-292` is a real gap regardless of how the `queue.js` scope question
+  resolves. Added `B2-fin-1` (business_profile read cutover, rule-4) and
+  `B2-fin-2` (queue.js decision) to Appendix A ahead of B6.1; the front-
+  matter banner and §6.4 updated to match.
+- **Also cleared**: `NEW-244` closed — `contacts.js` was cut over
+  (`be242f7`), so its `syncWithContacts()` cross-write no longer targets
+  local JSON.
+- **Findings, none fixed (rule 8)**: `NEW-291`, `NEW-292`, `NEW-293`
+  (dead 0-byte `data/aigentik.db` + untracked hash dirs in the fork),
+  `NEW-294`.
+
 ## 2026-09-02 — three stale `START HERE` markers found pointing at closed M1; `NEW-290`
 
 - **Status**: **Found and fixed same round.** Doc pointer only, no code.
