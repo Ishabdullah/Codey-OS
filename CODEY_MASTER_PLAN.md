@@ -573,6 +573,7 @@ scoped to what it actually proved.
 ### 4.1 Built and live-verified
 
 - **Unified entry points** `codey`, `codey-start`, `codey-stop` — root `codey` executable supporting interactive launch and subcommands (`start`, `stop`, `status`, `restart`, `logs`, `config`), orchestrating Daemon, Restoricon API, Codey-Aigentik, Cloudflare tunnel, and GUI via `lib/service_manager.sh` with exact PID-tracked lifecycle.
+  - **Orphan detection & directory-scoped termination for Codey-Aigentik** (commit `57b6088`; revised after code-reviewer CHANGES REQUESTED, re-approved 2026-09-02). `svc_find_orphans_by_cwd()` uses two-factor identification (canonical `/proc/$pid/cwd` match AND entrypoint token in `/proc/$pid/cmdline`) so a bare `pkill -f node` is never issued; `start`/`stop`/`status` surface and clean untracked orphans. **Live-verified on-device by Ish 2026-09-02**: spawned a genuine untracked `node index.js` orphan, `codey status` flagged it (`[⚠ 1 orphan(s): 17953]`) before any cleanup, `codey stop` terminated it loudly (`fully stopped, 0 processes remaining`), `codey start` produced exactly one clean tracked PID confirmed by both `ps` and `codey status`. Follow-ups `NEW-268`..`NEW-271` remain open. See `PROJECT_LOG.md` 2026-09-01 entry.
 - **CCOS Phases 1–3** (capability wrapping pilot, remaining capability
   migration, entry-point unification) — complete per the archived
   `PROJECT_PLAN.md`.
