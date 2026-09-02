@@ -5972,9 +5972,31 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       `NEW-310`. Not live-verified beyond the suite (no live-model
       component); `tests/test_restoricon_core/` 260 passed, +21 new in
       `test_b6_2a_audit_details.py`.
-- [ ] **B6.2b** — the ~55 service-layer `audit.log()` sites (crm 27,
-      operations 11, business_ops 7, automation 5, scheduling 4,
-      finance 1) brought to the `build_audit_details` standard.
+- [ ] **B6.2b** — the 55 service-layer `audit.log()` sites brought to
+      the `build_audit_details` standard. Split into 4 sub-rounds
+      (architect classification 2026-09-02):
+      - [ ] **B6.2b-1** — 26 mechanical create/delete sites (`snapshot`/
+        `after` only, no side-effect tracing). Unblocked.
+      - [ ] **B6.2b-2** — 11 `crm_service` real-update sites, incl.
+        migrating `update_project`'s hand-rolled `changed_fields`
+        (`NEW-312`). Gated on `NEW-311`.
+      - [ ] **B6.2b-3** — 8 `operations_service` real-update sites
+        (heaviest side-effect surface: stage cascade → `projects.status`,
+        milestone auto-creation, `actual_completion`; `COALESCE` after-
+        image trap `NEW-313`). Gated on `NEW-311`.
+      - [ ] **B6.2b-4** — ~10 remaining sites: business_ops(2),
+        automation(2), scheduling(3), crm special shapes(3).
+      **Gate:** rounds 2–4 need `NEW-311` resolved — sqlite3 deferred
+      isolation means "capture pre-image inside the write txn" is not
+      atomic without a `BEGIN IMMEDIATE` DB-layer change; the accepted
+      fallback rule is "reuse existing reads; `snapshot`-only otherwise,
+      never add a SELECT to manufacture a diff."
+      **Decision (2026-09-02):** all 5 pre-existing old/new sites
+      (`submit_review` flat, 3 `operations` `previous_*`, `update_project`
+      nested) migrate to the envelope **and are content-corrected** (they
+      gain missing `side_effects`) — not a cosmetic sweep; B6.2c's diff
+      renderer then needs only one shape. Per-entity `_AUDITABLE_*_FIELDS`
+      allow-lists added as needed (`NEW-314`).
 - [ ] **B6.2c** — admin audit-search screen. **Rule-4 read surface.**
       RBAC gate on the read + audit-table indexes on filtered columns.
       **No rollback engine** (Ish, 2026-09-02: "see exactly what changed

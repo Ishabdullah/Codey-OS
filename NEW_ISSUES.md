@@ -13817,3 +13817,94 @@ outside that fix's scope.
   if the Core ever runs multi-process.
 - **Cross-reference:** `restoricon_core/api/routes.py` `user_updated`
   site (~line 331); `restoricon_core/auth.py` `update_user`.
+
+## Found during B6.2b scoping — service-layer audit-detail completion (2026-09-02)
+
+### [NEW-311] `DatabaseManager` connections run in sqlite3 deferred-isolation mode, so `with conn:` is a commit/rollback context manager, not a transaction boundary
+- **Status:** Confirmed (B6.2b architect, 2026-09-02; verified against
+  `restoricon_core/database.py:886` `get_connection` — `sqlite3.connect()`
+  is called with no `isolation_level=`, i.e. Python default deferred).
+- **Mechanism:** the connection is thread-local and shared across all
+  service calls; WAL, `synchronous=NORMAL`. `with conn:` commits on exit
+  / rolls back on exception but does **not** issue `BEGIN` — the write
+  transaction begins at the first DML statement (the `UPDATE`), not at
+  block entry. A `SELECT` moved to the top of a `with conn:` block still
+  runs in autocommit *before* `BEGIN` and buys zero atomicity over a read
+  just above the block. `db.transaction()` (`database.py:1005`) uses
+  plain deferred `BEGIN TRANSACTION` and does not close the window
+  either.
+- **Impact:** any "capture the audit pre-image inside the write
+  transaction" requirement (B6.2b rounds 2–4, ~20 sites) is not
+  achievable at HEAD without a `BEGIN IMMEDIATE` DB-layer change —
+  architecture-level, rule-4, out of scope for an audit-details round.
+  Also the root cause behind `NEW-307` / `NEW-310` (auth/audit evaluated
+  against a row read outside the write txn) — those are instances of
+  this, not separate bugs.
+- **Fix direction:** either (a) fund a `DatabaseManager` transaction
+  boundary that spans read+write with `BEGIN IMMEDIATE`, or (b) accept
+  the workable B6.2b rule — reuse a pre-image read that already exists;
+  never add a new SELECT to manufacture a diff; where no full pre-image
+  read exists, `snapshot`/after-image only with a recorded reason. Ish
+  decision pending (2026-09-02).
+- **Cross-reference:** `restoricon_core/database.py:886`, `:1005`;
+  `NEW-307`, `NEW-310`.
+
+### [NEW-312] `crm_service.py` `update_project` audit diffs a pre-`with conn:` row read against the raw input dict, and project fields are not type-validated
+- **Status:** Confirmed (B6.2b architect, 2026-09-02). Pre-existing
+  (B6.1); B6.2b-2 migrates this site.
+- **Mechanism:** `update_project` (~crm_service.py:1796) builds its
+  nested `changed_fields` by diffing a `SELECT *` taken above the
+  `with conn:` block against `updates[key]` (the raw request dict).
+  `NEW-308` records that project numeric fields get no value-type
+  validation, so the audited "new" value can differ from what SQLite
+  actually stored (affinity coercion), and the pre-image is read outside
+  the write path (`NEW-310` shape).
+- **Impact:** the audit row for a project update can misrepresent both
+  sides of the diff. Low frequency (needs a malformed or concurrent
+  write), audit-accuracy only.
+- **Fix direction:** in B6.2b-2, migrate to `build_audit_details` with
+  `after` taken from a post-write `get_project()` / stored row, and
+  `fields=_AUDITABLE_PROJECT_FIELDS` (`NEW-314`).
+- **Cross-reference:** `restoricon_core/services/crm_service.py:1796`;
+  `NEW-308`, `NEW-310`, `NEW-314`.
+
+### [NEW-313] `operations_service.py` passes unguarded params into `COALESCE(?, col)` at two sites, inconsistent with two other sites in the same file
+- **Status:** Confirmed (B6.2b architect, 2026-09-02). Pre-existing.
+- **Mechanism:** `dispatch_work_order` (~ops_service.py:1011,
+  `instructions = COALESCE(?, instructions)`) and
+  `update_work_order_execution_status` (~:1135,
+  `notes = COALESCE(?, notes)`) pass the param straight through. When the
+  caller omits the field, the column is correctly preserved — but any
+  audit `after` image built from the param or the in-memory model would
+  record the value as `None`, a false `changed_fields` entry.
+  `transition_project_stage` (:336) and `update_milestone_status` (:562)
+  guard correctly (`x if x is not None else model.x`).
+- **Impact:** no data bug today (SQL is correct); becomes a false-audit
+  bug the moment B6.2b-3 adds old/new to these sites unless `after` is
+  taken from a post-write re-read. Same class as B6.2a `NEW-309`.
+- **Fix direction:** B6.2b-3 — take `after` from a post-write
+  `get_work_order()` re-read, never the param/model; optionally also
+  normalize the two sites to the guarded pattern the other two use.
+- **Cross-reference:** `restoricon_core/services/operations_service.py`
+  `:1011`, `:1135`, `:336`, `:562`.
+
+### [NEW-314] No `_AUDITABLE_*_FIELDS` allow-list exists for any entity except `user`; `snapshot` and `side_effects` reach the unguarded post-commit `json.dumps` unfiltered
+- **Status:** Confirmed (B6.2b architect, 2026-09-02).
+- **Mechanism:** `AuditService.log` runs `json.dumps(details)` unguarded,
+  after the caller's transaction has committed (audit_service.py:117).
+  `build_audit_details` filters only `changed_fields` (via `fields=`);
+  `snapshot` and `side_effects` pass through verbatim. B6.2a only needed
+  `_AUDITABLE_USER_FIELDS`. B6.2b's create/snapshot sites for contracts
+  (`customer_signature_data`), invoices (`payments_json`), and
+  subcontractors (license/insurance fields) would serialize those fields
+  unfiltered.
+- **Impact:** a snapshot audit row could persist a signature blob or
+  payment history into the append-only log. Not a live leak today (no
+  such site emits `snapshot=` yet); becomes one in B6.2b-1/-2/-4.
+- **Fix direction:** add per-entity domain constants
+  (`_AUDITABLE_CONTRACT_FIELDS`, `_AUDITABLE_PROJECT_FIELDS`,
+  `_AUDITABLE_INVOICE_FIELDS`, `_AUDITABLE_SUBCONTRACTOR_FIELDS`,
+  `_AUDITABLE_APPOINTMENT_FIELDS`) as B6.2b sites need them; for
+  `snapshot` sites, filter the dict before passing it in.
+- **Cross-reference:** `restoricon_core/services/audit_service.py:117`,
+  `build_audit_details`; `NEW-309`.
