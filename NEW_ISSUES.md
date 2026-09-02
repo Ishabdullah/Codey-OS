@@ -12951,6 +12951,17 @@ outside that fix's scope.
 
 ## Found during the Service Manager orphan-cleanup code-reviewer revision (`lib/service_manager.sh`), 2026-09-02 — code-reviewer CHANGES REQUESTED round; logged per Rule 8
 
+> **Parent fix status (2026-09-02):** the orphan-cleanup fix these four
+> findings hang off (commit `57b6088`) was re-approved by code-reviewer
+> and **live-verified on-device by Ish** — a genuine untracked `node
+> index.js` orphan was spawned, `codey status` flagged it (`[⚠ 1
+> orphan(s): 17953]`) before any cleanup, `codey stop` terminated it
+> loudly (`fully stopped, 0 processes remaining`), and `codey start`
+> then produced exactly one clean tracked PID (agreed by `ps` and
+> `codey status`). NEW-268..NEW-271 below remain open and unaddressed by
+> that verification. See `PROJECT_LOG.md` 2026-09-01 entry and
+> `CODEY_MASTER_PLAN.md` §4.1.
+
 ### [NEW-268] Concurrent `codey start` runs are unserialized — process B can kill process A's freshly-spawned Aigentik node, and A then deletes B's PID entry
 - **Status:** Confirmed (read `start_aigentik` in `lib/service_manager.sh`).
 - **Mechanism:** `start_aigentik` has no lock. With two concurrent invocations A and B: A spawns its node child and, before A writes `$AIGENTIK_PID_FILE`, B runs `svc_find_orphans_by_cwd` and sees A's child as an untracked orphan (it is not the tracked PID, and its cwd + entrypoint token match). B `SIGTERM`/`SIGKILL`s it. A's post-spawn `kill -0 "$a_pid"` then fails, so A runs `rm -f "$AIGENTIK_PID_FILE"` — deleting the entry B just wrote for its own freshly-started node. Result: B's node runs untracked, and a later `stop`/`status` won't find it via the PID file (it would still be caught by the two-factor orphan scan, but is no longer cleanly tracked).
