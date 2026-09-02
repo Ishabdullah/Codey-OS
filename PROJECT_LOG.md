@@ -10,6 +10,35 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-02 — three stale `START HERE` markers found pointing at closed M1; `NEW-290`
+
+- **Status**: **Found and fixed same round.** Doc pointer only, no code.
+- **How it surfaced**: Ish asked, right after `U.38` closed, "when I start
+  a new window with you, what is the first thing you will tell me is
+  next?" Reading the plan the way a fresh session reads it — rather than
+  answering from memory — gave the answer **"start here: M1, the model
+  migration."** `M1-A` … `M1-G` are all `[x]`, the last closed
+  2026-08-25. Three markers had been misrouting new sessions for eight
+  days, and §0's stated reading order walks straight into two of them.
+- **Why the `U.38` audit missed it (rule 6, stated rather than glossed)**:
+  that pass audited whether open *items* were obsolete. It never asked
+  whether the *navigation* was current. A checkbox-level audit cannot see
+  a stale pointer, because a pointer is not a checkbox. `NEW-290` records
+  this so the next status-drift pass checks markers, not only items.
+- **Fixed**: all three markers now state M1 CLOSED and route to the real
+  front. The 2026-08-22 "do M1 fully first" direction is kept verbatim
+  beneath the corrected banner — its reasoning about not re-sequencing is
+  still live guidance, and deleting it would lose that.
+- **What the plan now tells a fresh session is next**: Phase A1's
+  remaining `7.4` is a production-config **live pass only** (rule 2 — a
+  `live-verifier` job, not startable unprompted); Ish's most recent
+  direction (2026-09-02) added Phases B6/B7; **B6 is the live front, and
+  `NEW-288` gates it** — Phase B2's completion state is not determinable
+  from this project's own records.
+- **Worth noting about the question itself**: `U.38` spent a whole round
+  making the register trustworthy and did not catch this. One question
+  asked from the reader's position did.
+
 ## 2026-09-02 — `U.38` step 5: the four boot docs collapsed to one rules file; `U.38` CLOSED
 
 - **Status**: **Doc-only, complete. `U.38` is now closed — all five
