@@ -5769,6 +5769,17 @@ only this heading was inserted.
 dependency, then risk, then value; §6.9 states the reasoning for the
 order. Every item below is a separate scoped session, not one task.
 
+**⚠ Unstated dependency, surfaced by the `U.38` audit 2026-09-02:
+`NEW-288`.** B6 is scoped on top of Phase B2 being complete, but B2's
+own records give **two different completion counts** for the same
+write-through metric (8 of 10 vs 3 of 10, the smaller one labelled
+"updated"), and the archived `HANDOFF.md` gave a third reading
+(`NEW-289`). **Phase B2's real completion state is currently not
+determinable from this project's own records.** Resolve `NEW-288` — a
+10-module audit against §6.4's per-module list — before treating any B6
+item's B2 prerequisite as satisfied. Deliberately not resolved during
+the `U.38` doc round: it is implementation work, not documentation.
+
 - [ ] **B6.1** — `update_project` + the reassignment permission model.
       **Rule-4 category (permissions).** No `update_project` exists
       anywhere today; `project_manager_id`/`assigned_employees_json`/
@@ -6052,7 +6063,12 @@ order. Every item below is a separate scoped session, not one task.
       flake8`, and flake8 appears in neither `install.sh` nor
       `requirements*.txt`. These three counts cannot be reproduced on a
       fresh clone. Rule 11 applies: add the tool, then re-measure and
-      restate the numbers with their measurement date.
+      restate the numbers with their measurement date. **Rule 11 was
+      considered and deliberately not discharged in the `U.38` round
+      that found this** — adding a pip dependency and editing
+      `install.sh` is implementation work, outside a documentation
+      round's scope, and rule 11's own escape hatch is to flag rather
+      than skip silently. Flagged as `NEW-285`; it is `U.20`'s to fix.
 - [ ] **U.21** — testing gaps: no daemon-mode integration tests, no
       path-traversal tests.
       **Audit 2026-09-02 — SPLIT, two different verdicts.**

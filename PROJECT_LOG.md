@@ -788,6 +788,14 @@ narrative: §6.4's "Comms Core-side reliable-log fix" entry.
   `WORK_QUEUE.md` for its task spec), `NEW-287` (`U.6`'s
   `agent.py:863-865` anchor no longer points at the code it describes;
   its `task_executor.py` half is intact).
+- **Rule 11, considered and deliberately not discharged.** `NEW-285`
+  found a real dependency gap (flake8 tracked by `U.20`, present in
+  neither `install.sh` nor `requirements*.txt`). Rule 11 requires the
+  same task to update `install.sh` *or* flag it rather than skip
+  silently. It was **flagged, not fixed**: adding a pip dependency is
+  implementation work, outside a doc-consolidation round's scope, and it
+  belongs with `U.20`'s own re-measurement. Stated here so the choice is
+  visible outside the ledger.
 - **Diff shape**: purely additive — 291 insertions, 1 deletion (the
   Appendix B header line). Open-item count unchanged at 45 before and
   after; **no item was deleted or closed by this pass.**
