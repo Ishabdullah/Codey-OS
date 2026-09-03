@@ -1060,8 +1060,12 @@ hand-rolled diff (`NEW-312` audit-accuracy half) — added
 (rule-4). `B6.2b-3` (2026-09-02) migrated the 8 `operations_service` real-update
 audit sites to `before`/`after` diffs (2 as C-none `snapshot`), closing
 the `NEW-313` COALESCE after-image trap's audit half and adding four more
-`_AUDITABLE_*_FIELDS` guards. Next: `B6.2b-4` (~10 remaining sites), then
-`B6.2c` (admin audit-search screen).
+`_AUDITABLE_*_FIELDS` guards. `B6.2b-4` (2026-09-03) migrated the final 11
+service-layer sites — **B6.2b is now code-complete across all 55 service
+sites** — resolved `NEW-316`, closed the `NEW-312` audit-half at
+`update_appointment` / `update_contact`, and decided `NEW-315` (canonical
+create shape = `after=`-only + `fields=`; `snapshot_fields=` deferred to
+`B6.2c` as a prerequisite). Next: `B6.2c` (admin audit-search screen).
 **The round-by-round build narrative that used to live here — 627 lines
 covering Phase B2's write-through rounds, their code-reviewer passes, and
 their test counts — was moved verbatim to `PROJECT_LOG.md` on 2026-09-02
@@ -6021,11 +6025,31 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
         Code-complete + rule-4 code-reviewer-approved 2026-09-02;
         `tests/test_restoricon_core/` 358 passed (+49). No live-model
         component.
-      - [ ] **B6.2b-4** — ~10 remaining sites: business_ops(2),
-        automation(3 incl. `add_to_do_not_contact` per `NEW-316` +
-        2 singleton upserts), scheduling(3), crm special shapes(3).
-        Resolve `NEW-315` (canonical create shape / filtered `snapshot`)
-        here or as a `B6.2c` prerequisite.
+      - [x] **B6.2b-4** — final 11 service-layer sites (actual split:
+        scheduling 3 / automation 2 / business_ops 2 / crm 4 — the
+        `schedule_config` singleton is in `scheduling_service.py`, not
+        `automation`). `update_appointment` + `update_contact` migrated to
+        real `before`/`after` via same-builder post-commit re-reads
+        (`NEW-312` remedy, both closed for the audit half);
+        `add_to_do_not_contact` → canonical create `after=` (`NEW-316`
+        RESOLVED); `submit_review` + `receive_purchase_order` → real
+        `before`/`after` (last 2 of the Decision block's 5 old/new sites,
+        `submit_review` has no genuine side_effect); 2 singleton-upsert
+        `snapshot`s (`upsert_schedule_config`, `upsert_business_profile`,
+        input-derived per `NEW-311`); 3 bulk/compound `side_effects=` sites
+        (`sync_contacts_batch`, `submit_public_lead`, `submit_public_booking`).
+        4 new allow-lists incl. `_AUDITABLE_CONTACT_FIELDS` (excludes
+        `license_number` + `references`). **`NEW-315` decided:** canonical
+        create shape = `after=`-only + `fields=`; `snapshot_fields=` helper
+        change deferred to `B6.2c` as a named prerequisite. `NEW-320` /
+        `NEW-321` logged. Code-complete + rule-4 code-reviewer-approved
+        2026-09-03; `tests/test_restoricon_core/` 380 passed (+22),
+        `tests/test_business_ops.py` 9 passed. No live-model component.
+      **B6.2b COMPLETE (code tier):** all 55 service-layer `audit.log()`
+        sites + the 9 `api/routes.py` user-mutation sites (B6.2a) now emit
+        the canonical `build_audit_details` envelope. `NEW-314` has no
+        remaining B6.2b scope. Next: `B6.2c` (admin audit-search screen),
+        with `NEW-315`'s `snapshot_fields=` as its prerequisite.
       **Gate:** rounds 2–4 need `NEW-311` resolved — sqlite3 deferred
       isolation means "capture pre-image inside the write txn" is not
       atomic without a `BEGIN IMMEDIATE` DB-layer change; the accepted

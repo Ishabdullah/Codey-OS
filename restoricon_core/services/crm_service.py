@@ -77,7 +77,7 @@ from ..models import (
     Task,
     utc_now_iso,
 )
-from .audit_service import AuditService, build_audit_details, _AUDITABLE_CONTRACT_FIELDS, _AUDITABLE_INVOICE_FIELDS, _AUDITABLE_SUBCONTRACTOR_FIELDS, _AUDITABLE_PROJECT_FIELDS
+from .audit_service import AuditService, build_audit_details, _AUDITABLE_CONTRACT_FIELDS, _AUDITABLE_INVOICE_FIELDS, _AUDITABLE_SUBCONTRACTOR_FIELDS, _AUDITABLE_PROJECT_FIELDS, _AUDITABLE_CONTACT_FIELDS
 
 
 class CRMService:
@@ -3349,6 +3349,10 @@ class CRMService:
             if not row:
                 return None
 
+            # Audit pre-image: both sides via the same _row_to_contact builder
+            # so JSON-column normalization can't produce a phantom diff.
+            _before = self._row_to_contact(row).to_dict()
+
             set_clauses = []
             params: List[Any] = []
 
@@ -3371,16 +3375,24 @@ class CRMService:
             if cursor.rowcount == 0:
                 return None
 
-        updated_c = self.get_contact(contact_id, actor)
+        _after_row = conn.execute(
+            "SELECT * FROM contacts WHERE id = ?;", (contact_id,)
+        ).fetchone()
+        _after = self._row_to_contact(_after_row).to_dict() if _after_row else None
+
         self.audit.log(
             action="update",
             entity_type="contact",
             entity_id=contact_id,
             change_summary=f"Contact {contact_id} updated ({', '.join(sorted(updates.keys()))})",
             actor=actor,
-            details=updated_c.to_dict() if updated_c else {},
+            details=build_audit_details(
+                before=_before,
+                after=_after,
+                fields=_AUDITABLE_CONTACT_FIELDS,
+            ),
         )
-        return updated_c
+        return self.get_contact(contact_id, actor)
 
     def upsert_contact(self, contact: Contact, actor: AuthContext) -> Contact:
         if not actor.has_permission(PERM_WRITE_CONTACTS):
@@ -3571,7 +3583,14 @@ class CRMService:
             entity_id=None,
             change_summary=f"Synced batch of {len(contacts)} contacts (added: {added}, updated: {updated})",
             actor=actor,
-            details={"android": len(contacts), "added": added, "updated": updated, "total": total_count},
+            # Bulk op: entity_id=None, aggregate counts only (no per-row
+            # before/after -- the batch touches many rows).
+            details=build_audit_details(side_effects={
+                "android": len(contacts),
+                "added": added,
+                "updated": updated,
+                "total": total_count,
+            }),
         )
         return {"android": len(contacts), "added": added, "updated": updated, "total": total_count}
 
@@ -3724,7 +3743,16 @@ class CRMService:
             entity_id=created_lead.id,
             change_summary=f"Inbound website lead from {name} (Score: {score_res.get('score', 0)})",
             actor=system_actor,
-            details={"lead_id": created_lead.id, "customer_id": customer.id, "opportunity_id": created_opp.id, "score": score_res},
+            # Compound create: after-image of the lead itself; ids + the
+            # (JSON-serializable) score result as cross-entity side effects.
+            details=build_audit_details(
+                after=created_lead.to_dict(),
+                side_effects={
+                    "customer_id": customer.id,
+                    "opportunity_id": created_opp.id,
+                    "score": score_res,
+                },
+            ),
         )
 
         return {
@@ -3828,7 +3856,12 @@ class CRMService:
             entity_id=appt_id,
             change_summary=f"Inbound booking request from {name} for {preferred_date}",
             actor=system_actor,
-            details={"appointment_id": appt_id, "customer_id": customer.id},
+            # after-image omitted: the method holds no Appointment model and a
+            # re-read would be a new SELECT under NEW-311. ids only.
+            details=build_audit_details(side_effects={
+                "appointment_id": appt_id,
+                "customer_id": customer.id,
+            }),
         )
 
         return {

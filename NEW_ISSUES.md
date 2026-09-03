@@ -13938,10 +13938,18 @@ outside that fix's scope.
   create sites via `fields=` on `after=`. **Scope expansion:**
   `create_employee` also carries compensation/PII —
   `Employee.to_dict()` includes `hourly_rate` and `emergency_contact` —
-  so `_AUDITABLE_EMPLOYEE_FIELDS` was added the same round. Still open:
-  `_AUDITABLE_PROJECT_FIELDS` (B6.2b-2, `NEW-312`),
-  `_AUDITABLE_APPOINTMENT_FIELDS` (B6.2b-4), and the general
-  filtered-`snapshot` gap (`NEW-315`).
+  so `_AUDITABLE_EMPLOYEE_FIELDS` was added the same round.
+  `_AUDITABLE_PROJECT_FIELDS` delivered B6.2b-2;
+  `_AUDITABLE_{WORK_ORDER,MILESTONE,EQUIPMENT,DEPLOYMENT}_FIELDS`
+  B6.2b-3.
+- **Progress (B6.2b-4, 2026-09-03):** `_AUDITABLE_APPOINTMENT_FIELDS`
+  (drift-guard, no exclusions) + `_AUDITABLE_CONTACT_FIELDS` (real
+  exclusions — `license_number` credential + `references` third-party
+  JSON list, mirrors `_AUDITABLE_SUBCONTRACTOR_FIELDS`) +
+  `_AUDITABLE_{REVIEW_REQUEST,PURCHASE_ORDER}_FIELDS` (drift-guards).
+  **All 55 B6.2b service-layer sites now migrated — NEW-314 has no
+  remaining B6.2b scope.** Only the general filtered-`snapshot` gap
+  (`NEW-315`, now a named B6.2c prerequisite) is left.
 - **Cross-reference:** `restoricon_core/services/audit_service.py:117`,
   `build_audit_details`; `NEW-309`, `NEW-315`.
 
@@ -13986,12 +13994,42 @@ outside that fix's scope.
   B6.2b-2 pattern. `update_work_order`'s sole caller (`api/routes.py`
   :1377) fetches the `WorkOrder` immediately before mutating — a real
   before/after diff is available one layer up; note for B6.2b-4.
+- **B6.2b-4 DECISION (2026-09-03) — this round owned NEW-315:**
+  (a) **Canonical "create" audit shape = `after=<full to_dict()>`
+  (no `before`) + `fields=<allow-list>` for sensitive entities.** 22 of
+  B6.2b-1's creates + `add_to_do_not_contact` (B6.2b-4) use it; it is
+  the only filterable create path until `snapshot_fields=` exists.
+  (b) **`snapshot_fields=` helper change DEFERRED to B6.2c as a named
+  prerequisite** — verified no B6.2b-4 site needed a filtered snapshot
+  (singleton upserts carry no PII; `update_contact` sensitive cols
+  handled via `fields=` on a before/after diff, not a snapshot).
+  (c) `api/routes.py:275` `user_created` keeps `snapshot=user.to_dict()`
+  (already drops `password_hash`); B6.2c's renderer must handle both
+  the `snapshot` and the all-None-`changed_fields` create shape
+  regardless — standing renderer note.
+  (d) `delete_contact`'s shipped **unfiltered** `Contact.to_dict()`
+  snapshot (B6.2b-1) is now inconsistent with `_AUDITABLE_CONTACT_FIELDS`
+  (B6.2b-4) — **knowingly deferred** pending `snapshot_fields=` rather
+  than adding a third inline-filter pattern now. Re-file
+  `record_transaction` / `create_compliance_item` unfiltered fields at
+  the same time.
+- **B6.2b-4 update:** two singleton-upsert `snapshot`s landed
+  (`upsert_schedule_config`, `upsert_business_profile`) — **input-
+  derived** (a re-read would be a new SELECT barred by `NEW-311`);
+  both models verified free of credentials/PII. Bulk/compound sites
+  (`sync_contacts_batch`, `submit_public_lead`, `submit_public_booking`)
+  use `side_effects=` (aggregate counts / ids).
 - **Cross-reference:** `restoricon_core/services/audit_service.py`
   `build_audit_details`; `NEW-314`, `NEW-309`.
 
 ### [NEW-316] `automation_service.add_to_do_not_contact` still logs a flat `details=` payload — deferred from B6.2b-1, not missed
-- **Status:** Confirmed (B6.2b-1, 2026-09-02). Deliberate deferral,
-  logged per rule 8.
+- **Status:** RESOLVED by B6.2b-4 (2026-09-03). Was a deliberate
+  deferral, logged per rule 8.
+- **Resolution:** `add_to_do_not_contact` now emits
+  `build_audit_details(after=entry.to_dict() if entry else None)` from
+  the row it already re-reads post-commit — the canonical create shape
+  (`NEW-315` decision (a)). `action="create"` / `change_summary=`
+  byte-identical. See `NEW-321` for a latent None-path payload drop.
 - **Mechanism:** `add_to_do_not_contact` is an `INSERT … ON CONFLICT DO
   UPDATE` upsert, so it is neither a pure create nor a pure delete and
   fell outside B6.2b-1's mechanical scope — same category as the
@@ -14067,3 +14105,34 @@ outside that fix's scope.
 - **Cross-reference:** `restoricon_core/services/operations_service.py`
   `dispatch_work_order`, `deploy_equipment`, `return_equipment`;
   `NEW-313`, `NEW-317`.
+
+## Found during B6.2b-4 — final service-layer audit migration (2026-09-03)
+
+### [NEW-320] No `_row_to_review_request` builder — `ReviewRequest(...)` hand-constructed in 4 places in `business_ops_service.py`
+- **Status:** Confirmed (B6.2b-4 implementer + code-reviewer, 2026-09-03).
+  Duplication, tidy-if-touched. No defect.
+- **Mechanism:** `submit_review` (return object), `list_reviews`, and now
+  `submit_review`'s B6.2b-4 `_before` each build a `ReviewRequest` from a
+  row inline with the same field mapping; there is no
+  `_row_to_review_request` static builder like the file has for PO etc.
+- **Impact:** none today (all 4 mappings verified identical in B6.2b-4).
+- **Fix direction:** extract `_row_to_review_request(row) -> ReviewRequest`,
+  route all 4 through it. Opportunistic, when next touching the file.
+- **Cross-reference:** `restoricon_core/services/business_ops_service.py`
+  `submit_review`, `list_reviews`.
+
+### [NEW-321] `add_to_do_not_contact` audit `after=None` on the (unreachable) None re-read path drops the `{reason, source}` payload
+- **Status:** Confirmed (B6.2b-4, 2026-09-03). Latent, unreachable. No
+  live defect.
+- **Mechanism:** if the post-commit `self._row_to_dnc(row)` re-read ever
+  returned `None`, `build_audit_details(after=None)` returns `{}` — an
+  empty `details` where the pre-B6.2b-4 flat payload carried
+  `{reason, source}`. Unreachable: the re-read follows a committed
+  `INSERT … ON CONFLICT DO UPDATE` on the same key. Normal path captures
+  **more** (`reason`/`source` are dnc columns in `entry.to_dict()`).
+- **Impact:** audit-completeness only, on a path that cannot occur.
+- **Fix direction:** if ever touched, fall back to a scoped
+  `snapshot={"reason": reason, "source": source}` on the None branch.
+  Same class as `NEW-317` / `NEW-319` item 3.
+- **Cross-reference:** `restoricon_core/services/automation_service.py`
+  `add_to_do_not_contact`; `NEW-316`.

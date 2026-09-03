@@ -310,7 +310,11 @@ class AutomationService:
             entity_id=1,
             change_summary="Business profile updated",
             actor=actor,
-            details=profile.to_dict(),
+            # Singleton ON CONFLICT upsert with no post-write read; adding a
+            # SELECT to build a diff is barred under NEW-311. Snapshot is
+            # input-derived (not a re-read). BusinessProfile has no sensitive
+            # fields, so no allow-list is applied.
+            details=build_audit_details(snapshot=profile.to_dict()),
         )
         return profile
 
@@ -386,7 +390,10 @@ class AutomationService:
             entity_id=entry.id if entry else None,
             change_summary=f"Added {classified['type']} to do-not-contact: {classified['value']}",
             actor=actor,
-            details={"reason": reason, "source": source},
+            # NEW-316 canonical create: the row is already re-read post-commit
+            # into `entry`. No allow-list -- the suppressed identifier is the
+            # record's purpose and already appears in change_summary.
+            details=build_audit_details(after=entry.to_dict() if entry else None),
         )
         return entry
 

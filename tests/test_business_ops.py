@@ -199,18 +199,17 @@ def test_submit_review_audit_records_old_and_new_values(ops_setup):
 
     latest = logs[0]
     assert latest.actor_id == cust_ctx.user_id
-    assert latest.details["old_rating"] == 2
-    assert latest.details["old_feedback"] == "Slow start."
-    assert latest.details["new_rating"] == 5
-    assert latest.details["new_feedback"] == "They made it right."
-    assert latest.details["old_status"] == "completed"
-    assert latest.details["new_status"] == "completed"
+    latest_changed = latest.details["changed_fields"]
+    assert latest_changed["rating"] == {"old": 2, "new": 5}
+    assert latest_changed["feedback"] == {"old": "Slow start.", "new": "They made it right."}
+    # status was already 'completed' -> no phantom entry
+    assert "status" not in latest_changed
 
     first = logs[1]
-    assert first.details["old_rating"] is None
-    assert first.details["old_feedback"] is None
-    assert first.details["new_rating"] == 2
-    assert first.details["old_status"] == "sent"
+    first_changed = first.details["changed_fields"]
+    assert first_changed["rating"] == {"old": None, "new": 2}
+    assert first_changed["feedback"] == {"old": None, "new": "Slow start."}
+    assert first_changed["status"] == {"old": "sent", "new": "completed"}
 
 
 def test_compliance_expiration_scanner(ops_setup):

@@ -10,6 +10,68 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-03 — `B6.2b-4` landed: final 11 service-layer audit sites — B6.2b code-complete
+
+- **Status**: **Code-complete + code-reviewer APPROVED (rule-4, audit
+  surface). NOT live-verified beyond the suite** — no live-model
+  component. `tests/test_restoricon_core/` 380 passed (+22 in
+  `test_b6_2b4_audit_details.py`); `tests/test_business_ops.py` 9 passed
+  (one test updated for the `submit_review` envelope change, mirrors how
+  B6.2b-2 updated crm tests). Broader run (+ user_management +
+  b5a_api_routes + b4_dashboard) 415 passed, zero regressions.
+- **Scope**: Round 4 of 4 — the last 11 sites. **Actual per-file split:
+  scheduling 3 / automation 2 / business_ops 2 / crm 4** (the Appendix A
+  line said `automation(3)`/`crm(3)` — wrong; the `schedule_config`
+  singleton lives in `scheduling_service.py`. Corrected in Appendix A).
+  - `update_appointment`, `update_contact` → real `before`/`after` with
+    both sides through the same `_row_to_appointment` / `_row_to_contact`
+    builder and a post-commit raw re-read; `audit.log` moved above the
+    return-path getter. This is the **`NEW-312` standing-WARNING remedy**
+    applied to two more sites (a write-without-read actor no longer
+    commits a mutation with no audit row). Both closed for the audit half.
+  - `add_to_do_not_contact` → canonical create `after=entry.to_dict()`
+    from its existing post-commit re-read. **`NEW-316` RESOLVED.**
+  - `submit_review`, `receive_purchase_order` → real `before`/`after`
+    (the last 2 of the 2026-09-02 Decision block's 5 pre-existing old/new
+    sites). `submit_review` has **no genuine side_effect** — it updates
+    one row; none was invented. `receive_purchase_order` is the only site
+    that gains a `details=` where there was none (`action=` /
+    `change_summary=` still byte-identical).
+  - `upsert_schedule_config`, `upsert_business_profile` → `snapshot=`,
+    **input-derived** (a re-read would be a new SELECT barred by
+    `NEW-311`); both models verified free of credentials/PII.
+  - `sync_contacts_batch`, `submit_public_lead`, `submit_public_booking`
+    → `side_effects=` (aggregate counts / ids + flags only, no nested
+    child dicts — child creates keep their own `create` rows).
+- **`NEW-315` DECIDED (this round owned it)**: canonical "create" audit
+  shape = `after=<full to_dict()>` (no `before`) + `fields=<allow-list>`
+  for sensitive entities. The `snapshot_fields=` helper change is
+  **deferred to B6.2c as a named prerequisite** — no B6.2b-4 site needed
+  a filtered snapshot. `api/routes.py:275` `user_created` `snapshot=`
+  left as-is (already drops `password_hash`); B6.2c's renderer handles
+  both shapes regardless.
+- **audit_service.py**: 4 new frozensets. `_AUDITABLE_CONTACT_FIELDS` is
+  the first B6.2b-3/-4 constant with **real exclusions** —
+  `license_number` (credential) + `references` (third-party JSON list),
+  mirroring `_AUDITABLE_SUBCONTRACTOR_FIELDS`; `phones`/`emails` kept per
+  `_AUDITABLE_USER_FIELDS` precedent; negative-control test proves the
+  filter strips them. `_AUDITABLE_{APPOINTMENT,REVIEW_REQUEST,PURCHASE_ORDER}_FIELDS`
+  exclude nothing (drift guards). `build_audit_details` signature
+  unchanged.
+- **`action=` / `change_summary=` byte-identical** at all 11 (only
+  `submit_review`'s call moves position due to hoisting `result` above
+  `audit.log`; strings unchanged — verified by `git diff -U0` grep).
+- **New findings (rule 8)**: `NEW-320` (no `_row_to_review_request`
+  builder — `ReviewRequest` hand-built in 4 places), `NEW-321`
+  (`add_to_do_not_contact` `after=None` on the unreachable None re-read
+  path drops `{reason, source}` — latent, cannot occur).
+- **`NEW-314`**: all 55 B6.2b sites migrated — no remaining B6.2b scope.
+- No `install.sh` change (no new dependency).
+- **B6.2b is code-complete.** Next: `B6.2c` (admin audit-search screen),
+  prerequisite = add `snapshot_fields=` to `build_audit_details` +
+  re-file `delete_contact` / `record_transaction` / `create_compliance_item`
+  unfiltered snapshots.
+
 ## 2026-09-03 — `B6.2b-3` landed: 8 operations_service real-update audit sites → before/after diffs
 
 - **Status**: **Code-complete + code-reviewer APPROVED (rule-4, audit

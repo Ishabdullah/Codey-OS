@@ -28,7 +28,11 @@ from ..auth import (
 )
 from ..database import DatabaseManager
 from ..models import Appointment, ScheduleConfig, utc_now_iso
-from .audit_service import AuditService, build_audit_details
+from .audit_service import (
+    AuditService,
+    build_audit_details,
+    _AUDITABLE_APPOINTMENT_FIELDS,
+)
 
 VALID_STATUSES = {"confirmed", "negotiating", "cancelled", "completed"}
 
@@ -223,7 +227,11 @@ class SchedulingService:
             entity_id=appointment_id,
             change_summary=f"Appointment {appointment_id} status set to '{status}'",
             actor=actor,
-            details={"status": status},
+            # NEW-311 C-none: `status` is the only meaningfully written column
+            # (history_json/updated_at are bookkeeping). The existing pre-read
+            # selects history_json only, so the old status is not available
+            # from an existing read and widening the SELECT is barred.
+            details=build_audit_details(snapshot={"status": status}),
         )
         return self.get_appointment(appointment_id, actor)
 
@@ -272,6 +280,11 @@ class SchedulingService:
         if not row:
             return None
 
+        # Audit pre-image: both sides built through the same
+        # _row_to_appointment builder so JSON-column normalization can't
+        # produce a phantom diff.
+        _before = self._row_to_appointment(row).to_dict()
+
         # Build column assignments dynamically
         set_clauses = []
         params = []
@@ -306,13 +319,22 @@ class SchedulingService:
                 params,
             )
 
+        _after_row = conn.execute(
+            "SELECT * FROM appointments WHERE id = ?;", (appointment_id,)
+        ).fetchone()
+        _after = self._row_to_appointment(_after_row).to_dict() if _after_row else None
+
         self.audit.log(
             action="update",
             entity_type="appointment",
             entity_id=appointment_id,
             change_summary=f"Updated appointment {appointment_id}",
             actor=actor,
-            details=updates,
+            details=build_audit_details(
+                before=_before,
+                after=_after,
+                fields=_AUDITABLE_APPOINTMENT_FIELDS,
+            ),
         )
         return self.get_appointment(appointment_id, actor)
 
@@ -422,6 +444,10 @@ class SchedulingService:
             entity_id=1,
             change_summary="Schedule config updated",
             actor=actor,
-            details=config.to_dict(),
+            # Singleton ON CONFLICT upsert with no post-write read; adding a
+            # SELECT to build a diff is barred under NEW-311. Snapshot is
+            # input-derived (not a re-read). ScheduleConfig has no sensitive
+            # fields, so no allow-list is applied.
+            details=build_audit_details(snapshot=config.to_dict()),
         )
         return config

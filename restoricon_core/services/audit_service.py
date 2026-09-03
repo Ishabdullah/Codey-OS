@@ -115,6 +115,44 @@ _AUDITABLE_DEPLOYMENT_FIELDS = frozenset({
     "final_reading", "notes", "created_at", "updated_at",
 })
 
+# NEW-314: Contact diff domain -- excludes license_number and references,
+# mirroring _AUDITABLE_SUBCONTRACTOR_FIELDS' exclusion rationale:
+# license_number is a credential; references is a JSON list of third-party
+# names/phones. phones/emails are KEPT (precedent: _AUDITABLE_USER_FIELDS
+# audits email/phone).
+_AUDITABLE_CONTACT_FIELDS = frozenset({
+    "id", "external_id", "name", "aliases", "phones", "emails", "address",
+    "relationship", "type", "notes", "instructions", "reply_behavior",
+    "roles", "active_role", "business_name", "trade", "trade_raw", "licensed",
+    "gl_insurance", "wc_insurance", "has_tools", "crew_size",
+    "weekly_capacity", "source", "first_seen", "last_contact",
+    "contact_count", "history", "created_at", "updated_at",
+})
+
+# NEW-314: Appointment diff domain. Excludes nothing -- Appointment carries
+# no secret/PII-grade fields. Drift guard only (mirrors
+# _AUDITABLE_PROJECT_FIELDS' rationale).
+_AUDITABLE_APPOINTMENT_FIELDS = frozenset({
+    "id", "external_id", "uid", "ics_sequence", "title", "start_time",
+    "end_time", "customer_id", "contact_external_id", "attendee_name",
+    "attendee_email", "appointment_type", "status", "rsvp_status",
+    "offered_slots", "requested_datetime", "pending_reschedule", "form_sent",
+    "created_via", "notes", "history", "created_at", "updated_at",
+})
+
+# NEW-314: ReviewRequest diff domain. Excludes nothing -- drift guard only.
+_AUDITABLE_REVIEW_REQUEST_FIELDS = frozenset({
+    "id", "customer_id", "project_id", "platform", "rating", "feedback",
+    "status", "sent_at", "completed_at", "created_at",
+})
+
+# NEW-314: PurchaseOrder diff domain. Excludes nothing -- drift guard only.
+_AUDITABLE_PURCHASE_ORDER_FIELDS = frozenset({
+    "id", "po_number", "vendor_id", "project_id", "status", "items",
+    "subtotal", "tax_amount", "total_amount", "ordered_date", "expected_date",
+    "received_date", "notes", "created_at", "updated_at",
+})
+
 
 def build_audit_details(
     *,

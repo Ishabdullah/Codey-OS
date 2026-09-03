@@ -34,7 +34,13 @@ from ..models import (
     Vendor,
     PurchaseOrder,
 )
-from .audit_service import AuditService, build_audit_details, _AUDITABLE_EMPLOYEE_FIELDS
+from .audit_service import (
+    AuditService,
+    build_audit_details,
+    _AUDITABLE_EMPLOYEE_FIELDS,
+    _AUDITABLE_PURCHASE_ORDER_FIELDS,
+    _AUDITABLE_REVIEW_REQUEST_FIELDS,
+)
 
 
 def utc_now_iso() -> str:
@@ -188,6 +194,22 @@ class BusinessOpsService:
         if not (actor.has_permission(PERM_WRITE_MARKETING) or is_own_request):
             raise PermissionError("Actor lacks permission to submit this review")
 
+        # Audit pre-image: built from the pre-UPDATE row through the same
+        # ReviewRequest shape the return object uses (there is no
+        # _row_to_review_request builder -- see coordinator note).
+        _before = ReviewRequest(
+            id=row["id"],
+            customer_id=row["customer_id"],
+            project_id=row["project_id"],
+            platform=row["platform"],
+            rating=row["rating"],
+            feedback=row["feedback"],
+            status=row["status"],
+            sent_at=row["sent_at"],
+            completed_at=row["completed_at"],
+            created_at=row["created_at"],
+        ).to_dict()
+
         with conn:
             conn.execute(
                 """
@@ -198,24 +220,7 @@ class BusinessOpsService:
                 (rating, feedback, now, request_id),
             )
 
-        self.audit.log(
-            action="submit_review",
-            entity_type="review_request",
-            entity_id=request_id,
-            change_summary=f"Submitted review for request {request_id} (rating {rating})",
-            actor=actor,
-            details={
-                "customer_id": row["customer_id"],
-                "old_rating": row["rating"],
-                "new_rating": rating,
-                "old_feedback": row["feedback"],
-                "new_feedback": feedback,
-                "old_status": row["status"],
-                "new_status": "completed",
-            },
-        )
-
-        return ReviewRequest(
+        result = ReviewRequest(
             id=row["id"],
             customer_id=row["customer_id"],
             project_id=row["project_id"],
@@ -227,6 +232,21 @@ class BusinessOpsService:
             completed_at=now,
             created_at=row["created_at"],
         )
+
+        self.audit.log(
+            action="submit_review",
+            entity_type="review_request",
+            entity_id=request_id,
+            change_summary=f"Submitted review for request {request_id} (rating {rating})",
+            actor=actor,
+            details=build_audit_details(
+                before=_before,
+                after=result.to_dict(),
+                fields=_AUDITABLE_REVIEW_REQUEST_FIELDS,
+            ),
+        )
+
+        return result
 
     def list_reviews(self, actor: AuthContext) -> List[ReviewRequest]:
         """List all review requests and ratings."""
@@ -814,6 +834,8 @@ class BusinessOpsService:
         if not row:
             raise ValueError(f"Purchase order {po_id} not found")
 
+        _before = self._row_to_po(row).to_dict()
+
         now = utc_now_iso()
         with conn:
             conn.execute(
@@ -825,14 +847,25 @@ class BusinessOpsService:
                 (now, now, po_id),
             )
 
+        # after-image mirrors the SET clause exactly (no new read); same
+        # _row_to_po builder as _before.
+        _after = self._row_to_po(
+            {**dict(row), "status": "received", "received_date": now, "updated_at": now}
+        )
+
         self.audit.log(
             action="update",
             entity_type="purchase_order",
             entity_id=po_id,
             change_summary=f"Received PO #{row['po_number']}",
             actor=actor,
+            details=build_audit_details(
+                before=_before,
+                after=_after.to_dict(),
+                fields=_AUDITABLE_PURCHASE_ORDER_FIELDS,
+            ),
         )
-        return self._row_to_po({**dict(row), "status": "received", "received_date": now, "updated_at": now})
+        return _after
 
     def list_purchase_orders(
         self,
