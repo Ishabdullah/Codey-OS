@@ -36,7 +36,15 @@ from ..models import (
     WorkOrderStatus,
     utc_now_iso,
 )
-from .audit_service import AuditService, build_audit_details
+from .audit_service import (
+    AuditService,
+    build_audit_details,
+    _AUDITABLE_DEPLOYMENT_FIELDS,
+    _AUDITABLE_EQUIPMENT_FIELDS,
+    _AUDITABLE_MILESTONE_FIELDS,
+    _AUDITABLE_PROJECT_FIELDS,
+    _AUDITABLE_WORK_ORDER_FIELDS,
+)
 
 
 class OperationsService:
@@ -232,6 +240,11 @@ class OperationsService:
         if not ProjectStage.can_transition(current_stage, target):
             raise ValueError(f"Invalid stage transition from {current_stage} to {target}")
 
+        # Audit pre-image: frozen before any in-memory mutation (e.g. the
+        # COMPLETED gate sets project.actual_completion below) or DB write.
+        _before = project.to_dict()
+        _se: Dict[str, Any] = {}
+
         # Gate Checks
         if target == ProjectStage.CANCELLED:
             if not reason or not reason.strip():
@@ -241,6 +254,7 @@ class OperationsService:
             if not project.property_address or not project.property_address.strip():
                 raise ValueError("Project must have a property address to enter assessment scoping")
             self._ensure_default_milestones(project_id, target, actor)
+            _se["default_milestones_ensured"] = True
 
         elif target == ProjectStage.INSURANCE_APPROVAL:
             if not project.insurance_carrier and not project.insurance_claim_number:
@@ -333,18 +347,24 @@ class OperationsService:
                 ),
             )
 
+        if reason is not None:
+            _se["transition_reason"] = reason
+
+        after_row = conn.execute("SELECT * FROM projects WHERE id = ?;", (project_id,)).fetchone()
+        _after = self._row_to_project(after_row, actor.role).to_dict() if after_row else None
+
         self.audit.log(
             action="project_stage_transition",
             entity_type="project",
             entity_id=project_id,
             change_summary=f"Project #{project_id} transitioned from '{current_stage}' to '{target}'",
             actor=actor,
-            details={
-                "previous_stage": current_stage,
-                "target_stage": target,
-                "reason": reason,
-                "notes": notes,
-            },
+            details=build_audit_details(
+                before=_before,
+                after=_after,
+                fields=_AUDITABLE_PROJECT_FIELDS,
+                side_effects=_se or None,
+            ),
         )
         return self.get_project(project_id, actor)
 
@@ -515,6 +535,7 @@ class OperationsService:
         milestone = self.get_milestone(milestone_id, actor)
         if not milestone:
             raise ValueError(f"Milestone #{milestone_id} not found")
+        _before = milestone.to_dict()
 
         # Dependency check when transitioning to in_progress or completed
         if new_status in (MilestoneStatus.IN_PROGRESS, MilestoneStatus.COMPLETED) and milestone.dependencies:
@@ -565,7 +586,11 @@ class OperationsService:
             entity_id=milestone_id,
             change_summary=f"Milestone #{milestone_id} status updated from '{milestone.status}' to '{new_status}'",
             actor=actor,
-            details={"previous_status": milestone.status, "new_status": new_status, "notes": notes},
+            details=build_audit_details(
+                before=_before,
+                after=updated.to_dict() if updated else None,
+                fields=_AUDITABLE_MILESTONE_FIELDS,
+            ),
         )
         return updated
 
@@ -789,7 +814,12 @@ class OperationsService:
             entity_id=work_order.id,
             change_summary=f"Updated work order {work_order.work_order_number}",
             actor=actor,
-            details=work_order.to_dict(),
+            # C-none: WorkOrder has no sensitive/PII columns, so an unfiltered
+            # snapshot of the caller-supplied model is deliberate here. The
+            # sole caller (api/routes.py) fetches the WorkOrder via
+            # get_work_order immediately before mutating and passing it; a
+            # true before/after diff is deferred to B6.2b-4.
+            details=build_audit_details(snapshot=work_order.to_dict()),
         )
         return work_order
 
@@ -948,6 +978,8 @@ class OperationsService:
         wo = self.get_work_order(work_order_id, actor)
         if not wo:
             raise ValueError(f"Work order #{work_order_id} not found")
+        _before = wo.to_dict()
+        _compliance_overridden = False
 
         conn = self.db.get_connection()
         sub_row = conn.execute("SELECT * FROM subcontractors WHERE id = ?;", (subcontractor_id,)).fetchone()
@@ -961,15 +993,19 @@ class OperationsService:
         # Compliance checks
         today_str = utc_now_iso()[:10]
         coi_expiration = sub_row["coi_expiration"]
-        if coi_expiration and coi_expiration < today_str and not override_compliance:
-            raise ValueError(
-                f"Subcontractor #{subcontractor_id} compliance failure: COI expired on {coi_expiration}"
-            )
+        if coi_expiration and coi_expiration < today_str:
+            if not override_compliance:
+                raise ValueError(
+                    f"Subcontractor #{subcontractor_id} compliance failure: COI expired on {coi_expiration}"
+                )
+            _compliance_overridden = True
 
-        if sub_row["license_required"] == 1 and not override_compliance:
+        if sub_row["license_required"] == 1:
             license_status = (sub_row["license_status"] or "").strip().lower()
             if license_status != "active" and not sub_row["license_number"]:
-                raise ValueError(f"Subcontractor #{subcontractor_id} license is not active")
+                if not override_compliance:
+                    raise ValueError(f"Subcontractor #{subcontractor_id} license is not active")
+                _compliance_overridden = True
 
         now = utc_now_iso()
         wo.assigned_subcontractor_id = subcontractor_id
@@ -1008,13 +1044,21 @@ class OperationsService:
                 ),
             )
 
+        _after = self.get_work_order(work_order_id, actor)
+        _se = {"compliance_overridden": True} if _compliance_overridden else {}
+
         self.audit.log(
             action="work_order_dispatch",
             entity_type="work_order",
             entity_id=work_order_id,
             change_summary=f"Dispatched work order {wo.work_order_number} to subcontractor #{subcontractor_id}",
             actor=actor,
-            details=wo.to_dict(),
+            details=build_audit_details(
+                before=_before,
+                after=_after.to_dict() if _after else None,
+                fields=_AUDITABLE_WORK_ORDER_FIELDS,
+                side_effects=_se or None,
+            ),
         )
         return self.get_work_order(work_order_id, actor)
 
@@ -1034,6 +1078,7 @@ class OperationsService:
         wo = self.get_work_order(work_order_id, actor)
         if not wo:
             raise ValueError(f"Work order #{work_order_id} not found")
+        _before = wo.to_dict()
 
         now = utc_now_iso()
         conn = self.db.get_connection()
@@ -1056,13 +1101,18 @@ class OperationsService:
                 ),
             )
 
+        _after = self.get_work_order(work_order_id, actor)
         self.audit.log(
             action="work_order_accept",
             entity_type="work_order",
             entity_id=work_order_id,
             change_summary=f"Work order {wo.work_order_number} accepted",
             actor=actor,
-            details={"notes": notes},
+            details=build_audit_details(
+                before=_before,
+                after=_after.to_dict() if _after else None,
+                fields=_AUDITABLE_WORK_ORDER_FIELDS,
+            ),
         )
         return self.get_work_order(work_order_id, actor)
 
@@ -1088,6 +1138,7 @@ class OperationsService:
         wo = self.get_work_order(work_order_id, actor)
         if not wo:
             raise ValueError(f"Work order #{work_order_id} not found")
+        _before = wo.to_dict()
 
         now = utc_now_iso()
         actual_start_val = actual_start or wo.actual_start
@@ -1132,13 +1183,18 @@ class OperationsService:
                 ),
             )
 
+        _after = self.get_work_order(work_order_id, actor)
         self.audit.log(
             action="status_change",
             entity_type="work_order",
             entity_id=work_order_id,
             change_summary=f"Work order {wo.work_order_number} status updated to '{new_status}'",
             actor=actor,
-            details={"previous_status": wo.status, "new_status": new_status, "notes": notes},
+            details=build_audit_details(
+                before=_before,
+                after=_after.to_dict() if _after else None,
+                fields=_AUDITABLE_WORK_ORDER_FIELDS,
+            ),
         )
         return self.get_work_order(work_order_id, actor)
 
@@ -1279,6 +1335,7 @@ class OperationsService:
         eq = self.get_equipment(equipment_id, actor)
         if not eq:
             raise ValueError(f"Equipment #{equipment_id} not found")
+        _before = eq.to_dict()
 
         if eq.status != EquipmentStatus.AVAILABLE:
             raise ValueError(f"Equipment #{equipment_id} is not available (current status: {eq.status})")
@@ -1326,22 +1383,36 @@ class OperationsService:
                 ),
             )
 
+        _after = self.get_equipment(equipment_id, actor)
+        _se = {
+            "deployment_created": {
+                "deployment_id": deployment_id,
+                "project_id": project_id,
+                "work_order_id": work_order_id,
+                "condition_out": condition_out,
+                "initial_reading": initial_reading,
+                "return_due_at": return_due_at,
+                "notes": notes,
+            }
+        }
+
         self.audit.log(
             action="equipment_deploy",
             entity_type="equipment",
             entity_id=equipment_id,
             change_summary=f"Deployed {eq.asset_tag} to project #{project_id}",
             actor=actor,
-            details={
-                "deployment_id": deployment_id,
-                "project_id": project_id,
-                "work_order_id": work_order_id,
-                "initial_reading": initial_reading,
-                "condition_out": condition_out,
-            },
+            details=build_audit_details(
+                before=_before,
+                after=_after.to_dict() if _after else None,
+                fields=_AUDITABLE_EQUIPMENT_FIELDS,
+                side_effects=_se,
+            ),
         )
 
         dep_row = conn.execute("SELECT * FROM equipment_deployments WHERE id = ?;", (deployment_id,)).fetchone()
+        if not dep_row:
+            raise ValueError(f"Equipment deployment #{deployment_id} not found")
         return self._row_to_equipment_deployment(dep_row)
 
     def return_equipment(
@@ -1415,21 +1486,33 @@ class OperationsService:
                 ),
             )
 
+        updated_row = conn.execute("SELECT * FROM equipment_deployments WHERE id = ?;", (deployment_id,)).fetchone()
+
+        _se = {
+            "deployment_returned": {
+                "deployment_id": deployment_id,
+                "changed_fields": build_audit_details(
+                    before=self._row_to_equipment_deployment(dep_row).to_dict(),
+                    after=self._row_to_equipment_deployment(updated_row).to_dict(),
+                    fields=_AUDITABLE_DEPLOYMENT_FIELDS,
+                ).get("changed_fields", {}),
+            }
+        }
+
         self.audit.log(
             action="equipment_return",
             entity_type="equipment",
             entity_id=equipment_id,
             change_summary=f"Returned equipment #{equipment_id} from deployment #{deployment_id}",
             actor=actor,
-            details={
-                "deployment_id": deployment_id,
-                "final_reading": final_reading,
-                "condition_in": condition_in,
-                "next_status": next_status,
-            },
+            # C-none for equipment: scoped snapshot of exactly the two equipment
+            # columns this method writes (not a full to_dict).
+            details=build_audit_details(
+                snapshot={"status": next_status, "current_project_id": None},
+                side_effects=_se,
+            ),
         )
 
-        updated_row = conn.execute("SELECT * FROM equipment_deployments WHERE id = ?;", (deployment_id,)).fetchone()
         return self._row_to_equipment_deployment(updated_row)
 
     def list_project_deployments(

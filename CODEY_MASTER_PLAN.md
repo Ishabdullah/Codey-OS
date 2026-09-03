@@ -1057,8 +1057,11 @@ sites to `before`/`after` diffs — incl. `update_project` off its
 hand-rolled diff (`NEW-312` audit-accuracy half) — added
 `_AUDITABLE_PROJECT_FIELDS`, and fixed an unguarded post-commit
 `.to_dict()` in `update_subcontractor` (`NEW-317`); code-reviewer-approved
-(rule-4). Next: `B6.2b-3` (8 operations sites), `-4` (~10 remaining),
-then `B6.2c` (admin audit-search screen).
+(rule-4). `B6.2b-3` (2026-09-02) migrated the 8 `operations_service` real-update
+audit sites to `before`/`after` diffs (2 as C-none `snapshot`), closing
+the `NEW-313` COALESCE after-image trap's audit half and adding four more
+`_AUDITABLE_*_FIELDS` guards. Next: `B6.2b-4` (~10 remaining sites), then
+`B6.2c` (admin audit-search screen).
 **The round-by-round build narrative that used to live here — 627 lines
 covering Phase B2's write-through rounds, their code-reviewer passes, and
 their test counts — was moved verbatim to `PROJECT_LOG.md` on 2026-09-02
@@ -6003,10 +6006,21 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
         guard). `NEW-317` fixed in-round. Code-complete + rule-4
         code-reviewer-approved 2026-09-02; `tests/test_restoricon_core/`
         309 passed (+21). No live-model component.
-      - [ ] **B6.2b-3** — 8 `operations_service` real-update sites
-        (heaviest side-effect surface: stage cascade → `projects.status`,
-        milestone auto-creation, `actual_completion`; `COALESCE` after-
-        image trap `NEW-313`). Gated on `NEW-311`.
+      - [x] **B6.2b-3** — 8 `operations_service` real-update sites migrated
+        to `build_audit_details` `before`/`after` (`transition_project_stage`,
+        `update_milestone_status`, `dispatch_work_order`, `accept_work_order`,
+        `update_work_order_execution_status`, `deploy_equipment`) + 2 C-none
+        `snapshot` sites (`update_work_order` unfiltered, `return_equipment`
+        2-key scoped). `after` always from a post-commit re-read through the
+        same `_row_to_*` builder → closes the `NEW-313` COALESCE after-image
+        trap (audit half); `accept_work_order` found as a 3rd COALESCE site.
+        4 new `_AUDITABLE_{WORK_ORDER,MILESTONE,EQUIPMENT,DEPLOYMENT}_FIELDS`
+        drift-guard frozensets. `deploy_equipment` unguarded return re-read
+        fixed in-round (`NEW-319`); `dispatch_work_order` compliance-gate
+        restructured for the `compliance_overridden` flag (`NEW-319`).
+        Code-complete + rule-4 code-reviewer-approved 2026-09-02;
+        `tests/test_restoricon_core/` 358 passed (+49). No live-model
+        component.
       - [ ] **B6.2b-4** — ~10 remaining sites: business_ops(2),
         automation(3 incl. `add_to_do_not_contact` per `NEW-316` +
         2 singleton upserts), scheduling(3), crm special shapes(3).

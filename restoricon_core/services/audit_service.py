@@ -78,6 +78,43 @@ _AUDITABLE_PROJECT_FIELDS = frozenset({
     "updated_at",
 })
 
+# NEW-314: WorkOrder diff domain. Excludes nothing -- WorkOrder carries no
+# secret/PII-grade columns. Drift guard only: a future WorkOrder field cannot
+# enter the audit payload without an edit here. Key is `line_items` (the
+# to_dict key), not the `line_items_json` column.
+_AUDITABLE_WORK_ORDER_FIELDS = frozenset({
+    "id", "work_order_number", "title", "project_id", "trade",
+    "assigned_subcontractor_id", "assigned_crew_lead", "scheduled_start",
+    "scheduled_end", "actual_start", "actual_end", "status", "line_items",
+    "total_cost", "instructions", "notes", "dispatched_at", "accepted_at",
+    "completed_at", "verified_at", "created_at", "updated_at",
+})
+
+# NEW-314: ProjectMilestone diff domain. Excludes nothing -- no secret/PII
+# columns. Drift guard only. Includes `dependencies` (the to_dict key).
+_AUDITABLE_MILESTONE_FIELDS = frozenset({
+    "id", "project_id", "name", "stage", "target_date", "completion_date",
+    "status", "dependencies", "notes", "created_at", "updated_at",
+})
+
+# NEW-314: Equipment diff domain. Excludes nothing -- no secret/PII columns.
+# Drift guard only.
+_AUDITABLE_EQUIPMENT_FIELDS = frozenset({
+    "id", "asset_tag", "name", "category", "model_number", "serial_number",
+    "status", "daily_rate", "current_project_id", "notes", "created_at",
+    "updated_at",
+})
+
+# NEW-314: EquipmentDeployment diff domain. Excludes nothing -- no secret/PII
+# columns. Drift guard only. Used solely for the nested side_effects diff in
+# return_equipment, never as a top-level `fields=` domain.
+_AUDITABLE_DEPLOYMENT_FIELDS = frozenset({
+    "id", "equipment_id", "project_id", "work_order_id", "deployed_at",
+    "return_due_at", "returned_at", "deployed_by_user_id",
+    "received_by_user_id", "condition_out", "condition_in", "initial_reading",
+    "final_reading", "notes", "created_at", "updated_at",
+})
+
 
 def build_audit_details(
     *,

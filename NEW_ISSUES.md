@@ -13882,7 +13882,20 @@ outside that fix's scope.
   `update_project`; `NEW-308`, `NEW-310`, `NEW-314`.
 
 ### [NEW-313] `operations_service.py` passes unguarded params into `COALESCE(?, col)` at two sites, inconsistent with two other sites in the same file
-- **Status:** Confirmed (B6.2b architect, 2026-09-02). Pre-existing.
+- **Status:** Audit half RESOLVED by B6.2b-3 (2026-09-02); SQL-normalization
+  half stays open (tidy-if-touched). Pre-existing.
+- **B6.2b-3 resolution:** all named sites now build the audit `after`
+  image from a post-commit `get_work_order()` / `get_milestone()`
+  re-read through the same `_row_to_*` builder as `before`, so the
+  COALESCE-preserved column can never show as a phantom `None` diff.
+  `accept_work_order` (~:1046) identified as a **third** unguarded
+  `COALESCE(?, notes)` site in the same class — no live defect (old
+  payload was `{"notes": notes}`), also covered by after-from-re-read.
+  Regression tests assert the omitted COALESCE field is absent from
+  `changed_fields` and that `instructions=""` records the stored `""`.
+  The cosmetic SQL normalization to the guarded pattern at :1011 /
+  :1046 / :1135 was intentionally left as-is (not needed for audit
+  correctness); remains open here as a tidy-if-touched item.
 - **Mechanism:** `dispatch_work_order` (~ops_service.py:1011,
   `instructions = COALESCE(?, instructions)`) and
   `update_work_order_execution_status` (~:1135,
@@ -13965,6 +13978,14 @@ outside that fix's scope.
   snapshot **scoped to those columns** rather than a full-row
   `X.to_dict()` — a complete change record that also can't leak
   unrelated sensitive fields. Reusable for the other C-none sites.
+- **B6.2b-3 update:** two more C-none shapes landed. `update_work_order`
+  emits an **unfiltered** `snapshot=work_order.to_dict()` (WorkOrder
+  has zero sensitive columns — same rationale as `delete_contact`'s
+  `Contact` snapshot). `return_equipment` uses a **2-key scoped**
+  `snapshot={"status": ..., "current_project_id": None}` per the
+  B6.2b-2 pattern. `update_work_order`'s sole caller (`api/routes.py`
+  :1377) fetches the `WorkOrder` immediately before mutating — a real
+  before/after diff is available one layer up; note for B6.2b-4.
 - **Cross-reference:** `restoricon_core/services/audit_service.py`
   `build_audit_details`; `NEW-314`, `NEW-309`.
 
@@ -14016,3 +14037,33 @@ outside that fix's scope.
   classification predicted.
 - **Cross-reference:** the B6.2b architect classification (this
   session); `restoricon_core/services/crm_service.py` `complete_task`.
+
+### [NEW-319] B6.2b-3 in-round: `dispatch_work_order` compliance-branch restructure + two unguarded post-commit deployment re-reads in `operations_service.py`
+- **Status:** Confirmed (B6.2b-3 code-reviewer, 2026-09-02). Two items,
+  both non-blocking; APPROVED in the same pass.
+- **Item 1 — compliance-gate refactor (shipped):** to emit the
+  `compliance_overridden` `side_effect` flag only when a check was
+  actually bypassed, the COI/license branches in `dispatch_work_order`
+  changed from `if <cond> and not override_compliance: raise` to
+  `if <cond>:` always-evaluated with an inner `if not override_compliance:
+  raise` else `_compliance_overridden = True`. Reviewer verified the
+  raise behavior is identical on every path (None-safe); the only new
+  observable is the flag. A logic touch inside a compliance gate —
+  ledgered per rule 8, not a defect. Covered by 3 tests.
+- **Item 2 — `deploy_equipment` return-value re-read (shipped fix):** the
+  trailing `dep_row = SELECT ... .fetchone()` feeding the
+  `-> EquipmentDeployment` return was unguarded; `_row_to_equipment_
+  deployment(None)` would `TypeError` past a committed INSERT. B6.2b-3
+  added `if not dep_row: raise ValueError(...)` — strict message-quality
+  improvement, dead-safe branch, not NEW-317 shape (return path, not an
+  audit after-image).
+- **Item 3 — `return_equipment` `updated_row` re-read (NOT fixed):** the
+  post-commit `SELECT * FROM equipment_deployments WHERE id = ?` feeding
+  the nested `deployment_returned` diff is unguarded the same way. It was
+  unguarded pre-diff too (only moved above `audit.log` this round) — no
+  regression. A one-line `if not updated_row: raise` for consistency with
+  the `deploy_equipment` / `dispatch` guards is cosmetic; left for a
+  future touch.
+- **Cross-reference:** `restoricon_core/services/operations_service.py`
+  `dispatch_work_order`, `deploy_equipment`, `return_equipment`;
+  `NEW-313`, `NEW-317`.

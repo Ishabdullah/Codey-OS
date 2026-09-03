@@ -10,6 +10,62 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-03 — `B6.2b-3` landed: 8 operations_service real-update audit sites → before/after diffs
+
+- **Status**: **Code-complete + code-reviewer APPROVED (rule-4, audit
+  surface). NOT live-verified beyond the suite** — no live-model
+  component. `tests/test_restoricon_core/` 358 passed (+49 new in
+  `test_b6_2b3_audit_details.py`), zero regressions. Broader run
+  (+ user_management + b5a_api_routes + b4_dashboard) 26 passed, no
+  change. (`test_loader_resource_gate.py` not run — pre-existing
+  environmental failures, already logged.)
+- **Scope**: Round 3 of B6.2b's 4 sub-rounds — the `operations_service.py`
+  real-update sites. 6 now emit `build_audit_details(before=…, after=…)`:
+  `transition_project_stage`, `update_milestone_status`,
+  `dispatch_work_order`, `accept_work_order`,
+  `update_work_order_execution_status`, `deploy_equipment`. 2 C-none
+  sites use `snapshot`: `update_work_order` (unfiltered — WorkOrder has
+  no sensitive columns), `return_equipment` (2-key scoped, per the
+  B6.2b-2 `update_subcontractor_qualification` pattern).
+- **`after` discipline (NEW-313 audit half CLOSED)**: every after-image
+  is a post-commit re-read through the *same* `_row_to_*` builder as
+  `before` — never the input param, never the in-memory-mutated model.
+  This closes the `COALESCE(?, col)` after-image trap at
+  `dispatch_work_order` (`instructions`) and
+  `update_work_order_execution_status` (`notes`); `accept_work_order`
+  identified as a 3rd unguarded COALESCE site (no live defect — old
+  payload was `{"notes": notes}`), also covered. The cosmetic SQL
+  normalization to the guarded pattern was left as-is (not needed for
+  audit correctness) — stays open on `NEW-313` as tidy-if-touched.
+- **`side_effects` (non-column / cross-entity only)**:
+  `transition_project_stage` gains `transition_reason` (not a projects
+  column) and `default_milestones_ensured` (a flag — the auto-created
+  milestones keep their own `create` audit rows, not embedded);
+  `dispatch_work_order` gains `compliance_overridden` (only when a
+  COI/license check was actually bypassed); `deploy_equipment` /
+  `return_equipment` nest the deployment create/return diff.
+  `actual_completion` on a COMPLETED transition lands in
+  `changed_fields`, not `side_effects`.
+- **audit_service.py**: 4 new drift-guard frozensets —
+  `_AUDITABLE_{WORK_ORDER,MILESTONE,EQUIPMENT,DEPLOYMENT}_FIELDS` —
+  each excluding nothing (no sensitive columns on those entities), each
+  with a rationale comment mirroring `_AUDITABLE_PROJECT_FIELDS`.
+  `build_audit_details` signature unchanged; `snapshot_fields=` gap
+  (`NEW-315`) still deferred to B6.2b-4 / B6.2c-prereq.
+- **In-round fixes (`NEW-319`)**: `deploy_equipment`'s unguarded
+  return-value re-read now raises a clear `ValueError` instead of a
+  `TypeError` past a committed INSERT; `dispatch_work_order`'s COI/license
+  branches restructured (raise behavior provably identical) to drive the
+  `compliance_overridden` flag. `return_equipment`'s `updated_row` re-read
+  left unguarded (was pre-diff too — no regression; logged on `NEW-319`).
+- **`action=` / `change_summary=` strings byte-identical.** No
+  `install.sh` change (no new dependency).
+- **Ledgers**: `NEW-313` audit half resolved + `accept_work_order` noted;
+  `NEW-315` gains the two new C-none shapes + the `update_work_order`
+  caller note; `NEW-319` opened. Master plan §4 + Appendix A B6.2b-3
+  checked. Next: `B6.2b-4` (~10 remaining sites + resolve `NEW-315`),
+  then `B6.2c`.
+
 ## 2026-09-02 — `B6.2b-2` landed: 11 crm_service real-update audit sites migrated to before/after diffs
 
 - **Status**: **Code-complete + code-reviewer APPROVED (rule-4, audit
