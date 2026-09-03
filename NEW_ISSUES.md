@@ -14227,3 +14227,76 @@ outside that fix's scope.
   that rejects/reshapes an array-shaped body before it reaches the
   truncation step.
 - **Cross-reference:** `~/Codey-Aigentik/telemetry.mjs`.
+
+### [NEW-327] `schema.validate()`'s honest-null check doesn't walk nested arrays — cold-cache `models[i].sha256=None` isn't flagged
+- **Status:** Confirmed (telemetry T2, 2026-09-03, code-reviewer approved
+  round). Empirically confirmed: `validate()` returns no violation for a
+  real cold-model record.
+- **Mechanism:** `telemetry/schema.py`'s `validate()` only walks
+  top-level `body` keys against the `nulls` map. `record_run_start()`'s
+  `models` list entries can carry `sha256=None` on a cold cache (digest
+  not yet computed), but this nested null is invisible to the checker —
+  `sha256_source: "not_computed"` is an in-band signal, so the value is
+  arguably still honest, but `codey-metrics doctor`'s checkability claim
+  (§2.0.1 of the design) doesn't reach nested fields.
+- **Impact:** cosmetic gap in the doctor tool's coverage claim, not a
+  data-integrity issue — the in-band `sha256_source` field already tells
+  a reader why the hash is null.
+- **Fix direction:** either extend `build_run_start_nulls()`/its JS
+  mirror to also null-reason `models[*].sha256`, or add a pinned test on
+  each side documenting the known gap. Deferred, not blocking T2.
+- **Cross-reference:** `telemetry/schema.py`, `telemetry/recorders.py`,
+  `~/Codey-Aigentik/telemetry.mjs`.
+
+### [NEW-328] `get_device_provenance()["cpu_core_count"]` (T0, pre-existing) has no null-reason path for `os.cpu_count() -> None`
+- **Status:** Confirmed (telemetry T2 review, 2026-09-03). Pre-existing
+  T0 code, untouched by T2's diff. Unreachable on this device today
+  (`os.cpu_count()` returns a real value here).
+- **Mechanism:** `os.cpu_count()` can return `None` per stdlib docs (some
+  platforms/containers), but `build_run_start_nulls()` has no
+  corresponding reason code for `cpu_core_count`.
+- **Impact:** none today — latent only, would produce the same
+  invisible-null gap as `NEW-327` if it ever fired on different hardware.
+- **Fix direction:** add a reason code (e.g. `os_cpu_count_unavailable`)
+  mirroring the existing git/meminfo/uptime pattern, when next touched.
+- **Cross-reference:** `telemetry/provenance.py`.
+
+### [NEW-329] `model_digests.json.tmp` is a fixed temp filename shared across concurrent cold-hash writers — bounded race, self-healing
+- **Status:** Confirmed (telemetry T2, 2026-09-03, code-reviewer approved
+  round).
+- **Mechanism:** the TUI and Core API entry points can both cold-hash the
+  model near-simultaneously on first run, both writing through the same
+  `model_digests.json.tmp` path before an atomic `Path.replace`.
+- **Impact:** bounded — `Path.replace` is atomic so no corruption occurs,
+  worst case is a lost cache entry and one extra re-hash (~5.2s) on a
+  subsequent run. Self-healing, not a correctness or evidence-integrity
+  issue.
+- **Fix direction:** opportunistic — a PID- or run-id-suffixed temp
+  filename would remove the race entirely, when next touched.
+- **Cross-reference:** `telemetry/provenance.py`.
+
+### [NEW-330] `RestoriconAPIServer.start()` has no re-entrancy guard — a second call in-process appends a duplicate `run_start` record under the same `run_id`
+- **Status:** Confirmed (telemetry T2, 2026-09-03, code-reviewer approved
+  round).
+- **Mechanism:** `write_run_provenance()` correctly refuses to overwrite
+  an existing `runs/<run_id>.json` on a second `start()` call, but
+  `record_run_start()`'s normal JSONL emission still appends a second
+  `run_start` event to the events stream under the same `run_id`.
+- **Impact:** a duplicate JSONL record, not a corrupted one — but the
+  planned `codey-metrics doctor` checks (T4, not yet built) don't
+  currently account for this duplicate-record case.
+- **Fix direction:** either guard `start()` against being called twice in
+  one process, or have `doctor` treat a second `run_start` for the same
+  `run_id` as an expected-but-flagged case. Decide when T4 (CLI) is
+  built.
+- **Cross-reference:** `restoricon_core/api/server.py`,
+  `telemetry/recorders.py`; T4 in `CODEY_MASTER_PLAN.md` Appendix A.
+
+### [NEW-331] `tests/conftest.py`'s isolation fixture docstring says "session-wide" but the fixture is function-scoped
+- **Status:** Confirmed (telemetry T2, 2026-09-03, code-reviewer approved
+  round). Wording inaccuracy only (rule 6) — the fixture has no `scope=`
+  argument, so pytest's default (function) applies, which is *stricter*
+  isolation than the docstring claims, not weaker.
+- **Impact:** none — documentation-only mismatch, no behavioral gap.
+- **Fix direction:** correct the docstring wording when next touched.
+- **Cross-reference:** `tests/conftest.py`.

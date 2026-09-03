@@ -313,6 +313,48 @@ def record(rec: Dict[str, Any]) -> None:
     store.enqueue(rec)
 
 
+def write_run_provenance(record: Dict[str, Any], root: Optional[Path] = None) -> None:
+    """
+    Design §3.1: `runs/<run_id>.json` — written once, never reopened for
+    write. This is a direct, synchronous write (not routed through the
+    ring buffer / background writer thread) because it must exist even if
+    the process exits abruptly before the writer thread's first flush —
+    provenance is meant to be the first durable fact about a run, not
+    something that can be lost to the same 2s buffering window as every
+    other record. Exception-wrapped like every other public entry point
+    in this module (constraint 2 / T0 brief): a failure here degrades to
+    a logged warning, never a crash of whatever called record_run_start().
+
+    No-ops (writes nothing) when telemetry is disabled or the record has
+    no run_id, and refuses to overwrite an existing file for the same
+    run_id — `run_id` is allocated once per process (store.get_run_id()),
+    so a second write attempt would only happen from a bug, and silently
+    clobbering the first file would destroy evidence rather than protect
+    it.
+    """
+    if not TELEMETRY_ENABLED:
+        return
+    run_id = record.get("run_id")
+    if not run_id:
+        return
+    base = Path(root) if root is not None else METRICS_DIR
+    path = base / "runs" / f"{run_id}.json"
+    try:
+        if path.exists():
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path.with_name(path.name + ".tmp")
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(record, f, separators=(",", ":"), default=str)
+        tmp_path.replace(path)
+    except Exception as exc:
+        # Disk full, permission change, etc. — the run_start record is
+        # still enqueued into the normal JSONL stream via record(), so
+        # this failure only loses the runs/<id>.json convenience copy,
+        # not the evidence itself. Never raised into the caller.
+        warning(f"telemetry: failed to write run provenance file for run_id={run_id}: {exc!r}")
+
+
 def reset_for_tests() -> None:
     """
     Test-only. Shuts down and discards the process-wide singleton so a

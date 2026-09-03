@@ -50,7 +50,7 @@ def _emit(
     correlation_id: Optional[str] = None,
     nulls: Optional[Dict[str, str]] = None,
     always_keep_null: Container[str] = (),
-) -> None:
+) -> Dict[str, Any]:
     """
     Builds and hands a record to telemetry/store.py.
 
@@ -71,6 +71,10 @@ def _emit(
     no code for "not applicable to this event_type", so rather than
     inventing one, such fields are omitted from the body entirely instead
     of being written as an unreasoned null.
+
+    Returns the built record (T2: record_run_start() needs it to also
+    write runs/<run_id>.json; every other existing caller ignores the
+    return value, so this is additive, not a behaviour change for them).
     """
     nulls = nulls or {}
     pruned_body = {
@@ -91,6 +95,7 @@ def _emit(
         nulls=nulls,
     )
     store.record(record)
+    return record
 
 
 # ── A. Inference ─────────────────────────────────────────────────────────
@@ -703,9 +708,40 @@ def record_run_start(
     llama_server_bin: Optional[str] = None,
     run_id: Optional[str] = None,
 ) -> None:
-    """Builds and emits the `run_start` record via
-    telemetry.provenance.build_run_start_body(). Not called by anything
-    in T0 — T2 wires this in at the non-lifecycle process entry points."""
+    """
+    Builds and emits the `run_start` record via
+    telemetry.provenance.build_run_start_body(). T2 wires this in at the
+    non-lifecycle process entry points (Core API, TUI, Aigentik's JS
+    equivalent).
+
+    In addition to the normal JSONL emission (via _emit -> store.record),
+    this:
+      1. Writes runs/<run_id>.json once (design §3.1) via
+         store.write_run_provenance() — the record is never reopened for
+         write after this.
+      2. Schedules a background hash of any `models` entry whose digest
+         is cold (sha256_source == "not_computed") — never synchronously
+         (fact 0.23: ~5.2s for the primary model) — via
+         provenance.schedule_cold_model_digests(). A completed hash is
+         reported later as a separate, append-only `run_start_amended`
+         record, not by editing runs/<run_id>.json.
+
+    `models` should already be built via
+    telemetry.provenance.build_model_entries() (or an equivalent
+    cache-read-only shape) — this function does not hash anything itself.
+
+    Kill switch: checked FIRST, before any of the git/getprop/meminfo
+    collection work below or the background digest scheduling — design
+    §5.3's "checked once ... a single predictable branch with no object
+    construction" and §5.4's OFF-arm-must-be-zero measurement procedure
+    both require this. Without this early return, a disabled run would
+    still spawn subprocesses for git/getprop and still spawn a background
+    thread that hashes the full model file, which is exactly the
+    synchronous-adjacent cost the kill switch exists to eliminate.
+    """
+    if not store.TELEMETRY_ENABLED:
+        return
+
     from telemetry import provenance as _provenance  # local: avoids a hard
     # module-load-order dependency between recorders.py and provenance.py
     # for callers that only need the other half of this module.
@@ -726,7 +762,7 @@ def record_run_start(
         schema_sha256=SCHEMA_SHA256_12,
     )
     nulls = _provenance.build_run_start_nulls(body)
-    _emit(
+    record = _emit(
         category="provenance",
         event_type="run_start",
         emitter=emitter,
@@ -738,6 +774,43 @@ def record_run_start(
         # not a per-call observation failure — always recorded as null +
         # reason rather than pruned, mirroring record_device_sample.
         always_keep_null={"device_uptime_sec"},
+    )
+    store.write_run_provenance(record)
+    _provenance.schedule_cold_model_digests(
+        models=body.get("models") or [],
+        run_id=resolved_run_id,
+        emitter=emitter,
+        pid=pid,
+    )
+
+
+def record_run_start_amended(
+    *,
+    emitter: str,
+    pid: int,
+    run_id: str,
+    models: List[Dict[str, Any]],
+    correlation_id: Optional[str] = None,
+) -> None:
+    """
+    Design §3.4: a background-thread model-digest computation that
+    completes after the original `run_start` record was already written
+    amends the record stream with this follow-up event — never by
+    reopening runs/<run_id>.json (append-only). Emitted only into the
+    normal JSONL stream via _emit/store.record; NOT written to
+    runs/<run_id>.json itself. A later `codey-metrics provenance` (T4,
+    out of this sub-task's scope) is expected to merge a run's
+    `run_start` + any `run_start_amended` records sharing a run_id when
+    displaying it.
+    """
+    _emit(
+        category="provenance",
+        event_type="run_start_amended",
+        emitter=emitter,
+        pid=pid,
+        run_id=run_id,
+        body={"models": models},
+        correlation_id=correlation_id,
     )
 
 

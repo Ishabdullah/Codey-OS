@@ -6172,10 +6172,19 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       files); tracked as `NEW-324`. Also from this round: `NEW-325`
       (writer `shutdown()` not on Aigentik's SIGINT/SIGTERM path, rule-4
       to fix), `NEW-326` (latent all-array truncation gap).
-- [ ] **T2** — category G (run provenance) for non-lifecycle emitters:
-      `run_start` from Core API, Aigentik, and the TUI entry points;
-      model-digest cache (SHA-256 of the model file is cached, not
-      computed per process start — measured at ~5.2s on this device).
+- [x] **T2** — category G (run provenance) for non-lifecycle emitters.
+      **DONE 2026-09-03, code-complete + code-reviewer APPROVED.**
+      `record_run_start()` wired into `restoricon_core/api/server.py`,
+      `main.py` (TUI), and Aigentik's `index.js`. Kill switch confirmed
+      checked first in both languages (before subprocess/thread work,
+      not just before the write). `runs/<run_id>.json` confirmed
+      write-once (refuses overwrite). Model-digest cache runs in the
+      background, never blocks startup; completion reported via a
+      separate append-only `run_start_amended` record. No rule-4 file
+      touched. Findings: `NEW-327`..`NEW-331` (all non-blocking —
+      nested-null validator gap, pre-existing cpu_core_count gap,
+      bounded digest-cache tmp-file race, `start()` re-entrancy gap,
+      one docstring wording fix).
 - [ ] **T3** — category A (inference events) at the Core AI proxy
       (`restoricon_core/api/routes.py`'s `/api/v1/ai/chat`) — single site
       captures every Aigentik local-model completion server-side with

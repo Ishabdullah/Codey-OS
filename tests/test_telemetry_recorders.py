@@ -32,6 +32,19 @@ def _capture_store(monkeypatch):
 
     monkeypatch.setattr(recorders.store, "record", fake_record)
     monkeypatch.setattr(recorders.store, "get_run_id", lambda: "recordertest0001")
+    # T2: record_run_start() also calls store.write_run_provenance() (the
+    # runs/<run_id>.json write) unconditionally. Left unpatched, that call
+    # bypasses this fixture's fake_record() entirely and writes a real
+    # file under the real METRICS_DIR — silently breaking this file's
+    # stated "without touching a real writer thread or the filesystem"
+    # contract. No-op it the same way fake_record() no-ops the JSONL path.
+    monkeypatch.setattr(recorders.store, "write_run_provenance", lambda rec, root=None: None)
+    # tests/conftest.py's session-wide autouse fixture defaults
+    # TELEMETRY_ENABLED to False (so tests that hit real run_start call
+    # sites don't spawn background model-digest hashing). This file's
+    # record_run_start() tests need it True since record_run_start()
+    # checks the flag first, before anything else.
+    monkeypatch.setattr(recorders.store, "TELEMETRY_ENABLED", True)
     envelope.reset_seq()
     return captured
 

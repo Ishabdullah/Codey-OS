@@ -291,6 +291,39 @@ def shutdown():
         pass
 
 
+def _record_tui_telemetry_run_start():
+    """
+    Category-G run provenance (docs/telemetry_layer_design.md §2.G, sub-
+    task T2). Emitted once, at the start of the interactive TUI session
+    (repl()'s call site — see _write_tui_pid_file()'s docstring for why
+    this call site, not inside repl() itself, is where session-lifetime
+    bookkeeping lives). Local imports and a broad except, same reasoning
+    as _write_tui_pid_file()'s own OSError guard just below: telemetry is
+    diagnostic, not load-bearing, and a failure here must never block the
+    interactive session itself from starting.
+    """
+    try:
+        import time
+
+        from telemetry import provenance, recorders
+        from utils.config import CODEY_DIR, EMBED_MODEL_PATH, LLAMA_SERVER_BIN, MODEL_PATH
+
+        models = provenance.build_model_entries(
+            [("primary", MODEL_PATH), ("embed", EMBED_MODEL_PATH)]
+        )
+        recorders.record_run_start(
+            emitter="codey-os.tui",
+            pid=os.getpid(),
+            repo="Codey-OS",
+            started_ts_wall=time.time(),
+            repo_dir=CODEY_DIR,
+            models=models,
+            llama_server_bin=LLAMA_SERVER_BIN,
+        )
+    except Exception:
+        warning("telemetry: failed to record run_start for TUI session")
+
+
 def _write_tui_pid_file():
     """
     Write this process's PID into its own per-session file under
@@ -2025,6 +2058,7 @@ def main():
     # this additive to repl()'s existing multi-path control flow (several
     # early returns/breaks already call shutdown() internally; see
     # CLAUDE.md rule 4) rather than restructuring it.
+    _record_tui_telemetry_run_start()
     _write_tui_pid_file()
     try:
         repl(

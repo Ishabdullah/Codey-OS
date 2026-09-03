@@ -32,6 +32,42 @@ DEFAULT_HOST = os.getenv("RESTORICON_API_HOST", "127.0.0.1")
 DEFAULT_PORT = int(os.getenv("RESTORICON_API_PORT", "8770"))
 
 
+def _record_telemetry_run_start() -> None:
+    """
+    Category-G run provenance (docs/telemetry_layer_design.md §2.G, sub-
+    task T2). Emits exactly once, at process start, before the server
+    begins accepting connections. Local imports (telemetry is a diagnostic
+    add-on, not a hard dependency of the API server module) and a broad
+    except around the whole call: every function this reaches
+    (telemetry.recorders.record_run_start and everything it calls) is
+    already internally exception-proof by its own contract, but this is
+    process-start code for the Core API — a telemetry regression must
+    never be able to prevent the API server from actually starting, so
+    the call site itself is defended too, not just trusted to stay that
+    way.
+    """
+    try:
+        import time
+
+        from telemetry import provenance, recorders
+        from utils.config import CODEY_DIR, EMBED_MODEL_PATH, LLAMA_SERVER_BIN, MODEL_PATH
+
+        models = provenance.build_model_entries(
+            [("primary", MODEL_PATH), ("embed", EMBED_MODEL_PATH)]
+        )
+        recorders.record_run_start(
+            emitter="codey-os.core-api",
+            pid=os.getpid(),
+            repo="Codey-OS",
+            started_ts_wall=time.time(),
+            repo_dir=CODEY_DIR,
+            models=models,
+            llama_server_bin=LLAMA_SERVER_BIN,
+        )
+    except Exception:
+        logger.warning("telemetry: failed to record run_start for Core API server", exc_info=True)
+
+
 class RestoriconRequestHandler(BaseHTTPRequestHandler):
     """Handles incoming HTTP requests and delegates to APIRouter."""
 
@@ -128,6 +164,7 @@ class RestoriconAPIServer:
     def start(self, background: bool = False) -> None:
         """Start the API server."""
         self._is_running = True
+        _record_telemetry_run_start()
         logger.info("Restoricon Core API server starting on http://%s:%d", self.host, self.port)
         if background:
             self._thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)

@@ -10,6 +10,70 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-03 — Telemetry `T2` (run provenance, non-lifecycle emitters) code-complete + code-reviewer APPROVED — B6.2c still next, untouched
+
+- **Status**: **Code-complete + code-reviewer APPROVED, no live-model
+  component so no live-verification tier applies.** `pytest
+  tests/test_telemetry_*.py` 73 passed; full suite `pytest tests/` 1319
+  passed / 2 failed (same pre-existing unrelated `test_loader_resource_gate.py`
+  failures) / 1 skipped. Aigentik `npm test`: 272 passed (up from 256).
+  Both suites re-run independently by code-reviewer, not just trusted
+  from implementer/coordinator numbers.
+- **Interruption note**: the implementer agent was cut off mid-edit by a
+  session rate limit ("Now add the same guard to
+  `record_run_start_amended`"). On resume, all touched files were
+  syntactically valid in both languages, but 3 pre-existing T0 tests in
+  `tests/test_telemetry_recorders.py` failed (`IndexError` on an empty
+  capture list) because a new `tests/conftest.py` autouse fixture
+  (correctly added by the interrupted agent, to stop the suite writing
+  real files under `~/.codeyOS/metrics`) defaults `TELEMETRY_ENABLED =
+  False`, and `record_run_start()`'s own test fixture was never updated
+  to override it back — the interrupted edit's next step, per the cut-off
+  message. **Coordinator diagnosed and applied the one-line fix directly**
+  (`monkeypatch.setattr(recorders.store, "TELEMETRY_ENABLED", True)` in
+  `_capture_store`) rather than re-spawning a fresh implementer, since the
+  gap was already fully diagnosed. Code-reviewer was explicitly told this
+  fix was coordinator-applied, not implementer-applied, and told to give
+  it the same scrutiny as everything else — confirmed correct, doesn't
+  mask a different bug (the 3 tests exercise `record_run_start()` for
+  real; `store.record` is separately mocked so unrelated tests in that
+  file are unaffected by the flag).
+- **Scope**: `record_run_start()` wired into three process-start call
+  sites: `restoricon_core/api/server.py`'s `RestoriconAPIServer.start()`,
+  `main.py`'s TUI entry, and Aigentik's `index.js`. Kill switch confirmed
+  checked first in both languages — genuinely before git/getprop/meminfo
+  subprocess work and before background model-digest scheduling, not
+  just before the final write (design §5.3). `runs/<run_id>.json`
+  write-once confirmed via a real negative-control test on both sides
+  (`write_run_provenance`/`writeRunProvenanceFile` refuse to overwrite).
+  Model-digest hashing (~5.2s for the 2.74GB primary model) confirmed to
+  run on a background thread/async task, never inline; completion
+  reported via a separate append-only `run_start_amended` record, never
+  by reopening `runs/<id>.json`. Env/config allow-list independently
+  checked against the live `~/Codey-Aigentik/config.json` — real secret
+  values (`core_api.token`, `gmail.app_password`) correctly reduced to
+  presence-only booleans. **No rule-4 file touched** (`git diff --stat`
+  against `core/daemon.py`/`core/loader_v2.py`/`core/inference_hybrid.py`/
+  `core/plannd.py`/`core/resource_gate.py` confirmed empty by
+  code-reviewer).
+- **New findings logged** (rule 8, non-blocking): `NEW-327` (schema
+  validator doesn't walk nested-array nulls — cold-cache
+  `models[i].sha256=None` unflagged, `sha256_source` is an in-band
+  mitigant), `NEW-328` (pre-existing T0 gap: `cpu_core_count` has no
+  null-reason path for the stdlib's `None` case, unreachable on this
+  device), `NEW-329` (shared `.tmp` digest-cache filename — bounded,
+  self-healing race between concurrent cold-hash writers), `NEW-330`
+  (`RestoriconAPIServer.start()` has no re-entrancy guard — a second
+  in-process call appends a duplicate `run_start` JSONL record, though
+  the `runs/<id>.json` file itself is correctly protected), `NEW-331`
+  (docstring says "session-wide," fixture is actually function-scoped —
+  stricter than claimed, wording-only).
+- **Next step**: T3 — category A (inference events) at the Core AI
+  proxy (`restoricon_core/api/routes.py`'s `/api/v1/ai/chat`), the
+  single site that captures every Aigentik local-model completion
+  server-side. **B6.2c (Appendix A) remains separately queued and
+  untouched by this round.**
+
 ## 2026-09-03 — Telemetry `T1` (Aigentik grounding-rate logging) code-complete + code-reviewer APPROVED — B6.2c still next, untouched
 
 - **Status**: **Code-complete + code-reviewer APPROVED, no live-model
