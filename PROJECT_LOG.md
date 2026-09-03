@@ -10,6 +10,48 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-03 — Telemetry `T1` (Aigentik grounding-rate logging) code-complete + code-reviewer APPROVED — B6.2c still next, untouched
+
+- **Status**: **Code-complete + code-reviewer APPROVED, no live-model
+  component so no live-verification tier applies.** This work is in the
+  separate Aigentik repo (`~/Codey-Aigentik`), a different git history
+  from Codey-OS — committed there as `c63ad20`, not in this repo's log.
+  `npm test` in Aigentik: 19 suites / 256 tests passing (239 pre-existing
+  + 17 new), zero regressions.
+- **Scope**: New `telemetry.mjs` (JS writer: schema loader/hasher,
+  envelope builder, async buffered writer using `fs.promises.appendFile`
+  — never the blocking `fs.appendFileSync` pattern `logger.js` uses — a
+  prune-interlock against `logger.js`'s `pruneOldLogs()`, and
+  `recordExtractionAttempt`/`recordGroundingCheck`/
+  `recordDeterministicBypass` exports). Byte-identical copy of
+  Codey-OS's `telemetry/schema/v1.json` (sha256 parity verified +
+  tested both by implementer and independently by code-reviewer).
+  `llama.js` gained `classifyAddressGrounding()` — the four-outcome
+  taxonomy from design §2.F (`not_applicable_no_value` /
+  `passed_no_numeric_token` / `passed_numeric_match` / `rejected`) —
+  wired at both extraction call sites (`extractContactDetails`,
+  `extractCustomerIntake`). **`isAddressGrounded()` itself confirmed
+  byte-identical** by both implementer and reviewer (independent diffs).
+  `chat()` gained a backward-compatible optional 3rd `meta` param,
+  confirmed non-breaking against every existing call site.
+- **Grant-evidence constraints held**: never stores raw extracted values
+  — only `value_sha256`/`value_chars`; every write path degrades to a
+  counted drop + warning, never throws into the extraction flow;
+  no blocking I/O on the hot path.
+- **Follow-ups logged** (rule 8, non-blocking, all found during
+  code-reviewer's pass): `NEW-324` (`recordDeterministicBypass()` built
+  but unwired — its real call sites live in `index.js`/rule files,
+  genuinely outside T1's scope, confirmed by reviewer's own re-grep, not
+  a shortcut), `NEW-325` (telemetry writer's `shutdown()` not wired into
+  Aigentik's existing SIGINT/SIGTERM handler — bounded record loss on
+  restart; **fixing this is rule-4, since it touches shutdown/lifecycle
+  code**), `NEW-326` (unreachable truncation gap for all-array bodies —
+  latent, no current emission site triggers it).
+- **Next step**: T2 — category G (run provenance) for non-lifecycle
+  emitters (Core API, Aigentik, TUI entry points; model-digest cache).
+  **B6.2c (Appendix A) remains separately queued and untouched by this
+  round.**
+
 ## 2026-09-03 — Telemetry layer Phase 2 (design) approved; T0 (foundation) code-complete + code-reviewer APPROVED — B6.2c still next, untouched
 
 - **Status**: Phase 2 design approved by Ish with recommended defaults on

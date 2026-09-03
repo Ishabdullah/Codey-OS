@@ -14175,3 +14175,55 @@ outside that fix's scope.
   it's worth a dedicated fix.
 - **Cross-reference:** `core/loader_v2.py`; `docs/telemetry_layer_design.md`
   §8 item 7.
+
+### [NEW-324] Aigentik's `recordDeterministicBypass()` telemetry export exists but is unwired — no call site in scope for T1
+- **Status:** Confirmed (telemetry T1, 2026-09-03, code-reviewer approved
+  round). Genuine scope boundary, not a shortcut — reviewer independently
+  re-grepped for deterministic-rule dispatch and confirmed it.
+- **Mechanism:** the "deterministic-rule matches that bypassed the model
+  entirely" cost-avoidance claim (design §2.F) needs an emission point at
+  wherever Aigentik dispatches deterministic rules instead of calling the
+  LLM. That dispatch happens in `~/Codey-Aigentik/index.js` and rule files
+  (`subcontractor-form.js`'s `parseApplication`, `email-rules.js`/
+  `sms-rules.js`'s `checkRules`, `do-not-contact.js`) — all outside T1's
+  stated scope (`llama.js`/`logger.js`/new `telemetry.mjs` only).
+- **Impact:** category F's deterministic-bypass cost-avoidance claim has
+  no data yet. `recordDeterministicBypass()` is built and ready to call.
+- **Fix direction:** a small follow-up sub-task wiring
+  `recordDeterministicBypass()` at the actual dispatch sites in
+  `index.js`/rule files. Not blocking — grounding-rate logging (the
+  higher-priority half of F) is live.
+- **Cross-reference:** `~/Codey-Aigentik/telemetry.mjs`,
+  `docs/telemetry_layer_design.md` §2.F; T1 in `CODEY_MASTER_PLAN.md`
+  Appendix A.
+
+### [NEW-325] Aigentik's `Store.shutdown()` (telemetry writer) not wired into the existing SIGINT/SIGTERM handler
+- **Status:** Confirmed (telemetry T1, 2026-09-03, code-reviewer approved
+  round).
+- **Mechanism:** `telemetry.mjs`'s buffered writer has a `shutdown()`
+  method to flush pending records, but Aigentik's existing process
+  signal handlers don't call it — a restart can drop buffered-but-unwritten
+  telemetry records.
+- **Impact:** bounded record loss (buffer-depth-sized) on every Aigentik
+  restart. Not data corruption — dropped records are still counted per
+  the never-crash-the-host discipline, just not flushed before exit.
+- **Fix direction:** wire `shutdown()` into the existing signal handler.
+  **Rule-4 applies** — this touches process shutdown/lifecycle code, so
+  the fix itself needs a code-reviewer pass even though it's small.
+- **Cross-reference:** `~/Codey-Aigentik/telemetry.mjs`,
+  `~/Codey-Aigentik/index.js` (existing signal handler).
+
+### [NEW-326] Aigentik telemetry envelope's size-cap truncation has an unreachable gap for all-array bodies
+- **Status:** Confirmed (telemetry T1, 2026-09-03, code-reviewer approved
+  round). Latent, currently unreachable.
+- **Mechanism:** `telemetry.mjs`'s 8KiB truncation logic handles
+  object-shaped bodies but has a gap for a body that is entirely an array
+  at the top level. No current F emission site produces an all-array
+  body, so this path is not reachable today.
+- **Impact:** none today. Would matter only if a future emission site
+  passed an array-shaped body larger than the truncation threshold.
+- **Fix direction:** opportunistic — handle the all-array case in
+  `telemetry.mjs`'s truncation logic when next touched, or add a guard
+  that rejects/reshapes an array-shaped body before it reaches the
+  truncation step.
+- **Cross-reference:** `~/Codey-Aigentik/telemetry.mjs`.

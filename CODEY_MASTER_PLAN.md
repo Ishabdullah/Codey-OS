@@ -6157,16 +6157,21 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       `docs/telemetry_layer_design.md`. Findings from the design pass:
       `NEW-322` (`/proc/uptime` permission-denied, sibling of `NEW-108`),
       `NEW-323` (`llama-server.log` truncated on every model reload).
-- [ ] **T1** — Aigentik extraction/grounding logging (category F).
-      **Scheduled 2nd, ahead of 5 lower-risk sub-tasks, because F's data
-      is unrecoverable** — Aigentik's `isAddressGrounded()` currently
-      only logs rejects (no pass/N-A counterpart), so no denominator
-      exists for a grounding-rate claim, and Aigentik's own 30-day log
-      pruning is already destroying reject-side history older than that
-      window. `telemetry.mjs` (JS writer + prune interlock + schema
-      parity), `classifyAddressGrounding()`, F emission at `llama.js:554`
-      and `:726`, `deterministic_bypass` emission at rule sites.
-      `isAddressGrounded()` itself left byte-identical.
+- [x] **T1** — Aigentik extraction/grounding logging (category F).
+      **DONE 2026-09-03, code-complete + code-reviewer APPROVED** (separate
+      repo `~/Codey-Aigentik`, commit `c63ad20` — not in this repo's git
+      history). `telemetry.mjs` (JS writer, async buffered, prune-interlock
+      against `logger.js`'s `pruneOldLogs()`, schema byte-parity with
+      Codey-OS's `telemetry/schema/v1.json`), `classifyAddressGrounding()`
+      implementing the four-outcome taxonomy (`not_applicable_no_value` /
+      `passed_no_numeric_token` / `passed_numeric_match` / `rejected`),
+      wired at both `llama.js` extraction call sites.
+      **`isAddressGrounded()` confirmed byte-identical.** 256/256 Aigentik
+      tests passing. `deterministic_bypass` emission NOT wired —
+      genuinely out of scope (dispatch sites live in `index.js`/rule
+      files); tracked as `NEW-324`. Also from this round: `NEW-325`
+      (writer `shutdown()` not on Aigentik's SIGINT/SIGTERM path, rule-4
+      to fix), `NEW-326` (latent all-array truncation gap).
 - [ ] **T2** — category G (run provenance) for non-lifecycle emitters:
       `run_start` from Core API, Aigentik, and the TUI entry points;
       model-digest cache (SHA-256 of the model file is cached, not
