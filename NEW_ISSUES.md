@@ -14136,3 +14136,42 @@ outside that fix's scope.
   Same class as `NEW-317` / `NEW-319` item 3.
 - **Cross-reference:** `restoricon_core/services/automation_service.py`
   `add_to_do_not_contact`; `NEW-316`.
+
+### [NEW-322] `/proc/uptime` is permission-denied on this device — undocumented sibling of NEW-108
+- **Status:** Confirmed (telemetry-layer Phase 2 design pass, 2026-09-03).
+  Live-verified: `cat /proc/uptime` → `Permission denied`.
+- **Mechanism:** same class of Termux/device `/proc` access restriction as
+  `NEW-108` (`/proc/stat`, CPU% unreadable), but for device uptime. Not
+  previously documented anywhere in the codebase or `CODEY_MASTER_PLAN.md`.
+- **Impact:** any future feature assuming device uptime is readable (e.g.
+  via `/proc/uptime`) will silently fail on this device the same way
+  CPU-percent sampling does. The telemetry-layer design (see
+  `docs/telemetry_layer_design.md` §0.2, §8 item 10) treats this as a
+  permanent honest null (`proc_uptime_permission_denied`) rather than
+  working around it.
+- **Fix direction:** none needed — document and treat as a structural
+  device constraint, same handling pattern as NEW-108.
+- **Cross-reference:** `NEW-108`; `core/resource_gate.py` (CPU% honest-null
+  precedent); `docs/telemetry_layer_design.md`.
+
+### [NEW-323] `~/.codeyOS/llama-server.log` is truncated (`"w"` mode) on every model reload — historical `print_timing` output is lost
+- **Status:** Confirmed (telemetry-layer Phase 2 design pass, 2026-09-03).
+  Verified: `core/loader_v2.py:731-735` opens the log with mode `"w"` at
+  every server start.
+- **Mechanism:** each model load/reload truncates the prior server
+  process's llama.cpp `print_timing` history before appending new output.
+  Real prefill/eval token-timing numbers from the previous run are
+  destroyed, not rotated.
+- **Impact:** no live defect — the telemetry-layer design deliberately
+  does not depend on this log (it reads `timings`/`usage` from the HTTP
+  response instead, see `docs/telemetry_layer_design.md` §1.1, §8 item 7).
+  But it is a real, unrelated evidence-loss gap: anyone debugging a past
+  model-load session from this log alone will find only the current
+  server's history.
+- **Fix direction:** deferred — changing `"w"` → `"a"` touches
+  `core/loader_v2.py` (rule-4 process-spawn code) and would need its own
+  rotation policy to avoid unbounded growth. Not undertaken as part of
+  the telemetry layer; flagged here per rule 8, for Ish to decide whether
+  it's worth a dedicated fix.
+- **Cross-reference:** `core/loader_v2.py`; `docs/telemetry_layer_design.md`
+  §8 item 7.

@@ -6136,6 +6136,69 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       **Rule 11: `install.sh` carries the GCS client dependency and the
       credential-setup step.**
 
+### T-lane — self-measurement/telemetry layer (NSF SBIR grant evidence, separate initiative from B-lane, does not block or depend on B6/B7)
+
+- [x] **T0** — telemetry foundation package. **DONE 2026-09-03,
+      code-complete + code-reviewer APPROVED (round 2, after one
+      CHANGES-REQUESTED round on an honest-null gap in `record_run_start`,
+      fixed and re-verified).** New `telemetry/` package: append-only,
+      schema-versioned (`schema/v1.json`), honest-null event store
+      (`schema.py`, `envelope.py`, `store.py`, `provenance.py`,
+      `recorders.py`). Reuses/wraps `core/resource_gate.py`'s decision
+      dataclasses and samplers rather than reimplementing them — **zero
+      edits to `core/resource_gate.py`, `core/daemon.py`,
+      `core/loader_v2.py`, `core/inference_hybrid.py`, `core/plannd.py`**
+      (explicit design non-goal). Deliberately bypasses
+      `ccos/core/performance_tracker.py`/`ccos_memory.db` entirely
+      (enforced by a static AST test asserting zero `ccos.*` imports
+      under `telemetry/`), since that DB feeds the rule-1-gated
+      self-improvement modules. Nothing imports this package yet — dead
+      code by design until `T1` wires the first call site. Full design:
+      `docs/telemetry_layer_design.md`. Findings from the design pass:
+      `NEW-322` (`/proc/uptime` permission-denied, sibling of `NEW-108`),
+      `NEW-323` (`llama-server.log` truncated on every model reload).
+- [ ] **T1** — Aigentik extraction/grounding logging (category F).
+      **Scheduled 2nd, ahead of 5 lower-risk sub-tasks, because F's data
+      is unrecoverable** — Aigentik's `isAddressGrounded()` currently
+      only logs rejects (no pass/N-A counterpart), so no denominator
+      exists for a grounding-rate claim, and Aigentik's own 30-day log
+      pruning is already destroying reject-side history older than that
+      window. `telemetry.mjs` (JS writer + prune interlock + schema
+      parity), `classifyAddressGrounding()`, F emission at `llama.js:554`
+      and `:726`, `deterministic_bypass` emission at rule sites.
+      `isAddressGrounded()` itself left byte-identical.
+- [ ] **T2** — category G (run provenance) for non-lifecycle emitters:
+      `run_start` from Core API, Aigentik, and the TUI entry points;
+      model-digest cache (SHA-256 of the model file is cached, not
+      computed per process start — measured at ~5.2s on this device).
+- [ ] **T3** — category A (inference events) at the Core AI proxy
+      (`restoricon_core/api/routes.py`'s `/api/v1/ai/chat`) — single site
+      captures every Aigentik local-model completion server-side with
+      full `timings`.
+- [ ] **T4** — `codey-metrics` CLI + rollups + rotation. Offline,
+      read-mostly over the store. `install.sh` update per rule 11.
+- [ ] **T5** — category A at `core/inference_hybrid.py`. **Rule-4
+      (inference hot path).**
+- [ ] **T6** — category A+B at `core/plannd.py`. **Rule-4.**
+- [ ] **T7** — category E (task outcomes) at `core/task_executor.py` /
+      `core/agent.py`. **Rule-4 by association (main loop).**
+- [ ] **T8** — categories B, C, D + daemon-side G at `core/daemon.py`.
+      **Rule-4, highest-risk sub-task** — process-lifecycle module,
+      deliberately scheduled last.
+- [ ] **T9** — category B at `core/loader_v2.py`. **Rule-4, deliberately
+      scheduled last** (model spawn/PID/kill-adjacent code).
+      **10 items in `docs/telemetry_layer_design.md` §8 were resolved by
+      Ish 2026-09-03** (address-value hashing: SHA-256 + char count, no
+      raw text; retention: literal never-delete; sub-task ordering as
+      above) **with the design's own stated recommendation accepted for
+      the remaining lower-stakes items** (TUI-only interactive-session
+      detector label, category-G env/config presence-only allow-list,
+      byte-identical cross-repo schema copies + hash parity over a
+      configured-path coupling, gzip over zstd for archives,
+      `rollups.db` as a rebuildable cache not evidence,
+      `llama-server.log`'s `"w"`-mode truncation left as-is per `NEW-323`
+      rather than touching `core/loader_v2.py` for it).
+
 ### M-lane — maintenance and bugs (§6.1, unblocked, any time)
 
 - [ ] **U.1** (`NEW-7`) — `[Recursive]`/agent planner synthesizes whole

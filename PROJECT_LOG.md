@@ -10,6 +10,122 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-03 — Telemetry layer Phase 2 (design) approved; T0 (foundation) code-complete + code-reviewer APPROVED — B6.2c still next, untouched
+
+- **Status**: Phase 2 design approved by Ish with recommended defaults on
+  all `docs/telemetry_layer_design.md` §8 open items (address values:
+  SHA-256 + char count, no raw text; retention: literal never-delete;
+  sub-task ordering: F ships 2nd after foundation, T8/T9
+  daemon+loader last under rule-4 gate). T0 ("Foundation") sub-task is
+  **code-complete + code-reviewer APPROVED, no live-model component so
+  no live-verification tier applies.** `pytest tests/test_telemetry_*.py`
+  61 passed; full suite `pytest tests/` 1307 passed / 2 failed (both
+  pre-existing, unrelated — `test_loader_resource_gate.py`'s
+  `test_embed_server_registers_slot_as_resident_on_start` /
+  `test_embed_server_releases_slot_on_stop`) / 1 skipped. Zero
+  regressions, verified independently by code-reviewer, not just the
+  implementer's self-report.
+- **Scope**: New `telemetry/` package (`schema/v1.json`, `schema.py`,
+  `envelope.py`, `store.py`, `provenance.py`, `recorders.py`) — an
+  append-only, schema-versioned, honest-null event store. Nothing
+  outside `telemetry/` and its own tests imports it yet (T0 is
+  deliberately dead code until T1 wires a call site). One shared file
+  touched: `utils/config.py` (purely additive — `METRICS_DIR`,
+  `CODEY_TELEMETRY_ENABLED` kill switch, env allow-list constants).
+  `core/resource_gate.py`, `core/daemon.py`, `core/loader_v2.py`,
+  `core/inference_hybrid.py`, `core/plannd.py` — **zero edits**, per the
+  design's explicit non-goal.
+- **Review round 1 (CHANGES REQUESTED)**: code-reviewer found
+  `record_run_start()` (category G, run provenance) silently *omitted*
+  fields from the record on git-lookup failure or for the permanent
+  `device_uptime_sec` null, instead of recording them as named nulls —
+  invisible to schema validation (an absent field passes null-checking
+  cleanly; only a present-but-unreasoned null would have been flagged).
+  Confirmed by live reproduction, not just code reading.
+- **Fix + review round 2 (APPROVED)**: implementer added
+  `build_run_start_nulls()` mirroring the existing
+  `record_device_sample` pattern (`git_command_unavailable`,
+  `state_store_unreadable`, `proc_uptime_permission_denied` reason
+  codes, all confirmed to exist in `telemetry/schema/v1.json` before
+  use, per rule 12). 3 new tests added (happy-path positive control +
+  2 failure-path negative controls). Code-reviewer independently
+  live-scripted both the forced-failure and forced-success paths and
+  confirmed the null fields survive `_emit()`'s prune-on-None logic
+  into the real emitted body, not just an intermediate dict.
+- **Real bugs found and fixed during T0 build** (implementer's own
+  testing, before either review round): (1) a lock-reentrancy deadlock
+  in `store._get_or_create_store()` calling `get_run_id()` — same
+  non-reentrant lock, would have hung every first `record()` call in a
+  fresh process; (2) an uncaught exception in the writer thread's
+  per-record grouping step that would have silently killed the writer
+  thread with no restart on a single malformed record. Both fixed
+  before either code-reviewer pass; both independently re-verified by
+  code-reviewer in round 1.
+- **New findings logged** (rule 8, out-of-scope of this specific
+  sub-task): `NEW-322` (`/proc/uptime` permission-denied, undocumented
+  sibling of `NEW-108`) and `NEW-323` (`~/.codeyOS/llama-server.log`
+  truncated `"w"`-mode on every model reload, historical `print_timing`
+  output lost) — both discovered during Phase 2 design, both deferred
+  (not fixed) per the design's explicit scope decision.
+- **Next step**: T1 — Aigentik extraction/grounding logging
+  (`telemetry.mjs`, `classifyAddressGrounding()`, F emission at
+  `llama.js:554`/`:726`). Scheduled 2nd (ahead of 5 lower-risk
+  sub-tasks) because F's data is unrecoverable — every day without it
+  is a permanently missing row in the grounding-rate denominator, and
+  Aigentik's own 30-day log pruning is already destroying reject-side
+  history. **B6.2c (Appendix A) remains separately queued and untouched
+  by this round.**
+
+## 2026-09-03 — Telemetry layer Phase 1 (inventory) complete — separate initiative from B6, B6.2c still next
+
+- **Status**: Read-only inventory only. No code written. This is a NEW,
+  separate initiative — NSF SBIR Phase I grant evidence layer — not part
+  of the B6 audit work. **`B6.2c` (Appendix A) remains the next B6 step
+  and was not touched by this round.**
+- **Scope**: Full-repo inventory of existing telemetry/measurement
+  infra per a detailed spec (provenance, append-only, honest-nulls
+  requirements) covering 7 target categories A–G (inference events,
+  admission/dispatch decisions, device state, co-tenancy events, task
+  outcomes, Aigentik extraction/grounding events, run provenance). Run
+  via a `project-architect` subagent, read-only.
+- **Key findings**:
+  - `core/resource_gate.py`'s decision dataclasses (`GateDecision`,
+    `DispatchDecision`, `TripDecision`, `ContextBudgetDecision`) and
+    honest-null sampling (`sample_cpu_percent`, `sample_temperature_c`,
+    `get_resource_snapshot`) are well-built (NEW-108 CPU-unreadable
+    precedent honored) but **every decision is computed and discarded**
+    — only refusals leave a free-text log trace. `core/resource_bus.py`'s
+    `resource_leases` SQLite table (207 live rows) is the closest thing
+    to a durable admission-event ledger already in the repo.
+  - `ccos/core/telemetry_engine.py` reads like live infra in its own
+    docstring but is **dead code** — never instantiated outside
+    tests/demos; live `ccos_memory.db` has no `exec_telemetry` table.
+  - `ccos/core/performance_tracker.py` IS live (237 real rows) but its
+    wiring is mostly into the rule-1-gated self-improvement modules
+    (`goal_engine`, `capability_optimizer`, `skill_recombiner`,
+    `auto_improvement_loop`) — reuse needs a clean boundary from gated
+    code paths.
+  - `~/.codeyOS/llama-server.log` has real per-request prefill/eval
+    tok/s (llama.cpp's own `print_timing`) but is free-text and gets
+    **truncated on every model reload** (`loader_v2.py` opens it `"w"`
+    at server start).
+  - Aigentik's `isAddressGrounded()` (llama.js) only logs **rejects** —
+    no "kept"/"N-A" counterpart, so no denominator exists for a
+    grounding pass-rate. Separately, Aigentik's `logger.js` **auto-
+    deletes logs older than 30 days** (`pruneOldLogs`) — a real conflict
+    with the grant's append-only/immutable requirement, undocumented
+    anywhere in either repo.
+  - No append-only, schema-versioned, provenance-tagged event store
+    exists anywhere in the repo today. Run provenance (G), co-tenancy
+    event logging (D), and durable task-outcome records (E) for the
+    actual coding-agent task lifecycle do not exist at all.
+- **Next step**: Phase 2 (design) — an architecture decision requiring
+  explicit approval before any code is written, per the task's own gate.
+  Not started. If this session ends before Phase 2 starts, resume by
+  reading this entry, then the full Phase 1 report (in this session's
+  transcript / relayed to Ish in chat), then proceed to Phase 2 design
+  once Ish gives the go-ahead.
+
 ## 2026-09-03 — `B6.2b-4` landed: final 11 service-layer audit sites — B6.2b code-complete
 
 - **Status**: **Code-complete + code-reviewer APPROVED (rule-4, audit

@@ -744,3 +744,59 @@ def get_aigentik_config(config: Optional[Dict[str, Any]] = None) -> Dict[str, An
         "dir": dir_path,
         "port": port,
     }
+
+
+# ── Telemetry layer — Phase 3 T0 (docs/telemetry_layer_design.md) ───────────
+# Do not hardcode "metrics" or ".codeyOS/metrics" anywhere else; import
+# METRICS_DIR from here (mirrors the CODEY_STATE_DIR convention at
+# utils/config.py:306).
+METRICS_DIR = CODEY_STATE_DIR / "metrics"
+
+# CODEY_TELEMETRY=1 — enabled (default)
+# CODEY_TELEMETRY=0 — disabled (kill switch)
+# Read once at import into a module-level boolean per
+# docs/telemetry_layer_design.md §5.3 — the disabled path must be a single
+# predictable branch with no per-record environment lookup, so this is
+# read here (config load time) rather than inside telemetry/store.py's
+# hot path. telemetry/store.py imports this value at its own import time;
+# it does not re-read the environment per record.
+CODEY_TELEMETRY_ENABLED = os.environ.get("CODEY_TELEMETRY", "1") == "1"
+
+# Category-G run-provenance env allow-list (docs/telemetry_layer_design.md
+# §2.G / §8 item 4). Only names on this list may ever appear as a key in a
+# provenance record's `env_overrides`; everything else — including the
+# three secret-bearing vars this device's live env carries
+# (OPENROUTER_API_KEY, UNLIMITEDCLAUDE_API_KEY, CLOUDFLARE_TUNNEL_TOKEN) —
+# is recorded, if at all, as a presence-only boolean by
+# telemetry/provenance.py, never as a value or a hash of a value. A
+# wholesale os.environ / config.json dump is never written.
+# telemetry/provenance.py imports and uses THIS copy operationally (it
+# already imports utils.config for METRICS_DIR, so there is no
+# leaf-module reason to route through telemetry.schema instead). An
+# identical list is also mirrored inside telemetry/schema/v1.json's
+# "env_allow_list" for the schema file to be self-describing on its own —
+# tests/test_telemetry_schema.py pins that copy's contents so the two
+# cannot silently diverge without a test failing.
+TELEMETRY_ENV_ALLOW_LIST = [
+    "CODEY_N_CTX",
+    "CODEY_SWAP_ASSIST_ADMISSION",
+    "CODEY_7B_MMAP",
+    "CODEY_7B_MLOCK",
+    "CODEY_BACKEND",
+    "CODEY_BACKEND_P",
+    "CODEY_MODEL",
+    "CODEY_EMBED_MODEL",
+    "CODEY_PRIMARY_PORT",
+    "CODEY_EMBED_PORT",
+    "CODEY_RECURSIVE",
+    "CODEY_SYMBOLIC",
+    "CODEY_SHUTDOWN_TRIP_AFTER_SEC",
+    "CODEY_LLAMA_SERVER",
+    "CODEY_STATE_DIR",
+    "CODEY_TELEMETRY",
+]
+TELEMETRY_SECRET_PRESENCE_ONLY_ENV = [
+    "OPENROUTER_API_KEY",
+    "UNLIMITEDCLAUDE_API_KEY",
+    "CLOUDFLARE_TUNNEL_TOKEN",
+]
