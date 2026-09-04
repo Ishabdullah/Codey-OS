@@ -14875,6 +14875,11 @@ outside that fix's scope.
 - **Fix direction:** if finer-grained throttle levels become available
   in `core/thermal.py` in the future, revisit this mapping; not
   actionable now.
+- **Disposition (2026-09-04, deferred-findings triage round):** no
+  action this round. There is genuinely no underlying signal in
+  `core/thermal.py` to map from — this isn't deferred work, it's
+  blocked on a `core/thermal.py` capability that doesn't exist yet.
+  Revisit only if/when that changes.
 - **Cross-reference:** `core/daemon.py` (T8a device-sample block),
   `core/thermal.py::get_thermal_status`.
 
@@ -14920,6 +14925,13 @@ outside that fix's scope.
   executor sized with headroom for orphaned threads, or a mechanism to
   detect and report pool saturation, if this is ever confirmed as a
   real issue in practice.
+- **Disposition (2026-09-04, deferred-findings triage round):** no
+  action this round. Still Suspected, not Confirmed — no measurement
+  exists that this is an active problem on this device's actual
+  dispatch concurrency. A real fix (dedicated/bounded executor) is a
+  process-lifecycle-adjacent change in its own right (rule 4) and
+  deserves its own measurement-first round if it's ever picked up, not
+  a speculative fix bundled into an unrelated batch.
 - **Cross-reference:** `core/agent.py`, `core/task_executor.py`,
   `core/daemon.py`, `NEW-345`.
 
@@ -15251,6 +15263,12 @@ outside that fix's scope.
   window itself (start the leak-guard's `try` earlier, right after
   `reserve_slot()` returns) or a dedicated cleanup path for this
   specific interrupt window — needs its own scoping, not a quick patch.
+- **Disposition (2026-09-04, deferred-findings triage round):** no
+  action this round. `except BaseException` is an explicitly rejected
+  pattern here (`NEW-5`/`NEW-6`), and narrowing the gap window is a
+  real `core/resource_gate.py`/`core/loader_v2.py` leak-guard
+  restructuring, not a quick patch — deserves its own scoped round
+  with its own reviewer trace, not a bundled fix.
 - **Cross-reference:** `core/loader_v2.py`, `core/resource_gate.py`;
   T9 in `CODEY_MASTER_PLAN.md` Appendix A.
 
@@ -15275,3 +15293,26 @@ outside that fix's scope.
   `main.py`'s argparse setup is next touched.
 - **Cross-reference:** `main.py`, `core/lora_import.py`,
   `ccos/plugins/coding/finetune/finetune.py`.
+
+### [NEW-362] `docs/telemetry_layer_design.md`'s illustrative `call_site` example for category-B gate records is stale — names `loader_v2.LlamaServer.start`, but `reserve_slot()` is only ever called from `ModelLoader.load_primary()`
+- **Status:** Confirmed, doc-only, rule-8 miss corrected (originally
+  flagged by both T9's project-architect and implementer, 2026-09-04,
+  but never logged with a `NEW-###` id at the time — caught during the
+  `NEW-358` deferred-findings triage round).
+- **Mechanism:** `docs/telemetry_layer_design.md`'s §2.0 (line ~298)
+  and §4.3's modified-files table both cite `loader_v2.LlamaServer.start`
+  as the example `call_site` value for a category-B gate record. T9's
+  actual implementation (`core/loader_v2.py`'s `_emit_gate_telemetry()`)
+  uses `call_site="loader_v2.ModelLoader.load_primary"` instead —
+  `reserve_slot()` is only ever called from `ModelLoader.load_primary()`,
+  never from `LlamaServer.start()`. The code is correct; the design
+  doc's illustrative example is what's wrong.
+- **Impact:** none — a future reader of the design doc alone (without
+  cross-checking the actual code) would be misled about which method
+  the gate decision fires from. Same class of doc/code drift as
+  `NEW-354`.
+- **Fix direction:** correct §2.0 and §4.3's `call_site` example to
+  `loader_v2.ModelLoader.load_primary`, when the design doc is next
+  revised (batchable with `NEW-354`'s doc fix, same file).
+- **Cross-reference:** `docs/telemetry_layer_design.md`, `core/loader_v2.py`;
+  T9 in `CODEY_MASTER_PLAN.md` Appendix A.

@@ -5986,7 +5986,7 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       `NEW-310`. Not live-verified beyond the suite (no live-model
       component); `tests/test_restoricon_core/` 260 passed, +21 new in
       `test_b6_2a_audit_details.py`.
-- [ ] **B6.2b** — the 55 service-layer `audit.log()` sites brought to
+- [x] **B6.2b** — the 55 service-layer `audit.log()` sites brought to
       the `build_audit_details` standard. Split into 4 sub-rounds
       (architect classification 2026-09-02):
       - [x] **B6.2b-1** — 25 mechanical create/delete sites (22 creates
