@@ -48,6 +48,9 @@ class _CapturingLlamaServer:
         self.model_path = model_path
         self.process = MagicMock(pid=42)
         self._started = True
+        # T9: real LlamaServer._spawn_locked() sets this; this fake stands
+        # in for a genuine spawn, so it must too.
+        self.last_argv = ["fake-llama-server", "-m", str(model_path)]
 
     def start(self):
         return True

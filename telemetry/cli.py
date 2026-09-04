@@ -397,13 +397,25 @@ def _print_run(root: Path, run_id: str, width: int, as_json: bool) -> int:
 
     # run_start_amended merge (recorders.record_run_start_amended's own
     # docstring: "A later codey-metrics provenance ... is expected to
-    # merge a run's run_start + any run_start_amended records"). Only
-    # `models` is ever amended (provenance.py's schedule_cold_model_digests).
-    if amendments:
-        last_amendment = amendments[-1]
-        amended_models = last_amendment.get("body", {}).get("models")
-        if amended_models is not None:
-            body["models"] = amended_models
+    # merge a run's run_start + any run_start_amended records"). Iterate
+    # ALL amendments in `seq` order (T9): `models` (provenance.py's
+    # schedule_cold_model_digests()) and `llama_server_argv`
+    # (core/loader_v2.py's genuine-spawn path) can land as two SEPARATE
+    # amendment records for the same run_id, so only consulting the last
+    # amendment's body would silently drop whichever field wasn't in it.
+    # Each field's own last writer wins independently. Also drop any
+    # matching `nulls["body.<field>"]` reason (e.g. build_run_start_nulls()'s
+    # "call_site_not_yet_tagged" for `llama_server_argv`) once an amendment
+    # actually populates that field — leaving it would print a real value
+    # next to a null-reason claiming it was never observed, a contradiction
+    # nothing else here (schema.validate() included -- this merged view
+    # isn't a record) would catch.
+    for amendment in amendments:
+        amended_body = amendment.get("body", {})
+        for field in ("models", "llama_server_argv"):
+            if amended_body.get(field) is not None:
+                body[field] = amended_body[field]
+                nulls.pop(f"body.{field}", None)
 
     if as_json:
         out = {"run_id": run_id, "body": body, "nulls": nulls}

@@ -6314,8 +6314,40 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       **This closes T8 entirely** (T8a + T8b both done). Only **T9**
       (category B at `core/loader_v2.py`, rule-4) remains in the whole
       telemetry rollout.
-- [ ] **T9** — category B at `core/loader_v2.py`. **Rule-4, deliberately
-      scheduled last** (model spawn/PID/kill-adjacent code).
+- [x] **T9** — category B at `core/loader_v2.py`, plus argv provenance
+      capture. **Rule-4. DONE 2026-09-04, code-complete + code-reviewer
+      APPROVED (2 rounds — round 1 CHANGES REQUESTED for a docstring
+      scope-claim gap, round 2 approved).** `ModelLoader.load_primary()`
+      emits a `can_admit` category-B gate record (unconditional on
+      admitted/denied) at its sole `rg.reserve_slot()` call site, under
+      the reserved `emitter="codey-os.loader"` identity (load_primary()
+      is reachable from 3+ processes with no reliable caller-identity
+      signal — genuinely the right call, not a shortcut). `LlamaServer.
+      _spawn_locked()` captures the exact spawn argv as a plain list
+      assignment (no I/O) strictly inside the existing `NEW-9` SIGINT-
+      masked window; the actual telemetry emission happens afterward in
+      `load_primary()`'s genuine-spawn branch only, amending it onto run
+      provenance via an extended `record_run_start_amended()`. Required
+      companion fix: `telemetry/cli.py`'s `_print_run()` previously only
+      merged `models` from the LAST amendment — extended to merge ALL
+      amended fields from ALL amendments (with matching `nulls[...]`
+      reasons cleared), without which T9's own captured argv would never
+      have surfaced in `codey-metrics provenance` output. Full suite
+      1420/0/1 (1411 baseline + 9 new); full repo incl. `ccos/tests/`
+      1527/0/1. **This closes the entire T0-T9 telemetry rollout.**
+      Findings: `NEW-358` (Confirmed — the orphaned-`run_start_amended`
+      risk is reachable on `main.py`'s `--init`/`--tdd`/`--fix` flags,
+      not just the originally-flagged `core/lora_import.py` callers;
+      caught in round-1 review, docstring corrected before merge) and
+      `NEW-359` (Confirmed, non-blocking — the new gate-telemetry call
+      sits inside the pre-existing reserve/spawn/confirm slot-leak-
+      guard's gap window). **Recommended next step (not performed by
+      this round): one live-verify cycle** (rule 2 — `free -h` first, one
+      real daemon-only or TUI model-load, diff the recorded
+      `llama_server_argv` word-for-word against `~/.codeyOS/llama-
+      server.log`'s own logged command line, confirm `codey-metrics
+      provenance` actually surfaces it, confirm clean unload) — flagged
+      by the T9 scoping round as `live-verifier`'s job, not yet run.
       **10 items in `docs/telemetry_layer_design.md` §8 were resolved by
       Ish 2026-09-03** (address-value hashing: SHA-256 + char count, no
       raw text; retention: literal never-delete; sub-task ordering as

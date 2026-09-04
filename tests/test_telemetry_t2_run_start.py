@@ -300,3 +300,64 @@ def test_record_run_start_amended_never_written_to_runs_json(tmp_path):
     time.sleep(0.2)
     after = run_file.read_text(encoding="utf-8")
     assert before == after  # byte-identical -- never reopened for write
+
+
+def test_record_run_start_amended_llama_server_argv_extension(tmp_path, monkeypatch):
+    """T9 (core/loader_v2.py): record_run_start_amended() extended to
+    optionally also carry `llama_server_argv`, independent of `models`.
+    Existing models=-only callers must be unaffected (backward-compatible
+    extension, both fields optional)."""
+    recorders.record_run_start(
+        emitter="codey-os.daemon",
+        pid=7,
+        repo="Codey-OS",
+        started_ts_wall=time.time(),
+        run_id="argvamendrun001",
+    )
+    assert _wait_for((tmp_path / "runs" / "argvamendrun001.json").exists)
+
+    captured = []
+    original_record = store.record
+
+    def fake_record(rec):
+        captured.append(rec)
+        return original_record(rec)
+
+    monkeypatch.setattr(store, "record", fake_record)
+
+    # models=-only call (existing contract) must still validate and must
+    # NOT include llama_server_argv in its body.
+    recorders.record_run_start_amended(
+        emitter="codey-os.core-api",
+        pid=7,
+        run_id="argvamendrun001",
+        models=[{"role": "primary", "path": "/x", "sha256": "e" * 64, "sha256_source": "computed"}],
+    )
+    # A call carrying both fields must produce a body with both keys.
+    recorders.record_run_start_amended(
+        emitter="codey-os.loader",
+        pid=7,
+        run_id="argvamendrun001",
+        models=[{"role": "primary", "path": "/x", "sha256": "e" * 64, "sha256_source": "computed"}],
+        llama_server_argv=["llama-server", "-m", "/x", "-c", "16384"],
+    )
+    # llama_server_argv=-only call must produce a body with only that
+    # key -- `models` must not appear at all (never written as an
+    # unreasoned null; see _emit()'s own pruning contract).
+    recorders.record_run_start_amended(
+        emitter="codey-os.loader",
+        pid=7,
+        run_id="argvamendrun001",
+        llama_server_argv=["llama-server", "-m", "/x", "-c", "16384"],
+    )
+
+    amended = [r for r in captured if r["event_type"] == "run_start_amended"]
+    assert len(amended) == 3
+    assert schema.validate(amended[0]) == []
+    assert "llama_server_argv" not in amended[0]["body"]
+    assert schema.validate(amended[1]) == []
+    assert amended[1]["body"]["models"][0]["sha256"] == "e" * 64
+    assert amended[1]["body"]["llama_server_argv"] == ["llama-server", "-m", "/x", "-c", "16384"]
+    assert schema.validate(amended[2]) == []
+    assert "models" not in amended[2]["body"]
+    assert amended[2]["body"]["llama_server_argv"] == ["llama-server", "-m", "/x", "-c", "16384"]

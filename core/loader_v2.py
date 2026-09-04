@@ -18,7 +18,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import core.resource_gate as rg
 import utils.config as cfg
@@ -320,6 +320,16 @@ class LlamaServer:
         # was built with, rather than the two silently diverging (the
         # NEW-84 class of gate/spawn desync bug).
         self.n_ctx = n_ctx if n_ctx is not None else MODEL_CONFIG["n_ctx"]
+        # T9 (docs/telemetry_layer_design.md §2.G): the exact argv
+        # `_spawn_locked()` built for the actual `subprocess.Popen()` call,
+        # captured there for `ModelLoader.load_primary()` to amend onto
+        # this process's run-provenance record afterwards. Must default to
+        # None here, not be left unset — the reuse branches in `start()`
+        # never call `_spawn_locked()` and so never assign this, and a
+        # caller reading `self._server.last_argv` on a reused server would
+        # otherwise hit an AttributeError on a field that never existed
+        # (the exact class of bug CLAUDE.md's NEW-259 note warns about).
+        self.last_argv: Optional[List[str]] = None
 
     def _resolve_resident_pid_and_n_ctx(self):
         """
@@ -727,6 +737,14 @@ class LlamaServer:
                 except ImportError:
                     pass  # Config not available — use llama.cpp defaults (mmap on, mlock off)
 
+                # T9: capture the final argv for ModelLoader.load_primary() to amend
+                # onto this process's run-provenance record afterwards. A plain list
+                # assignment — no I/O — so it's safe inside the SIGINT-masked window
+                # this method is running in (see the mask comment above); the actual
+                # telemetry emission happens later, outside this window and outside
+                # start()'s per-port lock, in load_primary() itself.
+                self.last_argv = list(cmd)
+
                 # Start process - redirect output to log file to avoid pipe buffer issues
                 log_file = CODEY_STATE_DIR / "llama-server.log"
                 log_file.parent.mkdir(parents=True, exist_ok=True)
@@ -963,6 +981,111 @@ LOAD_OUTCOME_SPAWN_FAILED = "spawn_failed"  # llama-server process failed to sta
 LOAD_OUTCOME_ERROR = "error"  # missing model file/binary, or an unexpected exception
 
 
+def _emit_gate_telemetry(*, decision, meminfo: dict) -> None:
+    """
+    Category-B gate-decision telemetry (T9, docs/telemetry_layer_design.md
+    §2.B) for ModelLoader.load_primary()'s single rg.reserve_slot() call.
+    Unlike T6/T8a, `emitter` is not threaded from the caller: this record
+    uses the reserved "codey-os.loader" identity (telemetry/schema/v1.json's
+    envelope emitter enum) because load_primary() is reachable from three
+    different processes (daemon via ensure_model(), the TUI directly via
+    main.py, and core/lora_import.py's LoRA-swap paths) with no reliable
+    in-process signal for which one is calling -- "codey-os.loader" records
+    that the LOADER made this decision, independent of the caller, and
+    avoids the misattribution a hardcoded process guess would introduce
+    (main.py's TUI session already emits run_start under a DIFFERENT
+    emitter, "codey-os.tui" -- defaulting this to "codey-os.daemon" would
+    have been actively wrong for every TUI-initiated load).
+    reserve_slot() is called at most once per load_primary() invocation
+    (never in a tight poll loop, unlike daemon.py's _check_dispatch_gate),
+    so no T8a-style dedup/heartbeat is needed here -- one record per call,
+    matching plannd.py's reserve_context_budget precedent.
+
+    call_site="loader_v2.ModelLoader.load_primary" -- deliberately NOT
+    "loader_v2.LlamaServer.start" (the design doc's illustrative example
+    for this call site): reserve_slot() is never called from
+    LlamaServer.start(), only from ModelLoader.load_primary() itself; the
+    doc's example is stale and should be corrected separately.
+    """
+    try:
+        from telemetry import store
+
+        if not store.TELEMETRY_ENABLED:
+            return
+
+        from telemetry import recorders
+
+        recorders.record_gate_decision(
+            event_type="can_admit",
+            emitter="codey-os.loader",
+            pid=os.getpid(),
+            decision=decision,
+            call_site="loader_v2.ModelLoader.load_primary",
+            reason=decision.reason,
+            meminfo=meminfo,
+        )
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "telemetry: failed to record gate-decision for loader_v2.load_primary",
+            exc_info=True,
+        )
+
+
+def _emit_argv_provenance(*, argv: List[str]) -> None:
+    """
+    Amends the current process's run-provenance record with the exact
+    llama-server spawn argv (T9, docs/telemetry_layer_design.md §2.G).
+    runs/<run_id>.json is never reopened for write (record_run_start()'s
+    own contract) -- this appends a run_start_amended record to the JSONL
+    stream instead, the same append-only pattern T0's schedule_cold_model_
+    digests() already uses for the `models` field.
+
+    Uses store.get_run_id() -- the per-process singleton allocated by
+    whichever record_run_start() call already ran for this process (T2:
+    main.py for the TUI, T8: core/daemon.py for the daemon). A process
+    that reaches load_primary() without ever having called record_run_
+    start() (get_run_id() mints one lazily) produces an orphaned amend
+    record with no matching run_start -- confirmed NOT to happen for
+    core/daemon.py (record_run_start() runs synchronously before any
+    model load is reachable) or main.py's default interactive-repl path
+    (record_run_start() at line ~2061 runs strictly before repl() at
+    ~2064). Confirmed to happen on main.py's three one-shot flags
+    (--init, --tdd, --fix, lines ~1928/1947/1979): each calls
+    _load_primary_with_gate_recovery() -> load_primary() and returns
+    before ever reaching line 2061's record_run_start() call --
+    _load_primary_with_gate_recovery() itself contains no
+    record_run_start() call either. Also NOT verified for core/
+    lora_import.py's callers. Both are open residuals (NEW-358), not
+    resolved by this sub-task -- runtime severity is low (best-effort
+    telemetry, exception-wrapped, and codey-metrics doctor's existing
+    orphan-detection already covers this exact record shape), but is a
+    real, reachable gap on ordinary CLI usage, not a hypothetical one.
+    """
+    try:
+        from telemetry import store
+
+        if not store.TELEMETRY_ENABLED:
+            return
+
+        from telemetry import recorders
+
+        recorders.record_run_start_amended(
+            emitter="codey-os.loader",
+            pid=os.getpid(),
+            run_id=store.get_run_id(),
+            llama_server_argv=argv,
+        )
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "telemetry: failed to record llama_server_argv provenance",
+            exc_info=True,
+        )
+
+
 class ModelLoader:
     """
     Manages model loading via llama-server.
@@ -1080,7 +1203,27 @@ class ModelLoader:
             # none of them exercise a real `load_primary()` call to check
             # what `reserve_slot()` actually receives.
             spec = rg.ModelSpec(model_id="primary", path=model_path, n_ctx=n_ctx)
-            decision, slot_id = rg.reserve_slot(spec, port=PRIMARY_SERVER_PORT)
+            # T9: read meminfo explicitly ONCE here, ourselves, rather than
+            # letting reserve_slot() do its own internal read — so the
+            # gate-decision telemetry below carries the actual dict that was
+            # passed into (and used by) admission, not a reconstruction read
+            # after the fact that could disagree with it under concurrent
+            # memory pressure. resource_gate.reserve_slot()'s own docstring
+            # confirms meminfo/thermal are read BEFORE its internal lock is
+            # acquired (deliberately, so a slow read can't stall other
+            # processes waiting on that lock) — this adds one extra
+            # /proc/meminfo read per load attempt ahead of that same
+            # pre-lock point: cheap, non-blocking, and not a behavior change
+            # to admission logic itself (leave the later baseline_meminfo =
+            # rg.read_meminfo() below untouched — that's a separate,
+            # later read for confirm_resident_and_mark_slot()'s post-spawn
+            # diff, not this one).
+            gate_meminfo = rg.read_meminfo()
+            decision, slot_id = rg.reserve_slot(spec, port=PRIMARY_SERVER_PORT, meminfo=gate_meminfo)
+            # Emitted unconditionally, before the admitted/denied branch
+            # below — denials must be recorded exactly as fully as
+            # admissions (design §2.B).
+            _emit_gate_telemetry(decision=decision, meminfo=gate_meminfo)
             if not decision.admitted:
                 error(f"Resource gate denied primary model load: {decision.reason}")
                 self._load_failures += 1
@@ -1185,6 +1328,15 @@ class ModelLoader:
                         pid=self._server.process.pid,
                     )
                     self._slot_id = slot_id
+                    # T9: only the genuine-spawn branch (this one) ever ran
+                    # _spawn_locked(), so only here can self._server.last_argv
+                    # be non-None — the reuse branch above never sets it.
+                    # Emitted here, outside _spawn_locked()'s SIGINT-masked
+                    # window and outside start()'s per-port flock (already
+                    # released via start()'s own finally by the time we're
+                    # back in this method).
+                    if self._server.last_argv is not None:
+                        _emit_argv_provenance(argv=self._server.last_argv)
 
                 self._loaded = True
                 self._loaded_at = time.time()

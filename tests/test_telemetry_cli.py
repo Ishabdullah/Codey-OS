@@ -284,6 +284,48 @@ def test_provenance_new330_duplicate_run_start_flagged_not_hidden(tmp_path, caps
     assert "NEW-330" in payload["_duplicate_run_start_warning"]
 
 
+def test_provenance_merges_all_amendments_not_just_the_last(tmp_path, capsys):
+    """T9 regression: a `models`-only amendment and a separate
+    `llama_server_argv`-only amendment for the same run_id must BOTH
+    surface in _print_run()'s merged output -- consulting only the last
+    amendment's body (the pre-T9 behavior) would silently drop whichever
+    field wasn't in it."""
+    run_id = "argvmergerun0001"
+    run_start = _make_record(
+        "provenance", "run_start", "codey-os.daemon", 100, run_id,
+        body={"run_id": run_id, "started_ts_wall": 1000.0, "repo": "Codey-OS",
+              "device_uptime_sec": None, "models": [], "llama_server_argv": None},
+        nulls={"body.device_uptime_sec": "proc_uptime_permission_denied",
+               "body.llama_server_argv": "call_site_not_yet_tagged"},
+    )
+    models_amendment = _make_record(
+        "provenance", "run_start_amended", "codey-os.core-api", 100, run_id,
+        body={"models": [{"role": "primary", "path": "/x", "sha256": "a" * 64,
+                           "sha256_source": "computed"}]},
+    )
+    argv_amendment = _make_record(
+        "provenance", "run_start_amended", "codey-os.loader", 100, run_id,
+        body={"llama_server_argv": ["llama-server", "-m", "/x", "-c", "16384"]},
+    )
+    _write_run_json(tmp_path, run_start)
+    _write_jsonl(
+        tmp_path, _today(), "provenance", run_id,
+        [run_start, models_amendment, argv_amendment],
+    )
+
+    rc = cli.main(["provenance", "--run", run_id, "--root", str(tmp_path), "--json"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    payload = json.loads(out)
+    assert payload["body"]["models"][0]["sha256"] == "a" * 64
+    assert payload["body"]["llama_server_argv"] == ["llama-server", "-m", "/x", "-c", "16384"]
+    assert payload["_amended_by"] == 2
+    # The base run_start's honest-null reason for llama_server_argv must be
+    # cleared once an amendment actually populates it -- a real value next
+    # to a "never tagged" null reason would be a contradiction.
+    assert "body.llama_server_argv" not in payload["nulls"]
+
+
 def test_provenance_latest_picks_most_recent_run(tmp_path, capsys):
     older = _make_record(
         "provenance", "run_start", "codey-os.tui", 1, "olderrun00000001",

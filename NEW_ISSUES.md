@@ -15015,3 +15015,65 @@ outside that fix's scope.
   daemon-only sub-task's scope — needs its own scoping.
 - **Cross-reference:** `core/task_executor.py`, `core/daemon.py`,
   `telemetry/schema/v1.json`; T8b in `CODEY_MASTER_PLAN.md` Appendix A.
+
+### [NEW-358] `_emit_argv_provenance()`'s orphaned-`run_start_amended` risk is reachable on `main.py`'s three one-shot CLI flags, not just `core/lora_import.py`'s LoRA-swap callers
+- **Status:** Confirmed (telemetry T9, 2026-09-04, code-reviewer
+  approved round — caught during review, docstring corrected to match
+  before merge, this entry records the residual risk itself).
+- **Mechanism:** `core/loader_v2.py`'s `_emit_argv_provenance()` uses
+  `store.get_run_id()`, which lazily mints a run_id if no
+  `record_run_start()` call has happened yet for this process — a
+  process that reaches `load_primary()` without one produces an
+  orphaned `run_start_amended` record with no matching `run_start`.
+  `main.py`'s `main()` has three one-shot flags — `--init` (~line
+  1928), `--tdd` (~1947), `--fix` (~1979) — that each call
+  `_load_primary_with_gate_recovery()` → `load_primary()` and `return`
+  before ever reaching the default repl path's `record_run_start()`
+  call at ~line 2061. `_load_primary_with_gate_recovery()` itself
+  contains no `record_run_start()` call either. So every ordinary
+  `codeyOS --init`/`--tdd`/`--fix` invocation hits this gap — a
+  materially larger, real-CLI-usage blast radius than "unverified for
+  `core/lora_import.py`'s callers" alone implied. `core/lora_import.py`'s
+  two LoRA-swap plugin callers remain separately unverified.
+- **Impact:** low runtime severity — best-effort telemetry, wrapped in
+  `except Exception`, no crash/RAM/process-lifecycle impact. An orphaned
+  `run_start_amended` record is exactly the shape `codey-metrics
+  doctor`'s existing orphan-detection already covers (see
+  `test_doctor_exit_nonzero_on_orphan_run`), so this doesn't produce
+  silently-wrong data, just noise `doctor` should already flag.
+- **Fix direction:** add a `record_run_start()` call to `main.py`'s
+  three one-shot flag branches (or to
+  `_load_primary_with_gate_recovery()` itself, if that's a cleaner
+  single choke point), and separately verify/fix
+  `core/lora_import.py`'s two callers, when this is next picked up.
+- **Cross-reference:** `core/loader_v2.py`, `main.py`,
+  `core/lora_import.py`; T9 in `CODEY_MASTER_PLAN.md` Appendix A.
+
+### [NEW-359] T9's new `_emit_gate_telemetry()` call in `load_primary()` sits inside the pre-existing reserve→spawn→confirm slot-leak-guard's gap window
+- **Status:** Confirmed, non-blocking (telemetry T9, 2026-09-04,
+  code-reviewer approved round).
+- **Mechanism:** `ModelLoader.load_primary()`'s new
+  `_emit_gate_telemetry()` call sits between `reserve_slot()` (which
+  registers a PENDING slot in `core/resource_gate.py`'s state) and the
+  pre-existing reserve→spawn→confirm `try/finally` leak-guard that
+  releases that slot on failure. A `KeyboardInterrupt`/`SystemExit`
+  landing during `_emit_gate_telemetry()`'s lazy imports or JSONL
+  append would escape its `except Exception` and leak the reserved
+  slot, since the leak-guard's `try` block doesn't start until a few
+  lines later. Same shape as the reserve/confirm slot-leak pattern
+  already on file (see `.claude/agent-memory/code-reviewer/
+  resource_gate_subtask2_confirm_mark_slot_leak.md`), just widened
+  slightly to include file I/O.
+- **Impact:** narrow (`KeyboardInterrupt`/`SystemExit` specifically
+  timed to land during this one telemetry call), and this project has
+  explicitly rejected `except BaseException` as a fix pattern before
+  (`NEW-5`/`NEW-6` — silently swallowing `KeyboardInterrupt` is worse
+  than the leak). The gate-telemetry emission also can't simply move
+  inside the later `try` block, since the denial branch returns before
+  ever reaching it.
+- **Fix direction:** not scoped. Would need either narrowing the gap
+  window itself (start the leak-guard's `try` earlier, right after
+  `reserve_slot()` returns) or a dedicated cleanup path for this
+  specific interrupt window — needs its own scoping, not a quick patch.
+- **Cross-reference:** `core/loader_v2.py`, `core/resource_gate.py`;
+  T9 in `CODEY_MASTER_PLAN.md` Appendix A.

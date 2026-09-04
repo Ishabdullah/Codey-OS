@@ -789,7 +789,8 @@ def record_run_start_amended(
     emitter: str,
     pid: int,
     run_id: str,
-    models: List[Dict[str, Any]],
+    models: Optional[List[Dict[str, Any]]] = None,
+    llama_server_argv: Optional[List[str]] = None,
     correlation_id: Optional[str] = None,
 ) -> None:
     """
@@ -802,14 +803,27 @@ def record_run_start_amended(
     out of this sub-task's scope) is expected to merge a run's
     `run_start` + any `run_start_amended` records sharing a run_id when
     displaying it.
+
+    T9 (core/loader_v2.py): extended to also optionally carry
+    `llama_server_argv` — the exact llama-server spawn argv, amended
+    separately from (and possibly in a different call than) `models`.
+    Both fields are optional and independently included in the body only
+    when provided, so existing `models=`-only callers (e.g.
+    telemetry/provenance.py's schedule_cold_model_digests()) are
+    unaffected.
     """
+    body: Dict[str, Any] = {}
+    if models is not None:
+        body["models"] = models
+    if llama_server_argv is not None:
+        body["llama_server_argv"] = llama_server_argv
     _emit(
         category="provenance",
         event_type="run_start_amended",
         emitter=emitter,
         pid=pid,
         run_id=run_id,
-        body={"models": models},
+        body=body,
         correlation_id=correlation_id,
     )
 

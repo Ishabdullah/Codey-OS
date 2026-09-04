@@ -10,6 +10,68 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-04 — Telemetry `T9` (category B + argv provenance, `core/loader_v2.py`) code-complete + code-reviewer APPROVED (2 rounds) — **entire T0-T9 telemetry rollout closed**
+
+- **Status**: **Code-complete + code-reviewer APPROVED, no live model
+  load performed by this round** (2 review rounds — round 1 CHANGES
+  REQUESTED for a docstring scope-claim gap, round 2 approved).
+  `core/loader_v2.py` is the last rule-4 file in the rollout (model
+  spawn/PID/kill-adjacent code, `NEW-9`'s orphan-process protection
+  applies here). Full suite `pytest tests/ -q`: **1420 passed, 0 failed,
+  1 skipped** (1411 baseline + 9 new); full repo incl. `ccos/tests/`:
+  **1527 passed, 1 skipped**.
+- **The last piece of the whole rollout.** `ModelLoader.load_primary()`
+  now emits a category-B `can_admit` gate record (unconditional on
+  admitted/denied, per design §2.B) at its one `reserve_slot()` call
+  site, and `LlamaServer._spawn_locked()` captures the real spawn argv
+  and amends it onto run provenance. The single highest-scrutiny item:
+  the argv capture is a plain list assignment placed strictly inside the
+  existing `NEW-9` SIGINT-masked window (zero new I/O inside that
+  window, confirmed by the reviewer by hand-tracing the mask boundaries)
+  — the actual telemetry emission happens afterward, outside both the
+  mask and `start()`'s per-port flock.
+- **A required, in-scope companion fix, not scope creep**: `telemetry/
+  cli.py`'s `_print_run()` previously merged only the `models` field
+  from the single LAST amendment record. T9 is the first sub-task to
+  produce a SECOND independently-amended field (`llama_server_argv`) —
+  without extending the merge to iterate all amendments and merge every
+  amended field independently (clearing each field's matching
+  `nulls[...]` reason as it's populated, an advisor-caught gap in the
+  first pass), T9's own captured argv would silently never have shown
+  up in `codey-metrics provenance` output despite being written
+  correctly to the JSONL stream — the design's own stated goal for T9
+  wouldn't have actually held end-to-end.
+- **Review round 1 (CHANGES REQUESTED, 1 item, docstring scope-claim
+  gap — the same class of issue that's recurred across `NEW-341`,
+  T8a's dedup-losslessness overclaim, and `NEW-345`'s two-site
+  overclaim):** `_emit_argv_provenance()`'s docstring claimed the
+  orphaned-`run_start_amended` risk was "confirmed NOT to happen for
+  the daemon or interactive-TUI-repl paths," naming only `core/
+  lora_import.py`'s callers as unverified. The reviewer hand-traced
+  `main.py`'s `main()` and found the risk is ALSO reachable on its
+  three one-shot flags (`--init`/`--tdd`/`--fix`) — each calls
+  `_load_primary_with_gate_recovery()` → `load_primary()` and returns
+  before the default repl path's `record_run_start()` call ever runs.
+  A narrower-true-but-broader-misleading claim, same pattern as before.
+  Fixed by correcting the docstring's scope and logging `NEW-358`.
+- **Findings**: `NEW-358` (Confirmed — the orphaned-record gap's real
+  blast radius, corrected per rule 6) and `NEW-359` (Confirmed,
+  non-blocking — the new gate-telemetry call sits inside the
+  pre-existing reserve/spawn/confirm slot-leak-guard's gap window; not
+  fixed, since `except BaseException` is an explicitly rejected pattern
+  in this project per `NEW-5`/`NEW-6`, and the emission can't move into
+  the later `try` block since the denial branch returns before it).
+- **This closes T0 through T9 — the entire telemetry evidence-layer
+  rollout is now code-complete and code-reviewer-approved.** Recommended
+  next step, not performed by this round: one live-verify cycle (rule 2
+  — `free -h` first, one real model load, diff the recorded
+  `llama_server_argv` word-for-word against `~/.codeyOS/llama-
+  server.log`'s own logged command line as the ground-truth check,
+  confirm `codey-metrics provenance` actually surfaces it end-to-end,
+  confirm clean unload) — this is the only piece of T9 that mocks
+  cannot verify, and per `CLAUDE.md`'s `NEW-259` precedent, code-
+  complete-and-approved is not the same tier as live-verified.
+
 ## 2026-09-04 — Telemetry `T8b` (task-id/task-type wiring, `core/daemon.py`) code-complete + code-reviewer APPROVED (1 round) — T8 fully closed, only T9 left in the rollout
 
 - **Status**: **Code-complete + code-reviewer APPROVED, no live-model

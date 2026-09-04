@@ -84,6 +84,11 @@ class FakeServerSpawned:
     def __init__(self, *a, **k):
         self.process = MagicMock(pid=os.getpid())
         self._started = True
+        # T9: real LlamaServer._spawn_locked() sets this; this fake stands
+        # in for a genuine spawn, so it must too, matching the shape
+        # load_primary()'s `self._server.last_argv is not None` check
+        # expects on the genuine-spawn branch.
+        self.last_argv = ["fake-llama-server", "-m", "/fake/model.gguf"]
 
     def start(self):
         return True
@@ -165,6 +170,8 @@ def _fake_server_with_pid(pid: int):
         def __init__(self, *a, **k):
             self.process = MagicMock(pid=pid)
             self._started = True
+            # T9: see FakeServerSpawned's identical comment above.
+            self.last_argv = ["fake-llama-server", "-m", "/fake/model.gguf"]
 
         def start(self):
             return True
@@ -218,11 +225,12 @@ def test_load_primary_reserves_and_marks_resident_on_real_spawn(monkeypatch):
     )
     monkeypatch.setattr(rg, "mark_resident", lambda slot_id, **k: mark_calls.append(slot_id) or True)
     monkeypatch.setattr(rg, "release_slot", lambda *a, **k: True)
-    # 1 pre-spawn read (load_primary()'s own baseline capture -- reserve_slot()
-    # itself is mocked above, so it never calls the real read_meminfo()), then
-    # a drop on every subsequent read so confirm_resident_and_mark_slot()'s
+    # 2 pre-spawn reads (T9's own gate_meminfo capture ahead of reserve_slot()
+    # -- reserve_slot() itself is mocked above so it never calls the real
+    # read_meminfo() -- then load_primary()'s own baseline capture), then a
+    # drop on every subsequent read so confirm_resident_and_mark_slot()'s
     # loop confirms on its first iteration instead of waiting out real time.
-    monkeypatch.setattr(rg, "read_meminfo", _meminfo_with_drop_after(1))
+    monkeypatch.setattr(rg, "read_meminfo", _meminfo_with_drop_after(2))
 
     with patch.object(lv, "LlamaServer", FakeServerSpawned), patch(
         "pathlib.Path.exists", return_value=True
@@ -425,7 +433,9 @@ def test_unload_releases_slot(monkeypatch):
     monkeypatch.setattr(rg, "reserve_slot", lambda spec, **k: (fake_decision, "slot-4"))
     monkeypatch.setattr(rg, "mark_resident", lambda *a, **k: True)
     monkeypatch.setattr(rg, "release_slot", lambda slot_id, **k: released.append(slot_id) or True)
-    monkeypatch.setattr(rg, "read_meminfo", _meminfo_with_drop_after(1))
+    # 2 pre-spawn reads -- see test_load_primary_reserves_and_marks_resident_
+    # on_real_spawn's identical comment above (T9 added a second one).
+    monkeypatch.setattr(rg, "read_meminfo", _meminfo_with_drop_after(2))
 
     with patch.object(lv, "LlamaServer", FakeServerSpawned), patch(
         "pathlib.Path.exists", return_value=True
@@ -503,7 +513,9 @@ def test_load_primary_success_sets_ok_outcome(monkeypatch):
     monkeypatch.setattr(rg, "reserve_slot", lambda spec, **k: (fake_decision, "slot-y"))
     monkeypatch.setattr(rg, "mark_resident", lambda *a, **k: True)
     monkeypatch.setattr(rg, "release_slot", lambda *a, **k: True)
-    monkeypatch.setattr(rg, "read_meminfo", _meminfo_with_drop_after(1))
+    # 2 pre-spawn reads -- see test_load_primary_reserves_and_marks_resident_
+    # on_real_spawn's comment (T9 added a second read ahead of reserve_slot()).
+    monkeypatch.setattr(rg, "read_meminfo", _meminfo_with_drop_after(2))
 
     with patch.object(lv, "LlamaServer", FakeServerSpawned), patch(
         "pathlib.Path.exists", return_value=True
@@ -559,7 +571,9 @@ def test_ensure_model_already_loaded_sets_outcome(monkeypatch):
     monkeypatch.setattr(rg, "reserve_slot", lambda spec, **k: (fake_decision, "slot-w"))
     monkeypatch.setattr(rg, "mark_resident", lambda *a, **k: True)
     monkeypatch.setattr(rg, "release_slot", lambda *a, **k: True)
-    monkeypatch.setattr(rg, "read_meminfo", _meminfo_with_drop_after(1))
+    # 2 pre-spawn reads -- see test_load_primary_reserves_and_marks_resident_
+    # on_real_spawn's comment (T9 added a second read ahead of reserve_slot()).
+    monkeypatch.setattr(rg, "read_meminfo", _meminfo_with_drop_after(2))
 
     with patch.object(lv, "LlamaServer", FakeServerSpawned), patch(
         "pathlib.Path.exists", return_value=True
