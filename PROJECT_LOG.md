@@ -10,6 +10,73 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-04 — Telemetry `T5` (inference events at `core/inference_hybrid.py`) code-complete + code-reviewer APPROVED — first rule-4-gated telemetry sub-task, B6.2c still next, untouched
+
+- **Status**: **Code-complete + code-reviewer APPROVED, no live-model
+  component so no live-verification tier applies.** This is the first
+  telemetry sub-task touching a CLAUDE.md rule-4 file
+  (`core/inference_hybrid.py`, the inference hot path) — given the
+  heaviest review scrutiny of the rollout so far, two review rounds.
+  Full suite `pytest tests/ -q`: **1368 passed, 0 failed, 1 skipped.**
+- **Scope**: category-A inference-event capture mirroring T3's
+  established `_emit_ai_chat_telemetry` pattern (real `timings`, honest
+  nulls including `prefix_cache_hit` from day one — the exact gap T3's
+  round 1 caught, avoided here by design), plus a genuinely new
+  capability T3's blocking-only call site couldn't provide: real
+  `ttft_ms` at the existing `on_first_token` streaming boundary, O(1)
+  added work per token (a single boolean check after the first token
+  fires, confirmed by the reviewer reading the exact diff — no new
+  per-token computation). A category-B gate-decision record for the
+  `wait_and_reserve_context_budget()` wrapper call, emitted strictly
+  outside its cross-process lock, mirroring T3's `queue_wait_ms`
+  discipline. `interactive` capture moved (advisor-driven mid-round fix)
+  to before the admission/reservation window, removing an unprotected
+  filesystem-scan window while a live reservation was held; gate-decision
+  telemetry emission moved structurally outside the fail-closed
+  `except Exception` block so a telemetry bug can never become a
+  spurious admission refusal — both independently verified by
+  code-reviewer against the actual code, not the description.
+- **A genuine, escalated ambiguity, resolved rather than silently
+  defaulted**: `core/inference_hybrid.py` is invoked from a caller graph
+  far wider than "daemon vs TUI" (`core/agent.py`, `core/orchestrator.py`,
+  `core/planner.py`, `core/recursive.py`, `core/memory_v2.py`,
+  `core/githelper.py`, all via `core/inference_v2.py`, plus `main.py`
+  directly) — no reliable per-call-site role signal exists at this
+  layer. The straightforward-seeming fix (default to a module-identity
+  string) was correctly blocked by a second implementer round: the
+  `emitter` schema field is a closed, non-nullable enum with no
+  module-identity value, and extending it needs a schema-version bump
+  mirrored to the Aigentik repo — real scope, not a one-line fix.
+  **Resolved as: keep the existing (imperfect but recoverable) default,
+  defer the real fix to T7** (when `core/agent.py`/`core/task_executor.py`
+  get touched anyway for category-E task outcomes, and can thread real
+  identity down correctly) — logged as `NEW-341`, with code-reviewer's
+  correction that no schema bump is actually needed, since a mislabeled
+  record is recoverable via a `run_id`/`pid` join against the
+  correctly-labeled `run_start` record from T2, not silently lost.
+- **Review round 1 (CHANGES REQUESTED)**: the new autouse test fixture
+  flipped `TELEMETRY_ENABLED=True` file-wide without mocking
+  `is_interactive_session_active()`, so every test in the file —
+  including 5 pre-existing `NEW-206` tests that predate this round —
+  was silently making real filesystem calls against the actual device's
+  `~/.codeyOS/tui-sessions/` directory.
+- **Fix + review round 2 (APPROVED)**: fixed with one monkeypatch line.
+  Verified with genuine evidence, not a call count: the reviewer ran a
+  real negative control — planted a canary stale-PID file in the real
+  directory, confirmed it survived with the fix applied, then reverted
+  the fix and confirmed the canary was actually unlinked, then restored
+  the fix. Production code in `core/inference_hybrid.py` reconfirmed
+  clean on passivity and hot-path overhead in this same final pass —
+  explicitly re-read in full rather than trusted from the prior round's
+  summary, per CLAUDE.md's own standing caution that this project's
+  worst bugs have shipped through prior confident-feeling rule-4
+  reviews.
+- **New finding logged** (rule 8): `NEW-341` (the emitter-honesty gap
+  above).
+- **Next step**: T6 — category A+B at `core/plannd.py`. **Second
+  rule-4-gated sub-task.** **B6.2c (Appendix A) remains separately
+  queued and untouched by this round.**
+
 ## 2026-09-04 — Telemetry `T4` (`codey-metrics` CLI, rollups, rotation) code-complete + code-reviewer APPROVED — B6.2c still next, untouched
 
 - **Status**: **Code-complete + code-reviewer APPROVED, no live-model

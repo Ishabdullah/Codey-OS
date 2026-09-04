@@ -14527,3 +14527,40 @@ outside that fix's scope.
   which earlier live-verification round wrote them so the same mistake
   isn't repeated.
 - **Cross-reference:** `~/.codeyOS/metrics/`.
+
+### [NEW-341] `core/inference_hybrid.py`'s `telemetry_emitter` default (`"codey-os.daemon"`) is provably false for TUI-driven calls — no honest value exists in scope
+- **Status:** Confirmed, sound-as-is disposition (telemetry T5, 2026-09-04,
+  code-reviewer approved round, first rule-4-gated telemetry sub-task).
+- **Mechanism:** `core/inference_hybrid.py` is invoked from a wide caller
+  graph with no reliable per-call-site role signal at this layer —
+  traced: `core/inference_v2.py`'s `get_hybrid_backend()` is called from
+  `main.py` (TUI), `core/agent.py` (used by BOTH interactive TUI
+  sessions and daemon-dispatched background tasks), `core/orchestrator.py`,
+  `core/planner.py`, `core/recursive.py`, `core/memory_v2.py`,
+  `core/githelper.py`. `ChatCompletionBackend.infer()`'s new
+  `telemetry_emitter` parameter defaults to `"codey-os.daemon"`, which is
+  provably false for any TUI-driven call through `core/agent.py`.
+  A candidate fix (default to a module-identity string,
+  `"codey-os.inference-hybrid"`) was attempted and correctly blocked:
+  `telemetry/schema/v1.json`'s `emitter` field is a closed, non-nullable
+  enum with no module-identity value.
+- **Disposition — sound-as-is, defer to T7. Correction to an earlier
+  framing of this finding: no schema v2 bump is actually needed or
+  recommended.** Mislabeled records are **recoverable, not silently
+  lost**: `telemetry/store.py`'s `get_run_id()` is a genuine
+  process-global singleton, and `main.py` already declares
+  `emitter="codey-os.tui"` at its own `record_run_start()` call for that
+  same `run_id` (T2). A mislabeled inference record can be correctly
+  re-attributed via a `run_id`/`pid` join against the correctly-labeled
+  run-start record.
+- **Correct fix direction:** thread real per-call-site process identity
+  through `core/agent.py`/`core/task_executor.py` at **T7** — out of
+  T5's declared file scope (`core/inference_hybrid.py` only).
+- **Rejected alternative (logged so it isn't re-proposed cold at T7):**
+  a cheaper `TUI_SESSIONS_DIR/{os.getpid()}.pid` existence check was
+  considered and rejected — only covers the TUI path, doesn't fix
+  orchestrator/planner/plannd/recursive callers, and adds new
+  filesystem-derived branching to a rule-4 hot-path file for marginal
+  gain mid-series.
+- **Cross-reference:** `core/inference_hybrid.py`, `telemetry/schema/v1.json`,
+  `docs/telemetry_layer_design.md`; T7 in `CODEY_MASTER_PLAN.md` Appendix A.

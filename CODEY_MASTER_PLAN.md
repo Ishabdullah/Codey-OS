@@ -6213,8 +6213,20 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       Findings: `NEW-336`..`NEW-340` (all non-blocking; `NEW-339`
       flagged as needing a real fix before any future consumer parses
       `provenance --all --json`).
-- [ ] **T5** — category A at `core/inference_hybrid.py`. **Rule-4
-      (inference hot path).**
+- [x] **T5** — category A at `core/inference_hybrid.py`. **Rule-4
+      (inference hot path). DONE 2026-09-04, code-complete +
+      code-reviewer APPROVED** (2 rounds — round 1 caught a test fixture
+      silently touching the real `~/.codeyOS/tui-sessions/` directory).
+      First telemetry sub-task through a rule-4 file; heaviest review
+      scrutiny of the rollout so far, including a real negative-control
+      reproduction (planted a canary file, confirmed the bug destroyed
+      it pre-fix, confirmed the fix preserved it). Adds real `ttft_ms`
+      at the streaming `on_first_token` boundary (O(1) per-token
+      overhead, confirmed). Genuine caller-identity ambiguity
+      (`core/inference_hybrid.py` is called from 7+ different modules,
+      no reliable role signal) resolved as a documented, recoverable
+      deferred gap rather than a silent default — logged as `NEW-341`,
+      real fix deferred to T7.
 - [ ] **T6** — category A+B at `core/plannd.py`. **Rule-4.**
 - [ ] **T7** — category E (task outcomes) at `core/task_executor.py` /
       `core/agent.py`. **Rule-4 by association (main loop).**
