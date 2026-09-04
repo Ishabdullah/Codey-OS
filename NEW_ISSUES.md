@@ -15123,11 +15123,57 @@ outside that fix's scope.
   first is a deliberately-accepted possible-duplicate-record risk, not
   a silent-suppression one — `codey-metrics doctor`'s existing
   `duplicate_run_start_runs` non-fatal flag already covers that shape).
+- **Second live-verify (2026-09-04, post-fix, real `./codey-stop`/
+  `./codey-start` cycle) — PARTIAL confirmation.** The exact bug
+  signature is gone: `Codey-Aigentik/index.js`'s delegated one-liner
+  (pid 18351, run `31964ce5273f4b92`) now has a real `run_start` record
+  and a `runs/<id>.json` file — pre-fix, this exact call produced
+  neither. `codey-metrics doctor` shows the same "2 orphan runs, 5 hard
+  violations" as before, but both orphans traced by timestamp to
+  restarts BEFORE this fix's commit (`3ea0a4d`, 13:10:42 local) — this
+  post-fix restart (13:15) produced zero new orphans. **Not directly
+  observed**: the specific original failure mode — the delegated
+  one-liner WINNING the model-load race and spawning with a captured
+  `llama_server_argv` landing on its own fallback-created run. This
+  cycle the TUI won the race instead (by ~25ms), so the delegated
+  caller's `reserve_slot()` was denied (real headroom exhaustion, not a
+  bug) and its `llama_server_argv` stayed null — expected for a denied
+  load, not a defect. A code read (`core/loader_v2.py`:
+  `_ensure_run_start_fallback()` and `_emit_argv_provenance()` both use
+  `store.get_run_id()`'s same per-process singleton) supports that the
+  amendment would land on the fallback-created run_id if this caller
+  DID win a future race, but this is inference from code, not a live
+  observation (rule 7 — code-complete/live-verified are distinct
+  claims). A third live cycle reproducing the delegate actually winning
+  would close this out fully; not run yet, not required to close this
+  entry given the orphan-elimination evidence already gathered.
 - **Cross-reference:** `core/loader_v2.py`, `telemetry/store.py`,
   `telemetry/recorders.py`, `main.py`, `core/lora_import.py`,
   `Codey-Aigentik/index.js`; T9 in `CODEY_MASTER_PLAN.md` Appendix A;
   `.claude/agent-memory/code-reviewer/telemetry_t9_loader_argv_provenance_scope_gap.md`,
   `.claude/agent-memory/code-reviewer/new358_run_start_fallback_claim_vs_recorded_conflation.md`.
+
+### [NEW-360] `codey-metrics provenance --all --json` emits concatenated JSON objects, not a JSON array or JSONL — breaks a plain `json.load()`/`json.loads()`
+- **Status:** Confirmed (found during `NEW-358`'s second live-verify
+  pass, 2026-09-04).
+- **Mechanism:** the CLI's `--json` output for `provenance --all` is a
+  sequence of complete JSON objects written back-to-back with no
+  separating comma, no enclosing `[...]` array, and no newline
+  delimiter between them (not JSONL either). A plain `json.load()`/
+  `json.loads()` on the raw output raises `json.decoder.JSONDecodeError:
+  Extra data` at the boundary between the first and second object.
+- **Impact:** anyone scripting against this CLI output (which is the
+  whole point of a `--json` flag) needs a streaming multi-object
+  decoder (e.g. `json.JSONDecoder().raw_decode()` in a loop) instead of
+  a single parse call — non-obvious, and not documented anywhere in the
+  CLI's own help text or output.
+- **Fix direction:** either wrap the objects in a proper JSON array, or
+  switch to genuine newline-delimited JSONL (one object per line) —
+  either is a small change to whatever `--json` formatting function
+  `telemetry/cli.py`'s `provenance --all` path uses, and should also
+  update the CLI's help text to state the actual output format
+  explicitly once fixed.
+- **Cross-reference:** `telemetry/cli.py`, `codey-metrics`.
 
 ### [NEW-359] T9's new `_emit_gate_telemetry()` call in `load_primary()` sits inside the pre-existing reserve→spawn→confirm slot-leak-guard's gap window
 - **Status:** Confirmed, non-blocking (telemetry T9, 2026-09-04,

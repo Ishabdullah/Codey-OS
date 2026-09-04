@@ -10,6 +10,50 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-04 — `NEW-358` fix live-verified (2nd real device cycle) — orphan signature confirmed gone, race-winning scenario not directly reproduced (rule 7 honest gap)
+
+- **What was done**: a second real `./codey-stop` + `./codey-start`
+  cycle (one live model-load, `free -h` before/after, rule 2 compliant)
+  to check whether `3ea0a4d`'s fix actually closes the gap the first
+  live-verify found, not just whether it passes mocks.
+- **Confirmed live: the exact bug signature is gone.**
+  `Codey-Aigentik/index.js:221`'s delegated one-liner fired again this
+  cycle (same as before) and this time got a real `run_start` record
+  and a `runs/<id>.json` file — pre-fix, this exact call produced
+  neither, which was the whole finding. `codey-metrics doctor` still
+  shows "2 orphan runs, 5 hard violations," but both orphans were
+  traced by timestamp to restarts from BEFORE this fix's commit
+  (13:10:42 local) — this post-fix restart (13:15) produced zero new
+  orphans.
+- **Not directly observed, and said so plainly rather than papered
+  over**: the specific original failure mode was the delegated
+  one-liner WINNING the model-load race and spawning with its captured
+  argv landing on an orphan run. This cycle the TUI won the race
+  instead (by ~25ms) — a real, ordinary outcome, not a bug — so the
+  delegated caller's `reserve_slot()` was correctly denied (real
+  headroom exhaustion) and never reached the argv-amendment step at
+  all. A code read supports that the fix would work in that exact
+  scenario too (`_ensure_run_start_fallback()` and
+  `_emit_argv_provenance()` share the same per-process
+  `store.get_run_id()` singleton, so a later amendment in the same
+  process necessarily targets the run_id the fallback already claimed),
+  but this is inference from code, not a live observation — flagged
+  explicitly per rule 7's code-complete/live-verified distinction
+  rather than claimed as fully closed on partial evidence.
+- **Found in passing, logged not fixed**: `NEW-360` —
+  `codey-metrics provenance --all --json` emits concatenated JSON
+  objects with no array wrapper or JSONL delimiter, breaking a plain
+  `json.load()`. Non-blocking, unrelated to NEW-358 itself, discovered
+  incidentally while parsing the verification output.
+- **System left running normally** throughout, same posture as the
+  first live-verify cycle.
+- **Net assessment**: strong evidence the fix works (the exact reported
+  bug is gone, zero new orphans), short of a full end-to-end
+  reproduction of the original race outcome. Judged sufficient to close
+  this round without a third cycle — the orphan-elimination evidence is
+  the load-bearing check, and the untested branch (race-winning) is
+  covered by a direct code trace, not blind trust.
+
 ## 2026-09-04 — `NEW-358` fixed — loader-side `record_run_start()` fallback, `core/loader_v2.py` (2 review rounds, round 1 live-reproduced a real retry bug)
 
 - **Status**: **Code-complete + code-reviewer APPROVED (2 rounds).**

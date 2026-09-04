@@ -6367,15 +6367,28 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       would have silently reintroduced this exact orphaned-record gap
       permanently for that process; fixed with a retry-safe
       unclaim-on-failure path). Full suite 1433/0/1. See `NEW-358`'s
-      FIXED entry for complete detail. **Not yet re-run through a
-      second live-verify cycle** — desk-verified only; a repeat of the
-      exact scenario that found the bug (real restart, `codey-metrics
-      provenance --all` showing the Aigentik-delegated run) would close
-      this out to fully live-verified. The three known call sites
-      (`main.py`'s one-shot flags, `core/lora_import.py`,
-      `Codey-Aigentik/index.js`) remain deliberately un-patched
-      individually — the loader-side fallback covers them structurally;
-      per-site richer-identity fixes deferred, not scoped.
+      FIXED entry for complete detail. **Live-verified 2026-09-04
+      (second real `./codey-stop`/`./codey-start` cycle) — PARTIAL.**
+      The exact bug signature is gone: the Aigentik-delegated
+      one-liner now gets a real `run_start` + `runs/<id>.json`, where
+      pre-fix it got neither. `codey-metrics doctor`'s "2 orphan runs"
+      traced to pre-fix restarts only — zero new orphans post-fix. Not
+      directly observed: the delegated caller actually WINNING the
+      model-load race with its `llama_server_argv` landing on its own
+      fallback-created run (this cycle the TUI won instead, so the
+      delegate's load was correctly denied by the admission gate, not a
+      bug) — supported by a code read (`_ensure_run_start_fallback()`
+      and `_emit_argv_provenance()` share the same per-process
+      `get_run_id()` singleton) but not a live observation. A third
+      cycle reproducing the delegate winning would close this out fully;
+      not required given the orphan-elimination evidence already
+      gathered. Found in passing: `NEW-360` (`codey-metrics provenance
+      --all --json` emits invalid concatenated JSON, non-blocking). The
+      three known call sites (`main.py`'s one-shot flags,
+      `core/lora_import.py`, `Codey-Aigentik/index.js`) remain
+      deliberately un-patched individually — the loader-side fallback
+      covers them structurally; per-site richer-identity fixes
+      deferred, not scoped.
       **10 items in `docs/telemetry_layer_design.md` §8 were resolved by
       Ish 2026-09-03** (address-value hashing: SHA-256 + char count, no
       raw text; retention: literal never-delete; sub-task ordering as
