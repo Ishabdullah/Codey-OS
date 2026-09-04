@@ -6341,13 +6341,24 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       caught in round-1 review, docstring corrected before merge) and
       `NEW-359` (Confirmed, non-blocking — the new gate-telemetry call
       sits inside the pre-existing reserve/spawn/confirm slot-leak-
-      guard's gap window). **Recommended next step (not performed by
-      this round): one live-verify cycle** (rule 2 — `free -h` first, one
-      real daemon-only or TUI model-load, diff the recorded
-      `llama_server_argv` word-for-word against `~/.codeyOS/llama-
-      server.log`'s own logged command line, confirm `codey-metrics
-      provenance` actually surfaces it, confirm clean unload) — flagged
-      by the T9 scoping round as `live-verifier`'s job, not yet run.
+      guard's gap window). **Live-verified 2026-09-04 (real
+      `./codey-stop`/`./codey-start` cycle, one model-load cycle,
+      rule 2 compliant) — PARTIAL.** The argv-capture mechanism itself
+      is correct: byte-exact match confirmed between the recorded
+      `llama_server_argv` and `~/.codeyOS/llama-server.log`'s real spawn
+      line. **But the stated end-to-end goal does not hold on this
+      device's actual default startup path** — a 4th, previously-
+      undisclosed call site (`Codey-Aigentik/index.js:221`'s delegated
+      `ensure_model('primary')` one-liner) won the model-load race on
+      this real restart, never calls `record_run_start()`, and its
+      correctly-captured argv landed on an orphan run_id invisible to
+      both `codey-metrics provenance --latest` and `--all` (though
+      `codey-metrics doctor` does flag it as an orphan run — 2 orphans,
+      5 hard violations). `NEW-358` corrected per rule 6 with full
+      detail. **Code-complete + code-reviewer-approved is not the same
+      tier as live-verified-working-end-to-end (rule 7)** — this is
+      exactly that gap, caught only by attempting the real thing. Fix
+      not yet scoped or implemented as of this entry.
       **10 items in `docs/telemetry_layer_design.md` §8 were resolved by
       Ish 2026-09-03** (address-value hashing: SHA-256 + char count, no
       raw text; retention: literal never-delete; sub-task ordering as

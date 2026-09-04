@@ -15017,9 +15017,14 @@ outside that fix's scope.
   `telemetry/schema/v1.json`; T8b in `CODEY_MASTER_PLAN.md` Appendix A.
 
 ### [NEW-358] `_emit_argv_provenance()`'s orphaned-`run_start_amended` risk is reachable on `main.py`'s three one-shot CLI flags, not just `core/lora_import.py`'s LoRA-swap callers
-- **Status:** Confirmed (telemetry T9, 2026-09-04, code-reviewer
-  approved round — caught during review, docstring corrected to match
-  before merge, this entry records the residual risk itself).
+- **Status:** Confirmed, **live-verified and upgraded 2026-09-04
+  (rule 6/7)** — originally logged from code review alone (telemetry
+  T9, code-reviewer approved round); a same-day live-verify cycle
+  (real `./codey-stop`/`./codey-start` restart, real model load) found
+  this is materially worse than the code-review-only entry stated. See
+  **Live-verify correction** below — this is NOT a narrow edge case,
+  it is the path that actually wins the model-load race on this
+  device's real, default `./codey-start` startup, every time.
 - **Mechanism:** `core/loader_v2.py`'s `_emit_argv_provenance()` uses
   `store.get_run_id()`, which lazily mints a run_id if no
   `record_run_start()` call has happened yet for this process — a
@@ -15035,19 +15040,54 @@ outside that fix's scope.
   materially larger, real-CLI-usage blast radius than "unverified for
   `core/lora_import.py`'s callers" alone implied. `core/lora_import.py`'s
   two LoRA-swap plugin callers remain separately unverified.
-- **Impact:** low runtime severity — best-effort telemetry, wrapped in
-  `except Exception`, no crash/RAM/process-lifecycle impact. An orphaned
+- **Impact (as originally scoped, from code review alone):** low
+  runtime severity — best-effort telemetry, wrapped in `except
+  Exception`, no crash/RAM/process-lifecycle impact. An orphaned
   `run_start_amended` record is exactly the shape `codey-metrics
   doctor`'s existing orphan-detection already covers (see
   `test_doctor_exit_nonzero_on_orphan_run`), so this doesn't produce
   silently-wrong data, just noise `doctor` should already flag.
-- **Fix direction:** add a `record_run_start()` call to `main.py`'s
-  three one-shot flag branches (or to
-  `_load_primary_with_gate_recovery()` itself, if that's a cleaner
-  single choke point), and separately verify/fix
-  `core/lora_import.py`'s two callers, when this is next picked up.
+- **Live-verify correction (2026-09-04, rule 6):** a real
+  `./codey-stop` + `./codey-start` cycle on this device found a
+  **fourth call site the code-review pass never enumerated**:
+  `Codey-Aigentik/index.js:221` shells out a bare `python3 -c
+  "...get_loader().ensure_model('primary')"` one-liner on Aigentik's
+  own startup, to delegate the primary model's load to Codey-OS. This
+  path is not `main.py`, not `core/daemon.py`, and never calls
+  `record_run_start()` — and it is the process that actually won the
+  model-load race on this real restart (pid confirmed spawning the
+  real `llama-server`). The argv WAS captured correctly (byte-exact
+  match against `~/.codeyOS/llama-server.log`'s real spawn line,
+  confirmed) — but it landed on an orphan run_id with no matching
+  `run_start`, and is therefore **invisible to both `codey-metrics
+  provenance --latest` and `--all`**: `--latest` showed the TUI's own
+  run instead (which never spawned a server — it reused an already-
+  running one — so its `llama_server_argv` is `null`), and `--all`
+  globs `runs/*.json` files, which an orphan run never gets one of.
+  `codey-metrics doctor` DID correctly flag it as an orphan run (2
+  orphans, 5 hard violations), but the primary "did the argv-capture
+  goal actually land" inspection path (`provenance --latest`/`--all`)
+  fails silently. **This upgrades the finding: on this device, T9's
+  stated end-to-end goal — "capture argv into run provenance," visible
+  via `codey-metrics provenance` — does not hold on the real default
+  startup path.** This is not the `main.py --init/--tdd/--fix` case
+  above (those remain separately real, just less common); this is the
+  actual common case.
+- **Fix direction:** add a `record_run_start()` call to
+  `Codey-Aigentik/index.js`'s delegated `ensure_model('primary')`
+  invocation (or, more robustly, to `core/loader_v2.py`'s
+  `ensure_model()`/`load_primary()` itself, as a fallback for ANY
+  caller that reaches it without having called `record_run_start()`
+  first — this would also close the `main.py` one-shot-flags and
+  `core/lora_import.py` residuals in one place rather than patching
+  each call site individually). A loader-side fallback is likely the
+  more maintainable fix given a 4th previously-undisclosed call site
+  was found on the first live test — there is no confidence the
+  enumerated list of callers is now complete.
 - **Cross-reference:** `core/loader_v2.py`, `main.py`,
-  `core/lora_import.py`; T9 in `CODEY_MASTER_PLAN.md` Appendix A.
+  `core/lora_import.py`, `Codey-Aigentik/index.js`; T9 in
+  `CODEY_MASTER_PLAN.md` Appendix A;
+  `.claude/agent-memory/code-reviewer/telemetry_t9_loader_argv_provenance_scope_gap.md`.
 
 ### [NEW-359] T9's new `_emit_gate_telemetry()` call in `load_primary()` sits inside the pre-existing reserve→spawn→confirm slot-leak-guard's gap window
 - **Status:** Confirmed, non-blocking (telemetry T9, 2026-09-04,

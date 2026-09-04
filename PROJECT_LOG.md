@@ -10,6 +10,60 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-04 — `T9` live-verified on real device — mechanism correct, but end-to-end goal fails on the real default startup path (`NEW-358` corrected, rule 6/7)
+
+- **What was done**: a real `./codey-stop` + `./codey-start` cycle
+  (one live model-load, `free -h` recorded before/after, rule 2
+  compliant) to verify T9's argv-provenance capture actually works on
+  this device, not just against mocks. System left running normally
+  afterward, matching its pre-task state.
+- **Argv capture mechanism: verified correct.** Byte-exact match
+  confirmed between the telemetry-recorded `llama_server_argv` array
+  and `~/.codeyOS/llama-server.log`'s real "Starting llama-server: ..."
+  line. The `can_admit` gate record also verified sane (real 56-key
+  `meminfo` dict, correct `call_site`/`emitter`, `admitted=true`).
+- **T9's stated end-to-end goal does NOT hold on this device's real
+  default path.** A 4th call site into `core/loader_v2.py`, never
+  enumerated by the code-review pass, actually won the model-load race
+  on this restart: `Codey-Aigentik/index.js:221` shells out a bare
+  `python3 -c "...get_loader().ensure_model('primary')"` one-liner on
+  Aigentik's own startup. It isn't `main.py`, isn't `core/daemon.py`,
+  and never calls `record_run_start()` — so its correctly-captured
+  argv landed on an orphan run_id, invisible to both `codey-metrics
+  provenance --latest` (which showed the TUI's own run instead, with
+  `llama_server_argv: null` since the TUI reused an already-running
+  server rather than spawning one) and `--all` (which globs
+  `runs/*.json` files an orphan run never gets). `codey-metrics
+  doctor` DID correctly flag it — 2 orphan runs, 5 hard violations —
+  but the primary inspection path a user would actually reach for
+  fails silently.
+- **Why this matters beyond just T9**: the code-review round's
+  `NEW-358` finding (caught in review, before this live test) had
+  already found this exact orphan-record risk was broader than the
+  implementer's docstring first claimed — reachable on `main.py`'s
+  `--init`/`--tdd`/`--fix` flags, not just the originally-disclosed
+  `core/lora_import.py` callers. This live test found the risk is
+  broader still: a 4th call site neither the implementer nor the
+  reviewer had enumerated, and — critically — the one that actually
+  wins on this device's real, everyday startup, not an edge case. Per
+  CLAUDE.md's own `NEW-259` precedent (code-complete + 2 reviewer
+  passes still shipped 2 real bugs, both caught only by attempting live
+  verification): this is the same shape of gap, found the same way.
+- **`NEW-358` corrected** (rule 6) with the full live-verify mechanism
+  and an updated fix direction — favoring a loader-side fallback
+  (`ensure_model()`/`load_primary()` calling `record_run_start()` for
+  ANY caller that reaches it without one already, rather than patching
+  each of the now 3 known gap call sites individually), since a 4th
+  previously-undisclosed caller surfacing on the very first live test
+  means there's no confidence the enumerated list is complete.
+- **`CODEY_MASTER_PLAN.md`'s T9 entry updated** to explicitly mark this
+  PARTIAL live-verify result, distinguishing code-complete/approved from
+  live-verified-working-end-to-end per rule 7.
+- **Not fixed this round** — this was a verification pass, not an
+  implementation task; a fix needs its own scoping (loader-side
+  fallback vs. patching each call site) before the architect→
+  implementer→code-reviewer pipeline runs again.
+
 ## 2026-09-04 — Telemetry `T9` (category B + argv provenance, `core/loader_v2.py`) code-complete + code-reviewer APPROVED (2 rounds) — **entire T0-T9 telemetry rollout closed**
 
 - **Status**: **Code-complete + code-reviewer APPROVED, no live model
