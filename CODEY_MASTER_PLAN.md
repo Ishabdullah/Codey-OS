@@ -6201,8 +6201,18 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       argument-order bug in `routes.py`, pre-existing since `69b0346`,
       unrelated to telemetry. Other findings: `NEW-332`..`NEW-335`
       (all non-blocking).
-- [ ] **T4** — `codey-metrics` CLI + rollups + rotation. Offline,
-      read-mostly over the store. `install.sh` update per rule 11.
+- [x] **T4** — `codey-metrics` CLI + rollups + rotation. **DONE
+      2026-09-04, code-complete + code-reviewer APPROVED** (2 rounds —
+      round 1 found 2 real CLI bugs uncovered by the original tests,
+      round 2 fixed both + a comment-staleness nit). Full suite
+      1362/0/1. Rotation (the layer's one destructive operation) got the
+      deepest scrutiny — atomic writes, exact event_id-set crash-recovery
+      comparison (a count-only comparison would have silently destroyed
+      records; caught and fixed during implementer self-review, verified
+      independently by code-reviewer). `install.sh` updated per rule 11.
+      Findings: `NEW-336`..`NEW-340` (all non-blocking; `NEW-339`
+      flagged as needing a real fix before any future consumer parses
+      `provenance --all --json`).
 - [ ] **T5** — category A at `core/inference_hybrid.py`. **Rule-4
       (inference hot path).**
 - [ ] **T6** — category A+B at `core/plannd.py`. **Rule-4.**

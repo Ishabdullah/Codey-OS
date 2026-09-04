@@ -10,6 +10,64 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-04 — Telemetry `T4` (`codey-metrics` CLI, rollups, rotation) code-complete + code-reviewer APPROVED — B6.2c still next, untouched
+
+- **Status**: **Code-complete + code-reviewer APPROVED, no live-model
+  component so no live-verification tier applies.** Full suite `pytest
+  tests/ -q`: **1362 passed, 0 failed, 1 skipped.**
+- **Scope**: `telemetry/cli.py` (`codey-metrics` subcommands: summary,
+  export, provenance, status, doctor, rollup, rotate, schema),
+  `telemetry/rollup.py` (`rollups.db` — correctly treated as a
+  rebuildable derived cache, never claimed as evidence, per design §8
+  item 9), `telemetry/rotate.py` (day-directory archival to
+  gzip-compressed `.tar.gz`, per §8 item 6), `codey-metrics` entry
+  script, `install.sh` updated at all three rule-11 sites. 110
+  telemetry tests (+37 this round).
+- **The one destructive operation in the whole telemetry layer** —
+  rotation — got the deepest review scrutiny. Never touches the current
+  day's active file; atomic write pattern confirmed matching T0/T2's
+  established idiom; crash-recovery path uses an exact `event_id`-SET
+  comparison (not record count) between an existing archive and its
+  source, closing a real bug the implementer caught and fixed during
+  self-review (a count-only comparison couldn't distinguish "archive
+  already correct, cleanup just hadn't run" from "source now holds
+  different records with the same count," which would have silently
+  destroyed real records by trusting a stale archive) — verified
+  independently by code-reviewer via live reproduction, not just
+  reading the diff.
+- **Review round 1 (APPROVED WITH WARNINGS)**: two real bugs found,
+  uncovered by the 34 original tests, neither touching the destructive
+  rotation path: `codey-metrics --help`/`-h` silently rewritten to
+  `summary --help` by the argv-prepend logic (added earlier to fix a
+  genuine argparse subparser-default collision), making the top-level
+  subcommand list unreachable; `provenance --all` used a short-circuiting
+  `rc = rc or _print_run(...)` that stopped processing/printing every
+  run after the first one with no data.
+- **Fix + review round 2 (CHANGES REQUESTED on a comment-staleness
+  nit, then APPROVED)**: both bugs fixed, each verified with a genuine
+  red→green test the reviewer reproduced independently (reverted the
+  fix, confirmed the exact predicted failure, restored, confirmed
+  green). Reviewer additionally found this round's own fix made a code
+  comment stale (rule 6) — corrected directly by the coordinator, two
+  lines, no logic change.
+- **New findings logged** (rule 8, non-blocking): `NEW-336` (read-only
+  subcommands aren't lock-protected against a concurrent `rotate`'s
+  `rmtree` — read-consistency gap, not data loss), `NEW-337` (latent,
+  confirmed-unreachable non-`.jsonl`-file rmtree path), `NEW-338`
+  (`doctor`'s `orphan_runs` hard-violation policy needs re-evaluation
+  once T5-T9 wire in new emitters), `NEW-339` (`provenance --all --json`
+  produces neither valid JSON nor valid JSONL — pre-existing, made more
+  reachable by this round's own bug-2 fix, must be fixed before any
+  future consumer parses it), `NEW-340` (the real on-device
+  `~/.codeyOS/metrics/` store contains synthetic-looking pre-existing
+  test data from an earlier round, causing `doctor` to report hard
+  violations against real data — confirmed not from this session's
+  tests).
+- **Next step**: T5 — category A at `core/inference_hybrid.py`. **First
+  rule-4-gated sub-task** — requires a code-reviewer pass on the
+  inference hot path itself. **B6.2c (Appendix A) remains separately
+  queued and untouched by this round.**
+
 ## 2026-09-04 — Telemetry `T3` (inference events at Core AI proxy) code-complete + code-reviewer APPROVED (round 3) — B6.2c still next, untouched
 
 - **Status**: **Code-complete + code-reviewer APPROVED, no live-model

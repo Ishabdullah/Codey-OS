@@ -14443,3 +14443,87 @@ outside that fix's scope.
   schema-version bump on its own.
 - **Cross-reference:** `restoricon_core/api/routes.py`,
   `telemetry/recorders.py`.
+
+### [NEW-336] `telemetry/rotate.py`'s docstring implies read-only `codey-metrics` subcommands are lock-protected against a concurrent `rotate`'s `rmtree` — they aren't
+- **Status:** Confirmed (telemetry T4, 2026-09-04, code-reviewer approved
+  round).
+- **Mechanism:** `rotate`/`rollup` take `.rotate.lock` (non-blocking
+  `flock`) before touching a day directory. Read-only subcommands
+  (`summary`/`export`/`status`/`doctor`/`provenance`) do NOT take this
+  lock, so a `rotate` running concurrently could `rmtree` a day
+  directory mid-read by one of these — a read-consistency gap (a
+  possible partial/inconsistent read), not data loss (rotation itself
+  is still safe per the verified event_id-set check).
+- **Impact:** low — a narrow race window, and the worst case is a
+  transient read glitch in a diagnostic command, not corrupted evidence.
+- **Fix direction:** either have read-only subcommands take a shared
+  (non-exclusive) lock, or document the race explicitly rather than
+  implying full protection. Opportunistic.
+- **Cross-reference:** `telemetry/rotate.py`, `telemetry/cli.py`.
+
+### [NEW-337] `telemetry/rotate.py` has a latent, currently-unreachable code path for `rmtree`-ing a day directory containing a non-`.jsonl` file
+- **Status:** Confirmed/latent (telemetry T4, 2026-09-04, code-reviewer
+  approved round). Confirmed unreachable today — no current emitter
+  writes anything but `.jsonl` files into a day directory.
+- **Impact:** none today.
+- **Fix direction:** none needed unless a future emitter writes a
+  different file type into a day directory; revisit then.
+- **Cross-reference:** `telemetry/rotate.py`.
+
+### [NEW-338] `codey-metrics doctor`'s `orphan_runs` hard-violation policy will need re-evaluation once T5-T9 wire in new emitters
+- **Status:** Confirmed, policy question not a bug (telemetry T4,
+  2026-09-04, code-reviewer approved round).
+- **Mechanism:** `doctor` treats any event whose `run_id` has no
+  matching `run_start` record as a hard violation (non-zero exit).
+  Correct today (only T2's Core API/TUI/Aigentik emitters exist, all of
+  which call `record_run_start()`), but T5-T9 will add emitters
+  (`inference_hybrid.py`, `plannd.py`, `task_executor.py`/`agent.py`,
+  `daemon.py`, `loader_v2.py`) — if any of those legitimately produce
+  events before/without a `run_start` in some startup ordering, this
+  hard-fail would become a false positive.
+- **Impact:** none today; a forward-looking risk for T5-T9.
+- **Fix direction:** re-check this policy specifically when T5-T9 land,
+  before relying on `doctor`'s exit code in any automation.
+- **Cross-reference:** `telemetry/cli.py`'s `cmd_doctor`.
+
+### [NEW-339] `provenance --all --json` output is neither valid JSON nor valid JSONL
+- **Status:** Confirmed (telemetry T4, 2026-09-04, code-reviewer approved
+  round). Pre-existing in the original T4 build, not introduced by the
+  round-2 `--all` short-circuit fix — but that fix makes the invalid
+  output reachable in a superset of cases (a no-data run early in sort
+  order no longer truncates the run list, so more objects now print per
+  invocation).
+- **Mechanism:** each run in `--all --json` mode prints its own
+  `json.dumps(..., indent=2)` pretty-printed object, separated by a
+  no-op `print("" if not args.json else "")` (both branches produce the
+  same blank line), plus a plain-text `no provenance found for
+  run_id=...` line even in `--json` mode for a no-data run. The combined
+  output is neither one valid JSON document nor valid JSONL (one object
+  per line).
+- **Impact:** no consumer parses this output programmatically yet
+  (pre-T5). Will break the first thing that tries to.
+- **Fix direction:** emit either a single JSON array of run objects, or
+  genuine JSONL (one compact object per line, no pretty-printing, no
+  blank-line separators, no plain-text lines in `--json` mode). Fix
+  before any T5-T9 consumer parses this output.
+- **Cross-reference:** `telemetry/cli.py`'s `cmd_provenance`/`_print_run`.
+
+### [NEW-340] Real `~/.codeyOS/metrics/` store contains synthetic test-looking data (`deadbeefdeadbeef` run IDs), causing `codey-metrics doctor` to report hard violations against the live store
+- **Status:** Confirmed (telemetry T4, 2026-09-04, code-reviewer approved
+  round). Confirmed NOT produced by this session's test suite
+  (`grep -rl deadbeefdeadbeef tests/` → no match) — pre-existing
+  pollution from an earlier live-verification round.
+- **Mechanism:** synthetic-looking records (`deadbeefdeadbeef` run IDs,
+  `pid: 333`, `started_ts_wall: 1234567890.0`) live in the real,
+  on-device `~/.codeyOS/metrics/` store. Running `codey-metrics doctor`
+  against the real store (as opposed to an isolated test fixture)
+  reports `hard violations: 3` because of this planted-looking data.
+- **Impact:** none on the telemetry layer's correctness — this is stale
+  data in the store, not a bug in `doctor` or the recorders. But it
+  means `doctor`'s output against the real device store is not currently
+  clean, which could mask a genuine future violation in the noise.
+- **Fix direction:** identify and remove the specific polluting records
+  (or the whole day's file, if isolated) from the real store; determine
+  which earlier live-verification round wrote them so the same mistake
+  isn't repeated.
+- **Cross-reference:** `~/.codeyOS/metrics/`.

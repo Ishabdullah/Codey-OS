@@ -1,0 +1,16 @@
+#!/data/data/com.termux/files/usr/bin/bash
+#
+# codey-metrics - Codey-OS telemetry CLI (T4)
+#
+# Thin wrapper matching the codey-start/codey-stop convention: resolves
+# the repo root from this script's own location, then execs
+# `python3 -m telemetry.cli` from there so the `telemetry` package and
+# `utils.config` import cleanly regardless of the caller's cwd. `exec`
+# (not a plain call) so the CLI's exit code — load-bearing for
+# `codey-metrics doctor`, which is specified to exit non-zero on any
+# integrity violation — propagates to the caller unchanged.
+#
+
+CODEY_OS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$CODEY_OS_DIR" || exit 1
+exec python3 -m telemetry.cli "$@"

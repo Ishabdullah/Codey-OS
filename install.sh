@@ -336,6 +336,7 @@ make_executable() {
     chmod +x "$CODEY_OS_DIR/codeydOS"
     chmod +x "$CODEY_OS_DIR/codey-start"
     chmod +x "$CODEY_OS_DIR/codey-stop"
+    chmod +x "$CODEY_OS_DIR/codey-metrics"
     chmod +x "$CODEY_OS_DIR/install.sh"
     print_success "Executable bits set"
 }
@@ -367,12 +368,12 @@ setup_symlinks() {
     fi
 
     if [ -n "$bin_dir" ]; then
-        for bin_name in codey codey-start codey-stop codeyOS codeydOS; do
+        for bin_name in codey codey-start codey-stop codey-metrics codeyOS codeydOS; do
             if [ -f "$CODEY_OS_DIR/$bin_name" ]; then
                 ln -sf "$CODEY_OS_DIR/$bin_name" "$bin_dir/$bin_name"
             fi
         done
-        print_success "Symlinks created in $bin_dir (codey, codey-start, codey-stop, codeyOS, codeydOS)"
+        print_success "Symlinks created in $bin_dir (codey, codey-start, codey-stop, codey-metrics, codeyOS, codeydOS)"
     else
         print_warning "No writable bin directory found for symlinks; relying on PATH in $SHELL_CONFIG"
     fi
@@ -428,6 +429,7 @@ verify_installation() {
     command -v codeydOS     &>/dev/null && print_success "codeydOS:     in PATH"  || print_warning "codeydOS:     not in PATH yet (restart terminal)"
     command -v codey-start  &>/dev/null && print_success "codey-start:  in PATH"  || print_warning "codey-start:  not in PATH yet (restart terminal)"
     command -v codey-stop   &>/dev/null && print_success "codey-stop:   in PATH"  || print_warning "codey-stop:   not in PATH yet (restart terminal)"
+    command -v codey-metrics &>/dev/null && print_success "codey-metrics: in PATH" || print_warning "codey-metrics: not in PATH yet (restart terminal)"
 }
 
 # ── 8. Completion message ─────────────────────────────────────────────────────
