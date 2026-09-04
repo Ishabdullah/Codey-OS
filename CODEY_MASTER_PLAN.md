@@ -6185,10 +6185,22 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       nested-null validator gap, pre-existing cpu_core_count gap,
       bounded digest-cache tmp-file race, `start()` re-entrancy gap,
       one docstring wording fix).
-- [ ] **T3** — category A (inference events) at the Core AI proxy
-      (`restoricon_core/api/routes.py`'s `/api/v1/ai/chat`) — single site
-      captures every Aigentik local-model completion server-side with
-      full `timings`.
+- [x] **T3** — category A (inference events) at the Core AI proxy.
+      **DONE 2026-09-04, code-complete + code-reviewer APPROVED (round
+      3, after two CHANGES-REQUESTED rounds).** `restoricon_core/api/routes.py`'s
+      `/api/v1/ai/chat` emits an `inference`/`completion` record from
+      real `timings` after `resp_data` is parsed — passive, RBAC
+      untouched. Full suite deterministic at 1325/0/1 (two runs).
+      Round 1 fixed a `prefix_cache_hit` honest-null gap; round 2 fixed
+      4 new tests that depended on live device RAM state instead of
+      mocking the real admission gate. **Bycatch**: root-caused and
+      resolved `NEW-280` (the "2 pre-existing failures" cited in
+      T0–T2 above was this exact known flake, not a stable baseline —
+      corrected per rule 6); root-caused (not fixed) `NEW-277`'s
+      187-scratch-directory mystery — a real `release_context_budget()`
+      argument-order bug in `routes.py`, pre-existing since `69b0346`,
+      unrelated to telemetry. Other findings: `NEW-332`..`NEW-335`
+      (all non-blocking).
 - [ ] **T4** — `codey-metrics` CLI + rollups + rotation. Offline,
       read-mostly over the store. `install.sh` update per rule 11.
 - [ ] **T5** — category A at `core/inference_hybrid.py`. **Rule-4

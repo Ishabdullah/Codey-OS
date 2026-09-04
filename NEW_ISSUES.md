@@ -13072,11 +13072,43 @@ outside that fix's scope.
 - **Not fixed this round** — planning task, docs-only.
 
 ### [NEW-277] 187 gitignored 32-hex-char scratch directories have accumulated in the repo root
-- **Status:** Suspected (cleanup-discipline issue; no functional impact observed).
-- **Mechanism:** the repo root holds 187 directories matching `[0-9a-f]{32}`, each containing `resource_bus.db`/`resource_bus.lock`. `.gitignore:44` already excludes the pattern, so the tree stays clean in git — but the directories are never removed, and timestamps show them accruing across sessions (many within the same hour). Presumably per-run scratch state from `core/resource_bus.py` or its tests.
-- **Impact:** none on correctness. It makes `ls` in the repo root unusable without filtering, and it is unbounded growth on a phone's storage.
-- **Fix direction:** have whatever creates them remove them on teardown, or relocate them under a single scratch parent directory outside the repo root. Needs a look at `resource_bus.py`'s own lifecycle before choosing — not guessed at here.
-- **Not fixed this round** — entirely outside a docs-only planning task's scope; logged per Rule 8 rather than silently dropped.
+- **Status:** **Confirmed, root cause found (telemetry T3 review round,
+  2026-09-04).** Upgraded from Suspected — was previously "presumably
+  per-run scratch state... not guessed at here"; the actual mechanism is
+  now traced and reproduced, not guessed.
+- **Root cause:** `restoricon_core/api/routes.py`'s `/api/v1/ai/chat`
+  handler calls `release_context_budget(port, reservation_id)` in its
+  cleanup path, but the real function signature (`core/resource_gate.py`)
+  is `release_context_budget(reservation_id: str, state_dir:
+  Optional[Path] = None)` — the call passes the arguments **swapped**:
+  an `int` port where `reservation_id` is expected, and the real
+  reservation-id string where `state_dir` (a `Path`) is expected.
+  **Corrected mechanism** (an earlier characterization of this call site
+  guessed "raises `TypeError`, silently swallowed" — independently traced
+  and reproduced, that guess was wrong): `Path(<uuid-string>)` is a
+  perfectly valid `Path` construction, so **no exception fires**. Instead
+  the mis-typed `state_dir` causes the function to resolve a *new*,
+  wrong `resource_bus.db`/`resource_bus.lock` location keyed off the
+  reservation-id string, silently creating one of these 32-hex-char
+  directories as a side effect and returning `False` (release failed) —
+  every single call to this endpoint's cleanup path litters one new
+  directory and never actually releases the real reservation. Confirmed
+  live: 72 of these directories existed in the repo root at review time
+  (up from the 187 originally counted, some presumably cleaned since —
+  still unbounded growth from an active, still-firing bug).
+  **Pre-existing since commit `69b0346` (2026-08-31) — not introduced by
+  any of today's T0–T3 telemetry work.** Zero test coverage in either
+  direction (no test exercises this cleanup path at all).
+- **Impact:** two-fold. (1) Unbounded scratch-directory growth on a
+  phone's storage, as originally logged. (2) **More serious than
+  originally scoped**: this endpoint's context-budget reservations are
+  never actually released — every `/api/v1/ai/chat` call plausibly
+  leaks a ledger entry, which is a real candidate contributing cause for
+  spurious admission refusals (`429`s) under sustained load elsewhere in
+  the system (an independent, plausible link — not proven causal — to
+  why new T3 tests hitting the real gate saw real refusals).
+- **Fix direction:** swap the call to `release_context_budget(reservation_id, state_dir=None)` (or whatever the correct `state_dir` value should be at this call site — check other correct call sites first). Add a test exercising this cleanup path (currently has none). **Rule-4 category** if the fix touches `core/resource_gate.py`; if it's purely the call-site argument order in `routes.py`, still process-lifecycle-adjacent and warrants a code-reviewer pass given the leak's severity.
+- **Not fixed this round** — pre-existing, unrelated to telemetry work; logged per rule 8 rather than silently fixed as a drive-by.
 
 ## Found while clearing the persistently-dirty working tree, 2026-09-02 — logged per Rule 8
 
@@ -13113,7 +13145,23 @@ outside that fix's scope.
 - **Impact:** two failing tests in every full-suite run performed on a device where the normal `codey start` stack is up — i.e. the ordinary state of this phone. This is expected-noise of the `NEW-150` family: it trains readers to skim past red, which is the real cost.
 - **Proof it is environmental, not a regression:** a `git worktree` was created at `HEAD` (verified pre-change by `grep -c is_gui_client_connected core/resource_gate.py` → 2) and both tests failed there identically. Recorded because "pre-existing" is exactly the kind of claim rules 5/6 require evidence for rather than assertion.
 - **Fix direction (corrected 2026-09-02 after code-reviewer challenge — the first version of this line named the wrong gate):** the adopt branch is gated on `self._port_is_bound() and self._check_health()` at `core/embed_server.py:83`. The tests already patch `_is_port_open`, which is a **different method** and does not affect that gate at all — so "patch `_is_port_open`" was not a fix, it was a description of what the tests already do ineffectively. Patch **`_port_is_bound`** (or `_port_is_bound` together with `_check_health`) so the adopt branch cannot be entered, or point the test at a port guaranteed unused. Do **not** "fix" it by stopping the real embed server before test runs; that hides the coupling instead of removing it.
-- **Not fixed this round** — out of scope for a GUI removal.
+- **Status: RESOLVED 2026-09-04** (telemetry T3 review round). Fix
+  applied exactly as directed above — both tests now also patch
+  `_port_is_bound` to `False`, alongside the existing `_check_health`
+  patch. **Live-verified under the exact forcing condition**: a real
+  socket was bound to `127.0.0.1:8082` and both tests re-run — they now
+  pass despite the port being genuinely occupied, closing the gap this
+  finding describes. `git diff --stat` confirms only
+  `tests/test_loader_resource_gate.py` touched — no change to
+  `core/embed_server.py` or `core/resource_gate.py`.
+  **Correction to the record (rule 6):** `PROJECT_LOG.md`'s telemetry
+  T0/T1/T2 entries (2026-09-03) carried forward "2 pre-existing,
+  unrelated failures in `test_loader_resource_gate.py`" as a stable
+  baseline without citing this finding by ID — that framing was
+  misleading; it was always this specific, already-diagnosed flake, not
+  a stable, unexplained baseline. Two clean full-suite runs
+  post-fix (`1325 passed, 0 failed, 1 skipped`, twice back-to-back)
+  confirm the fix, not luck.
 
 ### [NEW-281] `codey config` prints the live Cloudflare tunnel token in plaintext, including into agent transcripts
 - **Status:** Confirmed (observed directly while smoke-testing the `config` subcommand during the 2026-09-02 GUI-removal round; the token value is deliberately NOT reproduced here).
@@ -14300,3 +14348,98 @@ outside that fix's scope.
 - **Impact:** none — documentation-only mismatch, no behavioral gap.
 - **Fix direction:** correct the docstring wording when next touched.
 - **Cross-reference:** `tests/conftest.py`.
+
+### [NEW-332] llama.cpp's `cache_n` has an uninitialized `-1` sentinel default that could flow into `cached_prompt_tokens` as a wrong value, undetected by schema validation
+- **Status:** Confirmed/latent (telemetry T3, 2026-09-04, code-reviewer
+  approved round). The **missing-key** form of this concern is
+  unreachable (verified directly against
+  `~/llama.cpp/tools/server/server-task.h:262-280` and
+  `server-task.cpp:240-261`: `result_timings::to_json()` puts `cache_n`
+  in the unconditional base JSON object, unlike `draft_n`/
+  `draft_n_accepted` which are genuinely optional) — but the struct
+  declares `int32_t cache_n = -1` as its uninitialized default.
+- **Mechanism:** if `cache_n` is ever left at its `-1` default (rather
+  than genuinely absent), it flows through `routes.py`'s
+  `_emit_ai_chat_telemetry` into `cached_prompt_tokens` as the literal
+  value `-1`, not `None`. `telemetry/schema/v1.json` declares
+  `cached_prompt_tokens` as `{"type": "int", "nullable": true}` with no
+  range check, so a `-1` sentinel passes schema validation silently —
+  a wrong VALUE slipping through as if genuine, distinct from (and not
+  caught by) the honest-null mechanism that governs missing/absent
+  fields.
+- **Impact:** none observed in practice — would require llama.cpp to
+  return `timings` with `cache_n` still at its struct default, which
+  isn't expected in normal operation.
+- **Fix direction:** add a range/sanity check (`cache_n >= 0`) to the
+  schema or to `_emit_ai_chat_telemetry`'s parsing, treating a negative
+  value as a null with a reason (e.g. `server_cache_n_sentinel`), when
+  next touched.
+- **Cross-reference:** `restoricon_core/api/routes.py`,
+  `telemetry/schema/v1.json`, `docs/telemetry_layer_design.md` §0 fact
+  0.4.
+
+### [NEW-333] `restoricon_core/api/routes.py`'s ai-chat proxy reads a `PRIMARY_SERVER_PORT` env var that nothing in the codebase ever sets
+- **Status:** Confirmed (telemetry T3, 2026-09-04, code-reviewer approved
+  round, independently re-grepped). Pre-existing, untouched by T3's diff.
+- **Mechanism:** `os.getenv("PRIMARY_SERVER_PORT", "8080")` always
+  silently falls back to `"8080"` — the real config path is
+  `CODEY_PRIMARY_PORT` → `utils/config.py`'s `PRIMARY_SERVER_PORT`,
+  used correctly everywhere else in `core/`. This one call site never
+  reads the actual configured value.
+- **Impact:** if `CODEY_PRIMARY_PORT` is ever overridden away from the
+  default `8080`, this proxy silently talks to the wrong port while
+  telemetry's `model_file` field (from `utils.config.MODEL_PATH`) would
+  no longer reliably describe what's actually being served.
+- **Fix direction:** use `utils.config.PRIMARY_SERVER_PORT` at this call
+  site instead of a raw `os.getenv`, when next touched.
+- **Cross-reference:** `restoricon_core/api/routes.py`,
+  `utils/config.py`.
+
+### [NEW-334] `test_api_ai_chat_auth_and_validation`'s "successful proxy" case never actually exercises the real server-side proxy path
+- **Status:** Confirmed (telemetry T3, 2026-09-04, code-reviewer approved
+  round, independently verified). Pre-existing test-quality gap; this
+  is what let `NEW-332`-adjacent proxy behavior go unverified and let
+  the four new T3 tests (which DO reach the real path) be the first to
+  actually exercise it.
+- **Mechanism:** the test's `monkeypatch.setattr(urllib.request,
+  "urlopen", mock_urlopen)` is unconditional. This file's own HTTP test
+  client (`make_request()`) also calls `urllib.request.urlopen` to reach
+  the local test server, so the patch intercepts the *client's* request
+  too — the test only passes because the canned mock response
+  coincidentally satisfies its own assertions, never because the
+  server-side proxy code actually ran.
+- **Impact:** this section of the test has provided false confidence
+  about the real proxy path for as long as it's existed. The new T3
+  tests use a path-conditional mock instead (only intercepting the
+  actual upstream `/v1/chat/completions` call, passing everything else
+  through to the real `urlopen`) and are the first tests in the repo to
+  genuinely exercise this code path.
+- **Fix direction:** rewrite the "successful proxy" case using the same
+  path-conditional mock pattern the new T3 tests established
+  (`tests/test_restoricon_core/test_api.py`'s
+  `test_api_ai_chat_emits_category_a_telemetry_on_success` and
+  neighbors), when next touched.
+- **Cross-reference:** `tests/test_restoricon_core/test_api.py`.
+
+### [NEW-335] `_emit_ai_chat_telemetry`'s `n_ctx`/`queue_wait_ms` silently omitted (not null-with-reason) on the `core.resource_gate` `ImportError` fallback branch
+- **Status:** Confirmed/latent, effectively unreachable (telemetry T3,
+  2026-09-04, code-reviewer approved round).
+- **Mechanism:** if `from core.resource_gate import ...` raises
+  `ImportError` inside `restoricon_core/api/routes.py`'s ai-chat
+  handler, execution falls through with `budget_decision`/
+  `reservation_id` left `None`; `n_ctx` is then passed as `None` to
+  `_emit_ai_chat_telemetry` with no matching `nulls` entry, so `_emit()`
+  prunes it from the record entirely instead of keeping it as a named
+  null — the same invisible-omission shape T0's original review round
+  caught in `record_run_start`, but here on a branch this same process
+  already has a hard dependency on (the Core API process imports
+  `core.resource_gate` for the admission gate immediately before this
+  code runs), making a real `ImportError` here close to impossible in
+  production.
+- **Impact:** none observed; latent only.
+- **Fix direction:** add a reason code (e.g.
+  `resource_gate_unavailable`) mirroring the existing pattern, if this
+  schema is ever revised for other reasons. Not worth a dedicated
+  schema-version bump on its own.
+- **Cross-reference:** `restoricon_core/api/routes.py`,
+  `telemetry/recorders.py`.

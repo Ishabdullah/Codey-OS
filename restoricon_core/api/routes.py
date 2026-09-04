@@ -5,9 +5,12 @@ Exposes JSON REST endpoints with strict Bearer token authentication and RBAC.
 
 import json
 import os
+import re
+import time
 import urllib.error
 import urllib.request
-from typing import Any, Dict, Optional, Tuple
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
 from ..auth import (
@@ -58,6 +61,183 @@ from ..services.finance_service import FinanceService
 from ..services.operations_service import OperationsService
 from ..services.scheduling_service import SchedulingService
 from .web_surfaces import render_admin_surface, render_portal_surface, render_login_surface, render_quote_surface
+
+
+_MODEL_QUANT_RE = re.compile(r"(Q\d+(?:_[A-Z0-9]+)*|F16|F32|BF16)", re.IGNORECASE)
+
+
+def _parse_model_quant(model_path: str) -> Optional[str]:
+    """Best-effort quantization label parsed from a GGUF filename (design
+    §2.A `model_quant`: 'Parsed from the GGUF filename; null if
+    unparseable'). Returns None (not a guess) when no recognizable
+    quant/precision token is found."""
+    match = _MODEL_QUANT_RE.search(Path(model_path).name)
+    return match.group(1).upper() if match else None
+
+
+def _emit_ai_chat_telemetry(
+    *,
+    resp_data: Dict[str, Any],
+    messages: List[Dict[str, Any]],
+    max_tokens: int,
+    enable_thinking: bool,
+    wall_ms: float,
+    queue_wait_ms: Optional[float],
+    n_ctx: Optional[int],
+    interactive: bool,
+) -> None:
+    """
+    Category-A inference telemetry (docs/telemetry_layer_design.md §2.A,
+    sub-task T3). Called once, after `resp_data` is fully parsed and
+    before it is returned to the caller (design fact 0.18 / §5.1's
+    explicit ruling that this call site is a passive read of an
+    already-completed response, not an instrumentation point that may
+    change control flow).
+
+    `interactive` is captured by the CALLER at request start (design
+    §2.A: "`is_interactive_session_active()` at request start"), not
+    here -- this function runs after the up-to-180s `urlopen` call, and
+    the TUI session state can change during that window, so capturing it
+    here would timestamp the wrong instant.
+
+    Local imports and a broad `except Exception` around the whole body,
+    matching `server.py`'s `_record_telemetry_run_start()`: telemetry is
+    a diagnostic add-on here, never allowed to affect the actual
+    `/api/v1/ai/chat` response. Every function this reaches
+    (`telemetry.recorders.record_inference_completion` and
+    `telemetry.store.record`) is already internally exception-proof by
+    its own contract (T0); this is belt-and-braces on top of that for the
+    same reason `server.py`'s comment gives, not a substitute for it.
+
+    Fields this call site genuinely cannot determine are recorded as an
+    honest null with a reason from the closed set (schema §2.0.1) rather
+    than guessed:
+      - `role`: nothing in the request body or Aigentik's `chat()` call
+        chain threads a role/task-type through to this endpoint today
+        (verified: `Codey-Aigentik/llama.js`'s `chatLocal()` does not
+        forward its optional `meta` param into the Core API request
+        body) -> `call_site_not_yet_tagged`.
+      - `model_sha256`: the digest cache is populated by
+        `telemetry.provenance`'s background hasher at process start
+        (T2), never computed synchronously on this request path (design
+        fact 0.23 forbids a ~5.2s synchronous hash here) ->
+        `model_sha256_not_computed`.
+      - prefill/generation throughput and `cached_prompt_tokens`: only
+        derivable from llama-server's own `timings` block (design
+        constraint 2 -- never wall-clock arithmetic); null with
+        `server_timings_absent` when `timings` is absent from the
+        response.
+
+    `completion_failed` (§2.A's other `event_type`) is out of T3's scope
+    -- this sub-task is only the post-`resp_data` success path (the
+    design's own T3 row: "Emit A from /api/v1/ai/chat after resp_data is
+    parsed"). The existing except/HTTPError branches below this call site
+    are unchanged and do not emit telemetry.
+    """
+    try:
+        from telemetry import store
+
+        # Checked first, before any other work (schema/recorders import,
+        # nulls-dict construction, prompt_chars summation, MODEL_PATH
+        # resolution) -- design §5.3: "checked once ... a single
+        # predictable branch ... no object construction" -- and required
+        # for §5.4's OFF-arm-must-be-zero measurement procedure. Mirrors
+        # telemetry.recorders.record_run_start()'s own early return.
+        if not store.TELEMETRY_ENABLED:
+            return
+
+        from telemetry import recorders
+        from utils.config import MODEL_PATH
+
+        timings = resp_data.get("timings") or {}
+        usage = resp_data.get("usage") or {}
+        choices = resp_data.get("choices") or []
+        finish_reason = choices[0].get("finish_reason") if choices else None
+
+        nulls: Dict[str, str] = {
+            "body.role": "call_site_not_yet_tagged",
+            "body.model_sha256": "model_sha256_not_computed",
+            # No first-token boundary exists on this blocking (non-
+            # streaming) proxy path -- design §2.A's own ruling for the
+            # blocking path is to record this null with the same reason
+            # used when timings are absent, not to fake a value.
+            "body.ttft_ms": "server_timings_absent",
+        }
+
+        if timings:
+            prompt_tokens = timings.get("prompt_n")
+            completion_tokens = timings.get("predicted_n")
+            cached_prompt_tokens = timings.get("cache_n")
+            prefill_tps = timings.get("prompt_per_second")
+            generation_tps = timings.get("predicted_per_second")
+            prefill_ms = timings.get("prompt_ms")
+            generation_ms = timings.get("predicted_ms")
+            prompt_per_token_ms = timings.get("prompt_per_token_ms")
+            predicted_per_token_ms = timings.get("predicted_per_token_ms")
+        else:
+            # Never back-computed from wall_ms (design constraint 2) --
+            # honest nulls for every timings-derived field instead.
+            prompt_tokens = usage.get("prompt_tokens")
+            completion_tokens = usage.get("completion_tokens")
+            cached_prompt_tokens = None
+            prefill_tps = None
+            generation_tps = None
+            prefill_ms = None
+            generation_ms = None
+            prompt_per_token_ms = None
+            predicted_per_token_ms = None
+            for field in (
+                "prefill_tps", "generation_tps", "prefill_ms", "generation_ms",
+                "prompt_per_token_ms", "predicted_per_token_ms", "cached_prompt_tokens",
+                "prefix_cache_hit",
+            ):
+                nulls[f"body.{field}"] = "server_timings_absent"
+            if prompt_tokens is None:
+                nulls["body.prompt_tokens"] = "server_usage_absent"
+            if completion_tokens is None:
+                nulls["body.completion_tokens"] = "server_usage_absent"
+
+        prompt_chars = sum(
+            len(str(m.get("content", ""))) for m in messages if isinstance(m, dict)
+        )
+
+        recorders.record_inference_completion(
+            emitter="codey-os.core-api",
+            pid=os.getpid(),
+            backend="local",
+            wall_ms=wall_ms,
+            stream=False,
+            max_tokens_requested=max_tokens,
+            prompt_chars=prompt_chars,
+            message_count=len(messages),
+            thinking_mode=enable_thinking,
+            model_file=str(MODEL_PATH),
+            model_quant=_parse_model_quant(str(MODEL_PATH)),
+            n_ctx=n_ctx,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            cached_prompt_tokens=cached_prompt_tokens,
+            prefill_tps=prefill_tps,
+            generation_tps=generation_tps,
+            prefill_ms=prefill_ms,
+            generation_ms=generation_ms,
+            prompt_per_token_ms=prompt_per_token_ms,
+            predicted_per_token_ms=predicted_per_token_ms,
+            ttft_ms=None,
+            queue_wait_ms=queue_wait_ms,
+            finish_reason=finish_reason,
+            interactive=interactive,
+            server_request_id=resp_data.get("id"),
+            server_fingerprint=resp_data.get("system_fingerprint"),
+            nulls=nulls,
+        )
+    except Exception:
+        import logging
+
+        logging.getLogger("restoricon_core.api").warning(
+            "telemetry: failed to record inference-completion for /api/v1/ai/chat",
+            exc_info=True,
+        )
 
 
 class APIRouter:
@@ -1173,16 +1353,44 @@ class APIRouter:
                 port = int(os.getenv("PRIMARY_SERVER_PORT", "8080"))
                 host = os.getenv("PRIMARY_SERVER_HOST", "127.0.0.1")
 
+                # Category-A `interactive` (design §2.A) must reflect the
+                # state AT REQUEST START, not at emission time after the
+                # up-to-180s completion call below -- captured here, once,
+                # gated on the same telemetry kill switch so a disabled
+                # run pays no TUI-session-directory scan either (mirrors
+                # _emit_ai_chat_telemetry's own early-return reasoning).
+                interactive_at_request_start = False
+                try:
+                    from telemetry import store as _telemetry_store
+
+                    if _telemetry_store.TELEMETRY_ENABLED:
+                        from core.resource_gate import is_interactive_session_active
+
+                        interactive_at_request_start = is_interactive_session_active()
+                except Exception:
+                    # Never let a telemetry-only read affect the actual
+                    # request -- degrades to the safe default above.
+                    interactive_at_request_start = False
+
                 reservation_id = None
+                budget_decision = None
+                queue_wait_ms = None
                 try:
                     from core.resource_gate import (
                         release_context_budget,
                         wait_and_reserve_context_budget,
                     )
 
+                    _gate_wait_start = time.monotonic()
                     budget_decision = wait_and_reserve_context_budget(
                         port, messages, max_tokens, host=host
                     )
+                    # Passive timing read around an already-existing call --
+                    # not an instrumentation point inside the wrapper or its
+                    # lock (design §5.1's ruling: "Instrument at
+                    # wait_and_reserve_context_budget()'s return and its
+                    # call sites instead, one record per wrapper call").
+                    queue_wait_ms = (time.monotonic() - _gate_wait_start) * 1000.0
                     if not budget_decision.admitted:
                         return 429, {"Content-Type": "application/json"}, {
                             "error": f"AI model context-budget admission refused: {budget_decision.reason}"
@@ -1210,8 +1418,24 @@ class APIRouter:
                         headers={"Content-Type": "application/json"},
                         method="POST",
                     )
+                    _llm_call_start = time.monotonic()
                     with urllib.request.urlopen(req, timeout=180.0) as resp:
                         resp_data = json.loads(resp.read().decode("utf-8"))
+                        wall_ms = (time.monotonic() - _llm_call_start) * 1000.0
+                        # Category-A telemetry (T3): a passive read of
+                        # resp_data AFTER it is fully parsed -- must not
+                        # and does not change resp_data or the tuple
+                        # returned to the caller below (design fact 0.18).
+                        _emit_ai_chat_telemetry(
+                            resp_data=resp_data,
+                            messages=messages,
+                            max_tokens=max_tokens,
+                            enable_thinking=enable_thinking,
+                            wall_ms=wall_ms,
+                            queue_wait_ms=queue_wait_ms,
+                            n_ctx=budget_decision.effective_n_ctx if budget_decision else None,
+                            interactive=interactive_at_request_start,
+                        )
                         return resp.status, {"Content-Type": "application/json"}, resp_data
                 except urllib.error.HTTPError as http_err:
                     err_body = http_err.read().decode("utf-8", errors="replace")

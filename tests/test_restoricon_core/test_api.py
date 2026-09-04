@@ -6,12 +6,14 @@ and audit log generation.
 
 import json
 import socket
+import time
 import urllib.request
 import urllib.error
 import pytest
 from restoricon_core.api.server import RestoriconAPIServer
 from restoricon_core.auth import ROLE_ADMIN, ROLE_CUSTOMER, ROLE_AI_AGENT, ROLE_TECHNICIAN
 from restoricon_core.models import Customer
+from core.resource_gate import ContextBudgetDecision
 
 
 def find_free_port() -> int:
@@ -180,6 +182,29 @@ def _agent_headers(base_url):
     )
     assert status == 200
     return {"Authorization": f"Bearer {body['token']}"}
+
+
+def _mock_admitted_budget_decision(effective_n_ctx=4096, reservation_id="test-reservation-id"):
+    """Deterministic stand-in for `wait_and_reserve_context_budget()`'s
+    real return value, used by the T3 telemetry tests in this file to
+    avoid depending on real, live device RAM headroom: in isolation this
+    device has enough free RAM for the real admission gate to admit every
+    request, but deep into the full 1300+-test suite run -- with many
+    other tests' real subprocesses/servers still using RAM -- the real
+    gate can genuinely and correctly refuse admission (429), which is a
+    live-RAM-state dependency these telemetry tests must not have."""
+    return ContextBudgetDecision(
+        admitted=True,
+        reservation_id=reservation_id,
+        reserved_tokens=100,
+        effective_n_ctx=effective_n_ctx,
+        ceiling_tokens=4000,
+        slots_occupied_tokens=0,
+        other_reserved_tokens=0,
+        estimate_source="heuristic",
+        reason="test-mocked admission",
+        timed_out=False,
+    )
 
 
 def test_api_customer_and_project_get_by_id(api_server):
@@ -939,4 +964,381 @@ def test_api_ai_chat_auth_and_validation(api_server, monkeypatch):
     )
     assert status == 200
     assert body["choices"][0]["message"]["content"] == "Hello there!"
+
+
+def test_api_ai_chat_emits_category_a_telemetry_on_success(api_server, monkeypatch, tmp_path, caplog):
+    """T3 (docs/telemetry_layer_design.md §7): /api/v1/ai/chat emits a
+    category-A `inference`/`completion` record from real llama-server
+    `timings`/`usage` fields after resp_data is parsed, without changing
+    the response returned to the caller. tests/conftest.py's autouse
+    isolation fixture defaults TELEMETRY_ENABLED False and METRICS_DIR to
+    a throwaway dir for every test -- this test explicitly opts back in
+    (same pattern as tests/test_telemetry_t2_run_start.py).
+
+    `mock_urlopen` below only fakes the *server-side* proxy call to
+    llama-server (matched by the `/v1/chat/completions` path) and passes
+    every other URL through to the real `urlopen` -- unlike the existing
+    "3. Successful proxy with mocked urlopen" case in
+    `test_api_ai_chat_auth_and_validation` above, which patches
+    `urllib.request.urlopen` unconditionally. Because `make_request()`
+    (this file's own HTTP test client) also calls `urllib.request.urlopen`
+    to reach the local test server, an unconditional patch intercepts the
+    *client's* request too and never actually exercises the server code
+    at all -- it happens to still pass there only because the canned
+    response coincidentally satisfies that test's own assertions. Flagged
+    to the coordinator as a pre-existing test gap (out of T3's scope), not
+    fixed here beyond not repeating it in this new test."""
+    from telemetry import envelope, schema, store
+
+    caplog.set_level("WARNING")
+    envelope.reset_seq()
+    store.reset_for_tests()
+    monkeypatch.setattr(store, "TELEMETRY_ENABLED", True)
+    monkeypatch.setattr(store, "METRICS_DIR", tmp_path)
+    # Admission gate: mocked so this test is deterministic regardless of
+    # real device RAM state at test time -- see _mock_admitted_budget_decision()'s
+    # own docstring.
+    monkeypatch.setattr(
+        "core.resource_gate.wait_and_reserve_context_budget",
+        lambda *a, **k: _mock_admitted_budget_decision(),
+    )
+    monkeypatch.setattr("core.resource_gate.release_context_budget", lambda *a, **k: True)
+
+    _, base_url, _, _ = api_server
+    headers = _agent_headers(base_url)
+
+    class MockHTTPResponse:
+        def __init__(self, data, status=200):
+            self.data = json.dumps(data).encode("utf-8")
+            self.status = status
+
+        def read(self):
+            return self.data
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    mock_resp_payload = {
+        "id": "chatcmpl-abc123",
+        "system_fingerprint": "b1234-abcdef0",
+        "choices": [
+            {"message": {"role": "assistant", "content": "Hello there!"}, "finish_reason": "stop"}
+        ],
+        "usage": {"prompt_tokens": 12, "completion_tokens": 5},
+        "timings": {
+            "cache_n": 4,
+            "prompt_n": 12,
+            "prompt_ms": 50.0,
+            "prompt_per_token_ms": 4.16,
+            "prompt_per_second": 240.0,
+            "predicted_n": 5,
+            "predicted_ms": 100.0,
+            "predicted_per_token_ms": 20.0,
+            "predicted_per_second": 50.0,
+        },
+    }
+
+    real_urlopen = urllib.request.urlopen
+
+    def mock_urlopen(req, timeout=180.0):
+        url = req.full_url if hasattr(req, "full_url") else str(req)
+        if "/v1/chat/completions" in url:
+            return MockHTTPResponse(mock_resp_payload)
+        return real_urlopen(req, timeout=timeout)
+
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+
+    try:
+        status, body = make_request(
+            f"{base_url}/api/v1/ai/chat",
+            method="POST",
+            headers=headers,
+            data={
+                "messages": [{"role": "user", "content": "hello"}],
+                "max_tokens": 100,
+                "temperature": 0.2,
+            },
+        )
+        assert status == 200
+        assert body["choices"][0]["message"]["content"] == "Hello there!"
+
+        deadline = time.monotonic() + 5.0
+        records = []
+        while time.monotonic() < deadline and not records:
+            for path in tmp_path.rglob("inference.*.jsonl"):
+                lines = [ln for ln in path.read_text(encoding="utf-8").splitlines() if ln]
+                records.extend(json.loads(ln) for ln in lines)
+            if not records:
+                time.sleep(0.1)
+
+        assert records, f"expected at least one category-A inference record to be written; log={caplog.text!r}"
+        record = records[0]
+        assert record["category"] == "inference"
+        assert record["event_type"] == "completion"
+        assert record["emitter"] == "codey-os.core-api"
+        body_fields = record["body"]
+        assert body_fields["backend"] == "local"
+        assert body_fields["stream"] is False
+        assert body_fields["prompt_tokens"] == 12
+        assert body_fields["completion_tokens"] == 5
+        assert body_fields["cached_prompt_tokens"] == 4
+        assert body_fields["prefix_cache_hit"] is True
+        assert body_fields["prefill_tps"] == 240.0
+        assert body_fields["generation_tps"] == 50.0
+        assert body_fields["finish_reason"] == "stop"
+        assert body_fields["server_request_id"] == "chatcmpl-abc123"
+        assert body_fields["server_fingerprint"] == "b1234-abcdef0"
+        assert record["nulls"]["body.role"] == "call_site_not_yet_tagged"
+        assert record["nulls"]["body.model_sha256"] == "model_sha256_not_computed"
+        assert record["nulls"]["body.ttft_ms"] == "server_timings_absent"
+
+        violations = schema.validate(record)
+        assert violations == [], violations
+    finally:
+        store.reset_for_tests()
+
+
+def _read_inference_records(tmp_path, timeout=5.0):
+    deadline = time.monotonic() + timeout
+    records = []
+    while time.monotonic() < deadline and not records:
+        for path in tmp_path.rglob("inference.*.jsonl"):
+            lines = [ln for ln in path.read_text(encoding="utf-8").splitlines() if ln]
+            records.extend(json.loads(ln) for ln in lines)
+        if not records:
+            time.sleep(0.1)
+    return records
+
+
+def test_api_ai_chat_telemetry_falls_back_to_usage_when_timings_absent(api_server, monkeypatch, tmp_path):
+    """T3 / design constraint 2: when llama-server's `timings` block is
+    absent, prefill/generation throughput fields must be honest nulls
+    with reason `server_timings_absent` -- never back-computed from
+    `wall_ms` -- while `prompt_tokens`/`completion_tokens` still fall
+    back to `usage` when it's present. This is the branch
+    `test_api_ai_chat_emits_category_a_telemetry_on_success` above does
+    NOT exercise (that mock includes a full `timings` block)."""
+    from telemetry import envelope, schema, store
+
+    envelope.reset_seq()
+    store.reset_for_tests()
+    monkeypatch.setattr(store, "TELEMETRY_ENABLED", True)
+    monkeypatch.setattr(store, "METRICS_DIR", tmp_path)
+    # Admission gate: mocked so this test is deterministic regardless of
+    # real device RAM state at test time -- see _mock_admitted_budget_decision()'s
+    # own docstring.
+    monkeypatch.setattr(
+        "core.resource_gate.wait_and_reserve_context_budget",
+        lambda *a, **k: _mock_admitted_budget_decision(),
+    )
+    monkeypatch.setattr("core.resource_gate.release_context_budget", lambda *a, **k: True)
+
+    _, base_url, _, _ = api_server
+    headers = _agent_headers(base_url)
+
+    class MockHTTPResponse:
+        def __init__(self, data, status=200):
+            self.data = json.dumps(data).encode("utf-8")
+            self.status = status
+
+        def read(self):
+            return self.data
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    # No "timings" key at all -- only "usage" -- matching a server
+    # response shape where the timings block genuinely never arrived.
+    mock_resp_payload = {
+        "choices": [{"message": {"role": "assistant", "content": "hi"}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 20, "completion_tokens": 8},
+    }
+
+    real_urlopen = urllib.request.urlopen
+
+    def mock_urlopen(req, timeout=180.0):
+        url = req.full_url if hasattr(req, "full_url") else str(req)
+        if "/v1/chat/completions" in url:
+            return MockHTTPResponse(mock_resp_payload)
+        return real_urlopen(req, timeout=timeout)
+
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+
+    try:
+        status, body = make_request(
+            f"{base_url}/api/v1/ai/chat",
+            method="POST",
+            headers=headers,
+            data={"messages": [{"role": "user", "content": "hello"}], "max_tokens": 50},
+        )
+        assert status == 200
+
+        records = _read_inference_records(tmp_path)
+        assert records, "expected a category-A inference record"
+        record = records[0]
+        body_fields = record["body"]
+        nulls = record["nulls"]
+
+        assert body_fields["prompt_tokens"] == 20
+        assert body_fields["completion_tokens"] == 8
+        for field in (
+            "prefill_tps", "generation_tps", "prefill_ms", "generation_ms",
+            "prompt_per_token_ms", "predicted_per_token_ms", "cached_prompt_tokens",
+            "prefix_cache_hit",
+        ):
+            assert body_fields[field] is None, f"{field} should be null, got {body_fields.get(field)!r}"
+            assert nulls[f"body.{field}"] == "server_timings_absent"
+
+        violations = schema.validate(record)
+        assert violations == [], violations
+    finally:
+        store.reset_for_tests()
+
+
+def test_api_ai_chat_telemetry_honest_null_when_timings_and_usage_both_absent(api_server, monkeypatch, tmp_path):
+    """T3 / design constraint 2, worst case: neither `timings` nor
+    `usage` present -- prompt_tokens/completion_tokens must be honest
+    nulls with reason `server_usage_absent`, never guessed."""
+    from telemetry import envelope, schema, store
+
+    envelope.reset_seq()
+    store.reset_for_tests()
+    monkeypatch.setattr(store, "TELEMETRY_ENABLED", True)
+    monkeypatch.setattr(store, "METRICS_DIR", tmp_path)
+    # Admission gate: mocked so this test is deterministic regardless of
+    # real device RAM state at test time -- see _mock_admitted_budget_decision()'s
+    # own docstring.
+    monkeypatch.setattr(
+        "core.resource_gate.wait_and_reserve_context_budget",
+        lambda *a, **k: _mock_admitted_budget_decision(),
+    )
+    monkeypatch.setattr("core.resource_gate.release_context_budget", lambda *a, **k: True)
+
+    _, base_url, _, _ = api_server
+    headers = _agent_headers(base_url)
+
+    class MockHTTPResponse:
+        def __init__(self, data, status=200):
+            self.data = json.dumps(data).encode("utf-8")
+            self.status = status
+
+        def read(self):
+            return self.data
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    mock_resp_payload = {
+        "choices": [{"message": {"role": "assistant", "content": "hi"}, "finish_reason": "stop"}],
+    }
+
+    real_urlopen = urllib.request.urlopen
+
+    def mock_urlopen(req, timeout=180.0):
+        url = req.full_url if hasattr(req, "full_url") else str(req)
+        if "/v1/chat/completions" in url:
+            return MockHTTPResponse(mock_resp_payload)
+        return real_urlopen(req, timeout=timeout)
+
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+
+    try:
+        status, body = make_request(
+            f"{base_url}/api/v1/ai/chat",
+            method="POST",
+            headers=headers,
+            data={"messages": [{"role": "user", "content": "hello"}], "max_tokens": 50},
+        )
+        assert status == 200
+
+        records = _read_inference_records(tmp_path)
+        assert records, "expected a category-A inference record"
+        record = records[0]
+        body_fields = record["body"]
+        nulls = record["nulls"]
+
+        assert body_fields["prompt_tokens"] is None
+        assert body_fields["completion_tokens"] is None
+        assert nulls["body.prompt_tokens"] == "server_usage_absent"
+        assert nulls["body.completion_tokens"] == "server_usage_absent"
+
+        violations = schema.validate(record)
+        assert violations == [], violations
+    finally:
+        store.reset_for_tests()
+
+
+def test_api_ai_chat_no_telemetry_written_when_disabled(api_server, monkeypatch, tmp_path):
+    """Kill-switch check (design §5.3): with TELEMETRY_ENABLED left False
+    (the default -- tests/conftest.py's autouse isolation fixture), no
+    category-A record is written for a successful completion, and the
+    response to the caller is unaffected."""
+    from telemetry import store
+
+    store.reset_for_tests()
+    monkeypatch.setattr(store, "METRICS_DIR", tmp_path)
+    assert store.TELEMETRY_ENABLED is False
+    # Admission gate: mocked so this test is deterministic regardless of
+    # real device RAM state at test time -- see _mock_admitted_budget_decision()'s
+    # own docstring.
+    monkeypatch.setattr(
+        "core.resource_gate.wait_and_reserve_context_budget",
+        lambda *a, **k: _mock_admitted_budget_decision(),
+    )
+    monkeypatch.setattr("core.resource_gate.release_context_budget", lambda *a, **k: True)
+
+    _, base_url, _, _ = api_server
+    headers = _agent_headers(base_url)
+
+    class MockHTTPResponse:
+        def __init__(self, data, status=200):
+            self.data = json.dumps(data).encode("utf-8")
+            self.status = status
+
+        def read(self):
+            return self.data
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    mock_resp_payload = {
+        "choices": [{"message": {"role": "assistant", "content": "hi"}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+    }
+    real_urlopen = urllib.request.urlopen
+
+    def mock_urlopen(req, timeout=180.0):
+        url = req.full_url if hasattr(req, "full_url") else str(req)
+        if "/v1/chat/completions" in url:
+            return MockHTTPResponse(mock_resp_payload)
+        return real_urlopen(req, timeout=timeout)
+
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+
+    try:
+        status, body = make_request(
+            f"{base_url}/api/v1/ai/chat",
+            method="POST",
+            headers=headers,
+            data={"messages": [{"role": "user", "content": "hello"}], "max_tokens": 50},
+        )
+        assert status == 200
+        assert body["choices"][0]["message"]["content"] == "hi"
+
+        time.sleep(0.5)
+        assert list(tmp_path.rglob("inference.*.jsonl")) == []
+    finally:
+        store.reset_for_tests()
 

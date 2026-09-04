@@ -10,6 +10,90 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-04 — Telemetry `T3` (inference events at Core AI proxy) code-complete + code-reviewer APPROVED (round 3) — B6.2c still next, untouched
+
+- **Status**: **Code-complete + code-reviewer APPROVED, no live-model
+  component so no live-verification tier applies.** Three review rounds
+  before approval — see below. Full suite `pytest tests/ -q`, run twice
+  back-to-back: **1325 passed, 0 failed, 1 skipped**, both times
+  identical (deterministic, not luck).
+- **Scope**: `restoricon_core/api/routes.py`'s `/api/v1/ai/chat` handler
+  now emits a category-A `inference`/`completion` record via the
+  existing (T0-built) `telemetry.recorders.record_inference_completion`
+  after `resp_data` is fully parsed — passive read, RBAC/auth untouched,
+  `queue_wait_ms` timed strictly around (never inside) the existing
+  cross-process-locked `wait_and_reserve_context_budget()` call per
+  design §5.1's explicit ruling. Real prefill/generation throughput
+  taken from llama-server's own `timings` block, never wall-clock;
+  fallback chain to `usage` and then to honest nulls
+  (`server_timings_absent`/`server_usage_absent`) verified correct.
+  `interactive` captured at request start, before the up-to-180s
+  completion call, not at emission time.
+- **Review round 1 (CHANGES REQUESTED)**: `prefix_cache_hit` silently
+  omitted (not null-with-reason) in the `timings`-absent branch —
+  reachable, and the implementer's own new test exercised that exact
+  branch without asserting on it. Fixed (one field added to an existing
+  null-reason tuple), fix verified load-bearing by both implementer and
+  reviewer independently reverting/restoring it.
+- **Review round 2 (CHANGES REQUESTED, reviewer's own provisional
+  APPROVED retracted)**: the fix's own new regression-guard test, run
+  in isolation, passed — but the full suite exposed all 4 new T3 tests
+  failing with real `429`s, because none of them mocked the real
+  admission gate (`wait_and_reserve_context_budget()`), so they
+  depended on live device RAM state and failed under full-suite
+  resource pressure. **Root cause independently confirmed twice** — by
+  the coordinator (who found it while diagnosing the full-suite output)
+  and, in parallel, by a dedicated research agent tracing the same
+  mechanism from the other direction. Fixed: all four tests now mock
+  the gate with a real `ContextBudgetDecision(admitted=True, ...)`;
+  deliberate-failure check (forcing `admitted=False`) confirmed the
+  mock genuinely intercepts the handler's local import. Two full-suite
+  runs back-to-back both **1325 passed, 0 failed** — deterministic.
+- **Review round 3 (APPROVED)**: both the round-2 fix and a separate,
+  unrelated `NEW-280` fix (see below) verified independently, including
+  live reproduction of the exact forcing condition for each.
+- **Bycatch: `NEW-280` (a previously-diagnosed, unrelated flaky-test
+  finding from 2026-09-02) RESOLVED this round.** The "2 pre-existing
+  unrelated failures in `test_loader_resource_gate.py`" line carried
+  forward through the T0/T1/T2 entries above was this exact,
+  already-known flake (two tests mock the wrong method — `_is_port_open`
+  instead of the real gate `_port_is_bound` — so they fail whenever a
+  real embed server happens to be resident on port 8082) — it was never
+  a stable baseline, and citing it without the `NEW-280` ID is why it
+  read as an unexplained mystery across three rounds. **Correcting the
+  record per rule 6**: that framing was misleading. Fix applied directly
+  by the coordinator (mirroring the already-correct fix direction
+  `NEW-280` had recorded since 2026-09-02, and the pattern three sibling
+  tests in the same file already used correctly), live-verified against
+  a real socket bound to port 8082, confirmed by code-reviewer
+  independently.
+- **Bycatch: `NEW-277` (187 gitignored scratch-directory accumulation,
+  previously Suspected with an unknown mechanism) root-caused this
+  round, upgraded to Confirmed.** `restoricon_core/api/routes.py`'s
+  cleanup path calls `release_context_budget(port, reservation_id)`
+  against the real signature `release_context_budget(reservation_id,
+  state_dir=None)` — arguments swapped. Traced precisely (an initial
+  "raises TypeError, silently swallowed" characterization was checked
+  and found wrong): `Path(<uuid>)` doesn't raise, so the mis-typed
+  `state_dir` silently resolves a wrong scratch location, creating one
+  litter directory per call and never releasing the real reservation —
+  a plausible contributing cause of real admission refusals under load.
+  **Pre-existing since `69b0346` (2026-08-31), unrelated to any
+  telemetry work — not fixed, logged per rule 8**, flagged as warranting
+  a code-reviewer pass given the leak's severity.
+- **Other new findings logged** (rule 8, non-blocking): `NEW-332`
+  (llama.cpp's `cache_n` has an unreachable-in-practice `-1` sentinel
+  default that would pass schema validation as a wrong value, not a
+  null), `NEW-333` (dead `PRIMARY_SERVER_PORT` env var, real config path
+  is `CODEY_PRIMARY_PORT`), `NEW-334` (a pre-existing test's
+  unconditional `urlopen` patch means it never actually exercised the
+  real proxy path — this is *why* `NEW-277`'s mechanism went unnoticed
+  until now), `NEW-335` (`n_ctx`/`queue_wait_ms` silently omitted on an
+  effectively-unreachable `ImportError` fallback branch).
+- **Next step**: T4 — the `codey-metrics` CLI, rollups, and rotation.
+  **B6.2c (Appendix A) remains separately queued and untouched by this
+  round.**
+
 ## 2026-09-03 — Telemetry `T2` (run provenance, non-lifecycle emitters) code-complete + code-reviewer APPROVED — B6.2c still next, untouched
 
 - **Status**: **Code-complete + code-reviewer APPROVED, no live-model

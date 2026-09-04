@@ -660,7 +660,9 @@ def test_embed_server_registers_slot_as_resident_on_start(monkeypatch, tmp_path)
     server = es.EmbedServer()
     server.model_path = fake_model
 
-    with patch.object(server, "_is_port_open", return_value=False), patch(
+    with patch.object(server, "_is_port_open", return_value=False), patch.object(
+        server, "_port_is_bound", return_value=False
+    ), patch(
         "subprocess.Popen", return_value=fake_process
     ), patch.object(server, "_check_health", return_value=True), patch.object(
         es.time, "sleep", return_value=None
@@ -692,7 +694,9 @@ def test_embed_server_releases_slot_on_stop(monkeypatch, tmp_path):
     server = es.EmbedServer()
     server.model_path = fake_model
 
-    with patch.object(server, "_is_port_open", return_value=False), patch(
+    with patch.object(server, "_is_port_open", return_value=False), patch.object(
+        server, "_port_is_bound", return_value=False
+    ), patch(
         "subprocess.Popen", return_value=fake_process
     ), patch.object(server, "_check_health", return_value=True), patch.object(
         es.time, "sleep", return_value=None
