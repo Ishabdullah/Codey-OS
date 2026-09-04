@@ -14,6 +14,7 @@ These are restored after each task so they never bleed into interactive sessions
 
 import asyncio
 import os
+import threading
 import time
 from typing import Any, Dict, Optional
 
@@ -149,11 +150,15 @@ def _emit_task_finished_telemetry(
     Passive category-E `task_finished` observation. Same never-crash-the-
     host contract as `_emit_task_started_telemetry` above.
 
-    `run_stats` is whatever `core.agent.get_last_run_stats()` returned,
-    already filtered by the caller to an empty dict if the "_seq" check
-    showed run_agent() was never actually reached this call (honest nulls,
-    not the previous task's stale counters — see the caller for why that
-    check exists).
+    `run_stats` is whatever `core.agent.get_last_run_stats(thread_id=...)`
+    returned for this call's specific worker thread [NEW-345]. Keyed by
+    OS-thread identity rather than a single shared "last call" slot: a
+    per-thread bucket lookup either finds exactly this call's own stats
+    (no other call can share this thread's id while this call is still
+    in flight) or finds nothing at all (the callable never started
+    executing, e.g. cancelled before the executor picked it up) — an
+    honest empty dict, never another task's counters. See the caller
+    for how it captures the worker thread's id.
 
     `retries` is populated from `run_stats["auto_retries"]` — the agent
     loop's own in-loop auto-retry counter (core/agent.py's `auto_retries`),
@@ -251,24 +256,25 @@ class TaskExecutor:
         start_inference()
 
         # T7 telemetry setup — never affects control flow below. See the
-        # module-level comment above this class for what "_seq" is for.
+        # module-level comment above this class for the T7 scope note, and
+        # [NEW-345] below (near run_in_executor()) for the thread-identity
+        # keying that replaced the old "_seq" mismatch check.
         _telemetry_active = task_id is not None and task_type is not None
         _start_mono = time.monotonic()
-        _seq_before = None
         if _telemetry_active:
-            try:
-                import core.agent as _agent_mod
-
-                _seq_before = _agent_mod.get_last_run_stats().get("_seq")
-            except Exception:
-                _telemetry_active = False
-            else:
-                _emit_task_started_telemetry(
-                    task_id=task_id, task_type=task_type, needs_planning=bool(needs_planning)
-                )
+            _emit_task_started_telemetry(
+                task_id=task_id, task_type=task_type, needs_planning=bool(needs_planning)
+            )
 
         _terminal_status = "done"
         _error_class: Optional[str] = None
+        # [NEW-345] Initialized here (before the try block), not inside it,
+        # so the `finally` block below can always safely check it even if
+        # an exception fires before the executor dispatch is ever reached
+        # (e.g. in the plugin-manager setup). See the `finally` block's own
+        # comment for what an empty list there means — not repeated here so
+        # the two descriptions can't drift out of sync.
+        _worker_thread_id: list = []
         try:
             from ccos.core.plugin_manager import get_plugin_manager
             from prompts.layered_prompt import invalidate_prompt_cache
@@ -288,10 +294,23 @@ class TaskExecutor:
             if "agent" not in pm._modules:
                 pm.load("agent")
 
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None,
-                lambda: pm.call_capability(
+            # [NEW-345] Capture the actual worker thread's OS-thread id from
+            # inside the callable itself (not e.g. via a wrapping
+            # ThreadPoolExecutor API) so it is available even if this
+            # await is later cancelled/timed out by the caller — the
+            # callable keeps running on its orphaned thread regardless,
+            # and core.agent's per-thread stats bucket is keyed by exactly
+            # this id (see core/agent.py's module comment above
+            # _RUN_STATS_BY_THREAD for why thread identity, not task_id).
+            # A single-element list, not a plain variable, so the closure
+            # can publish the id back to this scope without a `nonlocal`
+            # (there's no enclosing function scope for `_run_capability`
+            # to close over other than this one, and list-append avoids
+            # any assignment-binding ambiguity). Declared above, before
+            # the try block — see the comment there.
+            def _run_capability():
+                _worker_thread_id.append(threading.get_ident())
+                return pm.call_capability(
                     "coding.run_agent",
                     prompt=prompt,
                     history=[],
@@ -301,8 +320,10 @@ class TaskExecutor:
                     confirm_shell=False,
                     confirm_write=False,
                     shell_fn=self._daemon_shell,
-                ),
-            )
+                )
+
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(None, _run_capability)
             response, _ = result
             if isinstance(result, dict) and not result.get("success", True):
                 raise RuntimeError(result.get("error") or "Agent capability execution failed")
@@ -333,19 +354,37 @@ class TaskExecutor:
         finally:
             end_inference()
             if _telemetry_active:
+                # [NEW-345] Thread-identity lookup replaces the old "_seq"
+                # mismatch comparison. A per-thread bucket lookup either
+                # finds exactly this call's own bucket (no other call can
+                # ever share this worker thread's id while this call is in
+                # flight — see core/agent.py's module comment above
+                # _RUN_STATS_BY_THREAD) or finds nothing, so there is no
+                # separate mis-attribution case left to detect here.
                 try:
                     import core.agent as _agent_mod
 
-                    _stats = _agent_mod.get_last_run_stats()
-                    if _stats.get("_seq") == _seq_before:
-                        # run_agent() was never actually reached this call
-                        # (e.g. an exception in the pre-call setup above) —
-                        # the stats dict still holds the *previous* task's
-                        # counters. Recording those against this task_id
-                        # would be mis-attribution, not an honest null, so
-                        # report nothing rather than something stale.
+                    if _worker_thread_id:
+                        _stats = _agent_mod.get_last_run_stats(thread_id=_worker_thread_id[0])
+                    else:
+                        # Empty means this call had not yet published its
+                        # worker thread id -- either never dispatched, or
+                        # dispatched but cancelled before the callable's
+                        # first line (the append) ran. Either way there is
+                        # nothing to look up yet; honest null, not a lookup
+                        # miss.
                         _stats = {}
                 except Exception:
+                    # Safe to swallow: this telemetry read is passive
+                    # observation only (see the module-level T7 comment
+                    # above this class) and never gates or alters task
+                    # execution -- the task's actual result/exception was
+                    # already determined by the try/except blocks above
+                    # this finally. Falling back to an empty stats dict
+                    # here means the task_finished record is emitted with
+                    # honest nulls for the counters instead of crashing
+                    # the daemon's main task loop over a telemetry
+                    # read failure.
                     _stats = {}
                 _emit_task_finished_telemetry(
                     task_id=task_id,

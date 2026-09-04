@@ -14631,8 +14631,11 @@ outside that fix's scope.
   finding from T3).
 
 ### [NEW-345] `run_in_executor`'s worker thread outlives a cancelled `run_agent()` call and can corrupt `_LAST_RUN_STATS` for a subsequent task — real risk once T8 activates T7's wiring
-- **Status:** Confirmed, currently unreachable (telemetry T7,
-  2026-09-04, code-reviewer approved round, 2 review rounds).
+- **Status:** FIXED 2026-09-04 (`core/agent.py` + `core/task_executor.py`,
+  code-reviewer approved, 3 rounds — round 1 CHANGES REQUESTED for a
+  docstring overclaim, round 2 found the identical overclaim repeated a
+  second time in the same method, round 3 approved). See **Fix
+  (2026-09-04)** below.
 - **Mechanism:** `core/agent.py`'s module-level `_LAST_RUN_STATS` dict
   (T7's telemetry counters) assumed "at most one `run_agent()` call in
   flight" — false on the cancellation path. Python has no
@@ -14669,11 +14672,42 @@ outside that fix's scope.
   T8's `_execute_task()` activation wiring itself was deliberately split
   out as **T8b** and held back specifically because it would make this
   bug reachable — see `CODEY_MASTER_PLAN.md` Appendix A, T8 entry.
-- **Fix direction:** unchanged — bound the window, or switch
-  `_LAST_RUN_STATS` to a task-id-keyed structure instead of a single
-  module-level dict. This fix must land in `core/agent.py` before T8b.
+- **Fix (2026-09-04):** replaced the single shared `_LAST_RUN_STATS` dict
+  with `_RUN_STATS_BY_THREAD: Dict[int, Dict]`, keyed by
+  `threading.get_ident()` and guarded by a `threading.Lock`, not by
+  literal task-id (rejected — would require threading `task_id` through
+  `run_agent()`'s call chain, pulling T8b's scope into this fix).
+  Design rests on `ThreadPoolExecutor` never running two callables
+  concurrently on the same OS thread, so an orphaned (timed-out,
+  still-running) call's thread id can never collide with a freshly
+  dispatched call's — verified against the actual executor in use (the
+  default, no custom executor installed anywhere). All writes route
+  through `setdefault`-based helpers (`_set_run_stat`/`_incr_run_stat`/
+  `_incr_run_stat_tool`) so a late write from an orphaned thread after
+  its bucket was popped-on-read never raises `KeyError`.
+  `get_last_run_stats()` pops-and-copies atomically under the lock,
+  self-bounding the dict's size to the executor's worker-pool size, not
+  task count. `core/task_executor.py` captures the worker thread's id
+  from *inside* the dispatched callable (survives cancellation of the
+  awaiting coroutine) via a single-element list box, defaulting to an
+  honest-null empty stats dict if the callable was cancelled before it
+  ever got to publish its id. New load-bearing regression test
+  (`test_orphaned_thread_never_corrupts_concurrent_tasks_stats` in
+  `tests/test_task_executor_telemetry.py`) exercises the real race with
+  live `threading.Event` synchronization (bounded 5s waits, no
+  sleep-based timing) — confirmed to fail against a simulated pre-fix
+  design (all thread-aware functions monkey-patched to key on a
+  constant) before confirming it passes against the real fix. Full
+  suite 1410/0/1 (T8a's 1409 baseline + 1 new). Known, accepted,
+  unfixed limitation: same-thread *non-tail-call* reentrant `run_agent()`
+  use would still corrupt state under this design (the only 3 existing
+  reentrant call sites are genuine tail calls, confirmed safe).
+- **Fix direction (superseded by the fix above):** ~~bound the window,
+  or switch `_LAST_RUN_STATS` to a task-id-keyed structure instead of a
+  single module-level dict~~.
 - **Cross-reference:** `core/agent.py`, `core/task_executor.py`,
-  `core/daemon.py`; T8/T8b in `CODEY_MASTER_PLAN.md` Appendix A.
+  `core/daemon.py`, `NEW-355`; T8/T8b in `CODEY_MASTER_PLAN.md`
+  Appendix A.
 
 ### [NEW-346] `telemetry/schema/v1.json`'s `null_reason_codes` is itself a closed enum — a generalizable blocker for future honest-null cases, same shape as `NEW-341`
 - **Status:** Confirmed (telemetry T7, 2026-09-04, code-reviewer
@@ -14863,3 +14897,28 @@ outside that fix's scope.
   doc is next revised.
 - **Cross-reference:** `docs/telemetry_layer_design.md` §2.C,
   `telemetry/schema/v1.json`, `core/daemon.py`.
+
+### [NEW-355] A timed-out/cancelled task permanently occupies one `ThreadPoolExecutor` worker thread for the duration of its orphaned `run_agent()` call — pre-existing thread-pool-starvation risk
+- **Status:** Suspected, pre-existing, not introduced by the `NEW-345`
+  fix (found during that fix's code-review round 1, 2026-09-04).
+- **Mechanism:** Python's `ThreadPoolExecutor` has no mechanism to
+  interrupt a running worker thread. When `core/daemon.py`'s
+  `asyncio.wait_for(self.executor._execute_task(...), timeout=...)`
+  times out or is cancelled, the underlying worker thread keeps running
+  `run_agent()` to completion in the background (this is exactly what
+  made `NEW-345` reachable) — but that thread is never returned to the
+  pool until the orphaned call finishes on its own. If enough tasks
+  time out in succession (or one very long-running orphaned call
+  persists), the pool's available worker count shrinks, and a
+  sufficiently saturated pool could delay or starve genuinely new
+  dispatches.
+- **Impact:** unmeasured. Depends on the default `ThreadPoolExecutor`
+  size (`min(32, os.cpu_count()+4)`) versus this daemon's actual
+  dispatch concurrency and how often tasks actually time out in
+  practice — plausible but not confirmed as an active problem.
+- **Fix direction:** not scoped. Would need either a bounded/dedicated
+  executor sized with headroom for orphaned threads, or a mechanism to
+  detect and report pool saturation, if this is ever confirmed as a
+  real issue in practice.
+- **Cross-reference:** `core/agent.py`, `core/task_executor.py`,
+  `core/daemon.py`, `NEW-345`.

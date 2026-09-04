@@ -8,8 +8,9 @@ the counters mutated in place at existing loop points are actually correct,
 not just that task_executor.py plumbs *some* dict through.
 
 Does not duplicate tests/test_task_executor_telemetry.py's coverage of the
-task_executor.py wiring itself (kill switch, `_seq` mis-attribution guard,
-terminal_status mapping) — this file is agent.py-loop-internals only.
+task_executor.py wiring itself (kill switch, thread-identity-keyed bucket
+lookup [NEW-345], terminal_status mapping) — this file is
+agent.py-loop-internals only.
 """
 import json
 
@@ -22,7 +23,7 @@ def _tool_block(name, args):
 
 def test_get_last_run_stats_empty_before_any_call(monkeypatch):
     # Reset module state so this test doesn't depend on suite ordering.
-    monkeypatch.setattr(agent, "_LAST_RUN_STATS", {})
+    monkeypatch.setattr(agent, "_RUN_STATS_BY_THREAD", {})
     assert agent.get_last_run_stats() == {}
 
 

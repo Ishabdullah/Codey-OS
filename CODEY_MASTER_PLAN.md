@@ -6289,13 +6289,14 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
 - [ ] **T8b** — wire `task_id`/`task_type`/`needs_planning` into
       `core/daemon.py`'s two `_execute_task()` call sites, activating
       T7's currently-inert task-outcome telemetry. **Deliberately held
-      back from T8a** — this is the only part of T8 that makes `NEW-345`
-      (a `_LAST_RUN_STATS` cross-task corruption race in `core/agent.py`,
-      reachable on an ordinary per-task timeout as well as shutdown, not
-      just SIGINT) actually reachable. **Blocked on**: a small, separately
-      reviewed `core/agent.py` fix first (task-id-keyed `_LAST_RUN_STATS`
-      instead of a single module-level dict, per `NEW-345`'s stated fix
-      direction). Do not land T8b before that fix is in and approved.
+      back from T8a** — this was the only part of T8 that would have made
+      `NEW-345` (a `_LAST_RUN_STATS` cross-task corruption race in
+      `core/agent.py`, reachable on an ordinary per-task timeout as well
+      as shutdown, not just SIGINT) reachable. **Unblocked 2026-09-04**:
+      `NEW-345` FIXED (`core/agent.py`/`core/task_executor.py`
+      thread-identity-keyed `_RUN_STATS_BY_THREAD`, code-reviewer
+      approved, 3 rounds — see `NEW_ISSUES.md`). T8b itself not yet
+      implemented — next up.
 - [ ] **T9** — category B at `core/loader_v2.py`. **Rule-4, deliberately
       scheduled last** (model spawn/PID/kill-adjacent code).
       **10 items in `docs/telemetry_layer_design.md` §8 were resolved by

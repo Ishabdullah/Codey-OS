@@ -10,6 +10,58 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-04 — `NEW-345` fix (thread-identity-keyed `_RUN_STATS_BY_THREAD`, `core/agent.py`+`core/task_executor.py`) code-complete + code-reviewer APPROVED (3 rounds) — T8b unblocked
+
+- **Status**: **Code-complete + code-reviewer APPROVED, no live-model
+  component so no live-verification tier applies.** `core/agent.py` is
+  the main coding-agent loop — rule-4 by association. Full suite
+  `pytest tests/ -q`: **1410 passed, 0 failed, 1 skipped** (T8a's 1409
+  baseline + 1 new regression test).
+- **Fixes the cross-task telemetry-corruption race T8a's scoping round
+  found and deliberately left unactivated.** Replaced the single shared
+  `_LAST_RUN_STATS` dict with `_RUN_STATS_BY_THREAD`, keyed by
+  `threading.get_ident()` (not literal task-id — rejected, would have
+  pulled T8b's own plumbing into this fix's scope) and guarded by a
+  lock. Rests on the verified fact that `ThreadPoolExecutor` never runs
+  two callables on the same OS thread concurrently, so an orphaned
+  (timed-out, still-running) call's thread id can never collide with a
+  freshly-dispatched call's. `setdefault`-based write helpers make a
+  post-pop late write from an orphaned thread `KeyError`-safe by
+  construction. `core/task_executor.py` captures its worker thread's id
+  from inside the dispatched callable itself, so the handoff survives
+  cancellation of the awaiting coroutine.
+- **Review rounds 1 and 2 both caught the identical defect twice, not
+  two different bugs** — the same class of docstring/comment overclaim
+  that blocked T8a round 1, but this time the reviewer's round-2 pass
+  found the coordinator had fixed the flagged instance and missed a
+  second, word-for-word-identical instance of the same false claim
+  elsewhere in the same method (round 1 fixed the `finally`-block
+  comment claiming an empty `_worker_thread_id` list "correctly means
+  the callable never started executing" — false, since cancellation can
+  land after the callable starts but before it publishes its thread id;
+  round 2 found the exact same sentence, unfixed, at the variable's
+  init site a few lines earlier). Fixed properly on round 3 by having
+  the init-site comment defer to the `finally`-block's comment as the
+  single source of truth, rather than repeating the claim a second time
+  in different words — structurally prevents the two copies re-diverging
+  again, not just a reworded patch.
+- **Negative-control verification technique used by the reviewer**: no
+  clean "revert and rerun" existed for the new regression test (it calls
+  helper functions that don't exist pre-fix), so the reviewer backed up
+  `core/agent.py`, monkey-patched the 4 thread-aware functions to key on
+  a constant (simulating the old shared-dict design) in place, reran the
+  specific test, confirmed it failed exactly as predicted, then restored
+  from backup and confirmed `git diff` was byte-identical after restore
+  — proof the new test is genuinely load-bearing, not just present.
+- **Findings**: `NEW-345` closed (FIXED, full mechanism recorded in its
+  ledger entry). `NEW-355` opened (Suspected, pre-existing — a
+  timed-out task permanently occupies one thread-pool worker for the
+  duration of its orphaned call; not introduced by this fix, but is
+  what makes the fixed race's exposure window non-theoretical).
+- **Next**: **T8b** is now unblocked — wire real `task_id`/`task_type`/
+  `needs_planning` into `core/daemon.py`'s two `_execute_task()` call
+  sites, activating T7's currently-inert task-outcome telemetry.
+
 ## 2026-09-04 — Telemetry `T8a` (categories B/C/D + daemon-side G, `core/daemon.py`) code-complete + code-reviewer APPROVED (2 rounds) — T8 split into T8a (done) / T8b (deferred, blocked on a `NEW-345` fix)
 
 - **Status**: **Code-complete + code-reviewer APPROVED, no live-model
