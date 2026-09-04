@@ -14564,3 +14564,68 @@ outside that fix's scope.
   gain mid-series.
 - **Cross-reference:** `core/inference_hybrid.py`, `telemetry/schema/v1.json`,
   `docs/telemetry_layer_design.md`; T7 in `CODEY_MASTER_PLAN.md` Appendix A.
+
+### [NEW-342] `core/plannd.py:770`'s comment claims "main.py's synchronous interactive path" is a live in-process caller of `get_plan()` — it isn't
+- **Status:** Confirmed (telemetry T6, 2026-09-04, code-reviewer approved
+  round, independently traced). Pre-existing, predates T6; correctly
+  left untouched by T6's diff (out of scope).
+- **Mechanism:** `main.py::_try_daemon_plan()` actually goes through
+  `core/planner_service.py::_request_daemon_plan()` → a Unix-socket RPC
+  to the daemon — it never calls `core.plannd.get_plan()` in-process.
+  `core/planner_service.py`'s own docstring already documents this exact
+  fact, citing `NEW-172` (already fixed elsewhere). `get_plan()`'s only
+  live caller chain in the whole repo is `core/planner_client.py::
+  send_plan_request_async()`, itself only called from `core/daemon.py`
+  (verified via `grep -rn "send_plan_request_async"` — all real call
+  sites are in `core/daemon.py`, plus test files).
+- **Impact:** comment-only, no behavioral effect — Suggestion severity.
+- **Fix direction:** correct the comment wording when next touched.
+- **Cross-reference:** `core/plannd.py`, `core/planner_service.py`.
+
+### [NEW-343] Telemetry's `completion_failed` event type is designed but not implemented anywhere in `telemetry/recorders.py` — no record at all on outright inference request failure
+- **Status:** Confirmed (telemetry T6, 2026-09-04, code-reviewer approved
+  round). Shared, pre-existing gap since T5 — not introduced or
+  regressed by T6.
+- **Mechanism:** `telemetry/recorders.py::record_inference_completion()`
+  hardcodes `event_type="completion"` — there is no
+  `record_completion_failed()` function implemented, though the design
+  doc (`docs/telemetry_layer_design.md:240`) specifies this event type.
+  Neither T5's `core/inference_hybrid.py` nor T6's `core/plannd.py`
+  emit any category-A record when their catch-all `except Exception`
+  blocks fire (HTTP error, JSON decode failure) — both are silent on
+  the telemetry side for outright request failures.
+- **Impact:** a real dataset coverage hole for the grant-evidence use
+  case — failed inference requests are currently invisible to the
+  telemetry layer entirely, not even as a null-heavy record.
+- **Fix direction:** implement `record_completion_failed()` in
+  `telemetry/recorders.py` and wire it into both call sites' exception
+  handlers. Best done once, shared across T5/T6 (and any future
+  inference call sites), rather than reopening either sub-task alone.
+- **Cross-reference:** `telemetry/recorders.py`, `core/inference_hybrid.py`,
+  `core/plannd.py`, `docs/telemetry_layer_design.md` §2.A.
+
+### [NEW-344] Partial-`timings` honest-null gap: a response with `timings` present but missing `cache_n` specifically would silently drop `prefix_cache_hit`/`cached_prompt_tokens` — untested in both T5 and T6
+- **Status:** Confirmed/latent, untested (telemetry T6, 2026-09-04,
+  code-reviewer approved round). Shared T5/T6 pattern.
+- **Mechanism:** both call sites' `nulls` population for
+  `prefix_cache_hit`/`cached_prompt_tokens` only happens in the
+  timings-*absent* branch. If a server response has a non-empty
+  `timings` dict that happens to be missing `cache_n` specifically
+  (e.g. a different llama.cpp build/version), these fields come back
+  `None` with no corresponding `nulls` entry — the same
+  invisible-omission shape T0's original review round caught, on a
+  narrower trigger condition neither suite currently exercises.
+  Emission is exception-wrapped, so whether this actually trips
+  `schema.validate()`'s check and silently drops the record, or
+  produces a record that fails validation silently, is untested.
+- **Impact:** none observed — design fact 0.4 (verified against
+  llama.cpp's own `server-task.h`/`server-task.cpp`) establishes
+  `cache_n` is unconditionally present whenever `timings` is present at
+  all in the current llama.cpp build this project uses, so this is a
+  cross-version-compatibility latent gap, not a live one.
+- **Fix direction:** add explicit handling (and a test) for a
+  `timings`-present-but-`cache_n`-missing case at both call sites, best
+  fixed once, shared across T5/T6.
+- **Cross-reference:** `core/inference_hybrid.py`, `core/plannd.py`,
+  `telemetry/recorders.py`, `NEW-332` (the related `cache_n=-1` sentinel
+  finding from T3).

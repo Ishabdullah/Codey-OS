@@ -6227,7 +6227,17 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       no reliable role signal) resolved as a documented, recoverable
       deferred gap rather than a silent default — logged as `NEW-341`,
       real fix deferred to T7.
-- [ ] **T6** — category A+B at `core/plannd.py`. **Rule-4.**
+- [x] **T6** — category A+B at `core/plannd.py`. **Rule-4. DONE
+      2026-09-04, code-complete + code-reviewer APPROVED (clean, one
+      review round).** Mirrors T5's already-approved pattern.
+      `role="planner"`/`emitter="codey-os.daemon"` confirmed genuinely
+      unambiguous here (single caller chain, unlike T5's real
+      ambiguity) — verified independently by implementer and reviewer.
+      Findings: `NEW-342` (stale pre-existing comment, comment-only),
+      `NEW-343` (`completion_failed` event type designed but never
+      implemented — shared T5/T6 gap, real dataset coverage hole),
+      `NEW-344` (latent `cache_n`-missing-but-`timings`-present honest-
+      null gap, shared T5/T6, not currently reachable).
 - [ ] **T7** — category E (task outcomes) at `core/task_executor.py` /
       `core/agent.py`. **Rule-4 by association (main loop).**
 - [ ] **T8** — categories B, C, D + daemon-side G at `core/daemon.py`.

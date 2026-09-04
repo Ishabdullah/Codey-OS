@@ -10,6 +10,57 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-04 — Telemetry `T6` (category A+B at `core/plannd.py`) code-complete + code-reviewer APPROVED (clean, one round) — second rule-4-gated telemetry sub-task, B6.2c still next, untouched
+
+- **Status**: **Code-complete + code-reviewer APPROVED on the first
+  review round** — no fix cycle needed this time. Full suite `pytest
+  tests/ -q`: **1376 passed, 0 failed, 1 skipped.**
+- **Scope**: category-A+B telemetry at `core/plannd.py::get_plan()`,
+  mirroring T5's already-approved `core/inference_hybrid.py` pattern
+  (kill-switch-first, real `timings`-based throughput, honest nulls
+  including `prefix_cache_hit` from day one, gate-decision emission
+  strictly outside `reserve_context_budget()`'s lock).
+- **Unlike T5, `role="planner"` and `emitter="codey-os.daemon"` are
+  genuinely, provably unambiguous here** — `get_plan()` has exactly one
+  live caller chain in the whole repo (`core/planner_client.py` →
+  `core/daemon.py`, verified independently by both implementer and
+  reviewer via `grep`), not the 7+-module caller graph that made T5's
+  emitter default an honest compromise rather than a fact. No `NEW-###`
+  needed for the values themselves.
+- **A deliberate, flagged deviation from T5's precedent, independently
+  judged correct**: category-A emission happens right after
+  `json.loads()` succeeds, before `get_plan()`'s own early-return
+  branches (`not choices`, empty content after length-truncated
+  thinking) — chosen specifically to preserve visibility into the
+  `NEW-164` empty-content/`finish_reason=length` diagnostic case.
+  Code-reviewer read the design doc's own wording independently and
+  confirmed this is the correct interpretation of "after the response
+  is fully consumed," not just accepted the implementer's reasoning.
+- **A real, pre-existing stale comment found and correctly left
+  untouched** (out of T6's scope): `core/plannd.py:770` claims
+  "main.py's synchronous interactive path" is a second live caller —
+  traced independently by both implementer and reviewer to be false
+  (that path goes through a Unix-socket RPC, never calling
+  `get_plan()` in-process; `core/planner_service.py`'s own docstring
+  already documents this via `NEW-172`). Logged as `NEW-342`.
+- **Two shared, cross-cutting gaps surfaced** (not T6-specific
+  regressions — apply equally to T5): `NEW-343` (the design's
+  `completion_failed` event type is specified but never implemented —
+  neither T5 nor T6 emit any telemetry record on outright request
+  failure, a real dataset coverage hole), `NEW-344` (a `timings`-present-
+  but-`cache_n`-missing case would silently drop `prefix_cache_hit`
+  with no honest-null reason — latent, untested in either suite, not
+  currently reachable against this project's llama.cpp build per
+  design fact 0.4).
+- **Next step**: T7 — category E (task outcomes) at
+  `core/task_executor.py`/`core/agent.py`. **Third rule-4-gated
+  sub-task** — flagged in the design as "medium-high risk,
+  dispatch-adjacent; `agent.py` is the main loop." **This is also where
+  `NEW-341`'s deferred emitter-identity fix belongs**, since this
+  sub-task threads real caller-role identity through the same files.
+  **B6.2c (Appendix A) remains separately queued and untouched by this
+  round.**
+
 ## 2026-09-04 — Telemetry `T5` (inference events at `core/inference_hybrid.py`) code-complete + code-reviewer APPROVED — first rule-4-gated telemetry sub-task, B6.2c still next, untouched
 
 - **Status**: **Code-complete + code-reviewer APPROVED, no live-model
