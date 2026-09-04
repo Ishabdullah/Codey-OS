@@ -15105,24 +15105,74 @@ outside that fix's scope.
   genuinely claimed (never unclaims a flag it didn't itself claim), and
   correcting three docstrings that had overclaimed the guarantee before
   the fix landed. Full suite 1433/0/1 (1431 baseline + 2 new).
-- **Deferred, not implemented this round (Ish's explicit decision,
-  2026-09-04):** the loader-side fallback structurally closes this gap
+- **Deferred-follow-up round (2026-09-04): 3 sites scoped, 1 of 3
+  landed, 1 confirmed no-change-needed, 1 blocked pending a schema
+  migration.** The loader-side fallback structurally closes this gap
   for every current and future caller, but necessarily uses a generic,
-  caller-agnostic identity. The three known gap call sites — `main.py`'s
-  `--init`/`--tdd`/`--fix` one-shot flags, `core/lora_import.py`'s two
-  LoRA-swap callers, and `Codey-Aigentik/index.js:221`'s delegated
-  `ensure_model('primary')` one-liner (confirmed live to be the one
-  that actually wins the model-load race on this device's real
-  restart) — could each still get their own purpose-built
-  `record_run_start()` call later, for richer per-caller identity (e.g.
-  Aigentik's own emitter/context) instead of the generic fallback.
-  Not scoped or implemented in this round; recorded here so it isn't
-  lost. Any future per-site fix must call `record_run_start()` BEFORE
-  `load_primary()` is reached to win `claim_run_start()`'s race against
-  the fallback (see that function's docstring for why a fallback firing
-  first is a deliberately-accepted possible-duplicate-record risk, not
-  a silent-suppression one — `codey-metrics doctor`'s existing
-  `duplicate_run_start_runs` non-fatal flag already covers that shape).
+  caller-agnostic identity — this round gave the known gap callers
+  their own purpose-built `record_run_start()` calls where it was
+  actually beneficial and feasible:
+  - **Correction to the original "three known gap call sites" count
+    (rule 6):** re-investigation found `core/lora_import.py` has
+    THREE `load_primary()` call sites (not two), reached via TWO
+    external entry points: `main.py`'s `--import-lora` flag (via
+    `swap_to_finetuned_model()`, called twice) and the CCOS
+    `finetune` plugin's `rollback_to_backup` capability. `main.py`'s
+    one-shot-flag count is also corrected from three to **four** —
+    `--init`/`--tdd`/`--fix`/`--import-lora`, not just the first
+    three.
+  - **`Codey-Aigentik/index.js:221`'s delegated one-liner — FIXED
+    2026-09-04**, code-reviewer approved. Replaced the inline
+    `python3 -c "..."` string with a new dedicated
+    `tools/ensure_model_cli.py` (Codey-OS) that calls
+    `record_run_start(emitter="aigentik", repo="Codey-Aigentik", ...)`
+    before `get_loader().ensure_model('primary')` — richer identity
+    than the generic fallback, no `models=` (same rationale as the
+    fallback: avoid triggering a background hash thread on a
+    fast-load-focused script). No schema change needed — `"aigentik"`
+    was already a valid `emitter` enum value. `Codey-Aigentik/index.js`
+    updated to invoke the new script. Codey-OS `tests/`: 1435/0/1
+    (1433 baseline + 2 new); full repo: 1542/0/1. Aigentik `npm test`:
+    272/0, 19 suites.
+  - **`core/lora_import.py`'s callers — confirmed NO CHANGE NEEDED,
+    not an oversight.** `swap_to_finetuned_model()`'s only external
+    entry point is `main.py`'s `--import-lora` branch (covered by the
+    `main.py` fix below, once scoped). `rollback_to_backup()`'s only
+    external entry point is the CCOS `finetune` plugin capability,
+    which executes IN-PROCESS inside whatever process already hosts
+    CCOS capability dispatch (the daemon, most likely — which already
+    has its own `run_start`). A hardcoded `record_run_start()` call
+    inside `core/lora_import.py` itself would risk duplicate emission
+    in that case, for no real identity benefit over the existing
+    fallback. Deliberately left untouched.
+  - **`main.py`'s 4 CLI flags — BLOCKED, reverted to baseline this
+    round.** Implementation hit a real architectural conflict: adding
+    a needed new `emitter` enum value (`codey-os.cli` — none of the
+    existing values fit a one-shot, non-interactive CLI invocation)
+    would edit `telemetry/schema/v1.json` in place, violating that
+    file's own explicit `_doc` policy ("a definition change bumps
+    schema_version and creates v<N+1>.json instead — do not edit in
+    place"). Two independent pinned-hash regression tests (Codey-OS's
+    `tests/test_telemetry_schema.py`, Aigentik's
+    `tests/telemetry.test.js:27`) both broke immediately on the
+    in-place edit, and `telemetry/cli.py`'s `codey-metrics doctor`
+    would retroactively flag every pre-existing on-disk record as
+    `schema_mismatch`. **Ish's decision (2026-09-04): scope a proper
+    schema v2 migration** rather than drop this or hack around
+    versioning — see the new tracked item for that migration (touches
+    `telemetry/schema.py`'s hardcoded `v1.json` load path,
+    `telemetry/cli.py`'s Aigentik parity check, both repos' pinned-hash
+    tests, and Aigentik's `telemetry.mjs` schema loader — a real,
+    separately-scoped, two-repo task, not a quick add-on to this
+    entry).
+  - Any future per-site fix (including the blocked `main.py` one, once
+    unblocked by the schema migration) must call `record_run_start()`
+    BEFORE `load_primary()` is reached to win `claim_run_start()`'s
+    race against the fallback (see that function's docstring for why a
+    fallback firing first is a deliberately-accepted possible-
+    duplicate-record risk, not a silent-suppression one —
+    `codey-metrics doctor`'s existing `duplicate_run_start_runs`
+    non-fatal flag already covers that shape).
 - **Second live-verify (2026-09-04, post-fix, real `./codey-stop`/
   `./codey-start` cycle) — PARTIAL confirmation.** The exact bug
   signature is gone: `Codey-Aigentik/index.js`'s delegated one-liner
@@ -15203,3 +15253,25 @@ outside that fix's scope.
   specific interrupt window — needs its own scoping, not a quick patch.
 - **Cross-reference:** `core/loader_v2.py`, `core/resource_gate.py`;
   T9 in `CODEY_MASTER_PLAN.md` Appendix A.
+
+### [NEW-361] `main.py`'s `--import-lora` success message references a `--rollback` flag that doesn't exist
+- **Status:** Confirmed (found during `NEW-358`'s deferred-follow-up
+  scoping round, 2026-09-04, while tracing `main.py`'s CLI flag
+  branches).
+- **Mechanism:** the `--import-lora` branch's success message tells the
+  user `"(use --rollback to restore)"` (around line ~2032), but
+  `main.py`'s `parse_args()` never registers a `--rollback` flag —
+  grepped the whole file for `rollback`/`args.lora`-adjacent argparse
+  registrations, found none. `rollback_to_backup()` (`core/
+  lora_import.py`) is only reachable via the CCOS `finetune` plugin
+  capability, not any CLI flag.
+- **Impact:** misleading UX only — a user following the printed
+  instruction to run `--rollback` gets an argparse error, not a real
+  rollback. No data-safety or process-lifecycle consequence.
+- **Fix direction:** either add a real `--rollback` CLI flag that
+  invokes `rollback_to_backup()` (the more useful fix — closes the gap
+  the message implies exists), or correct the message to point at
+  however rollback is actually meant to be triggered today, when
+  `main.py`'s argparse setup is next touched.
+- **Cross-reference:** `main.py`, `core/lora_import.py`,
+  `ccos/plugins/coding/finetune/finetune.py`.

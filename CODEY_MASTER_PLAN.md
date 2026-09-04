@@ -6383,12 +6383,18 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       cycle reproducing the delegate winning would close this out fully;
       not required given the orphan-elimination evidence already
       gathered. Found in passing: `NEW-360` (`codey-metrics provenance
-      --all --json` emits invalid concatenated JSON, non-blocking). The
-      three known call sites (`main.py`'s one-shot flags,
-      `core/lora_import.py`, `Codey-Aigentik/index.js`) remain
-      deliberately un-patched individually — the loader-side fallback
-      covers them structurally; per-site richer-identity fixes
-      deferred, not scoped.
+      --all --json` emits invalid concatenated JSON, non-blocking).
+      **Deferred-follow-up round (2026-09-04)**: 1 of the 3 known call
+      sites (`Codey-Aigentik/index.js`'s delegate, via new
+      `tools/ensure_model_cli.py`) got its own richer-identity
+      `record_run_start()` call, code-reviewer approved; `core/
+      lora_import.py`'s callers confirmed to genuinely need no change
+      (traced both external entry points); `main.py`'s 4 CLI flags
+      blocked on a schema-versioning conflict (adding a needed new
+      `emitter` value would violate the schema's own "do not edit
+      v1.json in place" policy — see `NEW-358`'s ledger entry) — now
+      tracked as **T10** below, per Ish's explicit decision to scope
+      the schema v2 migration rather than drop it.
       **10 items in `docs/telemetry_layer_design.md` §8 were resolved by
       Ish 2026-09-03** (address-value hashing: SHA-256 + char count, no
       raw text; retention: literal never-delete; sub-task ordering as
@@ -6400,6 +6406,27 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       `rollups.db` as a rebuildable cache not evidence,
       `llama-server.log`'s `"w"`-mode truncation left as-is per `NEW-323`
       rather than touching `core/loader_v2.py` for it).
+- [ ] **T10** — telemetry schema v2 migration, to unblock `main.py`'s
+      4 CLI-flag `record_run_start()` calls (the deferred `NEW-358`
+      Site 1, blocked 2026-09-04). **Two-repo, not yet scoped in
+      detail.** Adds one new `emitter` enum value (`codey-os.cli`,
+      covering `--init`/`--tdd`/`--fix`/`--import-lora`) — the schema's
+      own `_doc` field mandates this cannot be an in-place edit to
+      `v1.json`, it requires a real `schema_version` bump to a new
+      `v2.json`. Known touch points from the blocked implementation
+      attempt: `telemetry/schema.py`'s hardcoded `v1.json` load path,
+      `telemetry/cli.py`'s Aigentik cross-repo parity check, both
+      repos' pinned-hash regression tests (`tests/
+      test_telemetry_schema.py` here, `tests/telemetry.test.js:27` in
+      `Codey-Aigentik`), and Aigentik's own `telemetry.mjs` schema
+      loader (which hashes its local copy into every record's
+      `schema_sha256`). Needs a proper scoping round before
+      implementation — this is a real migration (every existing v1
+      on-disk record needs to keep validating against v1 while new
+      records validate against v2, or `codey-metrics doctor` starts
+      flagging the entire historical dataset as mismatched), not a
+      quick add-on. Ish decided 2026-09-04 to scope this rather than
+      drop the `main.py` CLI-flag identity improvement it unblocks.
 
 ### M-lane — maintenance and bugs (§6.1, unblocked, any time)
 

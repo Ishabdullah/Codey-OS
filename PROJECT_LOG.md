@@ -10,6 +10,67 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-04 — `NEW-358` deferred follow-up round — 1/3 sites fixed, 1/3 confirmed no-change, 1/3 blocked on a real schema-versioning conflict (new `T10` tracked)
+
+- **Status**: 3-site scoping round (project-architect), 1 site
+  implemented + code-reviewer approved, 2 sites resolved without
+  code changes (one confirmed unnecessary, one blocked and reverted).
+  No rule-4 trigger this round (confirmed by both architect and
+  implementer — nothing touches process lifecycle/PID/kill logic),
+  but the standard mandatory code-reviewer pass still ran.
+- **Scoping corrected two undercounts in `NEW-358`'s own text (rule
+  6)**: `core/lora_import.py` actually has 3 `load_primary()` call
+  sites (not 2), reached via 2 external entry points; `main.py`'s
+  one-shot flags are actually 4 (`--init`/`--tdd`/`--fix`/
+  `--import-lora`), not 3.
+- **Site 3 (`Codey-Aigentik/index.js:221`'s delegated one-liner) —
+  DONE, code-reviewer approved.** New `tools/ensure_model_cli.py`
+  replaces the inline `python3 -c "..."` string, calling
+  `record_run_start(emitter="aigentik", repo="Codey-Aigentik", ...)`
+  before `ensure_model('primary')` — richer identity than the generic
+  loader-side fallback, no schema change needed (`"aigentik"` was
+  already a valid emitter). Reviewer live-verified the real
+  (unmocked) `record_run_start()` call end-to-end, inspecting the
+  actual written record and confirming it correctly wins the race
+  against `core/loader_v2.py`'s fallback. Codey-OS `tests/`: 1435/0/1
+  (1433 baseline + 2 new); full repo: 1542/0/1. Aigentik `npm test`:
+  272/0, 19 suites.
+- **Site 2 (`core/lora_import.py`) — confirmed NO CHANGE NEEDED, not
+  an oversight.** Both external entry points traced: `--import-lora`
+  (covered by Site 1, once unblocked) and the CCOS `finetune` plugin's
+  `rollback_to_backup` capability, which runs in-process inside
+  whatever already-running process hosts CCOS dispatch — a hardcoded
+  call here would risk duplicate `run_start` emission for no real
+  identity benefit.
+- **Site 1 (`main.py`'s 4 CLI flags) — BLOCKED, reverted to baseline,
+  real architectural conflict found mid-implementation, not a design
+  nitpick.** Needed a new `emitter` enum value (`codey-os.cli` — none
+  of the existing 6 values honestly describe a one-shot,
+  non-interactive CLI invocation), but `telemetry/schema/v1.json`'s
+  own `_doc` field explicitly forbids in-place edits ("a definition
+  change bumps schema_version and creates v<N+1>.json instead"). The
+  implementer discovered this isn't just a policy note but a load-
+  bearing one: two independent pinned-hash regression tests (this
+  repo's `test_telemetry_schema.py`, Aigentik's
+  `telemetry.test.js:27`) both broke immediately on the in-place edit,
+  and `codey-metrics doctor` would have retroactively flagged every
+  pre-existing on-disk telemetry record as `schema_mismatch`. Cleanly
+  reverted (confirmed via `git diff` showing empty on all 3 touched
+  files, schema files byte-identical again across both repos) rather
+  than shipped as a policy violation.
+- **Decision (Ish, 2026-09-04, asked directly rather than assumed)**:
+  scope a proper schema v2 migration instead of dropping the `main.py`
+  CLI-flag identity improvement. Tracked as new **T10** in
+  `CODEY_MASTER_PLAN.md` Appendix A — not yet scoped in detail, a real
+  two-repo migration (every existing v1 record needs to keep
+  validating against v1 while new records validate against v2, or
+  `doctor` starts flagging the whole historical dataset), not a
+  quick add-on.
+- **Findings**: `NEW-361` (Confirmed, non-blocking — `main.py`'s
+  `--import-lora` success message references a `--rollback` flag that
+  doesn't exist in `parse_args()`), found in passing while tracing the
+  CLI flag branches.
+
 ## 2026-09-04 — `NEW-358` fix live-verified (2nd real device cycle) — orphan signature confirmed gone, race-winning scenario not directly reproduced (rule 7 honest gap)
 
 - **What was done**: a second real `./codey-stop` + `./codey-start`
