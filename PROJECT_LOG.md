@@ -10,6 +10,56 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-04 — Telemetry `T8a` (categories B/C/D + daemon-side G, `core/daemon.py`) code-complete + code-reviewer APPROVED (2 rounds) — T8 split into T8a (done) / T8b (deferred, blocked on a `NEW-345` fix)
+
+- **Status**: **Code-complete + code-reviewer APPROVED, no live-model
+  component so no live-verification tier applies.** `core/daemon.py` is
+  the highest-risk file in this whole rollout (process-lifecycle,
+  rule 4) — deliberately scheduled last. Full suite `pytest tests/ -q`:
+  **1409 passed, 0 failed, 1 skipped** (1391 T7 baseline + 18 new).
+- **Scoped by project-architect into two pieces before implementation
+  started, not after review found a problem.** T8a: categories B
+  (edge-triggered, dedup'd gate decisions), C (device sample on the
+  existing 30s watchdog tick — no new sampler/timer), D (co-tenancy
+  transitions + bounded per-task deferral tracking), daemon-side G
+  (`run_start`/`counter_reset` at start, `writer_stopped` in the
+  shutdown `finally`), and the `superseded_by_plan` terminal status
+  T7 explicitly could not reach. T8b (task_id/task_type wiring into
+  `_execute_task()`, activating T7's inert telemetry) was held back
+  because it's the only part of T8 that makes `NEW-345`'s
+  `_LAST_RUN_STATS` cross-task corruption race in `core/agent.py`
+  actually reachable — the architect also corrected `NEW-345` itself
+  (rule 6): the race is reachable via an ordinary per-task timeout, not
+  just a SIGINT/shutdown edge case as originally logged.
+- **`_check_dispatch_gate()`'s return signature changed** to
+  `(decision, interactive_active)` — both call sites updated; code-
+  reviewer independently verified no site was missed (the exact class
+  of silent-tuple-unpacking bug this project has been bitten by before).
+- **Review round 1 (CHANGES REQUESTED, 1 item, docstring/comment only —
+  no logic defect):** `_emit_gate_telemetry_deduped()`'s docstring
+  claimed summing emitted `repeat_count` "recovers the true evaluation
+  count exactly" ("lossless"). False — proven by the reviewer hand-
+  tracing the diff's own `test_gate_dedup_transitions`: 6 real calls
+  were made but the emitted sum was only 4, with the test's own comment
+  miscounting it as "4 calls ... made so far." An in-progress dedup
+  window's unflushed count is discarded, not flushed, on a key change —
+  a known, already-flagged, bounded loss (implementer's own finding #3),
+  just not one the docstring next to it was honest about. Fixed by
+  correcting both the docstring and the test comment to state a lower
+  bound with bounded loss, not exactness; round 2 approved.
+- **Findings**: `NEW-351`..`NEW-354` (all non-blocking, deferred —
+  dedup-key formatted-number churn under sustained pressure, a
+  first-refusal-interactivity gating gap in category D, a binary
+  `throttle_level` mapping with no underlying multi-level signal, and a
+  design-doc/schema inconsistency for `counter_reset`'s category).
+  `NEW-345` corrected per rule 6 (see above). `NEW-348` given an
+  explicit decline-for-now decision recorded in its ledger entry rather
+  than left implicit, so it isn't re-litigated at T9.
+- **Next**: T8b is blocked pending a small, separately-reviewed
+  `core/agent.py` fix for `NEW-345` (task-id-keyed `_LAST_RUN_STATS`).
+  T9 (category B at `core/loader_v2.py`, also rule-4) is the last
+  sub-task in the design's ordered rollout.
+
 ## 2026-09-04 — Telemetry `T7` (category E task outcomes, `core/task_executor.py`/`core/agent.py`) code-complete + code-reviewer APPROVED (2 rounds) — highest-risk file touched so far, B6.2c still next, untouched
 
 - **Status**: **Code-complete + code-reviewer APPROVED, no live-model

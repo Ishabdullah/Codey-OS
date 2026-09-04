@@ -14647,12 +14647,33 @@ outside that fix's scope.
   (no current caller of `_execute_task()` supplies `task_id`/`task_type`,
   so nothing observable happens). **Becomes a real risk once T8 wires
   `core/daemon.py` to supply real values**, activating T7's telemetry.
-- **Fix direction:** for T8's attention specifically — either bound the
-  window this can occur in, or switch `_LAST_RUN_STATS` to a
-  task-id-keyed structure instead of a single module-level dict, when
-  T8 activates the wiring.
-- **Cross-reference:** `core/agent.py`, `core/task_executor.py`; T8 in
-  `CODEY_MASTER_PLAN.md` Appendix A.
+- **Correction 2026-09-04 (rule 6, T8 scoping round):** the original
+  wording above implied a SIGINT/shutdown-only trigger. That's not the
+  only path, and not even the most likely one. `core/daemon.py`'s
+  existing `asyncio.wait_for(self.executor._execute_task(...), timeout=
+  timeout)` (both dispatch branches) already cancels the inner coroutine
+  on an ordinary per-task timeout (default 1800s), not just on daemon
+  shutdown — the `run_in_executor` worker thread keeps running to
+  completion regardless, `core/daemon.py` catches `asyncio.TimeoutError`
+  and dispatches the next task on the very next tick, resetting
+  `_LAST_RUN_STATS` for itself while the old worker thread may still be
+  writing to it. A 30-minute task overrun is an ordinary daemon-uptime
+  event, not an exotic SIGINT-only edge case. This is also two distinct
+  defects, not one: (a) cross-task misattribution as originally
+  described, and (b) a torn read inside the *timing-out* task's own
+  `finally` block, which calls `get_last_run_stats()` while its own
+  worker thread may still be mid-flight.
+- **Disposition (T8a, 2026-09-04):** T8a (categories B/C/D/daemon-side G,
+  `superseded_by_plan`) does not touch `_execute_task()`'s `task_id`/
+  `task_type` kwargs at all, so this remains unreachable after T8a lands.
+  T8's `_execute_task()` activation wiring itself was deliberately split
+  out as **T8b** and held back specifically because it would make this
+  bug reachable — see `CODEY_MASTER_PLAN.md` Appendix A, T8 entry.
+- **Fix direction:** unchanged — bound the window, or switch
+  `_LAST_RUN_STATS` to a task-id-keyed structure instead of a single
+  module-level dict. This fix must land in `core/agent.py` before T8b.
+- **Cross-reference:** `core/agent.py`, `core/task_executor.py`,
+  `core/daemon.py`; T8/T8b in `CODEY_MASTER_PLAN.md` Appendix A.
 
 ### [NEW-346] `telemetry/schema/v1.json`'s `null_reason_codes` is itself a closed enum — a generalizable blocker for future honest-null cases, same shape as `NEW-341`
 - **Status:** Confirmed (telemetry T7, 2026-09-04, code-reviewer
@@ -14715,9 +14736,20 @@ outside that fix's scope.
 - **Fix direction:** decide at T8 whether to add
   `task_queue.retry_count` as a distinct field alongside the existing
   `retries` (auto_retries), or rename one of them for clarity.
+- **Decision (T8a scoping, 2026-09-04):** declined both options for now.
+  Either one requires a `telemetry/schema/v1.json` field addition, the
+  byte-identical Aigentik schema mirror, and a parity-test update — a
+  versioned schema change, out of scope for a single sub-task and the
+  same batching this ledger already recommends for `NEW-346`. Confirmed
+  `task_queue.retry_count` genuinely is a real, live, readable signal
+  (`core/planner_v2.py`'s `fail_task()` calls `self.state.increment_retry
+  (task_id)` and re-queues on retry — for the planner-task branch only;
+  the direct-task branch has no retry path at all), so this is a signal
+  being deliberately deferred, not one that's unavailable. Recorded here
+  explicitly so it isn't re-litigated at T9.
 - **Cross-reference:** `core/agent.py`, `core/task_executor.py`,
-  `docs/telemetry_layer_design.md` §2.E; T8 in `CODEY_MASTER_PLAN.md`
-  Appendix A.
+  `core/planner_v2.py`, `docs/telemetry_layer_design.md` §2.E; T8 in
+  `CODEY_MASTER_PLAN.md` Appendix A.
 
 ### [NEW-349] `core/agent.py`'s `[parked]:` branch returns a bare string instead of `(response, history)` — latent unpacking error, currently unreachable
 - **Status:** Confirmed, latent (telemetry T7, 2026-09-04,
@@ -14752,3 +14784,82 @@ outside that fix's scope.
   code to remove, or a real feature that was never wired up) when next
   touched.
 - **Cross-reference:** `core/task_executor.py`.
+
+### [NEW-351] Category-B gate-decision dedup key embeds `can_dispatch_task()`'s live-formatted reason strings — near-full-rate emission exactly when RAM/thermal pressure is sustained
+- **Status:** Confirmed, deferred (telemetry T8a, 2026-09-04,
+  code-reviewer approved round).
+- **Mechanism:** `Daemon._emit_gate_telemetry_deduped()`'s dedup key is
+  `(allowed/should_trip, decision.reason, dispatched_via_swap)`.
+  `can_dispatch_task()`'s refusal `reason` strings embed live formatted
+  numbers (e.g. `f"RAM headroom ({...:.0f}MiB)..."`). Under sustained
+  memory/thermal pressure most evaluations produce a slightly different
+  formatted number, so the key changes on nearly every tick and the
+  60s-suppression window rarely engages — the opposite of §2.B's
+  volume-reduction goal, and worst exactly during the incidents this
+  telemetry exists to capture.
+- **Impact:** none today at normal operation; would produce near-raw-rate
+  `gate` records during a real sustained-pressure incident instead of
+  the intended heartbeat-style reduction.
+- **Fix direction:** normalize/bucket the reason string before hashing
+  into the dedup key (e.g. strip embedded numbers, or key on a coarser
+  reason-category enum) in a follow-up to `core/daemon.py`.
+- **Cross-reference:** `core/daemon.py::_emit_gate_telemetry_deduped`,
+  `core/resource_gate.py::can_dispatch_task`; T8 in `CODEY_MASTER_PLAN.md`
+  Appendix A.
+
+### [NEW-352] Category-D `dispatch_refused_human_present` never fires for a task whose first refusal was non-interactive but a later refusal is interactive
+- **Status:** Confirmed, deferred (telemetry T8a, 2026-09-04,
+  code-reviewer approved round).
+- **Mechanism:** `Daemon._track_dispatch_refusal()` only creates
+  `_deferral_state[task_id]` (and emits `dispatch_refused_human_present`)
+  on a task's first-ever refusal, gated on that specific call's
+  `interactive_active` flag. If the first refusal for a task is
+  thermal/RAM (non-interactive) and only a subsequent refusal for the
+  same task is interactive, the event never fires for that task_id —
+  the state entry was never created, so there is no later branch that
+  re-checks interactivity.
+- **Impact:** undercounts category-D `dispatch_refused_human_present`
+  events for tasks that experience a non-interactive refusal before
+  their first interactive one.
+- **Fix direction:** track "first interactive refusal," not "first
+  refusal," when next touched — e.g. a per-task boolean separate from
+  the existing first-refusal timestamp.
+- **Cross-reference:** `core/daemon.py::_track_dispatch_refusal`; T8 in
+  `CODEY_MASTER_PLAN.md` Appendix A.
+
+### [NEW-353] Category-C `throttle_level` collapses to a binary `"throttled"/"normal"` — no multi-level throttle enum exists in `core/thermal.py`
+- **Status:** Confirmed, judgment-call mapping, non-blocking (telemetry
+  T8a, 2026-09-04, code-reviewer approved round).
+- **Mechanism:** `core/thermal.py`'s `get_thermal_status()` only exposes
+  a bare `throttled: bool`. T8a's device-sample emission maps that
+  directly to `throttle_level: "throttled"` or `"normal"` — a reasonable
+  reading of the schema's string field, but there is no underlying
+  multi-level signal (e.g. warn/reduce/critical) to draw from even if
+  the schema wanted one.
+- **Impact:** none today — `throttle_level` just carries less resolution
+  than its name might suggest to a future reader of the data.
+- **Fix direction:** if finer-grained throttle levels become available
+  in `core/thermal.py` in the future, revisit this mapping; not
+  actionable now.
+- **Cross-reference:** `core/daemon.py` (T8a device-sample block),
+  `core/thermal.py::get_thermal_status`.
+
+### [NEW-354] `docs/telemetry_layer_design.md` §2.C's prose places `counter_reset` under the `device` category, but `telemetry/schema/v1.json` only has the `counters_reset`/`reason` body fields under `meta`
+- **Status:** Confirmed, doc/schema inconsistency (telemetry T8a,
+  2026-09-04, code-reviewer approved round; discovered during T8
+  scoping).
+- **Mechanism:** the design doc's §2.C narrative describes
+  `counter_reset` as a device-category event type. `device`'s
+  `event_types` enum in the schema does list `counter_reset`, but
+  `device`'s `body_fields` has no `counters_reset` array field to carry
+  the actual reset-counter list — only `meta`'s `body_fields` does. T8a
+  implements it correctly per the schema (`record_meta_event(event_type=
+  "counter_reset", ...)`), not per the design doc's prose.
+- **Impact:** none today — the code is schema-correct. A future reader
+  of the design doc alone (without cross-checking the schema) would be
+  misled about which category to emit under.
+- **Fix direction:** correct §2.C's prose in
+  `docs/telemetry_layer_design.md` to point at `meta`, when the design
+  doc is next revised.
+- **Cross-reference:** `docs/telemetry_layer_design.md` §2.C,
+  `telemetry/schema/v1.json`, `core/daemon.py`.

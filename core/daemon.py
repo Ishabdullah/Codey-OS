@@ -20,7 +20,7 @@ import socket
 import sys
 import time
 from pathlib import Path
-from typing import Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from core.daemon_config import get_config
 from core.state import StateStore, get_state_store
@@ -81,6 +81,15 @@ RELEASE_CONFIRM_POLL_INTERVAL_S = 0.3
 # daemon process and pulls in `rich` at import time — not worth adding for
 # this alone), so this is a new, daemon-local cache.
 DISPATCH_BATTERY_CACHE_INTERVAL_S = 30.0
+
+# T8a telemetry (docs/telemetry_layer_design.md §2.D): defensive cap on
+# `Daemon._deferral_state`'s size (rule 2 — bounds unbounded growth). A
+# task can be refused, tracked here, and then never resolved (e.g.
+# cancelled before ever being claimed) — without a cap, a daemon that
+# runs long enough would leak one dict entry per such abandoned task
+# forever. Evicted oldest-first by `first_refused_mono` when full; see
+# `Daemon._track_dispatch_refusal()`.
+_DEFERRAL_STATE_MAX_ENTRIES = 256
 
 # ==================== Configuration ====================
 
@@ -707,6 +716,88 @@ class DaemonServer:
         info("Daemon socket stopped")
 
 
+# ==================== T8a telemetry — module-level provenance helpers ======
+# Category-G (docs/telemetry_layer_design.md §2.G) + meta counter_reset/
+# writer_stopped. Module-level (not Daemon methods) mirroring main.py's
+# T2 `_record_tui_telemetry_run_start()` exactly — no `self` state is
+# needed, and the daemon's own single call site passes nothing instance-
+# specific in.
+
+
+def _record_daemon_telemetry_run_start():
+    """
+    Category-G run provenance (docs/telemetry_layer_design.md §2.G) plus
+    the `counter_reset` meta event (§2.C's "emitted at run start listing
+    every counter that reset with this process"). Emitted once, at the
+    very start of `_main_loop()`, before the socket server task is
+    created — mirrors main.py's `_record_tui_telemetry_run_start()` (T2,
+    commit a53db3d) exactly: local imports, one broad `except Exception`,
+    never allowed to block the daemon's main loop from starting.
+
+    `counter_reset` is emitted here via `record_meta_event()`, NOT
+    `record_device_sample()` — despite §2.C's prose placing it under the
+    device category, `telemetry/schema/v1.json`'s `device` category has
+    no `counters_reset` body field; only `meta` does (meta.event_types
+    includes `counter_reset`, and `meta.body_fields` has `counters_reset`
+    + `reason`). Verified against the schema file directly, not assumed
+    from the design doc's prose.
+    """
+    try:
+        from telemetry import provenance, recorders
+        from utils.config import (CODEY_DIR, EMBED_MODEL_PATH,
+                                  LLAMA_SERVER_BIN, MODEL_PATH)
+
+        models = provenance.build_model_entries(
+            [("primary", MODEL_PATH), ("embed", EMBED_MODEL_PATH)]
+        )
+        recorders.record_run_start(
+            emitter="codey-os.daemon",
+            pid=os.getpid(),
+            repo="Codey-OS",
+            started_ts_wall=time.time(),
+            repo_dir=CODEY_DIR,
+            models=models,
+            llama_server_bin=LLAMA_SERVER_BIN,
+        )
+        recorders.record_meta_event(
+            event_type="counter_reset",
+            emitter="codey-os.daemon",
+            pid=os.getpid(),
+            counters_reset=[
+                "thermal.total_inference_sec",
+                "telemetry.seq",
+                "telemetry.dropped_count",
+            ],
+            reason="daemon process (re)start",
+        )
+    except Exception:
+        warning("telemetry: failed to record run_start/counter_reset for daemon")
+
+
+def _record_daemon_telemetry_writer_stopped():
+    """
+    Meta `writer_stopped` event (docs/telemetry_layer_design.md — see
+    `telemetry/cli.py`'s existing `no_clean_shutdown` check, which already
+    anticipates this record arriving from a future daemon-shutdown sub-
+    task). Emitted as the LAST statement of `_main_loop()`'s `finally:`
+    block — after every other shutdown step has already run — same
+    never-block-shutdown contract as every other telemetry call site in
+    this file: local imports, broad `except Exception`, logged not
+    raised.
+    """
+    try:
+        from telemetry import recorders
+
+        recorders.record_meta_event(
+            event_type="writer_stopped",
+            emitter="codey-os.daemon",
+            pid=os.getpid(),
+            reason="daemon shutdown",
+        )
+    except Exception:
+        warning("telemetry: failed to record writer_stopped for daemon")
+
+
 # ==================== Daemon Core ====================
 
 
@@ -760,6 +851,25 @@ class Daemon:
         # DISPATCH_BATTERY_CACHE_INTERVAL_S's comment above.
         self._dispatch_battery_cache_ts = 0.0
         self._dispatch_battery_cache_value = (None, False)
+
+        # T8a telemetry state (docs/telemetry_layer_design.md §2.B/§2.D).
+        # Category-B gate-decision dedup: per call_site, the last emitted
+        # dedup key + when that key was first seen + how many evaluations
+        # have collapsed into it since — see _emit_gate_telemetry_deduped().
+        self._gate_dedup: Dict[str, Dict[str, Any]] = {}
+        # Category-D co-tenancy: last-observed interactive-session state
+        # and when that state began, so a transition's `state_duration_ms`
+        # can be computed — see _observe_interactive_state(). None means
+        # "not yet observed" (the first observation only seeds this, it
+        # never emits — there is no "previous" state to compare against).
+        self._interactive_active_last: Optional[bool] = None
+        self._interactive_state_since_mono: float = time.monotonic()
+        # Category-D deferral tracking: task_id -> {first_refused_mono,
+        # refusal_count}, for tasks refused at least once while the gate
+        # was consulted. Bounded by _DEFERRAL_STATE_MAX_ENTRIES — see that
+        # constant's comment. See _track_dispatch_refusal() /
+        # _resolve_deferral_if_any().
+        self._deferral_state: Dict[int, Dict[str, float]] = {}
 
         # Register signal handlers
         signal.signal(signal.SIGTERM, self._handle_sigterm)
@@ -934,6 +1044,14 @@ class Daemon:
         self.state.set("daemon_started_at", int(time.time()))
         self.state.log_action("daemon_started", f"PID {os.getpid()}")
 
+        # T8a telemetry: category-G run provenance + counter_reset meta
+        # event, once per daemon process start. Deliberately synchronous
+        # and placed before the server task is created (mirrors main.py's
+        # T2 `_record_tui_telemetry_run_start()` placement at the very
+        # start of the TUI session it instruments) — see that function's
+        # own docstring for the full never-block contract.
+        _record_daemon_telemetry_run_start()
+
         # Start socket server
         server_task = asyncio.create_task(self.server.start())
 
@@ -1038,6 +1156,30 @@ class Daemon:
                         from utils.config import THERMAL_CONFIG as _tc
 
                         _trip = should_trip_shutdown()
+                        # T8a telemetry: category-B gate-decision record for
+                        # this call site, deduped/edge-triggered (see
+                        # _emit_gate_telemetry_deduped()'s own docstring).
+                        # Wrapped in its OWN try/except — separate from the
+                        # outer except below, which has a specific safety
+                        # meaning (a failure evaluating should_trip_shutdown()
+                        # itself must stay visible and distinguishable from a
+                        # telemetry bug). _emit_gate_telemetry_deduped()
+                        # already never raises (it catches and logs
+                        # internally), so this is defense-in-depth, not the
+                        # primary safety net — but per CLAUDE.md's exception-
+                        # handling rule, a bare `except: pass` here is safe
+                        # specifically because it can only ever suppress a
+                        # telemetry-recording failure, never a
+                        # should_trip_shutdown() evaluation failure (that
+                        # already returned above this line).
+                        try:
+                            self._emit_gate_telemetry_deduped(
+                                event_type="should_trip_shutdown",
+                                decision=_trip,
+                                call_site="daemon._main_loop.should_trip_shutdown",
+                            )
+                        except Exception:
+                            pass
                         _temp_critical = _tc.get("temp_critical", 90)
                         if _trip.should_trip:
                             warning(f"Autonomous shutdown tripwire fired: {_trip.reason}")
@@ -1071,6 +1213,26 @@ class Daemon:
                         # here (see should_trip_shutdown()'s docstring on
                         # fail-safe-toward-not-killing).
                         warning(f"resource_gate shutdown-tripwire check failed (daemon NOT stopped, will re-evaluate next tick): {e}")
+
+                    # T8a telemetry: category-C device sample, once per
+                    # watchdog tick (~30s) — unconditional on `_is_remote()`,
+                    # same placement/reasoning as the CPU/thermal samples
+                    # above (device state is backend-independent).
+                    self._record_daemon_telemetry_device_sample()
+
+                    # T8a telemetry: category-D co-tenancy — idle-queue
+                    # coverage. _check_dispatch_gate() already calls
+                    # _observe_interactive_state() on every tick it runs,
+                    # but it only runs when a task is actually queued; this
+                    # once-per-watchdog-tick call is what catches a
+                    # transition during an otherwise-idle queue.
+                    try:
+                        from core.resource_gate import is_interactive_session_active
+
+                        self._observe_interactive_state(is_interactive_session_active())
+                    except Exception as e:
+                        warning(f"telemetry: interactive-state watchdog sample failed: {e}")
+
                     # 7B model server watchdog (local only)
                     if not _is_remote():
                         self._watchdog_check_model()
@@ -1124,6 +1286,11 @@ class Daemon:
             self.state.log_action("daemon_stopped", f"PID {os.getpid()}")
             info("Daemon stopped")
 
+            # T8a telemetry: meta writer_stopped — last statement in this
+            # finally block, after every other shutdown step above. See
+            # _record_daemon_telemetry_writer_stopped()'s own docstring.
+            _record_daemon_telemetry_writer_stopped()
+
     def _cached_read_battery_fn(self):
         """
         Cached/rate-limited battery reader for `can_dispatch_task()`'s
@@ -1149,22 +1316,423 @@ class Daemon:
                 warning(f"resource_gate: cached battery read failed, keeping last-known value: {e}")
         return self._dispatch_battery_cache_value
 
+    def _record_daemon_telemetry_device_sample(self) -> None:
+        """
+        Category-C device-state telemetry (T8a,
+        docs/telemetry_layer_design.md §2.C), called once per ~30s watchdog
+        tick from `_main_loop()`, unconditional on `_is_remote()` (device
+        state is backend-independent). Reuses this same tick's already-
+        cached battery reader (`_cached_read_battery_fn`, 30s cache — see
+        `DISPATCH_BATTERY_CACHE_INTERVAL_S`) rather than adding a new
+        polling cadence; the only new per-tick cost is one extra
+        `read_meminfo()`/`read_zram_stats()` pair of /proc and /sys reads,
+        and — via `get_resource_snapshot()` — a `termux-battery-status`
+        subprocess call whenever that 30s battery cache has actually
+        expired (i.e. on roughly every tick here too, since this tick's
+        own cadence matches the cache interval), not a new standalone
+        polling loop.
+
+        Honest-null contract (§2.0.1): a `None` from any of these reads is
+        a genuine observation failure, recorded as null + a reason code,
+        not silently pruned. `cpu_percent` is ALWAYS null on this device
+        (NEW-108, `/proc/stat` permission-denied) — inherited verbatim
+        from `core/resource_gate.py`, not fixed here.
+
+        `throttle_level`: no dedicated multi-level enum exists anywhere in
+        `core/thermal.py` today (only a `throttled: bool` on
+        `get_thermal_status()`'s return dict) — mapped to the two coarse
+        strings this schema field anticipates, not a guessed scale nothing
+        in this codebase actually computes.
+
+        Never allowed to affect the caller — kill switch checked first,
+        broad `except Exception`, logged at warning on failure, same
+        contract as every other T8a telemetry helper in this file.
+        """
+        try:
+            from telemetry import store
+
+            if not store.TELEMETRY_ENABLED:
+                return
+
+            from core.resource_gate import (compute_zram_compression_ratio,
+                                             get_resource_snapshot, read_meminfo,
+                                             read_zram_stats)
+            from core.thermal import get_thermal_status, is_inference_active
+            from telemetry import recorders
+
+            meminfo = read_meminfo()
+            snapshot = get_resource_snapshot(meminfo=meminfo, read_battery_fn=self._cached_read_battery_fn)
+            zram_stats = read_zram_stats()
+            zram_ratio = compute_zram_compression_ratio(zram_stats)
+            thermal_status = get_thermal_status()
+
+            nulls: Dict[str, str] = {}
+            if snapshot.cpu_percent is None:
+                nulls["body.cpu_percent"] = "proc_stat_permission_denied"
+            if snapshot.temperature_c is None:
+                nulls["body.temperature_c"] = "thermal_zone_unreadable"
+            if snapshot.battery_percent is None:
+                nulls["body.battery_percent"] = "battery_read_failed"
+            if zram_stats is None:
+                nulls["body.zram_compression_ratio"] = "zram_stats_unavailable"
+                nulls["body.zram_orig_data_bytes"] = "zram_stats_unavailable"
+                nulls["body.zram_compr_data_bytes"] = "zram_stats_unavailable"
+
+            recorders.record_device_sample(
+                emitter="codey-os.daemon",
+                pid=os.getpid(),
+                snapshot=snapshot,
+                mem_free_bytes=meminfo.get("MemFree"),
+                mem_available_bytes=meminfo.get("MemAvailable"),
+                zram_compression_ratio=zram_ratio,
+                zram_orig_data_bytes=zram_stats.get("orig_data_size_bytes") if zram_stats else None,
+                zram_compr_data_bytes=zram_stats.get("compr_data_size_bytes") if zram_stats else None,
+                inference_active=is_inference_active(),
+                inference_seconds_this_run=thermal_status.get("total_inference_sec", 0.0),
+                throttle_level="throttled" if thermal_status.get("throttled") else "normal",
+                nulls=nulls,
+            )
+        except Exception as e:
+            # Best-effort signal only, same posture as the CPU/thermal
+            # sampling calls in _main_loop()'s watchdog tick — a telemetry
+            # read/emit failure must not stop the watchdogs that follow it
+            # in this same tick.
+            warning(f"telemetry: failed to record device sample: {e}")
+
     def _check_dispatch_gate(self):
         """
         Build a `ResourceSnapshot` (with the cached battery reader above)
         and the current interactive-session signal, and run
         `can_dispatch_task()` — the 7.4 sub-task C pre-claim gate check.
 
-        Returns the `DispatchDecision` (`allowed`, `reason`). Callers must
-        consult this BEFORE `state.try_claim_task()` — claiming first and
-        gating after would strand a refused task in `running` status with
-        no executor ever picking it back up.
+        Returns a `(decision, interactive_active)` tuple (T8a) — the
+        `DispatchDecision` (`allowed`, `reason`) plus the interactive-
+        session signal this method already computed, since callers also
+        need that same value for category-D co-tenancy telemetry
+        (`_track_dispatch_refusal()`) and recomputing it a second time
+        would risk observing a different value than the one the decision
+        was actually made with. Callers must consult the decision BEFORE
+        `state.try_claim_task()` — claiming first and gating after would
+        strand a refused task in `running` status with no executor ever
+        picking it back up.
         """
         from core.resource_gate import can_dispatch_task, get_resource_snapshot, is_interactive_session_active
 
         snapshot = get_resource_snapshot(read_battery_fn=self._cached_read_battery_fn)
         interactive_active = is_interactive_session_active()
-        return can_dispatch_task(snapshot, interactive_active)
+        decision = can_dispatch_task(snapshot, interactive_active)
+        # T8a telemetry: category-B gate-decision record (deduped/edge-
+        # triggered) + category-D interactive-state observation. Both are
+        # best-effort, never allowed to affect the decision returned below
+        # — see _emit_gate_telemetry_deduped()/_observe_interactive_state()
+        # for their own never-crash contracts.
+        self._emit_gate_telemetry_deduped(
+            event_type="can_dispatch_task",
+            decision=decision,
+            call_site="daemon._check_dispatch_gate",
+            snapshot=snapshot,
+        )
+        self._observe_interactive_state(interactive_active)
+        return decision, interactive_active
+
+    def _emit_gate_telemetry_deduped(self, *, event_type: str, decision, call_site: str, snapshot=None) -> None:
+        """
+        Category-B gate-decision telemetry (T8a,
+        docs/telemetry_layer_design.md §2.B), edge-triggered and deduped
+        per `call_site` — §2.B's "Edge-triggered recording (this is load-
+        bearing, not an optimization)": `_check_dispatch_gate()` alone can
+        run twice per second, so recording every evaluation would produce
+        ~172,800 gate records/day for what is scientifically one repeated
+        fact, not 172,800 observations.
+
+        Two live callers as of T8a: `_check_dispatch_gate()`
+        (`event_type="can_dispatch_task"`) and the `should_trip_shutdown()`
+        watchdog check (`event_type="should_trip_shutdown"`) — each tracked
+        under its own `call_site` key in `self._gate_dedup`, so the two
+        never collide or share a dedup window.
+
+        Dedup key = `(primary_outcome, decision.reason, via_swap)` where
+        `primary_outcome` is `decision.allowed` when present (GateDecision/
+        DispatchDecision) else `decision.should_trip` (TripDecision, which
+        has no `allowed` field), and `via_swap` is
+        `decision.dispatched_via_swap` when present else
+        `decision.admitted_via_swap` else `None` — this one helper serves
+        both decision-object shapes without importing either dataclass
+        type (matching `record_gate_decision()`'s own `_as_dict()`
+        duck-typed contract; this module already imports
+        `core.resource_gate` lazily elsewhere, but there is no reason to
+        import the dataclasses themselves just to read two named
+        attributes).
+
+        Rule: a key change re-emits immediately (`repeat_count=1`,
+        `dedup_window_ms=None`). An unchanged key is suppressed until 60s
+        have elapsed since the window last emitted, then re-emitted
+        carrying `repeat_count` (evaluations collapsed into THIS window
+        only — the internal counter resets to 0 immediately after every
+        emission, so an evaluation is never counted toward two different
+        emitted records) and `dedup_window_ms` (the span actually
+        covered). This is NOT lossless: when a key change interrupts an
+        in-progress window, that window's already-accumulated-but-not-
+        yet-emitted `repeat_count` is discarded — the new key's emission
+        starts a fresh window, it does not flush the old one first. So
+        summing `repeat_count` across every record emitted for a given
+        `call_site` recovers a lower bound on the true evaluation count,
+        under-counting by at most one in-progress window's worth per key
+        transition (bounded, not exact — accepted per T8a's own findings
+        list rather than adding a flush-on-transition emission).
+
+        Never allowed to affect the caller's control flow or the decision
+        being reported: kill switch checked first, broad `except Exception`
+        around the whole body, logged at warning on failure — same
+        contract as every other T2/T5/T6/T7 telemetry helper.
+        """
+        try:
+            from telemetry import store
+
+            if not store.TELEMETRY_ENABLED:
+                return
+
+            from telemetry import recorders
+
+            primary_outcome = getattr(decision, "allowed", None)
+            if primary_outcome is None:
+                primary_outcome = getattr(decision, "should_trip", None)
+            via_swap = getattr(decision, "dispatched_via_swap", None)
+            if via_swap is None:
+                via_swap = getattr(decision, "admitted_via_swap", None)
+            key = (primary_outcome, decision.reason, via_swap)
+
+            now = time.monotonic()
+            window = self._gate_dedup.get(call_site)
+
+            if window is None or window["key"] != key:
+                # New window: this evaluation is the ONLY one it covers so
+                # far, so the emitted record's own repeat_count is 1. The
+                # window's internal counter is reset to 0 (not 1) — it only
+                # accumulates evaluations that happen AFTER this emission,
+                # so no evaluation is double-counted across two emitted
+                # records. If a prior window was still in progress (had an
+                # unflushed repeat_count > 0) when this key change hit, that
+                # count is discarded, not flushed — summing repeat_count
+                # over time is a lower bound, not an exact total (§2.B
+                # point 3 caveat, see docstring above).
+                self._gate_dedup[call_site] = {"key": key, "window_start_mono": now, "repeat_count": 0}
+                recorders.record_gate_decision(
+                    event_type=event_type,
+                    emitter="codey-os.daemon",
+                    pid=os.getpid(),
+                    decision=decision,
+                    call_site=call_site,
+                    reason=decision.reason,
+                    snapshot=snapshot,
+                    repeat_count=1,
+                    dedup_window_ms=None,
+                )
+                return
+
+            window["repeat_count"] += 1
+            elapsed_ms = (now - window["window_start_mono"]) * 1000.0
+            if elapsed_ms >= 60_000.0:
+                recorders.record_gate_decision(
+                    event_type=event_type,
+                    emitter="codey-os.daemon",
+                    pid=os.getpid(),
+                    decision=decision,
+                    call_site=call_site,
+                    reason=decision.reason,
+                    snapshot=snapshot,
+                    repeat_count=window["repeat_count"],
+                    dedup_window_ms=elapsed_ms,
+                )
+                # Same reasoning as the new-window branch above: reset to 0,
+                # not 1 — this heartbeat's repeat_count already covers every
+                # evaluation collapsed into it (including this one), so the
+                # next window must start counting from zero, not
+                # double-count this evaluation into the next emission too.
+                self._gate_dedup[call_site] = {"key": key, "window_start_mono": now, "repeat_count": 0}
+        except Exception as e:
+            warning(f"telemetry: failed to record gate decision ({call_site}): {e}")
+
+    def _observe_interactive_state(self, active: bool) -> None:
+        """
+        Category-D co-tenancy telemetry (T8a,
+        docs/telemetry_layer_design.md §2.D): emits `interactive_transition`
+        only on an actual state change from the last-observed value — the
+        very first observation this process makes just seeds
+        `self._interactive_active_last`/`self._interactive_state_since_mono`
+        with no emission, since there is no genuine "previous" state to
+        report a transition from yet.
+
+        Called from `_check_dispatch_gate()` (using the interactive-active
+        value it already computed for the dispatch decision itself) AND
+        once per 30s watchdog tick — the watchdog call exists for idle-
+        queue coverage, since `_check_dispatch_gate()` only ever runs when
+        a task is actually queued and a transition during an empty queue
+        would otherwise never be observed at all.
+        """
+        now = time.monotonic()
+        if self._interactive_active_last is None:
+            self._interactive_active_last = active
+            self._interactive_state_since_mono = now
+            return
+        if active == self._interactive_active_last:
+            return
+
+        previous_active = self._interactive_active_last
+        state_duration_ms = (now - self._interactive_state_since_mono) * 1000.0
+        self._interactive_active_last = active
+        self._interactive_state_since_mono = now
+
+        try:
+            from telemetry import store
+
+            if not store.TELEMETRY_ENABLED:
+                return
+
+            from telemetry import recorders
+
+            recorders.record_cotenancy_transition(
+                emitter="codey-os.daemon",
+                pid=os.getpid(),
+                active=active,
+                previous_active=previous_active,
+                live_session_pids=self._list_live_tui_session_pids(),
+                state_duration_ms=state_duration_ms,
+            )
+        except Exception as e:
+            warning(f"telemetry: failed to record interactive_transition: {e}")
+
+    def _list_live_tui_session_pids(self) -> List[int]:
+        """
+        Passive, read-only listing of currently-live TUI session PIDs from
+        `utils.config.TUI_SESSIONS_DIR` (T8a, for category-D's
+        `live_session_pids` field). Mirrors the per-file liveness check
+        `core/resource_gate.py`'s `is_tui_session_active()` already does
+        (one file per session, `os.kill(pid, 0)` liveness probe) — but
+        deliberately does NOT reap stale/dead-PID entries the way that
+        function does. Reaping is `is_tui_session_active()`'s job (an
+        explicit non-goal to touch here); this helper only observes and
+        reports, so a telemetry read can never have a side effect on the
+        real gate-decision signal.
+        """
+        pids: List[int] = []
+        try:
+            from utils.config import TUI_SESSIONS_DIR
+
+            if not TUI_SESSIONS_DIR.exists():
+                return pids
+            entries = list(TUI_SESSIONS_DIR.iterdir())
+        except OSError:
+            return pids
+
+        for entry in entries:
+            if not entry.is_file() or entry.name.startswith("."):
+                continue
+            try:
+                pid = int(entry.read_text().strip())
+            except (OSError, ValueError):
+                continue
+            try:
+                os.kill(pid, 0)
+            except (ProcessLookupError, PermissionError):
+                continue
+            except OSError:
+                continue
+            pids.append(pid)
+        return pids
+
+    def _track_dispatch_refusal(self, task_id: int, interactive_active: bool, refusal_reason: str) -> None:
+        """
+        Category-D co-tenancy telemetry (T8a): tracks first-refusal time +
+        cumulative refusal count per `task_id` in `self._deferral_state`,
+        so a later successful claim (`_resolve_deferral_if_any()`) can
+        report the wall time an actually-dispatched task spent deferred.
+
+        `self._deferral_state` entries are created/updated for EVERY
+        refusal (any reason — thermal, battery, RAM, interactive), so
+        `_resolve_deferral_if_any()` always has an accurate
+        `deferral_refusal_count` to report and always clears the entry on
+        resolution, regardless of what kind of refusal caused it. Emission
+        of `dispatch_refused_human_present` itself, however, only happens
+        on the task's FIRST refusal AND only when `interactive_active` is
+        True — category D is co-tenancy-specific ("a human is watching"),
+        not a general "any dispatch was refused" event; thermal/battery/
+        RAM refusals are already fully captured by category B's gate-
+        decision telemetry and must not also be double-counted here.
+        """
+        now = time.monotonic()
+        existing = self._deferral_state.get(task_id)
+        if existing is None:
+            if len(self._deferral_state) >= _DEFERRAL_STATE_MAX_ENTRIES:
+                # Defensive cap (rule 2) — bounds unbounded growth from
+                # tasks refused and then abandoned (e.g. cancelled) before
+                # ever reaching a matching _resolve_deferral_if_any() call.
+                # Evict the single oldest entry by first_refused_mono.
+                oldest_task_id = min(
+                    self._deferral_state, key=lambda tid: self._deferral_state[tid]["first_refused_mono"]
+                )
+                del self._deferral_state[oldest_task_id]
+            self._deferral_state[task_id] = {"first_refused_mono": now, "refusal_count": 1.0}
+            first_refusal = True
+        else:
+            existing["refusal_count"] += 1
+            first_refusal = False
+
+        if not (first_refusal and interactive_active):
+            return
+
+        try:
+            from telemetry import store
+
+            if not store.TELEMETRY_ENABLED:
+                return
+
+            from telemetry import recorders
+
+            recorders.record_dispatch_refused_human_present(
+                emitter="codey-os.daemon",
+                pid=os.getpid(),
+                refused_task_id=task_id,
+                refusal_reason=refusal_reason,
+            )
+        except Exception as e:
+            warning(f"telemetry: failed to record dispatch_refused_human_present: {e}")
+
+    def _resolve_deferral_if_any(self, task_id: int) -> None:
+        """
+        Category-D co-tenancy telemetry (T8a): counterpart to
+        `_track_dispatch_refusal()`, called right after a task successfully
+        claims (in EVERY branch, not just ones refused while interactive —
+        `self._deferral_state` may hold an entry from a non-interactive
+        refusal too, and this call is what clears it so the dict doesn't
+        grow with stale resolved entries). Emits `deferral_resolved` only
+        when `task_id` actually has a tracked prior refusal; a task that
+        dispatched on its very first evaluation has no entry and this is a
+        no-op.
+        """
+        state = self._deferral_state.pop(task_id, None)
+        if state is None:
+            return
+
+        deferral_ms = (time.monotonic() - state["first_refused_mono"]) * 1000.0
+        deferral_refusal_count = int(state["refusal_count"])
+
+        try:
+            from telemetry import store
+
+            if not store.TELEMETRY_ENABLED:
+                return
+
+            from telemetry import recorders
+
+            recorders.record_deferral_resolved(
+                emitter="codey-os.daemon",
+                pid=os.getpid(),
+                deferral_ms=deferral_ms,
+                deferral_refusal_count=deferral_refusal_count,
+            )
+        except Exception as e:
+            warning(f"telemetry: failed to record deferral_resolved: {e}")
 
     async def _plan_claimed_task(self, prompt: str, tier: str = "hard"):
         """
@@ -1245,9 +1813,10 @@ class Daemon:
             # 'running' status with no executor ever picking it back up.
             # planner.get_next_task() is a pure in-memory peek (no state
             # mutation), so it was safe to call before this check.
-            decision = self._check_dispatch_gate()
+            decision, interactive_active = self._check_dispatch_gate()
             if not decision.allowed:
                 info(f"Daemon: dispatch deferred (planner task {planner_task.id}) — {decision.reason}")
+                self._track_dispatch_refusal(planner_task.id, interactive_active, decision.reason)
                 return
 
             # Atomically claim in SQLite before any yield point.
@@ -1261,6 +1830,10 @@ class Daemon:
                     elif db["status"] == "failed":
                         self.planner.fail_task(planner_task.id, db.get("result", "already failed"))
                 return
+
+            # T8a telemetry: category-D — resolve any tracked deferral for
+            # this task_id now that it has actually claimed.
+            self._resolve_deferral_if_any(planner_task.id)
 
             # Sync in-memory planner state. planner.start_task() re-runs the SQLite
             # UPDATE (harmless — overwrites 'running' with 'running') and sets the
@@ -1293,13 +1866,18 @@ class Daemon:
 
         # 7.4 sub-task C: gate check BEFORE try_claim_task() — same
         # claim-order requirement as the planner-task branch above.
-        decision = self._check_dispatch_gate()
+        decision, interactive_active = self._check_dispatch_gate()
         if not decision.allowed:
             info(f"Daemon: dispatch deferred (direct task {db_task['id']}) — {decision.reason}")
+            self._track_dispatch_refusal(db_task["id"], interactive_active, decision.reason)
             return
 
         if not self.state.try_claim_task(db_task["id"]):
             return  # lost the race — another path claimed it
+
+        # T8a telemetry: category-D — resolve any tracked deferral for this
+        # task_id now that it has actually claimed.
+        self._resolve_deferral_if_any(db_task["id"])
 
         # 7.4 sub-task C: pull-side planning for a raw task enqueued via
         # _handle_command's plan_only=False path (needs_planning=1) — moved
@@ -1350,6 +1928,7 @@ class Daemon:
                     db_task["id"], f"Expanded into {total}-step plan: task_ids={task_ids}"
                 )
                 self.state.clear_needs_planning(db_task["id"])
+                self._record_daemon_telemetry_superseded_by_plan(db_task["id"])
                 return
             if steps:
                 info(f"plannd returned only 1 step for task {db_task['id']} — using single-task path")
@@ -1366,6 +1945,49 @@ class Daemon:
             self.state.fail_task(db_task["id"], f"Task timed out after {timeout}s")
         except Exception as e:
             self.state.fail_task(db_task["id"], str(e))
+
+    def _record_daemon_telemetry_superseded_by_plan(self, task_id: int) -> None:
+        """
+        Category-E task-outcome telemetry (T8a,
+        docs/telemetry_layer_design.md §2.E) for the one terminal state a
+        raw `task_queue` row can reach WITHOUT ever calling
+        `TaskExecutor._execute_task()`: this call site (immediately above,
+        `self.state.complete_task(db_task["id"], f"Expanded into
+        {total}-step plan...")`) retires the raw row because it expanded
+        into an N-step plan instead of being dispatched itself.
+
+        Emits a LONE `task_finished` record — deliberately no matching
+        `task_started` for this same `task_id`, by design: this task_id
+        never enters `_execute_task()` at all (it is superseded by N new
+        task_ids instead, each of which gets its own real
+        `task_started`/`task_finished` pair when THEY dispatch — via
+        `core/task_executor.py`'s T7 instrumentation, unaffected by this
+        call). `duration_ms=0.0` because there is no execution duration to
+        report — the row was retired, not run. `needs_planning=True` is
+        hardcoded rather than re-read from the row: this method's only
+        caller is the `if db_task.get("needs_planning"):` branch, so it is
+        structurally always true here.
+        """
+        try:
+            from telemetry import store
+
+            if not store.TELEMETRY_ENABLED:
+                return
+
+            from telemetry import recorders
+
+            recorders.record_task_finished(
+                emitter="codey-os.daemon",
+                pid=os.getpid(),
+                task_id=task_id,
+                task_type="direct",
+                needs_planning=True,
+                finished_ts_wall=time.time(),
+                duration_ms=0.0,
+                terminal_status="superseded_by_plan",
+            )
+        except Exception as e:
+            warning(f"telemetry: failed to record superseded_by_plan task_finished for task {task_id}: {e}")
 
     def run(self):
         """Run the daemon."""

@@ -54,6 +54,15 @@ def _bare_daemon(db_path):
     d.executor._execute_task = AsyncMock(return_value="executed result")
     d._config = MagicMock()
     d._config.get.return_value = 1800
+    # T8a telemetry state — __init__ normally seeds these; _bare_daemon
+    # bypasses __init__ entirely, and _track_dispatch_refusal()/
+    # _resolve_deferral_if_any() (both real, unmocked, on the
+    # _process_planner_tasks() path this file exercises) touch
+    # self._deferral_state unconditionally.
+    d._deferral_state = {}
+    d._gate_dedup = {}
+    d._interactive_active_last = None
+    d._interactive_state_since_mono = 0.0
     return d
 
 
@@ -61,11 +70,12 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-ALLOWED = DispatchDecision(allowed=True, reason="within resource limits")
+ALLOWED_DECISION = DispatchDecision(allowed=True, reason="within resource limits")
+ALLOWED = (ALLOWED_DECISION, False)
 
 
-def _refused(reason="refused for test"):
-    return DispatchDecision(allowed=False, reason=reason)
+def _refused(reason="refused for test", interactive_active=False):
+    return (DispatchDecision(allowed=False, reason=reason), interactive_active)
 
 
 # ── Claim-order regression test ──────────────────────────────────────────────

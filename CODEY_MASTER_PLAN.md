@@ -6255,9 +6255,47 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       from a T0-class invisible-omission bug. Findings: `NEW-345`..
       `NEW-350` (all non-blocking; `NEW-345`/`NEW-348` need direct T8
       attention since T8 activates this sub-task's inert wiring).
-- [ ] **T8** — categories B, C, D + daemon-side G at `core/daemon.py`.
-      **Rule-4, highest-risk sub-task** — process-lifecycle module,
-      deliberately scheduled last.
+- [x] **T8a** — categories B, C, D, daemon-side G, and the
+      `superseded_by_plan` task-outcome terminal status, all at
+      `core/daemon.py`. **Rule-4. DONE 2026-09-04, code-complete +
+      code-reviewer APPROVED (2 rounds — round 1 CHANGES REQUESTED for a
+      docstring/test-comment overclaim, round 2 approved).** Edge-
+      triggered gate-decision records (dedup'd, 60s heartbeat) at
+      `_check_dispatch_gate()` and the `should_trip_shutdown()` check
+      (its own isolated try/except so a telemetry bug can never surface
+      through the tripwire's existing except clause); category C rides
+      the existing 30s watchdog tick, reusing `core/resource_gate.py`'s
+      already-composed snapshot verbatim (no new sampler/timer);
+      category D tracks interactive/background co-tenancy transitions
+      and per-task deferral duration (256-entry bounded dict, rule 2);
+      `run_start`/`counter_reset` at daemon start and `writer_stopped`
+      in the shutdown `finally` (confirmed against `telemetry/store.py`
+      that `atexit`-driven drain survives normal exit); `task_finished`
+      with `terminal_status="superseded_by_plan"` for the one path
+      `_execute_task()` never sees. Full suite 1409/0/1 (1391 pre-
+      existing baseline + 18 new). `_check_dispatch_gate()`'s return
+      signature changed to `(decision, interactive_active)` — both call
+      sites updated, verified independently by code-reviewer. **Round 1
+      caught and required a fix for**: `_emit_gate_telemetry_deduped()`'s
+      docstring falsely claimed summing `repeat_count` "recovers the
+      true evaluation count exactly" — false, since an in-progress
+      window's unflushed count is discarded (not flushed) on a
+      dedup-key change; corrected to state it's a lower bound with
+      bounded loss. Findings: `NEW-351`..`NEW-354` (all non-blocking,
+      deferred); also corrected `NEW-345` (rule 6 — its exposure window
+      is broader than originally stated, reachable via an ordinary task
+      timeout, not just SIGINT/shutdown) and recorded an explicit
+      decline-for-now decision on `NEW-348`.
+- [ ] **T8b** — wire `task_id`/`task_type`/`needs_planning` into
+      `core/daemon.py`'s two `_execute_task()` call sites, activating
+      T7's currently-inert task-outcome telemetry. **Deliberately held
+      back from T8a** — this is the only part of T8 that makes `NEW-345`
+      (a `_LAST_RUN_STATS` cross-task corruption race in `core/agent.py`,
+      reachable on an ordinary per-task timeout as well as shutdown, not
+      just SIGINT) actually reachable. **Blocked on**: a small, separately
+      reviewed `core/agent.py` fix first (task-id-keyed `_LAST_RUN_STATS`
+      instead of a single module-level dict, per `NEW-345`'s stated fix
+      direction). Do not land T8b before that fix is in and approved.
 - [ ] **T9** — category B at `core/loader_v2.py`. **Rule-4, deliberately
       scheduled last** (model spawn/PID/kill-adjacent code).
       **10 items in `docs/telemetry_layer_design.md` §8 were resolved by
