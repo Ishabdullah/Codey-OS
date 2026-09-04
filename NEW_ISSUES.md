@@ -14922,3 +14922,96 @@ outside that fix's scope.
   real issue in practice.
 - **Cross-reference:** `core/agent.py`, `core/task_executor.py`,
   `core/daemon.py`, `NEW-345`.
+
+### [NEW-356] `core/daemon.py`'s planner-branch dispatch hardcodes `needs_planning=False` in category-E telemetry — wrong for a `needs_planning=1` direct task rehydrated into the planner after a daemon restart
+- **Status:** Confirmed, non-blocking, deferred (telemetry T8b,
+  2026-09-04, code-reviewer approved round).
+- **Mechanism:** Site 1 (the planner-task branch of
+  `_process_planner_tasks()`, `core/daemon.py`) hardcodes
+  `needs_planning=False` on its `_execute_task()` call — justified by
+  `Planner.add_task()`/`add_tasks()` → `StateStore.add_task()`
+  (`core/state.py:192`) always defaulting `needs_planning=0` for rows
+  added that way. That justification breaks down for a row that never
+  went through `add_task()`/`add_tasks()` at all: `Planner.__init__()`'s
+  `_load_tasks()` (`core/planner_v2.py:69-91`) unconditionally pulls
+  **every** `pending`/`running` row from `state.get_all_tasks()` into
+  `self._tasks` on daemon (re)start, with no filter on origin or
+  `needs_planning` — and `get_next_task()` iterates that same dict with
+  no filter either. A direct-command row created with `needs_planning=1`
+  (`core/daemon.py`'s `_handle_command` path,
+  `self.state.add_task(prompt, needs_planning=needs_planning)`) that is
+  still `pending` at the exact moment the daemon restarts gets absorbed
+  into `self.planner._tasks` this way, and can then be dispatched via
+  Site 1 instead of Site 2 — reporting `needs_planning=False` in its
+  telemetry even though the row's real value is `1`. Site 2's own guard
+  (`if db_task["id"] in self.planner._tasks: return`) is itself proof
+  this store overlap is by design, pre-dating T8b.
+- **A second, related pre-existing gap** (not caused by T8b, surfaced
+  while investigating it): a row dispatched via Site 1 this way also
+  never goes through Site 2's planning-expansion block (`if
+  db_task.get("needs_planning"): steps = await
+  self._plan_claimed_task(...)`) — it silently runs as a single
+  un-expanded task despite being flagged `needs_planning=1`, a dispatch-
+  logic gap independent of telemetry.
+- **Impact:** telemetry data-quality only for the T8b-introduced part —
+  no double-execution, no resource-safety consequence, no incorrect
+  task outcome. Narrow trigger (requires a `needs_planning=1` direct
+  task still pending at the exact instant of a daemon restart), but not
+  contrived — daemon restarts happen routinely.
+- **Fix direction:** add `needs_planning` to the `planner_v2.Task`
+  dataclass (currently absent — `_load_tasks()` doesn't read/store it)
+  and have Site 1 read it (or re-query `self.state.get_task(
+  planner_task.id)`) instead of hardcoding `False`. Touches both
+  `core/planner_v2.py` and `core/daemon.py` — needs its own scoping,
+  not foldable silently into a future round.
+- **Cross-reference:** `core/daemon.py`, `core/planner_v2.py`,
+  `core/state.py`; T8b in `CODEY_MASTER_PLAN.md` Appendix A.
+
+### [NEW-357] `core/task_executor.py`'s `CancelledError` handling can't distinguish a real `wait_for` timeout from other cancellation sources — every dispatch timeout records `terminal_status="cancelled"`, never `"timeout"`
+- **Status:** Confirmed, pre-existing (T7's code), newly observable as
+  of telemetry T8b, 2026-09-04, code-reviewer approved round.
+- **Mechanism:** `core/daemon.py`'s two dispatch sites wrap
+  `self.executor._execute_task(...)` in `asyncio.wait_for(...,
+  timeout=timeout)`. When that timeout fires, `wait_for()` delivers a
+  `CancelledError` into `_execute_task()` at its await point — the same
+  exception type and shape as any other cancellation source (e.g. a
+  daemon SIGINT/shutdown cancelling the main-loop task). `_execute_task(
+  )`'s `except asyncio.CancelledError:` block (`core/task_executor.py`)
+  unconditionally maps this to `terminal_status="cancelled"`, by
+  explicit pre-existing design (its own comment states the timeout
+  enforcement lives entirely in the caller, `core/daemon.py`, out of
+  this code's ability to distinguish). `telemetry/schema/v1.json` has
+  both `"timeout"` and `"cancelled"` as valid `terminal_status` enum
+  values, implying it anticipates distinguishing them — the code
+  currently cannot. `timeout_sec` itself is correctly populated
+  regardless (read from config, not derived from the exception path) —
+  only `terminal_status` is affected.
+- **Also checked and closed as non-issues (informational only, folded
+  in here rather than given a separate id):** T8b's two new
+  `task_type` values (`"planner"`/`"direct"`) were verified against the
+  schema's full field dump (not grepped for expected keys, per rule 12)
+  — both are valid enum members; `telemetry/recorders.py` performs no
+  runtime enum validation either way. The schema's third `task_type`
+  enum value, `"planning_expansion"`, remains genuinely unwired at any
+  current dispatch site (T8a's `superseded_by_plan` terminal status
+  uses `"direct"` for that same sibling row, not `"planning_expansion"`)
+  — a pre-existing T8a-scope gap, not something T8b should have wired,
+  logged here per rule 8 now that it's been surfaced.
+- **Impact:** this conflation existed in T7's code since it was
+  written, but was inert until T8b wired real `task_id`/`task_type`
+  into these call sites — before T8b, `_execute_task()` never emitted
+  telemetry from real dispatch at all. T8b makes it observable in real
+  data for the first time: every real dispatch timeout at either site
+  now shows as `"cancelled"` rather than `"timeout"` in category-E
+  data — an outcome-classification inaccuracy, not a crash or a
+  dispatch-logic defect.
+- **Fix direction:** `core/daemon.py` would need to distinguish a
+  `wait_for` timeout from other cancellation sources at its own call
+  sites (its `except asyncio.TimeoutError:` blocks around each site are
+  a separate exception frame from the one inside `_execute_task()` that
+  sets `_terminal_status`) and/or `core/task_executor.py` would need to
+  accept a caller-supplied cancellation-reason signal. Both are
+  cross-file changes touching `task_executor.py`, out of any single
+  daemon-only sub-task's scope — needs its own scoping.
+- **Cross-reference:** `core/task_executor.py`, `core/daemon.py`,
+  `telemetry/schema/v1.json`; T8b in `CODEY_MASTER_PLAN.md` Appendix A.

@@ -1842,8 +1842,23 @@ class Daemon:
 
             info(f"Planner: dispatching task {planner_task.id}: {planner_task.description[:50]}...")
             try:
+                # T8b telemetry: activates task_executor.py's T7 category-E
+                # task_started/task_finished for this branch. task_type=
+                # "planner" per docs/telemetry_layer_design.md — branch
+                # identity, not downstream fate (NOT "planning_expansion";
+                # no dispatch site here can distinguish an expansion-
+                # produced planner row from any other, see T8b handoff).
+                # needs_planning=False is hardcoded, not a DB read: every
+                # row reaching this branch was added via
+                # Planner.add_task()/add_tasks() -> StateStore.add_task(),
+                # which defaults needs_planning to 0/False (core/state.py).
                 result = await asyncio.wait_for(
-                    self.executor._execute_task(planner_task.description),
+                    self.executor._execute_task(
+                        planner_task.description,
+                        task_id=planner_task.id,
+                        task_type="planner",
+                        needs_planning=False,
+                    ),
                     timeout=timeout,
                 )
                 self.planner.complete_task(planner_task.id, result)
@@ -1936,8 +1951,24 @@ class Daemon:
 
         info(f"Daemon: executing direct task {db_task['id']}: {description[:50]}...")
         try:
+            # T8b telemetry: activates task_executor.py's T7 category-E
+            # task_started/task_finished for this branch. task_type=
+            # "direct" matches _record_daemon_telemetry_superseded_by_plan's
+            # (T8a, above) hardcoded value for the sibling terminal state on
+            # this same task row. needs_planning is read off `db_task` — the
+            # pre-clear snapshot fetched above via state.get_next_pending(),
+            # never re-fetched since — so a task that had needs_planning=1
+            # but fell through to single-task execution (steps and len(steps)
+            # <= 1) still reports its honest historical needs_planning value,
+            # not the cleared-to-0 value clear_needs_planning() has already
+            # written to SQLite by this point.
             result = await asyncio.wait_for(
-                self.executor._execute_task(description),
+                self.executor._execute_task(
+                    description,
+                    task_id=db_task["id"],
+                    task_type="direct",
+                    needs_planning=bool(db_task.get("needs_planning")),
+                ),
                 timeout=timeout,
             )
             self.state.complete_task(db_task["id"], result)

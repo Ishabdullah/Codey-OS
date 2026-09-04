@@ -116,6 +116,28 @@ def test_refused_dispatch_leaves_planner_task_pending(tmp_path):
     d.planner.start_task.assert_not_called()
 
 
+def test_allowed_dispatch_claims_and_executes_planner_task(tmp_path):
+    """T8b: the planner-task branch (Site 1) passes real
+    task_id/task_type/needs_planning into _execute_task(), activating T7's
+    category-E telemetry for this branch — task_type="planner",
+    needs_planning=False (hardcoded; see T8b handoff)."""
+    d = _bare_daemon(tmp_path / "state.db")
+    task_id = d.state.add_task("planner-tracked task")
+
+    planner_task = MagicMock()
+    planner_task.id = task_id
+    planner_task.description = "planner-tracked task"
+    d.planner.get_next_task.return_value = planner_task
+
+    with patch.object(daemon_mod.Daemon, "_check_dispatch_gate", return_value=ALLOWED):
+        _run(d._process_planner_tasks())
+
+    d.executor._execute_task.assert_awaited_once_with(
+        "planner-tracked task", task_id=task_id, task_type="planner", needs_planning=False
+    )
+    d.planner.complete_task.assert_called_once_with(task_id, "executed result")
+
+
 def test_allowed_dispatch_claims_and_executes_direct_task(tmp_path):
     d = _bare_daemon(tmp_path / "state.db")
     task_id = d.state.add_task("do something")
@@ -126,7 +148,9 @@ def test_allowed_dispatch_claims_and_executes_direct_task(tmp_path):
     task = d.state.get_task(task_id)
     assert task["status"] == "done"
     assert task["result"] == "executed result"
-    d.executor._execute_task.assert_awaited_once_with("do something")
+    d.executor._execute_task.assert_awaited_once_with(
+        "do something", task_id=task_id, task_type="direct", needs_planning=False
+    )
 
 
 # ── needs_planning pull-side planning step ───────────────────────────────────
@@ -163,7 +187,12 @@ def test_needs_planning_task_falls_back_to_single_task_on_one_step(tmp_path):
         _run(d._process_planner_tasks())
 
     d.planner.add_tasks.assert_not_called()
-    d.executor._execute_task.assert_awaited_once_with("build a thing")
+    # needs_planning=True here reflects db_task's pre-clear snapshot (fetched
+    # before clear_needs_planning() ran) — the honest historical value, not
+    # the post-clear 0 now in SQLite. See T8b handoff.
+    d.executor._execute_task.assert_awaited_once_with(
+        "build a thing", task_id=task_id, task_type="direct", needs_planning=True
+    )
     task = d.state.get_task(task_id)
     assert task["status"] == "done"
     assert task["needs_planning"] == 0
@@ -179,7 +208,9 @@ def test_needs_planning_task_falls_back_to_single_task_when_planner_unavailable(
         _run(d._process_planner_tasks())
 
     d.planner.add_tasks.assert_not_called()
-    d.executor._execute_task.assert_awaited_once_with("build a thing")
+    d.executor._execute_task.assert_awaited_once_with(
+        "build a thing", task_id=task_id, task_type="direct", needs_planning=True
+    )
     task = d.state.get_task(task_id)
     assert task["status"] == "done"
     assert task["needs_planning"] == 0

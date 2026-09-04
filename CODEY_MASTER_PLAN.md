@@ -6286,17 +6286,34 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       is broader than originally stated, reachable via an ordinary task
       timeout, not just SIGINT/shutdown) and recorded an explicit
       decline-for-now decision on `NEW-348`.
-- [ ] **T8b** — wire `task_id`/`task_type`/`needs_planning` into
+- [x] **T8b** — wire `task_id`/`task_type`/`needs_planning` into
       `core/daemon.py`'s two `_execute_task()` call sites, activating
-      T7's currently-inert task-outcome telemetry. **Deliberately held
-      back from T8a** — this was the only part of T8 that would have made
-      `NEW-345` (a `_LAST_RUN_STATS` cross-task corruption race in
-      `core/agent.py`, reachable on an ordinary per-task timeout as well
-      as shutdown, not just SIGINT) reachable. **Unblocked 2026-09-04**:
-      `NEW-345` FIXED (`core/agent.py`/`core/task_executor.py`
-      thread-identity-keyed `_RUN_STATS_BY_THREAD`, code-reviewer
-      approved, 3 rounds — see `NEW_ISSUES.md`). T8b itself not yet
-      implemented — next up.
+      T7's task-outcome telemetry for real. **DONE 2026-09-04,
+      code-complete + code-reviewer APPROVED (clean, one review round).**
+      Site 1 (planner-task branch): `task_id=planner_task.id`,
+      `task_type="planner"`, `needs_planning=False` (hardcoded — every
+      row added via `Planner.add_task()`/`add_tasks()` defaults to 0 in
+      `StateStore.add_task()`, verified). Site 2 (direct-task branch):
+      `task_id=db_task["id"]`, `task_type="direct"`,
+      `needs_planning=bool(db_task.get("needs_planning"))` (read off the
+      pre-clear snapshot, honest even for the ≤1-step fall-through case).
+      Both identifiers confirmed identical to the ones T8a's own
+      `_track_dispatch_refusal`/`_resolve_deferral_if_any` already use
+      nearby. No double-emission with `superseded_by_plan` (confirmed:
+      that branch returns before Site 2 is ever reached). Full suite
+      1411/0/1 (T8b's own +1 test); full repo including `ccos/tests/`:
+      1518/0/1 (68 pre-existing unrelated warnings). Findings: `NEW-356`
+      (Confirmed, deferred — `needs_planning=False` mislabels a
+      `needs_planning=1` direct task rehydrated into the planner after a
+      daemon restart; narrow trigger, telemetry-accuracy only, no
+      execution-safety consequence) and `NEW-357` (Confirmed, pre-
+      existing T7 code newly observable — every real dispatch timeout
+      records `terminal_status="cancelled"`, never `"timeout"`, because
+      `_execute_task()`'s `CancelledError` handler can't distinguish a
+      `wait_for` timeout from other cancellation sources).
+      **This closes T8 entirely** (T8a + T8b both done). Only **T9**
+      (category B at `core/loader_v2.py`, rule-4) remains in the whole
+      telemetry rollout.
 - [ ] **T9** — category B at `core/loader_v2.py`. **Rule-4, deliberately
       scheduled last** (model spawn/PID/kill-adjacent code).
       **10 items in `docs/telemetry_layer_design.md` §8 were resolved by

@@ -10,6 +10,50 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-04 — Telemetry `T8b` (task-id/task-type wiring, `core/daemon.py`) code-complete + code-reviewer APPROVED (1 round) — T8 fully closed, only T9 left in the rollout
+
+- **Status**: **Code-complete + code-reviewer APPROVED, no live-model
+  component so no live-verification tier applies.** `core/daemon.py`
+  again — rule 4. Full suite `pytest tests/ -q`: **1411 passed, 0
+  failed, 1 skipped** (T8b's +1 test on top of the `NEW-345` baseline);
+  full repo `pytest -q` (incl. `ccos/tests/`): **1518 passed, 1 skipped,
+  68 warnings** (pre-existing, unrelated).
+- **The final, small piece of T8**: two call sites in
+  `_process_planner_tasks()` now pass `task_id`/`task_type`/
+  `needs_planning` into `_execute_task()`, activating T7's
+  telemetry for the first time in production. Clean single-round
+  review — no fixes required, unlike T8a's and `NEW-345`'s multi-round
+  docstring-overclaim history.
+- **Two real findings surfaced, both explicitly judged non-blocking
+  rather than silently waved through:**
+  1. `NEW-356`: Site 1 hardcodes `needs_planning=False`, which is wrong
+     for the narrow case of a `needs_planning=1` direct-command row
+     still `pending` at the exact moment of a daemon restart — it gets
+     rehydrated into `Planner._tasks` by `_load_tasks()` (no origin
+     filter) and can dispatch via Site 1 instead of Site 2, misreporting
+     its own `needs_planning` value in telemetry. Also surfaced a
+     second, genuinely pre-existing (not T8b-caused) dispatch-logic gap:
+     a row dispatched this way never goes through planning-expansion at
+     all. Code-reviewer's explicit call: telemetry-accuracy-only impact,
+     no execution-safety consequence, defer rather than block T8/T9 on
+     it.
+  2. `NEW-357`: every real `wait_for()` dispatch timeout gets recorded
+     as `terminal_status="cancelled"`, never `"timeout"` — T7's
+     `CancelledError` handler has no way to distinguish a timeout-
+     induced cancellation from any other cancellation source. This bug
+     has existed in T7's code since it was written but was inert until
+     T8b made these call sites emit telemetry for the first time —
+     T8b's diff doesn't introduce it, just makes it observable.
+- **Also closed as a non-issue during the same investigation**: the
+  schema's third `task_type` enum value, `"planning_expansion"`,
+  remains genuinely unwired anywhere in the codebase — a pre-existing
+  T8a-scope gap, not something T8b should have wired; logged as part of
+  `NEW-357`'s entry per rule 8 now that it's surfaced, rather than left
+  unremarked.
+- **This closes T8 entirely.** Only **T9** (category B at
+  `core/loader_v2.py`, also rule-4 — model spawn/PID/kill-adjacent
+  code) is left in the whole telemetry rollout.
+
 ## 2026-09-04 — `NEW-345` fix (thread-identity-keyed `_RUN_STATS_BY_THREAD`, `core/agent.py`+`core/task_executor.py`) code-complete + code-reviewer APPROVED (3 rounds) — T8b unblocked
 
 - **Status**: **Code-complete + code-reviewer APPROVED, no live-model
