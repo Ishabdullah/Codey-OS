@@ -1885,7 +1885,18 @@ tool call.
 ## Found during dynamic model-tier routing architecture exploration, 2026-07-30 — NOT fixed, logged only
 
 ### [NEW-24] `core/lora_import.py:336` calls `loader.load_secondary()`, which doesn't exist on `ModelLoader`
-- **Status: Confirmed, not fixed.** Found while exploring the model
+- **Status: FIXED (2026-08-09, round 5 — status header never updated
+  at the time, corrected 2026-09-04 per rule 6).**
+  `core/lora_import.py`'s `rollback_to_backup()`/`swap_to_finetuned_model()`
+  no longer call `loader.load_secondary()` — both routed to
+  `core.planner_loader.get_planner_loader()` at the time, since
+  collapsed onto the same primary server as of M1-D (2026-08-23); see
+  the inline comment at `core/lora_import.py` ~line 481. This same
+  round 5 fix also discovered `NEW-84` (fixed separately, round 9) —
+  `NEW-84`'s own entry confirms `NEW-24`'s fix here "is correct and
+  complete on its own terms." The below is the original 2026-08-09
+  finding text, kept verbatim for history.
+- **Original finding (2026-08-09):** Found while exploring the model
   loader (`core/loader_v2.py`) during the PENDING_ISH_DECISIONS /
   master-vision architecture round for dynamic model-tier routing.
   `core/loader_v2.py`'s `ModelLoader` class implements only
@@ -5305,7 +5316,21 @@ open, not closed, on this basis.
 
 ### [NEW-84] Hot-swapping to a fine-tuned model (`lora_import.py`'s `swap_to_finetuned_model`/`rollback_to_backup`) reports success but silently reloads the original weights, for both the primary and secondary model paths
 
-- **Status: Confirmed** — `core/loader_v2.py` does `from utils.config
+- **Status: FIXED (2026-08-09, round 9 — status header never updated
+  at the time, corrected 2026-09-04 per rule 6).** `core/loader_v2.py`
+  now reads `cfg.MODEL_PATH` fresh (confirmed via its own module-level
+  comment citing this exact finding: "core/lora_import.py's
+  swap_to_finetuned_model()/rollback_to_backup() mutate cfg.MODEL_PATH
+  on the utils.config module object... load_primary() below reads
+  cfg.MODEL_PATH fresh"), and `KNOWN_MODEL_ARCHS` was re-keyed from
+  path-keyed to `model_id`-keyed (per `NEW-94`'s entry, a cosmetic
+  test-name leftover from this same fix). `PROJECT_LOG.md`'s
+  2026-08-09 round 9 entry records both landing together,
+  code-reviewer-approved. The below is the original finding text, kept
+  verbatim for history. **Not fully closed** — `NEW-91` (found during
+  this fix's own review) is a separate, still-open, real data-loss-on-
+  rollback bug in the same code area; see that entry.
+- **Original finding (2026-08-09):** `core/loader_v2.py` does `from utils.config
   import MODEL_PATH` and `core/planner_loader.py` does `from utils.config
   import ... PLANNER_MODEL_PATH` — both are plain module-level names
   bound once at import time. `lora_import.py`'s swap functions mutate
@@ -15316,3 +15341,36 @@ outside that fix's scope.
   revised (batchable with `NEW-354`'s doc fix, same file).
 - **Cross-reference:** `docs/telemetry_layer_design.md`, `core/loader_v2.py`;
   T9 in `CODEY_MASTER_PLAN.md` Appendix A.
+
+### [NEW-363] `PENDING_ISH_DECISIONS.md:53-61` makes a now-disproven claim that `rollback_to_backup`'s secondary path calls `loader.load_secondary()` and raises `AttributeError` — that was `NEW-24`, fixed 2026-08-09
+- **Status:** Confirmed, doc staleness (found during the `NEW-354`/
+  `360`/`361`/`362` batch's code-review pass, 2026-09-04, while tracing
+  `NEW-24`'s actual fix status — the same staleness pattern as `NEW-24`
+  and `NEW-84`'s own stale `NEW_ISSUES.md` status headers, corrected in
+  this same round).
+- **Mechanism:** this passage cites `NEW-24` as "Confirmed, unresolved"
+  and states `rollback_to_backup`'s `model_variant="secondary"` path
+  "calls `loader.load_secondary()`... overwrites the live model file,
+  deletes its own backup, then raises `AttributeError`." `NEW-24` was
+  actually fixed 2026-08-09 (round 5) — the secondary path was routed
+  to `core.planner_loader.get_planner_loader()` at the time (since
+  collapsed onto the primary server per M1-D, 2026-08-23); no
+  `load_secondary()` call exists anywhere in `core/lora_import.py`
+  today. This passage's own conclusion ("a demonstrated failure, not
+  an analogy") is used to argue `coding.finetune_rollback_backup`
+  should be re-reviewed for a stricter wrapping tier — an argument
+  built on a premise that no longer holds.
+- **Impact:** a future reader of `PENDING_ISH_DECISIONS.md` (including
+  Ish, if this document is revisited for the flagged re-review) would
+  be reasoning from a disproven failure mode. The capability's real,
+  still-open risk is `NEW-91` (rollback destroys the fine-tuned
+  checkpoint file irrecoverably, no `AttributeError` involved) — a
+  different mechanism than what this passage describes, though the
+  underlying "should this capability's wrapping tier be reconsidered"
+  question may still be worth asking, just not for the reason stated.
+- **Fix direction:** correct or annotate this passage when
+  `PENDING_ISH_DECISIONS.md` is next touched, replacing the disproven
+  `load_secondary()`/`AttributeError` mechanism with `NEW-91`'s actual
+  current one if the re-review recommendation is kept.
+- **Cross-reference:** `PENDING_ISH_DECISIONS.md`, `NEW-24`, `NEW-84`,
+  `NEW-91`, `core/lora_import.py`.

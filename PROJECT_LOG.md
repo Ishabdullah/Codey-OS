@@ -10,6 +10,61 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-04 — Batched low-risk fix round (`NEW-354`/`360`/`361`/`362`) — 3 review rounds, uncovered and fixed 2 stale ledger status headers (`NEW-24`/`NEW-84`) and one inverted mechanism claim in a user-facing message
+
+- **Status**: Code-complete + code-reviewer APPROVED (3 rounds — round 1
+  required correcting a message that cited a stale/fixed finding as
+  "unresolved," round 2 caught that the replacement message had the
+  underlying file-overwrite mechanism backwards, round 3 confirmed the
+  corrected version against the actual code). No rule-4 files touched.
+  Full suite `pytest tests/ -q`: **1436 passed, 0 failed, 1 skipped**.
+- **The 4 target findings**: `NEW-354`/`NEW-362` (two `docs/
+  telemetry_layer_design.md` corrections — `counter_reset`'s body
+  fields actually live under `category: "meta"`, not `device`; a
+  stale `call_site` example naming the wrong method), `NEW-360`
+  (`codey-metrics provenance --all --json` now emits one valid JSON
+  array instead of invalid concatenated objects, matching `export
+  --format json`'s existing convention — new regression test), and
+  `NEW-361` (`main.py`'s `--import-lora` success message no longer
+  references a nonexistent `--rollback` flag).
+- **What actually consumed 2 of the 3 review rounds**: fixing
+  `NEW-361`'s message correctly required knowing whether
+  `coding.finetune_rollback_backup` (the real way to trigger a
+  rollback) has any known risk worth warning about. The first attempt
+  cited `NEW-24` as an unresolved `AttributeError` bug — code-reviewer
+  traced the actual current code and found `NEW-24` was fixed
+  2026-08-09 (round 5), its `NEW_ISSUES.md` status header simply never
+  updated. Investigating that surfaced a second, identical case:
+  `NEW-84` (stale model-path binding) was also fixed (round 9), also
+  never marked. Both corrected to `FIXED` with the original finding
+  text preserved verbatim for history (rule 6) — `NEW-24`'s correction
+  went through 2 passes itself, since the round-1 fix attributed the
+  fix to the wrong round before `PROJECT_LOG.md`'s actual round-5
+  entry was checked directly.
+- **The real, still-open risk was `NEW-91`**, not `NEW-24`: a separate,
+  never-fixed bug where `rollback_to_backup()` permanently destroys
+  the fine-tuned checkpoint file (overwrites it with backed-up base
+  weights, then deletes the backup) with no way to recover it. The
+  first replacement message got the direction backwards — claimed the
+  backup file was the thing being destroyed, when it's actually the
+  live fine-tuned checkpoint. Code-reviewer round 2 traced
+  `core/lora_import.py`'s actual `shutil.copy2()`/`unlink()` sequence
+  and caught the inversion; round 3 verified the corrected message
+  (naming the exact file to preserve, `results.get('model_path')`,
+  provably equal to the live checkpoint path at message-print time)
+  against the same code.
+- **Findings**: `NEW-363` logged (Confirmed, doc staleness, not fixed
+  in this diff — `PENDING_ISH_DECISIONS.md:53-61` makes the same
+  now-disproven `NEW-24`/`AttributeError` claim this round's
+  investigation disproved, discovered incidentally, outside this
+  diff's blast radius per rule 8).
+- **Pattern worth naming**: this is the same staleness class hit twice
+  in one investigation — a `NEW-##` entry's own status line not
+  updated when a later round actually fixes it, so a much later diff
+  cites it as still-broken. Don't trust a ledger entry's status field
+  at face value when writing a user-facing message that cites one —
+  grep the actual current code the citation is about first.
+
 ## 2026-09-04 — `NEW-358` deferred follow-up round — 1/3 sites fixed, 1/3 confirmed no-change, 1/3 blocked on a real schema-versioning conflict (new `T10` tracked)
 
 - **Status**: 3-site scoping round (project-architect), 1 site

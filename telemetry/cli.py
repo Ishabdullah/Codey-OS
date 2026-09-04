@@ -13,9 +13,10 @@ deviation on that point.
 two-column key/value, no box drawing, values right-aligned and
 abbreviated. `--wide` opts into the terminal's actual detected width;
 `--json` emits machine-readable output for every subcommand instead
-(exception: `provenance --all --json` currently prints one pretty-printed
-object per run separated by blank lines -- neither valid JSON nor valid
-JSONL; see NEW_ISSUES.md).
+(`provenance --all --json` emits one JSON array of per-run objects,
+matching `export --format json`'s convention for multi-record output;
+formerly printed one pretty-printed object per run separated by blank
+lines -- neither valid JSON nor valid JSONL, see NEW_ISSUES.md NEW-360).
 """
 
 from __future__ import annotations
@@ -365,7 +366,13 @@ def _latest_run_id(root: Path) -> Optional[str]:
     return best_run_id
 
 
-def _print_run(root: Path, run_id: str, width: int, as_json: bool) -> int:
+def _print_run(
+    root: Path,
+    run_id: str,
+    width: int,
+    as_json: bool,
+    collect: Optional[List[Dict[str, Any]]] = None,
+) -> int:
     base = _load_run_json(root, run_id)
     stream_records = _find_provenance_records(root, run_id)
     run_starts = [r for r in stream_records if r.get("event_type") == "run_start"]
@@ -423,7 +430,10 @@ def _print_run(root: Path, run_id: str, width: int, as_json: bool) -> int:
             out["_duplicate_run_start_warning"] = duplicate_note
         if amendments:
             out["_amended_by"] = len(amendments)
-        print(json.dumps(out, indent=2, default=str))
+        if collect is not None:
+            collect.append(out)
+        else:
+            print(json.dumps(out, indent=2, default=str))
         return 0
 
     print(f"run {run_id}"[:width])
@@ -454,6 +464,20 @@ def cmd_provenance(root: Path, args: argparse.Namespace) -> int:
             print("no runs found", file=sys.stderr)
             return 1
         rc = 0
+        if args.json:
+            # Collect every run's object into one list and emit a single
+            # JSON array (matching cmd_export's --format json convention
+            # for multi-record output) instead of printing one JSON
+            # object per run back-to-back, which is neither valid JSON
+            # nor valid JSONL (NEW-360).
+            collected: List[Dict[str, Any]] = []
+            for run_id in run_ids:
+                this_rc = _print_run(root, run_id, width, args.json, collect=collected)
+                if this_rc:
+                    rc = this_rc
+            json.dump(collected, sys.stdout, indent=2, default=str)
+            sys.stdout.write("\n")
+            return rc
         for run_id in run_ids:
             # Unconditionally process every run — an earlier `or` short-
             # circuit here made one no-data run (nonzero rc) stop all
@@ -464,7 +488,7 @@ def cmd_provenance(root: Path, args: argparse.Namespace) -> int:
             this_rc = _print_run(root, run_id, width, args.json)
             if this_rc:
                 rc = this_rc
-            print("" if not args.json else "")
+            print("")
         return rc
 
     run_id = args.run
@@ -786,7 +810,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p_export.add_argument("--category", default=None)
     p_export.add_argument("--format", choices=["csv", "json", "jsonl"], default="jsonl")
 
-    p_prov = sub.add_parser("provenance", parents=[common], help="show run provenance")
+    p_prov = sub.add_parser(
+        "provenance",
+        parents=[common],
+        help="show run provenance ('--all --json' emits one JSON array of per-run objects)",
+    )
     group = p_prov.add_mutually_exclusive_group()
     group.add_argument("--run", default=None)
     group.add_argument("--latest", action="store_true")

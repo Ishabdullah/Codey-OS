@@ -2029,7 +2029,17 @@ def main():
         if results.get("success"):
             success(f"LoRA adapter imported: {results.get('model_path')}")
             if results.get("backup_path"):
-                info(f"Backup created: {results['backup_path']} (use --rollback to restore)")
+                info(
+                    f"Backup created: {results['backup_path']} "
+                    "(no CLI rollback command exists; restore via the "
+                    "'coding.finetune_rollback_backup' CCOS capability — note "
+                    "NEW-91: rollback overwrites the fine-tuned checkpoint at "
+                    f"{results.get('model_path')} in place with the backed-up "
+                    "base weights and then deletes the backup file, permanently "
+                    "destroying the fine-tuned checkpoint with no way to recover "
+                    "it, so copy that file elsewhere first if you want to keep "
+                    "it before rolling back)"
+                )
         else:
             error(f"Import failed: {results.get('error', 'Unknown error')}")
             if results.get("instructions"):

@@ -295,7 +295,7 @@ Common `body` fields:
 | `dispatched_via_swap` | bool \| null | — | From `DispatchDecision.dispatched_via_swap`. |
 | `swap_bytes_claimed` | int \| null | bytes | From `GateDecision.swap_bytes_claimed`. |
 | `budget_ceiling_exceeded` | bool \| null | — | From `GateDecision`. |
-| `call_site` | string | — | e.g. `daemon._check_dispatch_gate`, `loader_v2.LlamaServer.start`, `inference_hybrid.infer`, `plannd.request_plan`, `api.routes.ai_chat`. |
+| `call_site` | string | — | e.g. `daemon._check_dispatch_gate`, `loader_v2.ModelLoader.load_primary`, `inference_hybrid.infer`, `plannd.request_plan`, `api.routes.ai_chat`. |
 | `retry_count` | int \| null | — | `reserve_context_budget` only: how many retries the wrapper made. |
 | `wait_ms` | float \| null | ms | `reserve_context_budget` only: total time inside the wrapper. |
 | `repeat_count` | int | — | See edge-triggering below. `1` for a state-change record. |
@@ -366,7 +366,10 @@ never one record per 2 s retry.
 `thermal_throttle` records carry `{from_level, to_level, temperature_c,
 inference_seconds_this_run}` and are emitted only on a level change.
 
-`counter_reset` is emitted at run start listing every counter that reset
+Note: although `device`'s `event_type` enum lists `counter_reset`, the
+actual `counters_reset`/`reason` body fields for this event type live
+under **`category: "meta"`** (§2.meta / `telemetry/schema/v1.json`), not
+`device`. It is emitted at run start listing every counter that reset
 with this process (`["thermal.total_inference_sec", "telemetry.seq",
 "telemetry.dropped_count"]`) — satisfying constraint 6 by *recording the
 reset explicitly as an event* rather than pretending continuity.

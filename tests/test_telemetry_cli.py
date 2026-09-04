@@ -394,6 +394,38 @@ def test_provenance_all_prints_every_run_even_when_one_has_no_data(tmp_path, cap
     assert rc != 0
 
 
+def test_provenance_all_json_emits_one_valid_json_array(tmp_path, capsys):
+    """NEW-360: `provenance --all --json` used to print one pretty-printed
+    JSON object per run back-to-back with no array wrapper or delimiter --
+    not valid JSON, not valid JSONL. Confirm the combined stdout now
+    parses as a single JSON array containing one object per run."""
+    rec1 = _make_record(
+        "provenance", "run_start", "codey-os.tui", 1, "run1hasdata000001",
+        body={"run_id": "run1hasdata000001", "started_ts_wall": 100.0, "repo": "Codey-OS",
+              "device_uptime_sec": None, "models": []},
+        nulls={"body.device_uptime_sec": "proc_uptime_permission_denied"},
+    )
+    rec2 = _make_record(
+        "provenance", "run_start", "codey-os.tui", 2, "run2hasdata000001",
+        body={"run_id": "run2hasdata000001", "started_ts_wall": 200.0, "repo": "Codey-OS",
+              "device_uptime_sec": None, "models": []},
+        nulls={"body.device_uptime_sec": "proc_uptime_permission_denied"},
+    )
+    _write_run_json(tmp_path, rec1)
+    _write_run_json(tmp_path, rec2)
+    _write_jsonl(tmp_path, _today(), "provenance", "run1hasdata000001", [rec1])
+    _write_jsonl(tmp_path, _today(), "provenance", "run2hasdata000001", [rec2])
+
+    rc = cli.main(["provenance", "--all", "--json", "--root", str(tmp_path)])
+    out = capsys.readouterr().out
+
+    parsed = json.loads(out)
+    assert isinstance(parsed, list)
+    assert len(parsed) == 2
+    assert {item["run_id"] for item in parsed} == {"run1hasdata000001", "run2hasdata000001"}
+    assert rc == 0
+
+
 # ── doctor ───────────────────────────────────────────────────────────────
 
 
