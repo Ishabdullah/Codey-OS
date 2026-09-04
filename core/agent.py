@@ -1,6 +1,7 @@
 import json
 import re
 import time
+from typing import Any, Dict
 
 from core.codeymd import read_codeymd
 from core.context import auto_load_from_prompt, list_loaded
@@ -20,6 +21,62 @@ from utils.logger import info, separator, success, warning
 
 # Learning manager for adaptive behavior
 _learning = None
+
+# ---------------------------------------------------------------------------
+# T7 telemetry side-channel (docs/telemetry_layer_design.md §2.E category
+# "task" — step/tool/retry/escalation counters). Passive observation only:
+# nothing in run_agent()'s own control flow reads this dict, it is only
+# mutated in place at points where the loop already tracks these counters
+# for its own purposes (step, tools_used, auto_retries, escalation). This
+# never changes what run_agent() returns or which branch it takes.
+#
+# A plain module-level dict, not threading.local(): run_agent() executes on
+# a run_in_executor() worker thread (core/task_executor.py::_execute_task),
+# while the telemetry-emitting code reads it from the event-loop thread
+# after awaiting that call's completion. core/daemon.py's
+# _process_planner_tasks() awaits each task to full completion before
+# dispatching the next one, so under normal completion at most one
+# run_agent() call is actively producing counters at a time.
+#
+# That does NOT hold across a cancellation, though. If the awaiting
+# `run_in_executor()` future is cancelled (e.g. core/task_executor.py's
+# caller times out or the process gets a SIGINT), the worker thread
+# running run_agent() is NOT killed — Python's executor has no mechanism
+# to interrupt a running thread — so it keeps executing in the
+# background and continues mutating this same module-level dict. If a
+# new run_agent() call starts (and resets _LAST_RUN_STATS for itself)
+# before that orphaned thread from the cancelled call finishes, the
+# orphaned thread's later writes can silently corrupt the new call's
+# counters. As of this comment nothing exercises this path in
+# production (core/task_executor.py's telemetry wiring is inert — no
+# caller supplies task_id/task_type yet), but it becomes reachable the
+# moment something does. Not fixed here — flagged in the T7 handoff for
+# logging as a NEW_ISSUES.md finding for whoever wires real
+# task_id/task_type values in.
+# ---------------------------------------------------------------------------
+_LAST_RUN_STATS: Dict[str, Any] = {}
+
+# Monotonic call counter, tagged into `_LAST_RUN_STATS["_seq"]` on every
+# reset. Lets a caller that snapshots the "_seq" value before invoking
+# run_agent() (indirectly, e.g. via core/task_executor.py's plugin-capability
+# call) tell whether run_agent() actually ran during that invocation, versus
+# an exception raised before it was ever reached leaving the *previous*
+# call's stats sitting in `_LAST_RUN_STATS` — a mis-attribution risk this
+# counter exists specifically to let a reader detect and avoid.
+_run_agent_call_seq = 0
+
+
+def get_last_run_stats() -> Dict[str, Any]:
+    """
+    Return a shallow copy of the most recently *started* run_agent() call's
+    step/tool/retry/escalation counters plus an internal "_seq" call
+    counter (T7 telemetry). Empty dict if run_agent() has never been
+    called in this process. Counters reflect whatever point the loop had
+    reached when read — callers should only read this after awaiting
+    run_agent()'s completion, and should compare "_seq" against a
+    snapshot taken before the call to confirm run_agent() actually ran.
+    """
+    return dict(_LAST_RUN_STATS)
 
 
 def _get_learning():
@@ -1034,6 +1091,25 @@ def run_agent(
 
     _inf_mod._last_was_streamed = False
 
+    # T7 telemetry (§2.E): reset the side-channel at the very top, before
+    # any of the early-return branches below (peer delegation, cached
+    # summaries, etc.) — those never reach the main loop further down, so
+    # resetting later would leak the *previous* call's counters into a
+    # task that never entered the loop.
+    global _LAST_RUN_STATS, _run_agent_call_seq
+    _run_agent_call_seq += 1
+    _LAST_RUN_STATS = {
+        "_seq": _run_agent_call_seq,
+        "step_count": 0,
+        "max_steps": None,
+        "hit_max_steps": False,
+        "tools_called": {},
+        "auto_retries": 0,
+        "escalated": False,
+        "escalation_reason": None,
+        "escalation_outcome": None,
+    }
+
     # Learn preferences from natural language in the user's message
     _get_learning().learn_from_message(user_message)
 
@@ -1579,8 +1655,11 @@ def run_agent(
         if any(s in user_message.lower() for s in _complex_signals):
             max_steps = max(max_steps, 10)
 
+    _LAST_RUN_STATS["max_steps"] = max_steps
+
     while step < max_steps:
         step += 1
+        _LAST_RUN_STATS["step_count"] = step
         used, total = get_context_usage(messages)
         pct = used / total if total > 0 else 0.0
         if pct > 0.85:
@@ -1664,6 +1743,7 @@ def run_agent(
         # the no-tool-call path and the step is skipped.
         if not tool_dict and "<tool>" in response and auto_retries < max_retries:
             auto_retries += 1
+            _LAST_RUN_STATS["auto_retries"] += 1
             warning("Malformed tool call — JSON parse failed, retrying")
             messages.append({"role": "assistant", "content": response})
             messages.append(
@@ -1799,6 +1879,12 @@ def run_agent(
                     continue
 
             tools_used.append(sig)
+            # T7 telemetry: tally by tool `name`, not `sig` (which is
+            # "name:json_args" — a per-call dedup key, wrong grain for the
+            # design's {tool_name: count} shape, §2.E `tools_called`).
+            _LAST_RUN_STATS["tools_called"][name] = (
+                _LAST_RUN_STATS["tools_called"].get(name, 0) + 1
+            )
             last_tool_result = execute_tool(tool_dict)
             if name in ("write_file", "patch_file"):
                 from core.memory_v2 import memory as _mem
@@ -1862,6 +1948,7 @@ def run_agent(
 
             if is_error(last_tool_result, name) and auto_retries < max_retries:
                 auto_retries += 1
+                _LAST_RUN_STATS["auto_retries"] += 1
                 warning("Error detected — auto-retry " + str(auto_retries) + "/" + str(max_retries))
                 messages.append(
                     {"role": "assistant", "content": _format_tool_for_history(tool_dict)}
@@ -1926,18 +2013,49 @@ def run_agent(
                 # Exhausted retries — offer to escalate to a peer CLI or park for review
                 from core.peer_cli import escalate_or_park
 
+                # T7 telemetry: escalate_or_park() is being reached — record
+                # that regardless of which outcome branch fires below.
+                _LAST_RUN_STATS["escalated"] = True
+                _LAST_RUN_STATS["escalation_reason"] = "retries_exhausted"
+
                 _task_id = f"task_{int(time.time())}"
                 peer_result = escalate_or_park(_task_id, user_message, error_log, files_touched)
                 if peer_result and peer_result.startswith("[parked]:"):
+                    _LAST_RUN_STATS["escalation_outcome"] = "parked"
                     return f"{peer_result}\n\nTask parked on review queue. Continuing workflow."
                 elif peer_result and peer_result.startswith("[redirect]:"):
-                    # User told Codey to try a different approach
+                    # User told Codey to try a different approach; no peer
+                    # CLI ran. The design's closed escalation_outcome enum
+                    # (§2.E) is {peer_cli, parked, skipped} — none of which
+                    # honestly describes this, so asserting one of them
+                    # (the previous behaviour) is a real mislabeling, not
+                    # an honest null (same class of bug as NEW-341).
+                    #
+                    # An honest-null `nulls` entry isn't available either:
+                    # the design's `null_reason_codes` set is itself closed
+                    # (docs/telemetry_layer_design.md line ~220 — "additions
+                    # bump schema_version"), has no code for "outcome not
+                    # representable in a closed enum", and `v1.json` is
+                    # SHA-256 parity-pinned to the Codey-Aigentik copy
+                    # (§4.2) — inventing one is a cross-repo schema change,
+                    # out of scope here (flagged as a follow-up finding,
+                    # same shape as NEW-341).
+                    #
+                    # So this field is left absent rather than null: leaving
+                    # `escalation_outcome` at its `None` initial value with
+                    # no `nulls` entry means `telemetry/recorders.py`'s
+                    # `_emit()` prunes it from the body entirely (the same
+                    # "not applicable yet" contract already used for
+                    # `terminal_status` on `task_started` records) — nothing
+                    # false is asserted. `escalated`/`escalation_reason`
+                    # still record that escalation happened.
                     new_instruction = peer_result[len("[redirect]: ") :]
                     messages.append({"role": "user", "content": new_instruction})
                     auto_retries = 0
                     continue
                 elif peer_result:
                     # Peer CLI ran — inject its output and let Codey act on it
+                    _LAST_RUN_STATS["escalation_outcome"] = "peer_cli"
                     messages.append(
                         {"role": "assistant", "content": _format_tool_for_history(tool_dict)}
                     )
@@ -1950,7 +2068,9 @@ def run_agent(
                     )
                     auto_retries = 0
                     continue
-                # else: user skipped escalation, fall through to normal handling
+                else:
+                    # user skipped escalation, fall through to normal handling
+                    _LAST_RUN_STATS["escalation_outcome"] = "skipped"
             elif _patch_failed_repeat and not _in_subtask:
                 # NEW-19: same path has now failed with [PATCH_FAILED] more
                 # than once this turn. Showing full file content again
@@ -1959,16 +2079,26 @@ def run_agent(
                 # escalation path as the exhausted-retries case above.
                 from core.peer_cli import escalate_or_park
 
+                # T7 telemetry — see the identical comment at the
+                # retries-exhausted escalation site above.
+                _LAST_RUN_STATS["escalated"] = True
+                _LAST_RUN_STATS["escalation_reason"] = "patch_failure"
+
                 _task_id = f"task_{int(time.time())}"
                 peer_result = escalate_or_park(_task_id, user_message, error_log, files_touched)
                 if peer_result and peer_result.startswith("[parked]:"):
+                    _LAST_RUN_STATS["escalation_outcome"] = "parked"
                     return f"{peer_result}\n\nTask parked on review queue. Continuing workflow."
                 elif peer_result and peer_result.startswith("[redirect]:"):
+                    # Same case as the retries-exhausted escalation site
+                    # above — left absent (not written), see the comment
+                    # there.
                     new_instruction = peer_result[len("[redirect]: ") :]
                     messages.append({"role": "user", "content": new_instruction})
                     auto_retries = 0
                     continue
                 elif peer_result:
+                    _LAST_RUN_STATS["escalation_outcome"] = "peer_cli"
                     messages.append(
                         {"role": "assistant", "content": _format_tool_for_history(tool_dict)}
                     )
@@ -1981,8 +2111,10 @@ def run_agent(
                     )
                     auto_retries = 0
                     continue
-                # else: user skipped escalation — fall through; the
-                # [PATCH_FAILED, UNRESOLVED] marker below records this.
+                else:
+                    # user skipped escalation — fall through; the
+                    # [PATCH_FAILED, UNRESOLVED] marker below records this.
+                    _LAST_RUN_STATS["escalation_outcome"] = "skipped"
             messages.append({"role": "assistant", "content": _format_tool_for_history(tool_dict)})
             # After write_file for a simple create request — force exit the loop.
             # The 7B model ignores "don't run commands" instructions and keeps
@@ -2118,6 +2250,7 @@ def run_agent(
             check_git_and_offer_commit(user_message, tools_used, files_touched)
         return response, history
     warning("Reached max steps (" + str(max_steps) + ").")
+    _LAST_RUN_STATS["hit_max_steps"] = True
     if not _in_subtask:
         check_git_and_offer_commit(user_message, tools_used, files_touched)
     # Return a failure marker so run_queue() can flag this subtask as incomplete

@@ -10,6 +10,82 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-04 — Telemetry `T7` (category E task outcomes, `core/task_executor.py`/`core/agent.py`) code-complete + code-reviewer APPROVED (2 rounds) — highest-risk file touched so far, B6.2c still next, untouched
+
+- **Status**: **Code-complete + code-reviewer APPROVED, no live-model
+  component so no live-verification tier applies.** `core/agent.py` is
+  the main coding-agent loop — the highest-risk file this rollout has
+  touched. Two review rounds. Full suite `pytest tests/ -q`: **1391
+  passed, 0 failed, 1 skipped.**
+- **A real design-scope gap, found and escalated rather than forced.**
+  The design's own §7 T7 row and §2.E claimed category E was fully
+  wirable from `core/task_executor.py`/`core/agent.py` alone —
+  independently traced and confirmed false by both implementer and
+  reviewer: `record_task_started`/`record_task_finished` require
+  non-optional `task_id`/`task_type`/`needs_planning`, which live
+  exclusively in `core/daemon.py`'s task-queue rows; both real call
+  sites of `_execute_task()` pass only a bare prompt string; and
+  `superseded_by_plan` is emitted on a `core/daemon.py` code path that
+  **never calls `_execute_task()` at all** — structurally unreachable
+  from files T7 was allowed to touch. **Resolution: `_execute_task()`
+  now accepts optional `task_id`/`task_type`/`needs_planning` kwargs,
+  fully wired and tested, but production-inert until T8 supplies real
+  values.** The design doc itself was corrected in 3 spots per rule 6
+  (not overclaiming or underclaiming what T7 actually does).
+- **Review round 1 (CHANGES REQUESTED, 3 items, all in the honest-null/
+  passivity space this layer exists to get right):**
+  1. `except asyncio.CancelledError` recorded `terminal_status="timeout"`
+     — traced to be wrong (a real SIGINT-driven cancellation, not a
+     timeout; the schema already has a distinct `cancelled` value).
+  2. A module comment in `core/agent.py` claiming "at most one
+     `run_agent()` call is ever in flight" was factually false on the
+     cancellation path (`run_in_executor`'s worker thread isn't killed
+     on cancel, can corrupt shared stats for a later task) — currently
+     unreachable (inert wiring) but would have misled T8.
+  3. `escalation_outcome`'s `[redirect]:` branch was bucketed under
+     `peer_cli` as "closest fit" — a wrong value asserted as true, the
+     same class of problem as `NEW-341`.
+- **Fix round (a genuinely harder resolution than originally asked
+  for, on item 3)**: fixing #3 as literally specified (a `nulls` entry
+  with a new reason code) hit a second, previously-undiscovered
+  blocker — `telemetry/schema/v1.json`'s `null_reason_codes` is ITSELF
+  a closed enum, the same shape as `NEW-341`. Resolved by omitting
+  `escalation_outcome` entirely for this case (relying on `_emit()`'s
+  existing prune-on-None logic) rather than asserting a false value —
+  independently judged by the reviewer as meaningfully different from
+  a T0-class invisible-omission bug, since `escalated`/
+  `escalation_reason` still honestly record that escalation occurred;
+  only the specific outcome enum value is what's absent, and it's
+  absent because it's genuinely unrepresentable, not because it was
+  never observed.
+- **Review round 2 (APPROVED)**: all three fixes independently
+  re-verified against current code, not the self-report — including
+  reading `telemetry/schema/v1.json` directly to confirm `cancelled`
+  and both new `escalation_reason` literals are real enum members, and
+  reading `_emit()`'s pruning logic and its new end-to-end test
+  directly.
+- **New findings logged** (rule 8): `NEW-345` (orphaned-thread
+  `_LAST_RUN_STATS` corruption risk, unreachable today, real once T8
+  activates the wiring), `NEW-346` (`null_reason_codes` is itself a
+  closed enum — generalizable constraint, will recur), `NEW-347`
+  (`_emit()`'s docstring doesn't name the "meaningful but
+  unrepresentable in a closed enum" omission case), `NEW-348`
+  (`retries` field substitutes `auto_retries` for the design's stated
+  `task_queue.retry_count` — documented, needs a T8 decision),
+  `NEW-349` (pre-existing, unrelated: `[parked]:` branch returns a bare
+  string, latent unpacking error), `NEW-350` (pre-existing, unrelated:
+  `TaskExecutor.get_current_task()` always returns `None`).
+  `NEW-341` remains open — nothing in T7 resolves it, referenced only
+  as precedent.
+- **Next step**: T8 — categories B, C, D and daemon-side G at
+  `core/daemon.py`. **Highest-risk sub-task in the whole rollout** —
+  the process-lifecycle module that has produced this project's worst
+  historical bugs (CLAUDE.md rule 4's own stated reason for existing).
+  This is also where T7's inert wiring gets activated and `NEW-345`'s
+  orphaned-thread risk becomes live — both need direct attention when
+  T8 starts. **B6.2c (Appendix A) remains separately queued and
+  untouched by this round.**
+
 ## 2026-09-04 — Telemetry `T6` (category A+B at `core/plannd.py`) code-complete + code-reviewer APPROVED (clean, one round) — second rule-4-gated telemetry sub-task, B6.2c still next, untouched
 
 - **Status**: **Code-complete + code-reviewer APPROVED on the first

@@ -14629,3 +14629,126 @@ outside that fix's scope.
 - **Cross-reference:** `core/inference_hybrid.py`, `core/plannd.py`,
   `telemetry/recorders.py`, `NEW-332` (the related `cache_n=-1` sentinel
   finding from T3).
+
+### [NEW-345] `run_in_executor`'s worker thread outlives a cancelled `run_agent()` call and can corrupt `_LAST_RUN_STATS` for a subsequent task — real risk once T8 activates T7's wiring
+- **Status:** Confirmed, currently unreachable (telemetry T7,
+  2026-09-04, code-reviewer approved round, 2 review rounds).
+- **Mechanism:** `core/agent.py`'s module-level `_LAST_RUN_STATS` dict
+  (T7's telemetry counters) assumed "at most one `run_agent()` call in
+  flight" — false on the cancellation path. Python has no
+  thread-interrupt mechanism; when the coroutine awaiting a
+  `run_in_executor()`-dispatched `run_agent()` call is cancelled (e.g.
+  `asyncio.run()`'s shutdown cleanup on a real daemon SIGINT), the
+  worker thread is NOT killed — it keeps running to completion in the
+  background and can mutate `_LAST_RUN_STATS` after a subsequently
+  started task has already reset the globals for itself, misattributing
+  stats.
+- **Impact:** none today — T7's task-outcome wiring is production-inert
+  (no current caller of `_execute_task()` supplies `task_id`/`task_type`,
+  so nothing observable happens). **Becomes a real risk once T8 wires
+  `core/daemon.py` to supply real values**, activating T7's telemetry.
+- **Fix direction:** for T8's attention specifically — either bound the
+  window this can occur in, or switch `_LAST_RUN_STATS` to a
+  task-id-keyed structure instead of a single module-level dict, when
+  T8 activates the wiring.
+- **Cross-reference:** `core/agent.py`, `core/task_executor.py`; T8 in
+  `CODEY_MASTER_PLAN.md` Appendix A.
+
+### [NEW-346] `telemetry/schema/v1.json`'s `null_reason_codes` is itself a closed enum — a generalizable blocker for future honest-null cases, same shape as `NEW-341`
+- **Status:** Confirmed (telemetry T7, 2026-09-04, code-reviewer
+  approved round).
+- **Mechanism:** any future honest-null case that needs a NEW reason
+  code (not already in the closed set) requires a schema-version bump
+  mirrored to the Aigentik repo — it cannot be added ad hoc, the same
+  blocker class `NEW-341` hit for the `emitter` field's closed enum.
+  T7 hit this specifically for `escalation_outcome`'s `[redirect]:`
+  case; resolved there by omitting the field entirely (a genuinely
+  different, defensible pattern — see `NEW-347`), not by adding a
+  reason code.
+- **Impact:** none today. A generalizable constraint on this whole
+  telemetry layer's evolution — any closed-enum field discovered to
+  need a new value/reason in future sub-tasks will hit this same wall.
+- **Fix direction:** none needed now — awareness finding. When enough
+  of these accumulate (`NEW-341`, this one, `NEW-347`'s residual gap),
+  consider batching them into one coordinated schema-v2 round rather
+  than working around each individually.
+- **Cross-reference:** `telemetry/schema/v1.json`, `NEW-341`, `NEW-347`.
+
+### [NEW-347] `telemetry/recorders.py::_emit()`'s field-omission docstring doesn't name the "meaningful, occurred, unrepresentable in a closed enum" case
+- **Status:** Confirmed, non-blocking (telemetry T7, 2026-09-04,
+  code-reviewer approved round).
+- **Mechanism:** `_emit()`'s omission contract is currently documented
+  as covering "a field that simply isn't meaningful yet at this
+  event_type" (the pre-existing `terminal_status`-on-`task_started`
+  precedent). T7's `escalation_outcome` omission for the `[redirect]:`
+  case is subtly different: the fact **is** meaningful at
+  `task_finished`, escalation **did** occur (`escalated=True`,
+  `escalation_reason` set), it's just unrepresentable in the current
+  closed enum (`NEW-346`). The same absent-`escalation_outcome` shape
+  also results if `escalate_or_park()` itself raises — distinguishable
+  from the redirect case only via `terminal_status="failed"`.
+- **Impact:** a future reader of a redirect-case record, without this
+  context, may conclude the record is malformed rather than correctly
+  omitted. `telemetry/recorders.py` was untouched by T7 (out of its
+  scope), so the docstring couldn't be fixed in that round.
+- **Fix direction:** update `_emit()`'s docstring to explicitly name
+  this second omission category, when `telemetry/recorders.py` is next
+  touched.
+- **Cross-reference:** `telemetry/recorders.py`, `core/agent.py`,
+  `NEW-346`.
+
+### [NEW-348] `record_task_finished`'s `retries` field is populated from `core/agent.py`'s in-loop `auto_retries` counter, not the design's stated source `task_queue.retry_count`
+- **Status:** Confirmed, documented substitution (telemetry T7,
+  2026-09-04, code-reviewer approved round).
+- **Mechanism:** the design doc's §2.E names `task_queue.retry_count`
+  (a daemon-level, across-dispatch-attempts retry count) as the source
+  for the `retries` field — that data lives exclusively in
+  `core/daemon.py`, out of T7's declared scope. T7 substitutes
+  `core/agent.py`'s own in-loop `auto_retries` counter (retries within
+  one execution attempt) — a genuinely different concept, documented
+  inline in the code but worth tracking so it isn't silently forgotten
+  before T8 (which may need to decide whether to add the daemon-level
+  count as a separate field, or replace this substitution).
+- **Impact:** none today (T7's wiring is inert). A semantic-precision
+  concern for whoever interprets this field's values once T8 activates
+  the wiring.
+- **Fix direction:** decide at T8 whether to add
+  `task_queue.retry_count` as a distinct field alongside the existing
+  `retries` (auto_retries), or rename one of them for clarity.
+- **Cross-reference:** `core/agent.py`, `core/task_executor.py`,
+  `docs/telemetry_layer_design.md` §2.E; T8 in `CODEY_MASTER_PLAN.md`
+  Appendix A.
+
+### [NEW-349] `core/agent.py`'s `[parked]:` branch returns a bare string instead of `(response, history)` — latent unpacking error, currently unreachable
+- **Status:** Confirmed, latent (telemetry T7, 2026-09-04,
+  code-reviewer approved round, discovered while reading `run_agent()`
+  in full — not a T7 regression, pre-existing).
+- **Mechanism:** `ccos/plugins/coding/agent/agent.py`'s
+  `run_agent_capability()` calls `response, updated_history =
+  run_agent(...)`, expecting a `(response, history)` tuple. The
+  `[parked]:` escalation branch in `core/agent.py::run_agent()` returns
+  a bare string instead. Currently unreachable because both call sites
+  are guarded by `not _in_subtask`, and `_execute_task()` (T7's own
+  call site) always passes `in_subtask=True`.
+- **Impact:** none today. Would produce a real unpacking
+  `TypeError`/`ValueError` if this branch is ever reached from a
+  non-subtask context.
+- **Fix direction:** make the `[parked]:` branch return
+  `(response, history)` like every other branch, when next touched.
+- **Cross-reference:** `core/agent.py`, `ccos/plugins/coding/agent/agent.py`.
+
+### [NEW-350] `TaskExecutor.current_task` is only ever assigned `None` in `__init__` — `get_current_task()` always returns `None`
+- **Status:** Confirmed, pre-existing, unrelated to telemetry work
+  (telemetry T7, 2026-09-04, code-reviewer approved round, discovered
+  while reading `core/task_executor.py` in full).
+- **Mechanism:** `current_task` is set once in `__init__` (to `None`)
+  and never assigned anywhere else in the class. `get_current_task()`
+  therefore always returns `None` regardless of whether a task is
+  actually executing.
+- **Impact:** any caller relying on `get_current_task()` to introspect
+  the currently-running task gets a false negative always. Not
+  introduced or worsened by T7.
+- **Fix direction:** determine the intended use of this method (dead
+  code to remove, or a real feature that was never wired up) when next
+  touched.
+- **Cross-reference:** `core/task_executor.py`.

@@ -13,7 +13,9 @@ These are restored after each task so they never bleed into interactive sessions
 """
 
 import asyncio
-from typing import Dict, Optional
+import os
+import time
+from typing import Any, Dict, Optional
 
 from core.daemon_config import DaemonConfig
 from core.state import StateStore
@@ -73,6 +75,135 @@ _PYTHON_ALLOWED_PATTERNS = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# T7 telemetry (docs/telemetry_layer_design.md §2.E category "task").
+#
+# Scope note (2026-09-04): the design's own §2.E table sources `task_id`,
+# `task_type`, and `needs_planning` from `core/daemon.py`'s `task_queue`
+# row / `_process_planner_tasks()` branch — data that never reaches
+# `_execute_task()` today (both call sites, core/daemon.py:1273 and :1361,
+# pass only a bare prompt string). This sub-task's file scope explicitly
+# excludes core/daemon.py (rule 4 — daemon.py is T8's file), so
+# `_execute_task()` below accepts this metadata as optional keyword-only
+# parameters and emits nothing at all unless a caller supplies task_id and
+# task_type. Until a future daemon.py change (T8) passes real values in,
+# this wiring is present but inert in production — the same shape of gap
+# as NEW-341, called out explicitly in the T7 handoff rather than forced.
+#
+# `superseded_by_plan` (design §2.E) is NOT emitted anywhere in this file:
+# it covers core/daemon.py:1349-1351, where the raw task_queue row is
+# marked done because it expanded into an N-step plan — `_execute_task()`
+# is never even called on that path. Emitting it would require
+# instrumenting core/daemon.py directly, out of this sub-task's scope.
+# ---------------------------------------------------------------------------
+
+
+def _emit_task_started_telemetry(
+    *, task_id: int, task_type: str, needs_planning: bool
+) -> None:
+    """
+    Passive category-E `task_started` observation. Emitted after
+    `start_inference()` and before the agent pipeline begins — never a
+    gate, never able to block or alter dispatch. Wrapped in a broad
+    `except Exception` (mirrors T5/T6's identical helpers) so a telemetry
+    failure can never surface as, or block, task execution — this is the
+    main daemon task loop.
+    """
+    try:
+        from telemetry import store
+
+        if not store.TELEMETRY_ENABLED:
+            return
+
+        from telemetry import recorders
+
+        recorders.record_task_started(
+            emitter="codey-os.daemon",
+            pid=os.getpid(),
+            task_id=task_id,
+            task_type=task_type,
+            needs_planning=bool(needs_planning),
+            started_ts_wall=time.time(),
+        )
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "telemetry: failed to record task_started for task_executor._execute_task",
+            exc_info=True,
+        )
+
+
+def _emit_task_finished_telemetry(
+    *,
+    task_id: int,
+    task_type: str,
+    needs_planning: bool,
+    start_mono: float,
+    terminal_status: str,
+    error_class: Optional[str],
+    timeout_sec: Optional[int],
+    run_stats: Dict[str, Any],
+) -> None:
+    """
+    Passive category-E `task_finished` observation. Same never-crash-the-
+    host contract as `_emit_task_started_telemetry` above.
+
+    `run_stats` is whatever `core.agent.get_last_run_stats()` returned,
+    already filtered by the caller to an empty dict if the "_seq" check
+    showed run_agent() was never actually reached this call (honest nulls,
+    not the previous task's stale counters — see the caller for why that
+    check exists).
+
+    `retries` is populated from `run_stats["auto_retries"]` — the agent
+    loop's own in-loop auto-retry counter (core/agent.py's `auto_retries`),
+    per this sub-task's brief ("retry ... counters surfaced from
+    core/agent.py's loop"). This is NOT the same quantity as the design
+    §2.E table's stated source `task_queue.retry_count` (a daemon-level
+    retry-dispatch count this sub-task's scope cannot reach without
+    touching core/daemon.py) — flagged explicitly here and in the T7
+    handoff rather than silently conflating the two.
+    """
+    try:
+        from telemetry import store
+
+        if not store.TELEMETRY_ENABLED:
+            return
+
+        from telemetry import recorders
+
+        duration_ms = (time.monotonic() - start_mono) * 1000.0
+        tools_called = run_stats.get("tools_called") or None
+
+        recorders.record_task_finished(
+            emitter="codey-os.daemon",
+            pid=os.getpid(),
+            task_id=task_id,
+            task_type=task_type,
+            needs_planning=bool(needs_planning),
+            finished_ts_wall=time.time(),
+            duration_ms=duration_ms,
+            terminal_status=terminal_status,
+            step_count=run_stats.get("step_count"),
+            max_steps=run_stats.get("max_steps"),
+            hit_max_steps=run_stats.get("hit_max_steps"),
+            tools_called=tools_called,
+            retries=run_stats.get("auto_retries"),
+            escalated=run_stats.get("escalated"),
+            escalation_reason=run_stats.get("escalation_reason"),
+            escalation_outcome=run_stats.get("escalation_outcome"),
+            error_class=error_class,
+            timeout_sec=timeout_sec,
+        )
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "telemetry: failed to record task_finished for task_executor._execute_task",
+            exc_info=True,
+        )
+
+
 class TaskExecutor:
     """
     Executes tasks from the daemon's task queue using the full agent pipeline.
@@ -92,7 +223,14 @@ class TaskExecutor:
     # Core execution — delegates to the full run_agent() pipeline
     # ------------------------------------------------------------------
 
-    async def _execute_task(self, prompt: str) -> str:
+    async def _execute_task(
+        self,
+        prompt: str,
+        *,
+        task_id: Optional[int] = None,
+        task_type: Optional[str] = None,
+        needs_planning: Optional[bool] = None,
+    ) -> str:
         """
         Execute a single task using the coding.run_agent capability.
 
@@ -101,8 +239,36 @@ class TaskExecutor:
 
         The prompt should already be the enriched step string produced by
         daemon._handle_command (includes original task + step number).
+
+        `task_id`/`task_type`/`needs_planning` are optional, keyword-only,
+        T7-telemetry-only parameters (see the module-level comment above
+        this class). Nothing observation-related is emitted unless both
+        `task_id` and `task_type` are supplied — no caller in this
+        sub-task's scope supplies them yet (that requires a core/daemon.py
+        change, out of scope here). Purely additive: existing callers that
+        only pass `prompt` are unaffected.
         """
         start_inference()
+
+        # T7 telemetry setup — never affects control flow below. See the
+        # module-level comment above this class for what "_seq" is for.
+        _telemetry_active = task_id is not None and task_type is not None
+        _start_mono = time.monotonic()
+        _seq_before = None
+        if _telemetry_active:
+            try:
+                import core.agent as _agent_mod
+
+                _seq_before = _agent_mod.get_last_run_stats().get("_seq")
+            except Exception:
+                _telemetry_active = False
+            else:
+                _emit_task_started_telemetry(
+                    task_id=task_id, task_type=task_type, needs_planning=bool(needs_planning)
+                )
+
+        _terminal_status = "done"
+        _error_class: Optional[str] = None
         try:
             from ccos.core.plugin_manager import get_plugin_manager
             from prompts.layered_prompt import invalidate_prompt_cache
@@ -142,13 +308,55 @@ class TaskExecutor:
                 raise RuntimeError(result.get("error") or "Agent capability execution failed")
             return response
 
+        except asyncio.CancelledError:
+            # This coroutine's own scope contains no asyncio.wait_for (or
+            # equivalent) call — any wait_for/timeout enforcement lives in
+            # the caller (core/daemon.py, out of this sub-task's scope).
+            # A CancelledError reaching here is therefore always a genuine
+            # cancellation of this task, not a distinguishable "this
+            # specific call timed out" signal — e.g. asyncio.run()'s own
+            # shutdown path cancels the still-pending main-loop task on a
+            # real SIGINT (see core/daemon.py's `except KeyboardInterrupt`
+            # around `asyncio.run(self._main_loop())`), which surfaces
+            # here identically to any other cancellation. Map it to the
+            # design schema's dedicated `cancelled` terminal_status
+            # (docs/telemetry_layer_design.md §2.E), not `timeout`.
+            _terminal_status = "cancelled"
+            raise
         except Exception as e:
             import traceback
 
+            _terminal_status = "failed"
+            _error_class = type(e).__name__
             error(f"Task execution error: {e}\n{traceback.format_exc()}")
             raise  # re-raise original exception; already logged above
         finally:
             end_inference()
+            if _telemetry_active:
+                try:
+                    import core.agent as _agent_mod
+
+                    _stats = _agent_mod.get_last_run_stats()
+                    if _stats.get("_seq") == _seq_before:
+                        # run_agent() was never actually reached this call
+                        # (e.g. an exception in the pre-call setup above) —
+                        # the stats dict still holds the *previous* task's
+                        # counters. Recording those against this task_id
+                        # would be mis-attribution, not an honest null, so
+                        # report nothing rather than something stale.
+                        _stats = {}
+                except Exception:
+                    _stats = {}
+                _emit_task_finished_telemetry(
+                    task_id=task_id,
+                    task_type=task_type,
+                    needs_planning=bool(needs_planning),
+                    start_mono=_start_mono,
+                    terminal_status=_terminal_status,
+                    error_class=_error_class,
+                    timeout_sec=self.config.get("tasks", "task_timeout", default=1800),
+                    run_stats=_stats,
+                )
 
     # ------------------------------------------------------------------
     # Daemon shell guard

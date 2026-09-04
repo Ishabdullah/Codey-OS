@@ -6238,8 +6238,23 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       implemented — shared T5/T6 gap, real dataset coverage hole),
       `NEW-344` (latent `cache_n`-missing-but-`timings`-present honest-
       null gap, shared T5/T6, not currently reachable).
-- [ ] **T7** — category E (task outcomes) at `core/task_executor.py` /
-      `core/agent.py`. **Rule-4 by association (main loop).**
+- [x] **T7** — category E (task outcomes) at `core/task_executor.py` /
+      `core/agent.py`. **Rule-4 by association (main loop). DONE
+      2026-09-04, code-complete + code-reviewer APPROVED (2 rounds).**
+      `_execute_task()` now accepts optional `task_id`/`task_type`/
+      `needs_planning`; fully wired and tested but **production-inert
+      until T8 supplies real values** (design's own T7 row corrected
+      per rule 6 — `superseded_by_plan` and real task-id/type sourcing
+      genuinely require `core/daemon.py`, not this sub-task's files
+      alone). Round 1 caught 3 real bugs in the honest-null/passivity
+      space (wrong `CancelledError` mapping, a false "single in-flight"
+      comment, a `redirect` outcome asserted as `peer_cli`). Fix round
+      discovered a second closed-enum blocker
+      (`null_reason_codes` itself) and resolved by honest field-omission
+      instead of a schema change — independently judged distinguishable
+      from a T0-class invisible-omission bug. Findings: `NEW-345`..
+      `NEW-350` (all non-blocking; `NEW-345`/`NEW-348` need direct T8
+      attention since T8 activates this sub-task's inert wiring).
 - [ ] **T8** — categories B, C, D + daemon-side G at `core/daemon.py`.
       **Rule-4, highest-risk sub-task** — process-lifecycle module,
       deliberately scheduled last.
