@@ -776,6 +776,14 @@ def record_run_start(
         always_keep_null={"device_uptime_sec"},
     )
     store.write_run_provenance(record)
+    # NEW-358: unconditional breadcrumb, set only after the record has
+    # actually been built and written — see store.claim_run_start()'s
+    # docstring. build_run_start_body() above does subprocess work
+    # (git/getprop) with no try/except of its own; marking any earlier
+    # (e.g. before _emit()) risks the flag being set on a path that threw
+    # before ever emitting a real run_start record, which would make
+    # core/loader_v2.py's fallback wrongly believe one exists.
+    store.mark_run_start_recorded()
     _provenance.schedule_cold_model_digests(
         models=body.get("models") or [],
         run_id=resolved_run_id,

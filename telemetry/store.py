@@ -260,6 +260,101 @@ _singleton_lock = threading.Lock()
 _singleton_store: Optional[Store] = None
 _singleton_run_id: Optional[str] = None
 
+# NEW-358: deliberately a separate lock from _singleton_lock. get_run_id()
+# above documents that _singleton_lock is not reentrant and that acquiring
+# it from inside another acquisition of itself deadlocks the first record()
+# on a fresh process. claim_run_start()/mark_run_start_recorded() guard an
+# unrelated flag and must not be coupled to that same reentrancy hazard for
+# no benefit.
+_run_start_lock = threading.Lock()
+_run_start_recorded: bool = False
+
+
+def mark_run_start_recorded() -> None:
+    """
+    Unconditional set, called by recorders.record_run_start() itself once
+    it has actually emitted a run_start record for this process -- not a
+    claim/guard, just a breadcrumb. Zero behavior change for
+    record_run_start()'s existing real callers (core/daemon.py,
+    main.py's default repl path), which always emit regardless of this
+    flag's prior state.
+    """
+    global _run_start_recorded
+    with _run_start_lock:
+        _run_start_recorded = True
+
+
+def claim_run_start() -> bool:
+    """
+    Atomic test-and-set, exposed ONLY for core/loader_v2.py's
+    load_primary() fallback (NEW-358): returns True if no run_start has
+    been recorded yet for this process (and atomically marks the flag
+    CLAIMED, so a second concurrent caller of this specific function
+    gets False), False otherwise. Claimed is not the same as recorded --
+    a True return is permission to attempt record_run_start(), not proof
+    it succeeded; a caller whose subsequent attempt fails must call
+    unclaim_run_start() to release the claim for a future retry (see
+    core/loader_v2.py::_ensure_run_start_fallback() for that pattern).
+    recorders.record_run_start() does NOT call this -- it always emits
+    unconditionally (see mark_run_start_recorded()) so a future
+    per-caller record_run_start() call (e.g. if core/lora_import.py is
+    later given its own richer-identity call, per NEW-358's deferred
+    note) is never silently suppressed by an earlier loader-side
+    fallback having already claimed the flag.
+
+    Deliberately NOT the same signal as get_run_id() having minted a
+    run_id: get_run_id() is invoked by many OTHER telemetry emissions
+    (e.g. loader_v2._emit_gate_telemetry()'s record_gate_decision(),
+    which runs earlier in load_primary() than the argv-provenance
+    emission) well before any caller gets around to calling
+    record_run_start() -- "a run_id exists" is not a valid proxy for
+    "record_run_start() ran."
+
+    Uses a dedicated lock (_run_start_lock), NOT _singleton_lock -- see
+    get_run_id()'s docstring above for the reentrancy/deadlock hazard of
+    reusing that lock for an unrelated flag.
+    """
+    global _run_start_recorded
+    with _run_start_lock:
+        if _run_start_recorded:
+            return False
+        _run_start_recorded = True
+        return True
+
+
+def unclaim_run_start() -> None:
+    """
+    Releases a claim taken by claim_run_start() when the emission it was
+    guarding never actually happened -- e.g. loader_v2._ensure_run_start_
+    fallback()'s record_run_start() call raised before write_run_
+    provenance() ever ran, so mark_run_start_recorded() was never reached.
+    Without this, a single transient failure (git/getprop subprocess
+    trouble in build_run_start_body(), for instance) would permanently
+    latch the flag True for the rest of the process's life -- silently
+    reintroducing the exact orphaned-run_start_amended gap NEW-358 exists
+    to close, for every subsequent load_primary() call in that process
+    (e.g. an unload/reload cycle), with no way to retry.
+
+    The only caller is _ensure_run_start_fallback()'s own except block,
+    which only runs when its OWN record_run_start() call raised -- and
+    record_run_start() calls mark_run_start_recorded() strictly after
+    write_run_provenance() succeeds, so a raised call never reached that
+    mark. Not made fully safe against every theoretical interleaving: if
+    a second thread in the same process independently completed a real,
+    successful record_run_start() call in the narrow window between this
+    caller's claim and its own failed emission, this unclaim would
+    incorrectly clear that success too. Not guarded against, because the
+    consequence is bounded and already accepted elsewhere in this design
+    (NEW-358's fix direction already treats a possible duplicate
+    run_start as the safer failure mode vs. a silently-dropped one, and
+    codey-metrics doctor already flags duplicate_run_start_runs
+    non-fatally) -- worth revisiting only if this ever becomes a genuine
+    multi-threaded call pattern, which it is not today.
+    """
+    global _run_start_recorded
+    with _run_start_lock:
+        _run_start_recorded = False
+
 
 def get_run_id() -> str:
     """
@@ -362,9 +457,11 @@ def reset_for_tests() -> None:
     monkeypatching TELEMETRY_ENABLED or METRICS_DIR). Not part of the
     production API.
     """
-    global _singleton_store, _singleton_run_id
+    global _singleton_store, _singleton_run_id, _run_start_recorded
     with _singleton_lock:
         if _singleton_store is not None:
             _singleton_store.shutdown()
         _singleton_store = None
         _singleton_run_id = None
+    with _run_start_lock:
+        _run_start_recorded = False

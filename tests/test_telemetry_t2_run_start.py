@@ -60,6 +60,40 @@ def test_record_run_start_writes_runs_json_once(tmp_path):
     assert record["body"]["repo"] == "Codey-OS"
 
 
+def test_record_run_start_marks_run_start_recorded_after_emission(tmp_path):
+    """NEW-358: the breadcrumb core/loader_v2.py's fallback checks must be
+    set once a real record_run_start() call actually emits."""
+    assert store.claim_run_start() is True  # nothing recorded yet
+    store.reset_for_tests()
+
+    recorders.record_run_start(
+        emitter="codey-os.core-api",
+        pid=999,
+        repo="Codey-OS",
+        started_ts_wall=time.time(),
+        run_id="markbreadcrumb01",
+    )
+    run_file = tmp_path / "runs" / "markbreadcrumb01.json"
+    assert _wait_for(run_file.exists)
+    # A fresh claim after a real record_run_start() call must see the
+    # flag already taken.
+    assert store.claim_run_start() is False
+
+
+def test_record_run_start_does_not_mark_when_telemetry_disabled(monkeypatch):
+    """Kill switch: the early return happens before ever reaching the
+    mark, so a disabled process leaves the flag claimable."""
+    monkeypatch.setattr(store, "TELEMETRY_ENABLED", False)
+    recorders.record_run_start(
+        emitter="codey-os.core-api",
+        pid=999,
+        repo="Codey-OS",
+        started_ts_wall=time.time(),
+        run_id="disabledmark0001",
+    )
+    assert store.claim_run_start() is True
+
+
 def test_write_run_provenance_never_overwrites_existing_file(tmp_path):
     first = {"run_id": "samerunid0000001", "body": {"marker": "first"}}
     second = {"run_id": "samerunid0000001", "body": {"marker": "second"}}

@@ -190,3 +190,41 @@ def test_get_run_id_is_stable_within_process(monkeypatch):
     r2 = store.get_run_id()
     assert r1 == r2
     assert len(r1) == 16
+
+
+# ── NEW-358: claim_run_start()/mark_run_start_recorded() ───────────────────
+
+
+def test_claim_run_start_true_once_then_false():
+    """First caller in the process claims it; every subsequent caller in
+    the same process gets False -- the one-shot CAS core/loader_v2.py's
+    fallback depends on."""
+    assert store.claim_run_start() is True
+    assert store.claim_run_start() is False
+    assert store.claim_run_start() is False
+
+
+def test_reset_for_tests_resets_claim_run_start():
+    assert store.claim_run_start() is True
+    store.reset_for_tests()
+    assert store.claim_run_start() is True
+
+
+def test_mark_run_start_recorded_then_claim_returns_false():
+    """Simulates the real-caller-ran-first case (core/daemon.py,
+    main.py's default repl path): once mark_run_start_recorded() has been
+    called, claim_run_start() must report the flag as already taken."""
+    store.mark_run_start_recorded()
+    assert store.claim_run_start() is False
+
+
+def test_unclaim_run_start_allows_a_fresh_claim():
+    """A claim released by unclaim_run_start() (e.g. after the claiming
+    caller's own record_run_start() attempt failed) must be re-claimable
+    -- code-reviewer round 1 finding: without this, a single transient
+    failure permanently latches the flag True, silently reintroducing
+    NEW-358's own orphaned-run_start bug for the rest of the process."""
+    assert store.claim_run_start() is True
+    assert store.claim_run_start() is False  # already claimed
+    store.unclaim_run_start()
+    assert store.claim_run_start() is True  # released, claimable again

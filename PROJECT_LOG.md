@@ -10,6 +10,62 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-04 — `NEW-358` fixed — loader-side `record_run_start()` fallback, `core/loader_v2.py` (2 review rounds, round 1 live-reproduced a real retry bug)
+
+- **Status**: **Code-complete + code-reviewer APPROVED (2 rounds).**
+  `core/loader_v2.py` again — rule 4. Full suite `pytest tests/ -q`:
+  **1433 passed, 0 failed, 1 skipped** (1431 baseline + 2 new).
+- **The fix, per Ish's explicit decision** (structural loader-side
+  fallback over patching each of the 3 known gap call sites
+  individually — a 4th, undisclosed caller was found by surprise on
+  the live-verify that found this bug, so there's no confidence the
+  known list is complete): `load_primary()` now calls a new
+  `_ensure_run_start_fallback()` before `reserve_slot()`, guaranteeing
+  any caller reaching this point has a `run_start` on record. Backed by
+  a new atomic claim primitive in `telemetry/store.py`
+  (`claim_run_start()`/`mark_run_start_recorded()`, a dedicated lock
+  deliberately kept separate from `_singleton_lock`'s documented
+  reentrancy hazard). `record_run_start()` itself stays unconditional —
+  only an unconditional post-emission breadcrumb was added, so no
+  existing real caller's behavior changed.
+- **Review round 1 (CHANGES REQUESTED, 1 item, live-reproduced not just
+  theorized):** the claim latched permanently `True` the instant it was
+  granted, before the emission it guarded had actually succeeded. The
+  reviewer live-reproduced this directly — simulated a `record_run_start()`
+  failure, showed the flag stuck `True` on a second attempt, confirmed
+  `record_run_start()` was never even called on the retry. This would
+  have silently reintroduced NEW-358's own bug for the rest of a
+  process's life after a single transient failure (e.g. an unload/
+  reload cycle never getting a fresh telemetry record). Also flagged
+  three docstrings that overclaimed the guarantee ("never orphaned",
+  "marks it recorded" when it only marks *claimed*).
+- **Fix**: added `store.unclaim_run_start()`, called from the fallback's
+  own `except` block only when it had genuinely claimed (tracked via a
+  local `claimed` flag, never unclaims something it didn't itself
+  claim), giving the next `load_primary()` call in the same process a
+  real retry. Corrected all three flagged docstrings — `unclaim_run_start()`'s
+  own docstring is explicit about the one residual theoretical gap it
+  does NOT fully close (a second thread's genuinely-successful call
+  landing in the narrow claim-to-failure window could be wrongly
+  unclaimed too) rather than overclaiming safety, an explicit example
+  of the honest-disclosure standard this project keeps having to
+  re-learn the hard way.
+- **Review round 2**: reviewer independently negative-control-tested
+  the fix itself — hand-removed the `unclaim_run_start()` call, reran
+  the new regression test, confirmed it failed exactly as expected,
+  restored the file — confirming the new test is load-bearing, not
+  decorative, before approving.
+- **Not yet re-verified live.** This fix is desk-verified only (mocks).
+  The natural next step, not yet done: repeat the exact scenario that
+  found the original bug — a real `./codey-stop`/`./codey-start` cycle,
+  then `codey-metrics provenance --all`, confirming the Aigentik-
+  delegated run's `run_start` and `llama_server_argv` are both now
+  visible where they weren't before.
+- **Deferred, unchanged from the prior round**: the 3 known gap call
+  sites (`main.py`'s one-shot flags, `core/lora_import.py`,
+  `Codey-Aigentik/index.js`) remain unpatched individually — structural
+  fallback covers them; per-site richer-identity fixes not scoped.
+
 ## 2026-09-04 — `T9` live-verified on real device — mechanism correct, but end-to-end goal fails on the real default startup path (`NEW-358` corrected, rule 6/7)
 
 - **What was done**: a real `./codey-stop` + `./codey-start` cycle

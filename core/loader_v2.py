@@ -981,6 +981,103 @@ LOAD_OUTCOME_SPAWN_FAILED = "spawn_failed"  # llama-server process failed to sta
 LOAD_OUTCOME_ERROR = "error"  # missing model file/binary, or an unexpected exception
 
 
+def _ensure_run_start_fallback() -> None:
+    """
+    NEW-358 loader-side fallback. Guarantees any process reaching
+    load_primary() has a run_start on record before this call's own
+    telemetry (_emit_gate_telemetry()'s gate-decision record,
+    _emit_argv_provenance()'s run_start_amended record) is emitted --
+    closing the whole class of "orphaned run_start_amended, no matching
+    run_start" bug structurally, rather than patching each caller that
+    forgets to call record_run_start() itself. Confirmed live
+    (2026-09-04) to be reachable on Codey-Aigentik/index.js's delegated
+    `get_loader().ensure_model('primary')` one-liner -- the process that
+    actually wins the model-load race on this device's real
+    `./codey-start` restart -- and, by code review alone, on main.py's
+    --init/--tdd/--fix one-shot flags and core/lora_import.py's
+    LoRA-swap callers. Deliberately a loader-side catch-all rather than
+    three/four separate per-caller fixes: a live test already found one
+    undisclosed caller the code-review pass never enumerated, so there
+    is no confidence today's list of callers is complete.
+
+    store.claim_run_start() -- not store.get_run_id() having minted a
+    run_id -- is the signal this checks; see that function's own
+    docstring for why get_run_id() alone is not a valid proxy.
+    record_run_start()'s real callers (core/daemon.py, main.py's default
+    repl path) always reach their own record_run_start() call strictly
+    before ever touching this loader (see _emit_argv_provenance()'s
+    docstring for that trace), so in the call graph as it exists today
+    this fallback only ever wins the claim on paths that structurally
+    never call record_run_start() at all -- not a real "whichever runs
+    first" race.
+
+    Deliberately minimal, honest identity for a caller this loader knows
+    nothing else about: emitter="codey-os.loader" (the same reserved,
+    caller-agnostic identity _emit_gate_telemetry()/_emit_argv_provenance()
+    already use for this exact reason) and repo_dir/llama_server_bin
+    only -- no `models`. Passing `models` here would call
+    record_run_start()'s schedule_cold_model_digests(), which hashes the
+    full model file on a background thread (~5.2s when the digest cache
+    is cold -- exactly the state on a fresh install, which is also
+    exactly when this fallback is likeliest to fire, the Aigentik
+    one-liner's very first `codey-start`). Spawning a 5s hash thread
+    concurrently with a real llama-server spawn on this device's RAM/IO
+    budget is not a cost this best-effort telemetry call should ever
+    impose. `models` defaults to `[]` in build_run_start_body() when
+    omitted (verified directly against telemetry/provenance.py), which
+    satisfies the schema's non-nullable `models` field.
+
+    At most one SUCCESSFUL emission per process: store.claim_run_start()
+    is a one-shot atomic claim, but a claimed attempt whose own
+    record_run_start() call then fails is un-claimed again (via
+    store.unclaim_run_start()) before this function returns, so the next
+    load_primary() call in the same process (e.g. an unload/reload
+    cycle) gets a genuine retry rather than the flag staying permanently
+    latched True from a run_start that was never actually written --
+    NEW-358's own fix reproducing itself if a single transient failure
+    (e.g. build_run_start_body()'s uncaught git/getprop subprocess work)
+    were allowed to permanently consume the claim. Placed before
+    reserve_slot() in load_primary() so it does not widen NEW-359's
+    existing reserve->spawn->confirm leak-guard gap window. Best-effort,
+    exception-wrapped, matching every other telemetry call site in this
+    module: must never block a real model load.
+    """
+    claimed = False
+    try:
+        from telemetry import store
+
+        if not store.TELEMETRY_ENABLED:
+            return
+        if not store.claim_run_start():
+            return
+        claimed = True
+
+        from telemetry import recorders
+
+        recorders.record_run_start(
+            emitter="codey-os.loader",
+            pid=os.getpid(),
+            repo="Codey-OS",
+            started_ts_wall=time.time(),
+            repo_dir=cfg.CODEY_DIR,
+            llama_server_bin=LLAMA_SERVER_BIN,
+        )
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "telemetry: failed to record fallback run_start for loader_v2.load_primary",
+            exc_info=True,
+        )
+        if claimed:
+            try:
+                from telemetry import store
+
+                store.unclaim_run_start()
+            except Exception:
+                pass
+
+
 def _emit_gate_telemetry(*, decision, meminfo: dict) -> None:
     """
     Category-B gate-decision telemetry (T9, docs/telemetry_layer_design.md
@@ -1057,11 +1154,19 @@ def _emit_argv_provenance(*, argv: List[str]) -> None:
     before ever reaching line 2061's record_run_start() call --
     _load_primary_with_gate_recovery() itself contains no
     record_run_start() call either. Also NOT verified for core/
-    lora_import.py's callers. Both are open residuals (NEW-358), not
-    resolved by this sub-task -- runtime severity is low (best-effort
-    telemetry, exception-wrapped, and codey-metrics doctor's existing
-    orphan-detection already covers this exact record shape), but is a
-    real, reachable gap on ordinary CLI usage, not a hypothetical one.
+    lora_import.py's callers. NEW-358: this whole class of gap is now
+    structurally closed for the common case by _ensure_run_start_
+    fallback() (defined above, called from load_primary() before this
+    method is ever reached) -- a process reaching this far now has a
+    real run_start on record from either a real caller or the loader's
+    own fallback, UNLESS that fallback's own record_run_start() call
+    itself failed (see _ensure_run_start_fallback()'s docstring: a
+    failed attempt un-claims itself so the NEXT load_primary() call in
+    the same process gets a genuine retry, but the call that actually
+    failed still produces no run_start for itself). The three/four
+    caller sites named above are still not individually fixed
+    (deliberately deferred, per NEW-358) but no longer need to be for
+    THIS gap in the common case.
     """
     try:
         from telemetry import store
@@ -1184,6 +1289,17 @@ class ModelLoader:
                 self._last_ensure_outcome = LOAD_OUTCOME_ERROR
                 self._last_ensure_reason = f"llama-server binary not found: {LLAMA_SERVER_BIN}"
                 return False
+
+            # NEW-358: loader-side run_start fallback. Must run AFTER the
+            # two trivial-failure early returns above (no point paying for
+            # git/getprop subprocess calls on a doomed call) and BEFORE
+            # rg.reserve_slot() below (does not widen NEW-359's existing
+            # reserve->spawn->confirm leak-guard gap window) and BEFORE
+            # this method's own _emit_gate_telemetry()/_emit_argv_provenance()
+            # calls (both need a real run_start behind them). See
+            # _ensure_run_start_fallback()'s own docstring for the full
+            # reasoning.
+            _ensure_run_start_fallback()
 
             # ── Resource gate: reserve a slot before actually spawning ──────
             # Per CODEY_OS_MASTER_VISION.md 7.4 (2026-08-08 amendment) / TODO.md

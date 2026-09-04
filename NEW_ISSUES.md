@@ -15017,14 +15017,15 @@ outside that fix's scope.
   `telemetry/schema/v1.json`; T8b in `CODEY_MASTER_PLAN.md` Appendix A.
 
 ### [NEW-358] `_emit_argv_provenance()`'s orphaned-`run_start_amended` risk is reachable on `main.py`'s three one-shot CLI flags, not just `core/lora_import.py`'s LoRA-swap callers
-- **Status:** Confirmed, **live-verified and upgraded 2026-09-04
-  (rule 6/7)** — originally logged from code review alone (telemetry
-  T9, code-reviewer approved round); a same-day live-verify cycle
-  (real `./codey-stop`/`./codey-start` restart, real model load) found
-  this is materially worse than the code-review-only entry stated. See
-  **Live-verify correction** below — this is NOT a narrow edge case,
-  it is the path that actually wins the model-load race on this
-  device's real, default `./codey-start` startup, every time.
+- **Status:** FIXED 2026-09-04 (loader-side fallback, `telemetry/store.py`
+  + `telemetry/recorders.py` + `core/loader_v2.py`, code-reviewer
+  approved, 2 rounds — round 1 CHANGES REQUESTED for a live-reproduced
+  claim-vs-recorded conflation bug, round 2 approved). See **Fix
+  (2026-09-04)** below. Originally logged from code review alone
+  (telemetry T9); upgraded same-day by a live-verify cycle (real
+  `./codey-stop`/`./codey-start` restart, real model load) that found
+  this was materially worse than the code-review-only entry stated —
+  see **Live-verify correction** below for that history.
 - **Mechanism:** `core/loader_v2.py`'s `_emit_argv_provenance()` uses
   `store.get_run_id()`, which lazily mints a run_id if no
   `record_run_start()` call has happened yet for this process — a
@@ -15073,21 +15074,60 @@ outside that fix's scope.
   startup path.** This is not the `main.py --init/--tdd/--fix` case
   above (those remain separately real, just less common); this is the
   actual common case.
-- **Fix direction:** add a `record_run_start()` call to
-  `Codey-Aigentik/index.js`'s delegated `ensure_model('primary')`
-  invocation (or, more robustly, to `core/loader_v2.py`'s
-  `ensure_model()`/`load_primary()` itself, as a fallback for ANY
-  caller that reaches it without having called `record_run_start()`
-  first — this would also close the `main.py` one-shot-flags and
-  `core/lora_import.py` residuals in one place rather than patching
-  each call site individually). A loader-side fallback is likely the
-  more maintainable fix given a 4th previously-undisclosed call site
-  was found on the first live test — there is no confidence the
-  enumerated list of callers is now complete.
-- **Cross-reference:** `core/loader_v2.py`, `main.py`,
-  `core/lora_import.py`, `Codey-Aigentik/index.js`; T9 in
-  `CODEY_MASTER_PLAN.md` Appendix A;
-  `.claude/agent-memory/code-reviewer/telemetry_t9_loader_argv_provenance_scope_gap.md`.
+- **Fix (2026-09-04, Ish's explicit decision — loader-side fallback,
+  not per-call-site patches):** `core/loader_v2.py`'s `load_primary()`
+  now calls a new `_ensure_run_start_fallback()` helper — placed after
+  the two trivial-failure early-return checks and before `reserve_slot()`
+  (so it does not widen `NEW-359`'s leak-guard gap window) — that
+  guarantees ANY caller reaching this point has a `run_start` on record,
+  using a new atomic claim primitive in `telemetry/store.py`
+  (`claim_run_start()`/`mark_run_start_recorded()`, a dedicated
+  `_run_start_lock` deliberately separate from `_singleton_lock`'s
+  documented reentrancy hazard). `record_run_start()` itself was NOT
+  changed to suppress a second call — it still always emits
+  unconditionally; only an unconditional post-emission
+  `mark_run_start_recorded()` breadcrumb was added. The fallback's own
+  record uses the generic `emitter="codey-os.loader"` identity (no
+  `models=`, to avoid triggering `schedule_cold_model_digests()`'s
+  background hash thread on exactly the cold-cache fresh-install case
+  this fallback is likeliest to fire on) — deliberately structural
+  (closes the whole class of bug for any current or future caller,
+  since a 4th undisclosed caller was already found by surprise) rather
+  than richer-but-fragile per-caller identity. **Round 1 review
+  live-reproduced a real bug**: the claim latched permanently `True`
+  the instant it was granted, before the emission it guarded had
+  actually succeeded — a single transient `record_run_start()` failure
+  (e.g. `build_run_start_body()`'s uncaught git/getprop subprocess
+  work) would silently reintroduce this exact orphaned-record bug for
+  the rest of that process's life, with no retry on a later
+  unload/reload cycle. Fixed by adding `store.unclaim_run_start()`,
+  called from the fallback's own `except` block only when it had
+  genuinely claimed (never unclaims a flag it didn't itself claim), and
+  correcting three docstrings that had overclaimed the guarantee before
+  the fix landed. Full suite 1433/0/1 (1431 baseline + 2 new).
+- **Deferred, not implemented this round (Ish's explicit decision,
+  2026-09-04):** the loader-side fallback structurally closes this gap
+  for every current and future caller, but necessarily uses a generic,
+  caller-agnostic identity. The three known gap call sites — `main.py`'s
+  `--init`/`--tdd`/`--fix` one-shot flags, `core/lora_import.py`'s two
+  LoRA-swap callers, and `Codey-Aigentik/index.js:221`'s delegated
+  `ensure_model('primary')` one-liner (confirmed live to be the one
+  that actually wins the model-load race on this device's real
+  restart) — could each still get their own purpose-built
+  `record_run_start()` call later, for richer per-caller identity (e.g.
+  Aigentik's own emitter/context) instead of the generic fallback.
+  Not scoped or implemented in this round; recorded here so it isn't
+  lost. Any future per-site fix must call `record_run_start()` BEFORE
+  `load_primary()` is reached to win `claim_run_start()`'s race against
+  the fallback (see that function's docstring for why a fallback firing
+  first is a deliberately-accepted possible-duplicate-record risk, not
+  a silent-suppression one — `codey-metrics doctor`'s existing
+  `duplicate_run_start_runs` non-fatal flag already covers that shape).
+- **Cross-reference:** `core/loader_v2.py`, `telemetry/store.py`,
+  `telemetry/recorders.py`, `main.py`, `core/lora_import.py`,
+  `Codey-Aigentik/index.js`; T9 in `CODEY_MASTER_PLAN.md` Appendix A;
+  `.claude/agent-memory/code-reviewer/telemetry_t9_loader_argv_provenance_scope_gap.md`,
+  `.claude/agent-memory/code-reviewer/new358_run_start_fallback_claim_vs_recorded_conflation.md`.
 
 ### [NEW-359] T9's new `_emit_gate_telemetry()` call in `load_primary()` sits inside the pre-existing reserve→spawn→confirm slot-leak-guard's gap window
 - **Status:** Confirmed, non-blocking (telemetry T9, 2026-09-04,

@@ -18,6 +18,14 @@ import core.resource_gate as rg
 import utils.config as cfg
 from telemetry import envelope, recorders, schema
 
+# Captured at collection time, before _capture_telemetry's autouse fixture
+# ever pins recorders.store.claim_run_start to a fixed lambda -- needed by
+# the retry-after-failure test below, which must exercise the REAL
+# claim/unclaim state machine, not the fixture's "already-claimed-
+# elsewhere" simulation.
+_real_claim_run_start = recorders.store.claim_run_start
+_real_unclaim_run_start = recorders.store.unclaim_run_start
+
 
 @pytest.fixture(autouse=True)
 def reset_singleton():
@@ -39,6 +47,15 @@ def _capture_telemetry(monkeypatch):
     monkeypatch.setattr(recorders.store, "record", fake_record)
     monkeypatch.setattr(recorders.store, "get_run_id", lambda: "loader-telemetry-test")
     monkeypatch.setattr(recorders.store, "TELEMETRY_ENABLED", True)
+    # NEW-358: these existing T9 tests exercise _emit_gate_telemetry()/
+    # _emit_argv_provenance() on top of an already-established process --
+    # not core/loader_v2.py's new _ensure_run_start_fallback() itself
+    # (that gets its own dedicated tests below). Simulate the confirmed-
+    # safe case (a real record_run_start() already ran for this process,
+    # e.g. core/daemon.py/main.py's repl path) so the fallback never fires
+    # here and never adds an extra provenance record these tests don't
+    # expect.
+    monkeypatch.setattr(recorders.store, "claim_run_start", lambda: False)
     envelope.reset_seq()
     return captured
 
@@ -254,6 +271,158 @@ def test_gate_telemetry_failure_never_propagates(monkeypatch, _capture_telemetry
         result = loader.load_primary()
 
     assert result is True
+
+
+# ── NEW-358: _ensure_run_start_fallback() ───────────────────────────────
+
+
+def test_ensure_run_start_fallback_noop_when_telemetry_disabled(monkeypatch):
+    monkeypatch.setattr(recorders.store, "TELEMETRY_ENABLED", False)
+    mock_claim = MagicMock()
+    monkeypatch.setattr(recorders.store, "claim_run_start", mock_claim)
+    mock_record = MagicMock()
+    monkeypatch.setattr(recorders, "record_run_start", mock_record)
+
+    lv._ensure_run_start_fallback()
+
+    mock_claim.assert_not_called()
+    mock_record.assert_not_called()
+
+
+def test_ensure_run_start_fallback_noop_when_claim_denied(monkeypatch):
+    monkeypatch.setattr(recorders.store, "TELEMETRY_ENABLED", True)
+    monkeypatch.setattr(recorders.store, "claim_run_start", lambda: False)
+    mock_record = MagicMock()
+    monkeypatch.setattr(recorders, "record_run_start", mock_record)
+
+    lv._ensure_run_start_fallback()
+
+    mock_record.assert_not_called()
+
+
+def test_ensure_run_start_fallback_emits_when_claim_granted(monkeypatch):
+    monkeypatch.setattr(recorders.store, "TELEMETRY_ENABLED", True)
+    monkeypatch.setattr(recorders.store, "claim_run_start", lambda: True)
+    mock_record = MagicMock()
+    monkeypatch.setattr(recorders, "record_run_start", mock_record)
+
+    lv._ensure_run_start_fallback()
+
+    mock_record.assert_called_once()
+    _, kwargs = mock_record.call_args
+    assert kwargs["emitter"] == "codey-os.loader"
+    assert kwargs["repo"] == "Codey-OS"
+    assert "models" not in kwargs
+
+
+def test_ensure_run_start_fallback_failure_never_propagates(monkeypatch):
+    monkeypatch.setattr(recorders.store, "TELEMETRY_ENABLED", True)
+    monkeypatch.setattr(recorders.store, "claim_run_start", lambda: True)
+
+    def boom(*a, **k):
+        raise RuntimeError("telemetry backend exploded")
+
+    monkeypatch.setattr(recorders, "record_run_start", boom)
+
+    lv._ensure_run_start_fallback()  # must not raise
+
+
+def test_ensure_run_start_fallback_unclaims_on_failure_so_next_call_retries(monkeypatch):
+    """A single transient record_run_start() failure must not permanently
+    latch the claim -- the next load_primary() call in the same process
+    (e.g. an unload/reload cycle) needs a genuine retry, or NEW-358's own
+    orphaned-run_start bug silently reintroduces itself for that process
+    (code-reviewer round 1 finding, live-reproduced)."""
+    monkeypatch.setattr(recorders.store, "TELEMETRY_ENABLED", True)
+    # Override the autouse _capture_telemetry fixture's claim_run_start
+    # pin (lambda: False) with the real claim/unclaim state machine --
+    # this test needs to observe an actual claim, failure, and unclaim,
+    # not the fixture's "a real caller already ran" simulation.
+    monkeypatch.setattr(recorders.store, "claim_run_start", _real_claim_run_start)
+    monkeypatch.setattr(recorders.store, "unclaim_run_start", _real_unclaim_run_start)
+    recorders.store.reset_for_tests()
+
+    calls = {"n": 0}
+
+    def flaky(*a, **k):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("transient git/getprop subprocess failure")
+        return None
+
+    monkeypatch.setattr(recorders, "record_run_start", flaky)
+
+    lv._ensure_run_start_fallback()  # 1st attempt: claims, then fails, unclaims
+    assert calls["n"] == 1
+
+    lv._ensure_run_start_fallback()  # 2nd attempt: must be allowed to retry
+    assert calls["n"] == 2
+
+
+def test_ensure_run_start_fallback_called_before_reserve_slot(monkeypatch, _capture_telemetry):
+    """The leak-guard ordering guarantee _ensure_run_start_fallback()'s
+    docstring depends on: it must run -- and actually do its work, not
+    just be checked -- before rg.reserve_slot() inside load_primary(), so
+    it never widens NEW-359's existing reserve->spawn->confirm leak-guard
+    gap window. claim_run_start() is forced to True (not the fixture's
+    default False pin) so record_run_start() genuinely executes and its
+    call is observed in the ordering, not short-circuited away."""
+    calls = []
+
+    def spy_claim():
+        calls.append("claim_run_start")
+        return True
+
+    monkeypatch.setattr(recorders.store, "claim_run_start", spy_claim)
+
+    def spy_record_run_start(**kwargs):
+        calls.append("record_run_start")
+
+    monkeypatch.setattr(recorders, "record_run_start", spy_record_run_start)
+
+    _patch_gate(monkeypatch, _admitted_decision())
+    # _patch_gate() above already replaced rg.reserve_slot with a fake --
+    # wrap that fake, not the real one, so admission still succeeds
+    # deterministically.
+    fake_reserve_slot = rg.reserve_slot
+
+    def spy_over_fake(spec, **k):
+        calls.append("reserve_slot")
+        return fake_reserve_slot(spec, **k)
+
+    monkeypatch.setattr(rg, "reserve_slot", spy_over_fake)
+
+    with patch.object(lv, "LlamaServer", FakeServerReused), patch(
+        "pathlib.Path.exists", return_value=True
+    ):
+        loader = lv.get_loader()
+        assert loader.load_primary() is True
+
+    assert calls == ["claim_run_start", "record_run_start", "reserve_slot"]
+
+
+def test_ensure_run_start_fallback_record_passes_schema_validate(
+    monkeypatch, tmp_path, _capture_telemetry
+):
+    """The fallback's actual emitted record -- not a mocked stand-in --
+    must be a valid `run_start` record: emitter="codey-os.loader" and
+    body["models"] == [] (the `models` default this fallback deliberately
+    relies on, per its own docstring) both validated against the real
+    schema, not merely asserted on a mock's call_args."""
+    monkeypatch.setattr(recorders.store, "METRICS_DIR", tmp_path)
+    monkeypatch.setattr(recorders.store, "claim_run_start", lambda: True)
+
+    lv._ensure_run_start_fallback()
+
+    run_start_records = [
+        r for r in _capture_telemetry
+        if r["category"] == "provenance" and r["event_type"] == "run_start"
+    ]
+    assert len(run_start_records) == 1
+    rec = run_start_records[0]
+    assert rec["emitter"] == "codey-os.loader"
+    assert rec["body"]["models"] == []
+    assert schema.validate(rec) == []
 
 
 def test_argv_provenance_failure_never_propagates(monkeypatch, _capture_telemetry):

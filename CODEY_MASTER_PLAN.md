@@ -6357,8 +6357,25 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       5 hard violations). `NEW-358` corrected per rule 6 with full
       detail. **Code-complete + code-reviewer-approved is not the same
       tier as live-verified-working-end-to-end (rule 7)** — this is
-      exactly that gap, caught only by attempting the real thing. Fix
-      not yet scoped or implemented as of this entry.
+      exactly that gap, caught only by attempting the real thing.
+      **Fixed 2026-09-04** — a loader-side `record_run_start()` fallback
+      in `core/loader_v2.py`'s `load_primary()` (Ish's explicit choice
+      over per-call-site patches, since the live test found an
+      undisclosed 4th caller). Code-complete + code-reviewer approved
+      (2 rounds — round 1 live-reproduced a real claim-vs-recorded
+      conflation bug: a single transient `record_run_start()` failure
+      would have silently reintroduced this exact orphaned-record gap
+      permanently for that process; fixed with a retry-safe
+      unclaim-on-failure path). Full suite 1433/0/1. See `NEW-358`'s
+      FIXED entry for complete detail. **Not yet re-run through a
+      second live-verify cycle** — desk-verified only; a repeat of the
+      exact scenario that found the bug (real restart, `codey-metrics
+      provenance --all` showing the Aigentik-delegated run) would close
+      this out to fully live-verified. The three known call sites
+      (`main.py`'s one-shot flags, `core/lora_import.py`,
+      `Codey-Aigentik/index.js`) remain deliberately un-patched
+      individually — the loader-side fallback covers them structurally;
+      per-site richer-identity fixes deferred, not scoped.
       **10 items in `docs/telemetry_layer_design.md` §8 were resolved by
       Ish 2026-09-03** (address-value hashing: SHA-256 + char count, no
       raw text; retention: literal never-delete; sub-task ordering as
