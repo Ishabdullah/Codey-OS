@@ -10,6 +10,51 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-05 — `NEW-356` fixed (telemetry half) — live `needs_planning` re-query at daemon dispatch Site 1, `core/daemon.py`+`core/planner_v2.py` (1 review round); `NEW-364` opened for the separate, still-open dispatch-logic gap
+
+- **Status**: Code-complete + code-reviewer APPROVED (1 round, clean).
+  Full suite `pytest tests/ -q`: **1445 passed, 0 failed, 1 skipped**
+  (1442 baseline + 3 new).
+- **The fix**: Site 1 of `_process_planner_tasks()` hardcoded
+  `needs_planning=False`, wrong for a `needs_planning=1` direct-command
+  row rehydrated into `Planner._tasks` after a daemon restart (`_load_
+  tasks()` filters on nothing). Fixed with a live SQLite re-query
+  (`self.state.get_task(planner_task.id)`) inserted after the claim
+  succeeds and before the dispatch `await` — no added yield point.
+  **Deliberately deviated from `NEW-356`'s own logged fix-direction**
+  (which listed caching the field on `Task` first): a cached field
+  would couple correctness to two independent write paths staying in
+  sync forever; a live re-query costs one extra `SELECT` and has zero
+  staleness risk, confirmed by grepping `clear_needs_planning()`'s only
+  2 call sites (both inside Site 2's own branch, never touched by
+  Site 1).
+- **Test rigor**: the load-bearing new test uses a REAL `Planner`/
+  `StateStore` pair (not a mocked planner) specifically to exercise
+  `_load_tasks()`'s actual rehydration mechanism, with an explicit
+  `assert task_id in real_planner._tasks` before the dispatch
+  assertion — so a failure would be attributed to the right stage.
+- **Review found a real scope-boundary nuance, correctly resolved**:
+  the reviewer independently traced `core/task_executor.py` and
+  confirmed `needs_planning` only ever flows into T7's telemetry
+  helpers, never gates a branch or planning call — so the "does a
+  rehydrated row actually get expanded" question was unaffected by
+  this fix, both before and after. This fix corrects the REPORTED
+  value only; the second, deeper problem (rehydrated rows never
+  getting planning-expansion regardless of what they report) is a
+  pre-existing gap this fix makes newly *visible* as a telemetry-vs-
+  outcome mismatch, not a regression this fix introduces.
+- **`NEW-364` opened** (Suspected, mechanism fully traced not live-
+  reproduced) for that separate gap: Site 2's expansion path assumes
+  the row it's expanding is NOT tracked in `self.planner._tasks`, but
+  by the time Site 1 knows a rehydrated row's real `needs_planning`
+  value, the row is already `running` there — reconciling that
+  mid-dispatch needs its own scoping round, not a byproduct of this fix.
+- **`core/planner_v2.py`'s `_load_tasks()`** got a docstring addition
+  (no behavior change) stating explicitly what it rehydrates and what
+  it doesn't filter on — the false assumption this whole bug traced
+  back to, now documented at its source rather than only at the one
+  call site that got bitten by it.
+
 ## 2026-09-05 — `NEW-351` fixed — gate-decision dedup key normalization, `core/daemon.py` (2 review rounds, round 1 caught a stale docstring)
 
 - **Status**: Code-complete + code-reviewer APPROVED (2 rounds). Full

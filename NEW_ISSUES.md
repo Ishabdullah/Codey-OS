@@ -14980,8 +14980,12 @@ outside that fix's scope.
   `core/daemon.py`, `NEW-345`.
 
 ### [NEW-356] `core/daemon.py`'s planner-branch dispatch hardcodes `needs_planning=False` in category-E telemetry — wrong for a `needs_planning=1` direct task rehydrated into the planner after a daemon restart
-- **Status:** Confirmed, non-blocking, deferred (telemetry T8b,
-  2026-09-04, code-reviewer approved round).
+- **Status:** FIXED (telemetry half) 2026-09-05, `core/daemon.py`,
+  code-reviewer approved, 1 round. Originally Confirmed/deferred from
+  telemetry T8b, 2026-09-04. See **Fix (2026-09-05)** below. The
+  second, dispatch-logic gap this entry also documents (planning-
+  expansion never happening for a Site-1-dispatched row) remains open
+  — now tracked separately as `NEW-364`.
 - **Mechanism:** Site 1 (the planner-task branch of
   `_process_planner_tasks()`, `core/daemon.py`) hardcodes
   `needs_planning=False` on its `_execute_task()` call — justified by
@@ -15014,14 +15018,28 @@ outside that fix's scope.
   task outcome. Narrow trigger (requires a `needs_planning=1` direct
   task still pending at the exact instant of a daemon restart), but not
   contrived — daemon restarts happen routinely.
-- **Fix direction:** add `needs_planning` to the `planner_v2.Task`
-  dataclass (currently absent — `_load_tasks()` doesn't read/store it)
-  and have Site 1 read it (or re-query `self.state.get_task(
-  planner_task.id)`) instead of hardcoding `False`. Touches both
-  `core/planner_v2.py` and `core/daemon.py` — needs its own scoping,
-  not foldable silently into a future round.
+- **Fix (2026-09-05):** live re-query at Site 1 —
+  `db_task_row = self.state.get_task(planner_task.id)`, inserted after
+  `try_claim_task()` has already succeeded and before the
+  `asyncio.wait_for(...)` call (no added yield point), replacing the
+  hardcoded `False`. **Deliberately deviates from this entry's own
+  logged fix direction** (which listed caching `needs_planning` on the
+  `Task` dataclass as the first option, rule 6): a cached field would
+  couple correctness to `Planner`'s own `Task` construction and
+  `StateStore.add_task()`'s default staying in sync across two
+  independent write paths forever, with nothing enforcing that. A live
+  re-query costs one extra `SELECT` per dispatch and has zero
+  staleness risk — confirmed by grepping `clear_needs_planning()`'s
+  only 2 call sites, both inside Site 2's own branch, never touched by
+  Site 1's path. `core/planner_v2.py`'s `_load_tasks()` also got a
+  docstring addition (no behavior change) stating explicitly that it
+  rehydrates every row regardless of origin or `needs_planning` value
+  — the false assumption this whole bug traces back to. Full suite
+  1445/0/1 (1442 baseline + 3 new, including a test using a REAL
+  `Planner`/`StateStore` pair to exercise the actual rehydration
+  mechanism, not a mocked assumption of it).
 - **Cross-reference:** `core/daemon.py`, `core/planner_v2.py`,
-  `core/state.py`; T8b in `CODEY_MASTER_PLAN.md` Appendix A.
+  `core/state.py`, `NEW-364`; T8b in `CODEY_MASTER_PLAN.md` Appendix A.
 
 ### [NEW-357] `core/task_executor.py`'s `CancelledError` handling can't distinguish a real `wait_for` timeout from other cancellation sources — every dispatch timeout records `terminal_status="cancelled"`, never `"timeout"`
 - **Status:** Confirmed, pre-existing (T7's code), newly observable as
@@ -15393,3 +15411,48 @@ outside that fix's scope.
   current one if the re-review recommendation is kept.
 - **Cross-reference:** `PENDING_ISH_DECISIONS.md`, `NEW-24`, `NEW-84`,
   `NEW-91`, `core/lora_import.py`.
+
+### [NEW-364] A `needs_planning=1` row rehydrated into `Planner._tasks` after a daemon restart is dispatched via Site 1 and never goes through planning-expansion — silently runs as a single un-expanded task
+- **Status:** Suspected — mechanism fully traced (both code paths read
+  directly, not inferred), but not independently reproduced live.
+  Found during `NEW-356`'s fix, 2026-09-05, code-reviewer round.
+- **Mechanism:** by the time Site 1 (`core/daemon.py`'s
+  `_process_planner_tasks()`, planner-task branch) knows a rehydrated
+  row's real `needs_planning` value (via `NEW-356`'s fix), the row has
+  already been claimed and `self.planner.start_task(planner_task.id)`
+  has put it in `self.planner._tasks` in a `running` state. Site 2's
+  planning-expansion path (`if db_task.get("needs_planning"): steps =
+  await self._plan_claimed_task(...)`) is guarded by `if
+  db_task["id"] in self.planner._tasks: return` — it structurally
+  assumes the row it's about to expand is NOT tracked in
+  `self.planner._tasks`. Retiring the row via `state.complete_task()`
+  and creating N new rows via `planner.add_tasks()` mid-dispatch, on a
+  row Site 1 has already marked `running` in `self.planner._tasks`,
+  would leave a stale, dangling entry in that in-memory dict that
+  nothing currently reconciles — a new invariant that code path has
+  never had to uphold. Confirmed via `core/task_executor.py`:
+  `needs_planning` only ever flows into T7's telemetry helpers
+  (`_emit_task_started_telemetry`/`_emit_task_finished_telemetry`),
+  never gates a branch, prompt, or planning call — so this
+  non-expansion behavior existed identically BEFORE `NEW-356`'s fix
+  too; `NEW-356` only corrected the REPORTED value, it did not change
+  (and was not supposed to change) whether expansion actually happens.
+- **Impact:** a `needs_planning=1` direct-command row that survives to
+  a daemon restart while still `pending` executes as a single task
+  instead of expanding into a multi-step plan, even though its
+  telemetry now (post-`NEW-356`) honestly reports `needs_planning=True`
+  — a user's intended multi-step plan silently degrades to single-shot
+  execution in this narrow restart-timing window. Not a `NEW-356`
+  regression: this behavior is unchanged by that fix, only now visible
+  as a telemetry-vs-outcome mismatch instead of being hidden behind a
+  falsely-reported `needs_planning=False`.
+- **Fix direction:** not scoped. Would require reconciling
+  `self.planner._tasks` when a row tracked there is retired mid-dispatch
+  by an expansion decided upon after the claim — either have Site 1
+  route to expansion BEFORE calling `self.planner.start_task()` (i.e.
+  re-query `needs_planning` earlier, before the row enters
+  `self.planner._tasks` as `running`), or add an explicit removal of
+  the stale in-memory entry as part of the expansion path. Needs its
+  own scoping round — not a byproduct of a quick fix.
+- **Cross-reference:** `core/daemon.py`, `core/planner_v2.py`,
+  `core/task_executor.py`, `NEW-356`.

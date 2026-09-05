@@ -38,6 +38,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 import core.daemon as daemon_mod
+import core.planner_v2 as planner_v2_mod
 from core.resource_gate import DispatchDecision
 from core.state import StateStore
 
@@ -229,3 +230,109 @@ def test_refused_dispatch_leaves_needs_planning_task_pending_and_unplanned(tmp_p
     task = d.state.get_task(task_id)
     assert task["status"] == "pending"
     assert task["needs_planning"] == 1
+
+
+# ── NEW-356: Site 1 (planner-task branch) must re-read needs_planning ───────
+#
+# Planner.__init__()'s _load_tasks() unconditionally rehydrates every
+# pending/running task_queue row into self._tasks with no filter on origin
+# or needs_planning (core/planner_v2.py). A needs_planning=1 direct-command
+# row that is still pending at the exact moment of a daemon restart can
+# therefore be dispatched via Site 1 (the planner-task branch above) instead
+# of Site 2 (the direct-task branch), which reads the real value. These
+# tests exercise a REAL Planner/StateStore pair (not a mocked planner) so
+# the actual rehydration mechanism is what's under test, not an assumption
+# about it.
+
+
+def test_rehydrated_direct_task_dispatched_via_site1_reports_real_needs_planning(tmp_path, monkeypatch):
+    db_path = tmp_path / "state.db"
+    store = StateStore(db_path=db_path)
+    # Created directly via StateStore.add_task(), never Planner.add_task()/
+    # add_tasks() -- simulates the exact NEW-356 scenario: a needs_planning=1
+    # direct-command row still pending at the instant of a daemon restart.
+    task_id = store.add_task("build a thing", needs_planning=1)
+
+    monkeypatch.setattr(planner_v2_mod, "get_state_store", lambda: store)
+    real_planner = planner_v2_mod.Planner()
+    # Confirms the rehydration mechanism itself, not just the DB read below.
+    assert task_id in real_planner._tasks
+
+    d = daemon_mod.Daemon.__new__(daemon_mod.Daemon)
+    d.state = store
+    d.planner = real_planner
+    d.executor = MagicMock()
+    d.executor._execute_task = AsyncMock(return_value="executed result")
+    d._config = MagicMock()
+    d._config.get.return_value = 1800
+    d._deferral_state = {}
+    d._gate_dedup = {}
+    d._interactive_active_last = None
+    d._interactive_state_since_mono = 0.0
+
+    with patch.object(daemon_mod.Daemon, "_check_dispatch_gate", return_value=ALLOWED):
+        _run(d._process_planner_tasks())
+
+    d.executor._execute_task.assert_awaited_once_with(
+        "build a thing", task_id=task_id, task_type="planner", needs_planning=True
+    )
+
+
+def test_normal_planner_task_still_reports_needs_planning_false(tmp_path, monkeypatch):
+    """Regression: a task added the normal way (Planner.add_task(), never
+    setting needs_planning -> defaults to 0/False via StateStore.add_task())
+    still results in needs_planning=False reaching _execute_task()."""
+    db_path = tmp_path / "state.db"
+    store = StateStore(db_path=db_path)
+
+    monkeypatch.setattr(planner_v2_mod, "get_state_store", lambda: store)
+    real_planner = planner_v2_mod.Planner()
+    task_id = real_planner.add_task("planner-tracked task")
+    assert task_id in real_planner._tasks
+
+    d = daemon_mod.Daemon.__new__(daemon_mod.Daemon)
+    d.state = store
+    d.planner = real_planner
+    d.executor = MagicMock()
+    d.executor._execute_task = AsyncMock(return_value="executed result")
+    d._config = MagicMock()
+    d._config.get.return_value = 1800
+    d._deferral_state = {}
+    d._gate_dedup = {}
+    d._interactive_active_last = None
+    d._interactive_state_since_mono = 0.0
+
+    with patch.object(daemon_mod.Daemon, "_check_dispatch_gate", return_value=ALLOWED):
+        _run(d._process_planner_tasks())
+
+    d.executor._execute_task.assert_awaited_once_with(
+        "planner-tracked task", task_id=task_id, task_type="planner", needs_planning=False
+    )
+
+
+def test_site1_needs_planning_requery_defensive_none_row(tmp_path):
+    """Defensive: if self.state.get_task(planner_task.id) returns None at
+    the exact point Site 1 re-queries (e.g. the row was deleted from SQLite
+    after already being tracked in self.planner._tasks), the code must
+    degrade to needs_planning=False rather than raising AttributeError on
+    None.get(...)."""
+    d = _bare_daemon(tmp_path / "state.db")
+    task_id = d.state.add_task("planner-tracked task")
+
+    planner_task = MagicMock()
+    planner_task.id = task_id
+    planner_task.description = "planner-tracked task"
+    d.planner.get_next_task.return_value = planner_task
+
+    # try_claim_task() (the actual claim) is a raw SQL UPDATE, not a
+    # get_task() call, so patching get_task() globally to always return
+    # None isolates the re-query's None-handling without breaking the
+    # claim step itself.
+    with patch.object(daemon_mod.Daemon, "_check_dispatch_gate", return_value=ALLOWED), patch.object(
+        StateStore, "get_task", return_value=None
+    ):
+        _run(d._process_planner_tasks())
+
+    d.executor._execute_task.assert_awaited_once_with(
+        "planner-tracked task", task_id=task_id, task_type="planner", needs_planning=False
+    )

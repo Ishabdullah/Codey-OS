@@ -1897,16 +1897,31 @@ class Daemon:
                 # identity, not downstream fate (NOT "planning_expansion";
                 # no dispatch site here can distinguish an expansion-
                 # produced planner row from any other, see T8b handoff).
-                # needs_planning=False is hardcoded, not a DB read: every
-                # row reaching this branch was added via
-                # Planner.add_task()/add_tasks() -> StateStore.add_task(),
-                # which defaults needs_planning to 0/False (core/state.py).
+                #
+                # needs_planning is re-read from SQLite (NEW-356), not
+                # hardcoded False: Planner.__init__()'s _load_tasks()
+                # (core/planner_v2.py) unconditionally rehydrates every
+                # pending/running task_queue row into self._tasks with no
+                # filter on origin or needs_planning, so a needs_planning=1
+                # direct-command row (core/daemon.py's _handle_command path)
+                # that is still pending at the exact moment of a daemon
+                # restart can land here instead of the direct-task branch
+                # below, which does read the real value. A live read (not a
+                # field cached on Task at load time) is used because nothing
+                # on this branch's path ever mutates needs_planning after
+                # load -- state.clear_needs_planning() is only ever called
+                # from the direct-task branch below, and only on rows NOT
+                # tracked in self.planner._tasks -- so a fresh read here is
+                # always accurate and carries no staleness risk to reason
+                # about.
+                db_task_row = self.state.get_task(planner_task.id)
+                needs_planning_value = bool(db_task_row.get("needs_planning")) if db_task_row else False
                 result = await asyncio.wait_for(
                     self.executor._execute_task(
                         planner_task.description,
                         task_id=planner_task.id,
                         task_type="planner",
-                        needs_planning=False,
+                        needs_planning=needs_planning_value,
                     ),
                     timeout=timeout,
                 )

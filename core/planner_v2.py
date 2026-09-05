@@ -67,7 +67,18 @@ class Planner:
         self._load_tasks()
 
     def _load_tasks(self):
-        """Load pending/running tasks from database."""
+        """Load pending/running tasks from database.
+
+        Rehydrates EVERY 'pending'/'running' task_queue row into self._tasks,
+        regardless of origin (a row added via Planner.add_task()/add_tasks()
+        vs. a row added directly via a bare state.add_task() call, e.g.
+        core/daemon.py's direct-command path) or of that row's
+        needs_planning value. Callers must not assume every entry in
+        self._tasks has needs_planning=0 just because Planner.add_task()
+        always writes 0 — a direct-command row with needs_planning=1 that
+        is still pending at the moment this constructor runs (e.g. a daemon
+        restart mid-dispatch) will be rehydrated here too (see NEW-356).
+        """
         tasks = self.state.get_all_tasks()
         for t in tasks:
             if t["status"] in ("pending", "running"):
