@@ -209,6 +209,82 @@ def _emit_task_finished_telemetry(
         )
 
 
+def emit_task_timeout_correction(
+    *,
+    task_id: int,
+    task_type: str,
+    needs_planning: bool,
+    duration_ms: float,
+    timeout_sec: Optional[int],
+) -> None:
+    """
+    Corrective category-E `task_finished` observation for `core/daemon.py`'s
+    `wait_for(...)`-timeout dispatch sites (NEW-357). Public (no leading
+    underscore) because the caller lives in a different module.
+
+    Why this exists: `_execute_task()`'s own `except asyncio.CancelledError`/
+    `finally` blocks above contain no `await`, so per CPython's actual
+    `asyncio.timeouts.Timeout`/`asyncio.tasks.wait_for` mechanics they run to
+    completion -- including emitting a `task_finished` record with
+    `terminal_status="cancelled"` -- BEFORE the `CancelledError` can even
+    propagate up to `wait_for()`'s own `Timeout.__aexit__`, which is what
+    converts it to `TimeoutError` in `core/daemon.py`. There is no way to
+    make that first emission correct from inside `_execute_task()` itself;
+    a post-hoc corrective second record from the caller, once it actually
+    knows the outcome was a timeout, is structurally required.
+
+    This deliberately reuses the existing `task_finished` event_type rather
+    than introducing a new one -- `telemetry/schema/v1.json`'s
+    `terminal_status` enum already includes both `"cancelled"` and
+    `"timeout"`, so no schema change is needed. See
+    `telemetry.recorders.record_task_finished()`'s docstring for the
+    resulting "two records per task_id, latest wins" consumer obligation
+    this establishes.
+
+    Run-stats-derived fields (`step_count`, `tools_called`, `retries`,
+    `escalated`, etc.) are deliberately left null/omitted here rather than
+    re-queried from `core.agent`'s thread-keyed stats buckets: the
+    `loop.run_in_executor()` worker thread that ran the timed-out call is
+    NOT killed by the cancellation (it keeps running orphaned in the
+    background, per NEW-345), so a second stats read from this caller at an
+    indeterminate later time risks reading a DIFFERENT task's now-reused
+    thread-id bucket (`get_last_run_stats()` pops on read and a thread id
+    can be reused by the pool). An honest null is safer than a wrong value.
+
+    Same never-crash-the-host contract as `_emit_task_finished_telemetry`
+    above: broad `except Exception` + warning log, never affects the
+    caller's dispatch/`fail_task()` outcome.
+    """
+    try:
+        from telemetry import store
+
+        if not store.TELEMETRY_ENABLED:
+            return
+
+        from telemetry import recorders
+
+        recorders.record_task_finished(
+            emitter="codey-os.daemon",
+            pid=os.getpid(),
+            task_id=task_id,
+            task_type=task_type,
+            needs_planning=bool(needs_planning),
+            finished_ts_wall=time.time(),
+            duration_ms=duration_ms,
+            terminal_status="timeout",
+            error_class=None,
+            timeout_sec=timeout_sec,
+        )
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "telemetry: failed to record task_finished timeout correction "
+            "for core/daemon.py's wait_for() dispatch",
+            exc_info=True,
+        )
+
+
 class TaskExecutor:
     """
     Executes tasks from the daemon's task queue using the full agent pipeline.

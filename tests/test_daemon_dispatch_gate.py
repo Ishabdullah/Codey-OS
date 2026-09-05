@@ -310,6 +310,180 @@ def test_normal_planner_task_still_reports_needs_planning_false(tmp_path, monkey
     )
 
 
+# ── NEW-357: wait_for()-timeout corrective task_finished emission ───────────
+#
+# These drive `_process_planner_tasks()` end-to-end with a REAL
+# `asyncio.wait_for()` and a genuinely slow `_execute_task()` mock (an
+# `async def` side_effect that sleeps, not a hardcoded flag), so the
+# wait_for-cancels-the-inner-await-then-raises-TimeoutError sequence is the
+# real asyncio mechanism, not a simulated shortcut. Only
+# `core.daemon.emit_task_timeout_correction` is patched here (asserting it
+# is called/not called, with what arguments) — the two-record *shape* this
+# produces end-to-end (via the real, unmocked TaskExecutor) is covered
+# separately below by
+# test_two_task_finished_records_emitted_cancelled_then_timeout_site1.
+
+
+async def _slow_execute_task(*args, **kwargs):
+    await asyncio.sleep(5)
+    return "should not get here"
+
+
+def test_timeout_emits_correction_exactly_once_site1_planner_branch(tmp_path):
+    d = _bare_daemon(tmp_path / "state.db")
+    task_id = d.state.add_task("planner-tracked task")
+    d._config.get.return_value = 0.05  # small real timeout
+
+    planner_task = MagicMock()
+    planner_task.id = task_id
+    planner_task.description = "planner-tracked task"
+    d.planner.get_next_task.return_value = planner_task
+    d.executor._execute_task = AsyncMock(side_effect=_slow_execute_task)
+
+    with patch.object(
+        daemon_mod.Daemon, "_check_dispatch_gate", return_value=ALLOWED
+    ), patch.object(daemon_mod, "emit_task_timeout_correction") as mock_correction:
+        _run(d._process_planner_tasks())
+
+    d.planner.fail_task.assert_called_once()
+    mock_correction.assert_called_once()
+    call_kwargs = mock_correction.call_args.kwargs
+    assert call_kwargs["task_id"] == task_id
+    assert call_kwargs["task_type"] == "planner"
+    assert call_kwargs["needs_planning"] is False
+    assert call_kwargs["duration_ms"] > 0
+    # int(0.05) == 0 -- not a meaningful zero, just the small real config
+    # timeout truncated to an int as the production code does.
+    assert call_kwargs["timeout_sec"] == 0
+
+
+def test_timeout_emits_correction_exactly_once_site2_direct_branch(tmp_path):
+    d = _bare_daemon(tmp_path / "state.db")
+    task_id = d.state.add_task("do something")
+    d._config.get.return_value = 0.05  # small real timeout
+    d.executor._execute_task = AsyncMock(side_effect=_slow_execute_task)
+
+    with patch.object(
+        daemon_mod.Daemon, "_check_dispatch_gate", return_value=ALLOWED
+    ), patch.object(daemon_mod, "emit_task_timeout_correction") as mock_correction:
+        _run(d._process_planner_tasks())
+
+    task = d.state.get_task(task_id)
+    assert task["status"] == "failed"
+    mock_correction.assert_called_once()
+    call_kwargs = mock_correction.call_args.kwargs
+    assert call_kwargs["task_id"] == task_id
+    assert call_kwargs["task_type"] == "direct"
+    assert call_kwargs["needs_planning"] is False
+    assert call_kwargs["duration_ms"] > 0
+    # int(0.05) == 0 -- not a meaningful zero, just the small real config
+    # timeout truncated to an int as the production code does.
+    assert call_kwargs["timeout_sec"] == 0
+
+
+def test_two_task_finished_records_emitted_cancelled_then_timeout_site1(
+    tmp_path, monkeypatch
+):
+    """Direct proof of the two-record outcome (real, unmocked TaskExecutor
+    driving the actual _execute_task() cancellation/finally path, real
+    wait_for() timeout at the daemon dispatch site) -- exactly two
+    telemetry.recorders.record_task_finished() calls for the same task_id,
+    terminal_status in order ["cancelled", "timeout"]."""
+    import time as _time
+
+    from core.daemon_config import DaemonConfig
+    from core.task_executor import TaskExecutor
+    from telemetry import recorders
+
+    monkeypatch.setattr(recorders.store, "TELEMETRY_ENABLED", True)
+
+    captured = []
+    monkeypatch.setattr(recorders, "record_task_finished", lambda **kw: captured.append(kw))
+
+    def fake_run_agent(user_message, history, **kwargs):
+        _time.sleep(0.5)
+        return "should not get here", history
+
+    monkeypatch.setattr("core.agent.run_agent", fake_run_agent, raising=False)
+
+    d = _bare_daemon(tmp_path / "state.db")
+    task_id = d.state.add_task("planner-tracked task")
+    config = DaemonConfig()
+    monkeypatch.setattr(config, "get", lambda *a, **kw: 0.05)
+    d._config = config
+    d.executor = TaskExecutor(state=d.state, config=config)
+
+    planner_task = MagicMock()
+    planner_task.id = task_id
+    planner_task.description = "planner-tracked task"
+    d.planner.get_next_task.return_value = planner_task
+
+    with patch.object(daemon_mod.Daemon, "_check_dispatch_gate", return_value=ALLOWED):
+        _run(d._process_planner_tasks())
+
+    task_records = [c for c in captured if c["task_id"] == task_id]
+    assert len(task_records) == 2
+    assert [r["terminal_status"] for r in task_records] == ["cancelled", "timeout"]
+
+
+def test_socket_timeout_from_execute_task_does_not_trigger_correction(tmp_path):
+    """Socket-timeout guard (the most important negative test): a bare
+    `TimeoutError()` with no `__cause__` raised out of `_execute_task()`
+    itself (simulating a real HTTP/socket timeout inside run_agent(), which
+    `asyncio.TimeoutError is TimeoutError` makes indistinguishable by class
+    alone) must NOT trigger `emit_task_timeout_correction` -- the daemon's
+    `except asyncio.TimeoutError:` handling (fail_task) still fires exactly
+    as it does today, but the earlier "failed"/error_class="TimeoutError"
+    record _execute_task() already emitted for it remains the only record."""
+
+    async def _raise_bare_timeout(*args, **kwargs):
+        raise TimeoutError("socket timed out")
+
+    d = _bare_daemon(tmp_path / "state.db")
+    task_id = d.state.add_task("do something")
+    d._config.get.return_value = 30  # long enough that wait_for itself never fires
+    d.executor._execute_task = AsyncMock(side_effect=_raise_bare_timeout)
+
+    with patch.object(
+        daemon_mod.Daemon, "_check_dispatch_gate", return_value=ALLOWED
+    ), patch.object(daemon_mod, "emit_task_timeout_correction") as mock_correction:
+        _run(d._process_planner_tasks())
+
+    task = d.state.get_task(task_id)
+    assert task["status"] == "failed"
+    mock_correction.assert_not_called()
+
+
+def test_correction_emitter_failure_never_blocks_fail_task(tmp_path, monkeypatch):
+    """Never-affect-control-flow, exercised through the real dispatch site
+    (not just emit_task_timeout_correction() called in isolation, which
+    tests/test_task_executor_telemetry.py already covers): the REAL
+    emit_task_timeout_correction() is left unpatched here, but the
+    telemetry backend it calls into is made to raise. fail_task()/dispatch
+    must still complete normally -- this is the exact 'passed review
+    twice, broke live' shape CLAUDE.md warns about, so it gets its own
+    direct proof rather than relying on code inspection alone."""
+    from telemetry import recorders, store
+
+    monkeypatch.setattr(store, "TELEMETRY_ENABLED", True)
+
+    def _boom(**kwargs):
+        raise RuntimeError("telemetry backend exploded")
+
+    monkeypatch.setattr(recorders, "record_task_finished", _boom)
+
+    d = _bare_daemon(tmp_path / "state.db")
+    task_id = d.state.add_task("do something")
+    d._config.get.return_value = 0.05  # small real timeout
+    d.executor._execute_task = AsyncMock(side_effect=_slow_execute_task)
+
+    with patch.object(daemon_mod.Daemon, "_check_dispatch_gate", return_value=ALLOWED):
+        _run(d._process_planner_tasks())
+
+    task = d.state.get_task(task_id)
+    assert task["status"] == "failed"
+
+
 def test_site1_needs_planning_requery_defensive_none_row(tmp_path):
     """Defensive: if self.state.get_task(planner_task.id) returns None at
     the exact point Site 1 re-queries (e.g. the row was deleted from SQLite

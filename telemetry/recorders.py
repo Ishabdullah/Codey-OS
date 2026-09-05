@@ -544,6 +544,38 @@ def record_task_finished(
     run_id: Optional[str] = None,
     nulls: Optional[Dict[str, str]] = None,
 ) -> None:
+    """
+    Emit a category-E `task_finished` record.
+
+    NEW-357 convention: unlike T9's `run_start_amended` (a distinct,
+    schema-enumerated event_type with explicit merge logic in
+    `telemetry/cli.py`), `core/task_executor.py`'s
+    `emit_task_timeout_correction()` calls this function a SECOND time for
+    the same `task_id` when `core/daemon.py`'s `wait_for(...)` dispatch
+    sites INFER, from `exc.__cause__` being an `asyncio.CancelledError` on
+    the caught `TimeoutError`, that the call actually timed out (a
+    structural consequence of asyncio's cancellation ordering -- see that
+    function's docstring for the full mechanics). This is inference from
+    the caller's own exception, NOT detection of an emitted record --
+    nothing checks whether `_execute_task()`'s own `terminal_status=
+    "cancelled"` emission actually happened. If telemetry was inactive
+    (e.g. `store.TELEMETRY_ENABLED` False, or `_telemetry_active` False)
+    during that first call, the correction still fires on the `__cause__`
+    guard alone, producing a LONE `"timeout"` record with no preceding
+    `"cancelled"` one. This deliberately reuses the existing `task_finished`
+    event_type rather than adding a new one; the two records for the same
+    `task_id` (when both exist) are differentiated only by `seq`/`ts_wall`
+    ordering, not by any distinguishing field.
+
+    Any future consumer that counts or aggregates category-E terminal
+    outcomes MUST implement "latest `task_finished` per `task_id` wins," or
+    it will double-count tasks that hit this timeout-correction path. No
+    current consumer performs this aggregation (grepped every `.py` file in
+    this repo for `task_finished` outside `tests/`, `recorders.py`, and
+    `schema/` to confirm — the only other hits are the emitter call sites
+    themselves and comments), but this obligation is recorded here so a
+    future implementer of that aggregation finds it.
+    """
     body = {
         "task_id": task_id,
         "task_type": task_type,

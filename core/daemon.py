@@ -25,7 +25,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from core.daemon_config import get_config
 from core.state import StateStore, get_state_store
-from core.task_executor import TaskExecutor
+from core.task_executor import TaskExecutor, emit_task_timeout_correction
 from utils.config import CODEY_STATE_DIR, DAEMON_LOG_FILE, DAEMON_PID_FILE, DAEMON_SOCKET_FILE
 from utils.logger import (error, info, set_log_level, setup_file_logging,
                           warning)
@@ -1914,6 +1914,7 @@ class Daemon:
                 # tracked in self.planner._tasks -- so a fresh read here is
                 # always accurate and carries no staleness risk to reason
                 # about.
+                _dispatch_start_mono = time.monotonic()
                 db_task_row = self.state.get_task(planner_task.id)
                 needs_planning_value = bool(db_task_row.get("needs_planning")) if db_task_row else False
                 result = await asyncio.wait_for(
@@ -1926,10 +1927,33 @@ class Daemon:
                     timeout=timeout,
                 )
                 self.planner.complete_task(planner_task.id, result)
-            except asyncio.TimeoutError:
+            except asyncio.TimeoutError as exc:
                 err = f"Task timed out after {timeout}s"
                 error(err)
                 self.planner.fail_task(planner_task.id, err)
+                # NEW-357: only emit the corrective task_finished record when
+                # this TimeoutError genuinely came from THIS wait_for()'s own
+                # timeout firing (wait_for always raises it via
+                # `raise TimeoutError from exc` where exc is the
+                # CancelledError it delivered internally). asyncio.TimeoutError
+                # IS builtins.TimeoutError, and socket.timeout has been an
+                # alias of it since Python 3.10 -- a genuine socket-level
+                # timeout raised anywhere inside
+                # pm.call_capability("coding.run_agent", ...) would propagate
+                # out of _execute_task() through its own `except Exception`
+                # branch (already correctly recording terminal_status="failed",
+                # error_class="TimeoutError") and would ALSO be caught here,
+                # since it's literally the same exception class. Without this
+                # guard we would fabricate a terminal_status="timeout"
+                # correction record on top of an accurate "failed" one.
+                if isinstance(exc.__cause__, asyncio.CancelledError):
+                    emit_task_timeout_correction(
+                        task_id=planner_task.id,
+                        task_type="planner",
+                        needs_planning=needs_planning_value,
+                        duration_ms=(time.monotonic() - _dispatch_start_mono) * 1000.0,
+                        timeout_sec=int(timeout) if timeout is not None else None,
+                    )
             except Exception as e:
                 error(f"Planner: task {planner_task.id} error: {e}")
                 self.planner.fail_task(planner_task.id, str(e))
@@ -2026,6 +2050,7 @@ class Daemon:
             # <= 1) still reports its honest historical needs_planning value,
             # not the cleared-to-0 value clear_needs_planning() has already
             # written to SQLite by this point.
+            _dispatch_start_mono = time.monotonic()
             result = await asyncio.wait_for(
                 self.executor._execute_task(
                     description,
@@ -2036,8 +2061,24 @@ class Daemon:
                 timeout=timeout,
             )
             self.state.complete_task(db_task["id"], result)
-        except asyncio.TimeoutError:
+        except asyncio.TimeoutError as exc:
             self.state.fail_task(db_task["id"], f"Task timed out after {timeout}s")
+            # NEW-357: see the sibling planner-branch dispatch site above for
+            # the full explanation of why this __cause__ guard is required --
+            # asyncio.TimeoutError IS builtins.TimeoutError (and
+            # socket.timeout has aliased it since Python 3.10), so a genuine
+            # socket-level timeout from inside run_agent() would otherwise be
+            # mistaken for this wait_for()'s own timeout and get a fabricated
+            # terminal_status="timeout" correction on top of the accurate
+            # "failed" record _execute_task() already emitted for it.
+            if isinstance(exc.__cause__, asyncio.CancelledError):
+                emit_task_timeout_correction(
+                    task_id=db_task["id"],
+                    task_type="direct",
+                    needs_planning=bool(db_task.get("needs_planning")),
+                    duration_ms=(time.monotonic() - _dispatch_start_mono) * 1000.0,
+                    timeout_sec=int(timeout) if timeout is not None else None,
+                )
         except Exception as e:
             self.state.fail_task(db_task["id"], str(e))
 

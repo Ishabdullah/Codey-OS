@@ -10,6 +10,72 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-05 — `NEW-357` fixed — caller-side timeout-correction telemetry, `core/daemon.py`+`core/task_executor.py`+`telemetry/recorders.py` (2 review rounds); `NEW-365`/`NEW-366` opened; **this closes Batch C, all of item-2's deferred telemetry findings are now resolved or explicitly triaged**
+
+- **Status**: Code-complete + code-reviewer APPROVED (2 rounds — round
+  1 caught a docstring overclaim, round 2 approved). Full suite
+  `pytest tests/ -q`: **1455 passed, 0 failed, 1 skipped** (1445
+  baseline + 10 new).
+- **The most architecturally subtle fix in this whole telemetry
+  rollout.** `core/daemon.py`'s dispatch sites wrap
+  `self.executor._execute_task(...)` in `asyncio.wait_for(...,
+  timeout=timeout)`; on a real timeout, `_execute_task()`'s own
+  `except asyncio.CancelledError:`/`finally` blocks (no `await` in
+  either) run SYNCHRONOUSLY TO COMPLETION — emitting a
+  `terminal_status="cancelled"` record — BEFORE the exception can even
+  reach `wait_for()`'s own conversion to `TimeoutError` in the caller.
+  The scoping architect confirmed this via CPython 3.14.6's actual
+  `asyncio.tasks.wait_for`/`asyncio.timeouts.Timeout` source, not
+  inference: there is structurally no way to make the first emission
+  correct. A caller-side corrective re-emission is required, not a
+  design preference.
+- **The fix**: a new `emit_task_timeout_correction()` emits a SECOND
+  `task_finished` record with `terminal_status="timeout"` once the
+  caller catches `TimeoutError`, reusing the existing event_type (no
+  schema change — `terminal_status` already has both enum values).
+  Gated by `isinstance(exc.__cause__, asyncio.CancelledError)` — the
+  single most important line in the diff, since `asyncio.TimeoutError`
+  IS `builtins.TimeoutError`, making a genuine socket-level timeout
+  inside `run_agent()` otherwise indistinguishable from this
+  `wait_for()`'s own timeout. Without the guard, the fix would have
+  fabricated a `"timeout"` correction over an accurate `"failed"`
+  record — worse than the bug it was fixing. Verified on this device's
+  actual Python that the guard direction is correct in both cases.
+- **Verification rigor, twice over**: the implementer wrote real
+  `asyncio.wait_for`-timing tests throughout (an ordering proof, a
+  two-record outcome proof, a socket-timeout negative test), not
+  hardcoded-flag tests that assume the answer. The reviewer then
+  independently negative-control-tested the guard itself — hand-removed
+  it, confirmed the socket-timeout test failed exactly as predicted,
+  restored — the same rigor pattern established across this whole
+  rollout (T8a's dedup fix, `NEW-345`, `NEW-358`'s fallback).
+- **Review round 1 (CHANGES REQUESTED, 1 item, doc-only — same
+  recurring class across this entire rollout)**: `record_task_finished(
+  )`'s new docstring claimed the mechanism "detects" a prior emission —
+  false, it's pure inference from `exc.__cause__`; if telemetry was
+  inactive during the first call, the correction can fire alone with
+  no preceding `"cancelled"` record. Fixed by rewording to state
+  inference, not detection, and naming the lone-record case explicitly.
+- **Findings**: `NEW-365` (forward-looking — a new "two records per
+  task_id, latest wins" convention, distinct from T9's schema-
+  enumerated `run_start_amended`, that future rollup consumers must
+  handle; documented directly in `record_task_finished()`'s docstring
+  so a future implementer finds it there) and `NEW-366` (Confirmed,
+  low severity — the OLD, unchanged emission path passes `timeout_sec`
+  uncoerced, while this fix's new path does cast it; a pre-existing gap
+  surfaced by contrast, not introduced).
+- **This closes Batch C and the entire item-2 deferred-telemetry-
+  findings queue.** All of `NEW-351`–`NEW-364` are now either FIXED
+  (`351`, `354`, `356`, `357`, `360`, `361`, `362`) or given an explicit
+  dated no-action disposition (`353`, `355`, `359`) — none left looking
+  untriaged. `NEW-363`, `NEW-364`, `NEW-365`, `NEW-366` are new findings
+  surfaced along the way, correctly logged rather than silently
+  dropped. Two stale ledger status headers (`NEW-24`, `NEW-84`) were
+  also caught and corrected in the same arc. Remaining open items:
+  `T10` (schema v2 migration, still not scoped) and item 3 (M-lane
+  maintenance/bugs, `B6.2c`+ business-layer work) — the actual product
+  roadmap, not telemetry cleanup.
+
 ## 2026-09-05 — `NEW-356` fixed (telemetry half) — live `needs_planning` re-query at daemon dispatch Site 1, `core/daemon.py`+`core/planner_v2.py` (1 review round); `NEW-364` opened for the separate, still-open dispatch-logic gap
 
 - **Status**: Code-complete + code-reviewer APPROVED (1 round, clean).

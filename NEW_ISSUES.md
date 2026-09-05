@@ -15042,8 +15042,11 @@ outside that fix's scope.
   `core/state.py`, `NEW-364`; T8b in `CODEY_MASTER_PLAN.md` Appendix A.
 
 ### [NEW-357] `core/task_executor.py`'s `CancelledError` handling can't distinguish a real `wait_for` timeout from other cancellation sources — every dispatch timeout records `terminal_status="cancelled"`, never `"timeout"`
-- **Status:** Confirmed, pre-existing (T7's code), newly observable as
-  of telemetry T8b, 2026-09-04, code-reviewer approved round.
+- **Status:** FIXED 2026-09-05 (`core/daemon.py`+`core/task_executor.py`+
+  `telemetry/recorders.py`, code-reviewer approved, 2 rounds — round 1
+  caught a docstring overclaim, round 2 approved). Originally Confirmed/
+  pre-existing from telemetry T8b, 2026-09-04. See **Fix (2026-09-05)**
+  below.
 - **Mechanism:** `core/daemon.py`'s two dispatch sites wrap
   `self.executor._execute_task(...)` in `asyncio.wait_for(...,
   timeout=timeout)`. When that timeout fires, `wait_for()` delivers a
@@ -15079,16 +15082,51 @@ outside that fix's scope.
   now shows as `"cancelled"` rather than `"timeout"` in category-E
   data — an outcome-classification inaccuracy, not a crash or a
   dispatch-logic defect.
-- **Fix direction:** `core/daemon.py` would need to distinguish a
-  `wait_for` timeout from other cancellation sources at its own call
-  sites (its `except asyncio.TimeoutError:` blocks around each site are
-  a separate exception frame from the one inside `_execute_task()` that
-  sets `_terminal_status`) and/or `core/task_executor.py` would need to
-  accept a caller-supplied cancellation-reason signal. Both are
-  cross-file changes touching `task_executor.py`, out of any single
-  daemon-only sub-task's scope — needs its own scoping.
+- **Fix (2026-09-05):** confirmed via CPython 3.14.6's actual
+  `asyncio.tasks.wait_for`/`asyncio.timeouts.Timeout` source that
+  `_execute_task()`'s `except asyncio.CancelledError:`/`finally` blocks
+  (no `await` in either) run SYNCHRONOUSLY TO COMPLETION — including
+  emitting the `terminal_status="cancelled"` record — BEFORE the
+  exception can even reach `wait_for()`'s own conversion to
+  `TimeoutError` in the caller. **There is structurally no way to make
+  the first emission correct; a caller-side corrective re-emission is
+  required, not a design choice.** New public
+  `emit_task_timeout_correction()` (`core/task_executor.py`) emits a
+  SECOND `task_finished` record with `terminal_status="timeout"`
+  (reusing the existing event_type — no schema change, `terminal_status`
+  already has both enum values) with run-stats fields left null
+  (deliberately not re-queried — the orphaned worker thread from
+  `NEW-345` could have its thread-id bucket reused by a different task
+  by the time this fires). Called from both `core/daemon.py` dispatch
+  sites' `except asyncio.TimeoutError as exc:` blocks, gated by
+  `isinstance(exc.__cause__, asyncio.CancelledError)`. **This guard is
+  the single most important line in the fix**: `asyncio.TimeoutError`
+  IS `builtins.TimeoutError`, so a genuine socket-level timeout inside
+  `run_agent()` would otherwise be indistinguishable from this
+  `wait_for()`'s own timeout — without the guard, the fix would
+  fabricate a `"timeout"` correction over an accurate `"failed"` record,
+  worse than the original mislabeling bug. Verified on this device's
+  actual Python: `wait_for()`'s `TimeoutError.__cause__` is reliably
+  the inner `CancelledError`; a bare `TimeoutError()` from elsewhere has
+  `__cause__ is None`. Reviewer round 1 negative-control-tested the
+  guard itself (hand-removed it, confirmed the socket-timeout test
+  failed exactly as predicted, restored). Full suite 1455/0/1 (1445
+  baseline + 10 new, using real `asyncio.wait_for` timing throughout,
+  not hardcoded flags).
+- **New convention established, not T9's pattern**: this creates two
+  otherwise-identical `task_finished` records for the same `task_id`
+  (differentiated only by `seq`/`ts_wall`), unlike T9's schema-
+  enumerated `run_start_amended` with explicit merge logic. Any future
+  rollup consumer must implement "latest `task_finished` per `task_id`
+  wins" — see `NEW-365`. Round 1 review also caught a docstring
+  overclaim on `record_task_finished()` (claimed the mechanism
+  "detects" a prior emission — false, it's pure inference from
+  `exc.__cause__`; if telemetry was inactive during the first call, the
+  correction can fire alone with no preceding `"cancelled"` record).
+  Fixed before approval.
 - **Cross-reference:** `core/task_executor.py`, `core/daemon.py`,
-  `telemetry/schema/v1.json`; T8b in `CODEY_MASTER_PLAN.md` Appendix A.
+  `telemetry/recorders.py`, `telemetry/schema/v1.json`, `NEW-345`,
+  `NEW-365`, `NEW-366`; T8b in `CODEY_MASTER_PLAN.md` Appendix A.
 
 ### [NEW-358] `_emit_argv_provenance()`'s orphaned-`run_start_amended` risk is reachable on `main.py`'s three one-shot CLI flags, not just `core/lora_import.py`'s LoRA-swap callers
 - **Status:** FIXED 2026-09-04 (loader-side fallback, `telemetry/store.py`
@@ -15456,3 +15494,54 @@ outside that fix's scope.
   own scoping round — not a byproduct of a quick fix.
 - **Cross-reference:** `core/daemon.py`, `core/planner_v2.py`,
   `core/task_executor.py`, `NEW-356`.
+
+### [NEW-365] Future `codey-metrics` rollup/aggregation work must implement "latest `task_finished` per `task_id` wins" or it will double-count tasks hitting `NEW-357`'s timeout-correction path
+- **Status:** Confirmed, forward-looking obligation, not yet actionable
+  (found during `NEW-357`'s fix, 2026-09-05, code-reviewer approved
+  round).
+- **Mechanism:** `NEW-357`'s fix (`emit_task_timeout_correction()`,
+  `core/task_executor.py`) emits a SECOND `task_finished` record for
+  the same `task_id` when a dispatch genuinely timed out — unlike T9's
+  `run_start_amended` (a distinct, schema-enumerated event_type with
+  explicit merge logic in `telemetry/cli.py`), this reuses the existing
+  `task_finished` event_type with no distinguishing field; the two
+  records are differentiated only by `seq`/`ts_wall` ordering. Grepped
+  every `.py` file in the repo outside `tests/`/`recorders.py`/
+  `schema/` for `task_finished` — no current consumer aggregates or
+  counts category-E terminal outcomes, so nothing is broken today.
+- **Impact:** none today. Any FUTURE rollup/aggregation/dashboard work
+  that counts task outcomes by `task_id` will silently double-count
+  every task that hit a real dispatch timeout, unless it explicitly
+  keeps only the latest `task_finished` record per `task_id`.
+- **Fix direction:** when `codey-metrics` rollup work is next scoped,
+  implement "latest record per `task_id` wins" for category-E
+  aggregation — this is now documented in `record_task_finished()`'s
+  own docstring (`telemetry/recorders.py`) so a future implementer
+  finds it there, not just in this ledger entry.
+- **Cross-reference:** `core/task_executor.py`, `telemetry/recorders.py`,
+  `telemetry/cli.py`, `NEW-357`.
+
+### [NEW-366] `core/task_executor.py`'s pre-existing `task_finished` emission passes `timeout_sec` uncoerced — a float/string `task_timeout` config value would silently violate the schema's declared `int` type
+- **Status:** Confirmed, pre-existing, low severity (found during
+  `NEW-357`'s fix, 2026-09-05, code-reviewer approved round — the new
+  timeout-correction path added by that fix DOES coerce with `int()`;
+  this finding is about the OLD, unchanged emission path).
+- **Mechanism:** `telemetry/schema/v1.json` declares `timeout_sec` as
+  `{"type": "int", ...}`. `core/task_executor.py`'s existing
+  `"done"`/`"failed"`/`"cancelled"` emission (`_emit_task_finished_
+  telemetry()`, unchanged by `NEW-357`) passes
+  `self.config.get("tasks", "task_timeout", default=1800)` straight
+  through with no `int()` cast. If a deployment's config ever sets
+  `task_timeout` to a float or string, this emission would write a
+  type-violating record.
+- **Impact:** low. `telemetry/store.py`'s `Store.record()` write path
+  performs no schema validation at write time — validation only runs in
+  `telemetry/cli.py`'s `doctor`/rollup consumers. So a bad value would
+  silently write a type-violating record, only surfacing later via
+  `codey-metrics doctor`, not a write-time failure.
+- **Fix direction:** add `int(...)` coercion to this existing emission
+  path's `timeout_sec` value, matching the coercion `NEW-357`'s new
+  timeout-correction path already does, when this function is next
+  touched.
+- **Cross-reference:** `core/task_executor.py`, `telemetry/schema/v1.json`,
+  `NEW-357`.

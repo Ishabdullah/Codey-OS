@@ -448,6 +448,147 @@ def test_orphaned_thread_never_corrupts_concurrent_tasks_stats(
         agent_mod._RUN_STATS_BY_THREAD.pop(thread_ids.get("A"), None)
 
 
+# ── NEW-357: wait_for()-timeout corrective task_finished emission ───────────
+#
+# The daemon-side guard (`isinstance(exc.__cause__, asyncio.CancelledError)`)
+# and its call site live in core/daemon.py (out of this module's scope), but
+# the two asyncio-mechanics proofs below (#1/#2) and the
+# emit_task_timeout_correction() unit tests (#5/#6) don't need a real Daemon
+# instance -- they exercise the underlying asyncio ordering guarantee itself
+# and this module's own new public function directly. See
+# tests/test_daemon_dispatch_gate.py for the integration tests that drive
+# the real dispatch sites end-to-end (#3/#4), and its
+# test_socket_timeout_from_execute_task_does_not_trigger_correction for the
+# guard exercised through the real daemon.py call site.
+
+
+def test_wait_for_timeout_unwinds_inner_before_caller_sees_timeouterror():
+    """Ordering proof, independent of any Codey-OS code: guards against a
+    future Python version changing asyncio.wait_for()'s cancellation
+    ordering out from under the NEW-357 fix's core assumption -- that the
+    inner coroutine's own CancelledError handler runs to completion BEFORE
+    the caller's wait_for() call ever sees a TimeoutError."""
+    order = []
+
+    async def inner():
+        try:
+            await asyncio.sleep(10)
+        except asyncio.CancelledError:
+            order.append("inner_cancelled_handler")
+            raise
+
+    async def caller():
+        try:
+            await asyncio.wait_for(inner(), timeout=0.05)
+        except asyncio.TimeoutError as exc:
+            order.append("caller_timeout_handler")
+            assert isinstance(exc.__cause__, asyncio.CancelledError)
+
+    asyncio.run(caller())
+    assert order == ["inner_cancelled_handler", "caller_timeout_handler"]
+
+
+def test_external_cancel_does_not_convert_to_timeouterror():
+    """A cancellation NOT caused by wait_for()'s own timeout firing (an
+    external task.cancel() under a long wait_for that never itself times
+    out) must propagate as CancelledError, never get converted to
+    TimeoutError -- the guard's premise depends on this distinction
+    actually holding."""
+
+    async def inner():
+        try:
+            await asyncio.sleep(10)
+        except asyncio.CancelledError:
+            raise
+
+    async def dispatch():
+        await asyncio.wait_for(inner(), timeout=5)  # long -- won't fire
+
+    async def _run():
+        t = asyncio.ensure_future(dispatch())
+        await asyncio.sleep(0.05)
+        t.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await t
+
+    asyncio.run(_run())
+
+
+def test_socket_timeout_has_no_cancelled_cause(monkeypatch):
+    """Socket-timeout guard, isolated to the exception-shape claim itself:
+    a bare `TimeoutError()` raised directly out of an awaited coroutine
+    (simulating a real HTTP/socket timeout inside run_agent(), which
+    `asyncio.TimeoutError is TimeoutError` makes indistinguishable by class
+    alone) propagates through `asyncio.wait_for()` with no `__cause__`
+    chain to a CancelledError -- so `core/daemon.py`'s
+    `isinstance(exc.__cause__, asyncio.CancelledError)` guard correctly
+    evaluates False for it. The full integration proof that this actually
+    suppresses `emit_task_timeout_correction` at the real dispatch site is
+    tests/test_daemon_dispatch_gate.py's
+    test_socket_timeout_from_execute_task_does_not_trigger_correction."""
+
+    async def inner():
+        raise TimeoutError("socket timed out")
+
+    async def caller():
+        with pytest.raises(asyncio.TimeoutError) as exc_info:
+            await asyncio.wait_for(inner(), timeout=30)
+        assert exc_info.value.__cause__ is None
+
+    asyncio.run(caller())
+
+
+def test_emit_task_timeout_correction_records_timeout_status(monkeypatch, _capture_telemetry):
+    from core.task_executor import emit_task_timeout_correction
+
+    emit_task_timeout_correction(
+        task_id=55,
+        task_type="direct",
+        needs_planning=True,
+        duration_ms=1234.5,
+        timeout_sec=1800,
+    )
+
+    finished = _records_by_event_type(_capture_telemetry, "task_finished")
+    assert len(finished) == 1
+    f = finished[0]["body"]
+    assert f["task_id"] == 55
+    assert f["task_type"] == "direct"
+    assert f["needs_planning"] is True
+    assert f["terminal_status"] == "timeout"
+    assert f["duration_ms"] == 1234.5
+    assert f["timeout_sec"] == 1800
+    assert "error_class" not in f
+    # Run-stats-derived fields are deliberately never re-queried by this
+    # function -- see its own docstring for why a wrong value would be
+    # worse than an honest null here.
+    assert "step_count" not in f
+    assert "tools_called" not in f
+    assert "retries" not in f
+
+
+def test_emit_task_timeout_correction_never_raises(monkeypatch):
+    """Standing never-crash-the-host contract every telemetry emitter in
+    this codebase follows: a failure inside the emitter itself (here,
+    telemetry.recorders.record_task_finished raising) must never propagate
+    out and disrupt the caller's own control flow (fail_task()/dispatch)."""
+    from core.task_executor import emit_task_timeout_correction
+    from telemetry import recorders, store
+
+    monkeypatch.setattr(store, "TELEMETRY_ENABLED", True)
+
+    def _boom(**kwargs):
+        raise RuntimeError("telemetry backend exploded")
+
+    monkeypatch.setattr(recorders, "record_task_finished", _boom)
+
+    # Must not raise.
+    emit_task_timeout_correction(
+        task_id=1, task_type="direct", needs_planning=False,
+        duration_ms=10.0, timeout_sec=1800,
+    )
+
+
 def test_kill_switch_off_emits_nothing(executor, monkeypatch, _capture_telemetry):
     monkeypatch.setattr(recorders.store, "TELEMETRY_ENABLED", False)
     monkeypatch.setattr(
