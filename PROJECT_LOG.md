@@ -10,6 +10,46 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-05 — `NEW-351` fixed — gate-decision dedup key normalization, `core/daemon.py` (2 review rounds, round 1 caught a stale docstring)
+
+- **Status**: Code-complete + code-reviewer APPROVED (2 rounds). Full
+  suite `pytest tests/ -q`: **1442 passed, 0 failed, 1 skipped**
+  (1436 baseline + 6 new).
+- **The fix**: `_emit_gate_telemetry_deduped()`'s dedup key was
+  defeated by `core/resource_gate.py`'s reason strings embedding live-
+  formatted numbers (RAM MiB, °C, %) — under sustained pressure, nearly
+  every evaluation produced a different key, so the 60s-suppression
+  window almost never engaged, the opposite of its whole purpose.
+  Fixed with regex-masking (`\d+(?:\.\d+)?` → `"N"`) applied ONLY to the
+  key, not the emitted record body — `core/resource_gate.py` untouched.
+  A reason-category enum was considered and rejected: it would either
+  duplicate wording that already lives in `core/resource_gate.py` or
+  drag a second rule-4-adjacent module into scope for no real benefit
+  over masking, which handles the ~19 reachable composite reason
+  strings (including nested `_sustained_trailing_run()` templates) for
+  free.
+- **Review round 1 (CHANGES REQUESTED, 1 item, doc-only — the same
+  class of issue that's recurred across this whole telemetry rollout)**:
+  the method's own docstring still described the pre-fix key formula
+  (`(primary_outcome, decision.reason, via_swap)`) — the code beneath
+  it had already changed, the docstring hadn't. Fixed by pointing the
+  docstring at the new masking helper and stating explicitly that
+  masking is key-only.
+- **Verification rigor**: the reviewer performed a negative control —
+  reverted just the key-construction line, confirmed the new
+  regression test failed exactly as expected (`assert 2 == 1`),
+  restored — proving the test is load-bearing, not one that would pass
+  either way regardless of the fix.
+- **Accepted limitation, documented not fixed**: masking also hides
+  threshold changes (not just measured-value changes) from the dedup
+  key — the real new threshold still reaches the record body within
+  ≤60s via the next heartbeat regardless. Same "lower bound, not exact"
+  trade-off §2.B's `repeat_count` design already accepts elsewhere.
+- **No new findings** — the implementer specifically checked
+  `_track_dispatch_refusal()` for the same bug shape (it dedups by
+  `task_id`, not reason string — ruled out) and found nothing else to
+  log.
+
 ## 2026-09-04 — Batched low-risk fix round (`NEW-354`/`360`/`361`/`362`) — 3 review rounds, uncovered and fixed 2 stale ledger status headers (`NEW-24`/`NEW-84`) and one inverted mechanism claim in a user-facing message
 
 - **Status**: Code-complete + code-reviewer APPROVED (3 rounds — round 1

@@ -169,6 +169,158 @@ def test_gate_dedup_call_sites_are_independent(_capture_telemetry):
     assert len(records) == 2
 
 
+# ── B.NEW-351: reason-string number-masking (dedup key only) ────────────────
+#
+# core/resource_gate.py's actual current DispatchDecision/TripDecision
+# `reason` f-strings, pulled verbatim (2026-09-04) so these tests exercise
+# the real templates, not paraphrases:
+#   - can_dispatch_task() RAM-headroom refusal (below dispatch floor,
+#     no swap assist):
+#       "RAM headroom ({X}MiB) below dispatch floor ({Y}MiB) — deferring
+#       dispatch"
+#   - _sustained_trailing_run()'s "too sparse" density-refusal template
+#     (embeds fraction/span/threshold):
+#       "only {count} sample(s) present in the {span:.0f}s trailing window
+#       (expected ~{expected_count:.0f} at {interval:.0f}s spacing, density
+#       {density:.0%} < required {min_density_fraction:.0%}) — too sparse to
+#       conclude sustained"
+#   - _sustained_trailing_run()'s "fraction below required" refusal template
+#     (also embeds fraction/span/threshold, different wording):
+#       "only {fraction:.0%} of samples in the {span:.0f}s trailing window
+#       are at/above {threshold} (need >= {min_fraction:.0%})"
+#   - _sustained_trailing_run()'s SATISFIED template (same fraction/span/
+#     threshold shape as the one above, should_trip=True instead of False):
+#       "{fraction:.0%} of samples over a {span:.0f}s trailing window
+#       at/above {threshold} (most recent sample {newest_val:.1f})"
+#   - can_dispatch_task()'s two "within resource limits" allow reasons, one
+#     bare and one with the NEW-108 CPU-unmeasurable caveat appended.
+
+
+def test_normalize_gate_reason_masks_identical_template_different_numbers():
+    """Two RAM-headroom refusal strings differing only in the embedded MiB
+    values (same static wording) must normalize to the SAME string -- this
+    is the exact NEW-351 bug: under sustained pressure these two numbers
+    are almost never equal across evaluations, so without masking the
+    dedup key changes on nearly every call."""
+    reason_a = "RAM headroom (512MiB) below dispatch floor (768MiB) — deferring dispatch"
+    reason_b = "RAM headroom (498MiB) below dispatch floor (768MiB) — deferring dispatch"
+    assert daemon_mod._normalize_gate_reason_for_dedup(reason_a) == daemon_mod._normalize_gate_reason_for_dedup(
+        reason_b
+    )
+
+
+def test_normalize_gate_reason_keeps_structurally_similar_templates_distinct():
+    """Two _sustained_trailing_run() refusal templates that both embed
+    fraction/span/threshold-shaped numbers, but differ in their actual
+    wording (one is the sparse-density refusal, the other is the
+    below-required-fraction refusal), must normalize to DIFFERENT strings
+    -- masking numbers must not wrongly coarsen two meaningfully different
+    refusals into the same dedup key. This is the most important test in
+    this batch: it's the check that catches an over-aggressive masking
+    implementation that the digit-only test above cannot."""
+    # EXPECTED_SAMPLE_INTERVAL_SEC (core/resource_gate.py) is 30.0, so the
+    # sparse-density template's spacing slot reads "30s spacing" in
+    # production, not an arbitrary value -- kept verbatim here.
+    sparse_density = (
+        "only 3 sample(s) present in the 45s trailing window (expected ~9 at "
+        "30s spacing, density 33% < required 50%) — too sparse to conclude sustained"
+    )
+    below_fraction = "only 40% of samples in the 45s trailing window are at/above 90 (need >= 50%)"
+    assert daemon_mod._normalize_gate_reason_for_dedup(
+        sparse_density
+    ) != daemon_mod._normalize_gate_reason_for_dedup(below_fraction)
+
+
+def test_normalize_gate_reason_keeps_below_required_and_satisfied_templates_distinct():
+    """The spec's own named example pair: _sustained_trailing_run()'s
+    below-required-fraction refusal template ("only {fraction:.0%} of
+    samples ... (need >= {min_fraction:.0%})", core/resource_gate.py
+    ~line 2778) vs its own SATISFIED template ("{fraction:.0%} of samples
+    over a {span:.0f}s trailing window at/above {threshold} (most recent
+    sample {newest_val:.1f})", ~line 2782) -- both embed the same
+    fraction/span/threshold-shaped numbers and share most of their
+    wording, differing mainly in the "only ... (need >= ...)" vs "...
+    (most recent sample ...)" framing. This is the tightest test in this
+    batch for "didn't wrongly coarsen two meaningfully different
+    refusals" -- a should_trip=False detail and a should_trip=True detail
+    must never collapse to the same dedup key."""
+    below_fraction = "only 40% of samples in the 45s trailing window are at/above 90 (need >= 50%)"
+    satisfied = "60% of samples over a 45s trailing window at/above 90 (most recent sample 91.5)"
+    assert daemon_mod._normalize_gate_reason_for_dedup(
+        below_fraction
+    ) != daemon_mod._normalize_gate_reason_for_dedup(satisfied)
+
+
+def test_normalize_gate_reason_keeps_new108_caveat_variant_distinct():
+    """The bare 'within resource limits' allow-reason and the longer variant
+    that appends the NEW-108 CPU-unmeasurable caveat must remain distinct
+    after masking -- these differ in wording, not just in an embedded
+    number, even though the caveat variant happens to contain the digits
+    '108' (part of the NEW-108 reference, which does get masked too, but
+    that alone doesn't make the two strings collide)."""
+    bare = "within resource limits"
+    with_caveat = "within resource limits (CPU unmeasurable on this device, NEW-108 — not evaluated)"
+    assert daemon_mod._normalize_gate_reason_for_dedup(bare) != daemon_mod._normalize_gate_reason_for_dedup(
+        with_caveat
+    )
+
+
+def test_gate_dedup_suppresses_same_template_different_numbers(_capture_telemetry):
+    """Integration reproduction of the NEW-351 bug: two consecutive
+    DispatchDecision refusals using the SAME reason template with
+    DIFFERENT embedded RAM-headroom MiB values (as can_dispatch_task()
+    would produce across two evaluations under sustained pressure) must be
+    treated as the same dedup key -- only the first evaluation emits.
+    Before the fix, decision.reason went straight into the dedup key
+    unmasked, so the second call's differing MiB number would have made it
+    a "key change" and produced a second immediate emission."""
+    d = _bare_daemon()
+    reason_a = "RAM headroom (512MiB) below dispatch floor (768MiB) — deferring dispatch"
+    reason_b = "RAM headroom (498MiB) below dispatch floor (768MiB) — deferring dispatch"
+    refused_a = DispatchDecision(allowed=False, reason=reason_a)
+    refused_b = DispatchDecision(allowed=False, reason=reason_b)
+
+    d._emit_gate_telemetry_deduped(event_type="can_dispatch_task", decision=refused_a, call_site="site.new351")
+    d._emit_gate_telemetry_deduped(event_type="can_dispatch_task", decision=refused_b, call_site="site.new351")
+
+    records = _records_by_event_type(_capture_telemetry, "can_dispatch_task")
+    assert len(records) == 1
+    # The single emitted record's body must still carry the FULL, unmasked
+    # first reason string -- masking only ever touches the dedup key, never
+    # the record body. record_gate_decision() writes decision.reason into
+    # TWO distinct body fields (body["reason"], the dedicated `reason=`
+    # kwarg destination, and body["decision"]["reason"], from
+    # dataclasses.asdict()'d `decision=`) -- both must be checked, since a
+    # copy/paste error masking only the `reason=` kwarg (the exact mistake
+    # the spec called out as the one to get right) would leave
+    # body["decision"]["reason"] correct while silently degrading
+    # body["reason"].
+    assert records[0]["body"]["reason"] == reason_a
+    assert records[0]["body"]["decision"]["reason"] == reason_a
+
+
+def test_gate_dedup_still_emits_distinct_records_for_different_templates(_capture_telemetry):
+    """Confirms the fix didn't over-collapse: two TripDecisions whose
+    reasons are the structurally-similar-but-differently-worded
+    _sustained_trailing_run() templates (sparse-density vs
+    below-required-fraction) at the same call_site must still produce TWO
+    emitted records -- the dedup key genuinely changed."""
+    d = _bare_daemon()
+    sparse_density = (
+        "only 3 sample(s) present in the 45s trailing window (expected ~9 at "
+        "30s spacing, density 33% < required 50%) — too sparse to conclude sustained"
+    )
+    below_fraction = "only 40% of samples in the 45s trailing window are at/above 90 (need >= 50%)"
+    trip_a = TripDecision(should_trip=False, reason=sparse_density)
+    trip_b = TripDecision(should_trip=False, reason=below_fraction)
+
+    d._emit_gate_telemetry_deduped(event_type="should_trip_shutdown", decision=trip_a, call_site="site.new351b")
+    d._emit_gate_telemetry_deduped(event_type="should_trip_shutdown", decision=trip_b, call_site="site.new351b")
+
+    records = _records_by_event_type(_capture_telemetry, "should_trip_shutdown")
+    assert len(records) == 2
+
+
 # ── C. Device sample honest-null paths ───────────────────────────────────────
 
 

@@ -14845,8 +14845,10 @@ outside that fix's scope.
 - **Cross-reference:** `core/task_executor.py`.
 
 ### [NEW-351] Category-B gate-decision dedup key embeds `can_dispatch_task()`'s live-formatted reason strings — near-full-rate emission exactly when RAM/thermal pressure is sustained
-- **Status:** Confirmed, deferred (telemetry T8a, 2026-09-04,
-  code-reviewer approved round).
+- **Status:** FIXED 2026-09-05 (`core/daemon.py`, code-reviewer
+  approved, 2 rounds — round 1 caught a stale method docstring still
+  describing the pre-fix key formula, round 2 approved). Originally
+  Confirmed/deferred from telemetry T8a, 2026-09-04.
 - **Mechanism:** `Daemon._emit_gate_telemetry_deduped()`'s dedup key is
   `(allowed/should_trip, decision.reason, dispatched_via_swap)`.
   `can_dispatch_task()`'s refusal `reason` strings embed live formatted
@@ -14859,9 +14861,26 @@ outside that fix's scope.
 - **Impact:** none today at normal operation; would produce near-raw-rate
   `gate` records during a real sustained-pressure incident instead of
   the intended heartbeat-style reduction.
-- **Fix direction:** normalize/bucket the reason string before hashing
-  into the dedup key (e.g. strip embedded numbers, or key on a coarser
-  reason-category enum) in a follow-up to `core/daemon.py`.
+- **Fix (2026-09-05):** regex-masking (`_GATE_REASON_NUMBER_RE =
+  re.compile(r"\d+(?:\.\d+)?")`, replaced with `"N"`) applied ONLY to
+  the dedup key construction in `_emit_gate_telemetry_deduped()` — a
+  reason-category enum was considered and rejected (would either
+  duplicate wording that lives in `core/resource_gate.py`, violating
+  that module's own "one authority" principle, or require touching
+  `core/resource_gate.py` itself, dragging a second rule-4-adjacent
+  module into scope; regex-masking handles the ~19 reachable composite
+  reason strings, including `_sustained_trailing_run()`'s nesting, for
+  free). Both `record_gate_decision()` call sites still pass the full
+  unmasked `decision.reason` — the record body always carries real
+  numbers, only the dedup key is masked. Confirmed via a negative
+  control (reverted the key line, confirmed the new regression test
+  failed exactly as expected, restored) that this is a genuine fix, not
+  a test that would pass either way. Accepted limitation: masking also
+  hides threshold changes (not just measured-value changes) from the
+  dedup key — the real new threshold still reaches the record body
+  within ≤60s via the next heartbeat regardless, same "lower bound, not
+  exact" trade-off §2.B's `repeat_count` design already accepts. Full
+  suite 1442/0/1 (1436 baseline + 6 new).
 - **Cross-reference:** `core/daemon.py::_emit_gate_telemetry_deduped`,
   `core/resource_gate.py::can_dispatch_task`; T8 in `CODEY_MASTER_PLAN.md`
   Appendix A.

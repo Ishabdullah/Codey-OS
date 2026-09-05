@@ -15,6 +15,7 @@ from the CLI client via a Unix domain socket.
 import asyncio
 import json
 import os
+import re
 import signal
 import socket
 import sys
@@ -801,6 +802,49 @@ def _record_daemon_telemetry_writer_stopped():
 # ==================== Daemon Core ====================
 
 
+# NEW-351 fix: masks embedded live-formatted numbers (RAM MiB, °C, %, sample
+# counts, seconds) out of a gate/trip `reason` string before it is hashed
+# into _emit_gate_telemetry_deduped()'s dedup key. can_dispatch_task()'s/
+# should_trip_shutdown()'s reason strings (core/resource_gate.py) are
+# f-strings with :.0f/:.1f/:.0% formatted values baked in -- under sustained
+# pressure, near-every evaluation produces a slightly different number,
+# defeating dedup exactly when the 60s-suppression window matters most
+# (NEW-351). Masking only touches the KEY: the caller still passes the full,
+# unmasked decision.reason into record_gate_decision()'s `reason=` kwarg, so
+# the emitted record body always carries the real numbers.
+#
+# \d+(?:\.\d+)? (not [-+]?\d+\.?\d*) deliberately: none of these templates'
+# :.0f/:.1f/:.0% formatting ever emits a negative number or a thousands
+# separator, and a leading sign class would corrupt adjacent non-numeric
+# text (e.g. "NEW-108" -> "NEWN"), which is confusing on inspection even
+# though it wouldn't break determinism.
+_GATE_REASON_NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
+
+
+def _normalize_gate_reason_for_dedup(reason: str) -> str:
+    """Mask embedded numeric values out of a gate/trip decision's `reason`
+    string for dedup-key purposes only (NEW-351) -- see
+    _GATE_REASON_NUMBER_RE's comment for why regex-masking was chosen over
+    a hand-maintained reason-category enum. Two reason strings differing
+    only in their embedded numbers (e.g. two different RAM-headroom MiB
+    readings against the same static wording) normalize to the same
+    string; two reason strings with different wording -- even if
+    structurally similar, e.g. the "leg not satisfied" vs "leg satisfied"
+    trailing-run templates in resource_gate.py -- remain distinct.
+
+    Accepted limitation: this masks threshold changes too, not just
+    measured-value changes (e.g. DISPATCH_MIN_HEADROOM_BYTES, temp_critical,
+    duration_sec are embedded in the same strings and some are
+    env-overridable/re-read per call). If a threshold changes mid-run, the
+    dedup key alone won't register it as a state change until the next
+    natural key-changing event -- but the real new-threshold number still
+    reaches the record body within <=60s via the next heartbeat emission
+    regardless, since record_gate_decision() is always called with the
+    unmasked decision.reason. Not treated as a bug to fix.
+    """
+    return _GATE_REASON_NUMBER_RE.sub("N", reason)
+
+
 class Daemon:
     """
     Main daemon class.
@@ -1451,8 +1495,13 @@ class Daemon:
         under its own `call_site` key in `self._gate_dedup`, so the two
         never collide or share a dedup window.
 
-        Dedup key = `(primary_outcome, decision.reason, via_swap)` where
-        `primary_outcome` is `decision.allowed` when present (GateDecision/
+        Dedup key = `(primary_outcome,
+        _normalize_gate_reason_for_dedup(decision.reason), via_swap)` —
+        the reason string is masked (embedded live-formatted numbers like
+        RAM MiB/°C/% replaced) for key purposes ONLY (NEW-351); the
+        emitted record's `reason=decision.reason` and `decision=` body
+        fields always carry the full, unmasked string. `primary_outcome`
+        is `decision.allowed` when present (GateDecision/
         DispatchDecision) else `decision.should_trip` (TripDecision, which
         has no `allowed` field), and `via_swap` is
         `decision.dispatched_via_swap` when present else
@@ -1500,7 +1549,7 @@ class Daemon:
             via_swap = getattr(decision, "dispatched_via_swap", None)
             if via_swap is None:
                 via_swap = getattr(decision, "admitted_via_swap", None)
-            key = (primary_outcome, decision.reason, via_swap)
+            key = (primary_outcome, _normalize_gate_reason_for_dedup(decision.reason), via_swap)
 
             now = time.monotonic()
             window = self._gate_dedup.get(call_site)
