@@ -2640,17 +2640,92 @@ def render_admin_surface() -> str:
 
         async function saveBusinessProfile() {
             const token = getAuthToken();
-            alert('Business Profile context updated for Private-Codey-Agent telemetry.');
+            const profName = document.getElementById('profName').value;
+            const profPrompt = document.getElementById('profPrompt').value;
+            window.currentBusinessProfile = window.currentBusinessProfile || {};
+            window.currentBusinessProfile.business_name = profName;
+            window.currentBusinessProfile.business_description = profPrompt;
+            try {
+                const res = await fetch('/api/v1/business-profile', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + token
+                    },
+                    body: JSON.stringify(window.currentBusinessProfile)
+                });
+                if (res.ok) {
+                    alert('Business Profile context updated successfully.');
+                } else {
+                    alert('Failed to update Business Profile.');
+                }
+            } catch (ex) {
+                alert('Connection error');
+            }
         }
 
         async function saveScheduleConfig() {
-            alert('Booking schedule configuration updated.');
+            const token = getAuthToken();
+            const schedDuration = parseInt(document.getElementById('schedDuration').value) || 60;
+            const schedBuffer = parseInt(document.getElementById('schedBuffer').value) || 15;
+            window.currentScheduleConfig = window.currentScheduleConfig || {};
+            window.currentScheduleConfig.default_duration_minutes = schedDuration;
+            window.currentScheduleConfig.buffer_minutes = schedBuffer;
+            try {
+                const res = await fetch('/api/v1/schedule-config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + token
+                    },
+                    body: JSON.stringify(window.currentScheduleConfig)
+                });
+                if (res.ok) {
+                    alert('Booking schedule configuration updated successfully.');
+                } else {
+                    alert('Failed to update schedule configuration.');
+                }
+            } catch (ex) {
+                alert('Connection error');
+            }
         }
 
         // Initial load
-        validateSession('/admin/login').then(valid => {
+        validateSession('/admin/login').then(async valid => {
             if (valid) {
                 loadUsersList();
+                
+                // Load Business Profile
+                try {
+                    const token = getAuthToken();
+                    const bpRes = await fetch('/api/v1/business-profile', { headers: { 'Authorization': 'Bearer ' + token } });
+                    if (bpRes.ok) {
+                        const bpData = await bpRes.json();
+                        window.currentBusinessProfile = bpData.business_profile || {};
+                        if (window.currentBusinessProfile.business_name) {
+                            document.getElementById('profName').value = window.currentBusinessProfile.business_name;
+                        }
+                        if (window.currentBusinessProfile.business_description) {
+                            document.getElementById('profPrompt').value = window.currentBusinessProfile.business_description;
+                        }
+                    }
+                } catch (e) {}
+
+                // Load Schedule Config
+                try {
+                    const token = getAuthToken();
+                    const scRes = await fetch('/api/v1/schedule-config', { headers: { 'Authorization': 'Bearer ' + token } });
+                    if (scRes.ok) {
+                        const scData = await scRes.json();
+                        window.currentScheduleConfig = scData.schedule_config || {};
+                        if (window.currentScheduleConfig.default_duration_minutes) {
+                            document.getElementById('schedDuration').value = window.currentScheduleConfig.default_duration_minutes;
+                        }
+                        if (window.currentScheduleConfig.buffer_minutes) {
+                            document.getElementById('schedBuffer').value = window.currentScheduleConfig.buffer_minutes;
+                        }
+                    }
+                } catch (e) {}
             }
         });
     </script>

@@ -6074,8 +6074,8 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       missing check that let B4 ship as a demo.
 - [ ] **B6.4** — admin dashboard tab completion, phased by domain
       (Ish, 2026-09-02). Backends all exist; this is wired UI.
-      **a)** the two `alert()` save stubs (`NEW-273`) — first, ahead of
-      value, because they actively mislead; **b)** pipeline board → real
+      ~~**a)** the two `alert()` save stubs (`NEW-273`) — first, ahead of
+      value, because they actively mislead~~; **b)** pipeline board → real
       aggregations; **c)** equipment + subcontractors; **d)** finance
       (honor the service layer's existing cost/margin masking, don't
       re-implement it in the UI); **e)** communications; **f)** marketing/

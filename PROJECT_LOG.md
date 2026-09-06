@@ -10,6 +10,15 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-06 — B6.4a Admin save buttons wired; NEW-273 closed
+
+- **Status:** Code-complete. Not a Rule-4 category (pure frontend wiring against existing endpoints). `tests/` **1471 passed, 1 skipped**.
+- **Scope implemented:**
+  - `saveBusinessProfile()` and `saveScheduleConfig()` are no longer `alert()` stubs.
+  - The Admin UI now issues `GET` requests on load (`validateSession`) to pre-populate the "Business Profile" and "Schedule Config" tabs with actual database state.
+  - Form saves correctly merge UI inputs into the full backend data payloads before `POST`ing back to prevent data erasure.
+  - Added exit criterion test `test_b6_4a_admin_wiring.py`.
+
 ## 2026-09-06 — B6.3 Rewire Customer Portal to existing API completed; NEW-272 closed
 
 - **Status:** Code-complete + code-reviewer APPROVED. `tests/` **1470 passed, 1 skipped**.

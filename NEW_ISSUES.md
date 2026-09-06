@@ -13066,7 +13066,7 @@ outside that fix's scope.
 - **Not fixed this round** — planning task, docs-only.
 
 ### [NEW-273] Admin `saveBusinessProfile()` and `saveScheduleConfig()` are `alert()` stubs that discard the operator's input while reporting success
-- **Status:** Confirmed (read `web_surfaces.py:2413-2420`).
+- **Status:** **FIXED 2026-09-06** (B6.4a). Confirmed (read `web_surfaces.py:2413-2420`).
 - **Mechanism:** both functions are bare `alert('...updated.')` calls. `saveBusinessProfile()` even fetches an auth token into a local `const token` and then never uses it. Neither reads its form fields; neither issues a request. `POST /api/v1/business-profile` and `POST /api/v1/schedule-config` both exist, work, and are RBAC-gated.
 - **Impact:** **worse than an unimplemented tab.** An operator edits the business profile — including the `AI Agent Master System Instructions` textarea that shapes agent behavior — clicks Save, is told "Business Profile context updated", and nothing is written. The failure is silent and the UI actively asserts the opposite. Same shape for booking/schedule parameters. Rated Confirmed and called out separately from `NEW-274` because "does nothing" and "lies about having done something" are different severities.
 - **Fix direction:** wire both to their existing routes. Scheduled as `B6.4a`, ahead of higher-value tabs specifically because of the misleading-success behavior.
