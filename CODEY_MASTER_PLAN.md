@@ -6061,7 +6061,7 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       gain missing `side_effects`) — not a cosmetic sweep; B6.2c's diff
       renderer then needs only one shape. Per-entity `_AUDITABLE_*_FIELDS`
       allow-lists added as needed (`NEW-314`).
-- [ ] **B6.2c** — admin audit-search screen. **Rule-4 read surface.**
+- [x] **B6.2c** — admin audit-search screen. **Rule-4 read surface.**
       RBAC gate on the read + audit-table indexes on filtered columns.
       **No rollback engine** (Ish, 2026-09-02: "see exactly what changed
       and fix it manually" — not even for a subset). **Absorbs `U.37`

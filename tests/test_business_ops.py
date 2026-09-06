@@ -328,3 +328,18 @@ def test_procurement_vendor_and_po(ops_setup):
     received_po = ops.receive_purchase_order(po.id, admin_ctx)
     assert received_po.status == "received"
     assert received_po.received_date is not None
+
+def test_create_review_request_audit(ops_setup):
+    ops = ops_setup["ops"]
+    audit = ops_setup["audit"]
+    admin_ctx = ops_setup["admin_ctx"]
+    cust = ops_setup["cust"]
+
+    req = ops.create_review_request(
+        ReviewRequest(customer_id=cust.id, platform="google"), admin_ctx
+    )
+    
+    logs = audit.query_logs(admin_ctx, entity_type="review_request", entity_id=req.id, action="create")
+    assert len(logs) == 1
+    assert logs[0].action == "create"
+    assert logs[0].entity_type == "review_request"

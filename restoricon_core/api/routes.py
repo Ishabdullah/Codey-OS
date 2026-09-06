@@ -269,6 +269,7 @@ class APIRouter:
         self.crm = crm_service
         self.comm = comm_service
         self.audit = audit_service
+        self.auth.audit = audit_service  # Wire audit into AuthService (declares self.audit=None in __init__; post-construction assignment to a declared slot)
         self.scheduling = scheduling_service
         self.automation = automation_service
         self.operations = operations_service or OperationsService(crm_service.db, audit_service)
@@ -1052,11 +1053,13 @@ class APIRouter:
                 entity_type = query_params.get("entity_type", [None])[0]
                 eid = query_params.get("entity_id", [None])[0]
                 entity_id = int(eid) if eid else None
+                aid = query_params.get("actor_id", [None])[0]
+                actor_id = int(aid) if aid else None
                 action = query_params.get("action", [None])[0]
                 limit = int(query_params.get("limit", ["100"])[0])
                 offset = int(query_params.get("offset", ["0"])[0])
                 logs = self.audit.query_logs(
-                    actor, entity_type=entity_type, entity_id=entity_id, action=action, limit=limit, offset=offset
+                    actor, entity_type=entity_type, entity_id=entity_id, actor_id=actor_id, action=action, limit=limit, offset=offset
                 )
                 return 200, {"Content-Type": "application/json"}, {"audit_logs": [l.to_dict() for l in logs]}
 

@@ -14029,7 +14029,7 @@ outside that fix's scope.
 ## Found during B6.2b-1 — mechanical create/delete audit canonicalization (2026-09-02)
 
 ### [NEW-315] `build_audit_details` has no filtered-`snapshot` capability, so create/delete audit rows use two different envelope shapes for the same semantic op
-- **Status:** Confirmed (B6.2b-1 code-reviewer, 2026-09-02).
+- **Status:** **FIXED 2026-09-06** (B6.2c prerequisite).
 - **Mechanism:** the helper filters only `changed_fields` (via `fields=`);
   `snapshot` and `side_effects` pass through verbatim. So a "create" of a
   sensitive entity must be logged as `after=<dict>` + `fields=<allow-list>`
@@ -15546,3 +15546,14 @@ outside that fix's scope.
 - **Cross-reference:** `core/task_executor.py`,
   `tests/test_task_executor_telemetry.py`, `telemetry/schema/v1.json`,
   `NEW-357`.
+
+## Found during B6.2c — Admin Audit Search Screen (2026-09-06)
+
+### [NEW-400] `AuthService` lacks an injected `audit_service`, requiring fragile runtime injection
+- **Status:** **FIXED 2026-09-06** (in-round during B6.2c)
+- **Mechanism:** `AuthService.__init__` took only `db_manager`. `APIRouter` forcibly injected `self.auth.audit = audit_service` post-construction. Any caller instantiating `AuthService` directly (like tests) would crash when hitting `self.audit.log()`.
+- **Fix:** Added `audit_service=None` to `AuthService.__init__` and guarded audit calls with `if self.audit is not None`.
+
+### [NEW-401] `AuthService.update_user` actor argument mismatch
+- **Status:** **FIXED 2026-09-06** (in-round during B6.2c)
+- **Mechanism:** Code review caught `actor=actor` being passed, but the variable was named `actor_context`. Fixed inline.

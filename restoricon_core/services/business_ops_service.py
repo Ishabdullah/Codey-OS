@@ -167,6 +167,18 @@ class BusinessOpsService:
             )
             req.id = cursor.lastrowid
 
+        self.audit.log(
+            action="create",
+            entity_type="review_request",
+            entity_id=req.id,
+            change_summary=f"Review request created for customer {req.customer_id}",
+            actor=actor,
+            details=build_audit_details(
+                after=req.to_dict(),
+                fields=_AUDITABLE_REVIEW_REQUEST_FIELDS,
+            ),
+        )
+
         return req
 
     def submit_review(self, request_id: int, rating: int, feedback: str, actor: AuthContext) -> ReviewRequest:

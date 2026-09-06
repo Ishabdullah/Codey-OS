@@ -637,8 +637,10 @@ def _actor_may_reassign_project_staff(actor: AuthContext, project_row) -> bool:
 class AuthService:
     """Handles password hashing, token creation, validation, and user management."""
 
-    def __init__(self, db_manager: DatabaseManager):
+    def __init__(self, db_manager: DatabaseManager, audit_service=None):
         self.db = db_manager
+        self.audit = audit_service  # Optional; injected by APIRouter.__init__ for role-change audit (NEW-267)
+
 
     @staticmethod
     def hash_password(password: str) -> str:
@@ -986,6 +988,23 @@ class AuthService:
                     )
         except sqlite3.IntegrityError as e:
             raise ValueError(f"Update violates a data constraint: {e}") from e
+
+        if role_changed and self.audit is not None:
+            from .services.audit_service import build_audit_details
+            role_change_details = build_audit_details(
+                before={"role": user.role},
+                after={"role": updates["role"]},
+                fields={"role"},
+                side_effects={"sessions_revoked": "all"},
+            )
+            self.audit.log(
+                action="update",
+                entity_type="user",
+                entity_id=user_id,
+                change_summary=f"User role changed from {user.role!r} to {updates['role']!r}; all sessions revoked",
+                actor=actor_context,
+                details=role_change_details,
+            )
 
         return self.get_user_by_id(user_id)
 

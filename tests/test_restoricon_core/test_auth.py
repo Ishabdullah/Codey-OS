@@ -105,3 +105,22 @@ def test_rbac_permissions():
     assert customer_ctx.has_permission(PERM_READ_ALL_CUSTOMERS) is False
     assert customer_ctx.can_access_customer(42) is True
     assert customer_ctx.can_access_customer(43) is False
+
+def test_role_change_audit(auth_service):
+    from restoricon_core.services.audit_service import AuditService
+    # Inject AuditService since AuthService does not have it injected by default (FINDING)
+    audit = AuditService(auth_service.db)
+    auth_service.audit = audit
+    
+    admin_user = auth_service.create_user("admin_user2", "AdminPassword123", "Admin Boss", "admin2@restoricon.com", ROLE_ADMIN)
+    admin_ctx = AuthContext(user_id=admin_user.id, username=admin_user.username, role=ROLE_ADMIN, actor_type="human")
+    
+    user = auth_service.create_user("roletech", "Pass123!", "Role Tech", "rt@ex.com", "technician", actor_context=admin_ctx)
+    
+    auth_service.update_user(user.id, {"role": "manager"}, admin_ctx)
+    
+    logs = audit.query_logs(admin_ctx, entity_type="user", entity_id=user.id, action="update")
+    assert len(logs) == 1
+    assert logs[0].action == "update"
+    assert "role" in logs[0].details["changed_fields"]
+    assert logs[0].details["changed_fields"]["role"] == {"old": "technician", "new": "manager"}

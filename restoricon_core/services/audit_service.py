@@ -161,6 +161,7 @@ def build_audit_details(
     fields: Optional[Iterable[str]] = None,
     side_effects: Optional[Dict[str, Any]] = None,
     snapshot: Optional[Dict[str, Any]] = None,
+    snapshot_fields: Optional[Iterable[str]] = None,
 ) -> Dict[str, Any]:
     """Build the canonical audit-details envelope for a mutation.
 
@@ -210,7 +211,10 @@ def build_audit_details(
         details["side_effects"] = side_effects
 
     if snapshot:
-        details["snapshot"] = snapshot
+        if snapshot_fields is not None:
+            details["snapshot"] = {k: v for k, v in snapshot.items() if k in snapshot_fields}
+        else:
+            details["snapshot"] = snapshot
 
     return details
 
@@ -281,6 +285,7 @@ class AuditService:
         actor_context: AuthContext,
         entity_type: Optional[str] = None,
         entity_id: Optional[int] = None,
+        actor_id: Optional[int] = None,
         action: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
@@ -299,6 +304,10 @@ class AuditService:
         if entity_id is not None:
             query += " AND entity_id = ?"
             params.append(entity_id)
+
+        if actor_id is not None:
+            query += " AND actor_id = ?"
+            params.append(actor_id)
 
         if action:
             query += " AND action = ?"

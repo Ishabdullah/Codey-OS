@@ -804,6 +804,7 @@ CREATE INDEX IF NOT EXISTS idx_comms_project_id ON communication_history(project
 CREATE INDEX IF NOT EXISTS idx_comms_timestamp ON communication_history(timestamp);
 CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
 CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log(actor_id);
 CREATE INDEX IF NOT EXISTS idx_subcontractors_external_id ON subcontractors(external_id);
 CREATE INDEX IF NOT EXISTS idx_subcontractors_qualification_status ON subcontractors(qualification_status);
 CREATE INDEX IF NOT EXISTS idx_appointments_customer_id ON appointments(customer_id);

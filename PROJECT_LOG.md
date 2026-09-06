@@ -10,6 +10,16 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-06 — B6.2c Admin Audit-Search Screen (Rule-4 read surface) completed; NEW-315 closed
+
+- **Status:** Code-complete + code-reviewer APPROVED. `tests/` **1470 passed, 1 skipped**.
+- **Scope implemented:**
+  - Added `snapshot_fields=` param to `build_audit_details()` to close `NEW-315` prerequisite.
+  - Extended `AuditService.query_logs()` and `GET /api/v1/audit-log` with `actor_id` filtering. Added DB index `idx_audit_actor`.
+  - Added new "Audit Search" UI tab (`tab-audit`) in admin surface with filter controls and detailed rendering (diff, snapshot, side_effects). XSS vulnerability discovered in review was fixed via `escapeHtml()`.
+  - Closed U.37 gaps (`NEW-265`, `NEW-267`): Added audit log entries for `create_review_request` and `update_user` role changes.
+  - **In-round fixes (`NEW-400`, `NEW-401`):** Fixed `AuthService` dependency injection for `audit_service` and actor variable naming.
+
 ## 2026-09-06 — `NEW-366` fixed — `int()` coercion on pre-existing `timeout_sec` emission path, `core/task_executor.py`+`tests/test_task_executor_telemetry.py`; no Rule-4 review required
 
 - **Status:** Code-complete. No Rule-4 category (pure telemetry data path,

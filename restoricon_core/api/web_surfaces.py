@@ -1720,6 +1720,7 @@ def render_admin_surface() -> str:
             <button class="erp-tab-btn" onclick="switchErpTab('comms')">💬 Communications</button>
             <button class="erp-tab-btn" onclick="switchErpTab('finance')">💰 Finance Ledger</button>
             <button class="erp-tab-btn" onclick="switchErpTab('bizops')">📋 Business Ops</button>
+            <button class="erp-tab-btn" onclick="switchErpTab('audit')">🔍 Audit Search</button>
             <button class="erp-tab-btn" onclick="switchErpTab('telemetry')">🤖 AI Agent & Audit</button>
         </div>
 
@@ -1946,6 +1947,49 @@ def render_admin_surface() -> str:
                     <h2><span>📋</span> Marketing, HR, Procurement & Compliance Scanner</h2>
                 </div>
                 <p style="color: var(--text-muted); font-size: 0.88rem;">Review request pipelines, employee timesheets, vendor purchase orders, and license renewal alerts.</p>
+            </div>
+        </div>
+
+        <!-- Tab 11: Audit Search -->
+        <div id="tab-audit" class="tab-pane">
+            <div class="erp-card">
+                <div class="card-title-row">
+                    <h2><span>🔍</span> Audit Search</h2>
+                </div>
+                <div style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap;">
+                    <select id="auditEntityType" class="erp-input">
+                        <option value="">All Entities</option>
+                        <option value="customer">customer</option>
+                        <option value="lead">lead</option>
+                        <option value="opportunity">opportunity</option>
+                        <option value="project">project</option>
+                        <option value="estimate">estimate</option>
+                        <option value="contract">contract</option>
+                        <option value="invoice">invoice</option>
+                        <option value="user">user</option>
+                        <option value="review_request">review_request</option>
+                        <option value="contact">contact</option>
+                        <option value="appointment">appointment</option>
+                        <option value="work_order">work_order</option>
+                        <option value="equipment">equipment</option>
+                        <option value="subcontractor">subcontractor</option>
+                        <option value="purchase_order">purchase_order</option>
+                        <option value="communication">communication</option>
+                        <option value="compliance_item">compliance_item</option>
+                        <option value="dnc_entry">dnc_entry</option>
+                        <option value="system">system</option>
+                    </select>
+                    <input type="number" id="auditEntityId" class="erp-input" placeholder="Entity ID">
+                    <input type="number" id="auditActorId" class="erp-input" placeholder="Actor user ID">
+                    <input type="text" id="auditAction" class="erp-input" placeholder="e.g. create, update, delete">
+                    <select id="auditLimit" class="erp-input">
+                        <option value="25">25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                    </select>
+                    <button onclick="searchAuditLog()" class="btn-gold" style="padding:0.4rem 1rem">Search</button>
+                </div>
+                <div id="auditResults"></div>
             </div>
         </div>
 
@@ -2219,6 +2263,82 @@ def render_admin_surface() -> str:
             if (tabId === 'users') loadUsersList();
             if (tabId === 'crm') loadCrmList();
             if (tabId === 'telemetry') loadAuditLogs();
+            if (tabId === 'audit') searchAuditLog();
+        }
+
+        function escapeHtml(unsafe) {
+            return (unsafe || '').toString()
+                 .replace(/&/g, "&amp;")
+                 .replace(/</g, "&lt;")
+                 .replace(/>/g, "&gt;")
+                 .replace(/"/g, "&quot;")
+                 .replace(/'/g, "&#039;");
+        }
+
+        async function searchAuditLog() {
+            const token = getAuthToken();
+            const et = document.getElementById('auditEntityType').value;
+            const eid = document.getElementById('auditEntityId').value;
+            const aid = document.getElementById('auditActorId').value;
+            const act = document.getElementById('auditAction').value;
+            const limit = document.getElementById('auditLimit').value;
+            
+            const params = new URLSearchParams();
+            if (et) params.append('entity_type', et);
+            if (eid) params.append('entity_id', eid);
+            if (aid) params.append('actor_id', aid);
+            if (act) params.append('action', act);
+            if (limit) params.append('limit', limit);
+            
+            const out = document.getElementById('auditResults');
+            out.innerHTML = '<p style="color:var(--text-muted)">Loading...</p>';
+            try {
+                const res = await fetch('/api/v1/audit-log?' + params.toString(), {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    out.innerHTML = `<p style="color:#EF4444">Error: ${escapeHtml(data.error || res.status)}</p>`;
+                    return;
+                }
+                const logs = data.audit_logs || [];
+                if (!logs.length) {
+                    out.innerHTML = '<p style="color:var(--text-muted)">No results.</p>';
+                    return;
+                }
+                out.innerHTML = logs.map(r => {
+                    const details = r.details || {};
+                    let detailsHtml = '';
+                    if (details.changed_fields && Object.keys(details.changed_fields).length) {
+                        const rows = Object.entries(details.changed_fields).map(([field, diff]) =>
+                            `<tr><td style="padding:2px 8px;color:var(--text-muted)">${escapeHtml(field)}</td>`+
+                            `<td style="padding:2px 8px;color:#EF4444">${escapeHtml(JSON.stringify(diff.old))}</td>`+
+                            `<td style="padding:2px 8px;color:#22C55E">${escapeHtml(JSON.stringify(diff.new))}</td></tr>`
+                        ).join('');
+                        detailsHtml += `<table style="font-size:0.8rem;margin-top:4px;border-collapse:collapse;width:100%"><tr><th style="text-align:left;padding:2px 8px">Field</th><th style="text-align:left;padding:2px 8px">Old</th><th style="text-align:left;padding:2px 8px">New</th></tr>${rows}</table>`;
+                    }
+                    if (details.snapshot && Object.keys(details.snapshot).length) {
+                        const rows = Object.entries(details.snapshot).map(([k,v]) =>
+                            `<tr><td style="padding:2px 8px;color:var(--text-muted)">${escapeHtml(k)}</td><td style="padding:2px 8px">${escapeHtml(JSON.stringify(v))}</td></tr>`
+                        ).join('');
+                        detailsHtml += `<table style="font-size:0.8rem;margin-top:4px;border-collapse:collapse;width:100%"><tr><th style="text-align:left;padding:2px 8px">Field</th><th style="text-align:left;padding:2px 8px">Value</th></tr>${rows}</table>`;
+                    }
+                    if (details.side_effects && Object.keys(details.side_effects).length) {
+                        detailsHtml += `<pre style="font-size:0.78rem;margin-top:4px;color:#94A3B8;padding:8px;background:rgba(0,0,0,0.2);border-radius:4px">${escapeHtml(JSON.stringify(details.side_effects, null, 2))}</pre>`;
+                    }
+                    return `<div class="erp-card" style="margin-bottom:0.5rem;padding:0.75rem;background:#0f2038">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem">
+                            <span style="color:var(--bronze);font-size:0.82rem">${escapeHtml(r.timestamp)}</span>
+                            <span style="font-size:0.82rem">[<span style="color:var(--info)">${escapeHtml(r.action)}</span>] ${escapeHtml(r.entity_type)}${ r.entity_id ? ' #'+escapeHtml(r.entity_id) : ''}</span>
+                            <span style="color:var(--text-muted);font-size:0.8rem">Actor: ${escapeHtml(r.actor_id) || 'system'} (${escapeHtml(r.actor_role)})</span>
+                        </div>
+                        <div style="font-size:0.84rem;margin-bottom:0.5rem">${escapeHtml(r.change_summary)}</div>
+                        ${detailsHtml}
+                    </div>`;
+                }).join('');
+            } catch (ex) {
+                out.innerHTML = '<p style="color:#EF4444">Connection error.</p>';
+            }
         }
 
         async function loadUsersList() {

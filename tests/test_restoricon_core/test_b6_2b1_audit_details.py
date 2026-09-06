@@ -383,3 +383,18 @@ def test_helper_fields_filter_before_none():
     out = build_audit_details(after=d, fields=_AUDITABLE_EMPLOYEE_FIELDS)
     assert set(out["changed_fields"]) == {"first_name", "role_title"}
     assert out["changed_fields"]["first_name"] == {"old": None, "new": "A"}
+
+def test_snapshot_fields_filters():
+    snapshot = {"a": 1, "b": 2, "c": 3}
+    out = build_audit_details(snapshot=snapshot, snapshot_fields=["a", "c"])
+    assert out["snapshot"] == {"a": 1, "c": 3}
+
+def test_snapshot_fields_no_effect_without_snapshot():
+    out = build_audit_details(side_effects={"foo": "bar"}, snapshot_fields=["a", "c"])
+    assert "snapshot" not in out
+    assert out["side_effects"] == {"foo": "bar"}
+
+def test_snapshot_fields_none_passes_through():
+    snapshot = {"a": 1, "b": 2}
+    out = build_audit_details(snapshot=snapshot)
+    assert out["snapshot"] == snapshot
