@@ -10,6 +10,16 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-06 — B6.3 Rewire Customer Portal to existing API completed; NEW-272 closed
+
+- **Status:** Code-complete + code-reviewer APPROVED. `tests/` **1470 passed, 1 skipped**.
+- **Scope implemented:**
+  - `render_portal_surface()` UI rewired to dynamically fetch project timeline, invoices, contracts, and PM chat history against the live `/api/v1/portal/*` endpoints.
+  - Added missing `GET /api/v1/portal/messages` route. Rule-4 checked and approved for correct RBAC and scoping.
+  - XSS vulnerabilities in the frontend feed rendering fixed inline using `escapeHtml()`.
+  - Fixed `NEW-272`: The e-signature pad now signs the actual fetched contract ID instead of hardcoding `1`.
+  - Created `test_b6_3_portal_wiring.py` to assert the JS strings hit the real routes.
+
 ## 2026-09-06 — B6.2c Admin Audit-Search Screen (Rule-4 read surface) completed; NEW-315 closed
 
 - **Status:** Code-complete + code-reviewer APPROVED. `tests/` **1470 passed, 1 skipped**.

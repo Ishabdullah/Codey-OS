@@ -13058,7 +13058,7 @@ outside that fix's scope.
 > and Appendix A's two `B4` lines.
 
 ### [NEW-272] Customer portal signs a hardcoded contract id (`contracts/1/sign`) regardless of which contract is displayed
-- **Status:** Confirmed (read `web_surfaces.py:1503` and `routes.py:681`).
+- **Status:** **FIXED 2026-09-06** (B6.3). Confirmed (read `web_surfaces.py:1503` and `routes.py:681`).
 - **Mechanism:** `render_portal_surface()`'s e-signature pad posts to a literal `'/api/v1/portal/contracts/1/sign'`. The contract id is not derived from anything rendered — it is part of the demo HTML.
 - **Impact:** two distinct outcomes, neither correct. For a customer who does not own contract 1, `sign_contract` raises `PermissionError` and the signature silently fails. For the customer who *does* own contract 1, they sign contract 1 no matter which contract the page showed them — a wrong-document signature on a legally meaningful action.
 - **NOT an authorization hole — checked specifically, stated so it isn't re-escalated later:** `crm_service.py:1912-1914` enforces `actor.customer_id != row["customer_id"]` and raises. It fails closed. This is a correctness bug on a legally-significant action, not a data leak.

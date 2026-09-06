@@ -6066,7 +6066,7 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       **No rollback engine** (Ish, 2026-09-02: "see exactly what changed
       and fix it manually" — not even for a subset). **Absorbs `U.37`
       (`NEW-265`, `NEW-267`) in full.**
-- [ ] **B6.3** — rewire the Customer Portal to its existing API.
+- [x] **B6.3** — rewire the Customer Portal to its existing API.
       Replace hardcoded demo content with real fetches against the 10
       live `/api/v1/portal/*` routes; fix `NEW-272`. Establishes the
       pattern B6.8's staff portals copy. **Exit criterion: a test asserts

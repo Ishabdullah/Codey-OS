@@ -971,6 +971,10 @@ class APIRouter:
                     documents = self.crm.list_documents(actor, customer_id=actor.customer_id, project_id=proj_id, document_type=dtype)
                     return 200, {"Content-Type": "application/json"}, {"documents": [d.to_dict() for d in documents]}
 
+                if path == "/api/v1/portal/messages" and method == "GET":
+                    msgs = self.comm.query_communications(actor, customer_id=actor.customer_id)
+                    return 200, {"Content-Type": "application/json"}, {"messages": [m.to_dict() for m in msgs]}
+
                 if path == "/api/v1/portal/messages" and method == "POST":
                     content = json_body.get("message", json_body.get("content", ""))
                     if not content:

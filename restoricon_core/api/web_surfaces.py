@@ -1492,6 +1492,7 @@ def render_portal_surface() -> str:
         }
 
         async function submitSignature() {
+            if (!window.currentContractId) return;
             const btn = document.getElementById('sigSubmitBtn');
             const alertBox = document.getElementById('sigAlert');
             const sigData = canvas.toDataURL('image/png');
@@ -1500,7 +1501,7 @@ def render_portal_surface() -> str:
 
             const token = getAuthToken();
             try {
-                const res = await fetch('/api/v1/portal/contracts/1/sign', {
+                const res = await fetch(`/api/v1/portal/contracts/${window.currentContractId}/sign`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1530,7 +1531,7 @@ def render_portal_surface() -> str:
             const feed = document.getElementById('chatFeed');
             const div = document.createElement('div');
             div.className = 'chat-msg client';
-            div.innerHTML = `<strong>You:</strong> ${text}`;
+            div.innerHTML = `<strong>You:</strong> ${escapeHtml(text)}`;
             feed.appendChild(div);
             feed.scrollTop = feed.scrollHeight;
             input.value = '';
@@ -1546,7 +1547,114 @@ def render_portal_surface() -> str:
             }).catch(() => {});
         }
         
-        validateSession('/portal/login');
+        function escapeHtml(unsafe) {
+            return (unsafe || '').toString()
+                 .replace(/&/g, "&amp;")
+                 .replace(/</g, "&lt;")
+                 .replace(/>/g, "&gt;")
+                 .replace(/"/g, "&quot;")
+                 .replace(/'/g, "&#039;");
+        }
+
+        async function loadTimeline(projectId, token) {
+            const res = await fetch(`/api/v1/portal/projects/${projectId}/milestones`, {
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            const data = await res.json();
+            const container = document.querySelector('.timeline-steps');
+            if (data.milestones && data.milestones.length > 0) {
+                container.innerHTML = data.milestones.map((m, i) => {
+                    const statusClass = m.status === 'completed' ? 'status-done' : (m.status === 'active' ? 'status-active' : 'status-pending');
+                    const itemClass = m.status === 'completed' ? 'completed' : (m.status === 'active' ? 'active' : '');
+                    return `
+                        <div class="step-item ${itemClass}">
+                            <div class="step-num">Phase ${i+1}</div>
+                            <div class="step-name">${escapeHtml(m.title)}</div>
+                            <div class="step-status ${statusClass}">${escapeHtml(m.status)}</div>
+                        </div>
+                    `;
+                }).join('');
+            } else {
+                container.innerHTML = '<div>No milestones found.</div>';
+            }
+        }
+
+        async function loadInvoices(projectId, token) {
+            const res = await fetch(`/api/v1/portal/invoices?project_id=${projectId}`, {
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            const data = await res.json();
+            const tbody = document.getElementById('invoiceTableBody');
+            if (data.invoices && data.invoices.length > 0) {
+                tbody.innerHTML = data.invoices.map(i => {
+                    const statusColor = i.status === 'paid' ? 'var(--success)' : 'var(--warning)';
+                    return `
+                        <tr>
+                            <td><code>#INV-${escapeHtml(i.id)}</code></td>
+                            <td>Project Milestone</td>
+                            <td><strong>$${escapeHtml(i.amount)}</strong></td>
+                            <td><span style="color: ${statusColor}; font-weight: 700;">● ${escapeHtml(i.status)}</span></td>
+                            <td><a href="#" style="color: var(--bronze); text-decoration: none;">View</a></td>
+                        </tr>
+                    `;
+                }).join('');
+            } else {
+                tbody.innerHTML = '<tr><td colspan="5">No invoices found.</td></tr>';
+            }
+        }
+
+        async function loadContracts(projectId, token) {
+            const res = await fetch(`/api/v1/portal/contracts?project_id=${projectId}`, {
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            const data = await res.json();
+            if (data.contracts && data.contracts.length > 0) {
+                window.currentContractId = data.contracts[0].id;
+            } else {
+                document.getElementById('sigSubmitBtn').disabled = true;
+                document.getElementById('sigSubmitBtn').innerText = 'No Contract Found';
+            }
+        }
+
+        async function loadMessages(token) {
+            const res = await fetch('/api/v1/portal/messages', {
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            const data = await res.json();
+            const feed = document.getElementById('chatFeed');
+            if (data.messages && data.messages.length > 0) {
+                feed.innerHTML = data.messages.map(m => {
+                    const isClient = m.direction === 'inbound';
+                    const cssClass = isClient ? 'chat-msg client' : 'chat-msg pm';
+                    const sender = isClient ? 'You' : 'Restoricon PM';
+                    return `
+                        <div class="${cssClass}">
+                            <strong>${sender}:</strong> ${escapeHtml(m.content)}
+                        </div>
+                    `;
+                }).join('');
+                feed.scrollTop = feed.scrollHeight;
+            } else {
+                feed.innerHTML = '<div class="chat-msg pm"><strong>Restoricon Dispatch:</strong> Welcome to your portal! Message us here if you have any questions.</div>';
+            }
+        }
+
+        validateSession('/portal/login').then(async (isValid) => {
+            if (!isValid) return;
+            const token = getAuthToken();
+            const projRes = await fetch('/api/v1/portal/projects', {
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            const projData = await projRes.json();
+            const project = projData.projects && projData.projects.length > 0 ? projData.projects[0] : null;
+            if (project) {
+                window.currentProjectId = project.id;
+                await loadTimeline(project.id, token);
+                await loadInvoices(project.id, token);
+                await loadContracts(project.id, token);
+            }
+            await loadMessages(token);
+        });
     </script>
 </body>
 </html>"""
