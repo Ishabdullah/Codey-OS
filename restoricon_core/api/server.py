@@ -23,6 +23,7 @@ from ..services.operations_service import OperationsService
 from ..services.scheduling_service import SchedulingService
 from ..services.finance_service import FinanceService
 from ..services.business_ops_service import BusinessOpsService
+from ..services.notification_service import NotificationService
 from ..services.analytics_search_service import AnalyticsSearchService
 from .routes import APIRouter
 
@@ -151,7 +152,8 @@ class RestoriconAPIServer:
         self.auth_service = AuthService(self.db)
         self.audit_service = AuditService(self.db)
         self.comm_service = CommunicationService(self.db)
-        self.crm_service = CRMService(self.db, self.audit_service)
+        self.notification_service = NotificationService()
+        self.crm_service = CRMService(self.db, self.audit_service, self.notification_service)
         self.scheduling_service = SchedulingService(self.db, self.audit_service)
         self.automation_service = AutomationService(self.db, self.audit_service)
         self.operations_service = OperationsService(self.db, self.audit_service)

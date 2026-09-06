@@ -78,14 +78,16 @@ from ..models import (
     utc_now_iso,
 )
 from .audit_service import AuditService, build_audit_details, _AUDITABLE_CONTRACT_FIELDS, _AUDITABLE_INVOICE_FIELDS, _AUDITABLE_SUBCONTRACTOR_FIELDS, _AUDITABLE_PROJECT_FIELDS, _AUDITABLE_CONTACT_FIELDS
+from .notification_service import NotificationService
 
 
 class CRMService:
     """Core domain logic and data management for Restoricon Core."""
 
-    def __init__(self, db_manager: DatabaseManager, audit_service: AuditService):
+    def __init__(self, db_manager: DatabaseManager, audit_service: AuditService, notification_service: Optional[NotificationService] = None):
         self.db = db_manager
         self.audit = audit_service
+        self.notification_service = notification_service
 
     # ==========================================
     # CUSTOMERS
@@ -1867,6 +1869,24 @@ class CRMService:
                 actor=actor,
                 details=_details,
             )
+
+            if "project_manager_id" in _meaningful and _after and _after.get("project_manager_id"):
+                new_pm_id = _after["project_manager_id"]
+                pm_row = conn.execute(
+                    "SELECT email, full_name FROM users WHERE id = ?;", 
+                    (new_pm_id,)
+                ).fetchone()
+                
+                if pm_row and pm_row["email"] and self.notification_service:
+                    try:
+                        self.notification_service.send_email(
+                            to_email=pm_row["email"],
+                            subject=f"Project Assignment: Project {project_id}",
+                            body=f"Hi {pm_row['full_name'] or 'Staff'},\n\nYou have been assigned as the Project Manager for Project {project_id}."
+                        )
+                    except Exception as e:
+                        import logging
+                        logging.getLogger(__name__).warning(f"Failed to send assignment notification: {e}")
 
         return self.get_project(project_id, actor)
 
