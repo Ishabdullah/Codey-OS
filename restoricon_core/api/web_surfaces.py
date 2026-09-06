@@ -1862,21 +1862,10 @@ def render_admin_surface() -> str:
                     <h2><span>⚡</span> Real-Time Restoration Pipeline Board</h2>
                 </div>
                 <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem;">
-                    9-Stage canonical sales progression active across residential property mitigation.
+                    Key metrics across departments from /api/v1/reports/summary.
                 </p>
-                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;">
-                    <div style="background: #0A192F; padding: 1rem; border-radius: 8px; border: 1px solid var(--card-border);">
-                        <strong style="color: var(--bronze);">1. New Intake & Contacted</strong>
-                        <div style="font-size: 1.25rem; font-weight: 700; margin-top: 0.5rem;">5 Leads</div>
-                    </div>
-                    <div style="background: #0A192F; padding: 1rem; border-radius: 8px; border: 1px solid var(--card-border);">
-                        <strong style="color: var(--info);">2. Scoping & Estimates Sent</strong>
-                        <div style="font-size: 1.25rem; font-weight: 700; margin-top: 0.5rem;">4 Deals ($62,000)</div>
-                    </div>
-                    <div style="background: #0A192F; padding: 1rem; border-radius: 8px; border: 1px solid var(--card-border);">
-                        <strong style="color: var(--success);">3. Active Won & Mitigation</strong>
-                        <div style="font-size: 1.25rem; font-weight: 700; margin-top: 0.5rem;">6 Active ($85,500)</div>
-                    </div>
+                <div id="kpiPipelineBoard" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem;">
+                    <div style="color: var(--text-muted);">Loading pipeline board...</div>
                 </div>
             </div>
         </div>
@@ -2010,7 +1999,7 @@ def render_admin_surface() -> str:
                             <th>Status</th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody id="operationsTableBody">
                         <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">No records found.</td></tr>
                     </tbody>
                 </table>
@@ -2025,6 +2014,19 @@ def render_admin_surface() -> str:
                     <button class="btn-gold" onclick="alert('Trade partner onboarding active.')">+ Onboard Trade Partner</button>
                 </div>
                 <p style="color: var(--text-muted); font-size: 0.88rem;">Hartford County verified trade partners with validated CT trade licenses and COI coverage.</p>
+                <table class="erp-table" style="margin-top: 1rem;">
+                    <thead>
+                        <tr>
+                            <th>Company</th>
+                            <th>Trade/Specialty</th>
+                            <th>Status</th>
+                            <th>Rating</th>
+                        </tr>
+                    </thead>
+                    <tbody id="subcontractorsTableBody">
+                        <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">Loading...</td></tr>
+                    </tbody>
+                </table>
             </div>
         </div>
 
@@ -2035,6 +2037,20 @@ def render_admin_surface() -> str:
                     <h2><span>💬</span> Communication Log & Automation Triggers</h2>
                 </div>
                 <p style="color: var(--text-muted); font-size: 0.88rem;">Automated SMS reminders, email dispatch notices, and Do Not Contact (DNC) list controls.</p>
+                <table class="erp-table" style="margin-top: 1rem;">
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Direction</th>
+                            <th>Channel</th>
+                            <th>Status</th>
+                            <th>Subject</th>
+                        </tr>
+                    </thead>
+                    <tbody id="commsTableBody">
+                        <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Loading...</td></tr>
+                    </tbody>
+                </table>
             </div>
         </div>
 
@@ -2045,6 +2061,21 @@ def render_admin_surface() -> str:
                     <h2><span>💰</span> Double-Entry Bookkeeping & AR Aging</h2>
                 </div>
                 <p style="color: var(--text-muted); font-size: 0.88rem;">Project profitability tracking, invoice reconciliation, and insurer write-downs.</p>
+                <div class="kpi-grid" id="financeSummaryCards" style="margin-top: 1rem;"></div>
+                <table class="erp-table" style="margin-top: 1rem;">
+                    <thead>
+                        <tr>
+                            <th>Invoice ID</th>
+                            <th>Project</th>
+                            <th>Amount</th>
+                            <th>Status</th>
+                            <th>Due Date</th>
+                        </tr>
+                    </thead>
+                    <tbody id="financeInvoicesTable">
+                        <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Loading...</td></tr>
+                    </tbody>
+                </table>
             </div>
         </div>
 
@@ -2055,6 +2086,35 @@ def render_admin_surface() -> str:
                     <h2><span>📋</span> Marketing, HR, Procurement & Compliance Scanner</h2>
                 </div>
                 <p style="color: var(--text-muted); font-size: 0.88rem;">Review request pipelines, employee timesheets, vendor purchase orders, and license renewal alerts.</p>
+                <h3 style="color: var(--offwhite); margin-top: 1rem; margin-bottom: 0.5rem; font-size: 1rem;">Marketing Campaigns</h3>
+                <table class="erp-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Channel</th>
+                            <th>Budget</th>
+                            <th>Leads</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="bizopsCampaignsBody">
+                        <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Loading...</td></tr>
+                    </tbody>
+                </table>
+                <h3 style="color: var(--offwhite); margin-top: 1.5rem; margin-bottom: 0.5rem; font-size: 1rem;">Compliance Expirations</h3>
+                <table class="erp-table">
+                    <thead>
+                        <tr>
+                            <th>Title</th>
+                            <th>Category</th>
+                            <th>Expiration</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="bizopsComplianceBody">
+                        <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">Loading...</td></tr>
+                    </tbody>
+                </table>
             </div>
         </div>
 
@@ -2250,6 +2310,204 @@ def render_admin_surface() -> str:
     <script>
         """ + _get_common_script() + """
 
+
+
+        async function loadKPIs() {
+            const token = getAuthToken();
+            try {
+                const res = await fetch('/api/v1/reports/summary', { headers: { 'Authorization': 'Bearer ' + token } });
+                const data = await res.json();
+                if (data.dashboard) {
+                    const db = data.dashboard;
+                    document.getElementById('kpiRev').innerText = escapeHtml('$' + (db.financial.total_revenue || 0).toLocaleString());
+                    document.getElementById('kpiJobs').innerText = escapeHtml((db.operations.active_projects || 0) + ' Projects');
+                    document.getElementById('kpiLeads').innerText = escapeHtml((db.sales.total_leads || 0) + ' Leads');
+                    document.getElementById('kpiFleet').innerText = escapeHtml((db.operations.deployed_equipment || 0) + ' Units');
+                    
+                    const pipelineHTML = `
+                        <div style="background: #0A192F; padding: 1rem; border-radius: 8px; border: 1px solid var(--card-border);">
+                            <strong style="color: var(--bronze);">Sales</strong>
+                            <div style="font-size: 1.25rem; font-weight: 700; margin-top: 0.5rem;">${escapeHtml(db.sales.total_leads)} Leads</div>
+                        </div>
+                        <div style="background: #0A192F; padding: 1rem; border-radius: 8px; border: 1px solid var(--card-border);">
+                            <strong style="color: var(--info);">Operations</strong>
+                            <div style="font-size: 1.25rem; font-weight: 700; margin-top: 0.5rem;">${escapeHtml(db.operations.active_projects)} Active</div>
+                        </div>
+                        <div style="background: #0A192F; padding: 1rem; border-radius: 8px; border: 1px solid var(--card-border);">
+                            <strong style="color: var(--success);">Financial</strong>
+                            <div style="font-size: 1.25rem; font-weight: 700; margin-top: 0.5rem;">$${escapeHtml((db.financial.total_revenue || 0).toLocaleString())}</div>
+                        </div>
+                        <div style="background: #0A192F; padding: 1rem; border-radius: 8px; border: 1px solid var(--card-border);">
+                            <strong style="color: #A855F7;">Marketing</strong>
+                            <div style="font-size: 1.25rem; font-weight: 700; margin-top: 0.5rem;">${escapeHtml(db.marketing.active_campaigns || 0)} Campaigns</div>
+                        </div>
+                    `;
+                    document.getElementById('kpiPipelineBoard').innerHTML = pipelineHTML;
+                }
+            } catch (e) {
+                console.error('Failed to load KPIs', e);
+            }
+        }
+
+        async function loadEquipment() {
+            const token = getAuthToken();
+            try {
+                const res = await fetch('/api/v1/operations/equipment', { headers: { 'Authorization': 'Bearer ' + token } });
+                const data = await res.json();
+                const tbody = document.getElementById('operationsTableBody');
+                if (data.equipment && data.equipment.length > 0) {
+                    tbody.innerHTML = data.equipment.map(eq => `
+                        <tr>
+                            <td>${escapeHtml(eq.serial_number)}</td>
+                            <td>${escapeHtml(eq.equipment_type)}</td>
+                            <td>${escapeHtml(eq.project_id || 'N/A')}</td>
+                            <td>${escapeHtml(eq.status)}</td>
+                        </tr>
+                    `).join('');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted);">No records found.</td></tr>';
+                }
+            } catch (e) {
+                document.getElementById('operationsTableBody').innerHTML = '<tr><td colspan="4">Error loading equipment.</td></tr>';
+            }
+        }
+
+        async function loadSubcontractors() {
+            const token = getAuthToken();
+            try {
+                const res = await fetch('/api/v1/operations/subcontractors', { headers: { 'Authorization': 'Bearer ' + token } });
+                const data = await res.json();
+                const tbody = document.getElementById('subcontractorsTableBody');
+                if (data.subcontractors && data.subcontractors.length > 0) {
+                    tbody.innerHTML = data.subcontractors.map(sc => `
+                        <tr>
+                            <td>${escapeHtml(sc.company_name)}</td>
+                            <td>${escapeHtml(sc.specialty)}</td>
+                            <td>${escapeHtml(sc.status)}</td>
+                            <td>${escapeHtml(sc.rating)}</td>
+                        </tr>
+                    `).join('');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted);">No records found.</td></tr>';
+                }
+            } catch (e) {
+                document.getElementById('subcontractorsTableBody').innerHTML = '<tr><td colspan="4">Error loading subcontractors.</td></tr>';
+            }
+        }
+
+        async function loadFinance() {
+            const token = getAuthToken();
+            try {
+                const res = await fetch('/api/v1/finance/summary', { headers: { 'Authorization': 'Bearer ' + token } });
+                const data = await res.json();
+                if (data.financial_summary) {
+                    const sum = data.financial_summary;
+                    document.getElementById('financeSummaryCards').innerHTML = `
+                        <div class="kpi-card">
+                            <div class="kpi-label">Total Revenue</div>
+                            <div class="kpi-val">$${escapeHtml((sum.total_revenue || 0).toLocaleString())}</div>
+                        </div>
+                        <div class="kpi-card">
+                            <div class="kpi-label">Accounts Receivable</div>
+                            <div class="kpi-val">$${escapeHtml((sum.total_accounts_receivable || 0).toLocaleString())}</div>
+                        </div>
+                        <div class="kpi-card">
+                            <div class="kpi-label">Net Profit</div>
+                            <div class="kpi-val">$${escapeHtml((sum.net_profit || 0).toLocaleString())}</div>
+                        </div>
+                    `;
+                }
+                const inv_res = await fetch('/api/v1/finance/invoices', { headers: { 'Authorization': 'Bearer ' + token } });
+                const inv_data = await inv_res.json();
+                const tbody = document.getElementById('financeInvoicesTable');
+                if (inv_data.invoices && inv_data.invoices.length > 0) {
+                    tbody.innerHTML = inv_data.invoices.map(inv => `
+                        <tr>
+                            <td>${escapeHtml(inv.id)}</td>
+                            <td>${escapeHtml(inv.project_id)}</td>
+                            <td>$${escapeHtml((inv.amount || 0).toLocaleString())}</td>
+                            <td>${escapeHtml(inv.status)}</td>
+                            <td>${escapeHtml(inv.due_date)}</td>
+                        </tr>
+                    `).join('');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No invoices found.</td></tr>';
+                }
+            } catch (e) {
+                document.getElementById('financeInvoicesTable').innerHTML = '<tr><td colspan="5">Error loading finance.</td></tr>';
+            }
+        }
+
+        async function loadComms() {
+            const token = getAuthToken();
+            try {
+                const res = await fetch('/api/v1/communications', { headers: { 'Authorization': 'Bearer ' + token } });
+                const data = await res.json();
+                const tbody = document.getElementById('commsTableBody');
+                if (data.communications && data.communications.length > 0) {
+                    tbody.innerHTML = data.communications.map(c => `
+                        <tr>
+                            <td>${escapeHtml(c.timestamp)}</td>
+                            <td>${escapeHtml(c.direction)}</td>
+                            <td>${escapeHtml(c.channel)}</td>
+                            <td>${escapeHtml(c.status)}</td>
+                            <td>${escapeHtml(c.subject)}</td>
+                        </tr>
+                    `).join('');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No records found.</td></tr>';
+                }
+            } catch (e) {
+                document.getElementById('commsTableBody').innerHTML = '<tr><td colspan="5">Error loading communications.</td></tr>';
+            }
+        }
+
+        async function loadBizOps() {
+            const token = getAuthToken();
+            try {
+                const res1 = await fetch('/api/v1/marketing/campaigns', { headers: { 'Authorization': 'Bearer ' + token } });
+                const data1 = await res1.json();
+                const tbody1 = document.getElementById('bizopsCampaignsBody');
+                if (data1.campaigns && data1.campaigns.length > 0) {
+                    tbody1.innerHTML = data1.campaigns.map(c => `
+                        <tr>
+                            <td>${escapeHtml(c.name)}</td>
+                            <td>${escapeHtml(c.channel)}</td>
+                            <td>$${escapeHtml((c.budget || 0).toLocaleString())}</td>
+                            <td>${escapeHtml(c.leads_generated)}</td>
+                            <td>${escapeHtml(c.status)}</td>
+                        </tr>
+                    `).join('');
+                } else {
+                    tbody1.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No campaigns found.</td></tr>';
+                }
+                
+                const res2 = await fetch('/api/v1/compliance/items', { headers: { 'Authorization': 'Bearer ' + token } });
+                const data2 = await res2.json();
+                const tbody2 = document.getElementById('bizopsComplianceBody');
+                if (data2.compliance_items && data2.compliance_items.length > 0) {
+                    tbody2.innerHTML = data2.compliance_items.map(c => `
+                        <tr>
+                            <td>${escapeHtml(c.title)}</td>
+                            <td>${escapeHtml(c.category)}</td>
+                            <td>${escapeHtml(c.expiration_date)}</td>
+                            <td>${escapeHtml(c.status || 'Active')}</td>
+                        </tr>
+                    `).join('');
+                } else {
+                    tbody2.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted);">No compliance items found.</td></tr>';
+                }
+            } catch (e) {
+                console.error('Error loading biz ops', e);
+            }
+        }
+
+        function escapeHtml(unsafe) {
+
+        window.addEventListener('DOMContentLoaded', () => {
+            loadKPIs();
+        });
+
         let permissionsCatalog = {};
 
         function openCustomerModal() { document.getElementById('addCustomerModal').classList.add('active'); }
@@ -2364,9 +2622,18 @@ def render_admin_surface() -> str:
         function switchErpTab(tabId) {
             document.querySelectorAll('.erp-tab-btn').forEach(b => b.classList.remove('active'));
             document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
-            event.target.classList.add('active');
+            if (event && event.target) {
+                event.target.classList.add('active');
+            }
             const target = document.getElementById('tab-' + tabId);
             if (target) target.classList.add('active');
+            
+            if (tabId === 'kpis') loadKPIs();
+            if (tabId === 'operations') loadEquipment();
+            if (tabId === 'subcontractors') loadSubcontractors();
+            if (tabId === 'finance') loadFinance();
+            if (tabId === 'comms') loadComms();
+            if (tabId === 'bizops') loadBizOps();
             
             if (tabId === 'users') loadUsersList();
             if (tabId === 'crm') loadCrmList();

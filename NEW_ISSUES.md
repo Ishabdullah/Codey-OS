@@ -13073,7 +13073,7 @@ outside that fix's scope.
 - **Not fixed this round** — planning task, docs-only.
 
 ### [NEW-274] 8 of the admin surface's 11 tabs are hardcoded placeholders, against a plan status of "comprehensive business data editing"
-- **Status:** Confirmed (read `web_surfaces.py:1555-2428` in full).
+- **Status:** **FIXED 2026-09-06** (B6.4). Confirmed (read `web_surfaces.py:1555-2428` in full).
 - **Mechanism:** `switchErpTab` (`:2212-2222`) lazy-loads exactly three tabs — `users`, `crm`, `telemetry`. The remaining eight (pipeline board, business profile, schedule config, equipment, subcontractors, communications, finance, business ops) render static markup. The pipeline board hardcodes "5 Leads", "4 Deals ($62,000)", "6 Active ($85,500)"; equipment shows "No records found." unconditionally; four tabs are a heading plus one sentence of prose. Several carry `onclick="alert('...')"` buttons.
 - **Impact:** the backing services (`FinanceService`, `OperationsService`, `BusinessOpsService`, `AnalyticsSearchService`) are all complete and tested — the data exists and is simply not reachable from the web. Hardcoded pipeline figures are the more dangerous half: they are plausible-looking numbers that an operator could mistake for real ones.
 - **Doc-accuracy half:** `CODEY_MASTER_PLAN.md` §4.5, §6.6's header, and Appendix A's `B4 — staff/admin surface` line all claimed this complete. **Corrected this round per Rule 6.** User management with dynamic permissions was re-verified and is genuinely real — that part of the claim stands.

@@ -10,6 +10,17 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-06 — B6.4b-f Admin Dashboard tab wiring completed; NEW-274 closed
+
+- **Status:** Code-complete. Not a Rule-4 category (pure frontend wiring against existing endpoints). `tests/` **1472 passed, 1 skipped**.
+- **Scope implemented:**
+  - `tab-kpis`: Replaced hardcoded pipeline board and KPI cards with dynamic `fetch` from `GET /api/v1/reports/summary`.
+  - `tab-operations`: Wired Equipment Fleet and Subcontractors tables to their respective endpoints.
+  - `tab-finance`: Wired P&L, AR aging, and recent invoices to `GET /api/v1/finance/summary`.
+  - `tab-comms`: Wired to `GET /api/v1/communications`.
+  - `tab-bizops`: Wired Marketing Campaigns and Compliance expiry tables.
+  - Exit criterion test `test_b6_4_admin_wiring_tabs.py` passing cleanly.
+
 ## 2026-09-06 — B6.4a Admin save buttons wired; NEW-273 closed
 
 - **Status:** Code-complete. Not a Rule-4 category (pure frontend wiring against existing endpoints). `tests/` **1471 passed, 1 skipped**.
