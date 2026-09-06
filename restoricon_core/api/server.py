@@ -87,7 +87,13 @@ class RestoriconRequestHandler(BaseHTTPRequestHandler):
 
     def _dispatch(self, method: str) -> None:
         content_length = int(self.headers.get("Content-Length", 0))
-        body_bytes = self.rfile.read(content_length) if content_length > 0 else b""
+        content_type = self.headers.get("Content-Type", "")
+        is_multipart = content_type.startswith("multipart/form-data")
+        
+        if is_multipart:
+            body_bytes = b""
+        else:
+            body_bytes = self.rfile.read(content_length) if content_length > 0 else b""
 
         headers_dict = {k: v for k, v in self.headers.items()}
         status, resp_headers, resp_data = self.router.handle_request(
@@ -95,7 +101,21 @@ class RestoriconRequestHandler(BaseHTTPRequestHandler):
             path_with_query=self.path,
             headers=headers_dict,
             body_bytes=body_bytes,
+            rfile=self.rfile,
+            content_length=content_length,
         )
+
+        if hasattr(resp_data, '__iter__') and not isinstance(resp_data, (bytes, str, dict, list)):
+            self.send_response(status)
+            for h_key, h_val in resp_headers.items():
+                self.send_header(h_key, h_val)
+            self.end_headers()
+            try:
+                for chunk in resp_data:
+                    self.wfile.write(chunk)
+            except Exception as e:
+                logger.error("Error streaming response: %s", e)
+            return
 
         if isinstance(resp_data, bytes):
             resp_bytes = resp_data

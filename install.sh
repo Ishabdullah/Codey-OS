@@ -180,9 +180,13 @@ install_python_deps() {
         "tqdm>=4.65.0" \
         "hnswlib>=0.7.0" \
         "pyttsx3>=2.90" \
+        "python-multipart>=0.0.9" \
         || print_warning "Some pip packages failed — Codey-OS may still work"
 
     print_success "Core Python packages installed"
+    
+    # Create documents storage directory
+    mkdir -p "$HOME/.codey_restoricon/documents"
 
     # Offer to install full pipeline deps
     if [ "$SKIP_CONFIRM" = false ]; then

@@ -284,7 +284,9 @@ class APIRouter:
         path_with_query: str,
         headers: Dict[str, str],
         body_bytes: bytes,
-    ) -> Tuple[int, Dict[str, str], Dict[str, Any]]:
+        rfile: Optional[Any] = None,
+        content_length: int = 0,
+    ) -> Tuple[int, Dict[str, str], Any]:
         """
         Process an incoming request and return (status_code, response_headers, response_dict).
         """
@@ -403,6 +405,8 @@ class APIRouter:
         token = ""
         if auth_header.lower().startswith("bearer "):
             token = auth_header[7:].strip()
+        elif "token" in query_params:
+            token = query_params["token"][0]
 
         actor = self.auth.authenticate_token(token)
         if not actor:
@@ -903,9 +907,145 @@ class APIRouter:
                     )
                     return 200, {"Content-Type": "application/json"}, {"documents": [d.to_dict() for d in documents]}
                 elif method == "POST":
-                    doc = Document(**json_body)
-                    created = self.crm.create_document(doc, actor)
-                    return 201, {"Content-Type": "application/json"}, {"document": created.to_dict()}
+                    content_type = headers_lower.get("content-type", "")
+                    if content_type.startswith("multipart/form-data"):
+                        if content_length > 26214400:
+                            return 413, {"Content-Type": "application/json"}, {"error": "Payload Too Large"}
+                        state = {"current_header_name": "", "current_part_name": "", "current_filename": ""}
+                        metadata = {}
+                        file_info = {}
+                        
+                        def on_part_begin():
+                            state["current_header_name"] = ""
+                            state["current_part_name"] = ""
+                            state["current_filename"] = ""
+                        
+                        def on_header_field(data, start, end):
+                            state["current_header_name"] += data[start:end].decode("utf-8").lower()
+                        
+                        def on_header_value(data, start, end):
+                            if state["current_header_name"] == "content-disposition":
+                                val = data[start:end].decode("utf-8")
+                                # parse name and filename
+                                import re
+                                name_match = re.search(r'name="([^"]+)"', val)
+                                if name_match:
+                                    state["current_part_name"] = name_match.group(1)
+                                filename_match = re.search(r'filename="([^"]+)"', val)
+                                if filename_match:
+                                    state["current_filename"] = filename_match.group(1)
+                                
+                        def on_header_end():
+                            state["current_header_name"] = ""
+                            
+                        def on_headers_finished():
+                            if state["current_filename"]:
+                                # It's a file
+                                safe_filename = os.path.basename(state["current_filename"])
+                                if not safe_filename:
+                                    safe_filename = "unnamed_upload"
+                                
+                                customer_id = metadata.get("customer_id")
+                                project_id = metadata.get("project_id")
+                                document_type = metadata.get("document_type", "upload")
+                                
+                                subcontractor_id = metadata.get("subcontractor_id")
+                                vendor_id = metadata.get("vendor_id")
+                                
+                                base_dir = os.path.expanduser("~/.codey_restoricon/documents")
+                                rel_dir = f"{document_type}s"
+                                
+                                if project_id:
+                                    rel_dir = os.path.join(rel_dir, "projects", str(project_id))
+                                elif customer_id:
+                                    rel_dir = os.path.join(rel_dir, "customers", str(customer_id))
+                                elif subcontractor_id:
+                                    rel_dir = os.path.join(rel_dir, "subcontractors", str(subcontractor_id))
+                                elif vendor_id:
+                                    rel_dir = os.path.join(rel_dir, "vendors", str(vendor_id))
+                                else:
+                                    rel_dir = os.path.join(rel_dir, "general")
+                                    
+                                target_dir = os.path.join(base_dir, rel_dir)
+                                os.makedirs(target_dir, exist_ok=True)
+                                
+                                saved_file_path = os.path.join(target_dir, f"{int(time.time())}_{safe_filename}")
+                                file_info['path'] = saved_file_path
+                                file_info['fd'] = open(saved_file_path, "wb")
+                                
+                        def on_part_data(data, start, end):
+                            if state["current_filename"]:
+                                if 'fd' in file_info:
+                                    file_info['fd'].write(data[start:end])
+                            else:
+                                if state["current_part_name"]:
+                                    metadata[state["current_part_name"]] = metadata.get(state["current_part_name"], "") + data[start:end].decode("utf-8")
+                                    
+                        def on_part_end():
+                            if state["current_filename"] and 'fd' in file_info:
+                                file_info['fd'].close()
+                                del file_info['fd']
+
+                        boundary = ""
+                        for part in content_type.split(";"):
+                            if part.strip().startswith("boundary="):
+                                boundary = part.split("=")[1].strip()
+                                break
+                        
+                        if not boundary:
+                            return 400, {"Content-Type": "application/json"}, {"error": "Missing boundary"}
+                        
+                        callbacks = {
+                            'on_part_begin': on_part_begin,
+                            'on_header_field': on_header_field,
+                            'on_header_value': on_header_value,
+                            'on_header_end': on_header_end,
+                            'on_headers_finished': on_headers_finished,
+                            'on_part_data': on_part_data,
+                            'on_part_end': on_part_end
+                        }
+
+                        import python_multipart
+                        parser = python_multipart.MultipartParser(boundary, callbacks)
+                        
+                        remaining = content_length
+                        while remaining > 0:
+                            chunk = rfile.read(min(8192, remaining))
+                            if not chunk:
+                                break
+                            parser.write(chunk)
+                            remaining -= len(chunk)
+                        parser.finalize()
+                        
+                        if 'error' in file_info:
+                            if 'fd' in file_info:
+                                file_info['fd'].close()
+                            if 'path' in file_info and os.path.exists(file_info['path']):
+                                os.remove(file_info['path'])
+                            return 400, {"Content-Type": "application/json"}, {"error": file_info['error']}
+                            
+                        if 'path' not in file_info:
+                            return 400, {"Content-Type": "application/json"}, {"error": "No file uploaded"}
+                            
+                        tags = []
+                        subcontractor_id = metadata.get("subcontractor_id")
+                        if subcontractor_id:
+                            tags.append(f"subcontractor_id:{subcontractor_id}")
+                            
+                        doc = Document(
+                            customer_id=int(metadata.get("customer_id")) if metadata.get("customer_id") else None,
+                            project_id=int(metadata.get("project_id")) if metadata.get("project_id") else None,
+                            document_type=metadata.get("document_type", "upload"),
+                            title=metadata.get("title", os.path.basename(file_info['path'])),
+                            file_path=file_info['path'],
+                            tags=tags
+                        )
+                        created = self.crm.create_document(doc, actor)
+                        return 201, {"Content-Type": "application/json"}, {"document": created.to_dict()}
+                    else:
+                        doc = Document(**json_body)
+                        created = self.crm.create_document(doc, actor)
+                        return 201, {"Content-Type": "application/json"}, {"document": created.to_dict()}
 
             if path.startswith("/api/v1/documents/") and "/" not in path[len("/api/v1/documents/"):] and method == "GET":
                 doc_id = int(path.split("/")[-1])
@@ -913,6 +1053,31 @@ class APIRouter:
                 if not doc:
                     return 404, {"Content-Type": "application/json"}, {"error": "Document not found"}
                 return 200, {"Content-Type": "application/json"}, {"document": doc.to_dict()}
+                
+            if path.startswith("/api/v1/documents/") and path.endswith("/download") and method == "GET":
+                doc_id = int(path.split("/")[-2])
+                doc = self.crm.get_document(doc_id, actor)
+                if not doc:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Document not found"}
+                
+                if not doc.file_path or not os.path.exists(doc.file_path):
+                    return 404, {"Content-Type": "application/json"}, {"error": "File not found on disk"}
+                
+                def generate():
+                    with open(doc.file_path, "rb") as f:
+                        while True:
+                            chunk = f.read(8192)
+                            if not chunk:
+                                break
+                            yield chunk
+                
+                file_size = os.path.getsize(doc.file_path)
+                headers = {
+                    "Content-Type": "application/octet-stream",
+                    "Content-Disposition": f'attachment; filename="{os.path.basename(doc.file_path)}"',
+                    "Content-Length": str(file_size)
+                }
+                return 200, headers, generate()
 
             # Customer Portal Endpoints (/api/v1/portal/*)
             if path.startswith("/api/v1/portal/"):

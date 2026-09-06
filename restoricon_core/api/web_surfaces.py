@@ -1830,6 +1830,7 @@ def render_admin_surface() -> str:
             <button class="erp-tab-btn" onclick="switchErpTab('bizops')">📋 Business Ops</button>
             <button class="erp-tab-btn" onclick="switchErpTab('audit')">🔍 Audit Search</button>
             <button class="erp-tab-btn" onclick="switchErpTab('telemetry')">🤖 AI Agent & Audit</button>
+            <button class="erp-tab-btn" onclick="switchErpTab('documents')">📄 Documents</button>
         </div>
 
         <!-- Tab 1: Executive Overview & KPIs -->
@@ -2170,6 +2171,30 @@ def render_admin_surface() -> str:
                 <div id="auditLogFeed" style="background: #0A192F; border: 1px solid var(--card-border); border-radius: 8px; padding: 1rem; max-height: 350px; overflow-y: auto; font-family: monospace; font-size: 0.82rem; color: #CBD5E1;">
                     Loading system audit logs...
                 </div>
+            </div>
+        </div>
+        
+        <!-- Tab 12: Documents -->
+        <div id="tab-documents" class="tab-pane">
+            <div class="erp-card">
+                <div class="card-title-row">
+                    <h2><span>📄</span> Document Repository</h2>
+                    <button class="btn-gold" onclick="loadDocuments()">↻ Refresh</button>
+                </div>
+                <table class="erp-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Type</th>
+                            <th>Title</th>
+                            <th>Customer/Project</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="documentsTableBody">
+                        <tr><td colspan="5" style="text-align: center;">Loading documents...</td></tr>
+                    </tbody>
+                </table>
             </div>
         </div>
     </main>
@@ -2639,6 +2664,7 @@ def render_admin_surface() -> str:
             if (tabId === 'crm') loadCrmList();
             if (tabId === 'telemetry') loadAuditLogs();
             if (tabId === 'audit') searchAuditLog();
+            if (tabId === 'documents') loadDocuments();
         }
 
         function escapeHtml(unsafe) {
@@ -2648,6 +2674,40 @@ def render_admin_surface() -> str:
                  .replace(/>/g, "&gt;")
                  .replace(/"/g, "&quot;")
                  .replace(/'/g, "&#039;");
+        }
+
+        async function loadDocuments() {
+            const token = getAuthToken();
+            const tbody = document.getElementById('documentsTableBody');
+            if (!tbody) return;
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center;">Loading documents...</td></tr>';
+            try {
+                const res = await fetch('/api/v1/documents', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (res.status === 401) { logout(); return; }
+                const data = await res.json();
+                if (data.documents && data.documents.length > 0) {
+                    tbody.innerHTML = data.documents.map(d => `
+                        <tr>
+                            <td>${d.id}</td>
+                            <td>${escapeHtml(d.document_type)}</td>
+                            <td>${escapeHtml(d.title)}</td>
+                            <td>
+                                ${d.customer_id ? 'Cust: ' + d.customer_id : ''}
+                                ${d.project_id ? 'Proj: ' + d.project_id : ''}
+                            </td>
+                            <td>
+                                <button onclick="window.open('/api/v1/documents/${d.id}/download?token=' + getAuthToken(), '_blank')" class="btn-gold" style="padding: 0.2rem 0.5rem;">Download</button>
+                            </td>
+                        </tr>
+                    `).join('');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center;">No documents found</td></tr>';
+                }
+            } catch (err) {
+                tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--danger);">Error loading documents</td></tr>`;
+            }
         }
 
         async function searchAuditLog() {
