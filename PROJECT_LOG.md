@@ -10,6 +10,31 @@ code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
 
+## 2026-09-06 — `NEW-366` fixed — `int()` coercion on pre-existing `timeout_sec` emission path, `core/task_executor.py`+`tests/test_task_executor_telemetry.py`; no Rule-4 review required
+
+- **Status:** Code-complete. No Rule-4 category (pure telemetry data path,
+  no process lifecycle). No live component by design (telemetry emission,
+  no model load). `tests/` **1456 passed, 1 skipped** (+1 new test,
+  `test_float_task_timeout_config_coerced_to_int_in_task_finished`).
+- **The fix:** one line — `core/task_executor.py` line 472 wrapped
+  `self.config.get("tasks", "task_timeout", default=1800)` in `int(...)`.
+  `telemetry/schema/v1.json` declares `timeout_sec` as `{"type": "int"}`;
+  the pre-existing `_emit_task_finished_telemetry()` emission path for
+  `"done"`/`"failed"`/`"cancelled"` outcomes passed the raw config value
+  (which could be a float or string from the config parser) straight
+  through with no cast. The `emit_task_timeout_correction()` path (NEW-357,
+  called from `core/daemon.py`) already coerced via `int(timeout)` at both
+  its call sites (lines 1955 and 2080); this fix makes the pre-existing
+  path consistent with it.
+- **The test:** `test_float_task_timeout_config_coerced_to_int_in_task_finished`
+  monkeypatches `executor.config.get` to return `1800.0` (float) for
+  `("tasks", "task_timeout")`, then asserts `f["timeout_sec"] == 1800`
+  AND `type(f["timeout_sec"]) is int`. A proper negative-control — it
+  would have failed against the pre-fix code. No hardcoded-flag test.
+- **No Appendix A entry** — `NEW-366` was a ledger-only item (low
+  severity, not queue-level work). Ledger updated in `NEW_ISSUES.md`.
+  No §4 update needed (no platform state change).
+
 ## 2026-09-05 — `NEW-357` fixed — caller-side timeout-correction telemetry, `core/daemon.py`+`core/task_executor.py`+`telemetry/recorders.py` (2 review rounds); `NEW-365`/`NEW-366` opened; **this closes Batch C, all of item-2's deferred telemetry findings are now resolved or explicitly triaged**
 
 - **Status**: Code-complete + code-reviewer APPROVED (2 rounds — round

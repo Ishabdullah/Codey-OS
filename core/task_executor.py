@@ -469,7 +469,7 @@ class TaskExecutor:
                     start_mono=_start_mono,
                     terminal_status=_terminal_status,
                     error_class=_error_class,
-                    timeout_sec=self.config.get("tasks", "task_timeout", default=1800),
+                    timeout_sec=int(self.config.get("tasks", "task_timeout", default=1800)),  # [NEW-366] coerce to int
                     run_stats=_stats,
                 )
 

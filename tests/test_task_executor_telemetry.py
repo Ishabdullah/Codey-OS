@@ -129,6 +129,50 @@ def test_successful_task_emits_started_and_finished_with_counts(
     assert f["timeout_sec"] == 1800
 
 
+def test_float_task_timeout_config_coerced_to_int_in_task_finished(
+    executor, monkeypatch, _capture_telemetry
+):
+    """[NEW-366] The pre-existing _emit_task_finished_telemetry() emission path
+    must coerce self.config.get('tasks', 'task_timeout') to int before writing
+    it into the task_finished record.
+
+    Without the fix, a float-valued (or string-valued) task_timeout would
+    silently write a type-violating record against telemetry/schema/v1.json's
+    ``{"type": "int"}`` declaration for timeout_sec. Validation only runs in
+    codey-metrics rollup consumers -- not at write time -- so the violation
+    would surface late, not immediately.
+
+    The emit_task_timeout_correction() path (NEW-357's fix, called from
+    core/daemon.py) already casts via ``int(timeout)`` at its call sites in
+    daemon.py. This test confirms the pre-existing _emit_task_finished_telemetry
+    path now matches."""
+    monkeypatch.setattr(
+        "core.agent.run_agent", lambda *a, **kw: ("done", []), raising=False
+    )
+    # Inject a float-valued task_timeout -- the shape that NEW-366 flagged
+    # as silently violating the schema if not coerced.
+    monkeypatch.setattr(
+        executor.config,
+        "get",
+        lambda *args, default=None, **kwargs: 1800.0
+        if args == ("tasks", "task_timeout")
+        else default,
+    )
+
+    asyncio.run(
+        executor._execute_task(
+            "do the thing", task_id=77, task_type="direct", needs_planning=False
+        )
+    )
+
+    finished = _records_by_event_type(_capture_telemetry, "task_finished")
+    assert len(finished) == 1
+    f = finished[0]["body"]
+    # Must be a plain int, not a float -- schema declares ``"type": "int"``.
+    assert f["timeout_sec"] == 1800
+    assert type(f["timeout_sec"]) is int
+
+
 def test_failed_task_emits_finished_with_failed_status_and_error_class(
     executor, monkeypatch, _capture_telemetry
 ):

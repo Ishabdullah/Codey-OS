@@ -15522,26 +15522,27 @@ outside that fix's scope.
   `telemetry/cli.py`, `NEW-357`.
 
 ### [NEW-366] `core/task_executor.py`'s pre-existing `task_finished` emission passes `timeout_sec` uncoerced — a float/string `task_timeout` config value would silently violate the schema's declared `int` type
-- **Status:** Confirmed, pre-existing, low severity (found during
-  `NEW-357`'s fix, 2026-09-05, code-reviewer approved round — the new
-  timeout-correction path added by that fix DOES coerce with `int()`;
-  this finding is about the OLD, unchanged emission path).
-- **Mechanism:** `telemetry/schema/v1.json` declares `timeout_sec` as
-  `{"type": "int", ...}`. `core/task_executor.py`'s existing
-  `"done"`/`"failed"`/`"cancelled"` emission (`_emit_task_finished_
-  telemetry()`, unchanged by `NEW-357`) passes
+- **Status:** **FIXED 2026-09-06** (code-complete, no Rule-4 category —
+  pure telemetry data path; no code-reviewer pass required). No live
+  component by design (telemetry emission, no model load).
+  `tests/` **1456 passed, 1 skipped** (+1 new test,
+  `test_float_task_timeout_config_coerced_to_int_in_task_finished`).
+- **Fix:** `core/task_executor.py` line 472 —
+  `self.config.get("tasks", "task_timeout", default=1800)` wrapped in
+  `int(...)`, matching the coercion already present at both
+  `core/daemon.py` dispatch sites (lines 1955 and 2080) that call
+  `emit_task_timeout_correction()`. The new test monkeypatches
+  `executor.config.get` to return `1800.0` (float) and asserts
+  `type(f["timeout_sec"]) is int` — a proper negative-control test that
+  would have failed against the pre-fix code.
+- **Original finding (2026-09-05):** `telemetry/schema/v1.json` declares
+  `timeout_sec` as `{"type": "int", ...}`. The pre-existing
+  `_emit_task_finished_telemetry()` emission path for `"done"`/
+  `"failed"`/`"cancelled"` outcomes passed
   `self.config.get("tasks", "task_timeout", default=1800)` straight
-  through with no `int()` cast. If a deployment's config ever sets
-  `task_timeout` to a float or string, this emission would write a
-  type-violating record.
-- **Impact:** low. `telemetry/store.py`'s `Store.record()` write path
-  performs no schema validation at write time — validation only runs in
-  `telemetry/cli.py`'s `doctor`/rollup consumers. So a bad value would
-  silently write a type-violating record, only surfacing later via
-  `codey-metrics doctor`, not a write-time failure.
-- **Fix direction:** add `int(...)` coercion to this existing emission
-  path's `timeout_sec` value, matching the coercion `NEW-357`'s new
-  timeout-correction path already does, when this function is next
-  touched.
-- **Cross-reference:** `core/task_executor.py`, `telemetry/schema/v1.json`,
+  through with no `int()` cast. Impact was low: `Store.record()` performs
+  no write-time validation; a bad value would only surface via
+  `codey-metrics doctor`, not immediately.
+- **Cross-reference:** `core/task_executor.py`,
+  `tests/test_task_executor_telemetry.py`, `telemetry/schema/v1.json`,
   `NEW-357`.
