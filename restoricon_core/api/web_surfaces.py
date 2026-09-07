@@ -3274,8 +3274,7 @@ def _render_staff_portal_base(role_title: str, primary_label: str, role_key: str
         }}
 
         function getAuthToken() {{
-            const match = document.cookie.match(new RegExp('(^| )auth_token=([^;]+)'));
-            return match ? match[2] : null;
+            return sessionStorage.getItem('restoricon_token') || '';
         }}
 
         async function loadDashboard() {{
@@ -3284,15 +3283,18 @@ def _render_staff_portal_base(role_title: str, primary_label: str, role_key: str
 
             let user = null;
             try {{
-                const payload = JSON.parse(atob(token.split('.')[1]));
-                user = payload;
+                const meRes = await fetch('/api/v1/auth/me', {{ headers: {{ 'Authorization': 'Bearer ' + token }} }});
+                if (meRes.ok) {{
+                    const meData = await meRes.json();
+                    user = meData.user;
+                }}
             }} catch (e) {{}}
 
-            if (!user) return;
+            if (!user) {{ window.location.href = '/admin/login'; return; }}
 
             // Load Schedule
             try {{
-                const res = await fetch('/api/v1/staff-schedules?user_id=' + user.sub, {{
+                const res = await fetch('/api/v1/staff-schedules?user_id=' + user.id, {{
                     headers: {{ 'Authorization': 'Bearer ' + token }}
                 }});
                 const data = await res.json();
@@ -3322,14 +3324,14 @@ def _render_staff_portal_base(role_title: str, primary_label: str, role_key: str
                     
                     // Filter based on role if backend returned all
                     if ('{role_key}' === 'project_manager') {{
-                        myProjects = myProjects.filter(p => p.project_manager_id == user.sub);
+                        myProjects = myProjects.filter(p => p.project_manager_id == user.id);
                     }} else if ('{role_key}' === 'technician') {{
                         // Technician backend already filters to assigned
                     }} else if ('{role_key}' === 'subcontractor') {{
                         myProjects = myProjects.filter(p => {{
                             try {{
                                 const subs = JSON.parse(p.subcontractors_json || '[]');
-                                return subs.includes(Number(user.sub));
+                                return subs.includes(Number(user.id));
                             }} catch(e) {{ return false; }}
                         }});
                     }}
