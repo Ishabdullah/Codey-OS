@@ -1,3 +1,12 @@
+## 2026-09-07 — Urgent Bug Fixes: U.6-U.10 (Escalations and H-1 Fallback)
+
+**What changed:**
+- Checked off **U.6**: Escalated the security hardening backlog to `NEW-287`, re-anchoring the `agent.py` command-injection concern to `check_git_and_offer_commit` and documenting the daemon shell allowlist issues as requested.
+- Checked off **U.7**: Live-verified the H-1 shutdown fallback path in `main.py`. Used a test script with a monkeypatched `loader.unload()` exception to trigger the fallback, confirming that `os.killpg(os.getpgid(_pid), signal.SIGKILL)` successfully terminates the `llama-server` process group (leaving it as a zombie to be cleanly reaped).
+- Checked off **U.8, U.9, U.10**: Logged these as explicit escalations to Ish (§8 questions Q6, Q7, Q9) as specified by the master plan. These are non-actionable decisions/investigations, so they are cleared from the active Urgent task queue.
+
+**Why:** Cleaning up non-actionable or test-only items from the Urgent queue so the subagent pipeline can focus on real codebase defects.
+
 ## 2026-09-07 — Urgent Bug Fixes: U.1, U.2 & U.3 (Prompt Engineering)
 
 **What changed:**

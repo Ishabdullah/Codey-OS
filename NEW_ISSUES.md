@@ -15557,3 +15557,46 @@ outside that fix's scope.
 ### [NEW-401] `AuthService.update_user` actor argument mismatch
 - **Status:** **FIXED 2026-09-06** (in-round during B6.2c)
 - **Mechanism:** Code review caught `actor=actor` being passed, but the variable was named `actor_context`. Fixed inline.
+
+## Found during live investigation 2026-09-06 (post-B6.6 session)
+
+### [NEW-402] Empty/unclosed `escapeHtml(unsafe) {` stub in admin surface broke all JS
+
+- **Status:** **FIXED 2026-09-06** (hotfix, same session as B6.6).
+- **Severity:** Critical — the admin portal was completely unresponsive (visually rendered but
+  no JavaScript executed).
+- **Mechanism:** `restoricon_core/api/web_surfaces.py`, inside `render_admin_surface()`, the
+  B6.5 Documents-tab work inserted a `function escapeHtml(unsafe) {` declaration with no body
+  and no closing `}`. Because of how JavaScript function-declaration hoisting works, the JS
+  parser treated everything below that line — including the `DOMContentLoaded` handler,
+  `validateSession('/admin/login')`, `loadKPIs()`, `openCustomerModal()`, `switchErpTab()`,
+  and every other function definition — as the body of that unclosed declaration. The script
+  block parsed without a hard syntax error in most engines (function declarations are hoisted
+  and the nested declarations are accessible), but the critical side-effect is that
+  `DOMContentLoaded` and the `validateSession` init block **never executed at page load** —
+  they were function-scoped and only ran if `escapeHtml()` itself was called. Result:
+  the admin portal loaded its HTML but was completely frozen: no auth check, no data fetch,
+  no tab wiring, no button handlers.
+- **Why not caught earlier:** The B6.4b/B6.5 test suite (`test_b6_4_admin_wiring_tabs.py`,
+  `test_b6_5_document_upload.py`) checked JS *string presence* (e.g. does the HTML contain
+  `fetch('/api/v1/documents')`), not JS *structural validity* (brace balance or AST parse).
+  The broken page still contained all the right string patterns.
+- **Fix:** Removed the 2-line stub (`function escapeHtml(unsafe) {` + blank line). The real
+  implementation (`function escapeHtml(unsafe) { return (unsafe || '').toString()...}`) was
+  already present at the correct location (line 2668, added during B6.2c's XSS-hardening
+  pass).
+- **Verification:** JS brace balance 302/302 (diff=0); exactly 1 `escapeHtml` definition;
+  `DOMContentLoaded` at top-level scope; `validateSession` present. `tests/` **1478 passed,
+  1 skipped** — full suite clean.
+- **Follow-up (PROPOSED):** Add a brace-balance or `py_compile`/`node --check` structural
+  validity assertion to the web-surface unit tests so this class of breakage is caught
+  automatically rather than requiring a live browser inspection.
+
+### [NEW-287] Security hardening backlog (U.6)
+**State**: Open
+**Discovered**: 2026-09-07
+**Component**: `core/agent.py`, `core/task_executor.py`, `core/daemon.py`
+**Details**:
+1. Command-injection-via-filename in `check_git_and_offer_commit` (`core/agent.py`) via `files_touched`. Needs investigation to ensure `git commit -m msg -- files_touched` is fully safe from argument injection.
+2. Daemon shell allowlist too broad in `_DAEMON_ALLOWED_PREFIXES` (`core/task_executor.py`). It admits commands like `cat`, `grep`, `find`, `cd `, `env` which can be used to exfiltrate secrets or environment variables.
+3. Unix socket auth in `core/daemon.py`: A peer-UID check exists, but token auth is recommended for stronger security.

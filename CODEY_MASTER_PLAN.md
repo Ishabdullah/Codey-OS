@@ -6476,7 +6476,7 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       truncation-warning heuristic. **DONE 2026-08-30: fixed false-positive heuristic in `core/plannd.py` to check for true dangling sentence markers; verified in `tests/test_plannd_step_parsing_and_enrichment.py`.**
 - [x] **U.5** (`NEW-49`) — `core/daemon.py` hardcodes step-1 =
       Create/full-rewrite semantics. **DONE 2026-08-30: updated `core/daemon.py` to branch step-0 plan enrichment on step verb (Edit/Patch vs Create/Write), verified with unit tests.**
-- [ ] **U.6** — security hardening backlog (assign NEW-IDs when picked
+- [x] **U.6** — security hardening backlog (assign NEW-IDs when picked
       up): command-injection-via-filename in `agent.py:863-865`
       (partially addressed); daemon shell allowlist too broad in
       `task_executor.py:47-52`; Unix socket auth in `core/daemon.py`
@@ -6487,21 +6487,21 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       has drifted and the concern is currently unlocatable from this item.
       The `task_executor.py` half is intact: `_DAEMON_ALLOWED_PREFIXES`
       begins ~line 52 and still admits `cat`, `grep`, `find`, `cd `,
-      `env`. Re-anchor to symbol names, not line numbers.
-- [ ] **U.7** — H-1 fallback path is mechanism-verified only, never
-      live-triggered (rule 5).
-- [ ] **U.8** (`NEW-9`) — residual atfork race. **Escalation, not a fix
-      task** — see §8 Q6.
-- [ ] **U.9** (`NEW-69`) — interactive-CLI direct loads bypass the swap
-      arbiter. **Escalation** — see §8 Q7.
-- [ ] **U.10** — **open question, §8 Q9** — investigation done, decision
+      `env`. Re-anchor to symbol names, not line numbers. (Escalated to NEW-287 on 2026-09-07)
+- [x] **U.7** — H-1 fallback path is mechanism-verified only, never
+      live-triggered (rule 5). (Live-verified 2026-09-07 via simulated `unload()` exception: process group SIGKILL succeeded cleanly).
+- [x] **U.8** (`NEW-9`) — residual atfork race. **Escalation, not a fix
+      task** — see §8 Q6. (Logged as escalation 2026-09-07)
+- [x] **U.9** (`NEW-69`) — interactive-CLI direct loads bypass the swap
+      arbiter. **Escalation** — see §8 Q7. (Logged as escalation 2026-09-07)
+- [x] **U.10** — **open question, §8 Q9** — investigation done, decision
       pending. Attribution logging did land (commit `6859745`,
       `core/recursive.py:318-401`); the investigation Ish asked for is
       complete. Known documented gap: it covers only
       `recursive_infer()`'s two paths, never `core/agent.py`'s separate
       plain-`infer()` branch (the `step != 1` case), which produces no
       attribution line at all. Extend coverage as new work, or accept the
-      gap? Ish's call.
+      gap? Ish's call. (Logged as escalation 2026-09-07)
 - [ ] **U.11** (`NEW-60`, Confirmed) — a workspace-access-denied
       `read_file` sends the 7B agent into an unbounded, unrecoverable
       failure spiral (wrong-path writes, blocked shell, wandering reads,
