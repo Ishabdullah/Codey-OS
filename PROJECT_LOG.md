@@ -1,3 +1,18 @@
+## 2026-09-07 — Urgent Bug Fixes: U.30 & U.32 (PID Tracking)
+
+**What changed:**
+- Modified `core/loader_v2.py` to write `llama-server` process PIDs to `~/.codeyOS/llama-server-{port}.pid` after successful spawn.
+- Replaced all four `pkill -9 -f "llama-server.*8080"` calls in `codeydOS` with a new `kill_llama_server_gracefully` bash function that reads the PID file and performs a `TERM`-wait-`KILL` fallback.
+- Added PID file cleanup to `core/loader_v2.py`'s `stop()` method.
+
+**Why:** Addresses `U.30` and `U.32`, bringing the daemon lifecycle scripts into compliance with Rule 3 (no bare pattern kills) and preventing collateral damage to other running model servers.
+
+**Verification performed:**
+- Code modifications implemented via the architect -> implementer pipeline.
+- Live-verified by manually restarting the daemon, loading a model, observing PID file creation, running `codeydOS stop`, and confirming the exact `llama-server` PID was killed gracefully and the PID file was deleted.
+
+**Next action:** Continue working through the `open_items.md` Urgent bug list.
+
 ## 2026-09-07 — Phase B7.2: Incremental Document Upload (B6.5 File Store)
 
 **What changed:**

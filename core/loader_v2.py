@@ -762,6 +762,15 @@ class LlamaServer:
                     stderr=subprocess.STDOUT,
                     preexec_fn=os.setsid if os.name != "nt" else None,
                 )
+                
+                # Write PID file for graceful kills from codeydOS
+                pid_file = CODEY_STATE_DIR / f"llama-server-{self.port}.pid"
+                try:
+                    with open(str(pid_file) + ".tmp", "w") as f:
+                        f.write(str(self.process.pid))
+                    os.rename(str(pid_file) + ".tmp", str(pid_file))
+                except (IOError, OSError):
+                    pass
             finally:
                 signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGINT})
 
@@ -829,6 +838,10 @@ class LlamaServer:
                 except Exception:
                     pass
             finally:
+                try:
+                    (CODEY_STATE_DIR / f"llama-server-{self.port}.pid").unlink(missing_ok=True)
+                except Exception:
+                    pass
                 self.process = None
                 self._started = False
 

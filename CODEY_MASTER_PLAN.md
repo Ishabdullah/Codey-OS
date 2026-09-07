@@ -6546,13 +6546,13 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       constants and did **not** cover this one. Re-derive against M1-E's
       measured Qwen3.5-4B cost, or state explicitly that it is retained
       un-retuned and why.
-- [ ] **U.30** (`NEW-99`) — `codeydOS`'s port-scoped
+- [x] **U.30** (`NEW-99`) — `codeydOS`'s port-scoped
       `pkill -9 -f "llama-server.*8080"`/`*8081`. Rule-3 class.
-      **Do with U.32.**
-- [ ] **U.32** (`NEW-103`, Confirmed, live-reproduced) — `codeydOS`'s
+      **Do with U.32.** (Completed 2026-09-07)
+- [x] **U.32** (`NEW-103`, Confirmed, live-reproduced) — `codeydOS`'s
       `stop_daemon()`/`start_plannd()` bare-pattern kills are the
       *actual* live cleanup mechanism, not theoretical. Fix: track each
-      spawned server's PID at spawn and kill only that PID.
+      spawned server's PID at spawn and kill only that PID. (Completed 2026-09-07)
 - [ ] **U.33** (`NEW-104`, Confirmed, live-reproduced) — gate slots key
       to the calling process's PID, never the spawned `llama-server`
       child's. Accounting/observability impact, not admission safety.

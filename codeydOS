@@ -133,6 +133,29 @@ PYEOF
 
 # ── Main daemon ────────────────────────────────────────────────────────────────
 
+kill_llama_server_gracefully() {
+    for port in 8080 8081; do
+        local pid_file="$DAEMON_DIR/llama-server-${port}.pid"
+        if [ -f "$pid_file" ]; then
+            local s_pid=$(cat "$pid_file" 2>/dev/null || echo "")
+            if [ -n "$s_pid" ] && kill -0 "$s_pid" 2>/dev/null; then
+                kill -TERM "$s_pid" 2>/dev/null || true
+                for i in {1..10}; do
+                    if ! kill -0 "$s_pid" 2>/dev/null; then
+                        break
+                    fi
+                    sleep 0.5
+                done
+                if kill -0 "$s_pid" 2>/dev/null; then
+                    kill -9 "$s_pid" 2>/dev/null || true
+                fi
+            fi
+            rm -f "$pid_file"
+        fi
+    done
+}
+
+
 start_daemon() {
     if [ -f "$PID_FILE" ]; then
         PID=$(cat "$PID_FILE" 2>/dev/null || echo "")
@@ -151,7 +174,7 @@ start_daemon() {
     find "$CODEY_OS_DIR" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 
     # Kill any orphaned llama-server on port 8080 from a previous session
-    pkill -9 -f "llama-server.*8080" 2>/dev/null || true
+    kill_llama_server_gracefully
     sleep 1
 
     # Create launcher script
@@ -202,7 +225,7 @@ PYEOF
 stop_daemon() {
     if [ ! -f "$PID_FILE" ]; then
         echo "Main daemon is not running"
-        pkill -9 -f "llama-server.*8080" 2>/dev/null || true
+        kill_llama_server_gracefully
         return 0
     fi
 
@@ -211,7 +234,7 @@ stop_daemon() {
     if [ -z "$PID" ] || ! kill -0 "$PID" 2>/dev/null; then
         echo "Main daemon is not running (stale PID file)"
         rm -f "$PID_FILE"
-        pkill -9 -f "llama-server.*8080" 2>/dev/null || true
+        kill_llama_server_gracefully
         return 0
     fi
 
@@ -223,7 +246,7 @@ stop_daemon() {
         if ! kill -0 "$PID" 2>/dev/null; then
             echo "Main daemon stopped"
             rm -f "$PID_FILE"
-            pkill -9 -f "llama-server.*8080" 2>/dev/null || true
+            kill_llama_server_gracefully
             return 0
         fi
         sleep 0.5
@@ -232,7 +255,7 @@ stop_daemon() {
     echo "Force killing main daemon..."
     kill -9 "$PID" 2>/dev/null || true
     rm -f "$PID_FILE"
-    pkill -9 -f "llama-server.*8080" 2>/dev/null || true
+    kill_llama_server_gracefully
     echo "Main daemon stopped (forced)"
 }
 
