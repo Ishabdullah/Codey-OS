@@ -1,3 +1,22 @@
+## 2026-09-07 — Phase B7.1: Core DB Backup (Litestream)
+
+**What changed:** Implemented continuous local journal and periodic GCS snapshot for the Core DB via Litestream v0.3.13.
+- `install.sh` updated to compile and install Litestream from source using Go.
+- `core/setup_litestream.py` added to dynamically generate `litestream.yml` pointing to the `core.db` using the correct environment-aware path.
+- `lib/service_manager.sh` updated to include Litestream as a supervised service with correct process lifecycle management (start/stop/status) and GCS credential propagation.
+
+**Why:** Required by B7.1 to enable point-in-time recovery (PITR) without per-write network calls.
+
+**Verification performed:**
+- `implementer` subagent verified Litestream compiles successfully on Termux (Bionic libc).
+- Code diffs subjected to `code-reviewer` adversarial audit. The reviewer initially requested changes for hardcoded paths, python return code checks, and GCS credential exports.
+- Coordinator manually applied the fixes and the `code-reviewer` approved the final diff.
+- Note: This is Code-Complete, but NOT live-verified. B7.4 (restore drill) is required to close out the phase, which is blocked by B7.3 (GCS credentials configuration).
+
+**Outcome:** B7.1 is code-complete. 
+
+**Next action:** Update `CODEY_MASTER_PLAN.md` to mark B7.1 as complete (code-tier) and consider B7.2 or B7.3 next.
+
 # Project Log: Codey-v3 + CCOS
 
 Reverse-chronological. Add a new entry at the top after every meaningful
@@ -9,6 +28,64 @@ It is NOT archived. Status here must keep the code-complete /
 code-reviewer-approved / live-verified distinction explicit, and every
 round that changes project status should also update the master plan's §4
 and Appendix A.
+
+## 2026-09-07 — B6.8 Four Staff Portals & Smart Login implemented (Rule-4 surface)
+
+- **Status:** Code-complete, tested, all tests passing cleanly (410 tests).
+- **Scope implemented:**
+  - `web_surfaces.py` updated to inject smart JS routing at `/admin/login`, dynamically redirecting authenticated users to their respective portal (`/pm`, `/sales`, `/tech`, `/subcontractor`, or `/admin`) based on their token's role.
+  - Built out the 4 new dashboard views in `web_surfaces.py`, ensuring each opens directly to the "Where am I assigned" view and their personal schedule.
+  - Linked new HTML rendering routes into `routes.py`.
+  - Added exit criteria tests ensuring all portals correctly hook the `loadDashboard()` functionality and make the proper fetch calls to the `/api/v1/projects` and `/api/v1/staff-schedules` endpoints.
+
+## 2026-09-06 — B6.7 Staff Scheduling implemented (Rule-4 surface)
+
+- **Status:** Code-complete, adversarial code-review performed, tests passing.
+- **Scope implemented:**
+  - Added `staff_schedules` to database and models, fully isolating staff schedules from customer `appointments`.
+  - Added `PERM_READ_STAFF_SCHEDULES` and `PERM_WRITE_STAFF_SCHEDULES` constants to `auth.py`.
+  - Added four CRUD endpoints to `routes.py` connected to `SchedulingService`.
+  - Ensured ICS invites trigger using the B6.6 Notification path on schedule creation and update.
+  - Built the "Staff Schedules" tab on the Admin ERP dashboard for UI control.
+
+## 2026-09-06 — Hotfix NEW-402: broken `escapeHtml` stub froze Admin portal JS entirely
+
+- **Status:** Code-complete. No Rule-4 category (pure frontend JS correctness — no process
+  lifecycle, no auth surface, no data mutation). `tests/` **1478 passed, 1 skipped** (no
+  tests were broken; the existing B6.4b/B6.5 wiring tests still pass cleanly).
+- **Root cause (NEW-402):** Gemini's B6.5 Documents-tab implementation introduced a
+  `function escapeHtml(unsafe) {` declaration at `web_surfaces.py` line 2530 with **no body
+  and no closing brace**. This turned every subsequent line of the admin `<script>` block —
+  including the `DOMContentLoaded` handler, `validateSession`, `loadKPIs`, and all modal/tab
+  functions — into the body of that unclosed function declaration. The page rendered HTML but
+  no JavaScript executed at load time: no auth check, no KPI fetch, no tab wiring. The portal
+  appeared completely frozen / unresponsive.
+- **The fix:** Removed the 2-line empty stub (declaration line + blank line). The complete,
+  correct `escapeHtml` implementation was already present at line 2668 (added during B6.2c's
+  XSS-hardening pass) and is untouched.
+- **Verification:** JS brace balance 302 open = 302 close (diff 0), exactly 1
+  `escapeHtml` definition, `DOMContentLoaded` fires at top-level scope before `escapeHtml` is
+  even declared. Four-point smoke test: all PASS.
+- **No §4 or Appendix A change** — this is a pure bug-fix of already-planned work (B6.5 was
+  code-complete but broken in practice). No platform state change.
+
+## 2026-09-06 — B6.6 Core->Aigentik Outbound Notification Path implemented
+
+- **Status:** Code-complete. Cross-repository change bridging Codey-OS and Codey-Aigentik.
+- **Scope implemented:**
+  - Designed and deployed an embedded Node.js HTTP server (`http-server.js`) inside Aigentik on port 8081 to accept email payloads via HTTP POST, circumventing cold-starts and RAM bloat.
+  - Plumbed `NotificationService` into Codey-OS to dispatch requests to the Aigentik loopback server.
+  - Wired `CRMService.update_project` to automatically trigger a "You've been assigned" notification when `project_manager_id` changes.
+  - Aigentik's `sendCalendarInvite` is exposed and ready for B6.7.
+
+## 2026-09-06 — B6.5 File and Document Upload implemented (Rule-4 surface)
+
+- **Status:** Code-complete, tests passing. `tests/` suite clean (402 test cases natively, 1472 across entire codebase from previous manual run).
+- **Scope implemented:**
+  - Patched `install.sh` to fetch `python-multipart` and instantiate `~/.codey_restoricon/documents/` (Rule 11).
+  - Plumbed `api/server.py` to stop whole-body reads for `multipart/form-data`, passing streams down to the router.
+  - Implemented `POST /api/v1/documents` and `GET /api/v1/documents/{id}/download` with strict path traversal checks, 25MB capping, and dynamic sub-folder routing (`documents/customers/{id}/projects/{id}/...`).
+  - Added a "Documents" tab to the Admin dashboard to list and fetch all documents.
 
 ## 2026-09-06 — B6.4b-f Admin Dashboard tab wiring completed; NEW-274 closed
 

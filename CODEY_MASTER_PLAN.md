@@ -3962,6 +3962,11 @@ table and the permission system. Each copies B6.3's established pattern
 and is filtered by the same permission system rather than
 reimplementing access rules per portal.
 
+**Smart Login Routing:** All staff will authenticate through the single
+existing `/admin/login` page. The login Javascript will inspect the user's
+`role` upon success and automatically redirect them to `/admin`, `/pm`, 
+`/sales`, `/tech`, or `/subcontractor` accordingly (Ish, 2026-09-06).
+
 **Every one of them opens on "where am I assigned"** — Ish's explicit
 requirement: the dashboard shows where people are assigned when they log
 in, plus their own calendar from B6.7. That is the primary screen, not a
@@ -6080,7 +6085,7 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       (honor the service layer's existing cost/margin masking, don't
       re-implement it in the UI); **e)** communications; **f)** marketing/
       HR/procurement/compliance.
-- [ ] **B6.5** — file/document upload. **Rule-4 category** (new
+- [x] **B6.5** — file/document upload. **Rule-4 category** (new
       request-path surface, path-traversal and content-type exposure,
       reachable from the customer portal). **Rule 11: `install.sh` must
       gain the storage dir + any dependency in the same task.** Not a
@@ -6088,7 +6093,7 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       memory with no multipart or streaming, so the request path itself
       is the work. Local disk under `~/.codey_restoricon/documents/`,
       streamed, 25MB cap, images + PDF + common docs (Ish, 2026-09-02).
-- [ ] **B6.6** — the Core→Aigentik outbound notification path.
+- [x] **B6.6** — the Core→Aigentik outbound notification path.
       **New dependency direction** — today Aigentik writes through to the
       Core and nothing calls out to it; per §3.4 the Core must not grow
       its own SMTP/SMS. **Email now. SMS is an investigation item, not a
@@ -6099,14 +6104,14 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       Aigentik already builds and sends `VEVENT`/`METHOD:REQUEST` and
       reads `ics_sequence`, a column the Core's `appointments` table
       already has.
-- [ ] **B6.7** — staff scheduling. **Rule-4 category** (new permissions).
+- [x] **B6.7** — staff scheduling. **Rule-4 category** (new permissions).
       New `staff_schedules` table (Ish, 2026-09-02) — `appointments` is
       left untouched because it is Aigentik's live `calendar.js`
       write-through target with `external_id` idempotency, and
       `schedule_config` is a hard singleton, not per-person. Plus the
       admin-side scheduling UI; schedule changes send an ICS invite via
       B6.6.
-- [ ] **B6.8** — the PM / sales / technician / subcontractor portals.
+- [x] **B6.8** — the PM / sales / technician / subcontractor portals.
       **Rule-4 category** — four new authenticated surfaces over the same
       customer and financial data, and the subcontractor portal is the
       first surface exposing project data outside the company; its
@@ -6118,10 +6123,8 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
 **Phase B7 — backup and DR to Google Cloud Storage (§6.10).** Added
 2026-09-02 at Ish's request; **resolves §8 Q5's backup half.**
 
-- [ ] **B7.1** — the Core DB half: continuous local journal + periodic
-      GCS snapshot of `~/.codey_restoricon/core.db`. **No dependency on
-      B6** — could run earlier than the rest of B7, and arguably should,
-      since the DB already holds real business data today.
+- [x] **B7.1** — the Core DB half: continuous local journal + periodic
+      GCS snapshot of `~/.codey_restoricon/core.db`. **Code-complete 2026-09-07 (Litestream integration).** Not live-verified until B7.4.
 - [ ] **B7.2** — incremental upload of the B6.5 document/photo store.
       **Depends on B6.5** (nothing to back up until upload exists).
       Incremental, not a full re-push per cycle.

@@ -22,6 +22,9 @@ AIGENTIK_LOG_FILE="$DAEMON_DIR/aigentik.log"
 CLOUDFLARED_PID_FILE="$DAEMON_DIR/cloudflared.pid"
 CLOUDFLARED_LOG_FILE="$DAEMON_DIR/cloudflared.log"
 
+LITESTREAM_PID_FILE="$DAEMON_DIR/litestream.pid"
+LITESTREAM_LOG_FILE="$DAEMON_DIR/litestream.log"
+
 mkdir -p "$DAEMON_DIR"
 
 # ── Core PID lifecycle helpers ───────────────────────────────────────────────
@@ -470,6 +473,156 @@ print(f\"{c['dir']}|{c['port']}\")
     fi
 }
 
+# ── Service: Litestream ───────────────────────────────────────────────────────
+
+start_litestream() {
+    local l_dir="$DAEMON_DIR"
+    local l_token="replicate"
+    local l_bin="$HOME/go/bin/litestream"
+    local l_cfg="$HOME/.codeyOS/litestream.yml"
+    
+    if [ ! -f "$l_bin" ]; then
+        return 0
+    fi
+    
+    # Generate litestream.yml
+    python3 "$CODEY_OS_DIR/core/setup_litestream.py" || return 1
+    
+    if [ ! -f "$l_cfg" ]; then
+        return 0
+    fi
+    
+    # Propagate GCS credentials if set in environment (used by Litestream in background)
+    if [ -n "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
+        export GOOGLE_APPLICATION_CREDENTIALS
+    fi
+
+
+    local tracked_pid=""
+    if svc_is_running "$LITESTREAM_PID_FILE"; then
+        tracked_pid=$(cat "$LITESTREAM_PID_FILE" 2>/dev/null || echo "")
+    fi
+
+    local all_found_pids
+    all_found_pids=$(svc_find_orphans_by_cwd "$l_dir" "litestream" "$l_token")
+    local orphan_pids=()
+    for p in $all_found_pids; do
+        if [ -n "$tracked_pid" ] && [ "$p" = "$tracked_pid" ]; then
+            continue
+        fi
+        orphan_pids+=("$p")
+    done
+
+    if [ -n "$tracked_pid" ] && [ ${#orphan_pids[@]} -eq 0 ]; then
+        echo "  Litestream  → already running (PID $tracked_pid)"
+        return 0
+    fi
+
+    if [ ${#orphan_pids[@]} -gt 0 ]; then
+        echo "  ⚠ Litestream → found ${#orphan_pids[@]} orphaned process(es) not tracked by PID file: ${orphan_pids[*]} — terminating before starting fresh"
+        for opid in "${orphan_pids[@]}"; do
+            echo "  Terminating orphan Litestream process (PID $opid)..."
+            kill -TERM "$opid" 2>/dev/null || true
+            for i in {1..10}; do
+                if ! kill -0 "$opid" 2>/dev/null; then
+                    break
+                fi
+                sleep 0.5
+            done
+            if kill -0 "$opid" 2>/dev/null; then
+                kill -9 "$opid" 2>/dev/null || true
+            fi
+        done
+    fi
+
+    if [ -n "$tracked_pid" ]; then
+        echo "  Litestream  → running (PID $tracked_pid)"
+        return 0
+    fi
+
+    echo "  Litestream  → starting replication..."
+    (cd "$l_dir" && exec nohup "$l_bin" replicate -config "$l_cfg" >> "$LITESTREAM_LOG_FILE" 2>&1) &
+    local l_pid=$!
+    echo "$l_pid" > "$LITESTREAM_PID_FILE"
+    sleep 0.5
+    
+    if kill -0 "$l_pid" 2>/dev/null; then
+        echo "  Litestream  → started (PID $l_pid)"
+    else
+        echo "  Litestream  → ERROR: failed to start. Check $LITESTREAM_LOG_FILE"
+        rm -f "$LITESTREAM_PID_FILE"
+        return 1
+    fi
+}
+
+stop_litestream() {
+    local l_dir="$DAEMON_DIR"
+    local l_token="replicate"
+    
+    svc_stop_by_pid "$LITESTREAM_PID_FILE" "Litestream"
+
+    local remaining_pids
+    remaining_pids=$(svc_find_orphans_by_cwd "$l_dir" "litestream" "$l_token")
+    if [ -n "$remaining_pids" ]; then
+        local r_array=($remaining_pids)
+        echo "  ⚠ Litestream → found ${#r_array[@]} remaining process(es) after stop: $remaining_pids — terminating"
+        for opid in "${r_array[@]}"; do
+            echo "  Terminating remaining Litestream process (PID $opid)..."
+            kill -TERM "$opid" 2>/dev/null || true
+            for i in {1..10}; do
+                if ! kill -0 "$opid" 2>/dev/null; then
+                    break
+                fi
+                sleep 0.5
+            done
+            if kill -0 "$opid" 2>/dev/null; then
+                kill -9 "$opid" 2>/dev/null || true
+            fi
+        done
+    fi
+
+    local final_pids
+    final_pids=$(svc_find_orphans_by_cwd "$l_dir" "litestream" "$l_token")
+    if [ -z "$final_pids" ]; then
+        echo "  Litestream  → fully stopped, 0 processes remaining"
+    else
+        echo "  ⚠ Litestream → WARNING: processes still alive: $final_pids"
+    fi
+}
+
+status_litestream() {
+    local l_dir="$DAEMON_DIR"
+    local l_token="replicate"
+    local tracked_pid=""
+    if svc_is_running "$LITESTREAM_PID_FILE"; then
+        tracked_pid=$(cat "$LITESTREAM_PID_FILE" 2>/dev/null || echo "")
+    fi
+
+    local all_found_pids
+    all_found_pids=$(svc_find_orphans_by_cwd "$l_dir" "litestream" "$l_token")
+    local orphan_pids=()
+    for p in $all_found_pids; do
+        if [ -n "$tracked_pid" ] && [ "$p" = "$tracked_pid" ]; then
+            continue
+        fi
+        orphan_pids+=("$p")
+    done
+
+    if [ -n "$tracked_pid" ]; then
+        if [ ${#orphan_pids[@]} -gt 0 ]; then
+            echo "  Litestream:      running (PID $tracked_pid) [⚠ ${#orphan_pids[@]} orphan(s): ${orphan_pids[*]}]"
+        else
+            echo "  Litestream:      running (PID $tracked_pid)"
+        fi
+    else
+        if [ ${#orphan_pids[@]} -gt 0 ]; then
+            echo "  Litestream:      stopped (PID file) [⚠ ${#orphan_pids[@]} UNTRACKED orphan(s) running: ${orphan_pids[*]}]"
+        else
+            echo "  Litestream:      stopped"
+        fi
+    fi
+}
+
 # ── Service: Cloudflare Tunnel ──────────────────────────────────────────────
 
 start_cloudflare() {
@@ -528,10 +681,12 @@ start_all_services() {
     start_restoricon
     start_aigentik
     start_cloudflare
+    start_litestream
 }
 
 stop_all_services() {
     echo "Stopping Codey-OS services..."
+    stop_litestream
     stop_cloudflare
     stop_aigentik
     stop_restoricon
@@ -547,6 +702,7 @@ status_all_services() {
     status_restoricon
     status_aigentik
     status_cloudflare
+    status_litestream
     echo "──────────────────────────────────────────────"
     if [ -f "$CODEY_OS_DIR/codeydOS" ]; then
         bash "$CODEY_OS_DIR/codeydOS" status || true
@@ -568,10 +724,13 @@ show_service_logs() {
         cloudflare|cloudflared|tunnel)
             tail -n 50 "$CLOUDFLARED_LOG_FILE" 2>/dev/null || echo "No log found for cloudflare ($CLOUDFLARED_LOG_FILE)."
             ;;
+        litestream)
+            tail -n 50 "$LITESTREAM_LOG_FILE" 2>/dev/null || echo "No log found for litestream ($LITESTREAM_LOG_FILE)."
+            ;;
         *)
-            echo "Available logs: daemon, restoricon, aigentik, cloudflare"
+            echo "Available logs: daemon, restoricon, aigentik, cloudflare, litestream"
             echo
-            for logfile in "$DAEMON_LOG_FILE" "$RESTORICON_LOG_FILE" "$AIGENTIK_LOG_FILE" "$CLOUDFLARED_LOG_FILE"; do
+            for logfile in "$DAEMON_LOG_FILE" "$RESTORICON_LOG_FILE" "$AIGENTIK_LOG_FILE" "$CLOUDFLARED_LOG_FILE" "$LITESTREAM_LOG_FILE"; do
                 if [ -f "$logfile" ]; then
                     echo "=== $(basename "$logfile") (last 10 lines) ==="
                     tail -n 10 "$logfile"
@@ -615,7 +774,7 @@ Commands:
   stop            Stop all Codey-OS services cleanly
   status          Show status of all services and daemon model health
   restart         Restart all services cleanly
-  logs [service]  Show service logs (daemon, restoricon, aigentik, cloudflare)
+  logs [service]  Show service logs (daemon, restoricon, aigentik, cloudflare, litestream)
   config          Show active configuration settings
   help, --help    Show this help message
 

@@ -97,7 +97,7 @@ install_system_deps() {
             print_warning "Running as root in Termux — skipping pkg install (run as regular user for full install)"
         else
             pkg update -y
-            pkg install -y python cmake ninja clang wget curl git
+            pkg install -y python cmake ninja clang wget curl git golang sqlite
             # pyarrow & pandas must come from pkg on Termux (pip wheels fail on aarch64)
             pkg install -y python-pyarrow python-pandas 2>/dev/null \
                 || print_warning "python-pyarrow/pandas pkg install failed — pipeline features may not work"
@@ -120,24 +120,24 @@ install_system_deps() {
     elif command -v apt &>/dev/null; then
         if [ "$(id -u)" -eq 0 ]; then
             apt update -y
-            apt install -y python3 python3-pip cmake ninja-build clang wget curl git espeak
+            apt install -y python3 python3-pip cmake ninja-build clang wget curl git espeak golang sqlite3
         else
             sudo apt update -y
-            sudo apt install -y python3 python3-pip cmake ninja-build clang wget curl git espeak
+            sudo apt install -y python3 python3-pip cmake ninja-build clang wget curl git espeak golang sqlite3
         fi
         print_success "apt packages installed"
     elif command -v dnf &>/dev/null; then
         if [ "$(id -u)" -eq 0 ]; then
-            dnf install -y python3 python3-pip cmake ninja clang wget curl git espeak
+            dnf install -y python3 python3-pip cmake ninja clang wget curl git espeak golang sqlite
         else
-            sudo dnf install -y python3 python3-pip cmake ninja clang wget curl git espeak
+            sudo dnf install -y python3 python3-pip cmake ninja clang wget curl git espeak golang sqlite
         fi
         print_success "dnf packages installed"
     elif command -v pacman &>/dev/null; then
         if [ "$(id -u)" -eq 0 ]; then
-            pacman -S --noconfirm python python-pip cmake ninja clang wget curl git espeak-ng
+            pacman -S --noconfirm python python-pip cmake ninja clang wget curl git espeak-ng go sqlite
         else
-            sudo pacman -S --noconfirm python python-pip cmake ninja clang wget curl git espeak-ng
+            sudo pacman -S --noconfirm python python-pip cmake ninja clang wget curl git espeak-ng go sqlite
         fi
         print_success "pacman packages installed"
     else
@@ -436,6 +436,30 @@ verify_installation() {
     command -v codey-metrics &>/dev/null && print_success "codey-metrics: in PATH" || print_warning "codey-metrics: not in PATH yet (restart terminal)"
 }
 
+# ── 7.5. Litestream ────────────────────────────────────────────────────────────
+install_litestream() {
+    print_step "Litestream"
+    
+    if [ -f "$HOME/go/bin/litestream" ]; then
+        print_success "litestream already installed — skipping"
+        return 0
+    fi
+    
+    print_status "Installing Litestream (v0.3.13)..."
+    if ! command -v go &>/dev/null; then
+        print_warning "go compiler not found — skip litestream install"
+        return 1
+    fi
+    
+    # Needs to disable CGO on some environments for clean static build, or just let it use defaults
+    go install github.com/benbjohnson/litestream/cmd/litestream@v0.3.13 || {
+        print_error "Failed to install litestream"
+        return 1
+    }
+    
+    print_success "Litestream installed successfully"
+}
+
 # ── 8. Completion message ─────────────────────────────────────────────────────
 print_completion() {
     echo
@@ -563,6 +587,7 @@ main() {
     setup_config
     setup_path
     setup_symlinks
+    install_litestream
     verify_installation
     print_completion
 }
