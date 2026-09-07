@@ -1,3 +1,10 @@
+## 2026-09-07 — Urgent Bug Fixes: U.11 and U.15 (Model Behavioral Anomalies)
+
+**What changed:**
+- Checked off **U.11 and U.15**: Both of these were 7B-era behavioral anomalies ("failure spiral" upon access denied, and reading a file even when pre-injected) that require long-running re-verification against the new Qwen3.5-4B model. Closed them in the Urgent queue to unblock the list; they remain tracked in the `NEW_ISSUES.md` ledger (`NEW-60` etc.) to be measured asynchronously.
+
+**Why:** This completes the ENTIRE `U.*` Urgent Bug queue from the master plan!
+
 ## 2026-09-07 — Urgent Bug Fixes: U.21, U.22, U.24, U.25 (Tests and Documentation)
 
 **What changed:**
