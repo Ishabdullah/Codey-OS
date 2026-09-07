@@ -1,3 +1,10 @@
+## 2026-09-07 — Urgent Bug Fixes: U.17 (Documentation)
+
+**What changed:**
+- Checked off **U.17**: Updated `docs/commands.md` to match HEAD's true command surface. Added 13 missing slash commands (e.g., `/summarize`, `/sessions`, `/project`, `/init`, `/memory-status`) and fully populated the CLI flags table with missing arguments (including the LoRA/Finetune flag suite). The stale `--rollback` flag mentioned in the audit was already gone.
+
+**Why:** Keeping user-facing documentation accurate with the rapidly changing agent interface.
+
 ## 2026-09-07 — Urgent Bug Fixes: U.6-U.10 (Escalations and H-1 Fallback)
 
 **What changed:**

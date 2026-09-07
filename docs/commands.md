@@ -42,12 +42,24 @@ flag not otherwise surfaced (e.g. `--init`, `--tdd`, `--fix`).
 | `--init` | Generate `CODEY.md` for the current project and exit |
 | `--fix <file>` | Run a file and auto-fix any errors |
 | `--tdd <file>` | TDD mode — run tests and iterate until they pass |
+| `--tests <file>` | Test file for --tdd mode |
 | `--no-resume` | Start a fresh session (ignore saved history) |
+| `--clear-session` | Clear saved session |
 | `--plan` | Force planning mode for complex tasks |
 | `--no-plan` | Disable orchestration and planning |
-| `--finetune` | Export interaction data for fine-tuning |
-| `--import-lora` | Import a trained LoRA adapter |
-| `--rollback` | Roll back to the model state before last LoRA import |
+| `--chat` | Start directly in interactive chat mode |
+| `--version` | Print version information |
+| `--session <id>` | Resume a specific session ID |
+| `--no-peer` | Disable peer CLI auto-discovery |
+| `--import-lora <path>` | Import a LoRA adapter from a given path |
+| `--finetune` | Run synthetic finetune job generation |
+| `--ft-days <n>` | Days of history to use for finetuning |
+| `--ft-model <name>` | Model base name for finetuning |
+| `--ft-output <dir>` | Output directory for finetune job |
+| `--ft-quality <q>` | Minimum quality score filter for finetuning |
+| `--lora-merge` | Merge LoRA weights into base model |
+| `--lora-model <path>` | Target model for LoRA operations |
+| `--lora-quant <q>` | Quantization format for LoRA output |
 
 ---
 
@@ -63,7 +75,24 @@ flag not otherwise surfaced (e.g. `--init`, `--tdd`, `--fix`).
 | `/search <pattern>` | Grep across all project files |
 | `/context` | Show which files are currently loaded |
 | `/clear` | Clear conversation history and session state |
+| `/summarize` | Compress conversation history to save tokens |
+| `/unread <file>` | Remove a file from the current context |
+| `/cwd <path>` | Change the working directory |
+| `/ignore <path>` | Add a file or directory to .codeyignore |
 | `/exit` | Save session and quit |
+
+### Project & Memory
+
+| Command | Description |
+|---------|-------------|
+| `/project` | Show current project status and active workspace |
+| `/init` | Initialize CODEY.md project memory |
+| `/memory` | Show current CODEY.md contents |
+| `/memory-status` | Show semantic memory system status |
+| `/memory-v2` | Show RAG/Knowledge Base status |
+| `/sessions` | List saved sessions |
+| `/load <id>` | Load a saved session |
+| `/graph` | Show import graph or project structure |
 
 ### Git
 

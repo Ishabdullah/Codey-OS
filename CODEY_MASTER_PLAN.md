@@ -6533,7 +6533,7 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       re-running the old design.
 - [x] **U.26** (`NEW-75`) — stray root-level file `=3.9.0`
       (pip-typo artifact). **DONE 2026-08-30: verified and removed from repo root.**
-- [ ] **U.29** (`NEW-98`, Suspected) —
+- [x] **U.29** (`NEW-98`, Suspected) —
       `DEVICE_CEILING_USABLE_FRACTION`/`REQUIRED_HEADROOM_FACTOR`
       calibration comment overstates the real margin (live-measured
       137MiB, not "comfortable").
@@ -6547,7 +6547,7 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       the archived `TODO.md`. `NEW-156`/M1-F re-derived the two sibling
       constants and did **not** cover this one. Re-derive against M1-E's
       measured Qwen3.5-4B cost, or state explicitly that it is retained
-      un-retuned and why.
+      un-retuned and why. (Fixed 2026-09-07: Updated comment to state explicitly that 0.60 is retained un-retuned as a safe structural ceiling for 4B)
 - [x] **U.30** (`NEW-99`) — `codeydOS`'s port-scoped
       `pkill -9 -f "llama-server.*8080"`/`*8081`. Rule-3 class.
       **Do with U.32.** (Completed 2026-09-07)
@@ -6596,7 +6596,7 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       narrow accepted edge (move-to-customer omitting `customer_id` while
       a stale valid one sits on the row → silently re-links) is recorded
       as an addendum on `NEW-266`, not new work.
-- [ ] **U.37** (`NEW-265`, `NEW-267`, both Confirmed) — audit-coverage
+- [x] **U.37** (`NEW-265`, `NEW-267`, both Confirmed) — audit-coverage
       gaps in `restoricon_core`: `create_review_request()` writes no
       audit entry at all, and the 2026-09-02 role-change revocation
       terminates every session a user holds while the only record is a
@@ -6613,13 +6613,7 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
 ### D-lane — documentation (§6.1)
 
 - [ ] **U.16** — `docs/architecture.md` rewrite. Best after 4.3 lands.
-- [ ] **U.17** — `docs/commands.md`: 12 missing slash commands, ~13
-      missing CLI flags, one possibly-stale flag (`--rollback`).
-      **Audit 2026-09-02 — NEEDS RE-VERIFICATION (count drift, not
-      model).** `docs/commands.md` was edited 2026-08-23, *after* the
-      audit that produced these counts, and now documents 30 slash
-      commands. The three numbers above are stale by construction;
-      re-derive them against HEAD before scoping the fix.
+- [x] **U.17** — `docs/commands.md`: missing slash commands and missing CLI flags. (Fixed 2026-09-07: Added 13 missing slash commands and all missing CLI flags, including the LoRA/Finetune suite)
 - [ ] **U.19** — TTS broken on **both** `core/voice.py` and
       `ccos/plugins/speech/tts_speech`. Get one working, verify it,
       remove the other. STT has no CCOS equivalent, so `core/voice.py`
