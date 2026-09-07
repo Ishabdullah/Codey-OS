@@ -2,18 +2,14 @@
 Tests for Peer-CLI Escalation Redesign & Review Queue on TaskBlackboard (Track A / Item 4.5).
 """
 
-import os
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from ccos.core.task_blackboard import TaskBlackboard
 from core.peer_cli import (
     PeerCLI,
-    get_peer_cli_manager,
     is_interactive_environment,
     escalate_or_park,
-    list_parked_escalations,
-    resolve_parked_escalation,
     execute_parked_escalation,
 )
 

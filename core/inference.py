@@ -7,7 +7,7 @@ import urllib.error
 import urllib.request
 
 from utils.config import MODEL_CONFIG, PRIMARY_SERVER_PORT
-from utils.logger import error, info
+from utils.logger import error
 
 SERVER_URL = f"http://127.0.0.1:{PRIMARY_SERVER_PORT}"
 CHAT_URL = f"{SERVER_URL}/v1/chat/completions"

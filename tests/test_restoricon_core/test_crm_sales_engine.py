@@ -18,10 +18,6 @@ from restoricon_core.api.routes import APIRouter
 from restoricon_core.auth import (
     AuthContext,
     AuthService,
-    PERM_MANAGE_PIPELINE,
-    PERM_READ_CRM,
-    PERM_SCORE_LEADS,
-    PERM_WRITE_CRM,
     ROLE_ADMIN,
     ROLE_AI_AGENT,
     ROLE_CUSTOMER,

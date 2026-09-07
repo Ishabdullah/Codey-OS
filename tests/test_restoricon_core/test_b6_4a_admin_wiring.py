@@ -1,4 +1,3 @@
-import pytest
 from restoricon_core.api.web_surfaces import render_admin_surface
 
 def test_admin_surface_contains_fetch_calls():

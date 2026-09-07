@@ -3,15 +3,11 @@ import pytest
 from ccos.core.device_bridge import (
     DeviceBridgeServer,
     DeviceBridgeClient,
-    DeviceBridgeRequest,
-    DeviceBridgeResponse,
     SafetyVetoError,
     validate_telephony_safety,
     record_device_interaction_to_core,
     ACTION_THIRD_PARTY_MESSAGE,
     ACTION_EXECUTE_TASK,
-    ACTION_SEND_SMS,
-    ACTION_MAKE_CALL,
     ACTION_INSPECT_UI,
 )
 from ccos.plugins.device.bridge.bridge import (

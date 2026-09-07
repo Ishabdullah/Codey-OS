@@ -21,10 +21,9 @@ import sqlite3
 import threading
 import time
 import uuid
-from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 DB_PATH = str(Path(__file__).parent.parent / "data" / "ccos_memory.db")
 

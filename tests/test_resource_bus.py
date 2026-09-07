@@ -5,27 +5,18 @@ Tests priority ordering, priority aging, thermal throttle gating,
 dead PID / stale record reaping, and multi-process contention.
 """
 
-import os
 import time
-from pathlib import Path
-import pytest
 
 from core.resource_bus import (
     PriorityLevel,
-    ReservationStatus,
     ThermalThrottleState,
-    ResourceRequest,
-    ResourceLease,
-    BusDecision,
     compute_effective_priority,
     get_thermal_throttle_state,
-    get_memory_headroom,
     _pid_alive,
     reap_stale_records,
     acquire_context_lease,
     release_context_lease,
     request_resource,
-    release_lease,
     poll_queue,
 )
 

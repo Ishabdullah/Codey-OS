@@ -9,8 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from ccos.core.capability_registry import get_capability_registry
-from ccos.core.plugin_manager import PluginManager, get_plugin_manager
-from ccos.plugins.coding.agent.agent import AgentExecutionResult, scoped_agent_permissions
+from ccos.core.plugin_manager import PluginManager
 from core.daemon_config import DaemonConfig
 from core.state import StateStore
 from core.task_executor import TaskExecutor

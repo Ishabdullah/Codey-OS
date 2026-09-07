@@ -11,7 +11,6 @@ import json
 import queue
 import time
 
-import pytest
 
 from telemetry import envelope, store
 

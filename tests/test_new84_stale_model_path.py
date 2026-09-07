@@ -26,7 +26,6 @@ comment) — the surviving "secondary" test below is updated to match.
 All tests here use fake/mocked LlamaServer + resource_gate slot functions —
 no real llama-server process is spawned (CLAUDE.md rule 2, RAM discipline).
 """
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest

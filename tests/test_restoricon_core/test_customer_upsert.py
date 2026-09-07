@@ -3,16 +3,12 @@ Tests for customer upsert, update, search, RBAC enforcement, and HTTP routes
 (Phase B2 Task 4: Customer Write-Through Cutover and Core API Groundwork).
 """
 
-import json
 import pytest
 from restoricon_core.api.server import RestoriconAPIServer
 from restoricon_core.auth import (
     AuthContext,
     AuthService,
     ROLE_ADMIN,
-    ROLE_AI_AGENT,
-    ROLE_CUSTOMER,
-    ROLE_TECHNICIAN,
 )
 from restoricon_core.database import DatabaseManager
 from restoricon_core.models import Customer

@@ -22,7 +22,6 @@ from restoricon_core.models import (
     PurchaseOrder,
     ReviewRequest,
     Timesheet,
-    User,
     Vendor,
 )
 from restoricon_core.services.audit_service import AuditService

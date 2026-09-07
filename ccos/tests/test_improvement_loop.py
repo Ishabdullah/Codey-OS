@@ -14,7 +14,6 @@ Verifies the system can:
 - Maintain version history
 """
 
-import json
 import sys
 import tempfile
 import time
@@ -27,7 +26,7 @@ from ccos.core.capability_optimizer import CapabilityOptimizer
 from ccos.core.auto_improvement_loop import AutoImprovementLoop
 from ccos.core.lifecycle_manager import LifecycleManager
 from ccos.core.capability_registry import (
-    Capability, CapabilityStatus, CapabilityRegistry,
+    Capability, CapabilityRegistry,
 )
 from ccos.core.plugin_manager import PluginManager
 from ccos.core.tool_router import ToolRouter

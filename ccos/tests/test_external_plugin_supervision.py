@@ -6,12 +6,8 @@ in CCOS PluginManager and ProcessSupervisor.
 
 import json
 import os
-import signal
 import sys
-import time
-from pathlib import Path
 from unittest import mock
-import pytest
 
 from ccos.core.capability_registry import CapabilityRegistry
 from ccos.core.plugin_manager import Plugin, PluginManager, PluginStatus, ProcessSupervisor

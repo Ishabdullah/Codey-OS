@@ -921,7 +921,6 @@ class Daemon:
 
         # Wire ProjectMemory: load CODEY.md and config.json at boot (never evicted)
         try:
-            from pathlib import Path as _Path
 
             from core.codeymd import find_codeymd, read_codeymd
             from core.memory_v2 import memory as _mem

@@ -35,7 +35,6 @@ than a hand-rolled fake.
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 
 import core.daemon as daemon_mod
 import core.planner_v2 as planner_v2_mod

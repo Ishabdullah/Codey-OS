@@ -17,9 +17,7 @@ device's real live state.
 """
 
 import time
-from pathlib import Path
 
-import pytest
 
 import core.resource_gate as rg
 

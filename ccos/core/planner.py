@@ -14,7 +14,6 @@ Planning loop:
 6. Store result in memory
 """
 
-import json
 import time
 from dataclasses import dataclass, field
 from enum import Enum

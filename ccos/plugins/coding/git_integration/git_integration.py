@@ -16,21 +16,6 @@ from ccos.plugins._pathutil import ensure_repo_root_on_path
 ensure_repo_root_on_path()
 
 from core.githelper import (
-    detect_conflicts,
-    generate_commit_message,
-    get_conflict_sections,
-    git_branch_create,
-    git_branches,
-    git_checkout,
-    git_commit,
-    git_commit_log_messages,
-    git_current_branch,
-    git_diff_for_commit,
-    git_diff_stat,
-    git_log,
-    git_merge,
-    git_push,
-    git_status,
     is_git_repo,
 )
 

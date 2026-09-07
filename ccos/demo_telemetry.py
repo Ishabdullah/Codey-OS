@@ -12,7 +12,6 @@ Demonstrates:
 Run: PYTHONPATH=/root/Codey-OS python3 ccos/demo_telemetry.py
 """
 
-import json
 import sys
 import time
 from pathlib import Path
@@ -25,7 +24,6 @@ def main():
     from ccos.core.plugin_manager import get_plugin_manager
     from ccos.core.telemetry_engine import get_telemetry_engine
     from ccos.core.capability_registry import get_capability_registry
-    from ccos.core.goal_engine import get_goal_engine
 
     print("=" * 60)
     print("  CCOS Telemetry Engine Demo")

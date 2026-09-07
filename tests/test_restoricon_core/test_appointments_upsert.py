@@ -12,7 +12,7 @@ from restoricon_core.auth import (
     ROLE_AI_AGENT,
 )
 from restoricon_core.database import DatabaseManager
-from restoricon_core.models import Appointment, ScheduleConfig
+from restoricon_core.models import Appointment
 from restoricon_core.services.audit_service import AuditService
 from restoricon_core.services.scheduling_service import SchedulingService
 from restoricon_core.services.crm_service import CRMService

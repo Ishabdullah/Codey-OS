@@ -3,7 +3,7 @@
 import importlib.util
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 # Resolve repo root using _pathutil
 _pathutil_path = Path(__file__).resolve().parent.parent.parent / "_pathutil.py"
@@ -13,12 +13,9 @@ _spec.loader.exec_module(_pathutil)
 _pathutil.ensure_repo_root_on_path()
 
 from ccos.core.capability_registry import get_capability_registry
-from ccos.core.plugin_manager import PluginManager, get_plugin_manager
+from ccos.core.plugin_manager import PluginManager
 from ccos.plugins.coding.agent.agent import (
     AgentExecutionResult,
-    classify_breadth_capability,
-    run_agent_capability,
-    run_recursive_capability,
     scoped_agent_permissions,
     test,
 )

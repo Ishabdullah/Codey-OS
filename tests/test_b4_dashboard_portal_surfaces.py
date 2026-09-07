@@ -4,13 +4,11 @@ Phase B4 Test Suite — Staff/Admin Surface, Customer Portal SPAs & Device Limb 
 
 import json
 import pytest
-from typing import Dict, Any
 
 from restoricon_core.auth import (
     AuthService,
     ROLE_ADMIN,
     ROLE_CUSTOMER,
-    ROLE_TECHNICIAN,
 )
 from restoricon_core.database import DatabaseManager
 from restoricon_core.models import (
@@ -18,7 +16,6 @@ from restoricon_core.models import (
     Project,
     Contract,
     FinancialTransaction,
-    Appointment,
 )
 from restoricon_core.services.analytics_search_service import AnalyticsSearchService
 from restoricon_core.services.audit_service import AuditService

@@ -12,16 +12,12 @@ Rules:
 - All improvements go through sandbox validation
 """
 
-import json
-import os
 import shutil
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from ccos.core.capability_registry import (
-    Capability,
-    CapabilityStatus,
     get_capability_registry,
 )
 from ccos.core.performance_tracker import get_performance_tracker

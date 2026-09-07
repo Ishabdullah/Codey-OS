@@ -3,7 +3,6 @@ Plan mode — think before acting on complex tasks.
 Codey writes a short plan, user approves, then executes.
 """
 
-from core.orchestrator import is_complex  # single shared implementation
 from utils.logger import console, info, separator
 
 PLAN_SYSTEM_PROMPT = """You are Codey's planning module. When given a task, write a concise action plan.

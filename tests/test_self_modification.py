@@ -143,7 +143,7 @@ class TestCheckpointEnforcement:
 
         # The _checkpoint_created flag should track state
         assert hasattr(fs, "_checkpoint_created")
-        assert fs._checkpoint_created == False
+        assert not fs._checkpoint_created
 
     def test_checkpoint_flag_prevents_duplicate(self):
         """Checkpoint should only be created once per session."""
@@ -160,7 +160,7 @@ class TestCheckpointEnforcement:
             pass  # Expected in test env without git
 
         # Flag should still be True
-        assert fs._checkpoint_created == True
+        assert fs._checkpoint_created
 
 
 if __name__ == "__main__":

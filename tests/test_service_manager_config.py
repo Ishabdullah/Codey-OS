@@ -6,7 +6,6 @@ Restoricon API config, GUI config, Aigentik config, and env var overrides.
 import json
 import os
 import subprocess
-import tempfile
 from pathlib import Path
 import pytest
 

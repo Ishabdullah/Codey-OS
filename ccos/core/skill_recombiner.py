@@ -14,9 +14,8 @@ Pipeline:
 """
 
 import json
-import sqlite3
 import time
-from collections import Counter, defaultdict
+from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -28,7 +27,7 @@ from ccos.core.capability_registry import (
 )
 from ccos.core.memory.ccos_memory import get_ccos_memory
 from ccos.core.performance_tracker import get_performance_tracker
-from ccos.core.sandbox import Sandbox, get_sandbox
+from ccos.core.sandbox import get_sandbox
 
 
 # ── Data structures ────────────────────────────────────────────────

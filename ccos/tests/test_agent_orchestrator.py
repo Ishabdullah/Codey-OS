@@ -9,7 +9,6 @@ Tests multi-agent deliberation: planner → critic → optimizer
 import json
 import sys
 import tempfile
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -26,7 +25,6 @@ from ccos.core.agent_orchestrator import (
     OptimizerAgent,
     CapabilityAgent,
     SafetyAgent,
-    get_agent_orchestrator,
 )
 from ccos.core.capability_registry import (
     Capability,

@@ -19,19 +19,16 @@ from ..auth import (
     PERM_READ_SUBCONTRACTORS,
     PERM_WRITE_OPERATIONS,
     ROLE_CUSTOMER,
-    ROLE_TECHNICIAN,
 )
 from ..database import DatabaseManager
 from ..models import (
     Equipment,
-    EquipmentCategory,
     EquipmentDeployment,
     EquipmentStatus,
     MilestoneStatus,
     Project,
     ProjectMilestone,
     ProjectStage,
-    Subcontractor,
     WorkOrder,
     WorkOrderStatus,
     utc_now_iso,

@@ -3,7 +3,7 @@ Device Bridge Plugin Implementation.
 Exposes CCOS capability wrapper functions mapped to DeviceBridgeClient.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 from ccos.core.device_bridge import (
     DeviceBridgeClient,
     get_default_device_bridge_client,

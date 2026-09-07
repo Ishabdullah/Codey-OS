@@ -15,7 +15,6 @@ import pytest
 
 import core.loader_v2 as lv
 import core.resource_gate as rg
-import utils.config as cfg
 from telemetry import envelope, recorders, schema
 
 # Captured at collection time, before _capture_telemetry's autouse fixture

@@ -32,7 +32,6 @@ from ..models import (
     Document,
     Employee,
     Equipment,
-    EquipmentDeployment,
     Estimate,
     FinancialTransaction,
     Invoice,

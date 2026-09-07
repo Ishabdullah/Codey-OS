@@ -4,7 +4,6 @@ CCOS Test Suite — Tests for all core modules.
 """
 
 import importlib.util
-import json
 import sys
 import tempfile
 from pathlib import Path
@@ -19,13 +18,11 @@ _spec.loader.exec_module(_pathutil)
 _pathutil.ensure_repo_root_on_path()
 
 from ccos.core.device_manager import get_device_manager
-from ccos.core.capability_registry import Capability, CapabilityStatus, get_capability_registry
+from ccos.core.capability_registry import Capability
 from ccos.core.plugin_manager import get_plugin_manager
-from ccos.core.sandbox import get_sandbox, Sandbox
+from ccos.core.sandbox import Sandbox
 from ccos.core.tool_router import get_tool_router
 from ccos.core.planner import get_planner
-from ccos.core.reflection_engine import get_reflection_engine
-from ccos.core.memory.ccos_memory import get_ccos_memory
 
 
 def test_device_manager():

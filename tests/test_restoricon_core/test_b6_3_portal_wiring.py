@@ -1,4 +1,3 @@
-import pytest
 from restoricon_core.api.web_surfaces import render_portal_surface
 
 def test_portal_surface_wiring():

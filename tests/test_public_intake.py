@@ -9,7 +9,7 @@ import json
 import pytest
 from restoricon_core.api.routes import APIRouter
 from restoricon_core.api.rate_limiter import RateLimiter
-from restoricon_core.auth import AuthService, AuthContext, ROLE_ADMIN, ROLE_CUSTOMER
+from restoricon_core.auth import AuthService, ROLE_ADMIN
 from restoricon_core.database import DatabaseManager
 from restoricon_core.services.audit_service import AuditService
 from restoricon_core.services.automation_service import AutomationService

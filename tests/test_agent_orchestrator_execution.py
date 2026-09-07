@@ -13,28 +13,25 @@ Covers:
 """
 
 import tempfile
-import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 import pytest
 
 from ccos.core.agent_orchestrator import (
     AgentOrchestrator,
-    AgentRole,
     DecisionStatus,
     ExecutionPlan,
     PlanStep as OrchPlanStep,
     RiskLevel,
     SafetyVetoError,
     execution_plan_to_planner_plan,
-    get_agent_orchestrator,
 )
 from ccos.core.capability_registry import Capability, CapabilityRegistry
 from ccos.core.performance_tracker import PerformanceTracker
-from ccos.core.planner import Plan, Planner, StepStatus, StepType, get_planner
+from ccos.core.planner import Plan, Planner, StepStatus, StepType
 from ccos.core.task_blackboard import TaskBlackboard
 from ccos.core.task_context import TaskContext
-from ccos.core.tool_router import ToolRouter, validate_tool_safety
+from ccos.core.tool_router import validate_tool_safety
 
 
 class MockPluginManager:

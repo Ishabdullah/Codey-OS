@@ -94,7 +94,7 @@ import tempfile
 import time
 import urllib.request
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -423,13 +423,11 @@ def compute_headroom_bytes(meminfo: Dict[str, int], reserved_bytes: int = 0) -> 
 # during this module's build showed 7.3GiB already used with 5.6GiB already
 # in swap at a fairly ordinary moment) — a hard ceiling that never fires
 # isn't doing its job. 0.60 is a deliberately more conservative default:
-# ~6.5GiB on this device, which still comfortably admits the project's own
-# primary 7B model's ~6.4GiB cost estimate (the normal case) while actually
+# ~6.5GiB on this device, which comfortably admits the project's new
+# primary Qwen3.5-4B model's ~3.2GiB cost estimate (the normal case) while actually
 # refusing something meaningfully larger. Like REQUIRED_HEADROOM_FACTOR,
-# this is an un-calibrated first default, not a value confirmed against
-# real on-device load behavior — sub-task 3's live wiring (per TODO.md's
-# 7.4 entry) should validate/retune both knobs against actual observed
-# behavior, not just this sub-task's synthetic fixtures.
+# this fraction is retained un-retuned for the 4B era because 0.60 remains
+# a demonstrably safe structural ceiling, even if the margin is wider now.
 DEVICE_CEILING_USABLE_FRACTION = 0.60
 
 

@@ -1,4 +1,3 @@
-import pytest
 from restoricon_core.api.web_surfaces import (
     render_pm_surface,
     render_sales_surface,

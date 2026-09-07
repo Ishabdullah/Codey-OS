@@ -16,9 +16,8 @@ from ccos.core.auto_improvement_loop import LoopResult, get_improvement_loop
 from ccos.core.capability_registry import get_capability_registry
 from ccos.core.memory.ccos_memory import get_ccos_memory
 from ccos.core.performance_tracker import get_performance_tracker
-from ccos.core.planner import get_planner, Plan, PlanStep, StepType
+from ccos.core.planner import get_planner, Plan
 from ccos.core.plugin_manager import get_plugin_manager
-from ccos.core.reflection_engine import get_reflection_engine
 from ccos.core.tool_router import get_tool_router
 
 

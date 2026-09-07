@@ -14,7 +14,7 @@ import socket
 import threading
 import time
 import uuid
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, Optional, Set, Tuple
 
 # Standard Action Types
 ACTION_INSPECT_UI = "inspect_ui"

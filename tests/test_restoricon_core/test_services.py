@@ -21,7 +21,6 @@ from restoricon_core.database import DatabaseManager
 from restoricon_core.models import (
     Contract,
     Customer,
-    Document,
     Estimate,
     Invoice,
     Lead,

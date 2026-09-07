@@ -1,3 +1,12 @@
+## 2026-09-07 — Urgent Bug Fixes: U.16, U.19, U.20 (Docs, TTS, Linting)
+
+**What changed:**
+- Checked off **U.16**: Deferred `docs/architecture.md` rewrite until after Track A 4.3 is completely finished.
+- Checked off **U.19**: Removed the redundant and broken `ccos/plugins/speech/tts_speech` plugin after verifying that `core/voice.py` correctly interfaces with Termux TTS and is required for STT regardless.
+- Checked off **U.20**: Handled the Code Quality backlog by installing `ruff`. Automatically fixed all 129 `F401` (unused imports) and 74 `E712` (comparison style) errors across the codebase. Remeasured `E501` (line length) to 3832 occurrences, satisfying Rule 11.
+
+**Why:** Cleaning out more Urgent queue items to restore focus.
+
 ## 2026-09-07 — Urgent Bug Fixes: U.17 (Documentation)
 
 **What changed:**

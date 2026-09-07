@@ -81,3 +81,4 @@ requests>=2.31.0
 #   pkg install python-pyarrow python-pandas
 # pyarrow>=14.0.0   # DO NOT pip install on Termux — build fails on aarch64
 # pandas>=2.0.0     # DO NOT pip install on Termux — build fails on aarch64
+google-cloud-storage==2.11.0

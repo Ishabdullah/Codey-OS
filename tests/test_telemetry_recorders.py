@@ -20,7 +20,7 @@ import dataclasses
 import pytest
 
 from core.resource_gate import DispatchDecision, GateDecision, ResourceSnapshot
-from telemetry import envelope, recorders, schema, store
+from telemetry import envelope, recorders, schema
 
 
 @pytest.fixture(autouse=True)

@@ -11,9 +11,7 @@ with goal engine and skill recombiner.
 Run: PYTHONPATH=/root/Codey-OS python3 ccos/demo_agent_orchestrator.py
 """
 
-import json
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -22,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 def main():
     from ccos.core.device_manager import get_device_manager
     from ccos.core.plugin_manager import get_plugin_manager
-    from ccos.core.agent_orchestrator import get_agent_orchestrator, DecisionStatus
+    from ccos.core.agent_orchestrator import get_agent_orchestrator
     from ccos.core.goal_engine import get_goal_engine
     from ccos.core.capability_registry import get_capability_registry
     from ccos.core.performance_tracker import get_performance_tracker

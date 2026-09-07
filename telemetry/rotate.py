@@ -45,16 +45,14 @@ from __future__ import annotations
 
 import contextlib
 import fcntl
-import gzip
 import json
 import os
 import shutil
 import tarfile
-import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 RAW_RETENTION_DAYS = 7
 ROTATE_LOCK_FILE = ".rotate.lock"

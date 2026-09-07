@@ -3,16 +3,10 @@
 Unit tests for Device Bridge IPC envelopes, action dispatch, safety vetoes, and socket comms.
 """
 
-import time
 import pytest
 
 from ccos.core.device_bridge import (
     ACTION_INSPECT_UI,
-    ACTION_PERFORM_GESTURE,
-    ACTION_SEND_SMS,
-    ACTION_MAKE_CALL,
-    ACTION_LAUNCH_APP,
-    ACTION_READ_NOTIFICATIONS,
     DeviceBridgeRequest,
     DeviceBridgeResponse,
     DeviceBridgeServer,

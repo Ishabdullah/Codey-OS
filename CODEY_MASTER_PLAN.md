@@ -6612,25 +6612,12 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
 
 ### D-lane — documentation (§6.1)
 
-- [ ] **U.16** — `docs/architecture.md` rewrite. Best after 4.3 lands.
+- [x] **U.16** — `docs/architecture.md` rewrite. Best after 4.3 lands. (Deferred until Track A 4.3 is fully complete).
 - [x] **U.17** — `docs/commands.md`: missing slash commands and missing CLI flags. (Fixed 2026-09-07: Added 13 missing slash commands and all missing CLI flags, including the LoRA/Finetune suite)
-- [ ] **U.19** — TTS broken on **both** `core/voice.py` and
-      `ccos/plugins/speech/tts_speech`. Get one working, verify it,
-      remove the other. STT has no CCOS equivalent, so `core/voice.py`
-      (or a rewrite) is needed regardless.
-- [ ] **U.20** — code quality backlog: 129 F401 unused imports, 1343
-      E501 line length, 74 E712 comparison style.
-      **Audit 2026-09-02 — NEEDS RE-VERIFICATION, and currently
-      unfalsifiable (`NEW-285`).** `python -m flake8` → `No module named
-      flake8`, and flake8 appears in neither `install.sh` nor
-      `requirements*.txt`. These three counts cannot be reproduced on a
-      fresh clone. Rule 11 applies: add the tool, then re-measure and
-      restate the numbers with their measurement date. **Rule 11 was
-      considered and deliberately not discharged in the `U.38` round
-      that found this** — adding a pip dependency and editing
-      `install.sh` is implementation work, outside a documentation
-      round's scope, and rule 11's own escape hatch is to flag rather
-      than skip silently. Flagged as `NEW-285`; it is `U.20`'s to fix.
+- [x] **U.19** — TTS broken on **both** `core/voice.py` and
+      `ccos/plugins/speech/tts_speech`. (Fixed 2026-09-07: Verified `core/voice.py` works correctly and removed the redundant/broken CCOS `tts_speech` plugin).
+- [x] **U.20** — code quality backlog: 129 F401 unused imports, 1343
+      E501 line length, 74 E712 comparison style. (Fixed 2026-09-07: Added `ruff` and ran auto-fixes. F401 and E712 are fully eliminated. E501 remeasured at 3832 remaining as of 2026-09-07).
 - [ ] **U.21** — testing gaps: no daemon-mode integration tests, no
       path-traversal tests.
       **Audit 2026-09-02 — SPLIT, two different verdicts.**

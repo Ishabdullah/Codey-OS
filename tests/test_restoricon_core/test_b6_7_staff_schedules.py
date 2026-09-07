@@ -1,12 +1,11 @@
 import pytest
 from unittest.mock import Mock
-from restoricon_core.models import StaffSchedule, User
-from restoricon_core.auth import AuthContext, PERM_WRITE_STAFF_SCHEDULES, PERM_READ_STAFF_SCHEDULES
+from restoricon_core.models import StaffSchedule
+from restoricon_core.auth import AuthContext
 from restoricon_core.services.scheduling_service import SchedulingService
 from restoricon_core.services.notification_service import NotificationService
 from restoricon_core.database import DatabaseManager
 from restoricon_core.services.audit_service import AuditService
-from datetime import datetime, timezone
 
 def test_staff_schedules_rbac():
     """Negative control: Test that RBAC prevents unauthorized access to staff schedules."""

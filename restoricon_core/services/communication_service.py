@@ -13,7 +13,6 @@ from ..auth import (
     AuthContext,
     PERM_LOG_COMMUNICATION,
     PERM_READ_COMMUNICATIONS,
-    PERM_READ_OWN_COMMUNICATIONS,
     ROLE_CUSTOMER,
 )
 from ..database import DatabaseManager

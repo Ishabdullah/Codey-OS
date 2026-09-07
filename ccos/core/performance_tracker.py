@@ -13,9 +13,9 @@ All metrics stored in CCOS memory DB (additive tables).
 import json
 import sqlite3
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 DB_PATH = str(Path(__file__).parent.parent / "data" / "ccos_memory.db")
 

@@ -94,7 +94,6 @@ from ccos.plugins._pathutil import ensure_repo_root_on_path
 ensure_repo_root_on_path()
 
 from core.daemon import check_pid_file as _check_pid_file
-from core.daemon import daemon_health, daemon_ping, daemon_status
 from core.daemon import is_daemon_running as _is_daemon_running
 from core.daemon import send_command
 

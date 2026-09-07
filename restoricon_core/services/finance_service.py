@@ -5,7 +5,6 @@ and financial summaries with strict RBAC audit logging.
 """
 
 from datetime import datetime, timezone
-import json
 import secrets
 from typing import Any, Dict, List, Optional
 
@@ -13,7 +12,6 @@ from ..auth import (
     AuthContext,
     PERM_READ_FINANCE,
     PERM_WRITE_FINANCE,
-    ROLE_CUSTOMER,
 )
 from ..database import DatabaseManager
 from ..models import FinancialTransaction

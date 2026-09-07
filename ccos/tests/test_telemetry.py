@@ -6,20 +6,15 @@ Tests execution logging, drift detection, sandbox-vs-real gap
 analysis, health scoring, and feedback injection.
 """
 
-import json
 import sys
 import tempfile
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from ccos.core.telemetry_engine import (
     TelemetryEngine,
-    ExecutionRecord,
-    DriftAlert,
     HealthReport,
-    get_telemetry_engine,
 )
 
 

@@ -10,7 +10,6 @@ and planner injection.
 import json
 import sys
 import tempfile
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -20,13 +19,11 @@ from ccos.core.goal_engine import (
     Goal,
     GoalType,
     GoalStatus,
-    get_goal_engine,
 )
 from ccos.core.performance_tracker import PerformanceTracker
 from ccos.core.capability_registry import (
     Capability,
     CapabilityRegistry,
-    CapabilityStatus,
 )
 from ccos.core.memory.ccos_memory import CCOSMemory
 from ccos.core.reflection_engine import ReflectionEngine

@@ -4,8 +4,7 @@ from restoricon_core.services.crm_service import CRMService
 from restoricon_core.database import DatabaseManager
 from restoricon_core.services.audit_service import AuditService
 from restoricon_core.services.notification_service import NotificationService
-from restoricon_core.auth import AuthContext, ROLE_ADMIN, PERM_WRITE_PROJECTS
-from restoricon_core.models import Project
+from restoricon_core.auth import AuthContext, ROLE_ADMIN
 
 class TestB66Notifications(unittest.TestCase):
     def setUp(self):

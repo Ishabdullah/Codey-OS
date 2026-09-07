@@ -12,26 +12,22 @@ Tests:
 7. Critic cross-domain I/O contract validation.
 """
 
-import os
 import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Optional
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from ccos.core.agent_orchestrator import (
     AgentOrchestrator,
-    AgentRole,
     CriticAgent,
     DecisionStatus,
     ExecutionPlan,
     OptimizerAgent,
-    PlannerAgent,
     PlanStep as OrchestratorPlanStep,
-    RiskLevel,
     SafetyAgent,
     SafetyVetoError,
     get_agent_orchestrator,
@@ -44,8 +40,8 @@ from ccos.core.domain_router import (
     get_domain_router,
 )
 from ccos.core.performance_tracker import PerformanceTracker
-from ccos.core.planner import Plan, Planner, PlanStep, StepStatus, StepType, get_planner
-from ccos.core.plugin_manager import PluginManager, get_plugin_manager
+from ccos.core.planner import Plan, Planner, PlanStep, StepStatus, StepType
+from ccos.core.plugin_manager import PluginManager
 from ccos.core.task_blackboard import TaskBlackboard
 from ccos.core.task_context import (
     ContextPayloadTooLargeError,

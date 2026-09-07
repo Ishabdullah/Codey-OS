@@ -16,7 +16,6 @@ from ..auth import (
     AuthContext,
     PERM_READ_ALL_CUSTOMERS,
     PERM_WRITE_CUSTOMERS,
-    PERM_READ_OWN_CUSTOMER,
     PERM_READ_LEADS,
     PERM_WRITE_LEADS,
     PERM_READ_OPPORTUNITIES,
@@ -29,8 +28,6 @@ from ..auth import (
     PERM_READ_ASSIGNED_PROJECTS,
     PERM_READ_OWN_PROJECTS,
     PERM_WRITE_PROJECTS,
-    PERM_REASSIGN_PROJECT_STAFF,
-    PERM_REASSIGN_ANY_PROJECT_STAFF,
     PERM_READ_ESTIMATES,
     PERM_WRITE_ESTIMATES,
     PERM_READ_OWN_ESTIMATES,
@@ -44,9 +41,6 @@ from ..auth import (
     PERM_READ_FINANCIALS,
     PERM_WRITE_FINANCIALS,
     PERM_READ_OWN_FINANCIALS,
-    PERM_LOG_COMMUNICATION,
-    PERM_READ_COMMUNICATIONS,
-    PERM_READ_OWN_COMMUNICATIONS,
     PERM_READ_SUBCONTRACTORS,
     PERM_WRITE_SUBCONTRACTORS,
     PERM_READ_CONTACTS,
@@ -58,7 +52,6 @@ from ..auth import (
 )
 from ..database import DatabaseManager
 from ..models import (
-    Appointment,
     CommunicationRecord,
     Contact,
     Contract,
@@ -72,7 +65,6 @@ from ..models import (
     Project,
     ProjectStage,
     STAGE_DEFAULT_PROBABILITIES,
-    STAGE_ORDER,
     Subcontractor,
     Task,
     utc_now_iso,

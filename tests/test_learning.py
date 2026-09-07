@@ -147,7 +147,7 @@ class TestErrorDatabase:
         # Verify fix was recorded
         similar = db.find_similar_errors("ModuleNotFoundError", "No module named 'flask'")
         assert len(similar) > 0
-        assert similar[0][0].success == True
+        assert similar[0][0].success
 
     def test_learn_from_error_and_fix(self):
         """Should learn from complete error-fix cycle."""

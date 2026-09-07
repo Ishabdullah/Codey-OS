@@ -97,7 +97,7 @@ install_system_deps() {
             print_warning "Running as root in Termux — skipping pkg install (run as regular user for full install)"
         else
             pkg update -y
-            pkg install -y python cmake ninja clang wget curl git golang sqlite age
+            pkg install -y python cmake ninja clang wget curl git golang sqlite age ruff
             # pyarrow & pandas must come from pkg on Termux (pip wheels fail on aarch64)
             pkg install -y python-pyarrow python-pandas 2>/dev/null \
                 || print_warning "python-pyarrow/pandas pkg install failed — pipeline features may not work"

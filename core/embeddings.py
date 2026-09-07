@@ -77,7 +77,6 @@ class EmbeddingModel:
         # Fallback: nomic-embed-text via llama-server (port 8082)
         try:
             import urllib.request
-            import json
 
             url = "http://127.0.0.1:8082/health"
             with urllib.request.urlopen(url, timeout=2) as r:

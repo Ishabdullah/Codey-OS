@@ -5,17 +5,13 @@ Unit and integration tests for User Management, RBAC, and Dynamic Custom Permiss
 import json
 import pytest
 from restoricon_core.auth import (
-    AuthContext,
     AuthService,
     ROLE_ADMIN,
     ROLE_CUSTOMER,
     ROLE_MANAGER,
     ROLE_TECHNICIAN,
-    PERM_MANAGE_USERS,
     PERM_READ_ALL_CUSTOMERS,
-    PERM_WRITE_CUSTOMERS,
     PERM_READ_FINANCIALS,
-    PERMISSIONS_CATALOG,
 )
 from restoricon_core.database import DatabaseManager
 from restoricon_core.models import Customer

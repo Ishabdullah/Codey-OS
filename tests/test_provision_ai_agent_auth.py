@@ -10,7 +10,7 @@ import pytest
 
 from restoricon_core.auth import ROLE_AI_AGENT, AuthService
 from restoricon_core.database import DatabaseManager
-from tools.provision_ai_agent_auth import DEFAULT_EMAIL, DEFAULT_USERNAME, provision
+from tools.provision_ai_agent_auth import DEFAULT_USERNAME, provision
 
 
 def test_provision_creates_new_ai_agent_user_and_token():

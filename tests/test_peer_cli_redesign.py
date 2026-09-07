@@ -2,14 +2,12 @@
 Unit tests for Track A / Phase A2 Item 4.5: Peer-CLI Escalation Redesign.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from core.agent import _detect_peer_delegation, tool_peer_delegate
 from core.peer_cli import (
     PEER_REGISTRY,
-    PeerCLI,
     PeerCLIManager,
-    get_peer_cli_manager,
     is_peer_enabled,
     resolve_peer_name,
 )

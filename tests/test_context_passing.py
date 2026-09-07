@@ -10,11 +10,9 @@ Covers:
 
 import os
 import tempfile
-import time
 import pytest
-from unittest.mock import MagicMock, patch
 
-from ccos.core.capability_registry import Capability, CapabilityStatus, CapabilityRegistry
+from ccos.core.capability_registry import Capability, CapabilityStatus
 from ccos.core.planner import Plan, PlanStep, StepStatus, StepType, Planner
 from ccos.core.plugin_manager import Plugin, PluginManager, PluginStatus
 from ccos.core.task_blackboard import TaskBlackboard

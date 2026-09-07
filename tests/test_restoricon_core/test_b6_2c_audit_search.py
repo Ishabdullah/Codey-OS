@@ -2,8 +2,6 @@ import pytest
 from restoricon_core.database import DatabaseManager
 from restoricon_core.services.audit_service import AuditService
 from restoricon_core.auth import AuthContext, ROLE_ADMIN, ROLE_TECHNICIAN
-from restoricon_core.api.routes import APIRouter
-from restoricon_core.api.web_surfaces import _get_universal_drawer_html, render_login_surface
 
 @pytest.fixture
 def setup_audit():

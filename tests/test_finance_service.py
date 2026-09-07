@@ -16,7 +16,6 @@ from restoricon_core.models import (
     FinancialTransaction,
     Invoice,
     Project,
-    User,
 )
 from restoricon_core.services.audit_service import AuditService
 from restoricon_core.services.crm_service import CRMService

@@ -23,10 +23,9 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum, IntEnum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple
 
 from utils.config import CODEY_STATE_DIR
-from utils.logger import info, warning
 
 
 class PriorityLevel(IntEnum):

@@ -17,7 +17,6 @@ it first, only calling `start()` when it reports unhealthy.
 """
 from unittest.mock import patch
 
-import pytest
 
 from core.embed_server import EmbedServer
 

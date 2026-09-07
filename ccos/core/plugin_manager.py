@@ -20,7 +20,6 @@ import importlib.util
 import inspect
 import json
 import os
-import shutil
 import signal
 import subprocess
 import sys
@@ -39,7 +38,7 @@ from ccos.core.capability_registry import (
 )
 from ccos.core.manifest_schema_v2 import normalize_manifest
 from ccos.core.task_context import TaskContext
-from utils.logger import info, warning
+from utils.logger import warning
 
 
 class PluginStatus(str, Enum):

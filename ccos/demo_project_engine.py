@@ -12,9 +12,7 @@ Demonstrates:
 Run: PYTHONPATH=/root/Codey-OS python3 ccos/demo_project_engine.py
 """
 
-import json
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))

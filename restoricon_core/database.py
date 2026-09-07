@@ -11,7 +11,7 @@ import sqlite3
 import threading
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Generator, Optional
+from typing import Generator
 
 DEFAULT_DB_PATH = Path(
     os.getenv("RESTORICON_DB_PATH", os.path.expanduser("~/.codey_restoricon/core.db"))

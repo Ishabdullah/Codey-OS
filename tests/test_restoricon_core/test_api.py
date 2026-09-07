@@ -12,7 +12,6 @@ import urllib.error
 import pytest
 from restoricon_core.api.server import RestoriconAPIServer
 from restoricon_core.auth import ROLE_ADMIN, ROLE_CUSTOMER, ROLE_AI_AGENT, ROLE_TECHNICIAN
-from restoricon_core.models import Customer
 from core.resource_gate import ContextBudgetDecision
 
 

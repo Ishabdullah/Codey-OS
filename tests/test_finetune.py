@@ -160,14 +160,14 @@ class TestLoraValidation:
     def test_invalid_path(self):
         """Test invalid adapter path."""
         valid, msg = validate_lora_adapter("/nonexistent/path")
-        assert valid == False
+        assert not valid
         assert "not found" in msg.lower()
 
     def test_not_a_directory(self):
         """Test when path is not a directory."""
         with tempfile.NamedTemporaryFile() as f:
             valid, msg = validate_lora_adapter(f.name)
-            assert valid == False
+            assert not valid
             assert "directory" in msg.lower()
 
     def test_missing_required_files(self):
@@ -175,7 +175,7 @@ class TestLoraValidation:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create empty directory
             valid, msg = validate_lora_adapter(tmpdir)
-            assert valid == False
+            assert not valid
             assert "Missing" in msg or "required" in msg.lower()
 
     def test_valid_adapter_structure(self):
@@ -197,7 +197,7 @@ class TestLoraValidation:
             (adapter_dir / "adapter_model.safetensors").touch()
 
             valid, msg = validate_lora_adapter(str(adapter_dir))
-            assert valid == True
+            assert valid
             assert "Valid" in msg
 
 

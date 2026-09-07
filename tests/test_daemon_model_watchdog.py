@@ -73,7 +73,6 @@ plumbing (already covered by tests/test_loader_resource_gate.py).
 """
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 import core.daemon as daemon_mod
 import core.loader_v2 as lv

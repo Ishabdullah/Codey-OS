@@ -9,7 +9,6 @@ Tests the full pipeline:
 import json
 import sys
 import tempfile
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -19,8 +18,6 @@ from ccos.core.skill_recombiner import (
     SkillGenerator,
     SkillRecombiner,
     DetectedPattern,
-    CompoundSkill,
-    SkillStep,
 )
 from ccos.core.capability_registry import (
     Capability,

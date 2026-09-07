@@ -17,7 +17,6 @@ state-code/inode parsing against a real kernel.
 """
 import os
 import socket
-import subprocess
 from unittest.mock import patch
 
 import pytest

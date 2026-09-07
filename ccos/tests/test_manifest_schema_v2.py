@@ -6,16 +6,13 @@ Unit tests for Manifest Schema v2 validation, normalization, and plugin integrat
 import copy
 import json
 import pytest
-from pathlib import Path
 
 from ccos.core.manifest_schema_v2 import (
-    MANIFEST_V2_JSON_SCHEMA,
-    VALID_EXECUTION_MODES,
     validate_manifest_v2,
     normalize_manifest,
 )
-from ccos.core.capability_registry import Capability, CapabilityRegistry, CapabilityStatus
-from ccos.core.plugin_manager import PluginManager, PluginStatus
+from ccos.core.capability_registry import Capability, CapabilityRegistry
+from ccos.core.plugin_manager import PluginManager
 
 
 @pytest.fixture

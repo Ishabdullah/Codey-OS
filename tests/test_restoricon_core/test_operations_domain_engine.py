@@ -19,10 +19,6 @@ from restoricon_core.api.routes import APIRouter
 from restoricon_core.auth import (
     AuthContext,
     AuthService,
-    PERM_DISPATCH_WORK_ORDERS,
-    PERM_MANAGE_PROJECTS,
-    PERM_READ_OPERATIONS,
-    PERM_WRITE_OPERATIONS,
     ROLE_ADMIN,
     ROLE_AI_AGENT,
     ROLE_CUSTOMER,
@@ -36,7 +32,6 @@ from restoricon_core.models import (
     Customer,
     Equipment,
     EquipmentCategory,
-    EquipmentDeployment,
     EquipmentStatus,
     MilestoneStatus,
     Project,
@@ -44,7 +39,6 @@ from restoricon_core.models import (
     ProjectStage,
     Subcontractor,
     WorkOrder,
-    WorkOrderLineItem,
     WorkOrderStatus,
 )
 from restoricon_core.services.audit_service import AuditService

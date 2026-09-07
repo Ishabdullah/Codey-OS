@@ -1,6 +1,5 @@
-import pytest
 from restoricon_core.api.server import RestoriconAPIServer
-from restoricon_core.api.web_surfaces import render_quote_surface, render_admin_surface, render_portal_surface
+from restoricon_core.api.web_surfaces import render_quote_surface
 
 
 def test_render_quote_surface_contains_key_elements():

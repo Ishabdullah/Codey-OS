@@ -7,7 +7,7 @@ Defines the structure and contracts for CCOS v2 plugins and capabilities:
 - Normalization function for backward compatibility with v1 manifests (normalize_manifest)
 """
 
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Tuple
 
 # Valid execution modes in v2
 VALID_EXECUTION_MODES = {

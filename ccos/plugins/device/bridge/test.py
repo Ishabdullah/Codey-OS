@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Test for device_bridge plugin."""
 
-import sys
 from pathlib import Path
 
 _pathutil_path = Path(__file__).resolve().parent.parent.parent / "_pathutil.py"

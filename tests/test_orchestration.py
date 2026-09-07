@@ -20,48 +20,48 @@ class TestOrchestrationHeuristics:
 
     def test_question_not_complex(self):
         """Simple questions should NOT trigger orchestration."""
-        assert is_complex("How do I create a file?") == False
+        assert not is_complex("How do I create a file?")
 
     def test_what_is_not_complex(self):
         """'What is' questions should NOT trigger orchestration."""
-        assert is_complex("What is a decorator?") == False
+        assert not is_complex("What is a decorator?")
 
     def test_can_you_explain_not_complex(self):
         """'Can you explain' should NOT trigger orchestration."""
-        assert is_complex("Can you explain how this works?") == False
+        assert not is_complex("Can you explain how this works?")
 
     def test_tell_me_not_complex(self):
         """'Tell me' requests should NOT trigger orchestration."""
-        assert is_complex("Tell me about Python classes") == False
+        assert not is_complex("Tell me about Python classes")
 
     def test_how_does_not_complex(self):
         """'How does' questions should NOT trigger orchestration."""
-        assert is_complex("How does the async event loop work?") == False
+        assert not is_complex("How does the async event loop work?")
 
     def test_should_i_use_not_complex(self):
         """'Should I use' questions should NOT trigger orchestration."""
-        assert is_complex("Should I use Flask or Django?") == False
+        assert not is_complex("Should I use Flask or Django?")
 
     def test_difference_between_not_complex(self):
         """'Difference between' questions should NOT trigger orchestration."""
-        assert is_complex("What's the difference between list and tuple?") == False
+        assert not is_complex("What's the difference between list and tuple?")
 
     def test_i_need_help_not_complex(self):
         """'I need help' should NOT trigger orchestration."""
-        assert is_complex("I need help understanding this error") == False
+        assert not is_complex("I need help understanding this error")
 
     def test_create_simple_file_not_complex(self):
         """Short create requests should NOT trigger orchestration."""
-        assert is_complex("Create a file") == False
+        assert not is_complex("Create a file")
 
     def test_how_to_use_not_complex(self):
         """'How to use' questions should NOT trigger orchestration."""
-        assert is_complex("How to use pytest?") == False
+        assert not is_complex("How to use pytest?")
 
     def test_complex_create_with_tests(self):
         """Create with tests SHOULD trigger orchestration."""
         # Need enough COMPLEX_SIGNALS matches
-        assert is_complex("Create a Flask app with user authentication and also add tests") == True
+        assert is_complex("Create a Flask app with user authentication and also add tests")
 
     def test_complex_build_multiple_components(self):
         """Build with multiple components SHOULD trigger orchestration."""
@@ -69,39 +69,38 @@ class TestOrchestrationHeuristics:
             is_complex(
                 "Build a REST API with multiple endpoints for users, posts, and also comments"
             )
-            == True
         )
 
     def test_complex_refactor_and_run(self):
         """Refactor and run SHOULD trigger orchestration."""
-        assert is_complex("Refactor the code to use classes and then run the tests") == True
+        assert is_complex("Refactor the code to use classes and then run the tests")
 
     def test_complex_implement_system(self):
         """Implement system SHOULD trigger orchestration."""
-        assert is_complex("Implement a caching system with Redis for the application") == True
+        assert is_complex("Implement a caching system with Redis for the application")
 
     def test_long_message_fewer_signals(self):
         """Long messages need fewer signals to be complex."""
         msg = "Create a complete web application with user authentication, database models, API endpoints, and comprehensive test coverage including unit tests and integration tests"
-        assert is_complex(msg) == True
+        assert is_complex(msg)
 
     def test_short_message_needs_more_signals(self):
         """Short messages need more signals to be complex."""
         msg = "Create app"
-        assert is_complex(msg) == False
+        assert not is_complex(msg)
 
     def test_question_mark_not_complex(self):
         """Messages ending with ? should NOT be complex (without action keywords)."""
-        assert is_complex("Is this the right approach?") == False
+        assert not is_complex("Is this the right approach?")
 
     def test_action_keyword_with_question_not_complex(self):
         """Action keywords with question format should NOT be complex."""
-        assert is_complex("How do I create a function?") == False
+        assert not is_complex("How do I create a function?")
 
     def test_conversational_pattern_in_long_request(self):
         """Conversational patterns should filter even long requests."""
         msg = "Can you explain how to create a complete web application with authentication"
-        assert is_complex(msg) == False
+        assert not is_complex(msg)
 
     def test_all_conversational_patterns_filtered(self):
         """All defined conversational patterns should be filtered."""
@@ -121,7 +120,6 @@ class TestOrchestrationHeuristics:
             is_complex(
                 "Implement a user registration system with multiple models and also API endpoints"
             )
-            == True
         )
 
     def test_add_feature_complex(self):
@@ -129,7 +127,6 @@ class TestOrchestrationHeuristics:
         # Need enough COMPLEX_SIGNALS matches
         assert (
             is_complex("Add a new module for handling file uploads and then also add tests for it")
-            == True
         )
 
     def test_rewrite_and_refactor_complex(self):
@@ -139,25 +136,23 @@ class TestOrchestrationHeuristics:
             is_complex(
                 "Rewrite the data processing module to use async and also refactor for the application"
             )
-            == True
         )
 
     def test_multiple_tasks_complex(self):
         """Multiple tasks SHOULD trigger orchestration."""
         assert (
             is_complex("Create the models and then add the API endpoints and also write tests")
-            == True
         )
 
     def test_empty_message_not_complex(self):
         """Empty messages should NOT be complex."""
-        assert is_complex("") == False
+        assert not is_complex("")
 
     def test_very_short_message_not_complex(self):
         """Very short messages should NOT be complex."""
-        assert is_complex("Hi") == False
-        assert is_complex("Hello") == False
-        assert is_complex("Test") == False
+        assert not is_complex("Hi")
+        assert not is_complex("Hello")
+        assert not is_complex("Test")
 
 
 class TestScoreMessage:
@@ -441,7 +436,7 @@ class TestIntegrationAgentUtils:
         user_message = "Create hello.py"
         tools_used = ['write_file:{"path":"hello.py"}']  # tool was used
         false_file, false_run = is_hallucination(response, user_message, tools_used)
-        assert false_file == False  # tool was used, so not a hallucination
+        assert not false_file  # tool was used, so not a hallucination
 
     def test_hallucination_detects_no_tool_used(self):
         from core.agent import is_hallucination
@@ -451,7 +446,7 @@ class TestIntegrationAgentUtils:
         user_message = "Create hello.py"
         tools_used = []  # no tool used
         false_file, false_run = is_hallucination(response, user_message, tools_used)
-        assert false_file == True
+        assert false_file
 
     def test_hallucination_detects_code_block_without_write(self):
         from core.agent import is_hallucination
@@ -460,7 +455,7 @@ class TestIntegrationAgentUtils:
         user_message = "Create hello.py"
         tools_used = []  # no write_file used
         false_file, _ = is_hallucination(response, user_message, tools_used)
-        assert false_file == True
+        assert false_file
 
 
 if __name__ == "__main__":

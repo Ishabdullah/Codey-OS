@@ -24,7 +24,7 @@ class TestHallucinationDetection:
         tools_used = []
 
         false_file, false_run = is_hallucination(response, user_message, tools_used)
-        assert false_file == True
+        assert false_file
 
     def test_detects_i_created_claim(self):
         """'I created' claims should be detected."""
@@ -33,7 +33,7 @@ class TestHallucinationDetection:
         tools_used = []
 
         false_file, false_run = is_hallucination(response, user_message, tools_used)
-        assert false_file == True
+        assert false_file
 
     def test_detects_successfully_created(self):
         """'Successfully created' claims should be detected."""
@@ -42,7 +42,7 @@ class TestHallucinationDetection:
         tools_used = []
 
         false_file, false_run = is_hallucination(response, user_message, tools_used)
-        assert false_file == True
+        assert false_file
 
     def test_allows_future_tense_intent(self):
         """Future tense statements should NOT be flagged as hallucination."""
@@ -51,7 +51,7 @@ class TestHallucinationDetection:
         tools_used = []
 
         false_file, false_run = is_hallucination(response, user_message, tools_used)
-        assert false_file == False
+        assert not false_file
 
     def test_allows_let_me_statement(self):
         """'Let me' statements should NOT be flagged as hallucination."""
@@ -60,7 +60,7 @@ class TestHallucinationDetection:
         tools_used = []
 
         false_file, false_run = is_hallucination(response, user_message, tools_used)
-        assert false_file == False
+        assert not false_file
 
     def test_allows_ill_statement(self):
         """'I'll' statements should NOT be flagged as hallucination."""
@@ -69,7 +69,7 @@ class TestHallucinationDetection:
         tools_used = []
 
         false_file, false_run = is_hallucination(response, user_message, tools_used)
-        assert false_file == False
+        assert not false_file
 
     def test_allows_can_statement(self):
         """'I can' statements should NOT be flagged as hallucination."""
@@ -78,7 +78,7 @@ class TestHallucinationDetection:
         tools_used = []
 
         false_file, false_run = is_hallucination(response, user_message, tools_used)
-        assert false_file == False
+        assert not false_file
 
     def test_not_hallucination_when_tool_called(self):
         """Claims should NOT be flagged if tool was actually called."""
@@ -87,7 +87,7 @@ class TestHallucinationDetection:
         tools_used = ["write_file"]
 
         false_file, false_run = is_hallucination(response, user_message, tools_used)
-        assert false_file == False
+        assert not false_file
 
     def test_detects_run_hallucination(self):
         """Past tense run claims without shell tool should be detected."""
@@ -96,7 +96,7 @@ class TestHallucinationDetection:
         tools_used = []
 
         false_file, false_run = is_hallucination(response, user_message, tools_used)
-        assert false_run == True
+        assert false_run
 
     def test_detects_executed_claim(self):
         """'Executed successfully' claims should be detected."""
@@ -105,7 +105,7 @@ class TestHallucinationDetection:
         tools_used = []
 
         false_file, false_run = is_hallucination(response, user_message, tools_used)
-        assert false_run == True
+        assert false_run
 
     def test_not_hallucination_for_unrelated_response(self):
         """Responses without action claims should not be flagged."""
@@ -114,8 +114,8 @@ class TestHallucinationDetection:
         tools_used = []
 
         false_file, false_run = is_hallucination(response, user_message, tools_used)
-        assert false_file == False
-        assert false_run == False
+        assert not false_file
+        assert not false_run
 
     def test_already_implemented_claim(self):
         """'Already implemented' claims should be detected."""
@@ -124,7 +124,7 @@ class TestHallucinationDetection:
         tools_used = []
 
         false_file, false_run = is_hallucination(response, user_message, tools_used)
-        assert false_file == True
+        assert false_file
 
     def test_i_wrote_claim(self):
         """'I wrote' claims should be detected."""
@@ -133,7 +133,7 @@ class TestHallucinationDetection:
         tools_used = []
 
         false_file, false_run = is_hallucination(response, user_message, tools_used)
-        assert false_file == True
+        assert false_file
 
     def test_i_modified_claim(self):
         """'I modified' claims should be detected when file action requested."""
@@ -145,7 +145,7 @@ class TestHallucinationDetection:
         false_file, false_run = is_hallucination(response, user_message, tools_used)
         # "i modified" is in past_tense_claims list
         # This should be detected as potential hallucination
-        assert false_file == True
+        assert false_file
 
     def test_next_i_will_not_flagged(self):
         """'Next I will' statements should NOT be flagged."""
@@ -154,7 +154,7 @@ class TestHallucinationDetection:
         tools_used = []
 
         false_file, false_run = is_hallucination(response, user_message, tools_used)
-        assert false_file == False
+        assert not false_file
 
     def test_im_going_to_not_flagged(self):
         """'I'm going to' statements should NOT be flagged."""
@@ -163,7 +163,7 @@ class TestHallucinationDetection:
         tools_used = []
 
         false_file, false_run = is_hallucination(response, user_message, tools_used)
-        assert false_file == False
+        assert not false_file
 
     def test_lets_create_not_flagged(self):
         """'Let's create' statements should NOT be flagged."""
@@ -172,7 +172,7 @@ class TestHallucinationDetection:
         tools_used = []
 
         false_file, false_run = is_hallucination(response, user_message, tools_used)
-        assert false_file == False
+        assert not false_file
 
     def test_i_have_written_claim(self):
         """'I have written' claims should be detected."""
@@ -181,7 +181,7 @@ class TestHallucinationDetection:
         tools_used = []
 
         false_file, false_run = is_hallucination(response, user_message, tools_used)
-        assert false_file == True
+        assert false_file
 
     def test_i_ran_the_claim(self):
         """'I ran the' claims should be detected for run hallucination."""
@@ -190,7 +190,7 @@ class TestHallucinationDetection:
         tools_used = []
 
         false_file, false_run = is_hallucination(response, user_message, tools_used)
-        assert false_run == True
+        assert false_run
 
     def test_no_action_requested(self):
         """When no action is requested, claims should not be flagged."""
@@ -199,7 +199,7 @@ class TestHallucinationDetection:
         tools_used = []
 
         false_file, false_run = is_hallucination(response, user_message, tools_used)
-        assert false_file == False
+        assert not false_file
 
 
 if __name__ == "__main__":

@@ -13,7 +13,7 @@ import json
 import pytest
 
 from restoricon_core.api.routes import APIRouter
-from restoricon_core.auth import AuthService, ROLE_ADMIN, ROLE_CUSTOMER, ROLE_TECHNICIAN
+from restoricon_core.auth import AuthService, ROLE_ADMIN, ROLE_CUSTOMER
 from restoricon_core.database import DatabaseManager
 from restoricon_core.models import Customer, Project
 from restoricon_core.services.analytics_search_service import AnalyticsSearchService

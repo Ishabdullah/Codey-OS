@@ -5,7 +5,7 @@ SAFETY: this test file must never trigger a real peer CLI session.
 """
 import importlib.util
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 _pathutil_path = Path(__file__).resolve().parent.parent.parent / "_pathutil.py"
 _spec = importlib.util.spec_from_file_location("_pathutil", _pathutil_path)

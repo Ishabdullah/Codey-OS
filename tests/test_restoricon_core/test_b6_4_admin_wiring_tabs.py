@@ -1,4 +1,3 @@
-import pytest
 from restoricon_core.api.web_surfaces import render_admin_surface
 
 def test_b6_4_admin_wiring_tabs_has_fetches():
