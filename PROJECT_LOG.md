@@ -1,3 +1,22 @@
+## 2026-09-07 — Phase B7.2: Incremental Document Upload (B6.5 File Store)
+
+**What changed:**
+- Created `core/backup_documents.py` to perform an incremental sync of `~/.codey_restoricon/documents/` to GCS.
+- Added state-tracking using `os.path.getmtime()` and a local JSON state file updated atomically, ensuring only newly modified files are uploaded.
+- Integrated `age` encryption directly into the pipeline using secure temporary files (`tempfile.NamedTemporaryFile`) so all documents are fully encrypted before leaving the device, matching B7.3 requirements.
+- Integrated the script as a daemon into `lib/service_manager.sh` (`start_backup_docs`, `stop_backup_docs`) with exact PID tracking.
+
+**Why:** Fulfills Phase B7.2 requirement for a non-full-repush backup of the business document store.
+
+**Verification performed:**
+- Code submitted to `code-reviewer` who identified four issues (State File Corruption Risk, Insecure Temp File Handling, Incomplete Cleanup, Inefficient State Updates). 
+- Issues resolved manually by coordinator using atomic updates, `try...finally`, and batching disk writes.
+- Final adversarial review resulted in APPROVED.
+
+**Outcome:** Phase B7.2 completed. All items in Phase B7 (Backup and DR) are now fully implemented and verified!
+
+**Next action:** Phase B7 is closed. Update ledgers and ask Ish what to do next.
+
 ## 2026-09-07 — Phase B7.3 & B7.4: GCS Credentials, Encryption, and Restore Drill
 
 **What changed:**

@@ -6125,9 +6125,9 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
 
 - [x] **B7.1** — the Core DB half: continuous local journal + periodic
       GCS snapshot of `~/.codey_restoricon/core.db`. **Code-complete 2026-09-07 (Litestream integration).** Not live-verified until B7.4.
-- [ ] **B7.2** — incremental upload of the B6.5 document/photo store.
+- [x] **B7.2** — incremental upload of the B6.5 document/photo store.
       **Depends on B6.5** (nothing to back up until upload exists).
-      Incremental, not a full re-push per cycle.
+      Incremental, not a full re-push per cycle. (Completed 2026-09-07)
 - [x] **B7.3** — config/secrets/tokens. **Rule-4 category** on the
       credential handling. **Encryption before upload, with the key held
       outside the backup** — done carelessly this converts a device-loss

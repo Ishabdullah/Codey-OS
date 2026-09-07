@@ -25,6 +25,9 @@ CLOUDFLARED_LOG_FILE="$DAEMON_DIR/cloudflared.log"
 LITESTREAM_PID_FILE="$DAEMON_DIR/litestream.pid"
 LITESTREAM_LOG_FILE="$DAEMON_DIR/litestream.log"
 
+BACKUP_DOCS_PID_FILE="$DAEMON_DIR/backup-docs.pid"
+BACKUP_DOCS_LOG_FILE="$DAEMON_DIR/backup-docs.log"
+
 mkdir -p "$DAEMON_DIR"
 
 # ── Core PID lifecycle helpers ───────────────────────────────────────────────
@@ -675,6 +678,137 @@ status_cloudflare() {
     fi
 }
 
+# ── Service: Backup Documents ───────────────────────────────────────────────
+
+start_backup_docs() {
+    local bd_dir="$CODEY_OS_DIR/core"
+    local bd_token="backup_documents.py"
+
+    local tracked_pid=""
+    if svc_is_running "$BACKUP_DOCS_PID_FILE"; then
+        tracked_pid=$(cat "$BACKUP_DOCS_PID_FILE" 2>/dev/null || echo "")
+    fi
+
+    local all_found_pids
+    all_found_pids=$(svc_find_orphans_by_cwd "$bd_dir" "python3" "$bd_token")
+    local orphan_pids=()
+    for p in $all_found_pids; do
+        if [ -n "$tracked_pid" ] && [ "$p" = "$tracked_pid" ]; then
+            continue
+        fi
+        orphan_pids+=("$p")
+    done
+
+    if [ -n "$tracked_pid" ] && [ ${#orphan_pids[@]} -eq 0 ]; then
+        echo "  Backup Docs → already running (PID $tracked_pid)"
+        return 0
+    fi
+
+    if [ ${#orphan_pids[@]} -gt 0 ]; then
+        echo "  ⚠ Backup Docs → found ${#orphan_pids[@]} orphaned process(es) not tracked by PID file: ${orphan_pids[*]} — terminating before starting fresh"
+        for opid in "${orphan_pids[@]}"; do
+            echo "  Terminating orphan Backup Docs process (PID $opid)..."
+            kill -TERM "$opid" 2>/dev/null || true
+            for i in {1..10}; do
+                if ! kill -0 "$opid" 2>/dev/null; then
+                    break
+                fi
+                sleep 0.5
+            done
+            if kill -0 "$opid" 2>/dev/null; then
+                kill -9 "$opid" 2>/dev/null || true
+            fi
+        done
+    fi
+
+    if [ -n "$tracked_pid" ]; then
+        echo "  Backup Docs → running (PID $tracked_pid)"
+        return 0
+    fi
+
+    echo "  Backup Docs → starting..."
+    (cd "$bd_dir" && exec nohup python3 backup_documents.py --daemon >> "$BACKUP_DOCS_LOG_FILE" 2>&1) &
+    local bd_pid=$!
+    echo "$bd_pid" > "$BACKUP_DOCS_PID_FILE"
+    sleep 0.5
+
+    if kill -0 "$bd_pid" 2>/dev/null; then
+        echo "  Backup Docs → started (PID $bd_pid)"
+    else
+        echo "  Backup Docs → ERROR: failed to start. Check $BACKUP_DOCS_LOG_FILE"
+        rm -f "$BACKUP_DOCS_PID_FILE"
+        return 1
+    fi
+}
+
+stop_backup_docs() {
+    local bd_dir="$CODEY_OS_DIR/core"
+    local bd_token="backup_documents.py"
+
+    svc_stop_by_pid "$BACKUP_DOCS_PID_FILE" "Backup Docs"
+
+    local remaining_pids
+    remaining_pids=$(svc_find_orphans_by_cwd "$bd_dir" "python3" "$bd_token")
+    if [ -n "$remaining_pids" ]; then
+        local r_array=($remaining_pids)
+        echo "  ⚠ Backup Docs → found ${#r_array[@]} remaining process(es) after stop: $remaining_pids — terminating"
+        for opid in "${r_array[@]}"; do
+            echo "  Terminating remaining Backup Docs process (PID $opid)..."
+            kill -TERM "$opid" 2>/dev/null || true
+            for i in {1..10}; do
+                if ! kill -0 "$opid" 2>/dev/null; then
+                    break
+                fi
+                sleep 0.5
+            done
+            if kill -0 "$opid" 2>/dev/null; then
+                kill -9 "$opid" 2>/dev/null || true
+            fi
+        done
+    fi
+
+    local final_pids
+    final_pids=$(svc_find_orphans_by_cwd "$bd_dir" "python3" "$bd_token")
+    if [ -z "$final_pids" ]; then
+        echo "  Backup Docs → fully stopped, 0 processes remaining"
+    else
+        echo "  ⚠ Backup Docs → WARNING: processes still alive: $final_pids"
+    fi
+}
+
+status_backup_docs() {
+    local bd_dir="$CODEY_OS_DIR/core"
+    local bd_token="backup_documents.py"
+    local tracked_pid=""
+    if svc_is_running "$BACKUP_DOCS_PID_FILE"; then
+        tracked_pid=$(cat "$BACKUP_DOCS_PID_FILE" 2>/dev/null || echo "")
+    fi
+
+    local all_found_pids
+    all_found_pids=$(svc_find_orphans_by_cwd "$bd_dir" "python3" "$bd_token")
+    local orphan_pids=()
+    for p in $all_found_pids; do
+        if [ -n "$tracked_pid" ] && [ "$p" = "$tracked_pid" ]; then
+            continue
+        fi
+        orphan_pids+=("$p")
+    done
+
+    if [ -n "$tracked_pid" ]; then
+        if [ ${#orphan_pids[@]} -gt 0 ]; then
+            echo "  Backup Docs:     running (PID $tracked_pid) [⚠ ${#orphan_pids[@]} orphan(s): ${orphan_pids[*]}]"
+        else
+            echo "  Backup Docs:     running (PID $tracked_pid)"
+        fi
+    else
+        if [ ${#orphan_pids[@]} -gt 0 ]; then
+            echo "  Backup Docs:     stopped (PID file) [⚠ ${#orphan_pids[@]} UNTRACKED orphan(s) running: ${orphan_pids[*]}]"
+        else
+            echo "  Backup Docs:     stopped"
+        fi
+    fi
+}
+
 # ── Composite Management Operations ──────────────────────────────────────────
 
 start_all_services() {
@@ -684,10 +818,12 @@ start_all_services() {
     start_aigentik
     start_cloudflare
     start_litestream
+    start_backup_docs
 }
 
 stop_all_services() {
     echo "Stopping Codey-OS services..."
+    stop_backup_docs
     stop_litestream
     stop_cloudflare
     stop_aigentik
@@ -705,6 +841,7 @@ status_all_services() {
     status_aigentik
     status_cloudflare
     status_litestream
+    status_backup_docs
     echo "──────────────────────────────────────────────"
     if [ -f "$CODEY_OS_DIR/codeydOS" ]; then
         bash "$CODEY_OS_DIR/codeydOS" status || true
@@ -729,10 +866,13 @@ show_service_logs() {
         litestream)
             tail -n 50 "$LITESTREAM_LOG_FILE" 2>/dev/null || echo "No log found for litestream ($LITESTREAM_LOG_FILE)."
             ;;
+        backup-docs|backup_docs)
+            tail -n 50 "$BACKUP_DOCS_LOG_FILE" 2>/dev/null || echo "No log found for backup docs ($BACKUP_DOCS_LOG_FILE)."
+            ;;
         *)
-            echo "Available logs: daemon, restoricon, aigentik, cloudflare, litestream"
+            echo "Available logs: daemon, restoricon, aigentik, cloudflare, litestream, backup-docs"
             echo
-            for logfile in "$DAEMON_LOG_FILE" "$RESTORICON_LOG_FILE" "$AIGENTIK_LOG_FILE" "$CLOUDFLARED_LOG_FILE" "$LITESTREAM_LOG_FILE"; do
+            for logfile in "$DAEMON_LOG_FILE" "$RESTORICON_LOG_FILE" "$AIGENTIK_LOG_FILE" "$CLOUDFLARED_LOG_FILE" "$LITESTREAM_LOG_FILE" "$BACKUP_DOCS_LOG_FILE"; do
                 if [ -f "$logfile" ]; then
                     echo "=== $(basename "$logfile") (last 10 lines) ==="
                     tail -n 10 "$logfile"
@@ -776,7 +916,7 @@ Commands:
   stop            Stop all Codey-OS services cleanly
   status          Show status of all services and daemon model health
   restart         Restart all services cleanly
-  logs [service]  Show service logs (daemon, restoricon, aigentik, cloudflare, litestream)
+  logs [service]  Show service logs (daemon, restoricon, aigentik, cloudflare, litestream, backup-docs)
   config          Show active configuration settings
   help, --help    Show this help message
 
