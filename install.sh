@@ -97,7 +97,7 @@ install_system_deps() {
             print_warning "Running as root in Termux — skipping pkg install (run as regular user for full install)"
         else
             pkg update -y
-            pkg install -y python cmake ninja clang wget curl git golang sqlite
+            pkg install -y python cmake ninja clang wget curl git golang sqlite age
             # pyarrow & pandas must come from pkg on Termux (pip wheels fail on aarch64)
             pkg install -y python-pyarrow python-pandas 2>/dev/null \
                 || print_warning "python-pyarrow/pandas pkg install failed — pipeline features may not work"
@@ -120,28 +120,28 @@ install_system_deps() {
     elif command -v apt &>/dev/null; then
         if [ "$(id -u)" -eq 0 ]; then
             apt update -y
-            apt install -y python3 python3-pip cmake ninja-build clang wget curl git espeak golang sqlite3
+            apt install -y python3 python3-pip cmake ninja-build clang wget curl git espeak golang sqlite3 age
         else
             sudo apt update -y
-            sudo apt install -y python3 python3-pip cmake ninja-build clang wget curl git espeak golang sqlite3
+            sudo apt install -y python3 python3-pip cmake ninja-build clang wget curl git espeak golang sqlite3 age
         fi
         print_success "apt packages installed"
     elif command -v dnf &>/dev/null; then
         if [ "$(id -u)" -eq 0 ]; then
-            dnf install -y python3 python3-pip cmake ninja clang wget curl git espeak golang sqlite
+            dnf install -y python3 python3-pip cmake ninja clang wget curl git espeak golang sqlite age
         else
-            sudo dnf install -y python3 python3-pip cmake ninja clang wget curl git espeak golang sqlite
+            sudo dnf install -y python3 python3-pip cmake ninja clang wget curl git espeak golang sqlite age
         fi
         print_success "dnf packages installed"
     elif command -v pacman &>/dev/null; then
         if [ "$(id -u)" -eq 0 ]; then
-            pacman -S --noconfirm python python-pip cmake ninja clang wget curl git espeak-ng go sqlite
+            pacman -S --noconfirm python python-pip cmake ninja clang wget curl git espeak-ng go sqlite age
         else
-            sudo pacman -S --noconfirm python python-pip cmake ninja clang wget curl git espeak-ng go sqlite
+            sudo pacman -S --noconfirm python python-pip cmake ninja clang wget curl git espeak-ng go sqlite age
         fi
         print_success "pacman packages installed"
     else
-        print_warning "Package manager not detected — install manually: python3 pip cmake ninja clang wget curl git"
+        print_warning "Package manager not detected — install manually: python3 pip cmake ninja clang wget curl git age"
     fi
 }
 

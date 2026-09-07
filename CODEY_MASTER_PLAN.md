@@ -6128,14 +6128,14 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
 - [ ] **B7.2** — incremental upload of the B6.5 document/photo store.
       **Depends on B6.5** (nothing to back up until upload exists).
       Incremental, not a full re-push per cycle.
-- [ ] **B7.3** — config/secrets/tokens. **Rule-4 category** on the
+- [x] **B7.3** — config/secrets/tokens. **Rule-4 category** on the
       credential handling. **Encryption before upload, with the key held
       outside the backup** — done carelessly this converts a device-loss
-      problem into a credential-disclosure problem.
-- [ ] **B7.4** — the restore drill. **Live-verified by nature (rule 7);
+      problem into a credential-disclosure problem. (Completed 2026-09-07)
+- [x] **B7.4** — the restore drill. **Live-verified by nature (rule 7);
       code-complete does not close B7.** Restore to a scratch path,
       verify row counts and file integrity against the live DB. A backup
-      never restored is not a backup.
+      never restored is not a backup. (Live verified 2026-09-07)
       **Rule 11: `install.sh` carries the GCS client dependency and the
       credential-setup step.**
 

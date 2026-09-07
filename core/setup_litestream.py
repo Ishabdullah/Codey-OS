@@ -24,10 +24,10 @@ def main():
       - type: gcs
         bucket: {bucket}
         path: restoricon/core_db
-        # encryption:
-        #   type: age
-        #   identities:
-        #     - /path/to/age.key
+        encryption:
+          type: age
+          identities:
+            - ~/.codeyOS/age.key
 """
     out_path.write_text(yml)
 

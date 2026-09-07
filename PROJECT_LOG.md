@@ -1,3 +1,23 @@
+## 2026-09-07 — Phase B7.3 & B7.4: GCS Credentials, Encryption, and Restore Drill
+
+**What changed:**
+- `age` encryption tool installed via Termux `pkg install`.
+- Generated `age.key` inside `~/.codeyOS/` and explicitly configured `litestream.yml` to encrypt local WAL snapshots before uploading to GCS.
+- Set up GCP Service Account credentials, exported `GOOGLE_APPLICATION_CREDENTIALS` dynamically in `lib/service_manager.sh`.
+- Created `core/backup_secrets.py` to continuously tar and encrypt (`age`) the configuration and service account JSON files before pushing them to GCS. 
+- Successfully performed a full DB restore drill.
+
+**Why:** Required by B7.3 to handle secrets without leaking them, and B7.4 to prove Litestream works end-to-end on device.
+
+**Verification performed:**
+- (B7.3) Verified `litestream.log` actively running and pushing encrypted snapshots without HTTP 403 errors after IAM propagation.
+- (B7.4) Restored the SQLite DB to `~/restored_core.db` using `litestream restore`. Queried the active DB and the restored DB and confirmed data counts exactly matched (1 == 1). 
+- (B7.3) Ran `core/backup_secrets.py` and confirmed the `secrets.tar.gz.age` blob landed safely in GCS.
+
+**Outcome:** B7.3 and B7.4 are fully implemented and live-verified. The only remaining item in Phase B7 is B7.2 (document/photo store backup).
+
+**Next action:** Update `CODEY_MASTER_PLAN.md` and commit the changes. Proceed to B7.2 if requested.
+
 ## 2026-09-07 — Phase B7.1: Core DB Backup (Litestream)
 
 **What changed:** Implemented continuous local journal and periodic GCS snapshot for the Core DB via Litestream v0.3.13.

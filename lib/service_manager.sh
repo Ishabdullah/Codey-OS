@@ -492,8 +492,10 @@ start_litestream() {
         return 0
     fi
     
-    # Propagate GCS credentials if set in environment (used by Litestream in background)
-    if [ -n "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
+    # Propagate GCS credentials for Litestream background auth
+    if [ -f "$HOME/.codeyOS/gcp_credentials.json" ]; then
+        export GOOGLE_APPLICATION_CREDENTIALS="$HOME/.codeyOS/gcp_credentials.json"
+    elif [ -n "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
         export GOOGLE_APPLICATION_CREDENTIALS
     fi
 
