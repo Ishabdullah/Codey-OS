@@ -682,7 +682,15 @@ def render_login_surface(portal_type: str = "admin") -> str:
                 const data = await res.json();
                 if (res.ok && data.token) {{
                     setAuthToken(data.token);
-                    window.location.href = '{redirect_target}';
+                    let target = '{redirect_target}';
+                    if (target === '/admin' && data.user && data.user.role) {{
+                        const r = data.user.role;
+                        if (r === 'project_manager') target = '/pm';
+                        else if (r === 'technician') target = '/tech';
+                        else if (r === 'sales') target = '/sales';
+                        else if (r === 'subcontractor') target = '/subcontractor';
+                    }}
+                    window.location.href = target;
                 }} else {{
                     err.innerText = data.error || 'Invalid credentials. Please check and try again.';
                     err.style.display = 'block';
@@ -3211,3 +3219,150 @@ def render_admin_surface() -> str:
     </script>
 </body>
 </html>"""
+
+def _render_staff_portal_base(role_title: str, primary_label: str, role_key: str) -> str:
+    """Base template for the focused staff portals (B6.8)."""
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{role_title} Dashboard — Restoricon</title>
+    <link rel="icon" href="/assets/logos/favicon-32.png" type="image/png" sizes="32x32">
+    <style>
+        {{_get_common_styles()}}
+        .portal-layout {{ max-width: 1200px; margin: 2rem auto; padding: 0 1.25rem; display: flex; flex-direction: column; gap: 2rem; }}
+        .header-card {{ background: linear-gradient(135deg, #112240 0%, #1c2e4a 100%); border-radius: 12px; padding: 2rem; color: white; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }}
+        .erp-card {{ background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); padding: 1.5rem; margin-bottom: 1.5rem; }}
+        table {{ width: 100%; border-collapse: collapse; }}
+        th, td {{ padding: 0.75rem; text-align: left; border-bottom: 1px solid var(--border-light); }}
+        th {{ color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }}
+    </style>
+</head>
+<body>
+    {{_get_universal_drawer_html("admin")}}
+    <div class="portal-layout">
+        <div class="header-card">
+            <div>
+                <h1 style="margin:0 0 0.5rem 0;font-size:1.8rem;color:var(--bronze);">{role_title} Dashboard</h1>
+                <p style="margin:0;opacity:0.9;">Welcome back. Here is your schedule and active assignments.</p>
+            </div>
+            <button class="btn-gold" onclick="window.location.href='/admin/login'" style="padding: 0.5rem 1rem;">Sign Out</button>
+        </div>
+
+        <div class="erp-card">
+            <h2 style="margin-top:0;">My Schedule</h2>
+            <table>
+                <thead><tr><th>Time</th><th>Title</th><th>Status</th></tr></thead>
+                <tbody id="myScheduleList"><tr><td colspan="3">Loading schedule...</td></tr></tbody>
+            </table>
+        </div>
+
+        <div class="erp-card">
+            <h2 style="margin-top:0;">{primary_label}</h2>
+            <table>
+                <thead><tr><th>ID</th><th>Customer</th><th>Title</th><th>Status</th></tr></thead>
+                <tbody id="myAssignmentsList"><tr><td colspan="4">Loading assignments...</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        function escapeHtml(unsafe) {{
+            if (!unsafe) return '';
+            return String(unsafe).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+        }}
+
+        function getAuthToken() {{
+            const match = document.cookie.match(new RegExp('(^| )auth_token=([^;]+)'));
+            return match ? match[2] : null;
+        }}
+
+        async function loadDashboard() {{
+            const token = getAuthToken();
+            if (!token) {{ window.location.href = '/admin/login'; return; }}
+
+            let user = null;
+            try {{
+                const payload = JSON.parse(atob(token.split('.')[1]));
+                user = payload;
+            }} catch (e) {{}}
+
+            if (!user) return;
+
+            // Load Schedule
+            try {{
+                const res = await fetch('/api/v1/staff-schedules?user_id=' + user.sub, {{
+                    headers: {{ 'Authorization': 'Bearer ' + token }}
+                }});
+                const data = await res.json();
+                const tbody = document.getElementById('myScheduleList');
+                if (res.ok && data.schedules && data.schedules.length > 0) {{
+                    tbody.innerHTML = data.schedules.map(s => 
+                        `<tr>
+                            <td>${{escapeHtml(s.start_time)}}</td>
+                            <td>${{escapeHtml(s.title)}}</td>
+                            <td><span class="badge ${{s.status === 'scheduled' ? 'badge-info' : 'badge-gold'}}">${{escapeHtml(s.status)}}</span></td>
+                        </tr>`
+                    ).join('');
+                }} else {{
+                    tbody.innerHTML = '<tr><td colspan="3" style="color:var(--text-muted)">No upcoming schedule.</td></tr>';
+                }}
+            }} catch (e) {{}}
+
+            // Load Assignments
+            try {{
+                const res = await fetch('/api/v1/projects', {{
+                    headers: {{ 'Authorization': 'Bearer ' + token }}
+                }});
+                const data = await res.json();
+                const tbody = document.getElementById('myAssignmentsList');
+                if (res.ok && data.projects) {{
+                    let myProjects = data.projects;
+                    
+                    // Filter based on role if backend returned all
+                    if ('{role_key}' === 'project_manager') {{
+                        myProjects = myProjects.filter(p => p.project_manager_id == user.sub);
+                    }} else if ('{role_key}' === 'technician') {{
+                        // Technician backend already filters to assigned
+                    }} else if ('{role_key}' === 'subcontractor') {{
+                        myProjects = myProjects.filter(p => {{
+                            try {{
+                                const subs = JSON.parse(p.subcontractors_json || '[]');
+                                return subs.includes(Number(user.sub));
+                            }} catch(e) {{ return false; }}
+                        }});
+                    }}
+                    
+                    if (myProjects.length > 0) {{
+                        tbody.innerHTML = myProjects.map(p => 
+                            `<tr>
+                                <td>#${{p.id}}</td>
+                                <td>Cust #${{p.customer_id}}</td>
+                                <td>${{escapeHtml(p.title)}}</td>
+                                <td><span class="badge badge-info">${{escapeHtml(p.status)}}</span></td>
+                            </tr>`
+                        ).join('');
+                    }} else {{
+                        tbody.innerHTML = '<tr><td colspan="4" style="color:var(--text-muted)">No active assignments.</td></tr>';
+                    }}
+                }}
+            }} catch (e) {{}}
+        }}
+
+        window.onload = loadDashboard;
+    </script>
+</body>
+</html>"""
+
+def render_pm_surface() -> str:
+    return _render_staff_portal_base("Project Manager", "Projects I Manage", "project_manager")
+
+def render_sales_surface() -> str:
+    return _render_staff_portal_base("Sales & Estimating", "My Active Opportunities", "sales")
+
+def render_tech_surface() -> str:
+    return _render_staff_portal_base("Field Technician", "Assigned Work Orders & Projects", "technician")
+
+def render_subcontractor_surface() -> str:
+    return _render_staff_portal_base("Subcontractor", "Assigned Subcontract Work", "subcontractor")

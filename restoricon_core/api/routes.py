@@ -360,6 +360,23 @@ class APIRouter:
             if path in ("/admin/login", "/admin/login/"):
                 return 200, {"Content-Type": "text/html; charset=utf-8"}, render_login_surface("admin")
 
+            # B6.8 Staff Portals
+            if path in ("/pm", "/pm/"):
+                from .web_surfaces import render_pm_surface
+                return 200, {"Content-Type": "text/html; charset=utf-8"}, render_pm_surface()
+            
+            if path in ("/sales", "/sales/"):
+                from .web_surfaces import render_sales_surface
+                return 200, {"Content-Type": "text/html; charset=utf-8"}, render_sales_surface()
+            
+            if path in ("/tech", "/tech/"):
+                from .web_surfaces import render_tech_surface
+                return 200, {"Content-Type": "text/html; charset=utf-8"}, render_tech_surface()
+                
+            if path in ("/subcontractor", "/subcontractor/"):
+                from .web_surfaces import render_subcontractor_surface
+                return 200, {"Content-Type": "text/html; charset=utf-8"}, render_subcontractor_surface()
+
             if path in ("/portal", "/portal/"):
                 return 200, {"Content-Type": "text/html; charset=utf-8"}, render_portal_surface()
 
