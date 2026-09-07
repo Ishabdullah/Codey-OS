@@ -143,6 +143,9 @@ PERM_WRITE_DNC = "write:do_not_contact"
 PERM_READ_SCHEDULE_CONFIG = "read:schedule_config"
 PERM_WRITE_SCHEDULE_CONFIG = "write:schedule_config"
 
+PERM_READ_STAFF_SCHEDULES = "read:staff_schedules"
+PERM_WRITE_STAFF_SCHEDULES = "write:staff_schedules"
+
 # Contacts permissions (Track B Phase B2 cutover)
 PERM_READ_CONTACTS = "read:contacts"
 PERM_WRITE_CONTACTS = "write:contacts"
@@ -213,6 +216,8 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_BUSINESS_PROFILE,
         PERM_READ_SCHEDULE_CONFIG,
         PERM_WRITE_SCHEDULE_CONFIG,
+        PERM_READ_STAFF_SCHEDULES,
+        PERM_WRITE_STAFF_SCHEDULES,
         PERM_READ_DNC,
         PERM_WRITE_DNC,
         PERM_READ_CONTACTS,
@@ -271,6 +276,8 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_BUSINESS_PROFILE,
         PERM_READ_SCHEDULE_CONFIG,
         PERM_WRITE_SCHEDULE_CONFIG,
+        PERM_READ_STAFF_SCHEDULES,
+        PERM_WRITE_STAFF_SCHEDULES,
         PERM_READ_DNC,
         PERM_WRITE_DNC,
         PERM_READ_CONTACTS,
@@ -348,6 +355,8 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_READ_APPOINTMENTS,
         PERM_WRITE_APPOINTMENTS,
         PERM_READ_AUTOMATION_RULES,
+        PERM_READ_STAFF_SCHEDULES,
+        PERM_WRITE_STAFF_SCHEDULES,
         PERM_READ_DNC,
         PERM_READ_CONTACTS,
         PERM_WRITE_CONTACTS,
@@ -405,6 +414,8 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_BUSINESS_PROFILE,
         PERM_READ_SCHEDULE_CONFIG,
         PERM_WRITE_SCHEDULE_CONFIG,
+        PERM_READ_STAFF_SCHEDULES,
+        PERM_WRITE_STAFF_SCHEDULES,
         PERM_READ_DNC,
         PERM_WRITE_DNC,
         PERM_READ_CONTACTS,
@@ -538,6 +549,8 @@ PERMISSIONS_CATALOG: Dict[str, Dict[str, Any]] = {
             {"id": PERM_WRITE_APPOINTMENTS, "name": "Write Appointments", "description": "Book and reschedule appointments"},
             {"id": PERM_READ_SCHEDULE_CONFIG, "name": "Read Schedule Config", "description": "View booking availability rules"},
             {"id": PERM_WRITE_SCHEDULE_CONFIG, "name": "Write Schedule Config", "description": "Update booking parameters and hours"},
+            {"id": PERM_READ_STAFF_SCHEDULES, "name": "Read Staff Schedules", "description": "View staff schedules"},
+            {"id": PERM_WRITE_STAFF_SCHEDULES, "name": "Write Staff Schedules", "description": "Manage staff schedules"},
         ],
     },
     "business_ops": {

@@ -1020,3 +1020,43 @@ class PurchaseOrder:
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
+
+@dataclass
+class StaffSchedule:
+    id: Optional[int]
+    user_id: int
+    title: str
+    start_time: str
+    end_time: str
+    status: str
+    notes: Optional[str]
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "title": self.title,
+            "start_time": self.start_time,
+            "end_time": self.end_time,
+            "status": self.status,
+            "notes": self.notes,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at
+        }
+
+    @classmethod
+    def from_row(cls, row) -> 'StaffSchedule':
+        return cls(
+            id=row["id"],
+            user_id=row["user_id"],
+            title=row["title"],
+            start_time=row["start_time"],
+            end_time=row["end_time"],
+            status=row["status"],
+            notes=row["notes"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"]
+        )
+

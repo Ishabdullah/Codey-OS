@@ -154,7 +154,7 @@ class RestoriconAPIServer:
         self.comm_service = CommunicationService(self.db)
         self.notification_service = NotificationService()
         self.crm_service = CRMService(self.db, self.audit_service, self.notification_service)
-        self.scheduling_service = SchedulingService(self.db, self.audit_service)
+        self.scheduling_service = SchedulingService(self.db, self.audit_service, self.notification_service)
         self.automation_service = AutomationService(self.db, self.audit_service)
         self.operations_service = OperationsService(self.db, self.audit_service)
         self.finance_service = FinanceService(self.db, self.audit_service)

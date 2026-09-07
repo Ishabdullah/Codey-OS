@@ -1831,6 +1831,7 @@ def render_admin_surface() -> str:
             <button class="erp-tab-btn" onclick="switchErpTab('audit')">🔍 Audit Search</button>
             <button class="erp-tab-btn" onclick="switchErpTab('telemetry')">🤖 AI Agent & Audit</button>
             <button class="erp-tab-btn" onclick="switchErpTab('documents')">📄 Documents</button>
+            <button class="erp-tab-btn" onclick="switchErpTab('staff-schedules')">🕒 Staff Schedules</button>
         </div>
 
         <!-- Tab 1: Executive Overview & KPIs -->
@@ -2197,6 +2198,30 @@ def render_admin_surface() -> str:
                 </table>
             </div>
         </div>
+        <!-- Tab 12: Staff Schedules -->
+        <div id="tab-staff-schedules" class="tab-pane">
+            <div class="card-header-line">
+                <h2>Staff Scheduling</h2>
+                <button class="btn-gold" onclick="openStaffScheduleModal()">+ Schedule Staff</button>
+            </div>
+            <div class="erp-card">
+                <table class="erp-table">
+                    <thead>
+                        <tr>
+                            <th>User ID</th>
+                            <th>Title</th>
+                            <th>Start Time</th>
+                            <th>End Time</th>
+                            <th>Status</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="staffSchedulesList">
+                        <tr><td colspan="6" style="text-align: center;">Loading schedules...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </main>
 
     <!-- Dynamic Permissions Modal -->
@@ -2327,6 +2352,42 @@ def render_admin_surface() -> str:
                 <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
                     <button type="button" onclick="closeProjectModal()" class="btn-gold" style="background:transparent; border:1px solid var(--card-border); color:#CBD5E1;">Cancel</button>
                     <button type="submit" class="btn-gold">Save Project</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Staff Schedule Modal -->
+    <div id="addStaffScheduleModal" class="erp-modal-overlay">
+        <div class="erp-modal">
+            <div class="modal-header">
+                <h3>Schedule Staff</h3>
+                <button onclick="closeStaffScheduleModal()" style="background:none; border:none; color:#94A3B8; font-size:1.5rem; cursor:pointer;">&times;</button>
+            </div>
+            <form onsubmit="submitStaffSchedule(event)">
+                <div class="form-group">
+                    <label>User ID</label>
+                    <input type="number" id="schedUserId" required>
+                </div>
+                <div class="form-group">
+                    <label>Title</label>
+                    <input type="text" id="schedTitle" required>
+                </div>
+                <div class="form-group">
+                    <label>Start Time (ISO)</label>
+                    <input type="text" id="schedStart" required placeholder="YYYY-MM-DDTHH:MM:SSZ">
+                </div>
+                <div class="form-group">
+                    <label>End Time (ISO)</label>
+                    <input type="text" id="schedEnd" required placeholder="YYYY-MM-DDTHH:MM:SSZ">
+                </div>
+                <div class="form-group">
+                    <label>Notes</label>
+                    <textarea id="schedNotes" rows="2"></textarea>
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+                    <button type="button" onclick="closeStaffScheduleModal()" class="btn-gold" style="background:transparent; border:1px solid var(--card-border); color:#CBD5E1;">Cancel</button>
+                    <button type="submit" class="btn-gold">Save Schedule</button>
                 </div>
             </form>
         </div>
@@ -2527,8 +2588,6 @@ def render_admin_surface() -> str:
             }
         }
 
-        function escapeHtml(unsafe) {
-
         window.addEventListener('DOMContentLoaded', () => {
             loadKPIs();
         });
@@ -2665,6 +2724,7 @@ def render_admin_surface() -> str:
             if (tabId === 'telemetry') loadAuditLogs();
             if (tabId === 'audit') searchAuditLog();
             if (tabId === 'documents') loadDocuments();
+            if (tabId === 'staff-schedules') loadStaffSchedules();
         }
 
         function escapeHtml(unsafe) {
@@ -2674,6 +2734,99 @@ def render_admin_surface() -> str:
                  .replace(/>/g, "&gt;")
                  .replace(/"/g, "&quot;")
                  .replace(/'/g, "&#039;");
+        }
+
+        function openStaffScheduleModal() {
+            document.getElementById('addStaffScheduleModal').classList.add('active');
+        }
+
+        function closeStaffScheduleModal() {
+            document.getElementById('addStaffScheduleModal').classList.remove('active');
+        }
+
+        async function loadStaffSchedules() {
+            const token = getAuthToken();
+            const tbody = document.getElementById('staffSchedulesList');
+            if (!tbody) return;
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">Loading schedules...</td></tr>';
+            try {
+                const res = await fetch('/api/v1/staff-schedules', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (res.status === 401) { logoutUser(); return; }
+                const data = await res.json();
+                if (data.schedules && data.schedules.length > 0) {
+                    tbody.innerHTML = data.schedules.map(s => `
+                        <tr>
+                            <td>${escapeHtml(s.user_id)}</td>
+                            <td>${escapeHtml(s.title)}</td>
+                            <td>${escapeHtml(s.start_time)}</td>
+                            <td>${escapeHtml(s.end_time)}</td>
+                            <td><span class="badge ${s.status === 'scheduled' ? 'badge-info' : 'badge-gold'}">${escapeHtml(s.status)}</span></td>
+                            <td>
+                                <button class="btn-gold" style="padding: 0.2rem 0.5rem; font-size: 0.75rem;" onclick="deleteStaffSchedule(${s.id})">Delete</button>
+                            </td>
+                        </tr>
+                    `).join('');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">No staff schedules found.</td></tr>';
+                }
+            } catch (e) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--danger);">Failed to load schedules.</td></tr>';
+            }
+        }
+
+        async function submitStaffSchedule(event) {
+            event.preventDefault();
+            const token = getAuthToken();
+            const payload = {
+                user_id: parseInt(document.getElementById('schedUserId').value, 10),
+                title: document.getElementById('schedTitle').value,
+                start_time: document.getElementById('schedStart').value,
+                end_time: document.getElementById('schedEnd').value,
+                notes: document.getElementById('schedNotes').value,
+                status: 'scheduled'
+            };
+            try {
+                const res = await fetch('/api/v1/staff-schedules', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + token,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+                if (res.ok) {
+                    closeStaffScheduleModal();
+                    loadStaffSchedules();
+                } else {
+                    const errorData = await res.json();
+                    alert('Error: ' + (errorData.error || res.statusText));
+                }
+            } catch (e) {
+                console.error(e);
+                alert('Failed to save staff schedule.');
+            }
+        }
+
+        async function deleteStaffSchedule(id) {
+            if (!confirm('Delete this staff schedule?')) return;
+            const token = getAuthToken();
+            try {
+                const res = await fetch('/api/v1/staff-schedules/' + id, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (res.ok) {
+                    loadStaffSchedules();
+                } else {
+                    const err = await res.json();
+                    alert('Failed to delete: ' + (err.error || res.statusText));
+                }
+            } catch (e) {
+                console.error(e);
+                alert('Failed to delete staff schedule.');
+            }
         }
 
         async function loadDocuments() {

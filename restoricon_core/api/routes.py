@@ -1426,6 +1426,27 @@ class APIRouter:
                     return 404, {"Content-Type": "application/json"}, {"error": "Appointment not found"}
                 return 200, {"Content-Type": "application/json"}, {"appointment": appt.to_dict()}
 
+            if path == "/api/v1/staff-schedules":
+                if method == "GET":
+                    uid = query_params.get("user_id", [None])[0]
+                    from ..models import StaffSchedule
+                    entries = self.scheduling.list_staff_schedules(actor, user_id=int(uid) if uid else None)
+                    return 200, {"Content-Type": "application/json"}, {"schedules": [s.to_dict() for s in entries]}
+                elif method == "POST":
+                    from ..models import StaffSchedule
+                    sched = StaffSchedule(**json_body)
+                    created = self.scheduling.create_staff_schedule(sched, actor)
+                    return 201, {"Content-Type": "application/json"}, {"schedule": created.to_dict()}
+
+            if path.startswith("/api/v1/staff-schedules/") and method in ("PATCH", "DELETE"):
+                sched_id = int(path.split("/")[-1])
+                if method == "PATCH":
+                    updated = self.scheduling.update_staff_schedule(sched_id, json_body, actor)
+                    return 200, {"Content-Type": "application/json"}, {"schedule": updated.to_dict()}
+                elif method == "DELETE":
+                    self.scheduling.delete_staff_schedule(sched_id, actor)
+                    return 200, {"Content-Type": "application/json"}, {"deleted": True}
+
             # Schedule Config (singleton, NEW-216)
             if path == "/api/v1/schedule-config":
                 if method == "GET":

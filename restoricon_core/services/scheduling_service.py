@@ -25,14 +25,17 @@ from ..auth import (
     PERM_READ_SCHEDULE_CONFIG,
     PERM_WRITE_APPOINTMENTS,
     PERM_WRITE_SCHEDULE_CONFIG,
+    PERM_READ_STAFF_SCHEDULES,
+    PERM_WRITE_STAFF_SCHEDULES,
 )
 from ..database import DatabaseManager
-from ..models import Appointment, ScheduleConfig, utc_now_iso
+from ..models import Appointment, ScheduleConfig, StaffSchedule, utc_now_iso
 from .audit_service import (
     AuditService,
     build_audit_details,
     _AUDITABLE_APPOINTMENT_FIELDS,
 )
+from .notification_service import NotificationService
 
 VALID_STATUSES = {"confirmed", "negotiating", "cancelled", "completed"}
 
@@ -40,9 +43,10 @@ VALID_STATUSES = {"confirmed", "negotiating", "cancelled", "completed"}
 class SchedulingService:
     """Manages appointment/calendar records."""
 
-    def __init__(self, db_manager: DatabaseManager, audit_service: AuditService):
+    def __init__(self, db_manager: DatabaseManager, audit_service: AuditService, notification_service: Optional[NotificationService] = None):
         self.db = db_manager
         self.audit = audit_service
+        self.notification = notification_service
 
     @staticmethod
     def _row_to_appointment(row) -> Appointment:
@@ -451,3 +455,161 @@ class SchedulingService:
             details=build_audit_details(snapshot=config.to_dict()),
         )
         return config
+
+    # ==========================================
+    # STAFF SCHEDULES (B6.7)
+    # ==========================================
+
+    def create_staff_schedule(self, schedule: StaffSchedule, actor: AuthContext) -> StaffSchedule:
+        if not actor.has_permission(PERM_WRITE_STAFF_SCHEDULES):
+            raise PermissionError("Actor lacks permission to write staff schedules")
+
+        now = utc_now_iso()
+        schedule.created_at = now
+        schedule.updated_at = now
+
+        conn = self.db.get_connection()
+        with conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO staff_schedules (user_id, title, start_time, end_time, status, notes, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (schedule.user_id, schedule.title, schedule.start_time, schedule.end_time, schedule.status, schedule.notes, now, now)
+            )
+            schedule.id = cursor.lastrowid
+
+        self.audit.log(
+            action="create",
+            entity_type="staff_schedule",
+            entity_id=schedule.id,
+            change_summary=f"Created staff schedule '{schedule.title}'",
+            actor=actor,
+            details=build_audit_details(after=schedule.to_dict()),
+        )
+
+        if self.notification:
+            user_row = conn.execute("SELECT email, full_name FROM users WHERE id = ?", (schedule.user_id,)).fetchone()
+            if user_row and user_row["email"]:
+                appointment_dict = {
+                    "uid": f"staff-sched-{schedule.id}",
+                    "ics_sequence": 0,
+                    "title": schedule.title,
+                    "start": schedule.start_time,
+                    "end": schedule.end_time,
+                    "attendee_email": user_row["email"],
+                    "attendee_name": user_row["full_name"]
+                }
+                try:
+                    self.notification.send_calendar_invite(
+                        to_email=user_row["email"],
+                        appointment=appointment_dict,
+                        text=f"You have been scheduled: {schedule.title}"
+                    )
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning("Failed to send staff schedule ICS invite: %s", e)
+
+        return schedule
+
+    def list_staff_schedules(self, actor: AuthContext, user_id: Optional[int] = None) -> List[StaffSchedule]:
+        if not actor.has_permission(PERM_READ_STAFF_SCHEDULES):
+            raise PermissionError("Actor lacks permission to read staff schedules")
+
+        query = "SELECT * FROM staff_schedules WHERE 1=1"
+        params = []
+        if user_id is not None:
+            query += " AND user_id = ?"
+            params.append(user_id)
+
+        conn = self.db.get_connection()
+        rows = conn.execute(query, params).fetchall()
+        return [StaffSchedule.from_row(row) for row in rows]
+
+    def update_staff_schedule(self, schedule_id: int, updates: Dict[str, Any], actor: AuthContext) -> Optional[StaffSchedule]:
+        if not actor.has_permission(PERM_WRITE_STAFF_SCHEDULES):
+            raise PermissionError("Actor lacks permission to write staff schedules")
+
+        conn = self.db.get_connection()
+        row = conn.execute("SELECT * FROM staff_schedules WHERE id = ?", (schedule_id,)).fetchone()
+        if not row:
+            return None
+
+        before = StaffSchedule.from_row(row).to_dict()
+
+        set_clauses = []
+        params = []
+        allowed = {"title", "start_time", "end_time", "status", "notes"}
+        for k, v in updates.items():
+            if k in allowed:
+                set_clauses.append(f"{k} = ?")
+                params.append(v)
+
+        if not set_clauses:
+            return StaffSchedule.from_row(row)
+
+        now = utc_now_iso()
+        set_clauses.append("updated_at = ?")
+        params.append(now)
+        params.append(schedule_id)
+
+        with conn:
+            conn.execute(
+                f"UPDATE staff_schedules SET {', '.join(set_clauses)} WHERE id = ?",
+                params
+            )
+
+        after_row = conn.execute("SELECT * FROM staff_schedules WHERE id = ?", (schedule_id,)).fetchone()
+        after = StaffSchedule.from_row(after_row)
+
+        self.audit.log(
+            action="update",
+            entity_type="staff_schedule",
+            entity_id=schedule_id,
+            change_summary=f"Updated staff schedule {schedule_id}",
+            actor=actor,
+            details=build_audit_details(before=before, after=after.to_dict()),
+        )
+
+        needs_invite = any(k in updates for k in ("title", "start_time", "end_time"))
+        if self.notification and needs_invite:
+            user_row = conn.execute("SELECT email, full_name FROM users WHERE id = ?", (after.user_id,)).fetchone()
+            if user_row and user_row["email"]:
+                import time
+                appointment_dict = {
+                    "uid": f"staff-sched-{after.id}",
+                    "ics_sequence": int(time.time()),
+                    "title": after.title,
+                    "start": after.start_time,
+                    "end": after.end_time,
+                    "attendee_email": user_row["email"],
+                    "attendee_name": user_row["full_name"]
+                }
+                try:
+                    self.notification.send_calendar_invite(
+                        to_email=user_row["email"],
+                        appointment=appointment_dict,
+                        text=f"Your schedule has been updated: {after.title}"
+                    )
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning("Failed to send staff schedule ICS invite on update: %s", e)
+
+        return after
+
+    def delete_staff_schedule(self, schedule_id: int, actor: AuthContext) -> None:
+        if not actor.has_permission(PERM_WRITE_STAFF_SCHEDULES):
+            raise PermissionError("Actor lacks permission to write staff schedules")
+
+        conn = self.db.get_connection()
+        with conn:
+            conn.execute("DELETE FROM staff_schedules WHERE id = ?", (schedule_id,))
+
+        self.audit.log(
+            action="delete",
+            entity_type="staff_schedule",
+            entity_id=schedule_id,
+            change_summary=f"Deleted staff schedule {schedule_id}",
+            actor=actor,
+            details=build_audit_details(snapshot={"id": schedule_id}),
+        )
