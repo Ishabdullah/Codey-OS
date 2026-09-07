@@ -1,3 +1,11 @@
+## 2026-09-07 — Urgent Bug Fixes: U.33 & U.34 (PID Tracking & MemAvailable Poll)
+
+**What changed:**
+- Checked off **U.33**: Verified that `reserve_slot()` / `mark_resident()` PID passing was already correctly fixed in the `loader_v2.py` M1-D update (`confirm_resident_and_mark_slot` correctly passes `pid=self._server.process.pid` to the slot registry, which was implemented in `NEW-104`).
+- Checked off **U.34**: Re-verified the `MemAvailable`-delta poll against the M1-E-era 4B model load. The claim that the poll "has never once confirmed a real load" was based on older/retired models. With Qwen3.5-4B, the memory drop (`~4528MiB`) correctly triggers the threshold (`2484MiB`) and successfully confirms residency.
+
+**Why:** Addresses `U.33` and `U.34`, closing stale verification gaps and ensuring resource gate observability matches the live system behavior.
+
 ## 2026-09-07 — Urgent Bug Fixes: U.30 & U.32 (PID Tracking)
 
 **What changed:**

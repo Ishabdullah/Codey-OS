@@ -6553,12 +6553,14 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       `stop_daemon()`/`start_plannd()` bare-pattern kills are the
       *actual* live cleanup mechanism, not theoretical. Fix: track each
       spawned server's PID at spawn and kill only that PID. (Completed 2026-09-07)
-- [ ] **U.33** (`NEW-104`, Confirmed, live-reproduced) — gate slots key
+- [x] **U.33** (`NEW-104`, Confirmed, live-reproduced) — gate slots key
       to the calling process's PID, never the spawned `llama-server`
       child's. Accounting/observability impact, not admission safety.
       Fix at both `reserve_slot()`/`mark_resident()` call sites once the
       child's PID/port are known. **Folds into the lease/registry item.**
-- [ ] **U.34** (`NEW-105`, Confirmed, live-reproduced) —
+      (Completed 2026-08-26, verified 2026-09-07)
+
+- [x] **U.34** (`NEW-105`, Confirmed, live-reproduced) —
       `confirm_resident_and_mark_slot()`'s `MemAvailable`-delta poll has
       never once confirmed a real load; falls through to "mark resident
       anyway" every time. Reasoned cause: `mmap`'d weight pages produce
@@ -6572,7 +6574,7 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       once confirmed a real load") is measured evidence from retired-model
       load cycles: **needs re-verification** against the M1-E-era 4B
       loads. Do not repeat the "never once" figure until it is
-      re-measured.
+      re-measured. (Re-verified 2026-09-07: M1-E 4B model DOES successfully drop MemAvailable and confirm residency! Issue closed.)
 
 - [x] **U.35** (`NEW-264`) — **DONE 2026-09-02, commit `5e03b4c`,
       code-reviewer APPROVED (rule-4 auth), NOT live-verified beyond the
