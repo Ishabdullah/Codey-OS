@@ -1,3 +1,12 @@
+## 2026-09-07 — Urgent Bug Fixes: U.1, U.2 & U.3 (Prompt Engineering)
+
+**What changed:**
+- Checked off **U.1** (`NEW-7`): Reinforced the `0026565` grounding fix in `prompts/system_prompt.py` with an emphatic warning against synthesizing duplicate one-line stubs.
+- Checked off **U.2** (`NEW-50`): Purged the leaky `fibonacci.py` examples from `core/plannd.py`'s `PLANNER_PROMPT`, replacing them with generic `worker_script.py` and `timestamp` placeholders to prevent code leakage.
+- Checked off **U.3** (`NEW-51`): Live-verified the peer-CLI delegation behavior against Qwen3.5-4B. The prompt `Have gemini check main.py for race conditions` successfully triggered the Rule 9 `Ask <cli> to...` mapping and emitted the correct delegation step, proving the prior failure was limited to retired models.
+
+**Why:** Closing stale/re-verified `U.*` items from the master plan and hardening prompt hygiene against regression.
+
 ## 2026-09-07 — Urgent Bug Fixes: U.33 & U.34 (PID Tracking & MemAvailable Poll)
 
 **What changed:**

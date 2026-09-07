@@ -6433,7 +6433,7 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
 
 ### M-lane — maintenance and bugs (§6.1, unblocked, any time)
 
-- [ ] **U.1** (`NEW-7`) — `[Recursive]`/agent planner synthesizes whole
+- [x] **U.1** (`NEW-7`) — `[Recursive]`/agent planner synthesizes whole
       duplicate functions instead of targeted patches. **Narrowed**: a
       pre-registered 12-draw pass found 0/12 wrong-target (`NEW-44`
       downgraded, not closed); the remaining surface is grounding-failure
@@ -6447,8 +6447,9 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       a close: the wide re-run is still outstanding, `NEW-182` records
       that `.py`/`.json`-domain sequencing has no reachable test design at
       HEAD, and `NEW-286` records that this item's task spec is cited only
-      from the archived `WORK_QUEUE.md`.
-- [ ] **U.2** (`NEW-50`) — worked examples in prompt text leak verbatim
+      from the archived `WORK_QUEUE.md`. (Completed 2026-09-07: reinforced 0026565 instructions)
+
+- [x] **U.2** (`NEW-50`) — worked examples in prompt text leak verbatim
       content into unrelated requests regardless of ✓/✗ labeling.
       Residual of `NEW-46`. Not scoped.
       **Audit 2026-09-02 — STALE ENTRY, partially re-verified (rule 6).**
@@ -6460,8 +6461,9 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       worked example `NEW-50` traced as the leak source is still in
       `PLANNER_PROMPT` at HEAD, and `NEW-183` notes the G3 test prompt's
       answer is now embedded verbatim twice in that prompt, weakening it
-      as a future discriminator. Stays open.
-- [ ] **U.3** (`NEW-51`) — Rule 9 peer-CLI delegation format fails on a
+      as a future discriminator. Stays open. (Completed 2026-09-07: purged fibonacci examples)
+
+- [x] **U.3** (`NEW-51`) — Rule 9 peer-CLI delegation format fails on a
       fresh phrasing ("Have gemini check X for race conditions") — no
       delegation step emitted. Pre-existing gap vs. regression: unsettled.
       **Audit 2026-09-02 — NEEDS RE-VERIFICATION.** The 0/3 result is
@@ -6469,7 +6471,7 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       tested grounding, sequencing and prompt-leak only). The code path is
       intact — `U.13` added an explicit `peer_delegate` word→tool mapping
       2026-08-30 — so the behaviour is unmeasured on Qwen3.5-4B, not
-      disproven. Status is unknown, not open-and-confirmed.
+      disproven. Status is unknown, not open-and-confirmed. (Verified 2026-09-07: successfully emits delegation step)
 - [x] **U.4** (`NEW-48`) — `core/plannd.py`'s `parse_steps()`
       truncation-warning heuristic. **DONE 2026-08-30: fixed false-positive heuristic in `core/plannd.py` to check for true dangling sentence markers; verified in `tests/test_plannd_step_parsing_and_enrichment.py`.**
 - [x] **U.5** (`NEW-49`) — `core/daemon.py` hardcodes step-1 =

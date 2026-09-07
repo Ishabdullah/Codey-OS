@@ -278,7 +278,7 @@ invented, not copied from the real file.
 
 ✗ WRONG — hallucinated old_str, assuming the function is a one-line stub:
 {"name": "patch_file", "args": {"path": "main.py", "old_str": "def shutdown():\\n    pass", "new_str": "def shutdown():\\n    \\"\\"\\"Docstring.\\"\\"\\"\\n    pass"}}
-Problem: guessed the body instead of reading the real file first — will not match.
+Problem: NEVER assume a function is a one-line stub or synthesize a whole duplicate function from memory! You must read the real file first — this guess will fail to match the real code.
 
 ✓ CORRECT — real signature line copied verbatim as the anchor:
 {"name": "patch_file", "args": {"path": "main.py", "old_str": "def shutdown():", "new_str": "def shutdown():\\n    \\"\\"\\"Gracefully stop the model server and save session state.\\"\\"\\""}}
