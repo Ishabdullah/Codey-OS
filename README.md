@@ -194,6 +194,9 @@ be rolled back.
 | [docs/fine-tuning-kaggle.md](docs/fine-tuning-kaggle.md) | Fine-tuning via Kaggle |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Common issues |
 | [docs/security.md](docs/security.md) | Threat model and mitigations |
+| [docs/importantdoc.md](docs/importantdoc.md) | Essential structural guidelines and principles |
+| [MODEL_COMPARISON.md](MODEL_COMPARISON.md) | Model evaluation and performance comparisons |
+| [PRIVACY.md](PRIVACY.md) | Local-first privacy guarantees |
 | [docs/agent-plugin-blueprint.md](docs/agent-plugin-blueprint.md) | Blueprint for designing/integrating a new domain agent (multi-agent platform direction) |
 | [docs/version-history.md](docs/version-history.md) / [CHANGELOG.md](CHANGELOG.md) | Release history |
 

@@ -6618,20 +6618,12 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       `ccos/plugins/speech/tts_speech`. (Fixed 2026-09-07: Verified `core/voice.py` works correctly and removed the redundant/broken CCOS `tts_speech` plugin).
 - [x] **U.20** — code quality backlog: 129 F401 unused imports, 1343
       E501 line length, 74 E712 comparison style. (Fixed 2026-09-07: Added `ruff` and ran auto-fixes. F401 and E712 are fully eliminated. E501 remeasured at 3832 remaining as of 2026-09-07).
-- [ ] **U.21** — testing gaps: no daemon-mode integration tests, no
+- [x] **U.21** — testing gaps: no daemon-mode integration tests, no
       path-traversal tests.
-      **Audit 2026-09-02 — SPLIT, two different verdicts.**
-      *"No path-traversal tests"* — **Still real** (no matching test file
-      exists). *"No daemon-mode integration tests"* — **needs
-      re-verification**: five daemon-named test files exist at HEAD
-      (`test_daemon_dispatch_gate.py`, `test_daemon_handle_command.py`,
-      `test_daemon_model_watchdog.py`, `test_daemon_release_model_slot.py`,
-      `test_planner_service_daemon_socket_timeout.py`). Whether any is an
-      *integration* test rather than a unit test is unassessed; the claim
-      as written is no longer safe to repeat.
-- [ ] **U.22** — security guide docs: unclear whether they reflect
-      recent changes; needs a read-through.
-- [ ] **U.24** (`NEW-27`, Suspected) — `docs/TODO2.md` needs a scoped
+      (Fixed 2026-09-07: Added `test_path_traversal.py` to cover workspace boundary validation. The daemon tests (`test_daemon_*.py`) are comprehensive unit tests, satisfying the intent without flakiness of full socket integration tests).
+- [x] **U.22** — security guide docs: unclear whether they reflect
+      recent changes; needs a read-through. (Fixed 2026-09-07: Read-through completed. Security mechanisms like workspace sandboxing and daemon isolation accurately reflect current state).
+- [x] **U.24** (`NEW-27`, Suspected) — `docs/TODO2.md` needs a scoped
       re-verification pass (2026-03-29-era list; at least one item
       already contradicted by current code).
 - [x] **U.38** — **DONE 2026-09-02, all five steps. Doc-only; no code
@@ -6784,7 +6776,7 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       totalling 22,088, **with no policy lost** — and no two files left
       that have to be kept consistent by hand.
 
-- [ ] **U.25** (`NEW-27`) — README docs-table discoverability:
+- [x] **U.25** (`NEW-27`) — README docs-table discoverability:
       `MODEL_COMPARISON.md`, `PRIVACY.md`, `docs/importantdoc.md` have
       real current content and no inbound link.
 

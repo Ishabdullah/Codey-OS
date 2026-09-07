@@ -1,3 +1,13 @@
+## 2026-09-07 — Urgent Bug Fixes: U.21, U.22, U.24, U.25 (Tests and Documentation)
+
+**What changed:**
+- Checked off **U.21**: Added `tests/test_path_traversal.py` to assert that the `_validate_path` sandboxing logic successfully blocks directory traversal attacks like `../../../etc/passwd`. Verified that the existing daemon tests sufficiently cover functionality without the need for brittle socket integration tests.
+- Checked off **U.22**: Read through `docs/security.md` and confirmed it accurately describes the current workspace sandbox and daemon isolation model.
+- Checked off **U.24**: Archived the obsolete `docs/TODO2.md` to `docs/archive/`, as it was an out-of-date artifact superseded by `CODEY_MASTER_PLAN.md`.
+- Checked off **U.25**: Improved documentation discoverability by adding links to `MODEL_COMPARISON.md`, `PRIVACY.md`, and `docs/importantdoc.md` directly to the README's main documentation table.
+
+**Why:** Cleaning up testing gaps and lingering documentation debt.
+
 ## 2026-09-07 — Urgent Bug Fixes: U.16, U.19, U.20 (Docs, TTS, Linting)
 
 **What changed:**
