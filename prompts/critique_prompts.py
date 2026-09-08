@@ -51,6 +51,7 @@ Review the tool call you are about to make. Check:
 5. Is the JSON properly escaped and well-formed?
 
 Rate confidence 1-10. List any concerns.
+If you're unsure about any API or library, write "NEED_DOCS: <topic>" on its own line.
 If there are no issues, write "Quality: 9/10. No issues found." and nothing else.
 Output ONLY your critique in plain text — no revised tool call yet, no tool-call tags, no code blocks."""
 
@@ -65,6 +66,7 @@ Review the plan you just wrote. Check:
 5. Are there any missing steps?
 
 Rate quality 1-10. List issues.
+If you're unsure about any API or library a step relies on, write "NEED_DOCS: <topic>" on its own line.
 If there are no issues, write "Quality: 9/10. No issues found." and nothing else.
 Output ONLY your critique in plain text — no revised plan yet, no tool-call tags, no code blocks."""
 

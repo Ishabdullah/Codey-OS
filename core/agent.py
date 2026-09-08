@@ -340,7 +340,7 @@ def extract_json(raw):
     try:
         raw = raw.strip()
 
-        # Fix Python triple-quotes → JSON strings (common 7B model error).
+        # Fix Python triple-quotes → JSON strings (common small-model error).
         # The model writes """content""" instead of a proper JSON string.
         # Handles nested docstrings inside the code content.
         def _fix_triple_quotes(s):
@@ -430,7 +430,7 @@ def extract_json(raw):
         # Clean candidate for common LLM artifacts: trailing commas
         cleaned = re.sub(r",\s*([}\]])", r"\1", candidate)
 
-        # Fix literal newlines inside JSON strings (common 7B model error)
+        # Fix literal newlines inside JSON strings (common small-model error)
         # Replace actual newlines inside string values with \n
         def _fix_literal_newlines(s):
             result = []
@@ -1422,7 +1422,7 @@ def run_agent(
                         return _summary, history
 
                     # Auto-extract and write code blocks from peer output.
-                    # The 7B local model struggles to parse large peer responses,
+                    # The local model struggles to parse large peer responses,
                     # so we extract ```python blocks with filenames and write them directly.
                     _files_written = _auto_apply_peer_code(_output, user_message)
 
@@ -2179,7 +2179,7 @@ def run_agent(
                     _set_run_stat(_this_thread_id, "escalation_outcome", "skipped")
             messages.append({"role": "assistant", "content": _format_tool_for_history(tool_dict)})
             # After write_file for a simple create request — force exit the loop.
-            # The 7B model ignores "don't run commands" instructions and keeps
+            # The local model ignores "don't run commands" instructions and keeps
             # calling read_file/shell, so we must hard-stop here.
             if name == "write_file" and not any(
                 k in user_message.lower() for k in ["run", "execute", "test", "start", "launch"]

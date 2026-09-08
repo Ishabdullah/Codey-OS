@@ -554,6 +554,7 @@ Cross-references: `NEW-156` (constants derived from the retired models),
 ## Found during Track 1 prompt audit (system_prompt.py, layered_prompt.py, critique_prompts.py, plannd.py PLANNER_PROMPT), 2026-07-30 — NOT fixed, logged only
 
 ### [NEW-28] `_TOOL_VERBS` regex in `core/plannd.py` has no `edit` alternative — `filter_tool_steps` can silently drop legitimate "Edit <file>: ..." steps
+**Status:** Resolved (verified 2026-09-08, batch-5 ledger closeout — no code change needed this round). `core/plannd.py`'s `_TOOL_VERBS` regex now includes an `edit` alternative (`^(create|write|build|add|edit|run|execute|install|verify|check|test|confirm|update|delete|remove|ask|have|use|tell|call|let|get|initialize|init|commit|push)\b`) — an `Edit <file>: ...` step at any position now survives `filter_tool_steps` on its own, independent of the `Run:`-step-survival interaction this entry originally traced.
 - **Status: Confirmed, not fixed (code, not prompt text — out of this audit's
   scope, which covered `PLANNER_PROMPT` the string, not `filter_tool_steps`).**
   `PLANNER_PROMPT` explicitly instructs the 1.5B planner to emit `Edit <file>:
@@ -712,15 +713,25 @@ Cross-references: `NEW-156` (constants derived from the retired models),
   round" entry for the corrected next steps.
 
 ### [NEW-31] `CRITIQUE_TOOL` and `CRITIQUE_PLAN` templates in `prompts/critique_prompts.py` are defined but never invoked — `select_critique_prompt()` has no callers
-- **Status: Confirmed, not fixed (wiring it up is a behavior change beyond
-  a wording fix).** `_build_critique_prompt` in `layered_prompt.py` hardcodes
-  `CRITIQUE_CODE` for every critique-phase call; nothing in the codebase calls
-  `select_critique_prompt()` except a comment reference in
-  `orchestrator.py:341`. The module docstring's claim that "Three templates
-  cover the main task types" is not true of current behavior — tool-call
-  critiques and plan critiques both get the code-review template. Recommend
-  either wiring `task_type` through `core/recursive.py` → `build_recursive_prompt`
-  → `_build_critique_prompt`, or removing the unused templates/docstring claim.
+- **Status: Resolved (2026-09-08, ledger closeout batch 5).** `task_type`
+  is now threaded through `core/recursive.py` → `build_recursive_prompt`
+  → `_build_critique_prompt`, so tool-call and plan critiques get
+  `CRITIQUE_TOOL`/`CRITIQUE_PLAN` instead of `CRITIQUE_CODE`. Caller-graph
+  verified: no production caller passes any `task_type` besides
+  `"code"`/`"plan"`, so `CRITIQUE_TOOL` is only reachable via the
+  `select_critique_prompt()` fallback path today, not yet a live-traffic
+  route — kept anyway per the module docstring's stated three-template
+  design.
+- **Round-1 code-review caught a real regression before commit**: the
+  module docstring's claim that all three templates emit `NEED_DOCS:
+  <topic>` to trigger `extract_doc_needs()`'s targeted KB retrieval
+  (`core/recursive.py`) was only true of `CRITIQUE_CODE` — `CRITIQUE_TOOL`
+  and `CRITIQUE_PLAN` never had that line. Before this fix, plan critique
+  was (buggily) getting `CRITIQUE_CODE` hardcoded, so it incidentally
+  carried the trigger anyway; correctly routing to `CRITIQUE_PLAN` would
+  have silently dropped targeted retrieval on that path. Fixed by adding
+  a matching `NEED_DOCS: <topic>` line to both `CRITIQUE_TOOL` and
+  `CRITIQUE_PLAN`, restoring parity with the docstring's original claim.
 
 ### [NEW-32] `LayeredPrompt.add()`/`build()` in `prompts/layered_prompt.py` don't enforce layer-name uniqueness, which risks double-counting budget once Phase 5b adds tier-specific layers
 - **Status: Suspected, not fixed — not triggerable today, flagged because
@@ -918,6 +929,7 @@ uncommitted working-tree prompt text, not against `HEAD`.
   `M1-G` entry for the pre-registered re-test plan (not yet run).
 
 ### [NEW-51] Rule 9 peer-CLI delegation format fails entirely (0/3, no delegation step emitted) on a fresh phrasing not matching prior tested patterns (Confirmed; deterministic; causal link to this session's changes not established)
+**Status:** Reversed by a single live-verify trial (`U.3`, 2026-09-07, `PROJECT_LOG.md`) — the near-identical prompt "Have gemini check main.py for race conditions" against Qwen3.5-4B triggered the correct Rule 9 `Ask <cli> to...` delegation step, the opposite of this entry's original 0/3 finding. **Not closing on this alone:** `U.3` is a single trial, not the 3+ trials this entry's original finding used — needs 2+ more live-verify trials before fully closing (2026-09-08, batch-5 ledger closeout).
 
 - **Status:** Confirmed — deterministic, 0/3 across 3 trials. Explicitly
   **not** claimed as a regression from this session's `PLANNER_PROMPT`
@@ -1487,6 +1499,7 @@ enforce, just from an untouched call site.
   NEW-56.
 
 ### [NEW-59] `core/recursive.py`'s critique phase double-truncates the draft preview (`recursive.py:440`'s `draft[:2000]`, then `layered_prompt.py:378`'s `prior_draft[:1500]` again), and the binding 1500-char cut can split a `patch_file` call's JSON mid-string (Confirmed, not currently triggerable in the observed NEW-56 trials)
+**Status:** Resolved (verified 2026-09-08, batch-5 ledger closeout — no code change needed this round). `core/recursive.py` (~lines 477-483) documents the fix: the full draft is now passed through unsliced to `build_recursive_prompt(..., phase="critique", ...)`, and the single remaining truncation point is `layered_prompt.py`'s tool-block-aware `_safe_truncate_draft()`, which never splits a `<tool>{...}</tool>` JSON block mid-string.
 - **Location:** `recursive.py:440` truncates the draft to 2000 chars
   before passing it as `prior_draft` to `build_recursive_prompt(...,
   phase="critique", ...)`; `layered_prompt.py:378` truncates again to
@@ -6757,6 +6770,7 @@ finding for the same bug. See `NEW-39`.)*
   Confirmed by direct code read.
 
 ### [NEW-125] The 7B coder model and the planner's "large tier" escalation path are the same physical model today — a role/tier overlap worth naming before 7.3's tier config formalizes roles
+**Status:** Moot/superseded by M1-D (2026-08-23), confirmed 2026-09-08 (batch-5 ledger closeout). M1-D retired the dual-model architecture (7B coder + a separate 1.5B/0.5B planner on port 8081, swapped in via now-deleted `core/planner_loader.py`) in favor of a single Qwen3.5-4B model serving every role. There is no "small tier" and no dedicated planner model anymore, so the "1.5B small tier / 7B large tier overlap" framing this entry describes no longer applies to the current architecture.
 
 - **Status:** Suspected (architecturally implied by existing code, not
   independently load-tested this pass).
@@ -6778,6 +6792,7 @@ finding for the same bug. See `NEW-39`.)*
   of those two it's choosing.
 
 ### [NEW-126] `classify_tier()` resolves to "large" for substantially all realistic planner prompts under current `_action_kws` — its log-only output will disagree with the executed ladder by default
+**Status:** Moot/superseded (corrected 2026-09-08, batch-5 ledger closeout). `NEW-172`'s fix didn't just leave `classify_tier()` as dead code behind an unreachable guard — it fully removed the function; `grep -rn "def classify_tier"` finds no hit anywhere in the repo. This entry's original heuristic-bias framing no longer applies to any code that exists. See `NEW-176` (Resolved) for the matching removal of a stale test-docstring reference.
 
 - **Status:** Confirmed (direct code read + interactive check of
   `core.model_tiers.classify_tier()`'s decision rule against
@@ -6845,6 +6860,7 @@ finding for the same bug. See `NEW-39`.)*
   `classify_tier()`'s wrapper around them.
 
 ### [NEW-127] `core/agent.py`'s inline `_action_kws` list has already drifted out of sync with `core/orchestrator.py`'s module-level `_action_kws`, despite the "keep in sync" comment on both — 7.3 sub-task A left this untouched by design, logging per CLAUDE.md rule 8 since it wasn't otherwise tracked as a Confirmed finding
+**Status:** Resolved 2026-09-08 (batch-5 ledger closeout, code-reviewer approved). `core/orchestrator.py`'s `_action_kws` now includes the 5 peer-delegation entries that `core/agent.py`'s inline list already had (`"ask antigravity"`, `"ask agy"`, `"ask qwen"`, `"call antigravity"`, `"call agy"`) — both lists now carry the same peer-delegation keyword coverage.
 
 - **Status:** Confirmed (direct read of both lists).
 - **Where found:** while doing TODO.md 7.3 sub-task D (test-coverage-gap
@@ -8601,6 +8617,7 @@ finding for the same bug. See `NEW-39`.)*
   its own scoped task.
 
 ### [NEW-164] `core/plannd.py`'s `get_plan()` (local backend, thinking-mode path): `PLANNER_MAX_TOKENS=1024` is confirmed too small for real thinking-mode reasoning on this device — the trace alone consumes the whole budget, `message.content` comes back empty, and planning silently degrades to unplanned execution with no visible error
+**Status:** Resolved (verified 2026-09-08, batch-5 ledger closeout — no code change needed this round). `utils/config.py` (~lines 495-596) shows `PLANNER_MAX_TOKENS=2048` with an audit-trail comment documenting the fix.
 - **Status: Confirmed** — live-reproduced during M1-E (2026-08-23), not
   a theoretical risk. `core/plannd.py` line ~427's comment area is where
   the request is built with `chat_template_kwargs: {"enable_thinking":
@@ -8652,6 +8669,7 @@ finding for the same bug. See `NEW-39`.)*
   honestly rather than assumed covered.
 
 ### [NEW-165] `core/plannd.py`'s `get_plan()` (local backend) uses a hardcoded `urllib.request.urlopen(req, timeout=60)` — shorter than this device's real prompt-processing time for the planner's actual prompt size, so a request can be cancelled server-side before generation even starts, independent of and prior to `NEW-164`'s token-budget issue
+**Status:** Resolved (verified 2026-09-08, batch-5 ledger closeout — no code change needed this round). `utils/config.py` (~lines 495-596) shows `PLANNER_MIN_PREFILL_TPS=10`/`PLANNER_MIN_GEN_TPS=2` with an audit-trail comment; `get_plan()`'s local backend now derives its HTTP timeout from `compute_planner_timeout()` using these floors instead of a flat `timeout=60`.
 - **Status: Confirmed** — live-reproduced during M1-E (2026-08-23).
 - **Reproduction:** loading the model via the production
   `core.loader_v2.get_loader().ensure_model()` path and calling the real
@@ -8722,6 +8740,7 @@ finding for the same bug. See `NEW-39`.)*
   it coincidental.
 
 ### [NEW-167] `NEW-165`'s fix used `PLANNER_MIN_PREFILL_TPS=20`/`PLANNER_MIN_GEN_TPS=4` as "conservative floors below M1-E's measured range," but live re-verification measured real rates roughly half of both — the timeout formula would under-budget a harder prompt whose reasoning trace approaches the full token budget
+**Status:** Resolved (verified 2026-09-08, batch-5 ledger closeout — no code change needed this round). `utils/config.py` (~lines 495-596) shows `PLANNER_MIN_PREFILL_TPS=10`/`PLANNER_MIN_GEN_TPS=2`, the corrected re-measured floors, with an audit-trail comment documenting the re-verification.
 - **Status: Confirmed, live-reproduced.** Found during the required
   post-fix live-verification pass for `NEW-164`/`NEW-165` (2026-08-23),
   same session that also confirmed `NEW-164` resolved.
@@ -8760,6 +8779,7 @@ finding for the same bug. See `NEW-39`.)*
   found it, before commit.
 
 ### [NEW-168] `core/plannd.py`'s new "plan may be truncated — consider increasing max_tokens" diagnostic (added for `NEW-164`) fires as a false positive whenever the last parsed step ends in an alphabetic character, independent of whether `finish_reason` actually indicates truncation
+**Status:** Resolved as a side effect of `NEW-48`'s 2026-08-30 `parse_steps()` rewrite (confirmed 2026-09-08, batch-5 ledger closeout). See `NEW-48`: `parse_steps()` now checks for true dangling endings (trailing conjunctions, prepositions, unclosed markers) instead of flagging every step ending in an alphabetic character without a period — the exact false-positive heuristic this entry describes.
 - **Status: Suspected** — observed as a side-effect during `NEW-164`'s
   live-verification pass (2026-08-23), not the subject of that pass, not
   investigated to a root cause.
@@ -8864,7 +8884,7 @@ finding for the same bug. See `NEW-39`.)*
   same fix pattern without Ish weighing in.
 
 ### [NEW-171] `tests/test_planner_service_daemon_socket_timeout.py`'s `test_request_daemon_plan_socket_timeout_exceeds_daemon_outer_timeout` re-derives `compute_planner_timeout(...) + 30.0` inline rather than calling into `core/daemon.py`'s own computation — can't detect drift if daemon's `+30.0` buffer changes later
-**Status:** PARTIALLY FIXED 2026-09-08 (batch-1 ledger closeout, code-reviewer approved). Extracted `PLANNER_TIMEOUT_OUTER_BUFFER = 30.0` in `core/plannd.py` and used it at `core/planner_service.py:78`'s call site and its matching test derivation. **Remaining:** a second literal `+ 30.0` duplicate of the same buffer still exists at `core/plannd.py:556` (`compute_outer_plan_timeout`'s own `+ queue_buffer + 30.0`), same file as the new constant, not yet switched over — left out of this batch's scope, worth a follow-up one-line edit.
+**Status:** FIXED 2026-09-08 (batch-1 partial + batch-5 remainder, code-reviewer approved). Batch-1 extracted `PLANNER_TIMEOUT_OUTER_BUFFER = 30.0` in `core/plannd.py` and used it at `core/planner_service.py:78`'s call site and its matching test derivation. Batch-5 closed the remaining gap: the second literal `+ 30.0` duplicate at `core/plannd.py`'s `compute_outer_plan_timeout()` (`+ queue_buffer + 30.0`) now references `PLANNER_TIMEOUT_OUTER_BUFFER` instead of the bare literal.
 
 - **Status: Suspected** — found by code-reviewer's final pass on the
   `NEW-169` fix (2026-08-23), test-quality gap, not a production defect.
@@ -8882,6 +8902,7 @@ finding for the same bug. See `NEW-39`.)*
   call) over a hand-copied formula, if one becomes available.
 
 ### [NEW-172] `core.planner_service.get_plan()` has zero production callers — its Attempt-2 orchestrator fallback and 7.3 sub-task C's `classify_tier()` log-only block are unreachable outside the test suite
+**Note (2026-09-08, batch-5 ledger closeout):** the dead/unreachable-code framing below is still accurate as of when this was written, but `classify_tier()` itself is no longer merely "unreachable" — it has since been fully **removed** from the repo (consistent with `NEW-126`'s correction above; `grep -rn "def classify_tier"` finds no hit). Wording below left as the historical record of the state at the time.
 
 - **Status:** Confirmed (exhaustive caller-graph check while scoping "Task 1
   of the 3-tier coding-task dispatch — easy-tier skip", 2026-08-24).
@@ -15072,6 +15093,7 @@ outside that fix's scope.
   `core/daemon.py`, `NEW-345`.
 
 ### [NEW-356] `core/daemon.py`'s planner-branch dispatch hardcodes `needs_planning=False` in category-E telemetry — wrong for a `needs_planning=1` direct task rehydrated into the planner after a daemon restart
+**Confirmed 2026-09-08 (batch-5 ledger closeout):** `core/daemon.py` (~line 1900) explicitly cites the NEW-356 fix as applied (telemetry half). Status below already correctly notes the remaining dispatch-logic gap is tracked separately as `NEW-364` (left untouched per this round's explicit deferred-scope list) — no further correction needed.
 - **Status:** FIXED (telemetry half) 2026-09-05, `core/daemon.py`,
   code-reviewer approved, 1 round. Originally Confirmed/deferred from
   telemetry T8b, 2026-09-04. See **Fix (2026-09-05)** below. The
@@ -15794,3 +15816,21 @@ outside that fix's scope.
 - **Mechanism:** `telemetry/schema.py`'s `validate()` now recurses one level into list-of-dict body fields and flags `body.models[i].sha256=None` as a violation unless a matching `nulls["body.models[i].sha256"]` entry exists. `telemetry/provenance.py`'s `build_run_start_nulls()` was updated to add that entry for a Python-side cold model-digest cache. `telemetry.mjs`'s `recordRunStart()` (lines ~965-1049) builds its own `nulls` dict independently and was NOT given the matching entry, even though `getModelDigest()` (line 810-818) legitimately returns `sha256: null` for a cold cache. Since both processes write into the same shared `~/.codeyOS/metrics` store and `codey-metrics doctor` validates every record regardless of writer, a normal Aigentik-side cold-cache run_start record will now be counted as a hard violation, flipping `doctor`'s exit code from 0 to 1 on otherwise-healthy state.
 - **Fix direction:** in `telemetry.mjs`'s `recordRunStart()`, after building `nulls`, iterate `resolvedModels` and add `nulls[\`body.models[${i}].sha256\`] = 'model_sha256_not_computed'` for any entry with `sha256 === null` — mirrors `telemetry/provenance.py`'s `build_run_start_nulls()` exactly.
 - **Cross-reference:** `NEW-327`, `telemetry/schema.py`, `telemetry/provenance.py`, `~/Codey-Aigentik/telemetry.mjs`.
+
+## Found during NEW_ISSUES.md ledger closeout, batch 5 (prompt/planner), 2026-09-08
+
+### [NEW-408] `core/agent.py`'s comment justifying the removal of `_mem.compress_summary()` credits a separate 0.5B summarizer server that no longer exists — `summarize_history()` now also calls the same primary 4B model it claims to avoid colliding with
+
+- **Status:** Suspected — facts confirmed by direct code read, but whether the "single-slot collision" risk is actually still real is an open question this entry does not resolve.
+- **Mechanism:** `core/agent.py` (~lines 1671-1673) says: `_mem.compress_summary() was removed here — it calls infer() on the same 7B model that's about to run the real task, causing a single-slot collision. The 0.5B summarize_history() is sufficient.` But `core/summarizer.py`'s own M1-D docstring (~lines 12-17) says the opposite of what this comment credits: "this used to call a dedicated 1.5B planner/summarizer model on its own port (8081). That server is retired — summarization now rides the same primary server the coder uses." `summarize_history()` calls port 8080 — the same primary model `compress_summary()` was removed to avoid colliding with — not a separate small model.
+- **Open question (not resolved here):** whether this is a live collision risk depends on whether `summarize_history()`'s call (inside `should_summarize()`'s branch, `core/agent.py` ~line 1670) and the real task's own `infer()` call ever contend for the same model server slot concurrently, or whether they are always sequential (summarize-then-infer) within one agent turn, in which case there's no actual collision even though the comment's stated reasoning ("the 0.5B... is sufficient") is now factually wrong about which model is used.
+- **Fix direction:** correct the comment's model-count claim regardless of the open question above (it currently describes an architecture M1-D retired), and separately determine whether `summarize_history()` and the real task `infer()` call can run concurrently against the same server slot.
+- **Cross-reference:** `core/agent.py:1671-1673`, `core/summarizer.py:12-17`, M1-D (2026-08-23).
+
+### [NEW-409] `codeydOS`'s `kill_llama_server_gracefully()` still loops over port 8081 even though the same file's own M1-D header comment says no port-8081 process exists anymore
+
+- **Status:** Confirmed — directly observed in code, not fixed this round (process-lifecycle/kill logic — explicitly deferred to the daemon/process-lifecycle batch per CLAUDE.md's mandatory code-reviewer gate and RAM-disciplined live-verify rules for this category; not touched here).
+- **Mechanism:** `codeydOS` (~line 137) `kill_llama_server_gracefully() { for port in 8080 8081; do ... done }` still iterates both ports, but the same file's own header comment (~lines 13-18) states: "this script used to also manage `plannd`, a dedicated planner daemon running Qwen2.5-Coder-1.5B on its own port (8081). That process is retired... `start_plannd()`/`stop_plannd()` and their PID/log files, the port-8081 status line, and the "planner" gate slot registration/release below are all removed accordingly." The port-8081 branch of `kill_llama_server_gracefully()` was not included in that removal and is now a dead loop iteration against a port nothing ever binds.
+- **Impact:** no observed functional harm (killing against an unbound port is a no-op), but it's dead/misleading code in a kill-logic function, in a file whose own comment already documents everything else port-8081-related as removed.
+- **Fix direction:** drop `8081` from the `for port in 8080 8081` loop, consistent with the rest of the file's M1-D cleanup. Out of scope for this batch — process-lifecycle change, requires the mandatory code-reviewer gate (CLAUDE.md rule 4) and, if any live verification is needed, the RAM-discipline protocol (CLAUDE.md rule 2).
+- **Cross-reference:** `codeydOS:13-18`, `codeydOS:136-140`, M1-D (2026-08-23).

@@ -86,9 +86,16 @@ class LayeredPrompt:
         self._layers: list[_Layer] = []
 
     def add(self, name: str, content: str, priority: int, required: bool = False) -> None:
-        """Add a context layer.  No-op if content is empty or whitespace."""
+        """Add a context layer.  No-op if content is empty or whitespace.
+
+        Raises ValueError if a layer with this name was already added — two
+        layers sharing a name would silently collapse to one entry in
+        build()'s `selected_names` set, corrupting budget accounting.
+        """
         if not content or not content.strip():
             return
+        if any(l.name == name for l in self._layers):
+            raise ValueError(f"LayeredPrompt already has a layer named {name!r}")
         self._layers.append(_Layer(name, content.strip(), priority, required))
 
     def build(self) -> str:
@@ -421,7 +428,7 @@ def _safe_truncate_draft(text: str, limit: int) -> str:
     return before + block + after
 
 
-def _build_critique_prompt(user_message: str, prior_draft: str) -> str:
+def _build_critique_prompt(user_message: str, prior_draft: str, task_type: str = "code") -> str:
     """
     Lean system prompt for the self-critique phase.
 
@@ -446,10 +453,10 @@ def _build_critique_prompt(user_message: str, prior_draft: str) -> str:
     the nominal 8000-char budget (which required layers can exceed anyway —
     see LayeredPrompt.build()).
     """
-    from prompts.critique_prompts import CRITIQUE_CODE
+    from prompts.critique_prompts import select_critique_prompt
 
     p = LayeredPrompt(budget_chars=8000)
-    p.add("critique_instr", CRITIQUE_CODE, priority=0, required=True)
+    p.add("critique_instr", select_critique_prompt(task_type), priority=0, required=True)
 
     if user_message:
         request_block = "\n## User's Original Request\n" + user_message[:1000]
@@ -554,6 +561,7 @@ def build_recursive_prompt(
     retrieved_context: str = "",
     plan_rag_block: str = "",
     lightweight: bool = False,
+    task_type: str = "code",
 ) -> str:
     """
     Phase-aware system prompt builder.  Replaces build_system_prompt().
@@ -576,13 +584,24 @@ def build_recursive_prompt(
         lightweight:       "draft" phase only — QA/smalltalk messages skip
                            repo_map, retrieval, skills, files, and
                            symbolic_graph entirely (see _build_draft_prompt)
+        task_type:         "critique" phase only — selects the critique
+                           template via select_critique_prompt() (NEW-31):
+                           "code"/"write_file"/"patch_file" → CRITIQUE_CODE,
+                           "plan"/"orchestrate" → CRITIQUE_PLAN, else
+                           CRITIQUE_TOOL. Ignored by other phases.
 
     Returns:
         System prompt string, ready as messages[0]["content"].
-        Never raises — all inner calls are try/except guarded.
+        Never raises for any real input — all context-gathering calls are
+        try/except guarded. NEW-32 (2026-09-08): `LayeredPrompt.add()` now
+        raises `ValueError` on a duplicate layer name, but that is a
+        programming-error guard, not a runtime/input failure mode — audited
+        against every `_build_draft_prompt()`/`_build_critique_prompt()`/
+        `_build_refine_prompt()` branch combination and none can add the
+        same layer name twice.
     """
     if phase == "critique":
-        return _build_critique_prompt(user_message, prior_draft)
+        return _build_critique_prompt(user_message, prior_draft, task_type=task_type)
     if phase == "refine":
         return _build_refine_prompt(
             user_message, prior_critique, retrieved_context, prior_draft=prior_draft

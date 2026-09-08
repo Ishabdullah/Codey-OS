@@ -19,7 +19,7 @@ Selective activation via classify_breadth_need():
   "standard" — Typical coding task.      → 1 critique+refine cycle.
   "deep"     — Multi-file / complex.     → Up to 2 critique+refine cycles.
 
-Performance on Termux (7B @ ~0.5–2 t/s):
+Performance on Termux (Qwen3.5-4B @ ~0.5–2 t/s):
   Best case  (quality passes after draft):  2 infer calls  (draft + 1 critique)
   Standard   (1 critique + 1 refine):       3 infer calls
   Deep       (2 critique + refine cycles):  up to 5 infer calls
@@ -485,6 +485,7 @@ def recursive_infer(
             user_message=user_message,
             phase="critique",
             prior_draft=draft,
+            task_type=task_type,
         )
         critique_msgs = [
             {"role": "system", "content": critique_system},

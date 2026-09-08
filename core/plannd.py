@@ -303,7 +303,7 @@ def _emit_inference_failed_telemetry(
 
 
 # ── Planner prompt ────────────────────────────────────────────────────────────
-# Single prompt used by ALL backends: local 1.5B, OpenRouter, UnlimitedClaude.
+# Single prompt used by ALL backends: local Qwen3.5-4B, OpenRouter, UnlimitedClaude.
 # Test and tune this prompt against remote models (faster iteration), then
 # the same prompt runs on local — results are directly comparable.
 
@@ -506,8 +506,8 @@ _PEER_NAME_RE = re.compile(r"\b(antigravity|agy|gemini|qwen|claude)\b", re.IGNOR
 def filter_tool_steps(steps: List[str]) -> List[str]:
     """
     Keep only steps that correspond to real tool calls (create file, run
-    command, verify output).  Drops implementation-detail steps the 1.5B
-    model sometimes emits (e.g. "Count lines using os.linesep").
+    command, verify output).  Drops implementation-detail steps the
+    planner model sometimes emits (e.g. "Count lines using os.linesep").
 
     Rules:
     - Step 1 is always kept (create/write the file — enriched with full prompt).
@@ -608,7 +608,11 @@ def compute_outer_plan_timeout(prompt_tokens_estimate: int, max_tokens: int) -> 
             f"no queue buffer added to the outer timeout: {e}"
         )
 
-    return compute_planner_timeout(prompt_tokens_estimate, max_tokens) + queue_buffer + 30.0
+    return (
+        compute_planner_timeout(prompt_tokens_estimate, max_tokens)
+        + queue_buffer
+        + PLANNER_TIMEOUT_OUTER_BUFFER
+    )
 
 
 # ── Planning via the primary server (or remote when CODEY_BACKEND_P is set) ─
@@ -670,8 +674,28 @@ def _get_plan_remote(prompt: str) -> Optional[List[str]]:
             headers=headers,
             method="POST",
         )
+        # NEW-166: this timeout used to be a flat 60s sized for the old
+        # PLANNER_MAX_TOKENS=1024 budget and was never adjusted when NEW-164
+        # doubled it to 2048. Reuse compute_planner_timeout() — the same
+        # derivation the local path uses (see its docstring) — instead of a
+        # second hand-picked constant that would go stale the same way.
+        # The local-tps floors it's calibrated against are conservative for
+        # on-device inference, so applying them to a cloud API call yields a
+        # generously large (never too-short) timeout here.
         try:
-            with _req.urlopen(request, timeout=60) as resp:
+            from core.tokens import estimate_tokens
+
+            _remote_prompt_tokens = estimate_tokens(PLANNER_PROMPT) + estimate_tokens(prompt)
+            remote_timeout = compute_planner_timeout(_remote_prompt_tokens, PLANNER_MAX_TOKENS)
+        except ImportError:
+            # Matches get_plan()'s own local-backend fallback (see its
+            # `except ImportError: request_timeout = 300.0` above) — the
+            # old flat `timeout=60` this NEW-166 fix removes is exactly the
+            # stale, too-short value that made this path fail in the first
+            # place, so the degraded case must not reintroduce it.
+            remote_timeout = 300.0
+        try:
+            with _req.urlopen(request, timeout=remote_timeout) as resp:
                 result = _json.loads(resp.read().decode("utf-8"))
             msg = result["choices"][0].get("message", {})
             # content can be null when the model returns a tool_call instead of text
@@ -823,11 +847,15 @@ def get_plan(prompt: str, enable_thinking: bool = True) -> Optional[List[str]]:
     # core/inference_hybrid.py::ChatCompletionBackend.infer()'s matching
     # comment for the full reasoning (this is the same admission mechanism,
     # the other of §8 Q11's two wired call sites). Blocking here is safe:
-    # this function's live callers are core/planner_client.py's
-    # send_plan_request_async() (already off the daemon's asyncio loop via
-    # run_in_executor) and main.py's synchronous interactive path (a
-    # separate OS process with no event loop to stall) — confirmed during
-    # §8 Q11's design round. On admission timeout/failure, returns None —
+    # this function's only live caller path is core/daemon.py ->
+    # core/planner_client.py::send_plan_request_async() -> get_plan(),
+    # always inside the daemon process and already off the daemon's
+    # asyncio loop via run_in_executor (see the module-level comment above
+    # for how this was verified; NEW-342 corrected an earlier version of
+    # this comment that wrongly credited a live "main.py's synchronous
+    # interactive path" in-process caller — main.py never calls get_plan()
+    # in-process, it goes through a daemon RPC via
+    # core/planner_service.py). On admission timeout/failure, returns None —
     # this function's own pre-existing "returns None on planner
     # unavailable" contract, so callers see no new failure mode.
     # Category-A `interactive` (design §2.A) must reflect state AT REQUEST

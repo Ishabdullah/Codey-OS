@@ -1,86 +1,88 @@
-- [Working tree accumulates unstaged cross-round changes](working_tree_cross_round_bleed.md) — check `git status` scope before approving a "submitted in isolation" sub-task
+- [Working tree accumulates unstaged cross-round changes](working_tree_cross_round_bleed.md) — check `git status` scope before approving a "submitted
 - [daemon check_pid_file self-PID guard — approved](daemon_self_pid_check_verified.md) — re-check codeydOS's PID pre-write premise if touched again
-- [GUI removal round (2026-09-02) — changes requested](gui_removal_round_changes_requested.md) — GUI/C-2 remediation history (bind-host/WS-origin/session-token, NEW-3/4) superseded by full removal; keyword-only greps miss effect-named refs
-- [main.py NEW-5/6 KeyboardInterrupt/SystemExit fix — approved](main_py_new5_keyboardinterrupt_fix_approved.md) — get_pid/unload null-safety + singleton reuse, 3 CLI sites
-- [Termux signal delivery unreliable in Bash-tool sandbox](termux_signal_delivery_unreliable_in_sandbox.md) — don't trust live-repro of SIGINT this way
+- [GUI removal round (2026-09-02) — changes requested](gui_removal_round_changes_requested.md) — GUI/C-2 remediation history
+- [main.py NEW-5/6 KeyboardInterrupt/SystemExit fix — approved](main_py_new5_keyboardinterrupt_fix_approved.md) — get_pid/unload null-safety +
+- [Termux signal delivery unreliable in Bash-tool sandbox](termux_signal_delivery_unreliable_in_sandbox.md) — don't trust live-repro of SIGINT this
 - [NEW-2 EDIT NOT APPLIED marker — approved](new2_edit_not_applied_approved.md) — is_error/last_tool_result timing verified, live suite run
-- [loader_v2.py NEW-9 pthread_sigmask fix — approved](loader_v2_new9_sigmask_approved.md) — child inherits blocked-SIGINT mask across fork+exec, not currently exploitable
-- [NEW-12/13 inference.py launcher delegation + thermal re-consumer — approved](new12_inference_launcher_delegation_approved.md) — dupe launcher removed; orphaned thermal flag closed by NEW-13
-- [NEW-11 daemon watchdog liveness check — approved](new11_daemon_watchdog_liveness_check.md) — stale get_loaded_model() replaced with real is_running()
-- [NEW-15/16 write_file+patch error display — approved](new15_write_file_syntax_guard_approved.md) — live-verified fail-open; isinstance guard load-bearing (bare except swallows AttributeError)
-- [NEW-17 scoped git commit staging — approved](new17_git_commit_scoped_staging_approved.md) — trailing `-- <paths>` on `git commit` itself is load-bearing
+- [loader_v2.py NEW-9 pthread_sigmask fix — approved](loader_v2_new9_sigmask_approved.md) — child inherits blocked-SIGINT mask across fork+exec, not
+- [NEW-12/13 inference.py launcher delegation + thermal re-consumer — approved](new12_inference_launcher_delegation_approved.md) — dupe launcher
+- [NEW-11 daemon watchdog liveness check — approved](new11_daemon_watchdog_liveness_check.md) — stale get_loaded_model() replaced with real
+- [NEW-15/16 write_file+patch error display — approved](new15_write_file_syntax_guard_approved.md) — live-verified fail-open; isinstance guard
+- [NEW-17 scoped git commit staging — approved](new17_git_commit_scoped_staging_approved.md) — trailing `-- <paths>` on `git commit` itself is
 - [NEW-20 main.py isatty() paste guard — approved](new20_main_isatty_paste_guard_approved.md) — piped-stdin select() hang fixed, pty-verified
 - [NEW-22/23 entry-point cleanup — approved](new22_23_entrypoint_cleanup_approved.md) — independent grep confirmed zero live refs
-- [NEW-19 patch-failed-repeat escalation — approved](new19_patch_failed_repeat_escalation.md) — verbatim-duplicate calls bypass fix via pre-existing duplicate_count guard
-- [NEW-10 SIGTERM handler — approved w/ doc fix required](new10_sigterm_handler_new40_mischaracterization.md) — NEW-40's "same as SIGINT" REPL claim is factually wrong
-- [NEW-8 sandbox ALLOWED_DIRS gettempdir() fix — approved](sandbox_new8_gettempdir_fix_approved.md) — found 2 new latent bugs (NEW-24/25), logged not blocking
-- [NEW-7 patch_file old_str prompt fix — approved](new7_patch_file_prompt_fix_approved.md) — escaping verified via repr(); live-verifier still required
-- [NEW-46/47/28 plannd prompt+regex fix — approved](plannd_new46_47_28_prompt_fix_approved.md) — daemon.py step-1 enrichment assumes Create even when step 1 is Edit
-- [plannd iter3 one-step delegation fix — approved w/ warning](plannd_new46_47_28_iter3_onestep_delegation_approved.md) — grep whole prompt for failing-case substrings, not just the diff hunk
-- [plannd iter4 report_gen deletion — approved w/ scope warning](plannd_iter4_report_gen_deletion_scope_warning.md) — no commit boundary between iterations, diff-vs-HEAD is cumulative
-- [NEW-30 system_prompt.py Done-vs-patch fix — approved, all 6 sites](system_prompt_new30_top_table_gap.md) — verified only 2 mapping tables exist and both match
-- [NEW-55 agent.py input() EOF fix — changes requested](new55_agent_input_eof_fix_ki_scope_creep.md) — bundled KeyboardInterrupt clause has inverted semantics; delete, don't convert to return
-- [NEW-58/59 recursive.py+layered_prompt.py fix — approved w/ 2 warnings](new58_59_recursive_layered_prompt_approved.md) — refine layer crowds NEED_DOCS budget; attribution regex blind to rogue-tag calls
-- [read_file WorkingMemory + regex leading-dot fix — approved w/ 1 warning](read_file_working_memory_and_regex_leading_dot_fix.md) — trace execute_tool's actual dispatch, not just the tool fn
-- [NEW-12 flock lock + primary/planner sequential swap — r1 rejected, r2 approved](new12_swap_lock_sequential_swap_rejected.md) — hand-reverted guard-widening to confirm test fails
-- [resource_gate 7.4 sub-tasks 1-5 + test-arch override — all approved](resource_gate_subtask5_main_cli_recovery_approved.md) — subtask1 TOCTOU r1 CR/r2 fix; subtask2 slot+orphan-process leak live-repro'd, try/finally closed NEW-82; NEW-83 embed_server bare-pkill fix; subtask3 daemon watchdog plumbing; subtask4 negative-control hand-break; subtask5 closed all 5, `git stash push -- path` unreliable, use HEAD-restore-copy
-- [NEW-97/U.28 plannd slot registration — approved w/ comment+doc fix](resource_gate_new97_plannd_registration_approved.md) — grep all list_slots() callers; verify "logged to NEW_ISSUES" via git diff --stat
-- [U.31 CODEY_N_CTX override — changes requested](u31_codey_n_ctx_override_changes_requested.md) — claimed-"surfaced" finding never actually in NEW_ISSUES.md diff; check git diff --stat -- NEW_ISSUES.md by default
-- [Phase 5a/7.4 sub-tasks A (CPU sampler) + B (TUI/GUI signal) — both r1 CR, r2 approved](resource_gate_phase5a_subtaskB_tui_singlefile_rejected.md) — A: cpu_percent 0.0-vs-unmeasurable sentinel + stale TODO.md, r2 grepped every return; B: single-slot TUI_PID_FILE can't represent 2+ sessions, r2 per-PID files
-- [Phase 4.1 sub-task C dispatch gate — CR](resource_gate_phase4_1_subtaskC_dispatch_gate_changes_requested.md) — stale TODO/WORK_QUEUE text shipped alongside its own impl + 2 missing NEW_ISSUES entries
-- [Phase 4.1 sub-task D shutdown tripwire — CR, r2→3 approved](resource_gate_phase4_1_subtaskD_shutdown_tripwire_changes_requested.md) — sparse-history false-trip Critical on kill path; consumer list completed r3
-- [NEW-187 can_dispatch_task fail-closed fix r2 — approved](new187_swap_dispatch_fail_closed_round2_approved.md) — read-failure direction + docstring fixed
-- [NEW-135/136 swap-claim double-admission race — approved](new135_136_swap_claim_race_approved.md) — PENDING-only filter avoids a leak that looked plausible
-- [7.3 sub-tasks B (model_tiers.py) + E (NEW-172/178 tier split) — both approved](new172_178_task_b_tier_split_approved.md) — B: verify data table vs source not docstring; E: read cited doc sections in full before flagging a threshold
-- [7.4a sub-tasks A/B/C1/C2/D/F resource_gate.py — all approved](resource_gate_74a_subtaskD_consistency_pass_approved.md) — A/B/C1: r1 CR (RESIDENT-sum dormant crash bug), r3 fixture fix; C2: 3-check template (meminfo indexing/caller enum/pinning-test); D: ValueError-swallow verified safe; F: r1 blocked on stale TODO.md, r2 approved
-- [NEW-152 _ever_loaded->_ever_spawned narrowing — approved](new152_ever_spawned_narrowing_approved.md) — is_running() fallback protects NEW-13's re-consumer from this rename
-- [M1-A Qwen3.5-4B hybrid arch — changes requested](m1a_qwen35_hybrid_arch_ssm_underestimate.md) — 5th-occurrence stale-as-current line in same diff; llama.cpp source on device at ~/llama.cpp
-- [M1-B/C/D planner-server collapse — CR (M1-D only), r2 approved](m1bcd_planner_collapse_review.md) — lora_import.py primary-branch config-sync gap; install.sh fresh-clone break is rule-11; NEW-162 landed unannounced, correctly Suspected
-- [NEW-164/165 plannd.py formula-timeout fix — approved](new164_165_planner_timeout_fix_approved.md) — negative-control reproduced exactly; estimate_tokens calibration independently checked
-- [NEW-167 constant recalibration — CR, NEW-169 closed round approved](new167_recalibration_client_timeout_gap.md) — untouched client-side send_command(timeout=185) defeats fix; traced untouched planner_client.py, no 4th timeout layer
-- [NEW-172 dead code deletion, Task A — changes requested (doc-status only)](new172_dead_code_deletion_task_a_approved.md) — PROJECT_LOG says "ready to hand to implementer" while deletion is already done in same diff
-- [Phase B1 Restoricon Core API/auth/RBAC — round1 changes requested](restoricon_core_phase_b1_get_project_rbac_gap.md) — get_project/list_projects missing has_permission(); proven via fake zero-permission actor
-- [Phase B2 Restoricon Core schema expansion — round1 changes requested](restoricon_core_phase_b2_schema_expansion_new212_inaccuracy.md) — NEW-212 wrongly claims all 5 new tables got external_id (2 don't); unlogged is_blocked()/PERM_READ_DNC gap
-- [NEW-189 fix round2 — approved, plus NEW-194 follow-on found](new189_fix_approved_plus_new194_role_keyed_scoping.md) — narrowing beneath a permission gate still keyed on role identity, not permission
-- [Lease/registry item (NEW-104/144/146/149) — approved](lease_registry_new104_144_146_149_approved.md) — TOCTOU double-registration proven unreachable today (dead-code/single-coroutine), logged latent
-- [NEW-206/§8 Q11 context-budget admission fix — CR (doc-logging only)](new206_q11_context_budget_reservation_lifetime_double_count.md) — reservation-held-for-full-call double-counts vs /slots' live signal; check reachability before blocking on textbook race
-- [Phase B2 task 2 migrate_aigentik.py + RBAC lookups — approved](restoricon_core_phase_b2_task2_migrate_aigentik_approved.md) — negative-control-verified idempotency; NEW-218 mischaracterizes its own mechanism (mapper never reads source created_at)
-- [Phase B2 task 4a 17 new HTTP routes — approved, 2 warnings](restoricon_core_phase_b2_task4a_routes_approved.md) — read-but-not-write role live-probed (sales); 3 stale test-count baselines reconciled
-- [Phase B2 task 4 DNC write-through pilot (Aigentik) — approved](phase_b2_task4_dnc_writethrough_approved.md) — verify a status-code special-case against the real server route, not the comment; 122+774 tests pasted
-- [Phase B2 task 4 email/sms-rules write-through + delete_rule — approved](phase_b2_task4_email_sms_rules_writethrough_approved.md) — gitignored config.json cross-checked against prior round memory; 150+778 tests pasted
-- [Phase B2 task 4 update_subcontractor + route — approved](restoricon_core_phase_b2_task4_update_subcontractor_approved.md) — live-probed SQL-shaped key rejected, real merge/replace verified; email="" vs NULL inconsistency logged not blocked
-- [Phase B2 task 4 find_subcontractor + NEW-246 mirror-bug — approved](restoricon_core_phase_b2_task4_find_subcontractor_new246_approved.md) — JS bug direction verified byte-exact; guard/ordering/pinning tests proven load-bearing by negative control
-- [git checkout -- path wipes uncommitted diff, not just reviewer's tweak](git_checkout_path_wipes_uncommitted_diff.md) — use scratchpad backup copy for negative-control restores, never git checkout/stash on an unreviewed file
-- [NEW-227/NEW-222/NEW-237 provision.py revoke + by-id GET fix — approved w/ 1 warning](new227_new222_new237_cleanup_approved.md) — operational-consequence warning buried in --help docstring, never printed on the actual footgun path
-- [NEW-212/216/232 first schema-migration mechanism (_migrate_schema) — approved w/ 1 warning](restoricon_core_new212_216_232_external_id_schedule_config_migration_approved.md) — independently opened real on-device DB to confirm untouched; RBAC carveout divergence
-- [NEW-145/149/155 Option C kill+respawn upgrade fix — approved+closed](new145_149_155_option_c_approved.md) — asymmetry invariant verified real via hand-break; 3 warnings closed in follow-up round (comment fix + 2 negative-control tests)
-- [NEW-233/257 comms provider_message_id dedup — round2 approved, 1 warning open](new233_257_comms_idempotency_role_vs_permission_leak.md) — permission-keyed gate verified via negative control; NEW_ISSUES.md consequence paragraph still ROLE_CUSTOMER-only, stale
-- [CRM create_contact external_id auto-assign — approved](crm_create_contact_external_id_autoassign_approved.md) — contact_NNNN for inbound leads; anchor negative-control end-marker with s.index(marker, start)
-- [NEW-259 daemon._config + loader_v2 reserve_slot port fix — approved](new259_daemon_config_and_loader_port_fix_approved.md) — 2 real bugs in twice-approved code, both negative-control-verified; ccos-inclusive test count reconciled, not a red flag
-- [service_manager.sh Aigentik orphan-by-cwd kill — round1 CHANGES REQUESTED](service_manager_aigentik_orphan_cwd_changes_requested.md) — cwd-alone weaker than logged /proc/cmdline+session-path precedent; committed PROJECT_LOG falsely claims approval
-- [submit_review RBAC + role-change token revoke + sessionStorage — approved](submit_review_rbac_and_role_token_revoke_approved.md) — a "missing revoke" may be resurrection-on-reactivation, not continued access; check what the auth query already filters on
-- [B2-fin-1 business_profile read cutover — round2 APPROVED](b2fin1_business_profile_read_cutover_changes_requested.md) — {ok:false}-no-throw fallthrough + coreSynced flag; negative-control verified
-- [B6.1 update_project + two-perm reassignment model — approved](b6_1_update_project_approved.md) — _actor_may_reassign has no role branch; NEW-194 shape avoided; negative-control test effective
-- [B6.2a build_audit_details + 9 audit sites — round2 APPROVED](b6_2a_audit_details_round2_approved.md) — r1 blocked: wrong sessions_revoked enum in append-only ledger + docstring overclaimed snapshot filtering; both fixed r2
-- [B6.2b-1/2/4 audit-details canonicalization (all 55 sites) — APPROVED](b6_2b1_audit_details_canonicalization.md) — allow-lists field-checked vs models, negative control reproduced; update_project drops audit row on custom-perm write-without-read (NEW-312, logged); 380 tests green
-- [U.35/U.36 update_user active+role-invariant fix — approved](u35_u36_update_user_active_role_invariant_approved.md) — active removed from update_user (token resurrection); shared _validate_user_role_invariants; IntegrityError->400 wrapper
-- [Telemetry T0 record_run_start honest-null fix — round2 approved](telemetry_t0_run_start_nulls_fix_approved.md) — verify nulls dict survives _emit() pruning via captured store.record, not just code read
-- [Telemetry T1 Aigentik extraction/grounding — approved](telemetry_t1_aigentik_extraction_grounding_approved.md) — cross-repo JS/Python parity claims: read BOTH sides' source, not just the design doc prose
-- [Telemetry T3 prefix_cache_hit fix — r1 CR (flaky admission tests), r2 APPROVED](telemetry_t3_prefix_cache_hit_round2_flaky_test_rejected.md) — closes NEW-280 + admission mocks; release_context_budget arg-order bug mechanism is silent-no-op+FS-litter, 72 live litter dirs confirmed
-- [Telemetry T4 codey-metrics CLI + rollup + rotate — APPROVED w/ warnings](telemetry_t4_cli_rollup_rotate_approved.md) — rotation crash-recovery genuinely event_id-set based, live-verified post-rotation doctor still finds archived provenance; live-reproduced 2 real bugs (--help unreachable, --all silently drops output after 1st failure) neither the diff nor its own 34 tests caught
-- [Telemetry T5 inference_hybrid.py — CHANGES REQUESTED (test fixture only)](telemetry_t5_inference_hybrid_autouse_fixture_real_fs_mutation.md) — resource_gate.py untouched (clean passivity); autouse TELEMETRY_ENABLED=True fixture unlinks real ~/.codeyOS/tui-sessions files; emitter-default deferral ruled sound via run_id join
-- [Telemetry T7 agent.py+task_executor.py — CHANGES REQUESTED](telemetry_t7_agent_task_executor_changes_requested.md) — design-scope gap verified true (superseded_by_plan unreachable w/o daemon.py); CancelledError->"timeout" false on SIGINT path, single-in-flight comment false vs run_in_executor cancellation, redirect mislabeled peer_cli
-- [Telemetry T8a daemon.py dedup docstring overclaim — CHANGES REQUESTED (doc-only)](t8a_daemon_dedup_docstring_overclaim.md) — "lossless/exactly" claim false, caught by hand-tracing diff's own test; check prose claims not just arithmetic
-- [NEW-345 thread-identity run-stats fix — 3 rounds, round3 CLOSED](new345_thread_identity_run_stats_round3_closed.md) — same overclaim survived round1→2 (grep whole file, not just flagged site); round3 fixed both occurrences, 1410 passed
-- [Telemetry T9 loader_v2.py argv provenance — CHANGES REQUESTED (doc/disclosure only)](telemetry_t9_loader_argv_provenance_scope_gap.md) — "confirmed absent" docstring missed main.py's --init/--tdd/--fix orphan-record paths; re-derive full call-site sets, don't trust named list
-- [NEW-358 run_start fallback claim-vs-recorded conflation — CHANGES REQUESTED (doc/code either-or)](new358_run_start_fallback_claim_vs_recorded_conflation.md) — eager CAS latches flag before op succeeds; failed attempt permanently skips retry, live-reproduced; 3 docstrings overclaim the guarantee
-- [NEW-358 Site 3 tools/ensure_model_cli.py — APPROVED](new358_site3_aigentik_cli_approved.md) — live-called real record_run_start (not mocked), confirmed race-win + git provenance; CODEY_STATE_DIR is a module-load-time constant, env var redirect after import silently no-ops
-- [Telemetry batch NEW-354/360/361/362 — 3 rounds, round3 APPROVED/closed](telemetry_batch_new354_360_361_362_round3_closed.md) — r1: main.py cited stale NEW-24; r2: fix message inverted NEW-91 mechanism; r3: re-traced, correct — map every noun to its variable before trusting prose
-- [NEW-357 wait_for()-timeout __cause__ guard — round1 CHANGES REQUESTED (doc overclaim)](new357_wait_for_timeout_correction_changes_requested.md) — guard mechanism sound + negative-control-verified via Edit-tool hand-break; recorders.py docstring falsely claims "detection" instead of __cause__ inference
-- [NEW_ISSUES.md cleanup batch 1 (plannd/resource_gate/recursive + 5 tests) — approved](new_issues_cleanup_batch1_approved.md) — every rewritten docstring claim independently re-verified against source, all held up
-- [NEW_ISSUES.md cleanup batch 2 (crm/scheduling/auth/routes/sandbox) — CHANGES REQUESTED](new_issues_cleanup_batch2_changes_requested.md) — live-reproduced TypeError: update_user's missing-row path still returns bare None against new Tuple[User,bool] contract, routes.py unpack crashes; sandbox NEW-42 wrong-cwd resolution downgraded Critical->Warning after depth-arithmetic proved no real bypass
-- [NEW_ISSUES.md batch 2 round2 — APPROVED w/ 2 warnings](new_issues_cleanup_batch2_round2_approved.md) — all 3 fixes live-verified/mutation-tested; unscoped git diff --stat caught 5 riding-along files; suite count claim was stale (1597 actual vs 1486 claimed)
-- [NEW_ISSUES.md batch 3 (crm/scheduling/automation) — CHANGES REQUESTED](new_issues_cleanup_batch3_role_vs_permission_leak.md) — update_customer NEW-306 fix drops role-based notes redaction; live-reproduced HTTP-reachable leak via custom_permissions on ROLE_CUSTOMER; ledger itself never updated
-- [NEW_ISSUES.md batch 3 round2 — APPROVED](new_issues_cleanup_batch3_round2_approved.md) — both findings fixed; notes-redaction negative-control-verified (hand-disabled, test caught it); 1500 passed, 1 skipped live-confirmed
-- [NEW_ISSUES.md batch 4 (telemetry) — CHANGES REQUESTED (NEW-327 only)](new_issues_cleanup_batch4_telemetry_js_mirror_gap.md) — 6/7 findings approved+live-verified; NEW-327 fix only patched Python side, live-proved JS mirror (telemetry.mjs) still trips new doctor violation on shared store
-- [NEW_ISSUES.md batch 4 round2 (NEW-407) — APPROVED](new_issues_cleanup_batch4_round2_new407_approved.md) — doc-only fix still needs live-store + cross-repo re-verification; confirmed resolvedModels var name real, models[] only list-of-dict field, no ID collision
+- [NEW-19 patch-failed-repeat escalation — approved](new19_patch_failed_repeat_escalation.md) — verbatim-duplicate calls bypass fix via pre-existing
+- [NEW-10 SIGTERM handler — approved w/ doc fix required](new10_sigterm_handler_new40_mischaracterization.md) — NEW-40's "same as SIGINT" REPL claim
+- [NEW-8 sandbox ALLOWED_DIRS gettempdir() fix — approved](sandbox_new8_gettempdir_fix_approved.md) — found 2 new latent bugs (NEW-24/25), logged not
+- [NEW-7 patch_file old_str prompt fix — approved](new7_patch_file_prompt_fix_approved.md) — escaping verified via repr(); live-verifier still
+- [NEW-46/47/28 plannd prompt+regex fix — approved](plannd_new46_47_28_prompt_fix_approved.md) — daemon.py step-1 enrichment assumes Create even when
+- [plannd iter3 one-step delegation fix — approved w/ warning](plannd_new46_47_28_iter3_onestep_delegation_approved.md) — grep whole prompt for
+- [plannd iter4 report_gen deletion — approved w/ scope warning](plannd_iter4_report_gen_deletion_scope_warning.md) — no commit boundary between
+- [NEW-30 system_prompt.py Done-vs-patch fix — approved, all 6 sites](system_prompt_new30_top_table_gap.md) — verified only 2 mapping tables exist
+- [NEW-55 agent.py input() EOF fix — changes requested](new55_agent_input_eof_fix_ki_scope_creep.md) — bundled KeyboardInterrupt clause has inverted
+- [NEW-58/59 recursive.py+layered_prompt.py fix — approved w/ 2 warnings](new58_59_recursive_layered_prompt_approved.md) — refine layer crowds
+- [read_file WorkingMemory + regex leading-dot fix — approved w/ 1 warning](read_file_working_memory_and_regex_leading_dot_fix.md) — trace
+- [NEW-12 flock lock + primary/planner sequential swap — r1 rejected, r2 approved](new12_swap_lock_sequential_swap_rejected.md) — hand-reverted
+- [resource_gate 7.4 sub-tasks 1-5 + test-arch override — all approved](resource_gate_subtask5_main_cli_recovery_approved.md) —
+- [NEW-97/U.28 plannd slot registration — approved w/ comment+doc fix](resource_gate_new97_plannd_registration_approved.md) — grep all list_slots()
+- [U.31 CODEY_N_CTX override — changes requested](u31_codey_n_ctx_override_changes_requested.md) — claimed-"surfaced" finding never actually in
+- [Phase 5a/7.4 sub-tasks A (CPU sampler) + B (TUI/GUI signal) — both r1 CR, r2 approved](resource_gate_phase5a_subtaskB_tui_singlefile_rejected.md)
+- [Phase 4.1 sub-task C dispatch gate — CR](resource_gate_phase4_1_subtaskC_dispatch_gate_changes_requested.md) — stale TODO/WORK_QUEUE text shipped
+- [Phase 4.1 sub-task D shutdown tripwire — CR, r2→3 approved](resource_gate_phase4_1_subtaskD_shutdown_tripwire_changes_requested.md) —
+- [NEW-187 can_dispatch_task fail-closed fix r2 — approved](new187_swap_dispatch_fail_closed_round2_approved.md) — read-failure direction + docstring
+- [NEW-135/136 swap-claim double-admission race — approved](new135_136_swap_claim_race_approved.md) — PENDING-only filter avoids a leak that looked
+- [7.3 sub-tasks B (model_tiers.py) + E (NEW-172/178 tier split) — both approved](new172_178_task_b_tier_split_approved.md) — B: verify data table vs
+- [7.4a sub-tasks A/B/C1/C2/D/F resource_gate.py — all approved](resource_gate_74a_subtaskD_consistency_pass_approved.md) — A/B/C1: r1 CR
+- [NEW-152 _ever_loaded->_ever_spawned narrowing — approved](new152_ever_spawned_narrowing_approved.md) — is_running() fallback protects NEW-13's
+- [M1-A Qwen3.5-4B hybrid arch — changes requested](m1a_qwen35_hybrid_arch_ssm_underestimate.md) — 5th-occurrence stale-as-current line in same diff
+- [M1-B/C/D planner-server collapse — CR (M1-D only), r2 approved](m1bcd_planner_collapse_review.md) — lora_import.py primary-branch config-sync gap
+- [NEW-164/165 plannd.py formula-timeout fix — approved](new164_165_planner_timeout_fix_approved.md) — negative-control reproduced exactly
+- [NEW-167 constant recalibration — CR, NEW-169 closed round approved](new167_recalibration_client_timeout_gap.md) — untouched client-side
+- [NEW-172 dead code deletion, Task A — changes requested (doc-status only)](new172_dead_code_deletion_task_a_approved.md) — PROJECT_LOG says "ready
+- [Phase B1 Restoricon Core API/auth/RBAC — round1 changes requested](restoricon_core_phase_b1_get_project_rbac_gap.md) — get_project/list_projects
+- [Phase B2 Restoricon Core schema expansion — round1 changes requested](restoricon_core_phase_b2_schema_expansion_new212_inaccuracy.md) — NEW-212
+- [NEW-189 fix round2 — approved, plus NEW-194 follow-on found](new189_fix_approved_plus_new194_role_keyed_scoping.md) — narrowing beneath a
+- [Lease/registry item (NEW-104/144/146/149) — approved](lease_registry_new104_144_146_149_approved.md) — TOCTOU double-registration proven
+- [NEW-206/§8 Q11 context-budget admission fix — CR (doc-logging only)](new206_q11_context_budget_reservation_lifetime_double_count.md) —
+- [Phase B2 task 2 migrate_aigentik.py + RBAC lookups — approved](restoricon_core_phase_b2_task2_migrate_aigentik_approved.md) —
+- [Phase B2 task 4a 17 new HTTP routes — approved, 2 warnings](restoricon_core_phase_b2_task4a_routes_approved.md) — read-but-not-write role
+- [Phase B2 task 4 DNC write-through pilot (Aigentik) — approved](phase_b2_task4_dnc_writethrough_approved.md) — verify a status-code special-case
+- [Phase B2 task 4 email/sms-rules write-through + delete_rule — approved](phase_b2_task4_email_sms_rules_writethrough_approved.md) — gitignored
+- [Phase B2 task 4 update_subcontractor + route — approved](restoricon_core_phase_b2_task4_update_subcontractor_approved.md) — live-probed SQL-shaped
+- [Phase B2 task 4 find_subcontractor + NEW-246 mirror-bug — approved](restoricon_core_phase_b2_task4_find_subcontractor_new246_approved.md) — JS bug
+- [git checkout -- path wipes uncommitted diff, not just reviewer's tweak](git_checkout_path_wipes_uncommitted_diff.md) — use scratchpad backup copy
+- [NEW-227/NEW-222/NEW-237 provision.py revoke + by-id GET fix — approved w/ 1 warning](new227_new222_new237_cleanup_approved.md) —
+- [NEW-212/216/232 first schema-migration mechanism (_migrate_schema) — approved w/ 1
+- [NEW-145/149/155 Option C kill+respawn upgrade fix — approved+closed](new145_149_155_option_c_approved.md) — asymmetry invariant verified real via
+- [NEW-233/257 comms provider_message_id dedup — round2 approved, 1 warning open](new233_257_comms_idempotency_role_vs_permission_leak.md) —
+- [CRM create_contact external_id auto-assign — approved](crm_create_contact_external_id_autoassign_approved.md) — contact_NNNN for inbound leads
+- [NEW-259 daemon._config + loader_v2 reserve_slot port fix — approved](new259_daemon_config_and_loader_port_fix_approved.md) — 2 real bugs in
+- [service_manager.sh Aigentik orphan-by-cwd kill — round1 CHANGES REQUESTED](service_manager_aigentik_orphan_cwd_changes_requested.md) — cwd-alone
+- [submit_review RBAC + role-change token revoke + sessionStorage — approved](submit_review_rbac_and_role_token_revoke_approved.md) — a "missing
+- [B2-fin-1 business_profile read cutover — round2 APPROVED](b2fin1_business_profile_read_cutover_changes_requested.md) — {ok:false}-no-throw
+- [B6.1 update_project + two-perm reassignment model — approved](b6_1_update_project_approved.md) — _actor_may_reassign has no role branch; NEW-194
+- [B6.2a build_audit_details + 9 audit sites — round2 APPROVED](b6_2a_audit_details_round2_approved.md) — r1 blocked: wrong sessions_revoked enum in
+- [B6.2b-1/2/4 audit-details canonicalization (all 55 sites) — APPROVED](b6_2b1_audit_details_canonicalization.md) — allow-lists field-checked vs
+- [U.35/U.36 update_user active+role-invariant fix — approved](u35_u36_update_user_active_role_invariant_approved.md) — active removed from
+- [Telemetry T0 record_run_start honest-null fix — round2 approved](telemetry_t0_run_start_nulls_fix_approved.md) — verify nulls dict survives
+- [Telemetry T1 Aigentik extraction/grounding — approved](telemetry_t1_aigentik_extraction_grounding_approved.md) — cross-repo JS/Python parity
+- [Telemetry T3 prefix_cache_hit fix — r1 CR (flaky admission tests), r2 APPROVED](telemetry_t3_prefix_cache_hit_round2_flaky_test_rejected.md) —
+- [Telemetry T4 codey-metrics CLI + rollup + rotate — APPROVED w/ warnings](telemetry_t4_cli_rollup_rotate_approved.md) — rotation crash-recovery
+- [Telemetry T5 inference_hybrid.py — CHANGES REQUESTED (test fixture only)](telemetry_t5_inference_hybrid_autouse_fixture_real_fs_mutation.md) —
+- [Telemetry T7 agent.py+task_executor.py — CHANGES REQUESTED](telemetry_t7_agent_task_executor_changes_requested.md) — superseded_by_plan
+- [Telemetry T8a daemon.py dedup docstring overclaim — CHANGES REQUESTED (doc-only)](t8a_daemon_dedup_docstring_overclaim.md) — "lossless/exactly"
+- [NEW-345 thread-identity run-stats fix — 3 rounds, round3 CLOSED](new345_thread_identity_run_stats_round3_closed.md) — same overclaim survived
+- [Telemetry T9 loader_v2.py argv provenance — CHANGES REQUESTED (doc/disclosure only)](telemetry_t9_loader_argv_provenance_scope_gap.md) —
+- [NEW-358 run_start fallback claim-vs-recorded conflation — CHANGES REQUESTED (doc/code
+- [NEW-358 Site 3 tools/ensure_model_cli.py — APPROVED](new358_site3_aigentik_cli_approved.md) — live-called real record_run_start (not mocked)
+- [Telemetry batch NEW-354/360/361/362 — 3 rounds, round3 APPROVED/closed](telemetry_batch_new354_360_361_362_round3_closed.md) — r1: main.py cited
+- [NEW-357 wait_for()-timeout __cause__ guard — round1 CHANGES REQUESTED (doc overclaim)](new357_wait_for_timeout_correction_changes_requested.md) —
+- [NEW_ISSUES.md cleanup batch 1 (plannd/resource_gate/recursive + 5 tests) — approved](new_issues_cleanup_batch1_approved.md) — every rewritten
+- [NEW_ISSUES.md cleanup batch 2 (crm/scheduling/auth/routes/sandbox) — CHANGES REQUESTED](new_issues_cleanup_batch2_changes_requested.md) —
+- [NEW_ISSUES.md batch 2 round2 — APPROVED w/ 2 warnings](new_issues_cleanup_batch2_round2_approved.md) — all 3 fixes live-verified/mutation-tested
+- [NEW_ISSUES.md batch 3 (crm/scheduling/automation) — CHANGES REQUESTED](new_issues_cleanup_batch3_role_vs_permission_leak.md) — update_customer
+- [NEW_ISSUES.md batch 3 round2 — APPROVED](new_issues_cleanup_batch3_round2_approved.md) — both findings fixed; notes-redaction
+- [NEW_ISSUES.md batch 4 (telemetry) — CHANGES REQUESTED (NEW-327 only)](new_issues_cleanup_batch4_telemetry_js_mirror_gap.md) — 6/7 findings
+- [NEW_ISSUES.md batch 4 round2 (NEW-407) — APPROVED](new_issues_cleanup_batch4_round2_new407_approved.md) — doc-only fix still needs live-store +
+- [NEW_ISSUES.md batch 5 (prompt/planner) — CHANGES REQUESTED](new_issues_cleanup_batch5_prompt_planner_need_docs_regression.md) — 6/7 fixes verified
+- [NEW_ISSUES.md batch 5 round2 (NEW-31 NEED_DOCS fix) — APPROVED](new_issues_cleanup_batch5_round2_approved.md) — NEED_DOCS lines added to

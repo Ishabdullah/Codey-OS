@@ -314,7 +314,7 @@ peer CLIs (Antigravity, Qwen) for second opinions."""
 
 
 # Domain-specific guidance injected into orchestrator subtask prompts.
-# These are too detailed for the system prompt (7B model can't hold 50 rules)
+# These are too detailed for the system prompt (a smaller local model can't hold 50 rules)
 # but valuable when contextually relevant to the current subtask.
 
 GUIDANCE_HTTP_SERVER = """When building a REST API with stdlib:

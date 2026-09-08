@@ -21,6 +21,13 @@ If the user mentions git operations (commit, init, add), include EACH git comman
 Example: "4. Run: git init", "5. Run: git add file1.py", "6. Run: git commit -m 'message
 
 Co-authored-by: Qwen-Coder <qwen-coder@alibabacloud.com>'"
+STEP TEMPLATES:
+  Create <file>: <only the features/inputs/outputs the user actually named — never add a feature, parameter, or format the user did not mention>
+  Edit <file>: <specific change to make — what to add/modify/remove and where>
+  Run: python <exact filename from user> <exact value from user>
+  Run: pytest <file>
+  Verify: <expected outcome>
+FILENAMES AND PATHS: EXTRACT the exact filenames from the user's message FIRST. COPY them AS-IS into your plan — do not abbreviate, shorten, or "clean up" names. Use the SAME filename consistently across ALL steps (Create, Edit, Run, Verify). Do NOT invent subdirectory paths unless the user explicitly named one.
 PEER CLI STEPS: If the user says "ask antigravity to X", "ask gemini to X", "use agy to X", "have qwen do X", etc., copy that as a step EXACTLY: "Ask antigravity to X" (or the respective peer). Never rephrase peer delegation steps as "Create X" or "Write X".
 NEVER create .db files (sqlite3.connect() creates them automatically).
 NEVER use port 8080 (reserved). Use 8765 or 9000.
@@ -146,8 +153,13 @@ _action_kws = [
     "remember",
     "don't forget",
     "forget",
+    "ask antigravity",
+    "ask agy",
     "ask gemini",
+    "ask qwen",
     "ask claude",
+    "call antigravity",
+    "call agy",
     "call gemini",
     "call claude",
 ]
@@ -650,7 +662,7 @@ def run_queue(queue, yolo=False):
             except Exception:
                 pass  # Retrieval unavailable — continue without
 
-            # Remind model to use tools (7B models often forget)
+            # Remind model to use tools (small local models often forget)
             # NEW-52: Branch hints based on step's actual verb rather than forcing write_file
             _task_desc_low = task.description.lower().strip()
             _target_files = _FILE_RE.findall(task.description) or (_FILE_RE.findall(original) if original else [])

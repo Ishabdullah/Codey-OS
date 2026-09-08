@@ -567,9 +567,11 @@ PLANNER_MAX_TOKENS = 2048
 PLANNER_MAX_TOKENS_MEDIUM = 1024
 
 # NEW-165 (2026-08-23, M1-E live verification): formula-based HTTP timeout
-# inputs for core/plannd.py's get_plan() (local backend only — NOT
-# _get_plan_remote(), a different backend with its own timeout=60 left
-# untouched).
+# inputs for core/plannd.py's get_plan() (local backend). NEW-166
+# (2026-09-08) later gave _get_plan_remote() — a different backend that
+# used to have its own untouched flat timeout=60 — a timeout derived from
+# these same floors via compute_planner_timeout(), instead of a second
+# hand-picked constant.
 #
 # NEW-167 (2026-08-23, post-fix live re-verification): the first pass at
 # these two constants (20 / 4) was NOT actually a floor below M1-E's
