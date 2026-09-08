@@ -1269,6 +1269,14 @@ equivalent) so it stops silently applying to non-7B instances.
   requirement exists to protect. Needs `free -h` + actual planner RSS
   recorded at live-verify time, not accepted as "likely benign" without
   measurement.
+- **Status correction (2026-09-08, process-lifecycle batch scoping):**
+  Moot/superseded by M1-D (2026-08-23). Verified 2026-09-08:
+  `core/planner_loader.py` deleted, no `plannd`/`start_plannd()`/
+  `stop_plannd()` in `codeydOS`, no port-8081 binder anywhere in the
+  codebase. Only one `LlamaServer(...)` instantiation site exists
+  repo-wide (`core/loader_v2.py:1407`) — there is no second, differently-
+  sized model to misapply these flags to. The dual-model architecture
+  this finding describes no longer exists. No code change made this round.
 
 ### [NEW-66] `core/daemon.py`'s 30s watchdog tick unconditionally calls `ModelLoader.ensure_model()` for the primary 7B model, which (after NEW-12's sequential-swap fix) will now evict a planner load that is genuinely still resident and in active use — not just an in-flight-swap race (Suspected, reasoned from code read, not live-reproduced)
 `core/daemon.py:549-564`'s watchdog block runs every ~30s and always calls
@@ -1300,8 +1308,29 @@ primary-reload after a planning call, both out of NEW-12's scope. Flagged
 for a future round; live-verification of NEW-12's swap should specifically
 check whether this watchdog interaction is observed as thrashing, not
 just whether a single swap cycle is race-free.
+- **Status correction (2026-09-08, process-lifecycle batch scoping):**
+  Moot/superseded by M1-D (2026-08-23). Verified 2026-09-08: there is no
+  longer a separate planner process/model for the watchdog to evict —
+  `core/planner_loader.py` deleted, no port-8081 process anywhere. The
+  dual-model architecture this finding describes no longer exists. No
+  code change made this round.
 
 ### [NEW-68] `ModelLoader.ensure_model()`'s non-blocking `SWAP_GUARD` acquisition means any caller can now get a transient `False`/failure during the narrow window a planner swap is in flight, not just the daemon watchdog (Confirmed by code read, not live-reproduced)
+- **Status note (2026-09-08, process-lifecycle batch scoping):** the
+  original planner-swap trigger for this finding is moot (no planner
+  process exists to swap with). However, `SWAP_GUARD` is still held
+  across `ensure_model()`'s entire body today (`core/loader_v2.py`), and
+  `core/inference.py:_start_server()` (~line 40) still does `if not
+  get_loader().ensure_model(): raise RuntimeError(...)` with no retry
+  and no check for a `LOAD_OUTCOME_DEFERRED` outcome — so the same
+  failure *shape* may still be reachable via a different second party
+  (e.g. a concurrent `release_model_slot` call or a thermal restart, not
+  a planner swap). Not confident enough to bucket this as moot or as a
+  live bug without a dedicated read of whether `ensure_model()`'s return
+  value still surfaces a bare `False` to this specific caller under
+  today's single-model contention paths. **Needs its own short
+  re-scoping pass before entering any implementation batch** — not
+  included in this round's sub-batches. `ModelLoader.ensure_model()`'s non-blocking `SWAP_GUARD` acquisition means any caller can now get a transient `False`/failure during the narrow window a planner swap is in flight, not just the daemon watchdog (Confirmed by code read, not live-reproduced)
 `ensure_model()` (`core/loader_v2.py`) is called from more places than the
 daemon watchdog this round's NEW-12 fix was primarily reasoned about:
 `core/daemon.py:512` (pre-load at daemon startup — already handles `False`
@@ -1430,6 +1459,16 @@ enforce, just from an untouched call site.
   underlying direct-`load_primary()`-call pattern in `main.py` predates
   `NEW-12`'s work — this round's swap logic just makes the gap concrete
   and newly relevant).
+- **Status correction (2026-09-08, process-lifecycle batch scoping):**
+  Moot/superseded by M1-D (2026-08-23). Verified 2026-09-08: there is no
+  second model/planner to end up resident alongside the primary — a
+  fresh CLI process and the daemon now contend for the same single
+  Qwen3.5-4B, not two different models. The "primary and planner both
+  resident" scenario this finding describes cannot occur. The residual
+  concern underneath it — CLI-direct model loads interacting with
+  adopted/upgrade slot state without going through `ensure_model()` — is
+  a different, narrower question folded into `NEW-74`'s tracing, not
+  this entry. No code change made this round.
 
 ### [NEW-67] `codey-stop` has its own third, independent block that reads/writes `$DAEMON_DIR/gui-server.pid` — adjacent to the NEW-22 start-side duplication just fixed, but a different (stop-by-PID-file) pattern, not touched this round (Suspected, out of this round's scope)
 - Found while fixing NEW-22's residual "GUI-launch/PID-file/trap-kill"
@@ -2919,6 +2958,13 @@ evidence to NEW-65/66/68.
   intensive live-verification tests; consider whether the daemon-only /
   plannd-optional lighter path used successfully here should become a
   documented, supported "lite" mode for constrained devices.
+- **Status correction (2026-09-08, process-lifecycle batch scoping):**
+  the literal 3-model stack this entry describes (7B primary + 1.5B
+  plannd + embed server) no longer exists — M1-D (2026-08-23) reduced
+  the concurrent stack to coder+embed only. Not closing this as
+  resolved: the underlying RAM-pressure concern is real and still
+  tracked separately, unresolved, under `NEW-18`/`NEW-21`. No code
+  change made this round.
 
 ## Found during Round 8 (NEW-6) live-verification pass, 2026-07-30 — NOT fixed, logged only
 
@@ -5336,6 +5382,10 @@ open, not closed, on this basis.
   same failure mode recurring in a code path sub-task 2 didn't touch.
   Recommend prioritizing this over some of the other open `NEW-##`
   items given the rule-3 severity, though the call is Ish's.
+- **Status: FULLY CLOSED, verified 2026-09-08 (process-lifecycle batch
+  scoping).** `grep -n "pkill" core/embed_server.py` returns only
+  comments/docstrings (lines 17, 437) — no live `pkill` call remains.
+  Status field was never updated when the PID-tracked fix landed.
 
 ### [NEW-84] Hot-swapping to a fine-tuned model (`lora_import.py`'s `swap_to_finetuned_model`/`rollback_to_backup`) reports success but silently reloads the original weights, for both the primary and secondary model paths
 
@@ -5410,6 +5460,11 @@ open, not closed, on this basis.
   now also used by `NEW-83`'s fix in `core/embed_server.py`) needs to be
   ported into shell-script form for these two files, which is a
   different implementation shape than the Python fix.
+- **Status: FULLY CLOSED, verified 2026-09-08 (process-lifecycle batch
+  scoping).** `grep -n "pkill" codeydOS codey-stop` returns zero hits in
+  either file — all 9 call sites replaced by PID-file-based
+  `kill_llama_server_gracefully()` (U.30/U.32). Status field was never
+  updated when that landed.
 
 ### [NEW-86] `core/embed_server.py`'s `_kill_port_occupant()` (post-`NEW-83`-fix) still has a narrow PID-recycling race the post-kill verification doesn't catch
 
@@ -5535,6 +5590,15 @@ open, not closed, on this basis.
   intended rollback semantics, back up the fine-tuned file itself before
   overwriting it, so a rollback doesn't permanently destroy a checkpoint
   the user might want back.
+- **Status note (2026-09-08, process-lifecycle batch scoping):** still
+  real (verified: `PLANNER_MODEL_PATH == MODEL_PATH` now under the
+  single-model unification, which doesn't remove the bug). Not
+  process-lifecycle — no daemon/PID/kill/lock/socket involved, this is a
+  file-copy data-integrity bug in a fine-tuning import script — routed
+  to a future LoRA/fine-tuning round instead of this batch. **Likely a
+  duplicate of `NEW-163`** (same `rollback_to_backup()` mechanism, filed
+  separately for the primary-branch case) — flagged per rule 8 for
+  reconciliation before either is fixed, not silently merged.
 
 ### [NEW-92] `main.py`'s `args.init`/`args.tdd`/`args.fix` branches call `loader.load_primary()` unconditionally, with no `is_remote_backend()` guard — a remote-backend user still spawns a local 7B on these three paths (Confirmed by code read, found while wiring TODO.md 7.4 sub-task 5's gate-denial recovery path, not fixed)
 
@@ -5739,6 +5803,13 @@ finding for the same bug. See `NEW-39`.)*
   call `resource_gate.register_slot()` directly (the same
   accounted-but-exempt pattern `core/embed_server.py` already uses)
   after confirming the process is up.
+- **Status correction (2026-09-08, process-lifecycle batch scoping):**
+  Moot/superseded by M1-D (2026-08-23). Verified 2026-09-08:
+  `core/planner_loader.py` deleted, no `plannd`/`start_plannd()`/
+  `stop_plannd()` in `codeydOS`, no port-8081 binder anywhere in the
+  codebase. There is no separate bash-managed process left to bypass
+  gate accounting. The dual-model architecture this finding describes no
+  longer exists. No code change made this round.
 
 ### [NEW-98] (Suspected, low severity — calibration-comment drift, not a code bug) `resource_gate.py:171-172`'s comment claims the production 7B's cost estimate "comfortably admits" under the 0.60 `DEVICE_CEILING_USABLE_FRACTION` ceiling — live measurement on this exact device shows a 137MiB margin (6651MiB ceiling vs. 6514MiB actual cost at production `n_ctx=32768`), not "comfortable"
 
@@ -5781,6 +5852,11 @@ finding for the same bug. See `NEW-39`.)*
   `codeydOS`). `codeydOS:151`'s `pkill -9 -f "llama-server.*8080"` (and
   the other 8080-pattern `pkill` sites `NEW-103` also names) remain and
   stay open under this finding number.
+- **Status: FULLY CLOSED, verified 2026-09-08 (process-lifecycle batch
+  scoping).** `grep -n "pkill" codeydOS` returns zero hits — the
+  remaining `codeydOS:151` 8080-pattern `pkill` has since been replaced
+  by PID-file-based `kill_llama_server_gracefully()` (U.30/U.32). Status
+  field was never updated when that landed.
 
 ## Found while fixing U.28/NEW-97 (registering `plannd` with the gate), 2026-08-09 — NOT fixed, logged only
 
@@ -5937,6 +6013,13 @@ finding for the same bug. See `NEW-39`.)*
   matching the discipline `core/daemon.py`'s own `check_pid_file()`/
   `resource_gate.py`'s `_pid_alive()` already use elsewhere in this
   codebase.
+- **Status: FULLY CLOSED, verified 2026-09-08 (process-lifecycle batch
+  scoping).** `grep -n "pkill" codeydOS` returns zero hits — both the
+  8081 half (moot, `start_plannd()` deleted by M1-D) and the 8080 half
+  (the real fix this entry called for) are resolved:
+  `kill_llama_server_gracefully()` (U.30/U.32) now kills by tracked PID
+  file, not bare name pattern. Status field was never updated when that
+  landed.
 - **Addendum, 2026-08-26 (scope extension, same finding, different
   file):** the real `codey-start` entry point's teardown script,
   `codey-stop`, has the identical anti-pattern in a form this entry
@@ -6696,6 +6779,13 @@ finding for the same bug. See `NEW-39`.)*
   subcommand that calls `start_daemon()` without `start_plannd()`,
   formalizing the harness this project has now hand-built at least
   twice. Flagging per CLAUDE.md rule 8.
+- **Status correction (2026-09-08, process-lifecycle batch scoping):**
+  Resolved by construction — moot/superseded by M1-D (2026-08-23).
+  Verified 2026-09-08: `start_daemon()` (`codeydOS:160-224`) launches
+  only the single main daemon process; there is no second `start_plannd()`
+  call left to make optional, since `plannd` itself was deleted. A
+  `codeydOS start` today already is what this finding asked for. No code
+  change made this round.
 
 ### [NEW-122] Correction to `NEW-116`: the socket protocol registers 7 handlers post-sub-task-D, not 6 as `NEW-116` stated
 
@@ -8615,6 +8705,14 @@ finding for the same bug. See `NEW-39`.)*
   fix, which only addressed the `MODEL_PATH`/`PLANNER_MODEL_PATH` config
   sync asymmetry, not this separate on-disk file-identity issue. Needs
   its own scoped task.
+- **Status note (2026-09-08, process-lifecycle batch scoping):** still
+  real. Not process-lifecycle (a file-copy data-integrity bug, no
+  daemon/PID/kill/lock/socket) — routed to a future LoRA/fine-tuning
+  round instead of this batch. **Likely a duplicate of `NEW-91`** (same
+  `rollback_to_backup()` mechanism, filed separately for the
+  secondary/planner-branch case before the primary/secondary distinction
+  collapsed under the single-model unification) — flagged per rule 8 for
+  reconciliation before either is fixed, not silently merged.
 
 ### [NEW-164] `core/plannd.py`'s `get_plan()` (local backend, thinking-mode path): `PLANNER_MAX_TOKENS=1024` is confirmed too small for real thinking-mode reasoning on this device — the trace alone consumes the whole budget, `message.content` comes back empty, and planning silently degrades to unplanned execution with no visible error
 **Status:** Resolved (verified 2026-09-08, batch-5 ledger closeout — no code change needed this round). `utils/config.py` (~lines 495-596) shows `PLANNER_MAX_TOKENS=2048` with an audit-trail comment documenting the fix.
@@ -13416,6 +13514,13 @@ outside that fix's scope.
   up.
 - **Fix direction:** re-anchor `U.6` to symbol names rather than line
   numbers when it is next scoped. **Not fixed this round.**
+- **Duplicate-id note (2026-09-08, process-lifecycle batch scoping):**
+  `NEW-287` is used twice in this ledger — this entry (a stale-line-anchor
+  correction) and a separate, later "Security hardening backlog (U.6)"
+  entry (the actual 3-item backlog this one refers to, discovered
+  2026-09-07). Flagging the collision per CLAUDE.md's concurrent-agent
+  guidance rather than silently picking one. See that later entry for
+  the item-by-item status correction.
 
 ### [NEW-288] Two blocks in the former `CODEY_MASTER_PLAN.md` §4.5 state contradictory Phase B2 write-through completion counts (8 of 10 vs 3 of 10) — RESOLVED 2026-09-02
 - **Status:** Confirmed (both blocks read verbatim before the `U.38`
@@ -15716,6 +15821,20 @@ outside that fix's scope.
 1. Command-injection-via-filename in `check_git_and_offer_commit` (`core/agent.py`) via `files_touched`. Needs investigation to ensure `git commit -m msg -- files_touched` is fully safe from argument injection.
 2. Daemon shell allowlist too broad in `_DAEMON_ALLOWED_PREFIXES` (`core/task_executor.py`). It admits commands like `cat`, `grep`, `find`, `cd `, `env` which can be used to exfiltrate secrets or environment variables.
 3. Unix socket auth in `core/daemon.py`: A peer-UID check exists, but token auth is recommended for stronger security.
+
+**Status correction (2026-09-08, process-lifecycle batch scoping):**
+- **Item 1: Resolved.** `check_git_and_offer_commit`'s actual commit path
+  is `core/githelper.py`'s `git_commit_paths()`/`git_status_paths()`
+  (verified directly), both of which build `subprocess.run([...])` argv
+  lists with an explicit `--` path separator — never a shell string, not
+  argument-injectable via a crafted filename. Landed as part of the
+  NEW-17 scoped-commit work; this backlog item's line anchor just went
+  stale (see the separate stale-anchor `NEW-287` entry above — a
+  duplicate-id collision, not a second confirmation).
+- **Items 2 and 3: not code bugs, policy/feature decisions.** Both
+  describe accepted-tradeoff surfaces (an allowlist breadth choice, an
+  auth-strength choice) rather than a confirmed defect — escalate to Ish
+  rather than routing to an implementer. Left open.
 
 ## Found during repo-cleanup sweep (post-Gemini session, 2026-09-08) — untracked cruft, no committed code touched
 
