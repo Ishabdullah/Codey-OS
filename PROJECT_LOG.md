@@ -1,3 +1,16 @@
+## 2026-09-08 — Cleanup round 2: NEW-68 bounded retry, NEW-413 fully closed (cross-repo, Codey-Aigentik)
+
+**What changed:** Second and final round of the small cleanup series (round 1 above committed `a76ab4f`). Both items in this round were scoped by project-architect first, given neither had an obvious fix location. Committed `a2194b0` (Codey-OS side) and, in the separate `~/Codey-Aigentik` repo, `c51748a`; ledger update `c49116d`.
+
+- **`NEW-68`**: `core/inference.py`'s `_start_server()` used to raise immediately on any `ensure_model()` failure, even a transient `LOAD_OUTCOME_DEFERRED` (a concurrent `release_model_slot` call or thermal restart holding the swap guard). Added a small bounded retry (3 attempts, 1.5s apart) that fires only on that specific outcome. Safe because — traced exhaustively, not sampled — no caller of `_start_server()` anywhere in the codebase ever runs on an asyncio event loop.
+- **`NEW-413`, closed end-to-end across two repos**: Aigentik's own startup can trigger a real primary-model load on the Codey-OS daemon, and if Aigentik's subsequent warm-up call fails, it used to exit without ever releasing that model — orphaning it. Piece 1 (this repo): a new `tools/release_model_cli.py`, a thin wrapper around the daemon's already-safe `release_model_slot` command (verified directly: it already declines to release when anything else is legitimately using the model). Piece 2 (the `Codey-Aigentik` repo, requiring a permission-scope change this session to write there): `index.js`'s warm-up-failure exit path now calls that script, mirroring its own load-side pattern exactly. Both pieces went through code-reviewer.
+- **2 new non-blocking findings logged from the Aigentik-side review** (rule 8): `NEW-419` (a narrow TOCTOU — the LLM provider check could in principle change mid-boot between the load-side and release-side checks) and `NEW-420` (a sibling exit path — `startLlamaServer()`'s own spawn-timeout — still has no release call, explicitly out of `NEW-413`'s own scoped fix direction).
+- Codey-OS full suite: `1517 passed, 1 skipped`. Codey-Aigentik full suite: `272 passed, 19 suites`. Both independently reproduced by code-reviewer, not just trusted from the implementer.
+
+**Why:** `NEW-413` is a good example of this project's standing practice extending naturally across a repo boundary once the access existed — the fix was scoped, split, and reviewed with the same rigor on both sides rather than treating the cross-repo half as an afterthought.
+
+**Next action:** This closes out the two-round cleanup series entirely. Remaining open items are the ones already flagged for Ish or a future pass: `NEW-9`, `NEW-18`, `NEW-287` items 2-3, `NEW-415`/`416`/`417`/`418` (from round 1), `NEW-419`/`420` (from this round), and the untriaged ~50-item broader process-lifecycle population from batch 6.
+
 ## 2026-09-08 — Cleanup round 1: NEW-414 except-pass narrowing, NEW-91/163 LoRA rollback data-loss fix
 
 **What changed:** First of two small cleanup rounds picked up after triaging an untracked `Code_Audit_Report.md` (see the entry below this one) — two items, neither process-lifecycle, routed through the normal implementer→code-reviewer pipeline. Committed `a76ab4f`.
