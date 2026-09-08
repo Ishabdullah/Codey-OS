@@ -473,6 +473,9 @@ def filter_tool_steps(steps: List[str]) -> List[str]:
     return kept if len(kept) > 1 else steps[:2]  # fallback: keep first two
 
 
+PLANNER_TIMEOUT_OUTER_BUFFER = 30.0
+
+
 def compute_planner_timeout(prompt_tokens_estimate: int, max_tokens: int) -> float:
     """
     NEW-165: formula-based HTTP timeout for a local-backend planning call,

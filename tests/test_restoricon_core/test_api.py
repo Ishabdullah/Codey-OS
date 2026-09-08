@@ -946,8 +946,13 @@ def test_api_ai_chat_auth_and_validation(api_server, monkeypatch):
         "choices": [{"message": {"role": "assistant", "content": "Hello there!"}}]
     }
 
+    real_urlopen = urllib.request.urlopen
+
     def mock_urlopen(req, timeout=180.0):
-        return MockHTTPResponse(mock_resp_payload)
+        url = req.full_url if hasattr(req, "full_url") else str(req)
+        if "/v1/chat/completions" in url:
+            return MockHTTPResponse(mock_resp_payload)
+        return real_urlopen(req, timeout=timeout)
 
     monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
 

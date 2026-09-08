@@ -173,8 +173,8 @@ def get_adaptive_depth(requested_depth: int) -> int:
     Adjust recursion depth based on device thermal and battery state.
 
     Rules (applied in priority order):
-    - temp >= temp_critical (80°C)  → force depth 0 (no recursion)
-    - temp >= temp_warn (65°C)      → cap depth at 1
+    - temp >= temp_critical (90°C)  → force depth 0 (no recursion)
+    - temp >= temp_warn (75°C)      → cap depth at 1
     - battery <= batt_low (15%) AND not charging → cap depth at 1
     - battery <= batt_critical (5%) AND not charging → force depth 0
     - charging or cool                → use requested_depth as-is
@@ -185,8 +185,8 @@ def get_adaptive_depth(requested_depth: int) -> int:
         return requested_depth
 
     cfg = THERMAL_CONFIG
-    temp_crit = cfg.get("temp_critical", 80)
-    temp_warn = cfg.get("temp_warn", 65)
+    temp_crit = cfg.get("temp_critical", 90)
+    temp_warn = cfg.get("temp_warn", 75)
     batt_low = cfg.get("batt_low", 15)
     batt_crit = cfg.get("batt_critical", 5)
 

@@ -17,14 +17,18 @@ directly, matching this project's convention for these unit tests
 (tests/test_plannd_timeout.py mocks urllib.request.urlopen the same way).
 """
 import core.planner_service as planner_service
-from core.plannd import PLANNER_PROMPT, compute_planner_timeout
+from core.plannd import (
+    PLANNER_PROMPT,
+    PLANNER_TIMEOUT_OUTER_BUFFER,
+    compute_planner_timeout,
+)
 from core.tokens import estimate_tokens
 from utils.config import PLANNER_MAX_TOKENS
 
 
 def _expected_socket_timeout(prompt: str) -> float:
     prompt_tokens_estimate = estimate_tokens(PLANNER_PROMPT) + estimate_tokens(prompt)
-    daemon_outer_timeout = compute_planner_timeout(prompt_tokens_estimate, PLANNER_MAX_TOKENS) + 30.0
+    daemon_outer_timeout = compute_planner_timeout(prompt_tokens_estimate, PLANNER_MAX_TOKENS) + PLANNER_TIMEOUT_OUTER_BUFFER
     return daemon_outer_timeout + 10.0
 
 
@@ -65,7 +69,7 @@ def test_request_daemon_plan_socket_timeout_exceeds_daemon_outer_timeout(monkeyp
     planner_service._request_daemon_plan(prompt)
 
     prompt_tokens_estimate = estimate_tokens(PLANNER_PROMPT) + estimate_tokens(prompt)
-    daemon_outer_timeout = compute_planner_timeout(prompt_tokens_estimate, PLANNER_MAX_TOKENS) + 30.0
+    daemon_outer_timeout = compute_planner_timeout(prompt_tokens_estimate, PLANNER_MAX_TOKENS) + PLANNER_TIMEOUT_OUTER_BUFFER
 
     assert captured["timeout"] > daemon_outer_timeout
 

@@ -215,7 +215,7 @@ def test_estimate_model_load_cost_applies_mmap_fraction_from_path(tmp_path):
     assert cost.model_bytes == 250
 
 
-def test_known_model_archs_resolved_by_path():
+def test_known_model_archs_resolved_by_model_id():
     from utils.config import MODEL_PATH
 
     # Resolves to the one Qwen3.5-4B arch as of the 2026-08-22 one-model

@@ -292,6 +292,8 @@ Cross-references: `NEW-156` (constants derived from the retired models),
 ## Found during NEW-10 (SIGTERM handler) implementation, 2026-07-30 — NOT fixed, logged only
 
 ### [NEW-39] `tests/test_new19_patch_failed_repeat_escalation.py`'s `_in_subtask=False` tests are fragile to a dirty git working tree on `main.py` — they fail (with a stdin-capture `OSError`, not an assertion) whenever `main.py` has real uncommitted changes at test-run time
+**Verified already fixed 2026-09-08** (repo-state audit ahead of NEW_ISSUES.md batch-1 ledger closeout; no code change made this round — confirmed the fix already landed under a prior commit and this entry's Status field was simply never updated to reflect it).
+
 
 - **Confidence: Confirmed** — reproduced directly. With a clean working
   tree, `python3 -m pytest tests/test_new19_patch_failed_repeat_escalation.py -q`
@@ -1833,6 +1835,8 @@ tool call.
 ## Found during root-level/docs UNCLEAR-files cleanup, 2026-07-30 — NOT fixed, logged only
 
 ### [NEW-27] Root-level/docs orphaned-markdown audit: discoverability gaps (Confirmed) and two ambiguous files (Suspected)
+**Verified already fixed 2026-09-08** (repo-state audit ahead of NEW_ISSUES.md batch-1 ledger closeout; no code change made this round — confirmed the fix already landed under a prior commit and this entry's Status field was simply never updated to reflect it).
+
 - **Status: Confirmed (discoverability gaps), Suspected (AUDIT_REPORT.md
   disposition, docs/TODO2.md staleness) — not fixed, logged only.** Found
   while executing the paused WORK_QUEUE.md Track 0 item to resolve
@@ -1923,6 +1927,8 @@ tool call.
 ## Found during Phase 3 entry-point scoping pass, 2026-07-30 — NOT fixed, logged only
 
 ### [NEW-22] `README.md:53` misdescribes `gui/start.sh` as something `codey-start` orchestrates, and three independent copies of "start gui/server.py + PID file + trap-kill" logic exist
+**Verified already fixed 2026-09-08** (repo-state audit ahead of NEW_ISSUES.md batch-1 ledger closeout; no code change made this round — confirmed the fix already landed under a prior commit and this entry's Status field was simply never updated to reflect it).
+
 - **Status: Residual fixed, 2026-07-31, code-reviewer approved.**
   Extracted the shared "start `gui/server.py` in background, write PID
   file, trap-kill only if started here" pattern out of `codey-start`
@@ -4843,6 +4849,8 @@ open, not closed, on this basis.
 ## Found during Round 7 (NEW-2) full-suite runs, 2026-07-29/30 — NOT fixed, logged only
 
 ### [NEW-8] `ccos/tests/test_ccos.py::test_sandbox` fails on this device, pre-existing and unrelated to Round 7's changes
+**Verified already fixed 2026-09-08** (repo-state audit ahead of NEW_ISSUES.md batch-1 ledger closeout; no code change made this round — confirmed the fix already landed under a prior commit and this entry's Status field was simply never updated to reflect it).
+
 - **Confidence: Confirmed** (independently reproduced twice — once by
   implementer, once by code-reviewer running the full suite separately
   — both during Round 7's NEW-2 work, in `ccos/tests/test_ccos.py`, a
@@ -5547,6 +5555,8 @@ finding for the same bug. See `NEW-39`.)*
 ## Found while adding the test-only model-arch override to `core/resource_gate.py`, 2026-08-09 — NOT fixed, logged only
 
 ### [NEW-94] `tests/test_resource_gate.py::test_known_model_archs_resolved_by_path` has a stale name — it actually resolves by `model_id`, not by path (cosmetic, no behavior bug)
+**Status:** FIXED 2026-09-08 (batch-1 ledger closeout, code-reviewer approved). `tests/test_resource_gate.py`'s misnamed test renamed `test_known_model_archs_resolved_by_path` -> `test_known_model_archs_resolved_by_model_id` (cosmetic only, body unchanged).
+
 
 - **Status: Confirmed, cosmetic only.** Left over from the `NEW-84` fix
   that moved `KNOWN_MODEL_ARCHS` from path-keyed to `model_id`-keyed —
@@ -6232,6 +6242,8 @@ finding for the same bug. See `NEW-39`.)*
   rule 8.
 
 ### [NEW-110] `tests/test_new19_patch_failed_repeat_escalation.py` calls real, unmocked `git status`/`git diff` against the live repo and hits a genuine interactive `confirm()` prompt whenever the working tree has any uncommitted changes — 3 spurious failures/hangs under pytest's captured stdin, unrelated to whatever change actually dirtied the tree
+**Verified already fixed 2026-09-08** (repo-state audit ahead of NEW_ISSUES.md batch-1 ledger closeout; no code change made this round — confirmed the fix already landed under a prior commit and this entry's Status field was simply never updated to reflect it).
+
 
 - **Status: Confirmed** by code-reviewer during Phase 4.1 sub-task A's
   review, via bisection: the full test suite is green on a clean working
@@ -6403,6 +6415,8 @@ finding for the same bug. See `NEW-39`.)*
   `add_tasks()`, whichever a later round decides is the right shape.
 
 ### [NEW-115] `core/resource_gate.py`'s module docstring still claims the module is "NOT wired into `core/daemon.py`... yet" — stale after 7.4 sub-tasks A/C/D all landed and wired it in
+**Status:** FIXED 2026-09-08 (batch-1 ledger closeout, code-reviewer approved). `core/resource_gate.py`'s stale "NOT wired into daemon.py/loader_v2.py" docstring paragraph rewritten to reflect that it is live (verified call sites via grep before rewriting).
+
 
 - **Status: Confirmed** by direct code read during 4.1 sub-task D. The
   module docstring (`core/resource_gate.py:6-13`) reads: "This module is
@@ -6426,6 +6440,8 @@ finding for the same bug. See `NEW-39`.)*
   doc update whenever `core/resource_gate.py` is next touched.
 
 ### [NEW-116] `ccos/plugins/system/daemon_control/daemon_control.py`'s module docstring miscounts the socket protocol's handler total and cites a `daemon_shutdown()` helper that no longer exists
+**Verified already fixed 2026-09-08** (repo-state audit ahead of NEW_ISSUES.md batch-1 ledger closeout; no code change made this round — confirmed the fix already landed under a prior commit and this entry's Status field was simply never updated to reflect it).
+
 
 - **Status: Confirmed** by direct code read during 4.1 sub-task D. The
   docstring (`ccos/plugins/system/daemon_control/daemon_control.py:5-17`)
@@ -6452,6 +6468,8 @@ finding for the same bug. See `NEW-39`.)*
   Flagging per CLAUDE.md rule 8 rather than fixing ad hoc here.
 
 ### [NEW-117] `core/recursive.py`'s `get_adaptive_depth()` has a stale `temp_critical` fallback/docstring (80°C) that no longer matches the real committed default (90°C) in `utils/config.py`'s `THERMAL_CONFIG`
+**Status:** FIXED 2026-09-08 (batch-1 ledger closeout, code-reviewer approved). `core/recursive.py`'s `temp_critical`/`temp_warn` comment + `.get()` fallback drift corrected to match `utils/config.py`'s real defaults (80->90, 65->75 for both the comment and the fallback value).
+
 
 - **Status: Confirmed** by direct code read while fixing the
   `CODEY_TEMP_CRITICAL_C` warning-text consumer list (4.1 sub-task D,
@@ -6709,6 +6727,8 @@ finding for the same bug. See `NEW-39`.)*
     neither required a code change here.
 
 ### [NEW-124] `core/planner_service.py`'s module docstring/comments say the daemon planner is "0.5B or remote" — the actual model is 1.5B (upgraded from 0.5B per `utils/config.py:407`'s own comment)
+**Verified already fixed 2026-09-08** (repo-state audit ahead of NEW_ISSUES.md batch-1 ledger closeout; no code change made this round — confirmed the fix already landed under a prior commit and this entry's Status field was simply never updated to reflect it).
+
 
 - **Status:** Confirmed, found during 7.3 scoping (task classifier + tier
   config), not fixed — doc-only, outside that scoping pass's no-code-
@@ -8274,6 +8294,8 @@ finding for the same bug. See `NEW-39`.)*
 ## Found during the NEW-102/bug_002 config-live-read fix round, 2026-08-13 — NOT fixed, logged only
 
 ### [NEW-150] `tests/test_new19_patch_failed_repeat_escalation.py`'s three `_in_subtask=False` tests run real (unmocked) `git status`/`ask_confirm()` calls against the actual working tree and fail with `OSError: reading from stdin` whenever the file they touch (`main.py`) already has a real, unrelated, pre-existing uncommitted diff at test-run time
+**Verified already fixed 2026-09-08** (repo-state audit ahead of NEW_ISSUES.md batch-1 ledger closeout; no code change made this round — confirmed the fix already landed under a prior commit and this entry's Status field was simply never updated to reflect it).
+
 
 - **Status: Confirmed** — traced directly. `core/agent.py:671`'s
   `check_git_and_offer_commit()` (called from the real, unmocked
@@ -8840,6 +8862,8 @@ finding for the same bug. See `NEW-39`.)*
   same fix pattern without Ish weighing in.
 
 ### [NEW-171] `tests/test_planner_service_daemon_socket_timeout.py`'s `test_request_daemon_plan_socket_timeout_exceeds_daemon_outer_timeout` re-derives `compute_planner_timeout(...) + 30.0` inline rather than calling into `core/daemon.py`'s own computation — can't detect drift if daemon's `+30.0` buffer changes later
+**Status:** PARTIALLY FIXED 2026-09-08 (batch-1 ledger closeout, code-reviewer approved). Extracted `PLANNER_TIMEOUT_OUTER_BUFFER = 30.0` in `core/plannd.py` and used it at `core/planner_service.py:78`'s call site and its matching test derivation. **Remaining:** a second literal `+ 30.0` duplicate of the same buffer still exists at `core/plannd.py:556` (`compute_outer_plan_timeout`'s own `+ queue_buffer + 30.0`), same file as the new constant, not yet switched over — left out of this batch's scope, worth a follow-up one-line edit.
+
 - **Status: Suspected** — found by code-reviewer's final pass on the
   `NEW-169` fix (2026-08-23), test-quality gap, not a production defect.
 - **Impact:** if a future change alters `core/daemon.py`'s outer-timeout
@@ -9017,6 +9041,8 @@ finding for the same bug. See `NEW-39`.)*
   default for a last-resort/explicit path anyway).
 
 ### [NEW-176] `tests/test_orchestration.py:167`'s `TestScoreMessage` docstring still references `core.model_tiers.classify_tier()`, deleted as dead code by `NEW-172`'s fix
+**Status:** FIXED 2026-09-08 (batch-1 ledger closeout, code-reviewer approved). `tests/test_orchestration.py`'s `TestScoreMessage` docstring no longer claims a nonexistent `core.model_tiers.classify_tier()` consumes `_score_message()`'s output; the legitimate rationale (raw `ScoreResult` fields tested directly) was kept.
+
 - **Status: Confirmed, trivial.** Found by the implementer fixing
   `NEW-172` (2026-08-24), while grepping the repo for leftover references
   to the deleted `classify_tier()`/`get_plan()` pair. A stale comment,
@@ -9027,6 +9053,8 @@ finding for the same bug. See `NEW-39`.)*
   whenever `tests/test_orchestration.py` is next edited for any reason.
 
 ### [NEW-177] `tests/test_new19_patch_failed_repeat_escalation.py`'s `_in_subtask=False` tests silently assume `main.py` is git-clean at test-run time — any uncommitted diff to `main.py` makes them fail with a captured-stdin `OSError`, unrelated to what they're actually testing
+**Verified already fixed 2026-09-08** (repo-state audit ahead of NEW_ISSUES.md batch-1 ledger closeout; no code change made this round — confirmed the fix already landed under a prior commit and this entry's Status field was simply never updated to reflect it).
+
 - **Status: Confirmed** — reproduced independently twice (implementer,
   then code-reviewer from scratch) during the `NEW-172` deletion task
   (2026-08-24).
@@ -9181,6 +9209,8 @@ finding for the same bug. See `NEW-39`.)*
     conditions."
 
 ### [NEW-181] `CODEY_MASTER_PLAN.md`/`PROJECT_LOG.md`'s M1-F status language went briefly stale — said "not code-reviewer-approved" after the approval had actually happened
+**Verified already fixed 2026-09-08** (repo-state audit ahead of NEW_ISSUES.md batch-1 ledger closeout; no code change made this round — confirmed the fix already landed under a prior commit and this entry's Status field was simply never updated to reflect it).
+
 - **Status: Confirmed, process-integrity, not safety-relevant on its own —
   corrected the same round it was found.** Found during a 2026-08-25 audit
   cross-checking `CODEY_MASTER_PLAN.md` against actual repo state, which
@@ -11492,6 +11522,8 @@ process
 ## Found during Phase B2 task 4 (write-through pilot) implementation, 2026-08-27 — implementer's own report, confirmed by project-architect; not fixed, logged only
 
 ### [NEW-226] Three `~/Codey-Aigentik` doc files still describe
+**Verified already fixed 2026-09-08** (repo-state audit ahead of NEW_ISSUES.md batch-1 ledger closeout; no code change made this round — confirmed the fix already landed under a prior commit and this entry's Status field was simply never updated to reflect it).
+
 do-not-contact as a local JSON file — stale after this round's
 write-through change
 - **Status: Confirmed.** `docs/architecture.md:148`, `docs/commands.md:87`,
@@ -12229,6 +12261,8 @@ case left open (see below, not the same shape)
   separately above.
 
 ### [NEW-226] update — fixed and committed (docs-only, no code-reviewer
+**Verified already fixed 2026-09-08** (repo-state audit ahead of NEW_ISSUES.md batch-1 ledger closeout; no code change made this round — confirmed the fix already landed under a prior commit and this entry's Status field was simply never updated to reflect it).
+
 required)
 - **Status: Fixed and committed** (`~/Codey-Aigentik` commit `0398396`,
   docs-only). `docs/architecture.md:148`, `docs/commands.md:87`, and
@@ -12324,6 +12358,8 @@ required)
 ## Found during the NEW-145/149/155 context-ceiling fix-design scoping pass, 2026-08-27 — logged only, no code changed (rule 4: design first, review the diff before commit)
 
 ### [NEW-250] (Suspected, documentation-accuracy only, not a functional bug) The `NEW-145`/`NEW-149`/`NEW-152` prose states the interactive coder context ceiling as `n_ctx=32768`, but `utils/config.py:64`'s live default has since moved to `65536`
+**Verified already fixed 2026-09-08** (repo-state audit ahead of NEW_ISSUES.md batch-1 ledger closeout; no code change made this round — confirmed the fix already landed under a prior commit and this entry's Status field was simply never updated to reflect it).
+
 - **Status: Confirmed by direct read** (rule 12) — `utils/config.py:64`
   is `_n_ctx = 65536` (the `CODEY_N_CTX`-overridable default), not
   32768. `NEW-145`'s own entry states "the TUI... correctly computes
@@ -12784,6 +12820,8 @@ required)
   file).
 
 ### [NEW-260] 6 tests in `test_plannd_timeout.py`/`test_plannd_tier_split.py` fail on a clean `main` checkout, unrelated to any of tonight's Phase B2/context-ceiling work — pre-existing, stale expected-value bug
+**Verified already fixed 2026-09-08** (repo-state audit ahead of NEW_ISSUES.md batch-1 ledger closeout; no code change made this round — confirmed the fix already landed under a prior commit and this entry's Status field was simply never updated to reflect it).
+
 - **Status: RESOLVED 2026-08-27.** Discovered incidentally while
   investigating whether `core/daemon.py`/`core/loader_v2.py`'s
   uncommitted changes (from a separate live-verification attempt)
@@ -13028,6 +13066,8 @@ outside that fix's scope.
 - **Not fixed this round.**
 
 ### [NEW-269] `svc_find_orphans_by_cwd` `/proc`-scan fallback branch is dead on this device and has zero test coverage
+**Verified already fixed 2026-09-08** (repo-state audit ahead of NEW_ISSUES.md batch-1 ledger closeout; no code change made this round — confirmed the fix already landed under a prior commit and this entry's Status field was simply never updated to reflect it).
+
 - **Status:** Confirmed (dead-on-device); Suspected (correctness of the branch itself).
 - **Mechanism:** the `elif [ -d /proc ]` branch (used only when `pgrep` is absent) iterates `/proc/[0-9]*` and regex-matches `cmdline` against `$proc_filter`. `pgrep` is installed on this device (Termux `procps`), so the branch never executes and no test exercises it. It also uses `[[ "$cmd" =~ $proc_filter ]]` — an unanchored regex, not a literal match — so a `proc_filter` containing regex metacharacters would behave differently from the `pgrep` path.
 - **Impact:** none today; latent divergence if `pgrep` ever goes missing.
@@ -13165,6 +13205,8 @@ outside that fix's scope.
 ## Found during the GUI removal round, 2026-09-02 — logged per Rule 8
 
 ### [NEW-280] `test_embed_server_*` slot tests fail whenever a real embed server is already running on port 8082
+**Verified already fixed 2026-09-08** (repo-state audit ahead of NEW_ISSUES.md batch-1 ledger closeout; no code change made this round — confirmed the fix already landed under a prior commit and this entry's Status field was simply never updated to reflect it).
+
 - **Status:** Confirmed (reproduced at unmodified HEAD in an isolated `git worktree`, so it is provably not caused by that round's changes).
 - **Mechanism:** `tests/test_loader_resource_gate.py::test_embed_server_registers_slot_as_resident_on_start` and `::test_embed_server_releases_slot_on_stop` patch `_check_health` to return `True`. With a genuine embed `llama-server` live on port 8082, `EmbedServer.start()` takes its "already healthy → adopt, don't restart" branch (captured stdout: `ℹ Adopting already-healthy embed server on port 8082, not restarting it`) and returns success **without** registering a gate slot. The tests then assert a slot was registered/released and fail.
 - **Impact:** two failing tests in every full-suite run performed on a device where the normal `codey start` stack is up — i.e. the ordinary state of this phone. This is expected-noise of the `NEW-150` family: it trains readers to skim past red, which is the real cost.
@@ -13281,6 +13323,8 @@ outside that fix's scope.
   updates every citation, not an in-place edit here.
 
 ### [NEW-285] `U.20` tracks flake8 counts, but flake8 is installed nowhere and appears in neither `install.sh` nor `requirements*.txt` (rule 11)
+**Status:** PARTIALLY ADDRESSED, needs a decision — 2026-09-08. Attempted to add `flake8` to `install.sh`'s `pkg install -y ...` line (matching `ruff`'s installation) but verified via `pkg search flake8` / `apt list -a flake8` / `apt list -a python-flake8` that no such Termux package exists (it's pip-only on this platform); adding it there would have broken a fresh clone's `install.sh` run with no fallback (CLAUDE.md rule 11). Reverted rather than guess a substitute location. **Open decision:** either add `flake8` via a `pip install` step elsewhere in `install.sh`, or treat this as won't-fix since `ruff` alone (already installed) covers the primary linting path and `core/linter.py`'s fallback chain degrades gracefully via `shutil.which()` when `flake8` is absent.
+
 - **Status:** Confirmed (`python -m flake8` → `No module named flake8`;
   `grep -n "flake8\|lint" install.sh requirements*.txt` → no matches).
 - **Mechanism:** Appendix A `U.20` carries three precise measurements —
@@ -13423,6 +13467,8 @@ outside that fix's scope.
     in Appendix A stays blocked pending `NEW-291`/`NEW-292`.
 
 ### [NEW-289] `HANDOFF.md` carries a fifth, stale, and now-contradicted Phase B2 queue, and `CLAUDE.md`/`ANTIGRAVITY.md` are ~97% byte-duplicates
+**Verified already fixed 2026-09-08** (repo-state audit ahead of NEW_ISSUES.md batch-1 ledger closeout; no code change made this round — confirmed the fix already landed under a prior commit and this entry's Status field was simply never updated to reflect it).
+
 - **Status:** Confirmed (measured during `U.38` step 5's assessment;
   nothing changed in any of the four files).
 - **`HANDOFF.md`:** dated **2026-08-27**, six days stale as of
@@ -13711,6 +13757,8 @@ outside that fix's scope.
   validator would need to stay in step with such additions.
 
 ### [NEW-301] The `test_user_management.py` route harness never asserted 400-vs-500 on constraint violations — how `NEW-264`'s cosmetic half went unnoticed
+**Verified already fixed 2026-09-08** (repo-state audit ahead of NEW_ISSUES.md batch-1 ledger closeout; no code change made this round — confirmed the fix already landed under a prior commit and this entry's Status field was simply never updated to reflect it).
+
 - **Status:** Confirmed (project-architect, U.35/U.36 scoping,
   2026-09-02). **Partly closed** by U.35's new tests 3 and 8 (which do
   assert route-level 400 on the `active` guard and on a duplicate-email
@@ -14366,6 +14414,8 @@ outside that fix's scope.
   `telemetry/recorders.py`; T4 in `CODEY_MASTER_PLAN.md` Appendix A.
 
 ### [NEW-331] `tests/conftest.py`'s isolation fixture docstring says "session-wide" but the fixture is function-scoped
+**Status:** PARTIALLY FIXED 2026-09-08 (batch-1 ledger closeout, code-reviewer approved). `tests/conftest.py:28`'s docstring reworded from "Autouse + session-wide" to reflect the fixture is actually function-scoped. **Remaining:** the same stale "session-wide"/"session-wide False default" framing survives in two more places — `tests/conftest.py:2` and `tests/test_plannd_telemetry.py:70-71` — same root cause, not yet corrected.
+
 - **Status:** Confirmed (telemetry T2, 2026-09-03, code-reviewer approved
   round). Wording inaccuracy only (rule 6) — the fixture has no `scope=`
   argument, so pytest's default (function) applies, which is *stricter*
@@ -14421,6 +14471,8 @@ outside that fix's scope.
   `utils/config.py`.
 
 ### [NEW-334] `test_api_ai_chat_auth_and_validation`'s "successful proxy" case never actually exercises the real server-side proxy path
+**Status:** FIXED 2026-09-08 (batch-1 ledger closeout, code-reviewer approved). `tests/test_restoricon_core/test_api.py`'s `test_api_ai_chat_auth_and_validation` now scopes its `urllib.request.urlopen` monkeypatch to the `/v1/chat/completions` path (matching the pattern already used elsewhere in the file) so it no longer accidentally intercepts the test client's own HTTP call — confirmed it previously passed without exercising real proxy code.
+
 - **Status:** Confirmed (telemetry T3, 2026-09-04, code-reviewer approved
   round, independently verified). Pre-existing test-quality gap; this
   is what let `NEW-332`-adjacent proxy behavior go unverified and let
@@ -14630,6 +14682,8 @@ outside that fix's scope.
   `core/plannd.py`, `docs/telemetry_layer_design.md` §2.A.
 
 ### [NEW-344] Partial-`timings` honest-null gap: a response with `timings` present but missing `cache_n` specifically would silently drop `prefix_cache_hit`/`cached_prompt_tokens` — untested in both T5 and T6
+**Correction 2026-09-08 (rule 6):** the mechanism is worse than originally described. When `timings` is present but its `cache_n` subkey is absent, `core/plannd.py`'s `if timings:` branch sets `cached_prompt_tokens`/`prefix_cache_hit` to `None` with no matching `nulls` entry, and `telemetry/recorders.py::_emit()` then **prunes those `None` fields out of the telemetry body entirely** rather than emitting them as explicit `None` — silent field loss, not just a null value. A regression-pinning test (`test_get_plan_telemetry_cached_prompt_tokens_pruned_when_cache_n_absent`) was added in `tests/test_plannd_telemetry.py` to lock in *current* (buggy) behavior so it's caught if it drifts further, but the underlying bug itself is **not fixed** — still open, now with an accurate mechanism and a test that must be updated (not just re-pinned) once the real fix lands.
+
 - **Status:** Confirmed/latent, untested (telemetry T6, 2026-09-04,
   code-reviewer approved round). Shared T5/T6 pattern.
 - **Mechanism:** both call sites' `nulls` population for
@@ -14928,6 +14982,8 @@ outside that fix's scope.
   `core/thermal.py::get_thermal_status`.
 
 ### [NEW-354] `docs/telemetry_layer_design.md` §2.C's prose places `counter_reset` under the `device` category, but `telemetry/schema/v1.json` only has the `counters_reset`/`reason` body fields under `meta`
+**Verified already fixed 2026-09-08** (repo-state audit ahead of NEW_ISSUES.md batch-1 ledger closeout; no code change made this round — confirmed the fix already landed under a prior commit and this entry's Status field was simply never updated to reflect it).
+
 - **Status:** Confirmed, doc/schema inconsistency (telemetry T8a,
   2026-09-04, code-reviewer approved round; discovered during T8
   scoping).
@@ -15395,6 +15451,8 @@ outside that fix's scope.
   `ccos/plugins/coding/finetune/finetune.py`.
 
 ### [NEW-362] `docs/telemetry_layer_design.md`'s illustrative `call_site` example for category-B gate records is stale — names `loader_v2.LlamaServer.start`, but `reserve_slot()` is only ever called from `ModelLoader.load_primary()`
+**Verified already fixed 2026-09-08** (repo-state audit ahead of NEW_ISSUES.md batch-1 ledger closeout; no code change made this round — confirmed the fix already landed under a prior commit and this entry's Status field was simply never updated to reflect it).
+
 - **Status:** Confirmed, doc-only, rule-8 miss corrected (originally
   flagged by both T9's project-architect and implementer, 2026-09-04,
   but never logged with a `NEW-###` id at the time — caught during the
@@ -15600,3 +15658,77 @@ outside that fix's scope.
 1. Command-injection-via-filename in `check_git_and_offer_commit` (`core/agent.py`) via `files_touched`. Needs investigation to ensure `git commit -m msg -- files_touched` is fully safe from argument injection.
 2. Daemon shell allowlist too broad in `_DAEMON_ALLOWED_PREFIXES` (`core/task_executor.py`). It admits commands like `cat`, `grep`, `find`, `cd `, `env` which can be used to exfiltrate secrets or environment variables.
 3. Unix socket auth in `core/daemon.py`: A peer-UID check exists, but token auth is recommended for stronger security.
+
+## Found during repo-cleanup sweep (post-Gemini session, 2026-09-08) — untracked cruft, no committed code touched
+
+### [NEW-403] `DatabaseManager` doesn't recognize a SQLite URI passed in as `db_path`, so shared-cache in-memory test fixtures silently write real files to the repo root instead
+
+- **Status:** Confirmed — reproduced live, twice, in this round.
+- **Severity:** Low impact (no test failures, no data-correctness issue), but
+  unbounded repo-root file leakage on every test run — the files are
+  ~550KB each and never cleaned up.
+- **Mechanism:** `tests/test_restoricon_core/test_b6_5_document_upload.py:19`
+  builds its own SQLite shared-cache in-memory URI directly —
+  `f"file:test_doc_upload_{uuid.uuid4()}?mode=memory&cache=shared"` — and
+  passes it to `RestoriconAPIServer(db_path=db_path, ...)`, which threads
+  through to `DatabaseManager.__init__` (`restoricon_core/database.py:883`).
+  That constructor only treats the *literal* string `":memory:"` as
+  meaning "in-memory" (line 885); anything else — including a hand-built
+  `file:...?mode=memory&cache=shared` URI — falls into the `else` branch,
+  setting `self.is_memory = False` (line 892) and calling `_ensure_db_dir()`
+  (line 893). `get_connection()` (line 902) then calls
+  `sqlite3.connect(self.db_path, uri=self.is_memory, ...)` with
+  `uri=False`, so `sqlite3` treats the whole URI string as a literal
+  filename and creates a real file by that name (colons, `?`, `&`, `=`
+  and all) in the process's current working directory — never a true
+  in-memory DB, and never cleaned up.
+- **Evidence:** Ran `tests/test_restoricon_core/test_b6_5_document_upload.py`
+  twice; each run left new `file:test_doc_upload_<uuid>?mode=memory&cache=shared`
+  files in the repo root (`3 passed in 0.39s` both times — the tests
+  themselves are unaffected, since each leaked file is still a working,
+  if disk-backed, SQLite DB). Also found ~40 pre-existing instances of the
+  same file dating from a prior (non-Claude, "Gemini") session, all
+  untracked and now deleted as part of this cleanup — **no tracked/committed
+  file was modified in that prior session**, per `git diff HEAD` (empty)
+  and `git status --short` (all `??`).
+- **Fix (not yet applied — out of this round's scope):** `DatabaseManager`
+  should detect a `file:...?mode=memory` URI the same way it detects
+  `":memory:"` (e.g. `str(db_path).startswith("file:") and "mode=memory" in str(db_path)`)
+  and set `is_memory = True` accordingly, or the test fixture should call
+  `DatabaseManager(db_path=":memory:")` directly rather than hand-rolling
+  its own shared-cache URI when it wants an in-memory DB.
+- **Cross-reference:** `restoricon_core/database.py:883-919`,
+  `tests/test_restoricon_core/test_b6_5_document_upload.py:17-33`.
+
+### [NEW-404] `tests/test_path_traversal.py::test_path_traversal` (U.21) fails when run as part of the full suite, passes alone — test-isolation bug, not a security regression
+
+- **Status:** Confirmed — reproduced both ways in this round.
+- **Severity:** Low. The security check itself (`Filesystem._validate_path`)
+  is not implicated; this is purely a test-fixture ordering bug that makes
+  the full-suite result look red.
+- **Mechanism:** `core/filesystem.get_filesystem()` (`core/filesystem.py:429-434`)
+  is a module-level singleton keyed only on `allow_self_modification`, not
+  on `workspace` — once any earlier test in the run calls it, later calls
+  silently get back the already-constructed `Filesystem` bound to whatever
+  workspace was passed *first*, ignoring any different `workspace=` argument.
+  `test_path_traversal` (added in `6a1f7c2`, U.21) calls
+  `get_filesystem(workspace=Path(temp_workspace))` expecting a fresh
+  instance scoped to its own `tempfile.TemporaryDirectory()`, but by the
+  time it runs in the full suite an earlier test has already initialized
+  the singleton against the real repo workspace
+  (`/data/data/com.termux/files/home/Codey-OS`). Its own `valid_path`
+  assertion then fails: a path inside `temp_workspace` is (correctly, for
+  the *actual* bound workspace) rejected as outside it.
+- **Evidence:** Full suite (`python -m pytest tests/ -q`): `1 failed, 1483
+  passed, 1 skipped, 1 warning in 237.29s` — the one failure is exactly
+  this test, raising `core.filesystem.FilesystemAccessError: Access denied:
+  .../tmpwdbt_fmx/allowed_file.txt is outside workspace
+  (/data/data/com.termux/files/home/Codey-OS)`. Run alone
+  (`python -m pytest tests/test_path_traversal.py -q`): `1 passed in 0.07s`.
+- **Fix (not yet applied — out of this round's scope):** either call
+  `core.filesystem.reset_filesystem()` at the top of the test (matching
+  the pattern the module already documents at line 438's "for testing"
+  comment), or construct a `Filesystem(workspace=...)` directly instead of
+  going through the memoized `get_filesystem()` factory.
+- **Cross-reference:** `core/filesystem.py:425-439`,
+  `tests/test_path_traversal.py`, `6a1f7c2` (U.21).

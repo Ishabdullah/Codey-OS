@@ -25,7 +25,7 @@ def _isolate_telemetry_metrics_dir(tmp_path_factory, monkeypatch):
     prevent (it's not a RAM/model-load concern here, but the same
     "tests must not touch real persistent device state" principle).
 
-    Autouse + session-wide so every test, including ones that never
+    Autouse and function-scoped so every test, including ones that never
     mention telemetry at all, gets a throwaway directory instead of the
     real one, by default. Tests that specifically exercise telemetry
     behaviour (tests/test_telemetry_*.py) apply their own more targeted

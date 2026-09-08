@@ -212,6 +212,55 @@ def test_get_plan_telemetry_records_have_expected_fields(monkeypatch, _capture_t
     assert schema.validate(inf_record) == []
 
 
+def test_get_plan_telemetry_cached_prompt_tokens_pruned_when_cache_n_absent(monkeypatch, _capture_telemetry):
+    """NEW-344 (Confirmed/latent, not yet fixed): pins CURRENT behavior,
+    not the intended/correct behavior -- see NEW_ISSUES.md's "Fix
+    direction" for this entry, which calls for adding explicit `nulls`
+    handling here. Today, when `timings` is present but lacks a `cache_n`
+    key (distinct from test_get_plan_telemetry_falls_back_to_usage_when_
+    timings_absent's case, where timings is missing entirely),
+    core/plannd.py's `if timings:` branch sets `cached_prompt_tokens =
+    timings.get("cache_n")` to None without recording a matching `nulls`
+    reason (unlike the fully-timings-absent branch, which does add one).
+    `telemetry/recorders.py`'s `_emit()` then silently prunes any body
+    field that is None with no matching `nulls` entry -- so
+    `cached_prompt_tokens`/`prefix_cache_hit` come back missing from
+    `body` entirely rather than present as an honest null, which is
+    exactly the "invisible-omission" gap NEW-344 describes. This test
+    exists to catch a regression in *this* pruning behavior changing
+    unexpectedly; it must be updated (not just re-pinned) once NEW-344 is
+    actually fixed to instead assert an honest null with a `nulls`
+    reason."""
+    payload = {
+        "choices": [{"message": {"content": "1. Do the thing"}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 50, "completion_tokens": 6},
+        "timings": {
+            "prompt_n": 50,
+            "prompt_ms": 120.0,
+            "prompt_per_token_ms": 2.4,
+            "prompt_per_second": 416.7,
+            "predicted_n": 6,
+            "predicted_ms": 100.0,
+            "predicted_per_token_ms": 16.7,
+            "predicted_per_second": 60.0,
+        },
+    }
+    _patch_gate_and_urlopen(monkeypatch, payload)
+
+    result = get_plan("do the thing", enable_thinking=True)
+    assert result == ["Do the thing"]
+
+    inf_record = [r for r in _capture_telemetry if r["category"] == "inference"][0]
+    body = inf_record["body"]
+    assert "cached_prompt_tokens" not in body
+    assert "prefix_cache_hit" not in body
+    assert "body.cached_prompt_tokens" not in inf_record["nulls"]
+    assert "body.prefix_cache_hit" not in inf_record["nulls"]
+    assert body["prefill_tps"] == 416.7
+    assert body["generation_tps"] == 60.0
+    assert schema.validate(inf_record) == []
+
+
 def test_get_plan_telemetry_thinking_mode_reflects_enable_thinking_false(monkeypatch, _capture_telemetry):
     payload = {
         "choices": [{"message": {"content": "1. Do the thing"}, "finish_reason": "stop"}],

@@ -1,16 +1,28 @@
 #!/usr/bin/env python3
 """
 Resource gate — Track 3 Phase 5a / CODEY_OS_MASTER_VISION.md Section 7.4
-(2026-08-08 amendment), sub-task 1 of 5.
+(2026-08-08 amendment). Originally built as sub-task 1 of 5 of the
+model-load-admission migration; see below for the now-completed wiring
+into the real call sites.
 
 This module is the "single authority" for model-load admission decisions
-described in 7.4, built as a standalone, unit-testable component. It is
-NOT wired into `core/daemon.py`, `core/loader_v2.py`, `core/planner_loader.py`,
-or `main.py` yet — that migration is sub-tasks 2-5, each gated behind its own
-code-reviewer pass (CLAUDE.md rule 4) because it touches process-lifecycle
-code. This module has no process-lifecycle risk on its own: importing it
-starts nothing, spawns nothing, and reads only `/proc/meminfo` (mockable)
-and thermal state (lazily imported, best-effort).
+described in 7.4, built as a standalone, unit-testable component. It IS
+wired live into `core/daemon.py` and `core/loader_v2.py`: `loader_v2.py`
+calls `reserve_slot()`, `mark_resident()`, and `find_resident_slot()` on
+the actual coder-server load/upgrade/adopt path, and `daemon.py` lazily
+imports `sample_cpu_percent()`, `sample_temperature_c()`,
+`should_trip_shutdown()`, `is_interactive_session_active()`,
+`compute_zram_compression_ratio()`, `can_dispatch_task()`, and
+`get_resource_snapshot()` for its monitoring/dispatch loop. `main.py`
+also imports `get_resource_snapshot()` for CLI status reporting.
+`core/planner_loader.py` no longer exists — it was retired in M1-D
+(2026-08-23, see `core/planner_service.py`'s docstring) when the planner
+model was upgraded to a dedicated 1.5B, so there is nothing left to wire
+this module into there. This module still has no process-lifecycle risk
+on its own: importing it starts nothing and spawns nothing, and its
+sampling functions read only `/proc/meminfo` (mockable) and thermal
+state (lazily imported, best-effort) — the process-lifecycle risk lives
+in the callers (`daemon.py`, `loader_v2.py`), not in this module.
 
 Per the amendment, this gate does NOT enforce a fixed concurrency ceiling
 ("max N models" / "never both X and Y resident"). It answers two questions:

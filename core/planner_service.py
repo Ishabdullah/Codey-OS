@@ -70,12 +70,19 @@ def _request_daemon_plan(prompt: str, tier: str = "hard"):
         # internal per-request timeouts do scale per-tier (core/daemon.py) —
         # only this client-facing value stays pinned to the worst case.
         try:
-            from core.plannd import PLANNER_PROMPT, compute_planner_timeout
+            from core.plannd import (
+                PLANNER_PROMPT,
+                PLANNER_TIMEOUT_OUTER_BUFFER,
+                compute_planner_timeout,
+            )
             from core.tokens import estimate_tokens
             from utils.config import PLANNER_MAX_TOKENS
 
             prompt_tokens_estimate = estimate_tokens(PLANNER_PROMPT) + estimate_tokens(prompt)
-            daemon_outer_timeout = compute_planner_timeout(prompt_tokens_estimate, PLANNER_MAX_TOKENS) + 30.0
+            daemon_outer_timeout = (
+                compute_planner_timeout(prompt_tokens_estimate, PLANNER_MAX_TOKENS)
+                + PLANNER_TIMEOUT_OUTER_BUFFER
+            )
             socket_timeout = daemon_outer_timeout + 10.0
         except Exception:
             # Same degrade-gracefully convention as every other utils.config/

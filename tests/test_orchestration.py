@@ -158,14 +158,12 @@ class TestOrchestrationHeuristics:
 class TestScoreMessage:
     """
     Direct unit tests for `_score_message()`/`ScoreResult` — TODO.md 7.3
-    sub-task A extracted this out of `is_complex()` as a reusable helper
-    (now also consumed by `core.model_tiers.classify_tier()`, sub-task C).
+    sub-task A extracted this out of `is_complex()` as a reusable helper.
     `is_complex()`'s existing tests above only exercise `_score_message()`
     indirectly through its combined boolean result; these tests check the
     raw `ScoreResult` fields themselves so a future change to the scoring
-    logic that happens to preserve `is_complex()`'s boolean outputs (but
-    breaks `classify_tier()`, which reads different fields) would still be
-    caught here.
+    logic that happens to preserve `is_complex()`'s boolean outputs, but
+    changes the underlying fields, would still be caught here.
     """
 
     def test_returns_score_result_instance(self):
