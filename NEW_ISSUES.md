@@ -1336,7 +1336,10 @@ just whether a single swap cycle is race-free.
   value still surfaces a bare `False` to this specific caller under
   today's single-model contention paths. **Needs its own short
   re-scoping pass before entering any implementation batch** — not
-  included in this round's sub-batches. `ModelLoader.ensure_model()`'s non-blocking `SWAP_GUARD` acquisition means any caller can now get a transient `False`/failure during the narrow window a planner swap is in flight, not just the daemon watchdog (Confirmed by code read, not live-reproduced)
+  included in this round's sub-batches. **Superseded by the Resolved
+  bullet below (2026-09-08, process-lifecycle batch round 2) — the
+  re-scoping pass this note asked for happened, and the fix landed.**
+  `ModelLoader.ensure_model()`'s non-blocking `SWAP_GUARD` acquisition means any caller can now get a transient `False`/failure during the narrow window a planner swap is in flight, not just the daemon watchdog (Confirmed by code read, not live-reproduced)
 `ensure_model()` (`core/loader_v2.py`) is called from more places than the
 daemon watchdog this round's NEW-12 fix was primarily reasoned about:
 `core/daemon.py:512` (pre-load at daemon startup — already handles `False`
@@ -1410,6 +1413,44 @@ reachable from a case that used to be immune. No fix required beyond
 what this entry already recommends (a future round deciding on retry/
 backoff, or the timeout-budget reconciliation the severity correction
 above calls for).
+
+- **Resolved 2026-09-08** (process-lifecycle batch, round 2): fixed
+  exactly the caller flagged above and in the 2026-09-08 status note —
+  `core/inference.py:_start_server()` now retries `get_loader()
+  .ensure_model()` a small bounded number of times (3 attempts, ~1.5s
+  sleep between) but ONLY when `loader.get_last_ensure_outcome() ==
+  LOAD_OUTCOME_DEFERRED` (SWAP_GUARD busy — a concurrent
+  `core/daemon.py:_handle_release_model_slot` release or a
+  `_watchdog_check_model` thermal restart holding the guard across its
+  own `unload()`/`load_primary()` cycle). Any other outcome
+  (`LOAD_OUTCOME_GATE_DENIED_HARD`/`LOAD_OUTCOME_ERROR`/
+  `LOAD_OUTCOME_SPAWN_FAILED`/etc.) still raises immediately with no
+  retry, matching the pre-existing behavior and mirroring
+  `core/daemon.py:_watchdog_check_model`'s own outcome-differentiated
+  handling. Safe specifically here (unlike the daemon watchdog, which
+  must never block the event loop) because — checked every current
+  caller of `core.inference_v2.infer()`/`core.inference.infer()` in this
+  codebase (`core/agent.py`, `main.py`, `core/planner.py`,
+  `core/githelper.py`, `core/recursive.py`, `core/orchestrator.py`,
+  `core/memory_v2.py`) — none of them ever runs on an asyncio event loop:
+  the daemon path reaches `_start_server()` via
+  `core/task_executor.py:_execute_task()`'s
+  `loop.run_in_executor(None, _run_capability)` worker thread, and the
+  interactive TUI/CLI path (`main.py`) is a plain synchronous process
+  with no asyncio event loop running in it at all. Regression coverage
+  added: `tests/test_new68_start_server_retry.py` (deferred outcome
+  retries and eventually succeeds; a non-deferred outcome raises
+  immediately with exactly one `ensure_model()` call; exhausting all
+  retries on a persistently-deferred outcome still raises). Full suite
+  (`python -m pytest tests/ -q`) passes, 1517 passed / 1 skipped, after
+  this change. This entry's own severity-correction/timeout-budget
+  finding (the ~190s worst-case-exceeds-daemon's-180s-timeout issue) is a
+  separate, NOT fixed, concern — this fix only closes the "no retry on a
+  benign transient outcome" gap, not the timeout-budget mismatch, and in
+  fact adds up to ~3s (2 × 1.5s sleep, the worst case of 2 deferred
+  retries before a 3rd successful attempt) to that same already-over-
+  budget path — a small addition against a multi-tens-of-seconds gap, but
+  worth naming rather than treating as orthogonal.
 
 ### [NEW-70] `ModelLoader.ensure_model()`'s thermal-restart branch swallows any exception from `unload()`/`load_primary()` and unconditionally reports success anyway (Suspected, found during NEW-12's fix-up round, pre-existing before this round's changes)
 In `ensure_model()`'s "already loaded" fast path, the thermal-restart
@@ -16146,6 +16187,33 @@ outside that fix's scope.
 - **Not tested:** whether this same failure occurs when Restoricon's Core API IS running (the normal/expected end-to-end configuration) — this session's environment didn't have it up, so only the failure path was exercised, not the happy path.
 - **Fix direction:** either have Aigentik's own warm-up-failure exit path signal the daemon to release the model server it triggered (cleanest, but requires Aigentik-side changes in a separate repo, `~/Codey-Aigentik`), or extend `stop_aigentik`'s/`stop_all_services`'s cleanup to also check for and reap a model server whose spawn it can trace back to an Aigentik-triggered load that never got torn down.
 - **Cross-reference:** `NEW-268`, `lib/service_manager.sh:start_aigentik`/`stop_aigentik`, `~/Codey-Aigentik` (separate repo).
+- **PARTIALLY resolved 2026-09-08** (process-lifecycle batch, round 2,
+  Codey-OS side only — do NOT read this as the finding being closed):
+  added `tools/release_model_cli.py`, a new sibling to
+  `tools/ensure_model_cli.py` that calls
+  `core.daemon.send_command("release_model_slot", {"model_id":
+  "primary"}, timeout=20.0)` — the same client call shape
+  `main.py`'s `_load_primary_with_gate_recovery()` already uses live
+  against `core/daemon.py`'s existing `_handle_release_model_slot`
+  handler. That handler was confirmed (by this task's scoping and by
+  this fix's own read of it) to already decline safely when
+  `ThermalManager.is_inference_active()` is true or `SWAP_GUARD` is held
+  — so calling it unconditionally from Aigentik's shutdown path cannot
+  kill a model server anything else is legitimately using; a decline
+  just means "not released yet," which this script surfaces via exit
+  code 2, distinct from exit 0 (released or already-unloaded) and exit 1
+  (daemon unreachable). Regression coverage:
+  `tests/test_release_model_cli.py` (correct command/payload shape,
+  success on both `released` and `already_unloaded` outcomes, non-zero
+  but non-crashing on a busy decline, non-zero and non-crashing when the
+  daemon is unreachable). **This is only the load-bearing mechanism
+  being made available, NOT the actual fix** — nothing calls this script
+  yet. The second, required half — Aigentik's own warm-up-failure exit
+  path (`~/Codey-Aigentik/index.js`) actually invoking
+  `tools/release_model_cli.py` — is a change to that separate repo, out
+  of this task's write scope, and is tracked/handled separately. Until
+  that lands, the original orphaning symptom this entry describes is
+  still fully live and unfixed end-to-end.
 
 ### Combined live-verify session results summary (NEW-46/NEW-50/NEW-51/NEW-183 re-tests, NEW-70/NEW-74 on-device confirmation)
 

@@ -7,7 +7,7 @@ import urllib.error
 import urllib.request
 
 from utils.config import MODEL_CONFIG, PRIMARY_SERVER_PORT
-from utils.logger import error
+from utils.logger import error, info
 
 SERVER_URL = f"http://127.0.0.1:{PRIMARY_SERVER_PORT}"
 CHAT_URL = f"{SERVER_URL}/v1/chat/completions"
@@ -35,11 +35,44 @@ def _start_server():
     subprocess; see NEW-12 in NEW_ISSUES.md for why the old independent
     launcher here was removed.
     """
-    from core.loader_v2 import get_loader
+    from core.loader_v2 import LOAD_OUTCOME_DEFERRED, get_loader
 
-    if not get_loader().ensure_model():
-        error("llama-server failed to start.")
-        raise RuntimeError("llama-server did not become ready.")
+    loader = get_loader()
+
+    # NEW-68: ensure_model() can return a transient False with outcome
+    # LOAD_OUTCOME_DEFERRED when SWAP_GUARD is held elsewhere in-process
+    # (e.g. core/daemon.py's _handle_release_model_slot holding the guard
+    # across an unload(), or _watchdog_check_model's thermal-restart branch
+    # holding it across unload()+load_primary() — see core/loader_v2.py's
+    # ensure_model() docstring). That's not a genuine failure and self-
+    # resolves quickly, so it's worth a small bounded retry here — unlike
+    # core/daemon.py's watchdog, no caller of this function ever runs on
+    # an asyncio event loop: the daemon path reaches it via
+    # core/task_executor.py:_execute_task()'s
+    # loop.run_in_executor(None, _run_capability) worker thread (checked:
+    # every core.inference_v2.infer()/core.inference.infer() caller in
+    # this codebase — core/agent.py, main.py, core/planner.py,
+    # core/githelper.py, core/recursive.py, core/orchestrator.py,
+    # core/memory_v2.py — either goes through that executor path or, for
+    # the interactive TUI/CLI (main.py), runs in a plain synchronous
+    # process with no asyncio event loop running at all), so a short
+    # blocking wait here doesn't stall anything else. Any other outcome
+    # (LOAD_OUTCOME_GATE_DENIED_HARD/LOAD_OUTCOME_ERROR/
+    # LOAD_OUTCOME_SPAWN_FAILED/etc.) won't resolve by immediate retry and
+    # must still raise right away, exactly as before this fix.
+    max_attempts = 3
+    for attempt in range(1, max_attempts + 1):
+        if loader.ensure_model():
+            break
+        outcome = loader.get_last_ensure_outcome()
+        if outcome != LOAD_OUTCOME_DEFERRED or attempt == max_attempts:
+            error("llama-server failed to start.")
+            raise RuntimeError("llama-server did not become ready.")
+        info(
+            f"ensure_model() deferred (SWAP_GUARD busy) — retrying "
+            f"({attempt}/{max_attempts})"
+        )
+        time.sleep(1.5)
 
     # Ensure the dedicated embed server (nomic on port 8082) is up —
     # health-check-only, never an unconditional start(). TODO.md 7.4b
