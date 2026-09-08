@@ -810,40 +810,99 @@ class LlamaServer:
             error(traceback.format_exc())
             return False
 
-    def stop(self):
-        if self.process:
-            try:
-                import signal as _signal
+    def stop(self) -> bool:
+        """
+        Stop the llama-server process THIS instance spawned.
 
+        NEW-74 (2026-09-08): `start()`'s reuse/adoption branches (the
+        `_is_port_in_use()` short-circuit, the cross-process lock's
+        reuse-poll, and the post-lock re-check) all set `self._started =
+        True` for a server they detected and adopted, not one they ever
+        `Popen()`'d — `self.process` is left `None` in every one of those
+        branches. Before this fix, calling `stop()` in that state was a
+        totally silent no-op (the `if self.process:` guard skipped the
+        whole body, including the `finally` clause that resets
+        `self._started`), so a caller had no way to tell "I stopped it"
+        apart from "I never had it to stop" — the adopted server kept
+        running with no signal that nothing happened.
+
+        Deliberately NOT changed to kill-by-adopted-PID here: an adopted
+        PID was positively identified via a health check, not a name-
+        pattern match, so it's a narrower case than CLAUDE.md rule 3's
+        "never kill by bare name pattern" — but this method still never
+        spawned it, and granting `stop()` new authority to kill a process
+        it doesn't own is a real design decision, not a bookkeeping fix.
+        Flagged for Ish/project-architect rather than decided here (see
+        NEW_ISSUES.md NEW-74). The safe fix in the meantime is making this
+        return value/log honest about doing nothing, not making it newly
+        capable of killing.
+
+        Returns:
+            True  — a process this instance spawned was signalled and its
+                    teardown ran to completion without an unexpected error.
+            False — either a no-op (no `self.process` to act on — adopted,
+                    or already stopped/never started), or teardown was
+                    attempted but hit an unexpected exception outside the
+                    already-handled `ProcessLookupError`/
+                    `TimeoutExpired` cases (logged below) — in that case
+                    the process may or may not actually be dead, so this
+                    must not claim success.
+        """
+        if self.process is None:
+            if self._started:
+                warning(
+                    f"LlamaServer.stop() called on port {self.port} but this "
+                    "instance never spawned a process (adopted an already-"
+                    "running server) — nothing to stop here. The adopted "
+                    "server is still running; see NEW-74 in NEW_ISSUES.md."
+                )
+            return False
+        try:
+            import signal as _signal
+
+            if os.name != "nt":
+                try:
+                    os.killpg(os.getpgid(self.process.pid), _signal.SIGTERM)
+                except ProcessLookupError:
+                    self.process.terminate()
+            else:
+                self.process.terminate()
+            try:
+                self.process.wait(timeout=8)
+            except subprocess.TimeoutExpired:
                 if os.name != "nt":
                     try:
-                        os.killpg(os.getpgid(self.process.pid), _signal.SIGTERM)
-                    except ProcessLookupError:
-                        self.process.terminate()
-                else:
-                    self.process.terminate()
-                try:
-                    self.process.wait(timeout=8)
-                except subprocess.TimeoutExpired:
-                    if os.name != "nt":
-                        try:
-                            os.killpg(os.getpgid(self.process.pid), _signal.SIGKILL)
-                        except Exception:
-                            self.process.kill()
-                    else:
+                        os.killpg(os.getpgid(self.process.pid), _signal.SIGKILL)
+                    except Exception:
                         self.process.kill()
-            except Exception as e:
-                try:
+                else:
                     self.process.kill()
-                except Exception:
-                    pass
-            finally:
-                try:
-                    (CODEY_STATE_DIR / f"llama-server-{self.port}.pid").unlink(missing_ok=True)
-                except Exception:
-                    pass
-                self.process = None
-                self._started = False
+        except Exception as e:
+            # An unexpected failure (not the ProcessLookupError/
+            # TimeoutExpired cases already handled above) during
+            # signal/wait — best-effort final kill attempt, then fall
+            # through to the finally block's bookkeeping reset regardless
+            # (this instance is done trying either way, matching the
+            # pre-NEW-74 behavior). Logged, not silently swallowed — and
+            # `stopped_cleanly` below is what keeps the return value honest
+            # about this path (NEW-74: a caller must never be told "True"
+            # for a teardown attempt whose outcome we don't actually know).
+            warning(f"LlamaServer.stop() on port {self.port} hit an unexpected error during teardown: {e}")
+            stopped_cleanly = False
+            try:
+                self.process.kill()
+            except Exception:
+                pass
+        else:
+            stopped_cleanly = True
+        finally:
+            try:
+                (CODEY_STATE_DIR / f"llama-server-{self.port}.pid").unlink(missing_ok=True)
+            except Exception:
+                pass
+            self.process = None
+            self._started = False
+        return stopped_cleanly
 
     def _check_health(self) -> bool:
         """Check if server is responding."""

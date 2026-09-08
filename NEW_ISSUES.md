@@ -5205,7 +5205,7 @@ open, not closed, on this basis.
   returned by the server against `max_tokens`/`PLANNER_MAX_TOKENS` directly
   instead of inferring truncation from trailing punctuation.
 
-### [NEW-74] `PlannerLoader`/`ModelLoader` report `is_loaded()`/`get_status()` as `True`/"loaded" for a server they adopted via the early port-reuse check, not one they spawned — and `LlamaServer.stop()` silently no-ops on that adopted state (Confirmed, live-reproduced)
+### [NEW-74] `PlannerLoader`/`ModelLoader` report `is_loaded()`/`get_status()` as `True`/"loaded" for a server they adopted via the early port-reuse check, not one they spawned — and `LlamaServer.stop()` silently no-ops on that adopted state (Confirmed — `stop()` no-op half code-complete-fixed 2026-09-08, `is_loaded()`/`get_status()` half still open, see note below)
 - **Where found:** NEW-12 live-verification session, the reuse-path check
   (see the NEW-12 write-up above).
 - **Core finding:** when `LlamaServer.start()` hits its early, unlocked
@@ -5247,6 +5247,48 @@ open, not closed, on this basis.
   as a distinct state from "spawned by us"), or make `stop()`/`unload()`
   at least log a warning when asked to stop a loader that has no
   `self.process` to act on, instead of a silent no-op.
+- **Partially resolved (2026-09-08, daemon/process-lifecycle ledger
+  closeout sub-batch 2).** Fixed the `stop()` silent-no-op half of this
+  finding: `LlamaServer.stop()` (`core/loader_v2.py`) now returns `bool`
+  (`True` — a process this instance actually spawned was torn down;
+  `False` — no-op, nothing to act on) and logs a `warning()` when called
+  in the adopted state (`self.process is None` and `self._started ==
+  True`), naming this finding in the log line. Checked every existing
+  `.stop()` call site on a `LlamaServer` instance
+  (`core/loader_v2.py:803`, `load_primary()`'s cleanup `finally` at
+  ~1499, and `ModelLoader.unload()` at ~1607): none inspect a return
+  value today, so adding one is additive and breaks nothing; `unload()`
+  still unconditionally calls `stop()` and resets `self._loaded = False`
+  regardless of the new return value — that bookkeeping question (should
+  `unload()` believe an adopted server is "unloaded" when the underlying
+  process is still running?) is part of the deliberately-not-fixed half
+  below, not silently changed here. Also fixed a bug caught by a review
+  pass on this diff before it was sent to code-reviewer: the initial
+  version of this fix would still `return True` on the
+  genuine-spawn path even if signal/wait hit an unexpected exception
+  (outside the already-handled `ProcessLookupError`/`TimeoutExpired`
+  cases) — a dishonest success signal, the exact same shape as this
+  finding, reintroduced by the fix itself. Corrected with a `try/except/
+  else/finally` so `stop()` only returns `True` when teardown ran to
+  completion without hitting that path; the exception is now logged via
+  `warning()`, not silently swallowed. Verified with a mocked-`LlamaServer`
+  (no real process spawned/killed) regression suite,
+  `tests/test_new74_adopted_stop_noop.py` — adopted-state no-op-with-
+  warning, never-started quiet no-op, swallowed-teardown-exception
+  returns `False` not `True`, and genuine-spawn kill-and-`True` baseline.
+  Full suite, re-run against the final exception-path-corrected code and
+  independently reproduced by code-reviewer: 1506 passed, 1 skipped.
+  **Deliberately NOT fixed here, left for Ish/project-architect:** the
+  other half of the finding — `is_loaded()`/`get_status()` reporting
+  `True`/"loaded" for an adopted-not-spawned server, i.e. giving adoption
+  its own tracked state distinct from "spawned by us" — is a real design
+  decision (does an adopted server's lifecycle even belong to this
+  loader instance at all?), not a bookkeeping fix, and out of scope for
+  this sub-batch's size class. Also NOT decided: whether `stop()` should
+  ever be granted authority to kill a positively-identified adopted PID
+  it never spawned (see `stop()`'s own updated docstring) — flagged, not
+  answered, per this task's explicit instruction to stay conservative on
+  CLAUDE.md rule 4 territory.
 
 ## Found during CLAUDE.md/QWEN.md consolidation and TODO.md build, 2026-08-08 — NOT fixed, logged only
 
