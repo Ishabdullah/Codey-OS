@@ -16187,9 +16187,21 @@ outside that fix's scope.
 - **Not tested:** whether this same failure occurs when Restoricon's Core API IS running (the normal/expected end-to-end configuration) — this session's environment didn't have it up, so only the failure path was exercised, not the happy path.
 - **Fix direction:** either have Aigentik's own warm-up-failure exit path signal the daemon to release the model server it triggered (cleanest, but requires Aigentik-side changes in a separate repo, `~/Codey-Aigentik`), or extend `stop_aigentik`'s/`stop_all_services`'s cleanup to also check for and reap a model server whose spawn it can trace back to an Aigentik-triggered load that never got torn down.
 - **Cross-reference:** `NEW-268`, `lib/service_manager.sh:start_aigentik`/`stop_aigentik`, `~/Codey-Aigentik` (separate repo).
-- **PARTIALLY resolved 2026-09-08** (process-lifecycle batch, round 2,
-  Codey-OS side only — do NOT read this as the finding being closed):
-  added `tools/release_model_cli.py`, a new sibling to
+- **FULLY RESOLVED 2026-09-08.** Piece 2 landed: `~/Codey-Aigentik/index.js`'s
+  warm-up-failure branch now calls `tools/release_model_cli.py` via
+  `execSync` (mirroring the load-side `startLlamaServer()` call to
+  `ensure_model_cli.py` exactly — same gate, `getLlmProvider() === 'local'`,
+  same try/catch-and-log-non-fatally shape), before its own
+  `process.exit(1)`. Committed in the `Codey-Aigentik` repo (`c51748a`),
+  code-reviewer-approved: confirmed correct ordering (runs before exit,
+  not dead code), gate parity with the load-side check verified against
+  `llama.js`'s actual `getLlmProvider()`, `execSync` already imported,
+  a non-zero exit from the release script can never block or alter
+  Aigentik's own shutdown, and `npm test` passes clean (272/19).
+- **2 non-blocking residual findings from that review, logged not fixed
+  (rule 8) — see `NEW-419`/`NEW-420` below.**
+- Below (piece 1, historical, kept for the record): added
+  `tools/release_model_cli.py`, a new sibling to
   `tools/ensure_model_cli.py` that calls
   `core.daemon.send_command("release_model_slot", {"model_id":
   "primary"}, timeout=20.0)` — the same client call shape
@@ -16214,6 +16226,24 @@ outside that fix's scope.
   of this task's write scope, and is tracked/handled separately. Until
   that lands, the original orphaning symptom this entry describes is
   still fully live and unfixed end-to-end.
+  **(Historical note: piece 2 has since landed — see the FULLY RESOLVED
+  update above this paragraph.)**
+
+### [NEW-419] Narrow TOCTOU: `~/Codey-Aigentik`'s LLM provider can be switched mid-boot between the load-side and release-side `getLlmProvider() === 'local'` checks, silently skipping a needed release call
+
+- **Status:** Suspected — found by code-reviewer while approving `NEW-413` piece 2 (2026-09-08), not investigated further or fixed. Reasoned from code read, not live-reproduced.
+- **Mechanism:** `~/Codey-Aigentik/index.js`'s `main()` starts `startHttpServer()` before either the load-side (`startLlamaServer()`) or release-side (warm-up-failure) `getLlmProvider() === 'local'` check runs. `owner-command.js` has live `setLlmProvider()` call sites reachable through that HTTP server. If an owner command switches the configured provider away from `'local'` in the narrow window between Aigentik spawning a real llama-server (load-side check passes) and its warm-up call failing (release-side check now reads a different provider and skips the release call), the model server it spawned would be orphaned exactly as `NEW-413` originally described, silently.
+- **Impact:** narrow window, requires an external command to land mid-boot — not confirmed as a real observed incident. Structurally similar to this project's past self-race bug class (a check reading state that changed between two reads of it), which is why it's flagged rather than dismissed.
+- **Not fixed** — needs either capturing the provider value once at the top of `main()` and reusing it for both checks (rather than re-reading `getLlmProvider()` live at each site), or accepting the window as tolerable given how narrow it is. A design call, not a quick patch.
+- **Cross-reference:** `NEW-413`, `~/Codey-Aigentik/index.js:main()`, `owner-command.js`'s `setLlmProvider()` sites.
+
+### [NEW-420] `~/Codey-Aigentik`'s other early-exit path (`startLlamaServer()`'s own 30s spawn-timeout failure) still has no release call, unlike the warm-up-failure path `NEW-413` fixed
+
+- **Status:** Confirmed — directly observed in code, not fixed this round; explicitly out of `NEW-413`'s scoped fix direction (that finding named the warm-up-failure path specifically), so not scope creep, but a real remaining gap.
+- **Mechanism:** `~/Codey-Aigentik/index.js`'s `main()` has `if (!llamaOk) { log.error(...); process.exit(1); }` right after `startLlamaServer()` returns — this fires when `startLlamaServer()`'s own 30s poll for the delegated load times out (the model was actually spawned via `ensure_model_cli.py` but is slow to answer its own health check, or never does). This exit path has no `release_model_cli.py` call, unlike the warm-up-failure path `NEW-413` just fixed — a model server that WAS spawned but never came up healthy in time can be orphaned exactly the same way.
+- **Impact:** same shape as `NEW-413`'s original bug, on a different (adjacent) exit path. Whether this is commonly hit depends on how often the 30s poll actually times out in practice — not measured this round.
+- **Not fixed** — add the same `release_model_cli.py` call (gated the same way) to this exit branch, mirroring `NEW-413`'s fix.
+- **Cross-reference:** `NEW-413`, `~/Codey-Aigentik/index.js:main()`'s `if (!llamaOk)` branch.
 
 ### Combined live-verify session results summary (NEW-46/NEW-50/NEW-51/NEW-183 re-tests, NEW-70/NEW-74 on-device confirmation)
 
