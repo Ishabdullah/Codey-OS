@@ -1,3 +1,30 @@
+## 2026-09-08 — Cleanup round 1: NEW-414 except-pass narrowing, NEW-91/163 LoRA rollback data-loss fix
+
+**What changed:** First of two small cleanup rounds picked up after triaging an untracked `Code_Audit_Report.md` (see the entry below this one) — two items, neither process-lifecycle, routed through the normal implementer→code-reviewer pipeline. Committed `a76ab4f`.
+
+- **`NEW-414`**: 5 of 8 bare `except Exception: pass` sites in `ccos/core/device_manager.py`/`goal_engine.py` narrowed to the specific exception types their surrounding code can actually raise (verified per-site by code-reviewer, not just plausible-sounding). The remaining 3 are genuinely unpredictable best-effort catch-alls — left broad but now logging via `warning()` instead of swallowing silently.
+- **`NEW-91`/`NEW-163` (same bug, filed twice, reconciled here)**: `core/lora_import.py`'s `rollback_to_backup()` used to restore a backup onto whatever `cfg.MODEL_PATH`/`PLANNER_MODEL_PATH` currently names — which after a successful fine-tune swap is the fine-tuned file's own path, so a rollback silently **destroyed the fine-tuned checkpoint** instead of restoring the original base model. Fixed by deriving the original base path from the backup file's own naming convention and resetting the config pointer to it, rather than overwriting whatever the pointer currently references. Both the implementer and code-reviewer independently negative-controlled the new regression test via `git stash` — it genuinely fails against pre-fix code with a real sha256 mismatch.
+- **Root cause for why this real, severe bug went undetected, logged as `NEW-417`**: `ccos/plugins/coding/finetune/test.py` has been failing at import (its own docstring and the file itself expect 5 names `finetune.py` doesn't actually export) — the one test that should have caught this was never running. code-reviewer independently reproduced the import failure directly, not just trusted the claim.
+- **3 more findings logged, not fixed** (rule 8): `NEW-415` (2 more bare-except sites the original `NEW-414` count missed), `NEW-416` (a worse instance of the same pattern — `Exception` in a tuple alongside two more-specific types, making them redundant), `NEW-418` (a copy-pasted test helper causing a real ~10s wait per test by not stubbing a slot-confirmation call).
+- Full suite: `1510 passed, 1 skipped` plus `ccos/tests/`: `111 passed`, both independently reproduced by code-reviewer.
+
+**Why:** `NEW-91`/`NEW-163` is a genuinely severe bug (silent, irrecoverable data loss on a feature — LoRA fine-tune rollback — a user would reasonably expect to be safe) that had gone unnoticed because its own regression test was silently broken. This is the kind of gap this project's ledger-closeout discipline exists to surface — not just fixing the bug, but tracing *why* testing didn't catch it and logging that separately (`NEW-417`) rather than treating "tests pass" as sufficient.
+
+**Next action:** Round 2 (`NEW-68`, `NEW-413`) is scoped next per the coordinator's recommendation. `NEW-415`/`416`/`417`/`418` remain open for a future pass.
+
+## 2026-09-08 — Triaged untracked Code_Audit_Report.md, logged NEW-414
+
+**What changed:** Ish found leftover work from another session (never committed/pushed): a `Code_Audit_Report.md` at the repo root (untracked, produced ~15:30 today by another session/tool) claiming several security/architecture findings across Codey-OS, restoricon_core/restoricon, and Codey-Aigentik, plus 11 orphaned code-reviewer memory detail files linked from the already-committed `MEMORY.md` index but never staged. Committed `764c543` (the 11 memory files, closing the index/backing-file gap) and `f01ea49` (the audit-report triage).
+
+- Verified every one of the report's 10 claims against actual current code rather than trusting its line numbers/counts (rule 12). Result: 3 duplicates of existing entries (`NEW-42`, `NEW-406`, `NEW-407`), 1 stale (the `codeydOS` port-8081 kill loop — the report predates this session's `NEW-409` fix by ~14 minutes), and 4 overclaimed to false positive. The headline "critical SQL injection" finding across 4 `restoricon_core` services doesn't hold up: every cited call site parameterizes values via `?` placeholders and only builds column names via f-string, gated by an explicit allow-list checked before the query is built — not exploitable. Similarly "50+ untrusted-input subprocess calls" was actually 2 real, safe argv-list sites; a cited Aigentik "source file" was a generated Istanbul coverage-report artifact, not real code.
+- One real finding survived, at a much smaller scope than claimed: logged as `NEW-414` (8 bare `except Exception: pass` sites in `device_manager.py`/`goal_engine.py`, not the report's inflated 116-across-3-files count).
+- Deleted `Code_Audit_Report.md` after triage — nothing else in it held up as new/real/actionable.
+- Cleaned up ~60 `file:test_doc_upload_<uuid>?mode=memory&cache=shared` junk files at the repo root (the known `NEW-403` test-fixture-bug artifacts) — untracked, deleted, not committed.
+
+**Why:** This project's rule 12 exists precisely for this — the report read as raw SAST-tool output with an LLM narrative wrapper, and its most severe-sounding claim (SQL injection) was the one that most needed and least survived direct verification.
+
+**Next action:** `NEW-414` picked up immediately as cleanup round 1 (see entry above/below).
+
 ## 2026-09-08 — Combined live-verify session: M1-G/NEW-51 re-test, NEW-70/NEW-74/NEW-268 on-device confirmation
 
 **What changed:** RAM-disciplined live-verify session covering the items deferred across batches 4-6 of the ledger closeout. Scoped first by project-architect into 5 items, sized to the minimum number of model-load cycles that satisfies rule 2 (batch aggressively within a cycle, never run two concurrently, confirm teardown before the next begins). Ran as: 1 no-model-load step (real Aigentik start/stop), then two sequential model-load cycles (Cycle A: daemon/plannd planning-request tests; Cycle B: a standalone scripted `ModelLoader` test). Docs-only commit `f229e73`.
