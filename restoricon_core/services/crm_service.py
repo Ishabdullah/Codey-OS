@@ -179,9 +179,6 @@ class CRMService:
         or write-through check for an existing row before INSERT and skip
         re-migrating it, instead of hitting the unique-index constraint as
         an IntegrityError."""
-        if not actor.has_permission(PERM_READ_ALL_CUSTOMERS):
-            raise PermissionError("Actor lacks permission to look up customers by external ID")
-
         conn = self.db.get_connection()
         row = conn.execute(
             "SELECT * FROM customers WHERE external_id = ?;", (external_id,)
@@ -1826,6 +1823,28 @@ class CRMService:
 
         try:
             with conn:
+                # NEW-307: the pre-UPDATE `_actor_may_reassign_project_staff`
+                # check above reads a row fetched before this SELECT/UPDATE
+                # sequence started, so a concurrent reassignment between
+                # that read and this UPDATE could let a PM slip past the
+                # ownership check (TOCTOU). Re-check inside the `with conn:`
+                # block, immediately before the UPDATE, against a re-fetch
+                # of the row. The earlier check stays as a legitimate
+                # fail-fast; this recheck is the actual fix and narrows,
+                # rather than eliminates, the race per the logged NEW-311
+                # decision (no BEGIN IMMEDIATE change).
+                if self._PROJECT_REASSIGNMENT_FIELDS & set(updates):
+                    _tx_row = conn.execute(
+                        "SELECT project_manager_id FROM projects WHERE id = ?;",
+                        (project_id,),
+                    ).fetchone()
+                    if _tx_row is None:
+                        # Row was deleted concurrently -- match this
+                        # method's existing missing-row contract (line
+                        # ~1799-1800 above returns None for the same case).
+                        return None
+                    if not _actor_may_reassign_project_staff(actor, _tx_row):
+                        raise PermissionError("Actor may not reassign staff on this project")
                 conn.execute(
                     f"UPDATE projects SET {', '.join(set_clauses)} WHERE id = ?;",
                     params,
@@ -2927,6 +2946,10 @@ class CRMService:
             if cursor.rowcount == 0:
                 return None
 
+            updated_row = conn.execute(
+                "SELECT * FROM subcontractors WHERE id = ?;", (subcontractor_id,)
+            ).fetchone()
+
         self.audit.log(
             action="status_change",
             entity_type="subcontractor",
@@ -2942,7 +2965,10 @@ class CRMService:
                 "recruitment_step": recruitment_step,
             }),
         )
-        return self.get_subcontractor(subcontractor_id, actor)
+        # NEW-240: build the return from the write-scoped row rather than
+        # the READ-gated get_subcontractor() -- this method is authorized
+        # on PERM_WRITE_SUBCONTRACTORS, not PERM_READ_SUBCONTRACTORS.
+        return self._row_to_subcontractor(updated_row) if updated_row else None
 
     # Allow-listed fields for update_subcontractor (B2 task 4, third
     # module, 2026-08-27) -- matches only what index.js's call sites
@@ -3027,7 +3053,16 @@ class CRMService:
             if cursor.rowcount == 0:
                 return None
 
-        updated_sub = self.get_subcontractor(subcontractor_id, actor)
+            updated_row = conn.execute(
+                "SELECT * FROM subcontractors WHERE id = ?;",
+                (subcontractor_id,),
+            ).fetchone()
+            # NEW-240: build the return from the write-scoped row rather
+            # than the READ-gated get_subcontractor() -- this method is
+            # authorized on PERM_WRITE_SUBCONTRACTORS, not
+            # PERM_READ_SUBCONTRACTORS.
+            updated_sub = self._row_to_subcontractor(updated_row) if updated_row else None
+
         self.audit.log(
             action="update",
             entity_type="subcontractor",

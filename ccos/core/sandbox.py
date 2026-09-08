@@ -11,6 +11,8 @@ happens inside this sandbox. Rules:
 """
 
 import os
+import shlex
+import shutil
 import subprocess
 import tempfile
 import time
@@ -105,6 +107,53 @@ def _validate_path(path: str, allowed_dirs: List[str] = None) -> bool:
     return False
 
 
+def _find_disallowed_path_token(command: str, allowed_dirs: List[str], cwd: str) -> Optional[str]:
+    """Best-effort scan for path-shaped tokens in `command` that resolve
+    outside `allowed_dirs` (NEW-42). This is a mitigation layer ON TOP of
+    the existing `cwd` allowlist check, not a replacement for it -- a
+    command can `cd`/`cwd` into an allowed dir and still reference an
+    out-of-sandbox path as an argument (e.g. `cat /etc/passwd`), which the
+    cwd-only check does not catch.
+
+    `cwd` must be the actual directory the command will execute under
+    (the sandbox's `exec_cwd`), not the reviewing process's own
+    `os.getcwd()` -- a relative token containing `../` is resolved
+    against `cwd` here so the escape check reflects where the command
+    really runs.
+
+    Known limitations, deliberately not handled here:
+    - paths supplied via environment variable expansion (`$HOME/../..`)
+    - paths built via command substitution (`$(echo /etc/passwd)`)
+    - encoded/obfuscated path forms
+    - relative-path escape via a prior `cd`, e.g. `cd .. && cat secrets`
+      -- a bare relative token (no leading `/`/`~`, no literal `../`) is
+      indistinguishable from an in-sandbox relative path by inspecting the
+      token alone, so it is not checked here
+    Only literal path-shaped tokens in the command string are checked.
+
+    Fails OPEN (returns None / "no violation found") if `shlex.split`
+    can't parse the command (e.g. unbalanced quotes) -- this is a
+    best-effort extra layer, not the sandbox's sole line of defense, so a
+    parse failure here should not block a command the existing checks
+    would otherwise allow.
+    """
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return None
+
+    for token in tokens:
+        if token.startswith("/") or token.startswith("~"):
+            candidate = os.path.expanduser(token)
+        elif "../" in token:
+            candidate = str((Path(cwd) / token).resolve())
+        else:
+            continue
+        if not _validate_path(candidate, allowed_dirs):
+            return token
+    return None
+
+
 class Sandbox:
     """
     Sandboxed execution environment.
@@ -139,6 +188,15 @@ class Sandbox:
             )
 
         exec_cwd = cwd or str(self._tmp_dir)
+
+        bad_token = _find_disallowed_path_token(command, self._allowed_dirs, exec_cwd)
+        if bad_token is not None:
+            return SandboxResult(
+                success=False,
+                stderr=f"[SANDBOX VIOLATION] Path not allowed: {bad_token}",
+                return_code=-1,
+            )
+
         if not _validate_path(exec_cwd, self._allowed_dirs):
             return SandboxResult(
                 success=False,

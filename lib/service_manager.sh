@@ -899,7 +899,21 @@ print(f'  • Cloudflare Token: {\"configured\" if get_cloudflare_tunnel_token()
 print(f'  • Restoricon API:   {get_restoricon_api_config()}')
 print(f'  • Aigentik:         {get_aigentik_config()}')
 print('\nLoaded raw config:')
-print(json.dumps(load_user_config(), indent=2))
+
+# NEW-281: redact secret-shaped values before printing the raw config --
+# 'Loaded raw config' previously dumped tunnel_token/api_key/secret values
+# in the clear.
+def _redact(obj):
+    if isinstance(obj, dict):
+        return {
+            k: ('***redacted***' if any(s in k.lower() for s in ('token', 'secret', 'api_key')) else _redact(v))
+            for k, v in obj.items()
+        }
+    if isinstance(obj, list):
+        return [_redact(v) for v in obj]
+    return obj
+
+print(json.dumps(_redact(load_user_config()), indent=2))
 "
 }
 

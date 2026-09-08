@@ -257,13 +257,15 @@ def test_admin_resets_other_user_password_revokes_all(env):
 
 def test_permissions_update_stores_cleaned_bool_dict(env):
     u = _mk_user(env)
+    # NEW-300: custom_permissions keys must be real PERMISSIONS_CATALOG ids
+    # ("read:financials", not the previously-used made-up "read_financials").
     status, _, _ = env["router"].handle_request(
         "PUT", f"/api/v1/users/{u.id}/permissions", _hdr(env["admin_token"]),
-        json.dumps({"custom_permissions": {"read_financials": 1}}).encode(),
+        json.dumps({"custom_permissions": {"read:financials": 1}}).encode(),
     )
     assert status == 200
     details = _last_details(env, u.id)
-    assert details["changed_fields"]["custom_permissions"]["new"] == {"read_financials": True}
+    assert details["changed_fields"]["custom_permissions"]["new"] == {"read:financials": True}
     assert details["side_effects"]["sessions_revoked"] == "none"
 
 

@@ -567,17 +567,36 @@ def test_get_customer_by_external_id(setup_services):
         )
 
 
-def test_get_customer_by_external_id_rejects_zero_permission_actor(setup_services):
-    _, _, _, _, crm_service = setup_services
+def test_get_customer_by_external_id_rejects_mismatched_customer_actor(setup_services):
+    """NEW-248: the redundant top-level PERM_READ_ALL_CUSTOMERS gate was
+    removed -- get_customer_by_external_id now delegates authorization
+    entirely to get_customer()'s row-scoped `can_access_customer` check,
+    matching get_customer's own pattern. A customer-role actor whose
+    customer_id doesn't match the resolved row is still rejected; the
+    internal ID-resolution SELECT itself is ungated (it discloses nothing
+    beyond a boolean "does this external_id exist")."""
+    db, auth_service, audit_service, _, crm_service = setup_services
+    admin_user = auth_service.create_user(
+        username="admin", plain_password="Password123", full_name="Admin", email="admin@test.com", role=ROLE_ADMIN
+    )
+    actor_admin = AuthContext(user_id=admin_user.id, username="admin", role=ROLE_ADMIN, actor_type="human")
 
-    class ZeroPermissionActor:
-        role = "nobody"
+    created = crm_service.create_customer(
+        Customer(external_id="contact_0197", first_name="Jane", last_name="Doe"), actor_admin
+    )
 
-        def has_permission(self, permission: str) -> bool:
-            return False
-
+    # A customer-role actor tied to a DIFFERENT customer_id must be denied
+    # access to this row, exactly like get_customer() already enforces.
+    mismatched_customer_actor = AuthContext(
+        user_id=999, username="other_customer", role=ROLE_CUSTOMER,
+        actor_type="human", customer_id=created.id + 1,
+    )
     with pytest.raises(PermissionError):
-        crm_service.get_customer_by_external_id("contact_0197", ZeroPermissionActor())
+        crm_service.get_customer_by_external_id("contact_0197", mismatched_customer_actor)
+
+    # A nonexistent external_id resolves to no row before any permission
+    # check runs -- returns None, not a PermissionError.
+    assert crm_service.get_customer_by_external_id("does_not_exist", mismatched_customer_actor) is None
 
 
 def test_get_lead_by_external_id(setup_services):

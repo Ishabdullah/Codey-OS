@@ -585,14 +585,14 @@ class APIRouter:
                         return 200, {"Content-Type": "application/json"}, {"user": target_user.to_dict()}
                     elif method in ("PUT", "POST"):
                         before = self.auth.get_user_by_id(user_id)
-                        updated = self.auth.update_user(user_id, json_body, actor)
+                        updated, role_changed = self.auth.update_user(user_id, json_body, actor)
                         if not updated:
                             return 404, {"Content-Type": "application/json"}, {"error": "User not found"}
                         # `before` is non-None here: update_user returns a User only for
                         # an existing row (a missing row returns None -> 404 above).
-                        # auth.update_user revokes all tokens only on a role change,
-                        # so derive sessions_revoked from before/updated, not json_body.
-                        role_changed = before.role != updated.role
+                        # role_changed comes directly from update_user (NEW-310)
+                        # rather than being re-derived here a second,
+                        # separately-timed way against before/updated.
                         update_details = build_audit_details(
                             before=before.to_dict(),
                             after=updated.to_dict(),

@@ -4910,6 +4910,8 @@ open, not closed, on this basis.
 
 ### [NEW-42] `ccos/core/sandbox.py`'s `ALLOWED_DIRS`/`_validate_path` only gates the execution `cwd`, not what a command can touch
 - **Confidence: Confirmed** (read of `Sandbox.run_command`, which
+**Status:** PARTIALLY MITIGATED 2026-09-08 (batch-2 ledger closeout, code-reviewer approved after one WARNING round — not a full fix, the finding's own text already says a full fix needs a namespace/chroot redesign). Added `_find_disallowed_path_token()`: scans a command string via `shlex.split` for path-shaped tokens (absolute, `~`, or containing `../`) and validates each against the existing `_validate_path`/allowed-dirs check, rejecting the whole command if any resolve outside. Explicitly documented as best-effort — does not catch env-var expansion, command substitution, obfuscated forms, or a bare relative token after a prior `cd ..`. **Review-round-1 bug caught and fixed:** relative `../` tokens were initially resolved against the reviewing process's own `os.getcwd()` instead of the sandbox's real `exec_cwd` — not exploitable in practice (both bases converge at filesystem root) but incorrect; fixed by threading the real `exec_cwd` through. **Also fixed in the same round:** `Sandbox.cleanup()` called `shutil.rmtree` with no `import shutil` anywhere in the file, silently swallowed by a bare `except Exception: pass`, making cleanup a permanent no-op — added the missing import. **Open warning (non-blocking, from code-reviewer's final pass):** no test pins the `cwd` parameter itself — reverting the fix to ignore `cwd` would still pass all 4 new tests in `ccos/tests/test_sandbox_path_validation.py`, since none use a relative `../` token. A follow-up test using a relative-`../`-token-against-non-tmp-`exec_cwd` case is recommended but not added this round.
+
   passes `command` to `subprocess.run(..., shell=True, cwd=exec_cwd)`
   after `_validate_path` checks only `exec_cwd`).
 - **Impact:** the allowlist is not a filesystem containment boundary —
@@ -11940,6 +11942,8 @@ implemented)
 
 ### [NEW-240] Latent WRITE-without-READ RBAC gap has now recurred identically in three service methods across two review rounds without a ledger entry until now — not exploitable today, but a landmine for any future role-matrix change
 - **Status: Confirmed, real, latent (not currently exploitable).** The
+**Status:** FIXED 2026-09-08 (batch-2 ledger closeout, code-reviewer approved after one CHANGES-REQUESTED round). All three methods (`update_subcontractor_qualification`, `update_subcontractor` in `crm_service.py`; `update_appointment_status` in `scheduling_service.py`) now build their return value from a row read inside the write transaction instead of calling a separately READ-gated getter. code-reviewer independently confirmed the replacement row-builders (`_row_to_subcontractor`/`_row_to_appointment`) do no role-conditional field redaction, so nothing is newly exposed.
+
   pattern: a service method internally calls a paired `get_*()`/read
   method to fetch the return value after performing a write, gated on a
   READ permission separate from the WRITE permission that gated the
@@ -12293,6 +12297,8 @@ required)
 
 ### [NEW-248] `crm_service.get_customer_by_external_id()` gates on a narrower permission check than its sibling `get_customer(id)`'s actual access-scoping logic — fourth occurrence of this exact gap class
 - **Status: Confirmed, found live by the code-reviewer subagent during
+**Status:** FIXED 2026-09-08 (batch-2 ledger closeout, code-reviewer approved after one CHANGES-REQUESTED round). Removed the redundant top-level `has_permission(PERM_READ_ALL_CUSTOMERS)` gate from `get_customer_by_external_id`; it now delegates solely to `get_customer()`'s correct row-scoped `can_access_customer()` check, matching the pattern the ticket recommended. **Follow-on (new, Suspected, not fixed):** `get_customer_by_email` (`crm_service.py` ~189-206) has the identical over-strict gate pattern — 5th occurrence of this gap class, logged below as a new finding rather than silently fixed out-of-scope.
+
   the `NEW-212`/`NEW-216`/`NEW-232` closure review, 2026-08-27.**
   `get_customer_by_external_id()` gates directly on
   `has_permission(PERM_READ_ALL_CUSTOMERS)`, but the sibling
@@ -13026,6 +13032,8 @@ outside that fix's scope.
 
 ### [NEW-267] The role-change token revocation added in this round writes no audit record, and `user_updated` never captures the old role
 - **Status:** Confirmed (raised by the code-reviewer as a non-blocking
+**Correction 2026-09-08 (rule 6):** verified already fully resolved in the current codebase, not open. `restoricon_core/api/routes.py`'s `user_updated` audit call passes `details=update_details` built via `build_audit_details(before=..., after=..., fields=_AUDITABLE_USER_FIELDS, side_effects={"sessions_revoked": ...})`, and `_AUDITABLE_USER_FIELDS` includes `"role"` — old/new role and revocation are both captured. `auth.update_user` also independently logs its own `role_change_details` audit entry. This was evidently completed as part of B6.2's audit-envelope work after this entry was filed; the Status field was simply never updated. No code change made this round.
+
   Suggestion during the 2026-09-02 approval pass; verified by reading
   `restoricon_core/api/routes.py:329`).
 - **Mechanism:** `update_user`'s new revoke branch (2026-09-02) silently
@@ -13232,6 +13240,8 @@ outside that fix's scope.
 
 ### [NEW-281] `codey config` prints the live Cloudflare tunnel token in plaintext, including into agent transcripts
 - **Status:** Confirmed (observed directly while smoke-testing the `config` subcommand during the 2026-09-02 GUI-removal round; the token value is deliberately NOT reproduced here).
+**Status:** FIXED 2026-09-08 (batch-2 ledger closeout, code-reviewer approved — confirmed the redaction is a genuine recursive dict/list walk, not shallow). `lib/service_manager.sh`'s `show_service_config`'s raw config dump now redacts any key containing "token"/"secret"/"api_key" (case-insensitive) before printing, matching the pattern the existing summary line already used correctly.
+
 - **Mechanism:** `lib/service_manager.sh`'s `config` subcommand dumps the parsed config and then the **raw** `config.json` contents to stdout. The `Active configurations:` summary is careful — it prints `Cloudflare Token: configured` rather than the value — but the `Loaded raw config:` block immediately after prints the whole file, including `cloudflare.tunnel_token` in full.
 - **Impact:** the token is a real credential fronting the phone's API (§6.6's tunnel architecture). Printing it to stdout means it lands in terminal scrollback, in any redirected log, and — the specific reason this is being logged rather than shrugged at — **directly into the context/transcript of any AI agent that runs `codey config`**, which is a routine diagnostic in this project. That is an exfiltration path that exists regardless of intent. Note `.gitignore` already treats this class of value as sensitive (`*token*`, `config.json` both excluded), so the project's own posture is that this value should not travel; the CLI contradicts that.
 - **Not a new regression:** the raw-dump behavior predates the GUI-removal round and was untouched by it. Found while smoke-testing, logged per rule 8.
@@ -13737,6 +13747,8 @@ outside that fix's scope.
 
 ### [NEW-300] `update_user` / `set_user_permissions` write `custom_permissions_json` without validating keys against the permission catalog
 - **Status:** Suspected (project-architect, U.35/U.36 scoping,
+**Status:** FIXED 2026-09-08 (batch-2 ledger closeout, code-reviewer approved). Added `_validate_custom_permissions()` (rejects unknown permission keys, raises `ValueError` matching this module's existing convention) and wired it into both `update_user` and `set_user_permissions`. **Follow-on (new, Confirmed, not fixed):** `create_user` (`auth.py:720`) calls `_parse_custom_permissions` but was NOT given the same validation despite being equally reachable via `routes.py:469` — a user can currently be created with garbage permission keys even though update is now guarded. Logged below as a new finding.
+
   2026-09-02). May already be logged elsewhere — **check for dedup
   before acting.**
 - **Mechanism:** `update_user`'s `custom_permissions` branch
@@ -13862,6 +13874,8 @@ outside that fix's scope.
 
 ### [NEW-307] `update_project`'s authorization check is evaluated against a row read outside the write transaction (TOCTOU)
 - **Status:** Confirmed (B6.1 code-reviewer, 2026-09-02). Non-blocking;
+**Status:** FIXED 2026-09-08 (batch-2 ledger closeout, code-reviewer approved). `update_project` now re-checks `_actor_may_reassign_project_staff` against a fresh row read inside the same transaction as the UPDATE, with a `None`-row guard for concurrent-delete safety (added after an advisor-caught crash risk during implementation). The pre-transaction check is left in place as a fail-fast; the transaction-local recheck is the actual TOCTOU close.
+
   matches the service layer's general read-then-write non-atomicity,
   flagged because this read feeds an **authorization** decision.
 - **Mechanism:** `update_project` does `SELECT * FROM projects` to get
@@ -13925,6 +13939,8 @@ outside that fix's scope.
 
 ### [NEW-310] B6.2a site 331 (`user_updated`) derives `sessions_revoked` from a `before` row read outside `update_user`'s own transaction (TOCTOU)
 - **Status:** Confirmed (B6.2a code-reviewer, 2026-09-02). Non-blocking.
+**Status:** FIXED 2026-09-08 (batch-2 ledger closeout, code-reviewer approved after one CHANGES-REQUESTED round). `update_user`'s return type changed from `Optional[User]` to `Tuple[Optional[User], bool]` (user, role_changed), and `routes.py`'s call site now uses that returned `role_changed` directly instead of re-deriving it from a separately-timed read. **Bug caught in review round 1:** the missing-row early-return branch still did a bare `return None`, which crashed the route's tuple-unpack with a live `TypeError` (500 instead of 404) for any nonexistent user id — fixed to `return None, False`, with a new regression test (`tests/test_user_management.py::test_update_user_nonexistent_id_returns_none_false_not_tuple_error`) exercising the real route dispatch, not just the service method.
+
 - **Mechanism:** the route fetches `before = get_user_by_id(user_id)`
   separately from `update_user`, which does its own fresh fetch and
   computes `role_changed` against that. Under a concurrent role change on
@@ -15702,6 +15718,8 @@ outside that fix's scope.
 
 ### [NEW-404] `tests/test_path_traversal.py::test_path_traversal` (U.21) fails when run as part of the full suite, passes alone — test-isolation bug, not a security regression
 
+**Status:** FIXED 2026-09-08 (batch-2 ledger closeout, code-reviewer approved). `tests/test_path_traversal.py` now calls `core.filesystem.reset_filesystem()` before constructing its scoped `Filesystem`, so an earlier test's cached singleton no longer silently overrides this test's `workspace=` argument. Verified passing as part of the full suite, not just standalone.
+
 - **Status:** Confirmed — reproduced both ways in this round.
 - **Severity:** Low. The security check itself (`Filesystem._validate_path`)
   is not implicated; this is purely a test-fixture ordering bug that makes
@@ -15732,3 +15750,18 @@ outside that fix's scope.
   going through the memoized `get_filesystem()` factory.
 - **Cross-reference:** `core/filesystem.py:425-439`,
   `tests/test_path_traversal.py`, `6a1f7c2` (U.21).
+
+## Found during NEW_ISSUES.md ledger closeout, batch 2 (security/auth), 2026-09-08
+
+### [NEW-405] `get_customer_by_email` has the same over-strict top-level permission gate that `get_customer_by_external_id` (`NEW-248`) just had removed — 5th occurrence of this gap class
+
+- **Status:** Suspected — not fixed, logged only (explicitly out of `NEW-248`'s scope per the batch-2 spec).
+- **Mechanism:** `restoricon_core/services/crm_service.py`, `get_customer_by_email` (~lines 189-206) gates with a flat `if not actor.has_permission(PERM_READ_ALL_CUSTOMERS)` check instead of resolving the row first and delegating to `get_customer(row["id"], actor)`'s correct row-scoped `can_access_customer()` check — identical pattern to what `NEW-248` just fixed in the neighboring `get_customer_by_external_id`.
+- **Cross-reference:** `NEW-189`, `NEW-194`, `NEW-214`, `NEW-248` (four prior occurrences of this exact gap class).
+
+### [NEW-406] `create_user` writes `custom_permissions_json` without the same key-validation `update_user`/`set_user_permissions` now have (`NEW-300` asymmetry)
+
+- **Status:** Confirmed — directly observed in code, not fixed this round.
+- **Mechanism:** `restoricon_core/auth.py`'s `create_user` (~line 720) calls `_parse_custom_permissions` but not the new `_validate_custom_permissions` guard added for `NEW-300`, despite being equally reachable via `routes.py:469` (`POST /api/v1/users`). A user can currently be **created** with garbage/unknown permission keys even though **updating** an existing user's permissions is now rejected — an asymmetry introduced by `NEW-300`'s fix only covering the two sites the ticket named.
+- **Fix direction:** add the same `_validate_custom_permissions(cleaned_perms)` call to `create_user`'s write path, immediately after its own `_parse_custom_permissions` call.
+- **Cross-reference:** `NEW-300`, `restoricon_core/auth.py:720`, `restoricon_core/api/routes.py:469`.

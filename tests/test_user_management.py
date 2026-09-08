@@ -105,8 +105,9 @@ def test_user_updates_and_profile_modification(user_mgmt_env):
     tech = user_mgmt_env["tech"]
 
     # Update full name, phone, department
-    updated = auth.update_user(tech.id, {"full_name": "Dan Updated", "phone": "860-555-1234", "department": "Drying Fleet"}, admin_ctx)
+    updated, role_changed = auth.update_user(tech.id, {"full_name": "Dan Updated", "phone": "860-555-1234", "department": "Drying Fleet"}, admin_ctx)
     assert updated is not None
+    assert role_changed is False
     assert updated.full_name == "Dan Updated"
     assert updated.phone == "860-555-1234"
     assert updated.department == "Drying Fleet"
@@ -124,8 +125,9 @@ def test_role_change_revokes_existing_tokens(user_mgmt_env):
     assert ctx_before is not None
     assert ctx_before.role == ROLE_TECHNICIAN
 
-    updated = auth.update_user(tech.id, {"role": ROLE_MANAGER}, admin_ctx)
+    updated, role_changed = auth.update_user(tech.id, {"role": ROLE_MANAGER}, admin_ctx)
     assert updated.role == ROLE_MANAGER
+    assert role_changed is True
 
     # The stale-role token must no longer authenticate
     assert auth.authenticate_token(tech_token) is None
@@ -381,12 +383,12 @@ def test_update_user_active_noop_echoback_passes(user_mgmt_env):
     admin_ctx = user_mgmt_env["admin_ctx"]
     tech = user_mgmt_env["tech"]
 
-    updated = auth.update_user(tech.id, {"department": "Y", "active": 1}, admin_ctx)
+    updated, _ = auth.update_user(tech.id, {"department": "Y", "active": 1}, admin_ctx)
     assert updated.department == "Y"
     assert updated.active == 1
 
     # JSON-string form of the same current value also passes as a no-op
-    updated2 = auth.update_user(tech.id, {"active": "1"}, admin_ctx)
+    updated2, _ = auth.update_user(tech.id, {"active": "1"}, admin_ctx)
     assert updated2.active == 1
 
 
@@ -428,10 +430,11 @@ def test_update_user_role_customer_with_customer_id_accepted(user_mgmt_env):
     )
 
     assert auth.authenticate_token(tech_token) is not None
-    updated = auth.update_user(
+    updated, role_changed = auth.update_user(
         tech.id, {"role": "customer", "customer_id": cust.id}, admin_ctx
     )
     assert updated.role == ROLE_CUSTOMER
+    assert role_changed is True
     assert updated.customer_id == cust.id
     # role change -> outstanding tokens revoked
     assert auth.authenticate_token(tech_token) is None
@@ -452,8 +455,9 @@ def test_update_user_move_away_from_customer_role(user_mgmt_env):
         ROLE_CUSTOMER, customer_id=cust.id, actor_context=admin_ctx,
     )
 
-    updated = auth.update_user(cust_user.id, {"role": ROLE_TECHNICIAN}, admin_ctx)
+    updated, role_changed = auth.update_user(cust_user.id, {"role": ROLE_TECHNICIAN}, admin_ctx)
     assert updated.role == ROLE_TECHNICIAN
+    assert role_changed is True
 
 
 def test_create_user_customer_role_without_customer_id_still_raises(user_mgmt_env):
@@ -512,3 +516,33 @@ def test_update_user_unlink_customer_id_while_stored_role_is_customer(user_mgmt_
     after = auth.get_user_by_id(cust_user.id)
     assert after.customer_id == cust.id
     assert after.role == ROLE_CUSTOMER
+
+
+def test_update_user_nonexistent_id_returns_none_false_not_tuple_error(user_mgmt_env):
+    """Regression guard: update_user's return type is Tuple[Optional[User], bool]
+    everywhere (NEW-310), so the missing-row branch must return (None, False)
+    rather than a bare None -- a bare None broke the one production call site's
+    `updated, role_changed = self.auth.update_user(...)` unpack with a
+    TypeError, 500-ing instead of 404-ing a PUT/POST to a nonexistent user."""
+    auth = user_mgmt_env["auth"]
+    router = user_mgmt_env["router"]
+    admin_ctx = user_mgmt_env["admin_ctx"]
+    admin_token = user_mgmt_env["admin_token"]
+
+    nonexistent_id = 999999
+
+    updated, role_changed = auth.update_user(nonexistent_id, {"full_name": "Ghost"}, admin_ctx)
+    assert updated is None
+    assert role_changed is False
+
+    admin_headers = {"authorization": f"Bearer {admin_token}"}
+    body = json.dumps({"full_name": "Ghost"}).encode("utf-8")
+    status, _, res = router.handle_request(
+        "PUT", f"/api/v1/users/{nonexistent_id}", admin_headers, body
+    )
+    assert status == 404
+
+    status, _, res = router.handle_request(
+        "POST", f"/api/v1/users/{nonexistent_id}", admin_headers, body
+    )
+    assert status == 404

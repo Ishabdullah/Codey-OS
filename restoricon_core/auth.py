@@ -13,7 +13,7 @@ import secrets
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .database import DatabaseManager
 from .models import User, utc_now_iso
@@ -598,6 +598,22 @@ def _parse_custom_permissions(raw: Any) -> Dict[str, bool]:
     return {}
 
 
+def _validate_custom_permissions(perms: Dict[str, Any]) -> None:
+    """Reject any custom_permissions key not present in PERMISSIONS_CATALOG
+    (NEW-300). Raises ValueError to match this module's established
+    convention for rejected input (_validate_user_role_invariants and the
+    inline role check in update_user both raise ValueError, which the API
+    layer maps to 400)."""
+    valid_ids = {
+        p["id"]
+        for domain in PERMISSIONS_CATALOG.values()
+        for p in domain["permissions"]
+    }
+    unknown = set(perms) - valid_ids
+    if unknown:
+        raise ValueError(f"Unknown permission key(s): {sorted(unknown)}")
+
+
 def _validate_user_role_invariants(role: str, customer_id: Optional[int]) -> None:
     """Enforce cross-field invariants for a user row, on create or update.
     Currently: a ``customer``-role user must have a ``customer_id``. Evaluate
@@ -917,8 +933,13 @@ class AuthService:
         user_id: int,
         updates: Dict[str, Any],
         actor_context: AuthContext,
-    ) -> Optional[User]:
+    ) -> Tuple[Optional[User], bool]:
         """Update user profile fields (requires PERM_MANAGE_USERS).
+
+        Returns ``(updated_user, role_changed)`` (NEW-310) so callers get
+        the internally-computed ``role_changed`` boolean directly, instead
+        of re-deriving it a second, separately-timed way against a fresh
+        before/after read.
 
         ``active`` is deliberately not settable here: token revocation on
         suspend/activate stays on a single path via ``set_user_active``, or a
@@ -933,7 +954,7 @@ class AuthService:
 
         user = self.get_user_by_id(user_id)
         if not user:
-            return None
+            return None, False
 
         allowed_fields = {"full_name", "email", "phone", "role", "department", "customer_id"}
         set_clauses: List[str] = []
@@ -951,6 +972,7 @@ class AuthService:
 
         if "custom_permissions" in updates and isinstance(updates["custom_permissions"], dict):
             cleaned_perms = _parse_custom_permissions(updates["custom_permissions"])
+            _validate_custom_permissions(cleaned_perms)
             set_clauses.append("custom_permissions_json = ?")
             params.append(json.dumps(cleaned_perms))
 
@@ -972,7 +994,7 @@ class AuthService:
         _validate_user_role_invariants(effective_role, effective_customer_id)
 
         if not set_clauses:
-            return user
+            return user, False
 
         # api_tokens.role is a snapshot taken at login time and
         # authenticate_token reads that snapshot, not the live user row --
@@ -1019,7 +1041,7 @@ class AuthService:
                 details=role_change_details,
             )
 
-        return self.get_user_by_id(user_id)
+        return self.get_user_by_id(user_id), role_changed
 
     def set_user_active(
         self,
@@ -1124,6 +1146,7 @@ class AuthService:
             raise ValueError(f"User with ID {user_id} not found")
 
         cleaned_perms = _parse_custom_permissions(custom_permissions)
+        _validate_custom_permissions(cleaned_perms)
         perms_json = json.dumps(cleaned_perms)
         now = utc_now_iso()
 

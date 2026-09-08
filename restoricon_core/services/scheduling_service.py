@@ -211,7 +211,14 @@ class SchedulingService:
 
         now = utc_now_iso()
         conn = self.db.get_connection()
-        row = conn.execute("SELECT history_json FROM appointments WHERE id = ?;", (appointment_id,)).fetchone()
+        # NEW-240: widened from `SELECT history_json` to the full row so the
+        # return value can be built from a write-scoped re-fetch below
+        # instead of the READ-gated get_appointment() (this method is
+        # authorized on PERM_WRITE_APPOINTMENTS, not PERM_READ_APPOINTMENTS).
+        # The audit entry below still uses a status-only snapshot per
+        # NEW-311 C-none -- widening the SELECT here is for the return
+        # value, not for an audit before/after diff.
+        row = conn.execute("SELECT * FROM appointments WHERE id = ?;", (appointment_id,)).fetchone()
         if not row:
             return None
 
@@ -224,6 +231,9 @@ class SchedulingService:
                 "UPDATE appointments SET status = ?, history_json = ?, updated_at = ? WHERE id = ?;",
                 (status, history_json, now, appointment_id),
             )
+            updated_row = conn.execute(
+                "SELECT * FROM appointments WHERE id = ?;", (appointment_id,)
+            ).fetchone()
 
         self.audit.log(
             action="status_change",
@@ -237,7 +247,7 @@ class SchedulingService:
             # from an existing read and widening the SELECT is barred.
             details=build_audit_details(snapshot={"status": status}),
         )
-        return self.get_appointment(appointment_id, actor)
+        return self._row_to_appointment(updated_row) if updated_row else None
 
     ALLOWED_UPDATE_FIELDS = {
         "title",
