@@ -72,6 +72,23 @@ def _emit(
     inventing one, such fields are omitted from the body entirely instead
     of being written as an unreasoned null.
 
+    NEW-347: a second, distinct omission case exists and is NOT handled
+    the same way as the "not meaningful yet" case above -- a field that
+    IS meaningful and DID occur for this event_type, but has no matching
+    option in the schema's closed enum for that field. The existing
+    precedent is `emitter` (NEW-341): `core/inference_hybrid.py`'s
+    `telemetry_emitter` parameter has no honest value for a TUI-driven
+    call reached through a shared code path (this module has no reliable
+    in-process signal for which OS process is calling), and the closed
+    `emitter` enum (§2.0) has no fallback/unknown option. Omission
+    doesn't apply here -- `emitter` is required/non-nullable on every
+    record, so the field can't simply be left out the way an
+    inapplicable body field can. The current approach instead records
+    the closest available enum value and relies on a run_id/pid join
+    against the correctly-labeled run_start record to recover true
+    attribution later -- a per-field, closest-available-value +
+    post-hoc-join pattern, not a general rule.
+
     Returns the built record (T2: record_run_start() needs it to also
     write runs/<run_id>.json; every other existing caller ignores the
     return value, so this is additive, not a behaviour change for them).

@@ -25,6 +25,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from utils.logger import warning
+
 DB_PATH = str(Path(__file__).parent.parent / "data" / "ccos_memory.db")
 
 
@@ -157,6 +159,13 @@ class TelemetryEngine:
     def record_execution(self, record: ExecutionRecord):
         """
         Record a real-world execution. Buffered for performance.
+
+        NEW-78: callers must not pass an ExecutionRecord with record_id
+        already set unless they intend INSERT OR IGNORE no-op semantics
+        on a repeat submission -- a pre-set record_id skips the
+        auto-generation below and is used as-is for the DB's UNIQUE key,
+        so a resubmission with the same record_id is silently dropped
+        rather than recorded twice.
         """
         if not record.record_id:
             # record_id is the DB's UNIQUE key and writes go through
@@ -168,10 +177,15 @@ class TelemetryEngine:
             # other silent-drop mechanisms in this class found nearby.
             record.record_id = f"exec_{int(time.time() * 1000)}_{uuid.uuid4().hex[:12]}"
 
-        self._buffer.append(record)
+        with self._lock:
+            # NEW-77: append and the size-check/flush must share one
+            # critical section, or a concurrent flush can race the
+            # append (buffer read mid-mutation, or a flush triggered on
+            # a size the appender never actually observed under lock).
+            self._buffer.append(record)
 
-        if len(self._buffer) >= self._buffer_size:
-            self._flush_buffer()
+            if len(self._buffer) >= self._buffer_size:
+                self._flush_buffer_locked()
 
     def record(self, task: str, success: bool, capability: str = "",
                duration_ms: float = 0, goal_id: str = "", project_id: str = "",
@@ -193,37 +207,51 @@ class TelemetryEngine:
             metadata=metadata or {},
         ))
 
-    def _flush_buffer(self):
-        """Write buffered records to database."""
+    def _flush_buffer_locked(self):
+        """
+        Write buffered records to database.
+
+        NEW-77: must only be called with self._lock already held. Split
+        out of _flush_buffer() so record_execution() can append and flush
+        inside a single critical section without deadlocking on this
+        non-reentrant lock.
+        """
         if not self._buffer:
             return
 
+        for rec in self._buffer:
+            try:
+                self._conn.execute(
+                    """INSERT OR IGNORE INTO exec_telemetry
+                       (record_id, timestamp, task, goal_id, project_id,
+                        capability, execution_time_ms, agents_used, tools_used,
+                        success, errors, resource_usage, source, metadata)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        rec.record_id, rec.timestamp, rec.task[:500],
+                        rec.goal_id, rec.project_id, rec.capability,
+                        rec.execution_time_ms,
+                        json.dumps(rec.agents_used),
+                        json.dumps(rec.tools_used),
+                        int(rec.success),
+                        json.dumps(rec.errors),
+                        json.dumps(rec.resource_usage),
+                        rec.source,
+                        json.dumps(rec.metadata),
+                    ),
+                )
+            except Exception as e:
+                warning(
+                    f"telemetry_engine: failed to insert exec_telemetry "
+                    f"record {rec.record_id}: {e}"
+                )
+        self._conn.commit()
+        self._buffer.clear()
+
+    def _flush_buffer(self):
+        """Write buffered records to database (acquires self._lock)."""
         with self._lock:
-            for rec in self._buffer:
-                try:
-                    self._conn.execute(
-                        """INSERT OR IGNORE INTO exec_telemetry
-                           (record_id, timestamp, task, goal_id, project_id,
-                            capability, execution_time_ms, agents_used, tools_used,
-                            success, errors, resource_usage, source, metadata)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                        (
-                            rec.record_id, rec.timestamp, rec.task[:500],
-                            rec.goal_id, rec.project_id, rec.capability,
-                            rec.execution_time_ms,
-                            json.dumps(rec.agents_used),
-                            json.dumps(rec.tools_used),
-                            int(rec.success),
-                            json.dumps(rec.errors),
-                            json.dumps(rec.resource_usage),
-                            rec.source,
-                            json.dumps(rec.metadata),
-                        ),
-                    )
-                except Exception:
-                    pass
-            self._conn.commit()
-            self._buffer.clear()
+            self._flush_buffer_locked()
 
     def force_flush(self):
         """Force flush the buffer."""

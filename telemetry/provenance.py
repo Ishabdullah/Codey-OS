@@ -526,6 +526,15 @@ def build_run_start_nulls(body: Dict[str, Any]) -> Dict[str, str]:
       telemetry.schema.validate()'s honest-null check the first time any
       real run_start record was built — closed here since T2 is that
       first real call.
+    - models[i].sha256: "model_sha256_not_computed" (NEW-327) — same
+      reason code build_model_entries()/get_model_digest() already use
+      for a cold digest cache at the top-level `model_sha256` field
+      elsewhere in this layer (telemetry/recorders.py's
+      _emit_inference_telemetry() nulls dict). schema.validate() now
+      recurses one level into list-of-dict body fields (NEW-327's schema
+      fix), so a cold-cache `models` entry must carry a matching
+      per-index nulls entry here or every cold-cache run_start record
+      would newly fail validate()'s honest-null check.
     """
     nulls: Dict[str, str] = {}
     for field in ("git_commit_sha", "git_dirty", "git_dirty_file_count", "git_branch"):
@@ -538,4 +547,7 @@ def build_run_start_nulls(body: Dict[str, Any]) -> Dict[str, str]:
     for field in ("llama_build_info", "llama_server_argv"):
         if body.get(field) is None:
             nulls[f"body.{field}"] = "call_site_not_yet_tagged"
+    for i, entry in enumerate(body.get("models") or []):
+        if isinstance(entry, dict) and entry.get("sha256") is None:
+            nulls[f"body.models[{i}].sha256"] = "model_sha256_not_computed"
     return nulls

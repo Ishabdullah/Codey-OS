@@ -247,6 +247,61 @@ def _emit_inference_telemetry(
         )
 
 
+def _emit_inference_failed_telemetry(
+    *,
+    exc: Exception,
+    messages: list,
+    max_tokens: int,
+    wall_ms: float,
+) -> None:
+    """
+    NEW-343: failure-path counterpart to `_emit_inference_telemetry()`
+    above -- records `telemetry.recorders.record_inference_failed()`
+    (event_type="completion_failed") for get_plan()'s catch-all except
+    block. Mirrors `_emit_inference_telemetry()`'s field-population for
+    the fields that still make sense when no response was ever parsed:
+    `emitter`/`role`/`stream` are the same fixed values this call site
+    already uses on the success path (this IS the planner, always a
+    non-streaming request).
+
+    Called only from get_plan()'s own `except Exception` block, after the
+    existing `_warning(...)` logging that already handles the real
+    failure -- wrapped in its own broad `except Exception` so a bug here
+    can never mask or replace that existing warning/return-None behavior.
+    """
+    try:
+        from telemetry import store
+
+        if not store.TELEMETRY_ENABLED:
+            return
+
+        from telemetry import recorders
+
+        prompt_chars = sum(
+            len(str(m.get("content", ""))) for m in messages if isinstance(m, dict)
+        )
+
+        recorders.record_inference_failed(
+            emitter="codey-os.daemon",
+            pid=os.getpid(),
+            backend="local",
+            role="planner",
+            error_class=type(exc).__name__,
+            wall_ms=wall_ms,
+            max_tokens_requested=max_tokens,
+            prompt_chars=prompt_chars,
+            message_count=len(messages),
+            stream=False,
+        )
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "telemetry: failed to record inference-failed for plannd.get_plan",
+            exc_info=True,
+        )
+
+
 # ── Planner prompt ────────────────────────────────────────────────────────────
 # Single prompt used by ALL backends: local 1.5B, OpenRouter, UnlimitedClaude.
 # Test and tune this prompt against remote models (faster iteration), then
@@ -975,6 +1030,12 @@ def get_plan(prompt: str, enable_thinking: bool = True) -> Optional[List[str]]:
         from utils.logger import warning as _warning
 
         _warning(f"[plannd] get_plan error: {e}")
+        _emit_inference_failed_telemetry(
+            exc=e,
+            messages=payload["messages"],
+            max_tokens=max_tokens,
+            wall_ms=(time.monotonic() - _wall_start_mono) * 1000.0,
+        )
         return None
     finally:
         # §8 Q11 fix: release regardless of success/failure/early-return

@@ -105,5 +105,20 @@ def validate(record: Dict[str, Any]) -> List[str]:
     for key, value in body.items():
         if value is None and f"body.{key}" not in nulls:
             violations.append(f"body.{key} is null with no entry in nulls")
+        # NEW-327: the top-level check above is invisible to nulls nested
+        # one level down inside a list-of-dicts body field (e.g.
+        # record_run_start()'s `models`, where an individual entry's
+        # `sha256` can be null). Recurse exactly one level into any body
+        # value that is a list of dicts, using the per-index path
+        # `body.{key}[{i}].{subkey}` — unambiguous and not worth a
+        # generic deep-walker for a single known case.
+        elif isinstance(value, list):
+            for i, item in enumerate(value):
+                if not isinstance(item, dict):
+                    continue
+                for subkey, subvalue in item.items():
+                    path = f"body.{key}[{i}].{subkey}"
+                    if subvalue is None and path not in nulls:
+                        violations.append(f"{path} is null with no entry in nulls")
 
     return violations

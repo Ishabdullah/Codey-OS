@@ -236,6 +236,69 @@ def _emit_inference_telemetry(
         )
 
 
+def _emit_inference_failed_telemetry(
+    *,
+    exc: Exception,
+    stream: bool,
+    messages: list,
+    max_tokens: int,
+    wall_ms: float,
+    emitter: str,
+) -> None:
+    """
+    NEW-343: failure-path counterpart to `_emit_inference_telemetry()`
+    above -- records `telemetry.recorders.record_inference_failed()`
+    (event_type="completion_failed") for `ChatCompletionBackend.infer()`'s
+    two exception branches. Mirrors `_emit_inference_telemetry()`'s
+    field-population logic (same `prompt_chars`/`message_count`
+    computation, same `role` null reason) for the fields that still make
+    sense when no response was ever parsed.
+
+    Called only from `infer()`'s own except blocks, after the existing
+    `error(...)` logging that already handles the real failure -- wrapped
+    in its own broad `except Exception` so a bug here can never mask or
+    replace that existing error handling.
+    """
+    try:
+        from telemetry import store
+
+        if not store.TELEMETRY_ENABLED:
+            return
+
+        from telemetry import recorders
+
+        prompt_chars = sum(
+            len(str(m.get("content", ""))) for m in messages if isinstance(m, dict)
+        )
+
+        nulls: Dict[str, str] = {
+            # Same reasoning as _emit_inference_telemetry()'s identical
+            # entry: no live caller of infer() threads a role/task-type
+            # value down to here today.
+            "body.role": "call_site_not_yet_tagged",
+        }
+
+        recorders.record_inference_failed(
+            emitter=emitter,
+            pid=os.getpid(),
+            backend="local",
+            error_class=type(exc).__name__,
+            wall_ms=wall_ms,
+            max_tokens_requested=max_tokens,
+            prompt_chars=prompt_chars,
+            message_count=len(messages),
+            stream=stream,
+            nulls=nulls,
+        )
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "telemetry: failed to record inference-failed for inference_hybrid.infer",
+            exc_info=True,
+        )
+
+
 class ChatCompletionBackend:
     """
     HTTP backend using llama-server's /v1/chat/completions endpoint.
@@ -476,9 +539,25 @@ class ChatCompletionBackend:
 
         except urllib.error.URLError as e:
             error(f"Chat completions failed: {e}")
+            _emit_inference_failed_telemetry(
+                exc=e,
+                stream=stream,
+                messages=messages,
+                max_tokens=max_tokens,
+                wall_ms=(time.monotonic() - _wall_start_mono) * 1000.0,
+                emitter=telemetry_emitter,
+            )
             return None
         except Exception as e:
             error(f"Chat completions failed: {e}")
+            _emit_inference_failed_telemetry(
+                exc=e,
+                stream=stream,
+                messages=messages,
+                max_tokens=max_tokens,
+                wall_ms=(time.monotonic() - _wall_start_mono) * 1000.0,
+                emitter=telemetry_emitter,
+            )
             return None
         finally:
             # Release regardless of success/failure/exception — see

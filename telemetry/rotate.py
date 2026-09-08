@@ -63,7 +63,7 @@ def utc_today() -> date:
 
 
 @contextlib.contextmanager
-def acquire_rotate_lock(root: Path):
+def acquire_rotate_lock(root: Path, shared: bool = False):
     """
     Non-blocking flock on ``<root>/.rotate.lock`` (design §3.5: "rollup and
     rotate take ~/.codeyOS/metrics/.rotate.lock (flock, non-blocking, exits
@@ -75,6 +75,13 @@ def acquire_rotate_lock(root: Path):
     elsewhere. Never raises — a lock-file open/flock failure (e.g. a
     read-only filesystem) is treated the same as "lock held", since either
     way it is not safe to proceed.
+
+    NEW-336: pass ``shared=True`` for a read-only caller (e.g. a CLI
+    summary/export/status/doctor/provenance command) to take a shared
+    (LOCK_SH) lock instead of the default exclusive (LOCK_EX) lock used by
+    `rotate`/`rollup` — this lets concurrent reads proceed against each
+    other while still being blocked by (and blocking) an in-progress
+    rotate/rollup.
     """
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
@@ -83,7 +90,8 @@ def acquire_rotate_lock(root: Path):
     try:
         fh = open(lock_path, "a+")
         try:
-            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            flags = (fcntl.LOCK_SH if shared else fcntl.LOCK_EX) | fcntl.LOCK_NB
+            fcntl.flock(fh.fileno(), flags)
         except OSError:
             yield False
             return

@@ -1355,7 +1355,11 @@ class ModelLoader:
             _emit_gate_telemetry(decision=decision, meminfo=gate_meminfo)
             if not decision.admitted:
                 error(f"Resource gate denied primary model load: {decision.reason}")
-                self._load_failures += 1
+                # NEW-90: a gate denial is not a genuine load failure -- it's
+                # an admission-gate refusal, already fully tracked below via
+                # _last_ensure_outcome and the unconditional
+                # _emit_gate_telemetry() call above. Do not double-count it
+                # in self._load_failures.
                 # hard_reject means this model alone exceeds the device
                 # ceiling — retrying later cannot change that outcome (the
                 # 2026-08-08 amendment's one non-negotiable admission check).

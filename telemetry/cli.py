@@ -661,9 +661,17 @@ def cmd_doctor(root: Path, args: argparse.Namespace) -> int:
         "duplicate_run_start_runs": duplicate_run_start,
         "duplicate_run_start_note": "NEW-330 — flagged, not a hard violation" if duplicate_run_start else None,
         "known_limitation_new_327": (
-            "schema.validate()'s honest-null check does not walk nested arrays "
-            "(e.g. body.models[i].sha256=None on a cold model-digest cache is not "
-            "flagged here) — known gap, not counted"
+            "partially closed: schema.validate() now recurses one level "
+            "into list-of-dict body fields (e.g. body.models[i].sha256), "
+            "and the Python-side record_run_start()'s nulls carries a "
+            "matching per-index entry for a cold model-digest cache, so "
+            "Python-emitted records are counted in "
+            "honest_null_violations/hard_violation_count like any other "
+            "honest-null gap. The Codey-Aigentik JS mirror "
+            "(telemetry.mjs's recordRunStart()) has NOT been updated to "
+            "add the matching nulls entry, so a cold-cache model from "
+            "that side will now newly fail validation here — see "
+            "NEW-407"
         ),
         "hard_violation_count": hard_violation_count,
     }
@@ -684,8 +692,9 @@ def cmd_doctor(root: Path, args: argparse.Namespace) -> int:
             ],
             width,
         )
-        print(f"known gap: NEW-327 (nested nulls)"[:width])
         print(f"hard violations: {hard_violation_count}"[:width])
+        if hard_violation_count:
+            print("run with --json for known-limitation notes (e.g. NEW-407)"[:width])
 
     return 0 if hard_violation_count == 0 else 1
 
@@ -885,7 +894,24 @@ def main(argv: Optional[List[str]] = None) -> int:
     if handler is None:
         parser.print_help()
         return 2
+    # NEW-336: the read-only commands never took acquire_rotate_lock() at
+    # all, so a concurrent rotate/rollup could mutate the day directory
+    # (archive/delete raw files) mid-read. Take a shared (non-exclusive)
+    # lock for these so they can't race an in-progress rotate/rollup, but
+    # never block or hard-fail on a held lock -- a read proceeding with a
+    # warning is strictly better than a CLI read command that can hang or
+    # exit non-zero on transient contention (design constraint: never
+    # crash / never block for these).
+    read_only_commands = {"summary", "export", "status", "doctor", "provenance"}
     try:
+        if command in read_only_commands:
+            with _rotate.acquire_rotate_lock(root, shared=True) as acquired:
+                if not acquired:
+                    print(
+                        "codey-metrics: rotate/rollup in progress, read may be inconsistent",
+                        file=sys.stderr,
+                    )
+                return handler(root, args)
         return handler(root, args)
     except Exception as exc:  # pragma: no cover - last-resort guard
         # This CLI reads a live, possibly-being-written-to store (constraint

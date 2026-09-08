@@ -249,7 +249,9 @@ def test_load_primary_reserves_and_marks_resident_on_real_spawn(monkeypatch):
 
 
 def test_load_primary_denied_reservation_does_not_spawn(monkeypatch):
-    fake_decision = MagicMock(admitted=False, estimated_cost_bytes=0, reason="no headroom")
+    fake_decision = MagicMock(
+        admitted=False, hard_reject=False, estimated_cost_bytes=0, reason="no headroom"
+    )
     monkeypatch.setattr(rg, "reserve_slot", lambda spec, **k: (fake_decision, None))
 
     with patch.object(lv, "LlamaServer") as MockServer, patch(
@@ -261,7 +263,11 @@ def test_load_primary_denied_reservation_does_not_spawn(monkeypatch):
     assert result is False
     MockServer.assert_not_called()
     assert loader.is_loaded() is False
-    assert loader.get_load_failures() == 1
+    # NEW-90: a gate denial is not a genuine load failure -- it's fully
+    # tracked via get_last_ensure_outcome() instead, so load_failures
+    # must not be incremented for it.
+    assert loader.get_load_failures() == 0
+    assert loader.get_last_ensure_outcome() == lv.LOAD_OUTCOME_GATE_DENIED
     # 7.4b sub-task C's NEW-145 fix: a gate-denied load never reaches the
     # success point, so was_ever_spawned() stays False -- this is exactly
     # the case core/daemon.py's watchdog must leave alone rather than
