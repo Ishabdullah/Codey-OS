@@ -133,26 +133,28 @@ PYEOF
 
 # ── Main daemon ────────────────────────────────────────────────────────────────
 
+# NEW-409 (2026-09-08): only port 8080 (the single primary model server,
+# per M1-D 2026-08-23) is ever started by this script now; the port-8081
+# planner process was retired and never gets a PID file, so this only
+# handles 8080.
 kill_llama_server_gracefully() {
-    for port in 8080 8081; do
-        local pid_file="$DAEMON_DIR/llama-server-${port}.pid"
-        if [ -f "$pid_file" ]; then
-            local s_pid=$(cat "$pid_file" 2>/dev/null || echo "")
-            if [ -n "$s_pid" ] && kill -0 "$s_pid" 2>/dev/null; then
-                kill -TERM "$s_pid" 2>/dev/null || true
-                for i in {1..10}; do
-                    if ! kill -0 "$s_pid" 2>/dev/null; then
-                        break
-                    fi
-                    sleep 0.5
-                done
-                if kill -0 "$s_pid" 2>/dev/null; then
-                    kill -9 "$s_pid" 2>/dev/null || true
+    local pid_file="$DAEMON_DIR/llama-server-8080.pid"
+    if [ -f "$pid_file" ]; then
+        local s_pid=$(cat "$pid_file" 2>/dev/null || echo "")
+        if [ -n "$s_pid" ] && kill -0 "$s_pid" 2>/dev/null; then
+            kill -TERM "$s_pid" 2>/dev/null || true
+            for i in {1..10}; do
+                if ! kill -0 "$s_pid" 2>/dev/null; then
+                    break
                 fi
+                sleep 0.5
+            done
+            if kill -0 "$s_pid" 2>/dev/null; then
+                kill -9 "$s_pid" 2>/dev/null || true
             fi
-            rm -f "$pid_file"
         fi
-    done
+        rm -f "$pid_file"
+    fi
 }
 
 

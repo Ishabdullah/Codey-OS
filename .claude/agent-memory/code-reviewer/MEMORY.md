@@ -86,3 +86,4 @@
 - [NEW_ISSUES.md batch 4 round2 (NEW-407) — APPROVED](new_issues_cleanup_batch4_round2_new407_approved.md) — doc-only fix still needs live-store +
 - [NEW_ISSUES.md batch 5 (prompt/planner) — CHANGES REQUESTED](new_issues_cleanup_batch5_prompt_planner_need_docs_regression.md) — 6/7 fixes verified
 - [NEW_ISSUES.md batch 5 round2 (NEW-31 NEED_DOCS fix) — APPROVED](new_issues_cleanup_batch5_round2_approved.md) — NEED_DOCS lines added to
+- [Daemon/process-lifecycle batch 1: NEW-409 kill-loop de-8081 + NEW-70 thermal-restart try/except split — APPROVED](new409_new70_daemon_lifecycle_batch1_approved.md) — no-backoff retry-forever traced and accepted as pre-existing pattern, not new risk

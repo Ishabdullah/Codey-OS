@@ -1421,6 +1421,39 @@ check itself failed" (fine to fail open, matches the existing comment's
 intent) from "the restart's own unload/reload failed" (should not report
 success).
 
+- **Status:** Fixed, pending code-reviewer approval per CLAUDE.md rule 4
+  (2026-09-08, daemon/process-lifecycle ledger closeout batch 1) —
+  `core/loader_v2.py`'s `ensure_model()` now reads
+  `tm.restart_recommended` in its own narrow `try/except Exception` (fail
+  open, unchanged — matches the original comment's intent), then, only
+  if a restart is recommended, calls `self.unload()` /
+  `self.load_primary()` in a SEPARATE `try/except Exception` that, on
+  failure, sets `self._last_ensure_outcome = LOAD_OUTCOME_ERROR` and
+  returns `False` — the same failure-reporting convention
+  `load_primary()` itself already uses elsewhere in this method, not a
+  new one. The "already loaded, no restart needed" happy path (thermal
+  check succeeds, `restart_recommended` is `False`) is untouched: same
+  `LOAD_OUTCOME_ALREADY_LOADED`/`True` return as before, confirmed by the
+  existing `test_ensure_model_already_loaded_sets_outcome` test still
+  passing unmodified. Added a new regression test (parametrized over
+  both `unload()` and `load_primary()` raising),
+  `test_ensure_model_thermal_restart_failure_not_reported_as_success` in
+  `tests/test_loader_resource_gate.py`, asserting `ensure_model()`
+  returns `False` with `LOAD_OUTCOME_ERROR` (and `_load_failures`
+  incremented, matching `load_primary()`'s own catch-all convention)
+  instead of the old silent `True` in either case. Behavior change worth
+  stating explicitly: on a PERSISTENT `unload()`/`load_primary()`
+  failure, `tm.restart_recommended` stays `True` (unchanged ordering, not
+  reset before the restart attempt succeeds), so the daemon watchdog will
+  now retry the thermal restart on every subsequent tick and keep
+  returning `False` until it succeeds, instead of the old behavior of
+  silently reporting success once and never retrying. This is the
+  intended fix (retrying matches every other genuine-failure outcome in
+  this method), not a side effect. Live model-load verification of a real
+  thermal restart is NOT covered here (would require an actual live
+  model-load cycle under CLAUDE.md rule 2) — flagged for a separate
+  live-verify session, not run in this batch.
+
 ### [NEW-69] Interactive-CLI direct model loads (`main.py`) bypass the NEW-12 sequential-swap arbiter entirely — the primary and planner can end up resident together via this path, and a naive fix would break normal CLI usage (Confirmed by code read, needs a project-architect scoping decision, not a quick patch)
 `main.py:1271/1552/1564/1589` call `core.loader_v2`'s `load_primary()`
 directly, never `ensure_model()` — so none of `NEW-12`'s new
@@ -15948,8 +15981,24 @@ outside that fix's scope.
 
 ### [NEW-409] `codeydOS`'s `kill_llama_server_gracefully()` still loops over port 8081 even though the same file's own M1-D header comment says no port-8081 process exists anymore
 
-- **Status:** Confirmed — directly observed in code, not fixed this round (process-lifecycle/kill logic — explicitly deferred to the daemon/process-lifecycle batch per CLAUDE.md's mandatory code-reviewer gate and RAM-disciplined live-verify rules for this category; not touched here).
+- **Status:** Fixed, pending code-reviewer approval per CLAUDE.md rule 4 (2026-09-08, daemon/process-lifecycle ledger closeout batch 1) — `kill_llama_server_gracefully()` in `codeydOS` no longer loops over `8080 8081`; it now handles only the single `llama-server-8080.pid` file, consistent with the rest of the file's M1-D cleanup. Confirmed no caller passes a port argument and no other code references an `llama-server-8081.pid` file before making the change. Note: the hardcoded `8080` here matches the rest of `codeydOS` (e.g. its `port_healthy(8080)` health check), which does not honor the `CODEY_PRIMARY_PORT` env override that `utils/config.py:PRIMARY_SERVER_PORT` supports elsewhere in the codebase — this is a pre-existing gap in `codeydOS`, not introduced by this fix, and is logged separately below as a new Suspected finding rather than fixed in this batch.
 - **Mechanism:** `codeydOS` (~line 137) `kill_llama_server_gracefully() { for port in 8080 8081; do ... done }` still iterates both ports, but the same file's own header comment (~lines 13-18) states: "this script used to also manage `plannd`, a dedicated planner daemon running Qwen2.5-Coder-1.5B on its own port (8081). That process is retired... `start_plannd()`/`stop_plannd()` and their PID/log files, the port-8081 status line, and the "planner" gate slot registration/release below are all removed accordingly." The port-8081 branch of `kill_llama_server_gracefully()` was not included in that removal and is now a dead loop iteration against a port nothing ever binds.
 - **Impact:** no observed functional harm (killing against an unbound port is a no-op), but it's dead/misleading code in a kill-logic function, in a file whose own comment already documents everything else port-8081-related as removed.
 - **Fix direction:** drop `8081` from the `for port in 8080 8081` loop, consistent with the rest of the file's M1-D cleanup. Out of scope for this batch — process-lifecycle change, requires the mandatory code-reviewer gate (CLAUDE.md rule 4) and, if any live verification is needed, the RAM-discipline protocol (CLAUDE.md rule 2).
 - **Cross-reference:** `codeydOS:13-18`, `codeydOS:136-140`, M1-D (2026-08-23).
+
+### [NEW-410] `codeydOS` hardcodes port 8080 throughout (health check, log message, kill-logic PID filename) rather than reading `CODEY_PRIMARY_PORT`, unlike the Python side of the codebase
+
+- **Status:** Suspected — found while fixing NEW-409 in the daemon/process-lifecycle ledger closeout batch 1 (2026-09-08); not investigated further or fixed, out of that fix's narrow scope (CLAUDE.md rule 4 gate applies to any change here, and this needs its own scoping pass, not a drive-by patch).
+- **Mechanism:** `utils/config.py:16` defines `PRIMARY_SERVER_PORT = int(os.environ.get("CODEY_PRIMARY_PORT", "8080"))` — an env-overridable primary model port used consistently across `core/loader_v2.py`, `core/inference.py`, `core/inference_hybrid.py`, `core/daemon.py`, `core/plannd.py`, `core/summarizer.py`, `core/model_tiers.py`, and `restoricon_core/api/routes.py`. `codeydOS`, by contrast, hardcodes the literal `8080` in at least three places: the `port_healthy(8080)` status check (~line 111), a log message referencing "port 8080" (~line 177), and — as of the NEW-409 fix in this same round — `kill_llama_server_gracefully()`'s PID filename (`llama-server-8080.pid`, ~line 140). None of these read `CODEY_PRIMARY_PORT`.
+- **Impact:** if `CODEY_PRIMARY_PORT` is ever set to something other than 8080 (no evidence in this codebase that it currently is, in practice — this is a latent gap, not an observed failure), `codeydOS`'s status/health check and kill logic would silently look at the wrong port/PID file while the Python loader spawns and writes a PID file under the actual configured port. This predates the NEW-409 fix (the file already hardcoded 8080 at `port_healthy(8080)` before this round) — NEW-409's fix (hardcoding `8080` in the now-single-port kill loop) is consistent with the rest of the file's existing pattern, not a new brittleness introduced by it.
+- **Fix direction:** if this port is ever expected to be user-configurable, `codeydOS` should read `CODEY_PRIMARY_PORT` (with the same `8080` default) rather than hardcoding it in multiple places — likely worth a single shell variable near the top of the script, substituted everywhere the literal currently appears. Needs a project-architect scoping decision on whether `CODEY_PRIMARY_PORT` overriding is actually a supported/tested configuration path end-to-end (bash + Python) before deciding this is worth fixing, since no other evidence in this repo shows it's ever set to a non-default value in practice.
+- **Cross-reference:** `codeydOS:111,140,177`, `utils/config.py:16`, NEW-409.
+
+### [NEW-411] `core/loader_v2.py`'s `ensure_model()`/`load_primary()` have no backoff/cooldown on any failure branch — every failure path retries at the next unthrottled ~30s watchdog tick
+
+- **Status:** Suspected — found by code-reviewer while approving `NEW-70`'s fix (daemon/process-lifecycle batch, sub-batch 1, 2026-09-08), not investigated further or fixed.
+- **Mechanism:** `NEW-70`'s fix makes a persistent thermal-restart failure (`unload()`/`load_primary()` raising every time) retry on every subsequent watchdog tick rather than silently reporting false success once. Reviewing that change surfaced a systemic gap it doesn't introduce but does newly extend to one more branch: grepped `core/loader_v2.py` for any backoff/cooldown mechanism — none exists anywhere. Every other failure branch in `ensure_model()`/`load_primary()` (gate denial, spawn timeout, generic exception) already retries every ~30s tick unthrottled today.
+- **Impact:** if a persistent hardware/thermal fault never clears, the watchdog will hammer `unload()`/`load_primary()` indefinitely at a fixed ~30s cadence with no exponential backoff or give-up threshold. Not a new risk category introduced by `NEW-70` — an existing, project-wide characteristic of this retry loop, just newly visible in one more place.
+- **Not fixed** — a design decision (whether unthrottled retry-forever is acceptable, or whether a backoff/cooldown/give-up threshold should be added across all of `ensure_model()`'s failure branches, not just this one), not a quick patch. Worth its own scoped round if thermal-restart or spawn failures prove common in practice.
+- **Cross-reference:** `NEW-70`, `core/loader_v2.py:ensure_model()`.

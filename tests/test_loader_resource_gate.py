@@ -31,6 +31,7 @@ import pytest
 import core.embed_server as es
 import core.loader_v2 as lv
 import core.resource_gate as rg
+import core.thermal as thermal_mod
 
 
 def _meminfo_with_drop_after(n_before: int, high: int = 10**10, low: int = 0):
@@ -593,6 +594,50 @@ def test_ensure_model_already_loaded_sets_outcome(monkeypatch):
 
     assert result is True
     assert loader.get_last_ensure_outcome() == lv.LOAD_OUTCOME_ALREADY_LOADED
+
+
+@pytest.mark.parametrize("raising_method", ["unload", "load_primary"])
+def test_ensure_model_thermal_restart_failure_not_reported_as_success(monkeypatch, raising_method):
+    """NEW-70: if a thermal restart is recommended and EITHER unload() OR
+    load_primary() then raises mid-restart, ensure_model() must NOT fall
+    through to the "already loaded" success path -- that would report the
+    model as healthy even though the restart may have left no server
+    running at all. Only the thermal-check itself (reading
+    tm.restart_recommended) is allowed to fail open. Parametrized over
+    both calls: load_primary() has its own catch-all that normally
+    prevents it from raising (core/loader_v2.py ~line 1520), so this also
+    pins that guard -- if that catch-all is ever removed, this still
+    proves ensure_model()'s own inner try/except covers the call."""
+    fake_decision = MagicMock(admitted=True, hard_reject=False, estimated_cost_bytes=1024, reason="ok")
+    monkeypatch.setattr(rg, "reserve_slot", lambda spec, **k: (fake_decision, "slot-w"))
+    monkeypatch.setattr(rg, "mark_resident", lambda *a, **k: True)
+    monkeypatch.setattr(rg, "release_slot", lambda *a, **k: True)
+    monkeypatch.setattr(rg, "read_meminfo", _meminfo_with_drop_after(2))
+
+    with patch.object(lv, "LlamaServer", FakeServerSpawned), patch(
+        "pathlib.Path.exists", return_value=True
+    ):
+        loader = lv.get_loader()
+        assert loader.load_primary() is True
+
+        fake_tm = MagicMock()
+        fake_tm.restart_recommended = True
+        fake_tm.current_threads = 4
+        # ensure_model() does `from core.thermal import get_thermal_manager`
+        # inside the function -- patch the real module attribute, not lv's
+        # (lv has no such attribute; patching lv would be a no-op).
+        monkeypatch.setattr(thermal_mod, "get_thermal_manager", lambda: fake_tm)
+
+        def _raise(*a, **k):
+            raise RuntimeError(f"simulated {raising_method} failure mid thermal-restart")
+
+        monkeypatch.setattr(loader, raising_method, _raise)
+
+        result = loader.ensure_model()
+
+    assert result is False
+    assert loader.get_last_ensure_outcome() == lv.LOAD_OUTCOME_ERROR
+    assert loader.get_load_failures() >= 1
 
 
 # ── confirm_resident_and_mark_slot() ─────────────────────────────────────────

@@ -1681,23 +1681,44 @@ class ModelLoader:
             return False
         try:
             if self._loaded and self._server and self._server.is_running():
+                restart_recommended = False
+                tm = None
                 try:
                     from core.thermal import get_thermal_manager
 
                     tm = get_thermal_manager()
-                    if tm.restart_recommended:
+                    restart_recommended = tm.restart_recommended
+                except Exception:
+                    # Thermal check is best-effort only — any failure here (import
+                    # error, unexpected attribute, etc.) must never block normal
+                    # model loading/inference, so we fail open and keep the
+                    # server running on its current thread count.
+                    restart_recommended = False
+
+                if restart_recommended:
+                    # NEW-70: unload()/load_primary() are deliberately OUTSIDE
+                    # the thermal-check try/except above — a failure here means
+                    # the restart itself broke (possibly leaving no server
+                    # running at all), which is not the "best-effort thermal
+                    # check" case that except is for, and must not be silently
+                    # reported as success.
+                    try:
                         info(
                             f"Thermal: restarting server with {tm.current_threads} threads..."
                         )
                         self.unload()
                         tm.restart_recommended = False
                         return self.load_primary()
-                except Exception:
-                    # Thermal check is best-effort only — any failure here (import
-                    # error, unexpected attribute, etc.) must never block normal
-                    # model loading/inference, so we fail open and keep the
-                    # server running on its current thread count.
-                    pass
+                    except Exception as e:
+                        error(f"Thermal restart failed: {e}")
+                        # Matches load_primary()'s own catch-all convention
+                        # (~line 1520 above): a genuine unexpected failure,
+                        # not a gate denial, so it counts.
+                        self._load_failures += 1
+                        self._last_ensure_outcome = LOAD_OUTCOME_ERROR
+                        self._last_ensure_reason = f"thermal restart failed: {e}"
+                        return False
+
                 self._last_ensure_outcome = LOAD_OUTCOME_ALREADY_LOADED
                 self._last_ensure_reason = ""
                 return True
