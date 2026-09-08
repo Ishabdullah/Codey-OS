@@ -6,6 +6,7 @@ Restoricon API config, GUI config, Aigentik config, and env var overrides.
 import json
 import os
 import subprocess
+import threading
 from pathlib import Path
 import pytest
 
@@ -414,6 +415,224 @@ def test_start_and_stop_aigentik_cleans_orphans(tmp_path, monkeypatch):
     finally:
         if p_orphan.poll() is None:
             p_orphan.kill()
+        if started_pid is not None:
+            try:
+                os.kill(started_pid, 9)
+            except ProcessLookupError:
+                pass
+
+
+def test_concurrent_start_aigentik_no_pid_file_race(tmp_path):
+    """NEW-268: two concurrent `start_aigentik` invocations must not race.
+
+    Before the flock-based fix, invocation A could spawn its node child,
+    then invocation B's orphan scan (running before A wrote its PID file)
+    would see A's fresh child as untracked, kill it, and A's own post-spawn
+    `kill -0` check would then fail — so A would `rm -f` the PID file B had
+    *just* written for its own start, leaving B's node running untracked
+    and the PID file gone/wrong.
+
+    This test launches two `start_aigentik` invocations as close to
+    simultaneously as possible (via threads starting each subprocess) against
+    a stub Aigentik entrypoint (a plain node script, no real
+    ~/Codey-Aigentik dependency) and asserts the fixed invariants:
+
+      1. Neither invocation errors out.
+      2. Exactly one live node process matching the entrypoint exists when
+         both have finished (the loser must not have kept its own untracked
+         node running — the flock means the loser skips its start attempt
+         entirely rather than racing the winner's orphan scan).
+      3. The PID file exists, holds a real PID, and that PID is alive and
+         is in fact the entrypoint process (not deleted out from under the
+         winner by the loser, and not left pointing at a dead PID).
+    """
+    repo_root = Path(__file__).parent.parent.resolve()
+    svc_lib = repo_root / "lib" / "service_manager.sh"
+
+    if subprocess.run(["bash", "-c", "command -v node"],
+                      capture_output=True).returncode != 0:
+        pytest.skip("node not installed")
+
+    app_dir = tmp_path / "mock_aigentik_concurrent"
+    app_dir.mkdir()
+    state_dir = tmp_path / "codey_state_concurrent"
+    state_dir.mkdir()
+
+    # Stub entrypoint: long-lived, no dependency on a real Aigentik checkout.
+    entrypoint = app_dir / "index.js"
+    entrypoint.write_text("setTimeout(() => {}, 60000);\n", encoding="utf-8")
+
+    script = f"""
+    export CODEY_STATE_DIR="{state_dir}"
+    export AIGENTIK_DIR="{app_dir}"
+    source "{svc_lib}"
+    start_aigentik
+    """
+
+    results = [None, None]
+
+    def run_start(idx):
+        results[idx] = subprocess.run(
+            ["bash", "-c", script],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+        )
+
+    threads = [threading.Thread(target=run_start, args=(i,)) for i in (0, 1)]
+    started_pid = None
+    try:
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=30)
+
+        assert all(r is not None for r in results), "one invocation never completed"
+        for i, res in enumerate(results):
+            assert res.returncode == 0, (
+                f"start_aigentik invocation {i} exited {res.returncode}\n"
+                f"stdout:\n{res.stdout}\nstderr:\n{res.stderr}"
+            )
+
+        # Exactly one invocation should report actually starting a fresh
+        # process; the other must have deferred to it (already running, or
+        # skipped because the lock was held) rather than also spawning.
+        started_count = sum("started (PID" in r.stdout for r in results)
+        assert started_count == 1, (
+            f"expected exactly 1 invocation to report starting, got {started_count}\n"
+            + "\n---\n".join(r.stdout for r in results)
+        )
+        # And the loser must have visibly deferred (either it saw the lock
+        # held, or it saw the winner's PID file as already-running) — not
+        # silently no-op for some other reason.
+        deferred_count = sum(
+            ("another start already in progress" in r.stdout)
+            or ("already running" in r.stdout)
+            or ("running (PID" in r.stdout)
+            for r in results
+        )
+        assert deferred_count >= 1, (
+            "expected the losing invocation to report deferring (lock held or "
+            "already running), got neither\n" + "\n---\n".join(r.stdout for r in results)
+        )
+
+        pid_file = state_dir / "aigentik.pid"
+        assert pid_file.exists(), (
+            f"PID file missing after concurrent start_aigentik runs\n"
+            + "\n---\n".join(r.stdout for r in results)
+        )
+        raw = pid_file.read_text().strip()
+        assert raw.isdigit(), f"PID file contents not a PID: {raw!r}"
+        started_pid = int(raw)
+        os.kill(started_pid, 0)  # raises if the tracked PID is not alive
+
+        cmdline = Path(f"/proc/{started_pid}/cmdline").read_bytes().replace(b"\0", b" ").decode()
+        assert "index.js" in cmdline, f"tracked PID {started_pid} is not the entrypoint: {cmdline!r}"
+
+        # Confirm no second, untracked node instance is also running from
+        # app_dir — the bug's failure mode is exactly this: a second live
+        # process the PID file no longer (or never did) point at.
+        check_script = f"""
+        export CODEY_STATE_DIR="{state_dir}"
+        export AIGENTIK_DIR="{app_dir}"
+        source "{svc_lib}"
+        found=$(svc_find_orphans_by_cwd "{app_dir}" "node" "index.js")
+        echo "FOUND:$found"
+        """
+        res_check = subprocess.run(
+            ["bash", "-c", check_script],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+        )
+        assert res_check.returncode == 0
+        found_pids = res_check.stdout.split("FOUND:")[1].split()
+        assert found_pids == [str(started_pid)], (
+            f"expected exactly one live node process ({started_pid}), found {found_pids}"
+        )
+    finally:
+        if started_pid is not None:
+            try:
+                os.kill(started_pid, 9)
+            except ProcessLookupError:
+                pass
+
+
+def test_sequential_restart_after_start_still_reports_already_running(tmp_path):
+    """NEW-268 fix regression guard: the lock fd must not leak into the
+    spawned Aigentik process.
+
+    `start_aigentik`'s fix opens the lock on fd 200 via `exec 200>...` in a
+    subshell, before forking the long-lived node child. File descriptors are
+    inherited by forked children unless explicitly closed, and an flock lock
+    is held by the open file description, not by the process that acquired
+    it — so if the spawn line ever forgets to close fd 200 on the child (the
+    `200>&-` redirection), the node process itself keeps holding the lock for
+    its entire lifetime. Every subsequent `start_aigentik` call would then
+    see the lock as held and print "another start already in progress,
+    skipping" instead of correctly reporting "already running (PID ...)" and
+    running its normal already-running/orphan-scan path — silently
+    disabling that path for as long as Aigentik stays up.
+
+    This is a *sequential*, not concurrent, scenario deliberately: run
+    `start_aigentik` once to completion (verifying the process is up), then
+    run it again from a fresh shell (fresh process, fresh fd table — the
+    only thing carried over is the flock's live state via the still-running
+    node process). Only a real fd leak makes this second call misbehave;
+    plain concurrency alone does not exercise this path.
+    """
+    repo_root = Path(__file__).parent.parent.resolve()
+    svc_lib = repo_root / "lib" / "service_manager.sh"
+
+    if subprocess.run(["bash", "-c", "command -v node"],
+                      capture_output=True).returncode != 0:
+        pytest.skip("node not installed")
+
+    app_dir = tmp_path / "mock_aigentik_sequential"
+    app_dir.mkdir()
+    state_dir = tmp_path / "codey_state_sequential"
+    state_dir.mkdir()
+
+    entrypoint = app_dir / "index.js"
+    entrypoint.write_text("setTimeout(() => {}, 60000);\n", encoding="utf-8")
+
+    script = f"""
+    export CODEY_STATE_DIR="{state_dir}"
+    export AIGENTIK_DIR="{app_dir}"
+    source "{svc_lib}"
+    start_aigentik
+    """
+
+    started_pid = None
+    try:
+        res1 = subprocess.run(["bash", "-c", script], cwd=str(repo_root),
+                               capture_output=True, text=True)
+        assert res1.returncode == 0, f"first start_aigentik failed:\n{res1.stdout}\n{res1.stderr}"
+        assert "started (PID" in res1.stdout, res1.stdout
+
+        pid_file = state_dir / "aigentik.pid"
+        assert pid_file.exists()
+        started_pid = int(pid_file.read_text().strip())
+        os.kill(started_pid, 0)  # confirm it's actually up before the second call
+
+        # Second, independent process/shell invocation while Aigentik is
+        # still running. With fd 200 correctly closed on the spawned child,
+        # the lock is free by the time this runs (the first subshell already
+        # exited), and start_aigentik should reach its normal
+        # already-running check and report it — NOT "another start already
+        # in progress" (that message would mean the long-lived node process
+        # is still holding the lock fd itself).
+        res2 = subprocess.run(["bash", "-c", script], cwd=str(repo_root),
+                               capture_output=True, text=True)
+        assert res2.returncode == 0, f"second start_aigentik failed:\n{res2.stdout}\n{res2.stderr}"
+        assert "another start already in progress" not in res2.stdout, (
+            "fd 200 leaked into the spawned Aigentik process — the lock is "
+            f"still held by the long-lived node process itself:\n{res2.stdout}"
+        )
+        assert f"already running (PID {started_pid})" in res2.stdout, (
+            f"expected 'already running (PID {started_pid})', got:\n{res2.stdout}"
+        )
+    finally:
         if started_pid is not None:
             try:
                 os.kill(started_pid, 9)

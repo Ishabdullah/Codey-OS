@@ -279,83 +279,131 @@ print(f\"{c['dir']}|{c['port']}\")
     entry_script=$(svc_detect_entrypoint_script "$a_dir")
     entrypoint=$(svc_entrypoint_command "$entry_script")
 
-    local tracked_pid=""
-    if svc_is_running "$AIGENTIK_PID_FILE"; then
-        tracked_pid=$(cat "$AIGENTIK_PID_FILE" 2>/dev/null || echo "")
-    fi
-
     if [ -z "$entrypoint" ]; then
         # No recognizable entrypoint: can't launch, and can't safely scan for
         # orphans without a token (Rule 3 invariant). Report tracked state only.
-        if [ -n "$tracked_pid" ]; then
-            echo "  Aigentik    → already running (PID $tracked_pid)"
+        # Read-only against the PID file, so no lock needed here.
+        if svc_is_running "$AIGENTIK_PID_FILE"; then
+            echo "  Aigentik    → already running (PID $(cat "$AIGENTIK_PID_FILE" 2>/dev/null))"
         fi
         return 0
     fi
 
-    # Find live processes running THIS entrypoint from the Aigentik directory.
-    # Guard: if Aigentik ever spawns long-lived node children via
-    # child_process.fork / cluster / worker_threads that re-exec the same
-    # entrypoint script, they would share cwd + token and be misidentified
-    # as orphans and killed while the tracked parent survives. Revisit the
-    # identification (e.g. add a parent-PID / process-group check) then.
-    local all_found_pids
-    all_found_pids=$(svc_find_orphans_by_cwd "$a_dir" "node" "$entry_script")
-    local orphan_pids=()
-    for p in $all_found_pids; do
-        if [ -n "$tracked_pid" ] && [ "$p" = "$tracked_pid" ]; then
-            continue
+    # NEW-268 fix: serialize the whole tracked-state-check → orphan-scan →
+    # spawn → pidfile-write sequence across concurrent `start_aigentik`
+    # invocations. Without this, two concurrent runs A and B could interleave:
+    # A spawns its node child, then before A writes $AIGENTIK_PID_FILE, B's
+    # orphan scan (svc_find_orphans_by_cwd) sees A's untracked child and kills
+    # it; A's post-spawn kill -0 then fails, so A does `rm -f
+    # $AIGENTIK_PID_FILE` — deleting the entry B just wrote for its own start.
+    # Net effect: B's node runs untracked, plus a spurious ERROR from A.
+    #
+    # Non-blocking flock on a dedicated, always-empty lock file (never the
+    # PID file itself), matching telemetry/rotate.py's acquire_rotate_lock()
+    # convention (see its docstring): non-blocking, exits with a clear
+    # message if already held, and treats a lock-file open/flock failure the
+    # same as "lock held" rather than proceeding unsafely. A second
+    # concurrent invocation simply skips its own start attempt instead of
+    # racing the first invocation's orphan-scan/kill logic — this function is
+    # already idempotent (see the "already running" checks above/below), so
+    # skipping and letting the lock holder finish is safe and matches how
+    # `codey start` is expected to behave under a re-run.
+    #
+    # Whole sequence run in a subshell so `exec 200>"$lock_file"` and its
+    # flock are automatically released when the subshell exits, regardless
+    # of which of the several exit points below is taken (no explicit
+    # unlock/close needed, and no fd 200 leaks into the calling shell).
+    local lock_file="$DAEMON_DIR/aigentik.lock"
+    (
+        # Guarded (not a bare `exec`): callers source this file under
+        # `set -e` (codey-start), and an unguarded `exec 200>...` failure
+        # (e.g. a read-only $DAEMON_DIR) would abort the whole script rather
+        # than degrading gracefully the way acquire_rotate_lock() does.
+        if ! exec 200>"$lock_file" 2>/dev/null; then
+            echo "  Aigentik    → could not open lock file $lock_file, skipping"
+            exit 0
         fi
-        orphan_pids+=("$p")
-    done
+        if ! flock -n 200; then
+            echo "  Aigentik    → another start already in progress, skipping"
+            exit 0
+        fi
 
-    # If already running and no orphans exist, nothing to do
-    if [ -n "$tracked_pid" ] && [ ${#orphan_pids[@]} -eq 0 ]; then
-        echo "  Aigentik    → already running (PID $tracked_pid)"
-        return 0
-    fi
+        local tracked_pid=""
+        if svc_is_running "$AIGENTIK_PID_FILE"; then
+            tracked_pid=$(cat "$AIGENTIK_PID_FILE" 2>/dev/null || echo "")
+        fi
 
-    # If orphans exist, terminate them before starting fresh
-    if [ ${#orphan_pids[@]} -gt 0 ]; then
-        echo "  ⚠ Aigentik → found ${#orphan_pids[@]} orphaned process(es) not tracked by PID file: ${orphan_pids[*]} — terminating before starting fresh"
-        for opid in "${orphan_pids[@]}"; do
-            echo "  Terminating orphan Aigentik process (PID $opid)..."
-            kill -TERM "$opid" 2>/dev/null || true
-            for i in {1..10}; do
-                if ! kill -0 "$opid" 2>/dev/null; then
-                    break
-                fi
-                sleep 0.5
-            done
-            if kill -0 "$opid" 2>/dev/null; then
-                kill -9 "$opid" 2>/dev/null || true
+        # Find live processes running THIS entrypoint from the Aigentik directory.
+        # Guard: if Aigentik ever spawns long-lived node children via
+        # child_process.fork / cluster / worker_threads that re-exec the same
+        # entrypoint script, they would share cwd + token and be misidentified
+        # as orphans and killed while the tracked parent survives. Revisit the
+        # identification (e.g. add a parent-PID / process-group check) then.
+        local all_found_pids
+        all_found_pids=$(svc_find_orphans_by_cwd "$a_dir" "node" "$entry_script")
+        local orphan_pids=()
+        for p in $all_found_pids; do
+            if [ -n "$tracked_pid" ] && [ "$p" = "$tracked_pid" ]; then
+                continue
             fi
+            orphan_pids+=("$p")
         done
-    fi
 
-    # If tracked instance was already running, return after clearing orphans
-    if [ -n "$tracked_pid" ]; then
-        echo "  Aigentik    → running (PID $tracked_pid)"
-        return 0
-    fi
+        # If already running and no orphans exist, nothing to do
+        if [ -n "$tracked_pid" ] && [ ${#orphan_pids[@]} -eq 0 ]; then
+            echo "  Aigentik    → already running (PID $tracked_pid)"
+            exit 0
+        fi
 
-    echo "  Aigentik    → starting from $a_dir..."
-    (cd "$a_dir" && exec nohup $entrypoint >> "$AIGENTIK_LOG_FILE" 2>&1) &
-    local a_pid=$!
-    echo "$a_pid" > "$AIGENTIK_PID_FILE"
-    sleep 0.5
-    # KNOWN RACE (NEW-268, not fixed this round — needs a lockfile, out of
-    # scope): two concurrent `codey start` runs are not serialized. Process B
-    # can scan between A's spawn and this PID-file write, kill A's fresh
-    # node as an "orphan", making A's kill -0 below fail so A does the
-    # rm -f — deleting B's PID entry and leaving B's node untracked.
-    if kill -0 "$a_pid" 2>/dev/null; then
-        echo "  Aigentik    → started (PID $a_pid)"
-    else
-        echo "  Aigentik    → ERROR: failed to start. Check $AIGENTIK_LOG_FILE"
-        rm -f "$AIGENTIK_PID_FILE"
-        return 1
-    fi
+        # If orphans exist, terminate them before starting fresh
+        if [ ${#orphan_pids[@]} -gt 0 ]; then
+            echo "  ⚠ Aigentik → found ${#orphan_pids[@]} orphaned process(es) not tracked by PID file: ${orphan_pids[*]} — terminating before starting fresh"
+            for opid in "${orphan_pids[@]}"; do
+                echo "  Terminating orphan Aigentik process (PID $opid)..."
+                kill -TERM "$opid" 2>/dev/null || true
+                for i in {1..10}; do
+                    if ! kill -0 "$opid" 2>/dev/null; then
+                        break
+                    fi
+                    sleep 0.5
+                done
+                if kill -0 "$opid" 2>/dev/null; then
+                    kill -9 "$opid" 2>/dev/null || true
+                fi
+            done
+        fi
+
+        # If tracked instance was already running, exit after clearing orphans
+        if [ -n "$tracked_pid" ]; then
+            echo "  Aigentik    → running (PID $tracked_pid)"
+            exit 0
+        fi
+
+        echo "  Aigentik    → starting from $a_dir..."
+        # 200>&- on the spawn line: fd 200 (the lock fd opened above via
+        # `exec 200>...`) is inherited by forked children by default with no
+        # close-on-exec. Without explicitly closing it here, the long-lived
+        # Aigentik node process would keep holding this lock for its entire
+        # lifetime (flock locks attach to the open file description, not the
+        # process that requested it) — every subsequent start_aigentik call
+        # would then see the lock as held and skip its own already-running
+        # check and orphan-scan/kill path for as long as Aigentik stays up,
+        # silently disabling this function's main job. Same failure shape as
+        # NEW-259's context-ceiling fix: a lock/fd bug that a passing test
+        # suite alone would not catch (see the sequential re-run test below).
+        (cd "$a_dir" && exec nohup $entrypoint >> "$AIGENTIK_LOG_FILE" 2>&1) 200>&- &
+        local a_pid=$!
+        echo "$a_pid" > "$AIGENTIK_PID_FILE"
+        sleep 0.5
+        if kill -0 "$a_pid" 2>/dev/null; then
+            echo "  Aigentik    → started (PID $a_pid)"
+        else
+            echo "  Aigentik    → ERROR: failed to start. Check $AIGENTIK_LOG_FILE"
+            rm -f "$AIGENTIK_PID_FILE"
+            exit 1
+        fi
+    )
+    return $?
 }
 
 stop_aigentik() {
