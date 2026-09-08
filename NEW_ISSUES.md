@@ -5680,6 +5680,16 @@ open, not closed, on this basis.
   duplicate of `NEW-163`** (same `rollback_to_backup()` mechanism, filed
   separately for the primary-branch case) — flagged per rule 8 for
   reconciliation before either is fixed, not silently merged.
+- **Resolved 2026-09-08** (NEW_ISSUES.md ledger closeout, reconciled and
+  fixed together with `NEW-163` — same bug, filed twice, see that entry's
+  own resolution note for the full mechanism/fix/test writeup; not
+  duplicated here). Confirmed by direct code read: `swap_to_finetuned_model()`
+  does mutate `cfg.MODEL_PATH`/`cfg.PLANNER_MODEL_PATH` in lockstep on both
+  the "primary" and "secondary" branches (as this entry already noted), and
+  `rollback_to_backup()` now restores onto the ORIGINAL base path (derived
+  from the backup file's own name, not from whatever the config pointer
+  currently holds), never overwriting a fine-tuned file. `core/lora_import.py`
+  `rollback_to_backup()`.
 
 ### [NEW-92] `main.py`'s `args.init`/`args.tdd`/`args.fix` branches call `loader.load_primary()` unconditionally, with no `is_remote_backend()` guard — a remote-backend user still spawns a local 7B on these three paths (Confirmed by code read, found while wiring TODO.md 7.4 sub-task 5's gate-denial recovery path, not fixed)
 
@@ -8794,6 +8804,56 @@ finding for the same bug. See `NEW-39`.)*
   secondary/planner-branch case before the primary/secondary distinction
   collapsed under the single-model unification) — flagged per rule 8 for
   reconciliation before either is fixed, not silently merged.
+- **Reconciliation confirmed, 2026-09-08:** same bug as `NEW-91`, filed
+  independently — cross-referenced there, not merged into a single entry
+  so each keeps its own discovery context. **This entry's own claim that
+  "the config pointer ends up correct (it's reset to the pre-swap value
+  elsewhere in the rollback path)" does NOT hold up under a full read of
+  `rollback_to_backup()` and `import_lora_adapter()` — correcting the
+  record per rule 6.** There is no code anywhere in `core/lora_import.py`
+  that reset `cfg.MODEL_PATH`/`cfg.PLANNER_MODEL_PATH` back to the
+  pre-swap value after a rollback; the pre-fix `rollback_to_backup()`
+  left the config pointer exactly where `swap_to_finetuned_model()` had
+  left it (pointing at the fine-tuned path) even after successfully
+  overwriting that path's file with base weights. That claim is
+  downgraded to false; the fix below adds the reset this entry
+  incorrectly assumed already existed.
+- **Resolved 2026-09-08** (NEW_ISSUES.md ledger closeout, exception/LoRA
+  batch, reconciled with `NEW-91`). Fix direction taken: restore the
+  config pointer to the ORIGINAL base path (this entry's/`NEW-91`'s first
+  suggested direction), not the alternative ("back up the fine-tuned file
+  itself before overwriting it") — chosen because
+  `swap_to_finetuned_model()` does NOT durably record the pre-swap
+  original path anywhere outside its own call frame (only a function-
+  local `original`/`original_planner` used for its own in-call failure
+  rollback, which does not survive past that function returning), so
+  there is no existing "reversibility" mechanism to reuse as the task
+  description assumed there must be — one had to be added. Backing up the
+  fine-tuned file before every in-place overwrite was also considered and
+  rejected: it would double on-disk storage for every swap (multi-GB
+  `.gguf` files on a device with ~10.8GB RAM and correspondingly tight
+  storage headroom, CLAUDE.md rule 2) for no benefit over just not
+  overwriting the fine-tuned file's path in the first place.
+  `core/lora_import.py`'s `rollback_to_backup()` now derives the original
+  base path from the backup file's own name — `create_backup_before_import()`
+  always names a backup `"<original_stem>.backup<suffix>"` inside the
+  original file's own directory, so reversing that naming recovers the
+  original path regardless of what `cfg.MODEL_PATH`/`cfg.PLANNER_MODEL_PATH`
+  currently hold — restores the backup onto THAT path, and then resets
+  both config pointers to it. A fine-tuned file living under a different
+  path/name is never touched. (A fallback path exists for a hand-supplied
+  `backup_path` that doesn't match the expected naming — it restores onto
+  the current config pointer, the old behavior, but now with a `warning()`
+  log so it's not silent if it's ever hit post-swap.) Regression test:
+  `tests/test_new91_new163_rollback_preserves_finetune.py` — exercises the
+  actual bug scenario (backup base model → swap to a fake fine-tuned file
+  → rollback → assert the fine-tuned file's checksum is unchanged, the
+  base file is restored at its own path, and both config pointers point
+  at the restored base file), verified to FAIL against the pre-fix code
+  (checksum-mismatch assertion, not a setup/import error) via
+  `git stash push core/lora_import.py` before writing the fix, confirming
+  the test has teeth. `python -m pytest tests/ -q` (1510 passed, 1
+  skipped) and `python -m pytest ccos/tests/ -q` (111 passed) both pass.
 
 ### [NEW-164] `core/plannd.py`'s `get_plan()` (local backend, thinking-mode path): `PLANNER_MAX_TOKENS=1024` is confirmed too small for real thinking-mode reasoning on this device — the trace alone consumes the whole budget, `message.content` comes back empty, and planning silently degrades to unplanned execution with no visible error
 **Status:** Resolved (verified 2026-09-08, batch-5 ledger closeout — no code change needed this round). `utils/config.py` (~lines 495-596) shows `PLANNER_MAX_TOKENS=2048` with an audit-trail comment documenting the fix.
@@ -16104,3 +16164,53 @@ Live-verifier ran a RAM-disciplined session per CLAUDE.md rule 2 (two sequential
 - **Impact:** low-to-moderate — this project has been bitten before by a `try-except-pass` silently swallowing a real failure and leaving a component in an inconsistent state (see `NEW-70`'s near-identical shape in `core/loader_v2.py`'s thermal-restart path, fixed this session). Not confirmed as causing any live incident here — flagged on pattern-match to that precedent, not on observed failure.
 - **Not fixed** — needs a case-by-case read of each of the 8 sites to decide which should narrow to a specific exception type (matching the file's own more common pattern) vs. which are genuinely fine to catch-all-and-ignore, not a blanket find-replace.
 - **Cross-reference:** `NEW-70` (near-identical bare-except-swallows-real-failure shape, already fixed in `core/loader_v2.py`), `ccos/core/device_manager.py`, `ccos/core/goal_engine.py`.
+- **Resolved 2026-09-08** (NEW_ISSUES.md ledger closeout, exception-hygiene batch). All 8 listed sites read in full context and fixed case-by-case, not blanket find-replace:
+  - `ccos/core/device_manager.py:72` (`_detect_os`, `/etc/os-release` read) — narrowed to `(OSError, UnicodeDecodeError)`.
+  - `ccos/core/device_manager.py:102` (`_detect_cpu`, `/proc/cpuinfo` read+parse) — narrowed to `(OSError, UnicodeDecodeError, IndexError)` (the last for a matched-prefix line with no `:` to split on).
+  - `ccos/core/device_manager.py:127` (`_detect_ram`, `/proc/meminfo` read+parse) — narrowed to `(OSError, UnicodeDecodeError, AttributeError, ValueError)` (`AttributeError` for a non-matching regex's `.group(1)`, `ValueError` for a non-numeric match).
+  - `ccos/core/device_manager.py:162` (`_detect_gpu`, sysfs vendor read) — narrowed to `(PermissionError, OSError)`, matching this file's own sibling pattern at `_detect_cameras()` (~L183/186).
+  - `ccos/core/device_manager.py:251` (`_detect_storage`, `df -h` output parsing) — left as bare `except Exception`, but no longer silent: added a `warning()` log via `utils.logger`. Not narrowed because `df` output formatting genuinely varies across platforms (GNU coreutils vs. BusyBox/Toybox on Android) — this is the "probing an unpredictable format" case the finding itself carved out as acceptable to leave broad, so long as it's not silent.
+  - `ccos/core/goal_engine.py:358` (`_goals_from_recombination_opportunities`, per-step `json.loads`) — narrowed to `json.JSONDecodeError` (the enclosing `isinstance(step, str)` check rules out a `TypeError` here).
+  - `ccos/core/goal_engine.py:560` (`_save_queue`) — left as bare `except Exception as e`, made non-silent (`warning()`), not narrowed: spans both disk I/O (`OSError`) and serialization (`TypeError`/`ValueError` from `json.dumps` on a future non-JSON-safe `Goal` field) — not a small fixed set.
+  - `ccos/core/goal_engine.py:574` (`_load_queue`) — left as bare `except Exception as e`, made non-silent (`warning()`), not narrowed: a malformed/hand-edited/schema-drifted queue file can fail via `OSError`, `json.JSONDecodeError`, `KeyError`, `ValueError` (bad enum value), or `TypeError` (`Goal(**d)` with unexpected fields) — again not a small fixed set.
+  - **Correction to this entry's own count:** re-grepping both files during the fix found the "8 sites total" figure was short by 2 — `ccos/core/goal_engine.py:345` (identical shape to the 358 site, a sibling `json.loads` bare-except one call frame up) and `ccos/core/device_manager.py:369` are both additional bare `except Exception:`/near-pass sites this entry's original count missed; `git log -p` confirms both were present in the same original commit as the 8 that were counted, so this was an undercount, not new drift. **Left unfixed, out of this batch's scope** (the task that resolved this entry was scoped to exactly the 8 originally-listed sites) — filed as `NEW-415` for a future round rather than silently fixed alongside these 8.
+  - Regression coverage: `python -m pytest ccos/tests/ -q` (111 passed) and `python -m pytest tests/ -q` (1510 passed, 1 skipped; one apparent failure in `tests/test_loader_v2_telemetry.py::test_argv_provenance_emitted_on_genuine_spawn` during a run was a port-8080 collision from two concurrent full-suite runs in the same session, not a real regression — the same test passes cleanly in isolation, `14 passed`) both pass after this change; no behavior change beyond exception specificity and added log lines, per the task's own constraint.
+
+## Found while fixing `NEW-414`/`NEW-91`/`NEW-163` (exception-hygiene + LoRA-rollback ledger closeout), 2026-09-08
+
+### [NEW-415] `ccos/core/goal_engine.py:345` and `ccos/core/device_manager.py:369` (current, post-`NEW-414`-edit line numbers — both happen to be unchanged by that edit) are two more bare `except Exception:`/near-pass sites `NEW-414`'s count missed (its "8 sites total" was actually 10)
+
+- **Status:** Suspected — same shape as `NEW-414`'s 8 already-fixed sites, not itself investigated site-by-site for narrowing/logging in this round; scoped out deliberately to keep that fix to exactly the 8 sites the task named.
+- **Mechanism:** `ccos/core/goal_engine.py:345` — `_goals_from_recombination_opportunities()`'s outer `json.loads(steps_raw)` (one call frame up from the `:358` inner `json.loads(step)` site `NEW-414` did narrow to `json.JSONDecodeError`) — same shape, same fix would likely apply (`steps_raw` is confirmed a `str` by the enclosing `isinstance` check, so `json.JSONDecodeError` alone is probably sufficient, but wasn't verified line-by-line this round). `ccos/core/device_manager.py:369` was not read in detail this round — needs its own case-by-case look before narrowing/logging, per `NEW-414`'s own resolution method.
+- **Impact:** low — same class as `NEW-414`, no live-incident evidence, flagged on pattern-match/count-correction grounds.
+- **Not fixed** — needs the same case-by-case read `NEW-414`'s 8 sites got.
+- **Cross-reference:** `NEW-414` (Resolved — the 8 sites this entry's 2 sites were missed from), `NEW-70`.
+
+### [NEW-416] `ccos/core/device_manager.py:227` and `:300` catch `(PermissionError, OSError, Exception)` — `Exception` subsumes the other two, making these bare catch-alls dressed as typed handlers
+
+- **Status:** Suspected — found while reading the file in full for `NEW-414`'s fix; not itself in `NEW-414`'s list of 8 (that list was specifically the *fully bare* `except Exception:` shape, and these two sites are, on their face, typed-handler shaped).
+- **Mechanism:** `_detect_audio()` (`~L207`, now `~L227` after `NEW-414`'s edits shifted line numbers) and `_detect_network()` (`~L274`, now `~L300`) both write `except (PermissionError, OSError, Exception):` — since `Exception` is a superclass of both `PermissionError` and `OSError`, the tuple is functionally identical to a bare `except Exception:`. This is arguably a worse instance of `NEW-414`'s own complaint ("no distinction from the typed-exception handlers nearby") than the 8 sites that entry flagged, because it visually *looks* like the file's own narrow-typed convention (`except (PermissionError, OSError):`, used correctly at 5+ other sites in the same file) while actually catching everything.
+- **Impact:** low — same silent-catch-all risk `NEW-414` flags, compounded by being misleading to a future reader who pattern-matches the wrong sibling site.
+- **Not fixed** — needs the same case-by-case read (is `Exception` actually needed here, e.g. for a `re.error`/`UnicodeDecodeError` the surrounding code could hit, or is `(PermissionError, OSError)` — matching the file's own convention two lines below at `_detect_network()`'s inner try — sufficient once `Exception` is dropped).
+- **Cross-reference:** `NEW-414` (Resolved), `NEW-415`.
+
+### [NEW-417] `ccos/plugins/coding/finetune/test.py` fails at import — `create_backup_before_import`/`rollback_to_backup` are not actually re-exported by `ccos/plugins/coding/finetune/finetune.py`, so this plugin's own LoRA rollback round-trip test has not been executing
+
+- **Status:** Confirmed by direct reproduction: `python ccos/plugins/coding/finetune/test.py` raises `ImportError: cannot import name 'create_backup_before_import' from 'ccos.plugins.coding.finetune.finetune'` at the top-level import, before any test function runs. Reproduced both before and after this round's `core/lora_import.py` changes (via `git stash`) — pre-existing, not introduced by this round.
+- **Mechanism:** `ccos/plugins/coding/finetune/finetune.py` has a docstring comment (`~L14-16`) explicitly claiming `create_backup_before_import`/`rollback_to_backup` "ARE wrapped" and re-exported from `core.lora_import`, but its actual `from core.lora_import import (...)` block only imports `validate_lora_adapter` — the claim in the comment does not match the code beneath it. `ccos/plugins/coding/finetune/test.py` imports 8 names from `ccos.plugins.coding.finetune.finetune` (`create_backup_before_import`, `export_dataset`, `generate_notebook`, `get_adapter_info`, `print_instructions`, `rollback_to_backup`, `test`, `validate_lora_adapter`); `finetune.py` only actually provides `validate_lora_adapter` (re-exported) plus its own locally-defined `curate_examples`/`test` — `create_backup_before_import`, `export_dataset`, `generate_notebook`, `get_adapter_info`, and `print_instructions` are ALL missing, not just the two the docstring specifically calls out. So the whole test module fails at import time, before `test_create_backup_and_rollback_on_dummy_model()` (the one test in the whole repo that exercised `create_backup_before_import()`/`rollback_to_backup()`'s round-trip prior to this round's new `tests/test_new91_new163_rollback_preserves_finetune.py`) ever runs.
+- **Impact:** moderate — this is very likely *why* `NEW-91`/`NEW-163`'s rollback data-loss bug went undetected for as long as it did: the one pre-existing test that round-tripped `rollback_to_backup()` has been silently not executing (an `ImportError` at collection, not a per-test failure, so it may not even surface in a coverage/pass-count summary run any other way than invoking the file directly, which is not how `tests/` is normally run via `pytest tests/`). Not run at all via `python -m pytest tests/`, since it lives under `ccos/plugins/...` and is invoked as a standalone script, not pytest-discovered.
+- **Not fixed** — out of scope for this round's task (LoRA-rollback fix + exception hygiene); needs its own scoped fix: either add `create_backup_before_import`/`rollback_to_backup` to `finetune.py`'s re-export block (matching its own docstring's claim), or correct the docstring and have `test.py` import directly from `core.lora_import`.
+- **Cross-reference:** `NEW-91`/`NEW-163` (Resolved — the bug this dead test should have caught).
+
+### [NEW-418] Shared `_admit_everything(monkeypatch)` test helper (copy-pasted across `tests/test_new84_stale_model_path.py`, `tests/test_lora_import_swap_sync.py`, and now `tests/test_new91_new163_rollback_preserves_finetune.py`) stubs `reserve_slot`/`mark_resident`/`release_slot` but NOT `confirm_resident_and_mark_slot` — tests using it hit real `resource_gate` residency-confirmation machinery, including a genuine ~10s wait
+
+- **Status:** Confirmed — verbatim captured stdout from a run of this round's new `tests/test_new91_new163_rollback_preserves_finetune.py::test_rollback_after_swap_restores_base_and_preserves_finetune`:
+  ```
+  ⚠  resource_gate: could not confirm a MemAvailable drop for slot slot-1 within
+  10.0s (threshold 0MiB) — marking resident anyway rather than leaving it
+  permanently PENDING (see confirm_resident_and_mark_slot()'s docstring)
+  ```
+- **Mechanism:** `_admit_everything()` (the shared fixture-setup helper pattern in all three files above) monkeypatches `core.resource_gate.reserve_slot`/`mark_resident`/`release_slot`/`read_meminfo` to always admit and no-op, but does not patch `confirm_resident_and_mark_slot()` — so `core.loader_v2`'s real `ModelLoader.load_primary()` path still calls the genuine confirmation routine, which polls actual system `MemAvailable` for up to 10s looking for a drop that a fake/no-op load will never produce, then falls through to "marking resident anyway." Pre-existing in the two files this round's new test copied the helper from — not introduced by this round's new test, which only added a third copy of the same gap.
+- **Impact:** low functionally (tests still pass; the fallback path is designed for exactly this "couldn't confirm, don't hang forever" case) but real cost: every test using this helper pattern pays a genuine ~10s wall-clock tax across three files (six call sites total between the three files) instead of running near-instantly, and does real (harmless but unnecessary) `resource_gate` slot-state read/write activity a properly-isolated unit test shouldn't need. Not a correctness bug in the production code — `confirm_resident_and_mark_slot()`'s "mark resident anyway" fallback is working as documented — but a test-isolation gap costing real time on every run of these files (and now a third).
+- **Not fixed** — out of scope for this round (found via captured test stdout, not something the task's two items touched); needs its own scoped fix: add `confirm_resident_and_mark_slot` to `_admit_everything()`'s monkeypatch set in all three files (ideally by factoring the now-3x-duplicated helper into one shared test-utility module rather than patching each copy independently).
+- **Cross-reference:** `tests/test_new84_stale_model_path.py`, `tests/test_lora_import_swap_sync.py`, `tests/test_new91_new163_rollback_preserves_finetune.py` (this round's new file, inherited the gap from the two it modeled its conventions on).

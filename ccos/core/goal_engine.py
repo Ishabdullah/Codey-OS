@@ -30,6 +30,7 @@ from ccos.core.capability_registry import get_capability_registry
 from ccos.core.memory.ccos_memory import get_ccos_memory
 from ccos.core.performance_tracker import get_performance_tracker
 from ccos.core.reflection_engine import get_reflection_engine
+from utils.logger import warning
 
 GOALS_QUEUE_PATH = str(
     Path(__file__).parent.parent / "data" / "goals_queue.json"
@@ -355,7 +356,11 @@ class GoalEngine:
                         parsed = json.loads(step)
                         if isinstance(parsed, dict) and "capability" in parsed:
                             caps.append(parsed["capability"])
-                    except Exception:
+                    except json.JSONDecodeError:
+                        # `step` is confirmed a str by the enclosing
+                        # isinstance check above, so the only realistic
+                        # failure here is malformed JSON in a workflow-log
+                        # entry, not an unpredictable type error.
                         pass
 
             # Count pairs
@@ -557,8 +562,15 @@ class GoalEngine:
             path.parent.mkdir(parents=True, exist_ok=True)
             data = [g.to_dict() for g in self._goals]
             path.write_text(json.dumps(data, indent=2))
-        except Exception:
-            pass
+        except Exception as e:
+            # Not narrowed: this spans both disk I/O (OSError, e.g. the
+            # mkdir/write above) and serialization (TypeError/ValueError
+            # from json.dumps if a future Goal field isn't JSON-safe) —
+            # not a small fixed set. Logged rather than silently swallowed
+            # (NEW_ISSUES.md NEW-70 precedent) so a real bug in goal
+            # persistence is visible instead of silently discarding the
+            # in-memory queue on every restart.
+            warning(f"Goal queue save failed ({self._queue_path}): {e}")
 
     def _load_queue(self):
         """Load goal queue from disk."""
@@ -571,8 +583,17 @@ class GoalEngine:
                     d["status"] = GoalStatus(d["status"])
                     self._goals.append(Goal(**d))
                 self._goals.sort(key=lambda g: -g.score)
-        except Exception:
-            pass
+        except Exception as e:
+            # Not narrowed: a malformed/hand-edited/schema-drifted queue
+            # file can fail in many distinct ways here — OSError (read),
+            # json.JSONDecodeError (bad JSON), KeyError (missing
+            # "goal_type"/"status"), ValueError (unknown enum value), or
+            # TypeError (Goal(**d) with an unexpected/missing field) — not
+            # a small fixed set. Logged rather than silently swallowed
+            # (NEW_ISSUES.md NEW-70 precedent) so a real bug or a corrupted
+            # queue file is visible instead of silently starting with an
+            # empty goal queue.
+            warning(f"Goal queue load failed ({self._queue_path}): {e}")
 
     def inject_into_planner(self) -> Optional[str]:
         """

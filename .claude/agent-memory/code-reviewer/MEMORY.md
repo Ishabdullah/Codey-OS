@@ -50,6 +50,8 @@
 - [Phase B2 task 4 email/sms-rules write-through + delete_rule — approved](phase_b2_task4_email_sms_rules_writethrough_approved.md) — gitignored
 - [Phase B2 task 4 update_subcontractor + route — approved](restoricon_core_phase_b2_task4_update_subcontractor_approved.md) — live-probed SQL-shaped
 - [Phase B2 task 4 find_subcontractor + NEW-246 mirror-bug — approved](restoricon_core_phase_b2_task4_find_subcontractor_new246_approved.md) — JS bug
+- [NEW-414 except-narrowing + NEW-91/163 LoRA rollback fix — approved](new414_lora_rollback_new91_163_batch_approved.md) — git-stash negative
+  control confirmed real regression coverage; NEW-417 dead-test import failure reproduced directly
 - [git checkout -- path wipes uncommitted diff, not just reviewer's tweak](git_checkout_path_wipes_uncommitted_diff.md) — use scratchpad backup copy
 - [NEW-227/NEW-222/NEW-237 provision.py revoke + by-id GET fix — approved w/ 1 warning](new227_new222_new237_cleanup_approved.md) —
 - [NEW-212/216/232 first schema-migration mechanism (_migrate_schema) — approved w/ 1

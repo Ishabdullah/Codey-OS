@@ -463,20 +463,64 @@ def rollback_to_backup(backup_path: str, model_variant: str) -> Tuple[bool, str]
     if not backup.exists():
         return False, f"Backup not found: {backup_path}"
 
-    if model_variant == "primary":
-        original = cfg.MODEL_PATH
+    # NEW-91/NEW-163 (NEW_ISSUES.md, unified 2026-09-08 — same
+    # rollback_to_backup() mechanism, filed independently for the
+    # "secondary"/planner and "primary" branches before the single-model
+    # migration collapsed the two into one path): the original code
+    # restored onto whatever cfg.MODEL_PATH/cfg.PLANNER_MODEL_PATH
+    # CURRENTLY names. After a successful swap_to_finetuned_model(), that
+    # name has already been mutated to point at the fine-tuned file's
+    # path — so restoring "in place" onto the current pointer silently
+    # overwrote the fine-tuned checkpoint's on-disk file with base
+    # weights, destroying it with no way to get it back.
+    #
+    # Fix: derive the ORIGINAL base model's path from the backup file's
+    # own name instead of trusting the (possibly-swapped) config pointer.
+    # create_backup_before_import() always names the backup
+    # "<original_stem>.backup<suffix>" inside the original file's own
+    # directory (see that function, above) — reversing that naming gives
+    # back the original path regardless of what the config currently
+    # points at, so a rollback restores the base file at ITS OWN path and
+    # never touches a fine-tuned file living under a different name/path.
+    if backup.stem.endswith(".backup"):
+        original_stem = backup.stem[: -len(".backup")]
+        original_path = backup.parent / f"{original_stem}{backup.suffix}"
     else:
-        # PLANNER_MODEL_PATH, not SECONDARY_MODEL_PATH — see module-level
-        # NOTE at the top of this file (NEW_ISSUES.md NEW-84).
-        original = cfg.PLANNER_MODEL_PATH
-
-    original_path = Path(original)
+        # Not a backup name create_backup_before_import() produced (e.g.
+        # a hand-supplied backup_path) — no reliable way to recover the
+        # original path from the name, so fall back to the config
+        # pointer's current value (the pre-fix behavior) rather than
+        # guessing wrong. NOTE: if a swap already happened, this fallback
+        # reproduces the exact NEW-91/NEW-163 data-loss path (restoring
+        # onto whatever the pointer currently names, which may be a
+        # fine-tuned file) — logged so that's visible rather than silent.
+        if model_variant == "primary":
+            original_path = Path(cfg.MODEL_PATH)
+        else:
+            original_path = Path(cfg.PLANNER_MODEL_PATH)
+        warning(
+            f"rollback_to_backup(): backup path {backup} doesn't match "
+            f"create_backup_before_import()'s naming convention — cannot "
+            f"reliably derive the original base path, falling back to "
+            f"restoring onto the CURRENT config pointer ({original_path}), "
+            f"which may be a fine-tuned file's path (NEW-91/NEW-163)"
+        )
 
     info(f"Rolling back to backup...")
     try:
         shutil.copy2(backup, original_path)
         # Remove backup marker
         backup.unlink()
+
+        # Reset the config pointer(s) back to the original base path, in
+        # sync with each other — mirrors swap_to_finetuned_model()'s own
+        # MODEL_PATH/PLANNER_MODEL_PATH lockstep mutation (see that
+        # function's comments; both "primary" and "secondary" variants
+        # target the same physical server as of M1-D, 2026-08-23), so a
+        # rollback leaves the config pointing at the just-restored base
+        # file rather than still pointing at the fine-tuned path.
+        cfg.MODEL_PATH = original_path
+        cfg.PLANNER_MODEL_PATH = original_path
 
         # Reload model. NEW-24 (NEW_ISSUES.md): the "secondary" branch below
         # used to call `loader.load_secondary()`, which does not exist on

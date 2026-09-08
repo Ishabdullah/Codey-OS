@@ -18,6 +18,8 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from utils.logger import warning
+
 
 def _run_cmd(cmd: List[str], timeout: int = 5) -> str:
     """Run a command safely and return stdout."""
@@ -69,7 +71,10 @@ def _detect_os() -> Dict[str, str]:
                 for line in content.splitlines():
                     if line.startswith("ID="):
                         info["name"] = line.split("=", 1)[1].strip('"').lower()
-    except Exception:
+    except (OSError, UnicodeDecodeError):
+        # /etc/os-release read failure — unreadable (permissions gone
+        # mid-check) or an unexpected encoding. Best-effort detection;
+        # `info["name"]` falls back to `platform.system().lower()` below.
         pass
 
     if info["name"] == "unknown":
@@ -99,7 +104,12 @@ def _detect_cpu() -> Dict[str, Any]:
                     if line.startswith("Processor"):
                         cpu_info["model"] = line.split(":", 1)[1].strip()
                         break
-    except Exception:
+    except (OSError, UnicodeDecodeError, IndexError):
+        # /proc/cpuinfo read failure (OSError/UnicodeDecodeError), or a
+        # line matched the "model name"/"Hardware"/"Processor" prefix
+        # check but had no ":" to split on (IndexError) — some ARM/exotic
+        # kernels format /proc/cpuinfo unusually. Falls back to
+        # platform.processor() below.
         pass
 
     # Fallback: use platform
@@ -124,7 +134,13 @@ def _detect_ram() -> Dict[str, Any]:
                 elif line.startswith("MemAvailable"):
                     kb = int(re.search(r"(\d+)", line).group(1))
                     ram["available_mb"] = kb // 1024
-    except Exception:
+    except (OSError, UnicodeDecodeError, AttributeError, ValueError):
+        # /proc/meminfo read failure (OSError/UnicodeDecodeError), the
+        # regex not matching a line's expected "<label> <number> kB"
+        # shape (AttributeError on `.group(1)` of a None match), or a
+        # non-numeric match (ValueError from int()) — some kernels format
+        # /proc/meminfo lines unusually. `ram` keeps whatever partial
+        # values were set before the failure.
         pass
 
     return ram
@@ -159,7 +175,11 @@ def _detect_gpu() -> List[Dict[str, str]]:
             try:
                 vendor = card.read_text().strip()
                 gpus.append({"name": f"GPU (vendor {vendor})", "source": "sysfs"})
-            except Exception:
+            except (PermissionError, OSError):
+                # Matches this file's own convention for sysfs reads (see
+                # _detect_cameras() below) — a permission-gated or
+                # transiently-missing sysfs node for one card must not
+                # abort detection of the others.
                 pass
 
     return gpus
@@ -248,8 +268,14 @@ def _detect_storage() -> List[Dict[str, Any]]:
                         "available": parts[3],
                         "mount": parts[5] if len(parts) > 5 else "/",
                     })
-    except Exception:
-        pass
+    except Exception as e:
+        # Not narrowed: `df -h` output formatting genuinely varies across
+        # platforms (GNU coreutils vs. BusyBox/Toybox on Android, locale-
+        # dependent column widths/units), so the realistic failure modes
+        # here aren't a small fixed set. Logged rather than silently
+        # swallowed (NEW_ISSUES.md NEW-70 precedent) so a real parsing bug
+        # is still visible instead of just yielding an empty storage list.
+        warning(f"Device storage detection failed: {e}")
 
     return storage
 
