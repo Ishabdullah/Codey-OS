@@ -929,7 +929,13 @@ uncommitted working-tree prompt text, not against `HEAD`.
   `M1-G` entry for the pre-registered re-test plan (not yet run).
 
 ### [NEW-51] Rule 9 peer-CLI delegation format fails entirely (0/3, no delegation step emitted) on a fresh phrasing not matching prior tested patterns (Confirmed; deterministic; causal link to this session's changes not established)
-**Status:** Reversed by a single live-verify trial (`U.3`, 2026-09-07, `PROJECT_LOG.md`) — the near-identical prompt "Have gemini check main.py for race conditions" against Qwen3.5-4B triggered the correct Rule 9 `Ask <cli> to...` delegation step, the opposite of this entry's original 0/3 finding. **Not closing on this alone:** `U.3` is a single trial, not the 3+ trials this entry's original finding used — needs 2+ more live-verify trials before fully closing (2026-09-08, batch-5 ledger closeout).
+**Status: CLOSED, 2026-09-08 (combined live-verify session, daemon/plannd Cycle A).** `U.3` (2026-09-07) reversed the original 0/3 finding with 1 trial against Qwen3.5-4B. This round ran 3 MORE live trials of a close variant ("Have gemini check payment_processor.py for race conditions") through the real `core/plannd.py:get_plan()` path (daemon running, real model loaded on port 8080, PID 15680 — `free -h`/`ps aux` recorded before/after, clean teardown confirmed). All 3 clean:
+```
+trial 1: ['Ask gemini to check payment_processor.py for race conditions']
+trial 2: ['Ask gemini to check payment_processor.py for race conditions']
+trial 3: ['Ask gemini to check payment_processor.py for race conditions']
+```
+4/4 successful trials total across the two sessions — past the 3+ bar the original 0/3 finding used. Rule 9 peer-CLI delegation is confirmed working on the current Qwen3.5-4B model.
 
 - **Status:** Confirmed — deterministic, 0/3 across 3 trials. Explicitly
   **not** claimed as a regression from this session's `PLANNER_PROMPT`
@@ -9625,6 +9631,11 @@ finding for the same bug. See `NEW-39`.)*
   discriminator.
 - **Cross-references:** `NEW-50` (the original finding), `CODEY_MASTER_PLAN.md`
   §4.2's M1-G entry (G3 test writeup and result).
+- **Re-test with a genuinely fresh fixture, 2026-09-08 (combined live-verify session, daemon/plannd Cycle A).** Per this entry's own recommendation, used a prompt absent from `PLANNER_PROMPT` entirely (verified by grep before the run): `"Fix the null pointer bug in the handler function in core/webhook_router.py"`. 5 trials via the real `core/plannd.py:get_plan()` path (daemon running, real Qwen3.5-4B model loaded on port 8080, clean teardown confirmed). All 5 clean, byte-identical:
+  ```
+  ['Edit core/webhook_router.py: fix the null pointer bug in the handler function']
+  ```
+  No fabricated/leaked content from unrelated worked examples. This is a genuine discriminating result (not vulnerable to the example-matching concern this entry raised, since no matching worked block exists anywhere in the prompt for this fixture) — `NEW-50`'s underlying leak concern is confirmed not reproducing on the current Qwen3.5-4B model across two independent fixtures now (the earlier `M1-G` G3 pass on the original prompt, and this session's fresh one).
 
 ### [NEW-184] `CODEY_MASTER_PLAN.md` Appendix A's `M1-F` item contradicted itself on review status in the same entry
 - **Status:** Confirmed, already self-corrected in this same editing pass
@@ -16063,3 +16074,21 @@ outside that fix's scope.
 - **Fix direction:** extend `NEW-268`'s `$DAEMON_DIR/aigentik.lock` flock to also wrap `stop_aigentik`'s (and possibly `status_aigentik`'s) sequence, so a stop/status call can't observe/act on a start that's mid-flight. Needs the same care `NEW-268`'s fix took around fd inheritance into any forked/backgrounded work in these functions.
 - **Not fixed here** — out of `NEW-268`'s scope (start-vs-start only). Needs its own scoped round, sized small given the risk class, matching this project's process-lifecycle batch pattern.
 - **Cross-reference:** `NEW-268`, `lib/service_manager.sh:stop_aigentik` (~lines 409-466).
+
+## Found during combined live-verify session (M1-G/NEW-51 re-test, NEW-70/NEW-74 on-device confirmation, NEW-268 real-Aigentik check), 2026-09-08
+
+### [NEW-413] `start_aigentik` triggers a real primary-model load as a side effect, and Aigentik's own process exits on Core API warm-up failure — orphaning the model server it caused to spawn, with a stale `aigentik.pid` left behind
+
+- **Status:** Confirmed — directly observed live during `NEW-268`'s real-Aigentik confirmation pass (this session).
+- **Mechanism:** starting `~/Codey-Aigentik` via `start_aigentik` (`lib/service_manager.sh`) is not RAM-neutral and not process-count-neutral, contrary to the assumption both this session's live-verify scoping and `NEW-268`'s own fix treated it under ("Aigentik is a plain node process, no model load involved"). Aigentik's own startup log showed it delegating a real llama-server load to the Codey-OS daemon (`"Delegating llama-server load to Codey-OS daemon..."`), which succeeded — but Aigentik's subsequent warm-up call to the local AI provider failed with `"AI call failed (Core API proxy)"` / `"Warm-up failed"` (Restoricon's Core API was not running in this session), and Aigentik's own node process exited shortly after. This left: (1) the llama-server it triggered reparented to PID 1 (`PPid: 1`, confirmed via `/proc/<pid>/status`) — a real orphan, not caught by `stop_aigentik`'s orphan scan since that scan only looks for `node`-entrypoint processes, never `llama-server`; (2) `~/.codeyOS/aigentik.pid` left stale, pointing at the now-dead node PID.
+- **What worked correctly:** `stop_aigentik`'s stale-PID-file detection and cleanup handled the dead node PID correctly (reported "not running", "0 processes remaining", no error). The orphaned llama-server itself was cleaned up in this session via the project's own tracked-PID mechanism (`codeydOS stop`'s `kill_llama_server_gracefully`, reading `~/.codeyOS/llama-server-8080.pid`) — a manual step this session took, not something `stop_aigentik`/`stop_all_services` did on its own.
+- **Impact:** a real gap in teardown coverage — nothing in this codebase's stop path currently sweeps for a model server orphaned specifically by Aigentik's own warm-up-failure exit. On a device where Restoricon's Core API is down or slow to start (a real, not hypothetical, startup-ordering scenario), `codey start`/`start_aigentik` can leave a resident, RAM-holding `llama-server` process behind that neither `status`/`stop` commands account for through their normal PID-file paths.
+- **Not tested:** whether this same failure occurs when Restoricon's Core API IS running (the normal/expected end-to-end configuration) — this session's environment didn't have it up, so only the failure path was exercised, not the happy path.
+- **Fix direction:** either have Aigentik's own warm-up-failure exit path signal the daemon to release the model server it triggered (cleanest, but requires Aigentik-side changes in a separate repo, `~/Codey-Aigentik`), or extend `stop_aigentik`'s/`stop_all_services`'s cleanup to also check for and reap a model server whose spawn it can trace back to an Aigentik-triggered load that never got torn down.
+- **Cross-reference:** `NEW-268`, `lib/service_manager.sh:start_aigentik`/`stop_aigentik`, `~/Codey-Aigentik` (separate repo).
+
+### Combined live-verify session results summary (NEW-46/NEW-50/NEW-51/NEW-183 re-tests, NEW-70/NEW-74 on-device confirmation)
+
+Live-verifier ran a RAM-disciplined session per CLAUDE.md rule 2 (two sequential model-load cycles, each confirmed fully torn down via `ps aux | grep llama-server` before the next began, `free -h` recorded verbatim at every checkpoint, no bare-name-pattern kills). Results folded into the relevant entries above (`NEW-51` closed, `NEW-183`/`NEW-50` given a fresh-fixture re-test result). Two items from this round's scope did not produce their own findings:
+- **`filter_tool_steps()` real-output check** (part of batch 5's deferred 4B-tuning confirmation): one live `get_plan()` call for `"Build a small REST API for tracking expenses with SQLite persistence, add tests, and verify the output"` produced a raw plan and a `filter_tool_steps()`-filtered plan that were byte-identical (nothing dropped) — `['Create expense_tracker.py: ...', 'Create expense_tracker_test.py: ...', 'Run: pytest expense_tracker_test.py']`. No red flags observed (no over-dropping, no visible implementation-detail leak), but this is a single trial on one prompt shape, not a systematic confirmation that the filter's heuristics are well-tuned for 4B output in general — treat as one data point, not closure of the underlying batch-5 flag.
+- **`NEW-70`/`NEW-74` on-device confirmation**: both fixes (committed `a2a61e3`/`1afe002`, previously verified via mocks only) now confirmed against a real loaded model and a real adopted-port scenario, exactly matching expected behavior — `ensure_model()` correctly returns `False`/`LOAD_OUTCOME_ERROR` on a genuine `unload()` failure during a mocked thermal restart (real server left untouched), and `LlamaServer.stop()` correctly no-ops with a warning on an adopted-not-spawned server (real server, owned by a different loader instance, left untouched). Both now code-complete AND live-verified per rule 7's tier distinction.
