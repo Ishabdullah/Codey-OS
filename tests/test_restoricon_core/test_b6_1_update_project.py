@@ -170,11 +170,12 @@ def test_pm_list_field_reassign_owned_vs_unowned(env, actors, project, unowned_p
     """The decision-2 case that turns on ownership for the JSON list fields,
     not just project_manager_id: role-based PM, scoped grant."""
     crm = env["crm"]
-    res = crm.update_project(project.id, {"assigned_employees": [7, 8]}, actors["pm_owner"])
-    assert res.assigned_employees == [7, 8]
+    _ids = [actors["sales"].user_id, actors["tech"].user_id]
+    res = crm.update_project(project.id, {"assigned_employees": _ids}, actors["pm_owner"])
+    assert res.assigned_employees == _ids
 
     with pytest.raises(PermissionError):
-        crm.update_project(unowned_project.id, {"assigned_employees": [7, 8]}, actors["pm_owner"])
+        crm.update_project(unowned_project.id, {"assigned_employees": _ids}, actors["pm_owner"])
     with pytest.raises(PermissionError):
         crm.update_project(project.id, {"subcontractors": ["X"]}, actors["pm_other"])
 
@@ -318,6 +319,108 @@ def test_assigned_employees_round_trip(env, actors, project):
 def test_bad_project_manager_fk_maps_to_value_error(env, actors, project):
     with pytest.raises(ValueError, match="data constraint"):
         env["crm"].update_project(project.id, {"project_manager_id": 999999}, actors["admin"])
+
+
+def test_create_project_bad_project_manager_id_raises_value_error(env, actors, customer):
+    """NEW-303: create_project pre-checks project_manager_id against
+    users.id instead of leaking an uncaught IntegrityError as a 500."""
+    with pytest.raises(ValueError, match="project_manager_id"):
+        env["crm"].create_project(
+            Project(
+                customer_id=customer.id,
+                title="Bad PM",
+                property_address="5 Elm St",
+                project_type="water_damage",
+                project_manager_id=999999,
+            ),
+            actors["admin"],
+        )
+
+
+def test_create_project_unknown_assigned_employees_raises_value_error(env, actors, customer):
+    """NEW-303: create_project pre-checks assigned_employees ids against
+    users.id."""
+    with pytest.raises(ValueError, match="assigned_employees"):
+        env["crm"].create_project(
+            Project(
+                customer_id=customer.id,
+                title="Bad assignees",
+                property_address="6 Elm St",
+                project_type="water_damage",
+                assigned_employees=[999999, 999998],
+            ),
+            actors["admin"],
+        )
+
+
+def test_update_project_unknown_assigned_employees_raises_value_error(env, actors, project):
+    """NEW-303: update_project pre-checks assigned_employees ids too."""
+    with pytest.raises(ValueError, match="assigned_employees"):
+        env["crm"].update_project(project.id, {"assigned_employees": [999999]}, actors["admin"])
+
+
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {"title": 12345},
+        {"estimated_cost": "not-a-number"},
+        {"estimated_cost": True},
+    ],
+)
+def test_update_project_rejects_bad_value_types(env, actors, project, updates):
+    """NEW-308 (value-type half): a non-string title / non-numeric
+    estimated_cost raises ValueError. bool is explicitly excluded from
+    the numeric-field check since bool is an int subclass in Python."""
+    with pytest.raises(ValueError):
+        env["crm"].update_project(project.id, updates, actors["admin"])
+
+
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {"assigned_employees": ["abc"]},
+        {"assigned_employees": [{"a": 1}]},
+    ],
+)
+def test_update_project_assigned_employees_type_check_runs_before_existence_check(
+    env, actors, project, updates
+):
+    """NEW-308 must run before NEW-303's existence check -- a non-int
+    assigned_employees element has to raise the clean 'elements must be
+    ints' ValueError, not an existence-check ValueError (for a string
+    that happens to look like a missing id) or a raw
+    TypeError/sqlite3.InterfaceError (for an unhashable dict element that
+    would otherwise reach the existence check's set()/SQL IN-clause)."""
+    with pytest.raises(ValueError, match="elements must be ints"):
+        env["crm"].update_project(project.id, updates, actors["admin"])
+
+
+def test_update_project_write_only_actor_gets_row_not_permission_error(env, project):
+    """NEW-306: an actor with PERM_WRITE_PROJECTS granted (via
+    custom_permissions) but no read permission covering this project
+    (a technician not assigned to it -- ROLE_TECHNICIAN only carries
+    PERM_READ_ASSIGNED_PROJECTS, and this actor isn't in the project's
+    assigned_employees) gets the updated project back from update_project
+    instead of a PermissionError raised by the old self.get_project()
+    return path. Actor must be a real users.id row -- audit_log has a FK
+    on actor_id."""
+    tech_user = env["auth"].create_user(
+        "write_only_tech", "Pass123!", "write_only_tech", "write_only_tech@r.com",
+        role=ROLE_TECHNICIAN,
+    )
+    write_only = AuthContext(
+        user_id=tech_user.id,
+        username=tech_user.username,
+        role=ROLE_TECHNICIAN,
+        actor_type="human",
+        custom_permissions={PERM_WRITE_PROJECTS: True},
+    )
+    res = env["crm"].update_project(project.id, {"title": "Write-only update"}, write_only)
+    assert res is not None
+    assert res.title == "Write-only update"
+
+    with pytest.raises(PermissionError):
+        env["crm"].get_project(project.id, write_only)
 
 
 def test_missing_project_returns_none(env, actors):

@@ -367,7 +367,25 @@ class CRMService:
             if cursor.rowcount == 0:
                 return None
 
-        updated_cust = self.get_customer(customer_id, actor)
+            # NEW-306: build the after-image from a raw post-write row read
+            # rather than self.get_customer(), which re-runs the read-gate
+            # (can_access_customer) that a write-capable-but-read-refused
+            # actor may not pass. _row_to_customer is a plain staticmethod
+            # with no role parameter and does not redact `notes` the way
+            # get_customer() does for ROLE_CUSTOMER. custom_permissions can
+            # grant a ROLE_CUSTOMER actor PERM_WRITE_CUSTOMERS (has_permission
+            # checks custom_permissions before the static ROLE_PERMISSIONS
+            # table), so that actor CAN reach this write path -- apply the
+            # same notes redaction get_customer() applies, inline, without
+            # re-invoking the read-permission gate (calling get_customer()
+            # here would reintroduce NEW-306's original 403-on-legitimate-
+            # write bug).
+            updated_row = conn.execute(
+                "SELECT * FROM customers WHERE id = ?;", (customer_id,)
+            ).fetchone()
+            updated_cust = self._row_to_customer(updated_row) if updated_row else None
+            if updated_cust is not None and actor.role == ROLE_CUSTOMER:
+                updated_cust.notes = None
         # fields=sorted(updates) here is a diff-domain scope, not a security
         # filter -- Customer.to_dict() carries nothing sensitive, so there is
         # no _AUDITABLE_CUSTOMER_FIELDS constant. It bounds changed_fields to
@@ -1591,13 +1609,34 @@ class CRMService:
         )
 
     def create_project(self, project: Project, actor: AuthContext) -> Project:
-        """Create a project. Does NO referential validation of
-        ``project_manager_id`` / ``assigned_employees`` / ``subcontractors``
-        beyond the DB foreign key on ``project_manager_id`` -- element ids in
-        the two JSON lists are not checked against any table. ``update_project``
-        matches this intentionally."""
+        """Create a project. Validates ``project_manager_id`` and
+        ``assigned_employees`` against ``users.id`` up front (NEW-303) so a
+        bad id raises a clean ValueError instead of leaking an uncaught
+        IntegrityError as a 500. ``subcontractors`` (List[str]) is NOT
+        validated -- its referent table is undecided (NEW-304, open)."""
         if not actor.has_permission(PERM_WRITE_PROJECTS):
             raise PermissionError("Actor lacks permission to create projects")
+
+        conn = self.db.get_connection()
+        if project.project_manager_id is not None:
+            row = conn.execute("SELECT 1 FROM users WHERE id = ?;", (project.project_manager_id,)).fetchone()
+            if not row:
+                raise ValueError(f"project_manager_id {project.project_manager_id} does not exist")
+        if project.assigned_employees:
+            # Type-check BEFORE the existence check's SQL/set() below -- a
+            # non-int element (e.g. a dict) would otherwise reach the IN-clause
+            # binding or the set() difference and raise a raw sqlite3 error
+            # instead of a clean ValueError (same ordering fix as
+            # update_project's NEW-308 check).
+            if not all(isinstance(x, int) for x in project.assigned_employees):
+                raise ValueError("Field 'assigned_employees' elements must be ints")
+            placeholders = ",".join("?" * len(project.assigned_employees))
+            found = {r["id"] for r in conn.execute(
+                f"SELECT id FROM users WHERE id IN ({placeholders});", project.assigned_employees
+            ).fetchall()}
+            missing = sorted(set(project.assigned_employees) - found)
+            if missing:
+                raise ValueError(f"assigned_employees contains unknown user id(s): {missing}")
 
         now = utc_now_iso()
         project.created_at = now
@@ -1605,7 +1644,6 @@ class CRMService:
         assigned_json = json.dumps(project.assigned_employees)
         subcontractors_json = json.dumps(project.subcontractors)
 
-        conn = self.db.get_connection()
         with conn:
             cursor = conn.execute(
                 """
@@ -1751,10 +1789,11 @@ class CRMService:
         else but may not grab one they do not manage. ``stage``/``status`` are
         rejected with a pointer to the stage-transition endpoint;
         ``customer_id`` is simply not in the allow-list. ``project_manager_id``
-        cannot be nulled (None-value guard) -- omit the key instead. Like
-        ``create_project`` this does NO referential validation beyond the DB
-        foreign key on ``project_manager_id``; element ids in the two JSON
-        lists are not checked. Read-then-write is not atomic, matching the
+        cannot be nulled (None-value guard) -- omit the key instead.
+        ``assigned_employees`` ids are validated against ``users.id``
+        (NEW-303); ``subcontractors`` (List[str]) is not, its referent table
+        is undecided (NEW-304, open). Submitted values are also type-checked
+        (NEW-308) -- no date-format validation. Read-then-write is not atomic, matching the
         rest of this service layer. When every submitted value already equals
         the stored value, ``updated_at`` still bumps but no audit row is
         written."""
@@ -1804,6 +1843,47 @@ class CRMService:
         if self._PROJECT_REASSIGNMENT_FIELDS & set(updates):
             if not _actor_may_reassign_project_staff(actor, row):
                 raise PermissionError("Actor may not reassign staff on this project")
+
+        # NEW-308 (value-type half only): type-check submitted values BEFORE
+        # the NEW-303 existence check below -- this must run first, or a
+        # non-int assigned_employees element (e.g. a string or dict) would
+        # reach the existence check's SQL IN-clause / set() call and raise a
+        # raw sqlite3.InterfaceError/TypeError instead of a clean ValueError,
+        # which is exactly the shape NEW-239/NEW-308 exist to eliminate.
+        # Date-format validation is deliberately out of scope -- see this
+        # method's docstring update.
+        _PROJECT_STRING_FIELDS = {
+            "title", "property_address", "project_type", "start_date",
+            "expected_completion", "actual_completion", "scope_of_work", "notes",
+            "warranty_info", "insurance_claim_number", "insurance_carrier",
+            "adjuster_name", "adjuster_phone", "adjuster_email",
+        }
+        _PROJECT_NUMERIC_FIELDS = {"estimated_cost", "contract_amount", "actual_cost", "profit", "deductible"}
+
+        for key in _PROJECT_STRING_FIELDS & set(updates):
+            if not isinstance(updates[key], str):
+                raise ValueError(f"Field '{key}' must be a string")
+        for key in _PROJECT_NUMERIC_FIELDS & set(updates):
+            v = updates[key]
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                raise ValueError(f"Field '{key}' must be a number")
+        if "project_manager_id" in updates and not isinstance(updates["project_manager_id"], int):
+            raise ValueError("Field 'project_manager_id' must be an int")
+        if "assigned_employees" in updates and not all(isinstance(x, int) for x in updates["assigned_employees"]):
+            raise ValueError("Field 'assigned_employees' elements must be ints")
+        if "subcontractors" in updates and not all(isinstance(x, str) for x in updates["subcontractors"]):
+            raise ValueError("Field 'subcontractors' elements must be strings")
+
+        # NEW-303: existence checks against users.id. subcontractors (List[str])
+        # is out of scope -- its referent table is undecided (NEW-304, open).
+        if "assigned_employees" in updates and updates["assigned_employees"]:
+            placeholders = ",".join("?" * len(updates["assigned_employees"]))
+            found = {r["id"] for r in conn.execute(
+                f"SELECT id FROM users WHERE id IN ({placeholders});", updates["assigned_employees"]
+            ).fetchall()}
+            missing = sorted(set(updates["assigned_employees"]) - found)
+            if missing:
+                raise ValueError(f"assigned_employees contains unknown user id(s): {missing}")
 
         set_clauses: List[str] = []
         params: List[Any] = []
@@ -1861,7 +1941,8 @@ class CRMService:
         _after_row = conn.execute(
             "SELECT * FROM projects WHERE id = ?;", (project_id,)
         ).fetchone()
-        _after = self._row_to_project(_after_row, actor.role).to_dict() if _after_row else None
+        _after_project = self._row_to_project(_after_row, actor.role) if _after_row else None
+        _after = _after_project.to_dict() if _after_project else None
         _details = build_audit_details(
             before=_before,
             after=_after,
@@ -1899,7 +1980,14 @@ class CRMService:
                         import logging
                         logging.getLogger(__name__).warning(f"Failed to send assignment notification: {e}")
 
-        return self.get_project(project_id, actor)
+        # NEW-306: return the already-fetched/converted post-write row
+        # directly instead of a redundant self.get_project() call --
+        # _row_to_project(row, actor.role) above already applies the same
+        # role-conditional field redaction (e.g. zeroing financial fields
+        # for the customer role) that get_project() would, so a
+        # write-capable-but-read-refused actor now gets the updated row
+        # back instead of a PermissionError from get_project()'s read-gate.
+        return _after_project
 
     # ==========================================
     # ESTIMATES
@@ -2577,13 +2665,21 @@ class CRMService:
             updated_at=row["updated_at"],
         )
 
-    def create_subcontractor(self, sub: Subcontractor, actor: AuthContext) -> Subcontractor:
+    def create_subcontractor(
+        self, sub: Subcontractor, actor: AuthContext,
+        created_at: Optional[str] = None, updated_at: Optional[str] = None,
+    ) -> Subcontractor:
+        # NEW-218 (service-layer half): explicit override kwargs so a caller
+        # migrating a record with a known source created_at/updated_at can
+        # preserve it instead of getting "now" stamped on both. Currently
+        # unused -- no existing caller passes them, so this is a
+        # zero-behavior-change addition for every current call site.
         if not actor.has_permission(PERM_WRITE_SUBCONTRACTORS):
             raise PermissionError("Actor lacks permission to create subcontractors")
 
         now = utc_now_iso()
-        sub.created_at = now
-        sub.updated_at = now
+        sub.created_at = created_at or now
+        sub.updated_at = updated_at or now
         secondary_trades_json = json.dumps(sub.secondary_trades)
         references_json = json.dumps(sub.references)
         qualification_data_json = json.dumps(sub.qualification_data)
@@ -2653,8 +2749,8 @@ class CRMService:
                     sub.dnc_status,
                     sub.notes,
                     qualification_data_json,
-                    now,
-                    now,
+                    sub.created_at,
+                    sub.updated_at,
                 ),
             )
             sub.id = cursor.lastrowid
@@ -3007,9 +3103,15 @@ class CRMService:
         if not updates:
             return self.get_subcontractor(subcontractor_id, actor)
 
+        if "qualification_data" in updates and not isinstance(updates["qualification_data"], dict):
+            raise ValueError("Field 'qualification_data' must be a dict")
+        if "secondary_trades" in updates and not isinstance(updates["secondary_trades"], list):
+            raise ValueError("Field 'secondary_trades' must be a list")
+
         updates = dict(updates)
         if "email" in updates:
-            updates["email"] = updates["email"].strip().lower()
+            _email = updates["email"].strip().lower()
+            updates["email"] = _email if _email else None
         if "company_name" in updates:
             updates["company_name"] = updates["company_name"].strip()
 

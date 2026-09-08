@@ -92,7 +92,15 @@ class AutomationService:
             updated_at=row["updated_at"],
         )
 
-    def create_rule(self, rule: AutomationRule, actor: AuthContext) -> AutomationRule:
+    def create_rule(
+        self, rule: AutomationRule, actor: AuthContext,
+        created_at: Optional[str] = None, updated_at: Optional[str] = None,
+    ) -> AutomationRule:
+        # NEW-218 (service-layer half): explicit override kwargs so a caller
+        # migrating a record with a known source created_at/updated_at can
+        # preserve it instead of getting "now" stamped on both. Currently
+        # unused -- no existing caller passes them, so this is a
+        # zero-behavior-change addition for every current call site.
         if not actor.has_permission(PERM_WRITE_AUTOMATION_RULES):
             raise PermissionError("Actor lacks permission to create automation rules")
 
@@ -100,8 +108,8 @@ class AutomationService:
             raise ValueError(f"Invalid channel '{rule.channel}'. Must be one of {sorted(VALID_CHANNELS)}")
 
         now = utc_now_iso()
-        rule.created_at = now
-        rule.updated_at = now
+        rule.created_at = created_at or now
+        rule.updated_at = updated_at or now
 
         conn = self.db.get_connection()
         with conn:
@@ -121,8 +129,8 @@ class AutomationService:
                     rule.action,
                     rule.added_by,
                     rule.match_count,
-                    now,
-                    now,
+                    rule.created_at,
+                    rule.updated_at,
                 ),
             )
             rule.id = cursor.lastrowid

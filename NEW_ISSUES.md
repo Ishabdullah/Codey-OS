@@ -11221,6 +11221,8 @@ finding for the same bug. See `NEW-39`.)*
 
 ### [NEW-217] `subcontractors`/`appointments`/`automation_rules` services have `create_*` (INSERT-only) but no lookup-by-`external_id` method, so a second migration run would hit `sqlite3.IntegrityError` on the `UNIQUE(external_id)` constraint instead of upserting or skipping
 - **Status: Confirmed**, and in-scope work for the migration-script task
+**Verified already fixed 2026-09-08** (repo-state audit ahead of batch-3 ledger closeout; no code change made this round). `get_subcontractor_by_external_id`, `get_appointment_by_external_id`, and `get_automation_rule_by_external_id` all exist — this entry's own later text already noted FIXED 2026-08-27; only cross-checked and confirmed current.
+
   about to be spec'd (not deferred to the ledger) — noted here per rule
   8 for visibility since it was found during this round's read, but the
   fix (adding `get_subcontractor_by_external_id` /
@@ -11248,6 +11250,8 @@ finding for the same bug. See `NEW-39`.)*
 
 ### [NEW-218] `create_subcontractor`/`create_appointment`/`create_rule` unconditionally overwrite `created_at`/`updated_at` with the current timestamp, discarding any caller-supplied value
 - **Status: Confirmed** — read directly. All three methods do
+**Status:** PARTIALLY FIXED 2026-09-08 (batch-3 ledger closeout, code-reviewer approved) — service-layer half only. `create_subcontractor`/`create_appointment`/`create_rule` now accept optional `created_at`/`updated_at` override kwargs, and — beyond the original spec's literal snippet — the INSERT statements themselves were corrected to bind the object's actual timestamp attributes rather than always binding `now`, since otherwise the override would set the returned in-memory object's fields but leave the DB row stamped with `now` regardless (a permanent no-op, the same shape as the project's previously-known `NEW-259` missing-`port=`-kwarg bug). Zero behavior change for any current caller — no existing call site passes the new kwargs. **Remaining, explicitly out of scope:** `migrate_aigentik.py`'s callers still never read/pass a source `created_at`, so this doesn't yet close the migration-idempotency half of the original finding.
+
   `now = utc_now_iso(); obj.created_at = now; obj.updated_at = now`
   before the `INSERT`, then bind `now, now` for the two timestamp
   columns regardless of what was set on the passed-in dataclass
@@ -11904,6 +11908,8 @@ implemented)
 
 ### [NEW-238] `update_subcontractor({"email": ""})` writes literal `''` to the DB, while `create_subcontractor`'s equivalent falsy-email path writes `NULL` — normalization inconsistency between create and update
 - **Status: Confirmed, real, minor.** Code-reviewer live-verified with a
+**Status:** FIXED 2026-09-08 (batch-3 ledger closeout, code-reviewer approved). `update_subcontractor` now normalizes an empty-string email to `NULL`, matching `create_subcontractor`'s existing behavior.
+
   raw `SELECT email` on the row after calling `update_subcontractor`
   with an empty-string email: the column held `''`. `create_subcontractor`
   writes `NULL` for the same falsy input
@@ -11924,6 +11930,8 @@ implemented)
 
 ### [NEW-239] `update_subcontractor`'s `qualification_data`/`secondary_trades` values aren't type-checked — a malformed value throws an unhandled `TypeError` the generic exception handler turns into a leaky 500 — same mechanism as `NEW-221`, not a new one
 - **Status: Confirmed by live probe, same class as `NEW-221`.**
+**Status:** FIXED 2026-09-08 (batch-3 ledger closeout, code-reviewer approved). `update_subcontractor` now raises a clean `ValueError` if `qualification_data` isn't a dict or `secondary_trades` isn't a list, instead of an unhandled `TypeError`.
+
   Code-reviewer live-probed `{"qualification_data": ["not", "a",
   "dict"]}` against `update_subcontractor` and got an unhandled
   `TypeError: 'list' object is not a mapping`. `routes.py`'s existing
@@ -12975,6 +12983,8 @@ outside that fix's scope.
 
 ### [NEW-265] `create_review_request()` writes no audit-log entry
 - **Status:** Confirmed (read directly; the method returns after its
+**Verified already fixed 2026-09-08** (repo-state audit ahead of batch-3 ledger closeout; no code change made this round). `create_review_request()` already ends with a full `self.audit.log(...)` call including `build_audit_details(...)`. Status field was simply never updated.
+
   INSERT with no `self.audit.log(...)` call, unlike `create_campaign`
   and the other mutations in `business_ops_service.py`).
 - **Mechanism:** simple omission. Dispatching a review request to a
@@ -12995,6 +13005,8 @@ outside that fix's scope.
 
 ### [NEW-266] `update_user` can set `role = "customer"` without a `customer_id`, a shape `create_user` explicitly refuses
 - **Status:** Confirmed (reproduced: `update_user(t.id, {"role":
+**Verified already fixed 2026-09-08** (repo-state audit ahead of batch-3 ledger closeout; no code change made this round). Confirmed already fixed 2026-09-02 (commit `5e03b4c`) — `_validate_user_role_invariants` is called from both `create_user` and `update_user`. Only the batch-3 triage's initial task description (not the ledger itself) was stale.
+
   "customer"})` on a technician yields `role: customer,
   customer_id: None`, while `create_user(..., ROLE_CUSTOMER)` with no
   `customer_id` raises `ValueError: Customer user role requires an
@@ -13138,6 +13150,8 @@ outside that fix's scope.
 
 ### [NEW-276] Audit `details=` payloads capture new state only at 59 of 63 call sites; `routes.py`'s 9 user-mutation sites capture nothing
 - **Status:** Confirmed (counted across `restoricon_core/`).
+**Verified already fixed 2026-09-08** (repo-state audit ahead of batch-3 ledger closeout; no code change made this round). Repo-wide grep of all 69 current `audit.log(` call sites (not just `routes.py`'s 9) found `details=` present at every one — the original "4 of 63 missing" count no longer holds anywhere in the current tree. Status field was simply never updated.
+
 - **Mechanism:** 63 `audit.log()` call sites — 54 in `services/`, 9 in `api/routes.py`. Only four pass genuine before/after pairs: `business_ops_service.py:207` (`submit_review`, the 2026-09-02 fix that set the standard), `operations_service.py:342` (`previous_stage`), `:568` and `:1141` (`previous_status`). The rest pass `X.to_dict()` of the post-change entity, or a bare `updates` dict, or a narrow slice like `{"signed_at": now}`. All nine `routes.py` sites pass no `details=` at all.
 - **Impact:** most changes are visible in history but not reconstructible — an admin can see *that* a field changed and its new value, not what it was before. The `routes.py` gap is the sharpest: a role change records the bare string `"User {username} updated"` with no old role, no new role, and no record that every session that user held was revoked as a side effect.
 - **Relationship to existing entries:** `NEW-265`/`NEW-267` (tracked as `U.37`) are two specific instances of this pattern. This entry is the measured breadth of it; `U.37` is now absorbed into `B6.2` rather than tracked as separate work.
@@ -13805,6 +13819,8 @@ outside that fix's scope.
 
 ### [NEW-303] Neither `create_project` nor `update_project` validates `project_manager_id` list-membership, `assigned_employees`, or `subcontractors` element ids against any table
 - **Status:** Confirmed (B6.1 scoping, 2026-09-02). Pre-existing in
+**Status:** PARTIALLY FIXED 2026-09-08 (batch-3 ledger closeout, code-reviewer approved after one CHANGES-REQUESTED round). `project_manager_id` and `assigned_employees` existence checks (against the `users` table — the finding's original text presumed `employees`, which doesn't exist; `project_manager_id`/`assigned_employees` both reference `users.id`) added to `create_project`; `assigned_employees` also added to `update_project` (`project_manager_id` there already had an existing IntegrityError->ValueError mapping, deliberately left alone to avoid colliding with an existing test asserting exact error text). **Review-round-1 bug caught and fixed:** `create_project`'s new existence check had no type guard before its SQL, risking a raw crash on malformed input — fixed to type-check first, matching `update_project`'s established ordering. **Remaining, explicitly out of scope:** `subcontractors` list-element validation stays unaddressed — blocked on `NEW-304`, an undecided design question about what the list's string elements actually reference.
+
   `create_project`; `update_project` matched it intentionally.
 - **Mechanism:** `project_manager_id` is covered by the DB FK
   (`→ users(id)`), so a bad scalar there → `IntegrityError` → 400. But
@@ -13855,6 +13871,8 @@ outside that fix's scope.
 
 ### [NEW-306] `update_project` / `update_customer` call `get_project` / `get_customer` on the return path *after* the write commits — a write-capable, read-refused actor gets a 403 with the change already landed
 - **Status:** Confirmed (B6.1 implementer + code-reviewer, 2026-09-02).
+**Status:** FIXED 2026-09-08 (batch-3 ledger closeout, code-reviewer approved after one CHANGES-REQUESTED round). `update_project` and `update_customer` now build their return value from the already-written row instead of re-fetching through the read-gated getter. **Critical bug caught in review round 1, live-reproduced end-to-end:** `update_customer`'s fix initially dropped role-based `notes` redaction — its safety comment wrongly assumed `ROLE_CUSTOMER` can never hold `PERM_WRITE_CUSTOMERS`, but `has_permission()` checks `custom_permissions` first, so an admin-granted custom permission makes this a real, HTTP-reachable data leak. Fixed by applying `get_customer()`'s exact `notes`-redaction condition inline (based on `actor.role`) without re-invoking the read-permission gate; `update_project`'s equivalent fix correctly passed `actor.role` through to `_row_to_project()` from the start and needed no correction. code-reviewer verified the fix with an actual negative-control test (temporarily disabled the redaction, watched the new regression test fail with the real leaked string, restored the file) rather than just re-reading the diff.
+
   Pre-existing shape in `update_customer`; `update_project` matches it.
 - **Mechanism:** both methods `return self.get_<entity>(id, actor)` as
   their last line. An actor holding `write:projects` (custom-granted)
@@ -13895,6 +13913,8 @@ outside that fix's scope.
 
 ### [NEW-308] No value-type validation at the project-update API boundary, and no standalone project `status` edit path
 - **Status:** Confirmed (value-type) + Suspected/needs-decision (status
+**Status:** PARTIALLY FIXED 2026-09-08 (batch-3 ledger closeout, code-reviewer approved) — value-type half only, for `update_project`. Added type validation for all allow-listed update fields (string/numeric/int/list-element checks, with an explicit `bool`-before-`int` exclusion since Python's `bool` subclasses `int`). **Remaining, explicitly out of scope:** `create_project` has the identical value-type gap and stays unvalidated; the separate standalone `status`-edit-path question still needs a decision from Ish, untouched by this round.
+
   path). B6.1 code-reviewer, 2026-09-02.
 - **Mechanism (value-type):** `update_project` allow-lists keys but not
   value types for the numeric fields. SQLite affinity stores

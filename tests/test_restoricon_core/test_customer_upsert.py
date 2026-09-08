@@ -8,7 +8,10 @@ from restoricon_core.api.server import RestoriconAPIServer
 from restoricon_core.auth import (
     AuthContext,
     AuthService,
+    PERM_WRITE_CUSTOMERS,
     ROLE_ADMIN,
+    ROLE_CUSTOMER,
+    ROLE_TECHNICIAN,
 )
 from restoricon_core.database import DatabaseManager
 from restoricon_core.models import Customer
@@ -211,6 +214,65 @@ class TestUpdateCustomer:
         created = crm.create_customer(_make_customer(), actor)
         with pytest.raises(PermissionError):
             crm.update_customer(created.id, {"first_name": "Test"}, _ZeroPermActor())
+
+    def test_update_write_only_actor_gets_row_not_permission_error(self, services):
+        """NEW-306: an actor with PERM_WRITE_CUSTOMERS granted (via
+        custom_permissions) but no read:all_customers permission (a
+        technician -- ROLE_TECHNICIAN carries no customer-read permission
+        at all) gets the updated row back from update_customer instead of
+        a PermissionError raised by the old self.get_customer() return
+        path. Actor must be a real users.id row -- audit_log has a FK on
+        actor_id."""
+        crm, actor, auth_service, _ = services
+        created = crm.create_customer(_make_customer(), actor)
+        tech_user = auth_service.create_user(
+            "write_only_tech", "Password123", "Write Only Tech",
+            "write_only_tech@test.com", role=ROLE_TECHNICIAN,
+        )
+        write_only = AuthContext(
+            user_id=tech_user.id,
+            username=tech_user.username,
+            role=ROLE_TECHNICIAN,
+            actor_type="human",
+            custom_permissions={PERM_WRITE_CUSTOMERS: True},
+        )
+        updated = crm.update_customer(created.id, {"first_name": "WriteOnly"}, write_only)
+        assert updated is not None
+        assert updated.first_name == "WriteOnly"
+
+        with pytest.raises(PermissionError):
+            crm.get_customer(created.id, write_only)
+
+    def test_update_role_customer_with_write_grant_redacts_notes(self, services):
+        """NEW-306 follow-up (code-reviewer CHANGES REQUESTED, batch-3
+        closeout): custom_permissions is checked before the static
+        ROLE_PERMISSIONS table (see AuthContext.has_permission), so a
+        ROLE_CUSTOMER actor CAN be granted PERM_WRITE_CUSTOMERS directly.
+        Such an actor's update_customer() return value must still redact
+        `notes` exactly as get_customer() would for ROLE_CUSTOMER -- the
+        NEW-306 raw-row-read optimization must not leak notes to a role
+        that would never see them via the read path."""
+        crm, actor, auth_service, _ = services
+        created = crm.create_customer(_make_customer(), actor)
+        crm.update_customer(created.id, {"notes": "internal notes, not for customer eyes"}, actor)
+
+        cust_user = auth_service.create_user(
+            "write_grant_customer", "Password123", "Write Grant Customer",
+            "write_grant_customer@test.com", role=ROLE_CUSTOMER,
+            customer_id=created.id,
+        )
+        write_customer = AuthContext(
+            user_id=cust_user.id,
+            username=cust_user.username,
+            role=ROLE_CUSTOMER,
+            actor_type="human",
+            customer_id=created.id,
+            custom_permissions={PERM_WRITE_CUSTOMERS: True},
+        )
+        updated = crm.update_customer(created.id, {"phone": "860-555-9999"}, write_customer)
+        assert updated is not None
+        assert updated.phone == "860-555-9999"
+        assert updated.notes is None
 
 
 # ---------------------------------------------------------------------------

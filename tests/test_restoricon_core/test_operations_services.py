@@ -225,6 +225,31 @@ def test_update_subcontractor_normalizes_email_and_company_name(setup_ops_servic
     assert updated.company_name == "New Name"
 
 
+def test_update_subcontractor_empty_email_normalizes_to_none(setup_ops_services, admin_actor):
+    """NEW-238: an empty-string email (after strip) becomes NULL, matching
+    create_subcontractor's own normalization instead of storing ''."""
+    _, _, _, crm_service, _, _ = setup_ops_services
+    created = _make_test_subcontractor(crm_service, admin_actor)
+    updated = crm_service.update_subcontractor(created.id, {"email": "   "}, admin_actor)
+    assert updated.email is None
+
+
+@pytest.mark.parametrize(
+    "field, bad_value",
+    [("qualification_data", "not-a-dict"), ("secondary_trades", "not-a-list")],
+)
+def test_update_subcontractor_rejects_malformed_types_cleanly(
+    setup_ops_services, admin_actor, field, bad_value
+):
+    """NEW-239: a malformed qualification_data/secondary_trades value raises
+    a clean ValueError, not a TypeError from deep inside the merge/dumps
+    logic."""
+    _, _, _, crm_service, _, _ = setup_ops_services
+    created = _make_test_subcontractor(crm_service, admin_actor)
+    with pytest.raises(ValueError):
+        crm_service.update_subcontractor(created.id, {field: bad_value}, admin_actor)
+
+
 def test_update_subcontractor_returns_none_for_nonexistent_id(setup_ops_services, admin_actor):
     _, _, _, crm_service, _, _ = setup_ops_services
     assert crm_service.update_subcontractor(999999, {"phone": "555-1234"}, admin_actor) is None

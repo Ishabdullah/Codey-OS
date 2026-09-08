@@ -76,7 +76,15 @@ class SchedulingService:
             updated_at=row["updated_at"],
         )
 
-    def create_appointment(self, appt: Appointment, actor: AuthContext) -> Appointment:
+    def create_appointment(
+        self, appt: Appointment, actor: AuthContext,
+        created_at: Optional[str] = None, updated_at: Optional[str] = None,
+    ) -> Appointment:
+        # NEW-218 (service-layer half): explicit override kwargs so a caller
+        # migrating a record with a known source created_at/updated_at can
+        # preserve it instead of getting "now" stamped on both. Currently
+        # unused -- no existing caller passes them, so this is a
+        # zero-behavior-change addition for every current call site.
         if not actor.has_permission(PERM_WRITE_APPOINTMENTS):
             raise PermissionError("Actor lacks permission to create appointments")
 
@@ -84,8 +92,8 @@ class SchedulingService:
             raise ValueError(f"Invalid status '{appt.status}'. Must be one of {sorted(VALID_STATUSES)}")
 
         now = utc_now_iso()
-        appt.created_at = now
-        appt.updated_at = now
+        appt.created_at = created_at or now
+        appt.updated_at = updated_at or now
         if not appt.history:
             appt.history = [{"event": "created", "at": now}]
         offered_slots_json = json.dumps(appt.offered_slots)
@@ -125,8 +133,8 @@ class SchedulingService:
                     appt.created_via,
                     appt.notes,
                     history_json,
-                    now,
-                    now,
+                    appt.created_at,
+                    appt.updated_at,
                 ),
             )
             appt.id = cursor.lastrowid
