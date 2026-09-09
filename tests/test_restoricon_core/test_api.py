@@ -927,6 +927,16 @@ def test_api_ai_chat_auth_and_validation(api_server, monkeypatch):
     assert status == 400
     assert "Missing messages" in body.get("error", "")
 
+    # Admission gate: mocked so this test is deterministic regardless of
+    # real device model-server state at test time -- see
+    # _mock_admitted_budget_decision()'s own docstring, and the identical
+    # pattern already used by the T3 telemetry tests in this file (NEW-433).
+    monkeypatch.setattr(
+        "core.resource_gate.wait_and_reserve_context_budget",
+        lambda *a, **k: _mock_admitted_budget_decision(),
+    )
+    monkeypatch.setattr("core.resource_gate.release_context_budget", lambda *a, **k: True)
+
     # 3. Successful proxy with mocked urlopen
     class MockHTTPResponse:
         def __init__(self, data, status=200):
