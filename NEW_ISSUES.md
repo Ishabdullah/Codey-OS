@@ -16236,6 +16236,7 @@ outside that fix's scope.
 - **Impact:** narrow window, requires an external command to land mid-boot — not confirmed as a real observed incident. Structurally similar to this project's past self-race bug class (a check reading state that changed between two reads of it), which is why it's flagged rather than dismissed.
 - **Not fixed** — needs either capturing the provider value once at the top of `main()` and reusing it for both checks (rather than re-reading `getLlmProvider()` live at each site), or accepting the window as tolerable given how narrow it is. A design call, not a quick patch.
 - **Cross-reference:** `NEW-413`, `~/Codey-Aigentik/index.js:main()`, `owner-command.js`'s `setLlmProvider()` sites.
+- **Resolved 2026-09-09.** `main()` now captures `llama.getLlmProvider()` once into a single `llmProvider` const right after `loadProfile()`, reused at every check point instead of re-read live. `startHttpServer()` still runs before that capture, so a provider switch in that earlier window is still theoretically possible — but since the value is snapshotted once and reused everywhere, such a switch is baked in consistently to every subsequent check rather than able to split them, which is the actual failure mode this entry described. Committed in the `Codey-Aigentik` repo (`00da362`), code-reviewer-approved (confirmed this closes the check-disagreement scenario as scoped, confirmed `npm test` still passes 272/19).
 
 ### [NEW-420] `~/Codey-Aigentik`'s other early-exit path (`startLlamaServer()`'s own 30s spawn-timeout failure) still has no release call, unlike the warm-up-failure path `NEW-413` fixed
 
@@ -16244,6 +16245,7 @@ outside that fix's scope.
 - **Impact:** same shape as `NEW-413`'s original bug, on a different (adjacent) exit path. Whether this is commonly hit depends on how often the 30s poll actually times out in practice — not measured this round.
 - **Not fixed** — add the same `release_model_cli.py` call (gated the same way) to this exit branch, mirroring `NEW-413`'s fix.
 - **Cross-reference:** `NEW-413`, `~/Codey-Aigentik/index.js:main()`'s `if (!llamaOk)` branch.
+- **Resolved 2026-09-09.** Extracted the release-call logic (from `NEW-413`'s fix) into a shared `releaseLocalModelServer()` function and added a call to it from the `if (!llamaOk)` branch, correctly nested inside the same `llmProvider === 'local'` gate (verified by direct indentation read, not assumed) so it's structurally unreachable for a non-local provider. Committed in the `Codey-Aigentik` repo (`00da362`), code-reviewer-approved.
 
 ### Combined live-verify session results summary (NEW-46/NEW-50/NEW-51/NEW-183 re-tests, NEW-70/NEW-74 on-device confirmation)
 
