@@ -106,3 +106,4 @@
 - [daemon batch NEW-88/113/118/256 — approved](daemon_new88_113_118_256_batch_approved.md) — task_timeout unification, dead server.planner removal, shutdown continue, embed watchdog logging; all negative-controlled
 - [NEW-107/109 observability daemon_pid/uptime PID-file fix + scope-label reversal — approved](new107_new109_observability_daemon_pid_uptime_approved.md) — reversal citations verified verbatim, fixture restore-on-failure negative-controlled, 3x-call residual confirmed real
 - [NEW-430/431 context-lease + /slots fail-closed fix — approved](new430_431_context_lease_fix_approved.md) — full admission/release/reap trace, crash-leak+timeout-layering verified
+- [NEW-435 is_processing gating fix — approved](new435_slots_is_processing_fix_approved.md) — always grep callers when a return contract's 0-vs-None meaning changes; verified against real llama.cpp source
