@@ -5716,6 +5716,12 @@ open, not closed, on this basis.
   don't increment `_load_failures` on a gate-denial outcome specifically
   (distinguishable now via the new `LOAD_OUTCOME_*` constants this
   sub-task added), or give gate-denial its own separate counter.
+- **Status: CLOSED, 2026-09-08** (already fixed, ledger-closeout batch
+  4, commit `f9773dd`) — **Status field corrected 2026-09-09.** Verified
+  directly in current code: `core/loader_v2.py:1417` no longer
+  increments `self._load_failures` on a gate-denial branch, with a
+  comment citing this exact finding ("a gate denial is not a genuine
+  load failure").
 
 ## Found while fixing `NEW-84` (stale model-path binding), 2026-08-09 — NOT fixed, logged only
 
@@ -15062,6 +15068,13 @@ outside that fix's scope.
 - **Impact:** comment-only, no behavioral effect — Suggestion severity.
 - **Fix direction:** correct the comment wording when next touched.
 - **Cross-reference:** `core/plannd.py`, `core/planner_service.py`.
+- **Status: CLOSED, 2026-09-08** (already fixed, prompt/planner ledger
+  closeout batch 5, commit `1dbc3bf`) — **Status field corrected
+  2026-09-09.** Verified directly: `core/plannd.py:850-857`'s comment
+  now correctly credits `core/daemon.py` → `planner_client.py::
+  send_plan_request_async()` as the only live caller path, and
+  explicitly notes this entry by name as the correction for the prior
+  wrong "main.py's synchronous interactive path" claim.
 
 ### [NEW-343] Telemetry's `completion_failed` event type is designed but not implemented anywhere in `telemetry/recorders.py` — no record at all on outright inference request failure
 - **Status:** Confirmed (telemetry T6, 2026-09-04, code-reviewer approved
