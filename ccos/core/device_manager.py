@@ -382,17 +382,41 @@ class DeviceManager:
             # real bug in one probe doesn't just silently degrade to the
             # minimal fallback profile below.
             warning(f"Device hardware scan failed, using minimal profile: {e}")
-            # Fallback with minimal info
+            # Fallback with minimal info. Not re-calls of the probes above
+            # (NEW_ISSUES.md NEW-423): re-calling the same functions that
+            # could have caused the exception above risks re-raising a
+            # deterministic failure uncaught, propagating out of
+            # _scan()/__init__() and defeating this fallback's whole
+            # purpose. Correction (code-reviewer, NEW-423 round 2): most
+            # fields below ARE hardcoded literals matching each
+            # _detect_*()'s own pre-probe default, but os.platform/arch/
+            # release and cpu.cores/arch are NOT — those come straight from
+            # `platform`/`os.cpu_count()`, plain stdlib calls that are never
+            # among the actual failure modes above (/proc reads,
+            # subprocess calls) and are safe to compute directly here too,
+            # so there's no reason to under-report them with "unknown"/1.
             self._profile = {
-                "os": _detect_os(),
-                "cpu": _detect_cpu(),
-                "ram": _detect_ram(),
+                "os": {
+                    "name": "unknown",
+                    "platform": platform.system(),
+                    "arch": platform.machine(),
+                    "release": platform.release(),
+                    "is_termux": False,
+                    "is_android": False,
+                    "is_ubuntu": False,
+                },
+                "cpu": {
+                    "model": "unknown",
+                    "cores": os.cpu_count() or 1,
+                    "arch": platform.machine(),
+                },
+                "ram": {"total_mb": 0, "available_mb": 0, "total_human": "unknown"},
                 "gpu": [],
                 "cameras": [],
                 "microphones": [],
                 "speakers": [],
-                "storage": _detect_storage(),
-                "network": _detect_network(),
+                "storage": [],
+                "network": {"connected": False, "interfaces": [], "ip": None},
                 "connected_devices": [],
                 "scanned_at": time.time(),
             }

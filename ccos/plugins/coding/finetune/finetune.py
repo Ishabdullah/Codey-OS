@@ -48,6 +48,7 @@ from core.finetune_prep import (
     DatasetCurator,
     export_dataset,
     generate_notebook,
+    prepare_finetune_data,
     print_instructions,
 )
 from core.lora_import import (

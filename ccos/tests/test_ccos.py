@@ -4,6 +4,8 @@ CCOS Test Suite — Tests for all core modules.
 """
 
 import importlib.util
+import os
+import platform
 import sys
 import tempfile
 from pathlib import Path
@@ -17,7 +19,9 @@ _pathutil = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_pathutil)
 _pathutil.ensure_repo_root_on_path()
 
-from ccos.core.device_manager import get_device_manager
+from unittest.mock import patch
+
+from ccos.core.device_manager import DeviceManager, get_device_manager
 from ccos.core.capability_registry import Capability
 from ccos.core.plugin_manager import get_plugin_manager
 from ccos.core.sandbox import Sandbox
@@ -43,6 +47,48 @@ def test_device_manager():
 
     print(f"  [PASS] Device: {profile['os']['name']}, {profile['cpu']['cores']} cores")
     print(f"  [PASS] Hardware hints: {hints}")
+    return True
+
+
+def test_device_manager_scan_fallback_survives_deterministic_probe_failure():
+    # Regression test for NEW_ISSUES.md NEW-423: the _scan() fallback used
+    # to re-call the same probes that raised in the try block above it. A
+    # deterministic failure (one that isn't a transient race) in one of
+    # those re-called probes would re-raise uncaught, propagating out of
+    # _scan()/DeviceManager.__init__() instead of degrading to the minimal
+    # profile the fallback promises. _detect_cpu is one of the 5 probes the
+    # fallback used to re-call.
+    print("Testing DeviceManager._scan() fallback degrades instead of re-raising...")
+
+    with patch("ccos.core.device_manager._detect_cpu", side_effect=RuntimeError("boom")):
+        dm = DeviceManager()  # must not raise
+
+    profile = dm.get_profile()
+    # cpu.model stays a hardcoded "unknown" (real detection needs a /proc
+    # read, one of the actual failure modes the fallback exists for), but
+    # cores/arch come from plain stdlib calls (os.cpu_count()/
+    # platform.machine()) that are never among those failure modes and are
+    # safe to compute directly — round-2 correction, NEW-423, code-reviewer
+    # caught the fallback discarding real, always-safe values for no
+    # risk-reduction benefit.
+    assert profile["cpu"]["model"] == "unknown", (
+        "Fallback should use a hardcoded default for the /proc-derived model, not re-call the failing probe"
+    )
+    assert profile["cpu"]["cores"] == (os.cpu_count() or 1)
+    assert profile["cpu"]["arch"] == platform.machine()
+    assert profile["os"]["name"] == "unknown"
+    assert profile["os"]["platform"] == platform.system()
+    assert profile["os"]["arch"] == platform.machine()
+    assert profile["os"]["release"] == platform.release()
+    assert profile["ram"] == {"total_mb": 0, "available_mb": 0, "total_human": "unknown"}
+    assert profile["storage"] == []
+    assert profile["network"] == {"connected": False, "interfaces": [], "ip": None}
+
+    # Consumers of the minimal profile must still work, not just the raw dict.
+    assert len(dm.get_summary()) > 0, "get_summary() should handle the minimal profile"
+    assert isinstance(dm.get_capabilities_hints(), list), "get_capabilities_hints() should handle the minimal profile"
+
+    print("  [PASS] DeviceManager() did not propagate a deterministic probe failure")
     return True
 
 
@@ -252,6 +298,7 @@ def main():
 
     tests = [
         test_device_manager,
+        test_device_manager_scan_fallback_survives_deterministic_probe_failure,
         test_capability_registry,
         test_sandbox,
         test_plugin_manager,
