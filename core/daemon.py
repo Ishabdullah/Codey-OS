@@ -388,10 +388,16 @@ class DaemonServer:
         pending_count = len([t for t in all_tasks if t["status"] == "pending"])
         stuck_tasks = []
         now = int(time.time())
+        # NEW-256: read the same `task_timeout` config key `_handle_status()`'s
+        # `running_active` filter reads (module-level get_config() singleton,
+        # not self._config — see that call site's comment), instead of the
+        # hardcoded literal 1800 this used to diverge to whenever task_timeout
+        # was ever configured away from its default.
+        task_timeout = get_config().get("tasks", "task_timeout", default=1800)
         for t in all_tasks:
             if t["status"] == "running" and t.get("started_at"):
                 running_time = now - t["started_at"]
-                if running_time > 1800:  # 30 minutes
+                if running_time > task_timeout:
                     stuck_tasks.append(t["id"])
 
         # Get recent actions count
@@ -881,8 +887,6 @@ class Daemon:
         from core.planner_v2 import get_planner
 
         self.planner = get_planner()
-        # Give DaemonServer access to the planner so _handle_command can queue steps.
-        self.server.planner = self.planner
         from core.background import (get_background_manager,
                                      get_file_watch_manager)
 
@@ -1227,6 +1231,17 @@ class Daemon:
                         if _trip.should_trip:
                             warning(f"Autonomous shutdown tripwire fired: {_trip.reason}")
                             self._trigger_shutdown()
+                            # NEW-118: `_trigger_shutdown()` only flips
+                            # `self.running` False and closes the socket
+                            # server — it does not itself stop this tick from
+                            # continuing on into the model-load/embed-server
+                            # watchdogs below, which could otherwise start
+                            # loading a model in the same tick the daemon just
+                            # decided to shut down. `continue` re-evaluates
+                            # `while self.running:` immediately, which is now
+                            # False, so this tick ends here and falls straight
+                            # into `_main_loop()`'s `finally:` unload block.
+                            continue
                         elif _sampled_temp_c is not None and _sampled_temp_c >= _temp_critical:
                             # Log at warning (not the routine info/debug level
                             # below) whenever THIS tick's own reading is
@@ -1288,8 +1303,19 @@ class Daemon:
                             from core.embed_server import start_embed_server
 
                             start_embed_server()
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        # NEW-88: this used to be a bare `except Exception:
+                        # pass`, silently swallowing a failure with no trace —
+                        # same class of problem the 7B model watchdog
+                        # (_watchdog_check_model(), same watchdog loop) was
+                        # already fixed to avoid. Left broad (not narrowed to
+                        # a specific exception type) because this wraps both
+                        # an is_running() liveness probe and a
+                        # start_embed_server() subprocess spawn, each with
+                        # its own unpredictable failure modes — but now
+                        # logged instead of silent, matching this file's
+                        # established best-effort-but-not-silent posture.
+                        warning(f"Embed server watchdog check failed: {e}")
 
                 # Small sleep to avoid busy loop
                 await asyncio.sleep(0.5)
