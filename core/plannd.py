@@ -1070,7 +1070,20 @@ def get_plan(prompt: str, enable_thinking: bool = True) -> Optional[List[str]]:
         # above — see release_context_budget()'s own docstring for why
         # releasing once this HTTP call returns is correct here.
         try:
-            release_context_budget(budget_decision.reservation_id)
+            if not release_context_budget(budget_decision.reservation_id):
+                # NEW-430: with the lease TTL now 1800s (was silently
+                # inheriting resource_bus.py's 60s default), a False here
+                # means the reservation was already gone/expired by the
+                # time this call-return finally block ran — the
+                # load-bearing signal a phantom long-lived reservation
+                # existed, no longer silent.
+                from utils.logger import warning as _warning
+
+                _warning(
+                    "[plannd] get_plan: release_context_budget() found "
+                    f"reservation {budget_decision.reservation_id} already "
+                    "gone/expired (NEW-430)"
+                )
         except Exception as e:
             from utils.logger import warning as _warning
 

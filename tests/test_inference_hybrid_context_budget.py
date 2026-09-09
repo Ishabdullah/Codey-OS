@@ -134,11 +134,15 @@ def test_infer_releases_reservation_even_when_http_call_fails():
     backend = ChatCompletionBackend()
     released = []
 
+    def _fake_release(rid, *a, **k):
+        released.append(rid)
+        return True
+
     with mock.patch(
         "core.resource_gate.wait_and_reserve_context_budget",
         return_value=_admitted_decision("rid-err"),
     ), mock.patch(
-        "core.resource_gate.release_context_budget", side_effect=lambda rid, *a, **k: released.append(rid)
+        "core.resource_gate.release_context_budget", side_effect=_fake_release
     ), mock.patch.object(
         __import__("core.inference_hybrid", fromlist=["urllib"]).urllib.request,
         "urlopen",
@@ -237,9 +241,14 @@ def _patch_urlopen_and_gate(monkeypatch, response_factory, reservation_id="t5-re
         lambda *a, **k: _admitted_decision(reservation_id),
     )
     released = []
+
+    def _fake_release(rid, *a, **k):
+        released.append(rid)
+        return True
+
     monkeypatch.setattr(
         "core.resource_gate.release_context_budget",
-        lambda rid, *a, **k: released.append(rid),
+        _fake_release,
     )
     monkeypatch.setattr(
         __import__("core.inference_hybrid", fromlist=["urllib"]).urllib.request,

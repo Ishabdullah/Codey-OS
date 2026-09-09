@@ -97,6 +97,14 @@ class BusDecision:
 
 
 # Default lease durations and timeouts
+#
+# NEW-430: context-token leases acquired via acquire_context_lease() do NOT
+# use this default — core/resource_gate.py's reserve_context_budget() passes
+# lease_duration=CONTEXT_RESERVATION_MAX_AGE_SECONDS (1800.0) explicitly at
+# its acquire_context_lease() call site, since a context reservation must
+# outlive the whole in-flight HTTP call it guards, not just 60s. This
+# constant stays 60.0 for the other lease domains that still use it as-is
+# (CPU threads, model slots, memory) — do not change it for those.
 DEFAULT_LEASE_DURATION_SEC = 60.0
 MAX_STALE_REQUEST_AGE_SEC = 300.0
 

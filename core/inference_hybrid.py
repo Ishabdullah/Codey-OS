@@ -566,7 +566,18 @@ class ChatCompletionBackend:
             # rejected "release on HTTP-return" idea for /slots-based
             # occupancy tracking, which this reservation ledger is NOT).
             try:
-                release_context_budget(budget_decision.reservation_id)
+                if not release_context_budget(budget_decision.reservation_id):
+                    # NEW-430: with the lease TTL now 1800s (was silently
+                    # inheriting resource_bus.py's 60s default), a False
+                    # here means the reservation was already gone/expired
+                    # by the time this call-return finally block ran —
+                    # the load-bearing signal a phantom long-lived
+                    # reservation existed, no longer silent.
+                    warning(
+                        "Chat completions: release_context_budget() found "
+                        f"reservation {budget_decision.reservation_id} already "
+                        "gone/expired (NEW-430)"
+                    )
             except Exception as e:
                 warning(f"Chat completions: failed to release context budget reservation: {e}")
 

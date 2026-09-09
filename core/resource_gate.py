@@ -4086,8 +4086,27 @@ def resolve_effective_n_ctx(
     return None
 
 
+# NEW-431: number of attempts _fetch_slots_prompt_tokens() makes before
+# giving up and returning None — a single transient blip (a GC pause, a
+# momentarily-busy event loop on the server side) must not immediately
+# force reserve_context_budget()'s fail-closed refusal path; a second,
+# quick retry absorbs that without meaningfully widening the TOCTOU window
+# this whole admission check exists to close.
+SLOTS_ENDPOINT_MAX_ATTEMPTS = 2
+# Gap between the two attempts above. Deliberately short — this whole poll
+# already happens outside the ledger's lock (see reserve_context_budget()'s
+# own docstring) specifically so it can't stall other callers, and a slow
+# retry gap would erode that.
+SLOTS_ENDPOINT_RETRY_GAP_SECONDS = 0.5
+
+
 def _fetch_slots_prompt_tokens(
-    host: str, port: int, timeout: float = SLOTS_ENDPOINT_TIMEOUT_SECONDS
+    host: str,
+    port: int,
+    timeout: float = SLOTS_ENDPOINT_TIMEOUT_SECONDS,
+    max_attempts: int = SLOTS_ENDPOINT_MAX_ATTEMPTS,
+    retry_gap_seconds: float = SLOTS_ENDPOINT_RETRY_GAP_SECONDS,
+    sleep_fn=time.sleep,
 ) -> Optional[int]:
     """
     Poll the live server's `/slots` endpoint and sum `n_prompt_tokens`
@@ -4097,27 +4116,41 @@ def _fetch_slots_prompt_tokens(
     real field, the endpoint enabled by this project's own default spawn
     command).
 
-    Returns `None` (never 0) on ANY failure — timeout, connection refused,
-    malformed JSON, the endpoint disabled — so a caller can tell "genuinely
-    zero resident context" apart from "couldn't ask the server," and
-    degrade accordingly. See `reserve_context_budget()`'s own docstring for
-    why degrading to "the local reservation ledger alone" (never to "treat
-    as unlimited") is the safe failure mode for this admission check
-    specifically — this is safety-relevant code (CLAUDE.md's exception-
-    handling rule), and silently treating an unreachable `/slots` as "the
-    pool must be empty" would reopen exactly the over-admission NEW-206
-    itself is about.
+    Makes up to `max_attempts` tries (NEW-431), each with its own
+    `timeout`-second budget and a short `retry_gap_seconds` sleep between
+    attempts, before giving up — a bounded retry against one transient
+    blip, not a long/unbounded backoff.
+
+    Returns `None` (never 0) only after every attempt fails — timeout,
+    connection refused, malformed JSON, the endpoint disabled — so a caller
+    can tell "genuinely zero resident context" apart from "couldn't ask the
+    server," and degrade accordingly. See `reserve_context_budget()`'s own
+    docstring for why failing closed (refusing admission, NEW-431 — never
+    "the pool must be empty," which is what this used to silently do) is
+    the safe failure mode for this admission check specifically — this is
+    safety-relevant code (CLAUDE.md's exception-handling rule), and
+    treating an unreachable `/slots` as "the pool must be empty" would
+    reopen exactly the over-admission NEW-206 itself is about.
     """
-    try:
-        url = f"http://{host}:{port}/slots"
-        with urllib.request.urlopen(url, timeout=timeout) as response:
-            data = json.loads(response.read().decode("utf-8"))
-        if not isinstance(data, list):
-            return None
-        return sum(int(s.get("n_prompt_tokens", 0) or 0) for s in data)
-    except Exception as e:
-        warning(f"resource_gate: /slots poll failed for {host}:{port}, degrading: {e}")
-        return None
+    last_error: Optional[Exception] = None
+    for attempt in range(max_attempts):
+        try:
+            url = f"http://{host}:{port}/slots"
+            with urllib.request.urlopen(url, timeout=timeout) as response:
+                data = json.loads(response.read().decode("utf-8"))
+            if not isinstance(data, list):
+                last_error = ValueError(f"/slots returned non-list payload: {type(data)}")
+            else:
+                return sum(int(s.get("n_prompt_tokens", 0) or 0) for s in data)
+        except Exception as e:
+            last_error = e
+        if attempt < max_attempts - 1:
+            sleep_fn(retry_gap_seconds)
+    warning(
+        f"resource_gate: /slots poll failed for {host}:{port} after "
+        f"{max_attempts} attempts, degrading: {last_error}"
+    )
+    return None
 
 
 def _tokenize_via_server(
@@ -4327,10 +4360,16 @@ def reserve_context_budget(
     matching `reserve_slot()`'s own documented reason for reading live
     signals (meminfo, thermal) outside `_LockedState`'s blocking, no-timeout
     flock: a slow or unreachable `/slots` call must not stall every other
-    process waiting on this ledger's lock. If the poll fails, admission
-    degrades to the local reservation ledger alone (never to "treat as
-    unlimited" — see `_fetch_slots_prompt_tokens()`'s own docstring), and
-    `reason` notes the degraded signal explicitly when refusing.
+    process waiting on this ledger's lock. `_fetch_slots_prompt_tokens()`
+    itself retries once (NEW-431) before giving up; if the poll still
+    fails after that, this function fails CLOSED — refuses admission
+    outright, without ever calling `acquire_context_lease()` — rather than
+    degrading to "the local reservation ledger alone" (that older behavior
+    was NEW-431: the local ledger cannot see occupancy from requests that
+    bypassed it, so treating an unreachable `/slots` as "the pool must be
+    empty" reopened exactly NEW-206's own over-admission window). See
+    `_fetch_slots_prompt_tokens()`'s own docstring for why "treat as
+    unlimited" was never on the table either.
     """
     if pid is None:
         pid = os.getpid()
@@ -4371,9 +4410,36 @@ def reserve_context_budget(
         # the same degrade-not-crash way a real HTTP failure already is.
         warning(f"resource_gate: fetch_slots_fn raised, degrading: {e}")
         slots_tokens = None
-    slots_signal_degraded = slots_tokens is None
-    if slots_signal_degraded:
-        slots_tokens = 0
+
+    if slots_tokens is None:
+        # NEW-431: fail CLOSED, not open. `/slots` is the one AUTHORITATIVE,
+        # freshly-measured real-occupancy signal this admission check has
+        # (see this section's own header comment) — silently treating
+        # "couldn't ask the server" as "the pool must be genuinely empty"
+        # (the old behavior: degrading slots_tokens to 0 and proceeding)
+        # reopens exactly the over-admission window NEW-206 itself is
+        # about, since the local reservation ledger alone cannot see
+        # occupancy from requests that bypassed this ledger entirely. Skip
+        # acquire_context_lease() entirely rather than admitting against an
+        # unverifiable ceiling. effective_n_ctx is set to the real resolved
+        # n_ctx (NOT None) so wait_and_reserve_context_budget()'s
+        # early-return-on-None-means-hard-fail check does not fire — this
+        # must be retryable as a transient blip, not treated as an
+        # immediate hard failure.
+        return ContextBudgetDecision(
+            admitted=False,
+            reservation_id=None,
+            reserved_tokens=reserved_tokens,
+            effective_n_ctx=n_ctx,
+            ceiling_tokens=ceiling_tokens,
+            slots_occupied_tokens=0,
+            other_reserved_tokens=0,
+            estimate_source=estimate_source,
+            reason=(
+                "refusing: /slots endpoint unreachable — cannot verify real "
+                "KV-pool occupancy safely (fail-closed, NEW-431)"
+            ),
+        )
 
     from core.resource_bus import acquire_context_lease
 
@@ -4385,6 +4451,16 @@ def reserve_context_budget(
         slots_tokens=slots_tokens,
         pid=pid,
         state_dir=state_dir,
+        # NEW-430: this reservation must live for the whole in-flight HTTP
+        # call it guards (up to CONTEXT_QUEUE_TIMEOUT_CAP_SECONDS's own
+        # enclosing timeout), not resource_bus.py's DEFAULT_LEASE_DURATION_SEC
+        # (60.0, tuned for the OTHER, short-lived lease domains — CPU
+        # threads, model slots, memory — sharing that same default). Without
+        # this, a real request running longer than 60s would have its own
+        # still-in-flight reservation silently reaped out from under it by
+        # _reap_stale_records_locked(), reopening exactly the over-admission
+        # window NEW-206 is about.
+        lease_duration=CONTEXT_RESERVATION_MAX_AGE_SECONDS,
         metadata={
             "prompt_tokens": prompt_tokens,
             "max_tokens": max_tokens,
@@ -4393,9 +4469,9 @@ def reserve_context_budget(
     )
 
     if not admitted:
-        reason = bus_reason
-        if slots_signal_degraded:
-            reason += " — /slots unreachable, degraded to local reservation ledger only"
+        # NEW-431: slots_tokens is a real, successfully-fetched value here
+        # -- the /slots-unreachable case now returns above, before this
+        # point, so bus_reason needs no "degraded" annotation.
         return ContextBudgetDecision(
             admitted=False,
             reservation_id=None,
@@ -4405,7 +4481,7 @@ def reserve_context_budget(
             slots_occupied_tokens=slots_tokens,
             other_reserved_tokens=other_reserved_tokens,
             estimate_source=estimate_source,
-            reason=reason,
+            reason=bus_reason,
         )
 
     return ContextBudgetDecision(

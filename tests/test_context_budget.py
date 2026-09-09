@@ -207,7 +207,12 @@ def test_reserve_context_budget_second_call_sees_first_reservation(tmp_path):
     assert second.other_reserved_tokens == 3500
 
 
-def test_reserve_context_budget_degrades_to_local_ledger_when_slots_unreachable(tmp_path):
+def test_reserve_context_budget_fails_closed_when_slots_unreachable(tmp_path):
+    # NEW-431: /slots unreachable must fail CLOSED (refuse, no lease
+    # acquired) — the old behavior (degrade slots_tokens to 0 and admit
+    # anyway) reopened NEW-206's own over-admission window, since the
+    # local reservation ledger alone cannot see occupancy from requests
+    # that bypassed it.
     _seed_resident_slot(tmp_path, n_ctx=8192)
 
     def _raise_slots():
@@ -221,11 +226,11 @@ def test_reserve_context_budget_degrades_to_local_ledger_when_slots_unreachable(
         fetch_slots_fn=_raise_slots,
         tokenize_fn=lambda t: 100,
     )
-    # Must NOT fail closed to "refuse everything," and must NOT fail open
-    # to "unlimited" either — degrades to the local ledger alone (0 slots
-    # occupancy assumed) and still admits a small request.
-    assert decision.admitted is True
-    assert decision.slots_occupied_tokens == 0
+    assert decision.admitted is False
+    assert decision.reservation_id is None
+    assert decision.effective_n_ctx == 8192  # real n_ctx, NOT None (NEW-431)
+    assert "NEW-431" in decision.reason
+    assert "/slots" in decision.reason
 
 
 def test_reserve_context_budget_reaps_expired_reservation(tmp_path):
