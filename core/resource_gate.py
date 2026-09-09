@@ -3099,7 +3099,22 @@ class _LockedState:
         import fcntl
 
         self._lock_fd = open(self._lock_path, "w")
-        fcntl.flock(self._lock_fd, fcntl.LOCK_EX)  # blocking — short critical section
+        try:
+            fcntl.flock(self._lock_fd, fcntl.LOCK_EX)  # blocking — short critical section
+        except BaseException:
+            # NEW-80: if flock() raises after the fd is already open, __exit__
+            # never runs (the `with` statement's context-manager protocol only
+            # calls __exit__ after a successful __enter__), so the opened fd
+            # would otherwise leak on every failed lock acquisition. Close it
+            # here before re-raising so the caller still sees the original
+            # failure. `BaseException` (not `Exception`) deliberately: this is
+            # a blocking, no-timeout flock — a short-lived CLI process blocked
+            # here can be interrupted by Ctrl-C (`KeyboardInterrupt`, which
+            # does not inherit from `Exception`), and that must also close the
+            # fd rather than leak it.
+            self._lock_fd.close()
+            self._lock_fd = None
+            raise
         self._slots = _read_state_locked(self._state_path)
         return self._slots
 

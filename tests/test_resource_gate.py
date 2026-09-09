@@ -3187,3 +3187,54 @@ def test_resolve_port_owner_pid_returns_none_for_unbound_port():
     # nothing" result -- both still correctly produce None, which is what
     # this test actually pins.
     assert rg.resolve_port_owner_pid(1) is None
+
+
+# ── NEW-80: _LockedState.__enter__ must not leak the lock fd if flock() raises ──
+
+
+def test_locked_state_enter_closes_fd_when_flock_raises(monkeypatch, tmp_path):
+    # Pins NEW-80: a flock() failure inside __enter__ (after the lock file is
+    # already open) must close that fd before re-raising, not leak it -- the
+    # `with` statement's context-manager protocol never calls __exit__ unless
+    # __enter__ itself returned successfully, so __exit__'s own close() is not
+    # reached on this path. Discriminating assertion: check the fd is actually
+    # closed (`_lock_fd is None`), not just that the exception propagates --
+    # a bare "raises OSError" assertion would pass both before and after the
+    # fix, since flock() itself already raised before this round's change.
+    import fcntl
+
+    def raising_flock(fd, flags):
+        raise OSError("simulated flock failure")
+
+    monkeypatch.setattr(fcntl, "flock", raising_flock)
+    ls = rg._LockedState(tmp_path)
+    with pytest.raises(OSError):
+        ls.__enter__()
+    assert ls._lock_fd is None
+
+
+def test_locked_state_enter_closes_fd_on_keyboard_interrupt_during_flock(monkeypatch, tmp_path):
+    # NEW-80's fix deliberately uses `except BaseException`, not `except
+    # Exception`: flock(LOCK_EX) here is blocking with no timeout, and a
+    # short-lived CLI process blocked on it can be interrupted by Ctrl-C
+    # (KeyboardInterrupt, which does NOT inherit from Exception). Confirms
+    # that case also closes the fd rather than leaking it.
+    import fcntl
+
+    def interrupting_flock(fd, flags):
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr(fcntl, "flock", interrupting_flock)
+    ls = rg._LockedState(tmp_path)
+    with pytest.raises(KeyboardInterrupt):
+        ls.__enter__()
+    assert ls._lock_fd is None
+
+
+def test_locked_state_enter_succeeds_normally_after_flock_failure_test(tmp_path):
+    # Sanity/regression companion to the two tests above: a subsequent,
+    # unpatched _LockedState against the same state_dir must still work
+    # normally (no real lock was ever actually left held by the simulated
+    # failures above, since each test uses its own tmp_path/lock file).
+    with rg._LockedState(tmp_path) as slots:
+        assert slots == []
