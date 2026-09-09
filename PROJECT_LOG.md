@@ -1,3 +1,15 @@
+## 2026-09-09 — Cleanup round 4 (final): NEW-419/NEW-420 resolved (Codey-Aigentik)
+
+**What changed:** Fourth and final round of the cleanup series (rounds 1-3 above). Both items were the two residual findings code-reviewer logged while approving `NEW-413`'s cross-repo fix. Committed in `Codey-Aigentik` (`00da362`) and `Codey-OS` (`86eb057`).
+
+- **`NEW-419`** (a narrow TOCTOU — `main()`'s LLM provider could in principle be switched mid-boot between two live `getLlmProvider()` reads, letting the load-side and release-side checks disagree) fixed by capturing the value once into a single `llmProvider` const, reused everywhere. code-reviewer traced precisely why this closes the finding as scoped: `startHttpServer()` still runs before the capture, so a switch in that earlier window remains theoretically possible, but a single snapshotted value can no longer let the two checks disagree with each other — which was the actual failure mode.
+- **`NEW-420`** (the sibling `startLlamaServer()`-timeout exit path had no release call at all, unlike the warm-up-failure path `NEW-413` fixed) closed by extracting the release logic into a shared function and calling it from both early-exit paths, verified correctly gated by direct indentation read.
+- `npm test`: 272 passed, 19 suites, unchanged.
+
+**Why:** Small, low-risk, but still routed through the same cross-repo review discipline as `NEW-413` itself — consistent with this series' standing practice of not treating a "small" fix as exempt from adversarial review just because it's short.
+
+**Next action:** This closes the entire cleanup series (4 rounds + the batch-4-through-6 ledger closeout it followed). Everything remaining is explicitly out of scope for autonomous work: `NEW-9`/`NEW-18`/`NEW-287` items 2-3 need Ish's input, `NEW-422`/`NEW-423` are low-priority and unscoped, and the ~50-item broader process-lifecycle population from batch 6 was never individually triaged — a candidate for a future dedicated sweep if wanted.
+
 ## 2026-09-09 — Cleanup round 3: NEW-415/416/417/418 fixed, a stale-claim correction caught pre-commit
 
 **What changed:** Third and final round of the small cleanup series (rounds 1-2 above, `a76ab4f`/`a2194b0`+`c51748a`). Four small items, none process-lifecycle. Committed `8aa5f07`.
