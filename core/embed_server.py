@@ -224,16 +224,29 @@ class EmbedServer:
 
         Only kills the process this object actually holds a `Popen` handle
         for (`self.process`) — an adopted server (NEW-146's lease/registry
-        fix, `self.process` left `None` by the adoption branch in `start()`)
-        is never ours to kill, matching this project's existing "never own
-        what you didn't spawn" posture elsewhere (`core/loader_v2.py`'s
-        reuse branch, CLAUDE.md rule 3). The slot release below is
-        deliberately NOT nested inside the `if self.process:` block: an
-        adopted server still has a real `self._slot_id` (registered for
-        observability), and leaving the release nested there would leak
-        that slot forever on an adopted server's `stop()` — exactly the
-        accounting-blind gap this same round's lease/registry item exists
-        to close, just re-introduced through this method if left as it was.
+        fix) is never ours to kill, matching this project's existing
+        "never own what you didn't spawn" posture elsewhere
+        (`core/loader_v2.py`'s reuse branch, CLAUDE.md rule 3). The slot
+        release below is deliberately NOT nested inside the `if
+        self.process:` block: an adopted server still has a real
+        `self._slot_id` (registered for observability), and leaving the
+        release nested there would leak that slot forever on an adopted
+        server's `stop()` — exactly the accounting-blind gap this same
+        round's lease/registry item exists to close, just re-introduced
+        through this method if left as it was.
+
+        NEW-203: `start()`'s adoption branch usually — but not always —
+        leaves `self.process` as `None`. If THIS object's own earlier
+        spawn already died (`self.process` still holds a stale, dead
+        `Popen` handle `start()` hasn't cleared yet) and adoption of a
+        DIFFERENT, healthy occupant then happens before that stale
+        `self.process` is reset, this object ends up with a non-`None`
+        `self.process` even though it adopted, not owned, the real
+        server. In that case the kill logic below still only targets
+        `self.process`'s own PID — its own already-dead prior spawn, not
+        the adopted server — so it harmlessly no-ops (or raises the
+        already-handled `ProcessLookupError`) rather than ever touching
+        the real adopted server it doesn't own.
         """
         if self.process:
             try:
@@ -464,31 +477,93 @@ class EmbedServer:
             )
             return False
 
-        info(f"Killing stale embed server PID {pid} occupying port {self.port}")
-        try:
-            os.kill(pid, 9)
-        except ProcessLookupError:
-            # Already gone between discovery and kill — fine, port is free.
-            pass
-        except Exception as e:
-            error(f"embed_server: failed to kill occupant PID {pid}: {e}")
-            return False
+        # NEW-86: re-verify this PID is still the port's occupant
+        # immediately before the kill below, not just at identification
+        # time above. This is a narrow PID-recycling TOCTOU: if the real
+        # occupant exits naturally in the gap between identification and
+        # the os.kill() call, the OS is free to hand this exact PID
+        # number to an unrelated new process before that kill executes,
+        # and the old `_port_is_bound()` post-kill check alone can't
+        # catch it (the port is already free either way, by then, so it
+        # reports success without ever noticing the kill hit the wrong
+        # process). A stale cmdline snapshot compared only against
+        # itself a few microseconds later does NOT catch this: if the
+        # recycle already happened before identification even returned
+        # (the common case), both reads see the same, already-recycled
+        # process's cmdline and "match" — the actual property that
+        # matters is "is this PID still the port's occupant," so
+        # re-running the same port-ownership lookup and requiring the
+        # same PID come back is what actually discriminates. Not a
+        # cmdline *identity gate* (e.g. "must be llama-server") either —
+        # `_find_port_occupant_pid()`'s own docstring notes the
+        # legitimate occupant need not be our own llama-server, so a
+        # gate like that would wrongly refuse to clear a real foreign
+        # squatter.
+        #
+        # Coverage caveat, not fully closed by this fix: this re-scan is
+        # exactly as strong as `_find_port_occupant_pid()` itself, which
+        # has two internal paths of different strength. Its primary
+        # `/proc/net/tcp`(+tcp6) socket scan DOES re-observe the port
+        # directly (a real recycle-to-anything, including another
+        # llama-server on this device — generation runs on 8080/8081 —
+        # would be caught). But that primary path is unreadable in this
+        # dev sandbox (confirmed: `head -1 /proc/net/tcp` ->
+        # "Permission denied"; on-device Termux/Android behavior is
+        # unverified here, needs live-verifier confirmation), in which
+        # case `_find_port_occupant_pid()` falls back to
+        # `_find_pid_via_registered_slot()` — a lookup against this
+        # object's own static `resource_gate` registry entry, re-checked
+        # for liveness and llama-server cmdline, but NOT re-observing the
+        # port at all. On that fallback path, this re-verification still
+        # narrows the window (it re-checks liveness+cmdline later in
+        # time, so it catches recycle-to-a-non-llama-server-process) but
+        # does NOT catch a recycle where the new process happens to also
+        # be some other llama-server on this device — NEW-83's original,
+        # narrower blast radius, not fully eliminated on that path.
+        # Doesn't fully close the window on either path — only OS-level
+        # pidfd support could do that, not evaluated this round — but
+        # shrinks it from "identification time" to "immediately before
+        # the syscall," and this re-scan is only paid on this
+        # already-cold, port-occupied-at-start path.
+        reverified_pid = self._find_port_occupant_pid()
+
+        if reverified_pid != pid:
+            error(
+                f"embed_server: PID {pid} no longer identifies as the "
+                f"port {self.port} occupant immediately before kill — "
+                f"likely exited and the PID number was recycled to a "
+                f"different process. Refusing to kill it."
+            )
+        else:
+            info(f"Killing stale embed server PID {pid} occupying port {self.port}")
+            try:
+                os.kill(pid, 9)
+            except ProcessLookupError:
+                # Already gone between the re-check and kill — fine, port is free.
+                pass
+            except Exception as e:
+                error(f"embed_server: failed to kill occupant PID {pid}: {e}")
+                return False
 
         import time as _time
 
         _time.sleep(2)  # give kernel time to release the port
 
         if self._port_is_bound():
-            # Killed the PID we found, but the port is still held — most
-            # likely a child of that PID (inherited the listening socket
-            # under the killed process's session) still owns it. Don't
-            # loop retrying automatically: report failure loudly so the
+            # Port is still held. If we actually killed PID {pid} above,
+            # this is most likely a child of that PID (inherited the
+            # listening socket under the killed process's session) still
+            # owning it. If the identity check just above aborted the
+            # kill instead (NEW-86 recycling guard), this is simply the
+            # port never having been cleared at all. Either way: don't
+            # loop retrying automatically, report failure loudly so the
             # caller aborts instead of proceeding to bind against a port
             # that's still occupied.
             error(
-                f"embed_server: killed PID {pid} but port {self.port} is "
-                f"still occupied — a child process may hold the listening "
-                f"socket. Not escalating to a broader kill; free the port "
+                f"embed_server: port {self.port} is still occupied after "
+                f"attempting to clear PID {pid} — a child process may "
+                f"hold the listening socket, or the kill was aborted (see "
+                f"above). Not escalating to a broader kill; free the port "
                 f"manually and retry."
             )
             return False
