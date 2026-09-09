@@ -1,3 +1,16 @@
+## 2026-09-09 — Cleanup round 5: NEW-422/NEW-423 resolved, a real regression caught in round 1
+
+**What changed:** Fifth cleanup round, picking up the last two small stragglers logged during round 3 (`8aa5f07`). Committed `c5e8de0`.
+
+- **`NEW-422`**: `ccos/plugins/coding/finetune/finetune.py` now re-exports `prepare_finetune_data` from `core/finetune_prep.py`, closing the last dead-capability gap from `NEW-417`'s original 9-name list. Verified purely generative (no model interaction anywhere in `core/finetune_prep.py`) before adding, given a prior round in this exact file found a similar safety claim to be stale.
+- **`NEW-423`**: `ccos/core/device_manager.py`'s `_scan()` fallback no longer re-calls the same probes that could have raised in the `try` block above it — a deterministic failure used to propagate uncaught out of `__init__()`. Negative-controlled regression test confirms the pre-fix code genuinely failed this way.
+- **Round 1 caught by code-reviewer before it could commit**: the fallback's own justification for its hardcoded defaults was false for 2 of 5 fields — `_detect_os()`/`_detect_cpu()`'s real pre-probe defaults compute `platform.system()`/`machine()`/`release()`/`os.cpu_count()` live, not literals, and those are plain stdlib calls never among the fallback's actual failure modes (`/proc` reads, `subprocess` calls). Round 1 silently discarded real, always-safe CPU-core-count and OS-arch/release info for zero risk-reduction benefit — six `ccos/demo_*.py` scripts read `cpu.cores` directly and would have silently seen `1` under the fallback. Fixed to compute those 4 fields the same safe way the real functions do.
+- Full suites: `1517 passed, 1 skipped` (`tests/`), `112 passed` (`ccos/tests/`).
+
+**Why:** Same lesson this series keeps surfacing (rules 6/12) — a fix's own inline justification ("these literals mirror X") needs the same scrutiny as any other claim. Checking only the 2 of 5 fields the ledger happened to cite as examples would have missed the other 2 that didn't actually match.
+
+**Next action:** This is the last item from the explicitly-scoped cleanup queue. `NEW_ISSUES.md` still has an untriaged ~50-item broader process-lifecycle population from the 2026-09-08 ledger closeout that's never been individually checked — flagged to Ish as a real, sizable task if wanted, not something to start unprompted.
+
 ## 2026-09-09 — Cleanup round 4 (final): NEW-419/NEW-420 resolved (Codey-Aigentik)
 
 **What changed:** Fourth and final round of the cleanup series (rounds 1-3 above). Both items were the two residual findings code-reviewer logged while approving `NEW-413`'s cross-repo fix. Committed in `Codey-Aigentik` (`00da362`) and `Codey-OS` (`86eb057`).
