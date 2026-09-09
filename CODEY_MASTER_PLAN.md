@@ -1267,24 +1267,39 @@ points, named below.
 > kept below verbatim because its *reasoning* is what stopped the
 > re-sequencing, and that reasoning is still worth reading.
 >
-> **Where a fresh session should actually look:** Appendix A's
-> `Obsolescence audit — pass 1` block for current verdicts, then the
-> lanes. Phase A1's one remaining item (`7.4`) is a production-config
-> **live pass only** — rule 2 governs it, so it is a `live-verifier`
-> job, not something to start unprompted. Ish's most recent direction
-> (2026-09-02) added Phases B6 and B7; **B6 is the live front.** Its
-> "Phase B2 complete" prerequisite was audited 2026-09-02 (`NEW-288`
-> resolved) and is now **satisfied at the code-complete tier**: all 8 of
-> B2's write-site groups are cut over (`queue.js` ruled out of scope,
-> `NEW-291`; `business_profile` closed via **B2-fin-1**, fork commit
-> `2056524`, code-reviewer-approved, NOT live-verified). Its prerequisite
-> `U.35`/`U.36` landed 2026-09-02 (`5e03b4c`), and **`B6.1` itself
-> landed 2026-09-02** (code-reviewer APPROVED, rule-4 permissions;
-> `CRMService.update_project` + `POST /api/v1/projects/{id}/update` +
-> two additive reassignment permissions keyed on permission not role).
-> **The next coding round is `B6.2`** — audit-detail completion (it
-> generalizes B6.1's nested `changed_fields` payload) plus the
-> audit-search screen. Absorbs `U.37` (`NEW-265`, `NEW-267`).
+> **Update, 2026-09-09 (second navigation-drift correction — this
+> banner itself had gone stale again, same failure class as `NEW-290`;
+> the "next round is `B6.2`" line below was true 2026-09-02 but had not
+> been updated since, even though every phase it names since finished):**
+> **Phase A1 is now fully closed** — `7.4`'s remaining item was the
+> production-config live pass, which landed as M1-E (already described
+> above, DONE 2026-08-23). **Phases B6 and B7 are now both fully
+> closed** — every sub-item `B6.1`…`B6.8` and `B7.1`…`B7.4` is `[x]` in
+> §6.3–§6.10 below (`B6.3`/`B6.4a`/`B6.4b-f` landed 2026-09-06, closing
+> the last `B4` gaps `NEW-272`/`273`/`274`; `B7`'s items landed
+> 2026-09-07). A large NEW_ISSUES.md ledger-closeout series (6 batches
+> covering telemetry, prompt/planner, and daemon/process-lifecycle,
+> plus a combined live-verify session and 4 follow-on cleanup rounds)
+> also completed 2026-09-08/09 — see `PROJECT_LOG.md`'s entries from
+> those dates for the full record; not summarized here to avoid this
+> banner going stale a third time by trying to track round-level detail
+> that belongs in `PROJECT_LOG.md`.
+>
+> **Where a fresh session should actually look now:** there is no
+> single obvious "next phase" the way M1 or B6 were — check §6's
+> remaining `- [ ]` lines directly (search this file for `\- \[ \]`)
+> rather than trusting a prose summary here, since that's exactly the
+> mechanism that went stale twice. As of this update those are: the
+> **concurrency test** (§7.4a's KV-cache/slot-count check — last live
+> pass, 2026-08-26, was a negative result measured against the retired
+> 7B model, not yet re-run against Qwen3.5-4B), **`T10`** (telemetry
+> schema v2 migration, scoped but not started), **`11.x`** (Model
+> Orchestrator, parked until a domain agent needs it — not actionable
+> now), and **`P.1`** (self-improvement activation, permanently gated by
+> rule 1). `NEW_ISSUES.md` also has a handful of small open items
+> (`NEW-422`/`NEW-423`) and an untriaged ~50-item broader
+> process-lifecycle population from the 2026-09-08 ledger-closeout
+> batch, neither prioritized.
 >
 > --- original 2026-08-22 direction, kept as the record ---
 >
