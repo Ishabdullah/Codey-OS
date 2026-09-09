@@ -1,3 +1,18 @@
+## 2026-09-09 — Cleanup round 3: NEW-415/416/417/418 fixed, a stale-claim correction caught pre-commit
+
+**What changed:** Third and final round of the small cleanup series (rounds 1-2 above, `a76ab4f`/`a2194b0`+`c51748a`). Four small items, none process-lifecycle. Committed `8aa5f07`.
+
+- **`NEW-415`/`NEW-416`**: 4 more except-clause narrowing/logging fixes in `ccos/core/device_manager.py`/`goal_engine.py`, extending round 1's `NEW-414` work — each narrowed exception type verified against what the surrounding code can actually raise, not just plausible-sounding.
+- **`NEW-417`**: `ccos/plugins/coding/finetune/finetune.py` now re-exports 6 names its own docstring and its own test file both already claimed it did — closing an `ImportError` that meant the one test exercising `rollback_to_backup()`'s round-trip (the exact mechanism round 1's `NEW-91`/`NEW-163` data-loss bug lived in) had never actually been running. Verified genuinely passing now, not just importable.
+- **`NEW-418`**: added a missing `confirm_resident_and_mark_slot` stub to 3 copies of a shared test helper — these tests were paying a real ~10s wall-clock tax per run hitting real `/proc/meminfo` polling a mocked load could never satisfy. Verified via isolated before/after timing: 50.33s → 0.18-0.27s.
+- **Code-reviewer caught a real problem before this could commit**: fixing `NEW-417`'s dead re-export also makes `coding.finetune_rollback_backup` newly reachable via CCOS's own capability-dispatch path (verified: previously returned `RuntimeError` at call time for all 6 names, now resolves). The implementer's first-pass docstring/ledger text claimed this newly-reachable capability's `secondary` variant still crashes on `NEW-24`'s unresolved bug after already deleting a backup — code-reviewer traced `core/lora_import.py`'s actual current code and found this false: `NEW-24` was fixed back in August, and M1-D collapsed both variants onto the same reload path months ago. Corrected both the `finetune.py` docstring and the `NEW-421` ledger entry to state the real, narrower residual risk (a malformed argument reproducing `NEW-91`/`NEW-163`'s shape, already caught and logged) instead of an already-fixed bug that was never actually reachable this way.
+- 2 more findings logged, not fixed: `NEW-422` (a 9th dead capability name, low impact), `NEW-423` (a narrow re-raise risk in a fallback block).
+- Full suite: `1517 passed, 1 skipped` (`tests/`), `111 passed` (`ccos/tests/`).
+
+**Why:** This is the clearest example yet in this series of why every fix — even a "just close a dead import" one — gets adversarial review: the actual code change (the re-export) was correct and safe, but the surrounding claim about what that change exposed was stale by weeks, and would have shipped as a scary-sounding but wrong warning in both a source docstring and the permanent ledger if code-reviewer had rubber-stamped the implementer's own (reasonable-sounding, but unverified) citation of an old bug number.
+
+**Next action:** This closes out the three-round cleanup series entirely. Everything remaining is explicitly deferred: items for Ish (`NEW-9`, `NEW-287` items 2-3), research questions (`NEW-18`), small residual findings (`NEW-419`-`423`), and the untriaged ~50-item broader process-lifecycle population from batch 6.
+
 ## 2026-09-08 — Cleanup round 2: NEW-68 bounded retry, NEW-413 fully closed (cross-repo, Codey-Aigentik)
 
 **What changed:** Second and final round of the small cleanup series (round 1 above committed `a76ab4f`). Both items in this round were scoped by project-architect first, given neither had an obvious fix location. Committed `a2194b0` (Codey-OS side) and, in the separate `~/Codey-Aigentik` repo, `c51748a`; ledger update `c49116d`.
