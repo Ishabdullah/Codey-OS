@@ -423,6 +423,54 @@ Cross-references: `NEW-156` (constants derived from the retired models),
   whole body in one outer `try/except (KeyboardInterrupt, SystemExit):
   shutdown()`. Needs its own scoped task and code-reviewer approval; not
   attempted here.
+- **Status: PARTIALLY FIXED 2026-09-09** (dedicated scoped task,
+  code-reviewer approved). Re-verified as still real before fixing —
+  traced the full call stack (not just the two `except` clauses): with
+  `SystemExit` uncaught at the idle `input()` wait (current line ~1711,
+  `except (KeyboardInterrupt, EOFError):`), it propagates past
+  `except Exception as e:` at the next clause (doesn't match —
+  `SystemExit` is a `BaseException`, not an `Exception`), out of
+  `repl()`, through `main()`'s only wrapper around the `repl()` call
+  (`try: repl(...) finally: _remove_tui_pid_file()` — no `shutdown()`
+  there), out of `main()`, to `if __name__ == "__main__": main()` with
+  no handling at all. Confirmed: no top-level cleanup path exists;
+  `shutdown()` genuinely does not run. Current line numbers had shifted
+  from this entry's original ~1271/~1335/~1362 to ~1614 (model-load
+  guard)/~1684 (initial-prompt branch)/~1711 (idle `input()` wait) —
+  correcting those here per rule 6, the mechanism itself was accurately
+  described.
+  - **Fixed:** the idle `input()` wait's clause (line ~1711) now reads
+    `except (KeyboardInterrupt, EOFError, SystemExit):` — matches the
+    pattern the 4 model-load guards already use, runs `shutdown()`
+    before `break`, and (like those 4 guards) exits 0 via `break`
+    rather than letting `SystemExit`'s original 128+signum code
+    propagate — the same tradeoff those guards already make.
+  - **Deliberately NOT fixed:** the initial-prompt non-one-shot branch
+    (line ~1684, `except KeyboardInterrupt:`) is left as-is. It doesn't
+    call `shutdown()` for `SIGINT` either — it just prints
+    "Interrupted." and falls through into the REPL loop below. Adding
+    `SystemExit` there would make a termination signal get absorbed
+    into a continued session instead of exiting, which is worse than
+    today's behavior (uncaught propagation straight out of `main()`,
+    same net cleanup outcome — zero — as before this fix, not a
+    regression). This half of the original finding remains open by
+    design, not by oversight.
+  - **Regression tests:**
+    `tests/test_new40_repl_idle_wait_sigterm.py::
+    test_sigterm_at_idle_input_wait_runs_shutdown` (mocks `input()` to
+    raise `SystemExit(128 + signal.SIGTERM)` at the idle wait, asserts
+    on the observable effects of `shutdown()` — `monitor.stop()` and
+    `loader.unload()` actually called, not just that some `shutdown`
+    symbol was invoked) and
+    `::test_keyboard_interrupt_at_idle_input_wait_still_runs_shutdown`
+    (guards the existing `SIGINT` behavior at the same site against
+    regressing). Both fail against the pre-fix clause and pass against
+    the fix. Full suite: `python -m pytest tests/ -q` →
+    `1521 passed, 1 skipped in 232.42s`.
+  - **Cross-reference:** `main.py` (`repl()`'s idle `input()` wait,
+    `_sigterm_handler`'s docstring — updated in the same change to stop
+    asserting the now-fixed half is uncovered),
+    `tests/test_new40_repl_idle_wait_sigterm.py`.
 
 ## Found during NEW-19 code-review (patch-failed repeat-escalation), 2026-07-30 — NOT fixed, logged only
 
@@ -5467,8 +5515,36 @@ open, not closed, on this basis.
 
 ### [NEW-80] `_LockedState.__enter__` leaks the lock file descriptor if `flock()` raises
 
-- **Status: Confirmed, pre-existing** (not introduced by this round's
-  fix). `core/resource_gate.py`'s `_LockedState.__enter__` opens the lock
+- **Status: RESOLVED (2026-09-09).** Re-confirmed live in current code
+  before fixing (session had already found 2 false negatives against
+  this ledger earlier the same day): `_LockedState.__enter__` in
+  `core/resource_gate.py` still opened the lock file before calling
+  `flock()`, with no `try`/`except` around the `flock()` call — if it
+  raised, `__exit__` never ran (the `with` statement's context-manager
+  protocol only calls `__exit__` after a successful `__enter__`), so the
+  opened fd leaked. Fix: `__enter__` now wraps `fcntl.flock(...)` in a
+  `try`/`except BaseException` that closes `self._lock_fd`, sets it to
+  `None`, and re-raises — matching `telemetry/rotate.py`'s
+  `acquire_rotate_lock()` established close-on-failure convention for
+  this project's other flock-based code (that function's fd close lives
+  in its outer `finally`, since it's a generator-based context manager;
+  `_LockedState` is class-based, so the equivalent close lives directly
+  in `__enter__`'s except clause instead). `except BaseException`
+  (not `Exception`) deliberately: `flock(LOCK_EX)` here is blocking with
+  no timeout, so a short-lived CLI process blocked on it can be
+  interrupted by Ctrl-C (`KeyboardInterrupt`, which does not inherit
+  from `Exception`) — that case must also close the fd, not leak it.
+  Regression tests, both proven to fail before the fix and pass after
+  (verbatim failing-then-passing runs captured in this round's PR):
+  `tests/test_resource_gate.py::test_locked_state_enter_closes_fd_when_flock_raises`,
+  `test_locked_state_enter_closes_fd_on_keyboard_interrupt_during_flock`
+  (discriminating on `ls._lock_fd is None`, not merely that the
+  exception propagates — a bare "raises OSError" assertion would have
+  passed both before and after this fix, since `flock()` itself already
+  raised pre-fix).
+- **Original finding, kept for record (CLAUDE.md rule 6) — Status:
+  Confirmed, pre-existing** (not introduced by this round's fix).
+  `core/resource_gate.py`'s `_LockedState.__enter__` opens the lock
   file before calling `flock()`; if `flock()` itself raises, `__exit__`
   never runs (the `with` block's context manager protocol only calls
   `__exit__` after a successful `__enter__`), so the opened fd is never
@@ -5633,7 +5709,105 @@ open, not closed, on this basis.
 
 ### [NEW-86] `core/embed_server.py`'s `_kill_port_occupant()` (post-`NEW-83`-fix) still has a narrow PID-recycling race the post-kill verification doesn't catch
 
-- **Status: Suspected, low severity** — found by `code-reviewer` during
+- **Status: RESOLVED (narrowed further, not fully eliminated) — 2026-09-09**
+  (dedicated scoped task, code-reviewer approval pending/see round diff).
+  Re-verified as still real in current code before fixing (this session
+  had already found 2 false negatives against this ledger earlier the
+  same day): `_find_port_occupant_pid()`'s primary `/proc/net/tcp`+fd-scan
+  path resolves a PID with no identity re-check at all, and the only
+  cmdline check anywhere (`_cmdline_is_llama_server()`, used by the
+  registered-slot fallback path) runs once, at identification time — not
+  immediately before the kill. The race described below was genuinely
+  still open.
+  - **Fixed:** `_kill_port_occupant()` now re-runs
+    `_find_port_occupant_pid()` a second time immediately before the
+    `os.kill(pid, 9)` call and requires it resolve to the *same* PID as
+    the first, identification-time call; any mismatch (a different PID,
+    or `None`) aborts the kill instead of proceeding. A first draft of
+    this fix instead snapshot-compared the target PID's
+    `/proc/<pid>/cmdline` against itself a few microseconds apart — a
+    second, independent look caught that this doesn't actually catch the
+    race: if the recycle already happened before `_find_port_occupant_pid()`
+    even returned (the realistic case, since that call itself takes
+    non-trivial time to scan `/proc`), both cmdline reads see the same,
+    already-recycled process and "match," so the check would have been a
+    near-total no-op in production — exactly the `NEW-145`/`149`/`155`
+    failure mode CLAUDE.md documents (approved-looking fix, silently does
+    nothing). Re-deriving port ownership itself is what actually
+    discriminates. Deliberately not a *"must be llama-server"* gate
+    either — `_find_port_occupant_pid()`'s own docstring notes the
+    legitimate occupant need not be our own llama-server, so a
+    must-match-llama-server gate would wrongly refuse to clear a real
+    foreign squatter. The post-kill `_port_is_bound()` tail is the single
+    source of the function's return value for both the killed and the
+    identity-check-aborted paths (not inferred from the abort itself), so
+    the reported outcome always reflects a real port observation.
+  - **Coverage caveat — does NOT fully close the window on every path,
+    scope corrected after a second review pass caught the first version
+    overclaiming this:** `_find_port_occupant_pid()` has two internal
+    paths of different strength. Its primary `/proc/net/tcp`(+tcp6)
+    socket scan DOES re-observe the port directly, so re-running it
+    would catch a recycle to *anything*, including another llama-server
+    on this device (generation runs on 8080/8081, separate from this
+    module's 8082). But that primary path needs `/proc/net/tcp` read
+    access — confirmed unreadable in this dev sandbox this round
+    (`head -1 /proc/net/tcp` → `Permission denied`; real on-device
+    Termux/Android behavior is **unverified**, needs live-verifier
+    confirmation) — and when it's unreadable, `_find_port_occupant_pid()`
+    falls back to `_find_pid_via_registered_slot()`, a lookup against
+    this object's own static `resource_gate` registry entry (liveness +
+    cmdline re-checked, but the port itself is NOT re-observed). On that
+    fallback path this re-verification still narrows the window (later
+    liveness+cmdline check catches recycle-to-a-non-llama-server-process)
+    but does NOT catch a recycle where the new process happens to also
+    be some other llama-server on this device — `NEW-83`'s original,
+    narrower blast radius, not fully eliminated on that specific path.
+    Full elimination on either path would need OS-level pidfd support,
+    whose availability on this device was **not investigated this
+    round** (noted, not asserted either way).
+  - **Deliberately reverted:** an earlier draft of this fix also
+    extracted a `_read_cmdline()` helper as infrastructure for the
+    abandoned snapshot-compare approach; once that approach was dropped,
+    `_cmdline_is_llama_server()` was reverted to its original, single-use
+    inline form (CLAUDE.md: "three similar lines beat a premature
+    abstraction") — no behavior change, `_cmdline_is_llama_server()` is
+    unrelated to this fix's actual mechanism.
+  - **Regression tests:** `tests/test_new86_embed_server_pid_recycle.py`
+    (4 tests, using `side_effect` so `_find_port_occupant_pid()`'s two
+    calls return genuinely different results — modeling what two
+    temporally-separated real `/proc` scans would see, not an artificial
+    same-instant comparison: recycled-to-a-different-PID with the port
+    already free vs. still occupied, recycled-to-no-occupant-at-all, and
+    an unchanged-PID control case still kills as before). All mock
+    `_find_port_occupant_pid()` wholesale, so they exercise the
+    re-verification mechanism itself but not which of its two internal
+    paths is live on-device (see coverage caveat above) — an earlier
+    draft test asserting a "non-llama-server occupant still killable"
+    property patched `_cmdline_is_llama_server` while
+    `_find_port_occupant_pid` was already fully mocked, so that patch
+    was never reached and the test proved nothing beyond the control
+    case; dropped as a duplicate rather than kept as a false positive.
+    No changes needed to `tests/test_new83_embed_server_kill.py`'s
+    existing kill-path tests — they mock `_find_port_occupant_pid` with a
+    constant `return_value`, which already satisfies the new
+    re-verification check unchanged. Full suite:
+    `python -m pytest tests/ -q` → `1545 passed, 1 skipped in 210.04s`
+    — **caveat:** that run's tree also contained another agent's
+    separate, concurrent uncommitted work across `main.py`,
+    `core/daemon.py`, `core/resource_gate.py`, `lib/service_manager.sh`,
+    `ccos/core/plugin_manager.py`, `restoricon_core/api/server.py`, and
+    several new `tests/test_new*.py` files (see PROJECT_LOG.md / their
+    own round), so this count isn't attributable to this round's change
+    alone; the embed-server-scoped re-run immediately after this fix
+    (`tests/test_new86_embed_server_pid_recycle.py`,
+    `tests/test_new83_embed_server_kill.py`,
+    `tests/test_new144_embed_health_check_only.py`) is the one that
+    isolates this round's change: `23 passed, 1 skipped`.
+  - **Cross-reference:** `core/embed_server.py` (`_kill_port_occupant()`
+    only — `_cmdline_is_llama_server()` unchanged from before this
+    round).
+- **Original finding, kept for record (CLAUDE.md rule 6) — Status:
+  Suspected, low severity** — found by `code-reviewer` during
   the `NEW-83` fix's review pass. The fix's `_port_is_bound()` re-check
   after a kill looks like it closes the PID-recycling TOCTOU window, but
   traced precisely, it doesn't: if the real occupant exits naturally
@@ -5643,8 +5817,8 @@ open, not closed, on this basis.
   free by then anyway (the real occupant exited on its own), so the
   post-kill check reports success and never notices anything wrong. This
   is a real, narrow residual race, not fully closed by the `NEW-83` fix.
-- **Not blocking `NEW-83`'s approval** — this fix already narrows the
-  blast radius from "any process anywhere named llama-server" to "one
+  Not blocking `NEW-83`'s approval — this fix already narrows the blast
+  radius from "any process anywhere named llama-server" to "one
   specific, positively-identified PID," which is a real improvement over
   the bare `pkill` it replaced, even though this specific race remains.
   Fix direction for a future round, if pursued: re-verify the target
@@ -5688,6 +5862,26 @@ open, not closed, on this basis.
   exception there is silently swallowed with no log, same as the
   model-loader watchdog had before
   this sub-task's fix. Flagged for a future round; not fixed here.
+- **Resolved 2026-09-09** (daemon.py watchdog 4-fix batch). Read in full
+  context at its current location (`core/daemon.py`'s embed-server
+  watchdog block inside `_main_loop()`'s watchdog tick, now further down
+  the file than the ~652 estimate above after unrelated intervening
+  edits). Left broad (not narrowed to a specific exception type) — the
+  block wraps both an `is_running()` liveness probe and a
+  `start_embed_server()` subprocess spawn, each with its own
+  unpredictable failure modes, matching the `NEW-414`/`NEW-415` precedent
+  (2026-09-08/09 exception-hygiene rounds) for genuinely-unpredictable
+  aggregate sites — but no longer silent: the exception is now logged at
+  `warning()` before being swallowed, matching the sibling 7B model
+  watchdog's (`_watchdog_check_model()`) already-established posture in
+  the same watchdog loop. Regression test:
+  `tests/test_new88_embed_watchdog_logs.py` (asserts a `get_embed_server()`
+  failure is logged, not silently discarded; empirically verified against
+  the pre-fix bare `except Exception: pass` by temporary revert — fails
+  without the fix, passes with it). `python -m pytest tests/ -q`: 1537
+  passed, 1 skipped (this figure includes untracked test files from other
+  concurrent agent work in this tree — `test_new107_new109_*`,
+  `test_new40_*`, `test_new86_*` — not just this dispatch's own tests).
 
 ### [NEW-89] A detached daemon-crash scenario can leave a `resource_gate` slot accounted for a process the daemon itself no longer knows about, with no current API to reconcile it
 
@@ -6227,7 +6421,92 @@ finding for the same bug. See `NEW-39`.)*
 
 ### [NEW-104] `resource_gate.reserve_slot()`/`register_slot()` slots are keyed to the *calling process's* PID, never the spawned `llama-server` child's PID/port — causes premature reaping when a short-lived `main.py` CLI process loads/adopts a model while the daemon is running, and a mirror stale-slot risk on the daemon's own side
 
-- **Status: Confirmed**, live-reproduced this round (the CLI-side
+- **Status: RESOLVED for every registrant call site this project's own
+  code controls (2026-09-09 verification round; this is a ledger
+  correction with no new code change — the actual fix already landed in
+  the 2026-08-26 lease/registry-item commit, `1ca97e1`,
+  "explicit adoption registry, NEW-104/144/146/149," which this ledger
+  entry itself was never updated to reflect until now).** Re-verified
+  live by reading every current `reserve_slot(`/`register_slot(`/
+  `mark_resident(` call site in the repo (not trusting this entry's
+  "Not fixed" text alone — this session had already found 2 false
+  negatives against this ledger before reaching this item):
+  - `core/loader_v2.py:1410` — `rg.reserve_slot(spec,
+    port=PRIMARY_SERVER_PORT, meminfo=gate_meminfo)` now passes `port=`
+    (was `None` at the time this entry was written); the caller-PID
+    default is unavoidable and correct at THIS call, since
+    `reserve_slot()` runs before the child process exists — see below
+    for why this half of the original finding was never fixable as
+    described.
+  - `core/loader_v2.py:1516-1520` (inside
+    `confirm_resident_and_mark_slot()`, called from `load_primary()`'s
+    genuine-spawn branch) — passes `pid=self._server.process.pid`
+    (the real spawned `llama-server` child PID) straight to
+    `resource_gate.mark_resident(slot_id, pid=pid)`, rebinding the
+    slot's `pid` from the caller's own PID to the real child PID once
+    the load is confirmed. This is `NEW-81`'s fix (RESOLVED
+    2026-08-11, see that entry), and it is what actually closes this
+    finding's PID half — not a change to `reserve_slot()` itself.
+  - `core/loader_v2.py`'s `_reconcile_adopted_slot()` (added by
+    `1ca97e1`, called from the "reuse an existing server" branch this
+    entry's own fix-direction paragraph named as broken) —
+    `rg.register_slot(model_id="primary", cost_bytes=..., pid=real_pid,
+    port=self._server.port, status=rg.SLOT_STATUS_RESIDENT,
+    n_ctx=resolved_n_ctx)` at line 1639, where `real_pid` is resolved
+    positively via `rg.resolve_port_owner_pid()` +
+    `rg.pid_cmdline_contains(real_pid, b"llama-server")` (never a
+    name-based guess, CLAUDE.md rule 3) — this is exactly the "reuse
+    branch never re-establishes gate visibility" gap this entry's own
+    fix-direction paragraph called out.
+  - `core/embed_server.py:92` (adoption branch) and `:204` (genuine-spawn
+    branch) — both already pass the real PID (`real_pid` from
+    `self._find_port_occupant_pid()`, and `self.process.pid`
+    respectively), not the caller's own PID. Audited as part of this
+    round specifically because this entry's own fix-direction paragraph
+    named `codeydOS`'s `start_plannd()` — not `embed_server.py` — as the
+    correct precedent to follow; `embed_server.py` turns out to already
+    follow it independently.
+  - `codeydOS`'s `start_plannd()` (the correct-precedent call site this
+    entry's own fix-direction paragraph cited) no longer exists — deleted
+    in M1-D (2026-08-23) when the dedicated planner process was retired.
+  No other `reserve_slot(`/`register_slot(`/`mark_resident(` call site
+  exists in the repo outside `core/resource_gate.py`'s own definitions
+  and `tests/`.
+- **What this dispatch's suggested fix shape (an optional `pid=` on
+  `reserve_slot()` itself) would NOT have fixed, and why the real fix
+  correctly landed on `mark_resident()`/`register_slot()` instead**:
+  `reserve_slot()` is called BEFORE the model subprocess is spawned —
+  the gate has to admit the load before anything starts — so at the
+  moment `reserve_slot()` runs, the real child PID does not exist yet;
+  there is nothing a `pid=` override at that call could pass. Adding one
+  there would have been dead code. The actual fix is temporal: register
+  under the caller's own PID first (unavoidable), then rebind to the
+  real PID once it's known, via `mark_resident(pid=...)` (the
+  genuine-spawn path) or a fresh `register_slot(pid=real_pid, ...)`
+  (the adopted/reused-server path, which never calls `mark_resident` at
+  all since it never held a PENDING reservation of its own).
+- **One residual sub-case remains open, tracked separately, not part of
+  this resolution**: `NEW-200` documents that `_reconcile_adopted_slot()`'s
+  positive-PID-resolution path (`resolve_port_owner_pid()`) cannot
+  actually succeed on this specific device for a truly-unregistered
+  foreign process — `/proc/net/tcp`/`/proc/net/tcp6` are
+  `PermissionError` for every caller here, a device/OS platform
+  constraint, not a code defect. That sub-case degrades safely to
+  "leave the gate as blind as before" (best-effort by design, never
+  blocking, never a crash) rather than mis-registering — see `NEW-200`'s
+  own entry for the full accounting of what does and doesn't work on
+  this device. This is the one sense in which `NEW-104` "stays only
+  partially closed," per the lease/registry item's own
+  `CODEY_MASTER_PLAN.md` entry at the time — not a live bug, a documented
+  platform ceiling on an already-best-effort mechanism.
+- **Not separately audited this round**: whether any OTHER, unrelated
+  project (not this repo) or a future new call site could reintroduce
+  this shape has not been checked beyond the grep above — flagging per
+  CLAUDE.md rule 8 in case a later round adds a new
+  `reserve_slot`/`register_slot` caller without reading this entry
+  first.
+- **Original finding, kept for record (CLAUDE.md rule 6) — Status:
+  Confirmed**, live-reproduced this round (the CLI-side
   premature-reaping half; the daemon-side stale-slot half is a direct
   code-read consequence of the same root cause, not separately
   reproduced this round — see below for what's directly observed vs.
@@ -6417,6 +6696,37 @@ finding for the same bug. See `NEW-39`.)*
   part of 4.1 sub-task A's scope (a rolling sampler, not a cold
   instantaneous read, since `/proc/stat` CPU% requires two samples over
   time).
+- **Record correction, 2026-09-09 (NEW-107/NEW-109 combined round,
+  code-complete, pending code-reviewer):** re-investigated before touching anything,
+  per this round's task instructions. The "should read system-wide
+  figures instead" fix direction above does not hold up — re-pointing
+  `State.cpu_usage`/`State.memory_usage` at system-wide reads turns out
+  to conflict with an **existing, deliberate design decision**, not an
+  oversight: `ccos/plugins/system/observability/observability.py`'s
+  module docstring explicitly documents this exact process-vs-system
+  split as intentional ("this plugin's `cpu_usage` and `memory_usage`
+  ... report *this process's own* CPU% and RSS/VMS ... a different
+  question ... answered a different way, not a duplicate read" of
+  `thermal_monitor`'s system-wide numbers), and
+  `core/resource_gate.py`'s "Signal source 1" comment independently
+  states the same thing from the other side ("observability.py's
+  memory figure is per-process RSS, not system-wide headroom ...
+  neither is usable here"). `ccos/plugins/system/observability/test.py
+  ::test_memory_usage_has_real_data` pins `memory_usage()`'s return
+  shape to `{rss_mb, vms_mb}` with `rss_mb > 0` — re-pointing at the
+  daemon's or the system's figures would break that assertion whenever
+  no daemon happens to be running, which is the common state during
+  this test suite's own run. **What was actually wrong** was that the
+  output gave no indication these are process-scoped, not that the
+  values themselves were wrong for their intended purpose — fixed by
+  adding an explicit `"scope": "process"` key to `get_full_status()`'s
+  `"memory"`/`"cpu"` blocks and expanding both properties' docstrings,
+  without changing what they measure or their pinned return shape. True
+  system-wide RAM/CPU remain available exactly where they already were:
+  `core/resource_gate.py`'s `read_meminfo()`, surfaced by
+  `main.py --status`'s separate `"resources"` key.
+  Regression test: `tests/test_new107_new109_observability_daemon_pid_uptime.py::
+  test_memory_and_cpu_usage_labeled_process_scope`.
 
 ## Found during Track 3 Phase 5a / 7.4 sub-task A (rolling CPU sampler + resource snapshot + `/status` wiring), 2026-08-09 — NOT fixed, logged only
 
@@ -6523,6 +6833,83 @@ finding for the same bug. See `NEW-39`.)*
   to be display-only, wiring an existing `status()` method, not a bug-fix
   pass over `core/observability.py`'s own logic). Flagging per CLAUDE.md
   rule 8.
+- **Fix code-complete 2026-09-09, pending code-reviewer** (NEW-107/NEW-109
+  combined round). Re-verified still real before fixing: live
+  `python main.py --status` with no daemon running reproduced the exact
+  reported contradiction (`"daemon": {"pid": null, "uptime_seconds":
+  55425}`) prior to the fix.
+  - **`daemon.pid`/`daemon.uptime_seconds` contradiction — fixed,
+    including a second narrower window found while fixing the first.**
+    `State.daemon_pid` (`core/observability.py`) no longer reads
+    `self._process.pid` (always the CALLING process's own PID, never
+    the daemon's, and unconditionally `None` without psutil regardless
+    of whether a daemon was running). It now reads
+    `utils.config.DAEMON_PID_FILE` — the same file
+    `core.daemon.write_pid_file()`/`check_pid_file()` already use —
+    with an `os.kill(pid, 0)` liveness check mirroring
+    `check_pid_file()`'s own (deliberately reuses the same
+    liveness convention, including its PID-recycle exposure: a stale
+    PID file whose number got reused by an unrelated process would
+    pass `os.kill(pid, 0)` here exactly as it would in
+    `check_pid_file()` itself — not hardened against separately, since
+    that would diverge from the existing convention this fix
+    intentionally matches). `State.uptime` is gated on two conditions,
+    not one: (1) `daemon_pid` finding a live daemon — no live daemon
+    means uptime is `0`, not a stale `daemon_started_at` value from a
+    previous run (the originally-reported symptom); (2)
+    `daemon_started_at` not predating `DAEMON_PID_FILE`'s own mtime —
+    `core/daemon.py`'s `Daemon.run()` writes the PID file BEFORE
+    `_main_loop()` records `daemon_started_at` a little later in the
+    same startup, so there's a real (if narrow) window where a fix
+    gated on condition (1) alone would still show a live PID next to a
+    *previous* run's stale `daemon_started_at` — the same contradiction
+    shape, just transient instead of permanent. Found by re-reading
+    `core/daemon.py`'s startup ordering while fixing the permanent case,
+    not separately live-reproduced (reproducing it would require timing
+    a real daemon startup within that sub-second window). Post-fix live
+    output: `"daemon": {"pid": null, "uptime_seconds": 0}"` — no longer
+    contradictory. Note: `get_full_status()` calls `daemon_pid` three
+    times per invocation (once directly, once inside `uptime`, once
+    inside `health`→`uptime`) with no snapshotting — a daemon exiting
+    mid-call could in principle still yield `pid: <int>` alongside
+    `uptime: 0` from a read that lands after the daemon's gone; not
+    addressed here (would need each property read once and threaded
+    through, a larger change than this fix's scope).
+  - **`memory.usage`/`health.memory_usage` reporting the caller's own
+    RSS, not the daemon's — reclassified, not re-pointed.** Re-reading
+    the code this round surfaced the same finding NEW-107's correction
+    above describes: this is a pre-existing, deliberately documented
+    process-vs-system split (see NEW-107's 2026-09-09 correction note
+    for the full evidence — `ccos/plugins/system/observability/
+    observability.py`'s module docstring and
+    `core/resource_gate.py`'s "Signal source 1" comment), and
+    `ccos/plugins/system/observability/test.py::
+    test_memory_usage_has_real_data` pins the `rss_mb`/`vms_mb` return
+    shape a re-point would have broken. Resolved the same way as
+    NEW-107: `get_full_status()`'s `"memory"`/`"cpu"` blocks now carry
+    an explicit `"scope": "process"` key so the ambiguity ("whose
+    memory is this?") is gone from the output, without changing which
+    process's figures are reported.
+  - **Regression tests:**
+    `tests/test_new107_new109_observability_daemon_pid_uptime.py` — 8
+    cases covering: no PID file, a stale PID file (dead PID), a live
+    PID file, uptime staying 0 despite a stale `daemon_started_at` when
+    no daemon is found, uptime becoming non-zero once a live PID is
+    found AND `daemon_started_at` is fresh relative to the PID file's
+    mtime, uptime staying 0 during the startup window (live PID but
+    `daemon_started_at` predates the PID file's mtime), the direct
+    pid/uptime-contradiction regression, and the `"scope"` labeling.
+    Uses an autouse fixture to save/restore the real
+    `~/.codeyOS/state.db`'s `daemon_started_at` value around every test
+    in the file — this property reads the real, shared state store
+    (`core.state.get_state_store()`), which `tests/conftest.py`'s
+    autouse isolation fixture does not redirect (it only isolates
+    telemetry's `METRICS_DIR`).
+  - **Known follow-on, logged not fixed (out of this task's scope,
+    same file restriction as CLAUDE.md rule 8):** see NEW-428 — the
+    CCOS wrapper's own docstrings (`daemon_pid()`: "PID of this
+    process") describe the OLD, now-incorrect semantics and need
+    updating in that file, not `core/observability.py`.
 
 ### [NEW-110] `tests/test_new19_patch_failed_repeat_escalation.py` calls real, unmocked `git status`/`git diff` against the live repo and hits a genuine interactive `confirm()` prompt whenever the working tree has any uncommitted changes — 3 spurious failures/hangs under pytest's captured stdin, unrelated to whatever change actually dirtied the tree
 **Verified already fixed 2026-09-08** (repo-state audit ahead of NEW_ISSUES.md batch-1 ledger closeout; no code change made this round — confirmed the fix already landed under a prior commit and this entry's Status field was simply never updated to reflect it).
@@ -6654,6 +7041,17 @@ finding for the same bug. See `NEW-39`.)*
   code-reviewer's request); flagging per CLAUDE.md rule 8. Removing the
   dead assignment (and its comment) is a trivial follow-up whenever
   `core/daemon.py` is next touched for something in this area.
+- **Resolved 2026-09-09** (daemon.py watchdog 4-fix batch). Re-confirmed
+  still dead at current line numbers before removing: `DaemonServer`
+  spans `core/daemon.py:167-848`; the assignment itself sat at line 885
+  inside `Daemon.__init__`, a different class; a repo-wide
+  `grep -rn "server\.planner"` still found exactly one hit — the
+  assignment itself — before this fix, and zero after. Removed the dead
+  `self.server.planner = self.planner` line and its stale comment. No
+  behavior change (nothing ever read the attribute), so no new
+  regression test was added per this round's own instructions for
+  pure dead-code removal. `python -m pytest tests/ -q`: 1537 passed,
+  1 skipped.
 
 ### [NEW-114] 4.1 sub-task C's new "expand a queued task into an N-step plan" path (`_process_planner_tasks()`, `core/daemon.py:~1166-1193`) has a crash window between `add_tasks()` creating the new multi-step rows and `complete_task()` marking the superseded raw row `done`, with no reaper/watchdog anywhere in the codebase to recover an orphaned `running` row if the daemon dies in that gap
 
@@ -6834,6 +7232,31 @@ finding for the same bug. See `NEW-39`.)*
 - **Not fixed** — this was a docs/logging-only verification round per
   the task's own scope; no implementation code was touched. Flagging per
   CLAUDE.md rule 8.
+- **Resolved 2026-09-09** (daemon.py watchdog 4-fix batch). Took the
+  `continue` option from this entry's own "shape of a fix" — added
+  immediately after `self._trigger_shutdown()` fires inside the trip
+  branch (current location shifted from the original ~line 999/1229
+  estimates by unrelated intervening edits). `continue` re-evaluates
+  `while self.running:` immediately; since `_trigger_shutdown()` already
+  set `self.running = False`, the loop exits on that re-check and falls
+  straight into `_main_loop()`'s `finally:` unload block, same as
+  `break`/`return` would per this entry's own analysis — `continue` was
+  chosen as the minimal-diff option that reads closest to "end this
+  tick here" at the call site. Also means this tick's device-telemetry
+  sample and interactive-state observation (both further down the same
+  tick, after the two watchdogs) are skipped on the tick that trips —
+  a one-sample loss on a tick where the daemon is exiting anyway;
+  nothing shutdown-critical is skipped, since `_main_loop()`'s
+  `finally:` block (unload/embed-stop/pid-removal) still runs
+  unconditionally on the way out. Regression test:
+  `tests/test_new118_shutdown_short_circuit.py` (asserts the 7B model
+  watchdog and embed-server watchdog do NOT run in the same tick a trip
+  fires, plus a negative-control test proving they DO run on a no-trip
+  tick, so the assertion isn't just an artifact of the mocking;
+  empirically verified against the pre-fix code by temporary revert —
+  fails without the `continue`, passes with it). `python -m pytest
+  tests/ -q`: 1537 passed, 1 skipped (includes untracked test files from
+  other concurrent agent work in this tree, not just this dispatch).
 
 ### [NEW-119] The resource gate's cold-start CPU-sample-failure warning (`core/resource_gate.py:382`) fires roughly twice per ~0.5s daemon tick on this device, not once per 30s watchdog cycle — a much higher log-volume cost than the existing NEW-108 finding described
 
@@ -10836,32 +11259,51 @@ finding for the same bug. See `NEW-39`.)*
   the same review pass.
 
 ### [NEW-203] `EmbedServer.stop()`'s docstring asserts an adopted server always has `self.process is None` — a real edge case makes that false, though the resulting behavior stays safe
-- **Status: Confirmed as an inaccurate docstring claim; the actual
-  runtime behavior in the edge case is still safe — not fixed, logged
-  only.** `stop()`'s docstring states an adopted server (`start()`'s new
-  adoption branch) always has `self.process is None`, since adoption by
-  definition means this object never spawned a `Popen` for it. The
-  reviewer traced a real edge case where this is false: if THIS object's
-  OWN earlier spawn already died (so `self.process` still holds a stale,
-  dead `Popen` handle that hasn't been cleared yet) and adoption of a
-  DIFFERENT, healthy occupant then occurs before that stale `self.process`
-  gets reset to `None`, the object ends up in a state the docstring didn't
-  anticipate: an adopted (not-owned) real server, but a non-`None`
-  `self.process` pointing at the object's own dead previous spawn.
-- **Why this stays safe despite the inaccurate invariant**: `stop()`'s
-  kill logic targets `self.process`'s own PID — in this edge case, that
-  PID belongs to the object's own already-dead prior spawn, not the
-  really-adopted server, so `stop()` harmlessly no-ops against a PID
-  that's already gone (or, worst case, sends a signal to a dead/reaped
-  PID that raises `ProcessLookupError`, already handled) rather than
-  ever mistakenly killing the real adopted server it doesn't own.
-- **Not fixed** — this is a documentation-accuracy issue, not a behavior
-  bug; the reviewer's own framing was "the stated invariant is inaccurate
-  and should be corrected in a follow-up," not "this needs a code fix."
-  Fix direction: clear `self.process = None` explicitly at the point a
-  prior spawn is confirmed dead (rather than only inside `stop()`'s own
-  cleanup), or correct the docstring's wording to describe the actual
-  invariant instead of the intended-but-not-quite-true one.
+- **Status: RESOLVED (docstring only, per the finding's own fix
+  direction) — 2026-09-09.** Re-confirmed the edge case is real in
+  current code before touching anything: `start()`'s early-return fast
+  path (line ~60) only fires when `self.process` is BOTH alive
+  (`poll() is None`) AND healthy; a non-`None` but dead `self.process`
+  falls through past it to the adoption branch (line ~83), which can
+  adopt a different, healthy occupant and return `True` without ever
+  resetting `self.process`. The docstring's blanket claim was genuinely
+  inaccurate.
+  - **Fixed:** `stop()`'s docstring corrected to describe the actual
+    invariant — usually but not always `None` on adoption, with the
+    stale-dead-`self.process`-plus-adoption-of-a-different-occupant edge
+    case spelled out, plus why it stays safe (the kill logic only ever
+    targets `self.process`'s own PID, which in this edge case is the
+    object's own already-dead prior spawn, not the adopted server).
+  - **Deliberately NOT taken:** the ledger's other floated option
+    (`self.process = None` cleared explicitly wherever a prior spawn is
+    confirmed dead) is a process-lifecycle behavior change, outside this
+    task's docstring-only scope — left for a future round if pursued.
+  - **Cross-reference:** `core/embed_server.py` (`EmbedServer.stop()`
+    docstring; `start()` lines ~57-104 traced, unchanged).
+- **Original finding, kept for record (CLAUDE.md rule 6) — Status:
+  Confirmed as an inaccurate docstring claim; the actual runtime
+  behavior in the edge case is still safe.** `stop()`'s docstring stated
+  an adopted server (`start()`'s adoption branch) always has
+  `self.process is None`, since adoption by definition means this object
+  never spawned a `Popen` for it. The reviewer traced a real edge case
+  where this is false: if THIS object's OWN earlier spawn already died
+  (so `self.process` still holds a stale, dead `Popen` handle that
+  hasn't been cleared yet) and adoption of a DIFFERENT, healthy occupant
+  then occurs before that stale `self.process` gets reset to `None`, the
+  object ends up in a state the docstring didn't anticipate: an adopted
+  (not-owned) real server, but a non-`None` `self.process` pointing at
+  the object's own dead previous spawn. This stays safe despite the
+  inaccurate invariant: `stop()`'s kill logic targets `self.process`'s
+  own PID — in this edge case, that PID belongs to the object's own
+  already-dead prior spawn, not the really-adopted server, so `stop()`
+  harmlessly no-ops against a PID that's already gone (or, worst case,
+  sends a signal to a dead/reaped PID that raises `ProcessLookupError`,
+  already handled) rather than ever mistakenly killing the real adopted
+  server it doesn't own. Fix direction: clear `self.process = None`
+  explicitly at the point a prior spawn is confirmed dead (rather than
+  only inside `stop()`'s own cleanup), or correct the docstring's
+  wording to describe the actual invariant instead of the
+  intended-but-not-quite-true one.
 - **Cross-references:** none — self-contained, found and fully scoped in
   the same review pass.
 
@@ -12913,6 +13355,24 @@ required)
 - **Cross-references:** `NEW-145`, `NEW-149`, `NEW-155`, `core/daemon.py`
   (`_handle_health()`:339-343, `_handle_status()`:309-343,
   `_process_planner_tasks()`:1196, `daemon_task_in_progress()`).
+- **Resolved 2026-09-09** (daemon.py watchdog 4-fix batch). Confirmed
+  the literal `1800` was still hardcoded at `_handle_health()`'s
+  stuck-task check before fixing (current line ~394, shifted from the
+  339-343 estimate above by unrelated intervening edits). Fixed to read
+  `get_config().get("tasks", "task_timeout", default=1800)` — the
+  module-level `get_config()` singleton (already imported at the top of
+  `core/daemon.py`), matching `_handle_status()`'s own read of the same
+  key, NOT `self._config` (`DaemonServer.__init__`, the class
+  `_handle_health()` belongs to, never sets that attribute — see
+  `NEW-259`'s prior catch of this exact mistake). Fallback default left
+  at 1800 (matches the pre-existing default both call sites already
+  agreed on). Regression tests:
+  `tests/test_new256_handle_health_task_timeout.py` — default-timeout
+  case, a non-default-configured-timeout negative control (a task old
+  enough to be stuck against a configured 60s timeout but not against
+  the old hardcoded 1800s literal, so a silent hardcode would fail this
+  test), and a within-timeout case. `python -m pytest tests/ -q`: 1537
+  passed, 1 skipped.
 
 ### [NEW-257] `communication_history` reliable-log fix (NEW-233 resolution) — Core-side idempotency key, dedup-on-write, and customer_id resolution implemented and tested; JS-side retry queue specified but not yet built
 - **Status: Resolved (Core-side).** Ish ruled (2026-08-27) that the comms
@@ -13474,10 +13934,14 @@ outside that fix's scope.
 - **Not fixed this round.**
 
 ### [NEW-271] `svc_find_orphans_by_cwd` `proc_filter` is hardcoded to `node` at all Aigentik call sites — a `python3`/`bash` entrypoint's orphans are never detected
-- **Status:** Confirmed (read the three call sites).
-- **Mechanism:** `start_aigentik`/`stop_aigentik`/`status_aigentik` all pass `"node"` as `$2`. `svc_detect_entrypoint_script` supports `main.py`/`app.py`/`server.py`/`run.sh`/`start.sh` too, but if Aigentik were launched via `python3 main.py`, `pgrep node` returns nothing and orphan cleanup silently does nothing. The real `~/Codey-Aigentik` is `node index.js` today, so this is latent.
-- **Fix direction:** derive `$2` from the detected entrypoint (`.py` → `python3`, `.sh` → `bash`, `.js` → `node`) alongside the existing token derivation.
-- **Not fixed this round** — scope was the two-factor identification fix; noted per Rule 8.
+- **Status:** **Fixed 2026-09-09** (re-verified as still real before fixing, per task instructions — all 3 call sites in `lib/service_manager.sh` still passed the literal `"node"` at the start of this round; confirmed via `grep -n 'svc_find_orphans_by_cwd.*"node"'`).
+- **Mechanism (as originally found):** `start_aigentik`/`stop_aigentik`/`status_aigentik` all passed `"node"` as `$2`. `svc_detect_entrypoint_script` supports `main.py`/`app.py`/`server.py`/`run.sh`/`start.sh` too, but if Aigentik were launched via `python3 main.py`, `pgrep node` would return nothing and orphan cleanup would silently do nothing.
+- **Fix applied:** added `svc_entrypoint_proc_filter()` (`lib/service_manager.sh`, alongside the existing `svc_entrypoint_command()`), mapping the detected entrypoint's extension to the `pgrep` process-name filter it corresponds to (`.py`→`python3`, `.sh`→`bash`, `.js`→`node`, empty→empty). All three Aigentik call sites (`start_aigentik`, `stop_aigentik`, `status_aigentik`) now compute `proc_filter=$(svc_entrypoint_proc_filter "$entry_script")` and pass `"$proc_filter"` to `svc_find_orphans_by_cwd` instead of the literal `"node"`. Kept consistent with the `NEW-268` flock fix already in `start_aigentik` — `proc_filter` is derived outside the locked subshell (alongside `entry_script`/`entrypoint`, which were already computed there) and simply read inside it, no new lock interaction.
+- **Confirmed current behavior is unchanged for the real `~/Codey-Aigentik`:** its `package.json` has `"main": "index.js"` and `"scripts": {"start": "node index.js"}` — still a `.js` entrypoint today, so `svc_entrypoint_proc_filter` still resolves to `"node"` and this fix is a no-behavior-change for the real service; it only stops the filter from silently breaking if the entrypoint is ever changed to `.py`/`.sh`.
+- **Verification:** three new tests added to `tests/test_service_manager_config.py`: `test_svc_entrypoint_proc_filter_derives_from_entrypoint_extension` (unit test of the new mapping function for `.py`/`.sh`/`.js`/empty — this alone does not exercise the fix, since it calls the helper directly rather than through a call site) and `test_svc_find_orphans_by_cwd_matches_python_entrypoint` (spawns a real `python3 main.py` process and confirms `svc_find_orphans_by_cwd` finds it when `proc_filter` is derived via the new function — this exercises the mechanism the fix relies on, but still re-derives `proc_filter` inline rather than going through a real call site). The one that actually discriminates the fix from the bug is `test_status_aigentik_detects_python_entrypoint_orphan`, which calls `status_aigentik` itself (the real call site, read-only, no lock/kill path) against a `python3 main.py` orphan and asserts it is reported as an `UNTRACKED orphan`. **Negative control run:** temporarily reverted `status_aigentik`'s `svc_find_orphans_by_cwd` call back to the literal `"node"` — this new test failed (`Aigentik: stopped`, no orphan reported, matching the bug exactly), confirming the earlier two tests alone would not have caught a regression back to hardcoded `"node"`. Restored the fix; all 22 tests in the file then pass. Full suite: `python -m pytest tests/ -q` → 1522 passed, 1 skipped.
+- **Rule 11 (`install.sh`):** no change needed — the fix only changes which already-required interpreter (`python3`/`bash`/`node`, all already dependencies of this project) is passed to `pgrep`; no new dependency introduced.
+- **Noted, out of scope (Rule 8):** `svc_find_orphans_by_cwd`'s own signature, `local proc_filter="${2:-node}"`, still silently defaults to `"node"` if a future call site omits `$2` — the same shape of bug this finding fixed at the three existing call sites. Currently unreachable (all three Aigentik call sites early-return before calling it if `entry_script` is empty, and the two non-Aigentik call sites — Litestream, backend daemon — always pass an explicit filter), so latent only, not filed as its own NEW-### id.
+- **Cross-reference:** `lib/service_manager.sh`, `tests/test_service_manager_config.py`.
 
 ## Found during the B6 (admin dashboard / portal / RBAC) planning round, 2026-09-02 — planning/interview task, docs-only; logged per Rule 8
 
@@ -13587,6 +14051,14 @@ outside that fix's scope.
 - **Impact:** a permanently dirty `git status` on two files nobody intends to version, on a repo whose own `HANDOFF.md` tells every agent to run `git status --short` before touching the tracking docs and "figure out whose it is" for anything uncommitted. Persistent expected-noise trains agents to ignore exactly the signal that document relies on. Also a live-data hazard: committed PID values from an unrelated machine/session would be checked out over real ones on a fresh clone.
 - **Fixed this round (the git half only):** `git rm --cached` on both. Working-tree files deliberately left untouched (they are live supervisor state); `.gitignore:41` now governs them.
 - **NOT fixed (the code half):** `plugin_manager.py` still resolves `pid_file` into the source tree. Correct fix is to resolve relative paths against the runtime state dir (`$DAEMON_DIR`, the convention `lib/service_manager.sh` already follows for all five of its own PID files) rather than `plugin.path`. **Rule-4 category** — needs a code-reviewer pass, not a drive-by edit.
+- **Resolved 2026-09-09 (code half, code-reviewer pass required and taken per Rule 4):** re-verified the bug was still live before fixing (`ccos/plugins/voice/aigentik/manifest.json` and `ccos/plugins/device/private_agent/manifest.json` are still the only two manifests with a bare `pid_file`, `"aigentik.pid"`/`"private_agent.pid"`, and `ProcessSupervisor.start_external_plugin()` still resolved them against `plugin.path`). Added a module-level `_resolve_pid_path()` helper in `ccos/core/plugin_manager.py` that resolves a relative `pid_file` against a new `PLUGIN_PID_DIR = CODEY_STATE_DIR / "plugins"` (imported from `utils/config.py`, the same constant `lib/service_manager.sh`'s `$DAEMON_DIR` mirrors), used by both `start_external_plugin()` and — a second, real bug found while confirming no other read path bypassed the fix — `PluginManager.unload()`, which was passing the raw manifest `pid_file` string straight to `stop_external_plugin()` unresolved; that method's own `Path(pid_file)` fallback resolves relative values against the process's CWD, not `plugin.path` or the state dir, so the file `start_external_plugin()` actually wrote was never being found/unlinked on unload — a second, independent path-mismatch bug this same fix closes.
+  - **Namespaced under `PLUGIN_PID_DIR` (`$CODEY_STATE_DIR/plugins/`), not `$CODEY_STATE_DIR` directly** — a deliberate, documented deviation from "just match `$DAEMON_DIR`" flagged by the advising reviewer before the edit was made: `lib/service_manager.sh` already owns `$DAEMON_DIR/aigentik.pid` directly (`AIGENTIK_PID_FILE`, written by its own independent `start_aigentik()` supervisor for `~/Codey-Aigentik`). Resolving the plugin manifest's bare `"aigentik.pid"` straight against `$DAEMON_DIR` would have collided two independent, unrelated supervisors on one PID file — either could then SIGTERM/SIGKILL a PID the other spawned, a Rule 3 violation. Confirmed by reading `service_manager.sh`'s `start_aigentik()` (spawns `~/Codey-Aigentik`'s own entrypoint) against the CCOS plugin manifest's `start_command` (`python3 -m aigentik.server`, `cwd=ccos/plugins/voice/aigentik`) — different processes, same conceptual name. Subdirectory namespacing avoids the collision while keeping PID files out of the source tree.
+  - Two regression tests added to `ccos/tests/test_external_plugin_supervision.py`:
+    1. `test_relative_pid_file_resolves_to_state_dir_not_plugin_path` — patches `PLUGIN_PID_DIR` to a tmp dir, asserts a relative `pid_file` lands under the patched state dir, and asserts the old buggy location (`plugin.path`) is NOT used.
+    2. `test_plugin_manager_unload_finds_relative_pid_file_written_by_load` — exercises the real `PluginManager.load()` → `unload()` round trip (not just calling the resolver helper directly), asserting the pid file `load()` wrote under the state dir is gone after `unload()`. **Verified as a real discriminator, not a tautology**, per rule 5: the advising reviewer caught that this test's first draft (`resolved_for_stop = pm_module._resolve_pid_path(pid_file); assert resolved_for_stop == expected_pid_path`) only asserted the helper equalled itself and would still pass with the `unload()` fix fully reverted — replaced with the load/unload round-trip above, then manually reverted just the `unload()` hunk and re-ran: `1 failed` with `AssertionError: unload() must resolve the same relative pid_file location load() wrote to, and unlink it` (the file was still on disk), confirming the test genuinely fails without the fix; re-applied the fix and re-ran clean before finalizing.
+  - Full suite (final, post-correction): `python -m pytest tests/ -q` → `1546 passed, 1 skipped in 209.06s` (includes an unrelated ~25-test increase from other concurrent work in this same tree at the time, not from this fix); `python -m pytest ccos/tests/ -q` → `114 passed`. No other file was touched.
+  - **Two items found while confirming no other call site bypassed this fix, out of scope for this fix, logged not fixed:** see `NEW-424` (dead `state_dir` parameter on `start_external_plugin()`) and `NEW-425` (`CODEY_STATE_DIR` doesn't honor the same env override `service_manager.sh`'s `$DAEMON_DIR` does).
+  - **Not fixed, flagged for the coordinator:** the two live `.pid` files at `ccos/plugins/voice/aigentik/aigentik.pid` and `ccos/plugins/device/private_agent/private_agent.pid` (untracked, `.gitignore`'d, so `git status` stays clean) are now orphaned by this change — nothing in the fixed code reads or writes them at that path anymore. Left in place deliberately rather than deleted as a drive-by; a one-line cleanup decision for whoever picks this up next.
 
 ### [NEW-279] `gui/server.py` does not reap the plugin processes it spawns — two zombies are resident right now
 - **Status:** Confirmed (live-observed on-device, not inferred).
@@ -13663,8 +14135,9 @@ outside that fix's scope.
   `~/.codeyOS/gui-clients.count` / `gui-server.pid` / `gui-server.log`
   files it referenced were removed in the same round.
 - **`NEW-278` — the two committed plugin `.pid` files remain untracked
-  (fixed 2026-09-02); the `plugin_manager.py` path-resolution half is
-  still open** and is unaffected by the GUI removal.
+  (fixed 2026-09-02); the `plugin_manager.py` path-resolution half was
+  unaffected by the GUI removal and is now also resolved (2026-09-09,
+  see that entry above).**
 
 ### [NEW-282] The interactive-session signal is now TUI-only, so a human watching `/admin` no longer defers daemon background dispatch
 - **Status:** Confirmed (consequence of the 2026-09-02 GUI removal; raised by the code-reviewer on that round and logged rather than fixed).
@@ -14738,20 +15211,65 @@ outside that fix's scope.
   Appendix A.
 
 ### [NEW-325] Aigentik's `Store.shutdown()` (telemetry writer) not wired into the existing SIGINT/SIGTERM handler
-- **Status:** Confirmed (telemetry T1, 2026-09-03, code-reviewer approved
-  round).
-- **Mechanism:** `telemetry.mjs`'s buffered writer has a `shutdown()`
-  method to flush pending records, but Aigentik's existing process
-  signal handlers don't call it — a restart can drop buffered-but-unwritten
-  telemetry records.
-- **Impact:** bounded record loss (buffer-depth-sized) on every Aigentik
-  restart. Not data corruption — dropped records are still counted per
-  the never-crash-the-host discipline, just not flushed before exit.
-- **Fix direction:** wire `shutdown()` into the existing signal handler.
-  **Rule-4 applies** — this touches process shutdown/lifecycle code, so
-  the fix itself needs a code-reviewer pass even though it's small.
+- **Status:** Fixed, code-complete, code-reviewer APPROVED (2026-09-09
+  — the mandatory pass this entry was previously waiting on; the
+  implementer's own `advisor`-only rounds were correctly flagged as not
+  a substitute). Independently negative-controlled the `_flushPromise`
+  race fix, confirmed the import binding is real, confirmed 275/275
+  tests pass. NOT yet live-verified on device (no real `SIGTERM` against
+  a running Aigentik process was exercised — per rule 7, code-complete
+  and reviewer-approved is not the same tier).
+- **Mechanism (as found):** `telemetry.mjs`'s buffered writer has a
+  `shutdown()` method to flush pending records, but Aigentik's existing
+  process signal handlers didn't call it — a restart could drop
+  buffered-but-unwritten telemetry records.
+- **Verified still live before fixing:** re-read `index.js`'s `shutdown(signal)`
+  (as it stood after this session's own earlier `c51748a`/`00da362` work
+  on `NEW-413`/`NEW-419`/`NEW-420`) — it called `gmail.disconnect()`,
+  `stopLlamaServer()`, `process.exit(0)`, with no telemetry flush. Not
+  stale; genuinely still missing.
+- **Fix applied:**
+  - `telemetry.mjs`: added an exported `shutdownTelemetry()` that flushes
+    the singleton `Store` if (and only if) one was ever instantiated —
+    does not spin one up on shutdown for a process that never emitted
+    telemetry, and doesn't null the singleton ref afterward (`shutdown()`
+    is idempotent on its own).
+  - **Scope extension found and fixed in the same pass:** `Store._flush()`
+    previously used a boolean `_flushing` guard and early-returned
+    immediately if a flush was already in progress (e.g. the periodic
+    timer). That meant `shutdown()`'s own `await this._flush()` could
+    return before an in-flight timer-driven flush had actually drained
+    the queue, so `shutdownTelemetry()` could resolve — and
+    `process.exit(0)` could run — with records still queued, making the
+    whole fix a partial no-op under that race. Changed `_flushing` to
+    `_flushPromise` (the in-flight promise itself, not just a flag) so a
+    second caller now awaits the same in-flight flush instead of
+    skipping past it. Confirmed the only other caller is the `setInterval`
+    timer callback, which already wraps every call in `.catch(() => {})`
+    (fire-and-forget) — nothing else changes shape from awaiting instead
+    of early-returning.
+  - `index.js`: `shutdown(signal)` now calls
+    `await telemetry.shutdownTelemetry()` between `stopLlamaServer()` and
+    `process.exit(0)`, wrapped in the same defensive try/catch shape as
+    the file's other telemetry call sites (`recordTelemetryRunStart()`).
+    No explicit timeout added — the call is local `fs.promises.appendFile`
+    only, no network — documented as a real (if narrow) gap in the code
+    comment rather than claimed away.
+- **Tests:** `tests/telemetry.test.js` — 3 new cases (no-op with no store,
+  flush-and-idempotent, and a race regression covering the
+  `_flushPromise` fix). The race test was verified fail-before/pass-after
+  by temporarily stashing the `telemetry.mjs` fix and re-running (failed
+  as expected: `expect(store._queue.length).toBe(0)` got `1`), then
+  restoring the fix (passed). Full suite: `npm test` → 19 suites, 275
+  tests, all passing.
+- **Impact (residual, out of this fix's scope — see `NEW-426`):** the
+  four `process.exit(1)` early-exit paths in `main()` (spawn-timeout,
+  warm-up failure, no-Gmail-configured, fatal-startup-error) still bypass
+  `shutdown()` entirely and were never in this finding's scope (only the
+  SIGINT/SIGTERM handler was) — logged separately.
 - **Cross-reference:** `~/Codey-Aigentik/telemetry.mjs`,
-  `~/Codey-Aigentik/index.js` (existing signal handler).
+  `~/Codey-Aigentik/index.js`, `~/Codey-Aigentik/tests/telemetry.test.js`,
+  `NEW-426`.
 
 ### [NEW-326] Aigentik telemetry envelope's size-cap truncation has an unreachable gap for all-array bodies
 - **Status:** Confirmed (telemetry T1, 2026-09-03, code-reviewer approved
@@ -14816,21 +15334,106 @@ outside that fix's scope.
 - **Cross-reference:** `telemetry/provenance.py`.
 
 ### [NEW-330] `RestoriconAPIServer.start()` has no re-entrancy guard — a second call in-process appends a duplicate `run_start` record under the same `run_id`
-- **Status:** Confirmed (telemetry T2, 2026-09-03, code-reviewer approved
-  round).
-- **Mechanism:** `write_run_provenance()` correctly refuses to overwrite
-  an existing `runs/<run_id>.json` on a second `start()` call, but
-  `record_run_start()`'s normal JSONL emission still appends a second
-  `run_start` event to the events stream under the same `run_id`.
-- **Impact:** a duplicate JSONL record, not a corrupted one — but the
-  planned `codey-metrics doctor` checks (T4, not yet built) don't
-  currently account for this duplicate-record case.
-- **Fix direction:** either guard `start()` against being called twice in
-  one process, or have `doctor` treat a second `run_start` for the same
-  `run_id` as an expected-but-flagged case. Decide when T4 (CLI) is
-  built.
+- **Status:** **Fixed 2026-09-09** (re-verified as still real before
+  fixing, per task instructions — repro below). `RestoriconAPIServer.
+  start()` (`restoricon_core/api/server.py`) now (1) checks `self.
+  _is_running` first and returns as a no-op (logging at `info` level) on
+  a second call while already running, before reaching
+  `self._is_running = True`, matching the idempotent already-running
+  convention `core/loader_v2.py`'s `LlamaServer.start()` and
+  `core/embed_server.py`'s `EmbedServer.start()` already use; and (2)
+  separately gates the telemetry emission itself on a new
+  `self._run_start_emitted` flag that `stop()` never resets — added
+  after an advisor review pass caught that guard (1) alone still let a
+  `start() -> stop() -> start()` sequence through, since `stop()` resets
+  `_is_running` to `False`. `run_id` is a process-wide singleton
+  (`telemetry/store.py`'s `get_run_id()`), not scoped to one
+  start/stop cycle, so `run_start` must be emitted at most once per
+  process regardless of how many times this instance is stopped and
+  restarted — `_run_start_emitted` never resets, so it does that.
+  Deliberately a plain instance attribute rather than reusing
+  `telemetry/store.py`'s module-level `claim_run_start()`/
+  `mark_run_start_recorded()` pair, whose own docstrings scope them to
+  `core/loader_v2.py`'s `load_primary()` fallback specifically — a
+  different call site with a different contract; see the code comment
+  at the attribute's definition for the full reasoning, including why
+  it's set unconditionally after the emission attempt rather than only
+  on confirmed success.
+- **Repro used to confirm the bug before fixing (both shapes), and the
+  regression tests' pre-fix/post-fix status — literal, not paraphrased
+  (CLAUDE.md rule 5):**
+  - (a) `.start(background=True)` called twice back-to-back, via a
+    standalone script constructing `RestoriconAPIServer(db_path=
+    ":memory:", port=0)` with `telemetry.store.TELEMETRY_ENABLED =
+    True` and `METRICS_DIR` pointed at a throwaway tmp dir, flushed via
+    `store.reset_for_tests()`: before the fix, two `run_start` events
+    in the same `events/<date>/provenance.<run_id>.jsonl` under the
+    same `run_id`; after, one. The corresponding test,
+    `test_api_server_start_called_twice_is_a_noop_no_duplicate_run_start`,
+    was run directly against the pre-fix code (via `git stash`, before
+    any other agent had uncommitted work in this file) and failed with
+    `AssertionError: ... assert 2 == 1`.
+  - (b) `start(); stop(); start(); stop()`: guard (1) alone (before the
+    `_run_start_emitted` addition) did not cover this path. Confirmed
+    two ways: a standalone repro script (`num lines: 2` in the JSONL
+    file), and directly running
+    `test_api_server_stop_then_start_does_not_duplicate_run_start`
+    against a version of `start()` with guard (1) but not (2)
+    (temporarily edited in place, then restored — no `git stash` used
+    here since another agent had uncommitted work in the tree by this
+    point):
+    ```
+    E       AssertionError: [{'schema_version': 1, ... 'run_id': 'a5ca6e71ccb94c69', ...}, {'schema_version': 1, ... 'run_id': 'a5ca6e71ccb94c69', ...}]
+    E       assert 2 == 1
+    1 failed in 2.31s
+    ```
+    After restoring guard (2): `17 passed in 19.39s` for the full
+    `tests/test_telemetry_t2_run_start.py` file.
+- **Restart-after-stop is NOT actually usable, separate from telemetry
+  — flagged here, not fixed, coordinator should log as its own
+  finding:** `stop()` calls `self.httpd.server_close()` and
+  `self.db.close()`; a subsequent `start(background=True)` still spawns
+  a new thread against the same (now-closed) `ThreadingHTTPServer`
+  instance, which crashes with `ValueError: Invalid file descriptor: -1`
+  inside `serve_forever()`'s selector registration (observed directly;
+  see `tests/test_telemetry_t2_run_start.py::
+  test_api_server_stop_then_start_does_not_duplicate_run_start`'s
+  docstring and its `filterwarnings` mark, added to keep that expected,
+  separate crash from being mistaken for a new regression in CI
+  output). Unlike `LlamaServer`/`EmbedServer`, which genuinely re-spawn
+  a fresh subprocess on restart, `RestoriconAPIServer` was never
+  restart-capable at the socket level. This fix's docstring is worded
+  to promise only "a second call while already running is a no-op," not
+  general restart safety.
+- **Regression tests** (`tests/test_telemetry_t2_run_start.py`):
+  `test_api_server_start_called_twice_is_a_noop_no_duplicate_run_start`
+  (repro (a) above) and
+  `test_api_server_stop_then_start_does_not_duplicate_run_start` (repro
+  (b) above, asserts only the telemetry dedup, not a healthy restart).
+  Both confirmed to fail against the pre-fix code and pass against the
+  fix.
+- **Mechanism (as originally found):** `write_run_provenance()`
+  correctly refused to overwrite an existing `runs/<run_id>.json` on a
+  second `start()` call, but `record_run_start()`'s normal JSONL
+  emission still appended a second `run_start` event to the events
+  stream under the same `run_id`, because `start()` itself had no
+  guard against being called twice.
+- **Note on the T4 CLI's separate duplicate-flagging path:** T4's
+  `codey-metrics provenance` command independently gained logic to
+  surface a duplicate `run_start` for the same `run_id` as an explicit
+  warning rather than silently collapsing it (see
+  `tests/test_telemetry_cli.py::
+  test_provenance_new330_duplicate_run_start_flagged_not_hidden`) —
+  that detection path is left in place as defense-in-depth for
+  duplicates from other sources this fix does not cover (e.g. two
+  separate OS processes racing on the same externally-supplied
+  `run_id`, which this in-process instance-level guard cannot address).
+  It is not redundant with this fix; the two operate at different
+  layers.
 - **Cross-reference:** `restoricon_core/api/server.py`,
-  `telemetry/recorders.py`; T4 in `CODEY_MASTER_PLAN.md` Appendix A.
+  `telemetry/recorders.py`, `tests/test_telemetry_t2_run_start.py`,
+  `tests/test_telemetry_cli.py`; T4 in `CODEY_MASTER_PLAN.md`
+  Appendix A.
 
 ### [NEW-331] `tests/conftest.py`'s isolation fixture docstring says "session-wide" but the fixture is function-scoped
 **Status:** PARTIALLY FIXED 2026-09-08 (batch-1 ledger closeout, code-reviewer approved). `tests/conftest.py:28`'s docstring reworded from "Autouse + session-wide" to reflect the fixture is actually function-scoped. **Remaining:** the same stale "session-wide"/"session-wide False default" framing survives in two more places — `tests/conftest.py:2` and `tests/test_plannd_telemetry.py:70-71` — same root cause, not yet corrected.
@@ -14941,8 +15544,10 @@ outside that fix's scope.
   `telemetry/recorders.py`.
 
 ### [NEW-336] `telemetry/rotate.py`'s docstring implies read-only `codey-metrics` subcommands are lock-protected against a concurrent `rotate`'s `rmtree` — they aren't
-- **Status:** Confirmed (telemetry T4, 2026-09-04, code-reviewer approved
-  round).
+- **Status:** **Resolved 2026-09-08** (commit `f9773dd`, verified
+  2026-09-09) — fix landed; one ordering's race window intentionally
+  remains open by design, see the resolution note below. Originally
+  Confirmed (telemetry T4, 2026-09-04, code-reviewer approved round).
 - **Mechanism:** `rotate`/`rollup` take `.rotate.lock` (non-blocking
   `flock`) before touching a day directory. Read-only subcommands
   (`summary`/`export`/`status`/`doctor`/`provenance`) do NOT take this
@@ -14956,6 +15561,46 @@ outside that fix's scope.
   (non-exclusive) lock, or document the race explicitly rather than
   implying full protection. Opportunistic.
 - **Cross-reference:** `telemetry/rotate.py`, `telemetry/cli.py`.
+- **Resolved (2026-09-08, commit `f9773dd`, verified 2026-09-09):**
+  `acquire_rotate_lock()` (`telemetry/rotate.py:66`) now takes a
+  `shared: bool = False` parameter — `shared=True` opens `LOCK_SH`
+  instead of `LOCK_EX` — and `telemetry/cli.py:main()` (~line 905)
+  wraps all five read-only subcommands (`summary`/`export`/`status`/
+  `doctor`/`provenance`) in `acquire_rotate_lock(root, shared=True)`
+  before dispatching to the handler, with an explicit `NEW-336` code
+  comment at the call site. Verified directly against current code
+  (`grep -n "acquire_rotate_lock" telemetry/*.py`, `git log -S
+  "shared=True" -- telemetry/cli.py telemetry/rotate.py` →
+  `f9773dd`), not from the commit message alone.
+  **Protection is asymmetric, and that's a real remaining gap worth
+  recording rather than glossing over:** if a read starts first, its
+  `LOCK_SH` blocks a concurrent `rotate`/`rollup`'s `LOCK_EX`
+  (`cmd_rotate`/`cmd_rollup` bail cleanly on a held lock) — genuinely
+  race-free in that ordering. If `rotate`/`rollup` starts first, the
+  read's non-blocking `LOCK_SH` acquisition fails, the CLI prints
+  `"codey-metrics: rotate/rollup in progress, read may be
+  inconsistent"` to stderr, and **proceeds unlocked anyway** — this is
+  a deliberate design choice (a stale/inconsistent diagnostic read
+  beats a CLI command that can hang or exit non-zero on transient
+  contention), not an oversight, but it means the original race window
+  this finding described is still open in that one ordering, just now
+  surfaced with a warning instead of silently. The module's own
+  `acquire_rotate_lock()` docstring's claim that shared readers are
+  "blocked by (and blocking) an in-progress rotate/rollup" is only
+  true of the *blocking* half; a future reader should not take
+  "blocked by" at face value.
+  **Two things noticed while verifying, not fixed here (out of this
+  task's scope, both opportunistic):** (1) no test exercises
+  `shared=True` or the CLI's read-only lock-contention path — a
+  candidate for a small follow-up test (patch `acquire_rotate_lock` to
+  simulate a held exclusive lock, assert the stderr warning and that
+  the handler still runs); (2) `acquire_rotate_lock()`
+  (`telemetry/rotate.py:87`) unconditionally does
+  `root.mkdir(parents=True, exist_ok=True)` before taking the lock,
+  including for `shared=True` callers — a read-only `codey-metrics`
+  subcommand run against a nonexistent `--root` now creates that
+  directory tree and a `.rotate.lock` file as a side effect, which is
+  a minor read-only-in-name-only wrinkle this fix introduced.
 
 ### [NEW-337] `telemetry/rotate.py` has a latent, currently-unreachable code path for `rmtree`-ing a day directory containing a non-`.jsonl` file
 - **Status:** Confirmed/latent (telemetry T4, 2026-09-04, code-reviewer
@@ -16458,3 +17103,112 @@ the repo root by `tests/test_restoricon_core/test_b6_5_document_upload.py`.
 this mechanism and fix in full; not re-logged as a new ID. The three stray
 files from this round were deleted (untracked, not committed) as routine
 housekeeping, same as `NEW-403`'s own cleanup.
+
+## Found while fixing `NEW-278`'s code half, 2026-09-09 — logged per Rule 8, not fixed
+
+### [NEW-424] `ProcessSupervisor.start_external_plugin()`'s `state_dir` parameter is dead — accepted but never read in the function body
+
+- **Status:** Confirmed (`grep -n "state_dir" ccos/core/plugin_manager.py` finds it only in the signature, `def start_external_plugin(self, plugin: Plugin, state_dir: Optional[Path] = None) -> bool:` — no other reference anywhere in the file).
+- **Mechanism:** the parameter exists and type-hints as if it were meant to let a caller override where PID files (and possibly other runtime state) get written, but nothing in the function body ever reads `state_dir` — pid-path resolution now goes through this round's `_resolve_pid_path()` → `PLUGIN_PID_DIR` module constant instead, with no per-call override hook.
+- **Impact:** low — no current call site passes a non-default `state_dir` (`grep -rn "start_external_plugin("` finds only `plugin_manager.py:323`'s own call, which doesn't pass it, and the two direct-supervisor test call sites, which also don't). A caller who did pass it would silently get no effect, which is a footgun if anyone tries to use it later without reading the body.
+- **Not fixed** — noticed while reading `start_external_plugin()` in full to fix `NEW-278`'s path-resolution half; genuinely out of scope for that fix (this round didn't need a per-call override, only a fixed convention). Fix direction if ever needed: either wire `state_dir` through as an override for `PLUGIN_PID_DIR` in `_resolve_pid_path()`, or remove the unused parameter — whichever a future task actually needs.
+
+### [NEW-425] `utils/config.py`'s `CODEY_STATE_DIR` doesn't honor the `CODEY_STATE_DIR` env override that `lib/service_manager.sh`'s `$DAEMON_DIR` does — the two could disagree under a non-default deployment
+
+- **Status:** Confirmed by direct read: `utils/config.py:306` is `CODEY_STATE_DIR = Path.home() / ".codeyOS"`, a hardcoded expression with no `os.environ.get(...)` fallback anywhere near it. `lib/service_manager.sh:11` is `DAEMON_DIR="${CODEY_STATE_DIR:-$HOME/.codeyOS}"` — it explicitly reads a `CODEY_STATE_DIR` env var first, falling back to the same default.
+- **Impact:** under normal operation (no such env var exported) both resolve identically, so this has no live effect today — the fix this round (`NEW-278`) relies on that identical default, verified by reading the current environment, not assumed. If `CODEY_STATE_DIR` were ever exported to override the shell side's `$DAEMON_DIR` (e.g. for a test harness or an alternate device profile), the Python side would silently keep using `~/.codeyOS` while the shell side moved everywhere else, including `$AIGENTIK_PID_FILE`/`$PRIVATE_AGENT`-equivalent paths and now this round's `PLUGIN_PID_DIR`. That would reintroduce exactly the kind of cross-supervisor path mismatch `NEW-278`'s fix was written to avoid, just gated behind an env var nobody currently sets.
+- **Not fixed** — out of scope for this task, and specifically **not** to be "improved" as a drive-by edit per this task's own instructions; `utils/config.py`'s `CODEY_STATE_DIR` is imported by a large surface of the codebase (daemon PID/socket/log files, checkpoints, metrics, config, DB path), so making it env-overridable is a real, standalone change that needs its own scoped review, not a one-line addition folded into an unrelated PID-resolution fix.
+- **Cross-reference:** `NEW-278` (Resolved 2026-09-09 — the fix whose review surfaced this gap).
+
+### [NEW-426] `~/Codey-Aigentik/index.js`'s four `process.exit(1)` early-exit paths in `main()` bypass `shutdown()` entirely, so they never flush telemetry either
+- **Status:** Suspected/Confirmed-by-read — found while fixing `NEW-325`
+  (wiring `Store.shutdown()` into the SIGINT/SIGTERM handler), out of
+  that finding's scope (which was specifically about the signal handler).
+  Not independently live-verified.
+- **Mechanism:** `grep -n "process.exit" index.js` finds 5 call sites: the
+  one inside `shutdown()` itself (now flushes telemetry per `NEW-325`'s
+  fix) and four more inside `main()` that call `process.exit(1)` directly
+  without ever calling `shutdown()`:
+  1. `startLlamaServer()` spawn-timeout failure (after `NEW-420`'s
+     `releaseLocalModelServer()` call)
+  2. `llama.warmUp()` failure (after `NEW-413`'s `releaseLocalModelServer()`
+     call)
+  3. no Gmail configured (`config.gmail.email`/`app_password` missing)
+  4. the top-level `main().catch(e => ...)` fatal-startup-error handler
+  All four run before `process.on('SIGINT'/'SIGTERM', ...)` are even
+  registered (those registrations are the last lines of `main()`, after
+  all four exit points), so they are reachable independent of signal
+  handling — these are ordinary early-startup failure exits, not a signal
+  race.
+- **Verified not hypothetical for at least one path:** `recordTelemetryRunStart()`
+  runs at the very top of `main()` (line 1662, before any of the four exit
+  points), and does enqueue a `run_start` record into the telemetry
+  `Store`'s buffered queue via `emit()`/`store.enqueue()` — so a
+  `run_start` record is genuinely queued and then dropped on any of these
+  four exits, not just theoretically possible. Separately,
+  `writeRunProvenanceFile()` (also called by `recordRunStart()`) writes
+  `runs/<run_id>.json` **synchronously** (`fs.writeFileSync`), so that
+  provenance file does survive these exits — only the buffered JSONL
+  `run_start` record in the ring-buffer queue is at risk.
+- **Impact:** low-severity, same shape as `NEW-325`'s original impact
+  (bounded, buffer-depth-sized telemetry record loss, not data
+  corruption) — but on early-startup failure paths specifically, so a
+  process that repeatedly fails to start (e.g. a persistently
+  misconfigured Gmail account, or a model server that reliably times out)
+  would lose its `run_start` record every single time, with no
+  provenance-file gap to cross-check it against in the JSONL stream.
+- **Fix direction:** if this is judged worth closing, route each of these
+  four `process.exit(1)` calls through `shutdown()` (or a narrower
+  telemetry-only flush) instead of calling `process.exit(1)` directly —
+  same pattern `NEW-325`'s fix used. Needs its own scoped task; Rule-4
+  applies (process-lifecycle code) if fixed.
+- **Cross-reference:** `NEW-325` (the fix that surfaced this),
+  `~/Codey-Aigentik/index.js`, `~/Codey-Aigentik/telemetry.mjs`.
+
+### [NEW-427] `~/Codey-Aigentik`'s 12 untracked `resource_bus.db`/`.lock` hex-named directories in the repo root predate this session, not created by it
+- **Status:** Suspected — noticed as untracked (`git status --short`)
+  while working on `NEW-325` in the same repo; not investigated for root
+  cause, only dated to rule out this session's own test runs as the
+  source.
+- **Mechanism:** 12 directories with 32-hex-character names (e.g.
+  `020562a1ab9044acb28ace2aaadc2bee/`), each containing exactly
+  `resource_bus.db` and `resource_bus.lock`, sit untracked in the
+  `~/Codey-Aigentik` repo root. All 12 have `mtime` of 2026-09-02
+  (checked via `stat -c '%y'`), a week before this session (2026-09-09)
+  and before this session ran any tests in this repo — so this session's
+  `npm test` runs did not create them; they're pre-existing debris, shape
+  strongly suggests a per-test-run isolated temp root for some resource-bus
+  test harness that isn't being cleaned up (similar in kind to Codey-OS's
+  own recurring `NEW-403` `file:test_doc_upload_*` stray-file pattern).
+- **Impact:** unknown — untracked, so no git/CI effect, but repo-root
+  clutter growing by 12 directories per some unidentified test/run cycle
+  is the same shape as `NEW-403`'s "grows without bound until someone
+  notices" risk.
+- **Not fixed** — out of scope for `NEW-325`'s task; not touched, per
+  rule 8 ("gets logged... not silently fixed or silently dropped").
+  Needs someone to find which test/script in `~/Codey-Aigentik` creates
+  these (likely a `resource_bus`-related test's tmp-root setup) and add
+  cleanup, or confirm they're safe to delete as one-off debris.
+- **Cross-reference:** Codey-OS's `NEW-403` (same pattern, different repo).
+
+
+## Found while fixing NEW-107/NEW-109 (`core/observability.py` daemon-PID/uptime/scope fix), 2026-09-09 — logged per Rule 8, not fixed
+
+### [NEW-428] `ccos/plugins/system/observability/observability.py`'s docstrings for `daemon_pid()` (and its own module docstring's characterization of `core/observability.py`'s process-scoped design) are now stale after this round's NEW-107/NEW-109 fix
+
+- **Status:** Confirmed by direct read. The wrapper's `daemon_pid()` says `"""PID of this process, or None if psutil isn't available."""` — that was an accurate description of the OLD `core.observability.State.daemon_pid` (`self._process.pid`, always the calling process's own PID, `None` only when psutil was missing). After this round's fix, `State.daemon_pid` now reads `DAEMON_PID_FILE` with a liveness check and returns the *real daemon's* PID (or `None` if no daemon is running, independent of whether psutil is installed) — the wrapper's docstring no longer matches.
+- **Impact:** low — cosmetic/documentation only, no behavior change in the wrapper itself (`daemon_pid()` just forwards `get_state().daemon_pid`, so it's already returning the corrected value; only the docstring's *explanation* of what that value means is now wrong). A reader of the wrapper module could still walk away thinking `daemon_pid()` returns the caller's own PID, or that its `None` case only happens because psutil is missing.
+- **Not fixed this round** — out of scope: this task's brief and the diff review are both scoped to `core/observability.py` only ("same file... not process-lifecycle in the strict daemon/kill sense" / "confirm no unrelated file was touched"). Fix direction: update `ccos/plugins/system/observability/observability.py`'s `daemon_pid()` docstring (and check whether the module docstring's "not a duplicate read" framing around `cpu_usage`/`memory_usage` still needs any wording touch-up now that `core/observability.py` itself documents the same split more explicitly) in a follow-up pass over that file.
+- **Cross-reference:** NEW-107, NEW-109 (this round's fix, `core/observability.py`).
+
+### [NEW-429] `RestoriconAPIServer` is not actually restart-capable — `stop()` then `start()` crashes with `ValueError: Invalid file descriptor: -1`
+
+- **Status:** Confirmed — found and independently reproduced by code-reviewer while approving `NEW-330`'s re-entrancy fix (2026-09-09), pulled out into its own entry per that review's recommendation (it was documented inline under `NEW-330` but is a separate, unrelated bug — `NEW-330` is about duplicate telemetry emission, this is about the server socket itself).
+- **Mechanism:** `RestoriconAPIServer.stop()` calls `self.httpd.server_close()` and `self.db.close()`. A subsequent `start(background=True)` call still spawns a new thread targeting the same, now-closed `ThreadingHTTPServer` instance — `serve_forever()`'s selector registration then raises `ValueError: Invalid file descriptor: -1` inside that background thread. Independently reproduced via a standalone script using `threading.excepthook` to capture the exception (it's asynchronous, inside the spawned thread, not synchronous at the `start()` call site):
+  ```
+  THREAD EXCEPTION: <class 'ValueError'> Invalid file descriptor: -1
+  ```
+  Confirmed the second `stop()` call in `NEW-330`'s own regression test (`test_api_server_stop_then_start_does_not_duplicate_run_start`, which exercises `start(); stop(); start(); stop()`) does NOT itself raise — `socket.close()`/the DB's `close()` are idempotent, and `BaseServer.shutdown()`'s wait on its internal event doesn't deadlock because `serve_forever()`'s `finally` clause still sets it even when the selector-registration line inside the `try` raises. That test's `@pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")` mark is honestly scoped to exactly this known, already-diagnosed crash, not silently masking something else.
+- **Impact:** unlike `core/loader_v2.py`'s `LlamaServer`/`core/embed_server.py`'s `EmbedServer`, which genuinely re-spawn a fresh subprocess on restart, `RestoriconAPIServer` was apparently never designed to be restart-capable at the socket level. `NEW-330`'s fix does not claim to fix this — its docstring is deliberately worded to promise only "a second call while already running is a no-op," not general restart safety.
+- **Not fixed** — needs its own scoped task: either make `start()` detect a closed/unusable `self.httpd` after a prior `stop()` and rebuild a fresh `ThreadingHTTPServer` instance (matching the "fresh subprocess" pattern `LlamaServer`/`EmbedServer` already use), or explicitly document that this class is single-use (create a new instance rather than calling `start()` again after `stop()`) and audit callers for any place that might currently assume restart-capability.
+- **Cross-reference:** `NEW-330` (the re-entrancy fix this was found while reviewing), `core/loader_v2.py:LlamaServer`, `core/embed_server.py:EmbedServer` (the restart-capable comparison points).
