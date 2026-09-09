@@ -1587,6 +1587,14 @@ enforce, just from an untouched call site.
     review, but worth its own `NEW_ISSUES.md` entry in a future round if
     one doesn't already exist for it specifically (this entry is about
     the PID-read block, not the sweep).
+- **Status: CLOSED, 2026-09-09 — moot on both counts.** Verified
+  `grep -n "gui-server.pid\|gui/server.py" codey-stop` returns zero
+  hits — the whole `$DAEMON_DIR/gui-server.pid` block this entry is
+  about, and the `pkill -9 -f "gui/server.py"` sweep the code-reviewer
+  note flagged, are both gone (the underlying `gui/server.py` module was
+  deleted in the 2026-09-02 GUI-removal round; `NEW-85`, already closed,
+  covers the separate `llama-server` bare-pkill half of `codey-stop`'s
+  old sweep). No code change needed.
 
 ### [NEW-58] `core/recursive.py`'s refine phase has no path to see the draft's actual proposed tool call, forcing blind regeneration if refine is ever reached — real by code read, but currently latent (Confirmed, not currently triggerable in the observed NEW-56 trials)
 - **Location:** `recursive.py:516-532` — the refine call passes
@@ -2496,6 +2504,11 @@ own dedicated scoping pass, not yet queued for a fix.
   (e.g. raising `SystemExit` or directly invoking the existing
   `shutdown()`), which is CLAUDE.md rule 4 territory and needs
   code-reviewer's explicit approval before commit.
+- **Status: CLOSED, 2026-09-09 — verified fixed in current code, Status
+  field never updated.** `main.py:1872` installs `signal.signal(signal.
+  SIGTERM, _sigterm_handler)`; `_sigterm_handler`'s own docstring opens
+  "Translate SIGTERM into SystemExit (NEW-10)," confirming this is the
+  intended fix for this exact finding.
 
 ## Found during Round 10 NEW-9 follow-up discussion, 2026-07-30 — NOT fixed, logged only
 
@@ -5235,6 +5248,13 @@ open, not closed, on this basis.
   mirroring the lock file's own already-correct per-port naming
   (`llama-server-{port}.lock`, this same round's NEW-12 fix) — the log file
   should have gotten the same treatment and evidently didn't.
+- **Status: CLOSED, 2026-09-09 — moot; mechanism retired by M1-D
+  (2026-08-23).** `core/planner_loader.py` (the planner/8081 half of
+  this collision) is deleted, confirmed via `grep -rn
+  "planner_loader\|8081" core/` returning zero hits. Only one
+  generation-model `LlamaServer` instance exists today, so there is no
+  second, differently-ported spawn left to collide with the primary's
+  log file. No code change needed.
 
 ### [NEW-73] `core/plannd.py`'s "plan may be truncated" warning heuristic (last step doesn't end in punctuation) fires on a real, live-observed plan that was NOT actually token-limit truncated (Suspected — plausible false positive, live-observed once, not exhaustively tested)
 - **Where found:** NEW-12 live-verification session, `get_plan()` call in
@@ -5907,6 +5927,10 @@ finding for the same bug. See `NEW-39`.)*
   gap — `plannd` bypassing the gate's accounting entirely, which is *why*
   this denial class fires at all in the default runtime configuration —
   remains open, tracked separately as `U.28`).
+- **Status: CLOSED, 2026-08-09** (already fixed per the entry above,
+  `TODO.md` `U.27`) — **Status field corrected 2026-09-09** (had never
+  been formally marked closed despite the fix being fully described in
+  place).
 
 ### [NEW-97] `plannd` (`codeydOS:239-309`, the bash-script-managed planner daemon on port 8081, distinct from `core/planner_loader.py`'s gate-aware `PlannerLoader`) spawns `llama-server` directly via `nohup`, entirely bypassing `resource_gate.reserve_slot()`/`register_slot()` — the gate under-counts real resident RAM whenever `plannd` is running, on every subsequent admission decision
 
@@ -6547,6 +6571,9 @@ finding for the same bug. See `NEW-39`.)*
   `if __name__ == "__main__":` (or read only from `CODEY_GUI_PORT`, with
   the positional-argv override moved to the `__main__` block) rather than
   running at module import time. Flagging per CLAUDE.md rule 8.
+- **Status: CLOSED, 2026-09-09 — moot; `gui/server.py` itself was
+  deleted in the 2026-09-02 GUI-removal round** (verified: `gui/`
+  directory absent from repo). No such module exists to import or fix.
 
 ### [NEW-112] `core/daemon.py`'s `_handle_command`'s actual enqueue branches (`self.planner.add_tasks(enriched)` for a multi-step plan, `self.state.add_task(prompt)` for the single-task fallback) have zero live callers today — the socket `command` handler's only real caller anywhere in the shipped system is `core/planner_service.py:_request_daemon_plan()`, and it always sends `{"plan_only": True}`, which takes an early `return` (`core/daemon.py:209-242`) before either enqueue branch ever runs
 
@@ -13553,6 +13580,10 @@ outside that fix's scope.
   1. Slow PID-table leak across a long-lived GUI server session.
   2. **Stale PID files that read as live.** Both `ccos/plugins/*/​*.pid` files still contain these zombie PIDs. A liveness probe implemented as `kill -0 <pid>` **succeeds against a zombie** — the process entry exists. Any supervisor or status path using that check would report a dead plugin as running. Whether the current code does exactly that was not traced this round; flagged as the reason the staleness matters rather than asserted as a live bug.
 - **Not fixed this round.** **Rule-4 category** (process lifecycle). Fix direction: reap spawned children in `gui/server.py` (`Popen.poll()`/`wait()` on exit, or a `SIGCHLD` handler), and have the supervisor clear a PID file when the process it names is gone. Note per Rule 3 that a zombie cannot be killed — it needs its parent to reap it; no `kill` was attempted here and none would have helped.
+- **Status: CLOSED, 2026-09-09 — moot; `gui/server.py` (the process this
+  finding is about) was deleted in the 2026-09-02 GUI-removal round**
+  (verified: `gui/` directory absent from repo). No such process exists
+  to leak zombies.
 
 ## Found during the GUI removal round, 2026-09-02 — logged per Rule 8
 
