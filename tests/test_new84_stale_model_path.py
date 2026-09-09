@@ -84,6 +84,17 @@ def _admit_everything(monkeypatch, reserve_calls):
     monkeypatch.setattr(rg, "mark_resident", lambda *a, **k: True)
     monkeypatch.setattr(rg, "release_slot", lambda *a, **k: True)
     monkeypatch.setattr(rg, "read_meminfo", lambda *a, **k: {"MemAvailable": 10**10})
+    # Without this, ModelLoader.load_primary()'s genuine-spawn branch calls
+    # the real confirm_resident_and_mark_slot(), which polls actual system
+    # /proc/meminfo for up to CONFIRM_RESIDENT_TIMEOUT_S (~10s) looking for a
+    # MemAvailable drop a fake/no-op load will never produce, before falling
+    # through to "mark resident anyway" (NEW_ISSUES.md NEW-418). Stub it to
+    # go straight to the already-mocked mark_resident() above.
+    monkeypatch.setattr(
+        lv,
+        "confirm_resident_and_mark_slot",
+        lambda slot_id, baseline_meminfo, estimated_cost_bytes, timeout_s=None, poll_interval_s=None, pid=None: rg.mark_resident(slot_id, pid=pid),
+    )
 
 
 # ── loader_v2: primary loader reads cfg.MODEL_PATH fresh ────────────────────

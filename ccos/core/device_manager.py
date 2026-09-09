@@ -224,7 +224,11 @@ def _detect_audio() -> Dict[str, List[Dict[str, str]]]:
                     card_info = {"id": match.group(1), "name": match.group(2).strip()}
                     audio["microphones"].append(card_info)
                     audio["speakers"].append(card_info)
-        except (PermissionError, OSError, Exception):
+        except (PermissionError, OSError, UnicodeDecodeError):
+            # Matches `card_info`'s regex group count exactly on a match,
+            # so no AttributeError/IndexError case exists here — only the
+            # read itself (missing device, permission denial, bad encoding)
+            # can realistically fail.
             pass
 
     # Try pactl (PulseAudio)
@@ -297,7 +301,11 @@ def _detect_network() -> Dict[str, Any]:
                     net["interfaces"].append({"name": name, "state": operstate})
                     if operstate == "up":
                         net["connected"] = True
-                except (PermissionError, OSError, Exception):
+                except (PermissionError, OSError, UnicodeDecodeError):
+                    # An interface can disappear (unplugged) between the
+                    # iterdir() listing and this read, or its sysfs entry
+                    # can be permission-denied/non-UTF8 — all three are
+                    # read failures, not an unpredictable type of error.
                     net["interfaces"].append({"name": name, "state": "unknown"})
         except (PermissionError, OSError):
             pass
@@ -366,7 +374,14 @@ class DeviceManager:
                 "connected_devices": _detect_connected_devices(),
                 "scanned_at": time.time(),
             }
-        except Exception:
+        except Exception as e:
+            # Not narrowed: this wraps the entire detection suite (OS/CPU/
+            # RAM/GPU/camera/audio/network/USB/Bluetooth probes), each with
+            # its own failure modes — not a small fixed set. Logged rather
+            # than silently swallowed (NEW_ISSUES.md NEW-70 precedent) so a
+            # real bug in one probe doesn't just silently degrade to the
+            # minimal fallback profile below.
+            warning(f"Device hardware scan failed, using minimal profile: {e}")
             # Fallback with minimal info
             self._profile = {
                 "os": _detect_os(),

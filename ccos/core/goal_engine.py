@@ -342,7 +342,11 @@ class GoalEngine:
             if isinstance(steps_raw, str):
                 try:
                     steps = json.loads(steps_raw)
-                except Exception:
+                except json.JSONDecodeError:
+                    # `steps_raw` is confirmed a str by the enclosing
+                    # isinstance check above, so the only realistic
+                    # failure here is malformed JSON in a workflow-log
+                    # entry, not an unpredictable type error.
                     continue
             else:
                 steps = steps_raw
