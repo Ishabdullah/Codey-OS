@@ -38,7 +38,37 @@ from ccos.core.capability_registry import (
 )
 from ccos.core.manifest_schema_v2 import normalize_manifest
 from ccos.core.task_context import TaskContext
+from utils.config import CODEY_STATE_DIR
 from utils.logger import warning
+
+# NEW-278: manifests may specify a bare/relative `pid_file` (e.g.
+# "aigentik.pid"). Resolve those against the runtime state dir, not the
+# plugin's source directory in the repo — matches the convention
+# lib/service_manager.sh already uses (its PID files all live under
+# $DAEMON_DIR, i.e. CODEY_STATE_DIR). A dedicated "plugins" subdirectory
+# is used rather than CODEY_STATE_DIR directly because some plugin names
+# (e.g. "aigentik") collide with a filename service_manager.sh's shell
+# service already owns directly under CODEY_STATE_DIR
+# (AIGENTIK_PID_FILE="$DAEMON_DIR/aigentik.pid") — that shell service and
+# this plugin's external_process both start conceptually-named "aigentik"
+# processes but are independent supervisors, so sharing one PID file path
+# would let either one signal a PID the other spawned (a Rule 3
+# violation). Namespacing under "plugins/" keeps the two writers apart
+# while still keeping plugin PID files out of the source tree.
+PLUGIN_PID_DIR = CODEY_STATE_DIR / "plugins"
+
+
+def _resolve_pid_path(pid_file_str: Union[str, Path]) -> Path:
+    """Resolve a manifest `process_spec.pid_file` value.
+
+    Absolute values are used as-is. Relative values are resolved against
+    PLUGIN_PID_DIR (the runtime state dir), never against the plugin's
+    source directory — see NEW-278.
+    """
+    pid_path = Path(pid_file_str)
+    if not pid_path.is_absolute():
+        pid_path = PLUGIN_PID_DIR / pid_path
+    return pid_path
 
 
 class PluginStatus(str, Enum):
@@ -107,9 +137,7 @@ class ProcessSupervisor:
         pid_file_str = process_spec.get("pid_file")
         pid_path = None
         if pid_file_str:
-            pid_path = Path(pid_file_str)
-            if not pid_path.is_absolute():
-                pid_path = Path(plugin.path) / pid_file_str
+            pid_path = _resolve_pid_path(pid_file_str)
             self._pid_files[plugin.name] = pid_path
 
         try:
@@ -415,6 +443,14 @@ class PluginManager:
         # Stop external process if applicable
         if plugin.execution_mode in ("external_process", "isolated_daemon", "remote_bridge"):
             pid_file = plugin.manifest.get("process_spec", {}).get("pid_file")
+            # Resolve relative manifest values the same way start_external_plugin
+            # does (NEW-278) — otherwise a relative pid_file here would fall
+            # through to stop_external_plugin's own Path(pid_file), which
+            # resolves it against the current working directory instead, and
+            # the file start_external_plugin actually wrote would never be
+            # found or unlinked.
+            if pid_file:
+                pid_file = str(_resolve_pid_path(pid_file))
             self.supervisor.stop_external_plugin(name, pid_file=pid_file)
             plugin.pid = None
 

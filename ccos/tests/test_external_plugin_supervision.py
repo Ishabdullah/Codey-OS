@@ -138,6 +138,137 @@ def test_plugin_manager_external_process_lifecycle(tmp_path):
         pass
 
 
+def test_relative_pid_file_resolves_to_state_dir_not_plugin_path(tmp_path, monkeypatch):
+    """NEW-278 regression: a relative `pid_file` must resolve against the
+    runtime state dir, not the plugin's source directory (`plugin.path`).
+    """
+    from ccos.core import plugin_manager as pm_module
+
+    state_dir = tmp_path / "state"
+    plugin_dir = tmp_path / "plugin_src"
+    plugin_dir.mkdir()
+
+    monkeypatch.setattr(pm_module, "PLUGIN_PID_DIR", state_dir / "plugins")
+
+    script_file = plugin_dir / "dummy_server.py"
+    script_file.write_text("import time\ntime.sleep(60)\n")
+
+    manifest = {
+        "schema_version": "2.0.0",
+        "name": "dummy_plugin",
+        "version": "1.0.0",
+        "description": "Dummy external plugin",
+        "domain": "test",
+        "execution_mode": "external_process",
+        "process_spec": {
+            "start_command": [sys.executable, str(script_file)],
+            "pid_file": "dummy.pid",  # relative, bare filename
+        },
+        "capabilities": [],
+    }
+
+    plugin = Plugin(
+        name="dummy_plugin",
+        path=str(plugin_dir),
+        manifest=manifest,
+        execution_mode="external_process",
+    )
+
+    supervisor = pm_module.ProcessSupervisor()
+    started = supervisor.start_external_plugin(plugin)
+    assert started is True
+    tracked_pid = plugin.pid
+
+    try:
+        expected_pid_path = state_dir / "plugins" / "dummy.pid"
+        assert expected_pid_path.exists(), (
+            "relative pid_file must resolve under the runtime state dir"
+        )
+        assert int(expected_pid_path.read_text().strip()) == tracked_pid
+
+        # The old (buggy) location — inside the plugin's source directory —
+        # must NOT be used.
+        stale_path = plugin_dir / "dummy.pid"
+        assert not stale_path.exists(), (
+            "relative pid_file must not resolve inside plugin.path"
+        )
+    finally:
+        # Stop the spawned child by its exact tracked PID (Rule 3).
+        stopped = supervisor.stop_external_plugin(
+            "dummy_plugin", pid_file=str(expected_pid_path)
+        )
+        assert stopped is True
+        try:
+            os.kill(tracked_pid, 0)
+            assert False, f"Process {tracked_pid} should have been killed"
+        except (ProcessLookupError, PermissionError):
+            pass
+
+
+def test_plugin_manager_unload_finds_relative_pid_file_written_by_load(tmp_path, monkeypatch):
+    """NEW-278 regression: `PluginManager.unload()` must resolve a relative
+    manifest `pid_file` the same way `start_external_plugin()` did when
+    writing it, or the file `load()` wrote is never found/unlinked on
+    unload (the file would silently persist under the old CWD-relative
+    fallback in `stop_external_plugin()`).
+    """
+    from ccos.core import plugin_manager as pm_module
+
+    state_dir = tmp_path / "state"
+    monkeypatch.setattr(pm_module, "PLUGIN_PID_DIR", state_dir / "plugins")
+
+    cat_dir = tmp_path / "voice"
+    cat_dir.mkdir(parents=True)
+    plugin_dir = cat_dir / "mock_voice"
+    plugin_dir.mkdir()
+
+    script_file = plugin_dir / "voice_server.py"
+    script_file.write_text("import time\ntime.sleep(60)\n")
+
+    manifest = {
+        "schema_version": "2.0.0",
+        "name": "mock_voice",
+        "version": "1.0.0",
+        "description": "Mock voice external agent",
+        "domain": "voice",
+        "execution_mode": "external_process",
+        "process_spec": {
+            "start_command": [sys.executable, str(script_file)],
+            "pid_file": "voice.pid",  # relative, bare filename
+        },
+        "capabilities": [],
+    }
+    (plugin_dir / "manifest.json").write_text(json.dumps(manifest))
+    (plugin_dir / "__init__.py").write_text("def test(): return True\n")
+
+    registry = CapabilityRegistry(store_path=str(tmp_path / "caps.json"))
+    pm = PluginManager(plugin_dirs=[str(tmp_path)], registry=registry)
+
+    plugin = pm.get_plugin("mock_voice")
+    assert plugin is not None
+
+    assert pm.load("mock_voice") is True
+    tracked_pid = plugin.pid
+    expected_pid_path = state_dir / "plugins" / "voice.pid"
+    assert expected_pid_path.exists(), "load() must write the pid file under the state dir"
+
+    assert pm.unload("mock_voice") is True
+    # This is the real discriminator: with the pre-fix code (unload()
+    # passing the raw relative manifest string straight to
+    # stop_external_plugin(), which resolves it against the CWD instead),
+    # this file would never be found and would still exist here.
+    assert not expected_pid_path.exists(), (
+        "unload() must resolve the same relative pid_file location "
+        "load() wrote to, and unlink it"
+    )
+
+    try:
+        os.kill(tracked_pid, 0)
+        assert False, f"Process {tracked_pid} should have been killed"
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
 def test_discovered_deployed_manifests(tmp_path):
     """Verify newly deployed voice and device manifests are discovered and valid."""
     pm = PluginManager()
