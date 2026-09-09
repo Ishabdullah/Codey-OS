@@ -105,3 +105,4 @@
 - [NEW-40 idle-wait SystemExit fix — approved](new40_idle_wait_sigterm_fix_approved.md) — negative-control reproduced the pre-fix bug directly, break→exit path traced
 - [daemon batch NEW-88/113/118/256 — approved](daemon_new88_113_118_256_batch_approved.md) — task_timeout unification, dead server.planner removal, shutdown continue, embed watchdog logging; all negative-controlled
 - [NEW-107/109 observability daemon_pid/uptime PID-file fix + scope-label reversal — approved](new107_new109_observability_daemon_pid_uptime_approved.md) — reversal citations verified verbatim, fixture restore-on-failure negative-controlled, 3x-call residual confirmed real
+- [NEW-430/431 context-lease + /slots fail-closed fix — approved](new430_431_context_lease_fix_approved.md) — full admission/release/reap trace, crash-leak+timeout-layering verified
