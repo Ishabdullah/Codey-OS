@@ -8977,6 +8977,23 @@ finding for the same bug. See `NEW-39`.)*
   run, which is arguably correct but is a separate decision this task
   was not asked to make).
 - **Not fixed here** — logged for scoping into a future round.
+- **Status: CLOSED, 2026-08-27 — fully live-verified.** Fixed as part
+  of the "Option C" respawn-on-upgrade chain (`NEW-145`/`149`/`152`/`155`,
+  one combined design), committed `b0d2d86`, code-reviewer-approved
+  across two passes (initial + a 3-warning follow-up, all closed with
+  real negative-control tests). Live-verification (`PROJECT_LOG.md`,
+  "2026-08-27 — LIVE VERIFICATION COMPLETE") caught and fixed two real
+  bugs unit tests had missed (`reserve_slot()` missing a `port=`
+  argument, `DaemonServer._handle_status()` referencing a nonexistent
+  `self._config`) before confirming the real on-device sequence: a
+  background load at `n_ctx=16384` (PID 5943) correctly detected,
+  safely killed under lock, and cleanly respawned at the interactive
+  ceiling `n_ctx=65536` (PID 6300), zero leaks. Verified 2026-09-09
+  against `CODEY_MASTER_PLAN.md`'s own 7.4b closure row before
+  correcting this entry — do not re-scope or re-implement this chain;
+  a prior triage pass this session incorrectly assumed it was still
+  unimplemented and this correction exists to prevent that mistake
+  recurring.
 
 ### [NEW-149] Even after NEW-145's lazy-load fix (both call sites gated), `core/loader_v2.py:LlamaServer.start()`'s port-in-use reuse branch (`:211-230`) means whichever caller spawns the coder server FIRST wins the context size for that server's entire life — a background daemon-dispatched task that loads first at 16384 leaves a later-attaching interactive TUI stuck at 16384 too, with no respawn
 
@@ -9009,6 +9026,18 @@ finding for the same bug. See `NEW-39`.)*
   toolkit — is written up in full, together with `NEW-145`/`NEW-155`,
   in `CODEY_MASTER_PLAN.md`'s Appendix A, 7.4b item C. Not implemented,
   not code-reviewed, not live-verified yet.
+- **Status: CLOSED, 2026-08-27 — this "not implemented yet" note is now
+  stale.** Same day, "Option C" was implemented, code-reviewer-approved
+  across two passes, and fully live-verified (`PROJECT_LOG.md`, "LIVE
+  VERIFICATION COMPLETE", commit `b0d2d86`) — the live pass itself
+  caught and fixed two real bugs (`reserve_slot()` missing `port=`,
+  `DaemonServer._handle_status()` referencing a nonexistent
+  `self._config`) before confirming the real background-load →
+  interactive-respawn sequence on-device. See `NEW-145`'s entry for the
+  full closure note. Correcting this specific stale sub-note per
+  CLAUDE.md rule 6 — a prior triage pass this session read this exact
+  sentence and incorrectly concluded the whole chain was still
+  unimplemented.
 
 ## Found during the NEW-102/bug_002 config-live-read fix round, 2026-08-13 — NOT fixed, logged only
 
@@ -9102,6 +9131,19 @@ finding for the same bug. See `NEW-39`.)*
   still open pending exactly that, not as done because the code merely
   exists in `main` now. See `TODO.md`'s 7.4b sub-tasks A/C for the
   matching status note.
+- **Status: CLOSED, 2026-08-26/27 — the exact fix direction this entry
+  named has since run in full.** Sub-task A (embed always-resident):
+  code-reviewer-approved 2026-08-23, live-verified 2026-08-26 under the
+  real `codey-start` entry point. Sub-task C (Option C respawn-on-
+  upgrade, `NEW-145`/`149`/`152`/`155`): code-reviewer-approved across
+  two passes and live-verified 2026-08-27 (`PROJECT_LOG.md`, "LIVE
+  VERIFICATION COMPLETE"), catching two real bugs in the process — the
+  exact class of self-race gap this entry warned a passing unit-test
+  suite wouldn't surface. `CODEY_MASTER_PLAN.md`'s 7.4b row confirms
+  both sub-tasks CLOSED. The process violation this entry reports is
+  historically accurate and correctly stays logged (rule 6 — not
+  rewriting what happened), but its "still open pending review" warning
+  no longer applies to current state.
 
 ## Found during the retroactive `code-reviewer` pass on NEW-151's daemon change, 2026-08-13
 
@@ -9172,6 +9214,15 @@ finding for the same bug. See `NEW-39`.)*
   code-complete/test-verified only. Do not treat `NEW-145`/sub-task C as
   closed, and do not treat this fix as "code-reviewer approved," until
   both the real `code-reviewer` pass and that live pass run.
+- **Status: CLOSED, 2026-08-27 — both outstanding items above have
+  since run.** The real `code-reviewer` pass happened (two passes,
+  initial + a 3-warning follow-up, commit `b0d2d86`) and the live pass
+  happened the same day (`PROJECT_LOG.md`, "LIVE VERIFICATION COMPLETE
+  — NEW-145/149/155 (Option C)"), catching and fixing two real bugs
+  before confirming the on-device respawn sequence. See `NEW-145`'s
+  entry for the full closure note. Correcting this specific stale "do
+  not treat as closed" instruction per rule 6 — it was correct advice
+  at the time it was written and became stale later the same day.
 
 ### [NEW-153] `core/embed_server.py`'s `start()` has a TOCTOU: a concurrent `is_healthy()` False result during the daemon's own up-to-30s post-spawn health-wait can cause a caller to kill-and-restart the daemon's own still-initializing embed server via `_kill_port_occupant()`
 
@@ -9233,6 +9284,13 @@ finding for the same bug. See `NEW-39`.)*
   interactive attach self-heals a watchdog eager-respawn-at-16384
   instead of leaving it stuck). Not implemented, not code-reviewed, not
   live-verified yet.
+- **Status: CLOSED, 2026-08-27 — implemented, reviewed, and
+  live-verified in the same Option C round this entry's own note
+  predicted it would ship in.** Commit `b0d2d86`, code-reviewer-approved
+  across two passes, live-verified on-device (`PROJECT_LOG.md`, "LIVE
+  VERIFICATION COMPLETE — NEW-145/149/155"). See `NEW-145`'s entry for
+  the full closure note. Correcting this specific stale sub-note per
+  rule 6.
 
 ### [NEW-162] `NEW-158`'s "the flag is not passed, so it's off" framing may not hold on the installed build — this binary's own `--help` text states `--jinja` defaults to enabled, and `--reasoning-format` defaults to `auto`, not `none`
 
