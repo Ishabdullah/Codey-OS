@@ -1,3 +1,16 @@
+## 2026-09-09 — NEW-433 fixed: root cause was a missing test mock, not a route/rate-limit bug
+
+**What changed:** Second of the four residual findings from the NEW-206 saga. project-architect determined the precise root cause before any fix was written: `test_api_ai_chat_auth_and_validation`'s case 3 hits the real admission gate (`wait_and_reserve_context_budget()`) before reaching the proxy call it mocks, and was simply never given the same admission-gate mock four sibling T3 telemetry tests in the same file already use — so its pass/fail depended on ambient device state (whether a real `llama-server` happened to be running) rather than anything the test controlled. Not a stale test expectation, not a `RateLimiter` regression (confirmed that limiter never touches this endpoint), not cross-test shared state. Committed `9c3266a` (fix), `c473989` (code-reviewer memory), `31884e5` (ledger update).
+
+- **Fix**: applied the identical two-line `monkeypatch` pattern the T3 tests already use, immediately before case 3.
+- **Negative-control proof**: the implementer temporarily made the mock raise instead of admit and observed a real 503 from the route's own exception handler — proving the patch target is genuinely intercepted at the real call site and the test server (confirmed in-process `ThreadingHTTPServer`, not a subprocess) is actually affected by the test-process monkeypatch, rather than the fix passing coincidentally.
+- code-reviewer independently re-verified every claim rather than trusting the report: confirmed the patch-target strings match the T3 tests exactly, traced `routes.py` directly to confirm the 400/401 checks precede the gate, and independently read `server.py` to confirm the in-process threading claim. **APPROVED.** Full suite: 1689 passed/1 skipped.
+- One new finding logged, not fixed: `NEW-439` — a stale docstring on a neighboring T3 test claiming this exact test "never exercises real server code," directly disproven by this fix's own negative control.
+
+**Why:** A useful case for this series' broader lesson — the failure looked like it could plausibly be a real security/rate-limit regression (429 on an auth path), and rushing straight to "fix the route" without first determining root cause precisely would have been a wasted, or worse, wrong fix. Determining the actual cause first (a missing mock, not the route) took one careful scoping pass and avoided touching production code at all for what turned out to be a pure test-hygiene gap.
+
+**Next action:** Continuing in order — `NEW-434` next.
+
 ## 2026-09-09 — NEW-432 fixed: two code-reviewer rounds, a real lock-hold-latency bug caught and corrected
 
 **What changed:** First of the four residual findings from the NEW-206 saga (`NEW-432`, `NEW-433`, `NEW-434`, `NEW-436`) that Ish asked to be worked through in order. project-architect scoped it by reading `_pid_alive()`'s full call-site set and confirming `probe_port_health()` already existed in `core/loader_v2.py` as the right secondary signal. Committed `b5e256a` (code+tests), `b6b1426` (code-reviewer memory), `71c2c7e` (ledger update).
