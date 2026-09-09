@@ -3227,8 +3227,17 @@ evidence to NEW-65/66/68.
   be prioritized ahead of NEW-4/NEW-7 in the queue (it's a RAM-crash-class
   process-lifecycle gap, arguably higher severity) or simply appended
   after them — not decided unilaterally here.
-
-## Found during Round 2 (C-2) live-verification pass, 2026-07-29 — NOT fixed, logged only
+- **Decision (Ish, 2026-09-09): accept the residual risk.** Two fix
+  rounds took the observed rate from ~1-in-4/1-in-5 down to 2/22 (~9%),
+  clustered only at the single earliest possible timing (`SIGINT` landing
+  literally at t=0.0s of "Starting llama-server..."). Not pursuing a
+  third mask-widening attempt or a deeper CPython-atfork investigation —
+  the residual case is a caught, cleaned-up orphan (tracked-PID teardown
+  already reaps it; not a silent leak), not an unbounded risk. Status
+  stays open/tracked for the record, but no further fix work is queued
+  against this unless new information changes the picture (e.g. it
+  starts showing up as a real operational annoyance, or a structurally
+  different fix approach becomes obviously cheap).
 
 ### [NEW-4] `gui/start.sh` unconditionally chains into `main.py`, forcing a full 7B model load just to view the dashboard
 - **Status: RESOLVED (2026-07-29, Round 3, commit `ea954eb`).** This
@@ -4815,6 +4824,11 @@ open, not closed, on this basis.
   confound on severity, independent of the size-vs-count question.
 - **Not fixed here** — NEW-18 remains open, unresolved, unchanged in
   substance from its original entry above.
+- **Decision (Ish, 2026-09-09): not now.** Remains an open research
+  question, not queued for a dedicated live-verify round at this time —
+  revisit if it starts causing real operational incidents, or opportunistically
+  if a future session is already doing controlled swap-behavior testing
+  for an unrelated reason.
 
 ### [NEW-20] `main.py`'s paste-detection `select()` logic busy-loops at ~100% CPU and mis-concatenates input when stdin is a non-TTY file/pipe (Resolved)
 
@@ -16032,6 +16046,21 @@ outside that fix's scope.
   describe accepted-tradeoff surfaces (an allowlist breadth choice, an
   auth-strength choice) rather than a confirmed defect — escalate to Ish
   rather than routing to an implementer. Left open.
+- **Decisions (Ish, 2026-09-09):**
+  - **Item 2 (shell allowlist breadth): leave as-is.** This is
+    single-user, locally-invoked infrastructure — no untrusted input
+    reaches the daemon's task-dispatch path today, so narrowing
+    `_DAEMON_ALLOWED_PREFIXES` now would be precautionary hardening
+    against a threat model that doesn't currently apply, not an active
+    fix. Revisit if the CRM/business API surface grows to accept
+    less-trusted input into task dispatch.
+  - **Item 3 (socket auth strength): peer-UID check is sufficient.**
+    On a single-user Android/Termux device, a Unix socket's peer-UID
+    check already restricts connections to this user's own processes —
+    there's no second user account to defend against, so token auth
+    would add complexity for a threat model that doesn't apply here.
+    Not adding it.
+  - Both items closed as accepted-tradeoffs, not bugs to fix.
 
 ## Found during repo-cleanup sweep (post-Gemini session, 2026-09-08) — untracked cruft, no committed code touched
 
