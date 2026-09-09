@@ -1708,7 +1708,22 @@ def repl(
                         user_input = user_input + " " + " ".join(_extra)
             except Exception:
                 pass  # select unavailable — proceed with single line
-        except (KeyboardInterrupt, EOFError):
+        except (KeyboardInterrupt, EOFError, SystemExit):
+            # SystemExit added here (NEW-40): SIGTERM's handler
+            # (_sigterm_handler, below) raises SystemExit at whatever
+            # point the process happens to be executing, including this
+            # idle input() wait. Before this fix that propagated past
+            # this clause uncaught (SystemExit doesn't match
+            # `except Exception` either, at the clause below), skipping
+            # shutdown() entirely and leaving llama-server running. This
+            # matches the existing pattern used by the 4 model-load
+            # guards elsewhere in this file
+            # (`except (KeyboardInterrupt, SystemExit):`) and, like
+            # those, exits 0 via `break` rather than letting
+            # SystemExit's original 128+signum code propagate — the
+            # same tradeoff those guards already make (see
+            # _sigterm_handler's docstring: "In the 4 guarded paths
+            # this is moot ... the process exits 0 there regardless").
             save_session(history)
             print("\nSession saved. Goodbye!")
             shutdown()
@@ -1801,30 +1816,30 @@ def _sigterm_handler(signum, frame):
     inside a signal handler (which can fire mid-syscall or mid-bytecode)
     is the kind of thing CLAUDE.md rule 4 exists to avoid.
 
-    NOT fully general: the REPL's steady-state input() wait
-    (~line 1362, `except (KeyboardInterrupt, EOFError):`) has no
-    SystemExit clause, so SIGTERM's new SystemExit propagates uncaught
-    there and the process exits without running shutdown() -- unlike
-    SIGINT, which that same clause DOES catch and clean up today
-    (verified: it catches KeyboardInterrupt and calls shutdown() at
-    line 1365). That's a real asymmetry, not parity with SIGINT (see
-    NEW-40, corrected per CLAUDE.md rule 6 after an earlier version of
-    this comment claimed "same as SIGINT already does today", which was
-    false for this specific site). The initial-prompt non-one-shot branch
-    (~line 1335, `except KeyboardInterrupt:`) is different again: it
-    doesn't call shutdown() for SIGINT either (just prints "Interrupted."
-    and falls through into the REPL loop below), so SIGTERM propagating
-    uncaught there isn't a cleanup asymmetry versus SIGINT specifically --
-    but it IS a control-flow asymmetry: SIGINT there is absorbed and the
-    process continues into the REPL loop (where a later SIGINT/SIGTERM at
-    the input() wait would be handled per the site above), while
-    SIGTERM's SystemExit propagates straight out of main(), skipping the
-    REPL loop and any chance at cleanup there entirely. Neither uncovered
-    site is a regression versus pre-fix behavior (SIG_DFL was
-    unconditional kernel-level termination with zero cleanup either way),
-    and per this task's scope the existing try/except structure at both
-    sites must not be
-    touched. Logged separately as NEW-40 rather than fixed here.
+    UPDATE (NEW-40 follow-up fix): the REPL's steady-state input() wait
+    (~line 1711, `except (KeyboardInterrupt, EOFError, SystemExit):`)
+    previously had no SystemExit clause, so SIGTERM's SystemExit
+    propagated uncaught there and the process exited without running
+    shutdown() -- unlike SIGINT, which that same clause DOES catch and
+    clean up. That asymmetry is now fixed: SystemExit is caught there
+    too and shutdown() runs, same as SIGINT, before `break`. See that
+    clause's own comment for the exit-code tradeoff (exits 0 via
+    `break` rather than propagating 128+signum, matching what the 4
+    model-load guards already do).
+
+    Still NOT fully general: the initial-prompt non-one-shot branch
+    (~line 1684, `except KeyboardInterrupt:`) is deliberately left
+    uncovered. It doesn't call shutdown() for SIGINT either (just
+    prints "Interrupted." and falls through into the REPL loop below),
+    so adding SystemExit there would mean a termination signal gets
+    absorbed into a continued session rather than exiting -- worse than
+    today's behavior of propagating out of main() uncaught. Today's
+    behavior there (SystemExit propagates straight out of main(),
+    skipping the REPL loop and shutdown()) is not a regression versus
+    pre-fix behavior (SIG_DFL was unconditional kernel-level
+    termination with zero cleanup either way), so it's left as-is.
+    Logged as NEW-40; the idle-input()-wait half is now fixed, this
+    half remains open by design.
 
     Exit code: 128 + signum (the conventional shell/POSIX "terminated by
     signal N" code, e.g. 143 for SIGTERM) rather than SystemExit(0), so
