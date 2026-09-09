@@ -5419,6 +5419,15 @@ open, not closed, on this basis.
   fixing by appending under `self._lock` too, and either logging
   (not silently passing) on insert failure or counting/reporting a
   dropped-record metric.
+- **Status: CLOSED, 2026-09-08** (already fixed, ledger-closeout batch
+  4, commit `f9773dd`) — **Status field corrected 2026-09-09.** Verified
+  directly: `ccos/core/telemetry_engine.py`'s `record_execution` now
+  appends under `self._lock` (line ~180), `_flush_buffer_locked()` was
+  split out specifically so append+size-check+flush share one critical
+  section (its own docstring cites `NEW-77` by name), and the silent
+  `except Exception: pass` around the per-record `INSERT` was replaced
+  with a real `warning()` log — both halves of this finding's
+  recommendation were applied.
 
 ### [NEW-78] `TelemetryEngine.record_execution` reuses a pre-set `record_id` across multiple calls with the same `ExecutionRecord` object, silently no-op'ing the second write via `INSERT OR IGNORE`
 
