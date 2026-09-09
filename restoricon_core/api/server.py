@@ -182,11 +182,51 @@ class RestoriconAPIServer:
         self.httpd = ThreadingHTTPServer((self.host, self.port), CustomHandler)
         self._thread: Optional[threading.Thread] = None
         self._is_running = False
+        # Separate from `_is_running` (NEW-330): `_is_running` toggles False
+        # again on `stop()`, but the telemetry `run_start` record is scoped
+        # to this process's single `run_id` (telemetry/store.py's
+        # `get_run_id()` is a process-wide singleton), not to any one
+        # start()/stop() cycle -- it must be emitted at most once per
+        # process regardless of how many times this instance is
+        # stopped and restarted. Deliberately a plain instance attribute,
+        # not telemetry/store.py's module-level claim_run_start()/
+        # mark_run_start_recorded() (that pair's own docstrings scope them
+        # to core/loader_v2.py's load_primary() fallback specifically, a
+        # different call site with a different contract -- reusing them
+        # here would couple this class to that one caller's semantics for
+        # no benefit). Named `_emitted`, not `_recorded`, to avoid reading
+        # as a mirror of store's flag. Set unconditionally after the call
+        # (not only on confirmed success): `_record_telemetry_run_start()`
+        # swallows every exception internally by contract (see its own
+        # docstring), so there is no observable "it failed, retry me"
+        # signal to gate on here -- worst case a broken first attempt
+        # permanently suppresses a diagnostic-only record for a process
+        # already on the separate, documented-below broken restart path,
+        # not a correctness issue for anything load-bearing.
+        self._run_start_emitted = False
 
     def start(self, background: bool = False) -> None:
-        """Start the API server."""
+        """Start the API server. A second call while already running is a
+        no-op (NEW-330) -- matching the double-start convention used by
+        core/loader_v2.py's LlamaServer and core/embed_server.py's
+        EmbedServer (both just return on an already-running instance
+        rather than re-running start-up side effects). Note this is not a
+        general restart guarantee: unlike LlamaServer/EmbedServer, this
+        class does not support a real stop() + start() restart (stop()
+        closes the underlying socket and DB handle) -- that gap is a
+        separate, out-of-scope finding, not something this guard claims
+        to fix."""
+        if self._is_running:
+            logger.info(
+                "Restoricon Core API server start() called again on an "
+                "already-running instance on http://%s:%d -- no-op",
+                self.host, self.port,
+            )
+            return
         self._is_running = True
-        _record_telemetry_run_start()
+        if not self._run_start_emitted:
+            _record_telemetry_run_start()
+            self._run_start_emitted = True
         logger.info("Restoricon Core API server starting on http://%s:%d", self.host, self.port)
         if background:
             self._thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)

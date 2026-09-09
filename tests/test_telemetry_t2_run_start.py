@@ -336,6 +336,68 @@ def test_record_run_start_amended_never_written_to_runs_json(tmp_path):
     assert before == after  # byte-identical -- never reopened for write
 
 
+# ── NEW-330: RestoriconAPIServer.start() re-entrancy guard ──────────────
+
+
+def test_api_server_start_called_twice_is_a_noop_no_duplicate_run_start(tmp_path):
+    """NEW-330: a second in-process start() call on an already-started
+    RestoriconAPIServer instance must be a no-op -- it must not append a
+    second run_start event to the JSONL stream under the same run_id."""
+    from restoricon_core.api.server import RestoriconAPIServer
+
+    server = RestoriconAPIServer(db_path=":memory:", host="127.0.0.1", port=0)
+    try:
+        server.start(background=True)
+        server.start(background=True)  # must be a no-op, not a duplicate emission
+    finally:
+        server.stop()
+    # Flushing here (rather than sleeping past the writer's flush
+    # interval) is deterministic: store.reset_for_tests() shuts down the
+    # singleton Store, which flushes whatever is still buffered before
+    # returning -- see telemetry/store.py's Store.shutdown()/writer_loop.
+    store.reset_for_tests()
+
+    events_dir = tmp_path / "events"
+    jsonl_files = list(events_dir.rglob("*.jsonl")) if events_dir.exists() else []
+    assert len(jsonl_files) == 1, jsonl_files
+    records = [json.loads(line) for line in jsonl_files[0].read_text(encoding="utf-8").splitlines()]
+    run_start_records = [r for r in records if r["event_type"] == "run_start"]
+    assert len(run_start_records) == 1, run_start_records
+
+
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
+def test_api_server_stop_then_start_does_not_duplicate_run_start(tmp_path):
+    """NEW-330 follow-up (advisor-caught during review): the guard above
+    only covers two start() calls back-to-back. A start() -> stop() ->
+    start() sequence resets `_is_running` and would pass that guard too
+    -- but the telemetry `run_start` record is scoped to this process's
+    one `run_id` (a process-wide singleton, telemetry/store.py's
+    get_run_id()), not to a start/stop cycle, so it must still only be
+    emitted once. This does NOT assert stop()->start() results in a
+    healthy running server again (it does not -- stop() closes the
+    underlying socket/DB handle, a separate, out-of-scope restart gap
+    noted in the NEW-330 ledger entry and flagged to the coordinator,
+    not fixed here); it only asserts telemetry is not duplicated. The
+    filterwarnings mark silences the background serve_forever thread's
+    expected crash on the closed socket (that same pre-existing, flagged
+    gap) so it doesn't get mistaken for a new regression in CI output."""
+    from restoricon_core.api.server import RestoriconAPIServer
+
+    server = RestoriconAPIServer(db_path=":memory:", host="127.0.0.1", port=0)
+    server.start(background=True)
+    server.stop()
+    server.start(background=True)
+    server.stop()
+    store.reset_for_tests()
+
+    events_dir = tmp_path / "events"
+    jsonl_files = list(events_dir.rglob("*.jsonl")) if events_dir.exists() else []
+    assert len(jsonl_files) == 1, jsonl_files
+    records = [json.loads(line) for line in jsonl_files[0].read_text(encoding="utf-8").splitlines()]
+    run_start_records = [r for r in records if r["event_type"] == "run_start"]
+    assert len(run_start_records) == 1, run_start_records
+
+
 def test_record_run_start_amended_llama_server_argv_extension(tmp_path, monkeypatch):
     """T9 (core/loader_v2.py): record_run_start_amended() extended to
     optionally also carry `llama_server_argv`, independent of `models`.
