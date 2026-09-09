@@ -229,7 +229,7 @@ def test_fetch_slots_prompt_tokens_fails_once_then_succeeds_on_retry():
         call_count[0] += 1
         if call_count[0] == 1:
             raise ConnectionError("simulated transient /slots failure")
-        return _fake_json_response([{"n_prompt_tokens": 4321}])
+        return _fake_json_response([{"n_prompt_tokens": 4321, "is_processing": True}])
 
     with mock.patch.object(rg.urllib.request, "urlopen", side_effect=_urlopen):
         sleeps = []

@@ -4110,27 +4110,46 @@ def _fetch_slots_prompt_tokens(
 ) -> Optional[int]:
     """
     Poll the live server's `/slots` endpoint and sum `n_prompt_tokens`
-    across every slot returned — the AUTHORITATIVE, freshly-measured
-    occupancy signal this section's header comment describes (candidate 1
-    from §8 Q11's design round, confirmed viable there: `slot::to_json()`'s
-    real field, the endpoint enabled by this project's own default spawn
-    command).
+    across every slot that is actively `is_processing` — the
+    AUTHORITATIVE, freshly-measured occupancy signal this section's header
+    comment describes (candidate 1 from §8 Q11's design round, confirmed
+    viable there: `slot::to_json()`'s real fields, the endpoint enabled by
+    this project's own default spawn command).
+
+    NEW-435: `n_prompt_tokens` is NOT cleared when a slot is released — the
+    real server (confirmed against llama.cpp's tools/server/server-context.cpp)
+    keeps reporting the last-served request's token count on an idle slot
+    indefinitely, until that slot serves its next request. Summing
+    `n_prompt_tokens` unconditionally therefore overcounts occupancy by
+    whatever every idle-but-previously-used slot last served. `is_processing`
+    (present on every slot, always) is the field that actually reflects true
+    occupancy, with no meaningful lag — it's updated synchronously in the
+    same single-threaded inference loop that serves `/slots` itself. Only
+    slots with `is_processing is True` contribute their `n_prompt_tokens`;
+    a slot whose `is_processing` is missing or not a real bool is treated
+    as schema drift and counted anyway (fails closed, warns) rather than
+    silently assumed idle — see this function's safety-relevant-code note
+    below.
 
     Makes up to `max_attempts` tries (NEW-431), each with its own
     `timeout`-second budget and a short `retry_gap_seconds` sleep between
     attempts, before giving up — a bounded retry against one transient
     blip, not a long/unbounded backoff.
 
-    Returns `None` (never 0) only after every attempt fails — timeout,
-    connection refused, malformed JSON, the endpoint disabled — so a caller
-    can tell "genuinely zero resident context" apart from "couldn't ask the
-    server," and degrade accordingly. See `reserve_context_budget()`'s own
-    docstring for why failing closed (refusing admission, NEW-431 — never
-    "the pool must be empty," which is what this used to silently do) is
-    the safe failure mode for this admission check specifically — this is
-    safety-relevant code (CLAUDE.md's exception-handling rule), and
-    treating an unreachable `/slots` as "the pool must be empty" would
-    reopen exactly the over-admission NEW-206 itself is about.
+    Returns `0` whenever every attempt succeeds and no slot is actively
+    processing — a genuinely idle pool (or no slots at all) is the normal,
+    expected case post-NEW-435, not a suspicious value. Returns `None`
+    only when every attempt fails outright — timeout, connection refused,
+    malformed JSON, the endpoint disabled — so a caller can tell
+    "genuinely zero resident context" (0) apart from "couldn't ask the
+    server at all" (None), and degrade accordingly. See
+    `reserve_context_budget()`'s own docstring for why failing closed
+    (refusing admission, NEW-431 — never "the pool must be empty," which
+    is what this used to silently do) is the safe failure mode for this
+    admission check specifically — this is safety-relevant code (CLAUDE.md's
+    exception-handling rule), and treating an unreachable `/slots` as "the
+    pool must be empty" would reopen exactly the over-admission NEW-206
+    itself is about.
     """
     last_error: Optional[Exception] = None
     for attempt in range(max_attempts):
@@ -4141,7 +4160,25 @@ def _fetch_slots_prompt_tokens(
             if not isinstance(data, list):
                 last_error = ValueError(f"/slots returned non-list payload: {type(data)}")
             else:
-                return sum(int(s.get("n_prompt_tokens", 0) or 0) for s in data)
+                total = 0
+                for s in data:
+                    processing = s.get("is_processing")
+                    if processing is not True and processing is not False:
+                        # Schema drift (NEW-431's own rule applied here too):
+                        # an unrecognized/missing occupancy field must not be
+                        # silently treated as "safe to ignore" (that's the
+                        # opposite mistake NEW-431 already caught this module
+                        # making) — fail closed by counting the slot as
+                        # occupied, and warn so the drift gets noticed.
+                        warning(
+                            f"resource_gate: /slots entry missing/invalid "
+                            f"'is_processing' ({processing!r}), counting it as "
+                            f"occupied (fail-closed): {s.get('id')}"
+                        )
+                        total += int(s.get("n_prompt_tokens", 0) or 0)
+                    elif processing:
+                        total += int(s.get("n_prompt_tokens", 0) or 0)
+                return total
         except Exception as e:
             last_error = e
         if attempt < max_attempts - 1:
