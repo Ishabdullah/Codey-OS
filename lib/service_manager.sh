@@ -116,6 +116,22 @@ svc_entrypoint_command() {
     esac
 }
 
+# Derive the `pgrep`/proc-name filter (svc_find_orphans_by_cwd's $2) for a
+# detected entrypoint script. NEW-271: this must track the entrypoint's
+# actual interpreter/runtime, not be hardcoded to "node" — a python3 or
+# bash entrypoint would otherwise never be found by the orphan scan, making
+# the orphan-cleanup and stop/status verification paths silently no-op.
+svc_entrypoint_proc_filter() {
+    local script="$1"
+    case "$script" in
+        *.py) echo "python3" ;;
+        *.sh) echo "bash" ;;
+        *.js) echo "node" ;;
+        "")   echo "" ;;
+        *)    echo "$script" ;;
+    esac
+}
+
 # Find live processes whose working directory canonically matches $1.
 #
 # Rule 3 compliance: a cwd match ALONE is not sufficient to identify (and
@@ -275,9 +291,10 @@ print(f\"{c['dir']}|{c['port']}\")
 
     # Single source of truth for the entrypoint: used both to launch the
     # process below and to two-factor-match orphans (cwd + this token).
-    local entry_script entrypoint
+    local entry_script entrypoint proc_filter
     entry_script=$(svc_detect_entrypoint_script "$a_dir")
     entrypoint=$(svc_entrypoint_command "$entry_script")
+    proc_filter=$(svc_entrypoint_proc_filter "$entry_script")
 
     if [ -z "$entrypoint" ]; then
         # No recognizable entrypoint: can't launch, and can't safely scan for
@@ -340,7 +357,7 @@ print(f\"{c['dir']}|{c['port']}\")
         # as orphans and killed while the tracked parent survives. Revisit the
         # identification (e.g. add a parent-PID / process-group check) then.
         local all_found_pids
-        all_found_pids=$(svc_find_orphans_by_cwd "$a_dir" "node" "$entry_script")
+        all_found_pids=$(svc_find_orphans_by_cwd "$a_dir" "$proc_filter" "$entry_script")
         local orphan_pids=()
         for p in $all_found_pids; do
             if [ -n "$tracked_pid" ] && [ "$p" = "$tracked_pid" ]; then
@@ -421,8 +438,9 @@ print(f\"{c['dir']}|{c['port']}\")
 
     # Same entrypoint token used by start_aigentik — required for Rule 3
     # two-factor orphan identification (cwd match alone is not enough).
-    local entry_script
+    local entry_script proc_filter
     entry_script=$(svc_detect_entrypoint_script "$a_dir")
+    proc_filter=$(svc_entrypoint_proc_filter "$entry_script")
 
     svc_stop_by_pid "$AIGENTIK_PID_FILE" "Codey-Aigentik"
 
@@ -436,7 +454,7 @@ print(f\"{c['dir']}|{c['port']}\")
 
     # Check for any remaining orphans running from Aigentik directory
     local remaining_pids
-    remaining_pids=$(svc_find_orphans_by_cwd "$a_dir" "node" "$entry_script")
+    remaining_pids=$(svc_find_orphans_by_cwd "$a_dir" "$proc_filter" "$entry_script")
     if [ -n "$remaining_pids" ]; then
         local r_array=($remaining_pids)
         echo "  ⚠ Aigentik → found ${#r_array[@]} remaining process(es) after stop: $remaining_pids — terminating"
@@ -457,7 +475,7 @@ print(f\"{c['dir']}|{c['port']}\")
 
     # Verify and report final state
     local final_pids
-    final_pids=$(svc_find_orphans_by_cwd "$a_dir" "node" "$entry_script")
+    final_pids=$(svc_find_orphans_by_cwd "$a_dir" "$proc_filter" "$entry_script")
     if [ -z "$final_pids" ]; then
         echo "  Aigentik    → fully stopped, 0 processes remaining"
     else
@@ -480,8 +498,9 @@ print(f\"{c['dir']}|{c['port']}\")
 
     # Same entrypoint token used by start_aigentik — required for Rule 3
     # two-factor orphan identification (cwd match alone is not enough).
-    local entry_script
+    local entry_script proc_filter
     entry_script=$(svc_detect_entrypoint_script "$a_dir")
+    proc_filter=$(svc_entrypoint_proc_filter "$entry_script")
 
     local tracked_pid=""
     if svc_is_running "$AIGENTIK_PID_FILE"; then
@@ -500,7 +519,7 @@ print(f\"{c['dir']}|{c['port']}\")
     fi
 
     local all_found_pids
-    all_found_pids=$(svc_find_orphans_by_cwd "$a_dir" "node" "$entry_script")
+    all_found_pids=$(svc_find_orphans_by_cwd "$a_dir" "$proc_filter" "$entry_script")
     local orphan_pids=()
     for p in $all_found_pids; do
         if [ -n "$tracked_pid" ] && [ "$p" = "$tracked_pid" ]; then

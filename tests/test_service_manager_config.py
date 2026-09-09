@@ -243,6 +243,118 @@ def test_service_manager_pid_lifecycle(tmp_path):
     assert proc.returncode is not None or not proc.is_running() if hasattr(proc, 'is_running') else True
 
 
+def test_svc_entrypoint_proc_filter_derives_from_entrypoint_extension():
+    """NEW-271: svc_find_orphans_by_cwd's proc_filter must track the
+    entrypoint's actual interpreter, not be hardcoded to "node" — a
+    python3/bash entrypoint's orphans would otherwise never be found.
+    """
+    repo_root = Path(__file__).parent.parent.resolve()
+    svc_lib = repo_root / "lib" / "service_manager.sh"
+
+    script = f"""
+    source "{svc_lib}"
+    echo "PY:$(svc_entrypoint_proc_filter "main.py")"
+    echo "SH:$(svc_entrypoint_proc_filter "run.sh")"
+    echo "JS:$(svc_entrypoint_proc_filter "index.js")"
+    echo "EMPTY:$(svc_entrypoint_proc_filter "")"
+    """
+    res = subprocess.run(
+        ["bash", "-c", script],
+        cwd=str(repo_root),
+        capture_output=True,
+        text=True,
+    )
+    assert res.returncode == 0
+    assert "PY:python3" in res.stdout
+    assert "SH:bash" in res.stdout
+    assert "JS:node" in res.stdout
+    assert "EMPTY:" in res.stdout
+
+
+def test_svc_find_orphans_by_cwd_matches_python_entrypoint(tmp_path):
+    """NEW-271 regression guard: with proc_filter derived as "python3" (not
+    hardcoded "node"), a python3-launched entrypoint must be found by the
+    orphan scan — this is exactly the case the hardcoded "node" filter
+    silently missed.
+    """
+    repo_root = Path(__file__).parent.parent.resolve()
+    svc_lib = repo_root / "lib" / "service_manager.sh"
+
+    app_dir = tmp_path / "py_app"
+    app_dir.mkdir()
+    (app_dir / "main.py").write_text(
+        "import time\ntime.sleep(60)\n", encoding="utf-8"
+    )
+
+    p_real = subprocess.Popen(["python3", "main.py"], cwd=str(app_dir))
+
+    try:
+        script = f"""
+        source "{svc_lib}"
+        entry_script=$(svc_detect_entrypoint_script "{app_dir}")
+        proc_filter=$(svc_entrypoint_proc_filter "$entry_script")
+        echo "FILTER:$proc_filter"
+        found=$(svc_find_orphans_by_cwd "{app_dir}" "$proc_filter" "$entry_script")
+        echo "FOUND:$found"
+        """
+        res = subprocess.run(
+            ["bash", "-c", script],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+        )
+        assert res.returncode == 0
+        assert "FILTER:python3" in res.stdout
+        found = res.stdout.split("FOUND:")[1].split()
+        assert str(p_real.pid) in found, res.stdout
+    finally:
+        p_real.terminate()
+        p_real.wait()
+
+
+def test_status_aigentik_detects_python_entrypoint_orphan(tmp_path):
+    """NEW-271 end-to-end regression guard: exercises the actual call site
+    (`status_aigentik`), not just the `svc_entrypoint_proc_filter` helper in
+    isolation. Under the pre-fix hardcoded `"node"` proc_filter, a
+    `python3 main.py`-launched orphan is invisible to `status_aigentik`
+    (`pgrep node` finds nothing); this must now report it.
+    """
+    repo_root = Path(__file__).parent.parent.resolve()
+    svc_lib = repo_root / "lib" / "service_manager.sh"
+
+    app_dir = tmp_path / "py_aigentik"
+    app_dir.mkdir()
+    state_dir = tmp_path / "codey_state_py"
+    state_dir.mkdir()
+
+    (app_dir / "main.py").write_text(
+        "import time\ntime.sleep(60)\n", encoding="utf-8"
+    )
+
+    p_orphan = subprocess.Popen(["python3", "main.py"], cwd=str(app_dir))
+
+    script = f"""
+    export CODEY_STATE_DIR="{state_dir}"
+    export AIGENTIK_DIR="{app_dir}"
+    source "{svc_lib}"
+    status_aigentik
+    """
+
+    try:
+        res = subprocess.run(
+            ["bash", "-c", script],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+        )
+        assert res.returncode == 0
+        assert "UNTRACKED orphan" in res.stdout, res.stdout
+        assert str(p_orphan.pid) in res.stdout, res.stdout
+    finally:
+        p_orphan.terminate()
+        p_orphan.wait()
+
+
 def test_svc_find_orphans_by_cwd(tmp_path):
     repo_root = Path(__file__).parent.parent.resolve()
     svc_lib = repo_root / "lib" / "service_manager.sh"
