@@ -11633,6 +11633,85 @@ finding for the same bug. See `NEW-39`.)*
   decision this finding bears on), §6.2's Phase A1 "Concurrency test"
   row and Appendix A checklist entry (updated this round, still
   unchecked).
+- **Live-verify of the §8 Q11 fix, 2026-09-09 — FIX DOES NOT RELIABLY
+  WORK on real hardware. `CODEY_MASTER_PLAN.md`'s "Concurrency test" row
+  and `NEW-208`'s "safe-direction-only, cannot reopen NEW-206's cascade"
+  claim are both corrected here, per rule 6.** The admission-gating fix
+  (`reserve_context_budget()`/`wait_and_reserve_context_budget()`, wired
+  into `core/inference_hybrid.py::infer()`/`core/plannd.py::get_plan()`)
+  was code-complete and code-reviewer-approved but had never run against
+  a real concurrent-request scenario end-to-end. It has now been run,
+  and it failed its own design goal.
+  - **Gate-level arithmetic is correct in isolation** — a direct call to
+    `reserve_context_budget()` for a single request, and for a
+    genuinely-concurrent pair (first held, second attempted), both
+    behaved exactly as designed: the pair leg refused the second
+    request with the exact predicted reason
+    (`"combined estimated context 9099 tokens would exceed the
+    15%-margin ceiling 6963 of n_ctx=8192..."`). This rules out "the
+    gate never actually refuses anything" as the failure mode.
+  - **The real end-to-end path, through the actual gated call site
+    (`ChatCompletionBackend.infer()`), double-admitted anyway.** Two
+    concurrent requests (4249/4250 tokens each, `max_tokens=300`,
+    combined 9099 against an 8192-ceiling server) were BOTH genuinely
+    processing simultaneously in the real server — confirmed directly
+    from `~/.codeyOS/llama-server.log`'s own `print_timing` lines
+    showing two different, both-large, both-actively-growing prompts
+    (`task 13`/`task 33`) decoding in parallel across two slots at the
+    same wall-clock timestamps. Both eventually died to a **client-side
+    HTTP timeout** (300s, `core/inference_hybrid.py:587`) after ~6.5-6.7
+    minutes each — a different proximate failure mode than this entry's
+    original `Context size has been exceeded`/fragmentation-retry
+    cascade (that specific mechanism did NOT reproduce this time — zero
+    hits grepping the server log for it), but the same class of outcome
+    the fix exists to prevent: two over-capacity concurrent requests
+    both ultimately failing together, now after a wait, instead of one
+    being cleanly refused or serialized up front.
+  - **Compound root cause, both parts confirmed from evidence:**
+    (1) `core/resource_bus.py`'s `DEFAULT_LEASE_DURATION_SEC = 60.0` is
+    shorter than this device's realistic in-flight duration for a
+    prompt this size — the first request's own prefill alone took
+    179s, so its ledger reservation had already auto-expired at +60s
+    while the real HTTP call was still only ~50% through prefill.
+    (2) `reserve_context_budget()`'s fallback when `/slots` is
+    unreachable is `slots_tokens = 0` — exactly the "treat as
+    unlimited" degrade path the function's own docstring names as
+    dangerous ("would reopen exactly the over-admission NEW-206 itself
+    is about") — and `/slots` was observed unreachable in 12 of 13
+    polling attempts during precisely the high-load window that
+    mattered (the server evidently can't service `/slots` promptly
+    while decoding on this hardware). With the first request's ledger
+    entry expired AND `/slots` degraded to 0, the second request's
+    retry saw a combined total of `0 + 0 + 4550`, well under the
+    ceiling, and was wrongly admitted while the first request was still
+    genuinely running.
+  - **This directly falsifies `NEW-208`'s "safe-direction-only" claim**
+    (that the double-counting bug there could only ever under-admit,
+    never over-admit, so "cannot reopen NEW-206's cascade") — under
+    real degraded conditions (a lapsed lease combined with an
+    unreachable `/slots`), the system DOES over-admit. `NEW-208`'s own
+    entry is corrected separately below with a pointer to this note;
+    its underlying double-counting concern is a distinct, still-real
+    bug, just not the one that fired here.
+  - **Not fixed this round** — this is a live-verify result requiring a
+    fix-scoping decision, not something to patch inline during
+    verification. Two distinct defects need addressing, logged
+    separately as `NEW-430` (lease duration too short) and `NEW-431`
+    (dangerous `/slots`-unreachable degrade behavior) — fixing only one
+    leaves the hole open via the other path.
+  - **Separately found during this session's pre-flight, a third,
+    unrelated Confirmed finding, logged as `NEW-432`**: a stale
+    `RESIDENT` slot record survived for days because its real PID had
+    been reused by an unrelated Android process, and `_pid_alive()`'s
+    own deliberate `PermissionError → treat as alive` fail-closed
+    branch meant it could never self-heal via `list_slots(reap_dead=
+    True)` — silently corrupting `resolve_effective_n_ctx()`'s ceiling
+    (returned a stale `16384` for a server that hadn't existed in
+    days) until manually cleaned up before this test could run cleanly.
+  - **RAM discipline maintained throughout**: one model-load cycle,
+    `free -h`/`ps aux` recorded at every checkpoint, only the tracked
+    spawned PID killed at teardown (confirmed genuinely dead, not a
+    name-pattern kill), full recovery confirmed post-teardown.
 
 ### [NEW-207] `can_dispatch_task()`'s `interactive_active` refusal is checked only once, at task-claim time — an already-claimed background task can keep running (up to the 1800s task timeout) alongside a human-opened interactive session for the rest of its execution, undermining the check's own stated intent
 
@@ -11743,6 +11822,23 @@ finding for the same bug. See `NEW-39`.)*
   inference_hybrid.py::ChatCompletionBackend.infer()` and `core/
   plannd.py::get_plan()` (the two call sites whose `finally`-block
   release timing produces this).
+- **Correction, 2026-09-09 (rule 6) — "not fixed this round, direction
+  is safe" no longer holds as stated.** This entry's own reviewer
+  endorsement rested on the claim that double-counting can only ever
+  under-admit, never over-admit ("cannot reopen NEW-206's cascade").
+  `NEW-206`'s own live-verify entry (2026-09-09) found a live,
+  real-hardware over-admission — but via a DIFFERENT mechanism than
+  this entry describes: a lapsed 60s lease (`core/resource_bus.py`'s
+  `DEFAULT_LEASE_DURATION_SEC`) combined with `/slots` going
+  unreachable under load, not this entry's "double-counted for the
+  whole in-flight duration" pathway specifically. This entry's own
+  double-counting concern remains real and unfixed on its own terms
+  (still worth the "future round" fix direction below if reduced
+  concurrency matters in practice), but the broader claim it was used
+  to support — that the admission gate as a whole is safe-direction-only
+  and cannot reopen `NEW-206`'s hazard — is now known false. See
+  `NEW-206`'s live-verify note, and the two new findings it logged
+  (`NEW-430`, `NEW-431`), for the mechanism that actually fired.
 
 ## Found during Phase B2 scoping (§6.4 of `CODEY_MASTER_PLAN.md`) — desk-only, read `~/Aigentik-CLI`'s real code/data and `restoricon_core/`'s real schema, did NOT touch `~/Aigentik-CLI`, NOT fixed, logged only
 
@@ -17270,3 +17366,26 @@ housekeeping, same as `NEW-403`'s own cleanup.
 - **Impact:** unlike `core/loader_v2.py`'s `LlamaServer`/`core/embed_server.py`'s `EmbedServer`, which genuinely re-spawn a fresh subprocess on restart, `RestoriconAPIServer` was apparently never designed to be restart-capable at the socket level. `NEW-330`'s fix does not claim to fix this — its docstring is deliberately worded to promise only "a second call while already running is a no-op," not general restart safety.
 - **Not fixed** — needs its own scoped task: either make `start()` detect a closed/unusable `self.httpd` after a prior `stop()` and rebuild a fresh `ThreadingHTTPServer` instance (matching the "fresh subprocess" pattern `LlamaServer`/`EmbedServer` already use), or explicitly document that this class is single-use (create a new instance rather than calling `start()` again after `stop()`) and audit callers for any place that might currently assume restart-capability.
 - **Cross-reference:** `NEW-330` (the re-entrancy fix this was found while reviewing), `core/loader_v2.py:LlamaServer`, `core/embed_server.py:EmbedServer` (the restart-capable comparison points).
+
+## Found during live-verify of the §8 Q11 / NEW-206 admission-gating fix, 2026-09-09 (real hardware, one RAM-disciplined model-load cycle, CODEY_N_CTX=8192)
+
+### [NEW-430] `core/resource_bus.py`'s `DEFAULT_LEASE_DURATION_SEC = 60.0` is shorter than realistic in-flight request duration, letting a context-budget reservation lapse while the real request is still running
+
+- **Status:** Confirmed, directly observed on real hardware. A prompt sized 4249 tokens took 179.29s just for its own prefill (23.74 tok/s, this device's measured rate at the time) — three times longer than the 60s lease duration. `acquire_context_lease()`'s reservation for that request had already auto-expired and been reaped (`_reap_stale_records_locked()`) by the time a second, genuinely-concurrent request re-checked admission, even though the first request's real HTTP call was still only ~50% through prefill.
+- **Impact:** this is one of two compound causes (see `NEW-431` for the other) behind a real, live-reproduced over-admission that let two combined-over-ceiling requests both proceed concurrently into the shared KV pool — exactly the hazard the §8 Q11 admission gate exists to prevent. See `NEW-206`'s live-verify note for the full reproduction and evidence.
+- **Not fixed** — needs a scoped decision: raise `DEFAULT_LEASE_DURATION_SEC` to something closer to a realistic worst-case request duration for this device/model (risks holding a reservation open longer than necessary if a request errors out before releasing — check whether `release_context_budget()`'s callers all correctly release on every exit path, including exceptions, before just raising the constant), or move to a renewable/heartbeat lease model instead of a fixed duration (bigger change, closes the gap more robustly). Needs to be decided together with `NEW-431`'s fix, not independently — fixing only one leaves the hole open via the other.
+- **Cross-reference:** `NEW-206` (the live-verify finding this was found investigating), `NEW-431` (the other compound cause), `core/resource_bus.py:acquire_context_lease()`/`_reap_stale_records_locked()`.
+
+### [NEW-431] `reserve_context_budget()`'s fallback when `/slots` is unreachable degrades to treating occupancy as zero — exactly the dangerous direction its own docstring warns against, and `/slots` was observed unreachable during the specific high-load window that mattered most
+
+- **Status:** Confirmed, directly observed on real hardware. An independent 1s-interval `/slots` poller run during a live concurrency test got 12 of 13 attempts empty/timed-out between the first request's admission and the second request's admission retry — the server evidently cannot service `/slots` promptly while actively decoding a large prompt on this hardware. `reserve_context_budget()`'s own code (`core/resource_gate.py:4374-4376`) sets `slots_tokens = 0` when the `/slots` poll fails, and its own docstring names this exact behavior as dangerous ("would reopen exactly the over-admission NEW-206 itself is about") — but that is precisely what happens today, with no additional safeguard.
+- **Impact:** combined with `NEW-430`'s lapsed-lease gap, this let a second request compute `combined = 0 (slots, degraded) + 0 (other reservations, lease expired) + this_request`, well under the ceiling, and get wrongly admitted while the first request was still genuinely occupying real server capacity. See `NEW-206`'s live-verify note for the full reproduction. This is the more structurally dangerous of the two compound causes — it means the safety-critical signal degrades exactly when the system is under enough load for degradation to matter most, a self-defeating failure mode.
+- **Not fixed** — needs a scoped decision, together with `NEW-430`: options include failing closed (refuse admission, not admit-as-zero) when `/slots` is unreachable rather than degrading to "unlimited," a shorter `/slots` poll timeout with a retry before falling back, or accepting the local reservation ledger as authoritative during a `/slots` outage instead of assuming zero occupancy. A confound worth checking before finalizing a fix: the live-verify's own `/slots` polling script was itself an additional caller competing for the same rate-limited endpoint the gate polls — worth confirming the gate's own poll (not a second concurrent poller) actually fails this often under real load before committing to a specific fix shape.
+- **Cross-reference:** `NEW-206` (the live-verify finding this was found investigating), `NEW-430` (the other compound cause), `core/resource_gate.py:reserve_context_budget()`/`_fetch_slots_prompt_tokens()`.
+
+### [NEW-432] `_pid_alive()`'s deliberate `PermissionError` → "treat as alive" fail-closed branch means a resident-slot record can become permanently un-reapable if its real PID gets reused by an unrelated Android process, silently corrupting `resolve_effective_n_ctx()`'s ceiling
+
+- **Status:** Confirmed, directly observed on real hardware, found during this live-verify session's pre-flight (before the main test could even run cleanly). `~/.codeyOS/resource_gate_state.json` had a stale `RESIDENT` slot record for `model_id=primary, port=8080` with `n_ctx=16384`, whose PID had not been a real Codey-OS `llama-server` process in at least several days (confirmed: `/proc/<pid>` returned `Permission denied`, not `No such file or directory` — i.e. an unrelated Android app process had since been assigned that same PID number). `_pid_alive()`'s own documented design (`core/resource_gate.py:3036-3039`) deliberately treats a `PermissionError` as "alive" (a reasonable fail-closed choice in isolation, to avoid falsely reaping a real process this code merely lacks permission to inspect) — but this means such a record can NEVER self-heal via `list_slots(reap_dead=True)`, unlike a genuinely-dead PID (which would raise `ProcessLookupError`/`No such file`, correctly reaped).
+- **Impact:** `resolve_effective_n_ctx("primary", 8080)` silently returned `16384` — a value from a server that no longer existed — for every admission decision made against it, until this session manually called `release_slot()` on the stale record before its own test could proceed. In production this would silently corrupt the ceiling every `reserve_context_budget()` call divides against, without any error or warning surfacing anywhere.
+- **Not fixed** — needs a scoped decision: since a `RESIDENT` slot's owning process should always be independently verifiable another way (e.g. a positive port-liveness check via `probe_port_health()`/an actual `/health` HTTP call to the port the slot claims to own, not just PID liveness), a `PermissionError` on the PID check specifically could fall through to that stronger secondary check before deciding "alive," rather than accepting `PermissionError` alone as sufficient evidence. Needs review against `_pid_alive()`'s other call sites too, to confirm this fix wouldn't weaken a case where PID-liveness genuinely is the only available signal.
+- **Cross-reference:** `NEW-206` (the live-verify session this was found during), `core/resource_gate.py:_pid_alive()`, `list_slots(reap_dead=True)`, `resolve_effective_n_ctx()`.
