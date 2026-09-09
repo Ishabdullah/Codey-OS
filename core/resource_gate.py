@@ -3027,7 +3027,61 @@ def _state_paths(
     return base / state_filename, base / lock_filename
 
 
-def _pid_alive(pid: int) -> bool:
+def _pid_alive(
+    pid: int,
+    port: Optional[int] = None,
+    precomputed: Optional[Dict[Tuple[int, int], bool]] = None,
+) -> bool:
+    """
+    `port` (NEW-432, 2026-09-09): PermissionError from `os.kill(pid, 0)` was
+    previously treated as unconditionally "alive" (see that branch's own
+    comment). That's right for a genuinely foreign process (we don't own
+    it, so we have no stronger signal), but wrong for a resource-gate slot
+    whose PID got reused by an unrelated process after the model server we
+    registered actually died — the reused PID can legitimately return
+    PermissionError too (e.g. owned by a different uid), and we'd wrongly
+    keep counting a dead slot as live forever, permanently over-counting
+    reserved memory. When a port is available for that slot, use it as a
+    second, independent liveness signal via a cross-process HTTP health
+    probe (`core/loader_v2.probe_port_health()`) before falling back to the
+    old fail-closed behavior. `port=None` (default) callers — the
+    TUI-session PID-file check at the bottom of this file has no port
+    concept — get byte-for-byte the old behavior.
+
+    `precomputed` (NEW-432 restructure, 2026-09-09, code-reviewer round 2):
+    an optional `{(pid, port): is_alive}` map of PermissionError-ambiguous,
+    port-bearing PIDs whose port probe was ALREADY DONE, before this call,
+    outside of any lock — see `_precheck_port_liveness()`. Keyed on the
+    `(pid, port)` PAIR, not bare `pid`: the unlocked precheck read and this
+    function's later locked read can observe different slot lists (a slot
+    released and a new one registered reusing the same pid with a
+    DIFFERENT port between the two reads) — keying on the pair means a
+    stale probe result for the old `(pid, old_port)` combination can never
+    be mistakenly applied to a new slot that happens to share the same pid
+    but a different port.
+
+    `reserve_slot()` and `list_slots()` build this map before acquiring
+    `_LockedState`'s flock and pass it in here specifically so the blocking
+    HTTP probe never executes while that flock is held (matches this
+    file's own documented invariant — see `reserve_slot()`'s and
+    `total_reserved_swap_bytes()`'s docstrings on reading slow/uncertain
+    signals before the lock).
+
+    Callers that pass a `precomputed` map (i.e. every call made from inside
+    a `_LockedState` block) are signalling "we are under the lock — do not
+    probe here." If `(pid, port)` isn't in that map (not registered yet at
+    pre-check time, or its port changed between the two reads), this does
+    NOT fall back to probing fresh — that would reintroduce the exact
+    blocking-under-lock latency this restructure exists to eliminate.
+    Instead it fails closed to "alive" (skip reaping this pass): the slot
+    simply isn't reaped this cycle, but it IS covered by the *next*
+    `reserve_slot()`/`list_slots()` call's own pre-lock precheck, so
+    nothing is permanently lost, only deferred one cycle. `precomputed=None`
+    (the default; this function's own direct unit-test callers, and any
+    future non-locked caller) still probes fresh here exactly as before —
+    that path never runs under a lock, so it never introduces the guarded
+    latency at all.
+    """
     try:
         os.kill(pid, 0)
         return True
@@ -3036,6 +3090,63 @@ def _pid_alive(pid: int) -> bool:
     except PermissionError:
         # Process exists but we don't own it — still alive, matches
         # core/daemon.py:check_pid_file()'s same os.kill(pid, 0) precedent.
+        # See docstring above for why `port` can override this to a "dead"
+        # verdict when it's available.
+        if port is not None:
+            if precomputed is not None:
+                key = (pid, port)
+                if key in precomputed:
+                    alive = precomputed[key]
+                    if not alive:
+                        warning(
+                            f"resource_gate: pid {pid} PermissionError and "
+                            f"port {port} unreachable (precomputed) — "
+                            "treating as dead, reaping"
+                        )
+                    return alive
+                # `precomputed` was supplied (we're inside a locked reap)
+                # but this exact (pid, port) pair wasn't precomputed —
+                # probing here would block while the flock is held, which
+                # is the exact NEW-432 round-2 finding. Fail closed to
+                # "alive" this pass instead of probing; the next call's own
+                # pre-lock precheck will cover this pair.
+                warning(
+                    f"resource_gate: pid {pid} PermissionError, port {port} "
+                    "not in pre-lock liveness map — treating as alive this "
+                    "pass, will be probed on the next pre-lock precheck"
+                )
+                return True
+            # No precomputed map at all — this call isn't under the lock
+            # (e.g. a direct/unit-test caller), so probing fresh here is
+            # safe.
+            # Deferred import: core/loader_v2.py imports core.resource_gate
+            # at module top (`import core.resource_gate as rg`), so a
+            # top-level import here would be circular.
+            from core.loader_v2 import probe_port_health
+
+            if probe_port_health(port):
+                return True
+            warning(
+                f"resource_gate: pid {pid} PermissionError and port {port} "
+                "unreachable — treating as dead, reaping"
+            )
+            return False
+        # No port to cross-check against — fail closed exactly as before.
+        # This branch is reached routinely and correctly by non-slot
+        # callers with no port concept at all (e.g. the TUI-session
+        # PID-file check below, checking a genuinely foreign process's
+        # PID) — it is NOT itself evidence of a problem. It only becomes
+        # the NEW-432 residual gap (a resource-gate slot's dead-PID entry
+        # that can never be reaped because it has no recorded port) for
+        # `reserve_slot()`/`list_slots()` callers specifically; this log
+        # line can't tell those two cases apart, so it's necessarily
+        # best-effort noise for the TUI case in exchange for visibility
+        # on the slot case (this is the coordinator's known follow-up, not
+        # closed by this fix).
+        warning(
+            f"resource_gate: pid {pid} PermissionError, no port recorded — "
+            "cannot cross-check liveness, treating as alive (old behavior)"
+        )
         return True
     except OSError:
         # Unexpected OSError from kill(2) (not ProcessLookupError/
@@ -3045,7 +3156,86 @@ def _pid_alive(pid: int) -> bool:
         # avoiding over-admission, so wrongly reaping a live slot (which
         # could let a second load be wrongly admitted on top of it) is the
         # worse failure mode here, not a stale entry lingering a bit longer.
+        # Deliberately NOT extended with the port-probe tie-break above:
+        # this branch is for genuinely unexpected kill(2) failures, not the
+        # specific reused-PID/foreign-process ambiguity PermissionError
+        # represents — scoped decision, not an oversight.
         return True
+
+
+def _precheck_port_liveness(state_dir: Optional[Path] = None) -> Dict[Tuple[int, int], bool]:
+    """
+    NEW-432 restructure (2026-09-09, code-reviewer round 2): the pre-lock
+    half of `_pid_alive()`'s port-health tie-break. `probe_port_health()` is
+    a blocking HTTP GET (2s timeout) and must never run while
+    `_LockedState`'s flock is held — this file already documents that exact
+    invariant for other slow/uncertain signals (see `reserve_slot()`'s
+    docstring on reading meminfo/thermal before the lock, and
+    `total_reserved_swap_bytes()`'s docstring). Probing from inside
+    `_pid_alive()` while the lock was held (the original NEW-432 fix) broke
+    that invariant: a stale slot with an unreachable port would stall every
+    other `reserve_slot()`/`list_slots()`/admission caller for up to 2s per
+    dead slot in the reap pass.
+
+    This function takes an UNLOCKED read of the current slot list (via
+    `_read_state_locked()`, which despite its name is just a plain
+    open+json.load — no flock involved; only `_LockedState` itself takes
+    the flock; safe against a torn read because `_write_state_locked()`
+    always writes via `mkstemp()` + `os.replace()`, so an unlocked reader
+    only ever sees a complete old or complete new file, never a partial
+    write), identifies slots whose PID is PermissionError-ambiguous
+    (`os.kill(pid, 0)` raises `PermissionError` — a foreign or reused PID,
+    not confirmed dead) AND has a recorded port, and probes those ports
+    OUTSIDE any lock. Returns a `{(pid, port): is_alive}` map covering only
+    those ambiguous, port-bearing pairs — everything else (confirmed-alive,
+    confirmed-dead, or no-port PIDs) doesn't need a probe at all and is
+    left for the plain `os.kill()` path inside the later locked reap.
+
+    Keyed on the `(pid, port)` PAIR, not bare `pid`: the slot list can
+    change between this unlocked read and the later locked read (a slot
+    released and a different slot registered reusing the same pid under a
+    DIFFERENT port). Keying on the pair means a stale probe result can
+    never be misapplied to an unrelated slot that happens to share a pid —
+    see `_pid_alive()`'s own docstring for how a pair not found in this map
+    is handled (fails closed to "alive this pass", NOT a fresh in-lock
+    probe).
+
+    Callers (`reserve_slot()`, `list_slots()`) call this BEFORE entering
+    `with _LockedState(...)`, then pass the resulting map into
+    `_pid_alive()`'s `precomputed` parameter during the actual locked reap.
+    This is intentionally read-only and never mutates or writes the state
+    file. Cost: one extra unlocked JSON read plus one `os.kill()` call per
+    port-bearing slot on every `reserve_slot()`/`list_slots()` call (the
+    latter also reached indirectly via `find_resident_slot()`) —
+    microseconds, negligible next to the up-to-2s lock-hold latency this
+    exists to avoid.
+    """
+    state_path, _ = _state_paths(state_dir)
+    slots = _read_state_locked(state_path)
+    result: Dict[Tuple[int, int], bool] = {}
+    for s in slots:
+        pid = s.get("pid")
+        port = s.get("port")
+        if pid is None or port is None:
+            continue
+        try:
+            os.kill(pid, 0)
+            continue  # confirmed alive — no probe needed, plain os.kill suffices later
+        except ProcessLookupError:
+            continue  # confirmed dead — no probe needed either
+        except PermissionError:
+            pass  # ambiguous — this is the case the probe below resolves
+        except OSError:
+            # Unexpected kill(2) failure — not the PermissionError ambiguity
+            # this helper exists to resolve; leave it to _pid_alive()'s own
+            # fail-closed OSError branch inside the lock.
+            continue
+        # Deferred import: core/loader_v2.py imports core.resource_gate at
+        # module top, so a top-level import here would be circular.
+        from core.loader_v2 import probe_port_health
+
+        result[(pid, port)] = probe_port_health(port)
+    return result
 
 
 def _read_state_locked(path: Path) -> List[dict]:
@@ -3304,9 +3494,20 @@ def reserve_slot(
     def _fixed_temp_fn():
         return captured_temp
 
+    # NEW-432 restructure (2026-09-09): pre-lock port-liveness probe pass —
+    # see `_precheck_port_liveness()`'s own docstring for why this must
+    # happen BEFORE `_LockedState` is entered, not inside it. Skipped
+    # entirely when reap_dead is False since nothing below will consult it.
+    _port_liveness = _precheck_port_liveness(state_dir) if reap_dead else {}
+
     with _LockedState(state_dir) as slots:
         if reap_dead:
-            slots[:] = [s for s in slots if s.get("pid") is None or _pid_alive(s["pid"])]
+            slots[:] = [
+                s
+                for s in slots
+                if s.get("pid") is None
+                or _pid_alive(s["pid"], port=s.get("port"), precomputed=_port_liveness)
+            ]
 
         # Only PENDING slots count against reserved_bytes — see this
         # section's header comment / total_reserved_bytes()'s docstring for
@@ -3466,9 +3667,20 @@ def list_slots(state_dir: Optional[Path] = None, reap_dead: bool = True) -> List
     the same os.kill(pid, 0) liveness precedent as
     core/daemon.py:check_pid_file().
     """
+    # NEW-432 restructure (2026-09-09): pre-lock port-liveness probe pass —
+    # see `_precheck_port_liveness()`'s own docstring for why this must
+    # happen BEFORE `_LockedState` is entered, not inside it. Skipped
+    # entirely when reap_dead is False since nothing below will consult it.
+    _port_liveness = _precheck_port_liveness(state_dir) if reap_dead else {}
+
     with _LockedState(state_dir) as slots:
         if reap_dead:
-            live = [s for s in slots if s.get("pid") is None or _pid_alive(s["pid"])]
+            live = [
+                s
+                for s in slots
+                if s.get("pid") is None
+                or _pid_alive(s["pid"], port=s.get("port"), precomputed=_port_liveness)
+            ]
             slots[:] = live
         return list(slots)
 

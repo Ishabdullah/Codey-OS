@@ -689,6 +689,319 @@ def test_list_slots_reap_dead_false_keeps_stale_entry(tmp_path):
     assert len(slots) == 1
 
 
+# ── NEW-432: _pid_alive() PermissionError port-health tie-break ─────────────
+
+
+def test_pid_alive_permission_error_with_port_probe_true_returns_true(monkeypatch):
+    def _raise_permission(pid, sig):
+        raise PermissionError()
+
+    monkeypatch.setattr(os, "kill", _raise_permission)
+    monkeypatch.setattr("core.loader_v2.probe_port_health", lambda port: True)
+    assert rg._pid_alive(12345, port=9999) is True
+
+
+def test_pid_alive_permission_error_with_port_probe_false_returns_false(monkeypatch):
+    # Direct NEW-432 regression case: a PID that raises PermissionError
+    # (e.g. reused by an unrelated process after the real owner died) must
+    # be treated as dead once the recorded port is confirmed unreachable.
+    def _raise_permission(pid, sig):
+        raise PermissionError()
+
+    monkeypatch.setattr(os, "kill", _raise_permission)
+    monkeypatch.setattr("core.loader_v2.probe_port_health", lambda port: False)
+    assert rg._pid_alive(12345, port=9999) is False
+
+
+def test_pid_alive_permission_error_no_port_returns_true_unchanged(monkeypatch):
+    def _raise_permission(pid, sig):
+        raise PermissionError()
+
+    calls = []
+
+    def _probe(port):
+        calls.append(port)
+        return False
+
+    monkeypatch.setattr(os, "kill", _raise_permission)
+    monkeypatch.setattr("core.loader_v2.probe_port_health", _probe)
+
+    assert rg._pid_alive(12345) is True
+    assert rg._pid_alive(12345, port=None) is True
+    assert calls == []
+
+
+def test_pid_alive_process_lookup_error_with_port_returns_false_no_probe(monkeypatch):
+    def _raise_not_found(pid, sig):
+        raise ProcessLookupError()
+
+    calls = []
+
+    def _probe(port):
+        calls.append(port)
+        return True
+
+    monkeypatch.setattr(os, "kill", _raise_not_found)
+    monkeypatch.setattr("core.loader_v2.probe_port_health", _probe)
+
+    assert rg._pid_alive(12345, port=9999) is False
+    assert calls == []
+
+
+def test_pid_alive_generic_oserror_with_port_returns_true_no_probe(monkeypatch):
+    def _raise_oserror(pid, sig):
+        raise OSError("unexpected kill(2) failure")
+
+    calls = []
+
+    def _probe(port):
+        calls.append(port)
+        return False
+
+    monkeypatch.setattr(os, "kill", _raise_oserror)
+    monkeypatch.setattr("core.loader_v2.probe_port_health", _probe)
+
+    assert rg._pid_alive(12345, port=9999) is True
+    assert calls == []
+
+
+def test_pid_alive_precomputed_hit_returns_mapped_value_no_probe_call(monkeypatch):
+    # NEW-432 restructure: when `precomputed` already has an entry for this
+    # exact (pid, port) pair, _pid_alive() must use it directly and never
+    # call probe_port_health() itself (the whole point of precomputing
+    # outside the lock).
+    def _raise_permission(pid, sig):
+        raise PermissionError()
+
+    calls = []
+
+    def _probe(port):
+        calls.append(port)
+        return True
+
+    monkeypatch.setattr(os, "kill", _raise_permission)
+    monkeypatch.setattr("core.loader_v2.probe_port_health", _probe)
+
+    assert rg._pid_alive(12345, port=9999, precomputed={(12345, 9999): False}) is False
+    assert rg._pid_alive(12345, port=9999, precomputed={(12345, 9999): True}) is True
+    assert calls == []  # never probed — precomputed value was used both times
+
+
+def test_pid_alive_precomputed_miss_fails_closed_to_alive_no_probe(monkeypatch):
+    # NEW-432 restructure round 2 (code-reviewer finding): a (pid, port)
+    # pair not present in a SUPPLIED precomputed map means this call is
+    # happening under a held lock (that's the only reason a map would be
+    # passed at all) — probing fresh here would reintroduce the exact
+    # blocking-under-lock latency the restructure exists to eliminate. Must
+    # fail closed to "alive" (skip reaping this pass) and must NOT call
+    # probe_port_health() at all — deferred to the next pre-lock precheck.
+    def _raise_permission(pid, sig):
+        raise PermissionError()
+
+    calls = []
+
+    def _probe(port):
+        calls.append(port)
+        return False
+
+    monkeypatch.setattr(os, "kill", _raise_permission)
+    monkeypatch.setattr("core.loader_v2.probe_port_health", _probe)
+
+    # Miss because the pid doesn't match any entry.
+    assert rg._pid_alive(99999, port=9999, precomputed={(12345, 9999): True}) is True
+    # Miss because the port doesn't match (same pid, different port) —
+    # the exact TOCTOU case (pid reused with a different port) this keying
+    # scheme guards against.
+    assert rg._pid_alive(12345, port=8080, precomputed={(12345, 9999): False}) is True
+    assert calls == []  # never probed in either case
+
+
+def test_pid_alive_no_precomputed_map_still_probes_fresh(monkeypatch):
+    # precomputed=None (the default) means this call isn't under a lock at
+    # all (e.g. a direct caller) — probing fresh here is safe and must
+    # still happen, unchanged from the original NEW-432 behavior.
+    def _raise_permission(pid, sig):
+        raise PermissionError()
+
+    calls = []
+
+    def _probe(port):
+        calls.append(port)
+        return False
+
+    monkeypatch.setattr(os, "kill", _raise_permission)
+    monkeypatch.setattr("core.loader_v2.probe_port_health", _probe)
+
+    assert rg._pid_alive(12345, port=9999) is False
+    assert calls == [9999]
+
+
+def test_precheck_port_liveness_only_probes_permission_ambiguous_port_bearing_pids(monkeypatch, tmp_path):
+    # _precheck_port_liveness() must probe only PIDs that are (a) alive per
+    # a real os.kill() check with PermissionError specifically, and (b)
+    # have a recorded port. It must skip: no-pid slots, no-port slots,
+    # confirmed-dead pids, and confirmed-alive (no PermissionError) pids.
+    rg.register_slot("no-port", cost_bytes=1 * GIB, pid=111, state_dir=tmp_path)  # no port
+    rg.register_slot("ambiguous", cost_bytes=1 * GIB, pid=222, port=9999, state_dir=tmp_path)
+
+    real_kill = os.kill
+
+    def _fake_kill(pid, sig):
+        if pid == 222:
+            raise PermissionError()
+        return real_kill(os.getpid(), 0)  # confirms self is alive without side effects, for any other pid
+
+    calls = []
+
+    def _probe(port):
+        calls.append(port)
+        return True
+
+    monkeypatch.setattr(os, "kill", _fake_kill)
+    monkeypatch.setattr("core.loader_v2.probe_port_health", _probe)
+
+    result = rg._precheck_port_liveness(state_dir=tmp_path)
+
+    assert result == {(222, 9999): True}
+    assert calls == [9999]  # probed exactly once, only for the ambiguous+port-bearing pid
+
+
+def test_list_slots_reap_dead_permission_error_port_unreachable_reaps_slot(monkeypatch, tmp_path):
+    # Integration-level regression test for the live-observed NEW-432 bug:
+    # a slot whose PID raises PermissionError (not ProcessLookupError) must
+    # still be reaped by list_slots(reap_dead=True) once its recorded port
+    # is confirmed unreachable.
+    rg.register_slot("stale-perm", cost_bytes=1 * GIB, pid=54321, port=9999, state_dir=tmp_path)
+
+    def _raise_permission(pid, sig):
+        raise PermissionError()
+
+    monkeypatch.setattr(os, "kill", _raise_permission)
+    monkeypatch.setattr("core.loader_v2.probe_port_health", lambda port: False)
+
+    slots = rg.list_slots(state_dir=tmp_path, reap_dead=True)
+    assert slots == []
+
+
+def test_list_slots_reap_dead_permission_error_port_reachable_keeps_slot(monkeypatch, tmp_path):
+    rg.register_slot("live-perm", cost_bytes=1 * GIB, pid=54321, port=9999, state_dir=tmp_path)
+
+    def _raise_permission(pid, sig):
+        raise PermissionError()
+
+    monkeypatch.setattr(os, "kill", _raise_permission)
+    monkeypatch.setattr("core.loader_v2.probe_port_health", lambda port: True)
+
+    slots = rg.list_slots(state_dir=tmp_path, reap_dead=True)
+    assert len(slots) == 1
+    assert slots[0]["model_id"] == "live-perm"
+
+
+def test_list_slots_toctou_port_mismatch_between_precheck_and_lock_not_reaped(monkeypatch, tmp_path):
+    # NEW-432 restructure round 2 (code-reviewer second-order finding): if
+    # the slot's recorded port changes between the unlocked pre-check read
+    # and the locked reap read (e.g. released and re-registered under the
+    # same pid with a different port in between), the stale (pid, old_port)
+    # probe result must NOT be applied to the new (pid, new_port) slot.
+    # Simulate this directly against _pid_alive(): a precomputed map keyed
+    # on the OLD port, called with the NEW port, must fail closed to
+    # "alive" (not reaped) rather than reusing the stale verdict.
+    def _raise_permission(pid, sig):
+        raise PermissionError()
+
+    monkeypatch.setattr(os, "kill", _raise_permission)
+
+    stale_map = {(54321, 9999): False}  # precheck saw pid 54321 on port 9999, unreachable
+
+    # Locked reap now sees the same pid registered under a DIFFERENT port —
+    # must not reuse the stale "dead" verdict for the old port.
+    assert rg._pid_alive(54321, port=8080, precomputed=stale_map) is True
+
+
+def test_list_slots_port_probe_runs_before_lock_is_acquired(monkeypatch, tmp_path):
+    # NEW-432 restructure (code-reviewer round 2, 2026-09-09): the original
+    # fix called probe_port_health() (a blocking 2s-timeout HTTP GET) from
+    # inside _pid_alive() while _LockedState's cross-process flock was held
+    # — this stalled every other reserve_slot()/list_slots() caller for up
+    # to 2s per dead slot in the reap pass. The restructure moves the probe
+    # to _precheck_port_liveness(), which runs BEFORE _LockedState is
+    # entered. Prove that ordering here: the mocked probe_port_health()
+    # itself attempts a non-blocking acquisition of the EXACT SAME lock
+    # file resource_gate.py uses. flock() locks are per open-file-
+    # description (not per-process) on Linux, so if the real reap ever held
+    # the flock while the probe ran, this second, independent fd's
+    # LOCK_EX|LOCK_NB attempt would fail with BlockingIOError. Asserting it
+    # always succeeds proves the probe never overlaps with the held lock.
+    import fcntl
+
+    rg.register_slot("stale-perm", cost_bytes=1 * GIB, pid=54321, port=9999, state_dir=tmp_path)
+
+    def _raise_permission(pid, sig):
+        raise PermissionError()
+
+    probe_lock_was_free = []
+
+    def _probe(port):
+        _, lock_path = rg._state_paths(tmp_path)
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            probe_lock_was_free.append(True)
+        except BlockingIOError:
+            probe_lock_was_free.append(False)
+        finally:
+            os.close(fd)
+        return False  # unreachable — also exercises the reap-on-unreachable path
+
+    monkeypatch.setattr(os, "kill", _raise_permission)
+    monkeypatch.setattr("core.loader_v2.probe_port_health", _probe)
+
+    slots = rg.list_slots(state_dir=tmp_path, reap_dead=True)
+
+    assert probe_lock_was_free == [True]
+    assert slots == []  # unreachable port → reaped, confirming the probe result was actually used
+
+
+def test_reserve_slot_port_probe_runs_before_lock_is_acquired(monkeypatch, tmp_path):
+    # Same regression as test_list_slots_port_probe_runs_before_lock_is_
+    # acquired above, for reserve_slot()'s own reap pass (the other call
+    # site code-reviewer flagged).
+    import fcntl
+
+    rg.register_slot("stale-perm", cost_bytes=1 * GIB, pid=54321, port=9999, state_dir=tmp_path)
+
+    def _raise_permission(pid, sig):
+        raise PermissionError()
+
+    probe_lock_was_free = []
+
+    def _probe(port):
+        _, lock_path = rg._state_paths(tmp_path)
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            probe_lock_was_free.append(True)
+        except BlockingIOError:
+            probe_lock_was_free.append(False)
+        finally:
+            os.close(fd)
+        return True  # reachable — the stale slot stays, but not double-counted (fresh slot, no port clash)
+
+    monkeypatch.setattr(os, "kill", _raise_permission)
+    monkeypatch.setattr("core.loader_v2.probe_port_health", _probe)
+
+    candidate = rg.ModelSpec(model_id="fresh", size_bytes=int(1 * GIB), n_ctx=4096, compute_overhead_bytes=0)
+    mi = meminfo_bytes(mem_total_gib=10.8, mem_free_gib=8.0, mem_available_gib=8.0)
+    decision, slot_id = rg.reserve_slot(
+        candidate, port=8080, meminfo=mi, read_temp_fn=NO_THERMAL, state_dir=tmp_path
+    )
+
+    assert probe_lock_was_free == [True]
+    assert decision.admitted is True
+
+
 def _cross_process_writer(state_dir_str, done_flag_path):
     import core.resource_gate as rg_child
 
@@ -1291,6 +1604,33 @@ def test_is_tui_session_active_corrupt_pid_file_is_false_and_removed(tmp_path):
     session_file.write_text("not-a-pid")
     assert rg.is_tui_session_active(sessions_dir=sessions_dir) is False
     assert not session_file.exists()
+
+
+def test_is_tui_session_active_pid_permission_error_is_true_no_port_probe(monkeypatch, tmp_path):
+    # NEW-432: is_tui_session_active() calls _pid_alive(pid) with no port
+    # (there's no port concept for a TUI session PID file), so the new
+    # default parameter must be a complete no-op here — PermissionError
+    # from os.kill() still means "alive", unchanged, and no port probe is
+    # ever attempted.
+    sessions_dir = tmp_path / "tui-sessions"
+    sessions_dir.mkdir()
+    pid = 24680
+    (sessions_dir / f"{pid}.pid").write_text(str(pid))
+
+    def _raise_permission(p, sig):
+        raise PermissionError()
+
+    calls = []
+
+    def _probe(port):
+        calls.append(port)
+        return False
+
+    monkeypatch.setattr(os, "kill", _raise_permission)
+    monkeypatch.setattr("core.loader_v2.probe_port_health", _probe)
+
+    assert rg.is_tui_session_active(sessions_dir=sessions_dir) is True
+    assert calls == []
 
 
 def test_is_tui_session_active_two_concurrent_sessions_survive_one_exiting(tmp_path):
