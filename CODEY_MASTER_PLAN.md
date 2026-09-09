@@ -4968,11 +4968,16 @@ pass **also covers the two previously-unreviewed diffs** from §4.4.
 
 Then:
 
-- [ ] **7.4** — resource gate + slot-aware loader. 5/5 sub-tasks
+- [x] **7.4** — resource gate + slot-aware loader. 5/5 sub-tasks
       code-complete and code-reviewer-approved (2026-08-09). Core
-      admission→load→CLI-recovery path live-verified (round 18). Left:
-      a production-config live pass — now re-targeted at Qwen3.5-4B and
-      covered by M1-E. The old 7B-at-32768 script is obsolete.
+      admission→load→CLI-recovery path live-verified (round 18).
+      **DONE — closed 2026-09-09 (doc-cleanup pass), the checkbox was
+      stale.** The remaining production-config live pass this item was
+      waiting on landed as M1-E (2026-08-23, DONE, fully live-verified
+      on real device via `main.py --no-resume`, three tracked load/unload
+      cycles through the identical `_spawn_locked()` path this item
+      covers) — confirmed by re-reading M1-E's own entry, not assumed
+      from its title.
 - [x] **7.4a** — swap-aware budget check. A/B/C1/C2/D/F built and
       approved; E and G run. `NEW-135`/`NEW-136` **FIXED 2026-08-25, code-
       reviewer-APPROVED 2026-08-25** (later same day — mandatory rule-4
@@ -5862,27 +5867,33 @@ only this heading was inserted.
 - [x] **B3** — Operations domain. **DONE 2026-08-30 (`OperationsService`).**
 - [x] **B3** — first Automated Workflows. **DONE 2026-08-30 (`OperationsService` automation rules engine).**
 - [x] **B4** — phone-hosted public site. **DONE 2026-08-31 (Public intake, top-left hamburger navigation drawer, and static hosting).**
-- [ ] **B4** — staff/admin surface. **PARTIAL — downgraded 2026-09-02 per
-      rule 6; was marked DONE 2026-08-31.** What is real: the `/admin`
-      SPA exists, and **user management with dynamic domain permissions
-      genuinely works** (real routes, changes take effect immediately) —
-      that half of the original claim was re-verified and stands. What
-      is not: "comprehensive business data editing" is withdrawn. **3 of
-      11 tabs are wired** (Users/Permissions, CRM & Projects list, Audit
-      Log — `web_surfaces.py:2212-2222`); the other 8 are hardcoded
-      placeholders, and `saveBusinessProfile()`/`saveScheduleConfig()`
-      (`web_surfaces.py:2413-2420`) are `alert()` stubs that discard
-      input while reporting success (`NEW-273`, `NEW-274`). Finished by
-      **B6.4**.
-- [ ] **B4** — customer portal (full document/signature/financial).
-      **PARTIAL — downgraded 2026-09-02 per rule 6; was marked DONE
-      2026-08-31.** The `/portal` SPA renders, but its 5-phase tracker,
-      invoice table, and PM chat are **hardcoded demo HTML**
-      (`web_surfaces.py:1155-1554`). It calls **2 of the 10 real
-      `/api/v1/portal/*` routes**, one of them at a hardcoded contract id
-      (`NEW-272`, a correctness bug — `sign_contract` fails closed, so
-      not an authorization hole). The **API layer is genuinely complete**
-      and is not re-done. Finished by **B6.3**.
+- [x] **B4** — staff/admin surface. Was **PARTIAL** (downgraded 2026-09-02
+      per rule 6, was briefly marked DONE 2026-08-31 before that
+      correction) — the gaps named then (`NEW-273`'s `alert()` save
+      stubs, `NEW-274`'s 8 hardcoded placeholder tabs) are what **B6.4**
+      was scoped to close. **DONE — closed 2026-09-09 (doc-cleanup
+      pass), the checkbox was stale.** `B6.4a` (`PROJECT_LOG.md`
+      2026-09-06) wired `saveBusinessProfile()`/`saveScheduleConfig()`
+      to real `GET`/`POST` calls, closing `NEW-273`; `B6.4b-f` (same
+      date) wired the remaining tabs (KPIs, operations, finance, comms,
+      biz-ops) to their real endpoints, closing `NEW-274`. **Tier: code-
+      complete** (both entries state this explicitly; not stated as
+      live-verified) — per rule 7, don't read this checkbox as more than
+      that.
+- [x] **B4** — customer portal (full document/signature/financial).
+      Was **PARTIAL** (downgraded 2026-09-02 per rule 6, was briefly
+      marked DONE 2026-08-31 before that correction) — the gap named
+      then (`NEW-272`'s hardcoded demo HTML, only 2 of 10 real routes
+      called) is what **B6.3** was scoped to close. **DONE — closed
+      2026-09-09 (doc-cleanup pass), the checkbox was stale.** `B6.3`
+      (`PROJECT_LOG.md` 2026-09-06, code-reviewer APPROVED) rewired
+      `render_portal_surface()` to fetch real timeline/invoices/
+      contracts/PM-chat data against the live `/api/v1/portal/*` routes,
+      fixed `NEW-272`'s hardcoded contract id, and added a test asserting
+      the rendered surface calls the routes it claims to consume (the
+      exact gap that let the original demo version ship). **Tier: code-
+      complete** (stated explicitly; not stated as live-verified) — per
+      rule 7, don't read this checkbox as more than that.
 - [x] **B4** — device-limb dashboard as third API client. **DONE 2026-08-30 (`Private-Codey-Agent/lib/screens/business_dashboard_screen.dart`).**
 - [x] **B5a** — Finance/Bookkeeping. **DONE 2026-08-30 (`FinanceService`).**
 - [x] **B5a** — Marketing/Lead-Gen. **DONE 2026-08-30 (`BusinessOpsService`).**
