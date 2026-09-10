@@ -707,9 +707,19 @@ currently uses SQLite as an immutable ledger.
 
 ### 3.3 Cross-language schema mechanism
 
-`telemetry/schema/v1.json` is the single source of truth. It defines, per
-category: the field list, each field's type, unit, nullability, and the
-closed set of enum values and null-reason codes.
+> **T10 migration in progress (2026-09-10):** Codey-OS now loads
+> `telemetry/schema/v2.json` (adds the `codey-os.cli` emitter value,
+> additive-only). `v1.json` is retained, frozen forever, so historical
+> records keep validating; `telemetry/schema.py` carries
+> `KNOWN_SCHEMA_SHA256_12` mapping every shipped version's hash for
+> `doctor`. Codey-Aigentik still loads `v1.json` until its own T10
+> commit; the file-tree and per-file tables below still say "v1.json"
+> and are reconciled when the migration completes (see `NEW-446`).
+
+The current-version schema file (`telemetry/schema/v2.json`) is the single
+source of truth. It defines, per category: the field list, each field's
+type, unit, nullability, and the closed set of enum values and null-reason
+codes.
 
 - **Python** (`telemetry/schema.py`) loads it with `json.load` at import,
   computes its SHA-256 once, and exposes `SCHEMA_VERSION`,
@@ -798,7 +808,7 @@ discharged by the one entry noted.
 |---|---|
 | `telemetry/__init__.py` | Package init; re-exports the public `record_*()` emit API and the `CODEY_TELEMETRY` kill-switch flag. |
 | `telemetry/schema/v1.json` | The versioned schema — single source of truth for field names, types, units, enums, and null-reason codes, in both languages. |
-| `telemetry/schema.py` | Loads `v1.json`, computes and exposes `SCHEMA_VERSION` / `SCHEMA_SHA256_12`, and provides off-hot-path `validate(record)` for tests and `doctor`. |
+| `telemetry/schema.py` | Loads the current-version schema (`v2.json` as of T10), computes and exposes `SCHEMA_VERSION` / `SCHEMA_SHA256_12` / `KNOWN_SCHEMA_SHA256_12` (per-version hashes for `doctor`), and provides off-hot-path `validate(record)` for tests and `doctor`. |
 | `telemetry/envelope.py` | Builds the shared envelope (`run_id`, `seq`, `ts_wall`/`ts_mono`, `boot_id`, `nulls` map) and enforces the 8 KiB record cap. |
 | `telemetry/store.py` | Bounded ring buffer, background writer thread, `O_APPEND` JSONL writes, drop counting; every public entry point is exception-proof. |
 | `telemetry/provenance.py` | Collects category G (git SHA/dirty/branch, device, kernel, Termux, RAM, model digests via cache, allow-listed env + config). |

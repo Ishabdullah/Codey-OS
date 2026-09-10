@@ -494,6 +494,59 @@ def test_doctor_null_without_reason_is_a_violation(tmp_path, capsys):
     assert rc == 1
 
 
+def test_doctor_accepts_historical_v1_record_hash(tmp_path, capsys):
+    run_id = "histv1rec0000001"
+    today = _today()
+    run_start = _make_record(
+        "provenance", "run_start", "codey-os.daemon", 1, run_id,
+        body={"run_id": run_id, "started_ts_wall": 1.0, "repo": "Codey-OS",
+              "device_uptime_sec": None, "models": []},
+        nulls={"body.device_uptime_sec": "proc_uptime_permission_denied"},
+    )
+    stopped = _make_record("meta", "writer_stopped", "codey-os.daemon", 1, run_id, {})
+
+    good = dict(_make_record("inference", "completion", "codey-os.daemon", 1, run_id,
+                             {"backend": "local", "wall_ms": 1.0}))
+    good["schema_version"] = 1
+    good["schema_sha256"] = "8a45d9fc8c23"
+
+    bad = dict(_make_record("inference", "completion", "codey-os.daemon", 1, run_id,
+                            {"backend": "local", "wall_ms": 1.0}))
+    bad["schema_version"] = 1
+    bad["schema_sha256"] = "deadbeefcafe"
+
+    _write_jsonl(tmp_path, today, "provenance", run_id, [run_start])
+    _write_jsonl(tmp_path, today, "meta", run_id, [stopped])
+    _write_jsonl(tmp_path, today, "inference", run_id, [good, bad])
+
+    rc = cli.main(["doctor", "--root", str(tmp_path), "--json"])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+    assert "8a45d9fc8c23" not in payload["schema_hash_mismatches"]
+    assert payload["schema_hash_mismatches"].get("deadbeefcafe") == 1
+    # exactly one record mismatched -- the v1-hash record did not contribute
+    assert sum(payload["schema_hash_mismatches"].values()) == 1
+    assert rc == 1
+
+
+def test_schema_verify_reports_per_version(tmp_path, capsys, monkeypatch):
+    from telemetry import schema as schema_mod
+
+    repo_schema_dir = Path(schema_mod.__file__).parent / "schema"
+    fake_home = tmp_path / "home"
+    aig = fake_home / "Codey-Aigentik" / "telemetry" / "schema"
+    aig.mkdir(parents=True)
+    (aig / "v1.json").write_bytes((repo_schema_dir / "v1.json").read_bytes())
+
+    monkeypatch.setenv("HOME", str(fake_home))
+
+    rc = cli.main(["schema", "--verify", "--root", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert "v1: MATCH" in out
+    assert "v2: Codey-Aigentik not yet migrated" in out
+    assert rc == 0
+
+
 # ── status ───────────────────────────────────────────────────────────────
 
 

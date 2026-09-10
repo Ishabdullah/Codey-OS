@@ -616,7 +616,11 @@ def cmd_doctor(root: Path, args: argparse.Namespace) -> int:
             if violations:
                 null_violations.extend(f"{run_id or '?'}: {v}" for v in violations)
             rec_hash = rec.get("schema_sha256")
-            if rec_hash and rec_hash != _schema.SCHEMA_SHA256_12:
+            # Per-record lookup: a record written under schema v1 carries v1's
+            # hash and is still valid. An unknown schema_version -> None ->
+            # every real hash counts as a mismatch, which is the correct signal.
+            expected_hash = _schema.KNOWN_SCHEMA_SHA256_12.get(rec.get("schema_version", 1))
+            if rec_hash and rec_hash != expected_hash:
                 schema_mismatch[rec_hash] = schema_mismatch.get(rec_hash, 0) + 1
             if rec.get("category") == "provenance" and rec.get("event_type") == "run_start" and run_id:
                 run_ids_with_run_start.add(run_id)
@@ -761,23 +765,30 @@ def cmd_schema(root: Path, args: argparse.Namespace) -> int:
         print(f"schema_version={_schema.SCHEMA_VERSION} sha256_12={_schema.SCHEMA_SHA256_12}")
         return 0
 
-    aigentik_path = Path.home() / "Codey-Aigentik" / "telemetry" / "schema" / "v1.json"
-    if not aigentik_path.is_file():
-        print(f"Codey-OS: {_schema.SCHEMA_SHA256_12}")
+    print(f"Codey-OS: {_schema.SCHEMA_SHA256_12}")
+    aigentik_dir = Path.home() / "Codey-Aigentik" / "telemetry" / "schema"
+    if not aigentik_dir.is_dir():
         print("Codey-Aigentik: not present on this device")
         return 0
 
     import hashlib
 
-    aigentik_bytes = aigentik_path.read_bytes()
-    aigentik_hash = hashlib.sha256(aigentik_bytes).hexdigest()[:12]
-    print(f"Codey-OS:       {_schema.SCHEMA_SHA256_12}")
-    print(f"Codey-Aigentik: {aigentik_hash}")
-    if aigentik_hash == _schema.SCHEMA_SHA256_12:
-        print("MATCH")
-        return 0
-    print("MISMATCH — schema drift between repos")
-    return 1
+    this_repo_dir = Path(__file__).parent / "schema"
+    mismatch = False
+    for n in sorted(_schema.KNOWN_SCHEMA_SHA256_12):
+        aigentik_path = aigentik_dir / f"v{n}.json"
+        if not aigentik_path.is_file():
+            print(f"v{n}: Codey-Aigentik not yet migrated")
+            continue
+        ours = hashlib.sha256((this_repo_dir / f"v{n}.json").read_bytes()).hexdigest()
+        theirs = hashlib.sha256(aigentik_path.read_bytes()).hexdigest()
+        if ours == theirs:
+            print(f"v{n}: MATCH ({ours[:12]})")
+        else:
+            print(f"v{n}: MISMATCH — schema drift between repos "
+                  f"(Codey-OS {ours[:12]} vs Codey-Aigentik {theirs[:12]})")
+            mismatch = True
+    return 1 if mismatch else 0
 
 
 # ── argument parsing / entry point ──────────────────────────────────────

@@ -1,6 +1,8 @@
 """
-Loads telemetry/schema/v1.json once at import and exposes the constants and
-validation helper every other telemetry module needs.
+Loads telemetry/schema/v2.json once at import and exposes the constants and
+validation helper every other telemetry module needs. Also maintains
+`KNOWN_SCHEMA_SHA256_12`, the table of every shipped schema version's 12-hex
+hash, so historical records written under an older version stay recognisable.
 
 `SCHEMA_SHA256_12` is what every record's `schema_sha256` envelope field is
 set from (see envelope.py). It exists so schema drift between Codey-OS and
@@ -19,7 +21,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List
 
-_SCHEMA_PATH = Path(__file__).parent / "schema" / "v1.json"
+_SCHEMA_PATH = Path(__file__).parent / "schema" / "v2.json"
 
 with open(_SCHEMA_PATH, "r", encoding="utf-8") as _f:
     _SCHEMA_BYTES = _f.read().encode("utf-8")
@@ -28,6 +30,16 @@ with open(_SCHEMA_PATH, "r", encoding="utf-8") as _f:
 SCHEMA_VERSION: int = SCHEMA["schema_version"]
 SCHEMA_SHA256: str = hashlib.sha256(_SCHEMA_BYTES).hexdigest()
 SCHEMA_SHA256_12: str = SCHEMA_SHA256[:12]
+
+# Every schema version's 12-hex hash, for validating historical records whose
+# schema_sha256 was written under an older version. Old records are never
+# rewritten, so doctor must recognise every version that has ever shipped.
+# Explicit dict, not a v*.json glob -- matches the pinned-hash discipline in
+# tests/test_telemetry_schema.py.
+KNOWN_SCHEMA_SHA256_12: Dict[int, str] = {
+    1: "8a45d9fc8c23",
+    2: SCHEMA_SHA256_12,
+}
 
 CATEGORIES: List[str] = SCHEMA["envelope"]["fields"]["category"]["enum"]
 EMITTERS: List[str] = SCHEMA["envelope"]["fields"]["emitter"]["enum"]
@@ -47,6 +59,12 @@ class SchemaViolation(str):
     letting `validate()` return a typed list."""
 
 
+# validate() assumes every shipped schema version is ADDITIVE over its
+# predecessor across _ENVELOPE_REQUIRED_FIELDS, CATEGORIES, EMITTERS and
+# NULL_REASON_CODES -- so checking against the latest loaded schema never
+# rejects a valid older record. A future non-additive version would require
+# per-version dispatch here; test_schema_v2_is_additive_over_v1 guards the
+# invariant.
 def validate(record: Dict[str, Any]) -> List[str]:
     """
     Off-hot-path structural + honest-null check. Returns a list of

@@ -1,8 +1,13 @@
 """
-Schema-file integrity: the SHA-256 of telemetry/schema/v1.json must match
-a literal constant checked into this test file (NOT computed from the
-same file schema.py reads — that would be circular and pin nothing). This
-literal is what Codey-Aigentik's parity test (T1) matches against.
+Schema-file integrity: the SHA-256 of the current schema file
+(telemetry/schema/v2.json) must match a literal constant checked into this
+test file (NOT computed from the same file schema.py reads — that would be
+circular and pin nothing). Codey-Aigentik's parity test (T1) currently
+pins v1.json's hash and reads v1.json (that repo has not migrated to v2
+yet — a later T10 commit); once it does, its pinned literal moves to
+v2.json's hash and must equal EXPECTED_SHA256 here. v1.json is frozen
+forever and its hash is pinned separately in KNOWN_SCHEMA_SHA256_12 /
+test_known_schema_hashes_table.
 
 Also asserts the null-reason and category/emitter enums are closed sets,
 per docs/telemetry_layer_design.md §2.0.1.
@@ -10,16 +15,20 @@ per docs/telemetry_layer_design.md §2.0.1.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from telemetry import schema
 from utils.config import TELEMETRY_ENV_ALLOW_LIST, TELEMETRY_SECRET_PRESENCE_ONLY_ENV
 
-# Computed once, out-of-band, from the checked-in telemetry/schema/v1.json.
-# If this assertion ever fails after an intentional schema edit, the fix
-# is to bump schema_version and create v2.json — NOT to update this
-# constant to match a changed v1.json (§2.0: "Old records are never
-# rewritten").
-EXPECTED_SHA256 = "8a45d9fc8c236913bf74982f6dc774fe33833b6d2299dd735d6b89ae8898b618"
-EXPECTED_SHA256_12 = "8a45d9fc8c23"
+# Computed once, out-of-band, from the checked-in current schema file
+# (telemetry/schema/v2.json). If this assertion ever fails after an
+# intentional schema edit, the fix is to bump schema_version and create
+# v<N+1>.json — NOT to update this constant to match an in-place edit of an
+# existing version file (§2.0: "Old records are never rewritten"). Updating
+# these two literals is correct ONLY as part of a deliberate version bump.
+EXPECTED_SHA256 = "13285c51ee6a3cdc1d96d80791f2100da3f3e00aee2e2f8177e5c8572af536e3"
+EXPECTED_SHA256_12 = "13285c51ee6a"
 
 
 def test_schema_sha256_matches_pinned_constant():
@@ -27,8 +36,8 @@ def test_schema_sha256_matches_pinned_constant():
     assert schema.SCHEMA_SHA256_12 == EXPECTED_SHA256_12
 
 
-def test_schema_version_is_one():
-    assert schema.SCHEMA_VERSION == 1
+def test_schema_version_is_two():
+    assert schema.SCHEMA_VERSION == 2
 
 
 def test_category_enum_matches_design():
@@ -52,6 +61,7 @@ def test_emitter_enum_matches_design():
         "codey-os.plannd",
         "codey-os.loader",
         "aigentik",
+        "codey-os.cli",
     ]
 
 
@@ -85,3 +95,30 @@ def test_schema_env_allow_list_matches_utils_config_copy():
     self-describing copy) must never silently diverge."""
     assert schema.ENV_ALLOW_LIST == TELEMETRY_ENV_ALLOW_LIST
     assert schema.SECRET_PRESENCE_ONLY_ENV == TELEMETRY_SECRET_PRESENCE_ONLY_ENV
+
+
+_SCHEMA_DIR = Path(schema.__file__).parent / "schema"
+
+
+def _load(name: str) -> dict:
+    with open(_SCHEMA_DIR / name, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def test_schema_v2_is_additive_over_v1():
+    v1 = _load("v1.json")
+    v2 = _load("v2.json")
+
+    assert set(v1["envelope"]["fields"]) <= set(v2["envelope"]["fields"])
+    assert set(v1["envelope"]["fields"]["category"]["enum"]) <= set(
+        v2["envelope"]["fields"]["category"]["enum"]
+    )
+    assert set(v1["null_reason_codes"]) <= set(v2["null_reason_codes"])
+    assert set(v1["envelope"]["fields"]["emitter"]["enum"]) <= set(
+        v2["envelope"]["fields"]["emitter"]["enum"]
+    )
+
+
+def test_known_schema_hashes_table():
+    assert schema.KNOWN_SCHEMA_SHA256_12[1] == "8a45d9fc8c23"
+    assert schema.KNOWN_SCHEMA_SHA256_12[2] == schema.SCHEMA_SHA256_12
