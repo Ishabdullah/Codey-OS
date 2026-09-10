@@ -4563,6 +4563,8 @@ def reserve_context_budget(
     reap_dead: bool = True,
     fetch_slots_fn=None,
     tokenize_fn=None,
+    *,
+    precomputed_estimate: Optional[Tuple[int, str]] = None,
 ) -> ContextBudgetDecision:
     """
     Single-shot admission check + atomic reservation against the shared
@@ -4589,6 +4591,12 @@ def reserve_context_budget(
     explicitly so every retry checks against the same resolved value instead
     of re-resolving (and potentially re-querying `/proc`) on every tick.
     Direct callers should normally leave this `None` and let it resolve.
+
+    `precomputed_estimate`, if given, skips `estimate_prompt_tokens()`
+    entirely and uses the supplied `(tokens, source)` pair verbatim — used
+    by `wait_and_reserve_context_budget()` so one wait's retries don't each
+    re-issue a `/tokenize` call for the same, unchanged `messages`
+    (NEW-434); direct callers should normally leave it `None`.
 
     **If `effective_n_ctx` cannot be resolved at all (neither the slot
     store nor a live `/proc` re-derivation has it), this function REFUSES
@@ -4644,9 +4652,12 @@ def reserve_context_budget(
 
     ceiling_tokens = int(n_ctx * (1.0 - safety_margin_fraction))
 
-    prompt_tokens, estimate_source = estimate_prompt_tokens(
-        host, port, messages, tokenize_fn=tokenize_fn
-    )
+    if precomputed_estimate is not None:
+        prompt_tokens, estimate_source = precomputed_estimate
+    else:
+        prompt_tokens, estimate_source = estimate_prompt_tokens(
+            host, port, messages, tokenize_fn=tokenize_fn
+        )
     reserved_tokens = prompt_tokens + max_tokens
 
     if fetch_slots_fn is None:
@@ -4804,6 +4815,24 @@ def wait_and_reserve_context_budget(
     retrying pointlessly — a request that can never be resolved once won't
     resolve on a later tick either.
 
+    The prompt-token estimate is likewise computed AT MOST ONCE per wait
+    (NEW-434), immediately after `n_ctx` resolves, and reused verbatim
+    (via `precomputed_estimate`) by every `reserve_context_budget()` call
+    in this wait's retry loop — `messages` is invariant across one wait,
+    so re-issuing a fresh `/tokenize` HTTP call on every retry tick was
+    pure waste. This includes a heuristic-fallback result if `/tokenize`
+    failed on that one computation: it is deliberately NOT re-attempted on
+    a later retry (that would defeat this fix's own purpose). This is safe
+    relative to PRE-DIFF behavior, not an absolute guarantee: `messages`
+    doesn't change during the wait, so a pinned heuristic estimate is
+    exactly as accurate as the heuristic any individual retry would have
+    independently computed anyway — pinning introduces no new inaccuracy,
+    it only avoids recomputing the same thing.
+    `CONTEXT_HEURISTIC_FALLBACK_PADDING_FACTOR` is a conservative
+    mitigation against known under-estimation risk (its own comment above
+    its definition says as much), not a mathematical guarantee that the
+    heuristic can never under-count real tokens for any input shape.
+
     `timeout_seconds`, if `None` (the normal case), defaults to
     `compute_context_queue_timeout_seconds(n_ctx, max_tokens)` — see that
     function's own docstring for the formula and its
@@ -4818,6 +4847,20 @@ def wait_and_reserve_context_budget(
     """
     n_ctx = resolve_effective_n_ctx(model_id, port, state_dir=state_dir)
 
+    # NEW-434: compute the estimate at most once per wait, and thread it
+    # through every reserve_context_budget() call below (both the initial
+    # call and every retry) instead of letting each call independently
+    # re-invoke estimate_prompt_tokens() (a fresh /tokenize HTTP POST) for
+    # the same, unchanged `messages`. Guarded on n_ctx being resolvable so
+    # the existing "refuse immediately, n_ctx unresolvable" path below
+    # still never issues a /tokenize call (estimate_source="none" in that
+    # branch, matching prior behavior).
+    precomputed_estimate: Optional[Tuple[int, str]] = None
+    if n_ctx and n_ctx > 0:
+        precomputed_estimate = estimate_prompt_tokens(
+            host, port, messages, tokenize_fn=tokenize_fn
+        )
+
     decision = reserve_context_budget(
         port,
         messages,
@@ -4830,6 +4873,7 @@ def wait_and_reserve_context_budget(
         pid=pid,
         fetch_slots_fn=fetch_slots_fn,
         tokenize_fn=tokenize_fn,
+        precomputed_estimate=precomputed_estimate,
     )
     if decision.admitted or decision.effective_n_ctx is None:
         return decision
@@ -4868,6 +4912,7 @@ def wait_and_reserve_context_budget(
             pid=pid,
             fetch_slots_fn=fetch_slots_fn,
             tokenize_fn=tokenize_fn,
+            precomputed_estimate=precomputed_estimate,
         )
         if decision.admitted:
             return decision
