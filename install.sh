@@ -461,6 +461,40 @@ install_litestream() {
     print_success "Litestream installed successfully"
 }
 
+# ── 7.6. Disaster-recovery key escrow (NEW-458) ───────────────────────────────
+setup_dr_escrow() {
+    print_step "Disaster-recovery key escrow"
+
+    # Already configured? (dr_recipient_pubkey present in the active config)
+    local already
+    already=$(cd "$CODEY_OS_DIR" && python3 -c "
+from utils.config import load_user_config
+r = load_user_config().get('restoricon') or {}
+print('yes' if isinstance(r, dict) and str(r.get('dr_recipient_pubkey') or '').strip() else 'no')
+" 2>/dev/null || echo "no")
+
+    if [ "$already" = "yes" ]; then
+        print_success "DR recipient key already configured — skipping"
+        return 0
+    fi
+
+    if [ "$SKIP_CONFIRM" = true ]; then
+        print_warning "════════════════════════════════════════════════════════════════"
+        print_warning "DR KEY ESCROW NOT CONFIGURED (non-interactive install)."
+        print_warning "Encrypted backups are NOT disaster-recoverable until you run:"
+        print_warning "    python3 core/setup_dr_key.py"
+        print_warning "and store the printed private key OFFLINE (password manager /"
+        print_warning "printed copy). Until then, total device loss = permanent loss"
+        print_warning "of every encrypted Litestream snapshot and the secrets blob."
+        print_warning "════════════════════════════════════════════════════════════════"
+        return 0
+    fi
+
+    print_status "Generating the disaster-recovery keypair (one-time)..."
+    python3 "$CODEY_OS_DIR/core/setup_dr_key.py" \
+        || print_warning "setup_dr_key.py did not complete — run it manually later: python3 core/setup_dr_key.py"
+}
+
 # ── 8. Completion message ─────────────────────────────────────────────────────
 print_completion() {
     echo
@@ -589,6 +623,7 @@ main() {
     setup_path
     setup_symlinks
     install_litestream
+    setup_dr_escrow
     verify_installation
     print_completion
 }

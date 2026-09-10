@@ -31,6 +31,8 @@ config.json
 config.*.json
 *.secret.json
 !config.json.example
+# Test file whose name legitimately contains "secret" (NEW-458 backup tests)
+!tests/test_backup_secrets.py
 
 # CCOS runtime state — rebuilt from plugin manifests / accumulates during
 # normal use, not meant to carry committed content between sessions.

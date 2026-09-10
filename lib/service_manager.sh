@@ -557,7 +557,17 @@ start_litestream() {
     
     # Generate litestream.yml
     python3 "$CODEY_OS_DIR/core/setup_litestream.py" || return 1
-    
+
+    # One-shot encrypted secrets backup (NEW-458). NOT a daemon: no PID
+    # file, no orphan scan, no kill logic — a single foreground run with a
+    # short timeout. backup_secrets.py fails closed (exit 1) when the DR
+    # escrow pubkey isn't configured; that must warn, not block startup.
+    if timeout 60 python3 "$CODEY_OS_DIR/core/backup_secrets.py" >> "$LITESTREAM_LOG_FILE" 2>&1; then
+        echo "  Secrets     → DR backup uploaded"
+    else
+        echo "  ⚠ Secrets   → DR backup skipped/failed (see $LITESTREAM_LOG_FILE); run: python3 core/setup_dr_key.py"
+    fi
+
     if [ ! -f "$l_cfg" ]; then
         return 0
     fi
