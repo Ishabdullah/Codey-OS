@@ -6993,6 +6993,25 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       `MODEL_COMPARISON.md`, `PRIVACY.md`, `docs/importantdoc.md` have
       real current content and no inbound link.
 
+- [ ] **U.39** — Core DB path reconcile + backup gap. Found during the
+      2026-09-10 admin-dashboard program, Round 1. Three linked findings:
+      `NEW-455` (`restoricon_core/database.py:DEFAULT_DB_PATH` =
+      `~/.codey_restoricon/core.db` diverges from the live daemon's
+      `~/.codeyOS/restoricon.db`; `utils/config.py` + `lib/service_manager.sh`
+      agree with the daemon, only `database.py` is wrong — so any
+      `DatabaseManager()` with no explicit path, incl. `migrate_aigentik`,
+      targets the wrong file); `NEW-456` (`migrate_aigentik` dry run runs
+      `_migrate_schema()` ALTERs regardless of `--apply` — its "no writes
+      on dry run" contract is false for schema); **`NEW-457` (HIGH — the
+      live Core DB has NO Litestream/GCS replication; `~/.codeyOS/litestream.yml`
+      points at the stale `~/.codey_restoricon/core.db`, so B7 (§6.10,
+      marked done 2026-09-07) is backing up the wrong file and all Core API
+      business data written since the cutover is unbacked).** Order:
+      settle whether `~/.codey_restoricon/core.db` is dead → make one
+      canonical default everywhere → repoint litestream → re-run the B7.4
+      restore drill against the real live DB. **Raise `NEW-457` with Ish
+      directly before it waits in queue.**
+
 ### Parked
 
 - [ ] **P.1** — self-improvement activation. Gated by rule 1. See §6.11.
