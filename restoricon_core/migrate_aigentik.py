@@ -255,27 +255,46 @@ def _read_json_stable(
 
 def _bool01(rec: Dict[str, Any], key: str, errors: List[str], default: int = 0) -> int:
     """Coerce a JSON boolean to the 0/1 int the NOT NULL CHECK columns
-    expect. Missing key -> default. Anything present but not a bool is a
-    validation error, reported (not raised) so dry-run surfaces it."""
+    expect. Missing key -> default. Also accepts a bare integer 0 or 1:
+    Aigentik's B2-fin-1 write-through cache writes ints to profile.json
+    for configured/agent_name_set/onboarding_sent. Anything else present
+    (2, -1, 1.0, "1", "true", ...) is a validation error, reported (not
+    raised) so dry-run surfaces it.
+
+    String "0"/"1" are deliberately NOT accepted: the real
+    ~/Codey-Aigentik/data/profile.json has bare JSON ints, nothing emits
+    string booleans, and unrequested widening is barred by CLAUDE.md
+    conventions."""
     if key not in rec or rec[key] is None:
         return default
     v = rec[key]
+    # bool check must stay first: isinstance(True, int) is True.
     if isinstance(v, bool):
         return 1 if v else 0
-    errors.append(f"{key}: expected boolean, got {v!r}")
+    # isinstance(v, int) guard is required: 1.0 in (0, 1) and
+    # True in (0, 1) are both True without it.
+    if isinstance(v, int) and v in (0, 1):
+        return v
+    errors.append(f"{key}: expected boolean or 0/1, got {v!r}")
     return default
 
 
 def _nullable_bool01(rec: Dict[str, Any], key: str, errors: List[str]) -> Optional[int]:
     """Same as _bool01 but preserves None for nullable CHECK columns
     (e.g. subcontractors.license_required, which the schema explicitly
-    allows to be NULL)."""
+    allows to be NULL). Also accepts a bare integer 0 or 1 (see _bool01
+    for the B2-fin-1 write-through rationale). String "0"/"1" are
+    deliberately NOT accepted."""
     v = rec.get(key)
     if v is None:
         return None
+    # bool check must stay first: isinstance(True, int) is True.
     if isinstance(v, bool):
         return 1 if v else 0
-    errors.append(f"{key}: expected boolean or null, got {v!r}")
+    # isinstance(v, int) guard is required: 1.0 in (0, 1) is True without it.
+    if isinstance(v, int) and v in (0, 1):
+        return v
+    errors.append(f"{key}: expected boolean, 0/1, or null, got {v!r}")
     return None
 
 

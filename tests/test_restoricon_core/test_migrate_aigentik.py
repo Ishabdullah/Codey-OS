@@ -16,7 +16,12 @@ import json
 import pytest
 
 from restoricon_core.database import DatabaseManager
-from restoricon_core.migrate_aigentik import build_migration_actor, run_migration
+from restoricon_core.migrate_aigentik import (
+    build_migration_actor,
+    map_profile,
+    map_subcontractor,
+    run_migration,
+)
 from restoricon_core.services.audit_service import AuditService
 from restoricon_core.services.automation_service import AutomationService
 from restoricon_core.services.crm_service import CRMService
@@ -127,6 +132,55 @@ VALID_PROFILE = {
     "business_description": "General Contracting.",
     "onboarding_sent": True,
 }
+
+
+# Verbatim from the real ~/Codey-Aigentik/data/profile.json after the
+# B2-fin-1 write-through cache change: bare JSON ints for the boolean
+# fields, plus the unmapped id + updated_at keys.
+INT_PROFILE = {"id": 1, "configured": 1, "aigentik_name": "Restoricon", "agent_name_set": 1,
+    "owner_name": "Ish", "business_name": "RESTORICON LLC",
+    "business_description": "General Contracting.", "onboarding_sent": 1,
+    "setup_date": "2026-02-21T00:00:00.000Z", "updated_at": "2026-09-07T05:06:36.438770+00:00"}
+
+
+def test_map_profile_accepts_integer_booleans():
+    profile, errors = map_profile(INT_PROFILE)
+    assert errors == []
+    assert profile is not None
+    assert profile.configured == 1
+    assert profile.agent_name_set == 1
+    assert profile.onboarding_sent == 1
+    assert profile.business_name == "RESTORICON LLC"
+
+
+def test_map_profile_still_accepts_bool_shaped_profile():
+    # Regression proof: the pre-B2-fin-1 bool-shaped profile still maps.
+    profile, errors = map_profile(VALID_PROFILE)
+    assert errors == []
+    assert profile is not None
+    assert profile.configured == 1
+    assert profile.business_name == "RESTORICON LLC"
+
+
+def test_map_profile_rejects_out_of_range_int():
+    profile, errors = map_profile({**INT_PROFILE, "configured": 2})
+    assert profile is None
+    assert any("configured" in e for e in errors)
+
+
+def test_map_profile_rejects_float_one():
+    # Guards against a sloppy int(bool(v)) / bare `in (0, 1)` impl that
+    # would pass the happy path while accepting 1.0.
+    profile, errors = map_profile({**INT_PROFILE, "configured": 1.0})
+    assert profile is None
+    assert any("configured" in e for e in errors)
+
+
+def test_map_subcontractor_accepts_integer_bool_field():
+    sub, errors = map_subcontractor({**VALID_SUBCONTRACTOR, "coi_received": 1})
+    assert not any("coi_received" in e for e in errors)
+    assert sub is not None
+    assert sub.coi_received == 1
 
 
 def _write_valid_source_dir(tmp_path, sms_rules="[]"):
