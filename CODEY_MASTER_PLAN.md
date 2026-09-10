@@ -6303,7 +6303,13 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
 2026-09-02 at Ish's request; **resolves §8 Q5's backup half.**
 
 - [x] **B7.1** — the Core DB half: continuous local journal + periodic
-      GCS snapshot of `~/.codey_restoricon/core.db`. **Code-complete 2026-09-07 (Litestream integration).** Not live-verified until B7.4.
+      GCS snapshot. **Code-complete 2026-09-07 (Litestream integration).**
+      **Rule-6 correction 2026-09-10 (U.39):** as shipped it replicated
+      `~/.codey_restoricon/core.db` — a *dead* DB; the live daemon uses
+      `~/.codeyOS/restoricon.db`, which had **no backup** (`NEW-457`).
+      Fixed + **live-verified 2026-09-10** — `core/setup_litestream.py`
+      now resolves the same path the API server uses; GCS prefix
+      `restoricon/restoricon_db`, generation `5e3e30de050c7a6f`.
 - [x] **B7.2** — incremental upload of the B6.5 document/photo store.
       **Depends on B6.5** (nothing to back up until upload exists).
       Incremental, not a full re-push per cycle. (Completed 2026-09-07)
@@ -6314,9 +6320,21 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
 - [x] **B7.4** — the restore drill. **Live-verified by nature (rule 7);
       code-complete does not close B7.** Restore to a scratch path,
       verify row counts and file integrity against the live DB. A backup
-      never restored is not a backup. (Live verified 2026-09-07)
-      **Rule 11: `install.sh` carries the GCS client dependency and the
-      credential-setup step.**
+      never restored is not a backup.
+      **Rule-6 correction 2026-09-10 (U.39):** the 2026-09-07 "drill"
+      compared litestream's own synthetic `litestream_test` table
+      (`1 == 1`) — vacuous, and against the wrong DB. **A real drill ran
+      2026-09-10:** `litestream restore` from GCS of the live
+      `~/.codeyOS/restoricon.db`, age-decrypted, **exact row-count +
+      content parity** vs baseline (customers 10 / contacts 238 /
+      audit_log 303 / …), plus an incremental-WAL round-trip. B7.4
+      genuinely satisfied **for the Core DB** as of 2026-09-10.
+      Document-store restore (B7.2) still unverified — `NEW-460`.
+      **Rule 11:** `install.sh` gained `google-cloud-storage` 2026-09-10
+      (`NEW-459`); `age` was already present.
+      **Open:** `NEW-458` — the B7.3 secrets blob contains its own
+      `age.key`, so it is not usable for real DR without off-channel key
+      escrow.
 
 ### T-lane — self-measurement/telemetry layer (NSF SBIR grant evidence, separate initiative from B-lane, does not block or depend on B6/B7)
 
@@ -6993,8 +7011,21 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       `MODEL_COMPARISON.md`, `PRIVACY.md`, `docs/importantdoc.md` have
       real current content and no inbound link.
 
-- [ ] **U.39** — Core DB path reconcile + backup gap. Found during the
-      2026-09-10 admin-dashboard program, Round 1. Three linked findings:
+- [x] **U.39** — Core DB path reconcile + backup gap. **DONE +
+      LIVE-VERIFIED 2026-09-10** (commits `10108d4` + ledgers;
+      code-reviewer APPROVED rule-4-adjacent; real restore-from-GCS drill
+      passed with exact row/content parity). `NEW-455`/`NEW-456`/`NEW-457`
+      resolved: `DEFAULT_DB_PATH` + `setup_litestream.py` repointed at the
+      live `~/.codeyOS/restoricon.db`, dry-run schema guard added, a
+      config test pins the path across all three sources, stale
+      `core.db` archived, Litestream now replicating the live DB
+      (generation `5e3e30de050c7a6f`). B7.1/B7.4 corrected above.
+      **Residual, own round:** `NEW-458` (secrets blob holds its own
+      `age.key`), `NEW-460` (document store still on the old
+      `~/.codey_restoricon/` path). Original finding text kept below for
+      the record:
+
+      Found during the 2026-09-10 admin-dashboard program, Round 1. Three linked findings:
       `NEW-455` (`restoricon_core/database.py:DEFAULT_DB_PATH` =
       `~/.codey_restoricon/core.db` diverges from the live daemon's
       `~/.codeyOS/restoricon.db`; `utils/config.py` + `lib/service_manager.sh`
