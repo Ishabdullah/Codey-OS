@@ -108,4 +108,5 @@
 - [NEW-430/431 context-lease + /slots fail-closed fix — approved](new430_431_context_lease_fix_approved.md) — full admission/release/reap trace, crash-leak+timeout-layering verified
 - [NEW-435 is_processing gating fix — approved](new435_slots_is_processing_fix_approved.md) — always grep callers when a return contract's 0-vs-None meaning changes; verified against real llama.cpp source
 - [NEW-432 round2 port-precheck restructure — approved](new432_port_precheck_restructure_round2_approved.md) — probe moved pre-lock, (pid,port)-keyed; flock per-open-file-description confirmed via live script
+- [NEW-436 doc-only round — CHANGES REQUESTED (4546 vs 4246 typo)](new436_doc_round_4546_typo.md) — mechanism correction sound; cross-check every restated saga number
 - [NEW-433 ai/chat admission-gate mock in test_api.py — approved](new433_ai_chat_admission_gate_mock_approved.md) — test-only, verified 5/5 mock-target strings identical, route ordering traced, in-process ThreadingHTTPServer confirmed, live full suite 1689 passed

@@ -4146,11 +4146,22 @@ def total_committed_bytes(state_dir: Optional[Path] = None, reap_dead: bool = Tr
 
 # Fraction of n_ctx witheld as a fragmentation-safe margin: an admission is
 # refused once combined estimated context (server-reported /slots occupancy
-# + this process's own in-flight-but-not-yet-dispatched reservations + the
+# + every other ACQUIRED context-token reservation on this port — across ALL
+# processes, not just this one — held in the resource_bus ledger + the
 # candidate request's own prompt+generation estimate) would exceed
-# `n_ctx * (1 - CONTEXT_BUDGET_SAFETY_MARGIN_FRACTION)`. 0.15 (not something
-# razor-thin like 0.02-0.05) is deliberate: NEW-206's own source-reading of
-# the real allocator (`llama-kv-cache.cpp:894-1084`) found the failure mode
+# `n_ctx * (1 - CONTEXT_BUDGET_SAFETY_MARGIN_FRACTION)`.
+#
+# NEW-436: the ledger sum's DESIGN intent is to cover only the
+# not-yet-dispatched TOCTOU window (a dispatched request is meant to be seen
+# via /slots alone), but the sum does not actually mark leases "dispatched"
+# — so a request that is both still-leased AND live-processing is counted in
+# both the /slots term and the ledger term. Confirmed real, safe-direction
+# (inflates the estimate → over-refuses only, never over-admits), accepted
+# not fixed — see NEW-436 for the magnitude analysis and why.
+#
+# 0.15 (not something razor-thin like 0.02-0.05) is deliberate: NEW-206's
+# own source-reading of the real allocator
+# (`llama-kv-cache.cpp:894-1084`) found the failure mode
 # is KV-cache FRAGMENTATION (a contiguous-allocation requirement can fail
 # even when the total free-cell count elsewhere would suffice), not a bare
 # linear sum-vs-total check — so a margin that only just clears 100% of
