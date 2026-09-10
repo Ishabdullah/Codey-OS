@@ -1299,16 +1299,22 @@ points, named below.
 > across 2026-09-09/10 (see the §4 Concurrency-test row and
 > `PROJECT_LOG.md`), including the residual-findings cleanup
 > (`NEW-432`/`433`/`434`/`436`/`441`/`442`/`443`/`440`/`444`/`445`, all
-> now fixed or closed). As of this update the genuinely open,
-> actionable `- [ ]` lines are just: **`T10`** (telemetry schema v2
-> migration, scoped but not started — the one real next task),
-> **`11.x`** (Model Orchestrator, parked until a domain agent needs
-> it — not actionable now), and **`P.1`** (self-improvement
-> activation, permanently gated by rule 1). `NEW_ISSUES.md` also has a
-> handful of small open items (`NEW-422`/`NEW-423`) and an untriaged
-> ~50-item broader
-> process-lifecycle population from the 2026-09-08 ledger-closeout
-> batch, neither prioritized.
+> now fixed or closed).
+>
+> **Update, 2026-09-10 (later same day): `T10` is now COMPLETE**
+> (telemetry schema v2 migration, three code commits + doc
+> reconciliation, all code-reviewed and live-verified — `168a260`,
+> `a71e4d1` in Codey-Aigentik, `4557570`, `ae26172`; closes `NEW-358`
+> Site 1). **There are now NO open actionable `- [ ]` items in §6.**
+> The only remaining unchecked boxes are **`11.x`** (Model
+> Orchestrator, parked until a domain agent needs it — not actionable
+> now) and **`P.1`** (self-improvement activation, permanently gated
+> by rule 1). A fresh session with no specific task from Ish should
+> work `NEW_ISSUES.md`'s open items: the small ones (`NEW-422`/
+> `NEW-423`, and the T10 spin-off `NEW-448` — a Suspected design-doc
+> accuracy gap), or triage the untriaged ~50-item process-lifecycle
+> population from the 2026-09-08 ledger-closeout batch. None of these
+> are prioritized — ask Ish, or pick the highest-confidence bug.
 >
 > --- original 2026-08-22 direction, kept as the record ---
 >
@@ -6563,7 +6569,7 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       `rollups.db` as a rebuildable cache not evidence,
       `llama-server.log`'s `"w"`-mode truncation left as-is per `NEW-323`
       rather than touching `core/loader_v2.py` for it).
-- [ ] **T10** — telemetry schema v2 migration, to unblock `main.py`'s
+- [x] **T10** — telemetry schema v2 migration, to unblock `main.py`'s
       4 CLI-flag `record_run_start()` calls (the deferred `NEW-358`
       Site 1, blocked 2026-09-04). **Two-repo, not yet scoped in
       detail.** Adds one new `emitter` enum value (`codey-os.cli`,
@@ -6604,13 +6610,21 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       sibling-checkout path one `dirname` too many and had been
       skipping vacuously; now actually execute). `schema --verify`
       from Codey-OS now reports `v2: MATCH`. **(3) `main.py`'s 4
-      CLI-flag
-      `record_run_start(emitter="codey-os.cli", ...)` calls (NEW-358
-      Site 1) — not started, strict follow-up (not bundled with the
-      migration).** v2 is deliberately minimal (v1 + the one emitter
-      value); `NEW-446` tracks a doc-reconciliation pass over
-      `docs/telemetry_layer_design.md` deferred to commit 3. Checkbox
-      stays unchecked until all three land.
+      CLI-flag `record_run_start(emitter="codey-os.cli", ...)` calls
+      (NEW-358 Site 1) — DONE 2026-09-10 (`4557570` code + `ae26172`
+      doc reconciliation), code-reviewer APPROVED, LIVE-VERIFIED**
+      (real `codeyOS --init`, one RAM-tracked model-load cycle:
+      `provenance --latest` now shows `emitter: codey-os.cli`, exactly
+      one schema-valid `run_start`, `doctor` orphan 12→12 and
+      `duplicate_run_start_runs` empty→empty — no regression; model
+      loaded and torn down cleanly, RAM recovered). `_record_cli_
+      telemetry_run_start()` runs first in each of `--init`/`--tdd`/
+      `--fix`/`--import-lora`, before any model-load work, so the
+      loader fallback's `claim_run_start()` no-ops. v2 is deliberately
+      minimal (v1 + the one emitter value). `NEW-446` (doc
+      reconciliation) closed in `ae26172`; `NEW-447`/`NEW-448` are
+      spin-off findings. **T10 COMPLETE end-to-end; NEW-358 Site 1
+      fully closed. Checkbox checked.**
 
 ### M-lane — maintenance and bugs (§6.1, unblocked, any time)
 

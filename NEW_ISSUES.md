@@ -16411,6 +16411,7 @@ outside that fix's scope.
   `NEW-365`, `NEW-366`; T8b in `CODEY_MASTER_PLAN.md` Appendix A.
 
 ### [NEW-358] `_emit_argv_provenance()`'s orphaned-`run_start_amended` risk is reachable on `main.py`'s three one-shot CLI flags, not just `core/lora_import.py`'s LoRA-swap callers
+- **Status:** FULLY CLOSED 2026-09-10. The structural loader-side fallback landed 2026-09-04 (below); the last deferred piece — **Site 1, `main.py`'s 4 one-shot CLI flags getting their own `emitter="codey-os.cli"` identity** — was blocked on a telemetry schema v2 migration, which is now done (T10, three commits `168a260`/`a71e4d1`/`4557570`+`ae26172`, all code-reviewed and live-verified). `main.py`'s `_record_cli_telemetry_run_start()` (commit `4557570`) emits `run_start` for `--init`/`--tdd`/`--fix`/`--import-lora` before any model-load work. **Live-verified 2026-09-10** (real `codeyOS --init`, one RAM-tracked model-load cycle): `provenance --latest` now shows `emitter: codey-os.cli` (was the generic `codey-os.loader` fallback / an unrelated `aigentik` run), exactly one schema-valid `run_start` record, `doctor` orphan count 12→12 and `duplicate_run_start_runs` empty→empty (no regression). `core/lora_import.py`'s callers remain deliberately on the generic fallback (its CCOS entry point runs in-process in the daemon, which has its own `run_start` — a hardcoded call there would risk a duplicate). Original status line follows.
 - **Status:** FIXED 2026-09-04 (loader-side fallback, `telemetry/store.py`
   + `telemetry/recorders.py` + `core/loader_v2.py`, code-reviewer
   approved, 2 rounds — round 1 CHANGES REQUESTED for a live-reproduced
@@ -16539,8 +16540,25 @@ outside that fix's scope.
     inside `core/lora_import.py` itself would risk duplicate emission
     in that case, for no real identity benefit over the existing
     fallback. Deliberately left untouched.
+  - **`main.py`'s 4 CLI flags — was BLOCKED, now DONE 2026-09-10
+    (`4557570`, code-reviewer APPROVED, live-verified).** The schema v2
+    migration Ish scoped in response to this block was completed as T10
+    (commits `168a260` Codey-OS schema, `a71e4d1` Codey-Aigentik schema,
+    `4557570` this feature, `ae26172` doc reconciliation). `main.py`'s
+    new `_record_cli_telemetry_run_start()` emits
+    `record_run_start(emitter="codey-os.cli", ...)` as the first
+    statement of each of the `--init`/`--tdd`/`--fix`/`--import-lora`
+    branches — before any model-load work, so the unconditional
+    `store.mark_run_start_recorded()` breadcrumb is set before
+    `_ensure_run_start_fallback()`'s `claim_run_start()` runs, and the
+    fallback emits no `run_start` of its own (the normal
+    `_emit_argv_provenance()` `run_start_amended` still fires, as
+    designed — that's what backfills `models=`). No `models=` on the
+    base call (matches `tools/ensure_model_cli.py` — avoids a cold
+    model-hash thread racing the imminent llama-server load). Original
+    blocked-state text follows for the record.
   - **`main.py`'s 4 CLI flags — BLOCKED, reverted to baseline this
-    round.** Implementation hit a real architectural conflict: adding
+    round (2026-09-04).** Implementation hit a real architectural conflict: adding
     a needed new `emitter` enum value (`codey-os.cli` — none of the
     existing values fit a one-shot, non-interactive CLI invocation)
     would edit `telemetry/schema/v1.json` in place, violating that
