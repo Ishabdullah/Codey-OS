@@ -1658,13 +1658,38 @@ class APIRouter:
                         "error": f"AI completion upstream error: {str(e)}"
                     }
                 finally:
+                    # Release the context-budget reservation regardless of
+                    # success, failure, or early return above. This is a
+                    # reservation-lifetime ledger keyed on `reservation_id`,
+                    # not `/slots`-occupancy tracking -- releasing it the
+                    # moment this HTTP handler returns is correct here
+                    # (unlike the design round's rejected "release on
+                    # HTTP-return" idea for slot occupancy). A `False`
+                    # return means the reservation was already reaped or
+                    # expired before this block ran -- the NEW-430 signal
+                    # that a phantom long-lived reservation existed. The
+                    # `release_context_budget` import is kept lazy so both
+                    # the optional-dependency case and call-site patching
+                    # keep working -- do not hoist it to module scope.
                     if reservation_id:
+                        import logging
+
+                        logger = logging.getLogger("restoricon_core.api")
                         try:
                             from core.resource_gate import release_context_budget
 
-                            release_context_budget(port, reservation_id)
-                        except Exception:
-                            pass
+                            if not release_context_budget(reservation_id):
+                                logger.warning(
+                                    "AI chat proxy: release_context_budget() found "
+                                    "reservation %s already gone/expired (NEW-430)",
+                                    reservation_id,
+                                )
+                        except Exception as e:
+                            logger.warning(
+                                "AI chat proxy: failed to release context reservation %s: %s",
+                                reservation_id,
+                                e,
+                            )
 
             # ==========================================
             # OPERATIONS DOMAIN ENGINE (Phase B3)

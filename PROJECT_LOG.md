@@ -1,3 +1,18 @@
+## 2026-09-10 — NEW-442 fixed: a wrong-arity `release_context_budget()` call that leaked every Core API chat reservation and littered the CWD
+
+**What changed:** NEW-442 was spun off from NEW-436's confirmation trace. `restoricon_core/api/routes.py`'s `/api/v1/ai/chat` proxy handler called `release_context_budget(port, reservation_id)` — signature is `release_context_budget(reservation_id, state_dir=None)`. project-architect traced the full mechanism (worse than first logged); implementer built the fix + tests; code-reviewer APPROVED (normal pass — reservation-lease lifecycle at a call site, no process/kill/daemon/auth). Committed `<pending>`.
+
+- **Mechanism:** `port` (int) went to `reservation_id`, the hex id to `state_dir`. `_get_db_path()`/`_get_lock_path()` then ran `Path("<hexstr>").mkdir(parents=True, exist_ok=True)` — creating a spurious CWD-relative directory + empty `resource_bus.db` per request — and the `UPDATE ... WHERE lease_id = <port int>` ran against that empty DB, matching nothing. The real lease leaked until the 1800s age reap; `except Exception: pass` hid it. Under sustained API load the leaked leases accumulate in `other_reserved` and trend the gate toward refusing every request (NEW-206 shape).
+- **Fix:** `release_context_budget(reservation_id)` single-arg, keeping the `if reservation_id:` guard and the local var (not `budget_decision.reservation_id` — `None` on the `except ImportError` path). The `bool` return is now captured; `False` emits a NEW-430-style warning via `logging.getLogger("restoricon_core.api")` instead of being swallowed, and the outer `except Exception` logs too. Call-time import kept lazy inside the block on purpose.
+- **Tests:** 2 new in `tests/test_restoricon_core/test_api.py` using a recording spy (not the arg-swallowing `lambda *a, **k: True` the 5 existing sites use). Test A: reservation id is the sole positional/kwarg, no int leaks. Test B: the `False`→warning branch (zero prior coverage), response still 200.
+- **Negative control (rule 5):** reverting the call site to `release_context_budget(port, reservation_id)` makes Test A fail with `assert (8080, 'test-reservation-id') == ('test-reservation-id',)` — the literal `8080` proves the test reaches real server code carrying the real port. code-reviewer reproduced this independently.
+- `tests/test_restoricon_core/` 426 passed; full suite 1580 passed / 1 skipped / 0 failures (the NEW-433 pre-existing failure is now fixed as of `9c3266a`).
+- **New finding logged:** `NEW-443` — the 5 arg-swallowing `release_context_budget` mocks in `test_api.py` are exactly why NEW-442 survived 1300+ tests (same "missing test mock" class as NEW-433). NEW-442's 2 tests address the `/api/v1/ai/chat` path; the other 4 mock sites remain unguarded.
+
+**Why:** A clean catch from the hub-and-spoke pipeline — the architect's scoping pass upgraded the severity (found the `mkdir` litter mechanism the first log missed), and the implementer's mandatory negative control proved the new test is a real regression guard rather than a mock talking to itself. The bug had shipped because every existing test mocked the release call with a lambda that swallowed all arguments.
+
+**Next action:** NEW-441 (dead `legacy_reserved`) and NEW-443 (test-mock gap) remain open, both low-priority cleanups. No blocked work.
+
 ## 2026-09-10 — NEW-436 resolved: confirmed real, mechanism corrected (rule 6), accepted not-fixed; two spin-off findings logged
 
 **What changed:** Last of the four residual findings from the NEW-206 saga. Doc round + one comment correction — no code behavior change. project-architect verified the trace against the code. Committed `a28031b`.

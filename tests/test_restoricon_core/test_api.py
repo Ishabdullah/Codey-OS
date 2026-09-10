@@ -980,6 +980,123 @@ def test_api_ai_chat_auth_and_validation(api_server, monkeypatch):
     assert body["choices"][0]["message"]["content"] == "Hello there!"
 
 
+class _MockHTTPResponse:
+    def __init__(self, data, status=200):
+        self.data = json.dumps(data).encode("utf-8")
+        self.status = status
+
+    def read(self):
+        return self.data
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        pass
+
+
+def _ai_chat_success_env(monkeypatch, base_url, release_spy):
+    """Wire up the mocks shared by the NEW-442 regression tests: mocked
+    admission gate, the given `release_context_budget` spy, and a
+    path-scoped `urlopen` mock that only fakes the server-side
+    llama-server proxy call. Returns the agent auth headers."""
+    monkeypatch.setattr(
+        "core.resource_gate.wait_and_reserve_context_budget",
+        lambda *a, **k: _mock_admitted_budget_decision(),
+    )
+    monkeypatch.setattr("core.resource_gate.release_context_budget", release_spy)
+
+    mock_resp_payload = {
+        "choices": [{"message": {"role": "assistant", "content": "Hello there!"}}]
+    }
+    real_urlopen = urllib.request.urlopen
+
+    def mock_urlopen(req, timeout=180.0):
+        url = req.full_url if hasattr(req, "full_url") else str(req)
+        if "/v1/chat/completions" in url:
+            return _MockHTTPResponse(mock_resp_payload)
+        return real_urlopen(req, timeout=timeout)
+
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+    return _agent_headers(base_url)
+
+
+def test_api_ai_chat_releases_reservation_with_correct_signature(api_server, monkeypatch):
+    """NEW-442: the /api/v1/ai/chat `finally` block must call
+    `release_context_budget(reservation_id)` -- a single positional (or
+    the `reservation_id` kwarg), never `release_context_budget(port,
+    reservation_id)`. The old arg-swapped call passed an int port as
+    `reservation_id` and the hex id as `state_dir`, silently leaking the
+    real lease (and creating a spurious CWD dir). The 5 pre-existing
+    mock sites used `lambda *a, **k: True`, which swallowed the bug."""
+    _, base_url, _, _ = api_server
+
+    calls = []
+
+    def release_spy(*args, **kwargs):
+        calls.append((args, kwargs))
+        return True
+
+    headers = _ai_chat_success_env(monkeypatch, base_url, release_spy)
+
+    status, body = make_request(
+        f"{base_url}/api/v1/ai/chat",
+        method="POST",
+        headers=headers,
+        data={
+            "messages": [{"role": "user", "content": "hello"}],
+            "max_tokens": 100,
+            "temperature": 0.2,
+        },
+    )
+    assert status == 200
+    assert body["choices"][0]["message"]["content"] == "Hello there!"
+
+    assert len(calls) == 1, f"expected exactly one release call, got {calls!r}"
+    args, kwargs = calls[0]
+    reservation_id = _mock_admitted_budget_decision().reservation_id
+    assert args == (reservation_id,) or (
+        not args and kwargs == {"reservation_id": reservation_id}
+    ), f"release called with {args!r} {kwargs!r}"
+    # Belt-and-braces: the arg-swapped NEW-442 bug passed the int port first.
+    assert not any(isinstance(a, int) for a in args), f"int (port) arg leaked: {args!r}"
+
+
+def test_api_ai_chat_warns_when_release_returns_false(api_server, monkeypatch, caplog):
+    """NEW-442 / NEW-430: a `False` return from `release_context_budget()`
+    means the reservation was already reaped/expired; the handler logs a
+    WARNING on `restoricon_core.api` and the HTTP response is unaffected
+    (still 200 with the normal body). Zero coverage before this test."""
+    _, base_url, _, _ = api_server
+
+    headers = _ai_chat_success_env(monkeypatch, base_url, lambda *a, **k: False)
+
+    caplog.set_level("WARNING", logger="restoricon_core.api")
+
+    status, body = make_request(
+        f"{base_url}/api/v1/ai/chat",
+        method="POST",
+        headers=headers,
+        data={
+            "messages": [{"role": "user", "content": "hello"}],
+            "max_tokens": 100,
+            "temperature": 0.2,
+        },
+    )
+    assert status == 200
+    assert body["choices"][0]["message"]["content"] == "Hello there!"
+
+    reservation_id = _mock_admitted_budget_decision().reservation_id
+    warnings = [
+        r.getMessage()
+        for r in caplog.records
+        if r.levelname == "WARNING" and r.name == "restoricon_core.api"
+    ]
+    assert any(
+        (reservation_id in m or "NEW-430" in m) for m in warnings
+    ), f"expected a release-failure warning, got {warnings!r}"
+
+
 def test_api_ai_chat_emits_category_a_telemetry_on_success(api_server, monkeypatch, tmp_path, caplog):
     """T3 (docs/telemetry_layer_design.md §7): /api/v1/ai/chat emits a
     category-A `inference`/`completion` record from real llama-server
