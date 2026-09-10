@@ -324,6 +324,51 @@ def _record_tui_telemetry_run_start():
         warning("telemetry: failed to record run_start for TUI session")
 
 
+def _record_cli_telemetry_run_start():
+    """
+    NEW-358 Site 1. Category-G run provenance for main.py's four one-shot
+    CLI flags (--init / --tdd / --fix / --import-lora), each of which loads
+    the primary model and exits without ever reaching the interactive repl
+    path's own record_run_start() call. Without this, every such invocation
+    reaches core/loader_v2.py's _ensure_run_start_fallback() and is recorded
+    under the generic emitter="codey-os.loader" identity; this gives those
+    flags their own emitter="codey-os.cli" identity instead, recorded BEFORE
+    the branch does any model-load work, so recorders.record_run_start()'s
+    unconditional store.mark_run_start_recorded() has already set the
+    breadcrumb by the time core/loader_v2.py's _ensure_run_start_fallback()
+    calls store.claim_run_start() -- which then returns False, so that
+    fallback no-ops and emits nothing (no duplicate -- see that function's
+    docstring).
+
+    Deliberately passes NO `models=` (unlike _record_tui_telemetry_run_start,
+    matching tools/ensure_model_cli.py and _ensure_run_start_fallback):
+    record_run_start(models=...) schedules a background full-file model hash
+    (~5.2s cold), and all four of these flags start a real llama-server load
+    within milliseconds of this call and then exit quickly -- the TUI can
+    absorb that background thread over a minutes-long session, these cannot.
+
+    Best-effort, broad except: telemetry is diagnostic, never load-bearing,
+    and must not block a CLI invocation. Same pattern as this module's
+    _record_tui_telemetry_run_start and core/loader_v2.py's fallback.
+    """
+    try:
+        import time
+
+        from telemetry import recorders
+        from utils.config import CODEY_DIR, LLAMA_SERVER_BIN
+
+        recorders.record_run_start(
+            emitter="codey-os.cli",
+            pid=os.getpid(),
+            repo="Codey-OS",
+            started_ts_wall=time.time(),
+            repo_dir=CODEY_DIR,
+            llama_server_bin=LLAMA_SERVER_BIN,
+        )
+    except Exception:
+        warning("telemetry: failed to record run_start for CLI flag")
+
+
 def _write_tui_pid_file():
     """
     Write this process's PID into its own per-session file under
@@ -1938,6 +1983,8 @@ def main():
         return
 
     if args.init:
+        # NEW-358 Site 1: emit run_start before any model-load work, so the loader fallback's claim_run_start() then no-ops
+        _record_cli_telemetry_run_start()
         loader = get_loader()
         try:
             ok = _load_primary_with_gate_recovery(loader)
@@ -1957,6 +2004,8 @@ def main():
         return
 
     if args.tdd:
+        # NEW-358 Site 1: emit run_start before any model-load work, so the loader fallback's claim_run_start() then no-ops
+        _record_cli_telemetry_run_start()
         loader = get_loader()
         try:
             ok = _load_primary_with_gate_recovery(loader)
@@ -1989,6 +2038,8 @@ def main():
         return
 
     if args.fix:
+        # NEW-358 Site 1: emit run_start before any model-load work, so the loader fallback's claim_run_start() then no-ops
+        _record_cli_telemetry_run_start()
         loader = get_loader()
         try:
             ok = _load_primary_with_gate_recovery(loader)
@@ -2032,6 +2083,8 @@ def main():
 
     # LoRA adapter import (v2.3.0)
     if args.import_lora:
+        # NEW-358 Site 1: emit run_start before any model-load work, so the loader fallback's claim_run_start() then no-ops
+        _record_cli_telemetry_run_start()
         from core.lora_import import import_lora_adapter
 
         info(f"Importing LoRA adapter from {args.import_lora}...")
