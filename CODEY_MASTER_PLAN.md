@@ -6597,7 +6597,14 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       {}` across the all-v1 historical dataset — the version-keyed table
       works; `schema --verify` reports `v1: MATCH` / `v2: not yet
       migrated` / exit 0). **(2) Codey-Aigentik byte-identical v2.json +
-      loader bump — not started.** **(3) `main.py`'s 4 CLI-flag
+      `telemetry.mjs` loader bump — DONE 2026-09-10 (`Codey-Aigentik`
+      `a71e4d1`), code-reviewer APPROVED**: v2.json `cmp`-identical to
+      Codey-OS's, `npm test` 276 passed, and a pre-existing bug fixed
+      in passing (`NEW-447` — the cross-repo parity tests resolved the
+      sibling-checkout path one `dirname` too many and had been
+      skipping vacuously; now actually execute). `schema --verify`
+      from Codey-OS now reports `v2: MATCH`. **(3) `main.py`'s 4
+      CLI-flag
       `record_run_start(emitter="codey-os.cli", ...)` calls (NEW-358
       Site 1) — not started, strict follow-up (not bundled with the
       migration).** v2 is deliberately minimal (v1 + the one emitter

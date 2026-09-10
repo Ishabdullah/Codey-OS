@@ -1,3 +1,16 @@
+## 2026-09-10 — T10 commit 2 of 3: Codey-Aigentik schema v2 DONE; a dead cross-repo parity test found + fixed
+
+**What changed:** The Aigentik side of the telemetry schema v2 migration. implementer built it, code-reviewer APPROVED. Committed in the **Codey-Aigentik** repo as `a71e4d1` (not Codey-OS — separate repo, separate commit, per the scoping plan).
+
+- **`Codey-Aigentik/telemetry/schema/v2.json`** — byte-identical copy of Codey-OS's (`cmp` silent, sha256 `13285c51ee6a`). `telemetry.mjs` loads it instead of v1.json; v1.json stays frozen and untouched. New Aigentik records now emit `schema_version: 2` + `schema_sha256: 13285c51ee6a`, which Codey-OS's commit-1 `doctor` already accepts. `tests/telemetry.test.js` pinned-hash + `SCHEMA_VERSION` assertions bumped to v2. `npm test` 276 passed / 19 suites.
+- **`schema --verify` from Codey-OS now reports `v2: MATCH (13285c51ee6a)`, exit 0** (verified live — was `v2: not yet migrated` after commit 1).
+- **`NEW-447` (found + fixed in the same commit):** the cross-repo byte-parity `it()` blocks in `tests/telemetry.test.js` resolved the sibling Codey-OS checkout with `path.dirname(path.dirname(process.cwd()))` — one `dirname` too many, dropping the `home/` path segment — so `fs.existsSync()` always failed and the tests took their "checkout not present, skip" early return **on every run**. The design-§3.3 cross-repo parity guarantee was never actually being checked in CI. Fixed to a single `dirname`; the implementer proved the blocks now execute (`jest -t "byte-for-byte"` → 2 passed, was 0). Byte-parity was in fact intact the whole time, so nothing had slipped through — the guard was just inert.
+- **NEW-442 blast radius:** 12 stray `<32-hex>/resource_bus.db` directories (all timestamped 2026-09-02 10:15) were sitting in the Aigentik repo root — NEW-442's `Path("<hexstr>").mkdir()` litter from before today's fix, deposited by a Codey-OS process that had run with cwd = the Aigentik checkout. Cleaned up; noted under NEW-442.
+
+**Why:** NEW-447 is the same lesson as NEW-290/NEW-443 — a check that looks like coverage but silently does nothing. It only surfaced because T10 forced someone to actually read what the cross-repo test does. The parity was fine, but "the test passes" had meant nothing here for as long as the test existed.
+
+**Next action:** T10 commit 3 — `main.py`'s 4 CLI entry points (`--init`/`--tdd`/`--fix`/`--import-lora`) each calling `record_run_start(emitter="codey-os.cli", ...)` (NEW-358 Site 1), plus the deferred `docs/telemetry_layer_design.md` reconciliation pass (`NEW-446`). That closes T10.
+
 ## 2026-09-10 — T10 started: telemetry schema v2, commit 1 of 3 (Codey-OS schema) DONE + live-verified
 
 **What changed:** With the NEW-206→NEW-436 saga closed, T10 (telemetry schema v2 migration) is the one open actionable plan item, so it's the next pickup. Also corrected the master-plan "what's next" banner — it still listed the concurrency test as open (3rd instance of the `NEW-290` navigation-drift class), committed separately. project-architect scoped T10; implementer built commit 1; code-reviewer APPROVED; live-verifier confirmed against the real store. Committed `168a260` (schema v2), banner fix + ledger commits alongside.
