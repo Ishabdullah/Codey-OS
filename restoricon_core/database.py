@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Generator
 
 DEFAULT_DB_PATH = Path(
-    os.getenv("RESTORICON_DB_PATH", os.path.expanduser("~/.codey_restoricon/core.db"))
+    os.getenv("RESTORICON_DB_PATH", os.path.expanduser("~/.codeyOS/restoricon.db"))
 )
 
 _SCHEMA_SQL = """
@@ -881,9 +881,24 @@ _mem_lock = threading.Lock()
 
 
 class DatabaseManager:
-    """Manages SQLite database connections, schema setup, and transactions."""
+    """Manages SQLite database connections, schema setup, and transactions.
 
-    def __init__(self, db_path: Path | str = DEFAULT_DB_PATH):
+    The ``init_schema`` constructor flag (default ``True``) exists so that
+    ``migrate_aigentik``'s dry run can open the target DB without mutating
+    its schema — a bare (non-``--apply``) dry run must not ``CREATE`` or
+    ``ALTER`` tables on the production DB. Every normal caller
+    (``api/server.py``, ``provision_ai_agent_auth.py``, the test suite)
+    leaves it at ``True`` and sees zero behavior change.
+    """
+
+    def __init__(
+        self, db_path: Path | str = DEFAULT_DB_PATH, init_schema: bool = True
+    ):
+        """Open (or create) the DB at ``db_path``. When ``init_schema`` is
+        ``True`` (default) the DDL schema and additive column migrations
+        run on construction; pass ``init_schema=False`` to attach without
+        touching schema (used by ``migrate_aigentik``'s dry run so it does
+        not mutate schema on the target DB)."""
         global _mem_counter
         if str(db_path) == ":memory:":
             with _mem_lock:
@@ -895,7 +910,8 @@ class DatabaseManager:
             self.is_memory = False
             self._ensure_db_dir()
 
-        self.init_schema()
+        if init_schema:
+            self.init_schema()
 
     def _ensure_db_dir(self) -> None:
         """Create parent directory if it does not exist."""

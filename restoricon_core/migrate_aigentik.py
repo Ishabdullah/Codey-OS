@@ -736,8 +736,9 @@ def _migrate_schedule_config_file(
 
 def run_migration(source_dir: str, db_manager: DatabaseManager, apply: bool) -> Dict[str, Any]:
     """Run the migration (dry-run unless apply=True) and return a
-    structured, per-file report. Never writes to the database unless
-    apply is True."""
+    structured, per-file report. Never performs row-level writes unless
+    ``apply`` is True; schema is migrated only under ``--apply`` (the
+    caller passes ``init_schema=apply`` to ``DatabaseManager``)."""
     actor = build_migration_actor()
     audit_service = AuditService(db_manager)
     crm_service = CRMService(db_manager, audit_service)
@@ -876,7 +877,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    db_manager = DatabaseManager(args.db_path) if args.db_path else DatabaseManager()
+    db_manager = (
+        DatabaseManager(args.db_path, init_schema=args.apply)
+        if args.db_path
+        else DatabaseManager(init_schema=args.apply)
+    )
     report = run_migration(args.source_dir, db_manager, args.apply)
     print_report(report, args.apply)
     return 0

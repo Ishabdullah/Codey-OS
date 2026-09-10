@@ -109,6 +109,28 @@ def test_get_restoricon_api_config_defaults():
     assert cfg["db_path"].endswith("restoricon.db")
 
 
+def test_default_db_path_matches_api_config_db_path():
+    """U.39 / NEW-455: restoricon_core.database.DEFAULT_DB_PATH (the path
+    migrate_aigentik and any bare DatabaseManager() use) must be the same
+    file the API server actually serves from — otherwise backups and
+    migrations target a DB nobody reads. This single assertion is what
+    would have caught the ~/.codey_restoricon/core.db vs
+    ~/.codeyOS/restoricon.db divergence.
+
+    DEFAULT_DB_PATH is frozen at module import, so the autouse
+    clean_service_env fixture's delenv does not affect it; the guard
+    below (no RESTORICON_DB_PATH, {} config so no restoricon.db_path
+    override) is what keeps this hermetic.
+    """
+    from restoricon_core.database import DEFAULT_DB_PATH
+
+    # (the autouse fixture already cleared RESTORICON_DB_PATH; DEFAULT_DB_PATH
+    # was bound at import anyway, so this compares the shipped fallbacks)
+    resolved_default = str(Path(DEFAULT_DB_PATH).expanduser().resolve())
+    api_db_path = get_restoricon_api_config({})["db_path"]
+    assert resolved_default == api_db_path
+
+
 def test_get_restoricon_api_config_from_dict():
     config_dict = {
         "restoricon": {

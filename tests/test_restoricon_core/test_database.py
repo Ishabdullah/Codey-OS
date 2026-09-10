@@ -85,6 +85,37 @@ def test_database_initialization_in_memory():
     assert expected_tables.issubset(tables)
 
 
+def test_init_schema_false_does_not_create_tables(tmp_path):
+    """U.39 / NEW-456: DatabaseManager(path, init_schema=False) must attach
+    without running any DDL, so migrate_aigentik's dry run cannot mutate
+    schema on the target DB. The default (init_schema=True) must still
+    create the schema."""
+    db_path = tmp_path / "noschema.db"
+
+    DatabaseManager(str(db_path), init_schema=False)
+
+    # No DDL ran: either the file was never created, or it holds no tables.
+    if db_path.exists():
+        conn = sqlite3.connect(str(db_path))
+        try:
+            rows = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table';"
+            ).fetchall()
+        finally:
+            conn.close()
+        assert rows == []
+
+    # Default construction against the same path does create the schema.
+    db = DatabaseManager(str(db_path))
+    tables = {
+        row["name"]
+        for row in db.get_connection().execute(
+            "SELECT name FROM sqlite_master WHERE type='table';"
+        )
+    }
+    assert "users" in tables and "customers" in tables
+
+
 def test_external_id_migration_adds_column_to_legacy_db(tmp_path):
     """NEW-212/NEW-232: a DB file created before external_id existed must
     get the column (and its unique index) added on the next open, with

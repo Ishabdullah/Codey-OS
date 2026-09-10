@@ -12,6 +12,7 @@ path) and a tmp_path source directory (never the real
 """
 
 import json
+import sqlite3
 
 import pytest
 
@@ -205,6 +206,36 @@ def services(db_manager):
         "scheduling": SchedulingService(db_manager, audit_service),
         "automation": AutomationService(db_manager, audit_service),
     }
+
+
+def test_cli_dry_run_does_not_mutate_target_db_schema(tmp_path):
+    """U.39 / NEW-456: `migrate_aigentik --db-path <p>` WITHOUT `--apply`
+    must not create or alter schema on the target DB (it passes
+    init_schema=args.apply to DatabaseManager). End-to-end via main(),
+    since run_migration builds several services off the db_manager and
+    only DatabaseManager.__init__ may run DDL. Always pass --db-path here:
+    a bare main([]) would now resolve to the live production DB."""
+    from restoricon_core.migrate_aigentik import main
+
+    target = tmp_path / "target.db"
+    src = tmp_path / "src"
+    src.mkdir()
+
+    rc = main(["--db-path", str(target), "--source-dir", str(src)])
+    assert rc == 0
+
+    # Fresh path, dry run: no DDL ran, so the file is never even created.
+    if target.exists():
+        conn = sqlite3.connect(str(target))
+        try:
+            assert (
+                conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table';"
+                ).fetchall()
+                == []
+            )
+        finally:
+            conn.close()
 
 
 def test_dry_run_writes_nothing(tmp_path, db_manager, services):
