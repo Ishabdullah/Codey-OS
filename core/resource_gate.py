@@ -3015,12 +3015,14 @@ def _state_paths(
 ) -> tuple[Path, Path]:
     """
     `state_filename`/`lock_filename` (§8 Q11, 2026-08-26): overridable so
-    `_LockedState` can back a SECOND, independent file-locked store (the
-    context-budget reservation ledger below) using the exact same
-    lock-then-read-then-write mechanism, rather than inventing a second
-    primitive — see `_LockedState`'s own docstring. Defaults are unchanged
-    so every existing caller (the model-residency slot store) is
-    unaffected.
+    `_LockedState` could back a second, independent file-locked store using
+    the exact same lock-then-read-then-write mechanism, rather than
+    inventing a second primitive — see `_LockedState`'s own docstring. That
+    second store was the context-budget reservation ledger, removed in
+    NEW-441 (2026-09-10) once it was confirmed to have no writer; the
+    override params are currently unused (only the model-residency slot
+    store calls this, always with the defaults) and are candidates for
+    removal in a later cleanup.
     """
     base = Path(state_dir) if state_dir is not None else CODEY_STATE_DIR
     base.mkdir(parents=True, exist_ok=True)
@@ -4108,18 +4110,17 @@ def total_committed_bytes(state_dir: Optional[Path] = None, reap_dead: bool = Tr
 # mechanism, two behaviors (`reserve_context_budget()` is (c);
 # `wait_and_reserve_context_budget()` layers (b) on top of it).
 #
-# This is a SECOND, independent file-locked store (`_CONTEXT_STATE_FILENAME`/
-# `_CONTEXT_LOCK_FILENAME`), not a new coordination primitive: it reuses
-# `_LockedState` exactly as-is (see that class's own docstring and
-# `_state_paths()`'s `state_filename`/`lock_filename` overrides added
-# above), the same way the model-residency slot store already keeps its
-# lock file as a separate, always-empty sibling of its payload file. Kept
-# as a separate JSON file from the model-slot store (not additional entries
-# tagged onto the same list) so the byte-accounting sums this file already
-# relies on (`total_reserved_bytes()`, `_sum_committed_bytes()`, etc.) can
-# never accidentally sum a context-token reservation's fields as if they
-# were another model-load's `cost_bytes` — the two domains (bytes of RAM,
-# tokens of KV-pool context) must never mix in one arithmetic sum.
+# The context-token reservation ledger lives in `core/resource_bus.py`'s
+# `resource_leases` SQLite table (`resource_type='context_tokens'`),
+# written via `acquire_context_lease()` / `release_context_lease()` and
+# reached from this module through `reserve_context_budget()` /
+# `release_context_budget()`. It is deliberately a separate ledger from
+# this module's model-residency slot store (bytes of RAM) so the two
+# domains — bytes of RAM vs tokens of KV-pool context — never mix in one
+# arithmetic sum. It is NOT the authoritative signal for real KV-pool
+# occupancy: /slots is (see below). The reservation only closes the TOCTOU
+# window between one caller's admission check and that caller's request
+# actually reaching the server.
 #
 # The reservation ledger this section builds is deliberately NOT the sole
 # source of truth on real KV-pool occupancy — a second design-review pass
@@ -4259,9 +4260,6 @@ TOKENIZE_ENDPOINT_TIMEOUT_SECONDS = 5.0
 # un-calibrated first default, not measured against real code-vs-prose
 # prompt mixes.
 CONTEXT_HEURISTIC_FALLBACK_PADDING_FACTOR = 1.35
-
-_CONTEXT_STATE_FILENAME = "resource_gate_context_budget.json"
-_CONTEXT_LOCK_FILENAME = "resource_gate_context_budget.lock"
 
 
 def resolve_effective_n_ctx(

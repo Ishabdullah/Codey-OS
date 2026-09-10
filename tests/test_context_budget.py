@@ -16,10 +16,14 @@ pattern). No test spawns a subprocess model server or depends on this
 device's real live state.
 """
 
+import json
+import os
 import time
 
 
+import core.resource_bus as rb
 import core.resource_gate as rg
+from core.resource_bus import ReservationStatus
 
 GIB = 1024**3
 
@@ -235,27 +239,32 @@ def test_reserve_context_budget_fails_closed_when_slots_unreachable(tmp_path):
 
 def test_reserve_context_budget_reaps_expired_reservation(tmp_path):
     _seed_resident_slot(tmp_path, n_ctx=8192)
-    # Seed a stale reservation directly in the context-budget store, older
-    # than CONTEXT_RESERVATION_MAX_AGE_SECONDS, under a still-alive PID (so
-    # only the age-based reap, not the pid-liveness reap, is what drops it).
-    import os as _os
-
-    with rg._LockedState(
-        tmp_path,
-        state_filename=rg._CONTEXT_STATE_FILENAME,
-        lock_filename=rg._CONTEXT_LOCK_FILENAME,
-    ) as records:
-        records.append(
-            {
-                "reservation_id": "stale",
-                "port": 8080,
-                "pid": _os.getpid(),
-                "reserved_tokens": 5000,
-                "prompt_tokens": 5000,
-                "max_tokens": 0,
-                "estimate_source": "heuristic",
-                "created_at": time.time() - rg.CONTEXT_RESERVATION_MAX_AGE_SECONDS - 60,
-            }
+    # Seed a stale context-token lease directly in the resource_bus SQLite
+    # ledger: expired (expires_at in the past) but under a still-alive PID,
+    # so only the age/expires_at reap branch -- not the pid-liveness
+    # branch -- is what drops it.
+    now = time.time()
+    with rb._locked_db(tmp_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO resource_leases (
+                lease_id, request_id, resource_type, requester_id, pid,
+                units, priority, granted_at, expires_at, metadata, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "stale",
+                "stale-req",
+                "context_tokens",
+                str(os.getpid()),
+                os.getpid(),
+                5000,
+                0,
+                now - 3600,
+                now - 60,
+                json.dumps({"port": 8080}),
+                ReservationStatus.ACQUIRED.value,
+            ),
         )
 
     # Without reaping, 5000 (stale) + 3000 (this request) = 8000 > 6963
@@ -271,6 +280,14 @@ def test_reserve_context_budget_reaps_expired_reservation(tmp_path):
     )
     assert decision.admitted is True
     assert decision.other_reserved_tokens == 0
+    # The stale lease was actually reaped through reserve_context_budget()'s
+    # front door (via _reap_stale_records_locked's now > expires_at branch),
+    # not merely ignored.
+    with rb._locked_db(tmp_path) as conn:
+        row = conn.execute(
+            "SELECT status FROM resource_leases WHERE lease_id = ?", ("stale",)
+        ).fetchone()
+    assert row["status"] == ReservationStatus.EXPIRED.value
 
 
 # ── release_context_budget() ─────────────────────────────────────────────────

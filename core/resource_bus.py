@@ -322,6 +322,13 @@ def acquire_context_lease(
     """
     Admit and reserve context tokens on the resource bus.
 
+    The context-token reservation ledger is the SQLite ``resource_leases``
+    table (``resource_type='context_tokens'``), keyed by lease_id and
+    tagged with the target ``port`` in each row's metadata. The
+    pre-delegation file-locked JSON store (``resource_gate_context_budget.json``)
+    had no writer anywhere in the tree as of this change (NEW-441), so its
+    read/prune path was removed from this function.
+
     Returns:
         (admitted, lease_id, other_reserved_tokens, ceiling_tokens, reason)
     """
@@ -367,30 +374,7 @@ def acquire_context_lease(
             if meta.get("port") == port:
                 other_reserved += row["units"]
 
-        # Check legacy JSON context store entries if present
-        legacy_reserved = 0
-        try:
-            from core.resource_gate import _state_paths, _read_state_locked, _write_state_locked, _CONTEXT_STATE_FILENAME, _CONTEXT_LOCK_FILENAME, CONTEXT_RESERVATION_MAX_AGE_SECONDS
-            state_path, _ = _state_paths(state_dir, _CONTEXT_STATE_FILENAME, _CONTEXT_LOCK_FILENAME)
-            if state_path.exists():
-                records = _read_state_locked(state_path)
-                valid_records = [
-                    r
-                    for r in records
-                    if (r.get("pid") is None or _pid_alive(r["pid"]))
-                    and (now - r.get("created_at", 0)) < CONTEXT_RESERVATION_MAX_AGE_SECONDS
-                ]
-                if len(valid_records) != len(records):
-                    _write_state_locked(state_path, valid_records)
-                legacy_reserved = sum(
-                    r.get("reserved_tokens", 0)
-                    for r in valid_records
-                    if r.get("port") == port
-                )
-        except Exception:
-            legacy_reserved = 0
-
-        total_other_reserved = other_reserved + legacy_reserved
+        total_other_reserved = other_reserved
         combined = slots_tokens + total_other_reserved + reserved_tokens
 
         if combined > ceiling_tokens:
@@ -436,22 +420,16 @@ def acquire_context_lease(
 def release_context_lease(lease_id: str, state_dir: Optional[Path] = None) -> bool:
     """
     Release an active context token lease.
+
+    The context-token reservation ledger is the SQLite ``resource_leases``
+    table (``resource_type='context_tokens'``); this flips the matching
+    ACQUIRED row to RELEASED. The pre-delegation file-locked JSON store
+    (``resource_gate_context_budget.json``) had no writer anywhere in the
+    tree as of this change (NEW-441), so its prune path was removed here.
+
     Returns True if found and released, False otherwise.
     """
     found = False
-
-    # Check and release legacy JSON store if needed
-    try:
-        from core.resource_gate import _state_paths, _read_state_locked, _write_state_locked, _CONTEXT_STATE_FILENAME, _CONTEXT_LOCK_FILENAME
-        state_path, _ = _state_paths(state_dir, _CONTEXT_STATE_FILENAME, _CONTEXT_LOCK_FILENAME)
-        if state_path.exists():
-            records = _read_state_locked(state_path)
-            remaining = [r for r in records if r.get("reservation_id") != lease_id]
-            if len(remaining) != len(records):
-                found = True
-                _write_state_locked(state_path, remaining)
-    except Exception:
-        pass
 
     with _locked_db(state_dir) as conn:
         cursor = conn.cursor()
