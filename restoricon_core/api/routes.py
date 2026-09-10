@@ -1685,6 +1685,14 @@ class APIRouter:
                                     reservation_id,
                                 )
                         except Exception as e:
+                            # Broad catch is deliberate (NEW-444): a release
+                            # failure must never alter the already-computed
+                            # HTTP response, and a leaked reservation is
+                            # bounded by the 1800s
+                            # CONTEXT_RESERVATION_MAX_AGE_SECONDS age reap. A
+                            # signature regression (NEW-442's class) is caught
+                            # by test_api.py's strict release spy (NEW-443),
+                            # not by this handler.
                             logger.warning(
                                 "AI chat proxy: failed to release context reservation %s: %s",
                                 reservation_id,
