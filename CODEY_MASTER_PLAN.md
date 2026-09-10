@@ -6584,6 +6584,26 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       flagging the entire historical dataset as mismatched), not a
       quick add-on. Ish decided 2026-09-04 to scope this rather than
       drop the `main.py` CLI-flag identity improvement it unblocks.
+      **Scoped 2026-09-10** (project-architect): design is **additive
+      v2 + a version-keyed hash table** (not a validator registry) —
+      `validate()` only reads 4 enum/field sets, so a v1 record
+      validates fine against a strict-superset v2; only `doctor`'s
+      per-record `schema_sha256` check becomes version-aware.
+      `schema_sha256` is over raw file bytes in both repos → the two
+      `v2.json` copies must be byte-identical. Three commits, routed
+      one at a time: **(1) Codey-OS schema v2 — DONE 2026-09-10
+      `168a260`, code-reviewer APPROVED, LIVE-VERIFIED** (real
+      `~/.codeyOS/metrics` store: `doctor` shows `schema_hash_mismatches:
+      {}` across the all-v1 historical dataset — the version-keyed table
+      works; `schema --verify` reports `v1: MATCH` / `v2: not yet
+      migrated` / exit 0). **(2) Codey-Aigentik byte-identical v2.json +
+      loader bump — not started.** **(3) `main.py`'s 4 CLI-flag
+      `record_run_start(emitter="codey-os.cli", ...)` calls (NEW-358
+      Site 1) — not started, strict follow-up (not bundled with the
+      migration).** v2 is deliberately minimal (v1 + the one emitter
+      value); `NEW-446` tracks a doc-reconciliation pass over
+      `docs/telemetry_layer_design.md` deferred to commit 3. Checkbox
+      stays unchecked until all three land.
 
 ### M-lane — maintenance and bugs (§6.1, unblocked, any time)
 
