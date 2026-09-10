@@ -38,5 +38,4 @@ def test_admin_surface_has_company_profile_identity_inputs():
 
 def test_admin_surface_has_schedule_booking_window_input():
     html = render_admin_surface()
-    assert 'id="schedBookingWindow"' in html
-    assert 'min="1"' in html
+    assert 'id="schedBookingWindow" min="1"' in html
