@@ -3008,25 +3008,15 @@ _STATE_FILENAME = "resource_gate_state.json"
 _LOCK_FILENAME = "resource_gate_state.lock"
 
 
-def _state_paths(
-    state_dir: Optional[Path],
-    state_filename: str = _STATE_FILENAME,
-    lock_filename: str = _LOCK_FILENAME,
-) -> tuple[Path, Path]:
+def _state_paths(state_dir: Optional[Path]) -> tuple[Path, Path]:
     """
-    `state_filename`/`lock_filename` (§8 Q11, 2026-08-26): overridable so
-    `_LockedState` could back a second, independent file-locked store using
-    the exact same lock-then-read-then-write mechanism, rather than
-    inventing a second primitive — see `_LockedState`'s own docstring. That
-    second store was the context-budget reservation ledger, removed in
-    NEW-441 (2026-09-10) once it was confirmed to have no writer; the
-    override params are currently unused (only the model-residency slot
-    store calls this, always with the defaults) and are candidates for
-    removal in a later cleanup.
+    Return the `(state_path, lock_path)` pair for the model-residency slot
+    store, rooted at `state_dir` (or `CODEY_STATE_DIR` when `None`), creating
+    the base directory if needed.
     """
     base = Path(state_dir) if state_dir is not None else CODEY_STATE_DIR
     base.mkdir(parents=True, exist_ok=True)
-    return base / state_filename, base / lock_filename
+    return base / _STATE_FILENAME, base / _LOCK_FILENAME
 
 
 def _pid_alive(
@@ -3278,13 +3268,8 @@ class _LockedState:
     """Context manager: acquire the sibling lock file, yield the current
     slot list for mutation, write it back atomically on clean exit."""
 
-    def __init__(
-        self,
-        state_dir: Optional[Path],
-        state_filename: str = _STATE_FILENAME,
-        lock_filename: str = _LOCK_FILENAME,
-    ):
-        self._state_path, self._lock_path = _state_paths(state_dir, state_filename, lock_filename)
+    def __init__(self, state_dir: Optional[Path]):
+        self._state_path, self._lock_path = _state_paths(state_dir)
         self._lock_fd = None
 
     def __enter__(self) -> List[dict]:
@@ -4569,7 +4554,6 @@ def reserve_context_budget(
     safety_margin_fraction: float = CONTEXT_BUDGET_SAFETY_MARGIN_FRACTION,
     state_dir: Optional[Path] = None,
     pid: Optional[int] = None,
-    reap_dead: bool = True,
     fetch_slots_fn=None,
     tokenize_fn=None,
     *,
