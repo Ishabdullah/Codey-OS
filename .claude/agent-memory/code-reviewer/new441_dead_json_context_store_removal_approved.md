@@ -40,3 +40,14 @@ coordinator to ledger (non-blocking commit 1):**
   `state_filename`/`lock_filename` kwargs are now entirely dead (no caller
   passes them). NEW-441 rewrote the ~4108 sibling comment for exactly this
   reason but left this one.
+
+**Follow-up 2026-09-10 (NEW-440 + NEW-445, commit 1 of 2) — APPROVED.**
+Removed `reap_dead` from `reserve_context_budget()` sig (verified absent
+from full body 4547-4750; reaping lives in acquire_context_lease); both
+internal call sites + all test call sites use kwargs, never pass it.
+Removed `state_filename`/`lock_filename` overrides from `_state_paths()`
+and `_LockedState.__init__`, hardcoded `_STATE_FILENAME`/`_LOCK_FILENAME`;
+repo-wide grep for `state_filename=`/`lock_filename=` = zero, all
+`_LockedState(`/`_state_paths(` calls single positional. Bodies otherwise
+byte-identical. Docstrings rewritten, accurate, no overclaim. 259+23
+tests pass. Other `reap_dead`-bearing fns (list_slots etc.) untouched.
