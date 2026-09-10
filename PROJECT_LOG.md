@@ -1,3 +1,18 @@
+## 2026-09-10 — NEW-434 fixed: two review rounds, a real safety-claim overclaim caught in the docstring
+
+**What changed:** Third of the four residual findings from the NEW-206 saga. project-architect confirmed `messages` is genuinely invariant across one admission wait and that no other production caller of `reserve_context_budget()` exists, then spec'd a precise fix. Committed `05c85d4`, `557bba3` (ledger update).
+
+- **Fix**: `reserve_context_budget()` gained a keyword-only `precomputed_estimate` parameter; `wait_and_reserve_context_budget()` computes the `/tokenize` estimate once per wait and threads it through both of its internal call sites instead of re-issuing an HTTP call on every retry tick.
+- **This is the exact NEW-259 failure shape** (a param threaded into one call site but silently missed on the other) — guarded against directly: the implementer ran a mutation test (removed the param from only the retry-loop call site, watched the new tests correctly fail on call-count assertions, restored it, confirmed pass), and code-reviewer independently re-ran the same negative control rather than trusting the report.
+- **Round 1 CHANGES REQUESTED, doc-only**: the new docstring claimed the heuristic-fallback padding factor makes a pinned estimate "always" safe, citing `NEW-208`/`NEW-436` as "accepted posture" — both citations were wrong on inspection (`NEW-208`'s own claim is explicitly falsified elsewhere in the ledger; `NEW-436` is Suspected/unconfirmed; neither is even about this padding factor). Code, wiring, and tests were all confirmed correct in the same pass.
+- **Round 2**: corrected the docstring to the actually-sound justification — `messages` doesn't change during the wait, so pinning introduces no new inaccuracy relative to pre-diff behavior, it only avoids recomputing the same thing. Dropped the absolute claim and the wrong citation.
+- 3 new tests, full suite 1578 passed/1 skipped (both implementer's and reviewer's independent runs).
+- One new finding logged, not fixed: `NEW-440` — `reserve_context_budget()`'s `reap_dead` parameter is accepted but never read or forwarded anywhere in the function, found independently by both implementer and reviewer.
+
+**Why:** A clean example of this series' recurring pattern — the mechanical fix was correct on the first pass, but an accompanying safety-sounding claim in a docstring didn't survive being checked against the exact findings it cited. Catching this in review matters here specifically because a wrong "this is always safe" comment in the admission-gate hot path could mislead a future change that trusts it without re-verifying.
+
+**Next action:** Continuing in order — `NEW-436` next, the last of the four.
+
 ## 2026-09-09 — NEW-433 fixed: root cause was a missing test mock, not a route/rate-limit bug
 
 **What changed:** Second of the four residual findings from the NEW-206 saga. project-architect determined the precise root cause before any fix was written: `test_api_ai_chat_auth_and_validation`'s case 3 hits the real admission gate (`wait_and_reserve_context_budget()`) before reaching the proxy call it mocks, and was simply never given the same admission-gate mock four sibling T3 telemetry tests in the same file already use — so its pass/fail depended on ambient device state (whether a real `llama-server` happened to be running) rather than anything the test controlled. Not a stale test expectation, not a `RateLimiter` regression (confirmed that limiter never touches this endpoint), not cross-test shared state. Committed `9c3266a` (fix), `c473989` (code-reviewer memory), `31884e5` (ledger update).
