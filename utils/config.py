@@ -712,6 +712,27 @@ def get_restoricon_api_config(config: Optional[Dict[str, Any]] = None) -> Dict[s
     }
 
 
+def get_restoricon_doc_store_path(config: Optional[Dict[str, Any]] = None) -> str:
+    """
+    Resolve the Restoricon document store root (where uploaded documents live).
+    Precedence:
+      1. RESTORICON_DOC_STORE_PATH env var
+      2. config["restoricon"]["doc_store_path"]
+      3. Default: "~/.codeyOS/restoricon_documents"
+    """
+    cfg = config if config is not None else load_user_config()
+    rest_section = cfg.get("restoricon", {}) if isinstance(cfg, dict) else {}
+    if not isinstance(rest_section, dict):
+        rest_section = {}
+
+    path_raw = (
+        os.environ.get("RESTORICON_DOC_STORE_PATH")
+        or rest_section.get("doc_store_path")
+        or str(CODEY_STATE_DIR / "restoricon_documents")
+    )
+    return str(Path(os.path.expanduser(str(path_raw))).resolve())
+
+
 def get_aigentik_config(config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Extract Codey-Aigentik configuration.

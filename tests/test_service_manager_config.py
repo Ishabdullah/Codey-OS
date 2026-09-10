@@ -15,6 +15,7 @@ from utils.config import (
     load_user_config,
     get_cloudflare_tunnel_token,
     get_restoricon_api_config,
+    get_restoricon_doc_store_path,
     get_aigentik_config,
 )
 
@@ -29,6 +30,7 @@ def clean_service_env(monkeypatch):
         "RESTORICON_API_HOST",
         "RESTORICON_API_PORT",
         "RESTORICON_DB_PATH",
+        "RESTORICON_DOC_STORE_PATH",
         "AIGENTIK_DIR",
         "AIGENTIK_PORT",
         "CODEY_GUI_HOST",
@@ -129,6 +131,38 @@ def test_default_db_path_matches_api_config_db_path():
     resolved_default = str(Path(DEFAULT_DB_PATH).expanduser().resolve())
     api_db_path = get_restoricon_api_config({})["db_path"]
     assert resolved_default == api_db_path
+
+
+def test_doc_store_path_matches_across_sources(monkeypatch):
+    """NEW-460: the Restoricon document store root must resolve from a single
+    source (utils.config.get_restoricon_doc_store_path) to ~/.codeyOS/
+    restoricon_documents, and no call site or installer step may still point
+    at the dead ~/.codey_restoricon/documents tree (same class as U.39's DB
+    path divergence).
+    """
+    repo_root = Path(__file__).parent.parent.resolve()
+
+    # 1. Default (no env / no config override).
+    default_path = get_restoricon_doc_store_path({})
+    assert default_path == str(
+        (Path.home() / ".codeyOS" / "restoricon_documents").resolve()
+    )
+
+    # 2. install.sh creates the new dir, not the dead one.
+    install_sh = (repo_root / "install.sh").read_text(encoding="utf-8")
+    assert ".codeyOS/restoricon_documents" in install_sh
+    assert ".codey_restoricon/documents" not in install_sh
+
+    # 3. Neither Python call site still hardcodes the dead tree.
+    for rel in ("core/backup_documents.py", "restoricon_core/api/routes.py"):
+        text = (repo_root / rel).read_text(encoding="utf-8")
+        assert ".codey_restoricon/documents" not in text, rel
+
+    # 4. Env override wins.
+    monkeypatch.setenv("RESTORICON_DOC_STORE_PATH", "/tmp/custom_doc_store")
+    assert get_restoricon_doc_store_path({}) == str(
+        Path("/tmp/custom_doc_store").resolve()
+    )
 
 
 def test_get_restoricon_api_config_from_dict():

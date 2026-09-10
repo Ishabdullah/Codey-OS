@@ -187,7 +187,7 @@ install_python_deps() {
     print_success "Core Python packages installed"
     
     # Create documents storage directory
-    mkdir -p "$HOME/.codey_restoricon/documents"
+    mkdir -p "$HOME/.codeyOS/restoricon_documents"
 
     # Offer to install full pipeline deps
     if [ "$SKIP_CONFIRM" = false ]; then

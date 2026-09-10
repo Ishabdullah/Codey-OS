@@ -3,9 +3,14 @@ import json
 import logging
 import os
 import subprocess
+import sys
 import time
 import tempfile
+from pathlib import Path
 from google.cloud import storage
+
+sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
+from utils.config import get_restoricon_doc_store_path
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -65,7 +70,7 @@ def do_backup():
         logging.error("Cannot proceed without a valid public key.")
         return
 
-    doc_store_path = os.path.expanduser("~/.codey_restoricon/documents")
+    doc_store_path = get_restoricon_doc_store_path()
     if not os.path.exists(doc_store_path):
         logging.info(f"Document store not found at {doc_store_path}, nothing to backup.")
         return

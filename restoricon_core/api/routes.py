@@ -968,7 +968,8 @@ class APIRouter:
                                 subcontractor_id = metadata.get("subcontractor_id")
                                 vendor_id = metadata.get("vendor_id")
                                 
-                                base_dir = os.path.expanduser("~/.codey_restoricon/documents")
+                                from utils.config import get_restoricon_doc_store_path
+                                base_dir = get_restoricon_doc_store_path()
                                 rel_dir = f"{document_type}s"
                                 
                                 if project_id:
