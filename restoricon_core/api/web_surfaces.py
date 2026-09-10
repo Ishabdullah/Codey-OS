@@ -37,9 +37,9 @@ def _get_universal_drawer_html(active_surface: str = "") -> str:
             </div>
 
             <div class="nav-right">
-                <a href="tel:8603371820" class="nav-phone-btn" aria-label="Call Restoricon 24/7">
+                <a href="tel:8603371820" id="navPhoneLink" class="nav-phone-btn" aria-label="Call Restoricon 24/7">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
-                    <span>(860) 337-1820</span>
+                    <span id="navPhoneText">(860) 337-1820</span>
                 </a>
                 <div id="authNavContainer"></div>
             </div>
@@ -107,9 +107,9 @@ def _get_universal_drawer_html(active_surface: str = "") -> str:
         </div>
 
         <div class="drawer-footer-bar">
-            <div><strong>Direct Dispatch:</strong> <a href="tel:8603371820">(860) 337-1820</a></div>
-            <div><strong>Licensure:</strong> CT HIC.0692750 &bull; Fully Insured</div>
-            <div><strong>Email:</strong> <a href="mailto:contact@restoricon.com">contact@restoricon.com</a></div>
+            <div><strong>Direct Dispatch:</strong> <a href="tel:8603371820" id="drawerPhoneLink">(860) 337-1820</a></div>
+            <div><strong>Licensure:</strong> <span id="drawerLicense">CT HIC.0692750</span> &bull; Fully Insured</div>
+            <div><strong>Email:</strong> <a href="mailto:contact@restoricon.com" id="drawerEmailLink">contact@restoricon.com</a></div>
         </div>
     </aside>
     """
@@ -1814,7 +1814,7 @@ def render_admin_surface() -> str:
         <div class="admin-top-bar">
             <div>
                 <h1>Restoricon ERP — Staff & Admin Operations</h1>
-                <p>Enterprise Management System &bull; Active Restoration Job Sites &bull; CT HIC.0692750</p>
+                <p>Enterprise Management System &bull; Active Restoration Job Sites &bull; <span id="adminBarLicense">CT HIC.0692750</span></p>
             </div>
             <div style="display: flex; gap: 0.75rem; align-items: center;">
                 <span id="userBadge" class="card-badge badge-gold" style="font-size: 0.8rem; padding: 0.35rem 0.75rem;">Admin User</span>
@@ -3127,6 +3127,44 @@ def render_admin_surface() -> str:
             }
         }
 
+        // Patch the shared nav/drawer/admin-bar chrome from the authed business
+        // profile. Admin-only: the drawer is also rendered on public/staff
+        // surfaces that cannot fetch this profile, so their static fallback text
+        // is left untouched. .textContent only, never .innerHTML; hrefs are only
+        // ever built from digit-stripped phone or a strictly-matched email.
+        function patchBusinessChrome(p) {
+            p = p || {};
+            const navText = document.getElementById('navPhoneText');
+            const navLink = document.getElementById('navPhoneLink');
+            const drawerPhone = document.getElementById('drawerPhoneLink');
+            const phone = (p.business_phone || '').trim();
+            if (phone) {
+                const telHref = 'tel:' + phone.replace(/\\D/g, '');
+                if (navText) navText.textContent = phone;
+                if (drawerPhone) { drawerPhone.textContent = phone; drawerPhone.setAttribute('href', telHref); }
+                if (navLink) navLink.setAttribute('href', telHref);
+            } else {
+                if (navText) navText.textContent = '';
+                if (drawerPhone) { drawerPhone.textContent = ''; drawerPhone.removeAttribute('href'); }
+                if (navLink) navLink.removeAttribute('href');
+            }
+            const emailLink = document.getElementById('drawerEmailLink');
+            if (emailLink) {
+                const email = p.business_email || '';
+                emailLink.textContent = email;
+                if (/^[^@\\s]+@[^@\\s]+$/.test(email)) {
+                    emailLink.setAttribute('href', 'mailto:' + email);
+                } else {
+                    emailLink.removeAttribute('href');
+                }
+            }
+            const lic = p.license_number || '';
+            const drawerLicense = document.getElementById('drawerLicense');
+            const adminBarLicense = document.getElementById('adminBarLicense');
+            if (drawerLicense) drawerLicense.textContent = lic;
+            if (adminBarLicense) adminBarLicense.textContent = lic;
+        }
+
         async function saveBusinessProfile() {
             if (!window.businessProfileLoaded) { alert('Profile not loaded — cannot save.'); return; }
             const token = getAuthToken();
@@ -3147,6 +3185,7 @@ def render_admin_surface() -> str:
                 });
                 if (res.ok) {
                     alert('Business Profile context updated successfully.');
+                    patchBusinessChrome(window.currentBusinessProfile);
                 } else {
                     alert('Failed to update Business Profile.');
                 }
@@ -3204,6 +3243,7 @@ def render_admin_surface() -> str:
                         window.currentBusinessProfile = bpData.business_profile;
                         window.businessProfileLoaded = true;
                         populateBusinessProfile(window.currentBusinessProfile);
+                        patchBusinessChrome(window.currentBusinessProfile);
                     } else if (bpRes.status === 404) {
                         window.currentBusinessProfile = {
                             id: 1, configured: 0, aigentik_name: null, agent_name_set: 0,
@@ -3213,6 +3253,7 @@ def render_admin_surface() -> str:
                         };
                         window.businessProfileLoaded = true;
                         populateBusinessProfile(window.currentBusinessProfile);
+                        patchBusinessChrome(window.currentBusinessProfile);
                     } else {
                         throw new Error('HTTP ' + bpRes.status);
                     }
