@@ -5776,15 +5776,21 @@ Then:
       negligible impact at the `n_parallel=4` production ceiling;
       original entry's self-double-count mechanism was wrong,
       corrected per rule 6). Two new findings logged from the
-      confirmation round: `NEW-441` (dead `legacy_reserved` sum in
-      `acquire_context_lease()`, not fixed), `NEW-442` (Core API
+      confirmation round: `NEW-441` (dead `legacy_reserved` JSON-store
+      path in `acquire_context_lease()` — **FIXED 2026-09-10 `7182c10`**,
+      code-reviewer APPROVED, dead code removed + the one test that
+      seeded it converted to a direct sqlite-ledger insert; spun off
+      `NEW-445`, now-dead `_state_paths` override params), `NEW-442` (Core API
       chat route called `release_context_budget()` with wrong
       arity — leaked every request's reservation until the 1800s
       reap and littered the CWD with a spurious dir per request;
       **FIXED 2026-09-10, code-reviewer APPROVED**, one-line
       call-site fix + return-value handling + 2 regression tests
       with a recording spy; spun off `NEW-443`, the arg-swallowing
-      test-mock gap that hid it).
+      test-mock gap that hid it — **also FIXED 2026-09-10 `674d1af`**,
+      a strict release-spy now at all 5 mock sites; that round spun
+      off `NEW-444` (the route's bare `except Exception` that would
+      swallow a wrong-arity `TypeError`) and `NEW-445`).
 
 ### Phase A2 — coding-domain rollout (§6.8)
 
