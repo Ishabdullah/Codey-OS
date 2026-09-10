@@ -736,8 +736,11 @@ class AutomationRule:
 
 @dataclass
 class BusinessProfile:
-    """Singleton business profile record, mirrors Aigentik-CLI's
-    profile.json. There is exactly one row (id fixed to 1)."""
+    """Singleton business profile record. There is exactly one row (id
+    fixed to 1). The identity/onboarding fields mirror Aigentik-CLI's
+    profile.json, PLUS Core-only public-contact fields (business_phone,
+    business_email, license_number) surfaced for the admin dashboard and
+    not present in Aigentik."""
     id: int = 1
     configured: int = 0
     aigentik_name: Optional[str] = None
@@ -745,6 +748,9 @@ class BusinessProfile:
     owner_name: Optional[str] = None
     business_name: Optional[str] = None
     business_description: Optional[str] = None
+    business_phone: Optional[str] = None
+    business_email: Optional[str] = None
+    license_number: Optional[str] = None
     onboarding_sent: int = 0
     setup_date: Optional[str] = None
     updated_at: str = field(default_factory=utc_now_iso)

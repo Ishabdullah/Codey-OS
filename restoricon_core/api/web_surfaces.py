@@ -1920,24 +1920,24 @@ def render_admin_surface() -> str:
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
                     <div class="form-group">
                         <label>Business Legal Name</label>
-                        <input type="text" id="profName" value="Restoricon, LLC">
+                        <input type="text" id="profName">
                     </div>
                     <div class="form-group">
                         <label>Direct Phone Hotline</label>
-                        <input type="text" id="profPhone" value="(860) 337-1820">
+                        <input type="text" id="profPhone">
                     </div>
                     <div class="form-group">
                         <label>Support Email</label>
-                        <input type="email" id="profEmail" value="contact@restoricon.com">
+                        <input type="email" id="profEmail">
                     </div>
                     <div class="form-group">
                         <label>CT General Contractor Licensure</label>
-                        <input type="text" id="profLicense" value="CT HIC.0692750">
+                        <input type="text" id="profLicense">
                     </div>
                 </div>
                 <div class="form-group" style="margin-top: 1rem;">
                     <label>AI Agent Master System Instructions & Restoration Context</label>
-                    <textarea id="profPrompt" style="height: 120px;">Restoricon, LLC is an elite general contractor and emergency property restoration specialist serving Hartford County, Connecticut. Maintain professionalism, emphasize rapid containment, structural drying protocols, and precise pre-claim scoping.</textarea>
+                    <textarea id="profPrompt" style="height: 120px;"></textarea>
                 </div>
             </div>
         </div>
@@ -1952,15 +1952,16 @@ def render_admin_surface() -> str:
                 <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;">
                     <div class="form-group">
                         <label>Appointment Duration (Min)</label>
-                        <input type="number" id="schedDuration" value="60">
+                        <input type="number" id="schedDuration">
                     </div>
                     <div class="form-group">
                         <label>Buffer Between Slots (Min)</label>
-                        <input type="number" id="schedBuffer" value="30">
+                        <input type="number" id="schedBuffer">
                     </div>
                     <div class="form-group">
                         <label>Max Concurrent Estimators</label>
-                        <input type="number" id="schedConcurrent" value="3">
+                        <input type="number" id="schedConcurrent" value="3" disabled>
+                        <small style="color: #999;">(not yet configurable)</small>
                     </div>
                 </div>
             </div>
@@ -3127,12 +3128,14 @@ def render_admin_surface() -> str:
         }
 
         async function saveBusinessProfile() {
+            if (!window.businessProfileLoaded) { alert('Profile not loaded — cannot save.'); return; }
             const token = getAuthToken();
-            const profName = document.getElementById('profName').value;
-            const profPrompt = document.getElementById('profPrompt').value;
             window.currentBusinessProfile = window.currentBusinessProfile || {};
-            window.currentBusinessProfile.business_name = profName;
-            window.currentBusinessProfile.business_description = profPrompt;
+            window.currentBusinessProfile.business_name = document.getElementById('profName').value;
+            window.currentBusinessProfile.business_description = document.getElementById('profPrompt').value;
+            window.currentBusinessProfile.business_phone = document.getElementById('profPhone').value;
+            window.currentBusinessProfile.business_email = document.getElementById('profEmail').value;
+            window.currentBusinessProfile.license_number = document.getElementById('profLicense').value;
             try {
                 const res = await fetch('/api/v1/business-profile', {
                     method: 'POST',
@@ -3153,8 +3156,9 @@ def render_admin_surface() -> str:
         }
 
         async function saveScheduleConfig() {
+            if (!window.scheduleConfigLoaded) { alert('Schedule config not loaded — cannot save.'); return; }
             const token = getAuthToken();
-            const schedDuration = parseInt(document.getElementById('schedDuration').value) || 60;
+            const schedDuration = parseInt(document.getElementById('schedDuration').value) || 30;
             const schedBuffer = parseInt(document.getElementById('schedBuffer').value) || 15;
             window.currentScheduleConfig = window.currentScheduleConfig || {};
             window.currentScheduleConfig.default_duration_minutes = schedDuration;
@@ -3184,36 +3188,72 @@ def render_admin_surface() -> str:
                 loadUsersList();
                 
                 // Load Business Profile
+                const bpBtn = document.querySelector('button[onclick="saveBusinessProfile()"]');
+                const populateBusinessProfile = (p) => {
+                    document.getElementById('profName').value = p.business_name ?? '';
+                    document.getElementById('profPhone').value = p.business_phone ?? '';
+                    document.getElementById('profEmail').value = p.business_email ?? '';
+                    document.getElementById('profLicense').value = p.license_number ?? '';
+                    document.getElementById('profPrompt').value = p.business_description ?? '';
+                };
                 try {
                     const token = getAuthToken();
                     const bpRes = await fetch('/api/v1/business-profile', { headers: { 'Authorization': 'Bearer ' + token } });
                     if (bpRes.ok) {
                         const bpData = await bpRes.json();
-                        window.currentBusinessProfile = bpData.business_profile || {};
-                        if (window.currentBusinessProfile.business_name) {
-                            document.getElementById('profName').value = window.currentBusinessProfile.business_name;
-                        }
-                        if (window.currentBusinessProfile.business_description) {
-                            document.getElementById('profPrompt').value = window.currentBusinessProfile.business_description;
-                        }
+                        window.currentBusinessProfile = bpData.business_profile;
+                        window.businessProfileLoaded = true;
+                        populateBusinessProfile(window.currentBusinessProfile);
+                    } else if (bpRes.status === 404) {
+                        window.currentBusinessProfile = {
+                            id: 1, configured: 0, aigentik_name: null, agent_name_set: 0,
+                            owner_name: null, business_name: null, business_description: null,
+                            business_phone: null, business_email: null, license_number: null,
+                            onboarding_sent: 0, setup_date: null, updated_at: null
+                        };
+                        window.businessProfileLoaded = true;
+                        populateBusinessProfile(window.currentBusinessProfile);
+                    } else {
+                        throw new Error('HTTP ' + bpRes.status);
                     }
-                } catch (e) {}
+                } catch (e) {
+                    window.businessProfileLoaded = false;
+                    if (bpBtn) {
+                        bpBtn.disabled = true;
+                        bpBtn.insertAdjacentHTML('afterend',
+                            '<div style="color:#c00;margin-top:0.5rem;">Could not load — save disabled to prevent data loss</div>');
+                    }
+                }
 
                 // Load Schedule Config
+                const scBtn = document.querySelector('button[onclick="saveScheduleConfig()"]');
+                const populateScheduleConfig = (c) => {
+                    document.getElementById('schedDuration').value = c.default_duration_minutes ?? 30;
+                    document.getElementById('schedBuffer').value = c.buffer_minutes ?? 15;
+                };
                 try {
                     const token = getAuthToken();
                     const scRes = await fetch('/api/v1/schedule-config', { headers: { 'Authorization': 'Bearer ' + token } });
                     if (scRes.ok) {
                         const scData = await scRes.json();
-                        window.currentScheduleConfig = scData.schedule_config || {};
-                        if (window.currentScheduleConfig.default_duration_minutes) {
-                            document.getElementById('schedDuration').value = window.currentScheduleConfig.default_duration_minutes;
-                        }
-                        if (window.currentScheduleConfig.buffer_minutes) {
-                            document.getElementById('schedBuffer').value = window.currentScheduleConfig.buffer_minutes;
-                        }
+                        window.currentScheduleConfig = scData.schedule_config;
+                        window.scheduleConfigLoaded = true;
+                        populateScheduleConfig(window.currentScheduleConfig);
+                    } else if (scRes.status === 404) {
+                        window.currentScheduleConfig = { default_duration_minutes: 30, buffer_minutes: 15 };
+                        window.scheduleConfigLoaded = true;
+                        populateScheduleConfig(window.currentScheduleConfig);
+                    } else {
+                        throw new Error('HTTP ' + scRes.status);
                     }
-                } catch (e) {}
+                } catch (e) {
+                    window.scheduleConfigLoaded = false;
+                    if (scBtn) {
+                        scBtn.disabled = true;
+                        scBtn.insertAdjacentHTML('afterend',
+                            '<div style="color:#c00;margin-top:0.5rem;">Could not load — save disabled to prevent data loss</div>');
+                    }
+                }
             }
         });
     </script>

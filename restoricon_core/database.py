@@ -437,7 +437,10 @@ CREATE TABLE IF NOT EXISTS business_profile (
     business_description TEXT,
     onboarding_sent INTEGER NOT NULL DEFAULT 0 CHECK(onboarding_sent IN (0, 1)),
     setup_date TEXT,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    business_phone TEXT,
+    business_email TEXT,
+    license_number TEXT
 );
 
 -- Scheduling configuration (NEW-216, 2026-08-27, Ish-approved "create best
@@ -977,6 +980,9 @@ class DatabaseManager:
             ("projects", "deductible", "ALTER TABLE projects ADD COLUMN deductible REAL;"),
             ("equipment", "current_project_id", "ALTER TABLE equipment ADD COLUMN current_project_id INTEGER;"),
             ("users", "custom_permissions_json", "ALTER TABLE users ADD COLUMN custom_permissions_json TEXT NOT NULL DEFAULT '{}';"),
+            ("business_profile", "business_phone", "ALTER TABLE business_profile ADD COLUMN business_phone TEXT;"),
+            ("business_profile", "business_email", "ALTER TABLE business_profile ADD COLUMN business_email TEXT;"),
+            ("business_profile", "license_number", "ALTER TABLE business_profile ADD COLUMN license_number TEXT;"),
         )
         with conn:
             for table, column, ddl in migrations:

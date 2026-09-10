@@ -255,6 +255,9 @@ class AutomationService:
             owner_name=row["owner_name"],
             business_name=row["business_name"],
             business_description=row["business_description"],
+            business_phone=row["business_phone"],
+            business_email=row["business_email"],
+            license_number=row["license_number"],
             onboarding_sent=row["onboarding_sent"],
             setup_date=row["setup_date"],
             updated_at=row["updated_at"],
@@ -271,7 +274,13 @@ class AutomationService:
         return self._row_to_profile(row)
 
     def upsert_business_profile(self, profile: BusinessProfile, actor: AuthContext) -> BusinessProfile:
-        """Create or update the single business_profile row (id fixed to 1)."""
+        """Create or update the single business_profile row (id fixed to 1).
+
+        This is an unconditional full-row overwrite (``excluded.*`` for every
+        column) -- every caller must send a complete object, normally by
+        GET-then-spread. A partial body resets unmentioned columns to
+        ``BusinessProfile`` dataclass defaults.
+        """
         if not actor.has_permission(PERM_WRITE_BUSINESS_PROFILE):
             raise PermissionError("Actor lacks permission to update the business profile")
 
@@ -285,8 +294,9 @@ class AutomationService:
                 """
                 INSERT INTO business_profile (
                     id, configured, aigentik_name, agent_name_set, owner_name,
-                    business_name, business_description, onboarding_sent, setup_date, updated_at
-                ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    business_name, business_description, onboarding_sent, setup_date, updated_at,
+                    business_phone, business_email, license_number
+                ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     configured = excluded.configured,
                     aigentik_name = excluded.aigentik_name,
@@ -296,7 +306,10 @@ class AutomationService:
                     business_description = excluded.business_description,
                     onboarding_sent = excluded.onboarding_sent,
                     setup_date = excluded.setup_date,
-                    updated_at = excluded.updated_at;
+                    updated_at = excluded.updated_at,
+                    business_phone = excluded.business_phone,
+                    business_email = excluded.business_email,
+                    license_number = excluded.license_number;
                 """,
                 (
                     profile.configured,
@@ -308,6 +321,9 @@ class AutomationService:
                     profile.onboarding_sent,
                     profile.setup_date,
                     now,
+                    profile.business_phone,
+                    profile.business_email,
+                    profile.license_number,
                 ),
             )
 

@@ -1508,6 +1508,9 @@ class APIRouter:
                         return 404, {"Content-Type": "application/json"}, {"error": "Business profile not configured"}
                     return 200, {"Content-Type": "application/json"}, {"business_profile": profile.to_dict()}
                 elif method == "POST":
+                    # Full-row-replace contract: json_body must be a complete
+                    # BusinessProfile object; unmentioned fields reset to
+                    # dataclass defaults. See upsert_business_profile's docstring.
                     profile = BusinessProfile(**json_body)
                     saved = self.automation.upsert_business_profile(profile, actor)
                     return 200, {"Content-Type": "application/json"}, {"business_profile": saved.to_dict()}
