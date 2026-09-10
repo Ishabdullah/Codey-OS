@@ -3353,7 +3353,7 @@ def _render_staff_portal_base(role_title: str, primary_label: str, role_key: str
     <title>{role_title} Dashboard — Restoricon</title>
     <link rel="icon" href="/assets/logos/favicon-32.png" type="image/png" sizes="32x32">
     <style>
-        {{_get_common_styles()}}
+        {_get_common_styles()}
         .portal-layout {{ max-width: 1200px; margin: 2rem auto; padding: 0 1.25rem; display: flex; flex-direction: column; gap: 2rem; }}
         .header-card {{ background: linear-gradient(135deg, #112240 0%, #1c2e4a 100%); border-radius: 12px; padding: 2rem; color: white; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }}
         .erp-card {{ background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); padding: 1.5rem; margin-bottom: 1.5rem; }}
@@ -3363,7 +3363,7 @@ def _render_staff_portal_base(role_title: str, primary_label: str, role_key: str
     </style>
 </head>
 <body>
-    {{_get_universal_drawer_html("admin")}}
+    {_get_universal_drawer_html("admin")}
     <div class="portal-layout">
         <div class="header-card">
             <div>
