@@ -5790,7 +5790,16 @@ Then:
       test-mock gap that hid it — **also FIXED 2026-09-10 `674d1af`**,
       a strict release-spy now at all 5 mock sites; that round spun
       off `NEW-444` (the route's bare `except Exception` that would
-      swallow a wrong-arity `TypeError`) and `NEW-445`).
+      swallow a wrong-arity `TypeError`) and `NEW-445`. A follow-up
+      cleanup bundle 2026-09-10 (`697f593` + `c65da62`) then closed
+      all three residual vestigial-code items: `NEW-440`
+      (`reserve_context_budget()`'s dead `reap_dead` param) and
+      `NEW-445` removed together (code-reviewer APPROVED); `NEW-444`
+      closed as accepted-and-documented — the broad `except` is
+      deliberate (consistent with the sibling release sites, a
+      failed release is bounded by the 1800s reap, and NEW-443's
+      spy catches the regression class). No open items remain from
+      the NEW-436 saga.
 
 ### Phase A2 — coding-domain rollout (§6.8)
 

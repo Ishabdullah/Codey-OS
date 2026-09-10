@@ -17454,12 +17454,11 @@ housekeeping, same as `NEW-403`'s own cleanup.
 
 ## Found during the NEW-434 fix round, 2026-09-09/10
 
-### [NEW-440] `reserve_context_budget()`'s `reap_dead: bool = True` parameter is accepted but never read or forwarded anywhere in the function body
+### [NEW-440] FIXED 2026-09-10 (`697f593`, code-reviewer APPROVED): `reserve_context_budget()`'s `reap_dead: bool = True` parameter was accepted but never read or forwarded anywhere in the function body
 
-- **Status:** Confirmed, found independently by both implementer and code-reviewer during `NEW-434`'s fix via direct grep of the function body (`core/resource_gate.py:4553-4773`). `reap_dead` appears exactly once — in the signature's own default — and is never read, never forwarded to `list_slots()`/`acquire_context_lease()`/anything else inside the function. Pre-existing, not introduced by `NEW-434`'s diff.
-- **Impact:** likely a vestigial parameter — possibly intended to be forwarded to a `list_slots()`-style reap call inside `acquire_context_lease()` but never wired up. Any caller passing `reap_dead=False` expecting to suppress reaping during this call currently gets no such effect; low real-world impact since no call site in the repo currently passes anything but the default.
-- **Not fixed** — needs a scoped look: either wire it to actually control reaping somewhere inside this function (if that was the original intent), or remove the dead parameter entirely if it serves no purpose.
-- **Cross-reference:** `NEW-434` (found while fixing), `core/resource_gate.py:reserve_context_budget()`.
+- **Status:** Confirmed, found independently by both implementer and code-reviewer during `NEW-434`'s fix via direct grep of the function body. **FIXED 2026-09-10** as part of the NEW-440/444/445 cleanup bundle — parameter removed, code-reviewer APPROVED. `reap_dead` appeared exactly once — in the signature default — and was never read or forwarded. Reaping for this path happens downstream inside `acquire_context_lease()` (`core/resource_bus.py`) unconditionally.
+- **Fix:** deleted the `reap_dead: bool = True,` line from `reserve_context_budget()`'s signature. No caller passed it (both internal `wait_and_reserve_context_budget()` call sites and all tests use kwargs only; no 10th-positional caller). The `reap_dead` params on `list_slots()`/`find_resident_slot()`/`total_reserved_bytes()`/`total_reserved_swap_bytes()`/`total_committed_bytes()`/`_sum_committed_bytes()` are real and wired — untouched. Function body otherwise byte-identical. Full suite 1580 passed/1 skipped.
+- **Cross-reference:** `NEW-434` (found while fixing), `NEW-445` (removed in the same commit), `core/resource_gate.py:reserve_context_budget()`.
 
 ## Found during the NEW-436 confirmation round, 2026-09-10
 
@@ -17491,16 +17490,15 @@ housekeeping, same as `NEW-403`'s own cleanup.
 
 ## Found during the NEW-441/NEW-443 fix round, 2026-09-10
 
-### [NEW-444] Confirmed: the `/api/v1/ai/chat` route's `finally` block wraps `release_context_budget()` in a bare `except Exception` that would swallow a wrong-arity `TypeError` and still return 200
+### [NEW-444] CLOSED 2026-09-10 (`c65da62`) — accepted and documented: the `/api/v1/ai/chat` route's `finally` block wraps `release_context_budget()` in a bare `except Exception`
 
-- **Status:** Confirmed by code reading + a live traceback (implementer and code-reviewer, 2026-09-10, during the NEW-441/443 round). `restoricon_core/api/routes.py:~1686`: the `release_context_budget(reservation_id)` call sits inside `try: ... except Exception as e: logger.warning(...)`. Any `TypeError` from a signature mismatch (NEW-442's exact bug class) is caught, logged at WARNING, and the request still returns 200 — so a future re-break of that call would again be silent in production. This is the reason NEW-443's new test spy had to raise `BaseException` rather than `Exception` to be detectable.
-- **Impact:** production robustness / observability gap. Not a live bug now that NEW-442 is fixed, but the handler provides no protection against the same class of regression — it converts a hard failure into a silent WARNING. Pre-existing; the release-call signature is currently correct.
-- **Not fixed** — needs a scoped decision: either narrow the `except` to the specific transient failures worth tolerating (and let a `TypeError`/`AttributeError` propagate or at least log at ERROR), or accept the broad catch as deliberate and add a targeted assertion/test. Low priority.
-- **Cross-reference:** `NEW-442` (the bug this handler helped hide), `NEW-443` (the test-side half), `restoricon_core/api/routes.py`.
+- **Status:** Confirmed by code reading + a live traceback (implementer and code-reviewer, 2026-09-10, during the NEW-441/443 round). **CLOSED as accepted-and-documented** in the NEW-440/444/445 cleanup bundle — a code comment now records that the broad catch is deliberate. No logic change.
+- **The behavior:** `restoricon_core/api/routes.py` `finally` block — the `release_context_budget(reservation_id)` call sits inside `try: ... except Exception as e: logger.warning(...)`. A `TypeError` from a signature mismatch (NEW-442's class) is caught, logged at WARNING, and the request still returns 200.
+- **Why accepted:** (a) both sibling release call sites (`core/inference_hybrid.py`, `core/plannd.py`) use the same `except Exception as e: warning(...)` — consistency; (b) a failed release is genuinely non-critical: the HTTP response is already computed and must not be altered by cleanup, and a leaked reservation is bounded by the 1800s `CONTEXT_RESERVATION_MAX_AGE_SECONDS` age reap; (c) a wrong-arity regression (NEW-442's class) is now caught at test time by `test_api.py`'s strict release spy (NEW-443), which raises `BaseException` specifically to escape this handler. Narrowing the catch would buy little and risk letting an unforeseen transient cleanup failure break an otherwise-successful response.
+- **Cross-reference:** `NEW-442` (the bug this handler helped hide), `NEW-443` (the test-side guard that now covers the regression class), `restoricon_core/api/routes.py`.
 
-### [NEW-445] Confirmed: `_state_paths()` / `_LockedState.__init__`'s `state_filename`/`lock_filename` override parameters are now entirely unused after NEW-441
+### [NEW-445] FIXED 2026-09-10 (`697f593`, code-reviewer APPROVED): `_state_paths()` / `_LockedState.__init__`'s `state_filename`/`lock_filename` override parameters were entirely unused after NEW-441
 
-- **Status:** Confirmed by grep (code-reviewer, 2026-09-10). The legacy JSON context-budget store removed in NEW-441 was the only caller that ever passed a non-default `state_filename`/`lock_filename`. Every remaining caller (the model-residency slot store) uses the defaults. The params, and `_LockedState`'s matching kwargs, are dead.
-- **Impact:** none functional — dead but harmless parameters. Comprehension overhead only.
-- **Not fixed** — low priority: remove the override params from `_state_paths()` and `_LockedState.__init__` (and simplify their bodies to the fixed `_STATE_FILENAME`/`_LOCK_FILENAME`) in a later cleanup. NEW-441 updated the `_state_paths()` docstring to note this rather than doing the removal in that round. Same vestigial-parameter class as `NEW-440`.
-- **Cross-reference:** `NEW-441` (the removal that exposed this), `NEW-440` (same class), `core/resource_gate.py:_state_paths()`/`_LockedState`.
+- **Status:** Confirmed by grep (code-reviewer, 2026-09-10). **FIXED same day** in the NEW-440/444/445 cleanup bundle (same commit as NEW-440). The legacy JSON context-budget store removed in NEW-441 was the only caller that ever passed a non-default `state_filename`/`lock_filename`.
+- **Fix:** removed both override params from `_state_paths()` and `_LockedState.__init__`; `_state_paths()` now returns `base / _STATE_FILENAME, base / _LOCK_FILENAME` directly (`base.mkdir` + `CODEY_STATE_DIR` fallback unchanged). Both docstrings rewritten to describe just the model-residency slot store. Repo-wide grep confirmed no caller passes overrides (all `_LockedState(state_dir)` / `_state_paths(state_dir)`, tests included); `grep -rn "state_filename|lock_filename" core/ tests/` → nothing afterward. Full suite 1580 passed/1 skipped.
+- **Cross-reference:** `NEW-441` (the removal that exposed this), `NEW-440` (same class, same commit), `core/resource_gate.py:_state_paths()`/`_LockedState`.

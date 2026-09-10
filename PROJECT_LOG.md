@@ -1,3 +1,15 @@
+## 2026-09-10 — NEW-440 + NEW-444 + NEW-445 closed: the NEW-436 saga's residual cleanup bundle
+
+**What changed:** The three low-priority vestigial-code items left after the NEW-436→442 rounds, done as one round / two commits. The project-architect scoping subagent was cut off by a session restart before producing anything; the coordinator verified the three findings directly (all callers use kwargs, no positional-override or `reap_dead=` caller anywhere) and specced the implementer. Committed `697f593` (NEW-440 + NEW-445), `c65da62` (NEW-444).
+
+- **NEW-440 + NEW-445 (`697f593`, code-reviewer APPROVED):** removed two dead parameters from `core/resource_gate.py`. `reserve_context_budget()`'s `reap_dead: bool = True` was never read in the body (reaping happens downstream in `acquire_context_lease()`); the `reap_dead` params on `list_slots()` etc. are real and were left alone. `_state_paths()` / `_LockedState.__init__`'s `state_filename`/`lock_filename` overrides had no non-default caller after NEW-441 removed the legacy JSON store — removed both, `_state_paths()` now returns the fixed `_STATE_FILENAME`/`_LOCK_FILENAME` paths directly. Function bodies otherwise byte-identical; `grep -rn "state_filename|lock_filename" core/ tests/` → nothing. Reviewer independently re-grepped every call site and re-ran the targeted suites.
+- **NEW-444 (`c65da62`, comment-only, closed as accepted-and-documented):** the `/api/v1/ai/chat` route's `finally` block catches `Exception` broadly around `release_context_budget()`. Accepted as deliberate: consistent with the two sibling release sites, a failed release can't be allowed to alter the already-computed HTTP response, a leaked reservation is bounded by the 1800s age reap, and NEW-443's strict spy (which raises `BaseException` to escape exactly this handler) catches the wrong-arity regression class at test time. Added a comment recording all of that.
+- Full suite 1580 passed / 1 skipped for both commits.
+
+**Why:** Closing the long tail properly rather than letting three "harmless" vestigial items accumulate. NEW-444 is a genuine judgment call that came out "accept" — narrowing the catch would risk letting an unforeseen cleanup failure break an otherwise-successful response, for almost no gain now that the test side guards the known regression class. **The entire NEW-206 → NEW-436 concurrency/resource-gate saga is now closed with zero open findings.**
+
+**Next action:** No blocked or queued work from this saga. Next pickup is whatever the master plan's Appendix A / §6 rollout order surfaces.
+
 ## 2026-09-10 — NEW-441 + NEW-443 fixed: dead legacy JSON context-store removed; strict release-spy at all 5 test mock sites
 
 **What changed:** The two low-priority cleanups left open after NEW-436/442. project-architect scoped both as one round / two commits; implementer did both; code-reviewer APPROVED commit 1 (NEW-441, admission-path). Committed `7182c10` (NEW-441), `674d1af` (NEW-443).
