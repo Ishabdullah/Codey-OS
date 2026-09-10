@@ -6264,6 +6264,34 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       (gated only on `onboarding_sent`) could then fire against a live
       business. Seed Core first (from Aigentik's `profile.json`, which
       carries `onboarding_sent: 1`) before any admin Save.
+
+      **Admin-dashboard program (Ish, 2026-09-10) — sequenced 5 rounds
+      making the dashboard the single control surface; standing rule
+      logged: every dashboard change must propagate to Aigentik + Codey,
+      the "who else consumes this" trace is part of every round.** Status:
+      - **Round 1 DONE** (`1942f5d` + `a416bc1`): `migrate_aigentik._bool01`
+        int coercion (NEW-454) + live Core `business_profile` seeded from
+        Aigentik. NEW-449 hazard cleared.
+      - **U.39 + B7 residuals** — program paused for these (see M-lane
+        U.39, §6.10 B7.2/B7.3, and the 2026-09-10 PROJECT_LOG entries):
+        the live Core DB had no backup, now reconciled + a DR key escrow
+        chain, both live-verified.
+      - **Round 2 DONE** (Codey-Aigentik `e154f50`): Aigentik email
+        signature carries `business_phone`/`business_email`/`license_number`
+        (all 4 email paths, present-only, render-verified). Ish: license #
+        on every email = yes; AI stating it inline in reply bodies = no
+        (signature only). Finding `NEW-464` — Aigentik reply *bodies*
+        still hardcode "Restoricon, LLC".
+      - **Round 3 NEXT:** `max_concurrent_estimators` as a real scheduling
+        constraint (Ish confirmed) — `schedule_config` column + field +
+        migration + `scheduling_service` enforcement + `calendar.js`
+        alignment (was NEW-452).
+      - **Round 4:** wire `render_admin_surface()`'s hardcoded display
+        sections + make the form able to edit anything hardcoded (NEW-450).
+      - **Round 5:** business-hours editor + per-service-type
+        scheduling-hours section (Ish's pick: Emergency 24/7 / Standard
+        estimate / Consultation each own weekly availability), writing
+        through to `schedule_config`.
 - [x] **B6.5** — file/document upload. **Rule-4 category** (new
       request-path surface, path-traversal and content-type exposure,
       reachable from the customer portal). **Rule 11: `install.sh` must

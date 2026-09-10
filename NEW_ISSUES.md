@@ -17668,3 +17668,12 @@ housekeeping, same as `NEW-403`'s own cleanup.
 - **Impact:** minor — wasted CPU/network per start, GCS write per start. No correctness issue.
 - **Not fixed** — deferred optimization: skip if the source files' mtimes are all older than the last successful upload, or run on a longer cadence. Bundle with any future `backup_secrets` change.
 - **Cross-reference:** `NEW-458`, `lib/service_manager.sh` `start_litestream`.
+
+## Found during admin-dashboard program Round 2 scoping, 2026-09-10
+
+### [NEW-464] Confirmed: Aigentik's customer/recruiter reply-BODY prompt builders hardcode "Restoricon, LLC" + CT positioning text instead of reading the profile
+
+- **Status:** Confirmed by reading the builder bodies (project-architect, 2026-09-10, scoping Round 2). `~/Codey-Aigentik/llama.js:~780-781` (`'Restoricon, LLC'` + a CT-contractor description string), `:797` (`'Restoricon Subcontractor Network'`), `:847` (`'Restoricon, LLC'`), `:869` (`'Restoricon'`), and the system-prompt builders in `customer-module.js` (`buildCustomerSystemPrompt`) and `subcontractor-recruiter.js` (`buildRecruiterSystemPrompt`) hardcode the business name and CT positioning rather than reading `config.business_name` / `config.business_description` (which `loadProfile()` populates Core-first). `generateCustomerReply` / `generateRecruiterReply` don't even receive `businessName` as a parameter.
+- **Impact:** the AI's *reply bodies* (not the signature — Round 2 fixed the signature) always say "Restoricon, LLC" and CT-specific text regardless of what the dashboard `business_name` / `business_description` fields are set to. Makes Aigentik non-portable to any other business and means a dashboard edit to the business name/description doesn't reach customer-facing prose. Contradicts the standing "dashboard is the single control surface" rule.
+- **Not fixed** — three separate uneven changes (`llama.js` `businessContext()` is easy; the two other builders need a new parameter threaded). Candidate for its own round after the current program. Also see: Ish decided 2026-09-10 that the AI should NOT state phone/license # inline in reply bodies (signature only) — that decision is settled and is NOT this finding.
+- **Cross-reference:** `NEW-450` (the Codey-OS-side hardcoded display sections), `f21ad63` / Round 2, `feedback_dashboard_single_control_surface`, `~/Codey-Aigentik/llama.js`, `customer-module.js`, `subcontractor-recruiter.js`.
