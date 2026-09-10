@@ -6245,6 +6245,25 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       (honor the service layer's existing cost/margin masking, don't
       re-implement it in the UI); **e)** communications; **f)** marketing/
       HR/procurement/compliance.
+      **Follow-up 2026-09-10 (full pipeline, live-verified):** Ish
+      reported the Business Profile tab's HIC # / phone / email silently
+      not persisting — the JS `saveBusinessProfile()` never read those
+      three inputs and there was no column/field for them anywhere. Added
+      `business_phone`/`business_email`/`license_number` to
+      `business_profile` (DDL + `_migrate_schema`), the `BusinessProfile`
+      dataclass, `_row_to_profile`, and `upsert_business_profile`'s 4 SQL
+      sites; rewrote both admin load blocks to a 3-way ok/404/failure
+      pattern that disables Save on a failed load (closing a latent
+      full-row-replace data-loss path); reconciled the schedule tab's
+      HTML/JS/DDL default disagreements; disabled the backend-less
+      "Max Concurrent Estimators" input. Commit `f21ad63`. Findings
+      `NEW-449`…`NEW-453` — **`NEW-449` is open and matters**: Ish's live
+      Core `business_profile` table is empty, so the first admin Save
+      writes NULL `aigentik_name`/`owner_name` **and `onboarding_sent: 0`**
+      — Aigentik adopts them and its startup `sendOnboardingEmail()`
+      (gated only on `onboarding_sent`) could then fire against a live
+      business. Seed Core first (from Aigentik's `profile.json`, which
+      carries `onboarding_sent: 1`) before any admin Save.
 - [x] **B6.5** — file/document upload. **Rule-4 category** (new
       request-path surface, path-traversal and content-type exposure,
       reachable from the customer portal). **Rule 11: `install.sh` must
