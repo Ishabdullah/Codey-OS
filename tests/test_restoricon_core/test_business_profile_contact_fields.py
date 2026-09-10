@@ -121,6 +121,23 @@ def test_business_profile_contact_fields_round_trip(ops):
     assert fetched.license_number == "LIC-SENTINEL"
 
 
+def test_business_profile_identity_fields_round_trip(ops):
+    automation, actor = ops
+    automation.upsert_business_profile(
+        BusinessProfile(
+            business_name="Restoricon, LLC",
+            owner_name="OWNER-SENTINEL",
+            aigentik_name="AGENT-SENTINEL",
+            agent_name_set=1,
+        ),
+        actor,
+    )
+    fetched = automation.get_business_profile(actor)
+    assert fetched.owner_name == "OWNER-SENTINEL"
+    assert fetched.aigentik_name == "AGENT-SENTINEL"
+    assert fetched.agent_name_set == 1
+
+
 def test_to_dict_emits_new_keys():
     d = BusinessProfile().to_dict()
     assert "business_phone" in d
@@ -179,6 +196,31 @@ def test_business_profile_route_round_trip(api_server):
     assert profile["license_number"] == "LIC-SENTINEL"
 
 
+def test_business_profile_route_identity_round_trip(api_server):
+    base_url = api_server
+    headers = _admin_headers(base_url)
+
+    status, body = make_request(
+        f"{base_url}/api/v1/business-profile",
+        method="POST",
+        headers=headers,
+        data={
+            "business_name": "Restoricon, LLC",
+            "owner_name": "OWNER-SENTINEL",
+            "aigentik_name": "AGENT-SENTINEL",
+            "agent_name_set": 1,
+        },
+    )
+    assert status == 200
+
+    status, body = make_request(f"{base_url}/api/v1/business-profile", headers=headers)
+    assert status == 200
+    profile = body["business_profile"]
+    assert profile["owner_name"] == "OWNER-SENTINEL"
+    assert profile["aigentik_name"] == "AGENT-SENTINEL"
+    assert profile["agent_name_set"] == 1
+
+
 def test_business_profile_upsert_is_full_row_replace(ops):
     automation, actor = ops
     automation.upsert_business_profile(
@@ -188,6 +230,8 @@ def test_business_profile_upsert_is_full_row_replace(ops):
             business_email="EMAIL-SENTINEL",
             license_number="LIC-SENTINEL",
             owner_name="Ish",
+            aigentik_name="Codey",
+            agent_name_set=1,
         ),
         actor,
     )
@@ -201,3 +245,5 @@ def test_business_profile_upsert_is_full_row_replace(ops):
     assert fetched.business_email == defaults.business_email
     assert fetched.license_number == defaults.license_number
     assert fetched.owner_name == defaults.owner_name
+    assert fetched.aigentik_name == defaults.aigentik_name
+    assert fetched.agent_name_set == defaults.agent_name_set

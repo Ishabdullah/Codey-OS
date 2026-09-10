@@ -28,3 +28,9 @@ def test_admin_surface_wires_patch_business_chrome():
     html = render_admin_surface()
     # def + 3 call sites (200 branch, 404 branch, saveBusinessProfile success)
     assert html.count("patchBusinessChrome") == 4
+
+
+def test_admin_surface_has_company_profile_identity_inputs():
+    html = render_admin_surface()
+    assert 'id="profOwner"' in html
+    assert 'id="profAgentName"' in html

@@ -1934,6 +1934,14 @@ def render_admin_surface() -> str:
                         <label>CT General Contractor Licensure</label>
                         <input type="text" id="profLicense">
                     </div>
+                    <div class="form-group">
+                        <label>Owner Name</label>
+                        <input type="text" id="profOwner">
+                    </div>
+                    <div class="form-group">
+                        <label>AI Agent Name</label>
+                        <input type="text" id="profAgentName">
+                    </div>
                 </div>
                 <div class="form-group" style="margin-top: 1rem;">
                     <label>AI Agent Master System Instructions & Restoration Context</label>
@@ -3174,6 +3182,13 @@ def render_admin_surface() -> str:
             window.currentBusinessProfile.business_phone = document.getElementById('profPhone').value;
             window.currentBusinessProfile.business_email = document.getElementById('profEmail').value;
             window.currentBusinessProfile.license_number = document.getElementById('profLicense').value;
+            window.currentBusinessProfile.owner_name = document.getElementById('profOwner').value;
+            const an = document.getElementById('profAgentName').value.trim();
+            window.currentBusinessProfile.aigentik_name = an;
+            // Only ever arm agent_name_set; never clear it. Blanking the AI
+            // Agent Name field must not re-arm Aigentik onboarding on a
+            // fresh/restored DB -- preserve whatever value was loaded.
+            if (an) window.currentBusinessProfile.agent_name_set = 1;
             try {
                 const res = await fetch('/api/v1/business-profile', {
                     method: 'POST',
@@ -3233,6 +3248,8 @@ def render_admin_surface() -> str:
                     document.getElementById('profPhone').value = p.business_phone ?? '';
                     document.getElementById('profEmail').value = p.business_email ?? '';
                     document.getElementById('profLicense').value = p.license_number ?? '';
+                    document.getElementById('profOwner').value = p.owner_name ?? '';
+                    document.getElementById('profAgentName').value = p.aigentik_name ?? '';
                     document.getElementById('profPrompt').value = p.business_description ?? '';
                 };
                 try {
@@ -3251,9 +3268,21 @@ def render_admin_surface() -> str:
                             business_phone: null, business_email: null, license_number: null,
                             onboarding_sent: 0, setup_date: null, updated_at: null
                         };
-                        window.businessProfileLoaded = true;
-                        populateBusinessProfile(window.currentBusinessProfile);
+                        // Blank the shared chrome (no profile row => no contact
+                        // info) but do NOT populate the form or enable Save. The
+                        // form now carries identity fields (owner_name /
+                        // aigentik_name); a 404-state save would write them null
+                        // and onboarding_sent=0 -- the NEW-449 hazard. This is
+                        // deliberately stricter than schedule-config's
+                        // 404->enabled path, which is a legitimate first-row
+                        // create with no identity/onboarding fields at stake.
                         patchBusinessChrome(window.currentBusinessProfile);
+                        window.businessProfileLoaded = false;
+                        if (bpBtn) {
+                            bpBtn.disabled = true;
+                            bpBtn.insertAdjacentHTML('afterend',
+                                '<div style="color:#c00;margin-top:0.5rem;">Could not load — save disabled to prevent data loss</div>');
+                        }
                     } else {
                         throw new Error('HTTP ' + bpRes.status);
                     }
