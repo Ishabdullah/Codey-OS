@@ -508,7 +508,7 @@ def build_run_start_nulls(body: Dict[str, Any]) -> Dict[str, str]:
     - git_commit_sha / git_dirty / git_dirty_file_count / git_branch:
       "git_command_unavailable" (git missing, not a repo, or the 2s
       timeout in get_git_provenance()) — schema-defined reason for
-      exactly this case (telemetry/schema/v1.json's null_reason_codes).
+      exactly this case (the schema's null_reason_codes).
     - ram_total_bytes / swap_total_bytes: "state_store_unreadable"
       (/proc/meminfo unreadable in get_ram_swap_bytes()).
     - device_uptime_sec: always "proc_uptime_permission_denied" — a

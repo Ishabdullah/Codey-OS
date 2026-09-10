@@ -2,11 +2,10 @@
 Schema-file integrity: the SHA-256 of the current schema file
 (telemetry/schema/v2.json) must match a literal constant checked into this
 test file (NOT computed from the same file schema.py reads — that would be
-circular and pin nothing). Codey-Aigentik's parity test (T1) currently
-pins v1.json's hash and reads v1.json (that repo has not migrated to v2
-yet — a later T10 commit); once it does, its pinned literal moves to
-v2.json's hash and must equal EXPECTED_SHA256 here. v1.json is frozen
-forever and its hash is pinned separately in KNOWN_SCHEMA_SHA256_12 /
+circular and pin nothing). Codey-Aigentik's parity test (T1) pins the
+same v2.json hash and reads v2.json (T10 commit 2, `a71e4d1`) — its
+pinned literal must equal EXPECTED_SHA256 here. v1.json is frozen forever
+and its hash is pinned separately in KNOWN_SCHEMA_SHA256_12 /
 test_known_schema_hashes_table.
 
 Also asserts the null-reason and category/emitter enums are closed sets,
@@ -91,8 +90,8 @@ def test_env_allow_list_excludes_known_secret_names():
 def test_schema_env_allow_list_matches_utils_config_copy():
     """utils/config.py's TELEMETRY_ENV_ALLOW_LIST (what
     telemetry/provenance.py actually reads operationally) and
-    telemetry/schema/v1.json's env_allow_list (the schema file's own
-    self-describing copy) must never silently diverge."""
+    the schema file's own self-describing env_allow_list copy must never
+    silently diverge."""
     assert schema.ENV_ALLOW_LIST == TELEMETRY_ENV_ALLOW_LIST
     assert schema.SECRET_PRESENCE_ONLY_ENV == TELEMETRY_SECRET_PRESENCE_ONLY_ENV
 

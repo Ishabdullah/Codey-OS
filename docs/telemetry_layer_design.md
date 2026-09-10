@@ -368,7 +368,7 @@ inference_seconds_this_run}` and are emitted only on a level change.
 
 Note: although `device`'s `event_type` enum lists `counter_reset`, the
 actual `counters_reset`/`reason` body fields for this event type live
-under **`category: "meta"`** (§2.meta / `telemetry/schema/v1.json`), not
+under **`category: "meta"`** (§2.meta / `telemetry/schema/v2.json`), not
 `device`. It is emitted at run start listing every counter that reset
 with this process (`["thermal.total_inference_sec", "telemetry.seq",
 "telemetry.dropped_count"]`) — satisfying constraint 6 by *recording the
@@ -645,7 +645,8 @@ zero.
 ~/.codeyOS/metrics/
 ├── SCHEMA_VERSION                  # plain text: "1"
 ├── schema/
-│   └── v1.json                     # authoritative copy actually in use at runtime
+│   ├── v2.json                     # authoritative copy actually in use at runtime
+│   └── v1.json                     # frozen, retained for historical-record validation
 ├── runs/
 │   └── <run_id>.json               # category G, written once, never reopened for write
 ├── events/
@@ -707,14 +708,13 @@ currently uses SQLite as an immutable ledger.
 
 ### 3.3 Cross-language schema mechanism
 
-> **T10 migration in progress (2026-09-10):** Codey-OS now loads
+> **T10 migration complete (2026-09-10):** both repos now load
 > `telemetry/schema/v2.json` (adds the `codey-os.cli` emitter value,
-> additive-only). `v1.json` is retained, frozen forever, so historical
-> records keep validating; `telemetry/schema.py` carries
-> `KNOWN_SCHEMA_SHA256_12` mapping every shipped version's hash for
-> `doctor`. Codey-Aigentik still loads `v1.json` until its own T10
-> commit; the file-tree and per-file tables below still say "v1.json"
-> and are reconciled when the migration completes (see `NEW-446`).
+> additive-only — no other change from v1). `v1.json` is retained,
+> frozen forever, so historical records keep validating;
+> `telemetry/schema.py` carries `KNOWN_SCHEMA_SHA256_12` mapping every
+> shipped version's hash for `doctor`. `v2.json` is the runtime schema
+> in both repos.
 
 The current-version schema file (`telemetry/schema/v2.json`) is the single
 source of truth. It defines, per category: the field list, each field's
@@ -725,10 +725,11 @@ codes.
   computes its SHA-256 once, and exposes `SCHEMA_VERSION`,
   `SCHEMA_SHA256_12`, and a cheap `validate(record)` used in tests and by
   `codey-metrics doctor` — **not** on the hot path.
-- **JavaScript** (`telemetry.mjs`) loads its copy the same way Aigentik
-  already loads config: `import schema from './telemetry/schema/v1.json'
-  with { type: 'json' }` — the exact syntax already in use at
-  `logger.js:4` and `llama.js:4`, so no new module machinery.
+- **JavaScript** (`telemetry.mjs`) loads `./telemetry/schema/v2.json` as
+  raw bytes via `fs.readFileSync` (deliberately *not* an
+  `import ... with { type: 'json' }` assertion — a re-serialized parsed
+  object would not reproduce the original file bytes, so its hash would
+  not match Python's; see `telemetry.mjs`'s own comment).
 
 **The two repos hold byte-identical copies**, because Aigentik has no
 configured path to Codey-OS (verified: `config.json` has `paths.data_dir`,
@@ -807,7 +808,7 @@ discharged by the one entry noted.
 | Path | Purpose (one line) |
 |---|---|
 | `telemetry/__init__.py` | Package init; re-exports the public `record_*()` emit API and the `CODEY_TELEMETRY` kill-switch flag. |
-| `telemetry/schema/v1.json` | The versioned schema — single source of truth for field names, types, units, enums, and null-reason codes, in both languages. |
+| `telemetry/schema/v2.json` | The versioned schema — single source of truth for field names, types, units, enums, and null-reason codes, in both languages. (`v1.json` retained alongside, frozen, for historical-record validation.) |
 | `telemetry/schema.py` | Loads the current-version schema (`v2.json` as of T10), computes and exposes `SCHEMA_VERSION` / `SCHEMA_SHA256_12` / `KNOWN_SCHEMA_SHA256_12` (per-version hashes for `doctor`), and provides off-hot-path `validate(record)` for tests and `doctor`. |
 | `telemetry/envelope.py` | Builds the shared envelope (`run_id`, `seq`, `ts_wall`/`ts_mono`, `boot_id`, `nulls` map) and enforces the 8 KiB record cap. |
 | `telemetry/store.py` | Bounded ring buffer, background writer thread, `O_APPEND` JSONL writes, drop counting; every public entry point is exception-proof. |
@@ -829,7 +830,7 @@ discharged by the one entry noted.
 
 | Path | Purpose (one line) |
 |---|---|
-| `telemetry/schema/v1.json` | Byte-identical copy of the Codey-OS schema; parity pinned by SHA-256 test on both sides. |
+| `telemetry/schema/v2.json` | Byte-identical copy of the Codey-OS schema; parity pinned by SHA-256 test on both sides. (`v1.json` retained alongside, frozen, for historical-record validation.) |
 | `telemetry.mjs` | JS emitter — same envelope and store layout, async (non-blocking) appends, and the `pruneOldLogs` collision interlock (§1.4). |
 | `__tests__/telemetry.test.js` | Schema-hash parity, envelope shape, prune interlock (`pruneOldLogs(0)` leaves records intact), and grounding-taxonomy/`isAddressGrounded` equivalence. |
 

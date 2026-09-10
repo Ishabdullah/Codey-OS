@@ -1,6 +1,6 @@
 """
-Builds the shared envelope every telemetry record carries (schema
-v1.json's `envelope` block) and enforces the 8 KiB record cap.
+Builds the shared envelope every telemetry record carries (the schema's
+`envelope` block) and enforces the 8 KiB record cap.
 
 Design decisions / implementation details the design doc left
 unspecified, resolved here (flag for review):
@@ -10,8 +10,8 @@ unspecified, resolved here (flag for review):
   field. The design doc's examples were ambiguous about this.
 - `boot_id` unreadable and `correlation_id` "no ambient context yet" had
   no matching reason code in the design doc's closed set (§2.0.1). Two
-  codes were added to the v1.json set itself (this is schema v1's first
-  and only implementation, so the set is being defined, not amended):
+  codes were added to the schema's closed set in schema v1, where that
+  set was first defined (being defined, not amended):
   `boot_id_unreadable` and `correlation_id_not_yet_available`.
 - `seq` is assigned HERE, at envelope-build time (i.e. at the `record_*()`
   call site), not by the writer thread after the record is dequeued.
