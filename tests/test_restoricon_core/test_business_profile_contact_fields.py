@@ -247,3 +247,50 @@ def test_business_profile_upsert_is_full_row_replace(ops):
     assert fetched.owner_name == defaults.owner_name
     assert fetched.aigentik_name == defaults.aigentik_name
     assert fetched.agent_name_set == defaults.agent_name_set
+
+
+def test_schedule_config_route_booking_window_round_trip(api_server):
+    base_url = api_server
+    headers = _admin_headers(base_url)
+
+    status, _ = make_request(
+        f"{base_url}/api/v1/schedule-config",
+        method="POST",
+        headers=headers,
+        data={"booking_window_days": 90},
+    )
+    assert status == 200
+
+    status, body = make_request(f"{base_url}/api/v1/schedule-config", headers=headers)
+    assert status == 200
+    assert body["schedule_config"]["booking_window_days"] == 90
+
+
+def test_schedule_config_route_is_full_row_replace(api_server):
+    """Pins NEW-466: schedule-config POST is a full-row replace. A body
+    that omits working_hours after it was set blanks it back to {}."""
+    base_url = api_server
+    headers = _admin_headers(base_url)
+
+    status, _ = make_request(
+        f"{base_url}/api/v1/schedule-config",
+        method="POST",
+        headers=headers,
+        data={"working_hours": {"mon": {"start": "09:00", "end": "17:00"}}},
+    )
+    assert status == 200
+
+    status, body = make_request(f"{base_url}/api/v1/schedule-config", headers=headers)
+    assert body["schedule_config"]["working_hours"] == {"mon": {"start": "09:00", "end": "17:00"}}
+
+    # Omit working_hours -> ScheduleConfig dataclass default {} -> row blanked.
+    status, _ = make_request(
+        f"{base_url}/api/v1/schedule-config",
+        method="POST",
+        headers=headers,
+        data={"booking_window_days": 90},
+    )
+    assert status == 200
+
+    status, body = make_request(f"{base_url}/api/v1/schedule-config", headers=headers)
+    assert body["schedule_config"]["working_hours"] == {}

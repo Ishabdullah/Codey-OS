@@ -1967,6 +1967,10 @@ def render_admin_surface() -> str:
                         <input type="number" id="schedBuffer">
                     </div>
                     <div class="form-group">
+                        <label>Booking Window (days out)</label>
+                        <input type="number" id="schedBookingWindow" min="1">
+                    </div>
+                    <div class="form-group">
                         <label>Max Concurrent Estimators</label>
                         <input type="number" id="schedConcurrent" value="3" disabled>
                         <small style="color: #999;">(not yet configurable)</small>
@@ -3217,6 +3221,7 @@ def render_admin_surface() -> str:
             window.currentScheduleConfig = window.currentScheduleConfig || {};
             window.currentScheduleConfig.default_duration_minutes = schedDuration;
             window.currentScheduleConfig.buffer_minutes = schedBuffer;
+            window.currentScheduleConfig.booking_window_days = parseInt(document.getElementById('schedBookingWindow').value) || 365;
             try {
                 const res = await fetch('/api/v1/schedule-config', {
                     method: 'POST',
@@ -3300,6 +3305,7 @@ def render_admin_surface() -> str:
                 const populateScheduleConfig = (c) => {
                     document.getElementById('schedDuration').value = c.default_duration_minutes ?? 30;
                     document.getElementById('schedBuffer').value = c.buffer_minutes ?? 15;
+                    document.getElementById('schedBookingWindow').value = c.booking_window_days ?? 365;
                 };
                 try {
                     const token = getAuthToken();
@@ -3310,7 +3316,14 @@ def render_admin_surface() -> str:
                         window.scheduleConfigLoaded = true;
                         populateScheduleConfig(window.currentScheduleConfig);
                     } else if (scRes.status === 404) {
-                        window.currentScheduleConfig = { default_duration_minutes: 30, buffer_minutes: 15 };
+                        // Full row: saveScheduleConfig() POSTs currentScheduleConfig
+                        // wholesale and upsert_schedule_config is a full-row
+                        // replace, so a 404-load-then-save must not omit
+                        // working_hours / duration_by_relationship (NEW-466).
+                        window.currentScheduleConfig = {
+                            id: 1, working_hours: {}, default_duration_minutes: 30, buffer_minutes: 15,
+                            booking_window_days: 365, duration_by_relationship: {}, updated_at: null
+                        };
                         window.scheduleConfigLoaded = true;
                         populateScheduleConfig(window.currentScheduleConfig);
                     } else {
