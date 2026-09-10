@@ -1289,15 +1289,24 @@ points, named below.
 > single obvious "next phase" the way M1 or B6 were — check §6's
 > remaining `- [ ]` lines directly (search this file for `\- \[ \]`)
 > rather than trusting a prose summary here, since that's exactly the
-> mechanism that went stale twice. As of this update those are: the
-> **concurrency test** (§7.4a's KV-cache/slot-count check — last live
-> pass, 2026-08-26, was a negative result measured against the retired
-> 7B model, not yet re-run against Qwen3.5-4B), **`T10`** (telemetry
-> schema v2 migration, scoped but not started), **`11.x`** (Model
-> Orchestrator, parked until a domain agent needs it — not actionable
-> now), and **`P.1`** (self-improvement activation, permanently gated by
-> rule 1). `NEW_ISSUES.md` also has a handful of small open items
-> (`NEW-422`/`NEW-423`) and an untriaged ~50-item broader
+ mechanism that went stale twice.
+>
+> **Update, 2026-09-10 (third navigation-drift correction, same
+> `NEW-290` class — this banner listed the concurrency test as open
+> when it had CLOSED 2026-09-09):** the **concurrency test / §7.4a
+> KV-cache-slot-count check is CLOSED** — the entire `NEW-206` →
+> `NEW-430`/`431`/`435` → `NEW-436` saga was live-verified and closed
+> across 2026-09-09/10 (see the §4 Concurrency-test row and
+> `PROJECT_LOG.md`), including the residual-findings cleanup
+> (`NEW-432`/`433`/`434`/`436`/`441`/`442`/`443`/`440`/`444`/`445`, all
+> now fixed or closed). As of this update the genuinely open,
+> actionable `- [ ]` lines are just: **`T10`** (telemetry schema v2
+> migration, scoped but not started — the one real next task),
+> **`11.x`** (Model Orchestrator, parked until a domain agent needs
+> it — not actionable now), and **`P.1`** (self-improvement
+> activation, permanently gated by rule 1). `NEW_ISSUES.md` also has a
+> handful of small open items (`NEW-422`/`NEW-423`) and an untriaged
+> ~50-item broader
 > process-lifecycle population from the 2026-09-08 ledger-closeout
 > batch, neither prioritized.
 >
