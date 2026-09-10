@@ -6313,10 +6313,32 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
 - [x] **B7.2** — incremental upload of the B6.5 document/photo store.
       **Depends on B6.5** (nothing to back up until upload exists).
       Incremental, not a full re-push per cycle. (Completed 2026-09-07)
+      **2026-09-10 (NEW-460):** store path reconciled off the dead
+      `~/.codey_restoricon/` tree → `~/.codeyOS/restoricon_documents`
+      (one config resolver, 3 call sites, pinned by a test).
+      **First real restore drill run 2026-09-10** — `age -d` of every
+      GCS `.age`, byte-identical to the live store. Now genuinely
+      live-verified.
 - [x] **B7.3** — config/secrets/tokens. **Rule-4 category** on the
       credential handling. **Encryption before upload, with the key held
       outside the backup** — done carelessly this converts a device-loss
       problem into a credential-disclosure problem. (Completed 2026-09-07)
+      **Rule-6 correction + real fix 2026-09-10 (NEW-458, `6a93c62`):**
+      as shipped 2026-09-07 the "key held outside the backup" requirement
+      was **not met** — every backup (this blob + the Litestream
+      snapshots) was encrypted only to the on-device `~/.codeyOS/age.key`,
+      with no off-device escrow, and `backup_secrets.py` was invoked by
+      nothing and tarred only a nonexistent file. Now: `core/setup_dr_key.py`
+      generates a dedicated DR recipient keypair (private half printed
+      once for offline escrow, never on disk); `backup_secrets.py`
+      rewritten to encrypt to both the at-rest and DR pubkeys, fail
+      closed without the DR pubkey, include `age.key` + `vertex-express.json`,
+      and run once per `codey-start`. **Full DR restore chain
+      live-verified 2026-09-10** — DR key alone → secrets blob → recovered
+      `age.key` → `litestream restore` with exact row parity; negative
+      control and fail-closed both confirmed. **Pending Ish:** escrow the
+      real DR private key offline (`setup_dr_key.py --force` then re-run
+      `backup_secrets.py`) + a GCS read credential alongside it.
 - [x] **B7.4** — the restore drill. **Live-verified by nature (rule 7);
       code-complete does not close B7.** Restore to a scratch path,
       verify row counts and file integrity against the live DB. A backup
