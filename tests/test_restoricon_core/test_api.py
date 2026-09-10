@@ -935,7 +935,7 @@ def test_api_ai_chat_auth_and_validation(api_server, monkeypatch):
         "core.resource_gate.wait_and_reserve_context_budget",
         lambda *a, **k: _mock_admitted_budget_decision(),
     )
-    monkeypatch.setattr("core.resource_gate.release_context_budget", lambda *a, **k: True)
+    monkeypatch.setattr("core.resource_gate.release_context_budget", _strict_release_spy())
 
     # 3. Successful proxy with mocked urlopen
     class MockHTTPResponse:
@@ -993,6 +993,48 @@ class _MockHTTPResponse:
 
     def __exit__(self, *args):
         pass
+
+
+class _ReleaseContractViolation(BaseException):
+    """Raised by `_strict_release_spy()` on a wrong-shape
+    `release_context_budget` call. Derives from `BaseException`, NOT
+    `Exception`, on purpose: the /api/v1/ai/chat route wraps its
+    `release_context_budget(reservation_id)` call in a bare
+    `except Exception` (routes.py finally-block). A plain `Exception`
+    here would be caught, logged at WARNING, and the request would still
+    return 200 -- i.e. the contract violation would be swallowed exactly
+    the way `lambda *a, **k: True` swallowed it (NEW-443). BaseException
+    escapes that handler so a regression fails the test loudly."""
+
+
+def _strict_release_spy():
+    """A `release_context_budget` stand-in enforcing the call contract
+    NEW-442 broke: exactly one positional `reservation_id` (a str), or
+    the `reservation_id=` kwarg -- never `release_context_budget(port,
+    reservation_id)`. Raises on the arg-swapped shape so a future
+    regression fails loudly instead of being swallowed."""
+
+    def _spy(*args, **kwargs):
+        if len(args) > 1:
+            raise _ReleaseContractViolation(
+                f"release_context_budget called with {len(args)} positionals: {args!r}"
+            )
+        if args:
+            if not isinstance(args[0], str):
+                raise _ReleaseContractViolation(
+                    f"release_context_budget positional is {type(args[0]).__name__}, "
+                    f"expected str reservation_id: {args[0]!r}"
+                )
+        elif "reservation_id" not in kwargs or not isinstance(
+            kwargs["reservation_id"], str
+        ):
+            raise _ReleaseContractViolation(
+                f"release_context_budget called without a str reservation_id: "
+                f"args={args!r} kwargs={kwargs!r}"
+            )
+        return True
+
+    return _spy
 
 
 def _ai_chat_success_env(monkeypatch, base_url, release_spy):
@@ -1133,7 +1175,7 @@ def test_api_ai_chat_emits_category_a_telemetry_on_success(api_server, monkeypat
         "core.resource_gate.wait_and_reserve_context_budget",
         lambda *a, **k: _mock_admitted_budget_decision(),
     )
-    monkeypatch.setattr("core.resource_gate.release_context_budget", lambda *a, **k: True)
+    monkeypatch.setattr("core.resource_gate.release_context_budget", _strict_release_spy())
 
     _, base_url, _, _ = api_server
     headers = _agent_headers(base_url)
@@ -1265,7 +1307,7 @@ def test_api_ai_chat_telemetry_falls_back_to_usage_when_timings_absent(api_serve
         "core.resource_gate.wait_and_reserve_context_budget",
         lambda *a, **k: _mock_admitted_budget_decision(),
     )
-    monkeypatch.setattr("core.resource_gate.release_context_budget", lambda *a, **k: True)
+    monkeypatch.setattr("core.resource_gate.release_context_budget", _strict_release_spy())
 
     _, base_url, _, _ = api_server
     headers = _agent_headers(base_url)
@@ -1349,7 +1391,7 @@ def test_api_ai_chat_telemetry_honest_null_when_timings_and_usage_both_absent(ap
         "core.resource_gate.wait_and_reserve_context_budget",
         lambda *a, **k: _mock_admitted_budget_decision(),
     )
-    monkeypatch.setattr("core.resource_gate.release_context_budget", lambda *a, **k: True)
+    monkeypatch.setattr("core.resource_gate.release_context_budget", _strict_release_spy())
 
     _, base_url, _, _ = api_server
     headers = _agent_headers(base_url)
@@ -1425,7 +1467,7 @@ def test_api_ai_chat_no_telemetry_written_when_disabled(api_server, monkeypatch,
         "core.resource_gate.wait_and_reserve_context_budget",
         lambda *a, **k: _mock_admitted_budget_decision(),
     )
-    monkeypatch.setattr("core.resource_gate.release_context_budget", lambda *a, **k: True)
+    monkeypatch.setattr("core.resource_gate.release_context_budget", _strict_release_spy())
 
     _, base_url, _, _ = api_server
     headers = _agent_headers(base_url)
