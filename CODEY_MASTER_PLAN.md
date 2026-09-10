@@ -6265,10 +6265,15 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       business. Seed Core first (from Aigentik's `profile.json`, which
       carries `onboarding_sent: 1`) before any admin Save.
 
-      **Admin-dashboard program (Ish, 2026-09-10) — sequenced 5 rounds
-      making the dashboard the single control surface; standing rule
-      logged: every dashboard change must propagate to Aigentik + Codey,
-      the "who else consumes this" trace is part of every round.** Status:
+      **Admin-dashboard program (Ish, 2026-09-10) — making the dashboard
+      the single control surface; two standing rules: (1) every dashboard
+      change must propagate to Aigentik + Codey ("who else consumes this"
+      trace is part of every round); (2) anything configurable must be
+      dashboard-editable — no config-file-only or owner-command-only
+      knobs.** Re-sequenced 2026-09-10 (Ish): the standalone
+      `max_concurrent_estimators` round is folded into the final
+      scheduling round (per-type concurrency needs that round's
+      appointment-type taxonomy). Status:
       - **Round 1 DONE** (`1942f5d` + `a416bc1`): `migrate_aigentik._bool01`
         int coercion (NEW-454) + live Core `business_profile` seeded from
         Aigentik. NEW-449 hazard cleared.
@@ -6282,16 +6287,31 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
         on every email = yes; AI stating it inline in reply bodies = no
         (signature only). Finding `NEW-464` — Aigentik reply *bodies*
         still hardcode "Restoricon, LLC".
-      - **Round 3 NEXT:** `max_concurrent_estimators` as a real scheduling
-        constraint (Ish confirmed) — `schedule_config` column + field +
-        migration + `scheduling_service` enforcement + `calendar.js`
-        alignment (was NEW-452).
-      - **Round 4:** wire `render_admin_surface()`'s hardcoded display
-        sections + make the form able to edit anything hardcoded (NEW-450).
-      - **Round 5:** business-hours editor + per-service-type
-        scheduling-hours section (Ish's pick: Emergency 24/7 / Standard
-        estimate / Consultation each own weekly availability), writing
-        through to `schedule_config`.
+      - **Round 3 DONE** (`7aad57b`/`c16209b`/`aec94ee`/`9cd7873`,
+        code-reviewer APPROVED, live-verified): editability pass — admin
+        nav/drawer/top-bar chrome wired to `business_profile` via
+        `patchBusinessChrome` (NEW-450 closed); Company Profile gains
+        owner-name + agent-name fields (chat-command-only before;
+        `agent_name_set` one-way armed so clearing can't re-fire
+        onboarding email); Schedule tab gains booking-window-days;
+        NEW-466 (partial 404-save reset) fixed. Frontend + tests only,
+        no schema change. Findings NEW-465…472 (see PROJECT_LOG 2026-09-10)
+        — notably **NEW-465: the Aigentik booking bot offers no slots on
+        device** (empty `working_hours`), **NEW-470: the 4 staff portals
+        serve broken HTML** (f-string bug, Ish flagged priority).
+      - **NEXT: NEW-470 staff-portal fix** (fast, its own pass), then
+      - **Final round:** appointment-type taxonomy (Emergency / Standard
+        estimate / Consultation) + per-type scheduling hours + per-type
+        concurrency caps (the folded-in `max_concurrent_estimators`,
+        NEW-452) + business-hours editor + NEW-465 fix — one coherent
+        scheduling round, writing through to `schedule_config`, consumed
+        by `calendar.js`.
+      - **Deferred (own rounds after the program):** NEW-464 (Aigentik
+        reply bodies hardcode the business name), NEW-468 (public
+        surfaces need an unauth profile read), NEW-469 (running Aigentik
+        only reads the profile at boot), NEW-471 (tagline/website/
+        service_area columns for full chrome coverage), dashboard
+        equivalents for the other Aigentik owner-commands.
 - [x] **B6.5** — file/document upload. **Rule-4 category** (new
       request-path surface, path-traversal and content-type exposure,
       reachable from the customer portal). **Rule 11: `install.sh` must

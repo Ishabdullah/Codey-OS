@@ -17562,8 +17562,8 @@ housekeeping, same as `NEW-403`'s own cleanup.
 
 - **Status:** Confirmed (live-verifier, 2026-09-10). Separate from the form fields (which this round de-hardcoded). In the `/admin` HTML: `(860) 337-1820` (contact card + footer), `CT HIC.0692750` (two sites), `contact@restoricon.com` (one site) are literal strings in `restoricon_core/api/web_surfaces.py`, not sourced from `business_profile`.
 - **Impact:** after a profile edit, these display sections show stale info that contradicts the saved profile. Low urgency (cosmetic / single-tenant), but directly relevant to "the dashboard controls everything."
-- **Not fixed** — out of scope for the save-path fix. Wants a small pass wiring the admin template's display sections to the same `GET /api/v1/business-profile` data the form now uses.
-- **Cross-reference:** `NEW-449`, `restoricon_core/api/web_surfaces.py:render_admin_surface()`.
+- **FIXED + LIVE-VERIFIED 2026-09-10 (admin-dashboard program Round 3, commit `7aad57b`, code-reviewer APPROVED):** new JS `patchBusinessChrome(p)` patches the admin nav phone link/text, drawer footer phone/license/email, and the admin top-bar HIC token from `window.currentBusinessProfile` (`.textContent` only; `tel:`/`mailto:` hrefs built digits-only / regex-validated or removed). Called on load (200 + 404 branches) + after a successful save. The hardcoded literals stay in the served HTML as a static fallback for the un-authed public/staff surfaces that share `_get_universal_drawer_html` (they can't fetch the token-gated profile — that's `NEW-468`). Live-verify: `GET /api/v1/business-profile` returns the seeded contact fields, the exact keys `patchBusinessChrome` reads; the 4 references (def + 3 call sites) confirmed in the served HTML.
+- **Cross-reference:** `NEW-449`, `NEW-468` (the public-surface half, still open), `NEW-471` (chrome strings with no backing column), `restoricon_core/api/web_surfaces.py`.
 
 ### [NEW-451] Confirmed: ~254 hex-named directories (each containing `resource_bus.db` / `resource_bus.lock`) sit in the **Codey-OS repo root**
 
@@ -17677,3 +17677,58 @@ housekeeping, same as `NEW-403`'s own cleanup.
 - **Impact:** the AI's *reply bodies* (not the signature — Round 2 fixed the signature) always say "Restoricon, LLC" and CT-specific text regardless of what the dashboard `business_name` / `business_description` fields are set to. Makes Aigentik non-portable to any other business and means a dashboard edit to the business name/description doesn't reach customer-facing prose. Contradicts the standing "dashboard is the single control surface" rule.
 - **Not fixed** — three separate uneven changes (`llama.js` `businessContext()` is easy; the two other builders need a new parameter threaded). Candidate for its own round after the current program. Also see: Ish decided 2026-09-10 that the AI should NOT state phone/license # inline in reply bodies (signature only) — that decision is settled and is NOT this finding.
 - **Cross-reference:** `NEW-450` (the Codey-OS-side hardcoded display sections), `f21ad63` / Round 2, `feedback_dashboard_single_control_surface`, `~/Codey-Aigentik/llama.js`, `customer-module.js`, `subcontractor-recruiter.js`.
+
+## Found during admin-dashboard program Round 3 (scoping + live-verify), 2026-09-10
+
+### [NEW-465] Confirmed: `calendar.js` booking-slot offering is INERT on the live device — `schedule_config.working_hours_json = '{}'` + a shallow spread wipes the default open week
+
+- **Status:** Confirmed (project-architect, 2026-09-10, while scoping the shelved max-concurrent-estimators round). Live `~/.codeyOS/restoricon.db` `schedule_config.working_hours_json = '{}'`. `~/Codey-Aigentik/calendar.js:143` `loadScheduleConfig` does `{ ...DEFAULT_SCHEDULE_CONFIG, ...data.schedule_config }` — a **shallow** merge, so an empty `working_hours: {}` from Core replaces `DEFAULT_SCHEDULE_CONFIG`'s fully-open week wholesale. Then `findNextAvailableSlot` (`calendar.js:~381`) hits `if (!dayHours) continue` for every weekday → returns `null` always.
+- **Impact:** the Aigentik booking bot **cannot offer any appointment slot** on this device right now. A customer asking to book a time gets no offers.
+- **Not fixed** — folded into the final scheduling round (business hours + per-type hours). Fix candidate: deep-merge `working_hours` per-day, or treat an empty `working_hours` as "use the default open week". Also: the admin dashboard has no working-hours editor yet, so Ish cannot currently set them from the UI (the final round adds that).
+- **Cross-reference:** the final admin-dashboard round, `~/Codey-Aigentik/calendar.js:139-152`, `schedule_config`.
+
+### [NEW-466] FIXED 2026-09-10 (admin-dashboard Round 3, commit `aec94ee`): the schedule-config 404-load JS literal was a partial object → a save after a 404 load blanked `working_hours` / `duration_by_relationship`
+
+- **Status:** Confirmed + FIXED. `web_surfaces.py`'s schedule-config 404 branch set `window.currentScheduleConfig = { default_duration_minutes: 30, buffer_minutes: 15 }` — a partial object. `upsert_schedule_config` is a full-row `excluded.*` replace and `ScheduleConfig(**json_body)` fills absent keys with dataclass defaults, so a 404-load-then-save silently reset `booking_window_days` to 365 and wiped any `working_hours` / `duration_by_relationship`. Same latent class `f21ad63` fixed for the business-profile Save button. **Fix:** the 404 literal is now the complete 7-field row (`id`, `working_hours: {}`, `default_duration_minutes`, `buffer_minutes`, `booking_window_days: 365`, `duration_by_relationship: {}`, `updated_at: null`). Live-verify documented the underlying API-level full-row-replace (that is by design — the dashboard literal is what's fixed, not the API).
+- **Cross-reference:** `NEW-449` (the business-profile version), Round 3, `restoricon_core/api/web_surfaces.py`.
+
+### [NEW-467] Suspected: Aigentik does not distinguish a Core `400` (validation reject) from other failures on scheduling writes
+
+- **Status:** Suspected (project-architect, 2026-09-10, shelved max-concurrent scoping — not fully traced). `~/Codey-Aigentik/calendar.js` `createAppointment` / `updateAppointment` throw on a non-2xx Core response; whether `index.js`'s scheduling state machine (`handleSchedulingMessage` / `confirmAndClose`) catches that and recovers, or lets it crash the IMAP handler / strand a customer mid-negotiation, is unverified. Matters once Core starts rejecting bookings (the final round's concurrency cap will).
+- **Not fixed** — trace + handle during the final scheduling round's Aigentik changes; upgrade to Confirmed then.
+- **Cross-reference:** `NEW-465`, the final scheduling round, `~/Codey-Aigentik/calendar.js`, `index.js`.
+
+### [NEW-468] Confirmed: the public web surfaces (quote / login / customer portal) hardcode business contact data with no propagation from the dashboard
+
+- **Status:** Confirmed (project-architect, 2026-09-10, Round 3). `_get_universal_drawer_html` + the quote-page CTAs (`web_surfaces.py:~804/812/1080/1085/1137/1142/1275`) emit hardcoded phone/email/license server-side. `GET /api/v1/business-profile` is Bearer-token-gated, so the public surfaces can't fetch it the way the admin page does (`NEW-450`'s fix is admin-only, client-side).
+- **Impact:** a dashboard edit to phone/email/license reaches the admin UI but NOT the customer-facing website. Contradicts "single control surface" for the public side.
+- **Not fixed** — needs an **unauthenticated** `GET /api/v1/public-profile` (name/phone/email/license are already public data) or server-side render-time injection into the shared drawer. **Ish decision:** is an unauth read endpoint acceptable? Future round.
+- **Cross-reference:** `NEW-450`, `feedback_dashboard_single_control_surface`, `restoricon_core/api/web_surfaces.py`.
+
+### [NEW-469] Confirmed: an Aigentik `loadProfile()` runs only once at boot — a dashboard profile edit does not reach a running Aigentik until restart or an owner-command
+
+- **Status:** Confirmed (project-architect, 2026-09-10, Round 3). `~/Codey-Aigentik/index.js:loadProfile()` has one call site — `main()` at `index.js:~1690`. `config.aigentik_name` / `config.owner_name` / `config.business_*` are boot-time snapshots; reply and greeting paths (`index.js:~386/887/924/1328`) read `config.*`. A dashboard edit persists to Core immediately but only reaches a **running** Aigentik process when it restarts or when an owner-command triggers `readProfile()` (which *is* Core-first per call and refreshes `config.*`).
+- **Impact:** "a dashboard change propagates to Aigentik" currently means "on Aigentik's next restart" for the always-on reply paths. Round 3's owner/agent-name editing works, but a live agent keeps the old name until restarted.
+- **Not fixed** — real fix is a periodic `loadProfile()` refresh or a Core→Aigentik push (B6.6 territory). Its own round.
+- **Cross-reference:** `NEW-450`, B6.6, `feedback_dashboard_single_control_surface`, `~/Codey-Aigentik/index.js`.
+
+### [NEW-470] Confirmed: the four staff portals (PM / sales / technician / subcontractor) serve BROKEN HTML — an f-string escaping bug emits template code as literal text
+
+- **Status:** Confirmed by rendering `render_pm_surface()` (project-architect, 2026-09-10, Round 3). `_render_staff_portal_base` (`web_surfaces.py:3346`) is a single `f"""…"""` string that writes `{{_get_common_styles()}}` (`:3356`) and `{{_get_universal_drawer_html("admin")}}` (`:~3366`) with **doubled** braces — in an f-string that emits the literal text `{_get_common_styles()}` / `{_get_universal_drawer_html("admin")}` instead of calling the functions. (The doubled braces on the CSS blocks below are correct — those are literal CSS braces.) Sibling code at `web_surfaces.py:482` uses single-brace `{_get_common_styles()}` in an f-string correctly.
+- **Impact:** the four routed staff portals (`routes.py:~364-377`, `render_pm_surface` etc.) render with **no shared CSS, no nav drawer, and a visible literal `{_get_common_styles()}` string** in a `<style>` block. Staff cannot use their portals. Ish flagged this **priority** 2026-09-10.
+- **Fix:** change the two function-call lines from `{{…}}` to `{…}`; add a test rendering one portal and asserting no literal `{_get_common_styles()` in the output + a real `<style>` body + the drawer present. Small, its own fast pipeline pass immediately after Round 3.
+- **Cross-reference:** B6.8, Round 3, `restoricon_core/api/web_surfaces.py:_render_staff_portal_base`.
+
+### [NEW-471] Suspected: admin-surface chrome strings with no backing `business_profile` column
+
+- **Status:** Suspected (project-architect, 2026-09-10, Round 3). Beyond phone/email/license (fixed in `NEW-450`), `render_admin_surface()` hardcodes: the top-bar tagline "Enterprise Management System • Active Restoration Job Sites" (`web_surfaces.py:~1817`), the brand `RESTORICON` + `href="https://restoricon.com"` (`:~25/29`), a KPI "Hartford County, CT" (`:~1856`), section blurbs (`:~2027/2099`), `placeholder="jsmith@restoricon.com"` (`:~2276`).
+- **Impact:** making these dashboard-driven (per the standing rule) needs new columns — `tagline`, `website`, `service_area`. Low urgency (single-tenant), tracked so it isn't forgotten.
+- **Not fixed** — a "profile-driven chrome" round with a small additive migration. **Ish decision:** add those columns?
+- **Cross-reference:** `NEW-450`, `NEW-468`, `feedback_dashboard_single_control_surface`.
+
+### [NEW-472] Confirmed: live-verifier `sqlite3.connect()` on the live DB opens RW and triggers a WAL checkpoint on close
+
+- **Status:** Confirmed (live-verifier self-report, 2026-09-10, Round 3). During orientation the verifier ran `sqlite3.connect(<live restoricon.db>)` (Python opens read-write by default); closing the last connection checkpointed and truncated the 82432-byte `-wal` / 32768-byte `-shm` into the main file, advancing its mtime. **Only already-committed WAL data was merged — no row values changed** — but the file was physically rewritten.
+- **Impact:** low. No data loss. But Litestream is configured for this DB (`_litestream_seq`/`_litestream_lock` tables present; not running at the time), and an offline WAL truncation outside Litestream's control is worth a glance at replica-generation continuity next time Litestream starts.
+- **Fix / prevention:** future live-verify runs must inspect the live DB with `sqlite3.connect('file:<path>?mode=ro', uri=True)` (or operate only on copies). Add to the live-verifier's standing practice.
+- **Cross-reference:** `NEW-457`/U.39 (Litestream), `10108d4`, live-verifier agent definition.
