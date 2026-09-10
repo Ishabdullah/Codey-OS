@@ -1,3 +1,11 @@
+## 2026-09-10 — NEW-470 fixed: the 4 staff portals were serving broken HTML (Ish priority)
+
+**What changed:** `d2b0579`. `_render_staff_portal_base()` is one `f"""…"""`; two function-call interpolations used doubled braces — `{{_get_common_styles()}}` and `{{_get_universal_drawer_html("admin")}}` — so the PM / sales / technician / subcontractor portals (`routes.py` `/staff/*`) rendered with **no shared CSS, no nav drawer, and visible literal `{_get_common_styles()}` text** in a `<style>` block. Single-braced both. New `test_staff_portals.py` (13 cases); negative control: revert → 12 fail. Full suite 459 passed. code-reviewer APPROVED. **No separate live-verify** — pure template-string fix (no DB / process / network), and the render-and-assert tests are the verification. Sibling sweep found no other wrongly-doubled interpolation.
+
+**Why:** Ish flagged it priority during Round 3 — staff couldn't use their portals. The bug survived existing tests because `test_b6_8_staff_portals.py` only asserts on `<script>`-block content (whose JS braces were correctly doubled).
+
+**Next action:** the final admin-dashboard scheduling round — appointment-type taxonomy + per-type hours + per-type concurrency caps (folded-in NEW-452) + business-hours editor + NEW-465 fix.
+
 ## 2026-09-10 — Admin-dashboard program, Round 3: full editability pass — chrome wired to profile, owner/agent-name + booking-window fields, NEW-450/466 closed
 
 **What changed:** Program re-sequenced (Ish, 2026-09-10): the standalone `max_concurrent_estimators` round is **folded into the final scheduling round** (per-type concurrency needs the appointment-type taxonomy that round introduces). New Ish directive: "anything that can be done should also be doable from the admin dashboard." Round 3 = the editability pass. project-architect scoped → implementer built (committed 3× before review — pipeline deviation, local-only, noted) → code-reviewer APPROVED + 1 fix-forward → live-verifier PASS on all claims. Commits `7aad57b` `c16209b` `aec94ee` `9cd7873`.

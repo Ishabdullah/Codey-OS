@@ -17712,11 +17712,12 @@ housekeeping, same as `NEW-403`'s own cleanup.
 - **Not fixed** — real fix is a periodic `loadProfile()` refresh or a Core→Aigentik push (B6.6 territory). Its own round.
 - **Cross-reference:** `NEW-450`, B6.6, `feedback_dashboard_single_control_surface`, `~/Codey-Aigentik/index.js`.
 
-### [NEW-470] Confirmed: the four staff portals (PM / sales / technician / subcontractor) serve BROKEN HTML — an f-string escaping bug emits template code as literal text
+### [NEW-470] FIXED 2026-09-10 (`d2b0579`, code-reviewer APPROVED): the four staff portals (PM / sales / technician / subcontractor) served BROKEN HTML — an f-string escaping bug emitted template code as literal text
 
 - **Status:** Confirmed by rendering `render_pm_surface()` (project-architect, 2026-09-10, Round 3). `_render_staff_portal_base` (`web_surfaces.py:3346`) is a single `f"""…"""` string that writes `{{_get_common_styles()}}` (`:3356`) and `{{_get_universal_drawer_html("admin")}}` (`:~3366`) with **doubled** braces — in an f-string that emits the literal text `{_get_common_styles()}` / `{_get_universal_drawer_html("admin")}` instead of calling the functions. (The doubled braces on the CSS blocks below are correct — those are literal CSS braces.) Sibling code at `web_surfaces.py:482` uses single-brace `{_get_common_styles()}` in an f-string correctly.
 - **Impact:** the four routed staff portals (`routes.py:~364-377`, `render_pm_surface` etc.) render with **no shared CSS, no nav drawer, and a visible literal `{_get_common_styles()}` string** in a `<style>` block. Staff cannot use their portals. Ish flagged this **priority** 2026-09-10.
 - **Fix:** change the two function-call lines from `{{…}}` to `{…}`; add a test rendering one portal and asserting no literal `{_get_common_styles()` in the output + a real `<style>` body + the drawer present. Small, its own fast pipeline pass immediately after Round 3.
+- **FIXED:** exactly that — `web_surfaces.py:3356`/`:3366` single-braced. New `tests/test_restoricon_core/test_staff_portals.py` (13 cases: no literal f-string text, `_get_common_styles()[:200]` present inline, `class="universal-navbar"` present, role title interpolated). Negative control: revert → 12 fail. Full suite 459 passed. No separate live-verify — pure template-string fix, no DB/process/network; the render-and-assert tests cover it. Sibling sweep (`rg '\{\{[a-zA-Z_]+\('`) found no other wrongly-doubled interpolation (only correct JS `${{…}}`).
 - **Cross-reference:** B6.8, Round 3, `restoricon_core/api/web_surfaces.py:_render_staff_portal_base`.
 
 ### [NEW-471] Suspected: admin-surface chrome strings with no backing `business_profile` column
