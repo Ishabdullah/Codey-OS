@@ -6329,14 +6329,48 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
         concurrency-cap parity verified against Core; NEW-467's
         graceful-400 re-offer confirmed to never let a failed confirm
         look successful; findings `NEW-483`/`NEW-484`);
-        **7 (Ish 2026-09-11, NEXT) full calendar view** — all appointments +
-        tech/subcontractor/sales schedules, filterable, aggregating
-        `appointments` + `staff_schedules` (B6.7) + the new types, writing
-        through `SchedulingService` (Ish's explicit constraint, not a
-        parallel calendar).
-        NEW-452 closed by phase 5; NEW-465 by phase 1; NEW-467 by phase 6.
+        **7 (Ish 2026-09-11) full calendar view — DONE, all 3 parts
+        reviewer-approved + live-verified.** Part 1 `b587da1`
+        (subcontractor→user linking resolving `NEW-486`, appointment/
+        staff-schedule date-range filters). Part 2 `3011f90` (read-only
+        month/week calendar over the same `appointments`/`staff_schedules`
+        endpoints — no parallel data path, per Ish's explicit
+        constraint — color-coded, filterable; review round 1 caught a
+        silent-truncation risk, `NEW-490`, fixed before commit). Part 3
+        `9affbdb` (create/edit/Cancel/Remove, all through
+        `SchedulingService` so Phase 4's cap applies to dashboard-created
+        appointments too, per Ish's explicit constraint; review round 1
+        caught a CRITICAL blocker — `StaffSchedule.id` had no dataclass
+        default, every staff-schedule create 500'd — fixed at the model,
+        negative-controlled, before commit). **Live-verify then found one
+        more real gap unreachable by any unit test**: the Core API server
+        never implemented `do_PATCH` at the HTTP layer, so the reviewed
+        PATCH route logic was completely unreachable in production —
+        fixed in `6095b37` (rule-4, reviewer APPROVED, a real-socket
+        integration test added, negative-controlled twice, re-verified
+        live end-to-end). `NEW-452` closed by phase 5; `NEW-465` by phase
+        1; `NEW-467` by phase 6; `NEW-486` by Part 1; `NEW-490` by Part 2.
         Spun off: `NEW-473` (calendar.js aliasing, sibling of NEW-465),
-        `NEW-476`-`NEW-479` (phase 4 concurrency edge cases).
+        `NEW-476`-`NEW-479` (phase 4 concurrency edge cases), `NEW-489`
+        (Subcontractors tab already broken — flagged Ish priority),
+        `NEW-491` (bumped to confirmed-live by the PATCH fix), `NEW-492`.
+
+      **ADMIN-DASHBOARD PROGRAM CLOSED 2026-09-11.** Every phase
+      code-complete → code-reviewer APPROVED → live-verified, rule 7's
+      full tier chain, no step skipped. Started from Ish's HIC-#-won't-save
+      report; ended with business-profile persistence, a live-DB backup
+      gap found and fixed (Litestream was replicating a dead file), a
+      disaster-recovery key-escrow chain proven end-to-end, Aigentik's
+      email signature and booking logic actually consuming the profile
+      data, full dashboard editability, a real appointment-type taxonomy
+      with Core's first-ever double-booking protection, and a working
+      calendar. Two pre-existing broken features found and fixed along
+      the way (staff portals' f-string bug; the PATCH gap), one found and
+      flagged priority (Subcontractors tab, `NEW-489`). 44 findings
+      logged across the program (`NEW-449`-`NEW-492`), most fixed
+      in-round, the rest deliberately deferred with reasoning recorded.
+      See `PROJECT_LOG.md` 2026-09-11 (final entry) for the full commit
+      list across both repos.
       - **Deferred (own rounds after the program):** NEW-464 (Aigentik
         reply bodies hardcode the business name), NEW-468 (public
         surfaces need an unauth profile read), NEW-469 (running Aigentik
