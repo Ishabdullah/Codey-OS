@@ -17,10 +17,20 @@ import re
 from restoricon_core.api.web_surfaces import render_admin_surface
 
 
-def test_admin_surface_has_calendar_nav_and_tab_pane():
+def test_admin_surface_calendar_consolidated_into_executive_overview():
+    # Admin Dashboard round, Part B (Ish 2026-09-11): the standalone
+    # Calendar tab/nav-entry is gone -- its entire content now lives
+    # inside tab-kpis (Executive Overview), below the existing KPI
+    # content and above the (also-moved) Booking Config section.
     html = render_admin_surface()
-    assert "switchErpTab('calendar')" in html
-    assert 'id="tab-calendar"' in html
+    assert "switchErpTab('calendar')" not in html
+    assert 'id="tab-calendar"' not in html
+    i = html.find('id="tab-kpis"')
+    j = html.find('id="tab-users"')
+    assert i != -1 and j != -1
+    region = html[i:j]
+    assert 'id="calGrid"' in region
+    assert 'id="calViewMonthBtn"' in region
 
 
 def test_admin_surface_has_calendar_view_toggle():

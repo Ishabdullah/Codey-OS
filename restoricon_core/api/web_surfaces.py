@@ -1843,12 +1843,12 @@ def render_admin_surface() -> str:
             </div>
         </div>
 
-        <!-- 11 Main ERP Domain Tabs -->
+        <!-- 12 Main ERP Domain Tabs (Business Profile, Booking Config, and
+             Calendar consolidated into Executive Overview below -- Admin
+             Dashboard round, Part B, Ish 2026-09-11) -->
         <div class="erp-tabs-bar">
             <button class="erp-tab-btn active" onclick="switchErpTab('kpis')">📊 Executive Overview</button>
             <button class="erp-tab-btn" onclick="switchErpTab('users')">👥 Users & Permissions</button>
-            <button class="erp-tab-btn" onclick="switchErpTab('profile')">🏢 Business Profile</button>
-            <button class="erp-tab-btn" onclick="switchErpTab('schedule')">📅 Booking Config</button>
             <button class="erp-tab-btn" onclick="switchErpTab('crm')">💼 CRM & Pipeline</button>
             <button class="erp-tab-btn" onclick="switchErpTab('operations')">🔨 Field Ops & Fleet</button>
             <button class="erp-tab-btn" onclick="switchErpTab('subcontractors')">🤝 Subcontractors</button>
@@ -1859,7 +1859,6 @@ def render_admin_surface() -> str:
             <button class="erp-tab-btn" onclick="switchErpTab('telemetry')">🤖 AI Agent & Audit</button>
             <button class="erp-tab-btn" onclick="switchErpTab('documents')">📄 Documents</button>
             <button class="erp-tab-btn" onclick="switchErpTab('staff-schedules')">🕒 Staff Schedules</button>
-            <button class="erp-tab-btn" onclick="switchErpTab('calendar')">📅 Calendar</button>
         </div>
 
         <!-- Tab 1: Executive Overview & KPIs -->
@@ -1898,113 +1897,54 @@ def render_admin_surface() -> str:
                     <div style="color: var(--text-muted);">Loading pipeline board...</div>
                 </div>
             </div>
-        </div>
 
-        <!-- Tab 2: Users & Dynamic Permissions -->
-        <div id="tab-users" class="tab-pane">
-            <div class="erp-card">
-                <div class="card-title-row">
-                    <h2><span>👥</span> User Accounts & Granular Dynamic Permissions</h2>
-                    <button onclick="openAddUserModal()" class="btn-gold">+ Add New User</button>
+            <!-- Executive Overview: Calendar (moved from tab-calendar,
+                 Admin Dashboard round Part B, Ish 2026-09-11) -->
+            <div class="card-header-line">
+                <h2>Calendar</h2>
+                <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+                    <button class="btn-gold" onclick="openNewApptModal()">+ New Appointment</button>
+                    <button class="btn-gold" onclick="openNewSchedModal()">+ New Schedule Entry</button>
+                    <button class="btn-gold cal-view-btn-active" id="calViewMonthBtn" onclick="calSetView('month')">Month</button>
+                    <button class="btn-gold" id="calViewWeekBtn" onclick="calSetView('week')">Week</button>
                 </div>
-                <p style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 1rem;">
-                    Assign roles, toggle active/suspended status, reset credentials, and grant/revoke domain permissions individually.
+            </div>
+            <div class="erp-card">
+                <div style="display:flex; flex-wrap:wrap; gap:0.75rem; align-items:center; margin-bottom:1rem;">
+                    <button class="btn-gold" onclick="calNav(-1)">&laquo; Prev</button>
+                    <button class="btn-gold" onclick="calToday()">Today</button>
+                    <button class="btn-gold" onclick="calNav(1)">Next &raquo;</button>
+                    <span id="calRangeLabel" style="color: var(--text-muted); font-weight: 700;"></span>
+                    <span style="margin-left: auto; display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
+                        <select id="calFilterPerson" onchange="renderCalendar()">
+                            <option value="">All People (staff schedules)</option>
+                        </select>
+                        <select id="calFilterType" onchange="renderCalendar()">
+                            <option value="">All Appointment Types</option>
+                        </select>
+                        <select id="calFilterRole" onchange="renderCalendar()">
+                            <option value="">All Roles</option>
+                            <option value="technician">Technician</option>
+                            <option value="subcontractor">Subcontractor</option>
+                            <option value="sales">Sales</option>
+                            <option value="project_manager">Project Manager</option>
+                            <option value="admin">Admin</option>
+                            <option value="manager">Manager</option>
+                        </select>
+                    </span>
+                </div>
+                <p style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 0.75rem;">
+                    Day view is a planned future addition -- Month and Week only this round.
+                    The Person and Role filters narrow Staff Schedule entries only (appointments
+                    have no assignee field yet); the Appointment Type filter narrows appointments only.
                 </p>
-                <table class="erp-table">
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>Username</th>
-                            <th>Full Name</th>
-                            <th>Email</th>
-                            <th>Role</th>
-                            <th>Custom Perms</th>
-                            <th>Status</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="usersTableBody">
-                        <tr><td colspan="8" style="text-align: center; color: var(--text-muted);">Loading users...</td></tr>
-                    </tbody>
-                </table>
+                <div id="calLoadErrors"></div>
+                <div id="calGrid" class="cal-month-grid"></div>
             </div>
+            <!-- /Executive Overview: Calendar -->
 
-            <!-- Deleted User History (Delete-buttons round, Ish 2026-09-11
-                 archive-then-delete decision, NEW-493): terminal
-                 staff_schedules rows are archived (not lost) when a user is
-                 deleted -- this is that data surfaced read-only. -->
-            <div class="erp-card">
-                <div class="card-title-row">
-                    <h2><span>🗄️</span> Deleted User History</h2>
-                </div>
-                <p style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 1rem;">
-                    Terminal (completed/cancelled) staff schedule history preserved from deleted user accounts.
-                </p>
-                <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
-                    <input type="text" id="deletedUserHistoryFilter" placeholder="Filter by deleted username..." style="flex: 1;">
-                    <button onclick="loadDeletedUserHistory()" class="btn-gold">Filter</button>
-                </div>
-                <table class="erp-table">
-                    <thead>
-                        <tr>
-                            <th>Original Username</th>
-                            <th>Title</th>
-                            <th>Start</th>
-                            <th>End</th>
-                            <th>Status</th>
-                            <th>Notes</th>
-                            <th>Archived At</th>
-                        </tr>
-                    </thead>
-                    <tbody id="deletedUserHistoryTableBody">
-                        <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Loading deleted user history...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- Tab 3: Business Profile & LLM Context -->
-        <div id="tab-profile" class="tab-pane">
-            <div class="erp-card">
-                <div class="card-title-row">
-                    <h2><span>🏢</span> Company Profile & Autonomous Agent Context</h2>
-                    <button onclick="saveBusinessProfile()" class="btn-gold">Save Profile</button>
-                </div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                    <div class="form-group">
-                        <label>Business Legal Name</label>
-                        <input type="text" id="profName">
-                    </div>
-                    <div class="form-group">
-                        <label>Direct Phone Hotline</label>
-                        <input type="text" id="profPhone">
-                    </div>
-                    <div class="form-group">
-                        <label>Support Email</label>
-                        <input type="email" id="profEmail">
-                    </div>
-                    <div class="form-group">
-                        <label>CT General Contractor Licensure</label>
-                        <input type="text" id="profLicense">
-                    </div>
-                    <div class="form-group">
-                        <label>Owner Name</label>
-                        <input type="text" id="profOwner">
-                    </div>
-                    <div class="form-group">
-                        <label>AI Agent Name</label>
-                        <input type="text" id="profAgentName">
-                    </div>
-                </div>
-                <div class="form-group" style="margin-top: 1rem;">
-                    <label>AI Agent Master System Instructions & Restoration Context</label>
-                    <textarea id="profPrompt" style="height: 120px;"></textarea>
-                </div>
-            </div>
-        </div>
-
-        <!-- Tab 4: Booking & Schedule Config -->
-        <div id="tab-schedule" class="tab-pane">
+            <!-- Executive Overview: Booking & Schedule Config (moved from
+                 tab-schedule, Admin Dashboard round Part B, Ish 2026-09-11) -->
             <div class="erp-card">
                 <div class="card-title-row">
                     <h2><span>📅</span> Online Scoping & Booking Parameters</h2>
@@ -2106,9 +2046,112 @@ def render_admin_surface() -> str:
                     </tbody>
                 </table>
             </div>
+            <!-- /Executive Overview: Booking & Schedule Config -->
+
+            <!-- Executive Overview: Business Profile (moved from tab-profile,
+                 Admin Dashboard round Part B, Ish 2026-09-11) -->
+            <div class="erp-card">
+                <div class="card-title-row">
+                    <h2><span>🏢</span> Company Profile & Autonomous Agent Context</h2>
+                    <button onclick="saveBusinessProfile()" class="btn-gold">Save Profile</button>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div class="form-group">
+                        <label>Business Legal Name</label>
+                        <input type="text" id="profName">
+                    </div>
+                    <div class="form-group">
+                        <label>Direct Phone Hotline</label>
+                        <input type="text" id="profPhone">
+                    </div>
+                    <div class="form-group">
+                        <label>Support Email</label>
+                        <input type="email" id="profEmail">
+                    </div>
+                    <div class="form-group">
+                        <label>CT General Contractor Licensure</label>
+                        <input type="text" id="profLicense">
+                    </div>
+                    <div class="form-group">
+                        <label>Owner Name</label>
+                        <input type="text" id="profOwner">
+                    </div>
+                    <div class="form-group">
+                        <label>AI Agent Name</label>
+                        <input type="text" id="profAgentName">
+                    </div>
+                </div>
+                <div class="form-group" style="margin-top: 1rem;">
+                    <label>AI Agent Master System Instructions & Restoration Context</label>
+                    <textarea id="profPrompt" style="height: 120px;"></textarea>
+                </div>
+            </div>
+            <!-- /Executive Overview: Business Profile -->
         </div>
 
-        
+        <!-- Tab 2: Users & Dynamic Permissions -->
+        <div id="tab-users" class="tab-pane">
+            <div class="erp-card">
+                <div class="card-title-row">
+                    <h2><span>👥</span> User Accounts & Granular Dynamic Permissions</h2>
+                    <button onclick="openAddUserModal()" class="btn-gold">+ Add New User</button>
+                </div>
+                <p style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 1rem;">
+                    Assign roles, toggle active/suspended status, reset credentials, and grant/revoke domain permissions individually.
+                </p>
+                <table class="erp-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Username</th>
+                            <th>Full Name</th>
+                            <th>Email</th>
+                            <th>Role</th>
+                            <th>Custom Perms</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="usersTableBody">
+                        <tr><td colspan="8" style="text-align: center; color: var(--text-muted);">Loading users...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Deleted User History (Delete-buttons round, Ish 2026-09-11
+                 archive-then-delete decision, NEW-493): terminal
+                 staff_schedules rows are archived (not lost) when a user is
+                 deleted -- this is that data surfaced read-only. -->
+            <div class="erp-card">
+                <div class="card-title-row">
+                    <h2><span>🗄️</span> Deleted User History</h2>
+                </div>
+                <p style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 1rem;">
+                    Terminal (completed/cancelled) staff schedule history preserved from deleted user accounts.
+                </p>
+                <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+                    <input type="text" id="deletedUserHistoryFilter" placeholder="Filter by deleted username..." style="flex: 1;">
+                    <button onclick="loadDeletedUserHistory()" class="btn-gold">Filter</button>
+                </div>
+                <table class="erp-table">
+                    <thead>
+                        <tr>
+                            <th>Original Username</th>
+                            <th>Title</th>
+                            <th>Start</th>
+                            <th>End</th>
+                            <th>Status</th>
+                            <th>Notes</th>
+                            <th>Archived At</th>
+                        </tr>
+                    </thead>
+                    <tbody id="deletedUserHistoryTableBody">
+                        <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Loading deleted user history...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
         <!-- Tab 5: CRM & Pipeline -->
         <div id="tab-crm" class="tab-pane">
             <div class="erp-card">
@@ -2374,50 +2417,6 @@ def render_admin_surface() -> str:
             </div>
         </div>
 
-        <!-- Tab 13: Calendar (Phase 7 Part 3 -- create/edit added on top of Part 2's read-only view) -->
-        <div id="tab-calendar" class="tab-pane">
-            <div class="card-header-line">
-                <h2>Calendar</h2>
-                <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
-                    <button class="btn-gold" onclick="openNewApptModal()">+ New Appointment</button>
-                    <button class="btn-gold" onclick="openNewSchedModal()">+ New Schedule Entry</button>
-                    <button class="btn-gold cal-view-btn-active" id="calViewMonthBtn" onclick="calSetView('month')">Month</button>
-                    <button class="btn-gold" id="calViewWeekBtn" onclick="calSetView('week')">Week</button>
-                </div>
-            </div>
-            <div class="erp-card">
-                <div style="display:flex; flex-wrap:wrap; gap:0.75rem; align-items:center; margin-bottom:1rem;">
-                    <button class="btn-gold" onclick="calNav(-1)">&laquo; Prev</button>
-                    <button class="btn-gold" onclick="calToday()">Today</button>
-                    <button class="btn-gold" onclick="calNav(1)">Next &raquo;</button>
-                    <span id="calRangeLabel" style="color: var(--text-muted); font-weight: 700;"></span>
-                    <span style="margin-left: auto; display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
-                        <select id="calFilterPerson" onchange="renderCalendar()">
-                            <option value="">All People (staff schedules)</option>
-                        </select>
-                        <select id="calFilterType" onchange="renderCalendar()">
-                            <option value="">All Appointment Types</option>
-                        </select>
-                        <select id="calFilterRole" onchange="renderCalendar()">
-                            <option value="">All Roles</option>
-                            <option value="technician">Technician</option>
-                            <option value="subcontractor">Subcontractor</option>
-                            <option value="sales">Sales</option>
-                            <option value="project_manager">Project Manager</option>
-                            <option value="admin">Admin</option>
-                            <option value="manager">Manager</option>
-                        </select>
-                    </span>
-                </div>
-                <p style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 0.75rem;">
-                    Day view is a planned future addition -- Month and Week only this round.
-                    The Person and Role filters narrow Staff Schedule entries only (appointments
-                    have no assignee field yet); the Appointment Type filter narrows appointments only.
-                </p>
-                <div id="calLoadErrors"></div>
-                <div id="calGrid" class="cal-month-grid"></div>
-            </div>
-        </div>
     </main>
 
     <!-- Calendar Item Detail Modal (Part 2: read-only body; Part 3 adds the
@@ -3050,7 +3049,6 @@ def render_admin_surface() -> str:
             if (tabId === 'audit') searchAuditLog();
             if (tabId === 'documents') loadDocuments();
             if (tabId === 'staff-schedules') loadStaffSchedules();
-            if (tabId === 'calendar') loadCalendar();
         }
 
         function escapeHtml(unsafe) {
@@ -4587,7 +4585,12 @@ def render_admin_surface() -> str:
         validateSession('/admin/login').then(async valid => {
             if (valid) {
                 loadUsersList();
-                loadAppointmentTypes();
+                // Awaited (not fire-and-forget) so window.currentAppointmentTypes
+                // is populated before the Calendar's initial loadCalendar() call
+                // below -- Calendar's Executive Overview position (Ish
+                // 2026-09-11, Admin Dashboard round Part B) is no longer behind
+                // a tab-click, so this is now the only trigger for it.
+                await loadAppointmentTypes();
 
                 // Load Business Profile
                 const bpBtn = document.querySelector('button[onclick="saveBusinessProfile()"]');
@@ -4681,6 +4684,13 @@ def render_admin_surface() -> str:
                             '<div style="color:#c00;margin-top:0.5rem;">Could not load — save disabled to prevent data loss</div>');
                     }
                 }
+
+                // Load Calendar (Executive Overview, Admin Dashboard round
+                // Part B, Ish 2026-09-11) -- awaited loadAppointmentTypes()
+                // above guarantees window.currentAppointmentTypes is already
+                // populated here, so this always uses the cache rather than
+                // loadCalendar()'s own fallback fetch.
+                await loadCalendar();
             }
         });
     </script>
