@@ -17745,3 +17745,19 @@ housekeeping, same as `NEW-403`'s own cleanup.
 - **Impact:** a mutated module constant persists for the whole Aigentik process — subsequent `loadScheduleConfig` fallbacks return the polluted defaults. Bounded (self-inflicted via owner commands, not customer input) and only on the fallback paths, but it's a latent correctness bug.
 - **Not fixed** — fold into a later phase of the scheduling round (or the Phase 6 calendar.js work): route every `loadScheduleConfig` return through a fresh-object builder (extend `mergeWorkingHours`'s pattern to `duration_by_relationship`), and fix the `catch` branch. Small.
 - **Cross-reference:** `NEW-465` (the working_hours version, fixed Phase 1), `~/Codey-Aigentik/calendar.js` `loadScheduleConfig` / `setDayOff` / `setWorkingHours` / `setRelationshipDuration`.
+
+## Found during the final scheduling round Phase 2, 2026-09-11
+
+### [NEW-474] Confirmed: `POST /api/v1/appointment-types` (and other `Model(**json_body)` routes) 500 on a wrong-typed value instead of 400
+
+- **Status:** Confirmed (code-reviewer, 2026-09-11, Phase 2 fix-forward). `{"name": 123}` or `{"max_concurrent": "abc"}` passes the route's unknown-key check (the keys ARE known) but `AppointmentType(**json_body)` does no type coercion, so a downstream `str`/`int` operation raises `AttributeError`/`TypeError` → 500. Same class already present on `BusinessProfile`/`ScheduleConfig` routes (not new to this round, but now a 3rd instance).
+- **Impact:** low-severity input-validation gap — wrong-typed input from a malfunctioning client gets a 500 instead of a clean 400. No data corruption (the DB write never happens; SQLite would also reject if it got there).
+- **Not fixed** — candidate for a standing pass across every `Model(**json_body)` route branch (add a lightweight type-check before construction), not a one-off. Low priority.
+- **Cross-reference:** `restoricon_core/api/routes.py`, Phase 2, `NEW-449`/`NEW-466`-class findings.
+
+### [NEW-475] Suspected: `appointment_types` seed-once guard would resurrect the 3 defaults if a future delete endpoint ever empties the table
+
+- **Status:** Suspected (code-reviewer, 2026-09-11, Phase 2 review). `_migrate_schema()`'s seed block is `COUNT(*) == 0` guarded — correct for "never configured," but if a future DELETE capability (there is none today — soft-delete via `active=0` only, by design) ever removed all rows, the next `DatabaseManager()` construction would silently reseed Emergency/Standard estimate/Consultation as new ids.
+- **Impact:** none today (no delete path exists). Purely a latent trap for whoever adds hard-delete later.
+- **Not fixed** — note in the delete-endpoint's own future scoping, not a standalone task.
+- **Cross-reference:** Phase 2, `restoricon_core/database.py:_migrate_schema()`.

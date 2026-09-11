@@ -6310,7 +6310,11 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
         Core has no timezone field → hours enforced client-side in
         `calendar.js`, Core enforces only the concurrency count.
         Phases: 1 NEW-465 fix (Aigentik) — **DONE `b67c1c2`, reviewer
-        APPROVED**; 2 `appointment_types` table+API (Core); 3 business/
+        APPROVED**; 2 `appointment_types` table+API (Core) — **DONE
+        `d030ce3`, code-reviewer APPROVED across 2 rounds** (dedicated
+        `PERM_READ/WRITE_APPOINTMENT_TYPES`, not a schedule-config reuse;
+        a `scheduling_hours_json` write-poisoning landmine closed);
+        3 business/
         per-type hours storage (Core); 4 Core concurrency-cap enforcement
         (Core, mandatory review); 5 dashboard scheduling UI (Core,
         largest); 6 `calendar.js` alignment + NEW-467 (Aigentik);
