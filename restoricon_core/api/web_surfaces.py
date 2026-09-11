@@ -2341,11 +2341,13 @@ def render_admin_surface() -> str:
             </div>
         </div>
 
-        <!-- Tab 13: Calendar (Phase 7 Part 2 -- read-only; create/edit is Part 3) -->
+        <!-- Tab 13: Calendar (Phase 7 Part 3 -- create/edit added on top of Part 2's read-only view) -->
         <div id="tab-calendar" class="tab-pane">
             <div class="card-header-line">
                 <h2>Calendar</h2>
-                <div style="display:flex; gap:0.5rem; align-items:center;">
+                <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+                    <button class="btn-gold" onclick="openNewApptModal()">+ New Appointment</button>
+                    <button class="btn-gold" onclick="openNewSchedModal()">+ New Schedule Entry</button>
                     <button class="btn-gold cal-view-btn-active" id="calViewMonthBtn" onclick="calSetView('month')">Month</button>
                     <button class="btn-gold" id="calViewWeekBtn" onclick="calSetView('week')">Week</button>
                 </div>
@@ -2385,7 +2387,8 @@ def render_admin_surface() -> str:
         </div>
     </main>
 
-    <!-- Calendar Item Detail Modal (read-only this commit -- Part 3 adds edit/save) -->
+    <!-- Calendar Item Detail Modal (Part 2: read-only body; Part 3 adds the
+         Edit/Cancel/Remove actions rendered into calItemModalBody) -->
     <div id="calItemModal" class="erp-modal-overlay">
         <div class="erp-modal">
             <div class="modal-header">
@@ -2393,6 +2396,99 @@ def render_admin_surface() -> str:
                 <button onclick="closeCalItemModal()" style="background:none; border:none; color:#94A3B8; font-size:1.5rem; cursor:pointer;">&times;</button>
             </div>
             <div id="calItemModalBody"></div>
+        </div>
+    </div>
+
+    <!-- New/Edit Appointment Modal (Phase 7 Part 3) -->
+    <div id="calApptModal" class="erp-modal-overlay">
+        <div class="erp-modal">
+            <div class="modal-header">
+                <h3 id="calApptFormTitle">New Appointment</h3>
+                <button type="button" onclick="closeApptFormModal()" style="background:none; border:none; color:#94A3B8; font-size:1.5rem; cursor:pointer;">&times;</button>
+            </div>
+            <form onsubmit="submitApptForm(event)">
+                <input type="hidden" id="calApptId" value="">
+                <div id="calApptFormError" style="display:none; color: var(--danger); font-size: 0.85rem; margin-bottom: 1rem; border: 1px solid var(--danger); border-radius: 4px; padding: 0.5rem;"></div>
+                <div class="form-group">
+                    <label>Title</label>
+                    <input type="text" id="calApptTitle" placeholder="e.g. Initial Inspection">
+                </div>
+                <div class="form-group">
+                    <label>Attendee Name</label>
+                    <input type="text" id="calApptAttendee">
+                </div>
+                <div class="form-group">
+                    <label>Start Time (ISO)</label>
+                    <input type="text" id="calApptStart" required placeholder="YYYY-MM-DDTHH:MM:SSZ">
+                </div>
+                <div class="form-group">
+                    <label>End Time (ISO)</label>
+                    <input type="text" id="calApptEnd" required placeholder="YYYY-MM-DDTHH:MM:SSZ">
+                </div>
+                <div class="form-group">
+                    <label>Appointment Type</label>
+                    <select id="calApptTypeId">
+                        <option value="">(none)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Status</label>
+                    <select id="calApptStatus">
+                        <option value="confirmed">Confirmed</option>
+                        <option value="negotiating">Negotiating</option>
+                        <option value="completed">Completed</option>
+                        <option value="cancelled">Cancelled</option>
+                    </select>
+                    <div id="calApptStatusEditNote" style="display:none; color: var(--text-muted); font-size: 0.75rem; margin-top: 0.25rem;">
+                        Status is set on create only. Use the Cancel Appointment action to change status on an existing appointment (keeps its history log accurate).
+                    </div>
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+                    <button type="button" onclick="closeApptFormModal()" class="btn-gold" style="background:transparent; border:1px solid var(--card-border); color:#CBD5E1;">Cancel</button>
+                    <button type="submit" class="btn-gold">Save Appointment</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- New/Edit Staff Schedule Entry Modal (Phase 7 Part 3 -- calendar-tab
+         originated; separate from the plain-number-input Staff Schedules
+         tab modal (addStaffScheduleModal) since the task calls for a
+         person dropdown here and that tab's modal is out of scope) -->
+    <div id="calSchedModal" class="erp-modal-overlay">
+        <div class="erp-modal">
+            <div class="modal-header">
+                <h3 id="calSchedFormTitle">New Staff Schedule Entry</h3>
+                <button type="button" onclick="closeSchedFormModal()" style="background:none; border:none; color:#94A3B8; font-size:1.5rem; cursor:pointer;">&times;</button>
+            </div>
+            <form onsubmit="submitSchedForm(event)">
+                <input type="hidden" id="calSchedId" value="">
+                <div id="calSchedFormError" style="display:none; color: var(--danger); font-size: 0.85rem; margin-bottom: 1rem; border: 1px solid var(--danger); border-radius: 4px; padding: 0.5rem;"></div>
+                <div class="form-group">
+                    <label>Person</label>
+                    <select id="calSchedUserId" required></select>
+                </div>
+                <div class="form-group">
+                    <label>Title</label>
+                    <input type="text" id="calSchedTitle" required>
+                </div>
+                <div class="form-group">
+                    <label>Start Time (ISO)</label>
+                    <input type="text" id="calSchedStart" required placeholder="YYYY-MM-DDTHH:MM:SSZ">
+                </div>
+                <div class="form-group">
+                    <label>End Time (ISO)</label>
+                    <input type="text" id="calSchedEnd" required placeholder="YYYY-MM-DDTHH:MM:SSZ">
+                </div>
+                <div class="form-group">
+                    <label>Notes</label>
+                    <textarea id="calSchedNotes" rows="2"></textarea>
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+                    <button type="button" onclick="closeSchedFormModal()" class="btn-gold" style="background:transparent; border:1px solid var(--card-border); color:#CBD5E1;">Cancel</button>
+                    <button type="submit" class="btn-gold">Save Schedule Entry</button>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -3026,7 +3122,7 @@ def render_admin_surface() -> str:
             }
         }
 
-        // ---- Calendar (Phase 7 Part 2 -- read-only; create/edit is Part 3) ----
+        // ---- Calendar (Phase 7 Part 2: read-only view; Part 3 below adds create/edit) ----
 
         const CAL_TYPE_COLORS = ['#D4AF37', '#6EE7B7', '#93C5FD', '#FCA5A5', '#C4B5FD', '#FDBA74', '#67E8F9', '#F9A8D4'];
 
@@ -3393,11 +3489,16 @@ def render_admin_surface() -> str:
             grid.innerHTML = cols.join('');
         }
 
-        // Read-only detail view (Part 3 adds edit/save) -- looks the item
-        // up by numeric id from the cached arrays populated by
-        // loadCalendar(); the onclick handler above passes only that id,
-        // never an interpolated name/string (NEW-481's exact vulnerable
-        // pattern).
+        // Detail view -- looks the item up by numeric id from the cached
+        // arrays populated by loadCalendar(); the onclick handler above
+        // passes only that id, never an interpolated name/string (NEW-481's
+        // exact vulnerable pattern). Part 3: gains Edit (both kinds) and a
+        // status-transition action per kind -- Cancel for appointments
+        // (no hard delete; POST .../status), Remove for staff schedules
+        // (DELETE .../staff-schedules/{id} already exists and is simple,
+        // per task scope). All action buttons below pass only the numeric
+        // `id` already captured in this closure -- no new string
+        // interpolation into onclick.
         function openCalendarItem(kind, id) {
             const modal = document.getElementById('calItemModal');
             const title = document.getElementById('calItemModalTitle');
@@ -3406,6 +3507,8 @@ def render_admin_surface() -> str:
                 const a = (window.currentCalendarAppointments || []).find(x => x.id === id);
                 if (!a) return;
                 title.innerText = 'Appointment';
+                const cancelBtn = a.status === 'cancelled' ? '' :
+                    `<button class="btn-gold" style="background:transparent; border:1px solid var(--danger); color: var(--danger);" onclick="cancelAppointmentFromCalendar(${a.id})">Cancel Appointment</button>`;
                 body.innerHTML = `
                     <div style="margin-bottom:0.5rem;"><strong>Title:</strong> ${escapeHtml(a.title || a.attendee_name || '(untitled)')}</div>
                     <div style="margin-bottom:0.5rem;"><strong>Type:</strong> ${escapeHtml(calTypeName(a.appointment_type_id) || '(none)')}</div>
@@ -3414,6 +3517,10 @@ def render_admin_surface() -> str:
                     <div style="margin-bottom:0.5rem;"><strong>Attendee:</strong> ${escapeHtml(a.attendee_name || '(none)')}</div>
                     <div style="margin-bottom:0.5rem;"><strong>Status:</strong> ${escapeHtml(a.status)}</div>
                     <div style="margin-bottom:0.5rem;"><strong>Notes:</strong> ${escapeHtml(a.notes || '(none)')}</div>
+                    <div style="display:flex; gap:0.5rem; margin-top:1rem;">
+                        <button class="btn-gold" onclick="openEditApptModal(${a.id})">Edit</button>
+                        ${cancelBtn}
+                    </div>
                 `;
             } else {
                 const s = (window.currentCalendarStaffSchedules || []).find(x => x.id === id);
@@ -3426,6 +3533,10 @@ def render_admin_surface() -> str:
                     <div style="margin-bottom:0.5rem;"><strong>End:</strong> ${escapeHtml(s.end_time)}</div>
                     <div style="margin-bottom:0.5rem;"><strong>Status:</strong> ${escapeHtml(s.status)}</div>
                     <div style="margin-bottom:0.5rem;"><strong>Notes:</strong> ${escapeHtml(s.notes || '(none)')}</div>
+                    <div style="display:flex; gap:0.5rem; margin-top:1rem;">
+                        <button class="btn-gold" onclick="openEditSchedModal(${s.id})">Edit</button>
+                        <button class="btn-gold" style="background:transparent; border:1px solid var(--danger); color: var(--danger);" onclick="removeScheduleFromCalendar(${s.id})">Remove</button>
+                    </div>
                 `;
             }
             modal.classList.add('active');
@@ -3433,6 +3544,234 @@ def render_admin_surface() -> str:
 
         function closeCalItemModal() {
             document.getElementById('calItemModal').classList.remove('active');
+        }
+
+        // ---- Create/Edit forms (Phase 7 Part 3) ----
+
+        function calPopulateApptTypeSelect(selectedId) {
+            const sel = document.getElementById('calApptTypeId');
+            if (!sel) return;
+            const types = window.currentAppointmentTypes || [];
+            sel.innerHTML = '<option value="">(none)</option>' +
+                types.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+            sel.value = (selectedId === null || selectedId === undefined) ? '' : String(selectedId);
+        }
+
+        function calPopulateSchedUserSelect(selectedId) {
+            const sel = document.getElementById('calSchedUserId');
+            if (!sel) return;
+            const users = window.currentCalendarUsers || [];
+            sel.innerHTML = users.map(u => `<option value="${u.id}">${escapeHtml(u.full_name || u.username)}</option>`).join('');
+            if (selectedId !== null && selectedId !== undefined) sel.value = String(selectedId);
+        }
+
+        function openNewApptModal() {
+            document.getElementById('calApptFormError').style.display = 'none';
+            document.getElementById('calApptFormTitle').innerText = 'New Appointment';
+            document.getElementById('calApptId').value = '';
+            document.getElementById('calApptTitle').value = '';
+            document.getElementById('calApptAttendee').value = '';
+            document.getElementById('calApptStart').value = '';
+            document.getElementById('calApptEnd').value = '';
+            document.getElementById('calApptStatus').value = 'confirmed';
+            document.getElementById('calApptStatus').disabled = false;
+            document.getElementById('calApptStatusEditNote').style.display = 'none';
+            calPopulateApptTypeSelect(null);
+            document.getElementById('calApptModal').classList.add('active');
+        }
+
+        // Status is deliberately NOT submitted on edit -- update_appointment()
+        // (the /update route) is a generic partial-SET-clause writer with no
+        // history-log entry, unlike the dedicated update_appointment_status()
+        // behind the Cancel action (which appends a history event and logs a
+        // distinct 'status_change' audit action). Routing a status change
+        // through /update would silently skip both. submitApptForm()'s
+        // `if (!id)` guard is what actually excludes status from the
+        // payload on edit -- disabling the <select> here is only a visual
+        // affordance (a disabled field is excluded from native form
+        // serialization, but .value still reads fine in JS, so disabling
+        // it alone would not have been enough) so the user can see the
+        // current status without being able to change it from this form.
+        function openEditApptModal(id) {
+            const a = (window.currentCalendarAppointments || []).find(x => x.id === id);
+            if (!a) return;
+            closeCalItemModal();
+            document.getElementById('calApptFormError').style.display = 'none';
+            document.getElementById('calApptFormTitle').innerText = 'Edit Appointment';
+            document.getElementById('calApptId').value = a.id;
+            document.getElementById('calApptTitle').value = a.title || '';
+            document.getElementById('calApptAttendee').value = a.attendee_name || '';
+            document.getElementById('calApptStart').value = a.start_time || '';
+            document.getElementById('calApptEnd').value = a.end_time || '';
+            document.getElementById('calApptStatus').value = a.status || 'confirmed';
+            document.getElementById('calApptStatus').disabled = true;
+            document.getElementById('calApptStatusEditNote').style.display = 'block';
+            calPopulateApptTypeSelect(a.appointment_type_id);
+            document.getElementById('calApptModal').classList.add('active');
+        }
+
+        function closeApptFormModal() {
+            document.getElementById('calApptModal').classList.remove('active');
+        }
+
+        // On a 400 (e.g. Phase 4's concurrency-cap ValueError, surfaced by
+        // SchedulingService.create_appointment/update_appointment through
+        // routes.py as {"error": "..."}), the modal stays open with
+        // whatever the user typed still in place and the real message is
+        // shown inline -- no alert(), no silent no-op, no false-success
+        // close.
+        async function submitApptForm(event) {
+            event.preventDefault();
+            const token = getAuthToken();
+            const errBox = document.getElementById('calApptFormError');
+            errBox.style.display = 'none';
+            const id = document.getElementById('calApptId').value;
+            const payload = {
+                title: document.getElementById('calApptTitle').value,
+                attendee_name: document.getElementById('calApptAttendee').value,
+                start_time: document.getElementById('calApptStart').value,
+                end_time: document.getElementById('calApptEnd').value,
+                appointment_type_id: document.getElementById('calApptTypeId').value ? parseInt(document.getElementById('calApptTypeId').value, 10) : null
+            };
+            // Status only travels on create -- see openEditApptModal's
+            // comment for why an edit must never carry it through /update.
+            if (!id) {
+                payload.status = document.getElementById('calApptStatus').value;
+            }
+            try {
+                const url = id ? '/api/v1/appointments/' + id + '/update' : '/api/v1/appointments';
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    closeApptFormModal();
+                    loadCalendar();
+                } else {
+                    errBox.innerText = data.error || ('Failed to save appointment (' + res.status + ').');
+                    errBox.style.display = 'block';
+                }
+            } catch (e) {
+                errBox.innerText = 'Failed to save appointment: network error.';
+                errBox.style.display = 'block';
+            }
+        }
+
+        async function cancelAppointmentFromCalendar(id) {
+            if (!confirm('Cancel this appointment?')) return;
+            const token = getAuthToken();
+            try {
+                const res = await fetch('/api/v1/appointments/' + id + '/status', {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: 'cancelled' })
+                });
+                if (res.ok) {
+                    closeCalItemModal();
+                    loadCalendar();
+                } else {
+                    const data = await res.json();
+                    alert('Failed to cancel appointment: ' + (data.error || res.statusText));
+                }
+            } catch (e) {
+                alert('Failed to cancel appointment: network error.');
+            }
+        }
+
+        function openNewSchedModal() {
+            document.getElementById('calSchedFormError').style.display = 'none';
+            document.getElementById('calSchedFormTitle').innerText = 'New Staff Schedule Entry';
+            document.getElementById('calSchedId').value = '';
+            document.getElementById('calSchedTitle').value = '';
+            document.getElementById('calSchedStart').value = '';
+            document.getElementById('calSchedEnd').value = '';
+            document.getElementById('calSchedNotes').value = '';
+            calPopulateSchedUserSelect(null);
+            document.getElementById('calSchedModal').classList.add('active');
+        }
+
+        function openEditSchedModal(id) {
+            const s = (window.currentCalendarStaffSchedules || []).find(x => x.id === id);
+            if (!s) return;
+            closeCalItemModal();
+            document.getElementById('calSchedFormError').style.display = 'none';
+            document.getElementById('calSchedFormTitle').innerText = 'Edit Staff Schedule Entry';
+            document.getElementById('calSchedId').value = s.id;
+            document.getElementById('calSchedTitle').value = s.title || '';
+            document.getElementById('calSchedStart').value = s.start_time || '';
+            document.getElementById('calSchedEnd').value = s.end_time || '';
+            document.getElementById('calSchedNotes').value = s.notes || '';
+            calPopulateSchedUserSelect(s.user_id);
+            document.getElementById('calSchedModal').classList.add('active');
+        }
+
+        function closeSchedFormModal() {
+            document.getElementById('calSchedModal').classList.remove('active');
+        }
+
+        async function submitSchedForm(event) {
+            event.preventDefault();
+            const token = getAuthToken();
+            const errBox = document.getElementById('calSchedFormError');
+            errBox.style.display = 'none';
+            const id = document.getElementById('calSchedId').value;
+            const payload = {
+                user_id: parseInt(document.getElementById('calSchedUserId').value, 10),
+                title: document.getElementById('calSchedTitle').value,
+                start_time: document.getElementById('calSchedStart').value,
+                end_time: document.getElementById('calSchedEnd').value,
+                notes: document.getElementById('calSchedNotes').value
+            };
+            // status is only set on create (new entries always start
+            // 'scheduled') -- omitted on edit so update_staff_schedule()'s
+            // partial SET-clause leaves the entry's real (possibly
+            // non-'scheduled') status untouched. Sending a hardcoded
+            // 'scheduled' on every edit would silently revert it.
+            if (!id) {
+                payload.status = 'scheduled';
+            }
+            try {
+                const url = id ? '/api/v1/staff-schedules/' + id : '/api/v1/staff-schedules';
+                const method = id ? 'PATCH' : 'POST';
+                const res = await fetch(url, {
+                    method: method,
+                    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    closeSchedFormModal();
+                    loadCalendar();
+                } else {
+                    errBox.innerText = data.error || ('Failed to save schedule entry (' + res.status + ').');
+                    errBox.style.display = 'block';
+                }
+            } catch (e) {
+                errBox.innerText = 'Failed to save schedule entry: network error.';
+                errBox.style.display = 'block';
+            }
+        }
+
+        async function removeScheduleFromCalendar(id) {
+            if (!confirm('Remove this staff schedule entry?')) return;
+            const token = getAuthToken();
+            try {
+                const res = await fetch('/api/v1/staff-schedules/' + id, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (res.ok) {
+                    closeCalItemModal();
+                    loadCalendar();
+                } else {
+                    const data = await res.json();
+                    alert('Failed to remove schedule entry: ' + (data.error || res.statusText));
+                }
+            } catch (e) {
+                alert('Failed to remove schedule entry: network error.');
+            }
         }
 
         async function loadDocuments() {

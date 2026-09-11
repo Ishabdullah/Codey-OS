@@ -481,3 +481,39 @@ def test_route_staff_schedules_start_end_query_params(test_setup):
     assert status == 200
     titles = {s["title"] for s in body["schedules"]}
     assert titles == {"In range"}
+
+
+def test_route_staff_schedules_create_without_id_field(test_setup):
+    """Phase 7 Part 3 fix (code-reviewer CRITICAL blocker): both the
+    Calendar modal's submitSchedForm() and the Staff Schedules tab's
+    submitStaffSchedule() send a create payload that omits "id" entirely
+    (see web_surfaces.py). routes.py's POST handler does
+    StaffSchedule(**json_body) directly, so before this fix every real
+    create 500'd with "missing 1 required positional argument: 'id'"
+    (StaffSchedule.id had no default). This reproduces the real payload
+    shape -- unlike the "id": None payloads used elsewhere in this file
+    and in test_b6_7_staff_schedules.py, which happened to route around
+    the bug."""
+    db = test_setup["db"]
+    router = test_setup["router"]
+    admin_token = test_setup["admin_token"]
+    hdr = {"Authorization": f"Bearer {admin_token}"}
+
+    conn = db.get_connection()
+    conn.execute(
+        "INSERT INTO users (id, username, password_hash, full_name, email, role, created_at, updated_at) "
+        "VALUES (99, 'tech', 'hash', 'Tech User', 'tech@test.com', 'technician', '2024-01-01', '2024-01-01')"
+    )
+    conn.commit()
+
+    status, _, body = router.handle_request(
+        "POST", "/api/v1/staff-schedules", headers=hdr,
+        body_bytes=json.dumps({
+            "user_id": 99, "title": "Real payload shape",
+            "start_time": "2026-10-05T09:00:00Z", "end_time": "2026-10-05T17:00:00Z",
+            "status": "scheduled", "notes": "",
+        }).encode(),
+    )
+    assert status == 201
+    assert body["schedule"]["id"] is not None
+    assert body["schedule"]["title"] == "Real payload shape"

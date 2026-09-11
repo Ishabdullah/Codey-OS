@@ -1,12 +1,15 @@
 """
 String-level assertions on render_admin_surface()'s rendered HTML for the
-new read-only Calendar tab (Phase 7 Part 2 of 3).
+Calendar tab: read-only view (Phase 7 Part 2) plus create/edit (Phase 7
+Part 3, the final round of the admin-dashboard program).
 
-The actual grid rendering, color assignment, and filter behaviour have no
-Python test harness -- these are coarse presence/wiring checks only,
-matching this project's established convention for JS-in-Python-string
-surfaces (see test_web_surfaces_admin_wiring.py's module docstring).
-Behavioural correctness is exercised by live-verifier, not here.
+The actual grid rendering, color assignment, filter behaviour, and modal
+create/edit/save/refresh flow have no Python test harness -- these are
+coarse presence/wiring checks only, matching this project's established
+convention for JS-in-Python-string surfaces (see
+test_web_surfaces_admin_wiring.py's module docstring). Behavioural
+correctness (including the concurrency-cap 400 round-trip) is exercised
+by live-verifier, not here.
 """
 
 import re
@@ -158,3 +161,169 @@ def test_admin_surface_calendar_detail_modal_present():
     assert 'id="calItemModal"' in html
     assert 'id="calItemModalBody"' in html
     assert "function closeCalItemModal" in html
+
+
+# ---- Phase 7 Part 3: create/edit ----
+
+def test_admin_surface_calendar_has_new_item_actions():
+    html = render_admin_surface()
+    assert 'onclick="openNewApptModal()"' in html
+    assert 'onclick="openNewSchedModal()"' in html
+    assert "function openNewApptModal" in html
+    assert "function openNewSchedModal" in html
+
+
+def test_admin_surface_calendar_has_edit_and_form_functions():
+    html = render_admin_surface()
+    for fn in (
+        "function openEditApptModal",
+        "function closeApptFormModal",
+        "function submitApptForm",
+        "function openEditSchedModal",
+        "function closeSchedFormModal",
+        "function submitSchedForm",
+    ):
+        assert fn in html, fn
+
+
+def test_admin_surface_calendar_appointment_create_and_update_routes():
+    html = render_admin_surface()
+    # Create: plain collection POST.
+    assert "const url = id ? '/api/v1/appointments/' + id + '/update' : '/api/v1/appointments';" in html
+    # The create-vs-update branch always POSTs (both routes.py verbs are POST).
+    i = html.find("async function submitApptForm")
+    j = html.find("async function cancelAppointmentFromCalendar")
+    assert i != -1 and j != -1
+    region = html[i:j]
+    assert "method: 'POST'" in region
+
+
+def test_admin_surface_calendar_appointment_cancel_uses_status_route_not_delete():
+    # No hard delete for appointments -- a cancelled status transition
+    # instead (POST .../status), per task scope.
+    html = render_admin_surface()
+    assert "function cancelAppointmentFromCalendar" in html
+    i = html.find("async function cancelAppointmentFromCalendar")
+    j = html.find("function openNewSchedModal")
+    assert i != -1 and j != -1
+    region = html[i:j]
+    assert "'/api/v1/appointments/' + id + '/status'" in region
+    assert "status: 'cancelled'" in region
+    assert "DELETE" not in region
+
+
+def test_admin_surface_calendar_staff_schedule_create_and_update_routes():
+    html = render_admin_surface()
+    i = html.find("async function submitSchedForm")
+    j = html.find("async function removeScheduleFromCalendar")
+    assert i != -1 and j != -1
+    region = html[i:j]
+    assert "const url = id ? '/api/v1/staff-schedules/' + id : '/api/v1/staff-schedules';" in region
+    assert "const method = id ? 'PATCH' : 'POST';" in region
+
+
+def test_admin_surface_calendar_staff_schedule_remove_uses_delete_route():
+    # DELETE /api/v1/staff-schedules/{id} already exists and is simple
+    # (confirmed against routes.py) -- wired here per task scope.
+    html = render_admin_surface()
+    i = html.find("async function removeScheduleFromCalendar")
+    j = html.find("async function loadDocuments")
+    assert i != -1 and j != -1 and j > i
+    region = html[i:j]
+    assert "method: 'DELETE'" in region
+    assert "'/api/v1/staff-schedules/' + id" in region
+
+
+def test_admin_surface_calendar_400_errors_surfaced_inline_not_swallowed():
+    # Both the appointment and staff-schedule submit handlers must read
+    # data.error from the response body and display it inline -- no
+    # alert(), no generic message, no silent no-op -- and must not close
+    # the modal or reset the form fields on failure (the else branch has
+    # no closeApptFormModal()/closeSchedFormModal() call and no .value =
+    # '' resets).
+    html = render_admin_surface()
+    i = html.find("async function submitApptForm")
+    j = html.find("async function cancelAppointmentFromCalendar")
+    appt_region = html[i:j]
+    assert "data.error" in appt_region
+    assert "errBox.innerText = data.error" in appt_region
+    assert "errBox.style.display = 'block';" in appt_region
+    # Structural (not merely positional) check: closeApptFormModal() must
+    # appear exactly once, immediately inside the `if (res.ok) {` success
+    # branch, never in the else/failure branch.
+    assert appt_region.count("closeApptFormModal();") == 1
+    assert "if (res.ok) {\n                    closeApptFormModal();" in appt_region
+
+    sched_start = html.find("async function submitSchedForm")
+    sched_end = html.find("async function removeScheduleFromCalendar")
+    sched_region = html[sched_start:sched_end]
+    assert "data.error" in sched_region
+    assert "errBox.innerText = data.error" in sched_region
+    assert sched_region.count("closeSchedFormModal();") == 1
+    assert "if (res.ok) {\n                    closeSchedFormModal();" in sched_region
+
+
+def test_admin_surface_calendar_success_path_refreshes_via_loadCalendar():
+    html = render_admin_surface()
+    i = html.find("async function submitApptForm")
+    j = html.find("async function submitSchedForm")
+    region = html[i:j]
+    assert region.count("loadCalendar();") >= 1
+    sched_start = html.find("async function submitSchedForm")
+    sched_end = html.find("async function removeScheduleFromCalendar")
+    sched_region = html[sched_start:sched_end]
+    assert sched_region.count("loadCalendar();") >= 1
+
+
+def test_admin_surface_calendar_edit_does_not_clobber_status():
+    # NEW: submitApptForm/submitSchedForm must only send `status` on
+    # create (empty id) -- both update_appointment() and
+    # update_staff_schedule() are partial SET-clause writers, so sending
+    # a hardcoded/stale status on every edit would silently overwrite the
+    # entity's real status. Also: an appointment edit must never carry
+    # status through the generic /update route at all (that bypasses
+    # update_appointment_status()'s history-log entry and distinct
+    # 'status_change' audit action) -- the Status field is disabled
+    # whenever editing.
+    html = render_admin_surface()
+    i = html.find("async function submitApptForm")
+    j = html.find("async function cancelAppointmentFromCalendar")
+    appt_region = html[i:j]
+    assert "if (!id) {" in appt_region
+    assert "payload.status = document.getElementById('calApptStatus').value;" in appt_region
+
+    i2 = html.find("function openEditApptModal")
+    j2 = html.find("function closeApptFormModal")
+    edit_region = html[i2:j2]
+    assert "document.getElementById('calApptStatus').disabled = true;" in edit_region
+
+    sched_start = html.find("async function submitSchedForm")
+    sched_end = html.find("async function removeScheduleFromCalendar")
+    sched_region = html[sched_start:sched_end]
+    assert "if (!id) {" in sched_region
+    assert "payload.status = 'scheduled';" in sched_region
+
+
+def test_admin_surface_calendar_item_detail_gains_edit_actions():
+    html = render_admin_surface()
+    i = html.find("function openCalendarItem")
+    j = html.find("function closeCalItemModal")
+    region = html[i:j]
+    assert "onclick=\"openEditApptModal(${a.id})\"" in region
+    assert "onclick=\"openEditSchedModal(${s.id})\"" in region
+    assert "onclick=\"cancelAppointmentFromCalendar(${a.id})\"" in region
+    assert "onclick=\"removeScheduleFromCalendar(${s.id})\"" in region
+
+
+def test_admin_surface_calendar_create_edit_onclicks_pass_only_ids():
+    # Same NEW-481-shaped check as Part 2's onclick test, extended to
+    # cover the new region past loadDocuments (the new form functions
+    # live between openCalendarItem/closeCalItemModal and loadDocuments).
+    html = render_admin_surface()
+    i = html.find("function loadCalendar")
+    j = html.find("function loadDocuments")
+    assert i != -1 and j != -1
+    region = html[i:j]
+    onclick_attrs = re.findall(r'onclick="[^"]*"', region)
+    for attr in onclick_attrs:
+        assert "'${" not in attr, attr

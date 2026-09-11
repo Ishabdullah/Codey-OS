@@ -1075,13 +1075,13 @@ class PurchaseOrder:
 
 @dataclass
 class StaffSchedule:
-    id: Optional[int]
     user_id: int
     title: str
     start_time: str
     end_time: str
     status: str
     notes: Optional[str]
+    id: Optional[int] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
