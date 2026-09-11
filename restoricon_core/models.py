@@ -766,7 +766,17 @@ class ScheduleConfig:
     schedule-config.json (NEW-216, 2026-08-27). There is exactly one row
     (id fixed to 1). working_hours maps weekday keys ('mon'..'sun') to
     {'start': 'HH:MM', 'end': 'HH:MM'} dicts; duration_by_relationship is
-    an opaque dict (empty in the source data today, key shape unknown)."""
+    an opaque dict (empty in the source data today, key shape unknown).
+
+    Final scheduling round Phase 3: working_hours is the "Business Hours"
+    envelope -- the overall open-for-business window an agent quotes for
+    "what are your hours," and the outer bound that AppointmentType.
+    scheduling_hours narrows per service type (see that class's docstring).
+    Core does NOT enforce this window against Appointment.start_time/
+    end_time anywhere (F3) -- appointments store UTC ISO timestamps with no
+    timezone field, so a naive "10:00" vs. UTC-timestamp comparison here
+    would be silently wrong by hours. Hours enforcement is entirely
+    client-side in calendar.js (device-local Date math)."""
     id: int = 1
     working_hours: Dict[str, Any] = field(default_factory=dict)
     default_duration_minutes: int = 30
@@ -787,7 +797,16 @@ class AppointmentType:
     auto-detects). Multi-row, unlike the ScheduleConfig singleton. The
     dataclass field is `scheduling_hours` (a dict); the DB column is
     `scheduling_hours_json` -- mirrors ScheduleConfig.working_hours <->
-    working_hours_json."""
+    working_hours_json.
+
+    Final scheduling round Phase 3: scheduling_hours is a per-type
+    narrowing of ScheduleConfig.working_hours ("Business Hours", the
+    overall open-for-business envelope) -- e.g. a Consultation type
+    bookable only 10:00-16:00 within a business that's open 08:00-18:00.
+    An empty `{}` means "inherit business hours, no narrower window" --
+    explicitly NOT "never available." As with working_hours, Core does not
+    compare scheduling_hours against Appointment.start_time/end_time
+    anywhere (F3); enforcement is entirely client-side in calendar.js."""
     id: Optional[int] = None
     name: str = ""
     active: int = 1

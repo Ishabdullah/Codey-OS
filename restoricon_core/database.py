@@ -462,6 +462,19 @@ CREATE TABLE IF NOT EXISTS business_profile (
 -- stored as an opaque JSON blob rather than given its own columns because
 -- the live source file has it as `{}` (empty) -- its key shape is
 -- currently unknown, so no structure is invented for it here.
+--
+-- Final scheduling round Phase 3: working_hours_json is the "Business
+-- Hours" envelope -- the overall open-for-business window (the outer
+-- bound quoted for "what are your hours"), as distinct from the per-type
+-- narrower windows in appointment_types.scheduling_hours_json below (an
+-- empty scheduling_hours there means "inherit business hours," not
+-- "never available"). F3: Core does not enforce either field against
+-- appointments.start_time/end_time anywhere -- appointments store UTC
+-- ISO timestamps with no timezone column, so a naive "HH:MM" vs.
+-- UTC-timestamp comparison here would be silently wrong by hours. Hours
+-- enforcement is entirely client-side in calendar.js (device-local Date
+-- math); see restoricon_core/models.py's ScheduleConfig/AppointmentType
+-- docstrings for the full rationale.
 CREATE TABLE IF NOT EXISTS schedule_config (
     id INTEGER PRIMARY KEY CHECK(id = 1),
     working_hours_json TEXT NOT NULL DEFAULT '{}',
@@ -480,6 +493,10 @@ CREATE TABLE IF NOT EXISTS schedule_config (
 -- guarded, in _migrate_schema() -- not here -- so re-running DatabaseManager()
 -- never re-seeds. scheduling_hours_json mirrors schedule_config's
 -- working_hours_json (opaque JSON blob, weekday-keyed when populated).
+-- scheduling_hours_json narrows schedule_config.working_hours_json
+-- ("Business Hours") per type; empty `{}` means inherit business hours
+-- unchanged, not never-bookable. Same F3 no-Core-side-enforcement
+-- constraint as schedule_config above applies here.
 CREATE TABLE IF NOT EXISTS appointment_types (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
