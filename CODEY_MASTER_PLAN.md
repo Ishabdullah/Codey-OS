@@ -6324,8 +6324,12 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
         (business hours grid + appointment-types management; a real
         pre-existing stored-XSS found in a sibling function,
         `NEW-481`, not this phase's code);
-        6 `calendar.js` alignment + NEW-467 (Aigentik — **NEXT**);
-        **7 (Ish 2026-09-11) full calendar view** — all appointments +
+        6 `calendar.js` alignment + NEW-467 — **DONE Codey-Aigentik
+        `ad7a2e3`, mandatory reviewer APPROVED** (byte-for-byte
+        concurrency-cap parity verified against Core; NEW-467's
+        graceful-400 re-offer confirmed to never let a failed confirm
+        look successful; findings `NEW-483`/`NEW-484`);
+        **7 (Ish 2026-09-11, NEXT) full calendar view** — all appointments +
         tech/subcontractor/sales schedules, filterable, aggregating
         `appointments` + `staff_schedules` (B6.7) + the new types, writing
         through `SchedulingService` (Ish's explicit constraint, not a

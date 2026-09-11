@@ -1,3 +1,15 @@
+## 2026-09-11 — Final scheduling round Phase 6: `calendar.js` consumes types/hours/caps; NEW-467 fixed (graceful 400 handling)
+
+**What changed:** Codey-Aigentik `ad7a2e3`. Aligns Aigentik's booking-offer logic with Core's Phases 1-5 model. `loadAppointmentTypes()` (Core-first, never throws — degrades to `[]`). `effectiveHoursForType()`: business ∩ per-type hours, empty type-hours inherit, a non-empty grid with a day absent means "not offered that day" (conservative), intersection structurally guarantees a type can never be MORE open than the business. `hasConflict` generalized to a same-type-only capacity check with **verified byte-for-byte parity** to Core's `_assert_within_concurrency_cap` — a falsy/unresolved type preserves the exact pre-Phase-6 behavior for every existing caller (zero regression). `appointment_type_id` threaded through `mapCoreToJS`/`mapJSToCore` and the slot-offering chain.
+
+**NEW-467 fixed:** `createAppointment`/`updateAppointment` now tag thrown errors with `.status`; `confirmAndClose` (index.js, verified as the single choke point for all 3 negotiation-confirm paths) and `owner-command.js`'s scheduling handlers catch a 400 and re-run real slot offering instead of throwing — no confirmation send happens before the catch, so a failed confirm can never look successful to the customer. Non-400 failures still propagate. 31 new/extended tests, full jest suite **326 passed**. code-reviewer APPROVED — mandatory pass given booking-correctness parity + the customer-facing confirm path was at stake.
+
+**Findings logged:** `NEW-483` (Confirmed, by design) — Core fails open on a missing/stale `appointment_type_id`, calendar.js deliberately fails closed for the same case; each is correct for its own role (authoritative gate vs. conservative advisor). `NEW-484` — a dead no-op filter in `formatWorkingHours`, unrelated pre-existing cosmetic bug found along the way.
+
+**Why:** this closes the loop Phase 4 opened — Core can now refuse an over-cap booking, and Aigentik now knows to gracefully re-offer instead of surfacing a raw error to a customer mid-negotiation.
+
+**Next action:** Phase 7 — the full calendar view (all appointments + staff schedules, filterable), the last phase of the round. Its own architect scoping given Ish's explicit architecture constraints (read/write over the same `SchedulingService`/Core endpoints, no parallel calendar).
+
 ## 2026-09-11 — Final scheduling round Phase 5: dashboard scheduling UI (business hours + appointment types) — largest UI addition of the program
 
 **What changed:** `e9f8d9e`. New Business Hours weekly grid (writes `schedule_config.working_hours`, the field `calendar.js` already reads/writes; `null`=closed vs absent=open convention matches Phase 1) and a full Appointment Types management section (add/rename/deactivate, Max Concurrent, per-type hours with an "inherit business hours" checkbox matching Phase 3's empty-means-inherit semantics). Dead `schedConcurrent` input (`NEW-452`) removed. code-reviewer APPROVED (XSS + full-row-replace focus). 515 passed (6 new).

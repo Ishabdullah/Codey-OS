@@ -17693,11 +17693,26 @@ housekeeping, same as `NEW-403`'s own cleanup.
 - **Status:** Confirmed + FIXED. `web_surfaces.py`'s schedule-config 404 branch set `window.currentScheduleConfig = { default_duration_minutes: 30, buffer_minutes: 15 }` — a partial object. `upsert_schedule_config` is a full-row `excluded.*` replace and `ScheduleConfig(**json_body)` fills absent keys with dataclass defaults, so a 404-load-then-save silently reset `booking_window_days` to 365 and wiped any `working_hours` / `duration_by_relationship`. Same latent class `f21ad63` fixed for the business-profile Save button. **Fix:** the 404 literal is now the complete 7-field row (`id`, `working_hours: {}`, `default_duration_minutes`, `buffer_minutes`, `booking_window_days: 365`, `duration_by_relationship: {}`, `updated_at: null`). Live-verify documented the underlying API-level full-row-replace (that is by design — the dashboard literal is what's fixed, not the API).
 - **Cross-reference:** `NEW-449` (the business-profile version), Round 3, `restoricon_core/api/web_surfaces.py`.
 
-### [NEW-467] Suspected: Aigentik does not distinguish a Core `400` (validation reject) from other failures on scheduling writes
+### [NEW-467] FIXED 2026-09-11 (Codey-Aigentik `ad7a2e3`, code-reviewer APPROVED): Aigentik did not distinguish a Core `400` (validation reject) from other failures on scheduling writes
 
-- **Status:** Suspected (project-architect, 2026-09-10, shelved max-concurrent scoping — not fully traced). `~/Codey-Aigentik/calendar.js` `createAppointment` / `updateAppointment` throw on a non-2xx Core response; whether `index.js`'s scheduling state machine (`handleSchedulingMessage` / `confirmAndClose`) catches that and recovers, or lets it crash the IMAP handler / strand a customer mid-negotiation, is unverified. Matters once Core starts rejecting bookings (the final round's concurrency cap will).
-- **Not fixed** — trace + handle during the final scheduling round's Aigentik changes; upgrade to Confirmed then.
-- **Cross-reference:** `NEW-465`, the final scheduling round, `~/Codey-Aigentik/calendar.js`, `index.js`.
+- **Fix (Phase 6):** `createAppointment`/`updateAppointment` (`calendar.js`) now tag a thrown `Error` with `.status`. `confirmAndClose` (`index.js`) — verified as the single choke point for all 3 negotiation-confirm call sites — and `owner-command.js`'s `schedule_appointment`/`reschedule_appointment` handlers catch a `.status === 400` and re-run real slot offering for the same type, replying with fresh alternatives instead of throwing. No invite/confirmation send happens before the catch (verified by code order, not just claim), so a failed confirm can never look successful to the customer. Any other failure (network, 500) still propagates unchanged. 31 new/extended tests; full jest suite 326 passed.
+- **New finding from the fix (`NEW-483`):** a deliberate fail-open/fail-closed asymmetry between Core and calendar.js on a missing/stale `appointment_type_id` — see below.
+- **Status (original):** Suspected (project-architect, 2026-09-10, shelved max-concurrent scoping — not fully traced). `~/Codey-Aigentik/calendar.js` `createAppointment` / `updateAppointment` throw on a non-2xx Core response; whether `index.js`'s scheduling state machine (`handleSchedulingMessage` / `confirmAndClose`) catches that and recovers, or lets it crash the IMAP handler / strand a customer mid-negotiation, is unverified. Matters once Core starts rejecting bookings (the final round's concurrency cap will).
+- **Cross-reference:** `NEW-465`, `NEW-483`, Phase 4, Phase 6, `~/Codey-Aigentik/calendar.js`, `index.js`, `owner-command.js`.
+
+### [NEW-483] Confirmed (by design, documented): Core fails OPEN on a missing/stale `appointment_type_id`; `calendar.js` deliberately fails CLOSED for the same case
+
+- **Status:** Confirmed (code-reviewer, 2026-09-11, Phase 6 review). Core's `_assert_within_concurrency_cap` (Phase 4) returns "no check" when `appointment_type_id` doesn't resolve to a real row (deleted/invalid id) — a genuine fail-open. `calendar.js`'s generalized `hasConflict` (Phase 6) does the OPPOSITE for the same case: a falsy/unresolved type falls back to the pre-Phase-6 any-type cap-1 boolean (conservative — offers fewer slots, never more).
+- **Why this is intentional, not a bug:** calendar.js only *advises* which slots to offer a customer; it never authoritatively books anything Core wouldn't also accept. Erring conservative on the client side can only under-offer relative to what Core would allow, never over-book. Verified: every EXISTING calendar.js caller that doesn't pass a type sees byte-identical behavior to before Phase 6 (no regression).
+- **Not fixed** — accepted asymmetry, each side's behavior is correct for its own role (Core = authoritative gate, fail-open on missing config; calendar.js = advisory offerer, fail-closed to stay conservative).
+- **Cross-reference:** `NEW-467`, Phase 4, Phase 6, `restoricon_core/services/scheduling_service.py`, `~/Codey-Aigentik/calendar.js:hasConflict`.
+
+### [NEW-484] Confirmed: `calendar.js`'s `formatWorkingHours` has a dead no-op day filter
+
+- **Status:** Confirmed (implementer + code-reviewer, 2026-09-11, found while working Phase 6, unrelated to its scope). `DAY_KEYS.filter(k => k !== 'sun' || true)` — the `|| true` makes the predicate always true, so `.filter()` returns every key unfiltered. Pre-existing, not touched.
+- **Impact:** cosmetic/display only (`formatWorkingHours` presumably intended to special-case Sunday somehow and never did). No functional impact on booking logic.
+- **Not fixed** — trivial cleanup, bundle whenever `calendar.js` is next touched.
+- **Cross-reference:** `~/Codey-Aigentik/calendar.js:formatWorkingHours`.
 
 ### [NEW-468] Confirmed: the public web surfaces (quote / login / customer portal) hardcode business contact data with no propagation from the dashboard
 
