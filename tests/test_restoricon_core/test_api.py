@@ -1450,6 +1450,47 @@ def test_api_ai_chat_telemetry_honest_null_when_timings_and_usage_both_absent(ap
         store.reset_for_tests()
 
 
+def test_api_staff_schedule_patch_reaches_router(api_server):
+    """Live-verifier-caught bug: RestoriconRequestHandler (server.py) never
+    defined do_PATCH, so every real HTTP PATCH -- including the Calendar
+    UI's edit-schedule-entry form (web_surfaces.py:3737, `method = id ?
+    'PATCH' : 'POST'`) hitting PATCH /api/v1/staff-schedules/{id} -- got a
+    bare stdlib 501 "Unsupported method" before ever reaching routes.py.
+    Unit tests that call APIRouter.handle_request() directly cannot catch
+    this since they bypass the real BaseHTTPRequestHandler/socket layer
+    entirely -- this test goes over a real socket via the api_server
+    fixture's live RestoriconAPIServer to exercise the actual HTTP verb
+    dispatch."""
+    _, base_url, _, _ = api_server
+    headers = _agent_headers(base_url)
+
+    status, body = make_request(
+        f"{base_url}/api/v1/staff-schedules",
+        method="POST",
+        headers=headers,
+        data={
+            "user_id": 1,
+            "title": "On-site inspection",
+            "start_time": "2026-09-15T09:00:00",
+            "end_time": "2026-09-15T10:00:00",
+            "status": "scheduled",
+            "notes": "initial",
+        },
+    )
+    assert status == 201
+    sched_id = body["schedule"]["id"]
+
+    status, body = make_request(
+        f"{base_url}/api/v1/staff-schedules/{sched_id}",
+        method="PATCH",
+        headers=headers,
+        data={"notes": "rescheduled by Calendar UI edit form"},
+    )
+    assert status != 501, f"PATCH still unreachable (bare stdlib 501): {body!r}"
+    assert status == 200
+    assert body["schedule"]["notes"] == "rescheduled by Calendar UI edit form"
+
+
 def test_api_ai_chat_no_telemetry_written_when_disabled(api_server, monkeypatch, tmp_path):
     """Kill-switch check (design §5.3): with TELEMETRY_ENABLED left False
     (the default -- tests/conftest.py's autouse isolation fixture), no

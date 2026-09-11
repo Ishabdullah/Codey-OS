@@ -86,6 +86,9 @@ class RestoriconRequestHandler(BaseHTTPRequestHandler):
     def do_DELETE(self) -> None:
         self._dispatch("DELETE")
 
+    def do_PATCH(self) -> None:
+        self._dispatch("PATCH")
+
     def _dispatch(self, method: str) -> None:
         content_length = int(self.headers.get("Content-Length", 0))
         content_type = self.headers.get("Content-Type", "")
