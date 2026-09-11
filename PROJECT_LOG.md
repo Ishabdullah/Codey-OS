@@ -1,3 +1,15 @@
+## 2026-09-11 — Final scheduling round Phase 5: dashboard scheduling UI (business hours + appointment types) — largest UI addition of the program
+
+**What changed:** `e9f8d9e`. New Business Hours weekly grid (writes `schedule_config.working_hours`, the field `calendar.js` already reads/writes; `null`=closed vs absent=open convention matches Phase 1) and a full Appointment Types management section (add/rename/deactivate, Max Concurrent, per-type hours with an "inherit business hours" checkbox matching Phase 3's empty-means-inherit semantics). Dead `schedConcurrent` input (`NEW-452`) removed. code-reviewer APPROVED (XSS + full-row-replace focus). 515 passed (6 new).
+
+**Notable:** while building this, the implementer deliberately avoided a genuinely exploitable inline-handler XSS pattern found elsewhere in the same file (`openPermModal`) by passing only numeric ids through `onclick` handlers and reading name/string values from the row's own inputs instead — flagged the pre-existing pattern rather than copying it.
+
+**Findings logged:** `NEW-480` (Confirmed) — the dashboard's absent-day default (09:00–17:00) diverges from `calendar.js`'s (00:00–23:59); bounded to the narrow pre-first-save window, not reachable via Aigentik. `NEW-481` (Confirmed, pre-existing, unrelated to this phase) — 3 admin-surface sites (`openPermModal`, `loadUsersList`, `loadCrmList`/`populateCustomerDropdown`) interpolate user-editable strings with no `escapeHtml`; `openPermModal`'s is a real exploitable stored-XSS via an inline JS-string handler (HTML-entity encoding doesn't protect a value inside a single-quoted string inside an attribute). Own scoped round, rule-4-adjacent (touches the permission-editing flow). `NEW-482` (Suspected) — no `UNIQUE` on `appointment_types.name`, double-click creates duplicate rows (cosmetic).
+
+**Why:** `NEW-481` is the standout — a real stored-XSS in the admin auth surface, found as a side-effect of doing Phase 5 carefully rather than by dedicated search. Worth prioritizing separately from this round.
+
+**Next action:** Phase 6 — Aigentik `calendar.js` alignment (consume types/hours/caps in slot offering) + `NEW-467` (handle Core's 400 rejection gracefully instead of throwing).
+
 ## 2026-09-11 — Final scheduling round Phase 4: Core enforces per-type booking concurrency for the first time ever
 
 **What changed:** `172d67d`. Core had **zero overlap checking anywhere** before this — `create_appointment`/`update_appointment`/`update_appointment_status` all booked unconditionally; the only overlap logic in the whole system was `calendar.js`'s offer-time-only `hasConflict` (effective cap 1). New `_assert_within_concurrency_cap()` helper, called at all 3 write sites, checked against the **merged/resulting** values (not stale pre-update state), same connection/transaction as the write, exclude-self on update paths. Same-type-only (Ish's decision — no cross-type/global cap this round). Buffer semantics verified **byte-for-byte parity** with `~/Codey-Aigentik/calendar.js:370-379 hasConflict()` (buffer expands only the existing row's window, not the new one).

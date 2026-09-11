@@ -6320,8 +6320,11 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
         review APPROVED** (Core enforces booking overlap for the first
         time ever; same-type-only; byte-for-byte buffer parity with
         `calendar.js`; findings `NEW-476`…`NEW-479`, all low-impact);
-        5 dashboard scheduling UI (Core, largest — **NEXT**);
-        6 `calendar.js` alignment + NEW-467 (Aigentik);
+        5 dashboard scheduling UI — **DONE `e9f8d9e`, reviewer APPROVED**
+        (business hours grid + appointment-types management; a real
+        pre-existing stored-XSS found in a sibling function,
+        `NEW-481`, not this phase's code);
+        6 `calendar.js` alignment + NEW-467 (Aigentik — **NEXT**);
         **7 (Ish 2026-09-11) full calendar view** — all appointments +
         tech/subcontractor/sales schedules, filterable, aggregating
         `appointments` + `staff_schedules` (B6.7) + the new types, writing

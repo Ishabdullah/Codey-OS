@@ -17791,3 +17791,28 @@ housekeeping, same as `NEW-403`'s own cleanup.
 - **Impact:** low — the shared handler is unlikely to diverge per-route, but a future change to either route's dispatch could silently break the 400-mapping with nothing to catch it.
 - **Not fixed** — small test-coverage addition, bundle into Phase 5 or a later cleanup pass.
 - **Cross-reference:** Phase 4, `restoricon_core/api/routes.py:1404-1438`.
+
+## Found during the final scheduling round Phase 5 (dashboard scheduling UI), 2026-09-11
+
+### [NEW-480] Confirmed: the admin dashboard's absent-working-hours-day default (09:00–17:00) diverges from `calendar.js`'s default (00:00–23:59, fully open)
+
+- **Status:** Confirmed (code-reviewer, 2026-09-11). `populateBusinessHours()`'s display default for a day key absent from `schedule_config.working_hours` is 09:00–17:00; `~/Codey-Aigentik/calendar.js`'s `DEFAULT_SCHEDULE_CONFIG` uses 00:00–23:59 (fully open). `serializeBusinessHours()` materializes the dashboard's narrower default into every save, touched-or-not — so a Save from the dashboard on a device whose Core row still has absent/partial days narrows those days permanently to 09-17, not what `calendar.js` would have treated them as.
+- **Impact:** bounded — reachable only in the window between a fresh/migrated `schedule_config` row and the first admin dashboard Save (bot-driven writes already round-trip through `mergeWorkingHours()` first and arrive full-7-key, so this can't be hit via Aigentik). A narrowing, not a wipe or crash.
+- **Not fixed** — align the dashboard's absent-day display default to match `calendar.js`'s (00:00–23:59) OR explicitly seed `schedule_config.working_hours` with a real 7-key default at migration time so "absent" never actually occurs. Small, low priority.
+- **Cross-reference:** Phase 1 (`NEW-465`), Phase 5, `restoricon_core/api/web_surfaces.py:populateBusinessHours`, `~/Codey-Aigentik/calendar.js:DEFAULT_SCHEDULE_CONFIG`.
+
+### [NEW-481] Confirmed (pre-existing, unrelated to Phase 5): three admin-dashboard rendering sites interpolate user-editable strings with no `escapeHtml` — one via a genuinely exploitable inline-handler XSS pattern
+
+- **Status:** Confirmed (implementer, while building Phase 5 and deliberately avoiding this exact pattern in new code; code-reviewer independently read and confirmed). All in `restoricon_core/api/web_surfaces.py`, all pre-existing, none touched by Phase 5:
+  - `openPermModal(${u.id}, '${u.username}')` (~line 2976) — a genuinely exploitable **inline-handler XSS**: `escapeHtml`'s entity encoding does not protect a value inside a single-quoted JS string that's itself inside an HTML attribute, because the HTML parser decodes entities *before* the JS parser ever sees the string. A username containing `');alert(1);//` breaks out of the handler.
+  - `loadUsersList()` interpolates `username`/`full_name`/`email`/`role` into table cells with no `escapeHtml` — unlike `loadEquipment`/`loadSubcontractors` in the same file, which do.
+  - `loadCrmList()` / `populateCustomerDropdown()` interpolate customer/project names with no `escapeHtml`.
+- **Impact:** real stored-XSS surface in the admin UI via any of these fields (username, full name, email, role, customer/project name) — all editable by users with the relevant write permission. Severity depends on how privileged the users who can set those fields are vs. the admin viewing the page.
+- **Not fixed** — its own scoped round (rule-4-adjacent: touches the admin auth surface via `openPermModal`'s permission-editing flow). Phase 5's new code deliberately avoids both patterns (numeric-only `onclick` args; `escapeHtml` on every interpolated name).
+- **Cross-reference:** `restoricon_core/api/web_surfaces.py` (`openPermModal`, `loadUsersList`, `loadCrmList`, `populateCustomerDropdown`).
+
+### [NEW-482] Suspected: `appointment_types.name` has no UNIQUE constraint — rapid double-click on "+ Add Type" before renaming creates duplicate rows
+
+- **Status:** Suspected (implementer, 2026-09-11). No crash, no data loss — just UI clutter (two identically-named "New Type" rows) until manually renamed or deactivated.
+- **Not fixed** — cosmetic, low priority. A client-side debounce on the Add button, or a `UNIQUE(name)` constraint (would need a friendly conflict message), would close it.
+- **Cross-reference:** Phase 2, Phase 5, `restoricon_core/database.py:appointment_types`.
