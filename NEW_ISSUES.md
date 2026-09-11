@@ -17761,3 +17761,33 @@ housekeeping, same as `NEW-403`'s own cleanup.
 - **Impact:** none today (no delete path exists). Purely a latent trap for whoever adds hard-delete later.
 - **Not fixed** — note in the delete-endpoint's own future scoping, not a standalone task.
 - **Cross-reference:** Phase 2, `restoricon_core/database.py:_migrate_schema()`.
+
+## Found during the final scheduling round Phase 4 (concurrency enforcement), 2026-09-11
+
+### [NEW-476] Suspected: `_assert_within_concurrency_cap`'s check-then-write has a TOCTOU window — two concurrent writers could both pass the check before either commits
+
+- **Status:** Suspected (implementer + code-reviewer, 2026-09-11, both flagged independently). No `BEGIN IMMEDIATE` around the read-count-then-write; two simultaneous requests booking the same over-cap slot could both read a count under the cap and both commit, exceeding it. code-reviewer confirmed `NEW-311`'s existing "no txn-boundary change, single-deployment tradeoff, revisit if multi-process" ruling genuinely covers this class, not a misapplied precedent.
+- **Impact:** low today — single-device, low request volume, and the worst case is a soft over-book (one extra concurrent appointment), not data corruption.
+- **Not fixed** — accepted under the standing `NEW-311` decision. Revisit if/when Core moves to a multi-process deployment.
+- **Cross-reference:** `NEW-311`, Phase 4, `restoricon_core/services/scheduling_service.py:_assert_within_concurrency_cap`.
+
+### [NEW-477] Confirmed (by design, documented): pairwise-overlap counting can over-reject at `max_concurrent >= 2` in a non-mutually-overlapping case
+
+- **Status:** Confirmed — this is what the specified algorithm produces, not an implementation bug. Example: cap 2, existing confirmed appointments at `10:00–11:00` and `12:00–13:00`; a new `10:30–12:30` request overlaps each individually (2 pairwise overlaps) and is rejected, even though no single instant has 3 appointments concurrent.
+- **Impact:** low — conservative in the safe direction (over-refuses, never over-admits). Only matters at caps ≥ 2 with a request spanning two adjacent slots.
+- **Not fixed** — a proper interval-sweep (max concurrent at any instant, not pairwise count) would need more machinery; not worth it for this round's caps (mostly 1). Revisit if real usage shows it biting.
+- **Cross-reference:** Phase 4, `restoricon_core/services/scheduling_service.py:_assert_within_concurrency_cap`.
+
+### [NEW-478] Suspected: pre-existing over-cap same-type overlapping appointments would block ANY future edit to either row (exclude-self doesn't help against the other conflicting row)
+
+- **Status:** Suspected — theoretical today. Live-verifier confirmed via a read-only (`mode=ro`) connection that Ish's `appointments` table has **0 rows**, so this cannot currently bind. Would only arise if a future data-import or the pairwise-overlap edge case (`NEW-477`) ever produces 2+ confirmed same-type rows over the cap.
+- **Impact:** if it ever happens, a notes-only edit to either conflicting row would be rejected with a 400, since `exclude_appointment_id` only excludes the row being edited, not the other row it conflicts with.
+- **Not fixed** — no action needed while the table is empty. If it becomes real, the fix is either a raise-the-cap-first UX nudge or an admin override path.
+- **Cross-reference:** `NEW-477`, Phase 4, `restoricon_core/services/scheduling_service.py`.
+
+### [NEW-479] Confirmed: only the `POST /api/v1/appointments` create path has a route-level 400 regression test; `/status` and `/update` share the exception handler but have no dedicated route test
+
+- **Status:** Confirmed (code-reviewer, 2026-09-11). All 4 appointment write routes share one `except ValueError → 400` block (`routes.py:2188`), verified by direct read. Only `test_route_post_appointment_over_cap_is_400` exercises it at the route layer; `/api/v1/appointments/{id}/status` and `/api/v1/appointments/{id}/update` are covered only at the service layer.
+- **Impact:** low — the shared handler is unlikely to diverge per-route, but a future change to either route's dispatch could silently break the 400-mapping with nothing to catch it.
+- **Not fixed** — small test-coverage addition, bundle into Phase 5 or a later cleanup pass.
+- **Cross-reference:** Phase 4, `restoricon_core/api/routes.py:1404-1438`.

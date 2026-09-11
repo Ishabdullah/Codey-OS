@@ -1,3 +1,17 @@
+## 2026-09-11 — Final scheduling round Phase 4: Core enforces per-type booking concurrency for the first time ever
+
+**What changed:** `172d67d`. Core had **zero overlap checking anywhere** before this — `create_appointment`/`update_appointment`/`update_appointment_status` all booked unconditionally; the only overlap logic in the whole system was `calendar.js`'s offer-time-only `hasConflict` (effective cap 1). New `_assert_within_concurrency_cap()` helper, called at all 3 write sites, checked against the **merged/resulting** values (not stale pre-update state), same connection/transaction as the write, exclude-self on update paths. Same-type-only (Ish's decision — no cross-type/global cap this round). Buffer semantics verified **byte-for-byte parity** with `~/Codey-Aigentik/calendar.js:370-379 hasConflict()` (buffer expands only the existing row's window, not the new one).
+
+- Fails open only for: `appointment_type_id = None` (untyped rows — `submit_public_booking` stays this way by design, unenforced until a human confirms via the guarded status-change path), missing start/end, or a genuinely nonexistent type row. **A deactivated type still enforces its stored cap** — deliberate: deactivating a type shouldn't silently disable the cap on what's already booked under it.
+- 16 new tests. **Full suite 509 passed.**
+- **Mandatory adversarial review** — code-reviewer independently mutation-tested two of the guard's claims (stripped `exclude_appointment_id`, reverted the merged-value check) and confirmed both failures land exactly where expected; verified the overlap predicate against the real `calendar.js` source line-for-line; confirmed via a **read-only** connection (`mode=ro`, per `NEW-472`) that Ish's live `appointments` table has 0 rows, so the legacy-over-cap-rows gap below is theoretical, not live. **APPROVED.**
+
+**Findings logged (NEW-476…479, all low-impact, none blocking):** `NEW-476` TOCTOU (no `BEGIN IMMEDIATE`; covered by the existing `NEW-311` single-deployment tradeoff, re-verified as a genuine fit not a misapplied precedent). `NEW-477` pairwise-overlap counting can over-reject at cap≥2 in a non-mutually-overlapping edge case (conservative-direction, by design). `NEW-478` a DB with pre-existing over-cap same-type rows would block future edits to either — moot while the table is empty. `NEW-479` only the create route has a dedicated 400 regression test; `/status`/`/update` share the handler but lack one.
+
+**Why:** this is the actual point of the "max concurrent estimators" ask from way back — Core can now genuinely refuse a double-booking instead of silently accepting it.
+
+**Next action:** Phase 5 — the dashboard scheduling UI (business hours grid, appointment-type management, per-type hours + cap inputs). Largest UI addition of the whole program.
+
 ## 2026-09-11 — Final scheduling round Phase 2: `appointment_types` table + API, code-reviewer 2 rounds
 
 **What changed:** `d030ce3`. New `appointment_types` table (Emergency/Standard estimate/Consultation seeded @ cap 1, row-count-guarded seed) + `appointments.appointment_type_id` — the service-type axis, separate from the existing `appointment_type` modality column (call/in_person, untouched — actively used by Aigentik's auto-detection). Full CRUD-minus-delete service layer + `/api/v1/appointment-types` routes.

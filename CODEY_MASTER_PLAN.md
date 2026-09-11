@@ -6314,15 +6314,22 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
         `d030ce3`, code-reviewer APPROVED across 2 rounds** (dedicated
         `PERM_READ/WRITE_APPOINTMENT_TYPES`, not a schedule-config reuse;
         a `scheduling_hours_json` write-poisoning landmine closed);
-        3 business/
-        per-type hours storage (Core); 4 Core concurrency-cap enforcement
-        (Core, mandatory review); 5 dashboard scheduling UI (Core,
-        largest); 6 `calendar.js` alignment + NEW-467 (Aigentik);
+        3 business/per-type hours storage — **DONE `ee68e80`, reviewer
+        APPROVED** (docs + guard-rail test only, no schema change);
+        4 Core concurrency-cap enforcement — **DONE `172d67d`, mandatory
+        review APPROVED** (Core enforces booking overlap for the first
+        time ever; same-type-only; byte-for-byte buffer parity with
+        `calendar.js`; findings `NEW-476`…`NEW-479`, all low-impact);
+        5 dashboard scheduling UI (Core, largest — **NEXT**);
+        6 `calendar.js` alignment + NEW-467 (Aigentik);
         **7 (Ish 2026-09-11) full calendar view** — all appointments +
         tech/subcontractor/sales schedules, filterable, aggregating
-        `appointments` + `staff_schedules` (B6.7) + the new types.
+        `appointments` + `staff_schedules` (B6.7) + the new types, writing
+        through `SchedulingService` (Ish's explicit constraint, not a
+        parallel calendar).
         NEW-452 closed by phase 5; NEW-465 by phase 1; NEW-467 by phase 6.
-        Spun off: `NEW-473` (calendar.js aliasing, sibling of NEW-465).
+        Spun off: `NEW-473` (calendar.js aliasing, sibling of NEW-465),
+        `NEW-476`-`NEW-479` (phase 4 concurrency edge cases).
       - **Deferred (own rounds after the program):** NEW-464 (Aigentik
         reply bodies hardcode the business name), NEW-468 (public
         surfaces need an unauth profile read), NEW-469 (running Aigentik
