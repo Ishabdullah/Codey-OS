@@ -2120,10 +2120,11 @@ def render_admin_surface() -> str:
                             <th>Trade/Specialty</th>
                             <th>Status</th>
                             <th>Rating</th>
+                            <th>Linked User</th>
                         </tr>
                     </thead>
                     <tbody id="subcontractorsTableBody">
-                        <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">Loading...</td></tr>
+                        <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Loading...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -2568,13 +2569,37 @@ def render_admin_surface() -> str:
                             <td>${escapeHtml(sc.specialty)}</td>
                             <td>${escapeHtml(sc.status)}</td>
                             <td>${escapeHtml(sc.rating)}</td>
+                            <td><input type="number" min="1" step="1" value="${sc.user_id != null ? sc.user_id : ''}" style="width:5rem;" onchange="saveSubcontractorUserId(${sc.id}, this.value)"></td>
                         </tr>
                     `).join('');
                 } else {
-                    tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted);">No records found.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No records found.</td></tr>';
                 }
             } catch (e) {
-                document.getElementById('subcontractorsTableBody').innerHTML = '<tr><td colspan="4">Error loading subcontractors.</td></tr>';
+                document.getElementById('subcontractorsTableBody').innerHTML = '<tr><td colspan="5">Error loading subcontractors.</td></tr>';
+            }
+        }
+
+        // Linked-user save for the subcontractors tab's "Linked User" column
+        // (Piece A, NEW-486). A plain number input rather than a dropdown --
+        // this tab has no existing users-list fetch to reuse for a
+        // populated <select>; see handoff notes. Blank input is a no-op
+        // (unlinking a subcontractor's user_id is out of scope this round;
+        // update_subcontractor rejects None values outright).
+        async function saveSubcontractorUserId(subId, value) {
+            const trimmed = String(value).trim();
+            if (!trimmed) return;
+            const parsed = parseInt(trimmed, 10);
+            if (Number.isNaN(parsed)) return;
+            const token = getAuthToken();
+            try {
+                await fetch(`/api/v1/subcontractors/${subId}/update`, {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: parsed })
+                });
+            } catch (e) {
+                alert('Failed to save linked user.');
             }
         }
 

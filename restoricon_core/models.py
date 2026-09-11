@@ -672,6 +672,11 @@ class Subcontractor:
     dnc_status: int = 0
     notes: Optional[str] = None
     qualification_data: Dict[str, Any] = field(default_factory=dict)
+    # Links this subcontractor to a real users row so staff_schedules
+    # (user_id NOT NULL) can represent their schedule unchanged (Ish's
+    # Phase 7 decision resolving NEW-486). Nullable -- most subcontractors
+    # have no linked account.
+    user_id: Optional[int] = None
     created_at: str = field(default_factory=utc_now_iso)
     updated_at: str = field(default_factory=utc_now_iso)
 

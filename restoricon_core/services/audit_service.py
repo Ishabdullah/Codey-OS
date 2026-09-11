@@ -54,7 +54,7 @@ _AUDITABLE_SUBCONTRACTOR_FIELDS = frozenset({
     "insurance_status", "w9_received", "msa_sent", "msa_signed",
     "portfolio_url", "qualification_status", "recruitment_step", "lead_source",
     "last_contact_at", "next_followup_at", "contact_attempts", "dnc_status",
-    "notes", "created_at", "updated_at",
+    "notes", "user_id", "created_at", "updated_at",
 })
 
 # NEW-314: Employee diff domain -- excludes hourly_rate / emergency_contact.

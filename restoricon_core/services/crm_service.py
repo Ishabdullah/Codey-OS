@@ -2661,6 +2661,7 @@ class CRMService:
             dnc_status=row["dnc_status"],
             notes=row["notes"],
             qualification_data=json.loads(row["qualification_data_json"]) if row["qualification_data_json"] else {},
+            user_id=row["user_id"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -2699,9 +2700,9 @@ class CRMService:
                     insurance_status, w9_received, msa_sent, msa_signed, references_json,
                     portfolio_url, qualification_status, recruitment_step, lead_source,
                     last_contact_at, next_followup_at, contact_attempts, dnc_status,
-                    notes, qualification_data_json, created_at, updated_at
+                    notes, qualification_data_json, user_id, created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
                 (
                     sub.external_id,
@@ -2749,6 +2750,7 @@ class CRMService:
                     sub.dnc_status,
                     sub.notes,
                     qualification_data_json,
+                    sub.user_id,
                     sub.created_at,
                     sub.updated_at,
                 ),
@@ -3079,6 +3081,7 @@ class CRMService:
         "typical_project_size", "availability", "emergency_availability",
         "license_number", "license_type", "license_required",
         "general_liability", "workers_comp", "qualification_data",
+        "user_id",
     }
 
     def update_subcontractor(

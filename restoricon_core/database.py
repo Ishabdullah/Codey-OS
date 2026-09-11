@@ -366,6 +366,14 @@ CREATE TABLE IF NOT EXISTS subcontractors (
     dnc_status INTEGER NOT NULL DEFAULT 0 CHECK(dnc_status IN (0, 1)),
     notes TEXT,
     qualification_data_json TEXT NOT NULL DEFAULT '{}',
+    -- user_id: links this subcontractor to a real users row so
+    -- staff_schedules (user_id NOT NULL) can represent their schedule
+    -- unchanged (Ish's Phase 7 decision resolving NEW-486). Bare, no FK
+    -- -- same precedent as appointment_type_id/equipment.current_project_id,
+    -- since ALTER TABLE ADD COLUMN can't attach one. Nullable: most
+    -- existing/new subcontractors have no linked account until explicitly
+    -- set; this migration never auto-creates users rows.
+    user_id INTEGER,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -1043,6 +1051,7 @@ class DatabaseManager:
             ("business_profile", "business_email", "ALTER TABLE business_profile ADD COLUMN business_email TEXT;"),
             ("business_profile", "license_number", "ALTER TABLE business_profile ADD COLUMN license_number TEXT;"),
             ("appointments", "appointment_type_id", "ALTER TABLE appointments ADD COLUMN appointment_type_id INTEGER;"),
+            ("subcontractors", "user_id", "ALTER TABLE subcontractors ADD COLUMN user_id INTEGER;"),
         )
         with conn:
             for table, column, ddl in migrations:

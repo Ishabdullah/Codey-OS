@@ -1406,10 +1406,13 @@ class APIRouter:
                     cid = query_params.get("customer_id", [None])[0]
                     cust_id = int(cid) if cid else None
                     status = query_params.get("status", [None])[0]
+                    start = query_params.get("start", [None])[0]
+                    end = query_params.get("end", [None])[0]
                     limit = int(query_params.get("limit", ["50"])[0])
                     offset = int(query_params.get("offset", ["0"])[0])
                     appts = self.scheduling.list_appointments(
-                        actor, customer_id=cust_id, status=status, limit=limit, offset=offset
+                        actor, customer_id=cust_id, status=status, start=start, end=end,
+                        limit=limit, offset=offset,
                     )
                     return 200, {"Content-Type": "application/json"}, {"appointments": [a.to_dict() for a in appts]}
                 elif method == "POST":
@@ -1447,8 +1450,12 @@ class APIRouter:
             if path == "/api/v1/staff-schedules":
                 if method == "GET":
                     uid = query_params.get("user_id", [None])[0]
+                    start = query_params.get("start", [None])[0]
+                    end = query_params.get("end", [None])[0]
                     from ..models import StaffSchedule
-                    entries = self.scheduling.list_staff_schedules(actor, user_id=int(uid) if uid else None)
+                    entries = self.scheduling.list_staff_schedules(
+                        actor, user_id=int(uid) if uid else None, start=start, end=end,
+                    )
                     return 200, {"Content-Type": "application/json"}, {"schedules": [s.to_dict() for s in entries]}
                 elif method == "POST":
                     from ..models import StaffSchedule

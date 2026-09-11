@@ -321,6 +321,8 @@ class SchedulingService:
         actor: AuthContext,
         customer_id: Optional[int] = None,
         status: Optional[str] = None,
+        start: Optional[str] = None,
+        end: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> List[Appointment]:
@@ -337,6 +339,26 @@ class SchedulingService:
         if status:
             query += " AND status = ?"
             params.append(status)
+
+        # Inclusive YYYY-MM-DD date-range filter for a calendar view (Phase
+        # 7 Part 1, resolves the "50 most recent system-wide" gap). Verified
+        # against real test/fixture data (test_appointment_concurrency.py,
+        # test_hours_semantics.py, utc_now_iso()) that start_time is always
+        # stored as a YYYY-MM-DDT... string prefix (either a trailing Z or
+        # a +00:00 offset -- both compare correctly as a string prefix), so
+        # substr(start_time,1,10) BETWEEN is safe. A NULL start_time (e.g.
+        # a negotiating appointment with no slot picked yet) fails BETWEEN
+        # and is correctly excluded from a range-filtered query -- there is
+        # no date to place it on a calendar.
+        if start is not None and end is not None:
+            query += " AND substr(start_time, 1, 10) BETWEEN ? AND ?"
+            params.extend([start, end])
+        elif start is not None:
+            query += " AND substr(start_time, 1, 10) >= ?"
+            params.append(start)
+        elif end is not None:
+            query += " AND substr(start_time, 1, 10) <= ?"
+            params.append(end)
 
         query += " ORDER BY start_time DESC LIMIT ? OFFSET ?;"
         params.extend([limit, offset])
@@ -888,15 +910,46 @@ class SchedulingService:
 
         return schedule
 
-    def list_staff_schedules(self, actor: AuthContext, user_id: Optional[int] = None) -> List[StaffSchedule]:
+    def list_staff_schedules(
+        self,
+        actor: AuthContext,
+        user_id: Optional[int] = None,
+        start: Optional[str] = None,
+        end: Optional[str] = None,
+        limit: int = 200,
+    ) -> List[StaffSchedule]:
         if not actor.has_permission(PERM_READ_STAFF_SCHEDULES):
             raise PermissionError("Actor lacks permission to read staff schedules")
 
         query = "SELECT * FROM staff_schedules WHERE 1=1"
-        params = []
+        params: List[Any] = []
         if user_id is not None:
             query += " AND user_id = ?"
             params.append(user_id)
+
+        # Same inclusive YYYY-MM-DD range-filter pattern as
+        # list_appointments (Phase 7 Part 1) -- staff_schedules.start_time
+        # is NOT NULL (unlike appointments), so every row is comparable.
+        if start is not None and end is not None:
+            query += " AND substr(start_time, 1, 10) BETWEEN ? AND ?"
+            params.extend([start, end])
+        elif start is not None:
+            query += " AND substr(start_time, 1, 10) >= ?"
+            params.append(start)
+        elif end is not None:
+            query += " AND substr(start_time, 1, 10) <= ?"
+            params.append(end)
+
+        # No limit at all previously -- an unbounded SELECT * against a
+        # table with no natural cap. Default 200 avoids returning the
+        # whole table while staying well above any realistic single-view
+        # need; callers building a true paging UI can raise it explicitly.
+        # ASC (not list_appointments' DESC): a schedule listing is a
+        # chronological roster, not a "most recent N" feed -- DESC would
+        # make an unscoped >200-entry call silently drop the earliest
+        # (oldest) entries instead of the furthest-out ones.
+        query += " ORDER BY start_time ASC LIMIT ?;"
+        params.append(limit)
 
         conn = self.db.get_connection()
         rows = conn.execute(query, params).fetchall()
