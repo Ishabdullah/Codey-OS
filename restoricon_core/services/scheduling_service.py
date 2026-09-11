@@ -22,18 +22,21 @@ from typing import Any, Dict, List, Optional
 from ..auth import (
     AuthContext,
     PERM_READ_APPOINTMENTS,
+    PERM_READ_APPOINTMENT_TYPES,
     PERM_READ_SCHEDULE_CONFIG,
     PERM_WRITE_APPOINTMENTS,
+    PERM_WRITE_APPOINTMENT_TYPES,
     PERM_WRITE_SCHEDULE_CONFIG,
     PERM_READ_STAFF_SCHEDULES,
     PERM_WRITE_STAFF_SCHEDULES,
 )
 from ..database import DatabaseManager
-from ..models import Appointment, ScheduleConfig, StaffSchedule, utc_now_iso
+from ..models import Appointment, AppointmentType, ScheduleConfig, StaffSchedule, utc_now_iso
 from .audit_service import (
     AuditService,
     build_audit_details,
     _AUDITABLE_APPOINTMENT_FIELDS,
+    _AUDITABLE_APPOINTMENT_TYPE_FIELDS,
 )
 from .notification_service import NotificationService
 
@@ -63,6 +66,7 @@ class SchedulingService:
             attendee_name=row["attendee_name"],
             attendee_email=row["attendee_email"],
             appointment_type=row["appointment_type"],
+            appointment_type_id=row["appointment_type_id"],
             status=row["status"],
             rsvp_status=row["rsvp_status"],
             offered_slots=json.loads(row["offered_slots_json"]) if row["offered_slots_json"] else [],
@@ -107,10 +111,10 @@ class SchedulingService:
                 INSERT INTO appointments (
                     external_id, uid, ics_sequence, title, start_time, end_time,
                     customer_id, contact_external_id, attendee_name, attendee_email,
-                    appointment_type, status, rsvp_status, offered_slots_json,
+                    appointment_type, appointment_type_id, status, rsvp_status, offered_slots_json,
                     requested_datetime, pending_reschedule_json, form_sent, created_via,
                     notes, history_json, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
                 (
                     appt.external_id,
@@ -124,6 +128,7 @@ class SchedulingService:
                     appt.attendee_name,
                     appt.attendee_email.strip().lower() if appt.attendee_email else None,
                     appt.appointment_type,
+                    appt.appointment_type_id,
                     appt.status,
                     appt.rsvp_status,
                     offered_slots_json,
@@ -266,6 +271,7 @@ class SchedulingService:
         "attendee_name",
         "attendee_email",
         "appointment_type",
+        "appointment_type_id",
         "status",
         "rsvp_status",
         "offered_slots",
@@ -473,6 +479,192 @@ class SchedulingService:
             details=build_audit_details(snapshot=config.to_dict()),
         )
         return config
+
+    # ==========================================
+    # APPOINTMENT TYPES (service-type axis, final scheduling round Phase 2)
+    # ==========================================
+
+    @staticmethod
+    def _row_to_appointment_type(row) -> AppointmentType:
+        # Hand-written reader -- every column read explicitly (NEW-259).
+        # scheduling_hours mirrors _row_to_schedule_config's working_hours.
+        return AppointmentType(
+            id=row["id"],
+            name=row["name"],
+            active=row["active"],
+            sort_order=row["sort_order"],
+            max_concurrent=row["max_concurrent"],
+            scheduling_hours=json.loads(row["scheduling_hours_json"]) if row["scheduling_hours_json"] else {},
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    def list_appointment_types(
+        self, actor: AuthContext, include_inactive: bool = False
+    ) -> List[AppointmentType]:
+        if not actor.has_permission(PERM_READ_APPOINTMENT_TYPES):
+            raise PermissionError("Actor lacks permission to view appointment types")
+
+        query = "SELECT * FROM appointment_types"
+        if not include_inactive:
+            query += " WHERE active = 1"
+        query += " ORDER BY sort_order, id;"
+
+        conn = self.db.get_connection()
+        rows = conn.execute(query).fetchall()
+        return [self._row_to_appointment_type(row) for row in rows]
+
+    def get_appointment_type(
+        self, appointment_type_id: int, actor: AuthContext
+    ) -> Optional[AppointmentType]:
+        if not actor.has_permission(PERM_READ_APPOINTMENT_TYPES):
+            raise PermissionError("Actor lacks permission to view appointment types")
+
+        conn = self.db.get_connection()
+        row = conn.execute(
+            "SELECT * FROM appointment_types WHERE id = ?;", (appointment_type_id,)
+        ).fetchone()
+        if not row:
+            return None
+        return self._row_to_appointment_type(row)
+
+    def create_appointment_type(
+        self, appt_type: AppointmentType, actor: AuthContext
+    ) -> AppointmentType:
+        if not actor.has_permission(PERM_WRITE_APPOINTMENT_TYPES):
+            raise PermissionError("Actor lacks permission to create appointment types")
+
+        if not appt_type.name or not str(appt_type.name).strip():
+            raise ValueError("Appointment type name is required")
+        if appt_type.max_concurrent < 1:
+            raise ValueError("max_concurrent must be >= 1")
+        appt_type.name = str(appt_type.name).strip()
+
+        now = utc_now_iso()
+        appt_type.created_at = now
+        appt_type.updated_at = now
+        scheduling_hours_json = json.dumps(appt_type.scheduling_hours)
+
+        conn = self.db.get_connection()
+        with conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO appointment_types (
+                    name, active, sort_order, max_concurrent,
+                    scheduling_hours_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?);
+                """,
+                (
+                    appt_type.name,
+                    appt_type.active,
+                    appt_type.sort_order,
+                    appt_type.max_concurrent,
+                    scheduling_hours_json,
+                    now,
+                    now,
+                ),
+            )
+            appt_type.id = cursor.lastrowid
+
+        self.audit.log(
+            action="create",
+            entity_type="appointment_type",
+            entity_id=appt_type.id,
+            change_summary=f"Created appointment type '{appt_type.name}'",
+            actor=actor,
+            details=build_audit_details(after=appt_type.to_dict()),
+        )
+        return appt_type
+
+    # scheduling_hours_json (the raw column) is deliberately NOT accepted
+    # here: an unparseable string would commit successfully and then every
+    # subsequent read of the row would raise JSONDecodeError in
+    # _row_to_appointment_type. Only the dict form is accepted -- it is
+    # always json.dumps'd, so it can never write invalid JSON.
+    _APPOINTMENT_TYPE_UPDATE_FIELDS = {
+        "name",
+        "active",
+        "sort_order",
+        "max_concurrent",
+        "scheduling_hours",
+    }
+
+    def update_appointment_type(
+        self, appointment_type_id: int, updates: Dict[str, Any], actor: AuthContext
+    ) -> AppointmentType:
+        if not actor.has_permission(PERM_WRITE_APPOINTMENT_TYPES):
+            raise PermissionError("Actor lacks permission to update appointment types")
+
+        # Silently ignore only the immutable identity/timestamp keys (so a
+        # caller passing a full to_dict() does not error); any OTHER key
+        # outside the allow-list is a caller mistake -> ValueError -> 400
+        # (mirrors update_appointment's behavior).
+        _ignorable = {"id", "created_at", "updated_at"}
+        unknown = set(updates) - self._APPOINTMENT_TYPE_UPDATE_FIELDS - _ignorable
+        if unknown:
+            raise ValueError(f"Unknown field(s) for appointment type: {sorted(unknown)}")
+
+        if "name" in updates and (updates["name"] is None or not str(updates["name"]).strip()):
+            raise ValueError("Appointment type name is required")
+        if "max_concurrent" in updates and updates["max_concurrent"] < 1:
+            raise ValueError("max_concurrent must be >= 1")
+
+        conn = self.db.get_connection()
+        row = conn.execute(
+            "SELECT * FROM appointment_types WHERE id = ?;", (appointment_type_id,)
+        ).fetchone()
+        if not row:
+            raise ValueError(f"Appointment type {appointment_type_id} does not exist")
+
+        _before = self._row_to_appointment_type(row).to_dict()
+
+        set_clauses = []
+        params: List[Any] = []
+        for key, value in updates.items():
+            if key not in self._APPOINTMENT_TYPE_UPDATE_FIELDS:
+                continue
+            if key == "scheduling_hours":
+                set_clauses.append("scheduling_hours_json = ?")
+                params.append(json.dumps(value) if value is not None else "{}")
+            elif key == "name":
+                set_clauses.append("name = ?")
+                params.append(str(value).strip())
+            else:
+                set_clauses.append(f"{key} = ?")
+                params.append(value)
+
+        if not set_clauses:
+            return self._row_to_appointment_type(row)
+
+        now = utc_now_iso()
+        set_clauses.append("updated_at = ?")
+        params.append(now)
+        params.append(appointment_type_id)
+
+        with conn:
+            conn.execute(
+                f"UPDATE appointment_types SET {', '.join(set_clauses)} WHERE id = ?;",
+                params,
+            )
+            updated_row = conn.execute(
+                "SELECT * FROM appointment_types WHERE id = ?;", (appointment_type_id,)
+            ).fetchone()
+
+        _after = self._row_to_appointment_type(updated_row).to_dict()
+
+        self.audit.log(
+            action="update",
+            entity_type="appointment_type",
+            entity_id=appointment_type_id,
+            change_summary=f"Updated appointment type {appointment_type_id}",
+            actor=actor,
+            details=build_audit_details(
+                before=_before,
+                after=_after,
+                fields=_AUDITABLE_APPOINTMENT_TYPE_FIELDS,
+            ),
+        )
+        return self._row_to_appointment_type(updated_row)
 
     # ==========================================
     # STAFF SCHEDULES (B6.7)

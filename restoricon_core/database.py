@@ -10,6 +10,7 @@ import os
 import sqlite3
 import threading
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Generator
 
@@ -388,6 +389,12 @@ CREATE TABLE IF NOT EXISTS appointments (
     attendee_name TEXT,
     attendee_email TEXT COLLATE NOCASE,
     appointment_type TEXT CHECK(appointment_type IN ('call', 'in_person') OR appointment_type IS NULL),
+    -- appointment_type_id: service-type axis (Emergency / Standard estimate /
+    -- Consultation), SEPARATE from the appointment_type modality column above.
+    -- Bare INTEGER, no FOREIGN KEY: SQLite's ALTER TABLE ADD COLUMN cannot
+    -- attach an FK, so a migrated DB could not enforce one -- keeping fresh and
+    -- migrated DBs identical (same precedent as equipment.current_project_id).
+    appointment_type_id INTEGER,
     status TEXT NOT NULL DEFAULT 'confirmed' CHECK(status IN ('confirmed', 'negotiating', 'cancelled', 'completed')),
     rsvp_status TEXT NOT NULL DEFAULT 'pending',
     offered_slots_json TEXT NOT NULL DEFAULT '[]',
@@ -462,6 +469,25 @@ CREATE TABLE IF NOT EXISTS schedule_config (
     buffer_minutes INTEGER NOT NULL DEFAULT 15,
     booking_window_days INTEGER NOT NULL DEFAULT 365,
     duration_by_relationship_json TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL
+);
+
+-- Appointment service types (final scheduling round, Phase 2). The
+-- "service type" axis (Emergency / Standard estimate / Consultation),
+-- SEPARATE from appointments.appointment_type (the call/in_person modality
+-- the bot auto-detects). Multi-row (AUTOINCREMENT id), unlike the singleton
+-- schedule_config above. The three default rows are seeded once, row-count
+-- guarded, in _migrate_schema() -- not here -- so re-running DatabaseManager()
+-- never re-seeds. scheduling_hours_json mirrors schedule_config's
+-- working_hours_json (opaque JSON blob, weekday-keyed when populated).
+CREATE TABLE IF NOT EXISTS appointment_types (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1)),
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    max_concurrent INTEGER NOT NULL DEFAULT 1 CHECK(max_concurrent >= 1),
+    scheduling_hours_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
 
@@ -999,6 +1025,7 @@ class DatabaseManager:
             ("business_profile", "business_phone", "ALTER TABLE business_profile ADD COLUMN business_phone TEXT;"),
             ("business_profile", "business_email", "ALTER TABLE business_profile ADD COLUMN business_email TEXT;"),
             ("business_profile", "license_number", "ALTER TABLE business_profile ADD COLUMN license_number TEXT;"),
+            ("appointments", "appointment_type_id", "ALTER TABLE appointments ADD COLUMN appointment_type_id INTEGER;"),
         )
         with conn:
             for table, column, ddl in migrations:
@@ -1007,6 +1034,31 @@ class DatabaseManager:
                 }
                 if existing_columns and column not in existing_columns:
                     conn.execute(ddl)
+            # Seed the three default appointment_types rows exactly once.
+            # Row-count guarded (COUNT(*) == 0) so re-running DatabaseManager()
+            # -- and _migrate_schema runs on every construction -- is a no-op
+            # once the rows exist. Guarded on table existence too:
+            # init_schema() calls _migrate_schema() TWICE -- once before
+            # executescript(_SCHEMA_SQL) and once after (see init_schema
+            # above). On a legacy DB file's first open, the table doesn't
+            # exist yet for the pre-executescript call (table-existence
+            # check no-ops it); executescript's CREATE TABLE IF NOT EXISTS
+            # then creates the table, and the post-executescript call is
+            # the one that actually seeds it -- both calls happen within
+            # the same DatabaseManager() construction, so seeding is
+            # already done by the time __init__ returns.
+            if conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='appointment_types';"
+            ).fetchone():
+                if conn.execute("SELECT COUNT(*) FROM appointment_types;").fetchone()[0] == 0:
+                    _now = datetime.now(timezone.utc).isoformat()
+                    for _i, _nm in enumerate(("Emergency", "Standard estimate", "Consultation")):
+                        conn.execute(
+                            "INSERT INTO appointment_types "
+                            "(name, active, sort_order, max_concurrent, scheduling_hours_json, created_at, updated_at) "
+                            "VALUES (?, 1, ?, 1, '{}', ?, ?);",
+                            (_nm, _i, _now, _now),
+                        )
             # Unique indexes must run after the ALTERs above (see the note
             # in _SCHEMA_SQL's index block for why they can't live there).
             if conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='customers';").fetchone():

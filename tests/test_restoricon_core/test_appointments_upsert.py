@@ -111,6 +111,43 @@ def test_update_appointment(test_setup):
     assert updated.pending_reschedule == {"start": "2026-08-31T10:00:00Z", "end": "2026-08-31T10:30:00Z"}
 
 
+def test_appointment_type_id_round_trips(test_setup):
+    """appointment_type_id (service-type axis) round-trips through
+    create_appointment + update_appointment + _row_to_appointment, and the
+    update is captured in the audit changed_fields (regression guard for the
+    _AUDITABLE_APPOINTMENT_FIELDS allow-list)."""
+    from restoricon_core.services.audit_service import AuditService
+
+    svc = test_setup["scheduling"]
+    actor = test_setup["agent_actor"]
+    admin_actor = test_setup["admin_actor"]
+    audit_svc = AuditService(test_setup["db"])
+
+    appt = Appointment(
+        external_id="appt_type_1",
+        title="Emergency call",
+        status="confirmed",
+        appointment_type="call",       # modality, untouched
+        appointment_type_id=1,          # service type
+    )
+    created = svc.create_appointment(appt, actor)
+    assert created.appointment_type == "call"
+    assert created.appointment_type_id == 1
+
+    fetched = svc.get_appointment(created.id, actor)
+    assert fetched.appointment_type_id == 1
+
+    updated = svc.update_appointment(created.id, {"appointment_type_id": 3}, actor)
+    assert updated.appointment_type_id == 3
+    assert updated.appointment_type == "call"
+
+    logs = audit_svc.query_logs(
+        admin_actor, entity_type="appointment", entity_id=created.id, action="update"
+    )
+    assert logs
+    assert logs[0].details["changed_fields"]["appointment_type_id"]["new"] == 3
+
+
 def test_update_appointment_invalid_status(test_setup):
     svc = test_setup["scheduling"]
     actor = test_setup["agent_actor"]

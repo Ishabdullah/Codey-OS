@@ -23,6 +23,7 @@ from ..auth import (
 )
 from ..models import (
     Appointment,
+    AppointmentType,
     AutomationRule,
     BusinessProfile,
     ComplianceItem,
@@ -1475,6 +1476,32 @@ class APIRouter:
                     sc = ScheduleConfig(**json_body)
                     saved = self.scheduling.upsert_schedule_config(sc, actor)
                     return 200, {"Content-Type": "application/json"}, {"schedule_config": saved.to_dict()}
+
+            # Appointment Types (service-type axis, final scheduling round Phase 2)
+            if path == "/api/v1/appointment-types":
+                if method == "GET":
+                    include_inactive = query_params.get("include_inactive", ["false"])[0].lower() == "true"
+                    types = self.scheduling.list_appointment_types(actor, include_inactive=include_inactive)
+                    return 200, {"Content-Type": "application/json"}, {"appointment_types": [t.to_dict() for t in types]}
+                elif method == "POST":
+                    # AppointmentType(**json_body) raises TypeError -> 500 on an
+                    # unknown key; validate first and return 400 instead.
+                    allowed_keys = {
+                        "id", "name", "active", "sort_order", "max_concurrent",
+                        "scheduling_hours", "created_at", "updated_at",
+                    }
+                    unknown = set(json_body) - allowed_keys
+                    if unknown:
+                        return 400, {"Content-Type": "application/json"}, {
+                            "error": f"Unknown field(s) for appointment type: {sorted(unknown)}"
+                        }
+                    created = self.scheduling.create_appointment_type(AppointmentType(**json_body), actor)
+                    return 201, {"Content-Type": "application/json"}, {"appointment_type": created.to_dict()}
+
+            if path.startswith("/api/v1/appointment-types/") and path.endswith("/update") and method == "POST":
+                type_id = int(path.split("/")[-2])
+                updated_type = self.scheduling.update_appointment_type(type_id, json_body, actor)
+                return 200, {"Content-Type": "application/json"}, {"appointment_type": updated_type.to_dict()}
 
             # Automation Rules
             if path == "/api/v1/automation-rules":

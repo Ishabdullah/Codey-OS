@@ -135,9 +135,19 @@ _AUDITABLE_CONTACT_FIELDS = frozenset({
 _AUDITABLE_APPOINTMENT_FIELDS = frozenset({
     "id", "external_id", "uid", "ics_sequence", "title", "start_time",
     "end_time", "customer_id", "contact_external_id", "attendee_name",
-    "attendee_email", "appointment_type", "status", "rsvp_status",
+    "attendee_email", "appointment_type", "appointment_type_id", "status", "rsvp_status",
     "offered_slots", "requested_datetime", "pending_reschedule", "form_sent",
     "created_via", "notes", "history", "created_at", "updated_at",
+})
+
+# Final scheduling round Phase 2: AppointmentType diff domain. Excludes
+# nothing -- AppointmentType carries no secret/PII-grade fields. Drift
+# guard only (mirrors _AUDITABLE_APPOINTMENT_FIELDS' rationale). Uses the
+# dataclass field name `scheduling_hours` (not the `_json` column) since
+# build_audit_details sees to_dict() keys.
+_AUDITABLE_APPOINTMENT_TYPE_FIELDS = frozenset({
+    "id", "name", "active", "sort_order", "max_concurrent",
+    "scheduling_hours", "created_at", "updated_at",
 })
 
 # NEW-314: ReviewRequest diff domain. Excludes nothing -- drift guard only.

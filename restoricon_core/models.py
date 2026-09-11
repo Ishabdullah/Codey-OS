@@ -696,7 +696,8 @@ class Appointment:
     contact_external_id: Optional[str] = None
     attendee_name: Optional[str] = None
     attendee_email: Optional[str] = None
-    appointment_type: Optional[str] = None  # 'call', 'in_person', or None
+    appointment_type: Optional[str] = None  # 'call', 'in_person', or None (modality)
+    appointment_type_id: Optional[int] = None  # FK-less ref to appointment_types (service type)
     status: str = "confirmed"  # confirmed, negotiating, cancelled, completed
     rsvp_status: str = "pending"
     offered_slots: List[Dict[str, Any]] = field(default_factory=list)
@@ -772,6 +773,28 @@ class ScheduleConfig:
     buffer_minutes: int = 15
     booking_window_days: int = 365
     duration_by_relationship: Dict[str, Any] = field(default_factory=dict)
+    updated_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class AppointmentType:
+    """A bookable service type (Emergency / Standard estimate / Consultation),
+    final scheduling round Phase 2. This is a SEPARATE axis from
+    Appointment.appointment_type (the 'call'/'in_person' modality the bot
+    auto-detects). Multi-row, unlike the ScheduleConfig singleton. The
+    dataclass field is `scheduling_hours` (a dict); the DB column is
+    `scheduling_hours_json` -- mirrors ScheduleConfig.working_hours <->
+    working_hours_json."""
+    id: Optional[int] = None
+    name: str = ""
+    active: int = 1
+    sort_order: int = 0
+    max_concurrent: int = 1
+    scheduling_hours: Dict[str, Any] = field(default_factory=dict)
+    created_at: str = field(default_factory=utc_now_iso)
     updated_at: str = field(default_factory=utc_now_iso)
 
     def to_dict(self) -> Dict[str, Any]:

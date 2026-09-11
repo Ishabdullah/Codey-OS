@@ -143,6 +143,17 @@ PERM_WRITE_DNC = "write:do_not_contact"
 PERM_READ_SCHEDULE_CONFIG = "read:schedule_config"
 PERM_WRITE_SCHEDULE_CONFIG = "write:schedule_config"
 
+# Final scheduling round Phase 2: appointment_types (the "service type" axis
+# -- Emergency / Standard estimate / Consultation -- that Phase 4's
+# concurrency enforcement reads). Own pair rather than reusing
+# PERM_*_SCHEDULE_CONFIG: writing a service type is business-config work
+# (create/rename/deactivate a bookable offering), whereas ROLE_AI_AGENT
+# needs only to *read* caps/hours to offer slots. Reusing the config pair
+# would have handed the agent create/rename/deactivate power over business
+# service types.
+PERM_READ_APPOINTMENT_TYPES = "read:appointment_types"
+PERM_WRITE_APPOINTMENT_TYPES = "write:appointment_types"
+
 PERM_READ_STAFF_SCHEDULES = "read:staff_schedules"
 PERM_WRITE_STAFF_SCHEDULES = "write:staff_schedules"
 
@@ -216,6 +227,8 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_BUSINESS_PROFILE,
         PERM_READ_SCHEDULE_CONFIG,
         PERM_WRITE_SCHEDULE_CONFIG,
+        PERM_READ_APPOINTMENT_TYPES,
+        PERM_WRITE_APPOINTMENT_TYPES,
         PERM_READ_STAFF_SCHEDULES,
         PERM_WRITE_STAFF_SCHEDULES,
         PERM_READ_DNC,
@@ -276,6 +289,8 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_BUSINESS_PROFILE,
         PERM_READ_SCHEDULE_CONFIG,
         PERM_WRITE_SCHEDULE_CONFIG,
+        PERM_READ_APPOINTMENT_TYPES,
+        PERM_WRITE_APPOINTMENT_TYPES,
         PERM_READ_STAFF_SCHEDULES,
         PERM_WRITE_STAFF_SCHEDULES,
         PERM_READ_DNC,
@@ -414,6 +429,7 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_BUSINESS_PROFILE,
         PERM_READ_SCHEDULE_CONFIG,
         PERM_WRITE_SCHEDULE_CONFIG,
+        PERM_READ_APPOINTMENT_TYPES,
         PERM_READ_STAFF_SCHEDULES,
         PERM_WRITE_STAFF_SCHEDULES,
         PERM_READ_DNC,
@@ -549,6 +565,8 @@ PERMISSIONS_CATALOG: Dict[str, Dict[str, Any]] = {
             {"id": PERM_WRITE_APPOINTMENTS, "name": "Write Appointments", "description": "Book and reschedule appointments"},
             {"id": PERM_READ_SCHEDULE_CONFIG, "name": "Read Schedule Config", "description": "View booking availability rules"},
             {"id": PERM_WRITE_SCHEDULE_CONFIG, "name": "Write Schedule Config", "description": "Update booking parameters and hours"},
+            {"id": PERM_READ_APPOINTMENT_TYPES, "name": "Read Appointment Types", "description": "View bookable service types and their caps/hours"},
+            {"id": PERM_WRITE_APPOINTMENT_TYPES, "name": "Write Appointment Types", "description": "Create, rename, and deactivate bookable service types"},
             {"id": PERM_READ_STAFF_SCHEDULES, "name": "Read Staff Schedules", "description": "View staff schedules"},
             {"id": PERM_WRITE_STAFF_SCHEDULES, "name": "Write Staff Schedules", "description": "Manage staff schedules"},
         ],
