@@ -1727,6 +1727,25 @@ def render_admin_surface() -> str:
         .tab-pane { display: none; }
         .tab-pane.active { display: block; }
 
+        /* Calendar (Phase 7 Part 2) */
+        .cal-month-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+        .cal-day-cell {
+            background: #0A192F; border: 1px solid var(--card-border); border-radius: 6px;
+            min-height: 90px; padding: 0.35rem; font-size: 0.75rem; overflow: hidden;
+        }
+        .cal-day-cell.cal-outside-month { opacity: 0.4; }
+        .cal-day-num { font-weight: 700; color: var(--text-muted); margin-bottom: 0.25rem; }
+        .cal-item {
+            border-radius: 4px; padding: 1px 4px; margin-bottom: 2px; cursor: pointer;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #0A192F; font-weight: 600;
+        }
+        .cal-item.cal-staff-item {
+            background: transparent !important; border: 2px dashed #94A3B8; color: #CBD5E1 !important;
+        }
+        .cal-week-col { background: #0A192F; border: 1px solid var(--card-border); border-radius: 6px; padding: 0.5rem; min-height: 220px; }
+        .cal-week-col-head { font-weight: 700; color: var(--bronze); margin-bottom: 0.5rem; font-size: 0.85rem; }
+        .cal-view-btn-active { outline: 2px solid var(--bronze); }
+
         .erp-card {
             background: var(--card-bg);
             border: 1px solid var(--card-border);
@@ -1840,6 +1859,7 @@ def render_admin_surface() -> str:
             <button class="erp-tab-btn" onclick="switchErpTab('telemetry')">🤖 AI Agent & Audit</button>
             <button class="erp-tab-btn" onclick="switchErpTab('documents')">📄 Documents</button>
             <button class="erp-tab-btn" onclick="switchErpTab('staff-schedules')">🕒 Staff Schedules</button>
+            <button class="erp-tab-btn" onclick="switchErpTab('calendar')">📅 Calendar</button>
         </div>
 
         <!-- Tab 1: Executive Overview & KPIs -->
@@ -2320,7 +2340,61 @@ def render_admin_surface() -> str:
                 </table>
             </div>
         </div>
+
+        <!-- Tab 13: Calendar (Phase 7 Part 2 -- read-only; create/edit is Part 3) -->
+        <div id="tab-calendar" class="tab-pane">
+            <div class="card-header-line">
+                <h2>Calendar</h2>
+                <div style="display:flex; gap:0.5rem; align-items:center;">
+                    <button class="btn-gold cal-view-btn-active" id="calViewMonthBtn" onclick="calSetView('month')">Month</button>
+                    <button class="btn-gold" id="calViewWeekBtn" onclick="calSetView('week')">Week</button>
+                </div>
+            </div>
+            <div class="erp-card">
+                <div style="display:flex; flex-wrap:wrap; gap:0.75rem; align-items:center; margin-bottom:1rem;">
+                    <button class="btn-gold" onclick="calNav(-1)">&laquo; Prev</button>
+                    <button class="btn-gold" onclick="calToday()">Today</button>
+                    <button class="btn-gold" onclick="calNav(1)">Next &raquo;</button>
+                    <span id="calRangeLabel" style="color: var(--text-muted); font-weight: 700;"></span>
+                    <span style="margin-left: auto; display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
+                        <select id="calFilterPerson" onchange="renderCalendar()">
+                            <option value="">All People (staff schedules)</option>
+                        </select>
+                        <select id="calFilterType" onchange="renderCalendar()">
+                            <option value="">All Appointment Types</option>
+                        </select>
+                        <select id="calFilterRole" onchange="renderCalendar()">
+                            <option value="">All Roles</option>
+                            <option value="technician">Technician</option>
+                            <option value="subcontractor">Subcontractor</option>
+                            <option value="sales">Sales</option>
+                            <option value="project_manager">Project Manager</option>
+                            <option value="admin">Admin</option>
+                            <option value="manager">Manager</option>
+                        </select>
+                    </span>
+                </div>
+                <p style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 0.75rem;">
+                    Day view is a planned future addition -- Month and Week only this round.
+                    The Person and Role filters narrow Staff Schedule entries only (appointments
+                    have no assignee field yet); the Appointment Type filter narrows appointments only.
+                </p>
+                <div id="calLoadErrors"></div>
+                <div id="calGrid" class="cal-month-grid"></div>
+            </div>
+        </div>
     </main>
+
+    <!-- Calendar Item Detail Modal (read-only this commit -- Part 3 adds edit/save) -->
+    <div id="calItemModal" class="erp-modal-overlay">
+        <div class="erp-modal">
+            <div class="modal-header">
+                <h3 id="calItemModalTitle">Item Detail</h3>
+                <button onclick="closeCalItemModal()" style="background:none; border:none; color:#94A3B8; font-size:1.5rem; cursor:pointer;">&times;</button>
+            </div>
+            <div id="calItemModalBody"></div>
+        </div>
+    </div>
 
     <!-- Dynamic Permissions Modal -->
     <div id="permModalOverlay" class="erp-modal-overlay">
@@ -2847,6 +2921,7 @@ def render_admin_surface() -> str:
             if (tabId === 'audit') searchAuditLog();
             if (tabId === 'documents') loadDocuments();
             if (tabId === 'staff-schedules') loadStaffSchedules();
+            if (tabId === 'calendar') loadCalendar();
         }
 
         function escapeHtml(unsafe) {
@@ -2949,6 +3024,415 @@ def render_admin_surface() -> str:
                 console.error(e);
                 alert('Failed to delete staff schedule.');
             }
+        }
+
+        // ---- Calendar (Phase 7 Part 2 -- read-only; create/edit is Part 3) ----
+
+        const CAL_TYPE_COLORS = ['#D4AF37', '#6EE7B7', '#93C5FD', '#FCA5A5', '#C4B5FD', '#FDBA74', '#67E8F9', '#F9A8D4'];
+
+        // Deterministic hash of the type id into the fixed palette so the
+        // same appointment type always gets the same color across renders
+        // (NEW-488: no schema change, no new `color` column).
+        function calColorForType(typeId) {
+            if (typeId === null || typeId === undefined || typeId === '') return '#64748B';
+            const n = parseInt(typeId, 10);
+            const idx = Number.isFinite(n) ? Math.abs(n) % CAL_TYPE_COLORS.length : 0;
+            return CAL_TYPE_COLORS[idx];
+        }
+
+        function calPad(n) { return (n < 10 ? '0' : '') + n; }
+        function calISODate(d) { return d.getFullYear() + '-' + calPad(d.getMonth() + 1) + '-' + calPad(d.getDate()); }
+
+        window.calState = { view: 'month', anchorDate: new Date() };
+
+        function calSetView(view) {
+            window.calState.view = view;
+            const mBtn = document.getElementById('calViewMonthBtn');
+            const wBtn = document.getElementById('calViewWeekBtn');
+            if (mBtn) mBtn.classList.toggle('cal-view-btn-active', view === 'month');
+            if (wBtn) wBtn.classList.toggle('cal-view-btn-active', view === 'week');
+            loadCalendar();
+        }
+
+        function calNav(delta) {
+            const d = window.calState.anchorDate;
+            if (window.calState.view === 'month') {
+                // Rebuild on day 1 of the target month rather than mutating
+                // d's existing day-of-month via setMonth() -- setMonth()
+                // overflows into the following month whenever the current
+                // day-of-month exceeds the target month's length (e.g. Aug
+                // 31 + 1 month rolls past Sep into Oct 1, silently skipping
+                // September), making Next/Prev asymmetric.
+                window.calState.anchorDate = new Date(d.getFullYear(), d.getMonth() + delta, 1);
+            } else {
+                d.setDate(d.getDate() + delta * 7);
+            }
+            loadCalendar();
+        }
+
+        function calToday() {
+            window.calState.anchorDate = new Date();
+            loadCalendar();
+        }
+
+        // Grid range spans the first visible cell through the last visible
+        // cell (leading/trailing adjacent-month days included in month
+        // view), not just the 1st-to-last of the month -- otherwise items
+        // that fall on those adjacent-month cells never get fetched.
+        function calGetRange() {
+            const anchor = window.calState.anchorDate;
+            if (window.calState.view === 'month') {
+                const y = anchor.getFullYear(), m = anchor.getMonth();
+                const firstOfMonth = new Date(y, m, 1);
+                const lastOfMonth = new Date(y, m + 1, 0);
+                const gridStart = new Date(firstOfMonth);
+                gridStart.setDate(gridStart.getDate() - gridStart.getDay());
+                const gridEnd = new Date(lastOfMonth);
+                gridEnd.setDate(gridEnd.getDate() + (6 - gridEnd.getDay()));
+                return { gridStart, gridEnd, label: firstOfMonth.toLocaleString('default', { month: 'long', year: 'numeric' }) };
+            }
+            const gridStart = new Date(anchor);
+            gridStart.setDate(anchor.getDate() - anchor.getDay());
+            const gridEnd = new Date(gridStart);
+            gridEnd.setDate(gridStart.getDate() + 6);
+            return { gridStart, gridEnd, label: calISODate(gridStart) + ' – ' + calISODate(gridEnd) };
+        }
+
+        function calPopulateTypeFilter() {
+            const sel = document.getElementById('calFilterType');
+            if (!sel) return;
+            const current = sel.value;
+            const types = window.currentAppointmentTypes || [];
+            sel.innerHTML = '<option value="">All Appointment Types</option>' +
+                types.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+            sel.value = current;
+        }
+
+        function calPopulatePersonFilter() {
+            const sel = document.getElementById('calFilterPerson');
+            if (!sel) return;
+            const current = sel.value;
+            const users = window.currentCalendarUsers || [];
+            sel.innerHTML = '<option value="">All People (staff schedules)</option>' +
+                users.map(u => `<option value="${u.id}">${escapeHtml(u.full_name || u.username)}</option>`).join('');
+            sel.value = current;
+        }
+
+        function calTypeName(typeId) {
+            const t = (window.currentAppointmentTypes || []).find(x => x.id === typeId);
+            return t ? t.name : '';
+        }
+
+        function calUserName(userId) {
+            const u = (window.currentCalendarUsers || []).find(x => x.id === userId);
+            return u ? (u.full_name || u.username) : ('User #' + userId);
+        }
+
+        function calUserRole(userId) {
+            const u = (window.currentCalendarUsers || []).find(x => x.id === userId);
+            return u ? u.role : '';
+        }
+
+        async function loadCalendar() {
+            const token = getAuthToken();
+            const errBox = document.getElementById('calLoadErrors');
+            if (errBox) errBox.innerHTML = '';
+            const range = calGetRange();
+            const rangeLabel = document.getElementById('calRangeLabel');
+            if (rangeLabel) rangeLabel.innerText = range.label;
+            const startStr = calISODate(range.gridStart);
+            const endStr = calISODate(range.gridEnd);
+
+            // Appointment types: reuse the cache populated at page init
+            // (window.currentAppointmentTypes, include_inactive=true) so an
+            // appointment pointing at a deactivated type still resolves a
+            // name; fall back to a fresh fetch only if that init load
+            // failed or hasn't run.
+            if (!window.currentAppointmentTypes || !window.currentAppointmentTypes.length) {
+                try {
+                    const tRes = await fetch('/api/v1/appointment-types?include_inactive=true', {
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    });
+                    if (tRes.ok) {
+                        const tData = await tRes.json();
+                        window.currentAppointmentTypes = tData.appointment_types || [];
+                    }
+                } catch (e) { /* leave whatever was cached; type names just won't resolve */ }
+            }
+            calPopulateTypeFilter();
+
+            // Users are not cached anywhere else in this file (loadUsersList
+            // renders straight into a table) -- fetch fresh here, following
+            // the window.currentX caching convention used for appointment
+            // types.
+            try {
+                const uRes = await fetch('/api/v1/users', { headers: { 'Authorization': 'Bearer ' + token } });
+                if (uRes.status === 401) { logoutUser(); return; }
+                if (uRes.ok) {
+                    const uData = await uRes.json();
+                    window.currentCalendarUsers = uData.users || [];
+                    calPopulatePersonFilter();
+                }
+            } catch (e) { /* person names/filter just won't resolve; staff-schedule rows still render with raw user_id */ }
+
+            // The two sources degrade independently: a role holding only
+            // one of PERM_READ_APPOINTMENTS / PERM_READ_STAFF_SCHEDULES
+            // (e.g. sales, appointments-only) must still see its working
+            // half of the calendar rather than a single blanked pane.
+            let apptOk = true, staffOk = true, staffTruncated = false;
+            // NEW-490: /api/v1/staff-schedules previously had no way to
+            // raise its 200-row service default from a caller -- the
+            // route now forwards &limit, mirroring appointments' &limit=500
+            // below. Still detect a full-to-the-cap response client-side
+            // (rather than trusting the raised limit alone) since a future
+            // month's row count could exceed even 500.
+            const CAL_STAFF_FETCH_LIMIT = 500;
+            try {
+                const aRes = await fetch('/api/v1/appointments?start=' + startStr + '&end=' + endStr + '&limit=500', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (aRes.status === 401) { logoutUser(); return; }
+                if (aRes.ok) {
+                    const aData = await aRes.json();
+                    window.currentCalendarAppointments = aData.appointments || [];
+                } else {
+                    apptOk = false;
+                }
+            } catch (e) { apptOk = false; }
+
+            try {
+                const sRes = await fetch('/api/v1/staff-schedules?start=' + startStr + '&end=' + endStr + '&limit=' + CAL_STAFF_FETCH_LIMIT, {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (sRes.status === 401) { logoutUser(); return; }
+                if (sRes.ok) {
+                    const sData = await sRes.json();
+                    const schedules = sData.schedules || [];
+                    window.currentCalendarStaffSchedules = schedules;
+                    // Hitting the requested cap exactly means rows beyond
+                    // it were silently dropped server-side (ORDER BY
+                    // start_time ASC LIMIT N) -- surface it rather than
+                    // rendering a month that looks complete but isn't.
+                    staffTruncated = schedules.length === CAL_STAFF_FETCH_LIMIT;
+                } else {
+                    staffOk = false;
+                }
+            } catch (e) { staffOk = false; }
+
+            let errHtml = '';
+            if (!apptOk) errHtml += '<div style="color: var(--danger); font-size: 0.8rem;">Could not load appointments (insufficient permission or fetch error).</div>';
+            if (!staffOk) errHtml += '<div style="color: var(--danger); font-size: 0.8rem;">Could not load staff schedules (insufficient permission or fetch error).</div>';
+            if (staffTruncated) errHtml += '<div style="color: var(--danger); font-size: 0.8rem;">Showing the first ' + CAL_STAFF_FETCH_LIMIT + ' staff-schedule entries for this range -- some may be hidden. Narrow the date range for a complete view.</div>';
+            if (errBox) errBox.innerHTML = errHtml;
+
+            renderCalendar();
+        }
+
+        // Filters: Person and Role narrow staff-schedule entries only --
+        // Appointment (models.py) has no assignee/user_id field, only
+        // customer_id/attendee_name, so it cannot be filtered by person or
+        // role (see NEW_ISSUES.md; same structural gap as NEW-486 from the
+        // subcontractor side). The Appointment Type filter narrows
+        // appointments only, symmetrically.
+        function calFilteredAppointments() {
+            const typeFilter = document.getElementById('calFilterType').value;
+            const appts = window.currentCalendarAppointments || [];
+            if (!typeFilter) return appts;
+            return appts.filter(a => String(a.appointment_type_id) === typeFilter);
+        }
+
+        function calFilteredStaffSchedules() {
+            const personFilter = document.getElementById('calFilterPerson').value;
+            const roleFilter = document.getElementById('calFilterRole').value;
+            const entries = window.currentCalendarStaffSchedules || [];
+            return entries.filter(s => {
+                if (personFilter && String(s.user_id) !== personFilter) return false;
+                if (roleFilter && calUserRole(s.user_id) !== roleFilter) return false;
+                return true;
+            });
+        }
+
+        function renderCalendar() {
+            const grid = document.getElementById('calGrid');
+            if (!grid) return;
+            if (window.calState.view === 'week') {
+                renderCalendarWeek(grid);
+            } else {
+                renderCalendarMonth(grid);
+            }
+        }
+
+        // Bucket by the ISO-date prefix of start_time (string slice, not
+        // `new Date(...)`) -- start_time has no reliable timezone suffix,
+        // so parsing it as a Date and re-deriving the day can shift items
+        // across midnight depending on device TZ. A string-prefix compare
+        // sidesteps that entirely.
+        function calDayKey(isoString) {
+            return (isoString || '').slice(0, 10);
+        }
+
+        // Compact per-item label used in both grid views: time, title (or
+        // attendee_name), and the resolved appointment-type name if set --
+        // all three fields the task enumerates, all routed through
+        // escapeHtml.
+        function calApptLabel(a) {
+            const time = escapeHtml((a.start_time || '').slice(11, 16));
+            const title = escapeHtml(a.title || a.attendee_name || 'Appointment');
+            const typeName = calTypeName(a.appointment_type_id);
+            const typeSuffix = typeName ? ' &middot; ' + escapeHtml(typeName) : '';
+            return time + ' ' + title + typeSuffix;
+        }
+
+        // A month cell caps at this many rendered items before collapsing
+        // into a "+N more" link (task: "colored dot + count if many, click
+        // to expand/see a day's full list") -- unconditional rendering
+        // inside a fixed-height, overflow:hidden cell would silently clip
+        // the rest with no indication anything was cut.
+        const CAL_MONTH_CELL_ITEM_CAP = 3;
+
+        function renderCalendarMonth(grid) {
+            grid.className = 'cal-month-grid';
+            const range = calGetRange();
+            const appts = calFilteredAppointments();
+            const staff = calFilteredStaffSchedules();
+            const currentMonth = window.calState.anchorDate.getMonth();
+
+            const cells = [];
+            const cursor = new Date(range.gridStart);
+            while (cursor <= range.gridEnd) {
+                const key = calISODate(cursor);
+                const dayAppts = appts.filter(a => calDayKey(a.start_time) === key);
+                const dayStaff = staff.filter(s => calDayKey(s.start_time) === key);
+                const outside = cursor.getMonth() !== currentMonth;
+                const total = dayAppts.length + dayStaff.length;
+                const shownAppts = dayAppts.slice(0, CAL_MONTH_CELL_ITEM_CAP);
+                const remainingCap = Math.max(0, CAL_MONTH_CELL_ITEM_CAP - shownAppts.length);
+                const shownStaff = dayStaff.slice(0, remainingCap);
+                const items = shownAppts.map(a => `
+                    <div class="cal-item" style="background:${calColorForType(a.appointment_type_id)};" title="${escapeHtml(a.title || a.attendee_name || 'Appointment')}" onclick="openCalendarItem('appointment', ${a.id})">
+                        ${calApptLabel(a)}
+                    </div>`).join('') + shownStaff.map(s => `
+                    <div class="cal-item cal-staff-item" onclick="openCalendarItem('staff', ${s.id})">
+                        ${escapeHtml((s.start_time || '').slice(11, 16))} ${escapeHtml(calUserName(s.user_id))}
+                    </div>`).join('');
+                const shownCount = shownAppts.length + shownStaff.length;
+                const moreHtml = total > shownCount
+                    ? `<div class="cal-item" style="background:#334155; cursor:pointer;" onclick="openCalendarDay(${cursor.getFullYear()}, ${cursor.getMonth()}, ${cursor.getDate()})">+${total - shownCount} more</div>`
+                    : '';
+                cells.push(`
+                    <div class="cal-day-cell${outside ? ' cal-outside-month' : ''}">
+                        <div class="cal-day-num">${cursor.getDate()}</div>
+                        ${items}${moreHtml}
+                    </div>`);
+                cursor.setDate(cursor.getDate() + 1);
+            }
+            grid.innerHTML = cells.join('');
+        }
+
+        // Day-detail view for the "+N more" link -- takes numeric
+        // year/month/day (not an interpolated date string) so the onclick
+        // handler above matches this file's numeric-args-only convention,
+        // lists every item for that day in the shared detail modal, each
+        // still opening its own item detail.
+        function openCalendarDay(year, month, day) {
+            const dateKey = calISODate(new Date(year, month, day));
+            const appts = calFilteredAppointments().filter(a => calDayKey(a.start_time) === dateKey);
+            const staff = calFilteredStaffSchedules().filter(s => calDayKey(s.start_time) === dateKey);
+            const modal = document.getElementById('calItemModal');
+            const title = document.getElementById('calItemModalTitle');
+            const body = document.getElementById('calItemModalBody');
+            title.innerText = escapeHtml(dateKey);
+            const apptRows = appts.map(a => `
+                <div class="cal-item" style="background:${calColorForType(a.appointment_type_id)}; margin-bottom:4px;" onclick="openCalendarItem('appointment', ${a.id})">
+                    ${calApptLabel(a)}
+                </div>`).join('');
+            const staffRows = staff.map(s => `
+                <div class="cal-item cal-staff-item" style="margin-bottom:4px;" onclick="openCalendarItem('staff', ${s.id})">
+                    ${escapeHtml((s.start_time || '').slice(11, 16))} ${escapeHtml(calUserName(s.user_id))}
+                </div>`).join('');
+            body.innerHTML = (apptRows || staffRows) ? (apptRows + staffRows) : '<div style="color: var(--text-muted);">No items.</div>';
+            modal.classList.add('active');
+        }
+
+        // Week view: a time-ordered list per day rather than a full
+        // hour-row grid -- an hour grid needs pixel/time-axis positioning
+        // this read-only pass doesn't need (Part 3's edit flow doesn't
+        // either), and a sorted list matches this file's existing
+        // table/list rendering idiom everywhere else.
+        function renderCalendarWeek(grid) {
+            grid.className = '';
+            grid.style.display = 'grid';
+            grid.style.gridTemplateColumns = 'repeat(7, 1fr)';
+            grid.style.gap = '4px';
+            const range = calGetRange();
+            const appts = calFilteredAppointments();
+            const staff = calFilteredStaffSchedules();
+
+            const cols = [];
+            const cursor = new Date(range.gridStart);
+            for (let i = 0; i < 7; i++) {
+                const key = calISODate(cursor);
+                const dayAppts = appts.filter(a => calDayKey(a.start_time) === key)
+                    .sort((a, b) => (a.start_time || '').localeCompare(b.start_time || ''));
+                const dayStaff = staff.filter(s => calDayKey(s.start_time) === key)
+                    .sort((a, b) => (a.start_time || '').localeCompare(b.start_time || ''));
+                const items = dayAppts.map(a => `
+                    <div class="cal-item" style="background:${calColorForType(a.appointment_type_id)};" title="${escapeHtml(a.title || a.attendee_name || 'Appointment')}" onclick="openCalendarItem('appointment', ${a.id})">
+                        ${calApptLabel(a)}
+                    </div>`).join('') + dayStaff.map(s => `
+                    <div class="cal-item cal-staff-item" onclick="openCalendarItem('staff', ${s.id})">
+                        ${escapeHtml((s.start_time || '').slice(11, 16))} ${escapeHtml(calUserName(s.user_id))}
+                    </div>`).join('');
+                cols.push(`
+                    <div class="cal-week-col">
+                        <div class="cal-week-col-head">${cursor.toLocaleDateString('default', { weekday: 'short', month: 'short', day: 'numeric' })}</div>
+                        ${items || '<div style="color: var(--text-muted); font-size: 0.75rem;">No items</div>'}
+                    </div>`);
+                cursor.setDate(cursor.getDate() + 1);
+            }
+            grid.innerHTML = cols.join('');
+        }
+
+        // Read-only detail view (Part 3 adds edit/save) -- looks the item
+        // up by numeric id from the cached arrays populated by
+        // loadCalendar(); the onclick handler above passes only that id,
+        // never an interpolated name/string (NEW-481's exact vulnerable
+        // pattern).
+        function openCalendarItem(kind, id) {
+            const modal = document.getElementById('calItemModal');
+            const title = document.getElementById('calItemModalTitle');
+            const body = document.getElementById('calItemModalBody');
+            if (kind === 'appointment') {
+                const a = (window.currentCalendarAppointments || []).find(x => x.id === id);
+                if (!a) return;
+                title.innerText = 'Appointment';
+                body.innerHTML = `
+                    <div style="margin-bottom:0.5rem;"><strong>Title:</strong> ${escapeHtml(a.title || a.attendee_name || '(untitled)')}</div>
+                    <div style="margin-bottom:0.5rem;"><strong>Type:</strong> ${escapeHtml(calTypeName(a.appointment_type_id) || '(none)')}</div>
+                    <div style="margin-bottom:0.5rem;"><strong>Start:</strong> ${escapeHtml(a.start_time)}</div>
+                    <div style="margin-bottom:0.5rem;"><strong>End:</strong> ${escapeHtml(a.end_time)}</div>
+                    <div style="margin-bottom:0.5rem;"><strong>Attendee:</strong> ${escapeHtml(a.attendee_name || '(none)')}</div>
+                    <div style="margin-bottom:0.5rem;"><strong>Status:</strong> ${escapeHtml(a.status)}</div>
+                    <div style="margin-bottom:0.5rem;"><strong>Notes:</strong> ${escapeHtml(a.notes || '(none)')}</div>
+                `;
+            } else {
+                const s = (window.currentCalendarStaffSchedules || []).find(x => x.id === id);
+                if (!s) return;
+                title.innerText = 'Staff Schedule';
+                body.innerHTML = `
+                    <div style="margin-bottom:0.5rem;"><strong>Person:</strong> ${escapeHtml(calUserName(s.user_id))}</div>
+                    <div style="margin-bottom:0.5rem;"><strong>Title:</strong> ${escapeHtml(s.title)}</div>
+                    <div style="margin-bottom:0.5rem;"><strong>Start:</strong> ${escapeHtml(s.start_time)}</div>
+                    <div style="margin-bottom:0.5rem;"><strong>End:</strong> ${escapeHtml(s.end_time)}</div>
+                    <div style="margin-bottom:0.5rem;"><strong>Status:</strong> ${escapeHtml(s.status)}</div>
+                    <div style="margin-bottom:0.5rem;"><strong>Notes:</strong> ${escapeHtml(s.notes || '(none)')}</div>
+                `;
+            }
+            modal.classList.add('active');
+        }
+
+        function closeCalItemModal() {
+            document.getElementById('calItemModal').classList.remove('active');
         }
 
         async function loadDocuments() {

@@ -1452,9 +1452,11 @@ class APIRouter:
                     uid = query_params.get("user_id", [None])[0]
                     start = query_params.get("start", [None])[0]
                     end = query_params.get("end", [None])[0]
+                    limit = int(query_params.get("limit", ["200"])[0])
                     from ..models import StaffSchedule
                     entries = self.scheduling.list_staff_schedules(
                         actor, user_id=int(uid) if uid else None, start=start, end=end,
+                        limit=limit,
                     )
                     return 200, {"Content-Type": "application/json"}, {"schedules": [s.to_dict() for s in entries]}
                 elif method == "POST":

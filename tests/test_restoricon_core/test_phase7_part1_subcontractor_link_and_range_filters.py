@@ -379,6 +379,43 @@ def test_list_staff_schedules_default_limit_applied(test_setup):
     assert len(results) == 3
 
 
+def test_route_staff_schedules_limit_query_param_caps_response(test_setup):
+    """NEW-490: GET /api/v1/staff-schedules previously ignored a `limit`
+    query param entirely (only user_id/start/end were forwarded), so a
+    caller had no way to raise or lower the service's default 200-row cap
+    -- unlike the sibling /api/v1/appointments route, which does forward
+    `limit`. Confirms the route now wires `limit` through to
+    list_staff_schedules() the same way."""
+    router = test_setup["router"]
+    admin_token = test_setup["admin_token"]
+    admin_user = test_setup["admin_user"]
+    svc = test_setup["scheduling"]
+    admin = test_setup["admin_actor"]
+    hdr = {"Authorization": f"Bearer {admin_token}"}
+
+    for i in range(7):
+        svc.create_staff_schedule(
+            StaffSchedule(id=None, user_id=admin_user.id, title=f"R{i}",
+                           start_time=f"2026-10-{i+1:02d}T09:00:00Z",
+                           end_time=f"2026-10-{i+1:02d}T17:00:00Z", status="scheduled", notes=None),
+            admin,
+        )
+
+    status, _, body = router.handle_request(
+        "GET", "/api/v1/staff-schedules?limit=5", headers=hdr, body_bytes=b"",
+    )
+    assert status == 200
+    assert len(body["schedules"]) == 5
+
+    # No limit param at all -- falls back to the route's own default (200),
+    # not an error, and still returns all 7 rows created here.
+    status, _, body = router.handle_request(
+        "GET", "/api/v1/staff-schedules", headers=hdr, body_bytes=b"",
+    )
+    assert status == 200
+    assert len(body["schedules"]) == 7
+
+
 def test_route_appointments_start_end_query_params(test_setup):
     router = test_setup["router"]
     admin_token = test_setup["admin_token"]
