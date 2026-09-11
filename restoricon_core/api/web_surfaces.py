@@ -1928,6 +1928,39 @@ def render_admin_surface() -> str:
                     </tbody>
                 </table>
             </div>
+
+            <!-- Deleted User History (Delete-buttons round, Ish 2026-09-11
+                 archive-then-delete decision, NEW-493): terminal
+                 staff_schedules rows are archived (not lost) when a user is
+                 deleted -- this is that data surfaced read-only. -->
+            <div class="erp-card">
+                <div class="card-title-row">
+                    <h2><span>🗄️</span> Deleted User History</h2>
+                </div>
+                <p style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 1rem;">
+                    Terminal (completed/cancelled) staff schedule history preserved from deleted user accounts.
+                </p>
+                <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+                    <input type="text" id="deletedUserHistoryFilter" placeholder="Filter by deleted username..." style="flex: 1;">
+                    <button onclick="loadDeletedUserHistory()" class="btn-gold">Filter</button>
+                </div>
+                <table class="erp-table">
+                    <thead>
+                        <tr>
+                            <th>Original Username</th>
+                            <th>Title</th>
+                            <th>Start</th>
+                            <th>End</th>
+                            <th>Status</th>
+                            <th>Notes</th>
+                            <th>Archived At</th>
+                        </tr>
+                    </thead>
+                    <tbody id="deletedUserHistoryTableBody">
+                        <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Loading deleted user history...</td></tr>
+                    </tbody>
+                </table>
+            </div>
         </div>
 
         <!-- Tab 3: Business Profile & LLM Context -->
@@ -3011,7 +3044,7 @@ def render_admin_surface() -> str:
             if (tabId === 'comms') loadComms();
             if (tabId === 'bizops') loadBizOps();
             
-            if (tabId === 'users') loadUsersList();
+            if (tabId === 'users') { loadUsersList(); loadDeletedUserHistory(); }
             if (tabId === 'crm') loadCrmList();
             if (tabId === 'telemetry') loadAuditLogs();
             if (tabId === 'audit') searchAuditLog();
@@ -3901,12 +3934,53 @@ def render_admin_surface() -> str:
                                 <button class="btn-gold" style="padding: 0.25rem 0.55rem; font-size: 0.75rem; background: ${u.active ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)'}; border-color: ${u.active ? 'var(--danger)' : 'var(--success)'}; color: ${u.active ? '#FCA5A5' : '#6EE7B7'};" onclick="toggleUserStatus(${u.id}, ${u.active})">
                                     ${u.active ? 'Suspend' : 'Activate'}
                                 </button>
+                                <button class="btn-gold" style="padding: 0.25rem 0.55rem; font-size: 0.75rem; background: rgba(239, 68, 68, 0.2); border-color: var(--danger); color: #FCA5A5;" onclick="deleteUser(${u.id}, '${u.username}')">
+                                    Delete
+                                </button>
                             </td>
                         </tr>
                     `).join('');
                 }
             } catch (ex) {
                 tbody.innerHTML = '<tr><td colspan="8" style="color: var(--danger);">Failed to load users. Verify token privileges.</td></tr>';
+            }
+        }
+
+        // Deleted User History (Delete-buttons round, Ish 2026-09-11
+        // archive-then-delete decision, NEW-493): read-only view of
+        // staff_schedules_archive, optionally filtered by the deleted
+        // user's original username.
+        async function loadDeletedUserHistory() {
+            const token = getAuthToken();
+            const tbody = document.getElementById('deletedUserHistoryTableBody');
+            const filterVal = (document.getElementById('deletedUserHistoryFilter') || {}).value || '';
+            try {
+                const qs = filterVal.trim() ? ('?original_username=' + encodeURIComponent(filterVal.trim())) : '';
+                const res = await fetch('/api/v1/staff-schedules-archive' + qs, {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                const data = await res.json();
+                if (res.ok && data.archived_schedules) {
+                    if (!data.archived_schedules.length) {
+                        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">No archived deleted-user history found.</td></tr>';
+                        return;
+                    }
+                    tbody.innerHTML = data.archived_schedules.map(a => `
+                        <tr>
+                            <td>${escapeHtml(a.original_username)}</td>
+                            <td>${escapeHtml(a.title)}</td>
+                            <td>${escapeHtml(a.start_time)}</td>
+                            <td>${escapeHtml(a.end_time)}</td>
+                            <td><span class="card-badge badge-slate">${escapeHtml(a.status)}</span></td>
+                            <td>${escapeHtml(a.notes || '')}</td>
+                            <td>${escapeHtml(a.archived_at)}</td>
+                        </tr>
+                    `).join('');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="7" style="color: var(--danger);">' + escapeHtml(data.error || 'Failed to load deleted user history.') + '</td></tr>';
+                }
+            } catch (ex) {
+                tbody.innerHTML = '<tr><td colspan="7" style="color: var(--danger);">Failed to load deleted user history. Verify token privileges.</td></tr>';
             }
         }
 
@@ -3996,6 +4070,43 @@ def render_admin_surface() -> str:
                 loadUsersList();
             } catch (ex) {
                 alert('Error updating user status');
+            }
+        }
+
+        // Delete-buttons round (Ish 2026-09-11): precheck for ACTIVE
+        // references (staff_schedules with status='scheduled' for this
+        // user) before ever offering a confirm() dialog -- if any exist,
+        // block and list them so the admin knows what to fix first.
+        async function deleteUser(userId, username) {
+            const token = getAuthToken();
+            try {
+                const refRes = await fetch(`/api/v1/users/${userId}/active-references`, {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                const refData = await refRes.json();
+                if (!refRes.ok) {
+                    alert('Error checking active references: ' + (refData.error || refRes.statusText));
+                    return;
+                }
+                const active = refData.active_references || [];
+                if (active.length) {
+                    const listing = active.map(s => `${s.id}: ${s.title} (${s.start_time})`).join('\n');
+                    alert(`Cannot delete: this user has ${active.length} active staff schedule(s):\n${listing}`);
+                    return;
+                }
+                if (!confirm('Delete user ' + username + '? This cannot be undone.')) return;
+                const res = await fetch(`/api/v1/users/${userId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (res.ok) {
+                    loadUsersList();
+                } else {
+                    const err = await res.json();
+                    alert('Failed to delete: ' + (err.error || res.statusText));
+                }
+            } catch (ex) {
+                alert('Failed to delete user.');
             }
         }
 
@@ -4254,7 +4365,10 @@ def render_admin_surface() -> str:
                             </table>
                         </div>
                     </td>
-                    <td><button class="btn-gold" style="padding: 0.25rem 0.55rem; font-size: 0.75rem;" onclick="saveAppointmentType(${t.id})">Save</button></td>
+                    <td>
+                        <button class="btn-gold" style="padding: 0.25rem 0.55rem; font-size: 0.75rem;" onclick="saveAppointmentType(${t.id})">Save</button>
+                        <button class="btn-gold" style="padding: 0.25rem 0.55rem; font-size: 0.75rem; background: rgba(239, 68, 68, 0.2); border-color: var(--danger); color: #FCA5A5;" onclick="deleteAppointmentType(${t.id}, '${t.name}')">Delete</button>
+                    </td>
                 </tr>
             `).join('');
             types.forEach(t => populateApptTypeHours(t.id, t.scheduling_hours || {}));
@@ -4396,6 +4510,43 @@ def render_admin_surface() -> str:
                 }
             } catch (ex) {
                 alert('Connection error');
+            }
+        }
+
+        // Delete-buttons round (Ish 2026-09-11): precheck for ACTIVE
+        // references (confirmed/negotiating appointments for this type)
+        // before ever offering a confirm() dialog -- if any exist, block
+        // and list them so the admin knows what to fix first.
+        async function deleteAppointmentType(id, name) {
+            const token = getAuthToken();
+            try {
+                const refRes = await fetch('/api/v1/appointment-types/' + id + '/active-references', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                const refData = await refRes.json();
+                if (!refRes.ok) {
+                    alert('Error checking active references: ' + (refData.error || refRes.statusText));
+                    return;
+                }
+                const active = refData.active_references || [];
+                if (active.length) {
+                    const listing = active.map(a => `${a.id}: ${a.title} (${a.start_time})`).join('\n');
+                    alert(`Cannot delete: this appointment type has ${active.length} active appointment(s):\n${listing}`);
+                    return;
+                }
+                if (!confirm('Delete appointment type ' + name + '? This cannot be undone.')) return;
+                const res = await fetch('/api/v1/appointment-types/' + id + '/delete', {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (res.ok) {
+                    loadAppointmentTypes();
+                } else {
+                    const err = await res.json();
+                    alert('Failed to delete: ' + (err.error || res.statusText));
+                }
+            } catch (ex) {
+                alert('Failed to delete appointment type.');
             }
         }
 

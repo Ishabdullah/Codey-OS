@@ -1136,15 +1136,73 @@ class AuthService:
         return True
 
     def delete_user(self, user_id: int, actor_context: AuthContext) -> bool:
-        """Delete user account and all associated tokens (requires PERM_MANAGE_USERS)."""
+        """Delete user account and all associated tokens (requires PERM_MANAGE_USERS).
+
+        Archive-then-delete (Delete-buttons round, Ish 2026-09-11 policy
+        decision, NEW-493): staff_schedules.user_id carries
+        FOREIGN KEY ... ON DELETE CASCADE, so DELETE FROM users below would
+        silently wipe this user's staff_schedules rows -- including
+        terminal/historical ('completed'/'cancelled') ones -- violating
+        Ish's "keep historical info" policy. ALL remaining staff_schedules
+        rows for this user are copied into staff_schedules_archive
+        unconditionally (no status filter here) in the SAME transaction,
+        immediately before DELETE FROM users, so the CASCADE that follows
+        deletes only rows whose content already survives elsewhere. The
+        only production caller (routes.py's DELETE /api/v1/users/<id>
+        handler) already runs the active-reference precheck first and
+        blocks the whole delete if any 'scheduled' rows exist, so in
+        practice every row archived here is terminal -- but that guarantee
+        lives in the route, not in this method: a direct/future caller
+        that skips the route-level precheck still archives (not loses)
+        whatever status is present, rather than relying on an invariant
+        this function does not itself enforce. If the archive insert
+        fails, the `with conn:` block rolls back the whole delete -- a user
+        is never removed with a half-archived schedule history.
+
+        Behavior note: a `user.username` is needed to denormalize
+        `original_username` into each archived row, so this method now
+        looks the user up first and returns False immediately if no such
+        user exists -- unlike the pre-archive version, this means
+        `DELETE FROM api_tokens WHERE user_id = ?` is no longer run for a
+        nonexistent user_id (previously a harmless no-op delete ran
+        regardless). Externally identical (the route still returns 404
+        either way); noted here since it's a real behavior change inside
+        this method.
+        """
         if not actor_context.has_permission(PERM_MANAGE_USERS):
             raise PermissionError("Actor lacks permission to delete users")
 
         if actor_context.user_id == user_id:
             raise ValueError("Cannot delete currently authenticated user")
 
+        user = self.get_user_by_id(user_id)
+        if not user:
+            return False
+
+        now = utc_now_iso()
         conn = self.db.get_connection()
         with conn:
+            schedules_to_archive = conn.execute(
+                "SELECT id, title, start_time, end_time, status, notes "
+                "FROM staff_schedules WHERE user_id = ?;",
+                (user_id,),
+            ).fetchall()
+            for row in schedules_to_archive:
+                conn.execute(
+                    """
+                    INSERT INTO staff_schedules_archive
+                        (original_schedule_id, original_user_id, original_username,
+                         title, start_time, end_time, status, notes,
+                         archived_at, archived_reason)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        row["id"], user_id, user.username,
+                        row["title"], row["start_time"], row["end_time"],
+                        row["status"], row["notes"],
+                        now, "user_deleted",
+                    ),
+                )
             conn.execute("DELETE FROM api_tokens WHERE user_id = ?;", (user_id,))
             cursor = conn.execute("DELETE FROM users WHERE id = ?;", (user_id,))
             return cursor.rowcount > 0

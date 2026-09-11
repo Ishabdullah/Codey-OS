@@ -777,6 +777,73 @@ class SchedulingService:
         "scheduling_hours",
     }
 
+    def _query_active_appointments_for_type(self, appointment_type_id: int) -> List[Dict[str, Any]]:
+        """Unguarded query -- 'active' = confirmed/negotiating appointments
+        referencing this appointment_type_id. Shared, unfiltered core for
+        both the RBAC-gated public read (get_active_appointments_for_type)
+        and delete_appointment_type's server-side re-check, so the two
+        can never drift (Delete-buttons round, Ish 2026-09-11)."""
+        conn = self.db.get_connection()
+        rows = conn.execute(
+            "SELECT id, title, start_time, status FROM appointments "
+            "WHERE appointment_type_id = ? AND status IN ('confirmed', 'negotiating');",
+            (appointment_type_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_active_appointments_for_type(
+        self, appointment_type_id: int, actor: AuthContext
+    ) -> List[Dict[str, Any]]:
+        """RBAC-gated read of active (confirmed/negotiating) appointments
+        referencing an appointment type -- backs the admin-surface delete
+        precheck popup."""
+        if not actor.has_permission(PERM_READ_APPOINTMENT_TYPES):
+            raise PermissionError("Actor lacks permission to view appointment types")
+        return self._query_active_appointments_for_type(appointment_type_id)
+
+    def delete_appointment_type(
+        self, appointment_type_id: int, actor: AuthContext
+    ) -> None:
+        """Delete an appointment type (Delete-buttons round, Ish 2026-09-11
+        -- reverses Phase 2's original no-delete/soft-delete-only design
+        for this table on Ish's explicit instruction). Blocked if any
+        confirmed/negotiating appointment still references it; terminal
+        (completed/cancelled) appointments are left with their
+        appointment_type_id unchanged -- appointment_type_id is a bare,
+        FK-less INTEGER, so this is safe and requires no cleanup."""
+        if not actor.has_permission(PERM_WRITE_APPOINTMENT_TYPES):
+            raise PermissionError("Actor lacks permission to delete appointment types")
+
+        conn = self.db.get_connection()
+        row = conn.execute(
+            "SELECT * FROM appointment_types WHERE id = ?;", (appointment_type_id,)
+        ).fetchone()
+        if not row:
+            raise ValueError(f"Appointment type {appointment_type_id} does not exist")
+
+        active = self._query_active_appointments_for_type(appointment_type_id)
+        if active:
+            itemized = "; ".join(
+                f"id {a['id']}: {a['title']} ({a['start_time']})" for a in active
+            )
+            raise ValueError(
+                f"Cannot delete: {len(active)} active appointment(s) reference this record: {itemized}"
+            )
+
+        _before = self._row_to_appointment_type(row).to_dict()
+
+        with conn:
+            conn.execute("DELETE FROM appointment_types WHERE id = ?;", (appointment_type_id,))
+
+        self.audit.log(
+            action="delete",
+            entity_type="appointment_type",
+            entity_id=appointment_type_id,
+            change_summary=f"Deleted appointment type '{_before['name']}'",
+            actor=actor,
+            details=build_audit_details(snapshot=_before),
+        )
+
     def update_appointment_type(
         self, appointment_type_id: int, updates: Dict[str, Any], actor: AuthContext
     ) -> AppointmentType:
@@ -954,6 +1021,58 @@ class SchedulingService:
         conn = self.db.get_connection()
         rows = conn.execute(query, params).fetchall()
         return [StaffSchedule.from_row(row) for row in rows]
+
+    def _query_active_staff_schedules_for_user(self, user_id: int) -> List[Dict[str, Any]]:
+        """Unguarded query -- 'active' = status='scheduled' staff_schedules
+        rows for this user_id. Shared, unfiltered core for both the
+        RBAC-gated public read (get_active_staff_schedules_for_user) and
+        AuthService.delete_user's server-side re-check, so the two can
+        never drift (Delete-buttons round, Ish 2026-09-11)."""
+        conn = self.db.get_connection()
+        rows = conn.execute(
+            "SELECT id, title, start_time, status FROM staff_schedules "
+            "WHERE user_id = ? AND status = 'scheduled';",
+            (user_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_active_staff_schedules_for_user(
+        self, user_id: int, actor: AuthContext
+    ) -> List[Dict[str, Any]]:
+        """RBAC-gated read of active (status='scheduled') staff schedules
+        for a user -- backs the admin-surface user-delete precheck popup.
+        Subcontractor user_id links are deliberately NOT checked here --
+        informational only, not blocking, per architect recommendation
+        (Delete-buttons round, Ish 2026-09-11)."""
+        if not actor.has_permission(PERM_READ_STAFF_SCHEDULES):
+            raise PermissionError("Actor lacks permission to read staff schedules")
+        return self._query_active_staff_schedules_for_user(user_id)
+
+    def list_staff_schedules_archive(
+        self,
+        actor: AuthContext,
+        original_username: Optional[str] = None,
+        limit: int = 200,
+    ) -> List[Dict[str, Any]]:
+        """RBAC-gated read of staff_schedules_archive -- the "Deleted User
+        History" surface (Delete-buttons round, Ish 2026-09-11 archive-then-
+        delete decision, NEW-493). Same read tier as staff_schedules
+        (PERM_READ_STAFF_SCHEDULES): the archive holds the same class of
+        data, just for users who no longer exist."""
+        if not actor.has_permission(PERM_READ_STAFF_SCHEDULES):
+            raise PermissionError("Actor lacks permission to read staff schedules")
+
+        query = "SELECT * FROM staff_schedules_archive WHERE 1=1"
+        params: List[Any] = []
+        if original_username is not None:
+            query += " AND original_username = ?"
+            params.append(original_username)
+        query += " ORDER BY archived_at DESC LIMIT ?;"
+        params.append(limit)
+
+        conn = self.db.get_connection()
+        rows = conn.execute(query, params).fetchall()
+        return [dict(row) for row in rows]
 
     def update_staff_schedule(self, schedule_id: int, updates: Dict[str, Any], actor: AuthContext) -> Optional[StaffSchedule]:
         if not actor.has_permission(PERM_WRITE_STAFF_SCHEDULES):

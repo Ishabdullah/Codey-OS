@@ -573,6 +573,11 @@ class APIRouter:
                         "effective_permissions": self.auth.get_effective_permissions(updated),
                     }
 
+            if path.startswith("/api/v1/users/") and path.endswith("/active-references") and method == "GET":
+                user_id = int(path.split("/")[4])
+                active = self.scheduling.get_active_staff_schedules_for_user(user_id, actor)
+                return 200, {"Content-Type": "application/json"}, {"active_references": active}
+
             if path.startswith("/api/v1/users/") and "/" not in path[len("/api/v1/users/"):]:
                 sub_path = path[len("/api/v1/users/"):]
                 if sub_path.isdigit():
@@ -606,7 +611,35 @@ class APIRouter:
                         )
                         return 200, {"Content-Type": "application/json"}, {"user": updated.to_dict()}
                     elif method == "DELETE":
+                        # Explicit permission gate BEFORE the active-reference
+                        # check below: the check itself deliberately queries
+                        # the unguarded/unRBAC'd helper (see comment below), so
+                        # without this line an unprivileged caller could reach
+                        # a 400 with itemized schedule titles/dates in the body
+                        # -- an information disclosure -- instead of a 403.
+                        # delete_user() re-checks this permission too
+                        # (defense-in-depth), but that check now runs strictly
+                        # after the reference query, too late to gate it.
+                        if not actor.has_permission(PERM_MANAGE_USERS):
+                            raise PermissionError("Actor lacks permission to delete users")
                         before = self.auth.get_user_by_id(user_id)
+                        # Defense-in-depth (Delete-buttons round, Ish 2026-09-11):
+                        # the admin surface prechecks via GET .../active-references
+                        # before ever calling DELETE, but a race between two
+                        # admins/tabs is possible -- re-run the same check here,
+                        # server-side, right before the delete. Uses the
+                        # unguarded query directly (not the RBAC-gated public
+                        # method) so this write path does not additionally
+                        # require PERM_READ_STAFF_SCHEDULES on top of
+                        # PERM_MANAGE_USERS.
+                        active_schedules = self.scheduling._query_active_staff_schedules_for_user(user_id)
+                        if active_schedules:
+                            itemized = "; ".join(
+                                f"id {s['id']}: {s['title']} ({s['start_time']})" for s in active_schedules
+                            )
+                            raise ValueError(
+                                f"Cannot delete: {len(active_schedules)} active staff schedule(s) reference this record: {itemized}"
+                            )
                         deleted = self.auth.delete_user(user_id, actor)
                         if not deleted:
                             return 404, {"Content-Type": "application/json"}, {"error": "User not found"}
@@ -1474,6 +1507,19 @@ class APIRouter:
                     self.scheduling.delete_staff_schedule(sched_id, actor)
                     return 200, {"Content-Type": "application/json"}, {"deleted": True}
 
+            # Staff Schedules Archive (Delete-buttons round, Ish 2026-09-11
+            # archive-then-delete decision, NEW-493) -- read-only surface for
+            # terminal staff_schedules rows preserved when their user was
+            # deleted. Filterable by original_username since the user row
+            # itself no longer exists to look up.
+            if path == "/api/v1/staff-schedules-archive" and method == "GET":
+                original_username = query_params.get("original_username", [None])[0]
+                limit = int(query_params.get("limit", ["200"])[0])
+                archived = self.scheduling.list_staff_schedules_archive(
+                    actor, original_username=original_username, limit=limit,
+                )
+                return 200, {"Content-Type": "application/json"}, {"archived_schedules": archived}
+
             # Schedule Config (singleton, NEW-216)
             if path == "/api/v1/schedule-config":
                 if method == "GET":
@@ -1511,6 +1557,16 @@ class APIRouter:
                 type_id = int(path.split("/")[-2])
                 updated_type = self.scheduling.update_appointment_type(type_id, json_body, actor)
                 return 200, {"Content-Type": "application/json"}, {"appointment_type": updated_type.to_dict()}
+
+            if path.startswith("/api/v1/appointment-types/") and path.endswith("/active-references") and method == "GET":
+                type_id = int(path.split("/")[-2])
+                active = self.scheduling.get_active_appointments_for_type(type_id, actor)
+                return 200, {"Content-Type": "application/json"}, {"active_references": active}
+
+            if path.startswith("/api/v1/appointment-types/") and path.endswith("/delete") and method == "POST":
+                type_id = int(path.split("/")[-2])
+                self.scheduling.delete_appointment_type(type_id, actor)
+                return 200, {"Content-Type": "application/json"}, {"deleted": True, "appointment_type_id": type_id}
 
             # Automation Rules
             if path == "/api/v1/automation-rules":

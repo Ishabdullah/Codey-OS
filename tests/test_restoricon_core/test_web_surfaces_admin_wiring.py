@@ -87,3 +87,53 @@ def test_admin_surface_wires_business_hours_into_schedule_config_save_load():
     # saveScheduleConfig() must set working_hours on the object before the
     # POST (full-row-replace trap called out in the phase brief).
     assert "window.currentScheduleConfig.working_hours = serializeBusinessHours();" in html
+
+
+# ---------------------------------------------------------------------------
+# Delete-buttons round (Ish 2026-09-11)
+# ---------------------------------------------------------------------------
+
+
+def test_admin_surface_has_user_delete_button_and_precheck():
+    html = render_admin_surface()
+    # Raw ${u.username} (not escapeHtml'd), matching the existing
+    # openPermModal(${u.id}, '${u.username}') precedent immediately above
+    # it -- escapeHtml() turns a literal `'` into `&#39;`, which is right
+    # for an HTML attribute *value* but wrong inside a single-quoted JS
+    # string literal (the HTML parser decodes entities before the JS
+    # parser runs), so escaping here would break the button for any name
+    # containing an apostrophe.
+    assert "deleteUser(${u.id}, '${u.username}')" in html
+    assert "async function deleteUser(userId, username)" in html
+    assert "/active-references" in html
+    assert "confirm(" in html
+
+
+def test_admin_surface_has_appointment_type_delete_button_and_precheck():
+    html = render_admin_surface()
+    # Raw ${t.name} in the onclick JS-string arg -- same
+    # escapeHtml-is-wrong-in-a-JS-string-context reasoning as
+    # deleteUser's onclick above.
+    assert "deleteAppointmentType(${t.id}, '${t.name}')" in html
+    assert "async function deleteAppointmentType(id, name)" in html
+    assert "/api/v1/appointment-types/' + id + '/active-references'" in html
+    assert "/api/v1/appointment-types/' + id + '/delete'" in html
+
+
+# ---------------------------------------------------------------------------
+# Archive-then-delete fix-forward (Ish 2026-09-11 policy decision, NEW-493)
+# ---------------------------------------------------------------------------
+
+
+def test_admin_surface_has_deleted_user_history_panel():
+    html = render_admin_surface()
+    assert 'id="deletedUserHistoryTableBody"' in html
+    assert 'id="deletedUserHistoryFilter"' in html
+    assert "async function loadDeletedUserHistory()" in html
+    assert "'/api/v1/staff-schedules-archive'" in html
+
+
+def test_admin_surface_wires_deleted_user_history_into_users_tab_switch():
+    html = render_admin_surface()
+    # Loaded whenever the Users tab is switched to, same as loadUsersList().
+    assert "if (tabId === 'users') { loadUsersList(); loadDeletedUserHistory(); }" in html

@@ -526,3 +526,200 @@ def test_auditable_appointment_type_fields_matches_dataclass():
     from restoricon_core.services.audit_service import _AUDITABLE_APPOINTMENT_TYPE_FIELDS
 
     assert _AUDITABLE_APPOINTMENT_TYPE_FIELDS == frozenset(f.name for f in dc_fields(AppointmentType))
+
+
+# ---------------------------------------------------------------------------
+# Delete-buttons round (Ish 2026-09-11): reverses Phase 2's original
+# no-delete/soft-delete-only design for appointment_types, on Ish's
+# explicit instruction.
+# ---------------------------------------------------------------------------
+
+
+def test_get_active_appointments_for_type_empty_and_populated(test_setup):
+    svc = test_setup["scheduling"]
+    admin = test_setup["admin_actor"]
+    target = svc.list_appointment_types(admin)[0]
+
+    assert svc.get_active_appointments_for_type(target.id, admin) == []
+
+    confirmed = svc.create_appointment(
+        Appointment(title="Storm follow-up", status="confirmed", appointment_type_id=target.id),
+        admin,
+    )
+    negotiating = svc.create_appointment(
+        Appointment(title="Proposed visit", status="negotiating", appointment_type_id=target.id),
+        admin,
+    )
+    # Terminal statuses must NOT show up as active.
+    svc.create_appointment(
+        Appointment(title="Old done job", status="completed", appointment_type_id=target.id),
+        admin,
+    )
+    svc.create_appointment(
+        Appointment(title="Cancelled job", status="cancelled", appointment_type_id=target.id),
+        admin,
+    )
+
+    active = svc.get_active_appointments_for_type(target.id, admin)
+    active_ids = {a["id"] for a in active}
+    assert active_ids == {confirmed.id, negotiating.id}
+
+
+def test_delete_appointment_type_blocked_when_active_appointments(test_setup):
+    svc = test_setup["scheduling"]
+    admin = test_setup["admin_actor"]
+    target = svc.list_appointment_types(admin)[0]
+
+    appt = svc.create_appointment(
+        Appointment(title="Storm follow-up", status="confirmed", appointment_type_id=target.id),
+        admin,
+    )
+
+    with pytest.raises(ValueError) as exc:
+        svc.delete_appointment_type(target.id, admin)
+    assert str(appt.id) in str(exc.value)
+    assert "Storm follow-up" in str(exc.value)
+
+    # Not actually deleted.
+    assert svc.get_appointment_type(target.id, admin) is not None
+
+
+def test_delete_appointment_type_succeeds_with_only_terminal_appointments(test_setup):
+    svc = test_setup["scheduling"]
+    admin = test_setup["admin_actor"]
+    target = svc.list_appointment_types(admin)[0]
+
+    completed = svc.create_appointment(
+        Appointment(title="Old done job", status="completed", appointment_type_id=target.id),
+        admin,
+    )
+
+    svc.delete_appointment_type(target.id, admin)
+    assert svc.get_appointment_type(target.id, admin) is None
+
+    # Terminal appointment's appointment_type_id is unchanged/still present
+    # -- appointment_type_id is bare INTEGER, no FK, so no scrub happens.
+    refetched = svc.get_appointment(completed.id, admin)
+    assert refetched.appointment_type_id == target.id
+
+
+def test_delete_appointment_type_succeeds_when_none_reference_it(test_setup):
+    svc = test_setup["scheduling"]
+    admin = test_setup["admin_actor"]
+    target = svc.list_appointment_types(admin)[0]
+
+    svc.delete_appointment_type(target.id, admin)
+    assert svc.get_appointment_type(target.id, admin) is None
+
+
+def test_delete_appointment_type_nonexistent_raises(test_setup):
+    svc = test_setup["scheduling"]
+    admin = test_setup["admin_actor"]
+    with pytest.raises(ValueError):
+        svc.delete_appointment_type(9999, admin)
+
+
+def test_delete_appointment_type_writes_audit_log(test_setup):
+    svc = test_setup["scheduling"]
+    audit = test_setup["audit"]
+    admin = test_setup["admin_actor"]
+    target = svc.list_appointment_types(admin)[0]
+
+    svc.delete_appointment_type(target.id, admin)
+
+    logs = audit.query_logs(admin, entity_type="appointment_type", entity_id=target.id, action="delete")
+    assert len(logs) == 1
+    assert logs[0].details["snapshot"]["id"] == target.id
+
+
+def test_rbac_delete_and_active_references_require_appointment_type_perms(test_setup):
+    svc = test_setup["scheduling"]
+    admin = test_setup["admin_actor"]
+    sales = test_setup["sales_actor"]
+    target = svc.list_appointment_types(admin)[0]
+
+    with pytest.raises(PermissionError):
+        svc.get_active_appointments_for_type(target.id, sales)
+
+    with pytest.raises(PermissionError):
+        svc.delete_appointment_type(target.id, sales)
+
+
+def test_route_appointment_type_active_references_and_delete(test_setup):
+    router = test_setup["router"]
+    admin_token = test_setup["admin_token"]
+    svc = test_setup["scheduling"]
+    admin = test_setup["admin_actor"]
+    admin_hdr = {"Authorization": f"Bearer {admin_token}"}
+
+    target = svc.list_appointment_types(admin)[1]
+
+    status, _, body = router.handle_request(
+        "GET", f"/api/v1/appointment-types/{target.id}/active-references",
+        headers=admin_hdr, body_bytes=b"",
+    )
+    assert status == 200
+    assert body["active_references"] == []
+
+    svc.create_appointment(
+        Appointment(title="Blocking job", status="confirmed", appointment_type_id=target.id),
+        admin,
+    )
+
+    status, _, body = router.handle_request(
+        "GET", f"/api/v1/appointment-types/{target.id}/active-references",
+        headers=admin_hdr, body_bytes=b"",
+    )
+    assert status == 200
+    assert len(body["active_references"]) == 1
+
+    status, _, body = router.handle_request(
+        "POST", f"/api/v1/appointment-types/{target.id}/delete",
+        headers=admin_hdr, body_bytes=b"",
+    )
+    assert status == 400
+    assert "Blocking job" in body["error"]
+
+    # Blocked delete left the row in place.
+    status, _, body = router.handle_request(
+        "GET", "/api/v1/appointment-types?include_inactive=true", headers=admin_hdr, body_bytes=b"",
+    )
+    assert any(t["id"] == target.id for t in body["appointment_types"])
+
+
+def test_route_appointment_type_delete_succeeds_and_removed_from_list(test_setup):
+    router = test_setup["router"]
+    admin_token = test_setup["admin_token"]
+    svc = test_setup["scheduling"]
+    admin = test_setup["admin_actor"]
+    admin_hdr = {"Authorization": f"Bearer {admin_token}"}
+
+    target = svc.list_appointment_types(admin)[2]
+
+    status, _, body = router.handle_request(
+        "POST", f"/api/v1/appointment-types/{target.id}/delete",
+        headers=admin_hdr, body_bytes=b"",
+    )
+    assert status == 200
+    assert body["deleted"] is True
+
+    status, _, body = router.handle_request(
+        "GET", "/api/v1/appointment-types?include_inactive=true", headers=admin_hdr, body_bytes=b"",
+    )
+    assert all(t["id"] != target.id for t in body["appointment_types"])
+
+
+def test_route_appointment_type_delete_agent_denied_403(test_setup):
+    router = test_setup["router"]
+    token = test_setup["token"]  # AI_AGENT: read-only after W4
+    svc = test_setup["scheduling"]
+    admin = test_setup["admin_actor"]
+    hdr = {"Authorization": f"Bearer {token}"}
+
+    target = svc.list_appointment_types(admin)[0]
+
+    status, _, body = router.handle_request(
+        "POST", f"/api/v1/appointment-types/{target.id}/delete",
+        headers=hdr, body_bytes=b"",
+    )
+    assert status == 403

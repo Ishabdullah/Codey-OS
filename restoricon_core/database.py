@@ -841,6 +841,40 @@ CREATE TABLE IF NOT EXISTS staff_schedules (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
+-- Staff Schedules Archive (Delete-buttons round, archive-then-delete,
+-- Ish 2026-09-11 policy decision): staff_schedules.user_id carries
+-- FOREIGN KEY ... ON DELETE CASCADE (see NEW-493), so deleting a user
+-- wipes their staff_schedules rows including terminal/historical
+-- ('completed'/'cancelled') ones -- a business-record loss Ish's
+-- "keep historical info" policy forbids. This table exists to preserve
+-- that content independently: AuthService.delete_user() copies every
+-- remaining staff_schedules row for a user into here (unconditionally --
+-- no status filter in delete_user() itself), in the SAME transaction,
+-- immediately before DELETE FROM users. In production this is always
+-- terminal ('completed'/'cancelled') content, because the only caller
+-- (routes.py's DELETE /api/v1/users/<id> handler) runs the
+-- active-reference precheck first and blocks the whole delete if any
+-- 'scheduled' rows exist -- but that guarantee lives in the route, not
+-- in delete_user() or this table. Deliberately has NO FOREIGN KEY
+-- to either users or staff_schedules -- it must keep surviving after
+-- both the user row and the live schedule row are gone, so
+-- original_username is denormalized (copied verbatim) at archive time
+-- rather than looked up later through a reference that will no longer
+-- resolve.
+CREATE TABLE IF NOT EXISTS staff_schedules_archive (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    original_schedule_id INTEGER,
+    original_user_id INTEGER,
+    original_username TEXT,
+    title TEXT,
+    start_time TEXT,
+    end_time TEXT,
+    status TEXT,
+    notes TEXT,
+    archived_at TEXT NOT NULL,
+    archived_reason TEXT NOT NULL DEFAULT 'user_deleted'
+);
+
 -- Indexing for performance
 -- NOTE: the unique indexes for customers.external_id / leads.external_id /
 -- contacts.external_id / communication_history.provider_message_id are
@@ -924,6 +958,7 @@ CREATE INDEX IF NOT EXISTS idx_po_vendor_id ON purchase_orders(vendor_id);
 CREATE INDEX IF NOT EXISTS idx_po_project_id ON purchase_orders(project_id);
 CREATE INDEX IF NOT EXISTS idx_po_status ON purchase_orders(status);
 CREATE INDEX IF NOT EXISTS idx_staff_schedules_user_id ON staff_schedules(user_id);
+CREATE INDEX IF NOT EXISTS idx_staff_schedules_archive_username ON staff_schedules_archive(original_username);
 """
 
 _local = threading.local()
