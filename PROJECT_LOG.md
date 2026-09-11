@@ -19,6 +19,18 @@
 
 **Why this matters:** the master plan §3's "Codey-OS is the single business-data backend" is now concretely true for scheduling — one appointment table, enforced by one service, viewed and edited from one dashboard, consumed by the AI agent through the same API, with a real backup.
 
+## 2026-09-11 — Post-program round CLOSED: Part B consolidation live-verified; delete/archive flow proven end-to-end
+
+**What changed:** `e17fdd1` (Part B) live-verified against a copy of the live DB, production server/DB untouched throughout (md5 unchanged before/after).
+
+- **(a) Consolidated page structurally correct:** `tab-kpis` content order confirmed by character offset — KPI cards → Calendar → Booking Config → Business Profile → next tab. Zero occurrences of the three old wrapper ids (`tab-profile`/`tab-schedule`/`tab-calendar`). Full dump of every `switchErpTab(...)` argument in the file confirms no remaining reference to the three retired tabs.
+- **(b) All moved sections genuinely wired post-move**, not just visually present: traced the actual call sites (not just endpoint curl checks, which an advisor pass correctly flagged as insufficient on their own) — `loadCalendar`/`loadAppointmentTypes`/Business Profile/Schedule Config loaders all run unconditionally in the page-init block now, none gated behind a tab click that no longer exists. Business profile save, schedule-config save, appointment-types list, and the appointments date-range filter (re-verified with real inserted data after an initial weak "routing only" check) all round-trip correctly.
+- **(c) Full delete-with-archive/block flow proven exactly as designed:** appointment type with no references deletes cleanly; one with an active `confirmed` appointment gets blocked with the exact itemized message (`"Cannot delete: 1 active appointment(s) reference this record: id 11: LiveTest Confirmed Appt (2026-09-20T10:00:00)"`) even when the delete is attempted directly (bypassing the UI precheck) — defense-in-depth confirmed live, not just in tests. A user with a completed staff-schedule entry: delete succeeds, the live schedule row is gone, and the archived copy exists in `staff_schedules_archive` with matching content plus `archived_reason: "user_deleted"`.
+
+**The whole post-program round (Part A `868f5d7` + Part B `e17fdd1`) is now code-complete → reviewer-approved → live-verified**, closing out Ish's follow-on asks: delete buttons with confirm + active-reference blocking on Users and Appointment Types, and the four-pages-into-one consolidation (Calendar + Booking Config + Business Profile folded into Executive Overview, in that order, fully operational).
+
+**Still outstanding (Ish's own action item, not this session's):** escrow the real DR private key (`python3 core/setup_dr_key.py --force`, store offline, then `python3 core/backup_secrets.py`).
+
 ## 2026-09-11 — Post-program round, Part A: Delete buttons for Users + Appointment Types, with active-reference blocking
 
 **What changed:** `868f5d7`. Ish's policy: block a delete if active references exist (itemized list of what to fix first); never scrub historical/terminal records. Users delete button + precheck (`GET .../active-references`) + real hard-delete for Appointment Types (reverses Phase 2's soft-delete-only design, per explicit instruction).
