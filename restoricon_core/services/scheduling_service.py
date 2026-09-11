@@ -17,6 +17,7 @@ identity/onboarding data.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from ..auth import (
@@ -80,6 +81,123 @@ class SchedulingService:
             updated_at=row["updated_at"],
         )
 
+    @staticmethod
+    def _parse_iso(value: str) -> datetime:
+        """Parse an ISO-8601 timestamp, tolerating a trailing 'Z' (as
+        produced by calendar.js's `.toISOString()`) as well as this
+        codebase's own `utc_now_iso()` `+00:00`-suffixed form. Naive
+        results (no offset at all) are stamped UTC so every parsed value
+        is offset-aware -- mixing naive/aware datetimes in a comparison
+        raises TypeError, which would otherwise surface as a 500 on a
+        legitimate booking instead of the intended overlap check."""
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+
+    def _assert_within_concurrency_cap(
+        self,
+        conn,
+        *,
+        appointment_type_id: Optional[int],
+        start_time: Optional[str],
+        end_time: Optional[str],
+        exclude_appointment_id: Optional[int] = None,
+    ) -> None:
+        """Final scheduling round Phase 4: enforce appointment_types.max_concurrent
+        for CONFIRMED appointments of the same service type, counted against
+        the same connection/transaction as the write that follows (no
+        separate connection, no separate transaction -- see class docstring
+        callers). Ish's decision: same-type-only cap, no cross-type/global
+        cap this round.
+
+        Fails OPEN (no check, no error) when:
+        - appointment_type_id is None (untyped rows, e.g. submit_public_booking) -- matches
+          all pre-existing behavior for untyped appointments.
+        - start_time or end_time is missing -- an interval with no bounds
+          (e.g. a pre-slot-pick 'negotiating' row) can't be overlap-checked.
+        - the appointment_type_id doesn't resolve to a row at all (deleted/
+          invalid id) -- mirrors get_schedule_config's "missing config ->
+          no check" fail-open precedent.
+
+        Does NOT fail open for a deactivated type (active=0): an inactive
+        type still carries a real, previously-set max_concurrent, and
+        Ish deactivating a type (e.g. to stop new bookings of it) should not
+        also silently disable the cap on whatever's already booked under it.
+        Only a genuinely missing type row fails open.
+        """
+        if appointment_type_id is None:
+            return
+        if not start_time or not end_time:
+            return
+
+        type_row = conn.execute(
+            "SELECT max_concurrent, active FROM appointment_types WHERE id = ?;",
+            (appointment_type_id,),
+        ).fetchone()
+        if not type_row:
+            return
+        # `active` is deliberately not branched on: only a genuinely MISSING
+        # type row (handled above) fails open. A deactivated type
+        # (active=0) still has a real, previously-set max_concurrent and
+        # still enforces it -- see the docstring rationale.
+        max_concurrent = type_row["max_concurrent"]
+
+        config_row = conn.execute(
+            "SELECT buffer_minutes FROM schedule_config WHERE id = 1;"
+        ).fetchone()
+        buffer_minutes = config_row["buffer_minutes"] if config_row else 0
+
+        new_start = self._parse_iso(start_time)
+        new_end = self._parse_iso(end_time)
+        buffer_delta = timedelta(minutes=buffer_minutes)
+
+        query = (
+            "SELECT id, start_time, end_time FROM appointments "
+            "WHERE appointment_type_id = ? AND status = 'confirmed'"
+        )
+        params: List[Any] = [appointment_type_id]
+        if exclude_appointment_id is not None:
+            query += " AND id != ?"
+            params.append(exclude_appointment_id)
+
+        existing_rows = conn.execute(query, params).fetchall()
+
+        count = 0
+        for row in existing_rows:
+            row_start_raw = row["start_time"]
+            row_end_raw = row["end_time"]
+            if not row_start_raw or not row_end_raw:
+                # Defensive: shouldn't happen for a 'confirmed' row, but an
+                # interval with no bounds can't be evaluated for overlap.
+                continue
+            try:
+                row_start = self._parse_iso(row_start_raw)
+                row_end = self._parse_iso(row_end_raw)
+            except ValueError:
+                # An existing row with an unparseable stored timestamp can't
+                # be evaluated for overlap; skipping it is safe (matches the
+                # null-bounds skip above) -- it can never contribute to a
+                # count that blocks a new booking. The NEW interval being
+                # checked is not given this treatment: an unparseable new
+                # start/end is a caller error and should raise, not be
+                # silently ignored.
+                continue
+            # Buffer expands the EXISTING appointment's window on both sides
+            # (symmetric), mirroring calendar.js's hasConflict() exactly:
+            # aStart = existing.start - buffer, aEnd = existing.end + buffer,
+            # conflict if new_start < aEnd and new_end > aStart.
+            row_start_buffered = row_start - buffer_delta
+            row_end_buffered = row_end + buffer_delta
+            if new_start < row_end_buffered and new_end > row_start_buffered:
+                count += 1
+
+        if count >= max_concurrent:
+            raise ValueError(
+                f"Booking would exceed the concurrency cap ({max_concurrent}) "
+                "for this appointment type in the requested time window"
+            )
+
     def create_appointment(
         self, appt: Appointment, actor: AuthContext,
         created_at: Optional[str] = None, updated_at: Optional[str] = None,
@@ -106,6 +224,24 @@ class SchedulingService:
 
         conn = self.db.get_connection()
         with conn:
+            # Cap check runs on this same connection/transaction, immediately
+            # before the write, only for rows that book a slot outright
+            # (status == 'confirmed'). A negotiating/cancelled/completed row
+            # being created is never capacity-checked -- matches
+            # submit_public_booking's negotiating-first lifecycle. Residual
+            # TOCTOU: sqlite3's `with conn:` commits/rolls back on
+            # exception but does not BEGIN IMMEDIATE, so two concurrent
+            # writers can both pass this check before either commits (no
+            # BEGIN IMMEDIATE change made here per NEW-311's decided
+            # no-txn-boundary-change rule) -- flagged to NEW_ISSUES, not
+            # fixed in this phase.
+            if appt.status == "confirmed":
+                self._assert_within_concurrency_cap(
+                    conn,
+                    appointment_type_id=appt.appointment_type_id,
+                    start_time=appt.start_time,
+                    end_time=appt.end_time,
+                )
             cursor = conn.execute(
                 """
                 INSERT INTO appointments (
@@ -240,6 +376,18 @@ class SchedulingService:
         history_json = json.dumps(history)
 
         with conn:
+            # Cap check uses the row's STORED start_time/end_time/
+            # appointment_type_id -- this call never changes them, only
+            # `status`. exclude_appointment_id=appointment_id so the row
+            # doesn't count against its own future confirmed self.
+            if status == "confirmed":
+                self._assert_within_concurrency_cap(
+                    conn,
+                    appointment_type_id=row["appointment_type_id"],
+                    start_time=row["start_time"],
+                    end_time=row["end_time"],
+                    exclude_appointment_id=appointment_id,
+                )
             conn.execute(
                 "UPDATE appointments SET status = ?, history_json = ?, updated_at = ? WHERE id = ?;",
                 (status, history_json, now, appointment_id),
@@ -341,7 +489,25 @@ class SchedulingService:
         params.append(now)
         params.append(appointment_id)
 
+        # Merged/resulting values (existing row's, overridden by anything in
+        # `updates`) computed BEFORE the UPDATE executes -- the cap must be
+        # checked against what the row will become, not what it currently
+        # is (e.g. a time-only change on an already-confirmed row, or a
+        # status-only change on a row that already has real times).
+        merged_status = updates.get("status", row["status"])
+        merged_start = updates.get("start_time", row["start_time"])
+        merged_end = updates.get("end_time", row["end_time"])
+        merged_type_id = updates.get("appointment_type_id", row["appointment_type_id"])
+
         with conn:
+            if merged_status == "confirmed" and merged_start and merged_end:
+                self._assert_within_concurrency_cap(
+                    conn,
+                    appointment_type_id=merged_type_id,
+                    start_time=merged_start,
+                    end_time=merged_end,
+                    exclude_appointment_id=appointment_id,
+                )
             conn.execute(
                 f"UPDATE appointments SET {', '.join(set_clauses)} WHERE id = ?;",
                 params,
