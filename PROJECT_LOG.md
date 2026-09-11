@@ -19,6 +19,16 @@
 
 **Why this matters:** the master plan §3's "Codey-OS is the single business-data backend" is now concretely true for scheduling — one appointment table, enforced by one service, viewed and edited from one dashboard, consumed by the AI agent through the same API, with a real backup.
 
+## 2026-09-11 — Post-program round, Part A: Delete buttons for Users + Appointment Types, with active-reference blocking
+
+**What changed:** `868f5d7`. Ish's policy: block a delete if active references exist (itemized list of what to fix first); never scrub historical/terminal records. Users delete button + precheck (`GET .../active-references`) + real hard-delete for Appointment Types (reverses Phase 2's soft-delete-only design, per explicit instruction).
+
+**Real problem found and fixed:** `staff_schedules.user_id` has `ON DELETE CASCADE` — deleting a user would have destroyed ALL their staff-schedule history, including completed work, directly violating Ish's "keep history for business review" policy. Round 1 review: CHANGES REQUESTED (also caught a test docstring falsely claiming a ledger entry existed when it didn't — `NEW-493` now logged for real, marked FIXED). **Ish's decision: archive-then-delete** — terminal rows copied into a new no-FK `staff_schedules_archive` table (with a "Deleted User History" panel to view them) before the cascade fires, inside one transaction, with a genuine rollback test. Round 2: APPROVED. Also fixed in round 1: an RBAC-ordering bug where an unauthorized delete attempt leaked another user's schedule details in a 400 instead of getting a clean 403.
+
+**602 passed.** `NEW-494` logged (subcontractors.user_id has no FK at all — dangling on user delete, informational).
+
+**Next action:** Part B — consolidate Calendar, Booking Config, and Business Profile into the Executive Overview tab, in that order, deleting the three standalone pages. Scoped already (no id collisions, no backend changes needed, one JS load-order fix identified).
+
 ## 2026-09-11 — Final scheduling round Phase 7 Parts 2+3: Calendar view is create/edit/delete-capable; whole 7-phase admin-dashboard program is now code-complete + reviewer-approved
 
 **What changed:** `3011f90` (Part 2, read-only calendar) + `9affbdb` (Part 3, create/edit/delete). Together they close the program's final phase.
