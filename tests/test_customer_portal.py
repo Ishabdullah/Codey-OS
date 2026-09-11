@@ -167,6 +167,7 @@ def portal_setup():
     return {
         "router": router,
         "admin_token": admin_token,
+        "admin_actor": admin_actor,
         "alice_token": alice_token,
         "bob_token": bob_token,
         "cust1": cust1,
@@ -177,6 +178,7 @@ def portal_setup():
         "inv1": inv1,
         "doc1": doc1,
         "crm": crm,
+        "comm": comm,
     }
 
 
@@ -292,3 +294,57 @@ def test_portal_messaging(portal_setup):
     assert code == 201
     assert data["message"]["content"] == "Can we switch to the subway tile for the backsplash?"
     assert data["message"]["channel"] == "web_chat"
+
+
+def test_portal_messages_no_channel_leak(portal_setup):
+    """Regression: non-web_chat records logged by admin/Aigentik must NOT appear
+    in GET /api/v1/portal/messages for the customer.
+
+    Before the fix, query_communications() was called with no channel filter,
+    so email logs, phone records, SMS, voicemails, and ai_conversation records
+    (written by the Aigentik orchestrator) all surfaced in the customer-facing
+    'Project Manager Direct Thread' chat widget.
+    """
+    router = portal_setup["router"]
+    comm = portal_setup["comm"]
+    admin_actor = portal_setup["admin_actor"]
+    alice_token = portal_setup["alice_token"]
+    cust1 = portal_setup["cust1"]
+    proj_id = portal_setup["proj1"].id
+
+    # Admin (simulating Aigentik or staff) logs several non-web_chat records
+    # for Alice that should NEVER appear in her portal thread.
+    leaked_channels = ["email", "phone", "sms", "voicemail", "ai_conversation"]
+    for ch in leaked_channels:
+        comm.record_communication(
+            channel=ch,
+            direction="inbound",
+            content=f"SHOULD NOT LEAK: {ch} record for Alice",
+            actor=admin_actor,
+            customer_id=cust1.id,
+            project_id=proj_id,
+        )
+
+    # Alice posts one legitimate web_chat message.
+    alice_headers = {"Authorization": f"Bearer {alice_token}"}
+    body = json.dumps({"message": "Hello, any update?"}).encode("utf-8")
+    code, _, _ = router.handle_request("POST", "/api/v1/portal/messages", alice_headers, body)
+    assert code == 201
+
+    # Alice GETs the portal message feed.
+    code, _, data = router.handle_request("GET", "/api/v1/portal/messages", alice_headers, b"")
+    assert code == 200
+
+    messages = data["messages"]
+    # Only Alice's own web_chat message should be present.
+    assert len(messages) == 1, (
+        f"Expected 1 web_chat message, got {len(messages)}: "
+        + str([m.get("channel") for m in messages])
+    )
+    assert messages[0]["channel"] == "web_chat"
+    assert messages[0]["content"] == "Hello, any update?"
+
+    # None of the non-web_chat channels should appear.
+    returned_channels = {m["channel"] for m in messages}
+    for ch in leaked_channels:
+        assert ch not in returned_channels, f"Leaked channel '{ch}' appeared in portal messages"

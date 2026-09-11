@@ -17899,3 +17899,34 @@ housekeeping, same as `NEW-403`'s own cleanup.
 - **Impact:** low priority, informational — nothing currently reads `subcontractors.user_id` to join back to a live `users` row in a way that would crash on a miss (unresolved integer lookups typically just return no match); this is a latent data-integrity gap, not an observed live bug.
 - **Not fixed this round** — explicitly out of scope (Ish's archive-then-delete decision this round covered `staff_schedules` only). Left as-is per reviewer's note; a future fix could add an FK (`ON DELETE SET NULL`, since the column is presumably nullable) the next time `subcontractors` needs a schema rebuild, or a lighter-weight `UPDATE subcontractors SET user_id = NULL WHERE user_id = ?` step in `delete_user()` if this becomes a real problem before then.
 - **Cross-reference:** `restoricon_core/database.py` (`subcontractors`), `NEW-486`, `NEW-493`.
+
+## Found 2026-09-11 — customer portal PM thread channel leak, fixed same session
+
+### [NEW-495] `GET /api/v1/portal/messages` leaked non-web_chat channel records into customer-facing PM Direct Thread
+
+- **Status:** Confirmed — fixed same session.
+- **Mechanism:** The portal messages GET handler called
+  `comm.query_communications(actor, customer_id=actor.customer_id)` with
+  no `channel` filter. `query_communications()` correctly excludes
+  `internal_note` and `direction=internal` records for `ROLE_CUSTOMER`,
+  but all other channels remained visible: `email`, `phone`, `sms`,
+  `voicemail`, `ai_conversation`, `social`, `appointment`. Any record
+  written by staff or the Aigentik orchestrator against the customer's
+  `customer_id` — regardless of which channel it was logged under —
+  surfaced in the "Project Manager Direct Thread" chat widget in the
+  customer portal. The `CommunicationRecord.to_dict()` serialisation
+  includes `actor_id`, `actor_role`, `actor_type`, and `metadata` (which
+  carries `source` and `ip` tags), so sensitive operational metadata was
+  also exposed.
+- **Fix:** Added `channel="web_chat"` to the `query_communications()` call
+  in the portal messages GET handler (`restoricon_core/api/routes.py`,
+  line ~1191). The PM Direct Thread now only returns records written via
+  the web chat widget.
+- **Tests:** Added `test_portal_messages_no_channel_leak` in
+  `tests/test_customer_portal.py`: seeds email, phone, SMS, voicemail, and
+  ai_conversation records for Alice via the admin actor, then asserts that
+  only the single web_chat message Alice posted appears in her portal GET
+  response. All 7 portal tests pass.
+- **No other surfaces affected:** `POST /api/v1/portal/messages` already
+  hard-codes `channel="web_chat"`. Admin `/api/v1/communications` GET is
+  unaffected (uses its own handler with full-permission checks).

@@ -1188,7 +1188,19 @@ class APIRouter:
                     return 200, {"Content-Type": "application/json"}, {"documents": [d.to_dict() for d in documents]}
 
                 if path == "/api/v1/portal/messages" and method == "GET":
-                    msgs = self.comm.query_communications(actor, customer_id=actor.customer_id)
+                    # Restrict to web_chat channel only so the PM Direct Thread
+                    # in the customer portal never surfaces email logs, phone
+                    # call records, SMS, AI-conversation records (Aigentik),
+                    # voicemails, or any other channel that staff or automation
+                    # may have written.  query_communications() already filters
+                    # out internal_note / direction=internal for ROLE_CUSTOMER,
+                    # but without this channel pin ALL remaining channels would
+                    # appear in the thread (NEW-XXX: information leak).
+                    msgs = self.comm.query_communications(
+                        actor,
+                        customer_id=actor.customer_id,
+                        channel="web_chat",
+                    )
                     return 200, {"Content-Type": "application/json"}, {"messages": [m.to_dict() for m in msgs]}
 
                 if path == "/api/v1/portal/messages" and method == "POST":
