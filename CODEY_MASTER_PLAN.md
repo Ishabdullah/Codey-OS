@@ -6299,13 +6299,26 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
         — notably **NEW-465: the Aigentik booking bot offers no slots on
         device** (empty `working_hours`), **NEW-470: the 4 staff portals
         serve broken HTML** (f-string bug, Ish flagged priority).
-      - **NEXT: NEW-470 staff-portal fix** (fast, its own pass), then
-      - **Final round:** appointment-type taxonomy (Emergency / Standard
-        estimate / Consultation) + per-type scheduling hours + per-type
-        concurrency caps (the folded-in `max_concurrent_estimators`,
-        NEW-452) + business-hours editor + NEW-465 fix — one coherent
-        scheduling round, writing through to `schedule_config`, consumed
-        by `calendar.js`.
+      - **NEW-470 staff-portal fix DONE** (`d2b0579` + `9a0170b`):
+        f-string `{{}}` bug — the 4 staff portals were serving CSS-less,
+        nav-less HTML with literal template text.
+      - **Final scheduling round — scoped 2026-09-11, 7 phases**
+        (see PROJECT_LOG 2026-09-11 for the full scoping + Ish decisions).
+        Structural call: `appointment_type` (call/in_person modality)
+        stays; **service type** is a NEW `appointment_type_id` column +
+        `appointment_types` table. Per-type caps = same-type-only (v1).
+        Core has no timezone field → hours enforced client-side in
+        `calendar.js`, Core enforces only the concurrency count.
+        Phases: 1 NEW-465 fix (Aigentik) — **DONE `b67c1c2`, reviewer
+        APPROVED**; 2 `appointment_types` table+API (Core); 3 business/
+        per-type hours storage (Core); 4 Core concurrency-cap enforcement
+        (Core, mandatory review); 5 dashboard scheduling UI (Core,
+        largest); 6 `calendar.js` alignment + NEW-467 (Aigentik);
+        **7 (Ish 2026-09-11) full calendar view** — all appointments +
+        tech/subcontractor/sales schedules, filterable, aggregating
+        `appointments` + `staff_schedules` (B6.7) + the new types.
+        NEW-452 closed by phase 5; NEW-465 by phase 1; NEW-467 by phase 6.
+        Spun off: `NEW-473` (calendar.js aliasing, sibling of NEW-465).
       - **Deferred (own rounds after the program):** NEW-464 (Aigentik
         reply bodies hardcode the business name), NEW-468 (public
         surfaces need an unauth profile read), NEW-469 (running Aigentik
