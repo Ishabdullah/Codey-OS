@@ -1970,12 +1970,88 @@ def render_admin_surface() -> str:
                         <label>Booking Window (days out)</label>
                         <input type="number" id="schedBookingWindow" min="1">
                     </div>
-                    <div class="form-group">
-                        <label>Max Concurrent Estimators</label>
-                        <input type="number" id="schedConcurrent" value="3" disabled>
-                        <small style="color: #999;">(not yet configurable)</small>
-                    </div>
                 </div>
+            </div>
+
+            <div class="erp-card">
+                <div class="card-title-row">
+                    <h2><span>🕐</span> Business Hours</h2>
+                </div>
+                <table class="erp-table">
+                    <thead>
+                        <tr>
+                            <th>Day</th>
+                            <th>Closed</th>
+                            <th>Start</th>
+                            <th>End</th>
+                        </tr>
+                    </thead>
+                    <tbody id="bizHoursTableBody">
+                        <tr data-day="mon">
+                            <td>Monday</td>
+                            <td><input type="checkbox" id="bizHours_mon_closed" onchange="toggleBizHoursRow('mon')"></td>
+                            <td><input type="time" id="bizHours_mon_start"></td>
+                            <td><input type="time" id="bizHours_mon_end"></td>
+                        </tr>
+                        <tr data-day="tue">
+                            <td>Tuesday</td>
+                            <td><input type="checkbox" id="bizHours_tue_closed" onchange="toggleBizHoursRow('tue')"></td>
+                            <td><input type="time" id="bizHours_tue_start"></td>
+                            <td><input type="time" id="bizHours_tue_end"></td>
+                        </tr>
+                        <tr data-day="wed">
+                            <td>Wednesday</td>
+                            <td><input type="checkbox" id="bizHours_wed_closed" onchange="toggleBizHoursRow('wed')"></td>
+                            <td><input type="time" id="bizHours_wed_start"></td>
+                            <td><input type="time" id="bizHours_wed_end"></td>
+                        </tr>
+                        <tr data-day="thu">
+                            <td>Thursday</td>
+                            <td><input type="checkbox" id="bizHours_thu_closed" onchange="toggleBizHoursRow('thu')"></td>
+                            <td><input type="time" id="bizHours_thu_start"></td>
+                            <td><input type="time" id="bizHours_thu_end"></td>
+                        </tr>
+                        <tr data-day="fri">
+                            <td>Friday</td>
+                            <td><input type="checkbox" id="bizHours_fri_closed" onchange="toggleBizHoursRow('fri')"></td>
+                            <td><input type="time" id="bizHours_fri_start"></td>
+                            <td><input type="time" id="bizHours_fri_end"></td>
+                        </tr>
+                        <tr data-day="sat">
+                            <td>Saturday</td>
+                            <td><input type="checkbox" id="bizHours_sat_closed" onchange="toggleBizHoursRow('sat')"></td>
+                            <td><input type="time" id="bizHours_sat_start"></td>
+                            <td><input type="time" id="bizHours_sat_end"></td>
+                        </tr>
+                        <tr data-day="sun">
+                            <td>Sunday</td>
+                            <td><input type="checkbox" id="bizHours_sun_closed" onchange="toggleBizHoursRow('sun')"></td>
+                            <td><input type="time" id="bizHours_sun_start"></td>
+                            <td><input type="time" id="bizHours_sun_end"></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="erp-card">
+                <div class="card-title-row">
+                    <h2><span>🗓️</span> Appointment Types</h2>
+                    <button onclick="addAppointmentType()" class="btn-gold">+ Add Type</button>
+                </div>
+                <table class="erp-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Active</th>
+                            <th>Max Concurrent</th>
+                            <th>Scheduling Hours</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="apptTypesTableBody">
+                        <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Loading appointment types...</td></tr>
+                    </tbody>
+                </table>
             </div>
         </div>
 
@@ -3213,6 +3289,268 @@ def render_admin_surface() -> str:
             }
         }
 
+        // Business Hours grid (schedule_config.working_hours) — 7-key object,
+        // null = closed for that day, {start, end} = open. See
+        // ScheduleConfig.working_hours docstring (models.py) for the
+        // "Business Hours" envelope semantics.
+        const BIZ_HOURS_DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+
+        function toggleBizHoursRow(day) {
+            const closed = document.getElementById('bizHours_' + day + '_closed').checked;
+            document.getElementById('bizHours_' + day + '_start').disabled = closed;
+            document.getElementById('bizHours_' + day + '_end').disabled = closed;
+        }
+
+        function populateBusinessHours(workingHours) {
+            const wh = workingHours || {};
+            BIZ_HOURS_DAYS.forEach(day => {
+                const hasKey = Object.prototype.hasOwnProperty.call(wh, day);
+                const entry = wh[day];
+                const closedBox = document.getElementById('bizHours_' + day + '_closed');
+                const startInput = document.getElementById('bizHours_' + day + '_start');
+                const endInput = document.getElementById('bizHours_' + day + '_end');
+                if (hasKey && entry === null) {
+                    closedBox.checked = true;
+                    startInput.value = '';
+                    endInput.value = '';
+                } else if (hasKey && entry && typeof entry === 'object') {
+                    closedBox.checked = false;
+                    startInput.value = entry.start || '09:00';
+                    endInput.value = entry.end || '17:00';
+                } else {
+                    // Key absent entirely: treat as open with sensible
+                    // defaults (09:00-17:00). NOTE this is a display default
+                    // only until the next Save, at which point
+                    // serializeBusinessHours() materializes it into an
+                    // explicit {start, end} entry — an intentional
+                    // unset-to-explicit transition, not a silent overwrite.
+                    closedBox.checked = false;
+                    startInput.value = '09:00';
+                    endInput.value = '17:00';
+                }
+                startInput.disabled = closedBox.checked;
+                endInput.disabled = closedBox.checked;
+            });
+        }
+
+        function serializeBusinessHours() {
+            const result = {};
+            BIZ_HOURS_DAYS.forEach(day => {
+                const closed = document.getElementById('bizHours_' + day + '_closed').checked;
+                if (closed) {
+                    result[day] = null;
+                } else {
+                    const start = document.getElementById('bizHours_' + day + '_start').value || '09:00';
+                    const end = document.getElementById('bizHours_' + day + '_end').value || '17:00';
+                    result[day] = { start: start, end: end };
+                }
+            });
+            return result;
+        }
+
+        // Appointment Types (service-type axis) — separate table/endpoint
+        // from schedule-config; NOT part of the full-row-replace payload.
+        window.currentAppointmentTypes = [];
+
+        async function loadAppointmentTypes() {
+            const token = getAuthToken();
+            const tbody = document.getElementById('apptTypesTableBody');
+            const addBtn = document.querySelector('button[onclick="addAppointmentType()"]');
+            try {
+                const res = await fetch('/api/v1/appointment-types?include_inactive=true', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                const data = await res.json();
+                if (res.ok && data.appointment_types) {
+                    window.currentAppointmentTypes = data.appointment_types;
+                    renderAppointmentTypes();
+                    if (addBtn) addBtn.disabled = false;
+                } else {
+                    throw new Error('HTTP ' + res.status);
+                }
+            } catch (e) {
+                tbody.innerHTML = '<tr><td colspan="5" style="color: var(--danger);">Failed to load appointment types.</td></tr>';
+                if (addBtn) addBtn.disabled = true;
+            }
+        }
+
+        function renderAppointmentTypes() {
+            const tbody = document.getElementById('apptTypesTableBody');
+            const types = window.currentAppointmentTypes || [];
+            if (!types.length) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No appointment types configured.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = types.map(t => `
+                <tr data-type-id="${t.id}" data-sort-order="${t.sort_order}">
+                    <td><input type="text" id="apptType_${t.id}_name" value="${escapeHtml(t.name)}"></td>
+                    <td><input type="checkbox" id="apptType_${t.id}_active" ${t.active ? 'checked' : ''}></td>
+                    <td><input type="number" id="apptType_${t.id}_maxConcurrent" min="1" value="${escapeHtml(t.max_concurrent)}"></td>
+                    <td>
+                        <button class="btn-gold" style="padding: 0.25rem 0.55rem; font-size: 0.75rem;" onclick="toggleApptHoursSection(${t.id})">Scheduling Hours</button>
+                        <div id="apptHoursWrap_${t.id}" style="display:none; margin-top:0.5rem;">
+                            <label style="display:block; margin-bottom:0.5rem; font-size:0.8rem;">
+                                <input type="checkbox" id="apptType_${t.id}_useBizHours" onchange="toggleApptHoursGrid(${t.id})">
+                                Use business hours (inherit)
+                            </label>
+                            <table class="erp-table" id="apptHoursGrid_${t.id}">
+                                <tbody>
+                                    ${BIZ_HOURS_DAYS.map(day => `
+                                    <tr>
+                                        <td>${day}</td>
+                                        <td><input type="checkbox" id="apptHours_${t.id}_${day}_closed" onchange="toggleApptHoursRow(${t.id}, '${day}')"></td>
+                                        <td><input type="time" id="apptHours_${t.id}_${day}_start"></td>
+                                        <td><input type="time" id="apptHours_${t.id}_${day}_end"></td>
+                                    </tr>`).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </td>
+                    <td><button class="btn-gold" style="padding: 0.25rem 0.55rem; font-size: 0.75rem;" onclick="saveAppointmentType(${t.id})">Save</button></td>
+                </tr>
+            `).join('');
+            types.forEach(t => populateApptTypeHours(t.id, t.scheduling_hours || {}));
+        }
+
+        function toggleApptHoursSection(id) {
+            const wrap = document.getElementById('apptHoursWrap_' + id);
+            if (wrap) wrap.style.display = (wrap.style.display === 'none') ? 'block' : 'none';
+        }
+
+        function toggleApptHoursRow(id, day) {
+            const closed = document.getElementById('apptHours_' + id + '_' + day + '_closed').checked;
+            document.getElementById('apptHours_' + id + '_' + day + '_start').disabled = closed;
+            document.getElementById('apptHours_' + id + '_' + day + '_end').disabled = closed;
+        }
+
+        // Unchecking "Use business hours" seeds the per-type grid from the
+        // currently-displayed Business Hours grid (not the last-saved
+        // schedule config) so the estimator sees what they're narrowing
+        // from.
+        function toggleApptHoursGrid(id) {
+            const useBiz = document.getElementById('apptType_' + id + '_useBizHours').checked;
+            const grid = document.getElementById('apptHoursGrid_' + id);
+            if (grid) grid.style.display = useBiz ? 'none' : '';
+            if (!useBiz) {
+                BIZ_HOURS_DAYS.forEach(day => {
+                    const bizClosed = document.getElementById('bizHours_' + day + '_closed').checked;
+                    const closedBox = document.getElementById('apptHours_' + id + '_' + day + '_closed');
+                    const startInput = document.getElementById('apptHours_' + id + '_' + day + '_start');
+                    const endInput = document.getElementById('apptHours_' + id + '_' + day + '_end');
+                    closedBox.checked = bizClosed;
+                    startInput.value = bizClosed ? '' : (document.getElementById('bizHours_' + day + '_start').value || '09:00');
+                    endInput.value = bizClosed ? '' : (document.getElementById('bizHours_' + day + '_end').value || '17:00');
+                    startInput.disabled = bizClosed;
+                    endInput.disabled = bizClosed;
+                });
+            }
+        }
+
+        // schedulingHours: {} (or falsy) means "inherit business hours" —
+        // AppointmentType.scheduling_hours docstring (models.py). All-7-or-
+        // none granularity: the "Use business hours" checkbox is the tri-
+        // state, individual days are just Closed/Open once narrowed.
+        function populateApptTypeHours(id, schedulingHours) {
+            const useBiz = !schedulingHours || Object.keys(schedulingHours).length === 0;
+            const useBizBox = document.getElementById('apptType_' + id + '_useBizHours');
+            const grid = document.getElementById('apptHoursGrid_' + id);
+            if (useBizBox) useBizBox.checked = useBiz;
+            if (grid) grid.style.display = useBiz ? 'none' : '';
+            BIZ_HOURS_DAYS.forEach(day => {
+                const entry = schedulingHours ? schedulingHours[day] : undefined;
+                const closedBox = document.getElementById('apptHours_' + id + '_' + day + '_closed');
+                const startInput = document.getElementById('apptHours_' + id + '_' + day + '_start');
+                const endInput = document.getElementById('apptHours_' + id + '_' + day + '_end');
+                if (!closedBox || !startInput || !endInput) return;
+                if (entry === null) {
+                    closedBox.checked = true;
+                    startInput.value = '';
+                    endInput.value = '';
+                } else if (entry && typeof entry === 'object') {
+                    closedBox.checked = false;
+                    startInput.value = entry.start || '09:00';
+                    endInput.value = entry.end || '17:00';
+                } else {
+                    closedBox.checked = false;
+                    startInput.value = '';
+                    endInput.value = '';
+                }
+                startInput.disabled = closedBox.checked;
+                endInput.disabled = closedBox.checked;
+            });
+        }
+
+        function serializeApptTypeHours(id) {
+            const useBiz = document.getElementById('apptType_' + id + '_useBizHours').checked;
+            if (useBiz) return {};
+            const result = {};
+            BIZ_HOURS_DAYS.forEach(day => {
+                const closed = document.getElementById('apptHours_' + id + '_' + day + '_closed').checked;
+                if (closed) {
+                    result[day] = null;
+                } else {
+                    const start = document.getElementById('apptHours_' + id + '_' + day + '_start').value || '09:00';
+                    const end = document.getElementById('apptHours_' + id + '_' + day + '_end').value || '17:00';
+                    result[day] = { start: start, end: end };
+                }
+            });
+            return result;
+        }
+
+        async function addAppointmentType() {
+            const token = getAuthToken();
+            try {
+                const res = await fetch('/api/v1/appointment-types', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                    body: JSON.stringify({ name: 'New Appointment Type', active: 1, max_concurrent: 1, scheduling_hours: {} })
+                });
+                if (res.ok) {
+                    loadAppointmentTypes();
+                } else {
+                    alert('Failed to add appointment type.');
+                }
+            } catch (ex) {
+                alert('Connection error');
+            }
+        }
+
+        async function saveAppointmentType(id) {
+            const token = getAuthToken();
+            // sort_order has no UI control here -- carry the loaded value
+            // through via the row's data attribute rather than hardcoding
+            // 0, since update_appointment_type is a partial (SET-clause)
+            // update: omitting the key would leave it untouched, but we
+            // send it explicitly to match the documented payload shape.
+            const row = document.querySelector('tr[data-type-id="' + id + '"]');
+            const sortOrder = row ? (parseInt(row.getAttribute('data-sort-order')) || 0) : 0;
+            const name = document.getElementById('apptType_' + id + '_name').value;
+            const active = document.getElementById('apptType_' + id + '_active').checked ? 1 : 0;
+            const maxConcurrent = parseInt(document.getElementById('apptType_' + id + '_maxConcurrent').value) || 1;
+            const schedulingHours = serializeApptTypeHours(id);
+            try {
+                const res = await fetch('/api/v1/appointment-types/' + id + '/update', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + token
+                    },
+                    body: JSON.stringify({
+                        name: name, active: active, sort_order: sortOrder,
+                        max_concurrent: maxConcurrent, scheduling_hours: schedulingHours
+                    })
+                });
+                if (res.ok) {
+                    alert('Appointment type updated successfully.');
+                    loadAppointmentTypes();
+                } else {
+                    alert('Failed to update appointment type.');
+                }
+            } catch (ex) {
+                alert('Connection error');
+            }
+        }
+
         async function saveScheduleConfig() {
             if (!window.scheduleConfigLoaded) { alert('Schedule config not loaded — cannot save.'); return; }
             const token = getAuthToken();
@@ -3222,6 +3560,11 @@ def render_admin_surface() -> str:
             window.currentScheduleConfig.default_duration_minutes = schedDuration;
             window.currentScheduleConfig.buffer_minutes = schedBuffer;
             window.currentScheduleConfig.booking_window_days = parseInt(document.getElementById('schedBookingWindow').value) || 365;
+            // upsert_schedule_config is a full-row excluded.* replace -- the
+            // Business Hours grid must be read back into the object BEFORE
+            // POSTing, or an edited-but-unsynced grid would post stale
+            // working_hours state.
+            window.currentScheduleConfig.working_hours = serializeBusinessHours();
             try {
                 const res = await fetch('/api/v1/schedule-config', {
                     method: 'POST',
@@ -3245,7 +3588,8 @@ def render_admin_surface() -> str:
         validateSession('/admin/login').then(async valid => {
             if (valid) {
                 loadUsersList();
-                
+                loadAppointmentTypes();
+
                 // Load Business Profile
                 const bpBtn = document.querySelector('button[onclick="saveBusinessProfile()"]');
                 const populateBusinessProfile = (p) => {
@@ -3306,6 +3650,7 @@ def render_admin_surface() -> str:
                     document.getElementById('schedDuration').value = c.default_duration_minutes ?? 30;
                     document.getElementById('schedBuffer').value = c.buffer_minutes ?? 15;
                     document.getElementById('schedBookingWindow').value = c.booking_window_days ?? 365;
+                    populateBusinessHours(c.working_hours);
                 };
                 try {
                     const token = getAuthToken();
