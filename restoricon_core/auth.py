@@ -1182,27 +1182,21 @@ class AuthService:
         now = utc_now_iso()
         conn = self.db.get_connection()
         with conn:
-            schedules_to_archive = conn.execute(
-                "SELECT id, title, start_time, end_time, status, notes "
-                "FROM staff_schedules WHERE user_id = ?;",
-                (user_id,),
-            ).fetchall()
-            for row in schedules_to_archive:
-                conn.execute(
-                    """
-                    INSERT INTO staff_schedules_archive
-                        (original_schedule_id, original_user_id, original_username,
-                         title, start_time, end_time, status, notes,
-                         archived_at, archived_reason)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        row["id"], user_id, user.username,
-                        row["title"], row["start_time"], row["end_time"],
-                        row["status"], row["notes"],
-                        now, "user_deleted",
-                    ),
-                )
+            # Single INSERT ... SELECT rather than a per-row Python loop:
+            # one statement archives every row while the write transaction
+            # is held, instead of N round-trips for a long-tenured user.
+            conn.execute(
+                """
+                INSERT INTO staff_schedules_archive
+                    (original_schedule_id, original_user_id, original_username,
+                     title, start_time, end_time, status, notes,
+                     archived_at, archived_reason)
+                SELECT id, user_id, ?, title, start_time, end_time, status, notes,
+                       ?, 'user_deleted'
+                FROM staff_schedules WHERE user_id = ?;
+                """,
+                (user.username, now, user_id),
+            )
             conn.execute("DELETE FROM api_tokens WHERE user_id = ?;", (user_id,))
             cursor = conn.execute("DELETE FROM users WHERE id = ?;", (user_id,))
             return cursor.rowcount > 0

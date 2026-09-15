@@ -96,6 +96,11 @@ Idempotency strategy (two different strategies, on purpose)
   row -- there is nothing to "skip"; re-running this script just
   refreshes the row to whatever the source file currently says, which is
   correct for a singleton config record synced from a live source file.
+  Exception: business_profile's Core-only columns (business_phone,
+  business_email, license_number -- dashboard-edited, not in
+  profile.json) are read back from the existing row and preserved
+  across the upsert, since upsert_business_profile() is a full-row
+  replace.
 
 Known limitation (NEW-218, logged, not fixed here)
 ----------------------------------------------------
@@ -673,6 +678,16 @@ def _migrate_profile_file(
 
     entry["would_upsert"] = 1
     if apply:
+        # business_phone / business_email / license_number are Core-only
+        # columns (set via the admin dashboard, absent from Aigentik's
+        # profile.json). upsert_business_profile() is a full-row replace,
+        # so carry the existing values through or every re-run of this
+        # script would silently blank them.
+        existing = automation_service.get_business_profile(actor)
+        if existing is not None:
+            profile.business_phone = existing.business_phone
+            profile.business_email = existing.business_email
+            profile.license_number = existing.license_number
         automation_service.upsert_business_profile(profile, actor)
         entry["upserted"] = 1
 

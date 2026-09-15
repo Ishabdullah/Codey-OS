@@ -96,14 +96,11 @@ def test_admin_surface_wires_business_hours_into_schedule_config_save_load():
 
 def test_admin_surface_has_user_delete_button_and_precheck():
     html = render_admin_surface()
-    # Raw ${u.username} (not escapeHtml'd), matching the existing
-    # openPermModal(${u.id}, '${u.username}') precedent immediately above
-    # it -- escapeHtml() turns a literal `'` into `&#39;`, which is right
-    # for an HTML attribute *value* but wrong inside a single-quoted JS
-    # string literal (the HTML parser decodes entities before the JS
-    # parser runs), so escaping here would break the button for any name
-    # containing an apostrophe.
-    assert "deleteUser(${u.id}, '${u.username}')" in html
+    # username goes through JSON.stringify + escapeHtml (NEW-481/NEW-496
+    # fix, cloud review 2026-09-15) -- never a bare '${u.username}' inside
+    # a handler's JS string. Relies on users.username being NOT NULL:
+    # JSON.stringify(undefined) would render an empty argument.
+    assert "deleteUser(${u.id}, ${escapeHtml(JSON.stringify(u.username))})" in html
     assert "async function deleteUser(userId, username)" in html
     assert "/active-references" in html
     assert "confirm(" in html
@@ -111,10 +108,9 @@ def test_admin_surface_has_user_delete_button_and_precheck():
 
 def test_admin_surface_has_appointment_type_delete_button_and_precheck():
     html = render_admin_surface()
-    # Raw ${t.name} in the onclick JS-string arg -- same
-    # escapeHtml-is-wrong-in-a-JS-string-context reasoning as
-    # deleteUser's onclick above.
-    assert "deleteAppointmentType(${t.id}, '${t.name}')" in html
+    # Same JSON.stringify + escapeHtml treatment as deleteUser above
+    # (appointment_types.name is NOT NULL).
+    assert "deleteAppointmentType(${t.id}, ${escapeHtml(JSON.stringify(t.name))})" in html
     assert "async function deleteAppointmentType(id, name)" in html
     assert "/api/v1/appointment-types/' + id + '/active-references'" in html
     assert "/api/v1/appointment-types/' + id + '/delete'" in html

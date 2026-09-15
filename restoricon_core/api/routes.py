@@ -1514,9 +1514,13 @@ class APIRouter:
                 sched_id = int(path.split("/")[-1])
                 if method == "PATCH":
                     updated = self.scheduling.update_staff_schedule(sched_id, json_body, actor)
+                    if not updated:
+                        return 404, {"Content-Type": "application/json"}, {"error": "Staff schedule not found"}
                     return 200, {"Content-Type": "application/json"}, {"schedule": updated.to_dict()}
                 elif method == "DELETE":
-                    self.scheduling.delete_staff_schedule(sched_id, actor)
+                    deleted = self.scheduling.delete_staff_schedule(sched_id, actor)
+                    if not deleted:
+                        return 404, {"Content-Type": "application/json"}, {"error": "Staff schedule not found"}
                     return 200, {"Content-Type": "application/json"}, {"deleted": True}
 
             # Staff Schedules Archive (Delete-buttons round, Ish 2026-09-11

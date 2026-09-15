@@ -2795,11 +2795,23 @@ def render_admin_surface() -> str:
             if (Number.isNaN(parsed)) return;
             const token = getAuthToken();
             try {
-                await fetch(`/api/v1/subcontractors/${subId}/update`, {
+                const res = await fetch(`/api/v1/subcontractors/${subId}/update`, {
                     method: 'POST',
                     headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ user_id: parsed })
                 });
+                if (res.ok) {
+                    loadSubcontractors();
+                } else {
+                    // fetch() only rejects on network failure -- a 4xx/5xx
+                    // (unknown user, missing permission, validation) must
+                    // be surfaced explicitly or the input keeps showing a
+                    // value that never persisted.
+                    let msg = '';
+                    try { msg = (await res.json()).error || ''; } catch (e) { /* non-JSON body */ }
+                    alert('Failed to save linked user' + (msg ? ': ' + msg : ' (' + res.status + ').'));
+                    loadSubcontractors();
+                }
             } catch (e) {
                 alert('Failed to save linked user.');
             }
@@ -3073,14 +3085,24 @@ def render_admin_surface() -> str:
             const tbody = document.getElementById('staffSchedulesList');
             if (!tbody) return;
             tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">Loading schedules...</td></tr>';
+            // list_staff_schedules defaults to the 200 OLDEST rows
+            // (ORDER BY start_time ASC LIMIT 200) when the caller sends no
+            // range/limit -- an unscoped fetch here would silently hide
+            // every upcoming shift once 200+ historical rows exist. Pass
+            // an explicit limit (same 500 the Calendar tab uses) and flag
+            // a full-to-the-cap response rather than pretend it's complete.
+            const STAFF_TAB_FETCH_LIMIT = 500;
             try {
-                const res = await fetch('/api/v1/staff-schedules', {
+                const res = await fetch('/api/v1/staff-schedules?limit=' + STAFF_TAB_FETCH_LIMIT, {
                     headers: { 'Authorization': 'Bearer ' + token }
                 });
                 if (res.status === 401) { logoutUser(); return; }
                 const data = await res.json();
                 if (data.schedules && data.schedules.length > 0) {
-                    tbody.innerHTML = data.schedules.map(s => `
+                    const truncatedRow = data.schedules.length === STAFF_TAB_FETCH_LIMIT
+                        ? '<tr><td colspan="6" style="text-align: center; color: var(--danger); font-size: 0.8rem;">Showing the first ' + STAFF_TAB_FETCH_LIMIT + ' staff-schedule entries -- some may be hidden. Use the Calendar tab with a narrower date range for a complete view.</td></tr>'
+                        : '';
+                    tbody.innerHTML = truncatedRow + data.schedules.map(s => `
                         <tr>
                             <td>${escapeHtml(s.user_id)}</td>
                             <td>${escapeHtml(s.title)}</td>
@@ -3928,11 +3950,11 @@ def render_admin_surface() -> str:
                                 </span>
                             </td>
                             <td>
-                                <button class="btn-gold" style="padding: 0.25rem 0.55rem; font-size: 0.75rem;" onclick="openPermModal(${u.id}, '${u.username}')">Perms</button>
+                                <button class="btn-gold" style="padding: 0.25rem 0.55rem; font-size: 0.75rem;" onclick="openPermModal(${u.id}, ${escapeHtml(JSON.stringify(u.username))})">Perms</button>
                                 <button class="btn-gold" style="padding: 0.25rem 0.55rem; font-size: 0.75rem; background: ${u.active ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)'}; border-color: ${u.active ? 'var(--danger)' : 'var(--success)'}; color: ${u.active ? '#FCA5A5' : '#6EE7B7'};" onclick="toggleUserStatus(${u.id}, ${u.active})">
                                     ${u.active ? 'Suspend' : 'Activate'}
                                 </button>
-                                <button class="btn-gold" style="padding: 0.25rem 0.55rem; font-size: 0.75rem; background: rgba(239, 68, 68, 0.2); border-color: var(--danger); color: #FCA5A5;" onclick="deleteUser(${u.id}, '${u.username}')">
+                                <button class="btn-gold" style="padding: 0.25rem 0.55rem; font-size: 0.75rem; background: rgba(239, 68, 68, 0.2); border-color: var(--danger); color: #FCA5A5;" onclick="deleteUser(${u.id}, ${escapeHtml(JSON.stringify(u.username))})">
                                     Delete
                                 </button>
                             </td>
@@ -4365,7 +4387,7 @@ def render_admin_surface() -> str:
                     </td>
                     <td>
                         <button class="btn-gold" style="padding: 0.25rem 0.55rem; font-size: 0.75rem;" onclick="saveAppointmentType(${t.id})">Save</button>
-                        <button class="btn-gold" style="padding: 0.25rem 0.55rem; font-size: 0.75rem; background: rgba(239, 68, 68, 0.2); border-color: var(--danger); color: #FCA5A5;" onclick="deleteAppointmentType(${t.id}, '${t.name}')">Delete</button>
+                        <button class="btn-gold" style="padding: 0.25rem 0.55rem; font-size: 0.75rem; background: rgba(239, 68, 68, 0.2); border-color: var(--danger); color: #FCA5A5;" onclick="deleteAppointmentType(${t.id}, ${escapeHtml(JSON.stringify(t.name))})">Delete</button>
                     </td>
                 </tr>
             `).join('');

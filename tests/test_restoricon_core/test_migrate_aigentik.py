@@ -624,3 +624,31 @@ def test_schedule_config_missing_file_is_absent_not_error(tmp_path, db_manager):
 
     assert report["schedule_config"]["file_status"] == "absent"
     assert report["schedule_config"]["would_upsert"] == 0
+
+
+def test_rerun_preserves_core_only_business_profile_columns(tmp_path, db_manager, services):
+    """Cloud review 2026-09-15: business_phone / business_email /
+    license_number are set from the admin dashboard and absent from
+    Aigentik's profile.json. upsert_business_profile() is a full-row
+    replace, so before the fix every re-run of this script blanked them."""
+    source_dir = _write_valid_source_dir(tmp_path)
+    actor = build_migration_actor()
+
+    run_migration(str(source_dir), db_manager, apply=True)
+
+    # Operator fills in the Core-only fields via the dashboard.
+    profile = services["automation"].get_business_profile(actor)
+    profile.business_phone = "+1 555 0100"
+    profile.business_email = "office@restoricon.example"
+    profile.license_number = "LIC-12345"
+    services["automation"].upsert_business_profile(profile, actor)
+
+    second = run_migration(str(source_dir), db_manager, apply=True)
+    assert second["business_profile"]["upserted"] == 1
+
+    after = services["automation"].get_business_profile(actor)
+    assert after.business_phone == "+1 555 0100"
+    assert after.business_email == "office@restoricon.example"
+    assert after.license_number == "LIC-12345"
+    # And the profile.json-sourced fields were still refreshed from source.
+    assert after.business_name == VALID_PROFILE["business_name"]

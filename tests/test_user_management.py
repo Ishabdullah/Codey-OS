@@ -748,19 +748,18 @@ def test_delete_user_multiple_terminal_staff_schedules_all_archived(user_mgmt_en
 
 
 def test_delete_user_archive_insert_failure_rolls_back_whole_delete(user_mgmt_env, monkeypatch):
-    """Transaction atomicity: if an archive INSERT fails PARTWAY through --
-    i.e. after at least one row has already been successfully inserted --
-    the whole delete_user() call must roll back, including undoing that
-    already-succeeded insert. Two terminal rows are created and the
-    wrapper fails only the SECOND INSERT INTO staff_schedules_archive, so
-    there is something real to roll back (failing on the first insert,
-    with only one row total, cannot distinguish "rolled back" from
-    "never inserted" -- this must fail after a real partial write).
-    Simulated by wrapping the real connection so the second archive
-    INSERT raises while every other statement (including the first
-    archive INSERT) passes through unchanged -- this keeps the real
-    connection object (and its transaction state) doing the actual work,
-    so rollback behavior is real sqlite3 behavior, not mocked."""
+    """Transaction atomicity: if a later statement in delete_user()'s
+    transaction fails AFTER the archive rows have already been written,
+    the whole call must roll back, including undoing those
+    already-succeeded archive inserts. The archive step is a single
+    INSERT ... SELECT (cloud-review round 2026-09-15; previously a per-row
+    loop that this test failed on its second iteration), so the wrapper
+    lets that statement through and raises on the very next one -- the
+    `DELETE FROM users` -- which is the point at which there is something
+    real to roll back (a wrapper failing the archive INSERT itself cannot
+    distinguish "rolled back" from "never inserted"). Every other
+    statement passes through to the real connection unchanged, so rollback
+    behavior is real sqlite3 behavior, not mocked."""
     import sqlite3
 
     auth = user_mgmt_env["auth"]
@@ -787,16 +786,20 @@ def test_delete_user_archive_insert_failure_rolls_back_whole_delete(user_mgmt_en
 
     real_conn = user_mgmt_env["db"].get_connection()
 
-    class _FailingSecondArchiveInsertConn:
+    class _FailingAfterArchiveConn:
         def __init__(self, real):
             self._real = real
             self._archive_insert_count = 0
+            self._archived_rows_seen = None
 
         def execute(self, sql, params=()):
             if "INSERT INTO staff_schedules_archive" in sql:
                 self._archive_insert_count += 1
-                if self._archive_insert_count == 2:
-                    raise sqlite3.OperationalError("simulated archive insert failure")
+                cursor = self._real.execute(sql, params)
+                self._archived_rows_seen = cursor.rowcount
+                return cursor
+            if "DELETE FROM users" in sql:
+                raise sqlite3.OperationalError("simulated failure after archive write")
             return self._real.execute(sql, params)
 
         def __enter__(self):
@@ -806,15 +809,17 @@ def test_delete_user_archive_insert_failure_rolls_back_whole_delete(user_mgmt_en
         def __exit__(self, exc_type, exc_val, exc_tb):
             return self._real.__exit__(exc_type, exc_val, exc_tb)
 
-    wrapper = _FailingSecondArchiveInsertConn(real_conn)
+    wrapper = _FailingAfterArchiveConn(real_conn)
     monkeypatch.setattr(user_mgmt_env["db"], "get_connection", lambda: wrapper)
 
     with pytest.raises(sqlite3.OperationalError):
         auth.delete_user(tech.id, admin_ctx)
 
-    # Confirm the wrapper actually reached and failed on the second insert
-    # (i.e. this test exercises a real partial write, not a first-insert no-op).
-    assert wrapper._archive_insert_count == 2
+    # Confirm the single archive statement really ran and really wrote
+    # both rows before the simulated failure (i.e. this test exercises a
+    # real partial write that must be undone, not a never-inserted no-op).
+    assert wrapper._archive_insert_count == 1
+    assert wrapper._archived_rows_seen == 2
 
     # Undo the monkeypatch to inspect real state with the real connection.
     monkeypatch.undo()

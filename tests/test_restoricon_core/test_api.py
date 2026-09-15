@@ -1556,3 +1556,59 @@ def test_api_ai_chat_no_telemetry_written_when_disabled(api_server, monkeypatch,
     finally:
         store.reset_for_tests()
 
+
+
+def test_api_staff_schedule_patch_and_delete_missing_id_are_404(api_server):
+    """NEW-491 (cloud review 2026-09-15): PATCH on a nonexistent staff
+    schedule 500'd (`'NoneType' object has no attribute 'to_dict'`) and
+    DELETE reported `{"deleted": true}` for a row that never existed.
+    Both must be a clean 404 -- exercised over a real socket since PATCH
+    only became reachable once server.py gained do_PATCH."""
+    _, base_url, _, _ = api_server
+    headers = _agent_headers(base_url)
+
+    status, body = make_request(
+        f"{base_url}/api/v1/staff-schedules/999999",
+        method="PATCH", headers=headers, data={"notes": "ghost"},
+    )
+    assert status == 404, body
+    assert body == {"error": "Staff schedule not found"}
+
+    status, body = make_request(
+        f"{base_url}/api/v1/staff-schedules/999999", method="DELETE", headers=headers,
+    )
+    assert status == 404, body
+    assert body == {"error": "Staff schedule not found"}
+
+    # Sanity: a real row still deletes exactly once, then 404s on retry.
+    status, body = make_request(
+        f"{base_url}/api/v1/staff-schedules", method="POST", headers=headers,
+        data={"user_id": 1, "title": "One-off", "start_time": "2026-09-16T09:00:00",
+              "end_time": "2026-09-16T10:00:00", "status": "scheduled", "notes": None},
+    )
+    assert status == 201, body
+    sched_id = body["schedule"]["id"]
+    status, body = make_request(f"{base_url}/api/v1/staff-schedules/{sched_id}", method="DELETE", headers=headers)
+    assert (status, body) == (200, {"deleted": True})
+    status, body = make_request(f"{base_url}/api/v1/staff-schedules/{sched_id}", method="DELETE", headers=headers)
+    assert status == 404, body
+
+
+def test_api_staff_schedule_patch_unknown_user_id_is_400(api_server):
+    """F4: the Calendar edit modal sends user_id on PATCH; an unknown id is
+    a 400 with the service's message, not an IntegrityError 500."""
+    _, base_url, _, _ = api_server
+    headers = _agent_headers(base_url)
+    status, body = make_request(
+        f"{base_url}/api/v1/staff-schedules", method="POST", headers=headers,
+        data={"user_id": 1, "title": "Reassign me", "start_time": "2026-09-17T09:00:00",
+              "end_time": "2026-09-17T10:00:00", "status": "scheduled", "notes": None},
+    )
+    assert status == 201, body
+    sched_id = body["schedule"]["id"]
+    status, body = make_request(
+        f"{base_url}/api/v1/staff-schedules/{sched_id}",
+        method="PATCH", headers=headers, data={"user_id": 424242},
+    )
+    assert status == 400, body
+    assert body["error"] == "Unknown user_id: 424242"

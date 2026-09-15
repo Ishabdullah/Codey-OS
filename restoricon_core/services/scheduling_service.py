@@ -1085,9 +1085,20 @@ class SchedulingService:
 
         before = StaffSchedule.from_row(row).to_dict()
 
+        # user_id is writable (the Calendar edit modal offers a Person
+        # dropdown), but staff_schedules.user_id is a NOT NULL FK, so an
+        # unknown id must be rejected as a caller error (ValueError ->
+        # route 400) rather than surfacing as an IntegrityError 500.
+        if "user_id" in updates:
+            target = conn.execute(
+                "SELECT 1 FROM users WHERE id = ?", (updates["user_id"],)
+            ).fetchone()
+            if not target:
+                raise ValueError(f"Unknown user_id: {updates['user_id']}")
+
         set_clauses = []
         params = []
-        allowed = {"title", "start_time", "end_time", "status", "notes"}
+        allowed = {"user_id", "title", "start_time", "end_time", "status", "notes"}
         for k, v in updates.items():
             if k in allowed:
                 set_clauses.append(f"{k} = ?")
@@ -1119,7 +1130,9 @@ class SchedulingService:
             details=build_audit_details(before=before, after=after.to_dict()),
         )
 
-        needs_invite = any(k in updates for k in ("title", "start_time", "end_time"))
+        # user_id included: a reassigned entry is news to the NEW assignee,
+        # and the invite below is addressed to after.user_id.
+        needs_invite = any(k in updates for k in ("user_id", "title", "start_time", "end_time"))
         if self.notification and needs_invite:
             user_row = conn.execute("SELECT email, full_name FROM users WHERE id = ?", (after.user_id,)).fetchone()
             if user_row and user_row["email"]:
@@ -1145,13 +1158,18 @@ class SchedulingService:
 
         return after
 
-    def delete_staff_schedule(self, schedule_id: int, actor: AuthContext) -> None:
+    def delete_staff_schedule(self, schedule_id: int, actor: AuthContext) -> bool:
+        """Returns True if a row was deleted, False if no such row existed
+        (NEW-491: the route maps False to 404 instead of a false-success
+        200, and no audit row is written for a delete that did nothing)."""
         if not actor.has_permission(PERM_WRITE_STAFF_SCHEDULES):
             raise PermissionError("Actor lacks permission to write staff schedules")
 
         conn = self.db.get_connection()
         with conn:
-            conn.execute("DELETE FROM staff_schedules WHERE id = ?", (schedule_id,))
+            cursor = conn.execute("DELETE FROM staff_schedules WHERE id = ?", (schedule_id,))
+        if cursor.rowcount == 0:
+            return False
 
         self.audit.log(
             action="delete",
@@ -1161,3 +1179,4 @@ class SchedulingService:
             actor=actor,
             details=build_audit_details(snapshot={"id": schedule_id}),
         )
+        return True

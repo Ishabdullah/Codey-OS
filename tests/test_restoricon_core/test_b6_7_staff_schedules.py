@@ -132,3 +132,71 @@ def test_staff_schedules_notification():
     assert mock_notification.send_calendar_invite.call_count == 2
     kwargs = mock_notification.send_calendar_invite.call_args.kwargs
     assert kwargs["appointment"]["start"] == "2026-09-02T10:00:00Z"
+
+
+# ---------------------------------------------------------------------------
+# Cloud-review round 2026-09-15: user_id reassignment (F4) and delete_staff_
+# schedule's bool return (NEW-491 DELETE half).
+# ---------------------------------------------------------------------------
+
+def _two_user_env():
+    db_manager = DatabaseManager(":memory:")
+    audit_service = AuditService(db_manager)
+    mock_notification = Mock(spec=NotificationService)
+    scheduling_service = SchedulingService(db_manager, audit_service, mock_notification)
+    actor = AuthContext(user_id=1, username="admin", role="admin", actor_type="human")
+    conn = db_manager.get_connection()
+    for uid, uname, email in ((1, "admin", "admin@example.com"), (98, "alice", "alice@example.com"), (99, "bob", "bob@example.com")):
+        conn.execute(
+            "INSERT INTO users (id, username, password_hash, full_name, email, role, created_at, updated_at) "
+            "VALUES (?, ?, 'hash', ?, ?, 'technician', '2024-01-01', '2024-01-01')",
+            (uid, uname, uname.title(), email),
+        )
+    conn.commit()
+    created = scheduling_service.create_staff_schedule(
+        StaffSchedule(id=None, user_id=98, title="Shift", start_time="2026-09-01T09:00:00Z",
+                      end_time="2026-09-01T17:00:00Z", status="scheduled", notes=None),
+        actor,
+    )
+    mock_notification.reset_mock()
+    return db_manager, scheduling_service, mock_notification, actor, created
+
+
+def test_update_staff_schedule_user_id_reassignment_is_persisted():
+    """Before the fix, `user_id` was silently dropped by the SET-clause
+    allow-list: the Calendar edit modal's Person dropdown reported success
+    while the row stayed bound to the original user."""
+    db_manager, svc, notif, actor, created = _two_user_env()
+    updated = svc.update_staff_schedule(created.id, {"user_id": 99}, actor)
+    assert updated.user_id == 99
+    row = db_manager.get_connection().execute(
+        "SELECT user_id FROM staff_schedules WHERE id = ?", (created.id,)
+    ).fetchone()
+    assert row["user_id"] == 99
+    # The new assignee gets the invite, not the old one.
+    assert notif.send_calendar_invite.call_count == 1
+    assert notif.send_calendar_invite.call_args.kwargs["to_email"] == "bob@example.com"
+
+
+def test_update_staff_schedule_unknown_user_id_is_value_error_not_integrity_error():
+    """A nonexistent user must be a caller error (ValueError -> route 400),
+    not an sqlite3.IntegrityError from the NOT NULL FK (-> 500)."""
+    _, svc, _, actor, created = _two_user_env()
+    with pytest.raises(ValueError, match="Unknown user_id"):
+        svc.update_staff_schedule(created.id, {"user_id": 424242}, actor)
+    assert svc.update_staff_schedule(created.id, {}, actor).user_id == 98  # untouched
+
+
+def test_delete_staff_schedule_returns_true_then_false_and_audits_once():
+    db_manager, svc, _, actor, created = _two_user_env()
+    conn = db_manager.get_connection()
+    before = conn.execute(
+        "SELECT COUNT(*) FROM audit_log WHERE entity_type = 'staff_schedule' AND action = 'delete'"
+    ).fetchone()[0]
+    assert svc.delete_staff_schedule(created.id, actor) is True
+    assert svc.delete_staff_schedule(created.id, actor) is False  # already gone
+    assert svc.delete_staff_schedule(999999, actor) is False       # never existed
+    after = conn.execute(
+        "SELECT COUNT(*) FROM audit_log WHERE entity_type = 'staff_schedule' AND action = 'delete'"
+    ).fetchone()[0]
+    assert after - before == 1, "a no-op delete must not write a 'Deleted staff schedule' audit row"
