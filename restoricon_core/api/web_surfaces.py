@@ -2213,9 +2213,9 @@ def render_admin_surface() -> str:
                     <thead>
                         <tr>
                             <th>Company</th>
-                            <th>Trade/Specialty</th>
-                            <th>Status</th>
-                            <th>Rating</th>
+                            <th>Trade</th>
+                            <th>Qualification Status</th>
+                            <th>License</th>
                             <th>Linked User</th>
                         </tr>
                     </thead>
@@ -2759,18 +2759,30 @@ def render_admin_surface() -> str:
         }
 
         async function loadSubcontractors() {
+            // NEW-489: the list route lives under /api/v1/subcontractors
+            // directly, not under an operations/ prefix -- no handler
+            // exists there, so the previous fetch always fell through to
+            // the catch/empty-guard, silently showing "No records found"
+            // instead of erroring. Fetch capped at
+            // SUBCONTRACTORS_TAB_FETCH_LIMIT (same pattern as NEW-499's
+            // STAFF_TAB_FETCH_LIMIT) since this tab has no date-range/other
+            // view to fall back to.
+            const SUBCONTRACTORS_TAB_FETCH_LIMIT = 500;
             const token = getAuthToken();
+            const tbody = document.getElementById('subcontractorsTableBody');
             try {
-                const res = await fetch('/api/v1/operations/subcontractors', { headers: { 'Authorization': 'Bearer ' + token } });
+                const res = await fetch('/api/v1/subcontractors?limit=' + SUBCONTRACTORS_TAB_FETCH_LIMIT, { headers: { 'Authorization': 'Bearer ' + token } });
                 const data = await res.json();
-                const tbody = document.getElementById('subcontractorsTableBody');
                 if (data.subcontractors && data.subcontractors.length > 0) {
-                    tbody.innerHTML = data.subcontractors.map(sc => `
+                    const truncatedRow = data.subcontractors.length === SUBCONTRACTORS_TAB_FETCH_LIMIT
+                        ? '<tr><td colspan="5" style="text-align: center; color: var(--danger); font-size: 0.8rem;">Showing the first ' + SUBCONTRACTORS_TAB_FETCH_LIMIT + ' subcontractors -- some may be hidden.</td></tr>'
+                        : '';
+                    tbody.innerHTML = truncatedRow + data.subcontractors.map(sc => `
                         <tr>
                             <td>${escapeHtml(sc.company_name)}</td>
-                            <td>${escapeHtml(sc.specialty)}</td>
-                            <td>${escapeHtml(sc.status)}</td>
-                            <td>${escapeHtml(sc.rating)}</td>
+                            <td>${escapeHtml(sc.primary_trade)}</td>
+                            <td>${escapeHtml(sc.qualification_status)}</td>
+                            <td>${escapeHtml(sc.license_status)}</td>
                             <td><input type="number" min="1" step="1" value="${sc.user_id != null ? sc.user_id : ''}" style="width:5rem;" onchange="saveSubcontractorUserId(${sc.id}, this.value)"></td>
                         </tr>
                     `).join('');
@@ -2778,7 +2790,7 @@ def render_admin_surface() -> str:
                     tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No records found.</td></tr>';
                 }
             } catch (e) {
-                document.getElementById('subcontractorsTableBody').innerHTML = '<tr><td colspan="5">Error loading subcontractors.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5">Error loading subcontractors.</td></tr>';
             }
         }
 

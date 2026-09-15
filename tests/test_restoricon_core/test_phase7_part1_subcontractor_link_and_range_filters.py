@@ -222,6 +222,49 @@ def test_subcontractor_user_id_route_round_trip(test_setup):
     assert body["subcontractor"]["user_id"] == admin_user.id
 
 
+def test_subcontractors_list_route_returns_real_model_fields(test_setup):
+    """NEW-489: the admin dashboard's Subcontractors tab fetched a
+    nonexistent route (/api/v1/operations/subcontractors) and rendered
+    fields the Subcontractor model doesn't have (specialty/status/rating).
+    Because the tab's own JS silently fell back to "No records found" on
+    any fetch/shape mismatch, no test in this suite noticed until an
+    explicit route-resolution + field-shape assertion was added here --
+    a string-presence check on rendered HTML (as the old
+    test_b6_4_admin_wiring_tabs.py assertion was) would not have caught
+    this; only exercising the real route and inspecting field keys does.
+    """
+    router = test_setup["router"]
+    crm = test_setup["crm"]
+    admin = test_setup["admin_actor"]
+    admin_token = test_setup["admin_token"]
+    hdr = {"Authorization": f"Bearer {admin_token}"}
+
+    for name, trade in [
+        ("Acme Roofing", "roofing"),
+        ("Bolt Electric", "electrical"),
+        ("Coastal Plumbing", "plumbing"),
+    ]:
+        crm.create_subcontractor(
+            Subcontractor(company_name=name, primary_trade=trade), admin
+        )
+
+    status, _, body = router.handle_request(
+        "GET", "/api/v1/subcontractors?limit=10", headers=hdr, body_bytes=b"",
+    )
+    assert status == 200
+    subs = body["subcontractors"]
+    assert len(subs) == 3
+    for sub in subs:
+        assert "company_name" in sub
+        assert "primary_trade" in sub
+        assert "qualification_status" in sub
+        assert "license_status" in sub
+        assert "user_id" in sub
+        assert "specialty" not in sub
+        assert "status" not in sub
+        assert "rating" not in sub
+
+
 # ---------------------------------------------------------------------------
 # Piece B -- date-range filters
 # ---------------------------------------------------------------------------

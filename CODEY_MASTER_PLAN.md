@@ -1080,9 +1080,16 @@ ultrareview of the whole program was then fixed forward in `2b2c2a3`
 live-verified** — the admin page has not been reloaded against the live
 server since). Known-open on that surface: `NEW-481` sub-items 2-3 (raw
 table-cell interpolation in the Users/CRM lists — stored-XSS sink still
-open), `NEW-489` (Subcontractors tab fetches a nonexistent route),
-`NEW-501`/`NEW-504`/`NEW-505`/`NEW-506` (deferred, reasoning in
-`NEW_ISSUES.md`).
+open), `NEW-501`/`NEW-506` (deferred, reasoning in `NEW_ISSUES.md`).
+`NEW-489` (Subcontractors tab fetched a nonexistent route/fake fields),
+`NEW-504` (stray in-memory-DB test files), and `NEW-505` (unbounded
+`?limit=`/`?offset=` parsing) all FIXED same day, reviewer-approved,
+641→643 passed across the two rounds. `NEW-507`/`NEW-508`/`NEW-509`
+newly logged while fixing `NEW-489` — subcontractors has no delete
+route or active-reference concept at all (needs Ish's decision), the
+"+ Onboard Trade Partner" button is a dead stub, and `loadSubcontractors()`
+lacks the 401→logout handling `loadStaffSchedules()` has (Suspected,
+needs a dashboard-wide survey before fixing).
 
 
 ---

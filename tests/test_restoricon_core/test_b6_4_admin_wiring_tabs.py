@@ -11,7 +11,10 @@ def test_b6_4_admin_wiring_tabs_has_fetches():
     assert "'/api/v1/operations/equipment'" in html
     assert "loadEquipment()" in html
     
-    assert "'/api/v1/operations/subcontractors'" in html
+    # NEW-489: the correct list route is /api/v1/subcontractors, not the
+    # nonexistent /api/v1/operations/subcontractors.
+    assert "/api/v1/operations/subcontractors" not in html
+    assert "/api/v1/subcontractors?limit=" in html
     assert "loadSubcontractors()" in html
     
     # Check Finance endpoints

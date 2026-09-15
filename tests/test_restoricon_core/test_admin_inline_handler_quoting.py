@@ -124,6 +124,30 @@ def test_staff_schedules_tab_sends_explicit_limit_and_truncation_notice():
     assert "fetch('/api/v1/staff-schedules', {" not in region
 
 
+def test_subcontractors_tab_sends_explicit_limit_and_truncation_notice():
+    """NEW-489: loadSubcontractors() must hit the real /api/v1/subcontractors
+    route (not the nonexistent /api/v1/operations/subcontractors) with an
+    explicit, bounded limit, and flag a full-to-the-cap response -- same
+    truncation-banner pattern as NEW-499's staff-schedules fix."""
+    html = web_surfaces.render_admin_surface()
+    start = html.index("async function loadSubcontractors()")
+    region = html[start:html.index("// Linked-user save", start)]
+    assert "const SUBCONTRACTORS_TAB_FETCH_LIMIT = 500;" in region
+    assert "fetch('/api/v1/subcontractors?limit=' + SUBCONTRACTORS_TAB_FETCH_LIMIT" in region
+    assert "data.subcontractors.length === SUBCONTRACTORS_TAB_FETCH_LIMIT" in region
+    assert "some may be hidden" in region
+    # The broken, nonexistent route is gone.
+    assert "/api/v1/operations/subcontractors" not in region
+    # Real model fields, not the nonexistent specialty/status/rating.
+    assert "sc.company_name" in region
+    assert "sc.primary_trade" in region
+    assert "sc.qualification_status" in region
+    assert "sc.license_status" in region
+    assert "sc.specialty" not in region
+    assert "sc.status" not in region
+    assert "sc.rating" not in region
+
+
 def test_save_subcontractor_user_id_checks_res_ok_and_reloads():
     html = web_surfaces.render_admin_surface()
     start = html.index("async function saveSubcontractorUserId(")

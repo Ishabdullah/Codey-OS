@@ -1,3 +1,13 @@
+## 2026-09-15 — `NEW-489` fixed: Subcontractors tab repointed at the real route with real fields; three new findings logged along the way
+
+**What changed:** implementer → code-reviewer pipeline, APPROVED, commit follows immediately (`NEW_ISSUES.md`/`PROJECT_LOG.md`/`CODEY_MASTER_PLAN.md` updated first per rule 9).
+
+- **`loadSubcontractors()` fixed:** was fetching `/api/v1/operations/subcontractors` (no such route — a silent 404 the tab's own empty-guard swallowed into "No records found") and rendering `sc.specialty`/`sc.status`/`sc.rating` (none of which exist on the `Subcontractor` model). Now hits the real `GET /api/v1/subcontractors?limit=500` (new `SUBCONTRACTORS_TAB_FETCH_LIMIT`, truncation banner on a full-to-cap response, same pattern as `NEW-499`) and renders `company_name`/`primary_trade`/`qualification_status`/`license_status`. `saveSubcontractorUserId()` (already correct per `NEW-500`) is now reachable and testable for the first time.
+- The pre-existing wiring test that only checked the broken route string's *presence* in rendered HTML — the exact reason this survived undetected — was corrected to check its absence, plus new tests hit the real route with real field-shape assertions. **643 passed** (up from 641). code-reviewer independently reverted the fix to confirm each negative assertion fails correctly pre-fix, and independently re-confirmed `license_status` exists on the model rather than trusting the implementer's claim.
+- **Three new findings logged, not fixed, correctly kept out of this round's scope:** `NEW-507` (no delete route or active-reference concept exists for subcontractors at all — blocks a Delete button under the Users/Appointment-Types precedent without a product decision from Ish), `NEW-508` (the "+ Onboard Trade Partner" button is a hardcoded `alert()` stub despite a working `POST /api/v1/subcontractors` route existing), `NEW-509` (Suspected — `loadStaffSchedules()` handles a 401 by logging out, `loadSubcontractors()` doesn't; needs a survey across every `load*` function before fixing piecemeal).
+
+**Tier (rule 7):** code-complete + reviewer-approved. Not live-verified — recommended but not mandatory per the scoping pass, since this is a template-string + fetch-URL fix with real route/field-shape test coverage.
+
 ## 2026-09-15 — Hygiene round: NEW-504 (stray in-memory-DB test files) and NEW-505 (unbounded/leaky `?limit=`/`?offset=` parsing) fixed
 
 **What changed:** implementer → code-reviewer pipeline, APPROVED round 1, not yet committed at time of writing this entry (commit follows immediately).
