@@ -1073,6 +1073,17 @@ their test counts — was moved verbatim to `PROJECT_LOG.md` on 2026-09-02
 that file's `2026-09-02 — §4.5 business-layer round narrative,
 de-ledgered` entry. §4 is a current-state snapshot, not a third ledger.
 
+**Admin dashboard, as of 2026-09-15:** the 7-phase program plus its
+post-program rounds are live-verified (Appendix A, B6 block). A cloud
+ultrareview of the whole program was then fixed forward in `2b2c2a3`
+(7 of 8 findings; code-complete + reviewer-approved, **not
+live-verified** — the admin page has not been reloaded against the live
+server since). Known-open on that surface: `NEW-481` sub-items 2-3 (raw
+table-cell interpolation in the Users/CRM lists — stored-XSS sink still
+open), `NEW-489` (Subcontractors tab fetches a nonexistent route),
+`NEW-501`/`NEW-504`/`NEW-505`/`NEW-506` (deferred, reasoning in
+`NEW_ISSUES.md`).
+
 
 ---
 
@@ -6371,6 +6382,27 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       in-round, the rest deliberately deferred with reasoning recorded.
       See `PROJECT_LOG.md` 2026-09-11 (final entry) for the full commit
       list across both repos.
+      - **Post-program (2026-09-11 → 2026-09-15):** Delete buttons with
+        active-reference blocking + archive-then-delete (`868f5d7`,
+        `NEW-493`), Calendar/Booking Config/Business Profile folded into
+        Executive Overview (`e17fdd1`), both live-verified. A `.join('\n')`
+        JS-syntax break that had disabled the whole admin script block
+        (`NEW-503`, `0f7ae8f`, new `node --check` regression test over all
+        8 surfaces). **Cloud ultrareview of the whole program (2026-09-15,
+        `2b2c2a3`, code-complete + reviewer-approved, NOT live-verified):**
+        8 findings, 7 fixed — `NEW-496` (two new Delete buttons repeated
+        the `NEW-481` inline-handler XSS; fixed with
+        `escapeHtml(JSON.stringify(v))` at all three sites incl.
+        `openPermModal`), `NEW-491` closed (PATCH/DELETE 404s),
+        `NEW-497` (migrate re-runs blanked the Core-only profile
+        columns), `NEW-498` (Calendar Person dropdown silently ignored on
+        edit), `NEW-499` (Staff Schedules tab would show the 200 oldest
+        rows), `NEW-500`, `NEW-502`; `NEW-501` deferred on purpose (SQL
+        window for the concurrency cap would fail open on timestamp-format
+        drift). Adjacent: `NEW-504` (test suite litters repo root),
+        `NEW-505` (unbounded `?limit=`), `NEW-506` (no ICS cancel to a
+        previous assignee). `NEW-481` sub-items 2-3 (raw table cells)
+        still OPEN.
       - **Deferred (own rounds after the program):** NEW-464 (Aigentik
         reply bodies hardcode the business name), NEW-468 (public
         surfaces need an unauth profile read), NEW-469 (running Aigentik
