@@ -1,3 +1,13 @@
+## 2026-09-15 — `NEW-509` finished: all 15 admin-dashboard loaders now handle 401 consistently; one function spun off as a new finding
+
+**What changed:** implementer → code-reviewer pipeline, APPROVED, commit follows immediately. Ish's go-ahead given for the remaining scope after the first `NEW-509` round.
+
+- The 10 remaining admin-dashboard `load*` functions (`loadKPIs`, `loadEquipment`, `loadFinance`, `loadComms`, `loadBizOps`, `loadCrmList`, `loadUsersList`, `loadDeletedUserHistory`, `loadAuditLogs`, `loadAppointmentTypes`) gained the same `if (res.status === 401) { logoutUser(); return; }` check already used by `loadStaffSchedules`/`loadCalendar`/`loadSubcontractors` — 13 insertion points across 10 functions (3 make more than one fetch call).
+- **`loadDashboard()`, the 11th function on the original list, was correctly excluded rather than force-fitted.** It turned out to belong to `_render_staff_portal_base()` (the staff/PM/Sales/Tech portal), a different surface that never injects `logoutUser()` — adding it there would have thrown a live `ReferenceError`, the exact bug class this whole finding started from (`loadDocuments`'s `logout()` typo). Spun off as `NEW-512`, with the correct fix idiom noted (`window.location.href='/admin/login'`, matching that surface's own Sign Out button) instead of silently dropped or wrongly copied.
+- New region-scoped tests assert exact match counts for multi-fetch functions, not just presence — code-reviewer live-verified this catches a partial fix by reverting one of two insertion points in `loadBizOps` and confirming the test failed on that specific assertion. 664 passed (up from 663).
+
+**Tier (rule 7):** code-complete + reviewer-approved. No live-verify needed — this only redirects an already-expired, already-401'd session to logout; no permission/process-control/security-boundary change.
+
 ## 2026-09-15 — `NEW-458` CLOSED: Ish ran the real DR-key escrow
 
 **What changed:** no code change — Ish ran `python3 core/setup_dr_key.py --force` then `python3 core/backup_secrets.py` himself, closing the last outstanding step from the 2026-09-10 B7.3 disaster-recovery round.

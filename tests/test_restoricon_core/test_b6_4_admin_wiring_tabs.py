@@ -80,3 +80,61 @@ def test_new509_load_subcontractors_and_load_documents_401_handling():
     region = html[start:html.index("async function searchAuditLog", start)]
     assert "if (res.status === 401) { logoutUser(); return; }" in region
     assert "logout(); return;" not in region
+
+
+def test_new509_remaining_eleven_loaders_401_handling():
+    """NEW-509 (finishing round): the 11 admin-dashboard load*() functions
+    deliberately deferred by the first NEW-509 fix (loadSubcontractors/
+    loadDocuments only) must now also log out on a 401, matching
+    loadStaffSchedules()'s established pattern. Some of these functions
+    make more than one fetch() call internally, so those regions are
+    checked for a matching count, not just presence, to catch a fix
+    applied to only one of several fetches.
+
+    loadDashboard() (a different, staff-portal surface --
+    _render_staff_portal_base, not render_admin_surface -- that has no
+    logoutUser() in scope at all) was excluded from the 11: see NEW-509's
+    ledger entry for the follow-up finding logged about it instead of
+    silently folding it into this round's verbatim pattern.
+    """
+    html = render_admin_surface()
+    check = "if (res.status === 401) { logoutUser(); return; }"
+
+    def region(start_marker, end_marker):
+        start = html.index(start_marker)
+        return html[start:html.index(end_marker, start)]
+
+    # Single-fetch functions.
+    r = region("async function loadKPIs()", "async function loadEquipment()")
+    assert check in r
+
+    r = region("async function loadEquipment()", "async function loadSubcontractors()")
+    assert check in r
+
+    r = region("async function loadComms()", "async function loadBizOps()")
+    assert check in r
+
+    r = region("async function loadUsersList()", "async function loadDeletedUserHistory()")
+    assert check in r
+
+    r = region("async function loadDeletedUserHistory()", "async function openPermModal(")
+    assert check in r
+
+    r = region("async function loadAuditLogs()", "function patchBusinessChrome(")
+    assert check in r
+
+    r = region("async function loadAppointmentTypes()", "function renderAppointmentTypes()")
+    assert check in r
+
+    # Multi-fetch functions: assert both/all fetches got the check, not
+    # just the first one.
+    r = region("async function loadFinance()", "async function loadComms()")
+    assert r.count("if (res.status === 401) { logoutUser(); return; }") == 1
+    assert r.count("if (inv_res.status === 401) { logoutUser(); return; }") == 1
+
+    r = region("async function loadBizOps()", "window.addEventListener('DOMContentLoaded'")
+    assert r.count("if (res1.status === 401) { logoutUser(); return; }") == 1
+    assert r.count("if (res2.status === 401) { logoutUser(); return; }") == 1
+
+    r = region("async function loadCrmList()", "function populateCustomerDropdown()")
+    assert r.count(check) == 2

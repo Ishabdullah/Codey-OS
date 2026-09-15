@@ -2729,6 +2729,7 @@ def render_admin_surface() -> str:
             const token = getAuthToken();
             try {
                 const res = await fetch('/api/v1/reports/summary', { headers: { 'Authorization': 'Bearer ' + token } });
+                if (res.status === 401) { logoutUser(); return; }
                 const data = await res.json();
                 if (data.dashboard) {
                     const db = data.dashboard;
@@ -2766,6 +2767,7 @@ def render_admin_surface() -> str:
             const token = getAuthToken();
             try {
                 const res = await fetch('/api/v1/operations/equipment', { headers: { 'Authorization': 'Bearer ' + token } });
+                if (res.status === 401) { logoutUser(); return; }
                 const data = await res.json();
                 const tbody = document.getElementById('operationsTableBody');
                 if (data.equipment && data.equipment.length > 0) {
@@ -2950,6 +2952,7 @@ def render_admin_surface() -> str:
             const token = getAuthToken();
             try {
                 const res = await fetch('/api/v1/finance/summary', { headers: { 'Authorization': 'Bearer ' + token } });
+                if (res.status === 401) { logoutUser(); return; }
                 const data = await res.json();
                 if (data.financial_summary) {
                     const sum = data.financial_summary;
@@ -2969,6 +2972,7 @@ def render_admin_surface() -> str:
                     `;
                 }
                 const inv_res = await fetch('/api/v1/finance/invoices', { headers: { 'Authorization': 'Bearer ' + token } });
+                if (inv_res.status === 401) { logoutUser(); return; }
                 const inv_data = await inv_res.json();
                 const tbody = document.getElementById('financeInvoicesTable');
                 if (inv_data.invoices && inv_data.invoices.length > 0) {
@@ -2993,6 +2997,7 @@ def render_admin_surface() -> str:
             const token = getAuthToken();
             try {
                 const res = await fetch('/api/v1/communications', { headers: { 'Authorization': 'Bearer ' + token } });
+                if (res.status === 401) { logoutUser(); return; }
                 const data = await res.json();
                 const tbody = document.getElementById('commsTableBody');
                 if (data.communications && data.communications.length > 0) {
@@ -3017,6 +3022,7 @@ def render_admin_surface() -> str:
             const token = getAuthToken();
             try {
                 const res1 = await fetch('/api/v1/marketing/campaigns', { headers: { 'Authorization': 'Bearer ' + token } });
+                if (res1.status === 401) { logoutUser(); return; }
                 const data1 = await res1.json();
                 const tbody1 = document.getElementById('bizopsCampaignsBody');
                 if (data1.campaigns && data1.campaigns.length > 0) {
@@ -3034,6 +3040,7 @@ def render_admin_surface() -> str:
                 }
                 
                 const res2 = await fetch('/api/v1/compliance/items', { headers: { 'Authorization': 'Bearer ' + token } });
+                if (res2.status === 401) { logoutUser(); return; }
                 const data2 = await res2.json();
                 const tbody2 = document.getElementById('bizopsComplianceBody');
                 if (data2.compliance_items && data2.compliance_items.length > 0) {
@@ -3118,6 +3125,7 @@ def render_admin_surface() -> str:
             // Load Customers
             try {
                 const res = await fetch('/api/v1/customers', { headers: { 'Authorization': 'Bearer ' + token } });
+                if (res.status === 401) { logoutUser(); return; }
                 const data = await res.json();
                 if (data.customers) {
                     currentCustomers = data.customers;
@@ -3136,6 +3144,7 @@ def render_admin_surface() -> str:
             // Load Projects
             try {
                 const res = await fetch('/api/v1/projects', { headers: { 'Authorization': 'Bearer ' + token } });
+                if (res.status === 401) { logoutUser(); return; }
                 const data = await res.json();
                 if (data.projects) {
                     const html = data.projects.map(p => `
@@ -4063,6 +4072,7 @@ def render_admin_surface() -> str:
                 const res = await fetch('/api/v1/users', {
                     headers: { 'Authorization': 'Bearer ' + token }
                 });
+                if (res.status === 401) { logoutUser(); return; }
                 const data = await res.json();
                 if (res.ok && data.users) {
                     tbody.innerHTML = data.users.map(u => `
@@ -4108,6 +4118,7 @@ def render_admin_surface() -> str:
                 const res = await fetch('/api/v1/staff-schedules-archive' + qs, {
                     headers: { 'Authorization': 'Bearer ' + token }
                 });
+                if (res.status === 401) { logoutUser(); return; }
                 const data = await res.json();
                 if (res.ok && data.archived_schedules) {
                     if (!data.archived_schedules.length) {
@@ -4307,6 +4318,7 @@ def render_admin_surface() -> str:
                 const res = await fetch('/api/v1/audit-log?limit=25', {
                     headers: { 'Authorization': 'Bearer ' + token }
                 });
+                if (res.status === 401) { logoutUser(); return; }
                 const data = await res.json();
                 if (res.ok && data.entries) {
                     container.innerHTML = data.entries.map(e => `
@@ -4468,6 +4480,7 @@ def render_admin_surface() -> str:
                 const res = await fetch('/api/v1/appointment-types?include_inactive=true', {
                     headers: { 'Authorization': 'Bearer ' + token }
                 });
+                if (res.status === 401) { logoutUser(); return; }
                 const data = await res.json();
                 if (res.ok && data.appointment_types) {
                     window.currentAppointmentTypes = data.appointment_types;

@@ -1092,12 +1092,20 @@ precheck (blocks on active `staff_schedules` OR non-terminal
 `work_orders` FK was found that the original `NEW-507` text had wrongly
 claimed didn't exist), a real "+ Onboard Trade Partner" create modal
 (was a dead `alert()` stub), and `loadSubcontractors()`/`loadDocuments()`
-401-handling parity with `loadStaffSchedules()` (11 other admin tab
-loaders still lack it — logged, deliberately left for Ish's priority
-call). 663 passed on the core suite, 1825 passed/1 skipped full repo.
+401-handling parity with `loadStaffSchedules()`. 663 passed on the core
+suite, 1825 passed/1 skipped full repo. **`NEW-509` finished same day**
+(Ish's go-ahead given): the remaining 10 admin loaders all gained the
+same 401→`logoutUser()` check (664 passed); `loadDashboard()` correctly
+excluded — it belongs to a different surface (`_render_staff_portal_base`)
+with no `logoutUser()` in scope, spun off as `NEW-512` with its own fix
+idiom noted. `NEW-458` also CLOSED same day — Ish ran the real DR-key
+escrow, mechanically confirmed (new DR pubkey in config, fresh
+two-recipient backup blob in GCS); offline storage of the private key
+itself rests on his own attestation, not independently verifiable.
 `NEW-510` (work_orders FK still silently orphans via any non-dashboard
-delete path) and `NEW-511` (subcontractors POST has no field allow-list,
-same class as `NEW-505`) newly logged, not fixed.
+delete path), `NEW-511` (subcontractors POST has no field allow-list,
+same class as `NEW-505`), `NEW-512` (staff-portal `loadDashboard()`'s
+own unfixed 401 gap) newly logged, not fixed.
 
 
 ---
