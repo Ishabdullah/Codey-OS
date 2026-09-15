@@ -1,3 +1,14 @@
+## 2026-09-15 — `NEW-515`/`NEW-516` FIXED (follow-on to the batch below); 1 new finding spun off (`NEW-517`)
+
+**What changed:** implementer → code-reviewer pipeline, standard review tier (no process/daemon/RBAC-ordering change), APPROVED. 670 passed. Commit follows immediately.
+
+- **`NEW-515` FIXED:** the same `NEW-511` allow-list pattern (`{f.name for f in dataclasses.fields(X)}` before the constructor call, 400 on unknown keys) applied to the two sibling bare-constructor routes, `POST /api/v1/subcontractors/upsert` and `POST /api/v1/schedule-config`.
+- **Rule-6 correction found mid-fix:** verifying caller safety before landing the fix turned up a real, pre-existing production bug — `Codey-Aigentik/subcontractor-recruiter.js`'s `mapJSToCore()` never deletes the pre-mapped JS-side keys (`subcontractor_id`, `last_contact`) when it adds the Core-side equivalents (`external_id`, `last_contact_at`), so every real call to `createOrUpdateSubcontractorLead()` has been sending both old and new key names — meaning `POST /api/v1/subcontractors/upsert` was already 500ing on every real call, independent of and predating this fix. This fix only changes the failure mode (500 → clean 400), it doesn't create or worsen the underlying problem. Spun off as `NEW-517` (Confirmed, not fixed — different repo, out of this round's scope). Corrects `NEW-515`'s own original "Impact: low today" claim, which was accurate for `/schedule-config` but not for `/subcontractors/upsert`.
+- **`NEW-516` FIXED, instrumentation only:** `_assert_within_concurrency_cap`'s `except ValueError: continue` (silently skips an existing row with an unparseable stored timestamp) now logs a warning naming the row id and the raw bad value before the skip — deliberately the low-risk of the two options the original finding offered; no change to the skip behavior itself. `import logging` placed inline in the function body, matching this file's own existing convention (4 other call sites), not a new pattern.
+- Both new NEW-515 route-level tests exercise the real `router.handle_request(...)` dispatch path; the NEW-516 test proves both halves (no regression in skip behavior, and a warning genuinely fires with the right id/value) via `caplog`.
+
+**Tier (rule 7):** code-complete + reviewer-approved for both. No live-verify needed — both are input-validation/logging changes with strong direct test coverage, no process/security-boundary surface.
+
 ## 2026-09-15 — `NEW-501`/`NEW-506`/`NEW-510`/`NEW-511`/`NEW-513` batch: 4 fixed, 1 confirmed-and-left-as-is; 3 new findings spun off (`NEW-514`/`515`/`516`)
 
 **What changed:** project-architect → implementer → code-reviewer pipeline, all 5 items reviewed in one batch, APPROVED (mandatory rule-4 heavier scrutiny applied to `NEW-510` as a destructive-delete + RBAC-ordering change). 665 passed, independently reproduced by the reviewer. Commit follows immediately.

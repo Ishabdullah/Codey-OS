@@ -132,3 +132,4 @@
 - [NEW-509 finishing round (10 more loaders + loadDashboard exclusion) — APPROVED](new509_remaining_ten_loaders_401_approved.md) — verify surface boundaries by line range, not name pattern
 - [NEW-512 loadDashboard 401 fix — APPROVED, test-count claim didn't match reality](new512_staff_portal_dashboard_401_fix.md) — always reproduce claimed pytest deltas
 - [NEW-501/506/510/511/513 batch — APPROVED](new501_506_510_511_513_batch_approved.md) — NEW-510 rule-4 delete-guard relocation clean; NEW-501 verified non-vacuous via negative control; PROJECT_LOG lag flagged non-blocking
+- [NEW-515/516 allow-list + warning log — APPROVED](new515_516_allowlist_and_warning_log_approved.md) — confirmed Aigentik subcontractor-recruiter.js really sends stray keys (rule-6 ledger correction needed)

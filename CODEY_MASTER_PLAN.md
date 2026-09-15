@@ -1141,6 +1141,19 @@ reviewer-approved, all code-complete — **not live-verified**; the
 Aigentik invite/cancellation path in particular has zero automated
 integration coverage on its own repo (Jest not runnable in this
 sandbox) and is the best live-verify candidate from this round.
+**`NEW-515`/`NEW-516` also FIXED same day, follow-on round:**
+`NEW-515` applied `NEW-511`'s allow-list pattern to the two sibling
+bare-constructor routes; while verifying caller safety this turned up
+a genuine pre-existing production bug — Aigentik's
+`subcontractor-recruiter.js` `mapJSToCore()` never strips the
+pre-mapped JS-side keys it's superseding, so
+`POST /api/v1/subcontractors/upsert` has likely been 500ing on every
+real call all along (spun off as `NEW-517`, Confirmed, not fixed —
+different repo, out of scope this round; this fix only improves the
+failure mode 500→400, doesn't create the problem). `NEW-516` added a
+warning log to the existing silent-skip branch, deliberately
+instrumentation-only with no behavior change. 670 passed,
+reviewer-approved, standard review tier (no rule-4 surface).
 
 
 ---

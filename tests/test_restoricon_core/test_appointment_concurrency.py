@@ -487,3 +487,56 @@ def test_concurrency_cap_handles_mixed_timestamp_formats_across_stored_rows(test
             _appt(appointment_type_id=t.id, start_time="2026-10-01T10:15:00+00:00", end_time="2026-10-01T10:45:00+00:00"),
             admin,
         )
+
+
+# ---------------------------------------------------------------------------
+# NEW-516: an existing row with a genuinely unparseable stored timestamp is
+# silently SKIPPED (not counted) by _assert_within_concurrency_cap's
+# `except ValueError: continue`. Chosen fix this round is instrumentation
+# only -- log a warning when this happens -- with no change to the skip
+# behavior itself. This test proves both halves: the skip is still a
+# no-op skip (no regression), and a warning is now logged so it's no
+# longer silent.
+# ---------------------------------------------------------------------------
+
+def test_unparseable_stored_timestamp_skipped_but_logs_warning(test_setup, caplog):
+    """A row with a garbage (non-ISO) start_time must not count toward the
+    cap (matches pre-existing behavior), but a warning must now be logged
+    naming the row id and the unparseable value."""
+    svc = test_setup["scheduling"]
+    admin = test_setup["admin_actor"]
+    t = _make_type(test_setup, max_concurrent=1)
+    db = test_setup["db"]
+    conn = db.get_connection()
+
+    with conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO appointments (
+                appointment_type_id, title, status, start_time, end_time,
+                created_at, updated_at
+            ) VALUES (?, 'Corrupt', 'confirmed', ?, ?, '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00')
+            """,
+            (t.id, "not-a-real-timestamp", "2026-10-01T11:00:00+00:00"),
+        )
+        corrupt_row_id = cursor.lastrowid
+
+    caplog.set_level("WARNING", logger="restoricon_core.services.scheduling_service")
+
+    # Cap is 1; the only existing row has an unparseable start_time and
+    # must be skipped (not counted), so this new booking at the same slot
+    # must still succeed -- no regression from the pre-existing skip
+    # behavior.
+    svc.create_appointment(
+        _appt(appointment_type_id=t.id, start_time="2026-10-01T10:00:00+00:00", end_time="2026-10-01T11:00:00+00:00"),
+        admin,
+    )
+
+    recs = [
+        r for r in caplog.records
+        if r.name == "restoricon_core.services.scheduling_service" and r.levelname == "WARNING"
+    ]
+    assert len(recs) == 1, f"expected exactly one warning; log={caplog.text!r}"
+    msg = recs[0].getMessage()
+    assert f"id={corrupt_row_id}" in msg
+    assert "not-a-real-timestamp" in msg

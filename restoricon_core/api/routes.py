@@ -1374,6 +1374,15 @@ class APIRouter:
             # Keyed on external_id; returns a JS-compatible dict via
             # format_subcontractor_for_js.  Always returns 200 (upsert semantics).
             if path == "/api/v1/subcontractors/upsert" and method == "POST":
+                # Subcontractor(**json_body) raises TypeError -> 500 on an
+                # unknown key; validate first and return 400 instead
+                # (NEW-515, same pattern as NEW-511 above).
+                allowed_keys = {f.name for f in dataclasses.fields(Subcontractor)}
+                unknown = set(json_body) - allowed_keys
+                if unknown:
+                    return 400, {"Content-Type": "application/json"}, {
+                        "error": f"Unknown field(s) for subcontractor: {sorted(unknown)}"
+                    }
                 sub = Subcontractor(**json_body)
                 result = self.crm.upsert_subcontractor(sub, actor)
                 return 200, {"Content-Type": "application/json"}, {
@@ -1631,6 +1640,15 @@ class APIRouter:
                         return 404, {"Content-Type": "application/json"}, {"error": "Schedule config not configured"}
                     return 200, {"Content-Type": "application/json"}, {"schedule_config": sc.to_dict()}
                 elif method == "POST":
+                    # ScheduleConfig(**json_body) raises TypeError -> 500 on
+                    # an unknown key; validate first and return 400 instead
+                    # (NEW-515, same pattern as NEW-511 above).
+                    allowed_keys = {f.name for f in dataclasses.fields(ScheduleConfig)}
+                    unknown = set(json_body) - allowed_keys
+                    if unknown:
+                        return 400, {"Content-Type": "application/json"}, {
+                            "error": f"Unknown field(s) for schedule config: {sorted(unknown)}"
+                        }
                     sc = ScheduleConfig(**json_body)
                     saved = self.scheduling.upsert_schedule_config(sc, actor)
                     return 200, {"Content-Type": "application/json"}, {"schedule_config": saved.to_dict()}

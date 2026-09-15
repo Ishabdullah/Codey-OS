@@ -499,3 +499,56 @@ def test_create_subcontractor_route_accepts_every_real_field(env):
     status, _, res = router.handle_request("POST", "/api/v1/subcontractors", headers, body)
     assert status == 201, res
     assert res["subcontractor"]["company_name"] == "value"
+
+
+# ---------------------------------------------------------------------------
+# NEW-515: POST /api/v1/subcontractors/upsert field allow-list
+# ---------------------------------------------------------------------------
+
+def test_upsert_subcontractor_route_rejects_unknown_field(env):
+    router = env["router"]
+    admin_token = env["admin_token"]
+    headers = {"authorization": f"Bearer {admin_token}"}
+
+    body = json.dumps({
+        "external_id": "sub_ext_001", "company_name": "Acme Roofing", "not_a_real_field": "oops",
+    }).encode()
+    status, _, res = router.handle_request("POST", "/api/v1/subcontractors/upsert", headers, body)
+    assert status == 400
+    assert "not_a_real_field" in res["error"]
+
+
+def test_upsert_subcontractor_route_accepts_every_real_field(env):
+    """Regression guard against a hand-transcription slip in the
+    allow-list: post every real Subcontractor field name (with
+    representative values) and confirm it's accepted -- the allow-list is
+    computed structurally from dataclasses.fields(Subcontractor), so this
+    also indirectly proves that computation still matches the model."""
+    import dataclasses
+
+    from restoricon_core.models import Subcontractor as SubcontractorModel
+
+    router = env["router"]
+    admin_token = env["admin_token"]
+    headers = {"authorization": f"Bearer {admin_token}"}
+
+    representative: dict = {}
+    for f in dataclasses.fields(SubcontractorModel):
+        if f.name in ("id", "created_at", "updated_at"):
+            continue
+        if f.type in ("Optional[int]", "int"):
+            representative[f.name] = 1
+        elif f.type in ("List[str]",):
+            representative[f.name] = ["general"]
+        elif f.type in ("List[Dict[str, Any]]",):
+            representative[f.name] = []
+        elif f.type in ("Dict[str, Any]",):
+            representative[f.name] = {}
+        else:
+            representative[f.name] = "value"
+    representative["external_id"] = "sub_ext_002"
+
+    body = json.dumps(representative).encode()
+    status, _, res = router.handle_request("POST", "/api/v1/subcontractors/upsert", headers, body)
+    assert status == 200, res
+    assert res["subcontractor"]["company_name"] == "value"

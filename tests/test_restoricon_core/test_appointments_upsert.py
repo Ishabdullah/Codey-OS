@@ -266,6 +266,58 @@ def test_router_schedule_config_get_and_post(test_setup):
     assert body["schedule_config"]["default_duration_minutes"] == 45
 
 
+def test_router_schedule_config_post_rejects_unknown_field(test_setup):
+    """NEW-515: POST /api/v1/schedule-config field allow-list."""
+    router = test_setup["router"]
+    token = test_setup["token"]
+
+    status, headers, body = router.handle_request(
+        "POST",
+        "/api/v1/schedule-config",
+        headers={"Authorization": f"Bearer {token}"},
+        body_bytes=json.dumps({
+            "default_duration_minutes": 45,
+            "not_a_real_field": "oops",
+        }).encode(),
+    )
+    assert status == 400
+    assert "not_a_real_field" in body["error"]
+
+
+def test_router_schedule_config_post_accepts_every_real_field(test_setup):
+    """Regression guard against a hand-transcription slip in the
+    allow-list: post every real ScheduleConfig field name (with
+    representative values) and confirm it's accepted -- the allow-list is
+    computed structurally from dataclasses.fields(ScheduleConfig), so this
+    also indirectly proves that computation still matches the model."""
+    import dataclasses
+
+    from restoricon_core.models import ScheduleConfig
+
+    router = test_setup["router"]
+    token = test_setup["token"]
+
+    representative = {}
+    for f in dataclasses.fields(ScheduleConfig):
+        if f.name in ("id", "updated_at"):
+            continue
+        if f.type in ("Dict[str, Any]",):
+            representative[f.name] = {}
+        elif f.type in ("int",):
+            representative[f.name] = 30
+        else:
+            representative[f.name] = "value"
+
+    status, headers, body = router.handle_request(
+        "POST",
+        "/api/v1/schedule-config",
+        headers={"Authorization": f"Bearer {token}"},
+        body_bytes=json.dumps(representative).encode(),
+    )
+    assert status == 200, body
+    assert body["schedule_config"]["default_duration_minutes"] == 30
+
+
 def test_router_appointment_upsert_partial_preserves_negotiating_state(test_setup):
     """Verify that POST /api/v1/appointments/upsert with a partial payload
     (e.g. updating notes on an existing negotiating appointment) does NOT

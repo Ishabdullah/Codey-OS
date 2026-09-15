@@ -182,6 +182,17 @@ class SchedulingService:
                 # checked is not given this treatment: an unparseable new
                 # start/end is a caller error and should raise, not be
                 # silently ignored.
+                # NEW-516: this skip was previously silent -- log a warning
+                # so an operator can discover a corrupt stored timestamp
+                # instead of the cap under-counting with no trace. Behavior
+                # (skip, don't count) is unchanged; this is instrumentation
+                # only.
+                import logging
+                logging.getLogger(__name__).warning(
+                    "Skipping appointment id=%s from concurrency cap count: "
+                    "unparseable stored timestamp (start_time=%r, end_time=%r)",
+                    row["id"], row_start_raw, row_end_raw,
+                )
                 continue
             # Buffer expands the EXISTING appointment's window on both sides
             # (symmetric), mirroring calendar.js's hasConflict() exactly:
