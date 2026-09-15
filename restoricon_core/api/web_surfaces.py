@@ -4938,6 +4938,7 @@ def _render_staff_portal_base(role_title: str, primary_label: str, role_key: str
                 const res = await fetch('/api/v1/staff-schedules?user_id=' + user.id, {{
                     headers: {{ 'Authorization': 'Bearer ' + token }}
                 }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
                 const data = await res.json();
                 const tbody = document.getElementById('myScheduleList');
                 if (res.ok && data.schedules && data.schedules.length > 0) {{
@@ -4951,13 +4952,14 @@ def _render_staff_portal_base(role_title: str, primary_label: str, role_key: str
                 }} else {{
                     tbody.innerHTML = '<tr><td colspan="3" style="color:var(--text-muted)">No upcoming schedule.</td></tr>';
                 }}
-            }} catch (e) {{}}
+            }} catch (e) {{ /* network/parse failure: schedule tbody keeps its "Loading..." placeholder, no further UI action needed */ }}
 
             // Load Assignments
             try {{
                 const res = await fetch('/api/v1/projects', {{
                     headers: {{ 'Authorization': 'Bearer ' + token }}
                 }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
                 const data = await res.json();
                 const tbody = document.getElementById('myAssignmentsList');
                 if (res.ok && data.projects) {{
@@ -4990,7 +4992,7 @@ def _render_staff_portal_base(role_title: str, primary_label: str, role_key: str
                         tbody.innerHTML = '<tr><td colspan="4" style="color:var(--text-muted)">No active assignments.</td></tr>';
                     }}
                 }}
-            }} catch (e) {{}}
+            }} catch (e) {{ /* network/parse failure: assignments tbody keeps its "Loading..." placeholder, no further UI action needed */ }}
         }}
 
         window.onload = loadDashboard;

@@ -1,3 +1,14 @@
+## 2026-09-15 — `NEW-512` fixed: staff-portal `loadDashboard()` gets its own 401-redirect, closing out the `NEW-509` chain
+
+**What changed:** implementer → code-reviewer pipeline, APPROVED, commit follows immediately.
+
+- `loadDashboard()` (in `_render_staff_portal_base()`, shared by PM/Sales/Tech/Subcontractor portals — a different surface from the admin dashboard) had no 401-handling on either of its two fetches. Since that surface never injects `logoutUser()`, the fix uses its own existing idiom instead: `window.location.href = '/admin/login'`, matching its Sign Out button/`/auth/me` guard exactly. The two previously-empty `catch` blocks gained explanatory comments (no behavior change), consistent with this file's existing convention elsewhere.
+- New test loops all 4 portal wrapper functions (they share one body), region-scoped per fetch, plus a guard asserting `logoutUser()` never appears in this function — directly preventing a repeat of the `ReferenceError` bug class this whole chain started from.
+- **Rule-6 correction:** the reviewer's first pass flagged the implementer's "665 passed" as an unreproduced claim, having run a narrower test scope than this round's established baseline command. Re-run independently: 665 passed, exactly matching the implementer's original number — the reviewer's flagged discrepancy was a scope mismatch, not a real overclaim, corrected in the ledger rather than left standing.
+- This closes the `NEW-509`→`NEW-512` chain: every admin-dashboard and staff-portal `load*` function now handles session expiry consistently, each surface using its own correct idiom.
+
+**Tier (rule 7):** code-complete + reviewer-approved. No live-verify needed — same reasoning as `NEW-509` (redirect-only change on an already-expired session).
+
 ## 2026-09-15 — `NEW-509` finished: all 15 admin-dashboard loaders now handle 401 consistently; one function spun off as a new finding
 
 **What changed:** implementer → code-reviewer pipeline, APPROVED, commit follows immediately. Ish's go-ahead given for the remaining scope after the first `NEW-509` round.

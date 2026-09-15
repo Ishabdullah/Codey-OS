@@ -1103,9 +1103,14 @@ escrow, mechanically confirmed (new DR pubkey in config, fresh
 two-recipient backup blob in GCS); offline storage of the private key
 itself rests on his own attestation, not independently verifiable.
 `NEW-510` (work_orders FK still silently orphans via any non-dashboard
-delete path), `NEW-511` (subcontractors POST has no field allow-list,
-same class as `NEW-505`), `NEW-512` (staff-portal `loadDashboard()`'s
-own unfixed 401 gap) newly logged, not fixed.
+delete path) and `NEW-511` (subcontractors POST has no field
+allow-list, same class as `NEW-505`) newly logged, not fixed.
+**`NEW-512` also FIXED same day**, closing the `NEW-509` chain: the
+staff portals' `loadDashboard()` gets its own `/admin/login`-redirect
+401-handling (its surface never injects `logoutUser()`, unlike the
+admin dashboard) — 665 passed, reviewer-approved (one reviewer
+number-discrepancy flagged mid-round turned out to be a test-scope
+mismatch, not a real overclaim; corrected in `NEW_ISSUES.md`).
 
 
 ---

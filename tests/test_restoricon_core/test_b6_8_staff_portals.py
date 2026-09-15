@@ -20,6 +20,41 @@ def test_staff_portals_render_and_fetch():
         assert "fetch('/api/v1/staff-schedules" in html, "Portal is missing staff-schedules fetch"
         assert "window.onload = loadDashboard;" in html, "Dashboard load hook missing"
 
+def test_staff_portal_dashboard_handles_401():
+    """NEW-512: loadDashboard()'s staff-schedules and projects fetches must redirect
+    to /admin/login on a 401, using this surface's own idiom (no logoutUser(), which
+    is not in scope here since _get_common_script() is never injected)."""
+    portals = [
+        render_pm_surface(),
+        render_sales_surface(),
+        render_tech_surface(),
+        render_subcontractor_surface()
+    ]
+
+    for html in portals:
+        # Isolate loadDashboard() so region-scoped assertions can't match the
+        # /auth/me guard or the Sign Out button by accident.
+        start = html.index("async function loadDashboard()")
+        end = html.index("window.onload = loadDashboard;")
+        dashboard_js = html[start:end]
+
+        schedules_region_start = dashboard_js.index("fetch('/api/v1/staff-schedules")
+        schedules_region_end = dashboard_js.index("await res.json();", schedules_region_start)
+        schedules_region = dashboard_js[schedules_region_start:schedules_region_end]
+        assert "res.status === 401" in schedules_region, "staff-schedules fetch missing 401 check"
+        assert "window.location.href = '/admin/login';" in schedules_region
+
+        projects_region_start = dashboard_js.index("fetch('/api/v1/projects'")
+        projects_region_end = dashboard_js.index("await res.json();", projects_region_start)
+        projects_region = dashboard_js[projects_region_start:projects_region_end]
+        assert "res.status === 401" in projects_region, "projects fetch missing 401 check"
+        assert "window.location.href = '/admin/login';" in projects_region
+
+        # logoutUser() must never appear inside loadDashboard() -- it is not in
+        # scope for this surface (_get_common_script() is never injected here).
+        assert "logoutUser(" not in dashboard_js
+
+
 def test_smart_login_routing_patch():
     """Verify that render_login_surface contains the smart B6.8 JS redirect logic."""
     html = render_login_surface("admin")
