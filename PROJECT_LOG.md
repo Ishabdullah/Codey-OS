@@ -1,3 +1,13 @@
+## 2026-09-15 — `NEW-517` FIXED (`Codey-Aigentik`): the cross-repo key-leak found while closing `NEW-515` is now closed too
+
+**What changed:** implementer → code-reviewer pipeline, standard review tier, APPROVED. Commit `e76f1f0` in `Codey-Aigentik`.
+
+- `mapJSToCore()` (`subcontractor-recruiter.js`) was spreading a JS-side object and only adding the renamed Core-side keys (`external_id`, `last_contact_at`) without deleting the JS-side originals (`subcontractor_id`, `last_contact`) they superseded — every real call sent both, and Core's route (post-`NEW-515`) now 400s on unknown keys instead of the prior uncaught-500. Fixed with two unconditional `delete` calls right after the rename-assignments.
+- Reviewer went further than the fix's own scope and traced the symmetric reverse function, `mapCoreToJS()`, which has the same shape of leak (stale Core-side keys left behind). Verified every call site of its output and confirmed it's genuinely benign — the one path that re-sends the merged object to Core round-trips back through the now-fixed `mapJSToCore()`, which self-corrects; every other consumer reads named fields rather than spreading the object. No new ledger entry needed — investigated and ruled out, not silently ignored.
+- New test calls `mapJSToCore()` directly (bypassing the mocked-fetch pattern that let this bug hide originally) and asserts key-absence on the two leaked names. 22 passed, independently re-run by the reviewer using the project's real Jest invocation — also resolves a lingering open question from the prior round about whether Jest is runnable in this sandbox at all (it is; the earlier "not found" result was an invocation-syntax issue, not an environment limitation).
+
+**Tier (rule 7):** code-complete + reviewer-approved. No live-verify needed — pure input-shape fix with direct unit coverage exercising the real function, no process/security-boundary surface.
+
 ## 2026-09-15 — `NEW-515`/`NEW-516` FIXED (follow-on to the batch below); 1 new finding spun off (`NEW-517`)
 
 **What changed:** implementer → code-reviewer pipeline, standard review tier (no process/daemon/RBAC-ordering change), APPROVED. 670 passed. Commit follows immediately.

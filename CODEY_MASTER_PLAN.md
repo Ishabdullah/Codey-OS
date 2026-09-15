@@ -1154,6 +1154,19 @@ failure mode 500→400, doesn't create the problem). `NEW-516` added a
 warning log to the existing silent-skip branch, deliberately
 instrumentation-only with no behavior change. 670 passed,
 reviewer-approved, standard review tier (no rule-4 surface).
+**`NEW-517` also FIXED same day** (`Codey-Aigentik` commit `e76f1f0`):
+`mapJSToCore()` now deletes the two stale pre-mapped keys
+(`subcontractor_id`, `last_contact`) it was leaking alongside their
+Core-side renames — closes the route this whole `NEW-514`→`517` chain
+uncovered. Reviewer traced the symmetric `mapCoreToJS()` reverse
+function and confirmed its own similar-looking leak is genuinely
+benign (every consumer either round-trips back through the fixed
+function or reads named fields, never spreads the raw object) — no
+new finding needed. 22 passed on the Aigentik-side suite, confirming
+Jest is in fact runnable in this sandbox (a prior "not found" result
+was an invocation-syntax issue). This closes the entire `NEW-514`/
+`515`/`516`/`517` chain from this round's batch — all four now FIXED,
+none left open.
 
 
 ---
