@@ -4088,7 +4088,7 @@ def render_admin_surface() -> str:
                 }
                 const active = refData.active_references || [];
                 if (active.length) {
-                    const listing = active.map(s => `${s.id}: ${s.title} (${s.start_time})`).join('\n');
+                    const listing = active.map(s => `${s.id}: ${s.title} (${s.start_time})`).join('\\n');
                     alert(`Cannot delete: this user has ${active.length} active staff schedule(s):\n${listing}`);
                     return;
                 }
@@ -4528,7 +4528,7 @@ def render_admin_surface() -> str:
                 }
                 const active = refData.active_references || [];
                 if (active.length) {
-                    const listing = active.map(a => `${a.id}: ${a.title} (${a.start_time})`).join('\n');
+                    const listing = active.map(a => `${a.id}: ${a.title} (${a.start_time})`).join('\\n');
                     alert(`Cannot delete: this appointment type has ${active.length} active appointment(s):\n${listing}`);
                     return;
                 }
