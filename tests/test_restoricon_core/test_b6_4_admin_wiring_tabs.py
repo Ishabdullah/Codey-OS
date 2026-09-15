@@ -138,3 +138,37 @@ def test_new509_remaining_eleven_loaders_401_handling():
 
     r = region("async function loadCrmList()", "function populateCustomerDropdown()")
     assert r.count(check) == 2
+
+
+def test_new513_load_audit_logs_reads_real_response_shape_and_escapes():
+    """NEW-513: loadAuditLogs() previously read data.entries/e.created_at/
+    e.details (none of which the real /api/v1/audit-log response has --
+    it returns {"audit_logs": [...]} with timestamp/change_summary
+    fields, per AuditRecord.to_dict()) and interpolated every field
+    unescaped -- a stored-text-node-XSS-class gap in the same family as
+    the already-fixed NEW-481/NEW-496."""
+    html = render_admin_surface()
+    start = html.index("async function loadAuditLogs()")
+    end = html.index("function patchBusinessChrome(", start)
+    r = html[start:end]
+
+    # Reads the real response shape, not the nonexistent one.
+    assert "data.audit_logs" in r
+    assert "data.entries" not in r
+    assert "e.created_at" not in r
+    assert "e.details" not in r
+    assert "e.timestamp" in r
+    assert "e.change_summary" in r
+
+    # Empty-state branch present (an empty [] is truthy in JS -- without
+    # this branch the feed silently stays blank forever).
+    assert "No results." in r
+
+    # Every interpolated field is escaped.
+    assert "escapeHtml(e.timestamp)" in r
+    assert "escapeHtml(e.action)" in r
+    assert "escapeHtml(e.change_summary)" in r
+    assert "escapeHtml(e.actor_id) || 'System'" in r
+
+    # 401 handling preserved.
+    assert "if (res.status === 401) { logoutUser(); return; }" in r

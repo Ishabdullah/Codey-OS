@@ -176,6 +176,13 @@ def test_update_staff_schedule_user_id_reassignment_is_persisted():
     # The new assignee gets the invite, not the old one.
     assert notif.send_calendar_invite.call_count == 1
     assert notif.send_calendar_invite.call_args.kwargs["to_email"] == "bob@example.com"
+    # NEW-506: the OLD assignee gets a cancellation for the same UID -- a
+    # wrong UID here would silently be useless and nothing else would
+    # catch it.
+    assert notif.send_calendar_cancellation.call_count == 1
+    cancel_kwargs = notif.send_calendar_cancellation.call_args.kwargs
+    assert cancel_kwargs["to_email"] == "alice@example.com"
+    assert cancel_kwargs["appointment"]["uid"] == f"staff-sched-{created.id}"
 
 
 def test_update_staff_schedule_unknown_user_id_is_value_error_not_integrity_error():
@@ -188,7 +195,7 @@ def test_update_staff_schedule_unknown_user_id_is_value_error_not_integrity_erro
 
 
 def test_delete_staff_schedule_returns_true_then_false_and_audits_once():
-    db_manager, svc, _, actor, created = _two_user_env()
+    db_manager, svc, notif, actor, created = _two_user_env()
     conn = db_manager.get_connection()
     before = conn.execute(
         "SELECT COUNT(*) FROM audit_log WHERE entity_type = 'staff_schedule' AND action = 'delete'"
@@ -200,3 +207,12 @@ def test_delete_staff_schedule_returns_true_then_false_and_audits_once():
         "SELECT COUNT(*) FROM audit_log WHERE entity_type = 'staff_schedule' AND action = 'delete'"
     ).fetchone()[0]
     assert after - before == 1, "a no-op delete must not write a 'Deleted staff schedule' audit row"
+
+    # NEW-506: the first (real) delete fires exactly one cancellation to
+    # the assigned user (alice) with the correct UID; the two no-op
+    # deletes after it fire NO further cancellations -- proving the
+    # pre-delete SELECT added for this doesn't break the no-op contract.
+    assert notif.send_calendar_cancellation.call_count == 1
+    cancel_kwargs = notif.send_calendar_cancellation.call_args.kwargs
+    assert cancel_kwargs["to_email"] == "alice@example.com"
+    assert cancel_kwargs["appointment"]["uid"] == f"staff-sched-{created.id}"

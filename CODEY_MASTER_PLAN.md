@@ -1116,6 +1116,31 @@ staff portals' `loadDashboard()` gets its own `/admin/login`-redirect
 admin dashboard) — 665 passed, reviewer-approved (one reviewer
 number-discrepancy flagged mid-round turned out to be a test-scope
 mismatch, not a real overclaim; corrected in `NEW_ISSUES.md`).
+**`NEW-510`/`NEW-511`/`NEW-513` now also FIXED, `NEW-506` FIXED
+(same day, batch round):** `NEW-511`'s allow-list, `NEW-513`'s
+key-mismatch-plus-escaping fix, and `NEW-510`'s guard-centralization
+into `CRMService.delete_subcontractor()` (rule-4 heavy-scrutiny pass,
+APPROVED — lazy-constructed `scheduling`/`operations` fallbacks
+confirmed to share the same `DatabaseManager`, not an empty parallel
+one) all landed as scoped. `NEW-506` uncovered a real prerequisite bug
+in the same round: Aigentik's `/send-invite` route
+(`Codey-Aigentik/http-server.js`) had its `sendCalendarInvite(...)`
+arguments transposed against the real signature — every staff-schedule
+invite ever sent through it was garbage, not working — now fixed
+(candidate id `NEW-514`), with a new `/send-cancellation` route and
+Core-side `NotificationService.send_calendar_cancellation()` wired into
+both reassignment and delete. **`NEW-501` re-confirmed and left
+deliberately unfixed** — the precondition for the safer `WHERE`-clause
+push-down (one normalized timestamp format everywhere) does not hold
+anywhere in the write path; a mutation test was added instead of a
+production change. Two new sibling gaps spun off, not fixed:
+`NEW-515` (two more bare-constructor routes, same class as `NEW-511`)
+and `NEW-516` (a silent-skip-on-unparseable-timestamp gap in the
+concurrency-cap loop, found while confirming `NEW-501`). 665 passed,
+reviewer-approved, all code-complete — **not live-verified**; the
+Aigentik invite/cancellation path in particular has zero automated
+integration coverage on its own repo (Jest not runnable in this
+sandbox) and is the best live-verify candidate from this round.
 
 
 ---

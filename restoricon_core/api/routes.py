@@ -3,6 +3,7 @@ HTTP API request routing and endpoint handlers for Restoricon Core.
 Exposes JSON REST endpoints with strict Bearer token authentication and RBAC.
 """
 
+import dataclasses
 import json
 import os
 import re
@@ -1354,6 +1355,17 @@ class APIRouter:
                     )
                     return 200, {"Content-Type": "application/json"}, {"subcontractors": [s.to_dict() for s in subs]}
                 elif method == "POST":
+                    # Subcontractor(**json_body) raises TypeError -> 500 on an
+                    # unknown key; validate first and return 400 instead
+                    # (NEW-511, same pattern as appointment types above).
+                    # Computed structurally from the dataclass fields so the
+                    # allow-list can never drift from the model.
+                    allowed_keys = {f.name for f in dataclasses.fields(Subcontractor)}
+                    unknown = set(json_body) - allowed_keys
+                    if unknown:
+                        return 400, {"Content-Type": "application/json"}, {
+                            "error": f"Unknown field(s) for subcontractor: {sorted(unknown)}"
+                        }
                     sub = Subcontractor(**json_body)
                     created = self.crm.create_subcontractor(sub, actor)
                     return 201, {"Content-Type": "application/json"}, {"subcontractor": created.to_dict()}
@@ -1407,41 +1419,20 @@ class APIRouter:
 
             if path.startswith("/api/v1/subcontractors/") and path.endswith("/delete") and method == "POST":
                 sub_id = int(path.split("/")[-2])
-                # Explicit permission gate BEFORE either active-reference
-                # check below: the checks themselves deliberately query
-                # the unguarded/unRBAC'd helpers (see comments below), so
-                # without this line an unprivileged caller could reach a
-                # 400 with itemized schedule/work-order data in the body
-                # -- an information disclosure -- instead of a 403.
-                # delete_subcontractor() re-checks this permission too
-                # (defense-in-depth), but that check now runs strictly
-                # after the reference queries, too late to gate them.
+                # Explicit permission gate BEFORE the unguarded `before`
+                # fetch below, which is used only for audit-snapshot
+                # context and doesn't itself leak schedule/work-order
+                # data. NEW-510: the active-reference precheck (and its
+                # own permission check) now lives in
+                # CRMService.delete_subcontractor() itself, which runs
+                # FIRST inside that call -- so it's no longer "too late"
+                # to gate the reference queries the way this comment used
+                # to warn about; it's simply the one and only gate now.
                 if not actor.has_permission(PERM_WRITE_SUBCONTRACTORS):
                     raise PermissionError("Actor lacks permission to delete subcontractors")
                 before = self.crm._get_subcontractor_unguarded(sub_id)
                 if not before:
                     return 404, {"Content-Type": "application/json"}, {"error": "Subcontractor not found"}
-                # Unguarded re-checks, same reasoning as delete_user's
-                # re-check: this write path needs only
-                # PERM_WRITE_SUBCONTRACTORS, not additionally
-                # PERM_READ_STAFF_SCHEDULES/PERM_READ_OPERATIONS.
-                active_schedules: List[Dict[str, Any]] = []
-                if before.user_id is not None:
-                    active_schedules = self.scheduling._query_active_staff_schedules_for_user(before.user_id)
-                active_work_orders = self.operations._query_active_work_orders_for_subcontractor(sub_id)
-                if active_schedules or active_work_orders:
-                    parts = []
-                    if active_schedules:
-                        itemized = "; ".join(
-                            f"id {s['id']}: {s['title']} ({s['start_time']})" for s in active_schedules
-                        )
-                        parts.append(f"{len(active_schedules)} active staff schedule(s) reference this record: {itemized}")
-                    if active_work_orders:
-                        itemized_wo = "; ".join(
-                            f"id {w['id']}: {w['work_order_number']} ({w['status']})" for w in active_work_orders
-                        )
-                        parts.append(f"{len(active_work_orders)} active work order(s) reference this record: {itemized_wo}")
-                    raise ValueError("Cannot delete: " + " AND ".join(parts))
                 deleted = self.crm.delete_subcontractor(sub_id, actor)
                 if not deleted:
                     return 404, {"Content-Type": "application/json"}, {"error": "Subcontractor not found"}

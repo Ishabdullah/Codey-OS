@@ -1156,6 +1156,33 @@ class SchedulingService:
                     import logging
                     logging.getLogger(__name__).warning("Failed to send staff schedule ICS invite on update: %s", e)
 
+        # NEW-506: on an actual reassignment (not every edit), the OLD
+        # assignee gets a cancellation for the slot they no longer have --
+        # they'd otherwise keep a stale invite on their calendar with no
+        # indication it was reassigned away from them.
+        if self.notification and "user_id" in updates and before["user_id"] != after.user_id:
+            old_user_row = conn.execute("SELECT email, full_name FROM users WHERE id = ?", (before["user_id"],)).fetchone()
+            if old_user_row and old_user_row["email"]:
+                import time
+                cancellation_dict = {
+                    "uid": f"staff-sched-{after.id}",
+                    "ics_sequence": int(time.time()),
+                    "title": before["title"],
+                    "start": before["start_time"],
+                    "end": before["end_time"],
+                    "attendee_email": old_user_row["email"],
+                    "attendee_name": old_user_row["full_name"]
+                }
+                try:
+                    self.notification.send_calendar_cancellation(
+                        to_email=old_user_row["email"],
+                        appointment=cancellation_dict,
+                        text=f"You have been unassigned from: {before['title']}"
+                    )
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning("Failed to send staff schedule ICS cancellation on reassignment: %s", e)
+
         return after
 
     def delete_staff_schedule(self, schedule_id: int, actor: AuthContext) -> bool:
@@ -1166,6 +1193,17 @@ class SchedulingService:
             raise PermissionError("Actor lacks permission to write staff schedules")
 
         conn = self.db.get_connection()
+        # NEW-506: SELECT before the DELETE to capture the row's data for
+        # the cancellation email below -- a narrow TOCTOU window (the row
+        # could vanish between this SELECT and the DELETE) is acceptable
+        # here, same accepted risk class as this file's existing
+        # concurrency-cap checks. This preserves NEW-491's contract
+        # exactly: no row (already gone) -> False, no audit row.
+        row = conn.execute("SELECT * FROM staff_schedules WHERE id = ?", (schedule_id,)).fetchone()
+        if not row:
+            return False
+        schedule = StaffSchedule.from_row(row)
+
         with conn:
             cursor = conn.execute("DELETE FROM staff_schedules WHERE id = ?", (schedule_id,))
         if cursor.rowcount == 0:
@@ -1179,4 +1217,28 @@ class SchedulingService:
             actor=actor,
             details=build_audit_details(snapshot={"id": schedule_id}),
         )
+
+        if self.notification:
+            user_row = conn.execute("SELECT email, full_name FROM users WHERE id = ?", (schedule.user_id,)).fetchone()
+            if user_row and user_row["email"]:
+                import time
+                cancellation_dict = {
+                    "uid": f"staff-sched-{schedule_id}",
+                    "ics_sequence": int(time.time()),
+                    "title": schedule.title,
+                    "start": schedule.start_time,
+                    "end": schedule.end_time,
+                    "attendee_email": user_row["email"],
+                    "attendee_name": user_row["full_name"]
+                }
+                try:
+                    self.notification.send_calendar_cancellation(
+                        to_email=user_row["email"],
+                        appointment=cancellation_dict,
+                        text=f"This schedule entry has been cancelled: {schedule.title}"
+                    )
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning("Failed to send staff schedule ICS cancellation on delete: %s", e)
+
         return True

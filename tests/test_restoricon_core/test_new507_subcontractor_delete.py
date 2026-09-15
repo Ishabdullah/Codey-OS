@@ -400,3 +400,102 @@ def test_delete_audit_logs_snapshot(env):
     assert row is not None
     details = json.loads(row["details_json"])
     assert details["snapshot"]["company_name"] == "Zenith Drywall"
+
+
+# ---------------------------------------------------------------------------
+# NEW-510: the active-reference guard lives in
+# CRMService.delete_subcontractor() itself now, not just the HTTP route --
+# so it must fire for ANY direct caller, constructed the plain (2-arg) way.
+# ---------------------------------------------------------------------------
+
+def test_delete_subcontractor_direct_call_blocked_by_active_reference(env):
+    """CRMService(db, audit) -- the plain 2-arg constructor other call
+    sites throughout this codebase already use -- must still exercise the
+    active-reference guard via its own lazily-default-constructed
+    self.scheduling/self.operations, sharing the SAME DatabaseManager
+    passed to CRMService (not a second in-memory DB)."""
+    db = env["db"]
+    audit = env["crm"].audit
+    admin = env["admin"]
+    admin_ctx = env["admin_ctx"]
+    sched = env["sched"]
+
+    # Plain construction, bypassing the fixture's own `crm` (which was
+    # built with extra kwargs the fixture happens to omit anyway) --
+    # exercises the lazy scheduling_service/operations_service default
+    # path directly.
+    crm = CRMService(db, audit)
+    assert crm.scheduling.db is db
+    assert crm.operations.db is db
+
+    sub = crm.create_subcontractor(
+        Subcontractor(company_name="Direct-Call Roofing", user_id=admin.id), admin_ctx
+    )
+    created_schedule = sched.create_staff_schedule(
+        StaffSchedule(
+            user_id=admin.id, title="Direct-call job site visit",
+            start_time="2027-02-01T09:00:00", end_time="2027-02-01T11:00:00",
+            status="scheduled", notes=None,
+        ),
+        admin_ctx,
+    )
+
+    with pytest.raises(ValueError) as excinfo:
+        crm.delete_subcontractor(sub.id, admin_ctx)
+
+    # Proves the guard actually found the reference (via the SAME db),
+    # not that it silently passed because it queried an empty parallel DB.
+    assert str(created_schedule.id) in str(excinfo.value)
+    assert "Direct-call job site visit" in str(excinfo.value)
+    assert "staff schedule" in str(excinfo.value)
+    assert crm._get_subcontractor_unguarded(sub.id) is not None
+
+
+# ---------------------------------------------------------------------------
+# NEW-511: POST /api/v1/subcontractors field allow-list
+# ---------------------------------------------------------------------------
+
+def test_create_subcontractor_route_rejects_unknown_field(env):
+    router = env["router"]
+    admin_token = env["admin_token"]
+    headers = {"authorization": f"Bearer {admin_token}"}
+
+    body = json.dumps({"company_name": "Acme Roofing", "not_a_real_field": "oops"}).encode()
+    status, _, res = router.handle_request("POST", "/api/v1/subcontractors", headers, body)
+    assert status == 400
+    assert "not_a_real_field" in res["error"]
+
+
+def test_create_subcontractor_route_accepts_every_real_field(env):
+    """Regression guard against a hand-transcription slip in the
+    allow-list: post every real Subcontractor field name (with
+    representative values) and confirm it's accepted -- the allow-list is
+    computed structurally from dataclasses.fields(Subcontractor), so this
+    also indirectly proves that computation still matches the model."""
+    import dataclasses
+
+    from restoricon_core.models import Subcontractor as SubcontractorModel
+
+    router = env["router"]
+    admin_token = env["admin_token"]
+    headers = {"authorization": f"Bearer {admin_token}"}
+
+    representative: dict = {}
+    for f in dataclasses.fields(SubcontractorModel):
+        if f.name in ("id", "created_at", "updated_at"):
+            continue
+        if f.type in ("Optional[int]", "int"):
+            representative[f.name] = 1
+        elif f.type in ("List[str]",):
+            representative[f.name] = ["general"]
+        elif f.type in ("List[Dict[str, Any]]",):
+            representative[f.name] = []
+        elif f.type in ("Dict[str, Any]",):
+            representative[f.name] = {}
+        else:
+            representative[f.name] = "value"
+
+    body = json.dumps(representative).encode()
+    status, _, res = router.handle_request("POST", "/api/v1/subcontractors", headers, body)
+    assert status == 201, res
+    assert res["subcontractor"]["company_name"] == "value"

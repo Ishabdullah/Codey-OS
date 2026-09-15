@@ -71,15 +71,37 @@ from ..models import (
 )
 from .audit_service import AuditService, build_audit_details, _AUDITABLE_CONTRACT_FIELDS, _AUDITABLE_INVOICE_FIELDS, _AUDITABLE_SUBCONTRACTOR_FIELDS, _AUDITABLE_PROJECT_FIELDS, _AUDITABLE_CONTACT_FIELDS
 from .notification_service import NotificationService
+from .operations_service import OperationsService
+from .scheduling_service import SchedulingService
 
 
 class CRMService:
     """Core domain logic and data management for Restoricon Core."""
 
-    def __init__(self, db_manager: DatabaseManager, audit_service: AuditService, notification_service: Optional[NotificationService] = None):
+    def __init__(
+        self,
+        db_manager: DatabaseManager,
+        audit_service: AuditService,
+        notification_service: Optional[NotificationService] = None,
+        scheduling_service: Optional["SchedulingService"] = None,
+        operations_service: Optional["OperationsService"] = None,
+    ):
         self.db = db_manager
         self.audit = audit_service
         self.notification_service = notification_service
+        # Lazily default-constructed (NEW-510) so delete_subcontractor()'s
+        # active-reference guard is available to ANY caller, not just the
+        # HTTP route -- and so existing 2-/3-arg call sites (server.py
+        # constructs CRMService before SchedulingService/OperationsService
+        # exist yet; most tests too) keep working unchanged. Each fallback
+        # instance is built with notification_service=None: harmless for
+        # the read-only reference queries this guard makes, but a future
+        # write call made through self.scheduling/self.operations directly
+        # (not through the real SchedulingService/OperationsService
+        # instances server.py wires up) would silently skip notifications
+        # -- documented here so that isn't re-discovered the hard way.
+        self.scheduling = scheduling_service or SchedulingService(self.db, audit_service)
+        self.operations = operations_service or OperationsService(self.db, audit_service)
 
     # ==========================================
     # CUSTOMERS
@@ -3200,14 +3222,40 @@ class CRMService:
         Ish 2026-09-11). No archive step needed: subcontractors.user_id
         has no FK at all (NEW-494), and the one real inbound FK
         (work_orders.assigned_subcontractor_id) is ON DELETE SET NULL at
-        the DB level, so the row delete itself is mechanically safe -- the
-        route-level active-reference precheck exists to stop this from
-        happening while there's live work, not to prevent a DB error.
-        Re-checks PERM_WRITE_SUBCONTRACTORS (defense in depth, matching
-        this codebase's existing per-method self-contained checks) even
-        though the route already gates on it before calling here."""
+        the DB level, so the row delete itself is mechanically safe.
+
+        NEW-510: the active-reference precheck (a linked user's active
+        staff_schedules, and the subcontractor's own non-terminal
+        work_orders) used to live ONLY in the /delete route handler in
+        routes.py, so any other caller of this method bypassed it
+        entirely. Moved in here so the guard applies to every caller, not
+        just the HTTP route. Permission check now runs first (this is no
+        longer just a defense-in-depth re-check after the route's own
+        gate -- see the corrected comment at the route call site)."""
         if not actor.has_permission(PERM_WRITE_SUBCONTRACTORS):
             raise PermissionError("Actor lacks permission to delete subcontractors")
+
+        sub = self._get_subcontractor_unguarded(subcontractor_id)
+        if not sub:
+            return False
+
+        active_schedules: List[Dict[str, Any]] = []
+        if sub.user_id is not None:
+            active_schedules = self.scheduling._query_active_staff_schedules_for_user(sub.user_id)
+        active_work_orders = self.operations._query_active_work_orders_for_subcontractor(subcontractor_id)
+        if active_schedules or active_work_orders:
+            parts = []
+            if active_schedules:
+                itemized = "; ".join(
+                    f"id {s['id']}: {s['title']} ({s['start_time']})" for s in active_schedules
+                )
+                parts.append(f"{len(active_schedules)} active staff schedule(s) reference this record: {itemized}")
+            if active_work_orders:
+                itemized_wo = "; ".join(
+                    f"id {w['id']}: {w['work_order_number']} ({w['status']})" for w in active_work_orders
+                )
+                parts.append(f"{len(active_work_orders)} active work order(s) reference this record: {itemized_wo}")
+            raise ValueError("Cannot delete: " + " AND ".join(parts))
 
         conn = self.db.get_connection()
         with conn:

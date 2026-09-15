@@ -31,6 +31,13 @@ class NotificationService:
         }
         return self._post_request(url, data)
 
+    def send_calendar_cancellation(self, to_email: str, appointment: Dict[str, Any], text: str) -> bool:
+        """Posts a METHOD:CANCEL ICS to the same UID as the corresponding
+        send_calendar_invite() call (NEW-506)."""
+        url = f"{self.aigentik_api_url}/send-cancellation"
+        data = {"to": to_email, "appointment": appointment, "text": text}
+        return self._post_request(url, data)
+
     def _post_request(self, url: str, data: Dict[str, Any]) -> bool:
         payload = json.dumps(data).encode("utf-8")
         req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})

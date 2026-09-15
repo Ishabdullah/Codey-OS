@@ -422,3 +422,68 @@ def test_route_post_appointment_over_cap_is_400(test_setup):
     )
     assert status == 400
     assert "error" in body
+
+
+# ---------------------------------------------------------------------------
+# NEW-501: precondition check for a would-be WHERE-clause push-down of the
+# concurrency-cap query. Confirmed this round that a single normalized
+# timestamp format does NOT hold across this codebase: routes.py's
+# appointment create/update do zero timestamp normalization, models.py's
+# start_time/end_time are plain unconstrained strings, the admin
+# dashboard's date/time inputs are free-text, and migrate_aigentik.py
+# pulls external start/end values verbatim -- a non-UTC offset can reach
+# the DB through any of these paths. This is a mutation-style test proving
+# the CURRENT Python parse-and-compare approach in
+# _assert_within_concurrency_cap correctly handles a mixed-format set of
+# already-stored rows (which a naive lexicographic SQL WHERE comparison
+# would not) -- the property a future WHERE-clause optimization would
+# silently break. Not fixed/changed this round: production code
+# unchanged, this is a regression guard only.
+# ---------------------------------------------------------------------------
+
+def test_concurrency_cap_handles_mixed_timestamp_formats_across_stored_rows(test_setup):
+    """Insert confirmed rows of the same type with start_time/end_time in
+    five different formats -- trailing Z, +00:00 offset, microseconds,
+    no-seconds, and a non-UTC offset (-05:00) -- all representing times
+    that collide with a would-be new booking at the cap boundary. Asserts
+    the cap still correctly raises once hit, proving the mixed formats are
+    all parsed and compared correctly today."""
+    svc = test_setup["scheduling"]
+    admin = test_setup["admin_actor"]
+    t = _make_type(test_setup, max_concurrent=5)
+    db = test_setup["db"]
+    conn = db.get_connection()
+
+    # Insert rows directly (bypassing create_appointment's own possible
+    # normalization, if any) so each row's stored format is exactly what
+    # this test intends to exercise -- proving the READ/parse side of
+    # _assert_within_concurrency_cap, not any write-side normalization.
+    mixed_format_rows = [
+        # (start_time, end_time) -- all overlap 2026-10-01T10:00-11:00 UTC.
+        ("2026-10-01T10:00:00Z", "2026-10-01T11:00:00Z"),
+        ("2026-10-01T10:00:00+00:00", "2026-10-01T11:00:00+00:00"),
+        ("2026-10-01T10:00:00.123456+00:00", "2026-10-01T11:00:00.123456+00:00"),
+        ("2026-10-01T10:00", "2026-10-01T11:00"),
+        # Non-UTC offset representing the SAME real-world instant as the
+        # first row above (05:00 -05:00 == 10:00 UTC).
+        ("2026-10-01T05:00:00-05:00", "2026-10-01T06:00:00-05:00"),
+    ]
+    with conn:
+        for start, end in mixed_format_rows:
+            conn.execute(
+                """
+                INSERT INTO appointments (
+                    appointment_type_id, title, status, start_time, end_time,
+                    created_at, updated_at
+                ) VALUES (?, 'Existing', 'confirmed', ?, ?, '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00')
+                """,
+                (t.id, start, end),
+            )
+
+    # Cap is 5; all 5 rows above collide with a new booking at the same
+    # slot -> the 6th (this new one) must be rejected.
+    with pytest.raises(ValueError):
+        svc.create_appointment(
+            _appt(appointment_type_id=t.id, start_time="2026-10-01T10:15:00+00:00", end_time="2026-10-01T10:45:00+00:00"),
+            admin,
+        )

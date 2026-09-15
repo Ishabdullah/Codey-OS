@@ -4320,13 +4320,18 @@ def render_admin_surface() -> str:
                 });
                 if (res.status === 401) { logoutUser(); return; }
                 const data = await res.json();
-                if (res.ok && data.entries) {
-                    container.innerHTML = data.entries.map(e => `
+                if (res.ok) {
+                    const logs = data.audit_logs || [];
+                    if (!logs.length) {
+                        container.innerHTML = '<p style="color:var(--text-muted)">No results.</p>';
+                        return;
+                    }
+                    container.innerHTML = logs.map(e => `
                         <div style="padding: 0.35rem 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
-                            <span style="color: var(--bronze);">${e.created_at || ''}</span>
-                            [<span style="color: var(--info);">${e.action}</span>]
-                            <span>${e.details || ''}</span>
-                            (Actor: ${e.actor_id || 'System'})
+                            <span style="color: var(--bronze);">${escapeHtml(e.timestamp)}</span>
+                            [<span style="color: var(--info);">${escapeHtml(e.action)}</span>]
+                            <span>${escapeHtml(e.change_summary)}</span>
+                            (Actor: ${escapeHtml(e.actor_id) || 'System'})
                         </div>
                     `).join('');
                 }
