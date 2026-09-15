@@ -12,11 +12,9 @@ class MockRFile:
     def read(self, size: int = -1) -> bytes:
         return self._f.read(size)
 
-import uuid
-
 @pytest.fixture
 def server_app():
-    db_path = f"file:test_doc_upload_{uuid.uuid4()}?mode=memory&cache=shared"
+    db_path = ":memory:"
     server = RestoriconAPIServer(db_path=db_path, host="127.0.0.1", port=0)
     
     user = server.auth_service.create_user(

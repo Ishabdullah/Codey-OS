@@ -6399,10 +6399,20 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
         edit), `NEW-499` (Staff Schedules tab would show the 200 oldest
         rows), `NEW-500`, `NEW-502`; `NEW-501` deferred on purpose (SQL
         window for the concurrency cap would fail open on timestamp-format
-        drift). Adjacent: `NEW-504` (test suite litters repo root),
-        `NEW-505` (unbounded `?limit=`), `NEW-506` (no ICS cancel to a
-        previous assignee). `NEW-481` sub-items 2-3 (raw table cells)
-        still OPEN.
+        drift). Adjacent, same day: `NEW-504` FIXED (test suite's
+        `test_b6_5_document_upload.py` littered the repo root with
+        `file:test_doc_upload_*` files — root cause was the fixture never
+        actually hitting `DatabaseManager`'s in-memory path since it
+        wasn't the literal `":memory:"` string, not the URI-formatting
+        issue the original finding assumed; rule-6 correction logged) and
+        `NEW-505` FIXED (routes.py's `?limit=`/`?offset=` parsing —
+        12 sites, not the originally-counted 11, given one shared
+        `_parse_int_query_param()` helper: 400 instead of a leaky raw
+        `ValueError`, `limit` capped at 1000 against real dashboard usage
+        of 500). Both code-reviewer APPROVED, 641 passed. `NEW-506` (no
+        ICS cancel to a previous assignee) still open, deferred to future
+        B6.6/B6.7 notification work. `NEW-481` sub-items 2-3 (raw table
+        cells) still OPEN.
       - **Deferred (own rounds after the program):** NEW-464 (Aigentik
         reply bodies hardcode the business name), NEW-468 (public
         surfaces need an unauth profile read), NEW-469 (running Aigentik

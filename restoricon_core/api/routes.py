@@ -75,6 +75,32 @@ def _parse_model_quant(model_path: str) -> Optional[str]:
     return match.group(1).upper() if match else None
 
 
+def _parse_int_query_param(
+    query_params: Dict[str, List[str]],
+    name: str,
+    default: int,
+    minimum: int = 0,
+    maximum: Optional[int] = None,
+) -> int:
+    """Parse an integer query parameter (e.g. `?limit=`, `?offset=`) out of
+    the `parse_qs`-shaped `query_params` dict, clamping to `[minimum,
+    maximum]`. Raises `ValueError` with a clean, non-leaking message on a
+    non-integer value -- the existing `except ValueError` handler in
+    `handle_request` turns this into a controlled 400, instead of Python's
+    raw `int()` exception text reaching the client.
+    """
+    raw = query_params.get(name, [default])[0]
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        raise ValueError(f"Invalid '{name}' query parameter: {raw!r}")
+    if value < minimum:
+        value = minimum
+    if maximum is not None and value > maximum:
+        value = maximum
+    return value
+
+
 def _emit_ai_chat_telemetry(
     *,
     resp_data: Dict[str, Any],
@@ -661,8 +687,8 @@ class APIRouter:
                 if method == "GET":
                     status = query_params.get("status", [None])[0]
                     search = query_params.get("search", [None])[0]
-                    limit = int(query_params.get("limit", ["50"])[0])
-                    offset = int(query_params.get("offset", ["0"])[0])
+                    limit = _parse_int_query_param(query_params, "limit", 50, minimum=1, maximum=1000)
+                    offset = _parse_int_query_param(query_params, "offset", 0)
                     customers = self.crm.list_customers(actor, status=status, search_term=search, limit=limit, offset=offset)
                     return 200, {"Content-Type": "application/json"}, {"customers": [c.to_dict() for c in customers]}
                 elif method == "POST":
@@ -1228,8 +1254,8 @@ class APIRouter:
                     pid = query_params.get("project_id", [None])[0]
                     proj_id = int(pid) if pid else None
                     channel = query_params.get("channel", [None])[0]
-                    limit = int(query_params.get("limit", ["50"])[0])
-                    offset = int(query_params.get("offset", ["0"])[0])
+                    limit = _parse_int_query_param(query_params, "limit", 50, minimum=1, maximum=1000)
+                    offset = _parse_int_query_param(query_params, "offset", 0)
                     records = self.comm.query_communications(
                         actor, customer_id=cust_id, project_id=proj_id, channel=channel, limit=limit, offset=offset
                     )
@@ -1288,8 +1314,8 @@ class APIRouter:
                 aid = query_params.get("actor_id", [None])[0]
                 actor_id = int(aid) if aid else None
                 action = query_params.get("action", [None])[0]
-                limit = int(query_params.get("limit", ["100"])[0])
-                offset = int(query_params.get("offset", ["0"])[0])
+                limit = _parse_int_query_param(query_params, "limit", 100, minimum=1, maximum=1000)
+                offset = _parse_int_query_param(query_params, "offset", 0)
                 logs = self.audit.query_logs(
                     actor, entity_type=entity_type, entity_id=entity_id, actor_id=actor_id, action=action, limit=limit, offset=offset
                 )
@@ -1316,8 +1342,8 @@ class APIRouter:
 
                     qualification_status = query_params.get("qualification_status", [None])[0]
                     primary_trade = query_params.get("primary_trade", [None])[0]
-                    limit = int(query_params.get("limit", ["50"])[0])
-                    offset = int(query_params.get("offset", ["0"])[0])
+                    limit = _parse_int_query_param(query_params, "limit", 50, minimum=1, maximum=1000)
+                    offset = _parse_int_query_param(query_params, "offset", 0)
                     subs = self.crm.list_subcontractors(
                         actor,
                         qualification_status=qualification_status,
@@ -1372,8 +1398,8 @@ class APIRouter:
                     type_filter = query_params.get("type", [None])[0]
                     role_filter = query_params.get("active_role", [None])[0]
                     trade_filter = query_params.get("trade", [None])[0]
-                    limit = int(query_params.get("limit", ["50"])[0])
-                    offset = int(query_params.get("offset", ["0"])[0])
+                    limit = _parse_int_query_param(query_params, "limit", 50, minimum=1, maximum=1000)
+                    offset = _parse_int_query_param(query_params, "offset", 0)
                     contacts_list = self.crm.list_contacts(
                         actor,
                         type=type_filter,
@@ -1453,8 +1479,8 @@ class APIRouter:
                     status = query_params.get("status", [None])[0]
                     start = query_params.get("start", [None])[0]
                     end = query_params.get("end", [None])[0]
-                    limit = int(query_params.get("limit", ["50"])[0])
-                    offset = int(query_params.get("offset", ["0"])[0])
+                    limit = _parse_int_query_param(query_params, "limit", 50, minimum=1, maximum=1000)
+                    offset = _parse_int_query_param(query_params, "offset", 0)
                     appts = self.scheduling.list_appointments(
                         actor, customer_id=cust_id, status=status, start=start, end=end,
                         limit=limit, offset=offset,
@@ -1497,7 +1523,7 @@ class APIRouter:
                     uid = query_params.get("user_id", [None])[0]
                     start = query_params.get("start", [None])[0]
                     end = query_params.get("end", [None])[0]
-                    limit = int(query_params.get("limit", ["200"])[0])
+                    limit = _parse_int_query_param(query_params, "limit", 200, minimum=1, maximum=1000)
                     from ..models import StaffSchedule
                     entries = self.scheduling.list_staff_schedules(
                         actor, user_id=int(uid) if uid else None, start=start, end=end,
@@ -1530,7 +1556,7 @@ class APIRouter:
             # itself no longer exists to look up.
             if path == "/api/v1/staff-schedules-archive" and method == "GET":
                 original_username = query_params.get("original_username", [None])[0]
-                limit = int(query_params.get("limit", ["200"])[0])
+                limit = _parse_int_query_param(query_params, "limit", 200, minimum=1, maximum=1000)
                 archived = self.scheduling.list_staff_schedules_archive(
                     actor, original_username=original_username, limit=limit,
                 )
@@ -1588,8 +1614,8 @@ class APIRouter:
             if path == "/api/v1/automation-rules":
                 if method == "GET":
                     channel = query_params.get("channel", [None])[0]
-                    limit = int(query_params.get("limit", ["100"])[0])
-                    offset = int(query_params.get("offset", ["0"])[0])
+                    limit = _parse_int_query_param(query_params, "limit", 100, minimum=1, maximum=1000)
+                    offset = _parse_int_query_param(query_params, "offset", 0)
                     rules = self.automation.list_rules(actor, channel=channel, limit=limit, offset=offset)
                     return 200, {"Content-Type": "application/json"}, {"automation_rules": [r.to_dict() for r in rules]}
                 elif method == "POST":
@@ -1627,8 +1653,8 @@ class APIRouter:
             # Do-Not-Contact
             if path == "/api/v1/do-not-contact":
                 if method == "GET":
-                    limit = int(query_params.get("limit", ["100"])[0])
-                    offset = int(query_params.get("offset", ["0"])[0])
+                    limit = _parse_int_query_param(query_params, "limit", 100, minimum=1, maximum=1000)
+                    offset = _parse_int_query_param(query_params, "offset", 0)
                     entries = self.automation.list_do_not_contact(actor, limit=limit, offset=offset)
                     return 200, {"Content-Type": "application/json"}, {"do_not_contact": [e.to_dict() for e in entries]}
                 elif method == "POST":
@@ -2050,8 +2076,8 @@ class APIRouter:
                 proj_id = int(query_params["project_id"][0]) if "project_id" in query_params else None
                 cust_id = int(query_params["customer_id"][0]) if "customer_id" in query_params else None
                 ttype = query_params["transaction_type"][0] if "transaction_type" in query_params else None
-                limit = int(query_params.get("limit", [50])[0])
-                offset = int(query_params.get("offset", [0])[0])
+                limit = _parse_int_query_param(query_params, "limit", 50, minimum=1, maximum=1000)
+                offset = _parse_int_query_param(query_params, "offset", 0)
                 txns = self.finance.list_transactions(actor, project_id=proj_id, customer_id=cust_id, transaction_type=ttype, limit=limit, offset=offset)
                 return 200, {"Content-Type": "application/json"}, {"transactions": [t.to_dict() for t in txns]}
 
@@ -2252,7 +2278,7 @@ class APIRouter:
             # -------------------------------------------------------------
             if path == "/api/v1/search" and method == "GET":
                 q = query_params.get("q", [""])[0]
-                limit_cat = int(query_params.get("limit", [10])[0])
+                limit_cat = _parse_int_query_param(query_params, "limit", 10, minimum=1, maximum=1000)
                 search_res = self.analytics_search.global_search(q, actor, limit_per_category=limit_cat)
                 return 200, {"Content-Type": "application/json"}, search_res
 

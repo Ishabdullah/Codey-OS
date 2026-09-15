@@ -1612,3 +1612,42 @@ def test_api_staff_schedule_patch_unknown_user_id_is_400(api_server):
     )
     assert status == 400, body
     assert body["error"] == "Unknown user_id: 424242"
+
+
+def test_api_customers_limit_non_integer_is_400_without_raw_pyexc_text(api_server):
+    """NEW-505: `?limit=` is parsed via the shared `_parse_int_query_param`
+    helper, which raises a clean ValueError instead of letting Python's
+    raw `int()` exception text ('invalid literal for int() with base 10')
+    reach the client."""
+    _, base_url, _, _ = api_server
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "admin", "password": "AdminSecretPassword123"},
+    )
+    assert status == 200
+    headers = {"Authorization": f"Bearer {body['token']}"}
+
+    status, body = make_request(f"{base_url}/api/v1/customers?limit=abc", headers=headers)
+    assert status == 400, body
+    assert "error" in body
+    assert "base 10" not in body["error"]
+
+
+def test_api_customers_limit_is_clamped_to_maximum(api_server):
+    """NEW-505: an oversized `?limit=` is clamped to 1000, not passed
+    through unbounded to the DB layer."""
+    _, base_url, _, _ = api_server
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "admin", "password": "AdminSecretPassword123"},
+    )
+    assert status == 200
+    headers = {"Authorization": f"Bearer {body['token']}"}
+
+    status, body = make_request(
+        f"{base_url}/api/v1/customers?limit=99999999", headers=headers
+    )
+    assert status == 200, body
+    assert len(body["customers"]) <= 1000
