@@ -6524,9 +6524,14 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       Document-store restore (B7.2) still unverified — `NEW-460`.
       **Rule 11:** `install.sh` gained `google-cloud-storage` 2026-09-10
       (`NEW-459`); `age` was already present.
-      **Open:** `NEW-458` — the B7.3 secrets blob contains its own
-      `age.key`, so it is not usable for real DR without off-channel key
-      escrow.
+      **`NEW-458` CLOSED 2026-09-15** — Ish ran the real DR-key escrow
+      (`setup_dr_key.py --force` + `backup_secrets.py`). Mechanical chain
+      independently confirmed (new DR pubkey in config, distinct from the
+      2026-09-10 drill's throwaway key; fresh two-recipient
+      `secrets.tar.gz.age` in the GCS bucket, 4204 B, uploaded
+      2026-09-15T12:48:48Z). The one thing not verifiable from inside the
+      system — that the printed private key actually got written down
+      offline — rests on Ish's own attestation.
 
 ### T-lane — self-measurement/telemetry layer (NSF SBIR grant evidence, separate initiative from B-lane, does not block or depend on B6/B7)
 

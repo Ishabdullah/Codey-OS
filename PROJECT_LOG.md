@@ -1,3 +1,11 @@
+## 2026-09-15 — `NEW-458` CLOSED: Ish ran the real DR-key escrow
+
+**What changed:** no code change — Ish ran `python3 core/setup_dr_key.py --force` then `python3 core/backup_secrets.py` himself, closing the last outstanding step from the 2026-09-10 B7.3 disaster-recovery round.
+
+Independently verified from system state (rule 5): `~/Codey-OS/config.json`'s `dr_recipient_pubkey` is now `age10ywc6ky4nygfmqgudlhn8enku230u0rn2vxa6zy7ueu5vcqghvrsg4dp7m`, confirmed distinct from the 2026-09-10 live-verify drill's session-scratch key (`age1v5v4mwv8...`) — proving a real `--force` regeneration happened, not a re-check of the old throwaway key. `gsutil ls -la gs://codey-os-backups/restoricon/secrets_backup/` shows a fresh `secrets.tar.gz.age`, 4204 bytes, uploaded `2026-09-15T12:48:48Z` — matching the expected two-recipient encrypted blob size from the original drill. `~/.codeyOS/age.key`'s mtime is unchanged since 2026-09-07, consistent with Ish's earlier no-rotation decision.
+
+**What is not, and cannot be, verified from inside this system:** whether the printed private DR key was actually written down and stored somewhere durable and off-device. That step happens entirely outside any file or log accessible here — it rests on Ish's own attestation ("i just did it"), not independent confirmation. If that offline copy doesn't exist, the DR path still isn't real regardless of what the config/bucket show.
+
 ## 2026-09-15 — `NEW-507`/`NEW-508`/`NEW-509` fixed: Subcontractors tab gets delete-with-precheck, a real onboarding modal, and 401-handling parity; two more findings logged
 
 **What changed:** implementer → code-reviewer pipeline, APPROVED (NEW-507 under the mandatory rule-4 heavier scrutiny class), commit follows immediately.
