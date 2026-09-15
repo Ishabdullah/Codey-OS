@@ -1084,12 +1084,20 @@ open), `NEW-501`/`NEW-506` (deferred, reasoning in `NEW_ISSUES.md`).
 `NEW-489` (Subcontractors tab fetched a nonexistent route/fake fields),
 `NEW-504` (stray in-memory-DB test files), and `NEW-505` (unbounded
 `?limit=`/`?offset=` parsing) all FIXED same day, reviewer-approved,
-641→643 passed across the two rounds. `NEW-507`/`NEW-508`/`NEW-509`
-newly logged while fixing `NEW-489` — subcontractors has no delete
-route or active-reference concept at all (needs Ish's decision), the
-"+ Onboard Trade Partner" button is a dead stub, and `loadSubcontractors()`
-lacks the 401→logout handling `loadStaffSchedules()` has (Suspected,
-needs a dashboard-wide survey before fixing).
+641→643 passed. **`NEW-507`/`NEW-508`/`NEW-509` also FIXED same day**
+(reviewer-approved, `NEW-507` under the mandatory rule-4 heavier
+scrutiny class): subcontractor delete now has a real active-reference
+precheck (blocks on active `staff_schedules` OR non-terminal
+`work_orders` — Ish's decision, given twice, second time after a real
+`work_orders` FK was found that the original `NEW-507` text had wrongly
+claimed didn't exist), a real "+ Onboard Trade Partner" create modal
+(was a dead `alert()` stub), and `loadSubcontractors()`/`loadDocuments()`
+401-handling parity with `loadStaffSchedules()` (11 other admin tab
+loaders still lack it — logged, deliberately left for Ish's priority
+call). 663 passed on the core suite, 1825 passed/1 skipped full repo.
+`NEW-510` (work_orders FK still silently orphans via any non-dashboard
+delete path) and `NEW-511` (subcontractors POST has no field allow-list,
+same class as `NEW-505`) newly logged, not fixed.
 
 
 ---

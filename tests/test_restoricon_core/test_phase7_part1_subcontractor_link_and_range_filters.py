@@ -222,6 +222,24 @@ def test_subcontractor_user_id_route_round_trip(test_setup):
     assert body["subcontractor"]["user_id"] == admin_user.id
 
 
+def test_new508_onboard_trade_partner_minimal_create_payload(test_setup):
+    """NEW-508: the "+ Onboard Trade Partner" modal's minimal payload
+    (company_name + primary_trade, no other fields) round-trips through
+    the real POST /api/v1/subcontractors route."""
+    router = test_setup["router"]
+    admin_token = test_setup["admin_token"]
+    hdr = {"Authorization": f"Bearer {admin_token}"}
+
+    status, _, body = router.handle_request(
+        "POST", "/api/v1/subcontractors", headers=hdr,
+        body_bytes=json.dumps({"company_name": "New Onboard Co", "primary_trade": "electrical"}).encode(),
+    )
+    assert status == 201
+    assert body["subcontractor"]["company_name"] == "New Onboard Co"
+    assert body["subcontractor"]["primary_trade"] == "electrical"
+    assert body["subcontractor"]["user_id"] is None
+
+
 def test_subcontractors_list_route_returns_real_model_fields(test_setup):
     """NEW-489: the admin dashboard's Subcontractors tab fetched a
     nonexistent route (/api/v1/operations/subcontractors) and rendered

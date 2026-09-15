@@ -733,6 +733,37 @@ class OperationsService:
         rows = conn.execute(query, params).fetchall()
         return [self._row_to_work_order(r) for r in rows]
 
+    def _query_active_work_orders_for_subcontractor(self, subcontractor_id: int) -> List[Dict[str, Any]]:
+        """Unguarded query -- 'active' = non-terminal work_orders rows
+        assigned to this subcontractor. Terminal statuses
+        ('completed', 'verified', 'cancelled') come from
+        work_orders.status's own CHECK constraint (database.py) and match
+        the same NOT IN set this module already uses for the
+        QUALITY_INSPECTION stage-transition guard above. Shared,
+        unfiltered core for both the RBAC-gated public read
+        (get_active_work_orders_for_subcontractor) and the subcontractor
+        DELETE route's server-side re-check, so the two can never drift
+        (NEW-507, mirrors the staff_schedules/appointment_types
+        active-reference precedent, Delete-buttons round 2026-09-11)."""
+        conn = self.db.get_connection()
+        rows = conn.execute(
+            "SELECT id, work_order_number, title, status FROM work_orders "
+            "WHERE assigned_subcontractor_id = ? "
+            "AND status NOT IN ('completed', 'verified', 'cancelled');",
+            (subcontractor_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_active_work_orders_for_subcontractor(
+        self, subcontractor_id: int, actor: AuthContext
+    ) -> List[Dict[str, Any]]:
+        """RBAC-gated read of active (non-terminal) work orders assigned to
+        a subcontractor -- backs the admin-surface subcontractor-delete
+        precheck popup (NEW-507)."""
+        if not actor.has_permission(PERM_READ_OPERATIONS):
+            raise PermissionError("Actor lacks permission to read work orders")
+        return self._query_active_work_orders_for_subcontractor(subcontractor_id)
+
     def update_work_order(self, work_order: WorkOrder, actor: AuthContext) -> WorkOrder:
         if not (
             actor.has_permission(PERM_WRITE_OPERATIONS)

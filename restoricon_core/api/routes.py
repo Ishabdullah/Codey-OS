@@ -19,6 +19,7 @@ from ..auth import (
     PERM_READ_ALL_CUSTOMERS,
     PERM_LOG_COMMUNICATION,
     PERM_MANAGE_USERS,
+    PERM_WRITE_SUBCONTRACTORS,
     PERMISSIONS_CATALOG,
 )
 from ..models import (
@@ -1384,6 +1385,75 @@ class APIRouter:
                 if not updated_sub:
                     return 404, {"Content-Type": "application/json"}, {"error": "Subcontractor not found"}
                 return 200, {"Content-Type": "application/json"}, {"subcontractor": updated_sub.to_dict()}
+
+            # NEW-507: active-reference precheck for the subcontractor
+            # delete flow, mirroring Users'/Appointment-Types' precheck
+            # routes -- but combined across TWO reference types (a
+            # subcontractor's linked user's active staff_schedules, and
+            # the subcontractor's own non-terminal work_orders), unlike
+            # those single-type precedents.
+            if path.startswith("/api/v1/subcontractors/") and path.endswith("/active-references") and method == "GET":
+                sub_id = int(path.split("/")[-2])
+                sub = self.crm.get_subcontractor(sub_id, actor)
+                if not sub:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Subcontractor not found"}
+                staff_schedules: List[Dict[str, Any]] = []
+                if sub.user_id is not None:
+                    staff_schedules = self.scheduling.get_active_staff_schedules_for_user(sub.user_id, actor)
+                work_orders = self.operations.get_active_work_orders_for_subcontractor(sub_id, actor)
+                return 200, {"Content-Type": "application/json"}, {
+                    "active_references": {"staff_schedules": staff_schedules, "work_orders": work_orders}
+                }
+
+            if path.startswith("/api/v1/subcontractors/") and path.endswith("/delete") and method == "POST":
+                sub_id = int(path.split("/")[-2])
+                # Explicit permission gate BEFORE either active-reference
+                # check below: the checks themselves deliberately query
+                # the unguarded/unRBAC'd helpers (see comments below), so
+                # without this line an unprivileged caller could reach a
+                # 400 with itemized schedule/work-order data in the body
+                # -- an information disclosure -- instead of a 403.
+                # delete_subcontractor() re-checks this permission too
+                # (defense-in-depth), but that check now runs strictly
+                # after the reference queries, too late to gate them.
+                if not actor.has_permission(PERM_WRITE_SUBCONTRACTORS):
+                    raise PermissionError("Actor lacks permission to delete subcontractors")
+                before = self.crm._get_subcontractor_unguarded(sub_id)
+                if not before:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Subcontractor not found"}
+                # Unguarded re-checks, same reasoning as delete_user's
+                # re-check: this write path needs only
+                # PERM_WRITE_SUBCONTRACTORS, not additionally
+                # PERM_READ_STAFF_SCHEDULES/PERM_READ_OPERATIONS.
+                active_schedules: List[Dict[str, Any]] = []
+                if before.user_id is not None:
+                    active_schedules = self.scheduling._query_active_staff_schedules_for_user(before.user_id)
+                active_work_orders = self.operations._query_active_work_orders_for_subcontractor(sub_id)
+                if active_schedules or active_work_orders:
+                    parts = []
+                    if active_schedules:
+                        itemized = "; ".join(
+                            f"id {s['id']}: {s['title']} ({s['start_time']})" for s in active_schedules
+                        )
+                        parts.append(f"{len(active_schedules)} active staff schedule(s) reference this record: {itemized}")
+                    if active_work_orders:
+                        itemized_wo = "; ".join(
+                            f"id {w['id']}: {w['work_order_number']} ({w['status']})" for w in active_work_orders
+                        )
+                        parts.append(f"{len(active_work_orders)} active work order(s) reference this record: {itemized_wo}")
+                    raise ValueError("Cannot delete: " + " AND ".join(parts))
+                deleted = self.crm.delete_subcontractor(sub_id, actor)
+                if not deleted:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Subcontractor not found"}
+                # No changed_fields for a delete -- record the final-state
+                # snapshot instead, matching user_deleted's shape.
+                delete_details = build_audit_details(snapshot=before.to_dict())
+                self.audit.log(
+                    "subcontractor_deleted", "subcontractor", sub_id,
+                    f"Subcontractor '{before.company_name}' deleted",
+                    actor=actor, details=delete_details,
+                )
+                return 200, {"Content-Type": "application/json"}, {"deleted": True, "subcontractor_id": sub_id}
 
             if path.startswith("/api/v1/subcontractors/") and "/" not in path[len("/api/v1/subcontractors/"):] and method == "GET":
                 sub_id = int(path.split("/")[-1])

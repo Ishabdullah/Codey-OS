@@ -62,6 +62,9 @@ def test_admin_delete_and_perm_buttons_use_json_stringify_escape():
     assert "deleteUser(${u.id}, ${escapeHtml(JSON.stringify(u.username))})" in html
     assert "openPermModal(${u.id}, ${escapeHtml(JSON.stringify(u.username))})" in html
     assert "deleteAppointmentType(${t.id}, ${escapeHtml(JSON.stringify(t.name))})" in html
+    # NEW-507: the Subcontractors tab's delete button follows the same
+    # JSON.stringify + escapeHtml quoting convention.
+    assert "deleteSubcontractor(${sc.id}, ${escapeHtml(JSON.stringify(sc.company_name))})" in html
 
 
 def _admin_escape_html_source() -> str:

@@ -3182,6 +3182,38 @@ class CRMService:
         )
         return updated_sub
 
+    def _get_subcontractor_unguarded(self, subcontractor_id: int) -> Optional[Subcontractor]:
+        """Unguarded row fetch -- no PERM_READ_SUBCONTRACTORS check.
+        Mirrors AuthService.get_user_by_id, the analogous unguarded lookup
+        the DELETE /api/v1/users/<id> route relies on: a caller authorized
+        on PERM_WRITE_SUBCONTRACTORS alone (no READ) must still be able to
+        look up the row it's about to delete (NEW-507, Delete-buttons
+        round precedent, 2026-09-11)."""
+        conn = self.db.get_connection()
+        row = conn.execute("SELECT * FROM subcontractors WHERE id = ?;", (subcontractor_id,)).fetchone()
+        if not row:
+            return None
+        return self._row_to_subcontractor(row)
+
+    def delete_subcontractor(self, subcontractor_id: int, actor: AuthContext) -> bool:
+        """Delete a subcontractor (NEW-507, Delete-buttons round precedent,
+        Ish 2026-09-11). No archive step needed: subcontractors.user_id
+        has no FK at all (NEW-494), and the one real inbound FK
+        (work_orders.assigned_subcontractor_id) is ON DELETE SET NULL at
+        the DB level, so the row delete itself is mechanically safe -- the
+        route-level active-reference precheck exists to stop this from
+        happening while there's live work, not to prevent a DB error.
+        Re-checks PERM_WRITE_SUBCONTRACTORS (defense in depth, matching
+        this codebase's existing per-method self-contained checks) even
+        though the route already gates on it before calling here."""
+        if not actor.has_permission(PERM_WRITE_SUBCONTRACTORS):
+            raise PermissionError("Actor lacks permission to delete subcontractors")
+
+        conn = self.db.get_connection()
+        with conn:
+            cursor = conn.execute("DELETE FROM subcontractors WHERE id = ?;", (subcontractor_id,))
+            return bool(cursor.rowcount)
+
     # ==========================================
     # CONTACTS (Aigentik Memory System)
     # ==========================================

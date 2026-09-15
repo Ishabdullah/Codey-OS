@@ -2206,7 +2206,7 @@ def render_admin_surface() -> str:
             <div class="erp-card">
                 <div class="card-title-row">
                     <h2><span>🤝</span> Subcontractor Trade Network & Compliance</h2>
-                    <button class="btn-gold" onclick="alert('Trade partner onboarding active.')">+ Onboard Trade Partner</button>
+                    <button class="btn-gold" onclick="openAddSubcontractorModal()">+ Onboard Trade Partner</button>
                 </div>
                 <p style="color: var(--text-muted); font-size: 0.88rem;">Hartford County verified trade partners with validated CT trade licenses and COI coverage.</p>
                 <table class="erp-table" style="margin-top: 1rem;">
@@ -2217,10 +2217,11 @@ def render_admin_surface() -> str:
                             <th>Qualification Status</th>
                             <th>License</th>
                             <th>Linked User</th>
+                            <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody id="subcontractorsTableBody">
-                        <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Loading...</td></tr>
+                        <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Loading...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -2591,6 +2592,32 @@ def render_admin_surface() -> str:
         </div>
     </div>
 
+    <!-- Onboard Trade Partner Modal (NEW-508) -->
+    <div id="addSubcontractorModalOverlay" class="erp-modal-overlay">
+        <div class="erp-modal">
+            <div class="modal-header">
+                <h3>Onboard Trade Partner</h3>
+                <button onclick="closeAddSubcontractorModal()" style="background:none; border:none; color:#94A3B8; font-size:1.5rem; cursor:pointer;">&times;</button>
+            </div>
+            <form onsubmit="submitNewSubcontractor(event)">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Company Name *</label>
+                        <input type="text" id="newSubCompanyName" required placeholder="Acme Roofing">
+                    </div>
+                    <div class="form-group">
+                        <label>Primary Trade *</label>
+                        <input type="text" id="newSubPrimaryTrade" required placeholder="roofing">
+                    </div>
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+                    <button type="button" onclick="closeAddSubcontractorModal()" class="btn-gold" style="background:transparent; border:1px solid var(--card-border); color:#CBD5E1;">Cancel</button>
+                    <button type="submit" class="btn-gold">Onboard</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
 
     <!-- Add Customer Modal -->
     <div id="addCustomerModal" class="erp-modal-overlay">
@@ -2772,10 +2799,11 @@ def render_admin_surface() -> str:
             const tbody = document.getElementById('subcontractorsTableBody');
             try {
                 const res = await fetch('/api/v1/subcontractors?limit=' + SUBCONTRACTORS_TAB_FETCH_LIMIT, { headers: { 'Authorization': 'Bearer ' + token } });
+                if (res.status === 401) { logoutUser(); return; }
                 const data = await res.json();
                 if (data.subcontractors && data.subcontractors.length > 0) {
                     const truncatedRow = data.subcontractors.length === SUBCONTRACTORS_TAB_FETCH_LIMIT
-                        ? '<tr><td colspan="5" style="text-align: center; color: var(--danger); font-size: 0.8rem;">Showing the first ' + SUBCONTRACTORS_TAB_FETCH_LIMIT + ' subcontractors -- some may be hidden.</td></tr>'
+                        ? '<tr><td colspan="6" style="text-align: center; color: var(--danger); font-size: 0.8rem;">Showing the first ' + SUBCONTRACTORS_TAB_FETCH_LIMIT + ' subcontractors -- some may be hidden.</td></tr>'
                         : '';
                     tbody.innerHTML = truncatedRow + data.subcontractors.map(sc => `
                         <tr>
@@ -2784,13 +2812,102 @@ def render_admin_surface() -> str:
                             <td>${escapeHtml(sc.qualification_status)}</td>
                             <td>${escapeHtml(sc.license_status)}</td>
                             <td><input type="number" min="1" step="1" value="${sc.user_id != null ? sc.user_id : ''}" style="width:5rem;" onchange="saveSubcontractorUserId(${sc.id}, this.value)"></td>
+                            <td>
+                                <button class="btn-gold" style="padding: 0.25rem 0.55rem; font-size: 0.75rem; background: rgba(239, 68, 68, 0.2); border-color: var(--danger); color: #FCA5A5;" onclick="deleteSubcontractor(${sc.id}, ${escapeHtml(JSON.stringify(sc.company_name))})">Delete</button>
+                            </td>
                         </tr>
                     `).join('');
                 } else {
-                    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No records found.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">No records found.</td></tr>';
                 }
             } catch (e) {
-                tbody.innerHTML = '<tr><td colspan="5">Error loading subcontractors.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6">Error loading subcontractors.</td></tr>';
+            }
+        }
+
+        // Delete-buttons follow-on round (NEW-507, 2026-09-15): precheck
+        // for ACTIVE references -- the linked user's active staff_schedules
+        // (if any) AND the subcontractor's own non-terminal work_orders --
+        // before ever offering a confirm() dialog. Unlike the single-type
+        // Users/Appointment-Types prechecks, this one covers two distinct
+        // reference categories and must itemize whichever are populated.
+        async function deleteSubcontractor(id, companyName) {
+            const token = getAuthToken();
+            try {
+                const refRes = await fetch(`/api/v1/subcontractors/${id}/active-references`, {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                const refData = await refRes.json();
+                if (!refRes.ok) {
+                    alert('Error checking active references: ' + (refData.error || refRes.statusText));
+                    return;
+                }
+                const refs = refData.active_references || {};
+                const schedules = refs.staff_schedules || [];
+                const workOrders = refs.work_orders || [];
+                if (schedules.length || workOrders.length) {
+                    const parts = [];
+                    if (schedules.length) {
+                        const listing = schedules.map(s => `${s.id}: ${s.title} (${s.start_time})`).join('\\n');
+                        parts.push(`${schedules.length} active staff schedule(s):\n${listing}`);
+                    }
+                    if (workOrders.length) {
+                        const listing = workOrders.map(w => `${w.id}: ${w.work_order_number} (${w.status})`).join('\\n');
+                        parts.push(`${workOrders.length} active work order(s):\n${listing}`);
+                    }
+                    alert(`Cannot delete: this subcontractor has ${parts.join('\\n\\n')}`);
+                    return;
+                }
+                if (!confirm('Delete subcontractor ' + companyName + '? This cannot be undone.')) return;
+                const res = await fetch(`/api/v1/subcontractors/${id}/delete`, {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (res.ok) {
+                    loadSubcontractors();
+                } else {
+                    const err = await res.json();
+                    alert('Failed to delete: ' + (err.error || res.statusText));
+                }
+            } catch (ex) {
+                alert('Failed to delete subcontractor.');
+            }
+        }
+
+        function openAddSubcontractorModal() {
+            document.getElementById('addSubcontractorModalOverlay').classList.add('active');
+        }
+
+        function closeAddSubcontractorModal() {
+            document.getElementById('addSubcontractorModalOverlay').classList.remove('active');
+        }
+
+        async function submitNewSubcontractor(e) {
+            e.preventDefault();
+            const token = getAuthToken();
+            const payload = {
+                company_name: document.getElementById('newSubCompanyName').value.trim(),
+                primary_trade: document.getElementById('newSubPrimaryTrade').value.trim(),
+            };
+
+            try {
+                const res = await fetch('/api/v1/subcontractors', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + token
+                    },
+                    body: JSON.stringify(payload)
+                });
+                if (res.ok) {
+                    closeAddSubcontractorModal();
+                    loadSubcontractors();
+                } else {
+                    const data = await res.json();
+                    alert(data.error || 'Failed to onboard trade partner');
+                }
+            } catch (ex) {
+                alert('Connection error');
             }
         }
 
@@ -3848,7 +3965,7 @@ def render_admin_surface() -> str:
                 const res = await fetch('/api/v1/documents', {
                     headers: { 'Authorization': 'Bearer ' + token }
                 });
-                if (res.status === 401) { logout(); return; }
+                if (res.status === 401) { logoutUser(); return; }
                 const data = await res.json();
                 if (data.documents && data.documents.length > 0) {
                     tbody.innerHTML = data.documents.map(d => `
