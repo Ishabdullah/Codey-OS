@@ -1,3 +1,15 @@
+## 2026-09-15 — `NEW-481` CLOSED: remaining stored-XSS half fixed, severity corrected upward (unauthenticated attacker, not just insider risk)
+
+**What changed:** implementer → code-reviewer pipeline, mandatory rule-4 heavier security-class scrutiny applied (same category as `NEW-496`), APPROVED. Commit follows immediately.
+
+- **The fix:** 4 sinks across 3 functions in `web_surfaces.py` — `loadUsersList()`, `loadCrmList()`'s customer and project blocks, `populateCustomerDropdown()` — all previously interpolated raw strings into innerHTML text nodes with no `escapeHtml()`. All 4 wrapped, preserving the existing `|| ''` null-coalescing pattern for optional `Customer` fields.
+- **Rule-6 severity correction, found during scoping:** the finding's own original text said severity "depends on how privileged the users who can set those fields are" — implying insider-only risk. Investigation found the CRM-tab half is actually reachable through the **unauthenticated public lead-capture form** (`POST /api/v1/public/leads`), meaning any anonymous website visitor could plant a payload that later executes in an admin's browser session. This is materially worse than the original framing and is now corrected in the ledger, not left standing.
+- **The `<option>` sink needed different test reasoning, not different code:** the HTML parser's "in select" insertion mode silently drops most element tags inside `<option>` regardless of escaping, so an element-absence test there would give false confidence. Fix and tests use text-content-equality instead — code-reviewer independently checked this against the WHATWG spec rather than trusting the implementer's claim.
+- **Tests:** new 24-test file, explicitly split into 3 "wiring" tests (read the real rendered HTML — the actual regression guard) and 21 "mechanism" tests (prove `escapeHtml()`'s JS-correctness via `node`, but don't prove the deployed code calls it). code-reviewer independently reproduced this distinction with its own negative control. 689 passed (up from 665).
+- **New finding spun off, not fixed:** `NEW-513` — `loadAuditLogs()` has the same unescaped pattern but is currently latent behind an unrelated route/frontend key mismatch (`data.entries` vs. the route's actual `audit_logs` key). Would become live the instant someone fixes the mismatch without also adding escaping.
+
+**Tier (rule 7):** code-complete + reviewer-approved, under the mandatory heavier security review class. No live-verify strictly required — this is a template-escaping fix with strong mechanism + wiring test coverage — but given the real-world severity (public form → admin session), a live click-through confirming the fix against the actual public-lead intake path would be a stronger closeout if convenient.
+
 ## 2026-09-15 — `NEW-512` fixed: staff-portal `loadDashboard()` gets its own 401-redirect, closing out the `NEW-509` chain
 
 **What changed:** implementer → code-reviewer pipeline, APPROVED, commit follows immediately.

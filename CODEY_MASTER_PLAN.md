@@ -1078,9 +1078,14 @@ post-program rounds are live-verified (Appendix A, B6 block). A cloud
 ultrareview of the whole program was then fixed forward in `2b2c2a3`
 (7 of 8 findings; code-complete + reviewer-approved, **not
 live-verified** — the admin page has not been reloaded against the live
-server since). Known-open on that surface: `NEW-481` sub-items 2-3 (raw
-table-cell interpolation in the Users/CRM lists — stored-XSS sink still
-open), `NEW-501`/`NEW-506` (deferred, reasoning in `NEW_ISSUES.md`).
+server since). **`NEW-481` fully CLOSED same day** (mandatory rule-4
+security-class review): the remaining stored-XSS sinks (`loadUsersList`,
+`loadCrmList` x2, `populateCustomerDropdown`) fixed, 689 passed. Severity
+corrected upward during scoping — the CRM-tab half is reachable via the
+**unauthenticated public lead-capture form**, not just insider write
+access as originally framed. `NEW-513` (latent `loadAuditLogs()` escaping
+gap, currently unreachable) spun off, not fixed. `NEW-501`/`NEW-506`
+(deferred, reasoning in `NEW_ISSUES.md`) still open.
 `NEW-489` (Subcontractors tab fetched a nonexistent route/fake fields),
 `NEW-504` (stray in-memory-DB test files), and `NEW-505` (unbounded
 `?limit=`/`?offset=` parsing) all FIXED same day, reviewer-approved,

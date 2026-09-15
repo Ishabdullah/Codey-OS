@@ -3131,8 +3131,8 @@ def render_admin_surface() -> str:
                     currentCustomers = data.customers;
                     const html = data.customers.map(c => `
                         <div style="padding: 0.75rem; border-bottom: 1px solid rgba(255,255,255,0.05);">
-                            <div style="color: var(--offwhite); font-weight: 500;">${c.first_name || ''} ${c.last_name || ''}</div>
-                            <div style="font-size: 0.85rem;">${c.email || ''} | ${c.phone || ''}</div>
+                            <div style="color: var(--offwhite); font-weight: 500;">${escapeHtml(c.first_name || '')} ${escapeHtml(c.last_name || '')}</div>
+                            <div style="font-size: 0.85rem;">${escapeHtml(c.email || '')} | ${escapeHtml(c.phone || '')}</div>
                         </div>
                     `).join('');
                     document.getElementById('crmListContainer').innerHTML = html || 'No customers found.';
@@ -3149,8 +3149,8 @@ def render_admin_surface() -> str:
                 if (data.projects) {
                     const html = data.projects.map(p => `
                         <div style="padding: 0.75rem; border-bottom: 1px solid rgba(255,255,255,0.05);">
-                            <div style="color: var(--offwhite); font-weight: 500;">${p.title || 'Untitled'}</div>
-                            <div style="font-size: 0.85rem;"><span class="badge" style="background: rgba(212,175,55,0.1); color: var(--bronze); padding: 0.1rem 0.4rem; border-radius: 4px;">${p.stage}</span> - ${p.project_type}</div>
+                            <div style="color: var(--offwhite); font-weight: 500;">${escapeHtml(p.title || 'Untitled')}</div>
+                            <div style="font-size: 0.85rem;"><span class="badge" style="background: rgba(212,175,55,0.1); color: var(--bronze); padding: 0.1rem 0.4rem; border-radius: 4px;">${escapeHtml(p.stage)}</span> - ${escapeHtml(p.project_type)}</div>
                         </div>
                     `).join('');
                     document.getElementById('projectListContainer').innerHTML = html || 'No projects found.';
@@ -3162,7 +3162,7 @@ def render_admin_surface() -> str:
 
         function populateCustomerDropdown() {
             const sel = document.getElementById('projCustomer');
-            sel.innerHTML = currentCustomers.map(c => `<option value="${c.id}">${c.first_name} ${c.last_name}</option>`).join('');
+            sel.innerHTML = currentCustomers.map(c => `<option value="${c.id}">${escapeHtml(c.first_name)} ${escapeHtml(c.last_name)}</option>`).join('');
         }
 
         function filterCrm() {
@@ -4078,10 +4078,10 @@ def render_admin_surface() -> str:
                     tbody.innerHTML = data.users.map(u => `
                         <tr>
                             <td>#${u.id}</td>
-                            <td><strong>${u.username}</strong></td>
-                            <td>${u.full_name}</td>
-                            <td>${u.email}</td>
-                            <td><span class="card-badge badge-slate">${u.role}</span></td>
+                            <td><strong>${escapeHtml(u.username)}</strong></td>
+                            <td>${escapeHtml(u.full_name)}</td>
+                            <td>${escapeHtml(u.email)}</td>
+                            <td><span class="card-badge badge-slate">${escapeHtml(u.role)}</span></td>
                             <td>${Object.keys(u.custom_permissions || {}).length} Custom</td>
                             <td>
                                 <span style="color: ${u.active ? 'var(--success)' : 'var(--danger)'}; font-weight:700;">
