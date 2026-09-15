@@ -155,6 +155,69 @@ def test_external_id_migration_adds_column_to_legacy_db(tmp_path):
     db2.close()
 
 
+_LEGACY_APPOINTMENTS_DDL = """
+CREATE TABLE appointments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    external_id TEXT UNIQUE,
+    uid TEXT,
+    ics_sequence INTEGER NOT NULL DEFAULT 0,
+    title TEXT NOT NULL,
+    start_time TEXT,
+    end_time TEXT,
+    customer_id INTEGER,
+    contact_external_id TEXT,
+    attendee_name TEXT,
+    attendee_email TEXT COLLATE NOCASE,
+    appointment_type TEXT CHECK(appointment_type IN ('call', 'in_person') OR appointment_type IS NULL),
+    appointment_type_id INTEGER,
+    status TEXT NOT NULL DEFAULT 'confirmed' CHECK(status IN ('confirmed', 'negotiating', 'cancelled', 'completed')),
+    rsvp_status TEXT NOT NULL DEFAULT 'pending',
+    offered_slots_json TEXT NOT NULL DEFAULT '[]',
+    requested_datetime TEXT,
+    pending_reschedule_json TEXT,
+    form_sent INTEGER NOT NULL DEFAULT 0 CHECK(form_sent IN (0, 1)),
+    created_via TEXT NOT NULL DEFAULT 'owner',
+    notes TEXT,
+    history_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+"""
+
+
+def test_appointments_assigned_user_id_migration_adds_column_to_legacy_db(tmp_path):
+    """NEW-487: a DB file created before assigned_user_id existed (but
+    already had appointment_type_id, matching the real rollout order) must
+    get the column added on the next open, with existing rows preserved,
+    and must not error on a second open (duplicate column name)."""
+    db_path = tmp_path / "legacy_appointments.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript(_LEGACY_APPOINTMENTS_DDL)
+    conn.execute(
+        "INSERT INTO appointments (title, created_at, updated_at) VALUES ('Inspection', '2020-01-01', '2020-01-01');"
+    )
+    conn.commit()
+    conn.close()
+
+    db = DatabaseManager(str(db_path))
+    conn = db.get_connection()
+    appt_cols = {row["name"] for row in conn.execute("PRAGMA table_info(appointments);")}
+    assert "assigned_user_id" in appt_cols
+
+    row = conn.execute("SELECT title, assigned_user_id FROM appointments;").fetchone()
+    assert row["title"] == "Inspection"
+    assert row["assigned_user_id"] is None
+    db.close()
+
+    # Second open against the now-migrated file must not raise
+    # "duplicate column name".
+    db2 = DatabaseManager(str(db_path))
+    conn2 = db2.get_connection()
+    appt_cols2 = {row["name"] for row in conn2.execute("PRAGMA table_info(appointments);")}
+    assert "assigned_user_id" in appt_cols2
+    db2.close()
+
+
 def test_customers_external_id_unique_index_enforced():
     db = DatabaseManager(":memory:")
     conn = db.get_connection()

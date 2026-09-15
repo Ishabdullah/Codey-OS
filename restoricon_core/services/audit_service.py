@@ -135,7 +135,7 @@ _AUDITABLE_CONTACT_FIELDS = frozenset({
 _AUDITABLE_APPOINTMENT_FIELDS = frozenset({
     "id", "external_id", "uid", "ics_sequence", "title", "start_time",
     "end_time", "customer_id", "contact_external_id", "attendee_name",
-    "attendee_email", "appointment_type", "appointment_type_id", "status", "rsvp_status",
+    "attendee_email", "appointment_type", "appointment_type_id", "assigned_user_id", "status", "rsvp_status",
     "offered_slots", "requested_datetime", "pending_reschedule", "form_sent",
     "created_via", "notes", "history", "created_at", "updated_at",
 })

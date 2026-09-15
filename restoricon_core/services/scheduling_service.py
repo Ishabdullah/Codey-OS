@@ -68,6 +68,7 @@ class SchedulingService:
             attendee_email=row["attendee_email"],
             appointment_type=row["appointment_type"],
             appointment_type_id=row["appointment_type_id"],
+            assigned_user_id=row["assigned_user_id"],
             status=row["status"],
             rsvp_status=row["rsvp_status"],
             offered_slots=json.loads(row["offered_slots_json"]) if row["offered_slots_json"] else [],
@@ -224,6 +225,16 @@ class SchedulingService:
         if appt.status not in VALID_STATUSES:
             raise ValueError(f"Invalid status '{appt.status}'. Must be one of {sorted(VALID_STATUSES)}")
 
+        # assigned_user_id is deliberately FK-less (see database.py comment),
+        # so nothing else catches a bad id -- validate here.
+        if appt.assigned_user_id is not None:
+            conn = self.db.get_connection()
+            target = conn.execute(
+                "SELECT 1 FROM users WHERE id = ?", (appt.assigned_user_id,)
+            ).fetchone()
+            if not target:
+                raise ValueError(f"Unknown assigned_user_id: {appt.assigned_user_id}")
+
         now = utc_now_iso()
         appt.created_at = created_at or now
         appt.updated_at = updated_at or now
@@ -258,10 +269,10 @@ class SchedulingService:
                 INSERT INTO appointments (
                     external_id, uid, ics_sequence, title, start_time, end_time,
                     customer_id, contact_external_id, attendee_name, attendee_email,
-                    appointment_type, appointment_type_id, status, rsvp_status, offered_slots_json,
+                    appointment_type, appointment_type_id, assigned_user_id, status, rsvp_status, offered_slots_json,
                     requested_datetime, pending_reschedule_json, form_sent, created_via,
                     notes, history_json, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
                 (
                     appt.external_id,
@@ -276,6 +287,7 @@ class SchedulingService:
                     appt.attendee_email.strip().lower() if appt.attendee_email else None,
                     appt.appointment_type,
                     appt.appointment_type_id,
+                    appt.assigned_user_id,
                     appt.status,
                     appt.rsvp_status,
                     offered_slots_json,
@@ -453,6 +465,7 @@ class SchedulingService:
         "attendee_email",
         "appointment_type",
         "appointment_type_id",
+        "assigned_user_id",
         "status",
         "rsvp_status",
         "offered_slots",
@@ -480,6 +493,17 @@ class SchedulingService:
             raise ValueError(
                 f"Invalid status '{updates['status']}'. Must be one of {sorted(VALID_STATUSES)}"
             )
+
+        # assigned_user_id is deliberately FK-less (see database.py comment),
+        # so nothing else catches a bad id -- validate here. None (unassign)
+        # is explicitly allowed and skips this check.
+        if "assigned_user_id" in updates and updates["assigned_user_id"] is not None:
+            conn = self.db.get_connection()
+            target = conn.execute(
+                "SELECT 1 FROM users WHERE id = ?", (updates["assigned_user_id"],)
+            ).fetchone()
+            if not target:
+                raise ValueError(f"Unknown assigned_user_id: {updates['assigned_user_id']}")
 
         if not updates:
             return self.get_appointment(appointment_id, actor)

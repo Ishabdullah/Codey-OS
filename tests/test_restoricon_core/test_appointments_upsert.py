@@ -148,6 +148,84 @@ def test_appointment_type_id_round_trips(test_setup):
     assert logs[0].details["changed_fields"]["appointment_type_id"]["new"] == 3
 
 
+def test_assigned_user_id_round_trips_and_is_audited(test_setup):
+    """NEW-487: assigned_user_id round-trips through create_appointment +
+    update_appointment + _row_to_appointment, and the update is captured in
+    the audit changed_fields (regression guard for the
+    _AUDITABLE_APPOINTMENT_FIELDS allow-list -- the exact class of gap that
+    would silently drop this field from the diff)."""
+    svc = test_setup["scheduling"]
+    actor = test_setup["agent_actor"]
+    admin_actor = test_setup["admin_actor"]
+    audit_svc = AuditService(test_setup["db"])
+    assignee_id = test_setup["admin_actor"].user_id
+    other_user_id = test_setup["agent_actor"].user_id
+
+    appt = Appointment(
+        external_id="appt_assign_1",
+        title="Roof Inspection",
+        status="confirmed",
+        assigned_user_id=assignee_id,
+    )
+    created = svc.create_appointment(appt, actor)
+    assert created.assigned_user_id == assignee_id
+
+    fetched = svc.get_appointment(created.id, actor)
+    assert fetched.assigned_user_id == assignee_id
+
+    updated = svc.update_appointment(created.id, {"assigned_user_id": other_user_id}, actor)
+    assert updated.assigned_user_id == other_user_id
+
+    logs = audit_svc.query_logs(
+        admin_actor, entity_type="appointment", entity_id=created.id, action="update"
+    )
+    assert logs
+    assert logs[0].details["changed_fields"]["assigned_user_id"]["new"] == other_user_id
+
+    # Explicit unassignment (None) is a valid update, not a validation error.
+    unassigned = svc.update_appointment(created.id, {"assigned_user_id": None}, actor)
+    assert unassigned.assigned_user_id is None
+
+
+def test_create_appointment_default_assigned_user_id_is_none(test_setup):
+    """assigned_user_id=None (the dataclass default) is unaffected -- no
+    validation error, no forced assignment."""
+    svc = test_setup["scheduling"]
+    actor = test_setup["agent_actor"]
+
+    appt = Appointment(external_id="appt_assign_2", title="Consultation", status="confirmed")
+    created = svc.create_appointment(appt, actor)
+    assert created.assigned_user_id is None
+
+    fetched = svc.get_appointment(created.id, actor)
+    assert fetched.assigned_user_id is None
+
+
+def test_create_appointment_unknown_assigned_user_id_raises(test_setup):
+    svc = test_setup["scheduling"]
+    actor = test_setup["agent_actor"]
+
+    appt = Appointment(
+        external_id="appt_assign_3",
+        title="Estimate",
+        status="confirmed",
+        assigned_user_id=999999,
+    )
+    with pytest.raises(ValueError, match="Unknown assigned_user_id"):
+        svc.create_appointment(appt, actor)
+
+
+def test_update_appointment_unknown_assigned_user_id_raises(test_setup):
+    svc = test_setup["scheduling"]
+    actor = test_setup["agent_actor"]
+
+    appt = Appointment(external_id="appt_assign_4", title="Estimate", status="confirmed")
+    created = svc.create_appointment(appt, actor)
+
+    with pytest.raises(ValueError, match="Unknown assigned_user_id"):
+        svc.update_appointment(created.id, {"assigned_user_id": 999999}, actor)
+
+
 def test_update_appointment_invalid_status(test_setup):
     svc = test_setup["scheduling"]
     actor = test_setup["agent_actor"]
@@ -224,6 +302,48 @@ def test_router_appointment_update_and_upsert(test_setup):
     assert body["appointment"]["id"] == appt_id
     assert body["appointment"]["title"] == "Inspection Updated"
     assert body["appointment"]["notes"] == "New note"
+
+
+def test_router_appointment_create_and_update_accept_assigned_user_id(test_setup):
+    """NEW-487: POST /api/v1/appointments and .../update accept and persist
+    assigned_user_id end-to-end through the real router."""
+    router = test_setup["router"]
+    token = test_setup["token"]
+    admin_user_id = test_setup["admin_actor"].user_id
+    agent_user_id = test_setup["agent_actor"].user_id
+
+    status, headers, body = router.handle_request(
+        "POST",
+        "/api/v1/appointments",
+        headers={"Authorization": f"Bearer {token}"},
+        body_bytes=json.dumps({
+            "external_id": "appt_route_assign_1",
+            "title": "Inspection",
+            "status": "negotiating",
+            "assigned_user_id": admin_user_id,
+        }).encode(),
+    )
+    assert status == 201
+    assert body["appointment"]["assigned_user_id"] == admin_user_id
+    appt_id = body["appointment"]["id"]
+
+    status, headers, body = router.handle_request(
+        "POST",
+        f"/api/v1/appointments/{appt_id}/update",
+        headers={"Authorization": f"Bearer {token}"},
+        body_bytes=json.dumps({"assigned_user_id": agent_user_id}).encode(),
+    )
+    assert status == 200
+    assert body["appointment"]["assigned_user_id"] == agent_user_id
+
+    status, headers, body = router.handle_request(
+        "GET",
+        f"/api/v1/appointments/{appt_id}",
+        headers={"Authorization": f"Bearer {token}"},
+        body_bytes=b"",
+    )
+    assert status == 200
+    assert body["appointment"]["assigned_user_id"] == agent_user_id
 
 
 def test_router_schedule_config_get_and_post(test_setup):

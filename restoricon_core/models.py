@@ -703,6 +703,7 @@ class Appointment:
     attendee_email: Optional[str] = None
     appointment_type: Optional[str] = None  # 'call', 'in_person', or None (modality)
     appointment_type_id: Optional[int] = None  # FK-less ref to appointment_types (service type)
+    assigned_user_id: Optional[int] = None  # FK-less ref to users (who's assigned)
     status: str = "confirmed"  # confirmed, negotiating, cancelled, completed
     rsvp_status: str = "pending"
     offered_slots: List[Dict[str, Any]] = field(default_factory=list)

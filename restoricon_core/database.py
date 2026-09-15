@@ -403,6 +403,12 @@ CREATE TABLE IF NOT EXISTS appointments (
     -- attach an FK, so a migrated DB could not enforce one -- keeping fresh and
     -- migrated DBs identical (same precedent as equipment.current_project_id).
     appointment_type_id INTEGER,
+    -- assigned_user_id: who's assigned to this appointment. Bare INTEGER, no
+    -- FOREIGN KEY, for the same reason as appointment_type_id above -- SQLite's
+    -- ALTER TABLE ADD COLUMN cannot attach an FK, so a migrated DB could not
+    -- enforce one -- keeping fresh and migrated DBs identical. Validated at
+    -- the service layer instead (see scheduling_service.py).
+    assigned_user_id INTEGER,
     status TEXT NOT NULL DEFAULT 'confirmed' CHECK(status IN ('confirmed', 'negotiating', 'cancelled', 'completed')),
     rsvp_status TEXT NOT NULL DEFAULT 'pending',
     offered_slots_json TEXT NOT NULL DEFAULT '[]',
@@ -1086,6 +1092,7 @@ class DatabaseManager:
             ("business_profile", "business_email", "ALTER TABLE business_profile ADD COLUMN business_email TEXT;"),
             ("business_profile", "license_number", "ALTER TABLE business_profile ADD COLUMN license_number TEXT;"),
             ("appointments", "appointment_type_id", "ALTER TABLE appointments ADD COLUMN appointment_type_id INTEGER;"),
+            ("appointments", "assigned_user_id", "ALTER TABLE appointments ADD COLUMN assigned_user_id INTEGER;"),
             ("subcontractors", "user_id", "ALTER TABLE subcontractors ADD COLUMN user_id INTEGER;"),
         )
         with conn:

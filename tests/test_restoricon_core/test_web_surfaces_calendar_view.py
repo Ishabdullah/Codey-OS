@@ -337,3 +337,68 @@ def test_admin_surface_calendar_create_edit_onclicks_pass_only_ids():
     onclick_attrs = re.findall(r'onclick="[^"]*"', region)
     for attr in onclick_attrs:
         assert "'${" not in attr, attr
+
+
+def test_admin_surface_calendar_appointment_form_has_assigned_user_select():
+    """NEW-487: the New/Edit appointment modal has an Assigned To field."""
+    html = render_admin_surface()
+    assert '<select id="calApptAssignedUserId">' in html
+    assert "(unassigned)" in html
+
+
+def test_admin_surface_calendar_has_assigned_user_select_populate_function():
+    html = render_admin_surface()
+    assert "function calPopulateApptAssignedUserSelect" in html
+
+
+def test_admin_surface_calendar_new_and_edit_appt_populate_assigned_user_select():
+    html = render_admin_surface()
+    i = html.find("function openNewApptModal")
+    j = html.find("function openEditApptModal")
+    assert i != -1 and j != -1
+    new_region = html[i:j]
+    assert "calPopulateApptAssignedUserSelect(null);" in new_region
+
+    k = html.find("function closeApptFormModal")
+    assert j != -1 and k != -1
+    edit_region = html[j:k]
+    assert "calPopulateApptAssignedUserSelect(a.assigned_user_id);" in edit_region
+
+
+def test_admin_surface_calendar_submit_appt_form_sends_assigned_user_id():
+    html = render_admin_surface()
+    i = html.find("async function submitApptForm")
+    j = html.find("async function cancelAppointmentFromCalendar")
+    assert i != -1 and j != -1
+    region = html[i:j]
+    assert "assigned_user_id:" in region
+    assert "calApptAssignedUserId" in region
+
+
+def test_admin_surface_calendar_detail_view_shows_assigned_user():
+    html = render_admin_surface()
+    i = html.find("function openCalendarItem")
+    j = html.find("function closeCalItemModal")
+    assert i != -1 and j != -1
+    region = html[i:j]
+    assert "Assigned to:" in region
+    assert "a.assigned_user_id != null" in region
+    assert "(unassigned)" in region
+
+
+def test_admin_surface_calendar_person_filter_caption_reflects_appointment_assignee():
+    """The caption previously claimed appointments have no assignee field --
+    that became false once assigned_user_id was added and wired into the
+    Person filter; the caption must not still make that claim."""
+    html = render_admin_surface()
+    assert "appointments have no assignee field yet" not in html
+
+
+def test_admin_surface_calendar_person_filter_narrows_appointments_too():
+    html = render_admin_surface()
+    i = html.find("function calFilteredAppointments")
+    j = html.find("function calFilteredStaffSchedules")
+    assert i != -1 and j != -1
+    region = html[i:j]
+    assert "calFilterPerson" in region
+    assert "a.assigned_user_id" in region

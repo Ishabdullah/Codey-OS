@@ -1935,8 +1935,9 @@ def render_admin_surface() -> str:
                 </div>
                 <p style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 0.75rem;">
                     Day view is a planned future addition -- Month and Week only this round.
-                    The Person and Role filters narrow Staff Schedule entries only (appointments
-                    have no assignee field yet); the Appointment Type filter narrows appointments only.
+                    The Person filter narrows both Staff Schedule and Appointment entries; the Role
+                    filter narrows Staff Schedule entries only; the Appointment Type filter narrows
+                    appointments only.
                 </p>
                 <div id="calLoadErrors"></div>
                 <div id="calGrid" class="cal-month-grid"></div>
@@ -2462,6 +2463,12 @@ def render_admin_surface() -> str:
                     <label>Appointment Type</label>
                     <select id="calApptTypeId">
                         <option value="">(none)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Assigned To</label>
+                    <select id="calApptAssignedUserId">
+                        <option value="">(unassigned)</option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -3515,17 +3522,20 @@ def render_admin_surface() -> str:
             renderCalendar();
         }
 
-        // Filters: Person and Role narrow staff-schedule entries only --
-        // Appointment (models.py) has no assignee/user_id field, only
-        // customer_id/attendee_name, so it cannot be filtered by person or
-        // role (see NEW_ISSUES.md; same structural gap as NEW-486 from the
-        // subcontractor side). The Appointment Type filter narrows
-        // appointments only, symmetrically.
+        // Filters: Person narrows both staff-schedule entries (by
+        // user_id) and appointments (by assigned_user_id, added alongside
+        // the assigned_user_id column). Role still narrows staff-schedule
+        // entries only -- Appointment has no role axis of its own. The
+        // Appointment Type filter narrows appointments only, symmetrically.
         function calFilteredAppointments() {
             const typeFilter = document.getElementById('calFilterType').value;
+            const personFilter = document.getElementById('calFilterPerson').value;
             const appts = window.currentCalendarAppointments || [];
-            if (!typeFilter) return appts;
-            return appts.filter(a => String(a.appointment_type_id) === typeFilter);
+            return appts.filter(a => {
+                if (typeFilter && String(a.appointment_type_id) !== typeFilter) return false;
+                if (personFilter && String(a.assigned_user_id) !== personFilter) return false;
+                return true;
+            });
         }
 
         function calFilteredStaffSchedules() {
@@ -3703,6 +3713,7 @@ def render_admin_surface() -> str:
                 body.innerHTML = `
                     <div style="margin-bottom:0.5rem;"><strong>Title:</strong> ${escapeHtml(a.title || a.attendee_name || '(untitled)')}</div>
                     <div style="margin-bottom:0.5rem;"><strong>Type:</strong> ${escapeHtml(calTypeName(a.appointment_type_id) || '(none)')}</div>
+                    <div style="margin-bottom:0.5rem;"><strong>Assigned to:</strong> ${a.assigned_user_id != null ? escapeHtml(calUserName(a.assigned_user_id)) : '(unassigned)'}</div>
                     <div style="margin-bottom:0.5rem;"><strong>Start:</strong> ${escapeHtml(a.start_time)}</div>
                     <div style="margin-bottom:0.5rem;"><strong>End:</strong> ${escapeHtml(a.end_time)}</div>
                     <div style="margin-bottom:0.5rem;"><strong>Attendee:</strong> ${escapeHtml(a.attendee_name || '(none)')}</div>
@@ -3756,6 +3767,17 @@ def render_admin_surface() -> str:
             if (selectedId !== null && selectedId !== undefined) sel.value = String(selectedId);
         }
 
+        // Unlike calPopulateSchedUserSelect, keeps the leading blank
+        // "(unassigned)" option -- assigned_user_id is nullable, staff_schedules.user_id is not.
+        function calPopulateApptAssignedUserSelect(selectedId) {
+            const sel = document.getElementById('calApptAssignedUserId');
+            if (!sel) return;
+            const users = window.currentCalendarUsers || [];
+            sel.innerHTML = '<option value="">(unassigned)</option>' +
+                users.map(u => `<option value="${u.id}">${escapeHtml(u.full_name || u.username)}</option>`).join('');
+            sel.value = (selectedId === null || selectedId === undefined) ? '' : String(selectedId);
+        }
+
         function openNewApptModal() {
             document.getElementById('calApptFormError').style.display = 'none';
             document.getElementById('calApptFormTitle').innerText = 'New Appointment';
@@ -3768,6 +3790,7 @@ def render_admin_surface() -> str:
             document.getElementById('calApptStatus').disabled = false;
             document.getElementById('calApptStatusEditNote').style.display = 'none';
             calPopulateApptTypeSelect(null);
+            calPopulateApptAssignedUserSelect(null);
             document.getElementById('calApptModal').classList.add('active');
         }
 
@@ -3798,6 +3821,7 @@ def render_admin_surface() -> str:
             document.getElementById('calApptStatus').disabled = true;
             document.getElementById('calApptStatusEditNote').style.display = 'block';
             calPopulateApptTypeSelect(a.appointment_type_id);
+            calPopulateApptAssignedUserSelect(a.assigned_user_id);
             document.getElementById('calApptModal').classList.add('active');
         }
 
@@ -3822,7 +3846,8 @@ def render_admin_surface() -> str:
                 attendee_name: document.getElementById('calApptAttendee').value,
                 start_time: document.getElementById('calApptStart').value,
                 end_time: document.getElementById('calApptEnd').value,
-                appointment_type_id: document.getElementById('calApptTypeId').value ? parseInt(document.getElementById('calApptTypeId').value, 10) : null
+                appointment_type_id: document.getElementById('calApptTypeId').value ? parseInt(document.getElementById('calApptTypeId').value, 10) : null,
+                assigned_user_id: document.getElementById('calApptAssignedUserId').value ? parseInt(document.getElementById('calApptAssignedUserId').value, 10) : null
             };
             // Status only travels on create -- see openEditApptModal's
             // comment for why an edit must never carry it through /update.

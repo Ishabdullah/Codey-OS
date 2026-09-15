@@ -1167,6 +1167,24 @@ Jest is in fact runnable in this sandbox (a prior "not found" result
 was an invocation-syntax issue). This closes the entire `NEW-514`/
 `515`/`516`/`517` chain from this round's batch — all four now FIXED,
 none left open.
+**`NEW-487`/`NEW-488` closed same day, following Ish's product-direction
+decisions on both** (each had been explicitly flagged 2026-09-11 as
+requiring his call, not architect judgment). `NEW-488` turned out to
+already be shipped (Phase 7 Part 2, `3011f90`) — ledger correction
+only. `NEW-487` FIXED: `assigned_user_id` added to `Appointment`
+end-to-end (schema, model, service validation, audit-field inclusion,
+Calendar UI including a working Person-filter, not just a relabeled
+caption) — deliberately FK-less since `appointments` already has
+production rows and SQLite's `ALTER TABLE ADD COLUMN` can't attach a
+FK. code-reviewer caught and fully resolved an apparent 34-test
+regression during review — root-caused to an ambient sandbox proxy
+env var breaking `urllib.request`-based loopback tests, unrelated to
+the diff (683 passed once isolated) — logged as `NEW-518` so this
+doesn't cause a false alarm again. `NEW-519` (new, not fixed): the new
+FK-less column has no `delete_user()` cleanup, same class as the
+pre-existing `NEW-494`. Code-complete + reviewer-approved, not
+live-verified (schema/service/UI change with strong direct test
+coverage, no process/security-boundary surface).
 
 
 ---
