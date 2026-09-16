@@ -1218,6 +1218,20 @@ already lose actor identity on user deletion via a pre-existing FK,
 same shape as the `NEW-493` precedent; escalated, not resolved
 unilaterally). 1883 passed/1 skipped, reviewer-approved, standard
 tier.
+**`NEW-522` Batch 1 (26 sites) + `NEW-523` FIXED, 2026-09-16.** Both
+purely mechanical leak fixes (no behavior change beyond error-message
+quality), reusing `_parse_int_path_segment`/`_parse_int_query_param`.
+Batch 2 (27 sites, deliberately not touched) turned out to be a real
+correctness bug, not just cosmetic — a malformed path with an extra
+numeric segment can silently act on the wrong record id (not an
+authorization bypass; RBAC still gates correctly) — spun off as
+`NEW-526`. Three more sibling leak-class findings logged, none fixed:
+`NEW-525` (a few Batch-1 sites still produce a misleading, not just
+unpolished, error when the id segment is omitted entirely — same
+hazard `NEW-520` already patched once elsewhere), `NEW-527` (22+ more
+query-param sibling leaks beyond `NEW-523`, two distinct shapes),
+`NEW-528` (POST-body `int(json_body.get(...))` sites, unassessed).
+1886 passed/1 skipped, reviewer-approved, standard tier.
 
 
 ---

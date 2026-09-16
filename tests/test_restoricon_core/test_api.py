@@ -1757,3 +1757,129 @@ def test_api_customers_limit_is_clamped_to_maximum(api_server):
     )
     assert status == 200, body
     assert len(body["customers"]) <= 1000
+
+
+# NEW-522/NEW-523 batch 1: (method, url_path, var_name) for every leak-fix
+# site that got a bare `int(...)` -> `_parse_int_path_segment`/
+# `_parse_int_query_param` wrap in this round. Each is hit with a
+# non-numeric value and must return a clean 400, not Python's raw
+# `int()` exception text.
+_NEW522_523_BATCH1_SITES = [
+    ("POST", "/api/v1/users/{}/password", "user_id"),
+    ("POST", "/api/v1/users/{}/suspend", "user_id"),
+    ("POST", "/api/v1/users/{}/activate", "user_id"),
+    ("GET", "/api/v1/users/{}/permissions", "user_id"),
+    ("GET", "/api/v1/users/{}/active-references", "user_id"),
+    ("GET", "/api/v1/crm/tasks/{}", "task_id"),
+    ("GET", "/api/v1/projects/{}", "proj_id"),
+    ("GET", "/api/v1/estimates/{}", "est_id"),
+    ("GET", "/api/v1/contracts/{}", "contract_id"),
+    ("GET", "/api/v1/invoices/{}", "inv_id"),
+    ("GET", "/api/v1/documents/{}", "doc_id"),
+    ("GET", "/api/v1/portal/projects/{}", "proj_id"),
+    ("GET", "/api/v1/subcontractors/{}", "sub_id"),
+    ("GET", "/api/v1/appointments/{}", "appt_id"),
+    ("POST", "/api/v1/operations/projects/{}/stage", "proj_id"),
+    ("GET", "/api/v1/operations/projects/{}/summary", "proj_id"),
+    ("GET", "/api/v1/operations/projects/{}/milestones", "proj_id"),
+    ("GET", "/api/v1/operations/projects/{}/equipment", "proj_id"),
+    ("POST", "/api/v1/operations/work-orders/{}/dispatch", "wo_id"),
+    ("POST", "/api/v1/operations/work-orders/{}/accept", "wo_id"),
+    ("POST", "/api/v1/operations/work-orders/{}/complete", "wo_id"),
+    ("POST", "/api/v1/operations/work-orders/{}/verify", "wo_id"),
+    ("POST", "/api/v1/operations/work-orders/{}/status", "wo_id"),
+    ("GET", "/api/v1/operations/milestones/{}", "mid"),
+    ("POST", "/api/v1/operations/milestones/{}/status", "mid"),
+    ("GET", "/api/v1/operations/work-orders/{}", "wo_id"),
+]
+
+
+def test_api_new522_batch1_non_integer_path_segments_are_400_without_raw_pyexc_text(api_server):
+    """NEW-522 batch 1: every bare `int(path.split(...))`-style path-segment
+    parse in this batch now goes through the shared `_parse_int_path_segment`
+    helper, which raises a clean ValueError instead of letting Python's raw
+    `int()` exception text ('invalid literal for int() with base 10') reach
+    the client as a leaked 400 body."""
+    _, base_url, _, _ = api_server
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "admin", "password": "AdminSecretPassword123"},
+    )
+    assert status == 200
+    headers = {"Authorization": f"Bearer {body['token']}"}
+
+    for method, url_template, var_name in _NEW522_523_BATCH1_SITES:
+        url = f"{base_url}{url_template.format('abc')}"
+        status, body = make_request(url, method=method, headers=headers, data={} if method == "POST" else None)
+        assert status == 400, f"{method} {url_template}: expected 400, got {status} ({body})"
+        assert body == {"error": f"Invalid '{var_name}' path segment: 'abc'"}, f"{method} {url_template}: {body}"
+
+
+def test_api_new523_staff_schedules_user_id_non_integer_is_400_without_raw_pyexc_text(api_server):
+    """NEW-523: `GET /api/v1/staff-schedules?user_id=` is parsed via the
+    shared `_parse_int_query_param` helper, which raises a clean ValueError
+    instead of letting Python's raw `int()` exception text reach the client.
+    Also confirms absent/empty `user_id` still means "no filter" (None),
+    not a validation error."""
+    _, base_url, _, _ = api_server
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "admin", "password": "AdminSecretPassword123"},
+    )
+    assert status == 200
+    headers = {"Authorization": f"Bearer {body['token']}"}
+
+    status, body = make_request(f"{base_url}/api/v1/staff-schedules?user_id=abc", headers=headers)
+    assert status == 400, body
+    assert body == {"error": "Invalid 'user_id' query parameter: 'abc'"}
+
+    # Absent user_id still means "no filter" (None), unaffected by the fix.
+    status, body = make_request(f"{base_url}/api/v1/staff-schedules", headers=headers)
+    assert status == 200, body
+    assert "schedules" in body
+
+
+def test_api_new522_batch1_valid_integer_path_segments_still_work(api_server):
+    """NEW-522 batch 1 spot-check: a valid numeric id on a representative
+    site from each distinct index-expression shape in the batch (front-
+    anchored `[4]`, front-anchored `[5]`, `[-1]`, and the two special-shape
+    milestone/work-order sites) still resolves normally after the
+    `_parse_int_path_segment` wrap -- the fix only rejects non-numeric
+    input, it doesn't change behavior for valid input."""
+    server, base_url, admin_user, _ = api_server
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "admin", "password": "AdminSecretPassword123"},
+    )
+    assert status == 200
+    headers = {"Authorization": f"Bearer {body['token']}"}
+
+    # Front-anchored [4]: /api/v1/users/{id}/active-references
+    status, body = make_request(
+        f"{base_url}/api/v1/users/{admin_user.id}/active-references", headers=headers
+    )
+    assert status == 200, body
+
+    # Front-anchored [5]: /api/v1/operations/projects/{id}/milestones (empty
+    # list for a nonexistent-but-valid-format project id, not a 400/500)
+    status, body = make_request(
+        f"{base_url}/api/v1/operations/projects/999999/milestones", headers=headers
+    )
+    assert status == 200, body
+    assert body["milestones"] == []
+
+    # [-1] form: /api/v1/projects/{id} (404 "not found" for a
+    # nonexistent-but-valid-format id, not a 400/500)
+    status, body = make_request(f"{base_url}/api/v1/projects/999999", headers=headers)
+    assert status == 404, body
+
+    # Special shape: /api/v1/operations/milestones/{id} (bare int(sub_path))
+    status, body = make_request(f"{base_url}/api/v1/operations/milestones/999999", headers=headers)
+    assert status == 404, body
+
+    # Special shape: /api/v1/operations/work-orders/{id} (int(path[len(prefix):]))
+    status, body = make_request(f"{base_url}/api/v1/operations/work-orders/999999", headers=headers)
+    assert status == 404, body
