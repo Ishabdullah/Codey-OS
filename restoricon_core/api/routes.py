@@ -58,7 +58,7 @@ from ..services.audit_service import AuditService, build_audit_details, _AUDITAB
 from ..services.automation_service import AutomationService
 from ..services.business_ops_service import BusinessOpsService
 from ..services.communication_service import CommunicationService
-from ..services.crm_service import CRMService
+from ..services.crm_service import CRMService, ClaimConflictError
 from ..services.finance_service import FinanceService
 from ..services.operations_service import OperationsService
 from ..services.scheduling_service import SchedulingService
@@ -850,6 +850,21 @@ class APIRouter:
 
             if (
                 path.startswith("/api/v1/crm/tasks/")
+                and path.endswith("/claim")
+                and "/" not in path[len("/api/v1/crm/tasks/"):-len("/claim")]
+                and method == "POST"
+            ):
+                task_id = _parse_int_path_segment(path[len("/api/v1/crm/tasks/"):-len("/claim")], "task_id")
+                try:
+                    claimed = self.crm.claim_task(task_id, actor)
+                except ClaimConflictError:
+                    return 409, {"Content-Type": "application/json"}, {"error": "already claimed"}
+                if not claimed:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Task not found"}
+                return 200, {"Content-Type": "application/json"}, {"task": claimed.to_dict()}
+
+            if (
+                path.startswith("/api/v1/crm/tasks/")
                 and path.endswith("/update")
                 and "/" not in path[len("/api/v1/crm/tasks/"):-len("/update")]
                 and method == "POST"
@@ -906,6 +921,21 @@ class APIRouter:
 
             if (
                 path.startswith("/api/v1/leads/")
+                and path.endswith("/claim")
+                and "/" not in path[len("/api/v1/leads/"):-len("/claim")]
+                and method == "POST"
+            ):
+                lead_id = _parse_int_path_segment(path[len("/api/v1/leads/"):-len("/claim")], "lead_id")
+                try:
+                    claimed_lead = self.crm.claim_lead(lead_id, actor)
+                except ClaimConflictError:
+                    return 409, {"Content-Type": "application/json"}, {"error": "already claimed"}
+                if not claimed_lead:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Lead not found"}
+                return 200, {"Content-Type": "application/json"}, {"lead": claimed_lead.to_dict()}
+
+            if (
+                path.startswith("/api/v1/leads/")
                 and path.endswith("/update")
                 and "/" not in path[len("/api/v1/leads/"):-len("/update")]
                 and method == "POST"
@@ -957,6 +987,21 @@ class APIRouter:
                     opp_id, new_stage=new_stage, actor=actor, lost_reason=lost_reason, notes=notes
                 )
                 return 200, {"Content-Type": "application/json"}, {"opportunity": trans.to_dict()}
+
+            if (
+                path.startswith("/api/v1/opportunities/")
+                and path.endswith("/claim")
+                and "/" not in path[len("/api/v1/opportunities/"):-len("/claim")]
+                and method == "POST"
+            ):
+                opp_id = _parse_int_path_segment(path[len("/api/v1/opportunities/"):-len("/claim")], "opp_id")
+                try:
+                    claimed_opp = self.crm.claim_opportunity(opp_id, actor)
+                except ClaimConflictError:
+                    return 409, {"Content-Type": "application/json"}, {"error": "already claimed"}
+                if not claimed_opp:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Opportunity not found"}
+                return 200, {"Content-Type": "application/json"}, {"opportunity": claimed_opp.to_dict()}
 
             if (
                 path.startswith("/api/v1/opportunities/")

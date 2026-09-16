@@ -76,6 +76,19 @@ from .operations_service import OperationsService
 from .scheduling_service import SchedulingService
 
 
+class ClaimConflictError(Exception):
+    """Raised by claim_lead/claim_opportunity/claim_task when the atomic
+    conditional UPDATE's WHERE assigned_user_id IS NULL guard matched zero
+    rows because the record is already claimed (a lost race or a stale
+    "Unclaimed" view). Deliberately NOT a ValueError subclass: routes.py's
+    handle_request has no 409 anywhere in its global except-chain
+    (PermissionError->403, ValueError->400, Exception->500) -- if this
+    subclassed ValueError, a route that forgot a local `except
+    ClaimConflictError` would silently turn a real conflict into a
+    misleading 400 instead of failing loudly. Each claim_* route handler
+    must catch this locally and return 409 (NEW-534)."""
+
+
 class CRMService:
     """Core domain logic and data management for Restoricon Core."""
 
@@ -745,6 +758,78 @@ class CRMService:
         )
         return lead
 
+    def claim_lead(self, lead_id: int, actor: AuthContext) -> Optional[Lead]:
+        """NEW-534: atomic self-claim of an unclaimed lead. Hardcodes
+        assigned_user_id = actor.user_id -- never accepts a caller-supplied
+        assignee, unlike the generic update_lead path (which already lets
+        any write-permitted actor assign to anyone and is left unchanged).
+        Returns None (-> 404, matching update_lead's not-found convention;
+        NOT a ValueError, since routes.py's global except-chain maps
+        ValueError to 400) if the id genuinely doesn't exist. Raises
+        ClaimConflictError (-> 409, mapped locally by the route) if it's
+        already claimed by someone else or lost a race against a concurrent
+        claim."""
+        if not (actor.has_permission(PERM_WRITE_LEADS) or actor.has_permission(PERM_WRITE_CRM)):
+            raise PermissionError("Actor lacks permission to update leads")
+
+        conn = self.db.get_connection()
+        # Raw, unguarded pre-read to build the in-memory Lead object this
+        # claim will mutate -- deliberately NOT self.get_lead(lead_id,
+        # actor): that applies the PERM_READ_TEAM_SALES_DATA narrowing
+        # gate, which for a row already claimed by someone else returns
+        # None identically to a genuinely nonexistent id (the exact
+        # ambiguity the post-write disambiguation query below exists to
+        # avoid). A narrowed actor may attempt a claim on any row id;
+        # whether it succeeds is governed solely by the atomic UPDATE's
+        # WHERE clause, not by this pre-read.
+        row = conn.execute("SELECT * FROM leads WHERE id = ?;", (lead_id,)).fetchone()
+        if row is None:
+            return None
+        lead = self._row_to_lead(row)
+        _before = lead.to_dict()
+
+        now = utc_now_iso()
+        with conn:
+            cursor = conn.execute(
+                "UPDATE leads SET assigned_user_id = ?, updated_at = ? "
+                "WHERE id = ? AND assigned_user_id IS NULL;",
+                (actor.user_id, now, lead_id),
+            )
+
+        if cursor.rowcount == 0:
+            # Second, unguarded disambiguation query (raw SQL, not
+            # get_lead): distinguishes a lost race / already-claimed row
+            # (row present, assigned_user_id not null) from the row having
+            # been deleted between the pre-read above and this UPDATE (row
+            # absent). Using get_lead here would misreport a genuine 409
+            # conflict as a 404 for a narrowed actor, since get_lead
+            # returns None for both cases.
+            conflict_row = conn.execute(
+                "SELECT id, assigned_user_id FROM leads WHERE id = ?;", (lead_id,)
+            ).fetchone()
+            if conflict_row is None:
+                return None
+            raise ClaimConflictError(f"Lead {lead_id} already claimed")
+
+        # rowcount == 1: build the after-image from the already-known
+        # in-memory `lead` object mutated with exactly the values just
+        # written -- NOT a re-read via self.get_lead(lead_id, actor).
+        # Matches the NEW-533 pattern update_lead already established:
+        # never route an audit after-image / return value through a
+        # permission-gated getter.
+        lead.assigned_user_id = actor.user_id
+        lead.updated_at = now
+
+        self.audit.log(
+            action="claim",
+            entity_type="lead",
+            entity_id=lead_id,
+            change_summary=f"Lead {lead_id} claimed by user {actor.user_id}",
+            actor=actor,
+            details=build_audit_details(before=_before, after=lead.to_dict()),
+        )
+        return lead
+
     def score_lead(
         self,
         lead_id_or_obj: int | Lead | Dict[str, Any],
@@ -1134,6 +1219,51 @@ class CRMService:
                 before=_before,
                 after=opp.to_dict(),
             ),
+        )
+        return opp
+
+    def claim_opportunity(self, opp_id: int, actor: AuthContext) -> Optional[Opportunity]:
+        """NEW-534: atomic self-claim of an unclaimed opportunity. Mirrors
+        claim_lead exactly -- see its docstring/comments for the full
+        rationale (hardcoded self-claim, raw unguarded pre-/post-read,
+        None on not-found matching update_opportunity's convention,
+        ClaimConflictError on conflict)."""
+        if not (actor.has_permission(PERM_WRITE_OPPORTUNITIES) or actor.has_permission(PERM_WRITE_CRM)):
+            raise PermissionError("Actor lacks permission to update opportunities")
+
+        conn = self.db.get_connection()
+        row = conn.execute("SELECT * FROM opportunities WHERE id = ?;", (opp_id,)).fetchone()
+        if row is None:
+            return None
+        opp = self._row_to_opportunity(row)
+        _before = opp.to_dict()
+
+        now = utc_now_iso()
+        with conn:
+            cursor = conn.execute(
+                "UPDATE opportunities SET assigned_user_id = ?, updated_at = ? "
+                "WHERE id = ? AND assigned_user_id IS NULL;",
+                (actor.user_id, now, opp_id),
+            )
+
+        if cursor.rowcount == 0:
+            conflict_row = conn.execute(
+                "SELECT id, assigned_user_id FROM opportunities WHERE id = ?;", (opp_id,)
+            ).fetchone()
+            if conflict_row is None:
+                return None
+            raise ClaimConflictError(f"Opportunity {opp_id} already claimed")
+
+        opp.assigned_user_id = actor.user_id
+        opp.updated_at = now
+
+        self.audit.log(
+            action="claim",
+            entity_type="opportunity",
+            entity_id=opp_id,
+            change_summary=f"Opportunity {opp_id} claimed by user {actor.user_id}",
+            actor=actor,
+            details=build_audit_details(before=_before, after=opp.to_dict()),
         )
         return opp
 
@@ -1537,6 +1667,55 @@ class CRMService:
                 before=_before,
                 after=task.to_dict(),
             ),
+        )
+        return task
+
+    def claim_task(self, task_id: int, actor: AuthContext) -> Optional[Task]:
+        """NEW-534: atomic self-claim of an unclaimed task. Mirrors
+        claim_lead exactly -- see its docstring/comments for the full
+        rationale (hardcoded self-claim, raw unguarded pre-/post-read,
+        None on not-found matching update_task's convention,
+        ClaimConflictError on conflict)."""
+        if not (
+            actor.has_permission(PERM_WRITE_CRM)
+            or actor.has_permission(PERM_WRITE_OPPORTUNITIES)
+            or actor.has_permission(PERM_WRITE_LEADS)
+        ):
+            raise PermissionError("Actor lacks permission to update tasks")
+
+        conn = self.db.get_connection()
+        row = conn.execute("SELECT * FROM tasks WHERE id = ?;", (task_id,)).fetchone()
+        if row is None:
+            return None
+        task = self._row_to_task(row)
+        _before = task.to_dict()
+
+        now = utc_now_iso()
+        with conn:
+            cursor = conn.execute(
+                "UPDATE tasks SET assigned_user_id = ?, updated_at = ? "
+                "WHERE id = ? AND assigned_user_id IS NULL;",
+                (actor.user_id, now, task_id),
+            )
+
+        if cursor.rowcount == 0:
+            conflict_row = conn.execute(
+                "SELECT id, assigned_user_id FROM tasks WHERE id = ?;", (task_id,)
+            ).fetchone()
+            if conflict_row is None:
+                return None
+            raise ClaimConflictError(f"Task {task_id} already claimed")
+
+        task.assigned_user_id = actor.user_id
+        task.updated_at = now
+
+        self.audit.log(
+            action="claim",
+            entity_type="task",
+            entity_id=task_id,
+            change_summary=f"Task {task_id} claimed by user {actor.user_id}",
+            actor=actor,
+            details=build_audit_details(before=_before, after=task.to_dict()),
         )
         return task
 

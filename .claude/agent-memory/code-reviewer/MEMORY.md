@@ -88,6 +88,7 @@
 - [NEW_ISSUES.md batch 4 round2 (NEW-407) — APPROVED](new_issues_cleanup_batch4_round2_new407_approved.m
 - [NEW_ISSUES.md batch 5 (prompt/planner) — CHANGES
 - [NEW_ISSUES.md batch 5 round2 (NEW-31 NEED_DOCS fix) — APPROVED](new_issues_cleanup_batch5_round2_approved.md)
+- [NEW-534 atomic claim workflow (leads/opps/tasks) — APPROVED](new534_atomic_claim_workflow_approved.md) — full independent verification incl. node --check on rendered JS
 - [Daemon/process-lifecycle batch 1: NEW-409 kill-loop de-8081 + NEW-70 thermal-restart try/except split — APPROVED](new409_new70_daemon_lifecycle_batch1_approved.md)
 - [Daemon/process-lifecycle batch 2: NEW-74 stop() bool-return + adopted-state warning — CHANGES REQUESTED
 - [Daemon/process-lifecycle batch 3: NEW-268 start_aigentik flock lock + fd-leak fix — CHANGES REQUESTED

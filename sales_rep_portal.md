@@ -285,9 +285,12 @@ chat history. Three separate tasks, each needing its own
    custom-permission grant mechanism from the `NEW-533` fix still
    works exactly as before — this added a role that has it by default,
    it did not remove the general-purpose override.
-2. **NEW-534 — claim workflow with race protection** for unassigned
-   leads/opportunities/tasks. Medium size, pairs naturally with #1
-   since both touch assignment semantics.
+2. ~~**NEW-534 — claim workflow with race protection** for unassigned
+   leads/opportunities/tasks.~~ **DONE 2026-09-16 — code-complete,
+   code-reviewer APPROVED.** Full detail in `CODEY_MASTER_PLAN.md`'s
+   Appendix A `NEW-534` entry and `NEW_ISSUES.md`. Spun off `NEW-542`
+   (the generic update path's own pre-existing race on the same
+   column, not fixed, deliberately out of scope).
 3. **D3 — real-time push layer.** Largest and most architecturally
    significant; recommend its own dedicated scoping session rather
    than folding into a B8 sub-phase, since it changes a system-wide

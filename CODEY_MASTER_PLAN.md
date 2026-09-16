@@ -6931,10 +6931,34 @@ this file's own don't-duplicate rule.
       string) and by real HTTP round-trips against a scratch DB
       (never production) — both independently reproduced by
       code-reviewer, not just the implementer's own claim.
-- [ ] **NEW-534 fix** — explicit claim action with race protection for
-      unassigned leads/opportunities/tasks, prioritized ahead of B8.3
-      per Ish, 2026-09-16. Rule-4 category. Scoped in
-      `sales_rep_portal.md` §4a item 2.
+- [x] **`NEW-534` fix** — explicit claim action with race protection for
+      unassigned leads/opportunities/tasks. **DONE 2026-09-16,
+      code-complete + code-reviewer APPROVED with zero findings.**
+      Rule-4 category. New `ClaimConflictError` (deliberately not a
+      `ValueError` subclass, since `handle_request`'s global exception
+      chain has no 409 anywhere — each of the three new routes catches
+      it locally) backs a genuinely atomic
+      `UPDATE ... WHERE id = ? AND assigned_user_id IS NULL` +
+      `rowcount` check for `claim_lead`/`claim_opportunity`/
+      `claim_task`, hardcoded to self-claim only (never accepts a
+      body-supplied assignee — admin/manager/sales_manager already
+      have an unrestricted "assign to anyone" path via the existing
+      generic update methods). New routes `POST
+      /api/v1/{leads,opportunities}/{id}/claim` and `POST
+      /api/v1/crm/tasks/{id}/claim`; `/sales` portal's "Unclaimed"
+      leads/opportunities now show a Claim button. Code-reviewer
+      independently re-derived the atomicity/disambiguation logic,
+      the exception-chain wiring, the route path-parsing guard
+      (including a simulated `/api/v1/leads/1/2/claim` misrouting
+      attempt, correctly rejected), and validated the rendered JS by
+      extracting and `node --check`-ing the actual output — not just
+      trusting string-level tests, per this session's established
+      verification bar for this file's known brace-doubling failure
+      class. Spun off `NEW-542` (the older generic `update_lead`/etc.
+      write path still has no `assigned_user_id IS NULL` guard of its
+      own, so it can race against the new atomic claim path —
+      confirmed real, deliberately out of this task's scope, not
+      fixed). 1944 passed, 1 skipped.
 - [ ] **Real-time push layer (new, system-wide, not B8-scoped)** —
       requested by Ish 2026-09-16, overriding B6.9 decision 8.
       Large enough to need its own phase and `project-architect`

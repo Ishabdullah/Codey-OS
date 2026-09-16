@@ -5336,7 +5336,7 @@ def _render_sales_portal() -> str:
                             <td>#${{l.id}}</td>
                             <td>${{l.customer_id ? 'Cust #' + l.customer_id : '—'}}</td>
                             <td><span class="badge badge-info">${{escapeHtml(l.status)}}</span></td>
-                            <td>${{l.assigned_user_id ? escapeHtml(String(l.assigned_user_id)) : 'Unclaimed'}}</td>
+                            <td>${{l.assigned_user_id ? escapeHtml(String(l.assigned_user_id)) : 'Unclaimed <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="claimLead(' + l.id + ')">Claim</button>'}}</td>
                         </tr>`
                     ).join('');
                 }} else {{
@@ -5358,13 +5358,57 @@ def _render_sales_portal() -> str:
                             <td>#${{o.id}}</td>
                             <td>${{escapeHtml(o.title)}}</td>
                             <td><span class="badge badge-info">${{escapeHtml(o.pipeline_stage)}}</span></td>
-                            <td>${{o.assigned_user_id ? escapeHtml(String(o.assigned_user_id)) : 'Unclaimed'}}</td>
+                            <td>${{o.assigned_user_id ? escapeHtml(String(o.assigned_user_id)) : 'Unclaimed <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="claimOpportunity(' + o.id + ')">Claim</button>'}}</td>
                         </tr>`
                     ).join('');
                 }} else {{
                     tbody.innerHTML = '<tr><td colspan="4" style="color:var(--text-muted)">No opportunities.</td></tr>';
                 }}
             }} catch (e) {{ /* network/parse failure: opportunities tbody keeps its "Loading..." placeholder, no further UI action needed */ }}
+        }}
+
+        // NEW-534: claim buttons for unclaimed leads/opportunities.
+        // _render_sales_portal has no modal/inline-errBox convention of its
+        // own for user-triggered mutations (its only existing error
+        // handling is the silent "keep Loading... placeholder" pattern
+        // above, for the initial-load fetches, not for actions the user
+        // clicks) -- alert() on failure matches the closest sibling
+        // pattern elsewhere in this file for a simple id-keyed action
+        // button with no modal (e.g. cancelAppointmentFromCalendar). Either
+        // outcome (success or 409-conflict) reloads the dashboard so a
+        // stale "Unclaimed" label never lingers.
+        async function claimLead(id) {{
+            const token = getAuthToken();
+            try {{
+                const res = await fetch('/api/v1/leads/' + id + '/claim', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token }}
+                }});
+                if (!res.ok) {{
+                    const data = await res.json();
+                    alert(data.error === 'already claimed' ? 'This lead was already claimed by someone else.' : (data.error || ('Failed to claim lead (' + res.status + ').')));
+                }}
+                loadDashboard();
+            }} catch (e) {{
+                alert('Failed to claim lead: network error.');
+            }}
+        }}
+
+        async function claimOpportunity(id) {{
+            const token = getAuthToken();
+            try {{
+                const res = await fetch('/api/v1/opportunities/' + id + '/claim', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token }}
+                }});
+                if (!res.ok) {{
+                    const data = await res.json();
+                    alert(data.error === 'already claimed' ? 'This opportunity was already claimed by someone else.' : (data.error || ('Failed to claim opportunity (' + res.status + ').')));
+                }}
+                loadDashboard();
+            }} catch (e) {{
+                alert('Failed to claim opportunity: network error.');
+            }}
         }}
 
         window.onload = loadDashboard;

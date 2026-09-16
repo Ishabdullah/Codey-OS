@@ -46,3 +46,30 @@ def test_sales_portal_viewer_scope_banner_is_display_only():
     assert "read:team_sales_data" in html
     assert "Viewing: Whole Team" in html
     assert "Viewing: My Own" in html
+
+
+def test_sales_portal_has_claim_buttons_and_fetch_calls():
+    """NEW-534: unclaimed leads/opportunities render a Claim button in
+    place of the old plain 'Unclaimed' text, wired to POST the new claim
+    routes."""
+    html = render_sales_surface()
+    assert "claimLead(" in html
+    assert "claimOpportunity(" in html
+    # Anchor on the actual button markup, not just the function definition
+    # existing -- the spec requires an "Unclaimed" row to still render a
+    # clickable Claim button, not just the JS function being present.
+    assert 'onclick="claimLead(\' + l.id + \')">Claim</button>' in html
+    assert 'onclick="claimOpportunity(\' + o.id + \')">Claim</button>' in html
+    assert "Unclaimed" in html, "Unclaimed label must still render alongside the Claim button"
+    assert "/api/v1/leads/' + id + '/claim'" in html
+    assert "/api/v1/opportunities/' + id + '/claim'" in html
+
+    claim_lead_js = html[html.index("async function claimLead("):html.index("async function claimOpportunity(")]
+    assert "method: 'POST'" in claim_lead_js
+    assert "'Authorization': 'Bearer ' + token" in claim_lead_js
+    assert "loadDashboard();" in claim_lead_js
+
+    claim_opp_js = html[html.index("async function claimOpportunity("):html.index("window.onload = loadDashboard;")]
+    assert "method: 'POST'" in claim_opp_js
+    assert "'Authorization': 'Bearer ' + token" in claim_opp_js
+    assert "loadDashboard();" in claim_opp_js

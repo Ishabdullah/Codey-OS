@@ -41,7 +41,7 @@ from restoricon_core.models import (
 from restoricon_core.services.audit_service import AuditService
 from restoricon_core.services.automation_service import AutomationService
 from restoricon_core.services.communication_service import CommunicationService
-from restoricon_core.services.crm_service import CRMService
+from restoricon_core.services.crm_service import CRMService, ClaimConflictError
 from restoricon_core.services.scheduling_service import SchedulingService
 
 
@@ -852,3 +852,251 @@ def test_real_sales_manager_role_sees_team_data_with_no_custom_permission_grant(
     assert crm.get_lead(lead.id, sales_manager_actor) is not None
     assert crm.get_opportunity(opp.id, sales_manager_actor) is not None
     assert crm.get_task(task.id, sales_manager_actor) is not None
+
+
+# ==========================================
+# 9. NEW-534: ATOMIC CLAIM WORKFLOW
+# ==========================================
+
+def test_claim_lead_success_updates_assignment_and_narrows_visibility(env):
+    crm = env["crm"]
+    actor_a = env["actors"][ROLE_SALES]
+    actor_b = _second_sales_actor(env)
+
+    cust = crm.create_customer(Customer(first_name="F", last_name="Owner"), actor_a)
+    lead = crm.create_lead(Lead(customer_id=cust.id, source="website"), actor_a)
+    assert lead.assigned_user_id is None
+
+    claimed = crm.claim_lead(lead.id, actor_b)
+    assert claimed is not None
+    assert claimed.assigned_user_id == actor_b.user_id
+
+    # NEW-533 narrowing kicks in immediately: actor_a (no
+    # PERM_READ_TEAM_SALES_DATA) can no longer see the now-claimed-by-
+    # actor_b lead via either the get or list path.
+    assert crm.get_lead(lead.id, actor_a) is None
+    assert lead.id not in {l.id for l in crm.list_leads(actor_a)}
+    # actor_b, who claimed it, sees it fine.
+    assert crm.get_lead(lead.id, actor_b) is not None
+
+
+def test_claim_lead_api_route_200_and_body_shape(env):
+    router = env["router"]
+    crm = env["crm"]
+    actor_a = env["actors"][ROLE_SALES]
+    token = env["tokens"][ROLE_SALES]
+
+    cust = crm.create_customer(Customer(first_name="G", last_name="Owner"), actor_a)
+    lead = crm.create_lead(Lead(customer_id=cust.id, source="referral"), actor_a)
+
+    s, _, data = router.handle_request(
+        "POST", f"/api/v1/leads/{lead.id}/claim", {"Authorization": f"Bearer {token}"}, b"",
+    )
+    assert s == 200
+    assert data["lead"]["id"] == lead.id
+    assert data["lead"]["assigned_user_id"] == actor_a.user_id
+
+
+def test_claim_lead_ignores_body_supplied_assignee(env):
+    """Hardcoded self-claim: a request body naming someone else as
+    assigned_user_id must be ignored entirely -- claim_lead's signature
+    takes no updates dict at all (unlike update_lead), so this also
+    verifies the route never threads json_body into claim_lead."""
+    router = env["router"]
+    crm = env["crm"]
+    actor_a = env["actors"][ROLE_SALES]
+    actor_b = _second_sales_actor(env)
+    token = env["tokens"][ROLE_SALES]
+
+    cust = crm.create_customer(Customer(first_name="H", last_name="Owner"), actor_a)
+    lead = crm.create_lead(Lead(customer_id=cust.id, source="referral"), actor_a)
+
+    s, _, data = router.handle_request(
+        "POST", f"/api/v1/leads/{lead.id}/claim", {"Authorization": f"Bearer {token}"},
+        json.dumps({"assigned_user_id": actor_b.user_id}).encode("utf-8"),
+    )
+    assert s == 200
+    assert data["lead"]["assigned_user_id"] == actor_a.user_id
+    assert data["lead"]["assigned_user_id"] != actor_b.user_id
+
+
+def test_claim_lead_conflict_on_already_claimed_record(env):
+    router = env["router"]
+    crm = env["crm"]
+    actor_a = env["actors"][ROLE_SALES]
+    actor_b = _second_sales_actor(env)
+
+    cust = crm.create_customer(Customer(first_name="I", last_name="Owner"), actor_a)
+    lead = crm.create_lead(
+        Lead(customer_id=cust.id, source="referral", assigned_user_id=actor_a.user_id), actor_a
+    )
+
+    s, _, data = router.handle_request(
+        "POST", f"/api/v1/leads/{lead.id}/claim", {"Authorization": f"Bearer {actor_b.token}"}, b"",
+    )
+    assert s == 409
+    assert data["error"] == "already claimed"
+
+
+def test_claim_lead_not_found_returns_404(env):
+    router = env["router"]
+    token = env["tokens"][ROLE_SALES]
+    s, _, data = router.handle_request(
+        "POST", "/api/v1/leads/999999/claim", {"Authorization": f"Bearer {token}"}, b"",
+    )
+    assert s == 404
+    assert data["error"] == "Lead not found"
+
+
+def test_claim_lead_audit_log_records_correct_before_after(env):
+    crm = env["crm"]
+    audit = env["audit"]
+    actor_a = env["actors"][ROLE_SALES]
+
+    cust = crm.create_customer(Customer(first_name="J", last_name="Owner"), actor_a)
+    lead = crm.create_lead(Lead(customer_id=cust.id, source="referral"), actor_a)
+
+    crm.claim_lead(lead.id, actor_a)
+
+    logs = audit.query_logs(env["actors"][ROLE_ADMIN], entity_type="lead", entity_id=lead.id, action="claim")
+    assert logs, "Expected an audit row for the lead claim"
+    changed = logs[0].details.get("changed_fields", {})
+    assert changed.get("assigned_user_id") == {"old": None, "new": actor_a.user_id}
+
+
+def test_claim_lead_sequential_race_second_call_conflicts(env):
+    """Concurrency-shaped: two sequential claim calls against the same
+    unclaimed row (the simpler of the spec's two allowed approaches).
+    This exercises the conditional UPDATE's own `rowcount` check -- the
+    thing that actually guarantees correctness under real concurrency --
+    not the test's thread count. Chosen over a genuine 2-thread test
+    because DatabaseManager.get_connection() returns a single shared
+    sqlite3 connection (check_same_thread=False, confirmed by reading
+    database.py before writing this test): SQLite already serializes all
+    writes made through that one connection regardless of Python-level
+    threading, so a real multi-threaded variant would exercise the exact
+    same `WHERE assigned_user_id IS NULL` + rowcount code path with no
+    additional guarantee proven beyond what this sequential version
+    already demonstrates."""
+    crm = env["crm"]
+    actor_a = env["actors"][ROLE_SALES]
+    actor_b = _second_sales_actor(env)
+
+    cust = crm.create_customer(Customer(first_name="K", last_name="Owner"), actor_a)
+    lead = crm.create_lead(Lead(customer_id=cust.id, source="referral"), actor_a)
+
+    first = crm.claim_lead(lead.id, actor_a)
+    assert first.assigned_user_id == actor_a.user_id
+
+    with pytest.raises(ClaimConflictError):
+        crm.claim_lead(lead.id, actor_b)
+
+
+def test_claim_opportunity_api_route_200_409_404(env):
+    """Route-level coverage for POST /api/v1/opportunities/{id}/claim --
+    distinct path-slicing arithmetic from the lead route (different prefix
+    length subtracted for '/claim'), so passing lead-route tests prove
+    nothing about this one; must be exercised independently through
+    router.handle_request, not just CRMService.claim_opportunity directly."""
+    router = env["router"]
+    crm = env["crm"]
+    actor_a = env["actors"][ROLE_SALES]
+    actor_b = _second_sales_actor(env)
+    token_a = env["tokens"][ROLE_SALES]
+
+    cust = crm.create_customer(Customer(first_name="N", last_name="Owner"), actor_a)
+    opp = crm.create_opportunity(
+        Opportunity(customer_id=cust.id, title="Route-tested deal", estimated_value=1500.0), actor_a,
+    )
+
+    s, _, data = router.handle_request(
+        "POST", f"/api/v1/opportunities/{opp.id}/claim", {"Authorization": f"Bearer {token_a}"}, b"",
+    )
+    assert s == 200
+    assert data["opportunity"]["id"] == opp.id
+    assert data["opportunity"]["assigned_user_id"] == actor_a.user_id
+
+    s, _, data = router.handle_request(
+        "POST", f"/api/v1/opportunities/{opp.id}/claim", {"Authorization": f"Bearer {actor_b.token}"}, b"",
+    )
+    assert s == 409
+    assert data["error"] == "already claimed"
+
+    s, _, data = router.handle_request(
+        "POST", "/api/v1/opportunities/999999/claim", {"Authorization": f"Bearer {token_a}"}, b"",
+    )
+    assert s == 404
+    assert data["error"] == "Opportunity not found"
+
+
+def test_claim_task_api_route_200_409_404(env):
+    """Route-level coverage for POST /api/v1/crm/tasks/{id}/claim -- note
+    the real prefix is /api/v1/crm/tasks/, distinct from both the lead and
+    opportunity routes' path-slicing arithmetic; must be exercised
+    independently through router.handle_request."""
+    router = env["router"]
+    crm = env["crm"]
+    actor_a = env["actors"][ROLE_SALES]
+    actor_b = _second_sales_actor(env)
+    token_a = env["tokens"][ROLE_SALES]
+
+    task = crm.create_task(Task(title="Route-tested follow-up", task_type="follow_up"), actor_a)
+
+    s, _, data = router.handle_request(
+        "POST", f"/api/v1/crm/tasks/{task.id}/claim", {"Authorization": f"Bearer {token_a}"}, b"",
+    )
+    assert s == 200
+    assert data["task"]["id"] == task.id
+    assert data["task"]["assigned_user_id"] == actor_a.user_id
+
+    s, _, data = router.handle_request(
+        "POST", f"/api/v1/crm/tasks/{task.id}/claim", {"Authorization": f"Bearer {actor_b.token}"}, b"",
+    )
+    assert s == 409
+    assert data["error"] == "already claimed"
+
+    s, _, data = router.handle_request(
+        "POST", "/api/v1/crm/tasks/999999/claim", {"Authorization": f"Bearer {token_a}"}, b"",
+    )
+    assert s == 404
+    assert data["error"] == "Task not found"
+
+
+def test_claim_opportunity_and_claim_task_basic_flow(env):
+    """Lighter-weight coverage for claim_opportunity/claim_task (full
+    success/conflict/audit/body-ignored permutations are already covered
+    in depth for claim_lead above; the three methods are structurally
+    identical)."""
+    crm = env["crm"]
+    actor_a = env["actors"][ROLE_SALES]
+    actor_b = _second_sales_actor(env)
+
+    cust = crm.create_customer(Customer(first_name="L", last_name="Owner"), actor_a)
+
+    opp = crm.create_opportunity(
+        Opportunity(customer_id=cust.id, title="Claimable deal", estimated_value=4000.0), actor_a,
+    )
+    claimed_opp = crm.claim_opportunity(opp.id, actor_b)
+    assert claimed_opp.assigned_user_id == actor_b.user_id
+    with pytest.raises(ClaimConflictError):
+        crm.claim_opportunity(opp.id, actor_a)
+    assert crm.claim_opportunity(999999, actor_a) is None
+
+    task = crm.create_task(Task(title="Claimable follow-up", task_type="follow_up"), actor_a)
+    claimed_task = crm.claim_task(task.id, actor_b)
+    assert claimed_task.assigned_user_id == actor_b.user_id
+    with pytest.raises(ClaimConflictError):
+        crm.claim_task(task.id, actor_a)
+    assert crm.claim_task(999999, actor_a) is None
+
+
+def test_claim_permission_denied_without_write_permission(env):
+    crm = env["crm"]
+    actor_a = env["actors"][ROLE_SALES]
+    cust_actor = env["actors"][ROLE_CUSTOMER]
+
+    cust = crm.create_customer(Customer(first_name="M", last_name="Owner"), actor_a)
+    lead = crm.create_lead(Lead(customer_id=cust.id, source="referral"), actor_a)
+
+    with pytest.raises(PermissionError):
+        crm.claim_lead(lead.id, cust_actor)
