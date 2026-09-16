@@ -725,8 +725,13 @@ class APIRouter:
                     return 404, {"Content-Type": "application/json"}, {"error": "Customer not found"}
                 return 200, {"Content-Type": "application/json"}, {"customer": found.to_dict()}
 
-            if path.startswith("/api/v1/customers/") and path.endswith("/update") and method == "POST":
-                cust_id = int(path.split("/")[-2])
+            if (
+                path.startswith("/api/v1/customers/")
+                and path.endswith("/update")
+                and "/" not in path[len("/api/v1/customers/"):-len("/update")]
+                and method == "POST"
+            ):
+                cust_id = _parse_int_path_segment(path[len("/api/v1/customers/"):-len("/update")], "cust_id")
                 updated_cust = self.crm.update_customer(cust_id, json_body, actor)
                 if not updated_cust:
                     return 404, {"Content-Type": "application/json"}, {"error": "Customer not found"}
@@ -768,14 +773,24 @@ class APIRouter:
                     created = self.crm.create_task(task, actor)
                     return 201, {"Content-Type": "application/json"}, {"task": created.to_dict()}
 
-            if path.startswith("/api/v1/crm/tasks/") and path.endswith("/complete") and method == "POST":
-                task_id = int(path.split("/")[-2])
+            if (
+                path.startswith("/api/v1/crm/tasks/")
+                and path.endswith("/complete")
+                and "/" not in path[len("/api/v1/crm/tasks/"):-len("/complete")]
+                and method == "POST"
+            ):
+                task_id = _parse_int_path_segment(path[len("/api/v1/crm/tasks/"):-len("/complete")], "task_id")
                 notes = json_body.get("notes")
                 completed = self.crm.complete_task(task_id, actor, notes=notes)
                 return 200, {"Content-Type": "application/json"}, {"task": completed.to_dict()}
 
-            if path.startswith("/api/v1/crm/tasks/") and path.endswith("/update") and method == "POST":
-                task_id = int(path.split("/")[-2])
+            if (
+                path.startswith("/api/v1/crm/tasks/")
+                and path.endswith("/update")
+                and "/" not in path[len("/api/v1/crm/tasks/"):-len("/update")]
+                and method == "POST"
+            ):
+                task_id = _parse_int_path_segment(path[len("/api/v1/crm/tasks/"):-len("/update")], "task_id")
                 updated = self.crm.update_task(task_id, json_body, actor)
                 if not updated:
                     return 404, {"Content-Type": "application/json"}, {"error": "Task not found"}
@@ -815,8 +830,13 @@ class APIRouter:
                     score_res = self.crm.score_lead(lead_id, actor, factors=json_body)
                     return 200, {"Content-Type": "application/json"}, score_res
 
-            if path.startswith("/api/v1/leads/") and path.endswith("/update") and method == "POST":
-                lead_id = int(path.split("/")[-2])
+            if (
+                path.startswith("/api/v1/leads/")
+                and path.endswith("/update")
+                and "/" not in path[len("/api/v1/leads/"):-len("/update")]
+                and method == "POST"
+            ):
+                lead_id = _parse_int_path_segment(path[len("/api/v1/leads/"):-len("/update")], "lead_id")
                 updated = self.crm.update_lead(lead_id, json_body, actor)
                 if not updated:
                     return 404, {"Content-Type": "application/json"}, {"error": "Lead not found"}
@@ -849,8 +869,13 @@ class APIRouter:
                     created = self.crm.create_opportunity(opp, actor)
                     return 201, {"Content-Type": "application/json"}, {"opportunity": created.to_dict()}
 
-            if path.startswith("/api/v1/opportunities/") and path.endswith("/transition") and method == "POST":
-                opp_id = int(path.split("/")[-2])
+            if (
+                path.startswith("/api/v1/opportunities/")
+                and path.endswith("/transition")
+                and "/" not in path[len("/api/v1/opportunities/"):-len("/transition")]
+                and method == "POST"
+            ):
+                opp_id = _parse_int_path_segment(path[len("/api/v1/opportunities/"):-len("/transition")], "opp_id")
                 new_stage = json_body.get("stage", json_body.get("pipeline_stage", ""))
                 lost_reason = json_body.get("lost_reason")
                 notes = json_body.get("notes")
@@ -859,8 +884,13 @@ class APIRouter:
                 )
                 return 200, {"Content-Type": "application/json"}, {"opportunity": trans.to_dict()}
 
-            if path.startswith("/api/v1/opportunities/") and path.endswith("/update") and method == "POST":
-                opp_id = int(path.split("/")[-2])
+            if (
+                path.startswith("/api/v1/opportunities/")
+                and path.endswith("/update")
+                and "/" not in path[len("/api/v1/opportunities/"):-len("/update")]
+                and method == "POST"
+            ):
+                opp_id = _parse_int_path_segment(path[len("/api/v1/opportunities/"):-len("/update")], "opp_id")
                 updated = self.crm.update_opportunity(opp_id, json_body, actor)
                 if not updated:
                     return 404, {"Content-Type": "application/json"}, {"error": "Opportunity not found"}
@@ -894,8 +924,13 @@ class APIRouter:
                     return 404, {"Content-Type": "application/json"}, {"error": "Project not found"}
                 return 200, {"Content-Type": "application/json"}, {"project": proj.to_dict()}
 
-            if path.startswith("/api/v1/projects/") and path.endswith("/update") and method == "POST":
-                proj_id = int(path.split("/")[-2])
+            if (
+                path.startswith("/api/v1/projects/")
+                and path.endswith("/update")
+                and "/" not in path[len("/api/v1/projects/"):-len("/update")]
+                and method == "POST"
+            ):
+                proj_id = _parse_int_path_segment(path[len("/api/v1/projects/"):-len("/update")], "proj_id")
                 updated_proj = self.crm.update_project(proj_id, json_body, actor)
                 if not updated_proj:
                     return 404, {"Content-Type": "application/json"}, {"error": "Project not found"}
@@ -947,8 +982,13 @@ class APIRouter:
                     return 404, {"Content-Type": "application/json"}, {"error": "Contract not found"}
                 return 200, {"Content-Type": "application/json"}, {"contract": contract.to_dict()}
 
-            if path.startswith("/api/v1/contracts/") and path.endswith("/sign") and method == "POST":
-                contract_id = int(path.split("/")[-2])
+            if (
+                path.startswith("/api/v1/contracts/")
+                and path.endswith("/sign")
+                and "/" not in path[len("/api/v1/contracts/"):-len("/sign")]
+                and method == "POST"
+            ):
+                contract_id = _parse_int_path_segment(path[len("/api/v1/contracts/"):-len("/sign")], "contract_id")
                 signature = json_body.get("signature_data", "digital_signature_token")
                 signed = self.crm.sign_contract(contract_id, signature, actor)
                 return 200, {"Content-Type": "application/json"}, {"contract": signed.to_dict()}
@@ -976,8 +1016,13 @@ class APIRouter:
                     return 404, {"Content-Type": "application/json"}, {"error": "Invoice not found"}
                 return 200, {"Content-Type": "application/json"}, {"invoice": invoice.to_dict()}
 
-            if path.startswith("/api/v1/invoices/") and path.endswith("/pay") and method == "POST":
-                inv_id = int(path.split("/")[-2])
+            if (
+                path.startswith("/api/v1/invoices/")
+                and path.endswith("/pay")
+                and "/" not in path[len("/api/v1/invoices/"):-len("/pay")]
+                and method == "POST"
+            ):
+                inv_id = _parse_int_path_segment(path[len("/api/v1/invoices/"):-len("/pay")], "inv_id")
                 amount = float(json_body.get("amount", 0.0))
                 method_name = json_body.get("payment_method", "credit_card")
                 ref = json_body.get("reference", "manual_entry")
@@ -1146,8 +1191,13 @@ class APIRouter:
                     return 404, {"Content-Type": "application/json"}, {"error": "Document not found"}
                 return 200, {"Content-Type": "application/json"}, {"document": doc.to_dict()}
                 
-            if path.startswith("/api/v1/documents/") and path.endswith("/download") and method == "GET":
-                doc_id = int(path.split("/")[-2])
+            if (
+                path.startswith("/api/v1/documents/")
+                and path.endswith("/download")
+                and "/" not in path[len("/api/v1/documents/"):-len("/download")]
+                and method == "GET"
+            ):
+                doc_id = _parse_int_path_segment(path[len("/api/v1/documents/"):-len("/download")], "doc_id")
                 doc = self.crm.get_document(doc_id, actor)
                 if not doc:
                     return 404, {"Content-Type": "application/json"}, {"error": "Document not found"}
@@ -1183,8 +1233,13 @@ class APIRouter:
                     projects = self.crm.list_projects(actor, customer_id=actor.customer_id)
                     return 200, {"Content-Type": "application/json"}, {"projects": [p.to_dict() for p in projects]}
 
-                if path.startswith("/api/v1/portal/projects/") and path.endswith("/milestones") and method == "GET":
-                    proj_id = int(path.split("/")[-2])
+                if (
+                    path.startswith("/api/v1/portal/projects/")
+                    and path.endswith("/milestones")
+                    and "/" not in path[len("/api/v1/portal/projects/"):-len("/milestones")]
+                    and method == "GET"
+                ):
+                    proj_id = _parse_int_path_segment(path[len("/api/v1/portal/projects/"):-len("/milestones")], "proj_id")
                     milestones = self.operations.list_milestones(proj_id, actor)
                     return 200, {"Content-Type": "application/json"}, {"milestones": [m.to_dict() for m in milestones]}
 
@@ -1207,8 +1262,13 @@ class APIRouter:
                     contracts = self.crm.list_contracts(actor, customer_id=actor.customer_id, project_id=proj_id)
                     return 200, {"Content-Type": "application/json"}, {"contracts": [c.to_dict() for c in contracts]}
 
-                if path.startswith("/api/v1/portal/contracts/") and path.endswith("/sign") and method == "POST":
-                    contract_id = int(path.split("/")[-2])
+                if (
+                    path.startswith("/api/v1/portal/contracts/")
+                    and path.endswith("/sign")
+                    and "/" not in path[len("/api/v1/portal/contracts/"):-len("/sign")]
+                    and method == "POST"
+                ):
+                    contract_id = _parse_int_path_segment(path[len("/api/v1/portal/contracts/"):-len("/sign")], "contract_id")
                     signature = json_body.get("signature_data", "")
                     if not signature:
                         return 400, {"Content-Type": "application/json"}, {"error": "signature_data is required"}
@@ -1402,8 +1462,13 @@ class APIRouter:
                     "subcontractor": self.crm.format_subcontractor_for_js(result)
                 }
 
-            if path.startswith("/api/v1/subcontractors/") and path.endswith("/qualification") and method == "POST":
-                sub_id = int(path.split("/")[-2])
+            if (
+                path.startswith("/api/v1/subcontractors/")
+                and path.endswith("/qualification")
+                and "/" not in path[len("/api/v1/subcontractors/"):-len("/qualification")]
+                and method == "POST"
+            ):
+                sub_id = _parse_int_path_segment(path[len("/api/v1/subcontractors/"):-len("/qualification")], "sub_id")
                 qualification_status = json_body.get("qualification_status")
                 recruitment_step = json_body.get("recruitment_step")
                 updated_sub = self.crm.update_subcontractor_qualification(
@@ -1413,8 +1478,13 @@ class APIRouter:
                     return 404, {"Content-Type": "application/json"}, {"error": "Subcontractor not found"}
                 return 200, {"Content-Type": "application/json"}, {"subcontractor": updated_sub.to_dict()}
 
-            if path.startswith("/api/v1/subcontractors/") and path.endswith("/update") and method == "POST":
-                sub_id = int(path.split("/")[-2])
+            if (
+                path.startswith("/api/v1/subcontractors/")
+                and path.endswith("/update")
+                and "/" not in path[len("/api/v1/subcontractors/"):-len("/update")]
+                and method == "POST"
+            ):
+                sub_id = _parse_int_path_segment(path[len("/api/v1/subcontractors/"):-len("/update")], "sub_id")
                 updated_sub = self.crm.update_subcontractor(sub_id, json_body, actor)
                 if not updated_sub:
                     return 404, {"Content-Type": "application/json"}, {"error": "Subcontractor not found"}
@@ -1426,8 +1496,13 @@ class APIRouter:
             # subcontractor's linked user's active staff_schedules, and
             # the subcontractor's own non-terminal work_orders), unlike
             # those single-type precedents.
-            if path.startswith("/api/v1/subcontractors/") and path.endswith("/active-references") and method == "GET":
-                sub_id = int(path.split("/")[-2])
+            if (
+                path.startswith("/api/v1/subcontractors/")
+                and path.endswith("/active-references")
+                and "/" not in path[len("/api/v1/subcontractors/"):-len("/active-references")]
+                and method == "GET"
+            ):
+                sub_id = _parse_int_path_segment(path[len("/api/v1/subcontractors/"):-len("/active-references")], "sub_id")
                 sub = self.crm.get_subcontractor(sub_id, actor)
                 if not sub:
                     return 404, {"Content-Type": "application/json"}, {"error": "Subcontractor not found"}
@@ -1439,8 +1514,13 @@ class APIRouter:
                     "active_references": {"staff_schedules": staff_schedules, "work_orders": work_orders}
                 }
 
-            if path.startswith("/api/v1/subcontractors/") and path.endswith("/delete") and method == "POST":
-                sub_id = int(path.split("/")[-2])
+            if (
+                path.startswith("/api/v1/subcontractors/")
+                and path.endswith("/delete")
+                and "/" not in path[len("/api/v1/subcontractors/"):-len("/delete")]
+                and method == "POST"
+            ):
+                sub_id = _parse_int_path_segment(path[len("/api/v1/subcontractors/"):-len("/delete")], "sub_id")
                 # Explicit permission gate BEFORE the unguarded `before`
                 # fetch below, which is used only for audit-snapshot
                 # context and doesn't itself leak schedule/work-order
@@ -1579,16 +1659,26 @@ class APIRouter:
                 saved = self.scheduling.upsert_appointment(appt, actor, raw_updates=json_body)
                 return 200, {"Content-Type": "application/json"}, {"appointment": saved.to_dict()}
 
-            if path.startswith("/api/v1/appointments/") and path.endswith("/status") and method == "POST":
-                appt_id = int(path.split("/")[-2])
+            if (
+                path.startswith("/api/v1/appointments/")
+                and path.endswith("/status")
+                and "/" not in path[len("/api/v1/appointments/"):-len("/status")]
+                and method == "POST"
+            ):
+                appt_id = _parse_int_path_segment(path[len("/api/v1/appointments/"):-len("/status")], "appt_id")
                 status = json_body.get("status")
                 updated_appt = self.scheduling.update_appointment_status(appt_id, status, actor)
                 if not updated_appt:
                     return 404, {"Content-Type": "application/json"}, {"error": "Appointment not found"}
                 return 200, {"Content-Type": "application/json"}, {"appointment": updated_appt.to_dict()}
 
-            if path.startswith("/api/v1/appointments/") and path.endswith("/update") and method == "POST":
-                appt_id = int(path.split("/")[-2])
+            if (
+                path.startswith("/api/v1/appointments/")
+                and path.endswith("/update")
+                and "/" not in path[len("/api/v1/appointments/"):-len("/update")]
+                and method == "POST"
+            ):
+                appt_id = _parse_int_path_segment(path[len("/api/v1/appointments/"):-len("/update")], "appt_id")
                 updated_appt = self.scheduling.update_appointment(appt_id, json_body, actor)
                 if not updated_appt:
                     return 404, {"Content-Type": "application/json"}, {"error": "Appointment not found"}
@@ -1703,18 +1793,33 @@ class APIRouter:
                     created = self.scheduling.create_appointment_type(AppointmentType(**json_body), actor)
                     return 201, {"Content-Type": "application/json"}, {"appointment_type": created.to_dict()}
 
-            if path.startswith("/api/v1/appointment-types/") and path.endswith("/update") and method == "POST":
-                type_id = int(path.split("/")[-2])
+            if (
+                path.startswith("/api/v1/appointment-types/")
+                and path.endswith("/update")
+                and "/" not in path[len("/api/v1/appointment-types/"):-len("/update")]
+                and method == "POST"
+            ):
+                type_id = _parse_int_path_segment(path[len("/api/v1/appointment-types/"):-len("/update")], "type_id")
                 updated_type = self.scheduling.update_appointment_type(type_id, json_body, actor)
                 return 200, {"Content-Type": "application/json"}, {"appointment_type": updated_type.to_dict()}
 
-            if path.startswith("/api/v1/appointment-types/") and path.endswith("/active-references") and method == "GET":
-                type_id = int(path.split("/")[-2])
+            if (
+                path.startswith("/api/v1/appointment-types/")
+                and path.endswith("/active-references")
+                and "/" not in path[len("/api/v1/appointment-types/"):-len("/active-references")]
+                and method == "GET"
+            ):
+                type_id = _parse_int_path_segment(path[len("/api/v1/appointment-types/"):-len("/active-references")], "type_id")
                 active = self.scheduling.get_active_appointments_for_type(type_id, actor)
                 return 200, {"Content-Type": "application/json"}, {"active_references": active}
 
-            if path.startswith("/api/v1/appointment-types/") and path.endswith("/delete") and method == "POST":
-                type_id = int(path.split("/")[-2])
+            if (
+                path.startswith("/api/v1/appointment-types/")
+                and path.endswith("/delete")
+                and "/" not in path[len("/api/v1/appointment-types/"):-len("/delete")]
+                and method == "POST"
+            ):
+                type_id = _parse_int_path_segment(path[len("/api/v1/appointment-types/"):-len("/delete")], "type_id")
                 self.scheduling.delete_appointment_type(type_id, actor)
                 return 200, {"Content-Type": "application/json"}, {"deleted": True, "appointment_type_id": type_id}
 
@@ -1731,15 +1836,25 @@ class APIRouter:
                     created = self.automation.create_rule(rule, actor)
                     return 201, {"Content-Type": "application/json"}, {"automation_rule": created.to_dict()}
 
-            if path.startswith("/api/v1/automation-rules/") and path.endswith("/match") and method == "POST":
-                rule_id = int(path.split("/")[-2])
+            if (
+                path.startswith("/api/v1/automation-rules/")
+                and path.endswith("/match")
+                and "/" not in path[len("/api/v1/automation-rules/"):-len("/match")]
+                and method == "POST"
+            ):
+                rule_id = _parse_int_path_segment(path[len("/api/v1/automation-rules/"):-len("/match")], "rule_id")
                 updated_rule = self.automation.record_rule_match(rule_id, actor)
                 if not updated_rule:
                     return 404, {"Content-Type": "application/json"}, {"error": "Automation rule not found"}
                 return 200, {"Content-Type": "application/json"}, {"automation_rule": updated_rule.to_dict()}
 
-            if path.startswith("/api/v1/automation-rules/") and path.endswith("/delete") and method == "POST":
-                rule_id = int(path.split("/")[-2])
+            if (
+                path.startswith("/api/v1/automation-rules/")
+                and path.endswith("/delete")
+                and "/" not in path[len("/api/v1/automation-rules/"):-len("/delete")]
+                and method == "POST"
+            ):
+                rule_id = _parse_int_path_segment(path[len("/api/v1/automation-rules/"):-len("/delete")], "rule_id")
                 deleted = self.automation.delete_rule(rule_id, actor)
                 return 200, {"Content-Type": "application/json"}, {"deleted": deleted}
 
@@ -2189,8 +2304,13 @@ class APIRouter:
                 txns = self.finance.list_transactions(actor, project_id=proj_id, customer_id=cust_id, transaction_type=ttype, limit=limit, offset=offset)
                 return 200, {"Content-Type": "application/json"}, {"transactions": [t.to_dict() for t in txns]}
 
-            if path.startswith("/api/v1/finance/projects/") and path.endswith("/pnl") and method == "GET":
-                proj_id = int(path.split("/")[-2])
+            if (
+                path.startswith("/api/v1/finance/projects/")
+                and path.endswith("/pnl")
+                and "/" not in path[len("/api/v1/finance/projects/"):-len("/pnl")]
+                and method == "GET"
+            ):
+                proj_id = _parse_int_path_segment(path[len("/api/v1/finance/projects/"):-len("/pnl")], "proj_id")
                 pnl = self.finance.get_project_pnl(proj_id, actor)
                 return 200, {"Content-Type": "application/json"}, {"pnl": pnl}
 
@@ -2236,8 +2356,13 @@ class APIRouter:
                 res = self.business_ops.create_review_request(req, actor)
                 return 201, {"Content-Type": "application/json"}, {"status": "sent", "review_request": res.to_dict()}
 
-            if path.startswith("/api/v1/marketing/reviews/") and path.endswith("/submit") and method == "POST":
-                req_id = int(path.split("/")[-2])
+            if (
+                path.startswith("/api/v1/marketing/reviews/")
+                and path.endswith("/submit")
+                and "/" not in path[len("/api/v1/marketing/reviews/"):-len("/submit")]
+                and method == "POST"
+            ):
+                req_id = _parse_int_path_segment(path[len("/api/v1/marketing/reviews/"):-len("/submit")], "req_id")
                 rating = int(json_body.get("rating", 5))
                 feedback = json_body.get("feedback", "")
                 res = self.business_ops.submit_review(req_id, rating, feedback, actor)
@@ -2325,8 +2450,13 @@ class APIRouter:
                 timesheets = self.business_ops.list_timesheets(actor, employee_id=emp_id, project_id=proj_id, status=stat)
                 return 200, {"Content-Type": "application/json"}, {"timesheets": [t.to_dict() for t in timesheets]}
 
-            if path.startswith("/api/v1/hr/timesheets/") and path.endswith("/approve") and method == "POST":
-                ts_id = int(path.split("/")[-2])
+            if (
+                path.startswith("/api/v1/hr/timesheets/")
+                and path.endswith("/approve")
+                and "/" not in path[len("/api/v1/hr/timesheets/"):-len("/approve")]
+                and method == "POST"
+            ):
+                ts_id = _parse_int_path_segment(path[len("/api/v1/hr/timesheets/"):-len("/approve")], "ts_id")
                 res = self.business_ops.approve_timesheet(ts_id, actor)
                 return 200, {"Content-Type": "application/json"}, {"status": "approved", "timesheet": res.to_dict()}
 
@@ -2376,8 +2506,13 @@ class APIRouter:
                 pos = self.business_ops.list_purchase_orders(actor, vendor_id=ven_id, project_id=proj_id, status=stat)
                 return 200, {"Content-Type": "application/json"}, {"purchase_orders": [p.to_dict() for p in pos]}
 
-            if path.startswith("/api/v1/procurement/purchase-orders/") and path.endswith("/receive") and method == "POST":
-                po_id = int(path.split("/")[-2])
+            if (
+                path.startswith("/api/v1/procurement/purchase-orders/")
+                and path.endswith("/receive")
+                and "/" not in path[len("/api/v1/procurement/purchase-orders/"):-len("/receive")]
+                and method == "POST"
+            ):
+                po_id = _parse_int_path_segment(path[len("/api/v1/procurement/purchase-orders/"):-len("/receive")], "po_id")
                 res = self.business_ops.receive_purchase_order(po_id, actor)
                 return 200, {"Content-Type": "application/json"}, {"status": "received", "purchase_order": res.to_dict()}
 

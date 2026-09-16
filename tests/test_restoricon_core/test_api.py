@@ -1883,3 +1883,246 @@ def test_api_new522_batch1_valid_integer_path_segments_still_work(api_server):
     # Special shape: /api/v1/operations/work-orders/{id} (int(path[len(prefix):]))
     status, body = make_request(f"{base_url}/api/v1/operations/work-orders/999999", headers=headers)
     assert status == 404, body
+
+
+# NEW-526 (NEW-522 batch 2): (method, url_template, var_name) for every
+# relative-`[-2]`-indexed sub-action route that got a segment-count guard
+# added AND its id-parsing switched to the shared `_parse_int_path_segment`
+# helper. `{}` is the single id slot between the route's prefix and its
+# trailing verb suffix.
+_NEW526_BATCH2_SITES = [
+    ("POST", "/api/v1/customers/{}/update", "cust_id"),
+    ("POST", "/api/v1/crm/tasks/{}/complete", "task_id"),
+    ("POST", "/api/v1/crm/tasks/{}/update", "task_id"),
+    ("POST", "/api/v1/leads/{}/update", "lead_id"),
+    ("POST", "/api/v1/opportunities/{}/transition", "opp_id"),
+    ("POST", "/api/v1/opportunities/{}/update", "opp_id"),
+    ("POST", "/api/v1/projects/{}/update", "proj_id"),
+    ("POST", "/api/v1/contracts/{}/sign", "contract_id"),
+    ("POST", "/api/v1/invoices/{}/pay", "inv_id"),
+    ("GET", "/api/v1/documents/{}/download", "doc_id"),
+    ("GET", "/api/v1/portal/projects/{}/milestones", "proj_id"),
+    ("POST", "/api/v1/portal/contracts/{}/sign", "contract_id"),
+    ("POST", "/api/v1/subcontractors/{}/qualification", "sub_id"),
+    ("POST", "/api/v1/subcontractors/{}/update", "sub_id"),
+    ("GET", "/api/v1/subcontractors/{}/active-references", "sub_id"),
+    ("POST", "/api/v1/subcontractors/{}/delete", "sub_id"),
+    ("POST", "/api/v1/appointments/{}/status", "appt_id"),
+    ("POST", "/api/v1/appointments/{}/update", "appt_id"),
+    ("POST", "/api/v1/appointment-types/{}/update", "type_id"),
+    ("GET", "/api/v1/appointment-types/{}/active-references", "type_id"),
+    ("POST", "/api/v1/appointment-types/{}/delete", "type_id"),
+    ("POST", "/api/v1/automation-rules/{}/match", "rule_id"),
+    ("POST", "/api/v1/automation-rules/{}/delete", "rule_id"),
+    ("GET", "/api/v1/finance/projects/{}/pnl", "proj_id"),
+    ("POST", "/api/v1/marketing/reviews/{}/submit", "req_id"),
+    ("POST", "/api/v1/hr/timesheets/{}/approve", "ts_id"),
+    ("POST", "/api/v1/procurement/purchase-orders/{}/receive", "po_id"),
+]
+
+
+def test_api_new526_batch2_non_integer_path_segments_are_400_without_raw_pyexc_text(api_server):
+    """NEW-526 (NEW-522 batch 2): all 27 sub-action routes that used to
+    parse their id via a bare `int(path.split("/")[-2])` now go through the
+    shared `_parse_int_path_segment` helper, which raises a clean
+    ValueError instead of letting Python's raw `int()` exception text
+    ('invalid literal for int() with base 10') reach the client. A
+    non-numeric value in the single-segment position between the route's
+    prefix and its trailing verb suffix must still be recognized as that
+    route (the new segment-count guard only rejects paths with more than
+    one segment there, not non-numeric single segments) and return the
+    clean 400 shape."""
+    _, base_url, _, _ = api_server
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "admin", "password": "AdminSecretPassword123"},
+    )
+    assert status == 200
+    headers = {"Authorization": f"Bearer {body['token']}"}
+
+    for method, url_template, var_name in _NEW526_BATCH2_SITES:
+        url = f"{base_url}{url_template.format('abc')}"
+        status, body = make_request(url, method=method, headers=headers, data={} if method == "POST" else None)
+        assert status == 400, f"{method} {url_template}: expected 400, got {status} ({body})"
+        assert body == {"error": f"Invalid '{var_name}' path segment: 'abc'"}, f"{method} {url_template}: {body}"
+
+
+def test_api_new526_batch2_malformed_extra_segment_is_404_and_no_write_happens(api_server):
+    """NEW-526: a malformed path with an extra numeric segment inserted
+    before the trailing verb (e.g. `POST /api/v1/customers/5/99/update`)
+    used to silently parse the LAST segment (99) as the id via
+    `path.split("/")[-2]`, acting on the wrong record with no error and no
+    404. The new segment-count guard now makes these routes NOT match at
+    all on such a path, falling through to the router's generic 404 --
+    and, critically, the record actually named earlier in the URL (and
+    every other record) must be left completely unmodified, not just get
+    a 404 response. Covers a representative subset of the 27 sites: two
+    POST writes, two POST deletes, and one GET (read-only) route, seeding
+    two distinct records per case so a wrong-id write would be observable."""
+    server, base_url, _, _ = api_server
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "admin", "password": "AdminSecretPassword123"},
+    )
+    assert status == 200
+    headers = {"Authorization": f"Bearer {body['token']}"}
+
+    def create_customer(company_name):
+        status, body = make_request(
+            f"{base_url}/api/v1/customers",
+            method="POST",
+            headers=headers,
+            data={
+                "first_name": "First",
+                "last_name": "Last",
+                "company_name": company_name,
+                "email": f"{company_name.lower().replace(' ', '')}@example.com",
+                "service_address": "1 Main St",
+                "customer_type": "commercial",
+                "status": "active",
+            },
+        )
+        assert status == 201, body
+        return body["customer"]["id"]
+
+    def get_customer(cust_id):
+        status, body = make_request(f"{base_url}/api/v1/customers/{cust_id}", headers=headers)
+        assert status == 200, body
+        return body["customer"]
+
+    # --- Case 1: POST .../customers/{id}/update (plain write) ---
+    cust_a = create_customer("Alpha Corp")
+    cust_b = create_customer("Beta Corp")
+
+    status, body = make_request(
+        f"{base_url}/api/v1/customers/{cust_a}/{cust_b}/update",
+        method="POST",
+        headers=headers,
+        data={"company_name": "HACKED"},
+    )
+    assert status == 404, body
+
+    assert get_customer(cust_a)["company_name"] == "Alpha Corp"
+    assert get_customer(cust_b)["company_name"] == "Beta Corp"
+
+    # --- Case 2: POST .../subcontractors/{id}/delete (destructive) ---
+    def create_subcontractor(company_name):
+        status, body = make_request(
+            f"{base_url}/api/v1/subcontractors",
+            method="POST",
+            headers=headers,
+            data={"company_name": company_name, "primary_trade": "roofing"},
+        )
+        assert status == 201, body
+        return body["subcontractor"]["id"]
+
+    sub_a = create_subcontractor("Sub Alpha")
+    sub_b = create_subcontractor("Sub Beta")
+
+    status, body = make_request(
+        f"{base_url}/api/v1/subcontractors/{sub_a}/{sub_b}/delete",
+        method="POST",
+        headers=headers,
+    )
+    assert status == 404, body
+
+    status, body = make_request(f"{base_url}/api/v1/subcontractors/{sub_a}", headers=headers)
+    assert status == 200, body
+    assert body["subcontractor"]["company_name"] == "Sub Alpha"
+    status, body = make_request(f"{base_url}/api/v1/subcontractors/{sub_b}", headers=headers)
+    assert status == 200, body
+    assert body["subcontractor"]["company_name"] == "Sub Beta"
+
+    # --- Case 3: POST .../appointment-types/{id}/delete (destructive) ---
+    def create_appointment_type(name):
+        status, body = make_request(
+            f"{base_url}/api/v1/appointment-types",
+            method="POST",
+            headers=headers,
+            data={"name": name},
+        )
+        assert status == 201, body
+        return body["appointment_type"]["id"]
+
+    type_a = create_appointment_type("Roof Inspection")
+    type_b = create_appointment_type("Water Mitigation")
+
+    status, body = make_request(
+        f"{base_url}/api/v1/appointment-types/{type_a}/{type_b}/delete",
+        method="POST",
+        headers=headers,
+    )
+    assert status == 404, body
+
+    status, body = make_request(f"{base_url}/api/v1/appointment-types", headers=headers)
+    assert status == 200, body
+    remaining_names = {t["name"] for t in body["appointment_types"]}
+    assert {"Roof Inspection", "Water Mitigation"} <= remaining_names
+
+    # --- Case 4: POST .../opportunities/{id}/transition (stage write) ---
+    def create_opportunity(title, customer_id):
+        status, body = make_request(
+            f"{base_url}/api/v1/opportunities",
+            method="POST",
+            headers=headers,
+            data={"customer_id": customer_id, "title": title},
+        )
+        assert status == 201, body
+        return body["opportunity"]["id"]
+
+    def get_opportunity(opp_id):
+        status, body = make_request(f"{base_url}/api/v1/opportunities/{opp_id}", headers=headers)
+        assert status == 200, body
+        return body["opportunity"]
+
+    opp_a = create_opportunity("Alpha Deal", cust_a)
+    opp_b = create_opportunity("Beta Deal", cust_b)
+    stage_a_before = get_opportunity(opp_a)["pipeline_stage"]
+    stage_b_before = get_opportunity(opp_b)["pipeline_stage"]
+
+    status, body = make_request(
+        f"{base_url}/api/v1/opportunities/{opp_a}/{opp_b}/transition",
+        method="POST",
+        headers=headers,
+        data={"stage": "contacted"},
+    )
+    assert status == 404, body
+
+    assert get_opportunity(opp_a)["pipeline_stage"] == stage_a_before
+    assert get_opportunity(opp_b)["pipeline_stage"] == stage_b_before
+
+    # --- Case 5: GET .../finance/projects/{id}/pnl (read-only) ---
+    def create_project(title, customer_id):
+        status, body = make_request(
+            f"{base_url}/api/v1/projects",
+            method="POST",
+            headers=headers,
+            data={
+                "customer_id": customer_id,
+                "title": title,
+                "property_address": "1 Main St",
+                "project_type": "commercial_remodel",
+                "contract_amount": 10000.0,
+            },
+        )
+        assert status == 201, body
+        return body["project"]["id"]
+
+    proj_a = create_project("Alpha Project", cust_a)
+    proj_b = create_project("Beta Project", cust_b)
+
+    status, body = make_request(
+        f"{base_url}/api/v1/finance/projects/{proj_a}/{proj_b}/pnl",
+        headers=headers,
+    )
+    assert status == 404, body
+
+    # The route still resolves correctly for each project individually
+    # via its own single-segment path -- the guard only rejects the
+    # malformed multi-segment shape, not legitimate requests.
+    status, body = make_request(f"{base_url}/api/v1/finance/projects/{proj_a}/pnl", headers=headers)
+    assert status == 200, body
+    status, body = make_request(f"{base_url}/api/v1/finance/projects/{proj_b}/pnl", headers=headers)
+    assert status == 200, body

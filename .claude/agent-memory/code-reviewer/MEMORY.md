@@ -138,3 +138,4 @@
 - [NEW-487 assigned_user_id on Appointment — APPROVED](new487_assigned_user_id_appointment_approved.md) — 34-test scare was the proxy artifact above, not a regression
 - [NEW-492/494/519 staff-schedule GET-by-id + delete_user() null-out — APPROVED](new492_494_519_staff_schedule_get_and_delete_user_nullout_approved.md) — "pre-existing" bug claim was incomplete, new code shared it
 - [NEW-520/522/523 batch1 path-segment sweep — APPROVED w/ 1 Warning](new520_522_523_batch1_path_segment_sweep_approved.md) — new pattern: loose route-match conditions can make a wrapped helper's error message confidently wrong, not just unpolished
+- [NEW-526 batch2 27-site segment guard — APPROVED, regex-verified all 27 + live negative-control repro](new526_batch2_segment_guard_approved.md)

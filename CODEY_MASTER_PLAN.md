@@ -1232,6 +1232,26 @@ hazard `NEW-520` already patched once elsewhere), `NEW-527` (22+ more
 query-param sibling leaks beyond `NEW-523`, two distinct shapes),
 `NEW-528` (POST-body `int(json_body.get(...))` sites, unassessed).
 1886 passed/1 skipped, reviewer-approved, standard tier.
+**`NEW-526` FIXED 2026-09-16, closing `NEW-522` fully (both batches,
+53 total sites).** The 27 Batch-2 sub-action routes needed a segment-
+count guard (mirroring `NEW-520`) PLUS the leak fix together — this
+turned out to be a real correctness bug, not cosmetic: a malformed
+path with an extra numeric segment could silently act on the wrong
+record (not an authorization bypass; RBAC still gates correctly).
+Confirmed genuinely real, not theoretical, by TWO independent live
+reproductions against the pre-fix code (implementer, then
+code-reviewer separately) before either trusted the fix. All 27
+guard/parse literal pairs verified against their own route-match
+literals via a scripted full-set check, zero mismatches. `NEW-529`
+(new, not fixed): two `/api/v1/contacts/{id}/*` routes share the same
+bug but need a different fix shape (intentional non-numeric
+external-id support). 1888 passed/1 skipped, reviewer-approved,
+standard tier. This closes the entire `NEW-520`→`NEW-526`
+raw-exception-leak/misrouting sweep from this session; remaining open
+items in that family are `NEW-525` (low-impact, misleading message
+only), `NEW-527`/`NEW-528` (broader sibling leak classes, not yet
+individually fixed), and `NEW-529` (contacts routes, needs a bespoke
+guard shape).
 
 
 ---

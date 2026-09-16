@@ -1,3 +1,14 @@
+## 2026-09-16 — `NEW-526` FIXED (`NEW-522` Batch 2, 27 sites) — closes the whole `NEW-520`→`NEW-526` sweep; 1 more finding spun off (`NEW-529`)
+
+**What changed:** implementer → code-reviewer pipeline, standard review tier, APPROVED. 1888 passed, 1 skipped, independently reproduced by code-reviewer. `NEW-522` is now fully FIXED (both batches, 53 total sites).
+
+- **The bug was confirmed real before the fix was trusted, not assumed from the code shape alone.** Implementer reproduced the pre-fix misrouting bug on 5 representative cases via a standalone repro against the checked-out pre-fix code (e.g. `POST /api/v1/customers/1/2/update` silently renamed customer 2, not 1). code-reviewer went further and independently reproduced it themselves, live, on 2 different sites, before reviewing the fix — this is the standard this project holds for "did we actually verify the bug, not just infer it from reading the code" (same rigor as the `NEW-259` precedent this whole sweep keeps invoking).
+- **Fix:** all 27 sites got a segment-count guard (mirroring `NEW-520`'s convention) plus the shared `_parse_int_path_segment` leak fix in the same change — Batch 2 needed both together, unlike Batch 1 which only needed the leak fix. code-reviewer verified all 27 sites' guard-literal/parse-literal pairs against their own route-match literals via a scripted full-set check, not a sample — zero mismatches, including 4 overlapping suffixes on the same `/api/v1/subcontractors/` prefix.
+- **Test quality matched the bug's own bar:** the misrouting test seeds two distinguishable records per case, sends the malformed path, asserts 404, then separately re-verifies BOTH records are unmodified — a status-only assertion would have passed even if a silent-wrong-id write still fired under the old code, so this was deliberately avoided. A mid-development bug in the test's own payload (an invalid `PipelineStage` value that would have made one case vacuous) was caught and fixed before finalizing, independently confirmed by code-reviewer against the real enum.
+- **New finding spun off, not fixed:** `NEW-529` — two `/api/v1/contacts/{id}/*` routes share the identical missing-guard bug but need a different fix shape, since they intentionally support a non-numeric `external_id` in the id slot that a bare `_parse_int_path_segment` swap would break.
+
+**Tier (rule 7):** code-complete + reviewer-approved. No live-verify strictly needed beyond what's already in the direct-reproduction tests above — the bug and the fix were both proven against real (not mocked) HTTP dispatch, by two independent parties.
+
 ## 2026-09-16 — `NEW-522` Batch 1 (26 sites) + `NEW-523` FIXED; 4 more findings spun off from the wider inventory (`NEW-525`/`526`/`527`/`528`)
 
 **What changed:** project-architect → implementer → code-reviewer pipeline, standard review tier, APPROVED. 1886 passed, 1 skipped, independently reproduced by code-reviewer.
