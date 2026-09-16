@@ -22,7 +22,7 @@ class User:
     full_name: str = ""
     email: str = ""
     phone: Optional[str] = None
-    role: str = "technician"  # admin, manager, sales, project_manager, technician, ai_agent, customer
+    role: str = "technician"  # admin, manager, sales, sales_manager, project_manager, technician, ai_agent, customer
     department: Optional[str] = None
     customer_id: Optional[int] = None
     custom_permissions: Dict[str, bool] = field(default_factory=dict)

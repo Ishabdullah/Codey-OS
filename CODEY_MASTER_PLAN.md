@@ -6867,10 +6867,48 @@ this file's own don't-duplicate rule.
       portal's poll-on-load design (not yet scoped — its own phase,
       see `sales_rep_portal.md` §4a). None of this invalidates what's
       already shipped; it's additive follow-on work.
-- [ ] **B8.1a (follow-on)** — migrate the `NEW-533` permission-grant
-      sales-manager design to a real `sales_manager` role. Rule-4
-      category (schema + RBAC). Scoped in `sales_rep_portal.md` §4a
-      item 1.
+- [x] **B8.1a (follow-on)** — migrate the `NEW-533` permission-grant
+      sales-manager design to a real `sales_manager` role. **DONE
+      2026-09-16, code-complete + code-reviewer APPROVED + LIVE-VERIFIED**
+      (rule 7's full tier — this is the first B8-family item to reach
+      live-verified, not just approved). Rule-4 category (schema +
+      RBAC). New `ROLE_SALES_MANAGER = "sales_manager"`, granted
+      `ROLE_SALES`'s full permission set plus `PERM_READ_TEAM_SALES_DATA`
+      by role default (derived, not a duplicated literal — can't drift).
+      Deliberately withheld `PERM_REASSIGN_PROJECT_STAFF`/
+      `PERM_MANAGE_USERS` — a sales manager manages sales data, not
+      project staffing or user accounts. Both new-user-role dropdown
+      and the calendar role filter updated; login routing sends
+      `sales_manager` to the same `/sales` portal `sales` uses
+      (`_render_sales_portal()` is permission-derived, needed zero
+      changes). **Real SQLite schema migration** — widened the
+      `users.role` CHECK constraint (SQLite can't `ALTER TABLE` a
+      CHECK, so this is a full table-rebuild with 13 FK-referencing
+      tables, 2 with `ON DELETE CASCADE`). The implementer found and
+      fixed a genuinely broken procedure in the original spec via
+      empirical testing against the real SQLite version, not by
+      trusting the design — the rejected version would have silently
+      broken `api_tokens`/`staff_schedules` cascade-delete; code-reviewer
+      independently reproduced both the bug and the fix, including a
+      real injected mid-migration crash to prove atomicity.
+      **Live-verified against the real production DB**
+      (`~/.codeyOS/restoricon.db`, backed up first, hard-gated on a
+      clean pre-migration `PRAGMA foreign_key_check`): zero data loss,
+      zero FK violations, correct cascade-then-archive delete behavior
+      confirmed on a disposable scratch copy (never against live user
+      data), idempotent on re-open. Spun off `NEW-538` (no admin
+      user-edit UI exists anywhere in this repo — blocks any future
+      role change from being done through the UI), `NEW-539`
+      (`calFilterRole`'s pre-existing unrelated dropdown gaps),
+      `NEW-540` (B7's litestream replica hasn't yet picked up this
+      schema change — operational DR gap, not data loss), `NEW-541`
+      (cosmetic-only DDL-text quoting difference post-migration). None
+      fixed this round, all logged. **Migrating any existing
+      `NEW-533`-era per-user permission grant to the new role is a
+      manual, Ish-driven step** (no user-edit UI exists to do it
+      through yet, per `NEW-538`) — via the update-user API directly,
+      clearing the now-redundant `custom_permissions_json` entry in
+      the same edit.
 - [ ] **NEW-534 fix** — explicit claim action with race protection for
       unassigned leads/opportunities/tasks, prioritized ahead of B8.3
       per Ish, 2026-09-16. Rule-4 category. Scoped in

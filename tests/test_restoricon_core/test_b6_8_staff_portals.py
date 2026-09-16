@@ -69,3 +69,13 @@ def test_smart_login_routing_patch():
     assert "data.user.role" in html, "Smart redirect missing role check"
     assert "target = '/pm';" in html, "Smart redirect missing /pm route"
     assert "target = '/subcontractor';" in html, "Smart redirect missing /subcontractor route"
+
+
+def test_smart_login_routing_has_sales_manager():
+    """D2, sales_rep_portal.md §4: a sales_manager login must route to
+    the same /sales portal as a plain sales login."""
+    html = render_login_surface("admin")
+    assert "r === 'sales_manager'" in html
+    i = html.index("r === 'sales_manager'")
+    j = html.index(";", i) + 1
+    assert "target = '/sales';" in html[i:j]

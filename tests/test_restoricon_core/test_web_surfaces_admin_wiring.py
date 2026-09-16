@@ -205,3 +205,17 @@ def test_admin_surface_key_functions_still_reachable_after_consolidation():
         "submitApptForm",
     ):
         assert fn in html, fn
+
+
+def test_admin_surface_new_user_dropdown_has_sales_manager_option():
+    """D2, sales_rep_portal.md §4: the #newRole user-create dropdown must
+    offer 'sales_manager' immediately after 'sales'."""
+    html = render_admin_surface()
+    i = html.find('id="newRole"')
+    j = html.find("</select>", i)
+    assert i != -1 and j != -1
+    region = html[i:j]
+    assert '<option value="sales_manager">Sales Manager</option>' in region
+    assert region.index('<option value="sales">Sales</option>') < region.index(
+        '<option value="sales_manager">Sales Manager</option>'
+    )

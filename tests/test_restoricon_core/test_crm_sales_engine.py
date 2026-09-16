@@ -25,6 +25,7 @@ from restoricon_core.auth import (
     ROLE_MANAGER,
     ROLE_PROJECT_MANAGER,
     ROLE_SALES,
+    ROLE_SALES_MANAGER,
     ROLE_TECHNICIAN,
 )
 from restoricon_core.database import DatabaseManager
@@ -809,3 +810,45 @@ def test_admin_and_manager_unaffected_by_narrowing(env):
     assert lead_a.id in {l.id for l in crm.list_leads(manager_actor)}
     assert crm.get_lead(lead_a.id, admin_actor) is not None
     assert crm.get_lead(lead_a.id, manager_actor) is not None
+
+
+def test_real_sales_manager_role_sees_team_data_with_no_custom_permission_grant(env):
+    """D2, sales_rep_portal.md §4: a real ROLE_SALES_MANAGER-role actor
+    must see another rep's assigned lead/opportunity/task via both the
+    list and get paths, with zero `custom_permissions` grant needed --
+    unlike test_list_*_narrowed_to_own_and_unclaimed above, which grants
+    PERM_READ_TEAM_SALES_DATA via the original NEW-533 custom_permissions
+    mechanism."""
+    auth = env["auth"]
+    crm = env["crm"]
+    actor_a = env["actors"][ROLE_SALES]
+
+    sales_manager_user = auth.create_user(
+        "sales_manager_user", "Pass123!", "Sales Manager User", "salesmgr@test.com", ROLE_SALES_MANAGER
+    )
+    sales_manager_token = auth.create_token(sales_manager_user)
+    sales_manager_actor = AuthContext(
+        sales_manager_user.id, "sales_manager_user", ROLE_SALES_MANAGER, "human",
+        token=sales_manager_token,
+    )
+
+    cust = crm.create_customer(Customer(first_name="E", last_name="Owner"), actor_a)
+
+    lead = crm.create_lead(
+        Lead(customer_id=cust.id, source="website", assigned_user_id=actor_a.user_id), actor_a
+    )
+    opp = crm.create_opportunity(
+        Opportunity(customer_id=cust.id, title="E's deal", estimated_value=2000.0, assigned_user_id=actor_a.user_id),
+        actor_a,
+    )
+    task = crm.create_task(
+        Task(title="E's follow-up", task_type="follow_up", assigned_user_id=actor_a.user_id), actor_a
+    )
+
+    assert lead.id in {l.id for l in crm.list_leads(sales_manager_actor)}
+    assert opp.id in {o.id for o in crm.list_opportunities(sales_manager_actor)}
+    assert task.id in {t.id for t in crm.list_tasks(sales_manager_actor)}
+
+    assert crm.get_lead(lead.id, sales_manager_actor) is not None
+    assert crm.get_opportunity(opp.id, sales_manager_actor) is not None
+    assert crm.get_task(task.id, sales_manager_actor) is not None

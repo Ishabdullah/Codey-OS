@@ -53,6 +53,21 @@ def test_admin_surface_has_calendar_filters():
     assert 'id="calFilterRole"' in html
 
 
+def test_admin_surface_calendar_filter_role_has_sales_manager_option():
+    """D2, sales_rep_portal.md §4: calFilterRole must offer
+    'sales_manager' immediately after 'sales', or a sales_manager's
+    appointments become unfilterable on the calendar view."""
+    html = render_admin_surface()
+    i = html.find('id="calFilterRole"')
+    j = html.find("</select>", i)
+    assert i != -1 and j != -1
+    region = html[i:j]
+    assert '<option value="sales_manager">Sales Manager</option>' in region
+    assert region.index('<option value="sales">Sales</option>') < region.index(
+        '<option value="sales_manager">Sales Manager</option>'
+    )
+
+
 def test_admin_surface_calendar_fetches_appointments_and_staff_schedules_with_range():
     html = render_admin_surface()
     assert "'/api/v1/appointments?start=' + startStr + '&end=' + endStr" in html

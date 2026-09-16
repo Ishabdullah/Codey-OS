@@ -244,6 +244,290 @@ def test_customers_external_id_unique_index_enforced():
     conn.commit()
 
 
+_LEGACY_USERS_ROLE_DDL = """
+CREATE TABLE customers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,
+    company_name TEXT,
+    phone TEXT,
+    email TEXT COLLATE NOCASE,
+    mailing_address TEXT,
+    service_address TEXT,
+    customer_type TEXT NOT NULL DEFAULT 'residential',
+    customer_source TEXT,
+    assigned_user_id INTEGER,
+    status TEXT NOT NULL DEFAULT 'lead',
+    tags_json TEXT NOT NULL DEFAULT '[]',
+    notes TEXT,
+    custom_fields_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    last_contact_at TEXT,
+    next_followup_at TEXT
+);
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL COLLATE NOCASE,
+    password_hash TEXT NOT NULL,
+    full_name TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL COLLATE NOCASE,
+    phone TEXT,
+    role TEXT NOT NULL CHECK(role IN ('admin', 'manager', 'sales', 'project_manager', 'technician', 'ai_agent', 'customer')),
+    department TEXT,
+    customer_id INTEGER,
+    active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1)),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE api_tokens (
+    token TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    role TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    is_revoked INTEGER NOT NULL DEFAULT 0 CHECK(is_revoked IN (0, 1)),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE TABLE staff_schedules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    start_time TEXT NOT NULL,
+    end_time TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'scheduled' CHECK(status IN ('scheduled', 'cancelled', 'completed')),
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+"""
+
+
+def test_users_role_migration_widens_check_constraint_on_legacy_db(tmp_path):
+    """D2 (sales_rep_portal.md §4): a DB file created before the
+    'sales_manager' role existed (original 7-value CHECK) must get the
+    widened CHECK on next open, via the SQLite table-rebuild procedure --
+    preserving all users/api_tokens/staff_schedules rows and FK integrity,
+    including the two ON DELETE CASCADE FKs (api_tokens, staff_schedules)
+    that make a naive drop-and-recreate of `users` dangerous."""
+    db_path = tmp_path / "legacy_users_role.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("PRAGMA foreign_keys = ON;")
+    conn.executescript(_LEGACY_USERS_ROLE_DDL)
+    now = "2020-01-01T00:00:00Z"
+    conn.execute(
+        "INSERT INTO users (username, password_hash, full_name, email, role, active, created_at, updated_at) "
+        "VALUES ('alice', 'hash1', 'Alice A', 'alice@test.com', 'sales', 1, ?, ?);",
+        (now, now),
+    )
+    conn.execute(
+        "INSERT INTO users (username, password_hash, full_name, email, role, active, created_at, updated_at) "
+        "VALUES ('bob', 'hash2', 'Bob B', 'bob@test.com', 'admin', 1, ?, ?);",
+        (now, now),
+    )
+    conn.commit()
+    # Set up the sqlite_sequence regression case: insert a user at the
+    # current max id, then delete it, so the next real insert must NOT
+    # reuse that id.
+    conn.execute(
+        "INSERT INTO users (username, password_hash, full_name, email, role, active, created_at, updated_at) "
+        "VALUES ('temp_user', 'hash3', 'Temp User', 'temp@test.com', 'technician', 1, ?, ?);",
+        (now, now),
+    )
+    temp_id = conn.execute("SELECT id FROM users WHERE username='temp_user';").fetchone()[0]
+    conn.execute(
+        "INSERT INTO api_tokens (token, user_id, role, created_at, expires_at, is_revoked) VALUES (?, ?, ?, ?, ?, 0);",
+        ("tok-alice", 1, "sales", now, "2099-01-01T00:00:00Z"),
+    )
+    conn.execute(
+        "INSERT INTO staff_schedules (user_id, title, start_time, end_time, status, created_at, updated_at) "
+        "VALUES (1, 'Shift', ?, ?, 'scheduled', ?, ?);",
+        (now, now, now, now),
+    )
+    conn.commit()
+    conn.execute("DELETE FROM users WHERE id = ?;", (temp_id,))
+    conn.commit()
+    conn.close()
+
+    db = DatabaseManager(str(db_path))
+    conn = db.get_connection()
+
+    # 'sales_manager' now insertable.
+    conn.execute(
+        "INSERT INTO users (username, password_hash, full_name, email, phone, role, department, "
+        "customer_id, custom_permissions_json, active, created_at, updated_at) "
+        "VALUES ('carol', 'hash4', 'Carol C', 'carol@test.com', NULL, 'sales_manager', NULL, "
+        "NULL, '{}', 1, ?, ?);",
+        (now, now),
+    )
+    conn.commit()
+    new_row = conn.execute("SELECT id, role FROM users WHERE username='carol';").fetchone()
+    assert new_row["role"] == "sales_manager"
+    # Regression check: the new id must be MAX(id)+1 from BEFORE the
+    # deleted temp_user, not a reused id (sqlite_sequence preservation).
+    assert new_row["id"] > temp_id
+
+    # A garbage role value still raises IntegrityError.
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO users (username, password_hash, full_name, email, role, active, created_at, updated_at) "
+            "VALUES ('bogus', 'hash5', 'Bogus User', 'bogus@test.com', 'not_a_real_role', 1, ?, ?);",
+            (now, now),
+        )
+
+    # Pre-existing rows preserved.
+    user_count = conn.execute("SELECT COUNT(*) FROM users WHERE username IN ('alice','bob');").fetchone()[0]
+    assert user_count == 2
+    token_count = conn.execute("SELECT COUNT(*) FROM api_tokens;").fetchone()[0]
+    assert token_count == 1
+    schedule_count = conn.execute("SELECT COUNT(*) FROM staff_schedules;").fetchone()[0]
+    assert schedule_count == 1
+
+    # No FK violations left behind by the rebuild.
+    fk_violations = conn.execute("PRAGMA foreign_key_check;").fetchall()
+    assert fk_violations == []
+
+    # Expected indexes exist.
+    indexes = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='index';")}
+    assert "idx_users_username" in indexes
+    assert "idx_users_role" in indexes
+
+    # Regression guard: the CASCADE relationship from api_tokens/
+    # staff_schedules to users must still actually fire after the
+    # rebuild, not just look intact in the schema text. An earlier
+    # version of this migration passed PRAGMA foreign_key_check clean but
+    # had silently left api_tokens/staff_schedules referencing a
+    # dead renamed-away table name, so a real DELETE no longer cascaded
+    # at all -- this call is what would catch that class of bug.
+    conn.execute(
+        "INSERT INTO api_tokens (token, user_id, role, created_at, expires_at, is_revoked) VALUES (?, ?, ?, ?, ?, 0);",
+        ("tok-carol", new_row["id"], "sales_manager", now, "2099-01-01T00:00:00Z"),
+    )
+    conn.execute(
+        "INSERT INTO staff_schedules (user_id, title, start_time, end_time, status, created_at, updated_at) "
+        "VALUES (?, 'Carol Shift', ?, ?, 'scheduled', ?, ?);",
+        (new_row["id"], now, now, now, now),
+    )
+    conn.commit()
+    conn.execute("DELETE FROM users WHERE id = ?;", (new_row["id"],))
+    conn.commit()
+    assert conn.execute("SELECT COUNT(*) FROM api_tokens WHERE token='tok-carol';").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM staff_schedules WHERE title='Carol Shift';").fetchone()[0] == 0
+
+    db.close()
+
+    # Second open against the now-migrated file is idempotent: no error,
+    # CHECK still correct, no duplicate-table/column errors.
+    db2 = DatabaseManager(str(db_path))
+    conn2 = db2.get_connection()
+    conn2.execute(
+        "INSERT INTO users (username, password_hash, full_name, email, role, active, created_at, updated_at) "
+        "VALUES ('dave', 'hash6', 'Dave D', 'dave@test.com', 'sales_manager', 1, ?, ?);",
+        (now, now),
+    )
+    conn2.commit()
+    assert conn2.execute("SELECT COUNT(*) FROM users WHERE username='dave';").fetchone()[0] == 1
+    db2.close()
+
+
+def test_users_role_migration_recovers_from_stale_leftover_temp_table(tmp_path):
+    """Crash-recovery guard: if a prior run of the rebuild crashed after
+    creating the throwaway `_users_new_role_migration` temp table but
+    before completing (a scenario that predated this migration's `BEGIN
+    IMMEDIATE` fix, which makes the whole rebuild atomic), a leftover
+    stale copy of that temp table must not permanently brick the DB file
+    on the next open -- the pre-flight `DROP TABLE IF EXISTS` must clear
+    it and the rebuild must proceed normally."""
+    db_path = tmp_path / "legacy_users_role_stale_temp.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("PRAGMA foreign_keys = ON;")
+    conn.executescript(_LEGACY_USERS_ROLE_DDL)
+    now = "2020-01-01T00:00:00Z"
+    conn.execute(
+        "INSERT INTO users (username, password_hash, full_name, email, role, active, created_at, updated_at) "
+        "VALUES ('alice', 'hash1', 'Alice A', 'alice@test.com', 'sales', 1, ?, ?);",
+        (now, now),
+    )
+    conn.commit()
+    # Simulate a stale leftover from a prior crashed rebuild attempt.
+    conn.execute("CREATE TABLE _users_new_role_migration (id INTEGER PRIMARY KEY, junk TEXT);")
+    conn.commit()
+    conn.close()
+
+    db = DatabaseManager(str(db_path))
+    conn = db.get_connection()
+    conn.execute(
+        "INSERT INTO users (username, password_hash, full_name, email, role, custom_permissions_json, active, created_at, updated_at) "
+        "VALUES ('carol', 'hash4', 'Carol C', 'carol@test.com', 'sales_manager', '{}', 1, ?, ?);",
+        (now, now),
+    )
+    conn.commit()
+    assert conn.execute("SELECT role FROM users WHERE username='carol';").fetchone()["role"] == "sales_manager"
+    assert conn.execute("SELECT COUNT(*) FROM users WHERE username='alice';").fetchone()[0] == 1
+    # The stale junk table must be gone, not merely tolerated.
+    leftover = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='_users_new_role_migration';"
+    ).fetchone()
+    assert leftover is None
+    db.close()
+
+
+def test_users_schema_and_widened_role_sql_column_sets_match():
+    """Anti-drift check: _SCHEMA_SQL's `users` column set and
+    _USERS_TABLE_WIDENED_ROLE_SQL's column set (the two duplicated `users`
+    DDL blocks database.py's own comments say must be kept in sync) must
+    be identical."""
+    from restoricon_core.database import _SCHEMA_SQL, _USERS_TABLE_WIDENED_ROLE_SQL
+
+    conn_a = sqlite3.connect(":memory:")
+    conn_a.executescript(_SCHEMA_SQL)
+    schema_cols = {row[1] for row in conn_a.execute("PRAGMA table_info(users);")}
+    conn_a.close()
+
+    conn_b = sqlite3.connect(":memory:")
+    conn_b.executescript(_USERS_TABLE_WIDENED_ROLE_SQL)
+    widened_cols = {row[1] for row in conn_b.execute("PRAGMA table_info(users);")}
+    conn_b.close()
+
+    assert schema_cols == widened_cols
+
+
+def test_migrate_users_role_constraint_raises_if_widened_sql_opener_text_drifts(tmp_path, monkeypatch):
+    """Guard test for the load-bearing `.replace()` inside
+    _migrate_users_role_constraint(): if _USERS_TABLE_WIDENED_ROLE_SQL's
+    'CREATE TABLE users (' opener text ever drifts (reformatting,
+    whitespace change), the replace would silently no-op and the method
+    would attempt to CREATE a second literal `users` table instead of the
+    intended temp table -- this must raise loudly instead."""
+    import restoricon_core.database as database_module
+
+    db_path = tmp_path / "legacy_users_role_drift.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("PRAGMA foreign_keys = ON;")
+    conn.executescript(_LEGACY_USERS_ROLE_DDL)
+    now = "2020-01-01T00:00:00Z"
+    conn.execute(
+        "INSERT INTO users (username, password_hash, full_name, email, role, active, created_at, updated_at) "
+        "VALUES ('alice', 'hash1', 'Alice A', 'alice@test.com', 'sales', 1, ?, ?);",
+        (now, now),
+    )
+    conn.commit()
+    conn.close()
+
+    # Simulate the constant's opener text having drifted from what the
+    # method's .replace() call expects.
+    monkeypatch.setattr(
+        database_module,
+        "_USERS_TABLE_WIDENED_ROLE_SQL",
+        database_module._USERS_TABLE_WIDENED_ROLE_SQL.replace(
+            "CREATE TABLE users (", "CREATE TABLE  users (", 1  # double space
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="could not rewrite"):
+        DatabaseManager(str(db_path))
+
+
 def test_foreign_key_enforcement():
     db = DatabaseManager(":memory:")
     conn = db.get_connection()

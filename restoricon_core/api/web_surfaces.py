@@ -688,6 +688,7 @@ def render_login_surface(portal_type: str = "admin") -> str:
                         if (r === 'project_manager') target = '/pm';
                         else if (r === 'technician') target = '/tech';
                         else if (r === 'sales') target = '/sales';
+                        else if (r === 'sales_manager') target = '/sales';
                         else if (r === 'subcontractor') target = '/subcontractor';
                     }}
                     window.location.href = target;
@@ -1927,6 +1928,7 @@ def render_admin_surface() -> str:
                             <option value="technician">Technician</option>
                             <option value="subcontractor">Subcontractor</option>
                             <option value="sales">Sales</option>
+                            <option value="sales_manager">Sales Manager</option>
                             <option value="project_manager">Project Manager</option>
                             <option value="admin">Admin</option>
                             <option value="manager">Manager</option>
@@ -2582,6 +2584,7 @@ def render_admin_surface() -> str:
                             <option value="technician">Technician</option>
                             <option value="project_manager">Project Manager</option>
                             <option value="sales">Sales</option>
+                            <option value="sales_manager">Sales Manager</option>
                             <option value="manager">Manager</option>
                             <option value="admin">Admin</option>
                         </select>
@@ -5040,9 +5043,13 @@ def _render_sales_portal() -> str:
     /api/v1/leads and /api/v1/opportunities -- both now auto-scoped
     server-side by CRMService's PERM_READ_TEAM_SALES_DATA narrowing, so
     the identical, unparameterized fetch calls below correctly return
-    "just me" for a plain rep and "the whole team" for a sales manager
-    (a `sales`-role user granted PERM_READ_TEAM_SALES_DATA via
-    custom_permissions), with zero client-side role branching."""
+    "just me" for a plain rep and "the whole team" for a sales manager,
+    with zero client-side role branching. "Sales manager" here covers both
+    grant mechanisms (D2, sales_rep_portal.md §4): a real ROLE_SALES_MANAGER
+    role (granted PERM_READ_TEAM_SALES_DATA by default) and the original
+    NEW-533 mechanism of an ordinary `sales`-role user individually granted
+    PERM_READ_TEAM_SALES_DATA via custom_permissions -- both land here with
+    identical server-side behavior."""
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>

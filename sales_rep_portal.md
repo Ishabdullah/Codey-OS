@@ -276,9 +276,15 @@ Recorded here so the next round doesn't have to reconstruct it from
 chat history. Three separate tasks, each needing its own
 `project-architect` → `implementer` → `code-reviewer` pipeline pass:
 
-1. **D2 — migrate the sales-manager permission grant to a real
-   `sales_manager` role.** Smallest of the three, most precedented
-   (follows the existing role/permission machinery exactly).
+1. ~~**D2 — migrate the sales-manager permission grant to a real
+   `sales_manager` role.**~~ **DONE 2026-09-16 — code-complete,
+   code-reviewer APPROVED, LIVE-VERIFIED against the real production
+   DB.** Full detail in `CODEY_MASTER_PLAN.md`'s Appendix A `B8.1a`
+   entry and `NEW_ISSUES.md`'s `NEW-538`/`539`/`540`/`541` (spun-off
+   findings, none fixed, all logged). The `PERM_READ_TEAM_SALES_DATA`
+   custom-permission grant mechanism from the `NEW-533` fix still
+   works exactly as before — this added a role that has it by default,
+   it did not remove the general-purpose override.
 2. **NEW-534 — claim workflow with race protection** for unassigned
    leads/opportunities/tasks. Medium size, pairs naturally with #1
    since both touch assignment semantics.

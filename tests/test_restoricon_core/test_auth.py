@@ -6,13 +6,18 @@ import pytest
 from restoricon_core.auth import (
     AuthService,
     AuthContext,
+    ALL_ROLES,
     ROLE_ADMIN,
+    ROLE_SALES,
+    ROLE_SALES_MANAGER,
     ROLE_TECHNICIAN,
     ROLE_CUSTOMER,
+    ROLE_PERMISSIONS,
     PERM_READ_ALL_CUSTOMERS,
     PERM_READ_OWN_CUSTOMER,
     PERM_MANAGE_USERS,
     PERM_READ_AUDIT_LOG,
+    PERM_READ_TEAM_SALES_DATA,
     PERM_WRITE_FINANCIALS,
 )
 from restoricon_core.database import DatabaseManager
@@ -120,3 +125,54 @@ def test_role_change_audit(auth_service):
     assert logs[0].action == "update"
     assert "role" in logs[0].details["changed_fields"]
     assert logs[0].details["changed_fields"]["role"] == {"old": "technician", "new": "manager"}
+
+
+def test_role_sales_manager_registered():
+    """D2, sales_rep_portal.md §4: ROLE_SALES_MANAGER is a real,
+    registered role."""
+    assert ROLE_SALES_MANAGER in ALL_ROLES
+
+
+def test_role_sales_manager_permissions_derived_from_sales_plus_team_read():
+    """ROLE_SALES_MANAGER's permission set must be exactly ROLE_SALES's
+    set plus PERM_READ_TEAM_SALES_DATA -- derived, not duplicated, so it
+    can never drift out of sync with ROLE_SALES."""
+    assert ROLE_PERMISSIONS[ROLE_SALES_MANAGER] == ROLE_PERMISSIONS[ROLE_SALES] | {
+        PERM_READ_TEAM_SALES_DATA
+    }
+
+
+def test_create_user_with_sales_manager_role(auth_service):
+    user = auth_service.create_user(
+        username="sales_mgr",
+        plain_password="Password123",
+        full_name="Sales Manager",
+        email="salesmgr@restoricon.com",
+        role=ROLE_SALES_MANAGER,
+    )
+    assert user.id is not None
+    assert user.role == ROLE_SALES_MANAGER
+
+
+def test_update_user_to_sales_manager_revokes_prior_tokens(auth_service):
+    """A role change to ROLE_SALES_MANAGER must revoke the user's existing
+    tokens, same as any other role change (api_tokens.role is a
+    login-time snapshot, not a live join)."""
+    admin_user = auth_service.create_user(
+        "admin_for_role_change", "Pass123!", "Admin", "admin_rc@restoricon.com", ROLE_ADMIN
+    )
+    admin_ctx = AuthContext(admin_user.id, admin_user.username, ROLE_ADMIN, "human")
+
+    user = auth_service.create_user(
+        "rep_to_promote", "Pass123!", "Rep", "rep_promote@restoricon.com", ROLE_SALES,
+        actor_context=admin_ctx,
+    )
+    old_token = auth_service.create_token(user)
+    assert auth_service.authenticate_token(old_token) is not None
+
+    updated, role_changed = auth_service.update_user(
+        user.id, {"role": ROLE_SALES_MANAGER}, admin_ctx
+    )
+    assert role_changed is True
+    assert updated.role == ROLE_SALES_MANAGER
+    assert auth_service.authenticate_token(old_token) is None

@@ -20,6 +20,11 @@ DEFAULT_DB_PATH = Path(
 
 _SCHEMA_SQL = """
 -- Users / Employees table (Authentication and RBAC)
+-- role CHECK list must stay byte-for-byte identical to
+-- _USERS_TABLE_WIDENED_ROLE_SQL below (its rebuilt-table copy, used by
+-- _migrate_users_role_constraint() to widen a legacy DB's `users.role`
+-- CHECK; the 'sales_manager' substring check there is also this file's
+-- idempotency gate) -- keep the two in sync any time a role is added.
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE NOT NULL COLLATE NOCASE,
@@ -27,7 +32,7 @@ CREATE TABLE IF NOT EXISTS users (
     full_name TEXT NOT NULL,
     email TEXT UNIQUE NOT NULL COLLATE NOCASE,
     phone TEXT,
-    role TEXT NOT NULL CHECK(role IN ('admin', 'manager', 'sales', 'project_manager', 'technician', 'ai_agent', 'customer')),
+    role TEXT NOT NULL CHECK(role IN ('admin', 'manager', 'sales', 'sales_manager', 'project_manager', 'technician', 'ai_agent', 'customer')),
     department TEXT,
     customer_id INTEGER, -- Only populated if role == 'customer'
     custom_permissions_json TEXT NOT NULL DEFAULT '{}',
@@ -967,6 +972,39 @@ CREATE INDEX IF NOT EXISTS idx_staff_schedules_user_id ON staff_schedules(user_i
 CREATE INDEX IF NOT EXISTS idx_staff_schedules_archive_username ON staff_schedules_archive(original_username);
 """
 
+# D2 (sales_rep_portal.md §4, Ish-approved), 2026-09-16: the widened-role
+# `users` DDL used by _migrate_users_role_constraint() to rebuild a legacy
+# DB's `users` table (SQLite cannot ALTER a CHECK constraint). Textually
+# identical to _SCHEMA_SQL's `users` block above -- keep the two in sync.
+# _migrate_users_role_constraint() never executes this verbatim: it does a
+# one-time `.replace()` of the `CREATE TABLE users (` opener with
+# `CREATE TABLE _users_new_role_migration (` and runs the rebuild under
+# that throwaway temporary name (see that method's own docstring for why
+# `users` itself is never renamed). Deliberately WITHOUT `IF NOT EXISTS`
+# either way -- at the point this is executed, the temp name is guaranteed
+# free (it's a one-time-use throwaway name, pre-emptively DROPped IF
+# EXISTS first to recover from a prior crashed run), and using
+# `IF NOT EXISTS` here would silently mask a bug in that assumption
+# instead of raising.
+_USERS_TABLE_WIDENED_ROLE_SQL = """
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL COLLATE NOCASE,
+    password_hash TEXT NOT NULL,
+    full_name TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL COLLATE NOCASE,
+    phone TEXT,
+    role TEXT NOT NULL CHECK(role IN ('admin', 'manager', 'sales', 'sales_manager', 'project_manager', 'technician', 'ai_agent', 'customer')),
+    department TEXT,
+    customer_id INTEGER, -- Only populated if role == 'customer'
+    custom_permissions_json TEXT NOT NULL DEFAULT '{}',
+    active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1)),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL
+);
+"""
+
 _local = threading.local()
 _mem_counter = 0
 _mem_lock = threading.Lock()
@@ -1159,6 +1197,208 @@ class DatabaseManager:
                     "ON communication_history(provider_message_id) "
                     "WHERE provider_message_id IS NOT NULL;"
                 )
+
+        # D2 (sales_rep_portal.md §4, Ish-approved), 2026-09-16: widens
+        # users.role's CHECK constraint to add 'sales_manager'. Its own
+        # transaction scope, deliberately not nested in the `with conn:`
+        # block above -- it depends on that block's ADD COLUMN loop (for
+        # custom_permissions_json) having already run against the row set
+        # it copies.
+        self._migrate_users_role_constraint()
+
+    def _migrate_users_role_constraint(self) -> None:
+        """Rebuild `users` to widen its `role` CHECK constraint to include
+        'sales_manager' (D2, sales_rep_portal.md §4, Ish-approved
+        2026-09-16). SQLite cannot ALTER a CHECK constraint, so this
+        rebuilds the table.
+
+        **Correction to this migration's original design** (found via
+        direct empirical testing against this project's actual SQLite
+        version, 3.53.4 -- CLAUDE.md rule 12): the design this method
+        started from called for renaming `users` itself out of the way
+        first (to `_users_old_role_migration`), creating the new widened
+        table under the real `users` name, copying rows across, then
+        dropping the renamed-away old table -- with `PRAGMA foreign_keys`
+        left ON throughout and `PRAGMA legacy_alter_table = ON` intended to
+        stop `ALTER TABLE ... RENAME` from rewriting the 13 child tables'
+        (`api_tokens`, `customers`, etc.) stored `REFERENCES users(id)` DDL
+        text to follow the renamed table.
+
+        Tested directly against this SQLite version, that assumption does
+        NOT hold: `PRAGMA legacy_alter_table` had no observable effect
+        either way -- `ALTER TABLE users RENAME TO x` rewrites every other
+        table's `REFERENCES users(...)` clause to `REFERENCES x(...)`
+        regardless of the pragma. Two consequences, both confirmed with a
+        throwaway `:memory:` repro before writing this final version:
+          1. If `users` is renamed away first and then the renamed-away
+             copy is later `DROP`ped, `api_tokens`/`staff_schedules` (the
+             two `ON DELETE CASCADE` FKs) get their DDL rewritten to
+             reference the renamed-away name and the `DROP` fires the
+             cascade for real -- wiping both tables. This is the exact
+             disaster the original design's own reasoning was trying to
+             avoid, reintroduced by its own rename step.
+          2. Even with `PRAGMA foreign_keys` toggled OFF to suppress the
+             cascade during the rebuild, the children's DDL is left
+             permanently pointing at the dead renamed-away table name once
+             the rebuild finishes -- `PRAGMA foreign_key_check` correctly
+             flags this, and a real subsequent `DELETE FROM users` no
+             longer cascades to `api_tokens`/`staff_schedules` at all
+             (silently, since the FK's target table no longer exists) --
+             a real, confirmed regression to `delete_user()`'s existing
+             cascade-then-archive behavior, not just a theoretical risk.
+
+        The corrected procedure below never renames `users` itself, so no
+        child table's DDL is ever rewritten and every child FK's text
+        continues to say `REFERENCES users(...)` unchanged, start to
+        finish:
+          1. `PRAGMA foreign_keys = OFF` (must run outside any transaction
+             -- SQLite is a no-op changing this pragma mid-transaction).
+          2. `BEGIN IMMEDIATE` explicitly, as the very first statement
+             inside the transaction block. Confirmed empirically that
+             sqlite3's default (legacy) isolation mode does NOT implicitly
+             open a transaction before a DDL statement (only before DML) --
+             without this, step 3's `CREATE TABLE` would commit on its own
+             before any transaction starts, so a later failure (e.g. the
+             INSERT in step 4) would roll back the copy/drop/rename but
+             leave the temp table behind, permanently bricking the DB file
+             on the next open (the idempotency guard would retry and hit
+             "table already exists"). `BEGIN IMMEDIATE` makes steps 3-6 one
+             atomic unit.
+          3. `DROP TABLE IF EXISTS <temp name>` as defense in depth (a
+             stale leftover from any already-broken prior run), then
+             `CREATE TABLE <temp name>` -- the new widened table under a
+             throwaway temporary name (nothing references that name, so
+             nothing rewrites).
+          4. Copy rows across (explicit column list, preserving ids).
+          5. `DROP TABLE users` -- safe because `foreign_keys` is OFF, so
+             no cascade fires; a plain `DROP` (unlike `RENAME`) never
+             rewrites other tables' DDL either way.
+          6. `ALTER TABLE <temp name> RENAME TO users` -- safe because
+             nothing references the temp name, so the rewrite this
+             statement performs touches zero other tables; children's
+             `REFERENCES users(...)` text was never touched and now
+             correctly resolves to the new table.
+          7. Recreate indexes; restore the preserved AUTOINCREMENT
+             high-water mark (see below).
+          8. `PRAGMA foreign_keys = ON` (again, outside any transaction).
+          9. `PRAGMA foreign_key_check` as a final verification -- raises
+             loudly on any violation rather than allowing a silently
+             broken FK to ship.
+        Re-verified end-to-end after the fix: a real `DELETE FROM users`
+        against a post-rebuild `users` row correctly cascades to
+        `api_tokens`/`staff_schedules` again.
+
+        `users.id` is `INTEGER PRIMARY KEY AUTOINCREMENT`; copying rows by
+        explicit column list preserves existing ids, but SQLite's
+        AUTOINCREMENT high-water mark (`sqlite_sequence`) is tied to the
+        table's *name*, not its identity -- `DROP TABLE users` removes
+        that table's `sqlite_sequence` row entirely, and the row created
+        for the temp-named table (from the copy step) is keyed under the
+        temp name, not `users`. Without explicitly restoring it after the
+        final rename, the next created user could reuse a deleted user's
+        old id. Also empirically confirmed: `sqlite_sequence` has no
+        `UNIQUE`/`PRIMARY KEY` on `name`, so `INSERT OR REPLACE` does NOT
+        dedupe by name the way it would on an ordinary table -- it
+        silently inserts a second `'users'` row instead of replacing the
+        first. `DELETE` then plain `INSERT` is used instead, guaranteeing
+        exactly one row regardless of whether the rename step already
+        created one (it does whenever at least one row was copied; it
+        does not on an all-rows-deleted edge case).
+
+        Idempotency: mirrors the `PRAGMA table_info()` gate the additive
+        ADD COLUMN migrations use, but keyed on the CHECK constraint text
+        itself (there is no column to test for) -- if `users` doesn't
+        exist yet, or its stored DDL already contains 'sales_manager', this
+        is a no-op. Safe on a fresh DB (already created widened via
+        _SCHEMA_SQL -- permanent no-op), safe to re-run against an
+        already-migrated legacy file, and safe against both
+        _migrate_schema() calls per init_schema() run.
+        """
+        conn = self.get_connection()
+
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='users';"
+        ).fetchone()
+        if row is None or row["sql"] is None or "sales_manager" in row["sql"]:
+            return
+
+        old_cols = [r["name"] for r in conn.execute("PRAGMA table_info(users);")]
+        new_cols = {
+            "id", "username", "password_hash", "full_name", "email", "phone", "role",
+            "department", "customer_id", "custom_permissions_json", "active",
+            "created_at", "updated_at",
+        }
+        missing = set(old_cols) - new_cols
+        if missing:
+            raise RuntimeError(
+                f"users table rebuild aborted: legacy DB has column(s) {missing} not "
+                "present in the widened-role schema -- update the rebuild DDL/copy "
+                "list before retrying; do not drop data silently."
+            )
+        col_list = ", ".join(old_cols)
+
+        seq_row = conn.execute(
+            "SELECT seq FROM sqlite_sequence WHERE name='users';"
+        ).fetchone()
+        preserved_seq = seq_row["seq"] if seq_row else None
+
+        temp_widened_sql = _USERS_TABLE_WIDENED_ROLE_SQL.replace(
+            "CREATE TABLE users (", "CREATE TABLE _users_new_role_migration (", 1
+        )
+        if "_users_new_role_migration" not in temp_widened_sql:
+            # The .replace() above is load-bearing and silently no-ops on
+            # a mismatch (e.g. the constant's opener text drifting to a
+            # different exact spacing/formatting) -- fail loudly rather
+            # than proceed to CREATE a second literal `users` table.
+            raise RuntimeError(
+                "users table rebuild aborted: could not rewrite "
+                "_USERS_TABLE_WIDENED_ROLE_SQL's 'CREATE TABLE users (' opener "
+                "to the temp table name -- the constant's exact text has "
+                "likely drifted from what this method expects."
+            )
+
+        # foreign_keys is a no-op to change mid-transaction, so both the
+        # OFF and the later ON must run outside the `with conn:` block.
+        conn.execute("PRAGMA foreign_keys = OFF;")
+        try:
+            with conn:
+                # BEGIN IMMEDIATE first: sqlite3's default (legacy) isolation
+                # mode does NOT implicitly open a transaction before a DDL
+                # statement (only before DML) -- confirmed empirically that
+                # without this, the CREATE TABLE below would commit on its
+                # own before the transaction proper even starts, so a later
+                # failure (e.g. the INSERT) would roll back the copy/drop/
+                # rename but leave the temp table behind. On the DB's next
+                # open, the idempotency guard above would still see `users`
+                # un-widened, retry, and hit "table already exists" on the
+                # CREATE -- permanently bricking that DB file. BEGIN
+                # IMMEDIATE makes the entire rebuild one atomic unit, and
+                # the DROP TABLE IF EXISTS immediately after is defense in
+                # depth for recovering from any already-stale leftover
+                # (e.g. a prior run that failed before this fix existed).
+                conn.execute("BEGIN IMMEDIATE;")
+                conn.execute("DROP TABLE IF EXISTS _users_new_role_migration;")
+                conn.execute(temp_widened_sql)
+                conn.execute(
+                    f"INSERT INTO _users_new_role_migration ({col_list}) "
+                    f"SELECT {col_list} FROM users;"
+                )
+                conn.execute("DROP TABLE users;")
+                conn.execute("ALTER TABLE _users_new_role_migration RENAME TO users;")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);")
+                if preserved_seq is not None:
+                    conn.execute("DELETE FROM sqlite_sequence WHERE name = 'users';")
+                    conn.execute(
+                        "INSERT INTO sqlite_sequence (name, seq) VALUES ('users', ?);",
+                        (preserved_seq,),
+                    )
+        finally:
+            conn.execute("PRAGMA foreign_keys = ON;")
+
+        fk_violations = conn.execute("PRAGMA foreign_key_check;").fetchall()
+        if fk_violations:
+            raise RuntimeError(f"users table rebuild left FK violations: {fk_violations}")
 
     @contextmanager
     def transaction(self) -> Generator[sqlite3.Cursor, None, None]:
