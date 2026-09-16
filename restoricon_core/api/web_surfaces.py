@@ -2602,6 +2602,63 @@ def render_admin_surface() -> str:
         </div>
     </div>
 
+    <!-- Edit User Modal (NEW-538, the narrower gap: role + profile-field
+         edit for an *existing* user; the Perms/Suspend/Delete modals and
+         buttons above are untouched, separate flows). -->
+    <div id="editUserModalOverlay" class="erp-modal-overlay">
+        <div class="erp-modal">
+            <div class="modal-header">
+                <h3>Edit User Account</h3>
+                <button onclick="closeEditUserModal()" style="background:none; border:none; color:#94A3B8; font-size:1.5rem; cursor:pointer;">&times;</button>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Full Name</label>
+                    <input type="text" id="editFullName">
+                </div>
+                <div class="form-group">
+                    <label>Email</label>
+                    <input type="email" id="editEmail">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Phone</label>
+                    <input type="text" id="editPhone">
+                </div>
+                <div class="form-group">
+                    <label>Department</label>
+                    <input type="text" id="editDept">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Role</label>
+                    <!-- 6 standard options, same set/order as #newRole. 'customer'
+                         is excluded: it requires a customer_id this modal does
+                         not collect (_validate_user_role_invariants would 400
+                         on save). 'ai_agent' is Aigentik's integration identity,
+                         not something to casually reassign here. If the user
+                         being edited already holds a role outside these 6,
+                         openEditUserModal() adds it back dynamically below so
+                         we never silently propose changing it away. -->
+                    <select id="editRole">
+                        <option value="technician">Technician</option>
+                        <option value="project_manager">Project Manager</option>
+                        <option value="sales">Sales</option>
+                        <option value="sales_manager">Sales Manager</option>
+                        <option value="manager">Manager</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                </div>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+                <button type="button" onclick="closeEditUserModal()" class="btn-gold" style="background:transparent; border:1px solid var(--card-border); color:#CBD5E1;">Cancel</button>
+                <button type="button" onclick="saveEditUser()" class="btn-gold" id="saveEditUserBtn">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Onboard Trade Partner Modal (NEW-508) -->
     <div id="addSubcontractorModalOverlay" class="erp-modal-overlay">
         <div class="erp-modal">
@@ -3186,6 +3243,8 @@ def render_admin_surface() -> str:
 
         let currentEditingUserId = null;
         let userPermissionsState = {};
+        let currentEditUserId = null;
+        let currentEditUserOriginalRole = null;
 
         function switchErpTab(tabId) {
             document.querySelectorAll('.erp-tab-btn').forEach(b => b.classList.remove('active'));
@@ -4117,6 +4176,7 @@ def render_admin_surface() -> str:
                                 </span>
                             </td>
                             <td>
+                                <button class="btn-gold" style="padding: 0.25rem 0.55rem; font-size: 0.75rem;" onclick="openEditUserModal(${u.id})">Edit</button>
                                 <button class="btn-gold" style="padding: 0.25rem 0.55rem; font-size: 0.75rem;" onclick="openPermModal(${u.id}, ${escapeHtml(JSON.stringify(u.username))})">Perms</button>
                                 <button class="btn-gold" style="padding: 0.25rem 0.55rem; font-size: 0.75rem; background: ${u.active ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)'}; border-color: ${u.active ? 'var(--danger)' : 'var(--success)'}; color: ${u.active ? '#FCA5A5' : '#6EE7B7'};" onclick="toggleUserStatus(${u.id}, ${u.active})">
                                     ${u.active ? 'Suspend' : 'Activate'}
@@ -4336,6 +4396,107 @@ def render_admin_surface() -> str:
                 }
             } catch (ex) {
                 alert('Connection error');
+            }
+        }
+
+        // Edit User Modal (NEW-538): edit an *existing* user's role and
+        // profile fields via PUT /api/v1/users/{id} (AuthService.update_user).
+        // Deliberately never touches 'active' -- update_user rejects any
+        // real change to it with a 400, pointing callers at the dedicated
+        // /suspend and /activate endpoints (NEW-264, token-revocation
+        // correctness) -- Suspend/Activate stays the only path for that
+        // field, wired separately via toggleUserStatus() above.
+        async function openEditUserModal(userId) {
+            const token = getAuthToken();
+            try {
+                const res = await fetch(`/api/v1/users/${userId}`, {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (res.status === 401) { logoutUser(); return; }
+                const data = await res.json();
+                if (!res.ok || !data.user) {
+                    alert(data.error || 'Failed to load user');
+                    return;
+                }
+                const u = data.user;
+                currentEditUserId = userId;
+                currentEditUserOriginalRole = u.role;
+
+                document.getElementById('editFullName').value = u.full_name || '';
+                document.getElementById('editEmail').value = u.email || '';
+                document.getElementById('editPhone').value = u.phone || '';
+                document.getElementById('editDept').value = u.department || '';
+
+                // Standard 6 roles are static <option>s in the modal HTML
+                // (see editUserModalOverlay). If this user's current role is
+                // outside that set (ai_agent / customer), add it back so we
+                // never silently propose changing it away; clear any such
+                // leftover option from a previous edit first so re-opening
+                // for a standard-role user doesn't carry it over.
+                const standardRoles = ['technician', 'project_manager', 'sales', 'sales_manager', 'manager', 'admin'];
+                const roleSelect = document.getElementById('editRole');
+                roleSelect.querySelectorAll('option[data-dynamic-role]').forEach(o => o.remove());
+                if (!standardRoles.includes(u.role)) {
+                    const opt = document.createElement('option');
+                    opt.value = u.role;
+                    opt.textContent = u.role;
+                    opt.setAttribute('data-dynamic-role', '1');
+                    roleSelect.appendChild(opt);
+                }
+                roleSelect.value = u.role;
+
+                document.getElementById('editUserModalOverlay').classList.add('active');
+            } catch (ex) {
+                alert('Failed to load user for editing.');
+            }
+        }
+
+        function closeEditUserModal() {
+            document.getElementById('editUserModalOverlay').classList.remove('active');
+        }
+
+        async function saveEditUser() {
+            const newRole = document.getElementById('editRole').value;
+            // Role change revokes every session for this user (update_user
+            // computes this server-side) -- confirm specifically for a role
+            // delta, not for a pure profile-field edit. No self-edit special
+            // case needed: if an admin changes their own role, the same
+            // wording covers it (they'll be logged out immediately, which is
+            // the intended behavior).
+            if (newRole !== currentEditUserOriginalRole) {
+                if (!confirm("Changing this user's role will immediately revoke all of their active sessions (they will be logged out everywhere). Continue?")) return;
+            }
+            const btn = document.getElementById('saveEditUserBtn');
+            btn.disabled = true;
+            btn.innerText = 'Saving...';
+            const token = getAuthToken();
+            const payload = {
+                full_name: document.getElementById('editFullName').value.trim(),
+                email: document.getElementById('editEmail').value.trim(),
+                phone: document.getElementById('editPhone').value.trim(),
+                department: document.getElementById('editDept').value.trim(),
+                role: newRole
+            };
+            try {
+                const res = await fetch(`/api/v1/users/${currentEditUserId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + token
+                    },
+                    body: JSON.stringify(payload)
+                });
+                if (res.ok) {
+                    closeEditUserModal();
+                    loadUsersList();
+                } else {
+                    alert('Error saving user');
+                }
+            } catch (ex) {
+                alert('Connection error');
+            } finally {
+                btn.disabled = false;
+                btn.innerText = 'Save Changes';
             }
         }
 

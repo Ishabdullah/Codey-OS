@@ -6896,19 +6896,41 @@ this file's own don't-duplicate rule.
       clean pre-migration `PRAGMA foreign_key_check`): zero data loss,
       zero FK violations, correct cascade-then-archive delete behavior
       confirmed on a disposable scratch copy (never against live user
-      data), idempotent on re-open. Spun off `NEW-538` (no admin
-      user-edit UI exists anywhere in this repo — blocks any future
-      role change from being done through the UI), `NEW-539`
-      (`calFilterRole`'s pre-existing unrelated dropdown gaps),
-      `NEW-540` (B7's litestream replica hasn't yet picked up this
-      schema change — operational DR gap, not data loss), `NEW-541`
-      (cosmetic-only DDL-text quoting difference post-migration). None
-      fixed this round, all logged. **Migrating any existing
-      `NEW-533`-era per-user permission grant to the new role is a
-      manual, Ish-driven step** (no user-edit UI exists to do it
-      through yet, per `NEW-538`) — via the update-user API directly,
-      clearing the now-redundant `custom_permissions_json` entry in
-      the same edit.
+      data), idempotent on re-open. Spun off `NEW-538` (**FIXED
+      2026-09-16** — see below; original heading overclaimed, corrected
+      per rule 6), `NEW-539` (`calFilterRole`'s pre-existing unrelated
+      dropdown gaps, still open), `NEW-540` (B7's litestream replica
+      hasn't yet picked up this schema change — operational DR gap, not
+      data loss, still open), `NEW-541` (cosmetic-only DDL-text quoting
+      difference post-migration, still open). **Migrating any existing
+      `NEW-533`-era per-user permission grant to the new role is now
+      possible through the admin UI** (`NEW-538`'s fix), still a
+      manual, Ish-driven step (which user becomes a real sales manager
+      is a business call, not inferred) — via the new Edit-user modal
+      for the role change, and the existing Perms modal to clear the
+      now-redundant `custom_permissions_json` entry, as two separate
+      saves.
+- [x] **`NEW-538` fix** — admin user role/profile edit UI. **DONE
+      2026-09-16, code-complete + code-reviewer APPROVED** (rule-4
+      category, RBAC-adjacent — a role edit revokes all of that user's
+      sessions). **Corrected scope, per rule 6**: the original finding
+      overclaimed — `render_admin_surface()` already had a working
+      user list, B6.9 permission editor, active-toggle, and delete;
+      the real gap was only role + profile-field (`full_name`/`email`/
+      `phone`/`department`) editing on an *existing* user, which this
+      fixed with zero backend changes (`AuthService.update_user()` and
+      its route already supported everything needed). A real bug was
+      found and fixed mid-round, not just by string-level tests: a JS
+      string with an escaped apostrophe was silently mangled by
+      Python's own (non-raw) string parser into invalid JS that passed
+      every grep-shaped test but failed `node --check` — caught by
+      this repo's dedicated JS-syntax test, same failure class as an
+      earlier `web_surfaces_join_backslash_n_regression` incident.
+      Verified by actually executing the new client-side JS in a
+      throwaway Node harness (not just asserting its presence as a
+      string) and by real HTTP round-trips against a scratch DB
+      (never production) — both independently reproduced by
+      code-reviewer, not just the implementer's own claim.
 - [ ] **NEW-534 fix** — explicit claim action with race protection for
       unassigned leads/opportunities/tasks, prioritized ahead of B8.3
       per Ish, 2026-09-16. Rule-4 category. Scoped in

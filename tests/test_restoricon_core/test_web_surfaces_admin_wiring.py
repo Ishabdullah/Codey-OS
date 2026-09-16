@@ -219,3 +219,108 @@ def test_admin_surface_new_user_dropdown_has_sales_manager_option():
     assert region.index('<option value="sales">Sales</option>') < region.index(
         '<option value="sales_manager">Sales Manager</option>'
     )
+
+
+# ---------------------------------------------------------------------------
+# NEW-538 (corrected scope): Edit User modal -- role + profile-field edit
+# for an *existing* user. The Perms modal, Suspend/Activate button, Delete
+# flow, and Add-User modal are all pre-existing and untouched.
+# ---------------------------------------------------------------------------
+
+
+def test_admin_surface_has_edit_user_button_per_row():
+    html = render_admin_surface()
+    assert "openEditUserModal(${u.id})" in html
+
+
+def test_admin_surface_has_edit_user_modal_dom_ids():
+    html = render_admin_surface()
+    for stable_id in (
+        'id="editUserModalOverlay"',
+        'id="editRole"',
+        'id="editFullName"',
+        'id="editEmail"',
+        'id="editPhone"',
+        'id="editDept"',
+    ):
+        assert stable_id in html, stable_id
+
+
+def test_admin_surface_edit_user_modal_fetches_user_by_id_loader_style():
+    html = render_admin_surface()
+    assert "async function openEditUserModal(userId)" in html
+    i = html.find("async function openEditUserModal(userId)")
+    j = html.find("\n        }\n", i)
+    fn_body = html[i:j]
+    assert "fetch(`/api/v1/users/${userId}`" in fn_body
+    # Loader idiom (matches loadUsersList/loadAuditLogs), NOT the mutator
+    # idiom -- this is the initial GET, not the save.
+    assert "if (res.status === 401) { logoutUser(); return; }" in fn_body
+
+
+def test_admin_surface_save_edit_user_uses_put_not_patch_and_omits_active():
+    html = render_admin_surface()
+    assert "async function saveEditUser()" in html
+    i = html.find("async function saveEditUser()")
+    j = html.find("\n        async function", i + 1)
+    if j == -1:
+        j = len(html)
+    fn_body = html[i:j]
+    assert "method: 'PUT'" in fn_body
+    assert "method: 'PATCH'" not in fn_body
+    assert "active:" not in fn_body
+    # Mutator idiom (matches saveUserPermissions/submitNewUser): no explicit
+    # 401 check, alert() on a non-ok response.
+    assert "if (res.status === 401)" not in fn_body
+
+
+def test_admin_surface_edit_user_role_dropdown_has_6_standard_options_only():
+    html = render_admin_surface()
+    i = html.find('id="editRole"')
+    j = html.find("</select>", i)
+    assert i != -1 and j != -1
+    region = html[i:j]
+    for role in ("technician", "project_manager", "sales", "sales_manager", "manager", "admin"):
+        assert f'<option value="{role}">' in region, role
+    assert '<option value="customer">' not in region
+    assert '<option value="ai_agent">' not in region
+
+
+def test_admin_surface_save_edit_user_confirms_on_role_change():
+    html = render_admin_surface()
+    i = html.find("async function saveEditUser()")
+    j = html.find("\n        async function", i + 1)
+    if j == -1:
+        j = len(html)
+    fn_body = html[i:j]
+    assert "newRole !== currentEditUserOriginalRole" in fn_body
+    assert "confirm(" in fn_body
+
+
+def test_admin_surface_edit_user_modal_element_ids_are_self_consistent():
+    """Every getElementById('edit...') the modal's JS reads/writes must have
+    a matching id="..." somewhere in the rendered output -- catches an id
+    typo string assertions on isolated substrings would miss."""
+    import re
+
+    html = render_admin_surface()
+    i = html.find("async function openEditUserModal(userId)")
+    j = html.find("async function saveEditUser()")
+    region = html[i:j]
+    referenced_ids = set(re.findall(r"getElementById\('(edit[A-Za-z]+)'\)", region))
+    assert referenced_ids, "expected at least one editXxx getElementById call"
+    for elem_id in referenced_ids:
+        assert f'id="{elem_id}"' in html, elem_id
+
+
+def test_admin_surface_edit_user_modal_adds_back_nonstandard_current_role():
+    """Trap 4's last sentence: if the user being edited already holds a role
+    outside the 6 standard options (ai_agent / customer), the dropdown must
+    still surface it as selectable, not silently omit it."""
+    html = render_admin_surface()
+    i = html.find("async function openEditUserModal(userId)")
+    j = html.find("async function closeEditUserModal()", i)
+    fn_body = html[i:j]
+    assert "standardRoles.includes(u.role)" in fn_body
+    assert "data-dynamic-role" in fn_body
+    assert "roleSelect.appendChild(opt)" in fn_body
