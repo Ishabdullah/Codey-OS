@@ -1280,6 +1280,27 @@ by code-reviewer, standard tier. This closes out all remaining
 low-priority findings from the `NEW-520`→`NEW-529` sweep except
 `NEW-528` (unassessed POST-body sites), `NEW-529` (contacts bespoke
 guard), and the three new spin-offs above.
+**`NEW-530`/`NEW-531`/`NEW-532` FIXED, 2026-09-16, on Ish's explicit
+instruction to fix all three.** `NEW-530`: work-orders catch-all now
+`isdigit()`-guards, matching its `users`/`equipment` siblings — a
+non-numeric id 404s instead of a misleading 400; deliberately flips
+one already-shipped `NEW-522` test expectation. A scoping-brief
+assumption about a trailing-slash case was caught and corrected before
+shipping (the case is unreachable — `rstrip("/")` normalizes it onto
+the list route first), verified independently by both implementer and
+code-reviewer rather than one trusting the other. `NEW-531`: test-only
+— extended the `NEW-525` multi-segment-misrouting regression from 5
+sites to all 14; no production bug, pure coverage gap closed.
+`NEW-532`: `_parse_int_query_param`'s `minimum` widened to
+`Optional[int]` so `active` (a real 0/1 filter, not an id) can opt out
+of the shared helper's lower-clamp, which was silently turning
+`?active=-1` into `?active=0`'s result. code-reviewer independently
+verified the widened default is safe for all ~57 other call sites and
+that the new test's positive/negative pair genuinely discriminates the
+bug. 1897 passed/1 skipped (net +3), reviewer-approved with zero
+findings, standard tier. This closes every spin-off from the
+`NEW-520`→`NEW-532` sweep except `NEW-528` (unassessed) and `NEW-529`
+(needs a bespoke guard shape).
 
 
 ---

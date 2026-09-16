@@ -1790,7 +1790,6 @@ _NEW522_523_BATCH1_SITES = [
     ("POST", "/api/v1/operations/work-orders/{}/status", "wo_id"),
     ("GET", "/api/v1/operations/milestones/{}", "mid"),
     ("POST", "/api/v1/operations/milestones/{}/status", "mid"),
-    ("GET", "/api/v1/operations/work-orders/{}", "wo_id"),
 ]
 
 
@@ -2141,10 +2140,12 @@ def test_api_new526_batch2_malformed_extra_segment_is_404_and_no_write_happens(a
 #
 # The 5 work-orders verb routes (dispatch/accept/complete/verify/status)
 # are deliberately NOT in this table -- see
-# test_api_new525_work_orders_omitted_id_falls_to_generic_catchall below
-# for why an omitted id on those routes observably lands on a 400, not a
-# 404, and that isn't something this round's fix changes or is in scope
-# to change.
+# test_api_new530_work_orders_omitted_id_now_404s_not_400s below. Prior to
+# NEW-530 an omitted id on those routes observably landed on a 400, not a
+# 404 (the work-orders catch-all lacked the isdigit() pre-guard); NEW-530
+# added that guard, so they now agree with this table's 404 contract but
+# are still covered by their own dedicated test rather than folded in
+# here.
 _NEW525_OMITTED_ID_404_SITES = [
     ("POST", "/api/v1/users/password"),
     ("POST", "/api/v1/users/suspend"),
@@ -2183,32 +2184,27 @@ def test_api_new525_omitted_id_path_segments_are_generic_404(api_server):
         assert body == {"error": f"Endpoint not found: {method} {url}"}, f"{method} {url}: {body}"
 
 
-# The 5 work-orders verb-suffix sites from Part 1 site list #10-14. Unlike
-# the other 9 sites, /api/v1/operations/work-orders/ has a generic
-# single-segment catch-all route (`.../work-orders/{id}`, no method
-# restriction, no isdigit() pre-guard -- unlike the analogous users and
-# equipment catch-alls, which do isdigit()-guard first) that still matches
+# The 5 work-orders verb-suffix sites from Part 1 site list #10-14.
+# /api/v1/operations/work-orders/ has a generic single-segment catch-all
+# route (`.../work-orders/{id}`, no method restriction) that still matches
 # when the id is omitted and the trailing verb word lands in the single
 # segment slot, e.g. `POST /api/v1/operations/work-orders/dispatch` has
-# sub_path "dispatch", which the catch-all's `_parse_int_path_segment`
-# rejects with a 400, not a 404. That's true both before and after this
-# round's fix (pre-fix, the dispatch-specific handler's own
-# `_parse_int_path_segment(path.split("/")[5], "wo_id")` produced the
-# identical 400 first) -- so a 400-omitted-id assertion here wouldn't
-# discriminate this round's change at all. What the guard genuinely fixed
-# on these 5 routes is the *multi-segment* misrouting shape covered below.
+# sub_path "dispatch". NEW-530 added an isdigit() pre-guard to this
+# catch-all, matching the analogous users and equipment catch-alls, so a
+# non-numeric single segment (including this omitted-id case) now falls
+# through to the router's generic 404 instead of reaching
+# `_parse_int_path_segment` for a 400. What the earlier NEW-525 guard
+# fixed on these 5 routes is the separate *multi-segment* misrouting shape
+# covered below.
 _NEW525_WORK_ORDER_VERB_SUFFIXES = ["dispatch", "accept", "complete", "verify", "status"]
 
 
-def test_api_new525_work_orders_omitted_id_falls_to_generic_catchall(api_server):
-    """Documents the observed (unchanged by this fix) behavior for the 5
-    work-orders verb routes: an omitted id falls through to the generic
-    `.../work-orders/{id}` catch-all, which lacks an isdigit() pre-guard,
-    so the verb word itself gets rejected as a non-integer id -- a clean
-    400, not a 404. Flagged in the round's handoff as a separate
-    catch-all-hardening gap, not fixed here (fixing it would flip an
-    already-passing NEW-522 batch 1 assertion that
-    `GET /api/v1/operations/work-orders/abc` is 400, not 404)."""
+def test_api_new530_work_orders_omitted_id_now_404s_not_400s(api_server):
+    """NEW-530: with the work-orders catch-all's isdigit() guard added,
+    an omitted id on any of the 5 work-orders verb routes (the verb word
+    itself landing in the catch-all's single-segment slot) now falls
+    through to the router's generic 404, matching the /api/v1/users/{id}
+    and /api/v1/operations/equipment/{id} catch-alls' contract."""
     _, base_url, _, _ = api_server
     status, body = make_request(
         f"{base_url}/api/v1/auth/login",
@@ -2221,8 +2217,42 @@ def test_api_new525_work_orders_omitted_id_falls_to_generic_catchall(api_server)
     for verb in _NEW525_WORK_ORDER_VERB_SUFFIXES:
         url = f"/api/v1/operations/work-orders/{verb}"
         status, body = make_request(f"{base_url}{url}", method="POST", headers=headers, data={})
-        assert status == 400, f"POST {url}: expected 400, got {status} ({body})"
-        assert body == {"error": f"Invalid 'wo_id' path segment: '{verb}'"}, f"POST {url}: {body}"
+        assert status == 404, f"POST {url}: expected 404, got {status} ({body})"
+        assert body == {"error": f"Endpoint not found: POST {url}"}, f"POST {url}: {body}"
+
+
+def test_api_new530_work_orders_catchall_non_numeric_id_is_404_not_400(api_server):
+    """NEW-530: GET/POST on /api/v1/operations/work-orders/{non-numeric}
+    now falls through to the router's generic 404 instead of reaching
+    _parse_int_path_segment for a 400 -- the isdigit() guard now matches
+    the analogous users/equipment catch-alls' contract exactly.
+
+    The trailing-slash (empty-segment) case described in this task's
+    original brief is NOT exercised here: `handle_request` does
+    `path.rstrip("/")` on every incoming path before any route matching
+    (routes.py ~line 339), so `GET /api/v1/operations/work-orders/`
+    is normalized to `/api/v1/operations/work-orders` before it ever
+    reaches this catch-all -- it exactly matches the list-endpoint route
+    instead (200, `{"work_orders": []}`), both before and after this
+    fix. Verified live; the isdigit()-guard's empty-string branch is
+    correct but unreachable in practice for this reason."""
+    _, base_url, _, _ = api_server
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login", method="POST",
+        data={"username": "admin", "password": "AdminSecretPassword123"},
+    )
+    assert status == 200
+    headers = {"Authorization": f"Bearer {body['token']}"}
+
+    for method, url in [
+        ("GET", "/api/v1/operations/work-orders/abc"),
+        ("POST", "/api/v1/operations/work-orders/abc"),
+    ]:
+        status, body = make_request(
+            f"{base_url}{url}", method=method, headers=headers, data={} if method == "POST" else None
+        )
+        assert status == 404, f"{method} {url}: expected 404, got {status} ({body})"
+        assert body == {"error": f"Endpoint not found: {method} {url}"}, f"{method} {url}: {body}"
 
 
 def test_api_new525_work_orders_multi_segment_id_is_generic_404_not_misrouted(api_server):
@@ -2271,6 +2301,91 @@ def test_api_new522_batch1_non_integer_path_segments_still_pass_with_new525_guar
     )
     assert status == 400, body
     assert body == {"error": "Invalid 'user_id' path segment: 'abc'"}
+
+
+_NEW531_MULTI_SEGMENT_404_SITES = [
+    ("POST", "/api/v1/users/1/2/password"),
+    ("POST", "/api/v1/users/1/2/suspend"),
+    ("POST", "/api/v1/users/1/2/activate"),
+    ("GET", "/api/v1/users/1/2/permissions"),
+    ("GET", "/api/v1/users/1/2/active-references"),
+    ("POST", "/api/v1/operations/projects/1/2/stage"),
+    ("POST", "/api/v1/operations/projects/1/2/transition"),
+    ("GET", "/api/v1/operations/projects/1/2/summary"),
+    ("GET", "/api/v1/operations/projects/1/2/milestones"),
+    ("GET", "/api/v1/operations/projects/1/2/equipment"),
+]
+
+
+def test_api_new531_other_new525_sites_multi_segment_id_is_generic_404_not_misrouted(api_server):
+    """NEW-531: extends NEW-525's multi-segment-misrouting regression
+    coverage (previously only the 5 work-orders verb sites) to the other
+    9 NEW-525 sites sharing the identical vulnerable shape -- a malformed
+    path with an extra segment between the id and the verb suffix (e.g.
+    /api/v1/users/1/2/password) must fall through to the router's generic
+    404, not get silently misrouted onto the wrong record (the NEW-526
+    misrouting class). Covers the users-family (5 verb suffixes) and the
+    projects-family (4 distinct guards; both arms of the compound
+    stage/transition route are exercised here since the existing
+    omitted-id table only exercises /stage)."""
+    _, base_url, _, _ = api_server
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login", method="POST",
+        data={"username": "admin", "password": "AdminSecretPassword123"},
+    )
+    assert status == 200
+    headers = {"Authorization": f"Bearer {body['token']}"}
+
+    for method, url in _NEW531_MULTI_SEGMENT_404_SITES:
+        status, body = make_request(
+            f"{base_url}{url}", method=method, headers=headers, data={} if method == "POST" else None
+        )
+        assert status == 404, f"{method} {url}: expected 404, got {status} ({body})"
+        assert body == {"error": f"Endpoint not found: {method} {url}"}, f"{method} {url}: {body}"
+
+
+def test_api_new532_active_query_param_negative_value_is_not_clamped(api_server):
+    """NEW-532: `active` is a real 0/1-valued filter, not an id -- unlike
+    the other 33 NEW-527 sites, clamping a negative value to 0 here would
+    silently change the query's meaning (returns all inactive users
+    instead of the correct empty result for a nonsensical filter value).
+    Creates a genuinely inactive user first so the assertion can't
+    accidentally pass just because no inactive users exist in the
+    fixture."""
+    _, base_url, _, _ = api_server
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login", method="POST",
+        data={"username": "admin", "password": "AdminSecretPassword123"},
+    )
+    assert status == 200
+    headers = {"Authorization": f"Bearer {body['token']}"}
+
+    # Create and suspend a user so a real active=0 row exists.
+    create_status, create_body = make_request(
+        f"{base_url}/api/v1/users", method="POST", headers=headers,
+        data={"username": "inactive_test_user", "password": "TestPassword123",
+              "full_name": "Inactive Test User", "email": "inactive@restoricon.com",
+              "role": "technician"},
+    )
+    assert create_status == 201, create_body
+    target_id = create_body["user"]["id"]
+    suspend_status, suspend_body = make_request(
+        f"{base_url}/api/v1/users/{target_id}/suspend", method="POST", headers=headers, data={}
+    )
+    assert suspend_status == 200, suspend_body
+
+    # Positive control: active=0 finds the genuinely inactive user.
+    status, body = make_request(f"{base_url}/api/v1/users?active=0", headers=headers)
+    assert status == 200, body
+    assert any(u["id"] == target_id for u in body["users"]), body
+
+    # The actual fix: active=-1 must NOT be clamped to 0 -- it's a
+    # nonsensical filter value (active is always 0 or 1), so it must
+    # match nothing, even though a real active=0 user now exists.
+    status, body = make_request(f"{base_url}/api/v1/users?active=-1", headers=headers)
+    assert status == 200, body
+    assert body["users"] == [], body
+    assert body["total"] == 0, body
 
 
 # NEW-527: (method, url, param_name) for every optional query-param filter

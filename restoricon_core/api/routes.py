@@ -81,22 +81,26 @@ def _parse_int_query_param(
     query_params: Dict[str, List[str]],
     name: str,
     default: int,
-    minimum: int = 0,
+    minimum: Optional[int] = 0,
     maximum: Optional[int] = None,
 ) -> int:
     """Parse an integer query parameter (e.g. `?limit=`, `?offset=`) out of
     the `parse_qs`-shaped `query_params` dict, clamping to `[minimum,
-    maximum]`. Raises `ValueError` with a clean, non-leaking message on a
-    non-integer value -- the existing `except ValueError` handler in
-    `handle_request` turns this into a controlled 400, instead of Python's
-    raw `int()` exception text reaching the client.
+    maximum]`. Pass `minimum=None` to disable the lower clamp entirely
+    (NEW-532: needed for filters where a real, meaningful value can be
+    negative or where clamping a nonsensical value to a valid one would
+    silently change the query's meaning, e.g. `active`). Raises
+    `ValueError` with a clean, non-leaking message on a non-integer value
+    -- the existing `except ValueError` handler in `handle_request` turns
+    this into a controlled 400, instead of Python's raw `int()` exception
+    text reaching the client.
     """
     raw = query_params.get(name, [default])[0]
     try:
         value = int(raw)
     except (TypeError, ValueError):
         raise ValueError(f"Invalid '{name}' query parameter: {raw!r}")
-    if value < minimum:
+    if minimum is not None and value < minimum:
         value = minimum
     if maximum is not None and value > maximum:
         value = maximum
@@ -495,7 +499,11 @@ class APIRouter:
                 if method == "GET":
                     role = query_params.get("role", [None])[0]
                     active_param = query_params.get("active", [None])[0]
-                    active_int = _parse_int_query_param(query_params, "active", 0) if active_param is not None and active_param != "" else None
+                    # NEW-532: active is a real 0/1-valued filter, not an id --
+                    # the default minimum=0 clamp would silently turn a
+                    # nonsensical ?active=-1 into ?active=0 (all inactive
+                    # users) instead of the correct empty result.
+                    active_int = _parse_int_query_param(query_params, "active", 0, minimum=None) if active_param is not None and active_param != "" else None
                     users = self.auth.list_users(actor, role=role, active=active_int)
                     return 200, {"Content-Type": "application/json"}, {"users": [u.to_dict() for u in users], "total": len(users)}
                 elif method == "POST":
@@ -2276,21 +2284,33 @@ class APIRouter:
                 return 200, {"Content-Type": "application/json"}, {"status": "ok", "work_order": updated_wo.to_dict()}
 
             if path.startswith("/api/v1/operations/work-orders/") and "/" not in path[len("/api/v1/operations/work-orders/"):]:
-                wo_id = _parse_int_path_segment(path[len("/api/v1/operations/work-orders/"):], "wo_id")
-                if method == "GET":
-                    wo = self.operations.get_work_order(wo_id, actor)
-                    if not wo:
-                        return 404, {"Content-Type": "application/json"}, {"error": "Work order not found"}
-                    return 200, {"Content-Type": "application/json"}, {"work_order": wo.to_dict()}
-                elif method in ("PATCH", "POST", "PUT"):
-                    existing_wo = self.operations.get_work_order(wo_id, actor)
-                    if not existing_wo:
-                        return 404, {"Content-Type": "application/json"}, {"error": "Work order not found"}
-                    for k, v in json_body.items():
-                        if hasattr(existing_wo, k):
-                            setattr(existing_wo, k, v)
-                    updated_wo = self.operations.update_work_order(existing_wo, actor)
-                    return 200, {"Content-Type": "application/json"}, {"status": "ok", "work_order": updated_wo.to_dict()}
+                sub_path = path[len("/api/v1/operations/work-orders/"):]
+                # NEW-530: isdigit()-guard before parsing, matching the
+                # /api/v1/users/{id} and /api/v1/operations/equipment/{id}
+                # catch-alls' contract -- a non-numeric single segment now
+                # falls through to the router's generic 404 instead of
+                # reaching _parse_int_path_segment for a 400. (An empty
+                # sub_path can't occur here in practice: handle_request
+                # does path.rstrip("/") on every path before routing, so
+                # a trailing-slash request is normalized to the exact
+                # list-endpoint path before it ever reaches this
+                # catch-all.)
+                if sub_path.isdigit():
+                    wo_id = _parse_int_path_segment(sub_path, "wo_id")
+                    if method == "GET":
+                        wo = self.operations.get_work_order(wo_id, actor)
+                        if not wo:
+                            return 404, {"Content-Type": "application/json"}, {"error": "Work order not found"}
+                        return 200, {"Content-Type": "application/json"}, {"work_order": wo.to_dict()}
+                    elif method in ("PATCH", "POST", "PUT"):
+                        existing_wo = self.operations.get_work_order(wo_id, actor)
+                        if not existing_wo:
+                            return 404, {"Content-Type": "application/json"}, {"error": "Work order not found"}
+                        for k, v in json_body.items():
+                            if hasattr(existing_wo, k):
+                                setattr(existing_wo, k, v)
+                        updated_wo = self.operations.update_work_order(existing_wo, actor)
+                        return 200, {"Content-Type": "application/json"}, {"status": "ok", "work_order": updated_wo.to_dict()}
 
             # Subcontractor Matching
             if path == "/api/v1/operations/subcontractors/match" and method == "GET":
