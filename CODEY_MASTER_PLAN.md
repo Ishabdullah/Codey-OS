@@ -1252,6 +1252,34 @@ items in that family are `NEW-525` (low-impact, misleading message
 only), `NEW-527`/`NEW-528` (broader sibling leak classes, not yet
 individually fixed), and `NEW-529` (contacts routes, needs a bespoke
 guard shape).
+**`NEW-525` FIXED (14 sites + 1 stray sibling site) and `NEW-527`
+FIXED (34 sites, corrected from "≥22"), 2026-09-16.** Same
+segment-count-guard convention as `NEW-520`/`NEW-526` applied to the
+remaining verb-suffix sub-action routes; also fixed a stray unwrapped
+raw-leak site (`/api/v1/leads/{id}/score`) both prior `NEW-522`
+batches missed. **Rule-6 severity correction:** `NEW-525`'s original
+"low impact, cosmetic" framing was wrong for the multi-segment-id case
+— code-reviewer live-reproduced pre-fix `POST
+/api/v1/operations/work-orders/1/2/dispatch` silently dispatching work
+order 1 with a `200` and no error at all, the same silent-misrouting
+class as `NEW-526`, not a message issue; the identical mechanism on
+`/api/v1/users/{id}/password` would mutate the wrong user's
+credentials. `NEW-527`'s "≥22" was also corrected to the true count
+(34, exhaustive `grep`-based sweep), and a false claim in its own text
+(that a blank query value also leaks) was corrected — `parse_qs`'s
+`keep_blank_values=False` default makes blank and absent
+indistinguishable. Three more findings spun off, none fixed: `NEW-530`
+(work-orders catch-all missing an `isdigit()` guard its siblings have),
+`NEW-531` (multi-segment regression test only covers 5 of the 14
+`NEW-525` sites), `NEW-532` (`_parse_int_query_param`'s reused
+`minimum=0` clamp changes `?active=<negative>`'s result on
+`/api/v1/users`, since `active` is a real value not an id). Live
+pre-fix/post-fix repro (not just unit tests) confirmed the misrouting
+bug and its fix. 1894 passed/1 skipped, independently reproduced twice
+by code-reviewer, standard tier. This closes out all remaining
+low-priority findings from the `NEW-520`→`NEW-529` sweep except
+`NEW-528` (unassessed POST-body sites), `NEW-529` (contacts bespoke
+guard), and the three new spin-offs above.
 
 
 ---

@@ -2126,3 +2126,269 @@ def test_api_new526_batch2_malformed_extra_segment_is_404_and_no_write_happens(a
     assert status == 200, body
     status, body = make_request(f"{base_url}/api/v1/finance/projects/{proj_b}/pnl", headers=headers)
     assert status == 200, body
+
+
+# NEW-525: (method, url) pairs for every verb-suffix route in this round's
+# batch whose id path segment can be omitted entirely, causing the old
+# `path.split("/")[N]`-style parse to instead mis-parse the trailing verb
+# word as the id (or, for the compound stage/transition route, hit the
+# ValueError path with a nonsensical id). The new guard requires a
+# non-empty, slash-free segment between the route's prefix and its verb
+# suffix, so an omitted id now falls through to the router's generic 404
+# instead of ever reaching `_parse_int_path_segment`. Includes NEW-525's
+# Part 3 stray sibling site, /api/v1/leads/{id}/score (GET and POST, no
+# method restriction on that route).
+#
+# The 5 work-orders verb routes (dispatch/accept/complete/verify/status)
+# are deliberately NOT in this table -- see
+# test_api_new525_work_orders_omitted_id_falls_to_generic_catchall below
+# for why an omitted id on those routes observably lands on a 400, not a
+# 404, and that isn't something this round's fix changes or is in scope
+# to change.
+_NEW525_OMITTED_ID_404_SITES = [
+    ("POST", "/api/v1/users/password"),
+    ("POST", "/api/v1/users/suspend"),
+    ("POST", "/api/v1/users/activate"),
+    ("GET", "/api/v1/users/permissions"),
+    ("GET", "/api/v1/users/active-references"),
+    ("POST", "/api/v1/operations/projects/stage"),
+    ("GET", "/api/v1/operations/projects/summary"),
+    ("GET", "/api/v1/operations/projects/milestones"),
+    ("GET", "/api/v1/operations/projects/equipment"),
+    ("GET", "/api/v1/leads/score"),
+    ("POST", "/api/v1/leads/score"),
+]
+
+
+def test_api_new525_omitted_id_path_segments_are_generic_404(api_server):
+    """NEW-525: omitting the id path segment on any of these verb-suffix
+    routes (e.g. `POST /api/v1/users/password` instead of
+    `POST /api/v1/users/{id}/password`) must fall through to the router's
+    generic 'Endpoint not found' 404 -- not have the trailing verb word
+    (e.g. 'password') mis-parsed as the id."""
+    _, base_url, _, _ = api_server
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "admin", "password": "AdminSecretPassword123"},
+    )
+    assert status == 200
+    headers = {"Authorization": f"Bearer {body['token']}"}
+
+    for method, url in _NEW525_OMITTED_ID_404_SITES:
+        status, body = make_request(
+            f"{base_url}{url}", method=method, headers=headers, data={} if method == "POST" else None
+        )
+        assert status == 404, f"{method} {url}: expected 404, got {status} ({body})"
+        assert body == {"error": f"Endpoint not found: {method} {url}"}, f"{method} {url}: {body}"
+
+
+# The 5 work-orders verb-suffix sites from Part 1 site list #10-14. Unlike
+# the other 9 sites, /api/v1/operations/work-orders/ has a generic
+# single-segment catch-all route (`.../work-orders/{id}`, no method
+# restriction, no isdigit() pre-guard -- unlike the analogous users and
+# equipment catch-alls, which do isdigit()-guard first) that still matches
+# when the id is omitted and the trailing verb word lands in the single
+# segment slot, e.g. `POST /api/v1/operations/work-orders/dispatch` has
+# sub_path "dispatch", which the catch-all's `_parse_int_path_segment`
+# rejects with a 400, not a 404. That's true both before and after this
+# round's fix (pre-fix, the dispatch-specific handler's own
+# `_parse_int_path_segment(path.split("/")[5], "wo_id")` produced the
+# identical 400 first) -- so a 400-omitted-id assertion here wouldn't
+# discriminate this round's change at all. What the guard genuinely fixed
+# on these 5 routes is the *multi-segment* misrouting shape covered below.
+_NEW525_WORK_ORDER_VERB_SUFFIXES = ["dispatch", "accept", "complete", "verify", "status"]
+
+
+def test_api_new525_work_orders_omitted_id_falls_to_generic_catchall(api_server):
+    """Documents the observed (unchanged by this fix) behavior for the 5
+    work-orders verb routes: an omitted id falls through to the generic
+    `.../work-orders/{id}` catch-all, which lacks an isdigit() pre-guard,
+    so the verb word itself gets rejected as a non-integer id -- a clean
+    400, not a 404. Flagged in the round's handoff as a separate
+    catch-all-hardening gap, not fixed here (fixing it would flip an
+    already-passing NEW-522 batch 1 assertion that
+    `GET /api/v1/operations/work-orders/abc` is 400, not 404)."""
+    _, base_url, _, _ = api_server
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "admin", "password": "AdminSecretPassword123"},
+    )
+    assert status == 200
+    headers = {"Authorization": f"Bearer {body['token']}"}
+
+    for verb in _NEW525_WORK_ORDER_VERB_SUFFIXES:
+        url = f"/api/v1/operations/work-orders/{verb}"
+        status, body = make_request(f"{base_url}{url}", method="POST", headers=headers, data={})
+        assert status == 400, f"POST {url}: expected 400, got {status} ({body})"
+        assert body == {"error": f"Invalid 'wo_id' path segment: '{verb}'"}, f"POST {url}: {body}"
+
+
+def test_api_new525_work_orders_multi_segment_id_is_generic_404_not_misrouted(api_server):
+    """The actual bug this round's guard fixes on the 5 work-orders verb
+    routes: pre-fix, `path.split("/")[5]` on a malformed multi-segment
+    path like `/api/v1/operations/work-orders/1/2/dispatch` would have
+    silently taken index [5] = '1' as the id and dispatched work order 1
+    -- the NEW-526 misrouting class, acting on the wrong record with no
+    error. The new segment-count guard now makes these routes NOT match a
+    multi-segment path at all, falling through (the work-orders catch-all
+    also requires a single segment, so it doesn't match multi-segment
+    paths either) to the router's generic 404."""
+    _, base_url, _, _ = api_server
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "admin", "password": "AdminSecretPassword123"},
+    )
+    assert status == 200
+    headers = {"Authorization": f"Bearer {body['token']}"}
+
+    for verb in _NEW525_WORK_ORDER_VERB_SUFFIXES:
+        url = f"/api/v1/operations/work-orders/1/2/{verb}"
+        status, body = make_request(f"{base_url}{url}", method="POST", headers=headers, data={})
+        assert status == 404, f"POST {url}: expected 404, got {status} ({body})"
+        assert body == {"error": f"Endpoint not found: POST {url}"}, f"POST {url}: {body}"
+
+
+def test_api_new522_batch1_non_integer_path_segments_still_pass_with_new525_guard(api_server):
+    """Confirms NEW-525's added guard didn't regress the NEW-522 batch 1
+    behavior it sits alongside: a single non-numeric segment in the id
+    position (as opposed to an omitted one) must still be recognized as
+    that route and reach `_parse_int_path_segment` for a clean 400, not
+    fall through to a 404."""
+    _, base_url, _, _ = api_server
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "admin", "password": "AdminSecretPassword123"},
+    )
+    assert status == 200
+    headers = {"Authorization": f"Bearer {body['token']}"}
+
+    status, body = make_request(
+        f"{base_url}/api/v1/users/abc/password", method="POST", headers=headers, data={}
+    )
+    assert status == 400, body
+    assert body == {"error": "Invalid 'user_id' path segment: 'abc'"}
+
+
+# NEW-527: (method, url, param_name) for every optional query-param filter
+# in this round's batch whose bare `int(...)` got wrapped in the shared
+# `_parse_int_query_param` helper, preserving each site's exact existing
+# absent-value semantics (the raw-string guard var or the `"key" in
+# query_params` presence check, whichever the site already used).
+_NEW527_QUERY_PARAM_SITES = [
+    ("GET", "/api/v1/users?active=abc", "active"),
+    ("GET", "/api/v1/crm/tasks?customer_id=abc", "customer_id"),
+    ("GET", "/api/v1/crm/tasks?opportunity_id=abc", "opportunity_id"),
+    ("GET", "/api/v1/crm/tasks?lead_id=abc", "lead_id"),
+    ("GET", "/api/v1/crm/tasks?assigned_user_id=abc", "assigned_user_id"),
+    ("GET", "/api/v1/opportunities?customer_id=abc", "customer_id"),
+    ("GET", "/api/v1/opportunities?assigned_user_id=abc", "assigned_user_id"),
+    ("GET", "/api/v1/projects?customer_id=abc", "customer_id"),
+    ("GET", "/api/v1/estimates?customer_id=abc", "customer_id"),
+    ("GET", "/api/v1/estimates?project_id=abc", "project_id"),
+    ("GET", "/api/v1/contracts?customer_id=abc", "customer_id"),
+    ("GET", "/api/v1/contracts?project_id=abc", "project_id"),
+    ("GET", "/api/v1/invoices?customer_id=abc", "customer_id"),
+    ("GET", "/api/v1/invoices?project_id=abc", "project_id"),
+    ("GET", "/api/v1/documents?customer_id=abc", "customer_id"),
+    ("GET", "/api/v1/documents?project_id=abc", "project_id"),
+    ("GET", "/api/v1/portal/estimates?project_id=abc", "project_id"),
+    ("GET", "/api/v1/portal/contracts?project_id=abc", "project_id"),
+    ("GET", "/api/v1/portal/invoices?project_id=abc", "project_id"),
+    ("GET", "/api/v1/portal/documents?project_id=abc", "project_id"),
+    ("GET", "/api/v1/communications?customer_id=abc", "customer_id"),
+    ("GET", "/api/v1/communications?project_id=abc", "project_id"),
+    ("GET", "/api/v1/audit-log?entity_id=abc", "entity_id"),
+    ("GET", "/api/v1/audit-log?actor_id=abc", "actor_id"),
+    ("GET", "/api/v1/appointments?customer_id=abc", "customer_id"),
+    ("GET", "/api/v1/operations/work-orders?project_id=abc", "project_id"),
+    ("GET", "/api/v1/operations/work-orders?subcontractor_id=abc", "subcontractor_id"),
+    ("GET", "/api/v1/operations/equipment?project_id=abc", "project_id"),
+    ("GET", "/api/v1/finance/transactions?project_id=abc", "project_id"),
+    ("GET", "/api/v1/finance/transactions?customer_id=abc", "customer_id"),
+    ("GET", "/api/v1/hr/timesheets?employee_id=abc", "employee_id"),
+    ("GET", "/api/v1/hr/timesheets?project_id=abc", "project_id"),
+    ("GET", "/api/v1/procurement/purchase-orders?vendor_id=abc", "vendor_id"),
+    ("GET", "/api/v1/procurement/purchase-orders?project_id=abc", "project_id"),
+]
+
+
+def test_api_new527_non_integer_query_params_are_400_without_raw_pyexc_text(api_server):
+    """NEW-527: every bare `int(...)` wrap on an optional query-param
+    filter in this batch now goes through the shared
+    `_parse_int_query_param` helper, which raises a clean ValueError
+    instead of letting Python's raw `int()` exception text ('invalid
+    literal for int() with base 10') reach the client."""
+    _, base_url, _, _ = api_server
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "admin", "password": "AdminSecretPassword123"},
+    )
+    assert status == 200
+    headers = {"Authorization": f"Bearer {body['token']}"}
+
+    for method, url, param_name in _NEW527_QUERY_PARAM_SITES:
+        status, body = make_request(f"{base_url}{url}", method=method, headers=headers)
+        assert status == 400, f"{method} {url}: expected 400, got {status} ({body})"
+        assert body == {"error": f"Invalid '{param_name}' query parameter: 'abc'"}, f"{method} {url}: {body}"
+
+
+def test_api_new527_valid_integer_query_params_still_filter_correctly(api_server):
+    """NEW-527 spot-check (one site per absent-value-semantics shape): a
+    valid numeric query value still resolves and filters normally after
+    the `_parse_int_query_param` wrap -- the fix only rejects non-numeric
+    input, it doesn't change behavior for valid input."""
+    server, base_url, admin_user, _ = api_server
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "admin", "password": "AdminSecretPassword123"},
+    )
+    assert status == 200
+    headers = {"Authorization": f"Bearer {body['token']}"}
+
+    status, body = make_request(
+        f"{base_url}/api/v1/customers",
+        method="POST",
+        headers=headers,
+        data={
+            "first_name": "Carla",
+            "last_name": "Nguyen",
+            "company_name": "Nguyen LLC",
+            "email": "carla@nguyenllc.com",
+            "service_address": "5 Elm St, Hartford, CT",
+            "customer_type": "residential",
+            "status": "active",
+        },
+    )
+    assert status == 201, body
+    cust_id = body["customer"]["id"]
+
+    status, body = make_request(
+        f"{base_url}/api/v1/opportunities",
+        method="POST",
+        headers=headers,
+        data={"customer_id": cust_id, "title": "Nguyen Deal"},
+    )
+    assert status == 201, body
+
+    # Shape A: guard is `if <raw_var> else None` -- /api/v1/opportunities?customer_id=
+    status, body = make_request(
+        f"{base_url}/api/v1/opportunities?customer_id={cust_id}", headers=headers
+    )
+    assert status == 200, body
+    assert len(body["opportunities"]) == 1
+    assert body["opportunities"][0]["customer_id"] == cust_id
+
+    # Shape B: guard is `if "<key>" in query_params else None` --
+    # /api/v1/finance/transactions?customer_id= (no matching transactions
+    # for a fresh customer, but the filter must apply without error).
+    status, body = make_request(
+        f"{base_url}/api/v1/finance/transactions?customer_id={cust_id}", headers=headers
+    )
+    assert status == 200, body
+    assert body["transactions"] == []

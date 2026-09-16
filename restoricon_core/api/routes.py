@@ -495,7 +495,7 @@ class APIRouter:
                 if method == "GET":
                     role = query_params.get("role", [None])[0]
                     active_param = query_params.get("active", [None])[0]
-                    active_int = int(active_param) if active_param is not None and active_param != "" else None
+                    active_int = _parse_int_query_param(query_params, "active", 0) if active_param is not None and active_param != "" else None
                     users = self.auth.list_users(actor, role=role, active=active_int)
                     return 200, {"Content-Type": "application/json"}, {"users": [u.to_dict() for u in users], "total": len(users)}
                 elif method == "POST":
@@ -522,8 +522,14 @@ class APIRouter:
                     )
                     return 201, {"Content-Type": "application/json"}, {"user": user.to_dict()}
 
-            if path.startswith("/api/v1/users/") and path.endswith("/password") and method == "POST":
-                user_id = _parse_int_path_segment(path.split("/")[4], "user_id")
+            if (
+                path.startswith("/api/v1/users/")
+                and path.endswith("/password")
+                and path[len("/api/v1/users/"):-len("/password")]
+                and "/" not in path[len("/api/v1/users/"):-len("/password")]
+                and method == "POST"
+            ):
+                user_id = _parse_int_path_segment(path[len("/api/v1/users/"):-len("/password")], "user_id")
                 new_pw = json_body.get("new_password") or json_body.get("password", "")
                 old_pw = json_body.get("old_password")
                 self.auth.change_password(user_id, new_pw, actor, old_password=old_pw)
@@ -542,8 +548,14 @@ class APIRouter:
                 )
                 return 200, {"Content-Type": "application/json"}, {"success": True, "message": "Password updated successfully"}
 
-            if path.startswith("/api/v1/users/") and path.endswith("/suspend") and method == "POST":
-                user_id = _parse_int_path_segment(path.split("/")[4], "user_id")
+            if (
+                path.startswith("/api/v1/users/")
+                and path.endswith("/suspend")
+                and path[len("/api/v1/users/"):-len("/suspend")]
+                and "/" not in path[len("/api/v1/users/"):-len("/suspend")]
+                and method == "POST"
+            ):
+                user_id = _parse_int_path_segment(path[len("/api/v1/users/"):-len("/suspend")], "user_id")
                 before = self.auth.get_user_by_id(user_id)
                 updated = self.auth.set_user_active(user_id, 0, actor)
                 if not updated:
@@ -560,8 +572,14 @@ class APIRouter:
                 )
                 return 200, {"Content-Type": "application/json"}, {"user": updated.to_dict(), "message": "User suspended"}
 
-            if path.startswith("/api/v1/users/") and path.endswith("/activate") and method == "POST":
-                user_id = _parse_int_path_segment(path.split("/")[4], "user_id")
+            if (
+                path.startswith("/api/v1/users/")
+                and path.endswith("/activate")
+                and path[len("/api/v1/users/"):-len("/activate")]
+                and "/" not in path[len("/api/v1/users/"):-len("/activate")]
+                and method == "POST"
+            ):
+                user_id = _parse_int_path_segment(path[len("/api/v1/users/"):-len("/activate")], "user_id")
                 before = self.auth.get_user_by_id(user_id)
                 updated = self.auth.set_user_active(user_id, 1, actor)
                 if not updated:
@@ -578,8 +596,13 @@ class APIRouter:
                 )
                 return 200, {"Content-Type": "application/json"}, {"user": updated.to_dict(), "message": "User activated"}
 
-            if path.startswith("/api/v1/users/") and path.endswith("/permissions"):
-                user_id = _parse_int_path_segment(path.split("/")[4], "user_id")
+            if (
+                path.startswith("/api/v1/users/")
+                and path.endswith("/permissions")
+                and path[len("/api/v1/users/"):-len("/permissions")]
+                and "/" not in path[len("/api/v1/users/"):-len("/permissions")]
+            ):
+                user_id = _parse_int_path_segment(path[len("/api/v1/users/"):-len("/permissions")], "user_id")
                 if method == "GET":
                     if actor.user_id != user_id and not actor.has_permission(PERM_MANAGE_USERS):
                         raise PermissionError("Actor lacks permission to view user permissions")
@@ -614,8 +637,14 @@ class APIRouter:
                         "effective_permissions": self.auth.get_effective_permissions(updated),
                     }
 
-            if path.startswith("/api/v1/users/") and path.endswith("/active-references") and method == "GET":
-                user_id = _parse_int_path_segment(path.split("/")[4], "user_id")
+            if (
+                path.startswith("/api/v1/users/")
+                and path.endswith("/active-references")
+                and path[len("/api/v1/users/"):-len("/active-references")]
+                and "/" not in path[len("/api/v1/users/"):-len("/active-references")]
+                and method == "GET"
+            ):
+                user_id = _parse_int_path_segment(path[len("/api/v1/users/"):-len("/active-references")], "user_id")
                 active = self.scheduling.get_active_staff_schedules_for_user(user_id, actor)
                 return 200, {"Content-Type": "application/json"}, {"active_references": active}
 
@@ -762,10 +791,10 @@ class APIRouter:
                     tasks = self.crm.list_tasks(
                         actor,
                         status=status,
-                        customer_id=int(cid) if cid else None,
-                        opportunity_id=int(oid) if oid else None,
-                        lead_id=int(lid) if lid else None,
-                        assigned_user_id=int(uid) if uid else None,
+                        customer_id=_parse_int_query_param(query_params, "customer_id", 0) if cid else None,
+                        opportunity_id=_parse_int_query_param(query_params, "opportunity_id", 0) if oid else None,
+                        lead_id=_parse_int_query_param(query_params, "lead_id", 0) if lid else None,
+                        assigned_user_id=_parse_int_query_param(query_params, "assigned_user_id", 0) if uid else None,
                     )
                     return 200, {"Content-Type": "application/json"}, {"tasks": [t.to_dict() for t in tasks]}
                 elif method == "POST":
@@ -821,8 +850,13 @@ class APIRouter:
                     created = self.crm.create_lead(lead, actor)
                     return 201, {"Content-Type": "application/json"}, {"lead": created.to_dict()}
 
-            if path.startswith("/api/v1/leads/") and path.endswith("/score"):
-                lead_id = int(path.split("/")[4])
+            if (
+                path.startswith("/api/v1/leads/")
+                and path.endswith("/score")
+                and path[len("/api/v1/leads/"):-len("/score")]
+                and "/" not in path[len("/api/v1/leads/"):-len("/score")]
+            ):
+                lead_id = _parse_int_path_segment(path[len("/api/v1/leads/"):-len("/score")], "lead_id")
                 if method == "GET":
                     score_res = self.crm.score_lead(lead_id, actor)
                     return 200, {"Content-Type": "application/json"}, score_res
@@ -860,8 +894,8 @@ class APIRouter:
                     opps = self.crm.list_opportunities(
                         actor,
                         pipeline_stage=stage,
-                        customer_id=int(cid) if cid else None,
-                        assigned_user_id=int(uid) if uid else None,
+                        customer_id=_parse_int_query_param(query_params, "customer_id", 0) if cid else None,
+                        assigned_user_id=_parse_int_query_param(query_params, "assigned_user_id", 0) if uid else None,
                     )
                     return 200, {"Content-Type": "application/json"}, {"opportunities": [o.to_dict() for o in opps]}
                 elif method == "POST":
@@ -909,7 +943,7 @@ class APIRouter:
             if path == "/api/v1/projects":
                 if method == "GET":
                     cid = query_params.get("customer_id", [None])[0]
-                    cust_id = int(cid) if cid else None
+                    cust_id = _parse_int_query_param(query_params, "customer_id", 0) if cid else None
                     projects = self.crm.list_projects(actor, customer_id=cust_id)
                     return 200, {"Content-Type": "application/json"}, {"projects": [p.to_dict() for p in projects]}
                 elif method == "POST":
@@ -943,8 +977,8 @@ class APIRouter:
                     pid = query_params.get("project_id", [None])[0]
                     estimates = self.crm.list_estimates(
                         actor,
-                        customer_id=int(cid) if cid else None,
-                        project_id=int(pid) if pid else None,
+                        customer_id=_parse_int_query_param(query_params, "customer_id", 0) if cid else None,
+                        project_id=_parse_int_query_param(query_params, "project_id", 0) if pid else None,
                     )
                     return 200, {"Content-Type": "application/json"}, {"estimates": [e.to_dict() for e in estimates]}
                 elif method == "POST":
@@ -966,8 +1000,8 @@ class APIRouter:
                     pid = query_params.get("project_id", [None])[0]
                     contracts = self.crm.list_contracts(
                         actor,
-                        customer_id=int(cid) if cid else None,
-                        project_id=int(pid) if pid else None,
+                        customer_id=_parse_int_query_param(query_params, "customer_id", 0) if cid else None,
+                        project_id=_parse_int_query_param(query_params, "project_id", 0) if pid else None,
                     )
                     return 200, {"Content-Type": "application/json"}, {"contracts": [c.to_dict() for c in contracts]}
                 elif method == "POST":
@@ -1000,8 +1034,8 @@ class APIRouter:
                     pid = query_params.get("project_id", [None])[0]
                     invoices = self.crm.list_invoices(
                         actor,
-                        customer_id=int(cid) if cid else None,
-                        project_id=int(pid) if pid else None,
+                        customer_id=_parse_int_query_param(query_params, "customer_id", 0) if cid else None,
+                        project_id=_parse_int_query_param(query_params, "project_id", 0) if pid else None,
                     )
                     return 200, {"Content-Type": "application/json"}, {"invoices": [i.to_dict() for i in invoices]}
                 elif method == "POST":
@@ -1037,8 +1071,8 @@ class APIRouter:
                     dtype = query_params.get("document_type", [None])[0]
                     documents = self.crm.list_documents(
                         actor,
-                        customer_id=int(cid) if cid else None,
-                        project_id=int(pid) if pid else None,
+                        customer_id=_parse_int_query_param(query_params, "customer_id", 0) if cid else None,
+                        project_id=_parse_int_query_param(query_params, "project_id", 0) if pid else None,
                         document_type=dtype,
                     )
                     return 200, {"Content-Type": "application/json"}, {"documents": [d.to_dict() for d in documents]}
@@ -1252,13 +1286,13 @@ class APIRouter:
 
                 if path == "/api/v1/portal/estimates" and method == "GET":
                     pid = query_params.get("project_id", [None])[0]
-                    proj_id = int(pid) if pid else None
+                    proj_id = _parse_int_query_param(query_params, "project_id", 0) if pid else None
                     estimates = self.crm.list_estimates(actor, customer_id=actor.customer_id, project_id=proj_id)
                     return 200, {"Content-Type": "application/json"}, {"estimates": [e.to_dict() for e in estimates]}
 
                 if path == "/api/v1/portal/contracts" and method == "GET":
                     pid = query_params.get("project_id", [None])[0]
-                    proj_id = int(pid) if pid else None
+                    proj_id = _parse_int_query_param(query_params, "project_id", 0) if pid else None
                     contracts = self.crm.list_contracts(actor, customer_id=actor.customer_id, project_id=proj_id)
                     return 200, {"Content-Type": "application/json"}, {"contracts": [c.to_dict() for c in contracts]}
 
@@ -1277,13 +1311,13 @@ class APIRouter:
 
                 if path == "/api/v1/portal/invoices" and method == "GET":
                     pid = query_params.get("project_id", [None])[0]
-                    proj_id = int(pid) if pid else None
+                    proj_id = _parse_int_query_param(query_params, "project_id", 0) if pid else None
                     invoices = self.crm.list_invoices(actor, customer_id=actor.customer_id, project_id=proj_id)
                     return 200, {"Content-Type": "application/json"}, {"invoices": [i.to_dict() for i in invoices]}
 
                 if path == "/api/v1/portal/documents" and method == "GET":
                     pid = query_params.get("project_id", [None])[0]
-                    proj_id = int(pid) if pid else None
+                    proj_id = _parse_int_query_param(query_params, "project_id", 0) if pid else None
                     dtype = query_params.get("document_type", [None])[0]
                     documents = self.crm.list_documents(actor, customer_id=actor.customer_id, project_id=proj_id, document_type=dtype)
                     return 200, {"Content-Type": "application/json"}, {"documents": [d.to_dict() for d in documents]}
@@ -1325,9 +1359,9 @@ class APIRouter:
             if path == "/api/v1/communications":
                 if method == "GET":
                     cid = query_params.get("customer_id", [None])[0]
-                    cust_id = int(cid) if cid else None
+                    cust_id = _parse_int_query_param(query_params, "customer_id", 0) if cid else None
                     pid = query_params.get("project_id", [None])[0]
-                    proj_id = int(pid) if pid else None
+                    proj_id = _parse_int_query_param(query_params, "project_id", 0) if pid else None
                     channel = query_params.get("channel", [None])[0]
                     limit = _parse_int_query_param(query_params, "limit", 50, minimum=1, maximum=1000)
                     offset = _parse_int_query_param(query_params, "offset", 0)
@@ -1385,9 +1419,9 @@ class APIRouter:
             if path == "/api/v1/audit-log" and method == "GET":
                 entity_type = query_params.get("entity_type", [None])[0]
                 eid = query_params.get("entity_id", [None])[0]
-                entity_id = int(eid) if eid else None
+                entity_id = _parse_int_query_param(query_params, "entity_id", 0) if eid else None
                 aid = query_params.get("actor_id", [None])[0]
-                actor_id = int(aid) if aid else None
+                actor_id = _parse_int_query_param(query_params, "actor_id", 0) if aid else None
                 action = query_params.get("action", [None])[0]
                 limit = _parse_int_query_param(query_params, "limit", 100, minimum=1, maximum=1000)
                 offset = _parse_int_query_param(query_params, "offset", 0)
@@ -1638,7 +1672,7 @@ class APIRouter:
             if path == "/api/v1/appointments":
                 if method == "GET":
                     cid = query_params.get("customer_id", [None])[0]
-                    cust_id = int(cid) if cid else None
+                    cust_id = _parse_int_query_param(query_params, "customer_id", 0) if cid else None
                     status = query_params.get("status", [None])[0]
                     start = query_params.get("start", [None])[0]
                     end = query_params.get("end", [None])[0]
@@ -2065,22 +2099,40 @@ class APIRouter:
             # ==========================================
 
             # Project Lifecycle & Summary
-            if path.startswith("/api/v1/operations/projects/") and (path.endswith("/stage") or path.endswith("/transition")) and method == "POST":
-                proj_id = _parse_int_path_segment(path.split("/")[5], "proj_id")
+            _proj_stage_suffix = "/stage" if path.endswith("/stage") else "/transition"
+            if (
+                path.startswith("/api/v1/operations/projects/")
+                and (path.endswith("/stage") or path.endswith("/transition"))
+                and path[len("/api/v1/operations/projects/"):-len(_proj_stage_suffix)]
+                and "/" not in path[len("/api/v1/operations/projects/"):-len(_proj_stage_suffix)]
+                and method == "POST"
+            ):
+                proj_id = _parse_int_path_segment(path[len("/api/v1/operations/projects/"):-len(_proj_stage_suffix)], "proj_id")
                 target_stage = json_body.get("target_stage") or json_body.get("stage", "")
                 notes = json_body.get("notes")
                 reason = json_body.get("reason")
                 updated_p = self.operations.transition_project_stage(proj_id, target_stage, actor, notes=notes, reason=reason)
                 return 200, {"Content-Type": "application/json"}, {"status": "ok", "project": updated_p.to_dict()}
 
-            if path.startswith("/api/v1/operations/projects/") and path.endswith("/summary") and method == "GET":
-                proj_id = _parse_int_path_segment(path.split("/")[5], "proj_id")
+            if (
+                path.startswith("/api/v1/operations/projects/")
+                and path.endswith("/summary")
+                and path[len("/api/v1/operations/projects/"):-len("/summary")]
+                and "/" not in path[len("/api/v1/operations/projects/"):-len("/summary")]
+                and method == "GET"
+            ):
+                proj_id = _parse_int_path_segment(path[len("/api/v1/operations/projects/"):-len("/summary")], "proj_id")
                 summary = self.operations.get_project_summary(proj_id, actor)
                 return 200, {"Content-Type": "application/json"}, summary
 
             # Project Milestones
-            if path.startswith("/api/v1/operations/projects/") and path.endswith("/milestones"):
-                proj_id = _parse_int_path_segment(path.split("/")[5], "proj_id")
+            if (
+                path.startswith("/api/v1/operations/projects/")
+                and path.endswith("/milestones")
+                and path[len("/api/v1/operations/projects/"):-len("/milestones")]
+                and "/" not in path[len("/api/v1/operations/projects/"):-len("/milestones")]
+            ):
+                proj_id = _parse_int_path_segment(path[len("/api/v1/operations/projects/"):-len("/milestones")], "proj_id")
                 if method == "GET":
                     milestones = self.operations.list_milestones(proj_id, actor)
                     return 200, {"Content-Type": "application/json"}, {"milestones": [m.to_dict() for m in milestones]}
@@ -2091,8 +2143,14 @@ class APIRouter:
                     created_m = self.operations.create_milestone(milestone, actor)
                     return 201, {"Content-Type": "application/json"}, {"status": "created", "milestone": created_m.to_dict()}
 
-            if path.startswith("/api/v1/operations/projects/") and path.endswith("/equipment") and method == "GET":
-                proj_id = _parse_int_path_segment(path.split("/")[5], "proj_id")
+            if (
+                path.startswith("/api/v1/operations/projects/")
+                and path.endswith("/equipment")
+                and path[len("/api/v1/operations/projects/"):-len("/equipment")]
+                and "/" not in path[len("/api/v1/operations/projects/"):-len("/equipment")]
+                and method == "GET"
+            ):
+                proj_id = _parse_int_path_segment(path[len("/api/v1/operations/projects/"):-len("/equipment")], "proj_id")
                 active_only = query_params.get("active_only", ["false"])[0].lower() in ("true", "1")
                 deps = self.operations.list_project_deployments(proj_id, actor, active_only=active_only)
                 return 200, {"Content-Type": "application/json"}, {"deployments": [d.to_dict() for d in deps]}
@@ -2131,11 +2189,11 @@ class APIRouter:
             if path == "/api/v1/operations/work-orders":
                 if method == "GET":
                     pid = query_params.get("project_id", [None])[0]
-                    proj_id = int(pid) if pid else None
+                    proj_id = _parse_int_query_param(query_params, "project_id", 0) if pid else None
                     trade = query_params.get("trade", [None])[0]
                     status = query_params.get("status", [None])[0]
                     sid = query_params.get("subcontractor_id", [None])[0]
-                    sub_id = int(sid) if sid else None
+                    sub_id = _parse_int_query_param(query_params, "subcontractor_id", 0) if sid else None
                     wos = self.operations.list_work_orders(
                         actor, project_id=proj_id, trade=trade, status=status, subcontractor_id=sub_id
                     )
@@ -2145,8 +2203,14 @@ class APIRouter:
                     created_wo = self.operations.create_work_order(wo, actor)
                     return 201, {"Content-Type": "application/json"}, {"status": "created", "work_order": created_wo.to_dict()}
 
-            if path.startswith("/api/v1/operations/work-orders/") and path.endswith("/dispatch") and method == "POST":
-                wo_id = _parse_int_path_segment(path.split("/")[5], "wo_id")
+            if (
+                path.startswith("/api/v1/operations/work-orders/")
+                and path.endswith("/dispatch")
+                and path[len("/api/v1/operations/work-orders/"):-len("/dispatch")]
+                and "/" not in path[len("/api/v1/operations/work-orders/"):-len("/dispatch")]
+                and method == "POST"
+            ):
+                wo_id = _parse_int_path_segment(path[len("/api/v1/operations/work-orders/"):-len("/dispatch")], "wo_id")
                 sub_id = int(json_body.get("subcontractor_id", 0))
                 start = json_body.get("scheduled_start")
                 end = json_body.get("scheduled_end")
@@ -2157,27 +2221,51 @@ class APIRouter:
                 )
                 return 200, {"Content-Type": "application/json"}, {"status": "dispatched", "work_order": dispatched.to_dict()}
 
-            if path.startswith("/api/v1/operations/work-orders/") and path.endswith("/accept") and method == "POST":
-                wo_id = _parse_int_path_segment(path.split("/")[5], "wo_id")
+            if (
+                path.startswith("/api/v1/operations/work-orders/")
+                and path.endswith("/accept")
+                and path[len("/api/v1/operations/work-orders/"):-len("/accept")]
+                and "/" not in path[len("/api/v1/operations/work-orders/"):-len("/accept")]
+                and method == "POST"
+            ):
+                wo_id = _parse_int_path_segment(path[len("/api/v1/operations/work-orders/"):-len("/accept")], "wo_id")
                 notes = json_body.get("notes")
                 accepted = self.operations.accept_work_order(wo_id, actor, notes=notes)
                 return 200, {"Content-Type": "application/json"}, {"status": "accepted", "work_order": accepted.to_dict()}
 
-            if path.startswith("/api/v1/operations/work-orders/") and path.endswith("/complete") and method == "POST":
-                wo_id = _parse_int_path_segment(path.split("/")[5], "wo_id")
+            if (
+                path.startswith("/api/v1/operations/work-orders/")
+                and path.endswith("/complete")
+                and path[len("/api/v1/operations/work-orders/"):-len("/complete")]
+                and "/" not in path[len("/api/v1/operations/work-orders/"):-len("/complete")]
+                and method == "POST"
+            ):
+                wo_id = _parse_int_path_segment(path[len("/api/v1/operations/work-orders/"):-len("/complete")], "wo_id")
                 actual_end = json_body.get("actual_end")
                 notes = json_body.get("notes")
                 completed = self.operations.complete_work_order(wo_id, actor, actual_end=actual_end, notes=notes)
                 return 200, {"Content-Type": "application/json"}, {"status": "completed", "work_order": completed.to_dict()}
 
-            if path.startswith("/api/v1/operations/work-orders/") and path.endswith("/verify") and method == "POST":
-                wo_id = _parse_int_path_segment(path.split("/")[5], "wo_id")
+            if (
+                path.startswith("/api/v1/operations/work-orders/")
+                and path.endswith("/verify")
+                and path[len("/api/v1/operations/work-orders/"):-len("/verify")]
+                and "/" not in path[len("/api/v1/operations/work-orders/"):-len("/verify")]
+                and method == "POST"
+            ):
+                wo_id = _parse_int_path_segment(path[len("/api/v1/operations/work-orders/"):-len("/verify")], "wo_id")
                 notes = json_body.get("notes")
                 verified = self.operations.verify_work_order(wo_id, actor, notes=notes)
                 return 200, {"Content-Type": "application/json"}, {"status": "verified", "work_order": verified.to_dict()}
 
-            if path.startswith("/api/v1/operations/work-orders/") and path.endswith("/status") and method == "POST":
-                wo_id = _parse_int_path_segment(path.split("/")[5], "wo_id")
+            if (
+                path.startswith("/api/v1/operations/work-orders/")
+                and path.endswith("/status")
+                and path[len("/api/v1/operations/work-orders/"):-len("/status")]
+                and "/" not in path[len("/api/v1/operations/work-orders/"):-len("/status")]
+                and method == "POST"
+            ):
+                wo_id = _parse_int_path_segment(path[len("/api/v1/operations/work-orders/"):-len("/status")], "wo_id")
                 status = json_body.get("status", "")
                 start = json_body.get("actual_start")
                 end = json_body.get("actual_end")
@@ -2223,7 +2311,7 @@ class APIRouter:
                     cat = query_params.get("category", [None])[0]
                     st = query_params.get("status", [None])[0]
                     pid = query_params.get("project_id", [None])[0]
-                    proj_id = int(pid) if pid else None
+                    proj_id = _parse_int_query_param(query_params, "project_id", 0) if pid else None
                     eq_list = self.operations.list_equipment(actor, category=cat, status=st, project_id=proj_id)
                     return 200, {"Content-Type": "application/json"}, {"equipment": [e.to_dict() for e in eq_list]}
                 elif method == "POST":
@@ -2296,8 +2384,8 @@ class APIRouter:
                 return 201, {"Content-Type": "application/json"}, {"status": "created", "transaction": res.to_dict()}
 
             if path == "/api/v1/finance/transactions" and method == "GET":
-                proj_id = int(query_params["project_id"][0]) if "project_id" in query_params else None
-                cust_id = int(query_params["customer_id"][0]) if "customer_id" in query_params else None
+                proj_id = _parse_int_query_param(query_params, "project_id", 0) if "project_id" in query_params else None
+                cust_id = _parse_int_query_param(query_params, "customer_id", 0) if "customer_id" in query_params else None
                 ttype = query_params["transaction_type"][0] if "transaction_type" in query_params else None
                 limit = _parse_int_query_param(query_params, "limit", 50, minimum=1, maximum=1000)
                 offset = _parse_int_query_param(query_params, "offset", 0)
@@ -2444,8 +2532,8 @@ class APIRouter:
                 return 201, {"Content-Type": "application/json"}, {"status": "submitted", "timesheet": res.to_dict()}
 
             if path == "/api/v1/hr/timesheets" and method == "GET":
-                emp_id = int(query_params["employee_id"][0]) if "employee_id" in query_params else None
-                proj_id = int(query_params["project_id"][0]) if "project_id" in query_params else None
+                emp_id = _parse_int_query_param(query_params, "employee_id", 0) if "employee_id" in query_params else None
+                proj_id = _parse_int_query_param(query_params, "project_id", 0) if "project_id" in query_params else None
                 stat = query_params["status"][0] if "status" in query_params else None
                 timesheets = self.business_ops.list_timesheets(actor, employee_id=emp_id, project_id=proj_id, status=stat)
                 return 200, {"Content-Type": "application/json"}, {"timesheets": [t.to_dict() for t in timesheets]}
@@ -2500,8 +2588,8 @@ class APIRouter:
                 return 201, {"Content-Type": "application/json"}, {"status": "created", "purchase_order": res.to_dict()}
 
             if path == "/api/v1/procurement/purchase-orders" and method == "GET":
-                ven_id = int(query_params["vendor_id"][0]) if "vendor_id" in query_params else None
-                proj_id = int(query_params["project_id"][0]) if "project_id" in query_params else None
+                ven_id = _parse_int_query_param(query_params, "vendor_id", 0) if "vendor_id" in query_params else None
+                proj_id = _parse_int_query_param(query_params, "project_id", 0) if "project_id" in query_params else None
                 stat = query_params["status"][0] if "status" in query_params else None
                 pos = self.business_ops.list_purchase_orders(actor, vendor_id=ven_id, project_id=proj_id, status=stat)
                 return 200, {"Content-Type": "application/json"}, {"purchase_orders": [p.to_dict() for p in pos]}
