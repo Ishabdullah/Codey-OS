@@ -747,6 +747,114 @@ def test_delete_user_multiple_terminal_staff_schedules_all_archived(user_mgmt_en
     assert archived_ids == {completed.id, cancelled.id}
 
 
+def test_delete_user_nulls_out_subcontractor_user_id(user_mgmt_env):
+    """NEW-494: subcontractors.user_id is FK-less -- delete_user() must
+    null it out explicitly rather than leaving a dangling reference to a
+    now-deleted users row."""
+    auth = user_mgmt_env["auth"]
+    admin_ctx = user_mgmt_env["admin_ctx"]
+    tech = user_mgmt_env["tech"]
+
+    conn = user_mgmt_env["db"].get_connection()
+    with conn:
+        cursor = conn.execute(
+            "INSERT INTO subcontractors (company_name, user_id, created_at, updated_at) VALUES (?, ?, ?, ?);",
+            ("Dan's Drywall LLC", tech.id, "2024-01-01T00:00:00", "2024-01-01T00:00:00"),
+        )
+    sub_id = cursor.lastrowid
+
+    deleted = auth.delete_user(tech.id, admin_ctx)
+    assert deleted is True
+
+    row = conn.execute(
+        "SELECT user_id FROM subcontractors WHERE id = ?;", (sub_id,)
+    ).fetchone()
+    assert row["user_id"] is None
+    # The subcontractor row itself survives fully intact -- only the
+    # dangling login/assignment pointer is cleared.
+    assert conn.execute(
+        "SELECT company_name FROM subcontractors WHERE id = ?;", (sub_id,)
+    ).fetchone()["company_name"] == "Dan's Drywall LLC"
+
+
+def test_delete_user_nulls_out_appointment_assigned_user_id(user_mgmt_env):
+    """NEW-519: appointments.assigned_user_id is FK-less -- delete_user()
+    must null it out explicitly, same class of gap as NEW-494."""
+    auth = user_mgmt_env["auth"]
+    admin_ctx = user_mgmt_env["admin_ctx"]
+    tech = user_mgmt_env["tech"]
+
+    conn = user_mgmt_env["db"].get_connection()
+    with conn:
+        cursor = conn.execute(
+            "INSERT INTO appointments (title, assigned_user_id, created_at, updated_at) VALUES (?, ?, ?, ?);",
+            ("On-site inspection", tech.id, "2024-01-01T00:00:00", "2024-01-01T00:00:00"),
+        )
+    appt_id = cursor.lastrowid
+
+    deleted = auth.delete_user(tech.id, admin_ctx)
+    assert deleted is True
+
+    row = conn.execute(
+        "SELECT assigned_user_id FROM appointments WHERE id = ?;", (appt_id,)
+    ).fetchone()
+    assert row["assigned_user_id"] is None
+    # The appointment row itself survives fully intact.
+    assert conn.execute(
+        "SELECT title FROM appointments WHERE id = ?;", (appt_id,)
+    ).fetchone()["title"] == "On-site inspection"
+
+
+def test_delete_user_nulls_out_both_alongside_staff_schedule_archive(user_mgmt_env):
+    """All three writes -- staff_schedules_archive insert (NEW-493),
+    subcontractors.user_id null-out (NEW-494), and
+    appointments.assigned_user_id null-out (NEW-519) -- coexist correctly
+    inside the same delete_user() transaction."""
+    auth = user_mgmt_env["auth"]
+    sched = user_mgmt_env["sched"]
+    admin_ctx = user_mgmt_env["admin_ctx"]
+    tech = user_mgmt_env["tech"]
+
+    terminal = sched.create_staff_schedule(
+        StaffSchedule(
+            user_id=tech.id, title="Old completed job",
+            start_time="2020-01-01T09:00:00", end_time="2020-01-01T11:00:00",
+            status="completed", notes=None,
+        ),
+        admin_ctx,
+    )
+
+    conn = user_mgmt_env["db"].get_connection()
+    with conn:
+        sub_cursor = conn.execute(
+            "INSERT INTO subcontractors (company_name, user_id, created_at, updated_at) VALUES (?, ?, ?, ?);",
+            ("Combined Test Sub LLC", tech.id, "2024-01-01T00:00:00", "2024-01-01T00:00:00"),
+        )
+        appt_cursor = conn.execute(
+            "INSERT INTO appointments (title, assigned_user_id, created_at, updated_at) VALUES (?, ?, ?, ?);",
+            ("Combined test appointment", tech.id, "2024-01-01T00:00:00", "2024-01-01T00:00:00"),
+        )
+    sub_id = sub_cursor.lastrowid
+    appt_id = appt_cursor.lastrowid
+
+    deleted = auth.delete_user(tech.id, admin_ctx)
+    assert deleted is True
+
+    archived = conn.execute(
+        "SELECT * FROM staff_schedules_archive WHERE original_schedule_id = ?;",
+        (terminal.id,),
+    ).fetchone()
+    assert archived is not None
+
+    assert conn.execute(
+        "SELECT user_id FROM subcontractors WHERE id = ?;", (sub_id,)
+    ).fetchone()["user_id"] is None
+
+    assert conn.execute(
+        "SELECT assigned_user_id FROM appointments WHERE id = ?;", (appt_id,)
+    ).fetchone()["assigned_user_id"] is None
+
+
 def test_delete_user_archive_insert_failure_rolls_back_whole_delete(user_mgmt_env, monkeypatch):
     """Transaction atomicity: if a later statement in delete_user()'s
     transaction fails AFTER the archive rows have already been written,

@@ -1185,6 +1185,20 @@ FK-less column has no `delete_user()` cleanup, same class as the
 pre-existing `NEW-494`. Code-complete + reviewer-approved, not
 live-verified (schema/service/UI change with strong direct test
 coverage, no process/security-boundary surface).
+**`NEW-492`/`NEW-494`/`NEW-519` all FIXED 2026-09-16.** `NEW-492`: new
+`GET /api/v1/staff-schedules/{id}` route, IDOR-checked (grants no
+capability beyond the existing list route for the same roles).
+`NEW-494`/`NEW-519` landed together: `delete_user()` now nulls out
+both FK-less `*_user_id` columns inside its existing atomic
+transaction — plain null-out, not archive, confirmed correct since
+neither column is itself a historical record. `NEW-520` (new, not
+fixed): the new GET route reproduces a pre-existing raw-exception-leak
+bug from its `PATCH`/`DELETE` siblings on non-numeric ids — explicitly
+NOT recorded as purely inherited, since the GET instance is new code
+from this round. `NEW-521` (new, not fixed): whether the FK-less
+`*_user_id` sweep for `delete_user()` is complete beyond these two
+known columns. 1881 passed/1 skipped, reviewer-approved, standard
+tier.
 
 
 ---

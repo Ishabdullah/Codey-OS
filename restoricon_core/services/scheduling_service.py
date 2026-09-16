@@ -1057,6 +1057,20 @@ class SchedulingService:
         rows = conn.execute(query, params).fetchall()
         return [StaffSchedule.from_row(row) for row in rows]
 
+    def get_staff_schedule(
+        self, schedule_id: int, actor: AuthContext
+    ) -> Optional[StaffSchedule]:
+        if not actor.has_permission(PERM_READ_STAFF_SCHEDULES):
+            raise PermissionError("Actor lacks permission to read staff schedules")
+
+        conn = self.db.get_connection()
+        row = conn.execute(
+            "SELECT * FROM staff_schedules WHERE id = ?;", (schedule_id,)
+        ).fetchone()
+        if not row:
+            return None
+        return StaffSchedule.from_row(row)
+
     def _query_active_staff_schedules_for_user(self, user_id: int) -> List[Dict[str, Any]]:
         """Unguarded query -- 'active' = status='scheduled' staff_schedules
         rows for this user_id. Shared, unfiltered core for both the

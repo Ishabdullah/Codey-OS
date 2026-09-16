@@ -39,6 +39,9 @@ def test_staff_schedules_rbac():
     with pytest.raises(PermissionError):
         scheduling_service.delete_staff_schedule(1, actor)
 
+    with pytest.raises(PermissionError):
+        scheduling_service.get_staff_schedule(1, actor)
+
 def test_staff_schedules_crud():
     """Negative control: Test that CRUD operations work and audit logs are created."""
     db_manager = DatabaseManager(":memory:")

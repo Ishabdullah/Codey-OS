@@ -1614,6 +1614,69 @@ def test_api_staff_schedule_patch_unknown_user_id_is_400(api_server):
     assert body["error"] == "Unknown user_id: 424242"
 
 
+def test_api_staff_schedule_get_by_id(api_server):
+    """NEW-492: `GET /api/v1/staff-schedules/{id}` for a real row returns
+    200 with the schedule dict; a nonexistent id returns a clean 404."""
+    _, base_url, _, _ = api_server
+    headers = _agent_headers(base_url)
+
+    status, body = make_request(
+        f"{base_url}/api/v1/staff-schedules", method="POST", headers=headers,
+        data={"user_id": 1, "title": "Fetch me by id", "start_time": "2026-09-18T09:00:00",
+              "end_time": "2026-09-18T10:00:00", "status": "scheduled", "notes": "n/a"},
+    )
+    assert status == 201, body
+    sched_id = body["schedule"]["id"]
+
+    status, body = make_request(
+        f"{base_url}/api/v1/staff-schedules/{sched_id}", headers=headers,
+    )
+    assert status == 200, body
+    assert body["schedule"]["id"] == sched_id
+    assert body["schedule"]["title"] == "Fetch me by id"
+
+    status, body = make_request(
+        f"{base_url}/api/v1/staff-schedules/999999", headers=headers,
+    )
+    assert status == 404, body
+    assert body == {"error": "Staff schedule not found"}
+
+
+def test_api_staff_schedule_get_by_id_permission_denied_for_technician(api_server):
+    """NEW-492 RBAC: ROLE_TECHNICIAN holds no PERM_READ_STAFF_SCHEDULES,
+    same as the existing list/PATCH/DELETE routes on this resource."""
+    server, base_url, _, _ = api_server
+    headers = _agent_headers(base_url)
+
+    status, body = make_request(
+        f"{base_url}/api/v1/staff-schedules", method="POST", headers=headers,
+        data={"user_id": 1, "title": "Restricted", "start_time": "2026-09-19T09:00:00",
+              "end_time": "2026-09-19T10:00:00", "status": "scheduled", "notes": None},
+    )
+    assert status == 201, body
+    sched_id = body["schedule"]["id"]
+
+    server.auth_service.create_user(
+        username="tech2",
+        plain_password="TechSecretPassword123",
+        full_name="Tech Nician Two",
+        email="tech2@restoricon.com",
+        role=ROLE_TECHNICIAN,
+    )
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "tech2", "password": "TechSecretPassword123"},
+    )
+    assert status == 200
+    tech_headers = {"Authorization": f"Bearer {body['token']}"}
+
+    status, _ = make_request(
+        f"{base_url}/api/v1/staff-schedules/{sched_id}", headers=tech_headers
+    )
+    assert status == 403
+
+
 def test_api_customers_limit_non_integer_is_400_without_raw_pyexc_text(api_server):
     """NEW-505: `?limit=` is parsed via the shared `_parse_int_query_param`
     helper, which raises a clean ValueError instead of letting Python's

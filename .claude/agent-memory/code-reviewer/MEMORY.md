@@ -136,3 +136,4 @@
 - [NEW-517 mapJSToCore stale-key delete — APPROVED](new517_subcontractor_recruiter_stale_key_delete_approved.md) — traced mapCoreToJS callers, confirmed reverse leak genuinely benign; implementer's JSON.stringify(undefined) rationale was wrong but harmless
 - [Sandbox HTTP_PROXY env vars break urllib.request loopback tests (405s)](sandbox_http_proxy_urllib_405_env_artifact.md) — unset http(s)_proxy before trusting a full-suite failure count
 - [NEW-487 assigned_user_id on Appointment — APPROVED](new487_assigned_user_id_appointment_approved.md) — 34-test scare was the proxy artifact above, not a regression
+- [NEW-492/494/519 staff-schedule GET-by-id + delete_user() null-out — APPROVED](new492_494_519_staff_schedule_get_and_delete_user_nullout_approved.md) — "pre-existing" bug claim was incomplete, new code shared it

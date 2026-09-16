@@ -1168,6 +1168,13 @@ class AuthService:
         regardless). Externally identical (the route still returns 404
         either way); noted here since it's a real behavior change inside
         this method.
+
+        Also nulls out `subcontractors.user_id` and
+        `appointments.assigned_user_id` for this user (both FK-less,
+        NEW-494/NEW-519) -- a plain null-out, not an archive, since
+        neither column's data is itself a historical record the way
+        `staff_schedules` rows are; the subcontractor/appointment rows
+        they point from survive fully intact.
         """
         if not actor_context.has_permission(PERM_MANAGE_USERS):
             raise PermissionError("Actor lacks permission to delete users")
@@ -1196,6 +1203,14 @@ class AuthService:
                 FROM staff_schedules WHERE user_id = ?;
                 """,
                 (user.username, now, user_id),
+            )
+            conn.execute(
+                "UPDATE subcontractors SET user_id = NULL WHERE user_id = ?;",
+                (user_id,),
+            )
+            conn.execute(
+                "UPDATE appointments SET assigned_user_id = NULL WHERE assigned_user_id = ?;",
+                (user_id,),
             )
             conn.execute("DELETE FROM api_tokens WHERE user_id = ?;", (user_id,))
             cursor = conn.execute("DELETE FROM users WHERE id = ?;", (user_id,))

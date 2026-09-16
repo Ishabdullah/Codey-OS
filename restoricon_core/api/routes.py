@@ -1606,6 +1606,17 @@ class APIRouter:
                     created = self.scheduling.create_staff_schedule(sched, actor)
                     return 201, {"Content-Type": "application/json"}, {"schedule": created.to_dict()}
 
+            if (
+                path.startswith("/api/v1/staff-schedules/")
+                and "/" not in path[len("/api/v1/staff-schedules/"):]
+                and method == "GET"
+            ):
+                sched_id = int(path.split("/")[-1])
+                sched = self.scheduling.get_staff_schedule(sched_id, actor)
+                if not sched:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Staff schedule not found"}
+                return 200, {"Content-Type": "application/json"}, {"schedule": sched.to_dict()}
+
             if path.startswith("/api/v1/staff-schedules/") and method in ("PATCH", "DELETE"):
                 sched_id = int(path.split("/")[-1])
                 if method == "PATCH":
