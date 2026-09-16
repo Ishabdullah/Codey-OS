@@ -4370,12 +4370,20 @@ append-only `CommissionLedgerEntry` table, `InsuranceClaim`,
 `ProductionHandoffChecklist`. Found in scoping: `NEW-533` (the current
 `/sales` surface shows every rep's projects, unfiltered).
 
-**Blocked on five open decisions from Ish** (`sales_rep_portal.md` §4):
-D1 SMS scope (collides with B6.9 decision 9 — SMS is an investigation
-item, not a deliverable), D2 whether a sales-manager tier is a new role
-or a scoped permission, D3 confirms no real-time push layer (B6.9
-decision 8 stands), D4 the actual commission-plan rules, D5 whether a
-financing-provider integration exists to build against.
+**All five open decisions (D1-D5) answered by Ish, 2026-09-16 — see §8
+item 12 and `sales_rep_portal.md` §4/§4a for full detail.** Two answers
+(D2, D3) overrode this phase's own recommendations and, for D2, a
+design already shipped this same session — flagged there, not here, to
+avoid the two documents disagreeing about status.
+
+**`NEW-533` fixed 2026-09-16** (code-complete + code-reviewer approved,
+commit `b499db5`): new `PERM_READ_TEAM_SALES_DATA` permission, real
+server-side ownership narrowing on leads/opportunities/tasks, `/sales`
+portal rewired off the unfiltered project list. Full detail in
+`NEW_ISSUES.md`'s `NEW-533` entry; register status in Appendix A.
+**Superseded by D2**: the permission-only design this fix shipped is
+being migrated to a real `sales_manager` role per Ish's D2 answer — not
+yet built (`sales_rep_portal.md` §4a item 1).
 
 **Depends on:** B3/B5a (the services), B4 (the API layer), B6 (the
 staff-portal pattern and permission model B8 extends). **Blocks:**
@@ -4840,6 +4848,35 @@ Numbered for reference. Nothing here is guessed at in this document.
     detailed enough for a follow-up implementer task, but genuine
     threshold/timeout numbers still need picking and reviewing, matching
     this round's own explicit instruction not to guess past that point).
+12. ~~**`sales_rep_portal.md`'s five Phase B8 open decisions (D1-D5) and
+    `NEW-534`'s fix priority.**~~ **ANSWERED by Ish, 2026-09-16.** Full
+    detail and reasoning in `sales_rep_portal.md` §4/§4a — summarized
+    here per this section's own convention, not duplicated in full:
+    - **D1 (SMS):** email only for now; B6.9 decision 9 stands.
+    - **D2 (sales-manager tier):** a real `sales_manager` role —
+      **overrides** the permission-grant design (`PERM_READ_TEAM_SALES_DATA`
+      on the existing `sales` role) already shipped in the `NEW-533` fix.
+      Migrating to a real role is now its own not-yet-built follow-on
+      task (`sales_rep_portal.md` §4a item 1).
+    - **D3 (real-time push):** add a real push layer — **overrides**
+      B6.9 decision 8 ("no realtime push layer," previously a
+      system-wide standing constraint, not just sales-scoped). Large
+      enough to be its own dedicated phase with its own
+      `project-architect` scoping pass, not a `sales_rep_portal.md`
+      sub-item (`sales_rep_portal.md` §4a item 3) — **not yet scoped**.
+    - **D4 (commission plan):** real numbers read directly from Ish's
+      `Sales_Rep_Contract.docx`, 2026-09-16 — three-phase structure
+      ($100 flat per assessment; subscription-upgrade bonus net of the
+      $100; 5% residual portfolio override on major GC work for 12
+      months from origination), 90-day Phase-2 clawback, Phase-3
+      override ceases on termination. Full numbers in
+      `sales_rep_portal.md` §4 — supersedes that document's own
+      original placeholder commission-plan language for Phase B8.7.
+    - **D5 (financing):** manual tracking only, confirmed, no
+      integration.
+    - **`NEW-534` priority:** Ish chose to prioritize a fix now rather
+      than defer to Phase B8.3 — claim workflow with race protection,
+      not yet built (`sales_rep_portal.md` §4a item 2).
 
 ---
 
@@ -6820,14 +6857,39 @@ this file's own don't-duplicate rule.
       this was a scoped slice, not the whole of either sub-phase.
       Spun off: `NEW-534` (no claim workflow for unclaimed-pool
       records) and `NEW-537` (`get_lead_by_external_id` bypass), both
-      logged, neither fixed this round.
+      logged, neither fixed this round. **Committed and pushed**
+      2026-09-16, `b499db5`.
+      **Superseded-in-part 2026-09-16 (Ish's D2/D3/NEW-534 answers,
+      §8 item 12):** the permission-only sales-manager design above is
+      being migrated to a real `sales_manager` role (not yet built);
+      `NEW-534` is now prioritized rather than deferred (not yet
+      built); a real-time push layer was requested on top of this
+      portal's poll-on-load design (not yet scoped — its own phase,
+      see `sales_rep_portal.md` §4a). None of this invalidates what's
+      already shipped; it's additive follow-on work.
+- [ ] **B8.1a (follow-on)** — migrate the `NEW-533` permission-grant
+      sales-manager design to a real `sales_manager` role. Rule-4
+      category (schema + RBAC). Scoped in `sales_rep_portal.md` §4a
+      item 1.
+- [ ] **NEW-534 fix** — explicit claim action with race protection for
+      unassigned leads/opportunities/tasks, prioritized ahead of B8.3
+      per Ish, 2026-09-16. Rule-4 category. Scoped in
+      `sales_rep_portal.md` §4a item 2.
+- [ ] **Real-time push layer (new, system-wide, not B8-scoped)** —
+      requested by Ish 2026-09-16, overriding B6.9 decision 8.
+      Large enough to need its own phase and `project-architect`
+      scoping pass rather than folding into B8. Not yet named/numbered
+      as its own phase — flagged in `sales_rep_portal.md` §4a item 3.
 - [ ] **B8.3** — lead & pipeline UX.
 - [ ] **B8.4** — Customer 360 & multi-property records.
 - [ ] **B8.5** — appointments & property assessment/inspection.
 - [ ] **B8.6** — estimates, Good/Better/Best packages, proposal
       builder, contracts.
 - [ ] **B8.7** — commission engine & compensation dashboards.
-      **Rule-4 category** (money). Blocked on Open Decision D4.
+      **Rule-4 category** (money). **D4 ANSWERED 2026-09-16** — real
+      plan read from `Sales_Rep_Contract.docx`, full numbers in
+      `sales_rep_portal.md` §4. No longer blocked on the decision, only
+      on being picked up and built.
 - [ ] **B8.8** — insurance restoration workflow & financing tracking.
       Financing integration blocked on Open Decision D5.
 - [ ] **B8.9** — territory management & referral compensation.

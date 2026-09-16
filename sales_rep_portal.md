@@ -156,7 +156,138 @@ screens must:
   a desktop-only grid that has to be retrofitted for phone use (§32 of
   the request maps directly onto "don't regress this").
 
-## 4. Open decisions needed from Ish before certain phases can start
+## 4. Open decisions needed from Ish before certain phases can start — ANSWERED 2026-09-16
+
+All five answered by Ish this session. Recorded here verbatim in
+substance, and in `CODEY_MASTER_PLAN.md` §8 per that file's own
+convention for open decisions. **Two of the five answers change this
+plan's B8.1 design from what already shipped** (see the `NEW-533` fix,
+`NEW_ISSUES.md`) — flagged explicitly below rather than silently
+treated as still-current.
+
+- **D1 (SMS) — Email only for now.** Communications Center (§14 of the
+  original request, Phase B8.10) scopes to email + the existing logged
+  communication history. SMS stays out until Aigentik's SMS path is
+  real (B6.9 decision 9 still stands, unchanged).
+- **D2 (sales-manager tier) — Ish chose the schema option, overriding
+  this plan's original recommendation and the design that already
+  shipped in the `NEW-533` fix.** The `NEW-533` round built a
+  **permission-grant model** (`PERM_READ_TEAM_SALES_DATA` on the
+  existing `sales` role, no schema change) because it was the smaller,
+  faster, already-proven-pattern option — but Ish's answer here is
+  **add a real `sales_manager` role** (a new value in the `users.role`
+  CHECK constraint), so "sales manager" is visible everywhere as its
+  own role (user lists, reports, filters) rather than an invisible
+  permission flag on a `sales` user. **This is now its own follow-on
+  task, not yet built**: migrate the shipped permission-grant
+  mechanism to a real role. Rule-4 category (schema + RBAC) — needs
+  its own `project-architect` → `implementer` → `code-reviewer` round.
+  Open design question for that round: does `sales_manager` keep
+  `PERM_READ_TEAM_SALES_DATA` as how the narrowing logic recognizes it
+  (role implies the permission, narrowing code stays permission-keyed
+  and unchanged), or does narrowing switch to checking role directly
+  (would reopen the role-vs-permission-keyed question the
+  `PERM_REASSIGN_PROJECT_STAFF` precedent exists to avoid — recommend
+  the former: keep narrowing permission-keyed, just also grant
+  `PERM_READ_TEAM_SALES_DATA` by role default to the new
+  `sales_manager` role, exactly like `admin`/`manager`/`ai_agent`
+  already work).
+- **D3 (real-time push) — Ish chose to add a real-time push layer,
+  overriding B6.9 decision 8** ("no realtime push layer — not needed,
+  not built," `CODEY_MASTER_PLAN.md:3979`, previously a standing
+  cross-cutting constraint on every web surface, not just sales).
+  **This is a genuinely large, cross-cutting infrastructure build**,
+  not a sales-portal-scoped task — it changes §6.9 decision 8 for the
+  whole system, since a push layer built only for `/sales` while every
+  other surface stays poll-only would be an inconsistent, hard-to-reason-about
+  architecture. Recommend this becomes its own dedicated phase (not a
+  `sales_rep_portal.md` sub-item) with its own `project-architect`
+  scoping pass covering: transport choice (WebSocket vs. SSE vs.
+  polling-interval reduction as a cheaper middle ground), which events
+  actually need to be real-time (new-lead alert is the concrete case
+  in the original request) vs. which can stay poll-on-load, and how it
+  interacts with §3.5's one-API/no-local-store design. **Not scoped
+  further in this document** — flagged as a new, larger initiative.
+- **D4 (commission plan) — real numbers provided**, from
+  `Sales_Rep_Contract.docx` (Ish's own Downloads folder, read directly
+  2026-09-16, not guessed at). This replaces B8.7's placeholder design
+  with the actual plan:
+  - **Phase 1 — flat commission at assessment sale.** $100 flat per
+    $299 Initial Property Assessment sold, booked, and paid.
+  - **Phase 2 — subscription upsell bonus, one-time at upgrade,** paid
+    when the homeowner upgrades to a recurring HomeCare tier following
+    the assessment: bonus = first month's subscription fee minus the
+    $100 already paid in Phase 1. Confirms the real four-tier pricing
+    (matches `home-care.html`'s Basic/Plus/Complete/Estate naming from
+    §2's ground-truth note): Basic $179/mo → $79 bonus; Plus $399/mo →
+    $299 bonus; Complete $599/mo → $499 bonus; Estate $999+/mo → $899+
+    bonus (tier price variable/negotiated at the top end, per the
+    contract's own "$899+" phrasing).
+  - **Phase 3 — portfolio override, residual, 5%,** on gross collected
+    revenue of any major general-contracting project (roofing, siding,
+    storm damage repair, flood restoration, etc.) generated from a
+    HomeCare account the rep originally originated — for **12 months
+    from origination ("life of the contract")**, not 12 months from
+    the override payout. This is the "referral" `source_type` this
+    plan's §2 gap analysis anticipated, but it's really its own
+    distinct commission type (residual override on a *portfolio* the
+    rep built, not a one-time referral bonus) — **`B8.1`'s
+    `CommissionLedgerEntry.source_type` enum should be `assessment` /
+    `subscription_upsell` / `portfolio_override` / `bonus` /
+    `adjustment` / `chargeback`**, not the original placeholder list.
+  - **Clawback rule, concrete:** Phase 2 bonuses carry a **90-day
+    retention period** — if the homeowner cancels their HomeCare
+    subscription within 90 days of enrollment, 100% of that Phase 2
+    bonus is clawed back, deducted from the rep's future commission
+    payments. This is a real, dated trigger condition
+    `CommissionLedgerEntry`'s `chargeback` rows need to key off (an
+    automation check at day 90, or triggered directly off a
+    subscription-cancellation event/status change).
+  - **Termination rule:** unpaid Phase 1/Phase 2 commissions already
+    earned before a rep's termination date remain payable. **Phase 3
+    portfolio overrides cease permanently upon termination** — no
+    residual override accrues on projects sold after the rep's
+    contract with Restoricon ends, even against accounts they
+    originally built.
+  - This is now the authoritative source for B8.7's schema/logic —
+    supersedes §2's and Phase B8.7's original generic placeholder
+    language. `sales_rep_portal.md` is a spoke, so this real-numbers
+    summary lives here (not duplicated into `CODEY_MASTER_PLAN.md`
+    Appendix C, which doesn't own commission-plan detail).
+- **D5 (financing) — manual tracking only, confirmed.** No integration
+  work; `FinancingRecord` (B8.8) stays data-entry-only until/unless a
+  real provider is chosen.
+
+### NEW-534 priority — ANSWERED: prioritize a fix now
+
+Ish chose to prioritize `NEW-534` (`NEW_ISSUES.md`) rather than defer
+it to Phase B8.3. Not yet built. Scope for that round: an explicit
+"claim this lead/opportunity/task" action with race protection (a
+conditional `UPDATE ... WHERE assigned_user_id IS NULL`, returning a
+clean "already claimed" response on a losing race rather than a silent
+overwrite), replacing the current unclaimed-pool-is-visible-and-freely-editable
+state the `NEW-533` fix shipped as a stopgap. Rule-4 category
+(mutates assignment, same family as B6.1's reassignment permission
+work) — needs its own scoping round.
+
+## 4a. Follow-on work queue from this session — not yet built
+
+Recorded here so the next round doesn't have to reconstruct it from
+chat history. Three separate tasks, each needing its own
+`project-architect` → `implementer` → `code-reviewer` pipeline pass:
+
+1. **D2 — migrate the sales-manager permission grant to a real
+   `sales_manager` role.** Smallest of the three, most precedented
+   (follows the existing role/permission machinery exactly).
+2. **NEW-534 — claim workflow with race protection** for unassigned
+   leads/opportunities/tasks. Medium size, pairs naturally with #1
+   since both touch assignment semantics.
+3. **D3 — real-time push layer.** Largest and most architecturally
+   significant; recommend its own dedicated scoping session rather
+   than folding into a B8 sub-phase, since it changes a system-wide
+   standing design decision (B6.9 decision 8), not just sales.
+
+## 4b. Original open decisions needed from Ish before certain phases can start
 
 Per `CLAUDE.md`: don't contradict a logged decision without an explicit
 new one from Ish. Several things in the original request collide with
