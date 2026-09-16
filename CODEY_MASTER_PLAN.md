@@ -6964,6 +6964,22 @@ this file's own don't-duplicate rule.
       Large enough to need its own phase and `project-architect`
       scoping pass rather than folding into B8. Not yet named/numbered
       as its own phase — flagged in `sales_rep_portal.md` §4a item 3.
+      **Scoping pass done 2026-09-16, design only, nothing built:**
+      `docs/realtime_push_design.md`. Recommends SSE (not WebSocket) via
+      `fetch()`+`ReadableStream` (not native `EventSource`, since it
+      can't carry the existing `Authorization: Bearer` header), push as
+      a pure refetch-trigger (never a data-carrying channel, to avoid a
+      second narrowing implementation), a first-cut 3-event set
+      (`lead.created`/`assignment.created`/`lead.claimed`), explicit
+      `publish()` calls at ~3-5 `CRMService` mutation sites (not an
+      `AuditService.log()` hook — frequency mismatch), and concrete
+      resource-safety requirements (bounded per-subscriber queue,
+      heartbeat-based dead-connection detection, 32-stream cap, release
+      the thread-local DB connection before the write loop). No new
+      `install.sh` dependency. **Needs Ish's direct review before an
+      `implementer` round is scoped from it** (architecture-reversal
+      stakes, not routine implementer/code-reviewer scope) — not yet
+      approved, not started.
 - [ ] **B8.3** — lead & pipeline UX.
 - [ ] **B8.4** — Customer 360 & multi-property records.
 - [ ] **B8.5** — appointments & property assessment/inspection.

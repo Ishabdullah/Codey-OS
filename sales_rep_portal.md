@@ -295,6 +295,10 @@ chat history. Three separate tasks, each needing its own
    significant; recommend its own dedicated scoping session rather
    than folding into a B8 sub-phase, since it changes a system-wide
    standing design decision (B6.9 decision 8), not just sales.
+   **Scoping pass done 2026-09-16, design only, nothing built:**
+   `docs/realtime_push_design.md`. Needs Ish's direct review before an
+   `implementer` round is scoped from it (architecture-reversal
+   stakes). See `PROJECT_LOG.md` 2026-09-16 entry for the summary.
 
 ## 4b. Original open decisions needed from Ish before certain phases can start
 
