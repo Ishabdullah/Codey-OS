@@ -7,14 +7,19 @@ from restoricon_core.api.web_surfaces import (
 )
 
 def test_staff_portals_render_and_fetch():
-    """Verify that the staff portals render properly and contain the required fetch logic."""
+    """Verify that the staff portals render properly and contain the required fetch logic.
+
+    render_sales_surface() is deliberately excluded here (NEW-533): it no
+    longer serves the shared fetch('/api/v1/projects') "Assignments" panel
+    -- that was the cross-rep leak this round fixed. It has its own
+    dedicated coverage below and in test_sales_portal_leads_opportunities.py.
+    """
     portals = [
         render_pm_surface(),
-        render_sales_surface(),
         render_tech_surface(),
         render_subcontractor_surface()
     ]
-    
+
     for html in portals:
         assert "fetch('/api/v1/projects'" in html, "Portal is missing projects fetch"
         assert "fetch('/api/v1/staff-schedules" in html, "Portal is missing staff-schedules fetch"
@@ -23,10 +28,13 @@ def test_staff_portals_render_and_fetch():
 def test_staff_portal_dashboard_handles_401():
     """NEW-512: loadDashboard()'s staff-schedules and projects fetches must redirect
     to /admin/login on a 401, using this surface's own idiom (no logoutUser(), which
-    is not in scope here since _get_common_script() is never injected)."""
+    is not in scope here since _get_common_script() is never injected).
+
+    render_sales_surface() is excluded here for the same reason as above --
+    see test_sales_portal_leads_opportunities.py for its 401 coverage.
+    """
     portals = [
         render_pm_surface(),
-        render_sales_surface(),
         render_tech_surface(),
         render_subcontractor_surface()
     ]

@@ -24,6 +24,7 @@ from ..auth import (
     PERM_WRITE_CRM,
     PERM_MANAGE_PIPELINE,
     PERM_SCORE_LEADS,
+    PERM_READ_TEAM_SALES_DATA,
     PERM_READ_ALL_PROJECTS,
     PERM_READ_ASSIGNED_PROJECTS,
     PERM_READ_OWN_PROJECTS,
@@ -598,9 +599,39 @@ class CRMService:
         row = conn.execute("SELECT * FROM leads WHERE id = ?;", (lead_id,)).fetchone()
         if not row:
             return None
-        return self._row_to_lead(row)
+        lead = self._row_to_lead(row)
+        if not actor.has_permission(PERM_READ_TEAM_SALES_DATA):
+            if lead.assigned_user_id is not None and lead.assigned_user_id != actor.user_id:
+                return None  # treat as not-found. update_lead/update_opportunity/update_task
+                # already treat a None get_* result as not-found -> 404. score_lead,
+                # transition_opportunity_stage, complete_task, and generate_cadence_tasks
+                # instead raise ValueError("... not found") on a None get_* result, which
+                # handle_request's except-chain maps to 400, not 404 -- still a controlled,
+                # non-leaking not-found signal, just a different status code per caller.
+        return lead
 
-    def list_leads(self, actor: AuthContext, status: Optional[str] = None) -> List[Lead]:
+    def _scoped_assignee_filter(self, actor: AuthContext, requested_assigned_user_id: Optional[int]) -> Optional[int]:
+        """
+        Resolves the effective assigned_user_id filter for a read.
+        Holders of PERM_READ_TEAM_SALES_DATA pass their own requested filter
+        through unchanged (None = whole team, a specific id = drill into one
+        rep). Everyone else is forced to their own user_id regardless of what
+        they requested -- narrowing is keyed on permission, never actor.role,
+        per the PERM_REASSIGN_PROJECT_STAFF/PERM_REASSIGN_ANY_PROJECT_STAFF
+        precedent, so ai_agent's unrestricted CRM access (Aigentik's
+        integration identity) is preserved via the permission grant, not a
+        role special-case.
+        """
+        if actor.has_permission(PERM_READ_TEAM_SALES_DATA):
+            return requested_assigned_user_id
+        return actor.user_id
+
+    def list_leads(
+        self,
+        actor: AuthContext,
+        status: Optional[str] = None,
+        assigned_user_id: Optional[int] = None,
+    ) -> List[Lead]:
         if not (actor.has_permission(PERM_READ_LEADS) or actor.has_permission(PERM_READ_CRM)):
             raise PermissionError("Actor lacks permission to view leads")
 
@@ -609,6 +640,22 @@ class CRMService:
         if status:
             query += " AND status = ?"
             params.append(status)
+
+        effective_uid = self._scoped_assignee_filter(actor, assigned_user_id)
+        if effective_uid is not None:
+            if actor.has_permission(PERM_READ_TEAM_SALES_DATA):
+                query += " AND assigned_user_id = ?"
+                params.append(effective_uid)
+            else:
+                # unclaimed-pool visibility: nothing in this codebase auto-assigns
+                # a lead/opportunity/task at creation, so a narrowed actor must
+                # still see unclaimed rows or the portal goes empty. Once claimed
+                # by someone else, the row disappears from the narrowed actor's
+                # view. See NEW-534 for the follow-up gap this leaves (no claim
+                # workflow / race protection) -- logged, not fixed here.
+                query += " AND (assigned_user_id = ? OR assigned_user_id IS NULL)"
+                params.append(effective_uid)
+
         query += " ORDER BY id DESC;"
 
         conn = self.db.get_connection()
@@ -675,7 +722,16 @@ class CRMService:
                 ),
             )
 
-        _after = self.get_lead(lead_id, actor)
+        # NEW-533: after-image is built from the already-updated in-memory
+        # `lead` object, NOT a re-read via self.get_lead(lead_id, actor).
+        # `lead` already reflects every column written above (identical
+        # values). A re-read would re-run get_lead's PERM_READ_TEAM_SALES_DATA
+        # narrowing gate, which a narrowed actor reassigning assigned_user_id
+        # AWAY from themselves would fail -- silently recording after=None
+        # for the exact reassignment event. Same NEW-306 class of bug
+        # (re-invoking a read gate for an audit after-image breaks it for a
+        # write-capable-but-now-read-refused actor), applied here to the
+        # narrowing this round adds instead of NEW-306's original mismatch.
         self.audit.log(
             action="update",
             entity_type="lead",
@@ -684,7 +740,7 @@ class CRMService:
             actor=actor,
             details=build_audit_details(
                 before=_before,
-                after=_after.to_dict() if _after else None,
+                after=lead.to_dict(),
             ),
         )
         return lead
@@ -953,7 +1009,16 @@ class CRMService:
         row = conn.execute("SELECT * FROM opportunities WHERE id = ?;", (opp_id,)).fetchone()
         if not row:
             return None
-        return self._row_to_opportunity(row)
+        opp = self._row_to_opportunity(row)
+        if not actor.has_permission(PERM_READ_TEAM_SALES_DATA):
+            if opp.assigned_user_id is not None and opp.assigned_user_id != actor.user_id:
+                return None  # treat as not-found. update_lead/update_opportunity/update_task
+                # already treat a None get_* result as not-found -> 404. score_lead,
+                # transition_opportunity_stage, complete_task, and generate_cadence_tasks
+                # instead raise ValueError("... not found") on a None get_* result, which
+                # handle_request's except-chain maps to 400, not 404 -- still a controlled,
+                # non-leaking not-found signal, just a different status code per caller.
+        return opp
 
     def list_opportunities(
         self,
@@ -974,9 +1039,22 @@ class CRMService:
         if customer_id is not None:
             query += " AND customer_id = ?"
             params.append(customer_id)
-        if assigned_user_id is not None:
-            query += " AND assigned_user_id = ?"
-            params.append(assigned_user_id)
+
+        effective_uid = self._scoped_assignee_filter(actor, assigned_user_id)
+        if effective_uid is not None:
+            if actor.has_permission(PERM_READ_TEAM_SALES_DATA):
+                query += " AND assigned_user_id = ?"
+                params.append(effective_uid)
+            else:
+                # unclaimed-pool visibility: nothing in this codebase auto-assigns
+                # a lead/opportunity/task at creation, so a narrowed actor must
+                # still see unclaimed rows or the portal goes empty. Once claimed
+                # by someone else, the row disappears from the narrowed actor's
+                # view. See NEW-534 for the follow-up gap this leaves (no claim
+                # workflow / race protection) -- logged, not fixed here.
+                query += " AND (assigned_user_id = ? OR assigned_user_id IS NULL)"
+                params.append(effective_uid)
+
         query += " ORDER BY id DESC;"
 
         conn = self.db.get_connection()
@@ -1041,7 +1119,11 @@ class CRMService:
                 ),
             )
 
-        _after = self.get_opportunity(opp_id, actor)
+        # NEW-533: after-image built from the already-updated in-memory `opp`
+        # object rather than a re-read via self.get_opportunity(opp_id, actor)
+        # -- see the matching comment in update_lead for why a re-read would
+        # break the audit trail specifically for an actor reassigning
+        # assigned_user_id away from themselves.
         self.audit.log(
             action="update",
             entity_type="opportunity",
@@ -1050,7 +1132,7 @@ class CRMService:
             actor=actor,
             details=build_audit_details(
                 before=_before,
-                after=_after.to_dict() if _after else None,
+                after=opp.to_dict(),
             ),
         )
         return opp
@@ -1332,7 +1414,16 @@ class CRMService:
         row = conn.execute("SELECT * FROM tasks WHERE id = ?;", (task_id,)).fetchone()
         if not row:
             return None
-        return self._row_to_task(row)
+        task = self._row_to_task(row)
+        if not actor.has_permission(PERM_READ_TEAM_SALES_DATA):
+            if task.assigned_user_id is not None and task.assigned_user_id != actor.user_id:
+                return None  # treat as not-found. update_lead/update_opportunity/update_task
+                # already treat a None get_* result as not-found -> 404. score_lead,
+                # transition_opportunity_stage, complete_task, and generate_cadence_tasks
+                # instead raise ValueError("... not found") on a None get_* result, which
+                # handle_request's except-chain maps to 400, not 404 -- still a controlled,
+                # non-leaking not-found signal, just a different status code per caller.
+        return task
 
     def list_tasks(
         self,
@@ -1364,9 +1455,22 @@ class CRMService:
         if lead_id is not None:
             query += " AND lead_id = ?"
             params.append(lead_id)
-        if assigned_user_id is not None:
-            query += " AND assigned_user_id = ?"
-            params.append(assigned_user_id)
+
+        effective_uid = self._scoped_assignee_filter(actor, assigned_user_id)
+        if effective_uid is not None:
+            if actor.has_permission(PERM_READ_TEAM_SALES_DATA):
+                query += " AND assigned_user_id = ?"
+                params.append(effective_uid)
+            else:
+                # unclaimed-pool visibility: nothing in this codebase auto-assigns
+                # a lead/opportunity/task at creation, so a narrowed actor must
+                # still see unclaimed rows or the portal goes empty. Once claimed
+                # by someone else, the row disappears from the narrowed actor's
+                # view. See NEW-534 for the follow-up gap this leaves (no claim
+                # workflow / race protection) -- logged, not fixed here.
+                query += " AND (assigned_user_id = ? OR assigned_user_id IS NULL)"
+                params.append(effective_uid)
+
         query += " ORDER BY id DESC;"
 
         conn = self.db.get_connection()
@@ -1418,7 +1522,11 @@ class CRMService:
                 ),
             )
 
-        _after = self.get_task(task_id, actor)
+        # NEW-533: after-image built from the already-updated in-memory `task`
+        # object rather than a re-read via self.get_task(task_id, actor) --
+        # see the matching comment in update_lead for why a re-read would
+        # break the audit trail specifically for an actor reassigning
+        # assigned_user_id away from themselves.
         self.audit.log(
             action="update",
             entity_type="task",
@@ -1427,7 +1535,7 @@ class CRMService:
             actor=actor,
             details=build_audit_details(
                 before=_before,
-                after=_after.to_dict() if _after else None,
+                after=task.to_dict(),
             ),
         )
         return task

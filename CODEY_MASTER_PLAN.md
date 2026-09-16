@@ -6801,12 +6801,26 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
 in `sales_rep_portal.md`; this register only tracks phase status, per
 this file's own don't-duplicate rule.
 
-- [ ] **B8.1** — foundation schema: `Property`, append-only
-      `CommissionLedgerEntry`, sales-manager permission. **Rule-4
-      category.** Blocked on Open Decision D2 (`sales_rep_portal.md`
-      §4) for the permission half; the two new tables are unblocked.
-- [ ] **B8.2** — Command Center dashboard. Also closes `NEW-533` (the
-      unfiltered `/sales` project list).
+- [x] **B8.1 (permission half only) / partial B8.2** — sales-manager
+      permission + `NEW-533` fix. **DONE 2026-09-16** (code-complete +
+      code-reviewer APPROVED, not yet committed at time of writing —
+      see PROJECT_LOG). At Ish's direct request, ahead of the general
+      phase order: new additive `PERM_READ_TEAM_SALES_DATA`
+      (admin/manager/ai_agent by role default, grantable to an
+      individual `sales` user via the existing custom-permissions
+      admin UI — no new role), real server-side ownership narrowing on
+      `list_leads`/`list_opportunities`/`list_tasks`/`get_lead`/
+      `get_opportunity`/`get_task` (not just a UI filter), and a
+      rewired `/sales` portal (`_render_sales_portal()`) showing the
+      rep's own (or, for a permission-holder, the whole team's)
+      leads/opportunities instead of the unfiltered project list.
+      Full detail in `NEW_ISSUES.md`'s `NEW-533` entry. **`Property`
+      and `CommissionLedgerEntry` schema (the rest of B8.1) and the
+      full Command Center dashboard (the rest of B8.2) remain open** —
+      this was a scoped slice, not the whole of either sub-phase.
+      Spun off: `NEW-534` (no claim workflow for unclaimed-pool
+      records) and `NEW-537` (`get_lead_by_external_id` bypass), both
+      logged, neither fixed this round.
 - [ ] **B8.3** — lead & pipeline UX.
 - [ ] **B8.4** — Customer 360 & multi-property records.
 - [ ] **B8.5** — appointments & property assessment/inspection.

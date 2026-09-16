@@ -58,6 +58,24 @@ PERM_READ_ASSIGNED_PROJECTS = "read:assigned_projects"
 PERM_READ_OWN_PROJECTS = "read:own_projects"
 PERM_WRITE_PROJECTS = "write:projects"
 
+# NEW-533, 2026-09-16: a "sales manager" is not a new role -- it's an
+# ordinary `sales`-role login that Ish grants this one additive permission
+# to, mirroring the PERM_REASSIGN_PROJECT_STAFF/PERM_REASSIGN_ANY_PROJECT_STAFF
+# precedent (permission-keyed narrowing, never actor.role-keyed). Holding
+# PERM_READ_TEAM_SALES_DATA lets an actor see every rep's leads,
+# opportunities, and tasks, not just their own assigned_user_id -- without
+# it, a `sales` (or `project_manager`, which also holds PERM_READ_CRM/
+# PERM_WRITE_CRM) actor is narrowed to their own assignments plus the
+# unclaimed pool. Default-granted to admin/manager/ai_agent so none of them
+# regress below their current unrestricted CRM read; deliberately withheld
+# from sales/project_manager/technician/customer by default -- the mechanism
+# for turning one specific sales user into a sales manager is granting this
+# via that user's `custom_permissions` override, not a role change. Note
+# ROLE_PROJECT_MANAGER is narrowed by this fix too, not just ROLE_SALES --
+# a deliberate, in-scope side effect per Ish's own framing of the ask, not
+# an accidental regression.
+PERM_READ_TEAM_SALES_DATA = "read:team_sales_data"
+
 # B6.1, 2026-09-02: reassigning the PM, employees, or subcontractors
 # on an existing project is split from ordinary project edits into two
 # additive permissions, mirroring the PERM_SIGN_CONTRACTS / NEW-192 scoped-vs-
@@ -200,6 +218,7 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_CRM,
         PERM_MANAGE_PIPELINE,
         PERM_SCORE_LEADS,
+        PERM_READ_TEAM_SALES_DATA,
         PERM_READ_ALL_PROJECTS,
         PERM_WRITE_PROJECTS,
         PERM_REASSIGN_PROJECT_STAFF,
@@ -263,6 +282,7 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_CRM,
         PERM_MANAGE_PIPELINE,
         PERM_SCORE_LEADS,
+        PERM_READ_TEAM_SALES_DATA,
         PERM_READ_ALL_PROJECTS,
         PERM_WRITE_PROJECTS,
         PERM_READ_ESTIMATES,
@@ -410,6 +430,7 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_CRM,
         PERM_MANAGE_PIPELINE,
         PERM_SCORE_LEADS,
+        PERM_READ_TEAM_SALES_DATA,
         PERM_READ_ALL_PROJECTS,
         PERM_READ_ESTIMATES,
         PERM_READ_CONTRACTS,
@@ -489,6 +510,7 @@ PERMISSIONS_CATALOG: Dict[str, Dict[str, Any]] = {
             {"id": PERM_WRITE_CRM, "name": "Write CRM", "description": "Manage CRM activities"},
             {"id": PERM_MANAGE_PIPELINE, "name": "Manage Pipeline", "description": "Move stages and configure pipeline"},
             {"id": PERM_SCORE_LEADS, "name": "Score Leads", "description": "Run lead qualification scoring"},
+            {"id": PERM_READ_TEAM_SALES_DATA, "name": "Read Team Sales Data", "description": "See leads, opportunities, and tasks assigned to other sales reps, not just your own (sales manager view)"},
         ],
     },
     "operations": {

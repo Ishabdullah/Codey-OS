@@ -18,6 +18,7 @@ from restoricon_core.api.routes import APIRouter
 from restoricon_core.auth import (
     AuthContext,
     AuthService,
+    PERM_READ_TEAM_SALES_DATA,
     ROLE_ADMIN,
     ROLE_AI_AGENT,
     ROLE_CUSTOMER,
@@ -626,3 +627,185 @@ def test_rbac_crm_permissions(env):
         b"",
     )
     assert s == 200
+
+
+# ==========================================
+# 8. NEW-533: PERM_READ_TEAM_SALES_DATA NARROWING
+# ==========================================
+
+def _second_sales_actor(env):
+    """Creates a second, independent `sales`-role user (actor B) so
+    cross-actor narrowing can be tested against a distinct assigned_user_id,
+    without touching the shared `env` fixture's single sales_user."""
+    auth = env["auth"]
+    user_b = auth.create_user("sales_user_b", "Pass123!", "Sales User B", "salesb@test.com", ROLE_SALES)
+    token_b = auth.create_token(user_b)
+    return AuthContext(user_b.id, "sales_user_b", ROLE_SALES, "human", token=token_b)
+
+
+def test_list_leads_narrowed_to_own_and_unclaimed(env):
+    crm = env["crm"]
+    actor_a = env["actors"][ROLE_SALES]
+    actor_b = _second_sales_actor(env)
+
+    cust = crm.create_customer(Customer(first_name="A", last_name="Owner"), actor_a)
+
+    lead_a = crm.create_lead(Lead(customer_id=cust.id, source="website", assigned_user_id=actor_a.user_id), actor_a)
+    lead_unclaimed = crm.create_lead(Lead(customer_id=cust.id, source="referral"), actor_a)
+
+    # Actor B (plain sales, no PERM_READ_TEAM_SALES_DATA) must not see
+    # actor A's assigned lead, but must see the unclaimed one.
+    leads_b = crm.list_leads(actor_b)
+    ids_b = {l.id for l in leads_b}
+    assert lead_a.id not in ids_b
+    assert lead_unclaimed.id in ids_b
+
+    # get_lead on another rep's assigned lead is treated as not-found.
+    assert crm.get_lead(lead_a.id, actor_b) is None
+    # get_lead on the unclaimed lead is visible.
+    assert crm.get_lead(lead_unclaimed.id, actor_b) is not None
+
+    # Grant PERM_READ_TEAM_SALES_DATA to actor B -> now sees everything.
+    actor_b_manager = AuthContext(
+        actor_b.user_id, actor_b.username, actor_b.role, actor_b.actor_type,
+        token=actor_b.token, custom_permissions={PERM_READ_TEAM_SALES_DATA: True},
+    )
+    leads_manager = crm.list_leads(actor_b_manager)
+    ids_manager = {l.id for l in leads_manager}
+    assert lead_a.id in ids_manager
+    assert lead_unclaimed.id in ids_manager
+    assert crm.get_lead(lead_a.id, actor_b_manager) is not None
+
+
+def test_list_opportunities_narrowed_to_own_and_unclaimed(env):
+    crm = env["crm"]
+    actor_a = env["actors"][ROLE_SALES]
+    actor_b = _second_sales_actor(env)
+
+    cust = crm.create_customer(Customer(first_name="B", last_name="Owner"), actor_a)
+
+    opp_a = crm.create_opportunity(
+        Opportunity(customer_id=cust.id, title="A's deal", estimated_value=5000.0, assigned_user_id=actor_a.user_id),
+        actor_a,
+    )
+    opp_unclaimed = crm.create_opportunity(
+        Opportunity(customer_id=cust.id, title="Unclaimed deal", estimated_value=3000.0),
+        actor_a,
+    )
+
+    opps_b = crm.list_opportunities(actor_b)
+    ids_b = {o.id for o in opps_b}
+    assert opp_a.id not in ids_b
+    assert opp_unclaimed.id in ids_b
+
+    assert crm.get_opportunity(opp_a.id, actor_b) is None
+    assert crm.get_opportunity(opp_unclaimed.id, actor_b) is not None
+
+    actor_b_manager = AuthContext(
+        actor_b.user_id, actor_b.username, actor_b.role, actor_b.actor_type,
+        token=actor_b.token, custom_permissions={PERM_READ_TEAM_SALES_DATA: True},
+    )
+    opps_manager = crm.list_opportunities(actor_b_manager)
+    ids_manager = {o.id for o in opps_manager}
+    assert opp_a.id in ids_manager
+    assert opp_unclaimed.id in ids_manager
+    assert crm.get_opportunity(opp_a.id, actor_b_manager) is not None
+
+
+def test_list_tasks_narrowed_to_own_and_unclaimed(env):
+    crm = env["crm"]
+    actor_a = env["actors"][ROLE_SALES]
+    actor_b = _second_sales_actor(env)
+
+    task_a = crm.create_task(
+        Task(title="A's follow-up", task_type="follow_up", assigned_user_id=actor_a.user_id), actor_a
+    )
+    task_unclaimed = crm.create_task(
+        Task(title="Unclaimed follow-up", task_type="follow_up"), actor_a
+    )
+
+    tasks_b = crm.list_tasks(actor_b)
+    ids_b = {t.id for t in tasks_b}
+    assert task_a.id not in ids_b
+    assert task_unclaimed.id in ids_b
+
+    assert crm.get_task(task_a.id, actor_b) is None
+    assert crm.get_task(task_unclaimed.id, actor_b) is not None
+
+    actor_b_manager = AuthContext(
+        actor_b.user_id, actor_b.username, actor_b.role, actor_b.actor_type,
+        token=actor_b.token, custom_permissions={PERM_READ_TEAM_SALES_DATA: True},
+    )
+    tasks_manager = crm.list_tasks(actor_b_manager)
+    ids_manager = {t.id for t in tasks_manager}
+    assert task_a.id in ids_manager
+    assert task_unclaimed.id in ids_manager
+    assert crm.get_task(task_a.id, actor_b_manager) is not None
+
+
+def test_reassign_away_from_self_still_records_audit_after_image(env):
+    """NEW-533 audit-correctness guard: a narrowed actor (no
+    PERM_READ_TEAM_SALES_DATA) reassigning a lead/opportunity/task's
+    assigned_user_id AWAY from themselves must still produce an audit
+    row with a real `after` image, not `after=None`. Before the fix,
+    update_lead/update_opportunity/update_task built their after-image via
+    a self.get_*(id, actor) re-read, which re-ran the new narrowing gate
+    and returned None for exactly this case (actor no longer "owns" the
+    row post-reassignment) -- silently losing the post-image for the
+    reassignment event itself."""
+    crm = env["crm"]
+    actor_a = env["actors"][ROLE_SALES]
+    actor_b = _second_sales_actor(env)
+
+    cust = crm.create_customer(Customer(first_name="D", last_name="Owner"), actor_a)
+
+    # build_audit_details() diffs before/after into a changed_fields map,
+    # it does not store a raw "after" key -- so the pre-fix bug's actual
+    # symptom was changed_fields['assigned_user_id']['new'] coming back
+    # None (audit claims the field was cleared) instead of the real new
+    # owner, since after=None collapses to an empty dict inside the diff.
+    lead = crm.create_lead(Lead(customer_id=cust.id, source="website", assigned_user_id=actor_a.user_id), actor_a)
+    record = crm.update_lead(lead.id, {"assigned_user_id": actor_b.user_id}, actor_a)
+    assert record.assigned_user_id == actor_b.user_id
+    logs = env["audit"].query_logs(env["actors"][ROLE_ADMIN], entity_type="lead", entity_id=lead.id, action="update")
+    assert logs, "Expected an audit row for the lead reassignment"
+    changed = logs[0].details.get("changed_fields", {})
+    assert changed.get("assigned_user_id") == {"old": actor_a.user_id, "new": actor_b.user_id}
+
+    opp = crm.create_opportunity(
+        Opportunity(customer_id=cust.id, title="Reassign me", estimated_value=1000.0, assigned_user_id=actor_a.user_id),
+        actor_a,
+    )
+    updated_opp = crm.update_opportunity(opp.id, {"assigned_user_id": actor_b.user_id}, actor_a)
+    assert updated_opp.assigned_user_id == actor_b.user_id
+    opp_logs = env["audit"].query_logs(env["actors"][ROLE_ADMIN], entity_type="opportunity", entity_id=opp.id, action="update")
+    assert opp_logs
+    opp_changed = opp_logs[0].details.get("changed_fields", {})
+    assert opp_changed.get("assigned_user_id") == {"old": actor_a.user_id, "new": actor_b.user_id}
+
+    task = crm.create_task(
+        Task(title="Reassign task", task_type="follow_up", assigned_user_id=actor_a.user_id), actor_a
+    )
+    updated_task = crm.update_task(task.id, {"assigned_user_id": actor_b.user_id}, actor_a)
+    assert updated_task.assigned_user_id == actor_b.user_id
+    task_logs = env["audit"].query_logs(env["actors"][ROLE_ADMIN], entity_type="task", entity_id=task.id, action="update")
+    assert task_logs
+    task_changed = task_logs[0].details.get("changed_fields", {})
+    assert task_changed.get("assigned_user_id") == {"old": actor_a.user_id, "new": actor_b.user_id}
+
+
+def test_admin_and_manager_unaffected_by_narrowing(env):
+    """Admin/manager hold PERM_READ_TEAM_SALES_DATA by default -- confirm
+    they see another rep's assigned lead without any special grant."""
+    crm = env["crm"]
+    actor_a = env["actors"][ROLE_SALES]
+    admin_actor = env["actors"][ROLE_ADMIN]
+    manager_actor = env["actors"][ROLE_MANAGER]
+
+    cust = crm.create_customer(Customer(first_name="C", last_name="Owner"), actor_a)
+    lead_a = crm.create_lead(Lead(customer_id=cust.id, source="website", assigned_user_id=actor_a.user_id), actor_a)
+
+    assert lead_a.id in {l.id for l in crm.list_leads(admin_actor)}
+    assert lead_a.id in {l.id for l in crm.list_leads(manager_actor)}
+    assert crm.get_lead(lead_a.id, admin_actor) is not None
+    assert crm.get_lead(lead_a.id, manager_actor) is not None

@@ -139,3 +139,7 @@
 - [NEW-492/494/519 staff-schedule GET-by-id + delete_user() null-out — APPROVED](new492_494_519_staff_schedule_get_and_delete_user_nullout_approved.md) — "pre-existing" bug claim was incomplete, new code shared it
 - [NEW-520/522/523 batch1 path-segment sweep — APPROVED w/ 1 Warning](new520_522_523_batch1_path_segment_sweep_approved.md) — new pattern: loose route-match conditions can make a wrapped helper's error message confidently wrong, not just unpolished
 - [NEW-526 batch2 27-site segment guard — APPROVED, regex-verified all 27 + live negative-control repro](new526_batch2_segment_guard_approved.md)
+- [NEW-525/527+stray batch3 — APPROVED, NEW-525's "cosmetic" severity was wrong, corrected via live repro](new525_527_stray_batch3_approved.md)
+- [NEW-530/531/532 follow-on — APPROVED, rstrip trailing-slash claim + all ~57 call sites verified directly](new530_531_532_followon_approved.md)
+- [NEW-528/529 body-field helper + contacts segment guard — APPROVED w/ 1 Warning](new528_529_body_field_and_contacts_guard_approved.md) — one disclosed behavior change (DELETE-on-/delete-suffix) had zero test coverage; live-repro'd it myself both pre- and post-fix
+- [NEW-533 sales-manager PERM_READ_TEAM_SALES_DATA narrowing — APPROVED](new533_sales_manager_permission_approved.md) — server-side enforcement traced through route bypass attempt; audit after-image re-gate bug pattern is new and worth checking on future get_X narrowings

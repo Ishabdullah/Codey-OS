@@ -5030,11 +5030,185 @@ def _render_staff_portal_base(role_title: str, primary_label: str, role_key: str
 </body>
 </html>"""
 
+def _render_sales_portal() -> str:
+    """Dedicated sales portal (NEW-533). Unlike the other three staff
+    portals, this one does NOT reuse _render_staff_portal_base's shared
+    "Assignments" panel (the old fetch('/api/v1/projects') call was the
+    NEW-533 leak: every rep could see every other rep's projects/leads/
+    opportunities with no server-side scoping). Instead it renders two
+    dedicated "My Leads" / "My Opportunities" panels backed by
+    /api/v1/leads and /api/v1/opportunities -- both now auto-scoped
+    server-side by CRMService's PERM_READ_TEAM_SALES_DATA narrowing, so
+    the identical, unparameterized fetch calls below correctly return
+    "just me" for a plain rep and "the whole team" for a sales manager
+    (a `sales`-role user granted PERM_READ_TEAM_SALES_DATA via
+    custom_permissions), with zero client-side role branching."""
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sales & Estimating Dashboard — Restoricon</title>
+    <link rel="icon" href="/assets/logos/favicon-32.png" type="image/png" sizes="32x32">
+    <style>
+        {_get_common_styles()}
+        .portal-layout {{ max-width: 1200px; margin: 2rem auto; padding: 0 1.25rem; display: flex; flex-direction: column; gap: 2rem; }}
+        .header-card {{ background: linear-gradient(135deg, #112240 0%, #1c2e4a 100%); border-radius: 12px; padding: 2rem; color: white; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }}
+        .erp-card {{ background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); padding: 1.5rem; margin-bottom: 1.5rem; }}
+        table {{ width: 100%; border-collapse: collapse; }}
+        th, td {{ padding: 0.75rem; text-align: left; border-bottom: 1px solid var(--border-light); }}
+        th {{ color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }}
+    </style>
+</head>
+<body>
+    {_get_universal_drawer_html("admin")}
+    <div class="portal-layout">
+        <div class="header-card">
+            <div>
+                <h1 style="margin:0 0 0.5rem 0;font-size:1.8rem;color:var(--bronze);">Sales & Estimating Dashboard</h1>
+                <p style="margin:0;opacity:0.9;">Welcome back. Here is your schedule, leads, and opportunities.</p>
+                <p id="viewerScopeBanner" style="margin:0.5rem 0 0 0;opacity:0.8;font-size:0.85rem;"></p>
+            </div>
+            <button class="btn-gold" onclick="window.location.href='/admin/login'" style="padding: 0.5rem 1rem;">Sign Out</button>
+        </div>
+
+        <div class="erp-card">
+            <h2 style="margin-top:0;">My Schedule</h2>
+            <table>
+                <thead><tr><th>Time</th><th>Title</th><th>Status</th></tr></thead>
+                <tbody id="myScheduleList"><tr><td colspan="3">Loading schedule...</td></tr></tbody>
+            </table>
+        </div>
+
+        <div class="erp-card">
+            <h2 style="margin-top:0;">My Leads</h2>
+            <table>
+                <thead><tr><th>ID</th><th>Customer</th><th>Status</th><th>Assigned Rep</th></tr></thead>
+                <tbody id="myLeadsList"><tr><td colspan="4">Loading leads...</td></tr></tbody>
+            </table>
+        </div>
+
+        <div class="erp-card">
+            <h2 style="margin-top:0;">My Opportunities</h2>
+            <table>
+                <thead><tr><th>ID</th><th>Title</th><th>Stage</th><th>Assigned Rep</th></tr></thead>
+                <tbody id="myOpportunitiesList"><tr><td colspan="4">Loading opportunities...</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        function escapeHtml(unsafe) {{
+            if (!unsafe) return '';
+            return String(unsafe).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+        }}
+
+        function getAuthToken() {{
+            return sessionStorage.getItem('restoricon_token') || '';
+        }}
+
+        async function loadDashboard() {{
+            const token = getAuthToken();
+            if (!token) {{ window.location.href = '/admin/login'; return; }}
+
+            let user = null;
+            try {{
+                const meRes = await fetch('/api/v1/auth/me', {{ headers: {{ 'Authorization': 'Bearer ' + token }} }});
+                if (meRes.ok) {{
+                    const meData = await meRes.json();
+                    user = meData.user;
+                }}
+            }} catch (e) {{}}
+
+            if (!user) {{ window.location.href = '/admin/login'; return; }}
+
+            // Display-only viewer-scope banner -- real enforcement is entirely
+            // server-side (CRMService._scoped_assignee_filter); this is never
+            // an access-control point, only a label for what the fetches below
+            // will return.
+            const scopeBanner = document.getElementById('viewerScopeBanner');
+            if (user.custom_permissions && user.custom_permissions['read:team_sales_data'] === true) {{
+                scopeBanner.textContent = 'Viewing: Whole Team';
+            }} else {{
+                scopeBanner.textContent = 'Viewing: My Own';
+            }}
+
+            // Load Schedule
+            try {{
+                const res = await fetch('/api/v1/staff-schedules?user_id=' + user.id, {{
+                    headers: {{ 'Authorization': 'Bearer ' + token }}
+                }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                const data = await res.json();
+                const tbody = document.getElementById('myScheduleList');
+                if (res.ok && data.schedules && data.schedules.length > 0) {{
+                    tbody.innerHTML = data.schedules.map(s =>
+                        `<tr>
+                            <td>${{escapeHtml(s.start_time)}}</td>
+                            <td>${{escapeHtml(s.title)}}</td>
+                            <td><span class="badge ${{s.status === 'scheduled' ? 'badge-info' : 'badge-gold'}}">${{escapeHtml(s.status)}}</span></td>
+                        </tr>`
+                    ).join('');
+                }} else {{
+                    tbody.innerHTML = '<tr><td colspan="3" style="color:var(--text-muted)">No upcoming schedule.</td></tr>';
+                }}
+            }} catch (e) {{ /* network/parse failure: schedule tbody keeps its "Loading..." placeholder, no further UI action needed */ }}
+
+            // Load Leads
+            try {{
+                const res = await fetch('/api/v1/leads', {{
+                    headers: {{ 'Authorization': 'Bearer ' + token }}
+                }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                const data = await res.json();
+                const tbody = document.getElementById('myLeadsList');
+                if (res.ok && data.leads && data.leads.length > 0) {{
+                    tbody.innerHTML = data.leads.map(l =>
+                        `<tr>
+                            <td>#${{l.id}}</td>
+                            <td>${{l.customer_id ? 'Cust #' + l.customer_id : '—'}}</td>
+                            <td><span class="badge badge-info">${{escapeHtml(l.status)}}</span></td>
+                            <td>${{l.assigned_user_id ? escapeHtml(String(l.assigned_user_id)) : 'Unclaimed'}}</td>
+                        </tr>`
+                    ).join('');
+                }} else {{
+                    tbody.innerHTML = '<tr><td colspan="4" style="color:var(--text-muted)">No leads.</td></tr>';
+                }}
+            }} catch (e) {{ /* network/parse failure: leads tbody keeps its "Loading..." placeholder, no further UI action needed */ }}
+
+            // Load Opportunities
+            try {{
+                const res = await fetch('/api/v1/opportunities', {{
+                    headers: {{ 'Authorization': 'Bearer ' + token }}
+                }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                const data = await res.json();
+                const tbody = document.getElementById('myOpportunitiesList');
+                if (res.ok && data.opportunities && data.opportunities.length > 0) {{
+                    tbody.innerHTML = data.opportunities.map(o =>
+                        `<tr>
+                            <td>#${{o.id}}</td>
+                            <td>${{escapeHtml(o.title)}}</td>
+                            <td><span class="badge badge-info">${{escapeHtml(o.pipeline_stage)}}</span></td>
+                            <td>${{o.assigned_user_id ? escapeHtml(String(o.assigned_user_id)) : 'Unclaimed'}}</td>
+                        </tr>`
+                    ).join('');
+                }} else {{
+                    tbody.innerHTML = '<tr><td colspan="4" style="color:var(--text-muted)">No opportunities.</td></tr>';
+                }}
+            }} catch (e) {{ /* network/parse failure: opportunities tbody keeps its "Loading..." placeholder, no further UI action needed */ }}
+        }}
+
+        window.onload = loadDashboard;
+    </script>
+</body>
+</html>"""
+
 def render_pm_surface() -> str:
     return _render_staff_portal_base("Project Manager", "Projects I Manage", "project_manager")
 
 def render_sales_surface() -> str:
-    return _render_staff_portal_base("Sales & Estimating", "My Active Opportunities", "sales")
+    return _render_sales_portal()
 
 def render_tech_surface() -> str:
     return _render_staff_portal_base("Field Technician", "Assigned Work Orders & Projects", "technician")
