@@ -2507,3 +2507,317 @@ def test_api_new527_valid_integer_query_params_still_filter_correctly(api_server
     )
     assert status == 200, body
     assert body["transactions"] == []
+
+
+# NEW-528: 11 sites where a bare `int(json_body.get(...))` on a POST body
+# field had NO pre-existing truthy guard, so a `null` value crashed with a
+# raw TypeError-turned-500 (not just a leaky ValueError-turned-400). Each
+# tuple is (method, url, base_body, field_name), where base_body is the
+# minimal set of *other* fields needed so the request reaches the
+# `_parse_int_body_field` call for `field_name` rather than 400ing earlier
+# on some other missing required field. None of these routes need real
+# rows to exist first -- in every site, the int-parse of `field_name`
+# happens before any DB lookup or write, so the parse failure fires first
+# regardless of whether the other referenced ids are real.
+_NEW528_UNGUARDED_SITES = [
+    ("POST", "/api/v1/ai/chat", {"messages": [{"role": "user", "content": "hi"}]}, "max_tokens"),
+    ("POST", "/api/v1/operations/work-orders/1/dispatch", {}, "subcontractor_id"),
+    ("POST", "/api/v1/operations/equipment/deploy", {}, "equipment_id"),
+    ("POST", "/api/v1/operations/equipment/deploy", {"equipment_id": 1}, "project_id"),
+    ("POST", "/api/v1/operations/equipment/return", {}, "deployment_id"),
+    ("POST", "/api/v1/marketing/campaigns", {}, "leads_generated"),
+    ("POST", "/api/v1/marketing/reviews/request", {}, "customer_id"),
+    ("POST", "/api/v1/marketing/reviews/1/submit", {}, "rating"),
+    ("POST", "/api/v1/compliance/scan", {}, "threshold_days"),
+    ("POST", "/api/v1/hr/timesheets", {}, "employee_id"),
+    ("POST", "/api/v1/procurement/purchase-orders", {}, "vendor_id"),
+]
+
+# NEW-528: 3 sites that already had a truthy guard (`if json_body.get(...)
+# else None` or an explicit `if not x: return 400`) excluding falsy values
+# -- including `None` -- from ever reaching the bare `int(...)` call. These
+# were never vulnerable to the null-value 500; only the non-numeric-string
+# case is new coverage here.
+_NEW528_GUARDED_SITES = [
+    (
+        "POST",
+        "/api/v1/operations/equipment/deploy",
+        {"equipment_id": 1, "project_id": 1, "work_order_id": "abc"},
+        "work_order_id",
+    ),
+    ("POST", "/api/v1/crm/generate-cadence-tasks", {"opportunity_id": "abc"}, "opportunity_id"),
+    ("POST", "/api/v1/portal/messages", {"message": "hi", "project_id": "abc"}, "project_id"),
+]
+
+
+def test_api_new528_body_field_null_is_400_not_500(api_server):
+    """NEW-528: 11 POST-body int-parse sites had no guard excluding JSON
+    `null`, so `int(None)` raised a bare TypeError that fell through
+    handle_request's `except ValueError` and reached the generic `except
+    Exception` handler as a raw, un-messaged 500. After the
+    `_parse_int_body_field` fix, the same request must be a clean 400 with
+    a non-leaking message -- the 500-to-400 status flip is the load-bearing
+    assertion here, not just the message text."""
+    _, base_url, _, _ = api_server
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "admin", "password": "AdminSecretPassword123"},
+    )
+    assert status == 200
+    headers = {"Authorization": f"Bearer {body['token']}"}
+
+    for method, url, base_body, field in _NEW528_UNGUARDED_SITES:
+        payload = dict(base_body)
+        payload[field] = None
+        status, body = make_request(f"{base_url}{url}", method=method, headers=headers, data=payload)
+        assert status == 400, f"{method} {url} field={field}: expected 400, got {status} ({body})"
+        assert body == {"error": f"Invalid '{field}' body field: None"}, f"{method} {url}: {body}"
+
+
+def test_api_new528_body_field_non_numeric_string_is_400_without_raw_pyexc_text(api_server):
+    """NEW-528: the same 11 unguarded sites plus 3 already-guarded sites
+    (whose truthy guard only ever excluded falsy values, not non-numeric
+    strings) all now go through `_parse_int_body_field`, which raises a
+    clean ValueError instead of letting Python's raw `int()` exception
+    text reach the client."""
+    _, base_url, _, _ = api_server
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "admin", "password": "AdminSecretPassword123"},
+    )
+    assert status == 200
+    headers = {"Authorization": f"Bearer {body['token']}"}
+
+    for method, url, base_body, field in _NEW528_UNGUARDED_SITES + _NEW528_GUARDED_SITES:
+        payload = dict(base_body)
+        payload[field] = "abc"
+        status, body = make_request(f"{base_url}{url}", method=method, headers=headers, data=payload)
+        assert status == 400, f"{method} {url} field={field}: expected 400, got {status} ({body})"
+        assert body == {"error": f"Invalid '{field}' body field: 'abc'"}, f"{method} {url}: {body}"
+
+
+def test_api_new528_valid_integer_body_fields_still_work(api_server):
+    """NEW-528 spot-check (mirroring NEW-527's valid-input spot check): a
+    valid numeric value in the body field still parses and takes effect
+    normally after the `_parse_int_body_field` wrap -- the fix only rejects
+    `null`/non-numeric input, it doesn't change behavior for valid input.
+    Covers two of the 14 changed sites that had no pre-existing valid-input
+    coverage elsewhere in this file (`/api/v1/ai/chat`'s `max_tokens` and
+    `/api/v1/operations/work-orders/{}/dispatch`'s `subcontractor_id` do
+    already have coverage via other tests in this file)."""
+    _, base_url, _, _ = api_server
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "admin", "password": "AdminSecretPassword123"},
+    )
+    assert status == 200
+    headers = {"Authorization": f"Bearer {body['token']}"}
+
+    status, body = make_request(
+        f"{base_url}/api/v1/compliance/scan",
+        method="POST",
+        headers=headers,
+        data={"threshold_days": 45},
+    )
+    assert status == 200, body
+    assert body["status"] == "scanned"
+
+    status, body = make_request(
+        f"{base_url}/api/v1/marketing/campaigns",
+        method="POST",
+        headers=headers,
+        data={"name": "Spring Promo", "leads_generated": 12},
+    )
+    assert status == 201, body
+    assert body["campaign"]["leads_generated"] == 12
+
+
+def test_api_new529_contacts_malformed_extra_segment_is_404_and_no_write_happens(api_server):
+    """NEW-529: `/api/v1/contacts/{id}/update` and the `/delete`+`DELETE`
+    pair shared NEW-526's missing-segment-guard bug -- `path.split("/")[-2]`
+    with no segment-count check, so a malformed path with an extra segment
+    (e.g. `POST /api/v1/contacts/5/99/update`) used to silently parse the
+    LAST segment (99) as the id, acting on the wrong contact with no error.
+    The new guard makes these routes NOT match at all on such a path,
+    falling through to the router's generic 404 -- and both named contacts
+    must be left completely unmodified, not just get a 404 response."""
+    _, base_url, _, _ = api_server
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "admin", "password": "AdminSecretPassword123"},
+    )
+    assert status == 200
+    headers = {"Authorization": f"Bearer {body['token']}"}
+
+    def create_contact(name, external_id=None):
+        payload = {"name": name}
+        if external_id:
+            payload["external_id"] = external_id
+        status, body = make_request(f"{base_url}/api/v1/contacts", method="POST", headers=headers, data=payload)
+        assert status == 201, body
+        return body["contact"]["id"]
+
+    def get_contact(cid):
+        status, body = make_request(f"{base_url}/api/v1/contacts/{cid}", headers=headers)
+        assert status == 200, body
+        return body["contact"]
+
+    contact_a = create_contact("Contact A")
+    contact_b = create_contact("Contact B", external_id="aigentik-ext-999")
+
+    # --- update: malformed extra-segment path must not silently rename B ---
+    status, body = make_request(
+        f"{base_url}/api/v1/contacts/{contact_a}/{contact_b}/update",
+        method="POST",
+        headers=headers,
+        data={"name": "HACKED"},
+    )
+    assert status == 404, body
+    assert get_contact(contact_a)["name"] == "Contact A"
+    assert get_contact(contact_b)["name"] == "Contact B"
+
+    # --- delete (POST .../delete): malformed extra-segment path must not
+    # silently delete B ---
+    status, body = make_request(
+        f"{base_url}/api/v1/contacts/{contact_a}/{contact_b}/delete",
+        method="POST",
+        headers=headers,
+    )
+    assert status == 404, body
+    assert get_contact(contact_a)["name"] == "Contact A"
+    assert get_contact(contact_b)["name"] == "Contact B"
+
+
+def test_api_new529_contacts_external_id_update_still_works_after_guard(api_server):
+    """NEW-529 regression-protection test: the whole reason this fix needed
+    a different shape than NEW-526's bare `_parse_int_path_segment` swap is
+    that contacts intentionally support a non-numeric `external_id` in the
+    id slot. This confirms the added segment-count guard doesn't break that
+    -- a single non-numeric segment must still match the route and resolve
+    via `get_contact_by_external_id`, for both update and delete."""
+    _, base_url, _, _ = api_server
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "admin", "password": "AdminSecretPassword123"},
+    )
+    assert status == 200
+    headers = {"Authorization": f"Bearer {body['token']}"}
+
+    status, body = make_request(
+        f"{base_url}/api/v1/contacts",
+        method="POST",
+        headers=headers,
+        data={"name": "External Update Contact", "external_id": "aigentik-abc-123"},
+    )
+    assert status == 201, body
+
+    status, body = make_request(
+        f"{base_url}/api/v1/contacts/aigentik-abc-123/update",
+        method="POST",
+        headers=headers,
+        data={"name": "Renamed"},
+    )
+    assert status == 200, body
+    assert body["contact"]["name"] == "Renamed"
+
+    status, body = make_request(
+        f"{base_url}/api/v1/contacts",
+        method="POST",
+        headers=headers,
+        data={"name": "External Delete Contact", "external_id": "aigentik-def-456"},
+    )
+    assert status == 201, body
+
+    status, body = make_request(
+        f"{base_url}/api/v1/contacts/aigentik-def-456/delete",
+        method="POST",
+        headers=headers,
+    )
+    assert status == 200, body
+    assert body == {"deleted": True}
+
+    status, body = make_request(f"{base_url}/api/v1/contacts/aigentik-def-456", headers=headers)
+    assert status == 404, body
+
+
+def test_api_new529_contacts_bare_delete_multi_segment_is_404_and_no_write_happens(api_server):
+    """NEW-529 regression/defense-in-depth coverage for the bare `DELETE
+    /api/v1/contacts/{id}` arm -- scoping confirmed this arm never actually
+    misrouted (its id_str derivation is `path[len(PREFIX):]`, which already
+    included the full multi-segment remainder rather than just the last
+    segment, so `isdigit()` would already have failed and fallen through to
+    the external_id branch pre-fix). This is not bug-closure coverage, just
+    confirms the added guard doesn't change well-formed-vs-malformed
+    behavior for this specific arm."""
+    _, base_url, _, _ = api_server
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "admin", "password": "AdminSecretPassword123"},
+    )
+    assert status == 200
+    headers = {"Authorization": f"Bearer {body['token']}"}
+
+    status, body = make_request(
+        f"{base_url}/api/v1/contacts", method="POST", headers=headers, data={"name": "Bare Delete Contact"}
+    )
+    assert status == 201, body
+    cid = body["contact"]["id"]
+
+    status, body = make_request(
+        f"{base_url}/api/v1/contacts/{cid}/99", method="DELETE", headers=headers
+    )
+    assert status == 404, body
+
+    status, body = make_request(f"{base_url}/api/v1/contacts/{cid}", headers=headers)
+    assert status == 200, body
+    assert body["contact"]["name"] == "Bare Delete Contact"
+
+
+def test_api_new529_bare_delete_on_path_ending_in_literal_delete_now_404s(api_server):
+    """NEW-529 disclosed, intentional behavior change: pre-fix, the original
+    one-liner match condition was `path.endswith("/delete") and method ==
+    "POST" or method == "DELETE"`, which -- due to Python operator
+    precedence (`and` binds tighter than `or`) -- parsed as `(endswith AND
+    POST) OR (method == DELETE)`. A bare DELETE request satisfied the
+    second disjunct regardless of the path's suffix, so `DELETE
+    /api/v1/contacts/{id}/delete` (a path that happens to literally end in
+    "/delete") took the delete-arm's `id_str = path.split("/")[-2]`
+    derivation and deleted the contact -- silently ignoring the trailing
+    "/delete" segment as if it were the plain single-id DELETE route. The
+    new segment-count guard on the `/delete`-suffix disjunct now requires
+    method == POST for that arm, and the plain bare-DELETE disjunct now
+    requires no "/" in the remainder -- "{id}/delete" contains one, so
+    neither disjunct matches and the route now correctly 404s instead of
+    deleting the contact. No legitimate caller relies on DELETEing a path
+    with a literal trailing "/delete" segment (the documented API contract
+    is POST-only for that path shape); this is a hardening side effect of
+    the misrouting fix, not a caller-visible regression."""
+    _, base_url, _, _ = api_server
+    status, body = make_request(
+        f"{base_url}/api/v1/auth/login",
+        method="POST",
+        data={"username": "admin", "password": "AdminSecretPassword123"},
+    )
+    assert status == 200
+    headers = {"Authorization": f"Bearer {body['token']}"}
+
+    status, body = make_request(
+        f"{base_url}/api/v1/contacts", method="POST", headers=headers, data={"name": "Literal Delete Suffix Contact"}
+    )
+    assert status == 201, body
+    cid = body["contact"]["id"]
+
+    status, body = make_request(
+        f"{base_url}/api/v1/contacts/{cid}/delete", method="DELETE", headers=headers
+    )
+    assert status == 404, body
+
+    status, body = make_request(f"{base_url}/api/v1/contacts/{cid}", headers=headers)
+    assert status == 200, body
+    assert body["contact"]["name"] == "Literal Delete Suffix Contact"

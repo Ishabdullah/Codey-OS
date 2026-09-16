@@ -1301,6 +1301,30 @@ bug. 1897 passed/1 skipped (net +3), reviewer-approved with zero
 findings, standard tier. This closes every spin-off from the
 `NEW-520`→`NEW-532` sweep except `NEW-528` (unassessed) and `NEW-529`
 (needs a bespoke guard shape).
+**`NEW-528` FIXED (14 sites, full inventory) and `NEW-529` FIXED
+(bespoke guard preserving external_id), 2026-09-16.** `NEW-528`'s
+"Suspected, unassessed" status upgraded to Confirmed-and-fixed with a
+real severity correction: 11 of the 14 sites raised a raw 500 (not a
+cosmetic 400) on an explicit JSON `null` body value, since `int(None)`
+raises `TypeError`, which `handle_request`'s except-chain doesn't catch
+for a clean 400. New `_parse_int_body_field` helper closes all 14.
+`NEW-529`'s contacts `/update`/`/delete`/bare-`DELETE` routes needed a
+segment-count guard added only to the route-match condition (not
+`NEW-526`'s bare helper-swap) to preserve intentional non-numeric
+`external_id` support; scoping found only 2 of the 3 arms were
+genuinely vulnerable, the third hardened for defense-in-depth. Both
+bugs live-reproduced pre-fix/post-fix by implementer and code-reviewer
+independently. code-reviewer's one Warning (a disclosed
+operator-precedence behavior change on bare-DELETE-ending-in-literal-
+`/delete` had no dedicated test) closed same round. 1903 passed/1
+skipped (net +6), one unrelated full-suite-only socket-bind flake
+confirmed non-regressive in isolation. Two new findings spun off:
+`NEW-535` (~13 `float(json_body.get(...))` sites share the identical
+raw-500 mechanism, not yet individually verified), `NEW-536`
+(multipart upload handler's `metadata.get(...)` int-parsing, a
+distinct encoding path, already truthy-guarded, unassessed for the
+older message-leak class). This closes the entire `NEW-520`→`NEW-529`
+sweep; only `NEW-535`/`NEW-536` remain open from this whole family.
 
 
 ---
@@ -4324,6 +4348,39 @@ auto-loading its output. All three were permanently removed on Ish's
 instruction (`NEW-34`). That was an output cleanup, not an activation
 decision; the engine gate is untouched.
 
+### 6.12 Track B / Phase B8 — Sales Rep Portal
+
+**Added 2026-09-16, at Ish's request** to turn the existing bare-bones
+`/sales` staff surface (B6.8) into the full sales-operating-system
+described in his own write-up. **Full plan, phase breakdown
+(`B8.1`…`B8.14`), gap analysis against the real current code, and open
+decisions needed from Ish live in `sales_rep_portal.md` — read that
+document, not a restatement here**, per this master plan's own §0 rule
+against maintaining the same detail in two places.
+
+One-paragraph summary: the portal is a rendering layer over
+`restoricon_core`'s existing services (`CRMService`, `FinanceService`,
+`SchedulingService`, `AnalyticsSearchService`, …) — most of the
+requested capability (lead capture, pipeline, estimates, contracts,
+tasks, customer 360, global search, executive dashboard) already exists
+in the Core and only needs UI wiring. Genuinely net-new schema is small
+and named explicitly in `sales_rep_portal.md` §2: a `Property` table, an
+append-only `CommissionLedgerEntry` table, `InsuranceClaim`,
+`FinancingRecord`, `AssessmentRecord`, `PackageOption`, and
+`ProductionHandoffChecklist`. Found in scoping: `NEW-533` (the current
+`/sales` surface shows every rep's projects, unfiltered).
+
+**Blocked on five open decisions from Ish** (`sales_rep_portal.md` §4):
+D1 SMS scope (collides with B6.9 decision 9 — SMS is an investigation
+item, not a deliverable), D2 whether a sales-manager tier is a new role
+or a scoped permission, D3 confirms no real-time push layer (B6.9
+decision 8 stands), D4 the actual commission-plan rules, D5 whether a
+financing-provider integration exists to build against.
+
+**Depends on:** B3/B5a (the services), B4 (the API layer), B6 (the
+staff-portal pattern and permission model B8 extends). **Blocks:**
+nothing in Track A.
+
 ---
 
 ## 7. Risks
@@ -4803,6 +4860,10 @@ Numbered for reference. Nothing here is guessed at in this document.
   `NEW-289`) because keeping two ~16KB files hand-consistent was a
   standing drift risk rather than a design.
 - `README.md` — user-facing; points here.
+- **`sales_rep_portal.md`** — the full phase-by-phase build plan for
+  §6.12/Phase B8. A spoke, not a second hub: field lists Appendix C
+  already owns are not repeated there, and its own status claims must
+  stay in sync with this file's — see §6.12.
 
 **Live append-only ledgers, owned by this plan** (deliberately *not*
 archived — archiving them would break rules 8 and 9 immediately, since
@@ -6735,6 +6796,38 @@ now closed. B6's B2 prerequisite is satisfied (code-complete tier).**
       2026-09-15T12:48:48Z). The one thing not verifiable from inside the
       system — that the printed private key actually got written down
       offline — rests on Ish's own attestation.
+
+**Phase B8 — Sales Rep Portal (§6.12).** Added 2026-09-16. Full detail
+in `sales_rep_portal.md`; this register only tracks phase status, per
+this file's own don't-duplicate rule.
+
+- [ ] **B8.1** — foundation schema: `Property`, append-only
+      `CommissionLedgerEntry`, sales-manager permission. **Rule-4
+      category.** Blocked on Open Decision D2 (`sales_rep_portal.md`
+      §4) for the permission half; the two new tables are unblocked.
+- [ ] **B8.2** — Command Center dashboard. Also closes `NEW-533` (the
+      unfiltered `/sales` project list).
+- [ ] **B8.3** — lead & pipeline UX.
+- [ ] **B8.4** — Customer 360 & multi-property records.
+- [ ] **B8.5** — appointments & property assessment/inspection.
+- [ ] **B8.6** — estimates, Good/Better/Best packages, proposal
+      builder, contracts.
+- [ ] **B8.7** — commission engine & compensation dashboards.
+      **Rule-4 category** (money). Blocked on Open Decision D4.
+- [ ] **B8.8** — insurance restoration workflow & financing tracking.
+      Financing integration blocked on Open Decision D5.
+- [ ] **B8.9** — territory management & referral compensation.
+- [ ] **B8.10** — communications center & follow-up visibility. Blocked
+      on Open Decision D1 (SMS) for anything beyond email + the
+      existing communication log.
+- [ ] **B8.11** — AI Sales Copilot. Deliberately last; depends on CCOS
+      reaching a state where it can serve read-only advisory queries.
+      Not designed further until then.
+- [ ] **B8.12** — sales-to-production handoff & read-only job
+      visibility. **Rule-4 category** (RBAC narrowing).
+- [ ] **B8.13** — mobile-first pass & audit completeness sweep across
+      every B8 write path.
+- [ ] **B8.14** — analytics rollups (rep/manager/executive tiers).
 
 ### T-lane — self-measurement/telemetry layer (NSF SBIR grant evidence, separate initiative from B-lane, does not block or depend on B6/B7)
 

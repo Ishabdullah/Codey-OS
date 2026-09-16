@@ -120,6 +120,33 @@ def _parse_int_path_segment(raw: str, name: str) -> int:
         raise ValueError(f"Invalid '{name}' path segment: {raw!r}")
 
 
+def _parse_int_body_field(json_body: Dict[str, Any], name: str, default: Optional[int]) -> Optional[int]:
+    """Parse an integer field out of a JSON POST/PUT request body, mirroring
+    _parse_int_path_segment's/_parse_int_query_param's contract but for
+    body fields (NEW-528). A key absent from the body returns `default`
+    unconverted -- `default=None` is a legitimate no-op default here,
+    unlike the query-param helper's always-int default, because a POST
+    body field can be genuinely optional. A key present with a
+    non-int-convertible value -- including JSON `null`, which bare
+    `int(None)` raises TypeError for (not ValueError) and which therefore
+    reached the generic `except Exception` handler as a raw 500 before
+    this helper existed -- raises a clean ValueError, turned into a
+    controlled 400 by the existing top-level `except ValueError` in
+    handle_request. Deliberately does NOT clamp to a minimum/maximum the
+    way _parse_int_query_param does by default: most of this helper's
+    callers are counts or ratings, not ids, and NEW-532 already showed
+    that silently clamping a nonsensical value to a valid one can change
+    a request's meaning rather than just rejecting it.
+    """
+    if name not in json_body:
+        return default
+    raw = json_body[name]
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        raise ValueError(f"Invalid '{name}' body field: {raw!r}")
+
+
 def _emit_ai_chat_telemetry(
     *,
     resp_data: Dict[str, Any],
@@ -844,14 +871,19 @@ class APIRouter:
                 opp_id = json_body.get("opportunity_id")
                 if not opp_id:
                     return 400, {"Content-Type": "application/json"}, {"error": "Missing opportunity_id parameter"}
-                cadence_tasks = self.crm.generate_cadence_tasks(int(opp_id), actor)
+                cadence_tasks = self.crm.generate_cadence_tasks(_parse_int_body_field(json_body, "opportunity_id", None), actor)
                 return 200, {"Content-Type": "application/json"}, {"tasks": [t.to_dict() for t in cadence_tasks]}
 
             # Leads
             if path == "/api/v1/leads":
                 if method == "GET":
                     status = query_params.get("status", [None])[0]
-                    leads = self.crm.list_leads(actor, status=status)
+                    uid = query_params.get("assigned_user_id", [None])[0]
+                    leads = self.crm.list_leads(
+                        actor,
+                        status=status,
+                        assigned_user_id=_parse_int_query_param(query_params, "assigned_user_id", 0) if uid else None,
+                    )
                     return 200, {"Content-Type": "application/json"}, {"leads": [l.to_dict() for l in leads]}
                 elif method == "POST":
                     lead = Lead(**json_body)
@@ -1358,7 +1390,7 @@ class APIRouter:
                         actor=actor,
                         subject=json_body.get("subject", "Portal Message"),
                         customer_id=actor.customer_id,
-                        project_id=int(pid) if pid else None,
+                        project_id=_parse_int_body_field(json_body, "project_id", None) if pid else None,
                         metadata={"source": "customer_portal", "ip": client_ip},
                     )
                     return 201, {"Content-Type": "application/json"}, {"message": rec.to_dict()}
@@ -1638,7 +1670,13 @@ class APIRouter:
                 stats = self.crm.sync_contacts_batch(contact_list, actor)
                 return 200, {"Content-Type": "application/json"}, {"status": "ok", "stats": stats}
 
-            if path.startswith("/api/v1/contacts/") and path.endswith("/update") and method == "POST":
+            if (
+                path.startswith("/api/v1/contacts/")
+                and path.endswith("/update")
+                and path[len("/api/v1/contacts/"):-len("/update")]
+                and "/" not in path[len("/api/v1/contacts/"):-len("/update")]
+                and method == "POST"
+            ):
                 id_str = path.split("/")[-2]
                 if id_str.isdigit():
                     cid = int(id_str)
@@ -1652,7 +1690,19 @@ class APIRouter:
                     return 404, {"Content-Type": "application/json"}, {"error": "Contact not found"}
                 return 200, {"Content-Type": "application/json"}, {"contact": updated_c.to_dict()}
 
-            if path.startswith("/api/v1/contacts/") and (path.endswith("/delete") and method == "POST" or method == "DELETE"):
+            if path.startswith("/api/v1/contacts/") and (
+                (
+                    path.endswith("/delete")
+                    and path[len("/api/v1/contacts/"):-len("/delete")]
+                    and "/" not in path[len("/api/v1/contacts/"):-len("/delete")]
+                    and method == "POST"
+                )
+                or (
+                    method == "DELETE"
+                    and path[len("/api/v1/contacts/"):]
+                    and "/" not in path[len("/api/v1/contacts/"):]
+                )
+            ):
                 id_str = path.split("/")[-2] if path.endswith("/delete") else path[len("/api/v1/contacts/"):]
                 if id_str.isdigit():
                     cid = int(id_str)
@@ -1957,7 +2007,7 @@ class APIRouter:
                 messages = json_body.get("messages", [])
                 if not messages:
                     return 400, {"Content-Type": "application/json"}, {"error": "Missing messages in request body"}
-                max_tokens = int(json_body.get("max_tokens", 512))
+                max_tokens = _parse_int_body_field(json_body, "max_tokens", 512)
                 temperature = float(json_body.get("temperature", 0.3))
                 enable_thinking = bool(json_body.get("enable_thinking", False))
                 model_name = json_body.get("model", "codey")
@@ -2219,7 +2269,7 @@ class APIRouter:
                 and method == "POST"
             ):
                 wo_id = _parse_int_path_segment(path[len("/api/v1/operations/work-orders/"):-len("/dispatch")], "wo_id")
-                sub_id = int(json_body.get("subcontractor_id", 0))
+                sub_id = _parse_int_body_field(json_body, "subcontractor_id", 0)
                 start = json_body.get("scheduled_start")
                 end = json_body.get("scheduled_end")
                 inst = json_body.get("instructions")
@@ -2340,9 +2390,9 @@ class APIRouter:
                     return 201, {"Content-Type": "application/json"}, {"status": "created", "equipment": created_eq.to_dict()}
 
             if path == "/api/v1/operations/equipment/deploy" and method == "POST":
-                eq_id = int(json_body.get("equipment_id", 0))
-                proj_id = int(json_body.get("project_id", 0))
-                wo_id = int(json_body.get("work_order_id")) if json_body.get("work_order_id") else None
+                eq_id = _parse_int_body_field(json_body, "equipment_id", 0)
+                proj_id = _parse_int_body_field(json_body, "project_id", 0)
+                wo_id = _parse_int_body_field(json_body, "work_order_id", None) if json_body.get("work_order_id") else None
                 return_due = json_body.get("return_due_at")
                 initial_reading = json_body.get("initial_reading")
                 condition_out = json_body.get("condition_out", "good")
@@ -2360,7 +2410,7 @@ class APIRouter:
                 return 200, {"Content-Type": "application/json"}, {"status": "deployed", "deployment": dep.to_dict()}
 
             if path == "/api/v1/operations/equipment/return" and method == "POST":
-                dep_id = int(json_body.get("deployment_id", 0))
+                dep_id = _parse_int_body_field(json_body, "deployment_id", 0)
                 final_reading = json_body.get("final_reading")
                 condition_in = json_body.get("condition_in", "good")
                 mark_maint = bool(json_body.get("mark_for_maintenance", False))
@@ -2442,7 +2492,7 @@ class APIRouter:
                     status=json_body.get("status", "planning"),
                     budget=float(json_body.get("budget", 0.0)),
                     actual_spend=float(json_body.get("actual_spend", 0.0)),
-                    leads_generated=int(json_body.get("leads_generated", 0)),
+                    leads_generated=_parse_int_body_field(json_body, "leads_generated", 0),
                     revenue_attributed=float(json_body.get("revenue_attributed", 0.0)),
                     start_date=json_body.get("start_date"),
                     end_date=json_body.get("end_date"),
@@ -2457,7 +2507,7 @@ class APIRouter:
 
             if path == "/api/v1/marketing/reviews/request" and method == "POST":
                 req = ReviewRequest(
-                    customer_id=int(json_body.get("customer_id", 0)),
+                    customer_id=_parse_int_body_field(json_body, "customer_id", 0),
                     project_id=json_body.get("project_id"),
                     platform=json_body.get("platform", "google"),
                 )
@@ -2471,7 +2521,7 @@ class APIRouter:
                 and method == "POST"
             ):
                 req_id = _parse_int_path_segment(path[len("/api/v1/marketing/reviews/"):-len("/submit")], "req_id")
-                rating = int(json_body.get("rating", 5))
+                rating = _parse_int_body_field(json_body, "rating", 5)
                 feedback = json_body.get("feedback", "")
                 res = self.business_ops.submit_review(req_id, rating, feedback, actor)
                 return 200, {"Content-Type": "application/json"}, {"status": "submitted", "review": res.to_dict()}
@@ -2506,7 +2556,7 @@ class APIRouter:
                 return 200, {"Content-Type": "application/json"}, {"compliance_items": [i.to_dict() for i in items]}
 
             if path == "/api/v1/compliance/scan" and method == "POST":
-                days = int(json_body.get("threshold_days", 30))
+                days = _parse_int_body_field(json_body, "threshold_days", 30)
                 scan_res = self.business_ops.scan_compliance_expirations(actor, threshold_days=days)
                 return 200, {"Content-Type": "application/json"}, {"status": "scanned", "results": scan_res}
 
@@ -2538,7 +2588,7 @@ class APIRouter:
 
             if path == "/api/v1/hr/timesheets" and method == "POST":
                 ts = Timesheet(
-                    employee_id=int(json_body.get("employee_id", 0)),
+                    employee_id=_parse_int_body_field(json_body, "employee_id", 0),
                     project_id=json_body.get("project_id"),
                     work_order_id=json_body.get("work_order_id"),
                     work_date=json_body.get("work_date", ""),
@@ -2594,7 +2644,7 @@ class APIRouter:
             if path == "/api/v1/procurement/purchase-orders" and method == "POST":
                 po = PurchaseOrder(
                     po_number=json_body.get("po_number", ""),
-                    vendor_id=int(json_body.get("vendor_id", 0)),
+                    vendor_id=_parse_int_body_field(json_body, "vendor_id", 0),
                     project_id=json_body.get("project_id"),
                     status=json_body.get("status", "draft"),
                     items=json_body.get("items", []),
