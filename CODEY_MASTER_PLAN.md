@@ -1199,6 +1199,25 @@ from this round. `NEW-521` (new, not fixed): whether the FK-less
 `*_user_id` sweep for `delete_user()` is complete beyond these two
 known columns. 1881 passed/1 skipped, reviewer-approved, standard
 tier.
+**`NEW-520` FIXED, `NEW-521` Resolved, 2026-09-16** (narrow-scoped
+follow-on): `_parse_int_path_segment()` helper (mirrors `NEW-505`'s
+query-param helper) closes the raw-exception-leak on staff-schedules
+`PATCH`/`DELETE`/`GET` path ids, plus a missing route-matching guard
+the fix itself required. Rule-6 correction: the entry's own
+trailing-slash-leak claim was wrong (`rstrip("/")` makes that path
+unreachable) — corrected, not left standing. `NEW-521`'s deferred full
+sweep is now done: every `*_user_id`/`*_by_id` column across the whole
+schema checked against the LIVE production DB's actual FK list (not
+just DDL text) — zero gaps beyond the two already fixed. Three more
+items spun off, none fixed this round: `NEW-522` (~51 more raw-leak
+sites elsewhere in `routes.py`, deliberately not swept mechanically —
+index position varies, e.g. `[-2]` on sub-action routes), `NEW-523`
+(a sibling query-param leak on the same staff-schedules list route),
+`NEW-524` (a real Ish-decision item — `audit_log`/`communication_history`
+already lose actor identity on user deletion via a pre-existing FK,
+same shape as the `NEW-493` precedent; escalated, not resolved
+unilaterally). 1883 passed/1 skipped, reviewer-approved, standard
+tier.
 
 
 ---

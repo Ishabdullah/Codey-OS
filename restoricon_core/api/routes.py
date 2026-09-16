@@ -103,6 +103,19 @@ def _parse_int_query_param(
     return value
 
 
+def _parse_int_path_segment(raw: str, name: str) -> int:
+    """Parse an integer path segment (e.g. a resource id) out of a URL
+    path, raising a clean ValueError with a non-leaking message on a
+    non-integer value -- mirrors _parse_int_query_param's contract. The
+    existing top-level `except ValueError` in handle_request already
+    turns this into a controlled 400; no new exception-handling plumbing
+    is needed here."""
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        raise ValueError(f"Invalid '{name}' path segment: {raw!r}")
+
+
 def _emit_ai_chat_telemetry(
     *,
     resp_data: Dict[str, Any],
@@ -1611,14 +1624,18 @@ class APIRouter:
                 and "/" not in path[len("/api/v1/staff-schedules/"):]
                 and method == "GET"
             ):
-                sched_id = int(path.split("/")[-1])
+                sched_id = _parse_int_path_segment(path.split("/")[-1], "schedule_id")
                 sched = self.scheduling.get_staff_schedule(sched_id, actor)
                 if not sched:
                     return 404, {"Content-Type": "application/json"}, {"error": "Staff schedule not found"}
                 return 200, {"Content-Type": "application/json"}, {"schedule": sched.to_dict()}
 
-            if path.startswith("/api/v1/staff-schedules/") and method in ("PATCH", "DELETE"):
-                sched_id = int(path.split("/")[-1])
+            if (
+                path.startswith("/api/v1/staff-schedules/")
+                and "/" not in path[len("/api/v1/staff-schedules/"):]
+                and method in ("PATCH", "DELETE")
+            ):
+                sched_id = _parse_int_path_segment(path.split("/")[-1], "schedule_id")
                 if method == "PATCH":
                     updated = self.scheduling.update_staff_schedule(sched_id, json_body, actor)
                     if not updated:

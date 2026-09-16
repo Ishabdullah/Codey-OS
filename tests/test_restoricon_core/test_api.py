@@ -1677,6 +1677,49 @@ def test_api_staff_schedule_get_by_id_permission_denied_for_technician(api_serve
     assert status == 403
 
 
+def test_api_staff_schedule_non_integer_id_is_400_without_raw_pyexc_text(api_server):
+    """NEW-520: `GET`/`PATCH`/`DELETE /api/v1/staff-schedules/{id}` parse
+    the id via the shared `_parse_int_path_segment` helper, which raises a
+    clean ValueError instead of letting Python's raw `int()` exception
+    text ('invalid literal for int() with base 10') reach the client."""
+    _, base_url, _, _ = api_server
+    headers = _agent_headers(base_url)
+
+    status, body = make_request(f"{base_url}/api/v1/staff-schedules/abc", headers=headers)
+    assert status == 400, body
+    assert body == {"error": "Invalid 'schedule_id' path segment: 'abc'"}
+
+    status, body = make_request(
+        f"{base_url}/api/v1/staff-schedules/abc",
+        method="PATCH", headers=headers, data={"notes": "ghost"},
+    )
+    assert status == 400, body
+    assert body == {"error": "Invalid 'schedule_id' path segment: 'abc'"}
+
+    status, body = make_request(
+        f"{base_url}/api/v1/staff-schedules/abc", method="DELETE", headers=headers,
+    )
+    assert status == 400, body
+    assert body == {"error": "Invalid 'schedule_id' path segment: 'abc'"}
+
+
+def test_api_staff_schedule_patch_malformed_extra_segment_is_generic_404(api_server):
+    """NEW-520: a malformed path with a trailing extra segment past the id
+    (e.g. a client bug appending something after the id) must fall through
+    to the router's generic 'Endpoint not found' 404, not be misread as a
+    bad schedule_id -- the PATCH/DELETE block's route-matching guard now
+    matches the sibling GET block's single-path-segment check."""
+    _, base_url, _, _ = api_server
+    headers = _agent_headers(base_url)
+
+    status, body = make_request(
+        f"{base_url}/api/v1/staff-schedules/1/foo",
+        method="PATCH", headers=headers, data={"notes": "ghost"},
+    )
+    assert status == 404, body
+    assert body == {"error": "Endpoint not found: PATCH /api/v1/staff-schedules/1/foo"}
+
+
 def test_api_customers_limit_non_integer_is_400_without_raw_pyexc_text(api_server):
     """NEW-505: `?limit=` is parsed via the shared `_parse_int_query_param`
     helper, which raises a clean ValueError instead of letting Python's
