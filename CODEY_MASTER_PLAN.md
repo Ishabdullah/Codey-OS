@@ -6867,6 +6867,10 @@ this file's own don't-duplicate rule.
       portal's poll-on-load design (not yet scoped — its own phase,
       see `sales_rep_portal.md` §4a). None of this invalidates what's
       already shipped; it's additive follow-on work.
+      **B8.1's remaining schema half (Property, CommissionLedgerEntry,
+      PERM_READ/WRITE_TEAM_COMMISSIONS) is now DONE 2026-09-17** — see
+      the dedicated entry below. **B8.1 is now fully closed** —
+      permission half, `sales_manager` role, and schema, all shipped.
 - [x] **B8.1a (follow-on)** — migrate the `NEW-533` permission-grant
       sales-manager design to a real `sales_manager` role. **DONE
       2026-09-16, code-complete + code-reviewer APPROVED + LIVE-VERIFIED**
@@ -6987,6 +6991,31 @@ this file's own don't-duplicate rule.
       self-healing timing window, swallow the one call that would have
       redirected on an indeterminate response — no data-exposure risk,
       not fixed this round). 1945 passed, 1 skipped.
+- [x] **B8.1 schema (follow-on)** — `Property` table, append-only
+      `CommissionLedgerEntry` table (D4's real `source_type` enum),
+      `projects.property_id`, and split `PERM_READ_TEAM_COMMISSIONS`/
+      `PERM_WRITE_TEAM_COMMISSIONS` permissions. **DONE 2026-09-17,
+      code-complete + code-reviewer APPROVED (round 2, after a round-1
+      CHANGES-REQUESTED on three real money-relevant bugs)**, commit
+      `5a47208`. **This closes B8.1 in full** (permission half +
+      `sales_manager` role + schema, all three pieces now shipped).
+      Full detail in `PROJECT_LOG.md`'s 2026-09-17 entry. New
+      `CommissionService` (`record_commission`/`get_commission`/
+      `list_commissions`/`reverse_commission`) — **not yet wired into
+      `api/server.py`**, queued for B8.2 or B8.7. **Not yet
+      live-verified** against the real production DB's migration path
+      beyond a direct `sqlite3` query confirming no pre-existing
+      `commission_ledger_entries` table — rule 7's full tier still
+      needs a live-verifier pass. Logged `NEW-544` (`PERM_READ_TEAM_
+      PIPELINE` superseded, not built), `NEW-545` (D4's `source_type`
+      enum drops `referral`, needs a B8.9-time decision), `NEW-546`
+      (pre-existing `user_id=None` fail-open in rep-scoping filters,
+      currently unreachable, not this round's regression).
+- [ ] **B8.2** — Command Center dashboard, full build (the
+      `/api/v1/sales/dashboard` aggregation route per `sales_rep_
+      portal.md` §5 B8.2). The `NEW-533` fix rewired `/sales`'s
+      existing view to show filtered leads/opportunities but did not
+      build this dedicated route; still open.
 - [ ] **B8.3** — lead & pipeline UX.
 - [ ] **B8.4** — Customer 360 & multi-property records.
 - [ ] **B8.5** — appointments & property assessment/inspection.
