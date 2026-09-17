@@ -7082,7 +7082,24 @@ this file's own don't-duplicate rule.
       gotcha, unrelated, found while verifying this round's own
       claim), `NEW-570` (minor UI staleness edge case). **B8.4 is now
       closed in full** (B8.4a + B8.4b both shipped).
-- [ ] **B8.5** — appointments & property assessment/inspection.
+- [x] **B8.5a** — fix `NEW-547` (sales reps' My Schedule panel 403s).
+      **DONE 2026-09-17, code-complete + code-reviewer APPROVED with
+      zero findings** (reviewer live-reverted the fix to confirm the
+      fail-open regression test catches it, then restored), commit
+      `bc667ac`. Full detail in `PROJECT_LOG.md`'s 2026-09-17 entry.
+      New narrow `PERM_READ_OWN_STAFF_SCHEDULE` permission (not the
+      full company-wide one) — `ROLE_SALES`/`ROLE_SALES_MANAGER` get
+      self-only staff-schedule visibility; `list_staff_schedules`/
+      `get_staff_schedule` gained a tiered check, unconditional for
+      the narrow tier (avoids the `NEW-546` fail-open class).
+- [ ] **B8.5b** — appointment scheduling UI (sales portal) + new
+      `assessment_records` table (checklist/evidence-photo workflow,
+      resolves `NEW-567`'s deferred `Document`↔`Property` linkage via
+      `property_id` + `evidence_document_ids_json` on the new table,
+      no `Document` schema change needed). Scoped, not yet built —
+      appointment CRUD/routes already fully exist (used by B8.2a/B8.3
+      already), this phase is UI composition for scheduling plus
+      genuinely new `assessment_records` schema (rule-4).
 - [ ] **B8.6** — estimates, Good/Better/Best packages, proposal
       builder, contracts.
 - [ ] **B8.7** — commission engine & compensation dashboards.
