@@ -219,6 +219,17 @@ PERM_WRITE_APPOINTMENT_TYPES = "write:appointment_types"
 PERM_READ_STAFF_SCHEDULES = "read:staff_schedules"
 PERM_WRITE_STAFF_SCHEDULES = "write:staff_schedules"
 
+# NEW-547: a narrow, self-only tier of PERM_READ_STAFF_SCHEDULES, distinct
+# from it -- granting the full permission to ROLE_SALES would hand every
+# sales rep company-wide staff-schedule visibility via direct API calls,
+# not just what the sales portal's "My Schedule" panel displays. Holders
+# of this permission alone are forced to their own user_id in
+# list_staff_schedules/get_staff_schedule regardless of what they request
+# (see SchedulingService); get_active_staff_schedules_for_user and
+# list_staff_schedules_archive deliberately stay gated on the FULL
+# permission only -- this narrow tier does not unlock either of them.
+PERM_READ_OWN_STAFF_SCHEDULE = "read:own_staff_schedule"
+
 # Contacts permissions (Track B Phase B2 cutover)
 PERM_READ_CONTACTS = "read:contacts"
 PERM_WRITE_CONTACTS = "write:contacts"
@@ -416,6 +427,11 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_READ_PROCUREMENT,
         PERM_GLOBAL_SEARCH,
         PERM_VIEW_REPORTS,
+        # NEW-547: self-only staff-schedule visibility for the sales
+        # portal's "My Schedule" panel -- NOT the full company-wide
+        # PERM_READ_STAFF_SCHEDULES (that stays admin/manager/PM/ai_agent
+        # only, see below).
+        PERM_READ_OWN_STAFF_SCHEDULE,
     },
     ROLE_PROJECT_MANAGER: {
         PERM_READ_ALL_CUSTOMERS,
@@ -668,6 +684,7 @@ PERMISSIONS_CATALOG: Dict[str, Dict[str, Any]] = {
             {"id": PERM_WRITE_APPOINTMENT_TYPES, "name": "Write Appointment Types", "description": "Create, rename, and deactivate bookable service types"},
             {"id": PERM_READ_STAFF_SCHEDULES, "name": "Read Staff Schedules", "description": "View staff schedules"},
             {"id": PERM_WRITE_STAFF_SCHEDULES, "name": "Write Staff Schedules", "description": "Manage staff schedules"},
+            {"id": PERM_READ_OWN_STAFF_SCHEDULE, "name": "Read Own Staff Schedule", "description": "View own staff schedule only (self-scoped, not company-wide)"},
         ],
     },
     "business_ops": {

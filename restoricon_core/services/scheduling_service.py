@@ -29,6 +29,7 @@ from ..auth import (
     PERM_WRITE_APPOINTMENT_TYPES,
     PERM_WRITE_SCHEDULE_CONFIG,
     PERM_READ_STAFF_SCHEDULES,
+    PERM_READ_OWN_STAFF_SCHEDULE,
     PERM_WRITE_STAFF_SCHEDULES,
 )
 from ..database import DatabaseManager
@@ -1020,14 +1021,30 @@ class SchedulingService:
         end: Optional[str] = None,
         limit: int = 200,
     ) -> List[StaffSchedule]:
-        if not actor.has_permission(PERM_READ_STAFF_SCHEDULES):
+        # NEW-547: tiered check. Full-tier holders (admin/manager/PM/
+        # ai_agent) keep today's behavior unchanged -- whatever user_id
+        # filter the caller passes or doesn't. Narrow-tier-only holders
+        # (sales/sales_manager, via PERM_READ_OWN_STAFF_SCHEDULE) are
+        # forced to their own user_id UNCONDITIONALLY, regardless of what
+        # they requested -- appended independently of the `user_id is not
+        # None` branch below, not routed through it, so an actor.user_id
+        # of None (should never happen for a real human actor, but not
+        # relied upon) yields "user_id = NULL", which SQLite never
+        # matches, i.e. fails closed to zero rows rather than open to the
+        # whole table.
+        full_tier = actor.has_permission(PERM_READ_STAFF_SCHEDULES)
+        if not full_tier and not actor.has_permission(PERM_READ_OWN_STAFF_SCHEDULE):
             raise PermissionError("Actor lacks permission to read staff schedules")
 
         query = "SELECT * FROM staff_schedules WHERE 1=1"
         params: List[Any] = []
-        if user_id is not None:
+        if full_tier:
+            if user_id is not None:
+                query += " AND user_id = ?"
+                params.append(user_id)
+        else:
             query += " AND user_id = ?"
-            params.append(user_id)
+            params.append(actor.user_id)
 
         # Same inclusive YYYY-MM-DD range-filter pattern as
         # list_appointments (Phase 7 Part 1) -- staff_schedules.start_time
@@ -1060,7 +1077,16 @@ class SchedulingService:
     def get_staff_schedule(
         self, schedule_id: int, actor: AuthContext
     ) -> Optional[StaffSchedule]:
-        if not actor.has_permission(PERM_READ_STAFF_SCHEDULES):
+        # NEW-547: same tiered check as list_staff_schedules. A fetch-by-id
+        # has no user_id query param to force, so the narrow tier instead
+        # compares the fetched row's user_id to the actor's and returns
+        # None (-> route 404, same as "doesn't exist", matching this
+        # codebase's existing not-found-not-leak convention -- see
+        # crm_service.py's get_lead/get_opportunity) rather than raising,
+        # so a narrow-tier actor can't distinguish "not yours" from "no
+        # such schedule".
+        full_tier = actor.has_permission(PERM_READ_STAFF_SCHEDULES)
+        if not full_tier and not actor.has_permission(PERM_READ_OWN_STAFF_SCHEDULE):
             raise PermissionError("Actor lacks permission to read staff schedules")
 
         conn = self.db.get_connection()
@@ -1068,6 +1094,8 @@ class SchedulingService:
             "SELECT * FROM staff_schedules WHERE id = ?;", (schedule_id,)
         ).fetchone()
         if not row:
+            return None
+        if not full_tier and row["user_id"] != actor.user_id:
             return None
         return StaffSchedule.from_row(row)
 
