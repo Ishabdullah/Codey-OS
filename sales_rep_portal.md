@@ -291,14 +291,22 @@ chat history. Three separate tasks, each needing its own
    Appendix A `NEW-534` entry and `NEW_ISSUES.md`. Spun off `NEW-542`
    (the generic update path's own pre-existing race on the same
    column, not fixed, deliberately out of scope).
-3. **D3 — real-time push layer.** Largest and most architecturally
-   significant; recommend its own dedicated scoping session rather
-   than folding into a B8 sub-phase, since it changes a system-wide
-   standing design decision (B6.9 decision 8), not just sales.
-   **Scoping pass done 2026-09-16, design only, nothing built:**
-   `docs/realtime_push_design.md`. Needs Ish's direct review before an
-   `implementer` round is scoped from it (architecture-reversal
-   stakes). See `PROJECT_LOG.md` 2026-09-16 entry for the summary.
+3. ~~**D3 — real-time push layer.**~~ **DONE 2026-09-17 — resolved as
+   a 12-second auto-refresh, not the full SSE layer.** Scoping pass
+   (2026-09-16, design only) produced `docs/realtime_push_design.md`
+   — kept in the repo as a reference for if genuine instant push is
+   ever needed later, but its §1(c) open question ("would ~10-15s
+   satisfy the real need instead of full push?") was put to Ish
+   directly rather than assumed, and his answer — "10-15 seconds is
+   good enough" — meant the design doc's own cheaper alternative was
+   the right build, not its main SSE recommendation. Implemented as
+   `setInterval(() => loadDashboard(false), 12000)` on the sales
+   portal, with a real latent bug (an ambiguous auth-check response
+   would have silently logged out an active rep roughly every 12s)
+   caught and fixed as part of the same change, not shipped separately.
+   Full detail in `CODEY_MASTER_PLAN.md`'s Appendix A entry and
+   `NEW_ISSUES.md`'s `NEW-543` (spun off, not fixed, low severity,
+   self-healing).
 
 ## 4b. Original open decisions needed from Ish before certain phases can start
 

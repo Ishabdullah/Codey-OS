@@ -147,3 +147,4 @@
 - [D2 ROLE_SALES_MANAGER users-table CHECK rebuild — APPROVED](d2_sales_manager_role_users_table_rebuild_approved.md) — independent SQLite empirical repro of every migration claim (legacy_alter_table nuance, BEGIN IMMEDIATE atomicity via injected crash, sqlite_sequence dedupe); reusable crash-injection technique documented
 - [NEW-538 Edit User modal — APPROVED](new538_edit_user_modal_approved.md) — full live+vm-execution verification; advisor's to_dict() concern checked and ruled out empirically
 - [vm harness silent stub gaps](vm_harness_silent_stub_gaps.md) — incomplete DOM stub errors get swallowed by the code's own try/catch, producing false-clean "nothing happened" results
+- [D3 sales-portal 12s periodic refresh — APPROVED](d3_sales_portal_periodic_refresh_approved.md) — try/finally guard wraps whole body incl. all early returns; node --check on rendered <script> block catches brace-escape bugs

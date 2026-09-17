@@ -5275,20 +5275,30 @@ def _render_sales_portal() -> str:
             return sessionStorage.getItem('restoricon_token') || '';
         }}
 
-        async function loadDashboard() {{
+        let dashboardRefreshInFlight = false;
+        async function loadDashboard(redirectOnIndeterminate = true) {{
+            if (dashboardRefreshInFlight) return;
+            dashboardRefreshInFlight = true;
+            try {{
             const token = getAuthToken();
             if (!token) {{ window.location.href = '/admin/login'; return; }}
 
             let user = null;
             try {{
                 const meRes = await fetch('/api/v1/auth/me', {{ headers: {{ 'Authorization': 'Bearer ' + token }} }});
+                if (meRes.status === 401) {{ window.location.href = '/admin/login'; return; }}
                 if (meRes.ok) {{
                     const meData = await meRes.json();
                     user = meData.user;
                 }}
-            }} catch (e) {{}}
+                // else: non-ok, non-401 response (e.g. 5xx) -- not a confirmed
+                // auth failure, fall through to the indeterminate-gated check below.
+            }} catch (e) {{ /* network/parse failure: not a confirmed auth failure, fall through to the indeterminate-gated check below */ }}
 
-            if (!user) {{ window.location.href = '/admin/login'; return; }}
+            if (!user) {{
+                if (redirectOnIndeterminate) {{ window.location.href = '/admin/login'; }}
+                return;
+            }}
 
             // Display-only viewer-scope banner -- real enforcement is entirely
             // server-side (CRMService._scoped_assignee_filter); this is never
@@ -5365,6 +5375,9 @@ def _render_sales_portal() -> str:
                     tbody.innerHTML = '<tr><td colspan="4" style="color:var(--text-muted)">No opportunities.</td></tr>';
                 }}
             }} catch (e) {{ /* network/parse failure: opportunities tbody keeps its "Loading..." placeholder, no further UI action needed */ }}
+            }} finally {{
+                dashboardRefreshInFlight = false;
+            }}
         }}
 
         // NEW-534: claim buttons for unclaimed leads/opportunities.
@@ -5412,6 +5425,9 @@ def _render_sales_portal() -> str:
         }}
 
         window.onload = loadDashboard;
+        // Browsers throttle setInterval to ~once/minute in a backgrounded tab,
+        // so the ~12s cadence only holds while this tab is in the foreground.
+        setInterval(() => loadDashboard(false), 12000);
     </script>
 </body>
 </html>"""

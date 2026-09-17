@@ -6959,27 +6959,34 @@ this file's own don't-duplicate rule.
       own, so it can race against the new atomic claim path —
       confirmed real, deliberately out of this task's scope, not
       fixed). 1944 passed, 1 skipped.
-- [ ] **Real-time push layer (new, system-wide, not B8-scoped)** —
-      requested by Ish 2026-09-16, overriding B6.9 decision 8.
-      Large enough to need its own phase and `project-architect`
-      scoping pass rather than folding into B8. Not yet named/numbered
-      as its own phase — flagged in `sales_rep_portal.md` §4a item 3.
-      **Scoping pass done 2026-09-16, design only, nothing built:**
-      `docs/realtime_push_design.md`. Recommends SSE (not WebSocket) via
-      `fetch()`+`ReadableStream` (not native `EventSource`, since it
-      can't carry the existing `Authorization: Bearer` header), push as
-      a pure refetch-trigger (never a data-carrying channel, to avoid a
-      second narrowing implementation), a first-cut 3-event set
-      (`lead.created`/`assignment.created`/`lead.claimed`), explicit
-      `publish()` calls at ~3-5 `CRMService` mutation sites (not an
-      `AuditService.log()` hook — frequency mismatch), and concrete
-      resource-safety requirements (bounded per-subscriber queue,
-      heartbeat-based dead-connection detection, 32-stream cap, release
-      the thread-local DB connection before the write loop). No new
-      `install.sh` dependency. **Needs Ish's direct review before an
-      `implementer` round is scoped from it** (architecture-reversal
-      stakes, not routine implementer/code-reviewer scope) — not yet
-      approved, not started.
+- [x] **D3 — real-time push, resolved as a 12s auto-refresh, not the
+      full SSE layer.** **DONE 2026-09-17, code-complete + code-reviewer
+      APPROVED.** Scoping pass (2026-09-16, design only) produced
+      `docs/realtime_push_design.md` — full SSE design (transport,
+      event set, publish seam, resource-safety requirements), kept in
+      the repo as a reference, **not implemented**. That design's own
+      §1(c) flagged an open question rather than deciding unilaterally:
+      whether "within ~10-15s" would satisfy the actual need instead of
+      genuine push. Put to Ish directly; his answer: **"10-15 seconds
+      is good enough."** Implemented as the cheap path the design doc
+      itself named as the alternative: `setInterval(() =>
+      loadDashboard(false), 12000)` on the sales portal only (the one
+      surface with an actual motivating request) — no new connection
+      type, no broadcaster, no new routes, zero new `install.sh`
+      dependency. A real bug was caught and fixed as part of wiring
+      this up, not shipped as a new one: the existing `/auth/me` fetch
+      treated any network blip identically to a confirmed 401,
+      redirecting to login — harmless as one-shot page-load behavior,
+      but would have silently ejected an actively-working rep roughly
+      every 12 seconds once unattended on a timer. Fixed by adding a
+      `redirectOnIndeterminate` parameter: a genuine 401 still redirects
+      unconditionally; an ambiguous/network-error response only
+      redirects on the initial load or a post-claim reload, not on a
+      background tick. An in-flight guard prevents overlapping refresh
+      cycles. Spun off `NEW-543` (the guard can, in a narrow and
+      self-healing timing window, swallow the one call that would have
+      redirected on an indeterminate response — no data-exposure risk,
+      not fixed this round). 1945 passed, 1 skipped.
 - [ ] **B8.3** — lead & pipeline UX.
 - [ ] **B8.4** — Customer 360 & multi-property records.
 - [ ] **B8.5** — appointments & property assessment/inspection.

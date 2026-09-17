@@ -19,7 +19,7 @@ def test_sales_portal_serves_leads_and_opportunities_fetches():
 
 def test_sales_portal_leads_and_opportunities_handle_401():
     html = render_sales_surface()
-    start = html.index("async function loadDashboard()")
+    start = html.index("async function loadDashboard(redirectOnIndeterminate = true)")
     end = html.index("window.onload = loadDashboard;")
     dashboard_js = html[start:end]
 
@@ -73,3 +73,17 @@ def test_sales_portal_has_claim_buttons_and_fetch_calls():
     assert "method: 'POST'" in claim_opp_js
     assert "'Authorization': 'Bearer ' + token" in claim_opp_js
     assert "loadDashboard();" in claim_opp_js
+
+
+def test_sales_portal_auto_refreshes_via_interval():
+    """D3 (sales_rep_portal.md §4a item 3): Ish chose the cheap 10-15s
+    periodic-refresh fix over the full SSE push layer
+    (docs/realtime_push_design.md, designed but not implemented). A
+    401-confirmed auth failure still redirects unconditionally; a network
+    blip or ambiguous non-401 response on an unattended interval tick must
+    not silently eject an actively-working rep to the login screen."""
+    html = render_sales_surface()
+    assert "setInterval(() => loadDashboard(false), 12000);" in html, \
+        "Sales portal must poll loadDashboard every 12s (D3 fix, 10-15s range)"
+    assert "async function loadDashboard(redirectOnIndeterminate = true)" in html
+    assert "if (redirectOnIndeterminate) { window.location.href = '/admin/login'; }" in html
