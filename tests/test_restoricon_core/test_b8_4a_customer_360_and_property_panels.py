@@ -94,13 +94,17 @@ def test_customer_360_properties_panel_uses_only_real_property_fields():
     assert "/api/v1/properties/" in save_js and "/update'" in save_js
 
 
-def test_customer_360_does_not_attempt_property_project_history_or_documents_panel():
-    """Explicit descope (NEW-566/NEW-567, split to B8.4b): projects.property_id
-    isn't wired into the Project service layer yet, and Document has no
-    property_id field at all -- the Property panel must not reference
-    either, to avoid silently querying a field that never populates."""
+def test_customer_360_property_panel_has_project_history_but_not_documents():
+    """NEW-566 (project-history) was wired into the Project service layer
+    and this panel in B8.4b -- the Property panel now fetches
+    /api/v1/projects?property_id=<id> on demand. NEW-567 (a documents/photo
+    panel keyed on Document.property_id) stays explicitly descoped --
+    Document has no property_id field at all, deferred to B8.5's
+    AssessmentRecord design -- so the panel must not reference a documents
+    fetch scoped by property_id."""
     html = render_sales_surface()
     start = html.index("function renderPropertiesPanel(propertiesResult)")
     end = html.index("function openPropertyForm(propertyId)")
     panel_js = html[start:end]
-    assert "property_id" not in panel_js
+    assert "/api/v1/projects?property_id=" in panel_js
+    assert "/api/v1/documents?property_id=" not in panel_js

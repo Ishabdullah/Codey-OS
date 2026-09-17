@@ -18579,6 +18579,24 @@ housekeeping, same as `NEW-403`'s own cleanup.
 - **Not fixed this round** — logged per rule 8, out of B8.4a's scope.
 - **Cross-reference:** `restoricon_core/services/crm_service.py` (`list_customers`), `NEW-533`, `sales_rep_portal.md` §5 B8.4.
 
+## Found 2026-09-17 — code-reviewer's B8.4b review, not fixed this round
+
+### [NEW-569] Confirmed, pre-existing: `update_project`'s `project_manager_id` type-check accepts `True`/`False` as valid ints, silently writing `1`/`0` instead of rejecting the bool
+
+- **Status:** Confirmed (code-reviewer, 2026-09-17, live-tested — `update_project(id, {"project_manager_id": True}, admin)` succeeds and writes `1`). Found while verifying a B8.4b diff's claim that its own new `property_id` bool-guard "mirrors" `project_manager_id`'s check — it doesn't; `project_manager_id`'s check is a bare `not isinstance(x, int)` with no bool exclusion (Python bools are `int` subclasses), while the new `property_id` check correctly excludes bools. The new code is stricter than, not a mirror of, the existing pattern.
+- **Impact:** low — requires a caller to explicitly send `true`/`false` as a `project_manager_id` value, an unlikely but not impossible malformed request; would silently link/unlink project management to user id `1`/`0` rather than raising a clean validation error.
+- **Fix direction (not designed/fixed this round):** add the same bool exclusion to `project_manager_id`'s existing check, matching `property_id`'s now-stricter pattern.
+- **Not fixed this round** — logged per rule 8, pre-existing, out of B8.4b's scope.
+- **Cross-reference:** `restoricon_core/services/crm_service.py` (`update_project`).
+
+### [NEW-570] Suggestion-level, not fixed: `togglePropertyHistory` has no post-`await` staleness guard — a rapid A-then-B property History click sequence could render stale data if responses arrive out of order
+
+- **Status:** Suggestion (code-reviewer, 2026-09-17, B8.4b review). `togglePropertyHistory` tracks `currentPropertyHistoryId` but doesn't re-check it after `await fetch`/`await res.json()` resolves — if a user clicks property A's History button, then quickly clicks property B's, and A's response happens to arrive after B's, A's data could render into the single shared `#propertyHistoryArea` panel while the tracked id says B.
+- **Impact:** low — single shared panel, on-click only (not part of the auto-refresh cycle), no data-integrity issue (display-only staleness, self-corrects on the next click), narrow timing window.
+- **Fix direction:** add a guard after the `await` chain checking `currentPropertyHistoryId === propertyId` before writing to `#propertyHistoryArea`, discarding a stale response.
+- **Not fixed this round** — logged per rule 8, non-blocking.
+- **Cross-reference:** `restoricon_core/api/web_surfaces.py` (`_render_sales_portal`, `togglePropertyHistory`).
+
 ### [NEW-567] Confirmed: `Document` has no `property_id` field anywhere (schema, model, or `list_documents` params) — blocks B8.4's "document/photo list scoped to property_id" as literally specced
 
 - **Status:** Confirmed (project-architect, 2026-09-17, verified against both `models.py`'s `Document` dataclass and `PRAGMA table_info(documents)` against the live `~/.codeyOS/restoricon.db` — only `customer_id`/`project_id` columns exist, no `property_id`).

@@ -1086,7 +1086,9 @@ class APIRouter:
                 if method == "GET":
                     cid = query_params.get("customer_id", [None])[0]
                     cust_id = _parse_int_query_param(query_params, "customer_id", 0) if cid else None
-                    projects = self.crm.list_projects(actor, customer_id=cust_id)
+                    pid = query_params.get("property_id", [None])[0]
+                    prop_id = _parse_int_query_param(query_params, "property_id", 0) if pid else None
+                    projects = self.crm.list_projects(actor, customer_id=cust_id, property_id=prop_id)
                     return 200, {"Content-Type": "application/json"}, {"projects": [p.to_dict() for p in projects]}
                 elif method == "POST":
                     proj = Project(**json_body)

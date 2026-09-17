@@ -502,6 +502,7 @@ class Project:
     adjuster_phone: Optional[str] = None
     adjuster_email: Optional[str] = None
     deductible: Optional[float] = None
+    property_id: Optional[int] = None
     created_at: str = field(default_factory=utc_now_iso)
     updated_at: str = field(default_factory=utc_now_iso)
 

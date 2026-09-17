@@ -2437,16 +2437,18 @@ class CRMService:
             adjuster_phone=row["adjuster_phone"] if "adjuster_phone" in keys else None,
             adjuster_email=row["adjuster_email"] if "adjuster_email" in keys else None,
             deductible=row["deductible"] if "deductible" in keys else None,
+            property_id=row["property_id"] if "property_id" in keys else None,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
 
     def create_project(self, project: Project, actor: AuthContext) -> Project:
-        """Create a project. Validates ``project_manager_id`` and
-        ``assigned_employees`` against ``users.id`` up front (NEW-303) so a
-        bad id raises a clean ValueError instead of leaking an uncaught
-        IntegrityError as a 500. ``subcontractors`` (List[str]) is NOT
-        validated -- its referent table is undecided (NEW-304, open)."""
+        """Create a project. Validates ``project_manager_id``,
+        ``property_id`` (B8.4b, NEW-566), and ``assigned_employees`` against
+        their referent tables up front (NEW-303) so a bad id raises a clean
+        ValueError instead of leaking an uncaught IntegrityError as a 500.
+        ``subcontractors`` (List[str]) is NOT validated -- its referent
+        table is undecided (NEW-304, open)."""
         if not actor.has_permission(PERM_WRITE_PROJECTS):
             raise PermissionError("Actor lacks permission to create projects")
 
@@ -2455,6 +2457,10 @@ class CRMService:
             row = conn.execute("SELECT 1 FROM users WHERE id = ?;", (project.project_manager_id,)).fetchone()
             if not row:
                 raise ValueError(f"project_manager_id {project.project_manager_id} does not exist")
+        if project.property_id is not None:
+            row = conn.execute("SELECT 1 FROM properties WHERE id = ?;", (project.property_id,)).fetchone()
+            if not row:
+                raise ValueError(f"property_id {project.property_id} does not exist")
         if project.assigned_employees:
             # Type-check BEFORE the existence check's SQL/set() below -- a
             # non-int element (e.g. a dict) would otherwise reach the IN-clause
@@ -2487,8 +2493,9 @@ class CRMService:
                     scope_of_work, estimated_cost, contract_amount, actual_cost,
                     profit, notes, warranty_info, stage_entered_at,
                     insurance_claim_number, insurance_carrier, adjuster_name,
-                    adjuster_phone, adjuster_email, deductible, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                    adjuster_phone, adjuster_email, deductible, property_id,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
                 (
                     project.customer_id,
@@ -2517,6 +2524,7 @@ class CRMService:
                     project.adjuster_phone,
                     project.adjuster_email,
                     project.deductible,
+                    project.property_id,
                     now,
                     now,
                 ),
@@ -2559,7 +2567,9 @@ class CRMService:
 
         return self._row_to_project(row, actor.role)
 
-    def list_projects(self, actor: AuthContext, customer_id: Optional[int] = None) -> List[Project]:
+    def list_projects(
+        self, actor: AuthContext, customer_id: Optional[int] = None, property_id: Optional[int] = None
+    ) -> List[Project]:
         if not (
             actor.has_permission(PERM_READ_ALL_PROJECTS)
             or actor.has_permission(PERM_READ_ASSIGNED_PROJECTS)
@@ -2579,6 +2589,10 @@ class CRMService:
             if customer_id is not None:
                 query += " AND customer_id = ?"
                 params.append(customer_id)
+
+        if property_id is not None:
+            query += " AND property_id = ?"
+            params.append(property_id)
 
         query += " ORDER BY id DESC;"
 
@@ -2601,7 +2615,7 @@ class CRMService:
         "scope_of_work", "estimated_cost", "contract_amount", "actual_cost",
         "profit", "notes", "warranty_info",
         "insurance_claim_number", "insurance_carrier", "adjuster_name",
-        "adjuster_phone", "adjuster_email", "deductible",
+        "adjuster_phone", "adjuster_email", "deductible", "property_id",
     }
 
     # The three fields whose modification is a "staff reassignment" and needs
@@ -2622,7 +2636,11 @@ class CRMService:
         else but may not grab one they do not manage. ``stage``/``status`` are
         rejected with a pointer to the stage-transition endpoint;
         ``customer_id`` is simply not in the allow-list. ``project_manager_id``
-        cannot be nulled (None-value guard) -- omit the key instead.
+        cannot be nulled (None-value guard) -- omit the key instead. The same
+        blanket None-guard applies to every allow-listed field including
+        ``property_id`` (B8.4b, NEW-566) -- a project cannot be unlinked from
+        its property via this method once linked; omit the key to leave it
+        unchanged, there is no supported way to null it here.
         ``assigned_employees`` ids are validated against ``users.id``
         (NEW-303); ``subcontractors`` (List[str]) is not, its referent table
         is undecided (NEW-304, open). Submitted values are also type-checked
@@ -2702,6 +2720,10 @@ class CRMService:
                 raise ValueError(f"Field '{key}' must be a number")
         if "project_manager_id" in updates and not isinstance(updates["project_manager_id"], int):
             raise ValueError("Field 'project_manager_id' must be an int")
+        if "property_id" in updates and (
+            isinstance(updates["property_id"], bool) or not isinstance(updates["property_id"], int)
+        ):
+            raise ValueError("Field 'property_id' must be an int")
         if "assigned_employees" in updates and not all(isinstance(x, int) for x in updates["assigned_employees"]):
             raise ValueError("Field 'assigned_employees' elements must be ints")
         if "subcontractors" in updates and not all(isinstance(x, str) for x in updates["subcontractors"]):

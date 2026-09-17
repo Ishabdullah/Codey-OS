@@ -6073,6 +6073,7 @@ def _render_sales_portal() -> str:
         let currentCustomer360Id = null;
         let currentCustomer360Properties = [];
         let editingPropertyId = null;
+        let currentPropertyHistoryId = null;
 
         async function openCustomer360Modal(customerId) {{
             currentCustomer360Id = customerId;
@@ -6088,6 +6089,7 @@ def _render_sales_portal() -> str:
             currentCustomer360Id = null;
             currentCustomer360Properties = [];
             editingPropertyId = null;
+            currentPropertyHistoryId = null;
         }}
 
         // Each entity has its own customer_id-scoped route already (B8.1's
@@ -6214,12 +6216,21 @@ def _render_sales_portal() -> str:
             body.innerHTML = html;
         }}
 
-        // Property panel: NEW-566/NEW-567 (project-history and document/photo
-        // panels for Property) are explicitly out of scope this round --
-        // projects.property_id isn't wired into the Project service layer
-        // yet and Document has no property_id field at all, so only the
-        // Property record's own fields are shown/editable here.
+        // Property panel. NEW-567 (Document/photo panel for Property) stays
+        // out of scope this round -- Document has no property_id field at
+        // all, per B8.5's deferred AssessmentRecord design. NEW-566's
+        // project-history panel is now in scope: projects.property_id is
+        // wired into the Project service layer (B8.4b), so "History" below
+        // fetches GET /api/v1/projects?property_id=<id> on demand (view is
+        // per-property, not preloaded with the rest of Customer 360).
         function renderPropertiesPanel(propertiesResult) {{
+            // loadCustomer360() re-runs this on every refresh (including
+            // after savePropertyForm()), which wipes #propertyHistoryArea's
+            // HTML via the fresh template below -- reset the tracked id here
+            // too, or a stale currentPropertyHistoryId makes the next click
+            // on the same property's History button hit the toggle-closed
+            // branch and silently no-op instead of reloading it.
+            currentPropertyHistoryId = null;
             if (!propertiesResult || !propertiesResult.ok) {{
                 const msg = (propertiesResult && propertiesResult.status === 403) ? 'No access.' : 'Failed to load.';
                 return `<div class="erp-card"><h3 style="margin-top:0;">Properties</h3><p style="color:var(--text-muted);">${{msg}}</p></div>`;
@@ -6229,7 +6240,10 @@ def _render_sales_portal() -> str:
                 <td>${{escapeHtml(p.address || '')}}</td>
                 <td>${{escapeHtml(p.property_type || '')}}</td>
                 <td>${{p.year_built || '—'}}</td>
-                <td><button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="openPropertyForm(${{p.id}})">Edit</button></td>
+                <td>
+                    <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="openPropertyForm(${{p.id}})">Edit</button>
+                    <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="togglePropertyHistory(${{p.id}})">History</button>
+                </td>
             </tr>`);
             const table = rows.length > 0
                 ? `<table><thead><tr><th>Address</th><th>Type</th><th>Year Built</th><th></th></tr></thead><tbody>${{rows.join('')}}</tbody></table>`
@@ -6241,7 +6255,48 @@ def _render_sales_portal() -> str:
                 </h3>
                 ${{table}}
                 <div id="propertyFormArea"></div>
+                <div id="propertyHistoryArea"></div>
             </div>`;
+        }}
+
+        // NEW-566: property-scoped project history, fetched on demand (not
+        // part of loadCustomer360's Promise.allSettled fan-out) since it's
+        // per-property rather than per-customer. Toggles closed if the same
+        // property's history is already showing. currentPropertyHistoryId
+        // is declared with the other Customer 360 modal state near the top
+        // of this section (also reset there and in renderPropertiesPanel).
+        async function togglePropertyHistory(propertyId) {{
+            const area = document.getElementById('propertyHistoryArea');
+            if (currentPropertyHistoryId === propertyId) {{
+                area.innerHTML = '';
+                currentPropertyHistoryId = null;
+                return;
+            }}
+            currentPropertyHistoryId = propertyId;
+            area.innerHTML = '<p style="color:var(--text-muted);">Loading project history...</p>';
+            const token = getAuthToken();
+            try {{
+                const res = await fetch('/api/v1/projects?property_id=' + propertyId, {{
+                    headers: {{ 'Authorization': 'Bearer ' + token }},
+                }});
+                if (res.status === 401) {{
+                    window.location.href = '/admin/login';
+                    return;
+                }}
+                if (!res.ok) {{
+                    area.innerHTML = `<p style="color:var(--text-muted);">${{res.status === 403 ? 'No access.' : 'Failed to load.'}}</p>`;
+                    return;
+                }}
+                const data = await res.json();
+                const projects = data.projects || [];
+                const rows = projects.map(p => `<tr><td>${{escapeHtml(p.title || '')}}</td><td>${{escapeHtml(p.status || '')}}</td><td>$${{escapeHtml((p.contract_amount || 0).toLocaleString())}}</td></tr>`);
+                const table = rows.length > 0
+                    ? `<table><thead><tr><th>Title</th><th>Status</th><th>Contract Amount</th></tr></thead><tbody>${{rows.join('')}}</tbody></table>`
+                    : '<p style="color:var(--text-muted);">No projects on file for this property.</p>';
+                area.innerHTML = `<div class="erp-card"><h3 style="margin-top:0;">Project History</h3>${{table}}</div>`;
+            }} catch (e) {{
+                area.innerHTML = '<p style="color:var(--text-muted);">Failed to load: network error.</p>';
+            }}
         }}
 
         function openPropertyForm(propertyId) {{
