@@ -7028,13 +7028,19 @@ this file's own don't-duplicate rule.
       (`Estimate`/`Contract` have no rep field, → B8.6), `NEW-550`
       (`get_executive_dashboard` aggregate leak, own round), `NEW-551`
       (appointments strict-scoping divergence, informational).
-- [ ] **B8.2b** — rewire `_render_sales_portal`'s three panels
-      (appointments/leads/tasks, pipeline, commissions) to actually
-      consume B8.2a's route instead of their current separate direct
-      fetches, and add the manager-tier "team" view to the UI. Split
-      out from B8.2 deliberately (scoping pass, 2026-09-17) so the
-      route and its RBAC-critical tests didn't have to land in the
-      same commit as an HTML/JS rewire.
+- [x] **B8.2b** — wire `_render_sales_portal`'s UI to B8.2a's route.
+      **DONE 2026-09-17, code-complete + code-reviewer APPROVED with
+      zero findings** (`node --check` on real rendered output + live
+      negative-control test reverts, not diff-reading alone), commit
+      `84c1e4c`. Full detail in `PROJECT_LOG.md`'s 2026-09-17 entry.
+      New Appointments/Follow-ups/Pipeline/Commissions/Team panels;
+      My Schedule/Leads/Opportunities kept their existing data
+      sources (`NEW-553` — full consolidation would have regressed
+      shipped functionality). Fixed `NEW-552` (viewer-scope banner
+      missed `ROLE_SALES_MANAGER`-role actors) as a byproduct. Logged,
+      not fixed: `NEW-555` (undefined `.badge`/`.badge-info` CSS,
+      cosmetic, pre-existing). **B8.2 is now closed in full**
+      (B8.2a + B8.2b both shipped).
 - [ ] **B8.3** — lead & pipeline UX.
 - [ ] **B8.4** — Customer 360 & multi-property records.
 - [ ] **B8.5** — appointments & property assessment/inspection.
