@@ -11,6 +11,7 @@ from typing import Any, Dict, List
 from ..auth import (
     AuthContext,
     PERM_GLOBAL_SEARCH,
+    PERM_READ_TEAM_SALES_DATA,
     PERM_VIEW_REPORTS,
     ROLE_CUSTOMER,
 )
@@ -124,28 +125,41 @@ class AnalyticsSearchService:
         total_count += len(results["customers"])
 
         # 2. Leads
-        l_rows = conn.execute(
-            """
-            SELECT id, customer_id, source, status, property_type, urgency_level, score
+        # NEW-549: leads/opportunities need the same rep-ownership narrowing
+        # CRMService.list_leads/list_opportunities already apply (see
+        # CRMService._scoped_assignee_filter) -- an actor without
+        # PERM_READ_TEAM_SALES_DATA must only see their own assigned rows
+        # (plus unclaimed/NULL rows, same unclaimed-pool visibility rule),
+        # not every rep's records. Holders of PERM_READ_TEAM_SALES_DATA keep
+        # today's unscoped, company-wide search behavior.
+        l_query = """
+            SELECT id, customer_id, assigned_user_id, source, status, property_type, urgency_level, score
             FROM leads
-            WHERE property_type LIKE ? OR notes LIKE ? OR source LIKE ?
-            LIMIT ?;
-            """,
-            (like_pattern, like_pattern, like_pattern, limit_per_category),
-        ).fetchall()
+            WHERE (property_type LIKE ? OR notes LIKE ? OR source LIKE ?)
+        """
+        l_params: List[Any] = [like_pattern, like_pattern, like_pattern]
+        if not actor.has_permission(PERM_READ_TEAM_SALES_DATA):
+            l_query += " AND (assigned_user_id = ? OR assigned_user_id IS NULL)"
+            l_params.append(actor.user_id)
+        l_query += " LIMIT ?;"
+        l_params.append(limit_per_category)
+        l_rows = conn.execute(l_query, l_params).fetchall()
         results["leads"] = [dict(r) for r in l_rows]
         total_count += len(results["leads"])
 
         # 3. Opportunities
-        opp_rows = conn.execute(
-            """
-            SELECT id, customer_id, title, pipeline_stage, estimated_value, insurance_carrier
+        opp_query = """
+            SELECT id, customer_id, assigned_user_id, title, pipeline_stage, estimated_value, insurance_carrier
             FROM opportunities
-            WHERE title LIKE ? OR insurance_carrier LIKE ? OR notes LIKE ?
-            LIMIT ?;
-            """,
-            (like_pattern, like_pattern, like_pattern, limit_per_category),
-        ).fetchall()
+            WHERE (title LIKE ? OR insurance_carrier LIKE ? OR notes LIKE ?)
+        """
+        opp_params: List[Any] = [like_pattern, like_pattern, like_pattern]
+        if not actor.has_permission(PERM_READ_TEAM_SALES_DATA):
+            opp_query += " AND (assigned_user_id = ? OR assigned_user_id IS NULL)"
+            opp_params.append(actor.user_id)
+        opp_query += " LIMIT ?;"
+        opp_params.append(limit_per_category)
+        opp_rows = conn.execute(opp_query, opp_params).fetchall()
         results["opportunities"] = [dict(r) for r in opp_rows]
         total_count += len(results["opportunities"])
 
