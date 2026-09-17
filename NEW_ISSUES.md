@@ -18479,3 +18479,43 @@ housekeeping, same as `NEW-403`'s own cleanup.
 - **Fix direction (not designed/fixed this round):** add `.badge`/`.badge-info` definitions to `_get_common_styles()` (likely aliasing or matching the existing `.card-badge`/`.badge-*` pattern) — a global CSS change affecting every surface using this pattern, out of scope for a single-panel task.
 - **Not fixed this round** — logged per rule 8, cosmetic, not blocking B8.2b.
 - **Cross-reference:** `restoricon_core/api/web_surfaces.py` (`_get_common_styles`, `_render_sales_portal`).
+
+## Found 2026-09-17 — project-architect scoping pass for B8.3 (lead & pipeline UX), not fixed, no code written this round
+
+### [NEW-556] Confirmed, blocking B8.3's own exit criterion: no lead→opportunity conversion path exists anywhere in `CRMService`
+
+- **Status:** Confirmed (project-architect, 2026-09-17, verified via grep for `convert_lead`/`lead_to_opportunity`/any conversion helper — none found). `Opportunity.customer_id: int = 0` is a required int with no validation anywhere in `create_opportunity`, while `Lead.customer_id: Optional[int] = None` is nullable (leads routinely arrive with no customer record yet, e.g. via `submit_public_lead`). B8.3's own exit criterion ("a rep can take a lead from creation through every pipeline stage using only this UI") is unreachable today for any lead without a `customer_id` — there's no UI or service path from a bare lead into an `Opportunity`.
+- **Impact:** blocks B8.3's exit criterion as written. This is new backend service work beyond `sales_rep_portal.md`'s own "wires existing methods" framing for this phase.
+- **Fix direction, decided by coordinator 2026-09-17:** build a small new `CRMService.convert_lead_to_opportunity(lead_id, actor, opportunity_title=None)` — creates a `Customer` from the lead's available fields if `lead.customer_id` is null, then calls `create_opportunity`, both audit-logged, as one atomic service call rather than a non-atomic two-request client-side orchestration with disjoint audit entries. Matches this plan's own "smallest possible service delta" convention. Picked up as part of B8.3's implementer round.
+- **Cross-reference:** `restoricon_core/services/crm_service.py` (`create_opportunity`, `create_lead`), `restoricon_core/models.py` (`Lead.customer_id`, `Opportunity.customer_id`), `sales_rep_portal.md` §5 B8.3.
+
+### [NEW-557] Suspected, pre-existing: `CRMService.create_opportunity` has no validation on `customer_id`, which is a required `int = 0` field with no non-zero check
+
+- **Status:** Suspected (project-architect, 2026-09-17, verified via grep — no `ValueError`/`raise` on `customer_id` found anywhere in `create_opportunity`). `customer_id=0` would insert silently, an orphaned opportunity with no real customer link.
+- **Impact:** pre-existing data-integrity gap, not introduced by any B8 round. A "create opportunity manually" UI path (if B8.3 or a later phase builds one beyond the lead-conversion flow) could expose this more easily than today's programmatic-only callers.
+- **Fix direction (not designed/fixed this round):** add a `customer_id > 0` (or equivalent real-FK) validation to `create_opportunity`. Small, contained, its own round.
+- **Not fixed this round** — logged per rule 8, out of B8.3's scope.
+- **Cross-reference:** `restoricon_core/services/crm_service.py` (`create_opportunity`), `restoricon_core/models.py` (`Opportunity.customer_id`).
+
+### [NEW-558] Confirmed: an unclaimed (`assigned_user_id IS NULL`) opportunity can be dragged through pipeline stages by any narrowed actor without first claiming it
+
+- **Status:** Confirmed (project-architect, 2026-09-17, verified via `get_opportunity`'s narrowing logic at `crm_service.py:1298-1299` — it only blocks rows explicitly assigned to a *different* user; a NULL-assignee row passes through for any narrowed actor). One step past what `NEW-534`'s claim workflow closed — a rep can transition another (unclaimed) opportunity's stage without ever claiming it first.
+- **Impact:** real but narrow — no data exposure, but undermines the claim workflow's purpose (knowing who's actually working a record) if a rep can act on unclaimed pool records without claiming them.
+- **Fix direction, decided by coordinator 2026-09-17:** B8.3's kanban board requires claim-before-transition — an unclaimed card's drag/transition action is disabled client-side with a "Claim first" prompt, consistent with the claim workflow's own intent. This is a UI-layer gate on the new kanban, not a service-layer enforcement change (the underlying `transition_opportunity_stage` permission model is unchanged) — logged so the underlying looseness is visible even though this round only gates it at the point of entry B8.3 itself creates.
+- **Cross-reference:** `restoricon_core/services/crm_service.py` (`get_opportunity`, `transition_opportunity_stage`), `NEW-534`, `sales_rep_portal.md` §5 B8.3.
+
+### [NEW-559] Suspected, not currently reachable: `transition_opportunity_stage`'s audit after-image re-read uses the same permission-gated-re-read pattern `NEW-533` deliberately moved `update_lead`/`update_opportunity` away from
+
+- **Status:** Suspected (project-architect, 2026-09-17). `transition_opportunity_stage` (`crm_service.py:1540`) re-reads the post-transition row via `self.get_opportunity(opp_id, actor)` for its audit `after` image — the same permission-gated-re-read shape `update_lead`/`update_opportunity` were deliberately corrected away from. Not currently reachable as a live bug on this specific path (`assigned_user_id` doesn't change during a stage transition, and the actor already passed the permission gate earlier in the same call), so rated Suspected rather than Confirmed.
+- **Impact:** none currently. If this re-read ever returns `None` (e.g. a future change that narrows visibility mid-transition), `build_audit_details(before=_before, after=None, ...)` would produce a `changed_fields.pipeline_stage = {"old": <real>, "new": None}` row — B8.3's stage-duration analytics (this same round) is being built to explicitly detect and exclude `new: null` rows from duration math as a defensive measure against exactly this shape, per the analytics design.
+- **Fix direction (not designed/fixed this round):** align `transition_opportunity_stage`'s re-read with the `NEW-533`-corrected pattern used elsewhere, if this is ever judged worth the change. Not urgent given current unreachability.
+- **Not fixed this round** — logged per rule 8, defensive handling built into B8.3's analytics instead.
+- **Cross-reference:** `restoricon_core/services/crm_service.py` (`transition_opportunity_stage`, `update_lead`, `update_opportunity`), `NEW-533`.
+
+### [NEW-560] Suspected: `transition_opportunity_stage`'s `except Exception: pass` around `generate_cadence_tasks` silently swallows any follow-up-task-creation failure with no signal to the caller
+
+- **Status:** Suspected (project-architect, 2026-09-17, verified via direct read of `crm_service.py:1545-1548`). A bare `except Exception: pass` means a rep who transitions an opportunity's stage gets no indication if the automatic follow-up task generation failed — the stage transition itself succeeds silently either way.
+- **Impact:** low-visibility gap — a rep could believe a follow-up task was created when it wasn't, with no error surfaced anywhere (not even logged, per the bare `pass`).
+- **Fix direction (not designed/fixed this round):** at minimum log the swallowed exception; consider surfacing a non-blocking warning in the transition response so the UI could show "stage updated, but follow-up task creation failed."
+- **Not fixed this round** — logged per rule 8, out of B8.3's scope, pre-existing.
+- **Cross-reference:** `restoricon_core/services/crm_service.py` (`transition_opportunity_stage`, `generate_cadence_tasks`).
