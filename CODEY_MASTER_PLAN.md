@@ -7107,8 +7107,33 @@ this file's own don't-duplicate rule.
       not fixed: `NEW-572` (photo-upload loop lacks 401 redirect,
       disclosed scope boundary). **B8.5 is now closed in full**
       (B8.5a + B8.5b both shipped).
-- [ ] **B8.6** — estimates, Good/Better/Best packages, proposal
-      builder, contracts.
+- [x] **B8.6a** — estimate/contract rep-ownership schema + RBAC.
+      **DONE 2026-09-17, code-complete + code-reviewer APPROVED with
+      zero findings**, commit `a2c88d6`. Full detail in
+      `PROJECT_LOG.md`'s 2026-09-17 entry. Closes `NEW-548`
+      (no rep-ownership field) and `NEW-573` (`sign_contract` had no
+      re-sign guard or ownership check, IDOR-shaped). Disclosed, not
+      fixed: `NEW-575` (unintentionally strips `ROLE_PROJECT_MANAGER`'s
+      existing `NEW-192` contract-signing grant — flagged for Ish,
+      three plausible fixes, genuinely ambiguous).
+- [ ] **B8.6b** — `PackageOption` table + server-side estimate/package
+      pricing computation. Closes `NEW-574` (`create_estimate`
+      currently persists client-supplied totals with zero server-side
+      computation — money-category, mandatory reviewer gate on the
+      pricing math specifically). Also needs net-new `update_estimate`/
+      `send_estimate` (neither exists today, despite `status` already
+      having `sent`/`approved`/etc. as legal values nothing transitions
+      into). Package tier names (`good`/`better`/`best`) confirmed
+      distinct from `home-care.html`'s real published subscription
+      tiers (Basic/Plus/Complete/Estate) — no naming conflict.
+- [ ] **B8.6c** — proposal builder (recommend HTML/print-only, no PDF
+      dependency exists in `install.sh` today — a real PDF export
+      would need its own Ish decision) + contract send/track/sign UI
+      wiring onto B8.6a's now-guarded `sign_contract`. Needs net-new
+      `send_contract`/`update_contract` (neither exists today). License/
+      insurance template content pulls from the `Compliance` model, not
+      `BusinessProfile` (the spec doc's own text names the wrong
+      model — `BusinessProfile` has no insurance field at all).
 - [ ] **B8.7** — commission engine & compensation dashboards.
       **Rule-4 category** (money). **D4 ANSWERED 2026-09-16** — real
       plan read from `Sales_Rep_Contract.docx`, full numbers in
