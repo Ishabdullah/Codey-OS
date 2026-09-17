@@ -18616,6 +18616,24 @@ housekeeping, same as `NEW-403`'s own cleanup.
 - **Not fixed this round** — logged per rule 8, non-blocking, reasoning for deferring endorsed by code-reviewer as sound.
 - **Cross-reference:** `restoricon_core/api/web_surfaces.py` (`_render_sales_portal`, `handleAssessmentPhotoUpload`).
 
+## Found 2026-09-17 — project-architect scoping pass for B8.6 (estimates/packages/proposals/contracts), not fixed, no code written this round
+
+### [NEW-573] Confirmed, money-adjacent: `sign_contract` has no status guard against re-signing — a contract can be signed repeatedly, overwriting `customer_signed_at`/`customer_signature_data` each time
+
+- **Status:** Confirmed (project-architect, 2026-09-17, verified via `crm_service.py:3081-3140`). `sign_contract` unconditionally sets `status='signed'` and overwrites the signature fields regardless of the contract's current status — no idempotency check against `status == 'signed'` already. Also has zero rep-ownership check on the contract being signed (only `ROLE_CUSTOMER` self-isolation exists today) — a rep could sign any contract by id directly (IDOR-shaped), bypassing whatever list/get narrowing B8.6a builds.
+- **Impact:** real, money-adjacent. Directly relevant to B8.7 (commission engine, not yet built): a `CONTRACT_SIGNED`-triggered commission write must fire exactly once off a clean, single-transition hook — a re-signable `sign_contract` risks a double-commission write if B8.7 hooks it naively.
+- **Fix direction (not designed/fixed this round):** add an idempotency guard (reject or no-op if already `status == 'signed'`) and the same ownership-narrowing check `get_contract` gets from B8.6a's RBAC work. Recommended as part of B8.6a's scope, since it shares that round's `sign_contract`-touching work.
+- **Not fixed this round** — logged per rule 8, scoped into B8.6a.
+- **Cross-reference:** `restoricon_core/services/crm_service.py` (`sign_contract`), `sales_rep_portal.md` §5 B8.6/B8.7 (D4 commission plan).
+
+### [NEW-574] Confirmed, money-category: `create_estimate` persists client-supplied `subtotal`/`materials_cost`/`labor_cost`/`subcontractor_cost`/`markup_percent`/`total_amount` verbatim with zero server-side computation — contradicts B8.6's own spec text
+
+- **Status:** Confirmed (project-architect, 2026-09-17, verified via `crm_service.py:2851-2902` — no computation logic anywhere in the create path, all pricing fields taken directly from the client-supplied `Estimate` object). `sales_rep_portal.md`'s own B8.6 spec text says the portal should compute margin/commission previews "from server-returned numbers, never invented pricing logic duplicated from `FinanceService`" — that's currently unimplementable, because no server-computed numbers exist anywhere in the estimate path today; the client invents the totals and the server just stores them as-is.
+- **Impact:** real money-integrity gap — any client (a compromised or buggy UI, a direct API call) can submit arbitrary self-reported totals with no server-side verification against the underlying line items.
+- **Fix direction (not designed/fixed this round):** `create_estimate` needs server-side recomputation of totals from line items (or equivalent), reusing whatever `FinanceService` pricing logic already exists rather than duplicating it — scoped into B8.6b, which also needs this same computation for the new `PackageOption` per-tier pricing.
+- **Not fixed this round** — logged per rule 8, scoped into B8.6b.
+- **Cross-reference:** `restoricon_core/services/crm_service.py` (`create_estimate`), `sales_rep_portal.md` §5 B8.6.
+
 ### [NEW-567] Confirmed: `Document` has no `property_id` field anywhere (schema, model, or `list_documents` params) — blocks B8.4's "document/photo list scoped to property_id" as literally specced
 
 - **Status:** Confirmed (project-architect, 2026-09-17, verified against both `models.py`'s `Document` dataclass and `PRAGMA table_info(documents)` against the live `~/.codeyOS/restoricon.db` — only `customer_id`/`project_id` columns exist, no `property_id`).
