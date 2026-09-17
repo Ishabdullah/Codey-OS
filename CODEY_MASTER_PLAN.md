@@ -7041,7 +7041,21 @@ this file's own don't-duplicate rule.
       not fixed: `NEW-555` (undefined `.badge`/`.badge-info` CSS,
       cosmetic, pre-existing). **B8.2 is now closed in full**
       (B8.2a + B8.2b both shipped).
-- [ ] **B8.3** — lead & pipeline UX.
+- [x] **B8.3** — lead & pipeline UX. **DONE 2026-09-17, code-complete
+      + code-reviewer APPROVED (round 2, after a round-1 CHANGES-
+      REQUESTED on a live-reproduced bug: a converted lead's new
+      Customer id was never written back to the lead)**, commit
+      `fd0efd3`. Full detail in `PROJECT_LOG.md`'s 2026-09-17 entry.
+      New `CRMService.convert_lead_to_opportunity` (closes `NEW-556`,
+      a genuine blocker found during scoping — no conversion path
+      existed at all) and `get_stage_duration_analytics` (rep-scoped,
+      deliberately built in `CRMService` not `AnalyticsSearchService`
+      per the spec doc's wrong-permission-model assumption). Sales
+      portal gains a lead detail/create view and an Opportunity-only
+      kanban board. Also fixed `NEW-557` (missing `customer_id`
+      validation). Logged, not fixed: `NEW-561` (narrow
+      non-atomicity residual risk), `NEW-559`/`560` (pre-existing,
+      from scoping), `NEW-562`/`563` (suggestion-level, round 2).
 - [ ] **B8.4** — Customer 360 & multi-property records.
 - [ ] **B8.5** — appointments & property assessment/inspection.
 - [ ] **B8.6** — estimates, Good/Better/Best packages, proposal
