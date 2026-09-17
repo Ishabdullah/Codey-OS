@@ -7092,14 +7092,21 @@ this file's own don't-duplicate rule.
       self-only staff-schedule visibility; `list_staff_schedules`/
       `get_staff_schedule` gained a tiered check, unconditional for
       the narrow tier (avoids the `NEW-546` fail-open class).
-- [ ] **B8.5b** — appointment scheduling UI (sales portal) + new
-      `assessment_records` table (checklist/evidence-photo workflow,
-      resolves `NEW-567`'s deferred `Document`↔`Property` linkage via
-      `property_id` + `evidence_document_ids_json` on the new table,
-      no `Document` schema change needed). Scoped, not yet built —
-      appointment CRUD/routes already fully exist (used by B8.2a/B8.3
-      already), this phase is UI composition for scheduling plus
-      genuinely new `assessment_records` schema (rule-4).
+- [x] **B8.5b** — appointment scheduling UI + `assessment_records`
+      table. **DONE 2026-09-17, code-complete + code-reviewer
+      APPROVED (round 2, after a round-1 CHANGES-REQUESTED on a
+      live-reproduced Critical bug the round's own tests never
+      exercised)**, commit `946f231`. Full detail in `PROJECT_LOG.md`'s
+      2026-09-17 entry. New `assessment_records` table/`AssessmentService`
+      resolves `NEW-567`. Photo-upload used an invalid `document_type`
+      enum value (every real upload would 500) — fixed by reusing the
+      valid `'photo'` value + an `assessment` tag, verified via an
+      independent differential repro. Also closed `NEW-571`'s
+      "reasoned, not observed" gap (a pre-existing multipart
+      field-ordering trap, now confirmed real via live repro). Logged,
+      not fixed: `NEW-572` (photo-upload loop lacks 401 redirect,
+      disclosed scope boundary). **B8.5 is now closed in full**
+      (B8.5a + B8.5b both shipped).
 - [ ] **B8.6** — estimates, Good/Better/Best packages, proposal
       builder, contracts.
 - [ ] **B8.7** — commission engine & compensation dashboards.
