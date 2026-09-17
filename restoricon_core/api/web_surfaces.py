@@ -5304,6 +5304,14 @@ def _render_sales_portal() -> str:
         </div>
 
         <div class="erp-card">
+            <h2 style="margin-top:0;">Customers</h2>
+            <table>
+                <thead><tr><th>ID</th><th>Name</th><th>Phone</th><th>Email</th><th></th></tr></thead>
+                <tbody id="myCustomersList"><tr><td colspan="5">Loading customers...</td></tr></tbody>
+            </table>
+        </div>
+
+        <div class="erp-card">
             <h2 style="margin-top:0;">Pipeline Kanban</h2>
             <div id="kanbanBoard" class="kanban-board"><p style="color:var(--text-muted);">Loading pipeline board...</p></div>
         </div>
@@ -5405,6 +5413,16 @@ def _render_sales_portal() -> str:
         </div>
     </div>
 
+    <div id="customer360Modal" class="erp-modal-overlay">
+        <div class="erp-modal" style="max-width:900px;">
+            <div class="modal-header">
+                <h3 id="c360Title">Customer 360</h3>
+                <button class="btn-gold" style="padding:0.3rem 0.7rem;" onclick="closeCustomer360Modal()">&times;</button>
+            </div>
+            <div id="c360Body"><p style="color:var(--text-muted);">Loading...</p></div>
+        </div>
+    </div>
+
     <script>
         function escapeHtml(unsafe) {{
             if (!unsafe) return '';
@@ -5473,6 +5491,37 @@ def _render_sales_portal() -> str:
                     tbody.innerHTML = '<tr><td colspan="3" style="color:var(--text-muted)">No upcoming schedule.</td></tr>';
                 }}
             }} catch (e) {{ /* network/parse failure: schedule tbody keeps its "Loading..." placeholder, no further UI action needed */ }}
+
+            // Load Customers (B8.4a Customer 360 entry point). NOTE: unlike
+            // list_leads/list_opportunities, list_customers (crm_service.py)
+            // has NO PERM_READ_TEAM_SALES_DATA-style per-assignee narrowing --
+            // ROLE_CUSTOMER gets just itself, but every other actor holding
+            // PERM_READ_ALL_CUSTOMERS (which ROLE_SALES holds by default) sees
+            // every customer in the business, not just their own. This is
+            // pre-existing list_customers behavior, not introduced by this
+            // panel -- flagged to the coordinator as a NEW-issue candidate
+            // (out of this task's scope to change), not silently fixed here.
+            try {{
+                const res = await fetch('/api/v1/customers', {{
+                    headers: {{ 'Authorization': 'Bearer ' + token }}
+                }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                const data = await res.json();
+                const tbody = document.getElementById('myCustomersList');
+                if (res.ok && data.customers && data.customers.length > 0) {{
+                    tbody.innerHTML = data.customers.map(c =>
+                        `<tr>
+                            <td>#${{c.id}}</td>
+                            <td>${{escapeHtml((c.first_name || '') + ' ' + (c.last_name || ''))}}</td>
+                            <td>${{escapeHtml(c.phone || '')}}</td>
+                            <td>${{escapeHtml(c.email || '')}}</td>
+                            <td><button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="openCustomer360Modal(${{c.id}})">View 360</button></td>
+                        </tr>`
+                    ).join('');
+                }} else {{
+                    tbody.innerHTML = '<tr><td colspan="5" style="color:var(--text-muted)">No customers.</td></tr>';
+                }}
+            }} catch (e) {{ /* network/parse failure: customers tbody keeps its "Loading..." placeholder, no further UI action needed */ }}
 
             // Load Leads
             try {{
@@ -6011,6 +6060,270 @@ def _render_sales_portal() -> str:
                 loadDashboard();
             }} catch (e) {{
                 alert('Failed to convert lead: network error.');
+            }}
+        }}
+
+        // -----------------------------------------------------------------
+        // B8.4a: Customer 360 view. Client-side fan-out over each entity's
+        // own customer_id-filtered route (no new server-side aggregate route,
+        // per this task's scoping) -- structural reference is the lead
+        // detail modal above (openLeadDetailModal/renderLeadDetail), but
+        // re-derived for this modal's own fields, not copied verbatim.
+        // -----------------------------------------------------------------
+        let currentCustomer360Id = null;
+        let currentCustomer360Properties = [];
+        let editingPropertyId = null;
+
+        async function openCustomer360Modal(customerId) {{
+            currentCustomer360Id = customerId;
+            const overlay = document.getElementById('customer360Modal');
+            const body = document.getElementById('c360Body');
+            overlay.classList.add('active');
+            body.innerHTML = '<p style="color:var(--text-muted);">Loading customer 360 view...</p>';
+            await loadCustomer360(customerId);
+        }}
+
+        function closeCustomer360Modal() {{
+            document.getElementById('customer360Modal').classList.remove('active');
+            currentCustomer360Id = null;
+            currentCustomer360Properties = [];
+            editingPropertyId = null;
+        }}
+
+        // Each entity has its own customer_id-scoped route already (B8.1's
+        // Property routes added by this task, plus the pre-existing
+        // projects/estimates/contracts/invoices/documents/appointments/
+        // communications/tasks routes). Fetched with per-entry try/catch so
+        // one panel's failure (most notably Invoices 403ing for a plain
+        // sales rep lacking PERM_READ_FINANCIALS -- NEW-565, a flagged,
+        // not-yet-decided product question, not a bug to route around here)
+        // never blocks any other panel from rendering. Promise.allSettled
+        // (not Promise.all) is used for the same reason -- Promise.all
+        // would reject the whole batch on the first rejection.
+        async function loadCustomer360(customerId) {{
+            const token = getAuthToken();
+            const authHeaders = {{ 'Authorization': 'Bearer ' + token }};
+            const endpoints = {{
+                customer: '/api/v1/customers/' + customerId,
+                properties: '/api/v1/properties?customer_id=' + customerId,
+                projects: '/api/v1/projects?customer_id=' + customerId,
+                estimates: '/api/v1/estimates?customer_id=' + customerId,
+                contracts: '/api/v1/contracts?customer_id=' + customerId,
+                invoices: '/api/v1/invoices?customer_id=' + customerId,
+                documents: '/api/v1/documents?customer_id=' + customerId,
+                appointments: '/api/v1/appointments?customer_id=' + customerId,
+                communications: '/api/v1/communications?customer_id=' + customerId,
+                tasks: '/api/v1/crm/tasks?customer_id=' + customerId,
+            }};
+            const keys = Object.keys(endpoints);
+            const settled = await Promise.allSettled(keys.map(async (k) => {{
+                try {{
+                    const res = await fetch(endpoints[k], {{ headers: authHeaders }});
+                    if (!res.ok) {{ return {{ key: k, ok: false, status: res.status }}; }}
+                    const data = await res.json();
+                    return {{ key: k, ok: true, status: res.status, data }};
+                }} catch (e) {{
+                    return {{ key: k, ok: false, status: null }};
+                }}
+            }}));
+            const byKey = {{}};
+            settled.forEach(r => {{ if (r.status === 'fulfilled') {{ byKey[r.value.key] = r.value; }} }});
+
+            // A 401 on any panel means the token itself is bad -- that's a
+            // real auth failure, unlike a single panel's 403, so redirect
+            // exactly like every other fetch in this file does.
+            if (Object.values(byKey).some(r => r.status === 401)) {{
+                window.location.href = '/admin/login';
+                return;
+            }}
+
+            renderCustomer360(customerId, byKey);
+        }}
+
+        function c360PanelSection(title, result, emptyMsg, renderRows, headerRow) {{
+            if (!result || !result.ok) {{
+                const msg = (result && result.status === 403) ? 'No access.' : 'Failed to load.';
+                return `<div class="erp-card"><h3 style="margin-top:0;">${{title}}</h3><p style="color:var(--text-muted);">${{msg}}</p></div>`;
+            }}
+            const rows = renderRows(result.data);
+            const table = rows.length > 0
+                ? `<table>${{headerRow}}<tbody>${{rows.join('')}}</tbody></table>`
+                : `<p style="color:var(--text-muted);">${{emptyMsg}}</p>`;
+            return `<div class="erp-card"><h3 style="margin-top:0;">${{title}}</h3>${{table}}</div>`;
+        }}
+
+        function renderCustomer360(customerId, byKey) {{
+            const body = document.getElementById('c360Body');
+            const title = document.getElementById('c360Title');
+
+            if (!byKey.customer || !byKey.customer.ok) {{
+                title.textContent = 'Customer 360';
+                body.innerHTML = '<p style="color:var(--danger);">Customer not found.</p>';
+                return;
+            }}
+            const cust = byKey.customer.data.customer;
+            title.textContent = 'Customer 360 — ' + (cust.first_name || '') + ' ' + (cust.last_name || '');
+
+            currentCustomer360Properties = (byKey.properties && byKey.properties.ok && byKey.properties.data.properties) || [];
+
+            let html = '';
+            html += `<div class="erp-card">
+                <h3 style="margin-top:0;">Info</h3>
+                <div class="modal-field"><label>Name</label><div>${{escapeHtml((cust.first_name || '') + ' ' + (cust.last_name || ''))}}</div></div>
+                <div class="modal-field"><label>Company</label><div>${{escapeHtml(cust.company_name || '—')}}</div></div>
+                <div class="modal-field"><label>Phone</label><div>${{escapeHtml(cust.phone || '—')}}</div></div>
+                <div class="modal-field"><label>Email</label><div>${{escapeHtml(cust.email || '—')}}</div></div>
+                <div class="modal-field"><label>Status</label><div>${{escapeHtml(cust.status || '—')}}</div></div>
+                <div class="modal-field"><label>Service Address</label><div>${{escapeHtml(cust.service_address || '—')}}</div></div>
+            </div>`;
+
+            html += renderPropertiesPanel(byKey.properties);
+
+            html += c360PanelSection('Projects', byKey.projects, 'No projects.',
+                (d) => (d.projects || []).map(p => `<tr><td>${{escapeHtml(p.title || '')}}</td><td>${{escapeHtml(p.status || '')}}</td><td>$${{escapeHtml((p.contract_amount || 0).toLocaleString())}}</td></tr>`),
+                '<thead><tr><th>Title</th><th>Status</th><th>Contract Amount</th></tr></thead>');
+
+            html += c360PanelSection('Estimates', byKey.estimates, 'No estimates.',
+                (d) => (d.estimates || []).map(e => `<tr><td>${{escapeHtml(e.estimate_number || '')}}</td><td>${{escapeHtml(e.status || '')}}</td><td>$${{escapeHtml((e.total_amount || 0).toLocaleString())}}</td></tr>`),
+                '<thead><tr><th>Number</th><th>Status</th><th>Total</th></tr></thead>');
+
+            html += c360PanelSection('Contracts', byKey.contracts, 'No contracts.',
+                (d) => (d.contracts || []).map(c => `<tr><td>${{escapeHtml(c.contract_number || '')}}</td><td>${{escapeHtml(c.title || '')}}</td><td>${{escapeHtml(c.status || '')}}</td></tr>`),
+                '<thead><tr><th>Number</th><th>Title</th><th>Status</th></tr></thead>');
+
+            html += c360PanelSection('Invoices', byKey.invoices, 'No invoices.',
+                (d) => (d.invoices || []).map(i => `<tr><td>${{escapeHtml(i.invoice_number || '')}}</td><td>${{escapeHtml(i.status || '')}}</td><td>$${{escapeHtml((i.amount || 0).toLocaleString())}}</td><td>$${{escapeHtml((i.balance_due || 0).toLocaleString())}}</td></tr>`),
+                '<thead><tr><th>Number</th><th>Status</th><th>Amount</th><th>Balance Due</th></tr></thead>');
+
+            html += c360PanelSection('Documents', byKey.documents, 'No documents.',
+                (d) => (d.documents || []).map(doc => `<tr><td>${{escapeHtml(doc.title || '')}}</td><td>${{escapeHtml(doc.document_type || '')}}</td></tr>`),
+                '<thead><tr><th>Title</th><th>Type</th></tr></thead>');
+
+            html += c360PanelSection('Appointments', byKey.appointments, 'No appointments.',
+                (d) => (d.appointments || []).map(a => `<tr><td>${{escapeHtml(a.title || '')}}</td><td>${{escapeHtml(a.start_time || '')}}</td><td>${{escapeHtml(a.status || '')}}</td></tr>`),
+                '<thead><tr><th>Title</th><th>Start</th><th>Status</th></tr></thead>');
+
+            html += c360PanelSection('Communications', byKey.communications, 'No communications.',
+                (d) => (d.communications || []).map(m => `<tr><td>${{escapeHtml(m.channel || '')}}</td><td>${{escapeHtml(m.direction || '')}}</td><td>${{escapeHtml(m.subject || m.content || '')}}</td></tr>`),
+                '<thead><tr><th>Channel</th><th>Direction</th><th>Subject/Content</th></tr></thead>');
+
+            html += c360PanelSection('Tasks', byKey.tasks, 'No tasks.',
+                (d) => (d.tasks || []).map(t => `<tr><td>${{escapeHtml(t.title || '')}}</td><td>${{escapeHtml(t.status || '')}}</td><td>${{escapeHtml(t.due_date || '')}}</td></tr>`),
+                '<thead><tr><th>Title</th><th>Status</th><th>Due</th></tr></thead>');
+
+            body.innerHTML = html;
+        }}
+
+        // Property panel: NEW-566/NEW-567 (project-history and document/photo
+        // panels for Property) are explicitly out of scope this round --
+        // projects.property_id isn't wired into the Project service layer
+        // yet and Document has no property_id field at all, so only the
+        // Property record's own fields are shown/editable here.
+        function renderPropertiesPanel(propertiesResult) {{
+            if (!propertiesResult || !propertiesResult.ok) {{
+                const msg = (propertiesResult && propertiesResult.status === 403) ? 'No access.' : 'Failed to load.';
+                return `<div class="erp-card"><h3 style="margin-top:0;">Properties</h3><p style="color:var(--text-muted);">${{msg}}</p></div>`;
+            }}
+            const properties = propertiesResult.data.properties || [];
+            const rows = properties.map(p => `<tr>
+                <td>${{escapeHtml(p.address || '')}}</td>
+                <td>${{escapeHtml(p.property_type || '')}}</td>
+                <td>${{p.year_built || '—'}}</td>
+                <td><button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="openPropertyForm(${{p.id}})">Edit</button></td>
+            </tr>`);
+            const table = rows.length > 0
+                ? `<table><thead><tr><th>Address</th><th>Type</th><th>Year Built</th><th></th></tr></thead><tbody>${{rows.join('')}}</tbody></table>`
+                : '<p style="color:var(--text-muted);">No properties on file.</p>';
+            return `<div class="erp-card">
+                <h3 style="margin-top:0;display:flex;justify-content:space-between;align-items:center;">
+                    <span>Properties</span>
+                    <button class="btn-gold" style="padding:0.3rem 0.8rem;font-size:0.8rem;" onclick="openPropertyForm(null)">+ Add Property</button>
+                </h3>
+                ${{table}}
+                <div id="propertyFormArea"></div>
+            </div>`;
+        }}
+
+        function openPropertyForm(propertyId) {{
+            editingPropertyId = propertyId;
+            const prop = propertyId
+                ? currentCustomer360Properties.find(p => p.id === propertyId)
+                : null;
+            const v = (field, fallback) => prop && prop[field] !== undefined && prop[field] !== null ? prop[field] : (fallback === undefined ? '' : fallback);
+            const area = document.getElementById('propertyFormArea');
+            area.innerHTML = `
+                <div class="modal-field"><label>Address</label><input type="text" id="propAddress" value="${{escapeHtml(v('address'))}}"></div>
+                <div class="modal-field"><label>Parcel Number</label><input type="text" id="propParcelNumber" value="${{escapeHtml(v('parcel_number'))}}"></div>
+                <div class="modal-field"><label>Property Type</label><input type="text" id="propPropertyType" value="${{escapeHtml(v('property_type'))}}"></div>
+                <div class="modal-field"><label>Year Built</label><input type="number" id="propYearBuilt" value="${{v('year_built')}}"></div>
+                <div class="modal-field"><label>Square Footage</label><input type="number" id="propSquareFootage" value="${{v('square_footage')}}"></div>
+                <div class="modal-field"><label>Stories</label><input type="number" id="propStories" value="${{v('stories')}}"></div>
+                <div class="modal-field"><label>Roof Type</label><input type="text" id="propRoofType" value="${{escapeHtml(v('roof_type'))}}"></div>
+                <div class="modal-field"><label>Exterior Type</label><input type="text" id="propExteriorType" value="${{escapeHtml(v('exterior_type'))}}"></div>
+                <div class="modal-field"><label>Insurance Carrier</label><input type="text" id="propInsuranceCarrier" value="${{escapeHtml(v('insurance_carrier'))}}"></div>
+                <div class="modal-field"><label>Notes</label><textarea id="propNotes" rows="2">${{escapeHtml(v('notes'))}}</textarea></div>
+                <div style="display:flex;gap:0.5rem;">
+                    <button class="btn-gold" onclick="savePropertyForm()">${{propertyId ? 'Save Changes' : 'Create Property'}}</button>
+                    <button class="btn-gold" onclick="document.getElementById('propertyFormArea').innerHTML=''">Cancel</button>
+                </div>
+            `;
+        }}
+
+        // update_property (crm_service.py) rejects None values outright and
+        // enforces an explicit allow-list -- only send fields the user
+        // actually filled in (create uses the same shape; empty optional
+        // fields are simply omitted rather than sent as null/empty string).
+        async function savePropertyForm() {{
+            const token = getAuthToken();
+            const strVal = (id) => {{ const v = document.getElementById(id).value.trim(); return v === '' ? null : v; }};
+            const numVal = (id) => {{ const raw = document.getElementById(id).value; return raw === '' ? null : parseInt(raw, 10); }};
+
+            const address = strVal('propAddress');
+            const fields = {{
+                parcel_number: strVal('propParcelNumber'),
+                property_type: strVal('propPropertyType'),
+                year_built: numVal('propYearBuilt'),
+                square_footage: numVal('propSquareFootage'),
+                stories: numVal('propStories'),
+                roof_type: strVal('propRoofType'),
+                exterior_type: strVal('propExteriorType'),
+                insurance_carrier: strVal('propInsuranceCarrier'),
+                notes: strVal('propNotes'),
+            }};
+
+            try {{
+                if (editingPropertyId) {{
+                    const updates = {{}};
+                    if (address !== null) {{ updates.address = address; }}
+                    Object.keys(fields).forEach(k => {{ if (fields[k] !== null) {{ updates[k] = fields[k]; }} }});
+                    const res = await fetch('/api/v1/properties/' + editingPropertyId + '/update', {{
+                        method: 'POST',
+                        headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                        body: JSON.stringify(updates),
+                    }});
+                    const data = await res.json();
+                    if (!res.ok) {{
+                        alert(data.error || ('Failed to save property (' + res.status + ').'));
+                        return;
+                    }}
+                }} else {{
+                    const body = {{ customer_id: currentCustomer360Id, address: address || '' }};
+                    Object.keys(fields).forEach(k => {{ if (fields[k] !== null) {{ body[k] = fields[k]; }} }});
+                    const res = await fetch('/api/v1/properties', {{
+                        method: 'POST',
+                        headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                        body: JSON.stringify(body),
+                    }});
+                    const data = await res.json();
+                    if (!res.ok) {{
+                        alert(data.error || ('Failed to create property (' + res.status + ').'));
+                        return;
+                    }}
+                }}
+                editingPropertyId = null;
+                await loadCustomer360(currentCustomer360Id);
+            }} catch (e) {{
+                alert('Failed to save property: network error.');
             }}
         }}
 

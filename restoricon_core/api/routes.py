@@ -46,6 +46,7 @@ from ..models import (
     Opportunity,
     Project,
     ProjectMilestone,
+    Property,
     PurchaseOrder,
     ReviewRequest,
     ScheduleConfig,
@@ -1044,6 +1045,41 @@ class APIRouter:
                     if not opp:
                         return 404, {"Content-Type": "application/json"}, {"error": "Opportunity not found"}
                     return 200, {"Content-Type": "application/json"}, {"opportunity": opp.to_dict()}
+
+            # Properties
+            if path == "/api/v1/properties":
+                if method == "GET":
+                    cid = query_params.get("customer_id", [None])[0]
+                    properties = self.crm.list_properties(
+                        actor,
+                        customer_id=_parse_int_query_param(query_params, "customer_id", 0) if cid else None,
+                    )
+                    return 200, {"Content-Type": "application/json"}, {"properties": [p.to_dict() for p in properties]}
+                elif method == "POST":
+                    prop = Property(**json_body)
+                    created = self.crm.create_property(prop, actor)
+                    return 201, {"Content-Type": "application/json"}, {"property": created.to_dict()}
+
+            if (
+                path.startswith("/api/v1/properties/")
+                and path.endswith("/update")
+                and "/" not in path[len("/api/v1/properties/"):-len("/update")]
+                and method == "POST"
+            ):
+                property_id = _parse_int_path_segment(path[len("/api/v1/properties/"):-len("/update")], "property_id")
+                updated = self.crm.update_property(property_id, json_body, actor)
+                if not updated:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Property not found"}
+                return 200, {"Content-Type": "application/json"}, {"property": updated.to_dict()}
+
+            if path.startswith("/api/v1/properties/") and "/" not in path[len("/api/v1/properties/"):] and method == "GET":
+                sub = path[len("/api/v1/properties/"):]
+                if sub.isdigit():
+                    property_id = int(sub)
+                    prop = self.crm.get_property(property_id, actor)
+                    if not prop:
+                        return 404, {"Content-Type": "application/json"}, {"error": "Property not found"}
+                    return 200, {"Content-Type": "application/json"}, {"property": prop.to_dict()}
 
             # Projects
             if path == "/api/v1/projects":
