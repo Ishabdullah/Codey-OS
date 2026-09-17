@@ -18571,6 +18571,14 @@ housekeeping, same as `NEW-403`'s own cleanup.
 - **Not fixed this round** — logged per rule 8, B8.1 completeness gap surfaced during B8.4 scoping, not new B8.4 scope itself.
 - **Cross-reference:** `restoricon_core/models.py` (`Project`), `restoricon_core/services/crm_service.py` (`create_project`, `update_project`, `_row_to_project`), B8.1, `sales_rep_portal.md` §5 B8.1/B8.4.
 
+### [NEW-568] Confirmed, pre-existing: `list_customers` has no per-assignee/team-visibility narrowing at all, unlike `list_leads`/`list_opportunities`'s `PERM_READ_TEAM_SALES_DATA` scoping — B8.4a's new sales-portal "Customers" panel exposes every business customer to any actor holding `PERM_READ_ALL_CUSTOMERS` (which `ROLE_SALES` holds by default)
+
+- **Status:** Confirmed (implementer, 2026-09-17, found while building B8.4a's Customer 360 entry point; verified directly via `crm_service.py:249-264` — `list_customers` has exactly two branches: `ROLE_CUSTOMER` sees only itself, every other actor needs `PERM_READ_ALL_CUSTOMERS` and then sees ALL customers, no per-rep narrowing whatsoever). This is pre-existing `list_customers` behavior (B8.1-and-earlier), not introduced by B8.4a's diff — B8.4a's new "Customers" panel is simply the first sales-portal surface to expose it.
+- **Impact:** unclear severity — may be intentional (a customer isn't necessarily "owned" by one rep the way a lead/opportunity is, and multiple reps may legitimately work the same customer over time), but it's a real, deliberate-looking asymmetry against the `NEW-533` pattern that this same phase already built for leads/opportunities/commissions, worth a conscious decision rather than defaulting silently now that a rep-facing UI surfaces it directly.
+- **Fix direction (not decided/fixed this round):** if narrowing is wanted, it would need the same `PERM_READ_TEAM_SALES_DATA`-style pattern `_scoped_assignee_filter` already establishes — but `Customer` has no natural single-assignee field the way `Lead`/`Opportunity` do (a customer's assignee, if any, is closer to Project's `project_manager_id` or an opportunity's `assigned_user_id`, ambiguous which should govern). Needs a product decision on what "my customer" even means before any code changes.
+- **Not fixed this round** — logged per rule 8, out of B8.4a's scope.
+- **Cross-reference:** `restoricon_core/services/crm_service.py` (`list_customers`), `NEW-533`, `sales_rep_portal.md` §5 B8.4.
+
 ### [NEW-567] Confirmed: `Document` has no `property_id` field anywhere (schema, model, or `list_documents` params) — blocks B8.4's "document/photo list scoped to property_id" as literally specced
 
 - **Status:** Confirmed (project-architect, 2026-09-17, verified against both `models.py`'s `Document` dataclass and `PRAGMA table_info(documents)` against the live `~/.codeyOS/restoricon.db` — only `customer_id`/`project_id` columns exist, no `property_id`).
