@@ -18519,3 +18519,29 @@ housekeeping, same as `NEW-403`'s own cleanup.
 - **Fix direction (not designed/fixed this round):** at minimum log the swallowed exception; consider surfacing a non-blocking warning in the transition response so the UI could show "stage updated, but follow-up task creation failed."
 - **Not fixed this round** — logged per rule 8, out of B8.3's scope, pre-existing.
 - **Cross-reference:** `restoricon_core/services/crm_service.py` (`transition_opportunity_stage`, `generate_cadence_tasks`).
+
+## Found 2026-09-17 — code-reviewer CHANGES REQUESTED round for B8.3 (`convert_lead_to_opportunity`), fixed same round except where noted
+
+### [NEW-561] Suspected, not fixed this round: `convert_lead_to_opportunity` has no protection against sequential partial-failure-then-retry duplication
+
+- **Status:** Suspected (code-reviewer, 2026-09-17, found during CHANGES REQUESTED review of B8.3's `convert_lead_to_opportunity`). The method makes three sequential writes (create Customer if needed → create Opportunity → mark Lead converted), each its own committed unit per `NEW-311`'s accepted non-atomicity — that acceptance covers *concurrent* read-then-write races, not *sequential partial failure inside one call*. Two reachable failure points: (1) `create_customer` commits but `create_opportunity` then fails — a real case, since the two calls require different permissions (`PERM_WRITE_CUSTOMERS` vs. `PERM_WRITE_OPPORTUNITIES`/`PERM_WRITE_CRM`), not merely hypothetical; (2) `create_opportunity` commits but the final `update_lead` fails. A caller retry after either failure can create a duplicate Customer and/or duplicate Opportunity.
+- **Impact:** narrowed, not eliminated, by this same round's fix writing `customer_id` back onto the Lead in the final `update_lead` call — a retry after only failure (2) now finds `lead.customer_id` already set and skips re-creating the Customer. Failure (1) (and a partial write to Opportunity before the final `update_lead`) is still fully exposed to duplication on retry.
+- **Fix direction (not designed/fixed this round):** would need either a real multi-statement DB transaction spanning all three writes, or an idempotency key/token supplied by the caller so a retried conversion request can detect and no-op against an already-converted lead. Both out of scope for B8.3.
+- **Not fixed this round** — logged per rule 8; docstring on `convert_lead_to_opportunity` narrowed in the same round to stop overclaiming NEW-311 coverage for this failure class.
+- **Cross-reference:** `restoricon_core/services/crm_service.py` (`convert_lead_to_opportunity`), `NEW-311`, `NEW-556`.
+
+### [NEW-562] Suggestion-level, not fixed: `get_stage_duration_analytics`'s two new `except (TypeError, ValueError)` timestamp guards don't catch `AttributeError`, safe today only because `audit_log.timestamp` is schema-enforced `NOT NULL`
+
+- **Status:** Suggestion (code-reviewer, 2026-09-17, round 2 of the B8.3 CHANGES REQUESTED review). `_parse_iso(None)` would raise `AttributeError` (`None.replace(...)`), not caught by the current `except (TypeError, ValueError)`. Verified unreachable today — `restoricon_core/database.py`'s `audit_log` table declares `timestamp TEXT NOT NULL`, so a real row's `timestamp` can never be `None`.
+- **Impact:** none currently; purely defensive-consistency gap for if the schema constraint is ever relaxed.
+- **Fix direction:** widen both guards to `except (TypeError, ValueError, AttributeError)`. Cheap, not urgent.
+- **Not fixed this round** — logged per rule 8, non-blocking.
+- **Cross-reference:** `restoricon_core/services/crm_service.py` (`get_stage_duration_analytics`), `restoricon_core/database.py` (`audit_log` schema).
+
+### [NEW-563] Suggestion-level, not fixed, pre-existing: a `create` audit row with a present-but-falsy `changed_fields.pipeline_stage.new` (e.g. `None`/empty string) is bucketed as `fallback_count` ("no audit history") rather than `chain_broken_count` ("corrupt data") — same conflation `NEW-561`'s round fixed for malformed timestamps, via a different field
+
+- **Status:** Suggestion (code-reviewer, 2026-09-17, round 2 of the B8.3 review, found while verifying the timestamp fix). `get_stage_duration_analytics`'s `if start_stage:` check silently short-circuits when `changed_fields.pipeline_stage.new` is falsy — both `has_usable_chain` and `chain_broken` stay `False`, landing the opportunity in `fallback_count` alongside genuinely audit-history-free opportunities, rather than `chain_broken_count` alongside other corrupt-data cases.
+- **Impact:** minor — affects only the coverage-count breakdown's precision (corrupt vs. genuinely-absent), not the historical-average math itself (neither bucket contributes to `avg_hours_per_stage`).
+- **Fix direction:** treat a present-but-falsy `pipeline_stage.new` the same as the already-fixed malformed-timestamp case — route to `chain_broken_count`, not `fallback_count`.
+- **Not fixed this round** — logged per rule 8, non-blocking, out of B8.3's stated scope for this fix round.
+- **Cross-reference:** `restoricon_core/services/crm_service.py` (`get_stage_duration_analytics`), `NEW-561`.

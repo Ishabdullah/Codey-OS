@@ -952,6 +952,21 @@ class APIRouter:
                     return 404, {"Content-Type": "application/json"}, {"error": "Lead not found"}
                 return 200, {"Content-Type": "application/json"}, {"lead": updated.to_dict()}
 
+            if (
+                path.startswith("/api/v1/leads/")
+                and path.endswith("/convert")
+                and "/" not in path[len("/api/v1/leads/"):-len("/convert")]
+                and method == "POST"
+            ):
+                lead_id = _parse_int_path_segment(path[len("/api/v1/leads/"):-len("/convert")], "lead_id")
+                converted = self.crm.convert_lead_to_opportunity(
+                    lead_id,
+                    actor,
+                    opportunity_title=json_body.get("opportunity_title"),
+                    customer_fields=json_body.get("customer_fields"),
+                )
+                return 201, {"Content-Type": "application/json"}, {"opportunity": converted.to_dict()}
+
             if path.startswith("/api/v1/leads/") and "/" not in path[len("/api/v1/leads/"):] and method == "GET":
                 sub = path[len("/api/v1/leads/"):]
                 if sub.isdigit():
@@ -2849,6 +2864,15 @@ class APIRouter:
                     response["scope"] = "rep"
 
                 return 200, {"Content-Type": "application/json"}, response
+
+            # -------------------------------------------------------------
+            # B8.3 Part D: Stage-stuck pipeline analytics (a separate route
+            # from /api/v1/sales/dashboard, deliberately, to avoid disturbing
+            # that route's already-approved pagination/scoping logic).
+            # -------------------------------------------------------------
+            if path == "/api/v1/sales/pipeline-stuck-analytics" and method == "GET":
+                analytics = self.crm.get_stage_duration_analytics(actor)
+                return 200, {"Content-Type": "application/json"}, analytics
 
             # -------------------------------------------------------------
             # Phase B5a: Global Search & Executive Reporting Endpoints

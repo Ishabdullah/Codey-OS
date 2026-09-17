@@ -10,6 +10,7 @@ import json
 import re
 import secrets
 import sqlite3
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from ..auth import (
@@ -1228,6 +1229,16 @@ class CRMService:
         if not (actor.has_permission(PERM_WRITE_OPPORTUNITIES) or actor.has_permission(PERM_WRITE_CRM)):
             raise PermissionError("Actor lacks permission to create opportunities")
 
+        # NEW-557: Opportunity.customer_id's dataclass default is 0 (an
+        # `int` field, not Optional), which is not a real customers.id --
+        # the `opportunities.customer_id` FK has no ON DELETE behavior that
+        # tolerates it and every real caller/fixture in this codebase always
+        # supplies a real id (verified via a full-repo grep of `Opportunity(`
+        # before adding this guard). Reject the default/invalid case here
+        # rather than let it reach the FK constraint as an opaque IntegrityError.
+        if not opp.customer_id or opp.customer_id <= 0:
+            raise ValueError("Opportunity.customer_id must be a positive, existing customer id")
+
         now = utc_now_iso()
         opp.created_at = now
         opp.updated_at = now
@@ -1285,6 +1296,125 @@ class CRMService:
             details=build_audit_details(after=opp.to_dict()),
         )
         return opp
+
+    # Identity/contact fields a caller may supply to fill in a missing
+    # Customer when converting a lead (NEW-556). Deliberately a small,
+    # explicit subset of Customer's real field names -- Lead itself carries
+    # no name/phone/email/address fields at all (verified directly against
+    # models.py), so this data can only come from the caller, never be
+    # derived from the Lead record.
+    _CONVERT_CUSTOMER_FIELDS = {
+        "first_name", "last_name", "company_name", "phone", "email",
+        "mailing_address", "service_address", "customer_type",
+        "customer_source", "notes",
+    }
+
+    def convert_lead_to_opportunity(
+        self,
+        lead_id: int,
+        actor: AuthContext,
+        opportunity_title: Optional[str] = None,
+        customer_fields: Optional[Dict[str, Any]] = None,
+    ) -> Opportunity:
+        """NEW-556: the missing lead->opportunity conversion path. One
+        service-layer call, not client-side orchestration of two separate
+        API requests -- though NOT one DB transaction: create_customer/
+        create_opportunity/update_lead each own their own `with conn:`
+        block on this project's single sqlite3 connection, so nesting them
+        here commits at each inner block's exit already. "Atomic" in this
+        method's contract means "one service call, one audited unit of
+        work", not a single SQL transaction.
+
+        NEW-311's accepted scope covers *concurrent* read-then-write races
+        (two actors racing against the same row) -- that's what ruled out a
+        BEGIN IMMEDIATE change for this class of multi-write service call,
+        and it's what this method is safe against by the same reasoning.
+        It does NOT cover *sequential partial failure inside one call*:
+        e.g. create_customer commits but create_opportunity then fails
+        (different required permissions -- PERM_WRITE_CUSTOMERS vs.
+        PERM_WRITE_OPPORTUNITIES/PERM_WRITE_CRM -- so this is reachable,
+        not hypothetical), or create_opportunity commits but the final
+        update_lead fails. A caller retry after such a failure can
+        re-create a duplicate Customer and/or duplicate Opportunity. The
+        customer_id writeback onto the Lead below narrows this for the
+        "only the final update_lead failed" case (a retry finds
+        lead.customer_id already set and skips re-creating the Customer),
+        but does not eliminate the duplication risk for the other failure
+        points. See NEW-561 (logged, not fixed this round -- would need
+        either a real multi-statement transaction or an idempotency key).
+
+        Field mapping is deliberately conservative: only `estimated_value`
+        and `notes` have a verified real overlap between Lead and
+        Opportunity (read directly off both dataclasses in models.py).
+        Lead.property_type/project_scope/urgency_level/insurance_status
+        have no corresponding Opportunity column -- they are folded into
+        the derived title/notes instead of guessed onto a same-named-looking
+        but differently-vocabularied column (e.g. Opportunity.
+        insurance_claim_status uses a different value vocabulary than
+        Lead.insurance_status, per score_lead's own insurance keyword list).
+        """
+        lead = self.get_lead(lead_id, actor)
+        if not lead:
+            raise ValueError(f"Lead {lead_id} not found")
+
+        if lead.status == "converted":
+            raise ValueError(f"Lead {lead_id} has already been converted")
+
+        customer_id = lead.customer_id
+        if not customer_id:
+            if not customer_fields:
+                raise ValueError(
+                    f"Lead {lead_id} has no linked customer; supply customer_fields "
+                    "(e.g. first_name/last_name/phone/email) to convert"
+                )
+            unknown = set(customer_fields) - self._CONVERT_CUSTOMER_FIELDS
+            if unknown:
+                raise ValueError(f"Unknown field(s) for customer_fields: {sorted(unknown)}")
+            new_customer = Customer(
+                first_name=str(customer_fields.get("first_name", "")).strip(),
+                last_name=str(customer_fields.get("last_name", "")).strip(),
+                company_name=customer_fields.get("company_name"),
+                phone=customer_fields.get("phone"),
+                email=customer_fields.get("email"),
+                mailing_address=customer_fields.get("mailing_address"),
+                service_address=customer_fields.get("service_address"),
+                customer_type=customer_fields.get("customer_type", "residential"),
+                customer_source=customer_fields.get("customer_source", lead.source),
+                notes=customer_fields.get("notes"),
+            )
+            if not new_customer.first_name and not new_customer.last_name and not new_customer.company_name:
+                raise ValueError(
+                    "customer_fields must include at least a first_name, last_name, or company_name"
+                )
+            created_customer = self.create_customer(new_customer, actor)
+            customer_id = created_customer.id
+
+        title = opportunity_title or f"{(lead.property_type or 'Project').capitalize()} - Lead #{lead.id} ({lead.source})"
+
+        opp = Opportunity(
+            customer_id=customer_id,
+            title=title,
+            estimated_value=lead.estimated_value or 0.0,
+            pipeline_stage=PipelineStage.NEW_LEAD,
+            # Carry the lead's assignment over: create_opportunity/
+            # list_opportunities apply no auto-assignment of their own, so a
+            # rep converting their own claimed lead would otherwise land on
+            # an unclaimed opportunity and immediately hit Part C's own
+            # "Claim first" gate on a deal they just created.
+            assigned_user_id=lead.assigned_user_id,
+            notes=lead.notes,
+        )
+        created_opp = self.create_opportunity(opp, actor)
+
+        # Mark the lead converted so Convert can't be fired twice into two
+        # separate opportunities off one lead. update_lead already
+        # audit-logs this write; a genuine re-conversion attempt after this
+        # point is rejected by the status == "converted" guard above.
+        self.update_lead(
+            lead_id, {"status": "converted", "customer_id": customer_id}, actor
+        )
+
+        return created_opp
 
     def get_opportunity(self, opp_id: int, actor: AuthContext) -> Optional[Opportunity]:
         if not (actor.has_permission(PERM_READ_OPPORTUNITIES) or actor.has_permission(PERM_READ_CRM)):
@@ -1647,6 +1777,200 @@ class CRMService:
             "lost_deals": lost_count,
             "lost_value": round(lost_value, 2),
             "win_rate": win_rate,
+        }
+
+    def get_stage_duration_analytics(self, actor: AuthContext) -> Dict[str, Any]:
+        """B8.3 Part D: rep-facing "where are MY leads stuck" analytics.
+
+        Deliberately built here, not in AnalyticsSearchService per
+        sales_rep_portal.md's literal wording -- that service's
+        get_executive_dashboard does unscoped company-wide SQL gated only
+        behind PERM_VIEW_REPORTS, the wrong permission model for a
+        rep-facing panel. Gated the same way get_pipeline_summary already
+        is, scoped via list_opportunities(actor)'s existing narrowing.
+
+        Reads audit_log directly for 'create'/'stage_transition' rows on
+        each visible opportunity. build_audit_details (audit_service.py)
+        does NOT store raw before/after dicts -- it diffs them into
+        {"changed_fields": {field: {"old":..., "new":...}}}. The create
+        row's build_audit_details(after=opp.to_dict()) call (before=None)
+        still emits changed_fields (every key comes out as {"old": None,
+        "new": <value>} because the before-diff against the empty {} b
+        dict is unconditional in that branch), so
+        changed_fields.pipeline_stage.new is present on create rows too --
+        verified directly against build_audit_details's source before
+        relying on it here.
+        """
+        if not (actor.has_permission(PERM_READ_OPPORTUNITIES) or actor.has_permission(PERM_READ_CRM)):
+            raise PermissionError("Actor lacks permission to view sales pipeline stage analytics")
+
+        visible_opps = self.list_opportunities(actor)
+        opp_by_id: Dict[int, Opportunity] = {o.id: o for o in visible_opps if o.id is not None}
+        ids = list(opp_by_id.keys())
+
+        conn = self.db.get_connection()
+        rows_by_id: Dict[int, List[Any]] = {}
+        # Chunked to respect SQLite's bound-variable limit (default 999) --
+        # each opportunity id appears in exactly one chunk's query, so its
+        # audit rows (already ORDER BY entity_id, timestamp ASC within that
+        # single query) never need re-merging across chunks.
+        _CHUNK = 400
+        for start in range(0, len(ids), _CHUNK):
+            batch = ids[start:start + _CHUNK]
+            if not batch:
+                continue
+            placeholders = ",".join("?" for _ in batch)
+            query = (
+                "SELECT entity_id, action, timestamp, details_json FROM audit_log "
+                "WHERE entity_type = 'opportunity' AND action IN ('create', 'stage_transition') "
+                f"AND entity_id IN ({placeholders}) ORDER BY entity_id, timestamp ASC;"
+            )
+            for row in conn.execute(query, batch).fetchall():
+                rows_by_id.setdefault(row["entity_id"], []).append(row)
+
+        def _parse_iso(ts: str) -> datetime:
+            return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+
+        def _safe_details(row: Any) -> Dict[str, Any]:
+            # A malformed details_json would be a pre-existing data
+            # integrity issue in an already-committed audit row (this
+            # method only reads audit_log, it never writes it) -- treating
+            # it as "no usable diff for this row" and falling through to
+            # this opportunity's fallback/broken-chain bucket is safe: it
+            # can only ever make this analytics report more conservative
+            # (fewer full-chain averages), never mask a live mutation.
+            try:
+                return json.loads(row["details_json"]) if row["details_json"] else {}
+            except (TypeError, ValueError):
+                return {}
+
+        stage_hours: Dict[str, List[float]] = {}
+        full_chain_count = 0
+        fallback_count = 0
+        chain_broken_count = 0
+        currently_stuck: List[Dict[str, Any]] = []
+        now = datetime.now(timezone.utc)
+        terminal_stages = (PipelineStage.WON, PipelineStage.LOST)
+
+        for opp_id, opp in opp_by_id.items():
+            rows = rows_by_id.get(opp_id, [])
+            create_row = next((r for r in rows if r["action"] == "create"), None)
+
+            prev_stage: Optional[str] = None
+            prev_ts: Optional[datetime] = None
+            has_usable_chain = False
+            chain_broken = False
+
+            # Entries accumulated for THIS opportunity's walk only -- held
+            # back from stage_hours until the whole chain is confirmed
+            # unbroken, so a mid-walk break retracts any hours already
+            # computed for this opportunity rather than letting them
+            # silently feed avg_hours_per_stage from a partial/untrusted
+            # chain (see the "also" fix in the NEW-561 review round).
+            pending_stage_hours: List[Any] = []
+
+            if create_row is not None:
+                start_stage = (
+                    _safe_details(create_row).get("changed_fields", {}).get("pipeline_stage", {}).get("new")
+                )
+                if start_stage:
+                    try:
+                        prev_stage = start_stage
+                        prev_ts = _parse_iso(create_row["timestamp"])
+                        has_usable_chain = True
+                    except (TypeError, ValueError):
+                        # A malformed timestamp on the create row is corrupt
+                        # audit data, not absent audit data -- put it in the
+                        # same bucket/handling as the changed_fields.
+                        # pipeline_stage.new is None broken-chain case below
+                        # (chain_broken_count), not lumped in with
+                        # legitimately no-audit-history migrated records
+                        # (fallback_count).
+                        chain_broken = True
+
+            if has_usable_chain:
+                for row in rows:
+                    if row["action"] != "stage_transition":
+                        continue
+                    changed = _safe_details(row).get("changed_fields", {}).get("pipeline_stage", {})
+                    new_stage = changed.get("new")
+                    if new_stage is None:
+                        # NEW-559 (logged, not fixed here): a broken link in
+                        # this chain. Exclude this row from duration math and
+                        # stop walking further -- continuity past this point
+                        # can't be trusted -- and count the opportunity in
+                        # the chain-broken bucket instead of silently
+                        # skipping it or crashing.
+                        chain_broken = True
+                        break
+                    try:
+                        row_ts = _parse_iso(row["timestamp"])
+                    except (TypeError, ValueError):
+                        # Same reasoning as the create-row parse above and
+                        # the stage_entered_at/created_at fallback parse
+                        # below: a malformed stored timestamp is
+                        # pre-existing data, not something this read-only
+                        # report should raise on. Treat as a broken chain
+                        # from this point rather than crashing the endpoint.
+                        chain_broken = True
+                        break
+                    if prev_stage is not None and prev_ts is not None:
+                        hours = (row_ts - prev_ts).total_seconds() / 3600.0
+                        if hours >= 0:
+                            pending_stage_hours.append((prev_stage, hours))
+                    prev_stage = new_stage
+                    prev_ts = row_ts
+
+            if has_usable_chain and not chain_broken:
+                for stage, hours in pending_stage_hours:
+                    stage_hours.setdefault(stage, []).append(hours)
+                full_chain_count += 1
+                if opp.pipeline_stage not in terminal_stages and prev_ts is not None:
+                    hours_in_stage = (now - prev_ts).total_seconds() / 3600.0
+                    currently_stuck.append({
+                        "opportunity_id": opp_id,
+                        "stage": opp.pipeline_stage,
+                        "hours_in_stage": round(max(hours_in_stage, 0.0), 2),
+                    })
+            else:
+                if chain_broken:
+                    chain_broken_count += 1
+                else:
+                    fallback_count += 1
+                # No usable chain (e.g. migrate_aigentik.py-imported
+                # opportunities with no audit history at all) or a broken
+                # one: fall back to stage_entered_at/created_at for a
+                # "currently stuck" figure only, never a historical average.
+                fallback_ts_raw = opp.stage_entered_at or opp.created_at
+                if opp.pipeline_stage not in terminal_stages and fallback_ts_raw:
+                    try:
+                        fallback_ts = _parse_iso(fallback_ts_raw)
+                    except (TypeError, ValueError):
+                        # Same reasoning as _safe_details above: an
+                        # unparseable stored timestamp is a pre-existing
+                        # data issue, not something this read-only report
+                        # can or should repair -- just omit this
+                        # opportunity from currently_stuck rather than
+                        # raising out of an analytics endpoint.
+                        fallback_ts = None
+                    if fallback_ts is not None:
+                        hours_in_stage = (now - fallback_ts).total_seconds() / 3600.0
+                        currently_stuck.append({
+                            "opportunity_id": opp_id,
+                            "stage": opp.pipeline_stage,
+                            "hours_in_stage": round(max(hours_in_stage, 0.0), 2),
+                        })
+
+        avg_hours_per_stage = {
+            stage: round(sum(vals) / len(vals), 2) for stage, vals in stage_hours.items() if vals
+        }
+
+        return {
+            "avg_hours_per_stage": avg_hours_per_stage,
+            "opportunities_with_full_chain": full_chain_count,
+            "opportunities_using_fallback": fallback_count + chain_broken_count,
+            "opportunities_chain_broken": chain_broken_count,
+            "currently_stuck": sorted(currently_stuck, key=lambda x: x["hours_in_stage"], reverse=True),
         }
 
     # ==========================================

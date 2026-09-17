@@ -5226,6 +5226,24 @@ def _render_sales_portal() -> str:
         table {{ width: 100%; border-collapse: collapse; }}
         th, td {{ padding: 0.75rem; text-align: left; border-bottom: 1px solid var(--border-light); }}
         th {{ color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }}
+        /* B8.3: lead detail / lead create modals -- same erp-modal-overlay /
+           erp-modal / modal-header pattern already established in
+           render_admin_surface's <style> block, duplicated here because
+           each surface in this file ships its own self-contained <style>. */
+        .erp-modal-overlay {{ position: fixed; inset: 0; background: rgba(10, 25, 47, 0.85); display: none; align-items: center; justify-content: center; z-index: 3000; padding: 1.5rem; }}
+        .erp-modal-overlay.active {{ display: flex; }}
+        .erp-modal {{ background: white; border-radius: 12px; width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto; padding: 1.75rem; box-shadow: 0 25px 50px rgba(0,0,0,0.5); }}
+        .modal-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; }}
+        .modal-header h3 {{ margin: 0; font-size: 1.15rem; }}
+        .modal-field {{ margin-bottom: 0.85rem; }}
+        .modal-field label {{ display: block; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.25rem; }}
+        .modal-field input, .modal-field select, .modal-field textarea {{ width: 100%; padding: 0.5rem; border: 1px solid var(--border-light); border-radius: 6px; font-size: 0.9rem; box-sizing: border-box; }}
+        /* B8.3: kanban board -- one column per PipelineStage.STAGE_ORDER stage. */
+        .kanban-board {{ display: flex; gap: 0.85rem; overflow-x: auto; padding-bottom: 0.5rem; }}
+        .kanban-col {{ flex: 0 0 230px; background: #f4f5f7; border-radius: 8px; padding: 0.65rem; }}
+        .kanban-col h4 {{ margin: 0 0 0.6rem 0; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }}
+        .kanban-card {{ background: white; border-radius: 6px; padding: 0.6rem; margin-bottom: 0.6rem; box-shadow: 0 1px 3px rgba(0,0,0,0.12); font-size: 0.82rem; }}
+        .kanban-card select {{ width: 100%; margin-top: 0.4rem; font-size: 0.78rem; padding: 0.25rem; }}
     </style>
 </head>
 <body>
@@ -5267,7 +5285,10 @@ def _render_sales_portal() -> str:
         </div>
 
         <div class="erp-card">
-            <h2 style="margin-top:0;">My Leads <span id="newLeadsBadge" class="card-badge badge-gold" style="display:none;"></span></h2>
+            <h2 style="margin-top:0;display:flex;justify-content:space-between;align-items:center;">
+                <span>My Leads <span id="newLeadsBadge" class="card-badge badge-gold" style="display:none;"></span></span>
+                <button class="btn-gold" style="padding:0.4rem 0.9rem;font-size:0.8rem;" onclick="openCreateLeadModal()">+ New Lead</button>
+            </h2>
             <table>
                 <thead><tr><th>ID</th><th>Customer</th><th>Status</th><th>Assigned Rep</th></tr></thead>
                 <tbody id="myLeadsList"><tr><td colspan="4">Loading leads...</td></tr></tbody>
@@ -5279,6 +5300,25 @@ def _render_sales_portal() -> str:
             <table>
                 <thead><tr><th>ID</th><th>Title</th><th>Stage</th><th>Assigned Rep</th></tr></thead>
                 <tbody id="myOpportunitiesList"><tr><td colspan="4">Loading opportunities...</td></tr></tbody>
+            </table>
+        </div>
+
+        <div class="erp-card">
+            <h2 style="margin-top:0;">Pipeline Kanban</h2>
+            <div id="kanbanBoard" class="kanban-board"><p style="color:var(--text-muted);">Loading pipeline board...</p></div>
+        </div>
+
+        <div class="erp-card">
+            <h2 style="margin-top:0;">Where Deals Get Stuck</h2>
+            <table>
+                <thead><tr><th>Stage</th><th>Avg Hours In Stage</th></tr></thead>
+                <tbody id="stageAnalyticsList"><tr><td colspan="2">Loading stage analytics...</td></tr></tbody>
+            </table>
+            <p id="stageAnalyticsCoverage" style="margin:0.75rem 0 0 0; font-size:0.85rem; color:var(--text-muted);"></p>
+            <h3 style="margin:1rem 0 0.5rem 0; font-size:0.95rem; color:var(--text-muted);">Currently Stuck</h3>
+            <table>
+                <thead><tr><th>Opportunity</th><th>Stage</th><th>Hours In Stage</th></tr></thead>
+                <tbody id="currentlyStuckList"><tr><td colspan="3">Loading...</td></tr></tbody>
             </table>
         </div>
 
@@ -5310,6 +5350,58 @@ def _render_sales_portal() -> str:
         <div class="erp-card" id="teamSummaryCard" style="display:none;">
             <h2 style="margin-top:0;">Team Snapshot</h2>
             <div id="teamSummaryStrip" style="display:flex; flex-wrap:wrap; gap:1.5rem;"></div>
+        </div>
+    </div>
+
+    <div id="leadDetailModal" class="erp-modal-overlay">
+        <div class="erp-modal">
+            <div class="modal-header">
+                <h3>Lead Detail</h3>
+                <button class="btn-gold" style="padding:0.3rem 0.7rem;" onclick="closeLeadDetailModal()">&times;</button>
+            </div>
+            <div id="leadDetailBody"><p style="color:var(--text-muted);">Loading...</p></div>
+        </div>
+    </div>
+
+    <div id="createLeadModal" class="erp-modal-overlay">
+        <div class="erp-modal">
+            <div class="modal-header">
+                <h3>New Lead</h3>
+                <button class="btn-gold" style="padding:0.3rem 0.7rem;" onclick="closeCreateLeadModal()">&times;</button>
+            </div>
+            <div class="modal-field">
+                <label>Source</label>
+                <input type="text" id="newLeadSource" value="manual_entry">
+            </div>
+            <div class="modal-field">
+                <label>Customer ID (leave blank if unknown)</label>
+                <input type="number" id="newLeadCustomerId">
+            </div>
+            <div class="modal-field">
+                <label>Property Type</label>
+                <input type="text" id="newLeadPropertyType" placeholder="residential, commercial...">
+            </div>
+            <div class="modal-field">
+                <label>Project Scope</label>
+                <input type="text" id="newLeadProjectScope">
+            </div>
+            <div class="modal-field">
+                <label>Urgency Level</label>
+                <input type="text" id="newLeadUrgencyLevel" placeholder="emergency, high, medium, low...">
+            </div>
+            <div class="modal-field">
+                <label>Insurance Status</label>
+                <input type="text" id="newLeadInsuranceStatus" placeholder="claim_filed, self_pay, none...">
+            </div>
+            <div class="modal-field">
+                <label>Estimated Value</label>
+                <input type="number" id="newLeadEstimatedValue" step="0.01">
+            </div>
+            <div class="modal-field">
+                <label>Notes</label>
+                <textarea id="newLeadNotes" rows="3"></textarea>
+            </div>
+            <button class="btn-gold" onclick="submitCreateLead()">Create Lead</button>
         </div>
     </div>
 
@@ -5393,7 +5485,7 @@ def _render_sales_portal() -> str:
                 if (res.ok && data.leads && data.leads.length > 0) {{
                     tbody.innerHTML = data.leads.map(l =>
                         `<tr>
-                            <td>#${{l.id}}</td>
+                            <td><a href="#" onclick="openLeadDetailModal(${{l.id}}); return false;">#${{l.id}}</a></td>
                             <td>${{l.customer_id ? 'Cust #' + l.customer_id : '—'}}</td>
                             <td><span class="badge badge-info">${{escapeHtml(l.status)}}</span></td>
                             <td>${{l.assigned_user_id ? escapeHtml(String(l.assigned_user_id)) : 'Unclaimed <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="claimLead(' + l.id + ')">Claim</button>'}}</td>
@@ -5425,6 +5517,16 @@ def _render_sales_portal() -> str:
                     tbody.innerHTML = '<tr><td colspan="4" style="color:var(--text-muted)">No opportunities.</td></tr>';
                 }}
             }} catch (e) {{ /* network/parse failure: opportunities tbody keeps its "Loading..." placeholder, no further UI action needed */ }}
+
+            // Load Kanban board (B8.3, Part C)
+            try {{
+                await loadKanban(token);
+            }} catch (e) {{ /* network/parse failure: kanban board keeps its "Loading..." placeholder, no further UI action needed */ }}
+
+            // Load stage-stuck analytics (B8.3, Part D)
+            try {{
+                await loadStageAnalytics(token);
+            }} catch (e) {{ /* network/parse failure: analytics panel keeps its "Loading..." placeholder, no further UI action needed */ }}
 
             // Load Command Center Dashboard (B8.2b) -- Appointments, Follow-ups,
             // Pipeline, Commissions, and (manager-only) Team panels, plus the
@@ -5641,6 +5743,318 @@ def _render_sales_portal() -> str:
                 loadDashboard();
             }} catch (e) {{
                 alert('Failed to claim opportunity: network error.');
+            }}
+        }}
+
+        // -----------------------------------------------------------------
+        // B8.3 Part C: Pipeline Kanban board. Opportunity-only -- Lead.status
+        // is a separate, different enum and is never rendered as a kanban
+        // column here.
+        // -----------------------------------------------------------------
+        const KANBAN_STAGES = ['new_lead', 'contacted', 'appointment_set', 'estimate_scheduled', 'estimate_sent', 'proposal_sent', 'negotiation', 'won', 'lost'];
+        const KANBAN_STAGE_LABELS = {{
+            new_lead: 'New Lead', contacted: 'Contacted', appointment_set: 'Appointment Set',
+            estimate_scheduled: 'Estimate Scheduled', estimate_sent: 'Estimate Sent',
+            proposal_sent: 'Proposal Sent', negotiation: 'Negotiation', won: 'Won', lost: 'Lost',
+        }};
+
+        async function loadKanban(token) {{
+            const res = await fetch('/api/v1/opportunities', {{
+                headers: {{ 'Authorization': 'Bearer ' + token }}
+            }});
+            if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+            if (!res.ok) return;
+            const data = await res.json();
+            const opps = data.opportunities || [];
+            const byStage = {{}};
+            KANBAN_STAGES.forEach(s => {{ byStage[s] = []; }});
+            opps.forEach(o => {{
+                const st = KANBAN_STAGES.includes(o.pipeline_stage) ? o.pipeline_stage : 'new_lead';
+                byStage[st].push(o);
+            }});
+
+            const board = document.getElementById('kanbanBoard');
+            board.innerHTML = KANBAN_STAGES.map(stage => {{
+                const cards = byStage[stage].map(o => renderKanbanCard(o, stage)).join('');
+                return `<div class="kanban-col">
+                    <h4>${{escapeHtml(KANBAN_STAGE_LABELS[stage])}} (${{byStage[stage].length}})</h4>
+                    ${{cards || '<p style="color:var(--text-muted);font-size:0.78rem;">No deals.</p>'}}
+                </div>`;
+            }}).join('');
+        }}
+
+        function renderKanbanCard(o, stage) {{
+            const otherStages = KANBAN_STAGES.filter(s => s !== stage);
+            const isClaimed = !!o.assigned_user_id;
+            const actionHtml = isClaimed
+                ? `<select onchange="handleStageChange(this, ${{o.id}})">
+                        <option value="">Move to...</option>
+                        ${{otherStages.map(s => `<option value="${{s}}">${{escapeHtml(KANBAN_STAGE_LABELS[s])}}</option>`).join('')}}
+                   </select>`
+                : `<button class="btn-gold" style="padding:0.2rem 0.5rem;font-size:0.72rem;" onclick="claimOpportunity(${{o.id}})">Claim first</button>`;
+            return `<div class="kanban-card">
+                <strong>#${{o.id}} ${{escapeHtml(o.title)}}</strong><br>
+                $${{escapeHtml((o.estimated_value || 0).toLocaleString())}}
+                ${{actionHtml}}
+            </div>`;
+        }}
+
+        // Claim-before-transition (NEW-558): renderKanbanCard only renders the
+        // "Move to..." select for already-claimed opportunities, so an
+        // unclaimed card's transition action is always the Claim-first button
+        // above -- this is a client-side UI gate only; the server's existing
+        // permission model is unchanged.
+        async function handleStageChange(selectEl, id) {{
+            const newStage = selectEl.value;
+            if (!newStage) return;
+            const token = getAuthToken();
+            const body = {{ stage: newStage }};
+            if (newStage === 'lost') {{
+                const reason = prompt('A reason is required to mark this deal Lost:');
+                if (!reason || !reason.trim()) {{ selectEl.value = ''; return; }}
+                body.lost_reason = reason.trim();
+            }}
+            try {{
+                const res = await fetch('/api/v1/opportunities/' + id + '/transition', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify(body),
+                }});
+                if (!res.ok) {{
+                    const data = await res.json();
+                    alert(data.error || ('Failed to move opportunity (' + res.status + ').'));
+                }}
+            }} catch (e) {{
+                alert('Failed to move opportunity: network error.');
+            }}
+            loadKanban(token);
+        }}
+
+        // -----------------------------------------------------------------
+        // B8.3 Part D: Stage-stuck analytics panel.
+        // -----------------------------------------------------------------
+        async function loadStageAnalytics(token) {{
+            const res = await fetch('/api/v1/sales/pipeline-stuck-analytics', {{
+                headers: {{ 'Authorization': 'Bearer ' + token }}
+            }});
+            if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+            const stageList = document.getElementById('stageAnalyticsList');
+            const coverage = document.getElementById('stageAnalyticsCoverage');
+            const stuckList = document.getElementById('currentlyStuckList');
+            if (!res.ok) {{
+                stageList.innerHTML = '<tr><td colspan="2" style="color:var(--danger)">Unable to load stage analytics.</td></tr>';
+                stuckList.innerHTML = '<tr><td colspan="3" style="color:var(--danger)">Unable to load.</td></tr>';
+                return;
+            }}
+            const data = await res.json();
+            const avg = data.avg_hours_per_stage || {{}};
+            const stages = Object.keys(avg);
+            stageList.innerHTML = stages.length > 0
+                ? stages.map(st => `<tr><td>${{escapeHtml(st)}}</td><td>${{(avg[st] || 0).toFixed(1)}}</td></tr>`).join('')
+                : '<tr><td colspan="2" style="color:var(--text-muted)">No stage-duration data yet.</td></tr>';
+            coverage.textContent = 'Full audit chain: ' + (data.opportunities_with_full_chain || 0) +
+                ' | Fallback (no/partial chain): ' + (data.opportunities_using_fallback || 0);
+            const stuck = data.currently_stuck || [];
+            stuckList.innerHTML = stuck.length > 0
+                ? stuck.map(s => `<tr><td>#${{s.opportunity_id}}</td><td>${{escapeHtml(s.stage)}}</td><td>${{(s.hours_in_stage || 0).toFixed(1)}}</td></tr>`).join('')
+                : '<tr><td colspan="3" style="color:var(--text-muted)">Nothing currently stuck.</td></tr>';
+        }}
+
+        // -----------------------------------------------------------------
+        // B8.3 Part B: Lead detail modal.
+        // -----------------------------------------------------------------
+        let currentLeadDetail = null;
+
+        async function openLeadDetailModal(id) {{
+            const overlay = document.getElementById('leadDetailModal');
+            const body = document.getElementById('leadDetailBody');
+            overlay.classList.add('active');
+            body.innerHTML = '<p style="color:var(--text-muted);">Loading...</p>';
+            const token = getAuthToken();
+            try {{
+                const res = await fetch('/api/v1/leads/' + id, {{
+                    headers: {{ 'Authorization': 'Bearer ' + token }}
+                }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                if (!res.ok) {{
+                    body.innerHTML = '<p style="color:var(--danger);">Lead not found.</p>';
+                    return;
+                }}
+                const data = await res.json();
+                currentLeadDetail = data.lead;
+                renderLeadDetail(currentLeadDetail);
+            }} catch (e) {{
+                body.innerHTML = '<p style="color:var(--danger);">Failed to load lead: network error.</p>';
+            }}
+        }}
+
+        function closeLeadDetailModal() {{
+            document.getElementById('leadDetailModal').classList.remove('active');
+            currentLeadDetail = null;
+        }}
+
+        function renderLeadDetail(l) {{
+            const body = document.getElementById('leadDetailBody');
+            const claimBtn = l.assigned_user_id
+                ? `<span class="badge badge-info">Assigned: ${{escapeHtml(String(l.assigned_user_id))}}</span>`
+                : `<button class="btn-gold" style="padding:0.3rem 0.7rem;" onclick="claimLead(${{l.id}})">Claim</button>`;
+            body.innerHTML = `
+                <div class="modal-field"><label>ID</label><div>#${{l.id}}</div></div>
+                <div class="modal-field"><label>Customer</label><div>${{l.customer_id ? 'Cust #' + l.customer_id : 'None linked'}}</div></div>
+                <div class="modal-field"><label>Assigned</label><div>${{claimBtn}}</div></div>
+                <div class="modal-field"><label>Status</label><input type="text" id="leadEditStatus" value="${{escapeHtml(l.status || '')}}"></div>
+                <div class="modal-field"><label>Source</label><div>${{escapeHtml(l.source || '')}}</div></div>
+                <div class="modal-field"><label>Score</label><div>${{l.score}} <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="scoreLeadFromModal(${{l.id}})">Score</button></div></div>
+                <div class="modal-field"><label>Property Type</label><input type="text" id="leadEditPropertyType" value="${{escapeHtml(l.property_type || '')}}"></div>
+                <div class="modal-field"><label>Project Scope</label><input type="text" id="leadEditProjectScope" value="${{escapeHtml(l.project_scope || '')}}"></div>
+                <div class="modal-field"><label>Urgency Level</label><input type="text" id="leadEditUrgencyLevel" value="${{escapeHtml(l.urgency_level || '')}}"></div>
+                <div class="modal-field"><label>Insurance Status</label><input type="text" id="leadEditInsuranceStatus" value="${{escapeHtml(l.insurance_status || '')}}"></div>
+                <div class="modal-field"><label>Estimated Value</label><input type="number" id="leadEditEstimatedValue" step="0.01" value="${{l.estimated_value || 0}}"></div>
+                <div class="modal-field"><label>First Contact</label><div>${{l.first_contact_at ? escapeHtml(l.first_contact_at) : '—'}}</div></div>
+                <div class="modal-field"><label>Last Contact</label><div>${{l.last_contact_at ? escapeHtml(l.last_contact_at) : '—'}}</div></div>
+                <div class="modal-field"><label>Next Follow-up</label><div>${{l.next_followup_at ? escapeHtml(l.next_followup_at) : '—'}}</div></div>
+                <div class="modal-field"><label>Notes</label><textarea id="leadEditNotes" rows="3">${{escapeHtml(l.notes || '')}}</textarea></div>
+                <div class="modal-field"><label>Lost Reason</label><div>${{l.lost_reason ? escapeHtml(l.lost_reason) : '—'}}</div></div>
+                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:1rem;">
+                    <button class="btn-gold" onclick="saveLeadEdit(${{l.id}})">Save Changes</button>
+                    <button class="btn-gold" onclick="convertLeadAction(${{l.id}})">Convert to Opportunity</button>
+                </div>
+            `;
+        }}
+
+        async function scoreLeadFromModal(id) {{
+            const token = getAuthToken();
+            try {{
+                const res = await fetch('/api/v1/leads/' + id + '/score', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{}}),
+                }});
+                if (!res.ok) {{
+                    const data = await res.json();
+                    alert(data.error || ('Failed to score lead (' + res.status + ').'));
+                    return;
+                }}
+                openLeadDetailModal(id);
+            }} catch (e) {{
+                alert('Failed to score lead: network error.');
+            }}
+        }}
+
+        // update_lead's real allowed_fields set (crm_service.py) is a
+        // superset of what this modal exposes as editable inputs -- only
+        // send the fields this form actually offers, matching the values
+        // currently rendered in renderLeadDetail above.
+        async function saveLeadEdit(id) {{
+            const token = getAuthToken();
+            const updates = {{
+                status: document.getElementById('leadEditStatus').value,
+                property_type: document.getElementById('leadEditPropertyType').value,
+                project_scope: document.getElementById('leadEditProjectScope').value,
+                urgency_level: document.getElementById('leadEditUrgencyLevel').value,
+                insurance_status: document.getElementById('leadEditInsuranceStatus').value,
+                estimated_value: parseFloat(document.getElementById('leadEditEstimatedValue').value) || 0,
+                notes: document.getElementById('leadEditNotes').value,
+            }};
+            try {{
+                const res = await fetch('/api/v1/leads/' + id + '/update', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify(updates),
+                }});
+                if (!res.ok) {{
+                    const data = await res.json();
+                    alert(data.error || ('Failed to save lead (' + res.status + ').'));
+                    return;
+                }}
+                openLeadDetailModal(id);
+                loadDashboard();
+            }} catch (e) {{
+                alert('Failed to save lead: network error.');
+            }}
+        }}
+
+        // Convert-to-opportunity (B8.3 Part A, NEW-556). If the lead has no
+        // linked customer, the service call requires customer_fields --
+        // prompt for the minimum identity fields inline (this portal has no
+        // richer form-builder convention for a rarely-hit sub-case) rather
+        // than failing silently.
+        async function convertLeadAction(id) {{
+            const token = getAuthToken();
+            const body = {{}};
+            if (currentLeadDetail && !currentLeadDetail.customer_id) {{
+                const firstName = prompt('This lead has no linked customer. Customer first name:');
+                if (firstName === null) return;
+                const lastName = prompt('Customer last name:') || '';
+                const phone = prompt('Customer phone (optional):') || '';
+                const email = prompt('Customer email (optional):') || '';
+                body.customer_fields = {{
+                    first_name: firstName,
+                    last_name: lastName,
+                    phone: phone || null,
+                    email: email || null,
+                }};
+            }}
+            try {{
+                const res = await fetch('/api/v1/leads/' + id + '/convert', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify(body),
+                }});
+                const data = await res.json();
+                if (!res.ok) {{
+                    alert(data.error || ('Failed to convert lead (' + res.status + ').'));
+                    return;
+                }}
+                alert('Converted to opportunity #' + data.opportunity.id);
+                closeLeadDetailModal();
+                loadDashboard();
+            }} catch (e) {{
+                alert('Failed to convert lead: network error.');
+            }}
+        }}
+
+        // -----------------------------------------------------------------
+        // B8.3 Part B: Lead create form. POST /api/v1/leads constructs
+        // Lead(**json_body) directly (routes.py) -- only real Lead dataclass
+        // field names may be sent, or the route 400s on an unexpected kwarg.
+        // -----------------------------------------------------------------
+        function openCreateLeadModal() {{
+            document.getElementById('createLeadModal').classList.add('active');
+        }}
+
+        function closeCreateLeadModal() {{
+            document.getElementById('createLeadModal').classList.remove('active');
+        }}
+
+        async function submitCreateLead() {{
+            const token = getAuthToken();
+            const custIdRaw = document.getElementById('newLeadCustomerId').value;
+            const body = {{
+                source: document.getElementById('newLeadSource').value || 'manual_entry',
+                property_type: document.getElementById('newLeadPropertyType').value || null,
+                project_scope: document.getElementById('newLeadProjectScope').value || null,
+                urgency_level: document.getElementById('newLeadUrgencyLevel').value || null,
+                insurance_status: document.getElementById('newLeadInsuranceStatus').value || null,
+                estimated_value: parseFloat(document.getElementById('newLeadEstimatedValue').value) || 0,
+                notes: document.getElementById('newLeadNotes').value || null,
+            }};
+            if (custIdRaw) {{ body.customer_id = parseInt(custIdRaw, 10); }}
+            try {{
+                const res = await fetch('/api/v1/leads', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify(body),
+                }});
+                const data = await res.json();
+                if (!res.ok) {{
+                    alert(data.error || ('Failed to create lead (' + res.status + ').'));
+                    return;
+                }}
+                closeCreateLeadModal();
+                loadDashboard();
+            }} catch (e) {{
+                alert('Failed to create lead: network error.');
             }}
         }}
 
