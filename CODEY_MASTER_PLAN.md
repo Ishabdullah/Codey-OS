@@ -7068,16 +7068,20 @@ this file's own don't-duplicate rule.
       blocks the rest. Found, flagged for Ish, not decided: `NEW-565`
       (`ROLE_SALES` can't read invoices at all). Found, logged, not
       fixed: `NEW-568` (`list_customers` has no per-rep scoping).
-- [ ] **B8.4b** — Property↔Project/Document linkage (project-history
-      and document/photo panels on the Property detail view). Blocked
-      on `NEW-566` (`projects.property_id` DB column exists from B8.1
-      but is unwired at the model/service layer — needs a `Project`
-      dataclass field + `create_project`/`update_project`/
-      `_row_to_project` wiring, no new migration needed) and `NEW-567`
-      (`Document` has no `property_id` at all — scoping's
-      recommendation is NOT to add one; B8.5's planned
-      `AssessmentRecord` is the intended mechanism for pre-project
-      property photos instead).
+- [x] **B8.4b** — `projects.property_id` wiring + Property
+      project-history panel. **DONE 2026-09-17, code-complete +
+      code-reviewer APPROVED** (pre-fix bug independently reproduced,
+      role-scoping independently live-tested under `ROLE_TECHNICIAN`
+      not just the test suite's admin coverage), commit `6cdda2a`.
+      Full detail in `PROJECT_LOG.md`'s 2026-09-17 entry. Closes
+      `NEW-566`. A real bug (`create_project` with a bad `property_id`
+      raised an uncaught 500 instead of a clean 400) was found and
+      fixed mid-round. `Document`/`NEW-567` deliberately stays out of
+      scope, deferred to B8.5's `AssessmentRecord`. Logged, not
+      fixed: `NEW-569` (pre-existing `project_manager_id` bool-as-int
+      gotcha, unrelated, found while verifying this round's own
+      claim), `NEW-570` (minor UI staleness edge case). **B8.4 is now
+      closed in full** (B8.4a + B8.4b both shipped).
 - [ ] **B8.5** — appointments & property assessment/inspection.
 - [ ] **B8.6** — estimates, Good/Better/Best packages, proposal
       builder, contracts.
