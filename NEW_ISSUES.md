@@ -18545,3 +18545,36 @@ housekeeping, same as `NEW-403`'s own cleanup.
 - **Fix direction:** treat a present-but-falsy `pipeline_stage.new` the same as the already-fixed malformed-timestamp case — route to `chain_broken_count`, not `fallback_count`.
 - **Not fixed this round** — logged per rule 8, non-blocking, out of B8.3's stated scope for this fix round.
 - **Cross-reference:** `restoricon_core/services/crm_service.py` (`get_stage_duration_analytics`), `NEW-561`.
+
+## Found 2026-09-17 — project-architect scoping pass for B8.4 (Customer 360 & multi-property records), not fixed, no code written this round
+
+### [NEW-564] Confirmed: `Property` has full `CRMService` CRUD from B8.1 but zero HTTP route exposure — `sales_rep_portal.md`'s "no new backend surface" framing for B8.4 is wrong
+
+- **Status:** Confirmed (project-architect, 2026-09-17, verified via grep of `restoricon_core/api/routes.py` — zero `properties` routes exist). `create_property`/`get_property`/`list_properties`/`update_property` are fully built and unit-tested from B8.1 (schema round) but were never exposed over HTTP. B8.4 must add this route surface as new work, not pure UI composition.
+- **Impact:** none currently (no caller has ever been able to reach these methods via the API) — this is a scope correction for B8.4's task spec, not a live bug.
+- **Fix direction:** add `GET /api/v1/properties?customer_id=`, `GET /api/v1/properties/<id>`, `POST /api/v1/properties`, `POST /api/v1/properties/<id>/update` — picked up as part of B8.4a.
+- **Cross-reference:** `restoricon_core/services/crm_service.py` (Property CRUD, B8.1), `restoricon_core/api/routes.py`, `sales_rep_portal.md` §5 B8.4.
+
+### [NEW-565] Confirmed: `ROLE_SALES` holds neither `PERM_READ_FINANCIALS` nor `PERM_READ_OWN_FINANCIALS` — any sales rep's call to `list_invoices`/`get_invoice` raises `PermissionError`, so B8.4's Customer 360 view cannot show invoice data to a plain sales rep
+
+- **Status:** Confirmed (project-architect, 2026-09-17, verified via `auth.py`'s `ROLE_SALES` permission set and `list_invoices`/`get_invoice`'s gates in `crm_service.py:3154/3173`). `PERM_READ_FINANCIALS` is admin/manager-only by default; `PERM_READ_OWN_FINANCIALS` is customer-portal-only. B8.4's exit criterion ("shows every record type... with no gap") is not achievable for a `sales`-role actor as written, absent a permission grant.
+- **Impact:** real functional gap for the Customer 360 view's invoices panel — not a security issue (under-permissioned, not over-permissioned), but blocks a stated deliverable for the primary user of this portal.
+- **Fix direction:** B8.4a's implementation gracefully degrades this one panel (403 → "no access" rendering, not a hardcoded role check — respects the existing per-user `custom_permissions_json` override pattern). **Whether `ROLE_SALES` should be granted `PERM_READ_FINANCIALS` by default is a product decision, flagged for Ish, not decided this round.** Verified narrow in scope if granted: `PERM_READ_FINANCIALS` gates nothing besides `list_invoices`/`get_invoice` in `crm_service.py` — no cost/margin fields beyond `amount`/`balance_due`/`payments`/`status`. Relevant context: D4's commission plan text references "sold, booked, and paid," suggesting reps may need payment-status visibility regardless.
+- **Not fixed this round** — awaiting Ish's decision; if granted, this is its own rule-4 (RBAC) round with mandatory code-reviewer pass, not folded into B8.4a.
+- **Cross-reference:** `restoricon_core/auth.py` (`ROLE_SALES`, `PERM_READ_FINANCIALS`), `restoricon_core/services/crm_service.py` (`list_invoices`, `get_invoice`), `sales_rep_portal.md` §4 D4, §5 B8.4.
+
+### [NEW-566] Confirmed: `projects.property_id` exists as a real DB column (from B8.1's migration) but is completely unwired at the model/service layer — a dead column blocking B8.4's "property → project history" requirement
+
+- **Status:** Confirmed (project-architect, 2026-09-17, verified three ways: `Project` dataclass in `models.py` has no `property_id` field; `create_project`/`update_project`/`_row_to_project` in `crm_service.py` never reference it; the column exists and is queryable via `PRAGMA table_info(projects)` against a real `DatabaseManager()` instantiation). The DB column B8.1 added currently has no code path reading or writing it.
+- **Impact:** blocks B8.4's Property-detail "project history" panel as specced — a Property record has no way to find its associated Projects today, even though the FK column exists at the schema level.
+- **Fix direction (not fixed this round):** add `property_id: Optional[int] = None` to the `Project` dataclass and wire it through `create_project`/`update_project`'s allow-list/`_row_to_project` — model/service-layer wiring only, no new migration needed (the column already exists). Split out as **B8.4b**, blocking "property → project history" until done.
+- **Not fixed this round** — logged per rule 8, B8.1 completeness gap surfaced during B8.4 scoping, not new B8.4 scope itself.
+- **Cross-reference:** `restoricon_core/models.py` (`Project`), `restoricon_core/services/crm_service.py` (`create_project`, `update_project`, `_row_to_project`), B8.1, `sales_rep_portal.md` §5 B8.1/B8.4.
+
+### [NEW-567] Confirmed: `Document` has no `property_id` field anywhere (schema, model, or `list_documents` params) — blocks B8.4's "document/photo list scoped to property_id" as literally specced
+
+- **Status:** Confirmed (project-architect, 2026-09-17, verified against both `models.py`'s `Document` dataclass and `PRAGMA table_info(documents)` against the live `~/.codeyOS/restoricon.db` — only `customer_id`/`project_id` columns exist, no `property_id`).
+- **Impact:** a property's document/photo list cannot be queried directly; the only path today is `property → project_id → documents`, which misses any document/photo attached to a property before a project exists (e.g. a pre-project assessment photo) — exactly the case `NEW-556`'s scoping and B8.5's planned `AssessmentRecord`/`evidence_document_ids_json` design already anticipate.
+- **Fix direction, recommended by scoping (not yet decided/built):** do NOT add a `Document.property_id` schema delta — B8.5's `AssessmentRecord` is the actual mechanism this plan already designed for pre-project property photos; a second, redundant `Document.property_id` path would likely conflict with it later. Accept the `property → project → documents` path as B8.4b's scope for now, revisit only if B8.5's design proves insufficient.
+- **Not fixed this round** — split into B8.4b along with `NEW-566`, decision on B8.5's sufficiency deferred to that phase's own scoping.
+- **Cross-reference:** `restoricon_core/models.py` (`Document`), `restoricon_core/database.py` (`documents` table), `sales_rep_portal.md` §5 B8.4/B8.5.
