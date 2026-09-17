@@ -28,10 +28,12 @@ _AUDITABLE_USER_FIELDS = frozenset({
 })
 
 # NEW-314: Contract diff domain -- excludes customer_signature_data / content.
+# B8.6a: assigned_user_id added (NEW-548) -- same rationale as
+# _AUDITABLE_APPOINTMENT_FIELDS' inclusion of appointments.assigned_user_id.
 _AUDITABLE_CONTRACT_FIELDS = frozenset({
     "id", "contract_number", "customer_id", "project_id", "estimate_id",
     "title", "template_name", "status", "customer_signed_at", "version",
-    "created_at", "updated_at",
+    "assigned_user_id", "created_at", "updated_at",
 })
 
 # NEW-314: Invoice diff domain -- excludes payments.

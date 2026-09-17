@@ -2855,6 +2855,12 @@ class CRMService:
         now = utc_now_iso()
         estimate.created_at = now
         estimate.updated_at = now
+        # B8.6a / NEW-548: force server-side ownership, ignoring/overwriting
+        # any assigned_user_id a client JSON body set -- routes.py builds
+        # `Estimate(**json_body)` directly from client input, so this is the
+        # only place that can be trusted. Same fail-open shape NEW-546 was
+        # closed for.
+        estimate.assigned_user_id = actor.user_id
         line_items_json = json.dumps(estimate.line_items)
 
         conn = self.db.get_connection()
@@ -2865,8 +2871,9 @@ class CRMService:
                     estimate_number, customer_id, project_id, line_items_json,
                     subtotal, materials_cost, labor_cost, subcontractor_cost,
                     markup_percent, tax_amount, discount_amount, total_amount,
-                    status, expiration_date, version, notes, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                    status, expiration_date, version, notes, assigned_user_id,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
                 (
                     estimate.estimate_number,
@@ -2885,6 +2892,7 @@ class CRMService:
                     estimate.expiration_date,
                     estimate.version,
                     estimate.notes,
+                    estimate.assigned_user_id,
                     now,
                     now,
                 ),
@@ -2925,6 +2933,7 @@ class CRMService:
             expiration_date=row["expiration_date"] if "expiration_date" in keys else None,
             version=row["version"] if "version" in keys else 1,
             notes=row["notes"] if "notes" in keys and not is_customer else None,
+            assigned_user_id=row["assigned_user_id"] if "assigned_user_id" in keys else None,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -2941,7 +2950,20 @@ class CRMService:
         if actor.role == ROLE_CUSTOMER and (not actor.customer_id or actor.customer_id != row["customer_id"]):
             raise PermissionError("Customer cannot access another customer's estimate")
 
-        return self._row_to_estimate(row, actor.role)
+        estimate = self._row_to_estimate(row, actor.role)
+        if actor.role != ROLE_CUSTOMER and not actor.has_permission(PERM_READ_TEAM_SALES_DATA):
+            # B8.6a / NEW-548: rep-ownership narrowing, same not-found (not
+            # PermissionError) shape as get_lead/get_opportunity. Deliberately
+            # no unclaimed-pool (assigned_user_id IS NULL) carve-out here,
+            # unlike leads/opportunities/tasks -- an estimate always has an
+            # author at creation (create_estimate forces assigned_user_id
+            # server-side), so there's no "unclaimed estimate" concept to
+            # preserve visibility for. A pre-B8.6a migrated row (NULL
+            # assigned_user_id) is therefore correctly invisible to a
+            # narrowed actor, not a gap to "fix" with an IS NULL clause.
+            if estimate.assigned_user_id != actor.user_id:
+                return None
+        return estimate
 
     def list_estimates(
         self,
@@ -2966,6 +2988,18 @@ class CRMService:
             query += " AND project_id = ?"
             params.append(project_id)
 
+        # B8.6a / NEW-548: rep-ownership narrowing via PERM_READ_TEAM_SALES_DATA
+        # (same mechanism as list_leads/list_opportunities/list_tasks), not
+        # PERM_READ_OWN_ESTIMATES -- that permission is ROLE_CUSTOMER-only
+        # "own record" access and is a different thing, already handled by
+        # the customer_id scoping above. Deliberately NO unclaimed-pool
+        # (assigned_user_id IS NULL) clause -- see get_estimate's comment.
+        if actor.role != ROLE_CUSTOMER:
+            effective_uid = self._scoped_assignee_filter(actor, None)
+            if effective_uid is not None:
+                query += " AND assigned_user_id = ?"
+                params.append(effective_uid)
+
         query += " ORDER BY id DESC;"
         rows = conn.execute(query, params).fetchall()
         return [self._row_to_estimate(r, actor.role) for r in rows]
@@ -2981,6 +3015,12 @@ class CRMService:
         now = utc_now_iso()
         contract.created_at = now
         contract.updated_at = now
+        # B8.6a / NEW-548: force server-side ownership, ignoring/overwriting
+        # any assigned_user_id a client JSON body set -- routes.py builds
+        # `Contract(**json_body)` directly from client input, so this is the
+        # only place that can be trusted. Same fail-open shape NEW-546 was
+        # closed for.
+        contract.assigned_user_id = actor.user_id
 
         conn = self.db.get_connection()
         with conn:
@@ -2988,8 +3028,9 @@ class CRMService:
                 """
                 INSERT INTO contracts (
                     contract_number, customer_id, project_id, estimate_id,
-                    title, template_name, content, status, version, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                    title, template_name, content, status, version,
+                    assigned_user_id, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
                 (
                     contract.contract_number,
@@ -3001,6 +3042,7 @@ class CRMService:
                     contract.content,
                     contract.status,
                     contract.version,
+                    contract.assigned_user_id,
                     now,
                     now,
                 ),
@@ -3033,6 +3075,7 @@ class CRMService:
             customer_signed_at=row["customer_signed_at"] if "customer_signed_at" in keys else None,
             customer_signature_data=row["customer_signature_data"] if "customer_signature_data" in keys else None,
             version=row["version"] if "version" in keys else 1,
+            assigned_user_id=row["assigned_user_id"] if "assigned_user_id" in keys else None,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -3049,7 +3092,15 @@ class CRMService:
         if actor.role == ROLE_CUSTOMER and (not actor.customer_id or actor.customer_id != row["customer_id"]):
             raise PermissionError("Customer cannot access another customer's contract")
 
-        return self._row_to_contract(row)
+        contract = self._row_to_contract(row)
+        if actor.role != ROLE_CUSTOMER and not actor.has_permission(PERM_READ_TEAM_SALES_DATA):
+            # B8.6a / NEW-548: rep-ownership narrowing, same not-found (not
+            # PermissionError) shape as get_lead/get_opportunity. See
+            # get_estimate's comment for why there's deliberately no
+            # unclaimed-pool (assigned_user_id IS NULL) carve-out.
+            if contract.assigned_user_id != actor.user_id:
+                return None
+        return contract
 
     def list_contracts(
         self,
@@ -3074,6 +3125,18 @@ class CRMService:
             query += " AND project_id = ?"
             params.append(project_id)
 
+        # B8.6a / NEW-548: rep-ownership narrowing via PERM_READ_TEAM_SALES_DATA
+        # (same mechanism as list_leads/list_opportunities/list_tasks), not
+        # PERM_READ_OWN_CONTRACTS -- that permission is ROLE_CUSTOMER-only
+        # "own record" access and is a different thing, already handled by
+        # the customer_id scoping above. Deliberately NO unclaimed-pool
+        # (assigned_user_id IS NULL) clause -- see get_contract's comment.
+        if actor.role != ROLE_CUSTOMER:
+            effective_uid = self._scoped_assignee_filter(actor, None)
+            if effective_uid is not None:
+                query += " AND assigned_user_id = ?"
+                params.append(effective_uid)
+
         query += " ORDER BY id DESC;"
         rows = conn.execute(query, params).fetchall()
         return [self._row_to_contract(r) for r in rows]
@@ -3095,10 +3158,38 @@ class CRMService:
 
         _before = self._row_to_contract(row).to_dict()
 
+        # Authorization (customer isolation / rep-ownership narrowing) is
+        # checked BEFORE the idempotency guard below, deliberately: an actor
+        # who isn't allowed to touch this contract at all must get the same
+        # PermissionError/not-found signal regardless of the contract's
+        # current status, not a 400 "already signed" that leaks the
+        # contract's state to someone unauthorized to act on it (e.g. a
+        # different customer re-attempting a sign on an already-signed
+        # contract must still see a permission/not-found failure, not an
+        # idempotency one -- see test_customer_portal_isolation_and_masking).
+        #
         # Customer isolation
         if actor.role == ROLE_CUSTOMER:
             if not actor.customer_id or actor.customer_id != row["customer_id"]:
                 raise PermissionError("Customer cannot sign another customer's contract")
+        elif not actor.has_permission(PERM_READ_TEAM_SALES_DATA):
+            # NEW-573: rep-ownership narrowing, same gate as get_contract --
+            # a rep without team-wide visibility must not be able to sign a
+            # contract assigned to a different rep just by knowing its id,
+            # bypassing whatever narrowing get_contract applies.
+            contract_owner = row["assigned_user_id"] if "assigned_user_id" in row.keys() else None
+            if contract_owner != actor.user_id:
+                raise PermissionError("Actor cannot sign a contract assigned to another user")
+
+        # NEW-573: idempotency guard. Reject signing a contract that's
+        # already signed instead of silently overwriting
+        # customer_signed_at/customer_signature_data on every call -- an
+        # unconditional re-sign here would let this fire indefinitely, and
+        # B8.7 (commission engine, future work) needs one clean
+        # CONTRACT_SIGNED transition to hook off of, not a re-signable one
+        # that could double-fire or misfire it.
+        if row["status"] == "signed":
+            raise ValueError(f"Contract {contract_id} is already signed")
 
         now = utc_now_iso()
         with conn:
@@ -3127,6 +3218,7 @@ class CRMService:
             customer_signed_at=now,
             customer_signature_data=signature_data,
             version=row["version"],
+            assigned_user_id=row["assigned_user_id"] if "assigned_user_id" in row.keys() else None,
             created_at=row["created_at"],
             updated_at=now,
         )

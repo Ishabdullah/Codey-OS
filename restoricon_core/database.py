@@ -256,6 +256,14 @@ CREATE TABLE IF NOT EXISTS estimates (
     expiration_date TEXT,
     version INTEGER NOT NULL DEFAULT 1,
     notes TEXT,
+    -- assigned_user_id: the rep who owns this estimate (defaults to the
+    -- creating actor server-side, see CRMService.create_estimate). Bare
+    -- INTEGER, no FK -- matches the appointments.assigned_user_id
+    -- precedent (NEW-487/488): SQLite's ALTER TABLE ADD COLUMN (used in
+    -- _migrate_schema for existing DB files) can't attach a FK, so the
+    -- fresh-DB CREATE TABLE path deliberately stays FK-less too, to keep
+    -- both paths identical.
+    assigned_user_id INTEGER,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
@@ -276,6 +284,10 @@ CREATE TABLE IF NOT EXISTS contracts (
     customer_signed_at TEXT,
     customer_signature_data TEXT,
     version INTEGER NOT NULL DEFAULT 1,
+    -- assigned_user_id: the rep who owns this contract (defaults to the
+    -- creating actor server-side, see CRMService.create_contract). Bare
+    -- INTEGER, no FK -- same rationale as estimates.assigned_user_id above.
+    assigned_user_id INTEGER,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT,
@@ -1249,6 +1261,8 @@ class DatabaseManager:
             ("appointments", "assigned_user_id", "ALTER TABLE appointments ADD COLUMN assigned_user_id INTEGER;"),
             ("subcontractors", "user_id", "ALTER TABLE subcontractors ADD COLUMN user_id INTEGER;"),
             ("projects", "property_id", "ALTER TABLE projects ADD COLUMN property_id INTEGER;"),
+            ("estimates", "assigned_user_id", "ALTER TABLE estimates ADD COLUMN assigned_user_id INTEGER;"),
+            ("contracts", "assigned_user_id", "ALTER TABLE contracts ADD COLUMN assigned_user_id INTEGER;"),
         )
         with conn:
             for table, column, ddl in migrations:

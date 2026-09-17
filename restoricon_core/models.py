@@ -529,6 +529,7 @@ class Estimate:
     expiration_date: Optional[str] = None
     version: int = 1
     notes: Optional[str] = None
+    assigned_user_id: Optional[int] = None  # FK-less ref to users (who's assigned)
     created_at: str = field(default_factory=utc_now_iso)
     updated_at: str = field(default_factory=utc_now_iso)
 
@@ -550,6 +551,7 @@ class Contract:
     customer_signed_at: Optional[str] = None
     customer_signature_data: Optional[str] = None
     version: int = 1
+    assigned_user_id: Optional[int] = None  # FK-less ref to users (who's assigned)
     created_at: str = field(default_factory=utc_now_iso)
     updated_at: str = field(default_factory=utc_now_iso)
 
