@@ -18471,3 +18471,11 @@ housekeeping, same as `NEW-403`'s own cleanup.
 - **Fix direction:** not designed — would likely be addressed by lengthening the interval, caching the `get_executive_dashboard` aggregate server-side, or moving to genuine push (the design already scoped and deliberately not built per D3's resolution, `docs/realtime_push_design.md`) if this becomes a real problem.
 - **Not fixed this round** — logged per rule 8, flagged for attention before B8.3, not blocking B8.2b.
 - **Cross-reference:** `restoricon_core/api/web_surfaces.py` (`_render_sales_portal`, D3's `setInterval`), `restoricon_core/api/routes.py` (`/api/v1/sales/dashboard`), `docs/realtime_push_design.md`.
+
+### [NEW-555] Confirmed, low severity: `.badge`/`.badge-info` CSS classes are referenced throughout `restoricon_core/api/web_surfaces.py`'s rendered HTML but never defined in `_get_common_styles()`
+
+- **Status:** Confirmed (implementer, 2026-09-17, B8.2b round, found via full-file grep — not suspected). `.badge` and `.badge-info` appear in pre-existing rendered rows (schedule/leads/opportunities, predating B8.2b) and were reused for consistency in B8.2b's new Appointments panel rows, but `_get_common_styles()` only defines `.card-badge`, `.badge-gold`, `.badge-blue`, `.badge-slate` — `.badge`/`.badge-info` render as unstyled/browser-default spans wherever used.
+- **Impact:** cosmetic only — no functional or data-exposure issue, just a missing style rule making certain status badges render plain instead of styled.
+- **Fix direction (not designed/fixed this round):** add `.badge`/`.badge-info` definitions to `_get_common_styles()` (likely aliasing or matching the existing `.card-badge`/`.badge-*` pattern) — a global CSS change affecting every surface using this pattern, out of scope for a single-panel task.
+- **Not fixed this round** — logged per rule 8, cosmetic, not blocking B8.2b.
+- **Cross-reference:** `restoricon_core/api/web_surfaces.py` (`_get_common_styles`, `_render_sales_portal`).
