@@ -6074,6 +6074,26 @@ def _render_sales_portal() -> str:
         let currentCustomer360Properties = [];
         let editingPropertyId = null;
         let currentPropertyHistoryId = null;
+        // B8.5b: appointment scheduling UI + assessment records (sales_rep_portal.md
+        // §5 B8.5, request §6/§7). currentAppointmentDetailId/currentPropertyAssessmentsId
+        // mirror the toggle-tracking pattern already used above for
+        // currentPropertyHistoryId; assessmentFormScope carries which
+        // entity (kind/id -- exactly one of appointment/property) launched
+        // the open create-assessment form. This is launch-context only --
+        // it does not constrain the form's *submitted* body, which can and
+        // does send both property_id and appointment_id together (see
+        // submitAssessmentForm's comment on the propVal/apptVal selects).
+        let currentAppointmentDetailId = null;
+        let currentPropertyAssessmentsId = null;
+        let assessmentFormScope = null;
+        let assessmentChecklistRowCount = 0;
+        let currentCustomer360Appointments = [];
+        // Photo uploads collected for the currently-open assessment create
+        // form: [{{id, title}}, ...] of already-uploaded Document ids (the
+        // upload itself happens immediately on file selection, mirroring
+        // there being no separate "attach" step in the B6.5 doc-store flow
+        // this reuses -- the form only ever sends ids it already has).
+        let assessmentFormEvidenceDocs = [];
 
         async function openCustomer360Modal(customerId) {{
             currentCustomer360Id = customerId;
@@ -6090,6 +6110,11 @@ def _render_sales_portal() -> str:
             currentCustomer360Properties = [];
             editingPropertyId = null;
             currentPropertyHistoryId = null;
+            currentPropertyAssessmentsId = null;
+            assessmentFormScope = null;
+            currentAppointmentDetailId = null;
+            currentCustomer360Appointments = [];
+            assessmentFormEvidenceDocs = [];
         }}
 
         // Each entity has its own customer_id-scoped route already (B8.1's
@@ -6201,9 +6226,7 @@ def _render_sales_portal() -> str:
                 (d) => (d.documents || []).map(doc => `<tr><td>${{escapeHtml(doc.title || '')}}</td><td>${{escapeHtml(doc.document_type || '')}}</td></tr>`),
                 '<thead><tr><th>Title</th><th>Type</th></tr></thead>');
 
-            html += c360PanelSection('Appointments', byKey.appointments, 'No appointments.',
-                (d) => (d.appointments || []).map(a => `<tr><td>${{escapeHtml(a.title || '')}}</td><td>${{escapeHtml(a.start_time || '')}}</td><td>${{escapeHtml(a.status || '')}}</td></tr>`),
-                '<thead><tr><th>Title</th><th>Start</th><th>Status</th></tr></thead>');
+            html += renderAppointmentsPanel(byKey.appointments);
 
             html += c360PanelSection('Communications', byKey.communications, 'No communications.',
                 (d) => (d.communications || []).map(m => `<tr><td>${{escapeHtml(m.channel || '')}}</td><td>${{escapeHtml(m.direction || '')}}</td><td>${{escapeHtml(m.subject || m.content || '')}}</td></tr>`),
@@ -6231,6 +6254,8 @@ def _render_sales_portal() -> str:
             // on the same property's History button hit the toggle-closed
             // branch and silently no-op instead of reloading it.
             currentPropertyHistoryId = null;
+            currentPropertyAssessmentsId = null;
+            assessmentFormScope = null;
             if (!propertiesResult || !propertiesResult.ok) {{
                 const msg = (propertiesResult && propertiesResult.status === 403) ? 'No access.' : 'Failed to load.';
                 return `<div class="erp-card"><h3 style="margin-top:0;">Properties</h3><p style="color:var(--text-muted);">${{msg}}</p></div>`;
@@ -6243,6 +6268,7 @@ def _render_sales_portal() -> str:
                 <td>
                     <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="openPropertyForm(${{p.id}})">Edit</button>
                     <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="togglePropertyHistory(${{p.id}})">History</button>
+                    <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="togglePropertyAssessments(${{p.id}})">Assessments</button>
                 </td>
             </tr>`);
             const table = rows.length > 0
@@ -6256,6 +6282,7 @@ def _render_sales_portal() -> str:
                 ${{table}}
                 <div id="propertyFormArea"></div>
                 <div id="propertyHistoryArea"></div>
+                <div id="propertyAssessmentsArea"></div>
             </div>`;
         }}
 
@@ -6296,6 +6323,368 @@ def _render_sales_portal() -> str:
                 area.innerHTML = `<div class="erp-card"><h3 style="margin-top:0;">Project History</h3>${{table}}</div>`;
             }} catch (e) {{
                 area.innerHTML = '<p style="color:var(--text-muted);">Failed to load: network error.</p>';
+            }}
+        }}
+
+        // -----------------------------------------------------------------
+        // B8.5b Part 1: Appointment scheduling UI (create + detail view).
+        // Appointment CRUD (SchedulingService.create_appointment/
+        // get_appointment/list_appointments) and its routes already exist
+        // and already work (used by B8.2a's dashboard, B8.3's kanban) --
+        // this is pure UI composition reusing them. routes.py constructs
+        // Appointment(**json_body) directly for POST /api/v1/appointments,
+        // so only real Appointment dataclass field names (models.py) may be
+        // sent.
+        // -----------------------------------------------------------------
+        function renderAppointmentsPanel(appointmentsResult) {{
+            currentAppointmentDetailId = null;
+            if (!appointmentsResult || !appointmentsResult.ok) {{
+                const msg = (appointmentsResult && appointmentsResult.status === 403) ? 'No access.' : 'Failed to load.';
+                return `<div class="erp-card"><h3 style="margin-top:0;">Appointments</h3><p style="color:var(--text-muted);">${{msg}}</p></div>`;
+            }}
+            const appointments = appointmentsResult.data.appointments || [];
+            currentCustomer360Appointments = appointments;
+            const rows = appointments.map(a => `<tr>
+                <td>${{escapeHtml(a.title || '')}}</td>
+                <td>${{escapeHtml(a.start_time || '—')}}</td>
+                <td>${{escapeHtml(a.status || '')}}</td>
+                <td><button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="toggleAppointmentDetail(${{a.id}})">Details</button></td>
+            </tr>`);
+            const table = rows.length > 0
+                ? `<table><thead><tr><th>Title</th><th>Start</th><th>Status</th><th></th></tr></thead><tbody>${{rows.join('')}}</tbody></table>`
+                : '<p style="color:var(--text-muted);">No appointments on file.</p>';
+            return `<div class="erp-card">
+                <h3 style="margin-top:0;display:flex;justify-content:space-between;align-items:center;">
+                    <span>Appointments</span>
+                    <button class="btn-gold" style="padding:0.3rem 0.8rem;font-size:0.8rem;" onclick="openAppointmentForm()">+ Schedule Appointment</button>
+                </h3>
+                ${{table}}
+                <div id="appointmentFormArea"></div>
+                <div id="appointmentDetailArea"></div>
+            </div>`;
+        }}
+
+        function openAppointmentForm() {{
+            const area = document.getElementById('appointmentFormArea');
+            area.innerHTML = `
+                <div class="modal-field"><label>Title</label><input type="text" id="apptTitle" value=""></div>
+                <div class="modal-field"><label>Start</label><input type="datetime-local" id="apptStartTime" value=""></div>
+                <div class="modal-field"><label>End</label><input type="datetime-local" id="apptEndTime" value=""></div>
+                <div class="modal-field"><label>Modality</label>
+                    <select id="apptType">
+                        <option value="">—</option>
+                        <option value="call">Call</option>
+                        <option value="in_person">In Person</option>
+                    </select>
+                </div>
+                <div class="modal-field"><label>Notes</label><textarea id="apptNotes" rows="2"></textarea></div>
+                <div style="display:flex;gap:0.5rem;">
+                    <button class="btn-gold" onclick="saveAppointmentForm()">Schedule</button>
+                    <button class="btn-gold" onclick="document.getElementById('appointmentFormArea').innerHTML=''">Cancel</button>
+                </div>
+            `;
+        }}
+
+        // start_time/end_time are sent as the raw `datetime-local` input
+        // value (no timezone) -- matches the existing precedent elsewhere
+        // in this codebase of not inventing a timezone conversion
+        // (list_appointments's substr(start_time,1,10) comment confirms
+        // start_time is just stored/compared as a string prefix).
+        async function saveAppointmentForm() {{
+            const token = getAuthToken();
+            const title = document.getElementById('apptTitle').value.trim();
+            if (!title) {{ alert('Title is required.'); return; }}
+            const body = {{
+                customer_id: currentCustomer360Id,
+                title: title,
+                start_time: document.getElementById('apptStartTime').value || null,
+                end_time: document.getElementById('apptEndTime').value || null,
+                appointment_type: document.getElementById('apptType').value || null,
+                notes: document.getElementById('apptNotes').value.trim() || null,
+            }};
+            try {{
+                const res = await fetch('/api/v1/appointments', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify(body),
+                }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                const data = await res.json();
+                if (!res.ok) {{
+                    alert(data.error || ('Failed to schedule appointment (' + res.status + ').'));
+                    return;
+                }}
+                document.getElementById('appointmentFormArea').innerHTML = '';
+                await loadCustomer360(currentCustomer360Id);
+            }} catch (e) {{
+                alert('Failed to schedule appointment: network error.');
+            }}
+        }}
+
+        // Toggles an appointment's detail view (fields + a "New Assessment"
+        // entry point + its assessment records), mirroring
+        // togglePropertyHistory's toggle-closed-on-repeat-click pattern.
+        function toggleAppointmentDetail(appointmentId) {{
+            const area = document.getElementById('appointmentDetailArea');
+            if (currentAppointmentDetailId === appointmentId) {{
+                area.innerHTML = '';
+                currentAppointmentDetailId = null;
+                return;
+            }}
+            currentAppointmentDetailId = appointmentId;
+            const appt = currentCustomer360Appointments.find(a => a.id === appointmentId);
+            if (!appt) {{ area.innerHTML = ''; return; }}
+            area.innerHTML = `
+                <div class="erp-card">
+                    <h3 style="margin-top:0;">${{escapeHtml(appt.title || '')}}</h3>
+                    <div class="modal-field"><label>Start</label><div>${{escapeHtml(appt.start_time || '—')}}</div></div>
+                    <div class="modal-field"><label>End</label><div>${{escapeHtml(appt.end_time || '—')}}</div></div>
+                    <div class="modal-field"><label>Status</label><div>${{escapeHtml(appt.status || '')}}</div></div>
+                    <div class="modal-field"><label>Notes</label><div>${{escapeHtml(appt.notes || '—')}}</div></div>
+                    <button class="btn-gold" style="padding:0.3rem 0.8rem;font-size:0.8rem;" onclick="openAssessmentForm('appointment', ${{appointmentId}}, 'appointmentAssessmentArea')">+ New Assessment</button>
+                    <div id="appointmentAssessmentArea"></div>
+                </div>
+            `;
+            loadAssessmentRecordsList('appointment', appointmentId, 'appointmentAssessmentArea');
+        }}
+
+        // -----------------------------------------------------------------
+        // B8.5b Part 2: Assessment checklist + evidence UI. Shared between
+        // its two entry points -- a property's "Assessments" button
+        // (renderPropertiesPanel, mirrors the existing "History" button
+        // pattern) and an appointment's detail view above -- since
+        // GET/POST /api/v1/assessment-records already supports filtering/
+        // creating by either property_id or appointment_id independently
+        // (assessment_service.py). checklist_json is a deliberately opaque
+        // blob (database.py's assessment_records DDL comment), so a
+        // generic key/value row editor is the whole checklist UI rather
+        // than a fixed-field form.
+        // -----------------------------------------------------------------
+        async function togglePropertyAssessments(propertyId) {{
+            const area = document.getElementById('propertyAssessmentsArea');
+            if (currentPropertyAssessmentsId === propertyId) {{
+                area.innerHTML = '';
+                currentPropertyAssessmentsId = null;
+                assessmentFormScope = null;
+                return;
+            }}
+            currentPropertyAssessmentsId = propertyId;
+            area.innerHTML = `<div class="erp-card">
+                <h3 style="margin-top:0;display:flex;justify-content:space-between;align-items:center;">
+                    <span>Assessments</span>
+                    <button class="btn-gold" style="padding:0.3rem 0.8rem;font-size:0.8rem;" onclick="openAssessmentForm('property', ${{propertyId}}, 'propertyAssessmentListArea')">+ New Assessment</button>
+                </h3>
+                <div id="propertyAssessmentListArea"></div>
+            </div>`;
+            await loadAssessmentRecordsList('property', propertyId, 'propertyAssessmentListArea');
+        }}
+
+        async function loadAssessmentRecordsList(kind, id, areaId) {{
+            const area = document.getElementById(areaId);
+            area.innerHTML = '<p style="color:var(--text-muted);">Loading assessments...</p>';
+            const token = getAuthToken();
+            const qs = kind === 'property' ? ('property_id=' + id) : ('appointment_id=' + id);
+            try {{
+                const res = await fetch('/api/v1/assessment-records?' + qs, {{
+                    headers: {{ 'Authorization': 'Bearer ' + token }},
+                }});
+                if (res.status === 401) {{
+                    window.location.href = '/admin/login';
+                    return;
+                }}
+                if (!res.ok) {{
+                    area.innerHTML = `<p style="color:var(--text-muted);">${{res.status === 403 ? 'No access.' : 'Failed to load.'}}</p>`;
+                    return;
+                }}
+                const data = await res.json();
+                const records = data.assessment_records || [];
+                if (records.length === 0) {{
+                    area.innerHTML = '<p style="color:var(--text-muted);">No assessments on file.</p>';
+                    return;
+                }}
+                const rows = records.map(r => {{
+                    const checklistSummary = Object.keys(r.checklist || {{}}).length + ' item(s)';
+                    const photoCount = (r.evidence_document_ids || []).length;
+                    return `<tr>
+                        <td>${{escapeHtml(r.created_at || '')}}</td>
+                        <td>${{escapeHtml(checklistSummary)}}</td>
+                        <td>${{photoCount}} photo(s)</td>
+                        <td>${{escapeHtml(r.customer_statements || '—')}}</td>
+                    </tr>`;
+                }});
+                area.innerHTML = `<table><thead><tr><th>Created</th><th>Checklist</th><th>Evidence</th><th>Customer Statement</th></tr></thead><tbody>${{rows.join('')}}</tbody></table>`;
+            }} catch (e) {{
+                area.innerHTML = '<p style="color:var(--text-muted);">Failed to load: network error.</p>';
+            }}
+        }}
+
+        // A record can legitimately carry both appointment_id and
+        // property_id (assessment_service.py/models.py both support it,
+        // e.g. an appointment tied to a specific property) -- and the
+        // "retrievable from both" exit criterion requires that a rep be
+        // able to set both from either entry point. The field the caller
+        // launched from is prefilled but not locked; the other is a free
+        // choice from whichever of currentCustomer360Properties/
+        // currentCustomer360Appointments this Customer 360 modal already
+        // has loaded.
+        function openAssessmentForm(kind, id, areaId) {{
+            assessmentFormScope = {{ kind, id, areaId }};
+            assessmentChecklistRowCount = 0;
+            assessmentFormEvidenceDocs = [];
+            const area = document.getElementById(areaId);
+            const propOptions = currentCustomer360Properties.map(p =>
+                `<option value="${{p.id}}" ${{kind === 'property' && p.id === id ? 'selected' : ''}}>${{escapeHtml(p.address || ('#' + p.id))}}</option>`
+            ).join('');
+            const apptOptions = currentCustomer360Appointments.map(a =>
+                `<option value="${{a.id}}" ${{kind === 'appointment' && a.id === id ? 'selected' : ''}}>${{escapeHtml(a.title || ('#' + a.id))}}</option>`
+            ).join('');
+            area.innerHTML = `
+                <div class="erp-card">
+                    <h4 style="margin-top:0;">New Assessment</h4>
+                    <div class="modal-field"><label>Property</label>
+                        <select id="assessmentPropertySelect"><option value="">—</option>${{propOptions}}</select>
+                    </div>
+                    <div class="modal-field"><label>Appointment</label>
+                        <select id="assessmentAppointmentSelect"><option value="">—</option>${{apptOptions}}</select>
+                    </div>
+                    <div id="assessmentChecklistRows"></div>
+                    <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="addAssessmentChecklistRow()">+ Add Checklist Item</button>
+                    <div class="modal-field" style="margin-top:0.75rem;"><label>Customer Statements</label><textarea id="assessmentCustomerStatements" rows="2"></textarea></div>
+                    <div class="modal-field"><label>Photos</label><input type="file" id="assessmentPhotoInput" accept="image/*" multiple onchange="handleAssessmentPhotoUpload(event)"></div>
+                    <div id="assessmentPhotoList" style="font-size:0.8rem;color:var(--text-muted);"></div>
+                    <div style="display:flex;gap:0.5rem;margin-top:0.5rem;">
+                        <button class="btn-gold" onclick="submitAssessmentForm()">Save Assessment</button>
+                        <button class="btn-gold" onclick="closeAssessmentForm()">Cancel</button>
+                    </div>
+                </div>
+            `;
+            addAssessmentChecklistRow();
+        }}
+
+        function closeAssessmentForm() {{
+            if (!assessmentFormScope) {{ return; }}
+            const {{ kind, id, areaId }} = assessmentFormScope;
+            assessmentFormScope = null;
+            assessmentFormEvidenceDocs = [];
+            loadAssessmentRecordsList(kind, id, areaId);
+        }}
+
+        function addAssessmentChecklistRow() {{
+            const idx = assessmentChecklistRowCount++;
+            const rows = document.getElementById('assessmentChecklistRows');
+            const row = document.createElement('div');
+            row.id = 'assessmentChecklistRow' + idx;
+            row.style.display = 'flex';
+            row.style.gap = '0.5rem';
+            row.style.marginBottom = '0.3rem';
+            row.innerHTML = `
+                <input type="text" placeholder="Item (e.g. roof_condition)" id="assessmentChecklistKey${{idx}}" style="flex:1;">
+                <input type="text" placeholder="Value" id="assessmentChecklistValue${{idx}}" style="flex:1;">
+                <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="removeAssessmentChecklistRow(${{idx}})">Remove</button>
+            `;
+            rows.appendChild(row);
+        }}
+
+        function removeAssessmentChecklistRow(idx) {{
+            const row = document.getElementById('assessmentChecklistRow' + idx);
+            if (row) {{ row.remove(); }}
+        }}
+
+        // Reuses B6.5's existing 25MB local-disk Document upload path
+        // (POST /api/v1/documents, multipart/form-data) -- no new storage
+        // layer. Uploads happen immediately on file selection (there is no
+        // separate "attach" step in the reused flow), each returning a
+        // Document id that is accumulated into assessmentFormEvidenceDocs
+        // and sent as evidence_document_ids on submit.
+        // Field order matters here: routes.py's multipart parser only
+        // populates `metadata` (document_type/customer_id/etc.) from parts
+        // it has already streamed through `on_part_data` by the time it
+        // hits `on_headers_finished` for the file part -- so the
+        // non-file fields MUST be appended (and therefore streamed)
+        // before `file`, or the server computes the storage sub-directory
+        // with an empty metadata dict (falls back to uploads/general/)
+        // even though the resulting Document row still looks correct.
+        async function handleAssessmentPhotoUpload(event) {{
+            const files = Array.from(event.target.files || []);
+            if (files.length === 0) {{ return; }}
+            const token = getAuthToken();
+            const listEl = document.getElementById('assessmentPhotoList');
+            for (const file of files) {{
+                const formData = new FormData();
+                // 'assessment_photo' is not a valid document_type (see the
+                // CHECK constraint on documents.document_type in
+                // database.py) -- send the real 'photo' enum value and tag
+                // it 'assessment' server-side instead, the same pattern
+                // routes.py already uses for subcontractor_id-scoped
+                // uploads (tags.append(f"subcontractor_id:{{...}}")).
+                formData.append('document_type', 'photo');
+                formData.append('assessment', 'true');
+                formData.append('title', file.name);
+                if (currentCustomer360Id) {{ formData.append('customer_id', String(currentCustomer360Id)); }}
+                formData.append('file', file);
+                try {{
+                    const res = await fetch('/api/v1/documents', {{
+                        method: 'POST',
+                        headers: {{ 'Authorization': 'Bearer ' + token }},
+                        body: formData,
+                    }});
+                    const data = await res.json();
+                    if (!res.ok) {{
+                        listEl.innerHTML += `<div style="color:var(--danger);">${{escapeHtml(file.name)}}: ${{escapeHtml(data.error || 'upload failed')}}</div>`;
+                        continue;
+                    }}
+                    assessmentFormEvidenceDocs.push({{ id: data.document.id, title: file.name }});
+                    listEl.innerHTML += `<div>${{escapeHtml(file.name)}} uploaded (doc #${{data.document.id}})</div>`;
+                }} catch (e) {{
+                    listEl.innerHTML += `<div style="color:var(--danger);">${{escapeHtml(file.name)}}: network error.</div>`;
+                }}
+            }}
+            event.target.value = '';
+        }}
+
+        async function submitAssessmentForm() {{
+            if (!assessmentFormScope) {{ return; }}
+            const {{ kind, id, areaId }} = assessmentFormScope;
+            const token = getAuthToken();
+            const checklist = {{}};
+            for (let i = 0; i < assessmentChecklistRowCount; i++) {{
+                const keyEl = document.getElementById('assessmentChecklistKey' + i);
+                const valEl = document.getElementById('assessmentChecklistValue' + i);
+                if (!keyEl || !valEl) {{ continue; }}
+                const k = keyEl.value.trim();
+                const v = valEl.value.trim();
+                if (k) {{ checklist[k] = v; }}
+            }}
+            const body = {{
+                checklist: checklist,
+                evidence_document_ids: assessmentFormEvidenceDocs.map(d => d.id),
+                customer_statements: document.getElementById('assessmentCustomerStatements').value.trim() || null,
+            }};
+            // Both selects are independently optional and not mutually
+            // exclusive -- see openAssessmentForm's comment. This is what
+            // makes a record retrievable from both a property panel and an
+            // appointment detail view when a rep sets both.
+            const propVal = document.getElementById('assessmentPropertySelect').value;
+            const apptVal = document.getElementById('assessmentAppointmentSelect').value;
+            if (propVal) {{ body.property_id = parseInt(propVal, 10); }}
+            if (apptVal) {{ body.appointment_id = parseInt(apptVal, 10); }}
+            try {{
+                const res = await fetch('/api/v1/assessment-records', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify(body),
+                }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                const data = await res.json();
+                if (!res.ok) {{
+                    alert(data.error || ('Failed to save assessment (' + res.status + ').'));
+                    return;
+                }}
+                assessmentFormScope = null;
+                assessmentFormEvidenceDocs = [];
+                await loadAssessmentRecordsList(kind, id, areaId);
+            }} catch (e) {{
+                alert('Failed to save assessment: network error.');
             }}
         }}
 

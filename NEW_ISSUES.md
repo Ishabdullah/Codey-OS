@@ -18606,6 +18606,15 @@ housekeeping, same as `NEW-403`'s own cleanup.
 - **Fix direction (not designed/fixed this round):** either make the route order-independent (buffer all parts and process metadata regardless of arrival order, rather than depending on stream order), or explicitly document the field-ordering requirement at the route/docstring level so future callers don't have to re-derive it from the parser source. A live-verifier pass should first confirm the actual on-disk misplacement occurs as reasoned (not just inferred from reading the code).
 - **Not fixed this round** — logged per rule 8, out of B8.5b's scope (pre-existing route, this round only worked around it correctly).
 - **Cross-reference:** `restoricon_core/api/routes.py` (`POST /api/v1/documents` multipart handling), `restoricon_core/api/web_surfaces.py` (`handleAssessmentPhotoUpload`).
+- **Live-verified 2026-09-17** (code-reviewer, B8.5b round 1): confirmed the field-ordering claim is real via an independent differential repro (metadata-then-file → correct sub-directory; file-then-metadata → falls back to `uploads/general/`, and also loses customer scoping, a more severe effect than the original description). `handleAssessmentPhotoUpload`'s fix (file appended last) is confirmed correct, not just reasoned. Status remains open — the underlying route's field-ordering trap itself is still unfixed/undocumented, only this one caller works around it correctly.
+
+### [NEW-572] Suspected, low severity, not fixed: `handleAssessmentPhotoUpload`'s per-file upload loop doesn't redirect on a 401 the way the rest of `_render_sales_portal()`'s fetches do
+
+- **Status:** Suspected (code-reviewer, 2026-09-17, B8.5b round 2, implementer's own disclosed scope boundary). `saveAppointmentForm`/`submitAssessmentForm` both redirect to `/admin/login` on a 401, matching the established pattern elsewhere in this file — `handleAssessmentPhotoUpload` deliberately does not, because it iterates `for (const file of files)` uploading each via its own `fetch`, and firing a redirect on the first file's 401 would silently abandon any remaining files in that same batch. A stale/expired token mid-upload currently produces per-file "upload failed" error toasts instead of a clean re-login redirect.
+- **Impact:** low — request itself is still correctly rejected server-side (no auth bypass), just a worse UX than the rest of the form (confusing per-file failures instead of a redirect explaining why).
+- **Fix direction (not designed/fixed this round):** needs a real design decision (redirect immediately on the first 401 and abandon the batch, finish the loop then redirect, or something else) rather than a one-line fix — deliberately left open rather than guessed at.
+- **Not fixed this round** — logged per rule 8, non-blocking, reasoning for deferring endorsed by code-reviewer as sound.
+- **Cross-reference:** `restoricon_core/api/web_surfaces.py` (`_render_sales_portal`, `handleAssessmentPhotoUpload`).
 
 ### [NEW-567] Confirmed: `Document` has no `property_id` field anywhere (schema, model, or `list_documents` params) — blocks B8.4's "document/photo list scoped to property_id" as literally specced
 

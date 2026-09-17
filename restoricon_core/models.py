@@ -1162,3 +1162,26 @@ class CommissionLedgerEntry:
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
+
+@dataclass
+class AssessmentRecord:
+    """Property/appointment assessment record (B8.5b, sales_rep_portal.md
+    §5/§6/§7, resolves NEW-567's deferred decision: property ->
+    assessment_record -> documents via evidence_document_ids is the real
+    mechanism for pre-project property photos, not a Document.property_id
+    schema change). checklist mirrors Property.existing_systems' pattern
+    (opaque dict, structure not yet settled). evidence_document_ids is a
+    KNOWN, ACCEPTED LIMITATION: an unenforced list of Document.id values,
+    no FK/cascade/validation -- a deleted Document leaves a dangling id."""
+    id: Optional[int] = None
+    appointment_id: Optional[int] = None
+    property_id: Optional[int] = None
+    checklist: Dict[str, Any] = field(default_factory=dict)
+    evidence_document_ids: List[int] = field(default_factory=list)
+    customer_statements: Optional[str] = None
+    created_by: Optional[int] = None
+    created_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+

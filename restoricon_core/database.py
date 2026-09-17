@@ -955,6 +955,37 @@ CREATE TABLE IF NOT EXISTS commission_ledger_entries (
     FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
 );
 
+-- Assessment Records (B8.5b, sales_rep_portal.md §5/§6/§7, resolves
+-- NEW-567's deferred decision): property -> assessment_record ->
+-- documents (via evidence_document_ids_json) is the real mechanism for
+-- pre-project property photos -- deliberately NOT a Document.property_id
+-- schema change. A rep completes an assessment checklist and attaches
+-- in-app photos (reusing B6.5's existing 25MB local-disk Document upload
+-- path -- no new storage layer), and the record is retrievable from both
+-- its appointment and its property.
+-- checklist_json is an opaque JSON blob (structure not yet settled),
+-- mirroring properties.existing_systems_json's precedent for not
+-- inventing structure ahead of the real data.
+-- evidence_document_ids_json is a JSON array of Document.id values.
+-- KNOWN, ACCEPTED LIMITATION (not a bug): this is an unenforced id list --
+-- no FK, no cascade, no validation that a referenced Document still
+-- exists. A deleted Document row leaves a dangling id in this array.
+CREATE TABLE IF NOT EXISTS assessment_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    appointment_id INTEGER,
+    property_id INTEGER,
+    checklist_json TEXT NOT NULL DEFAULT '{}',
+    evidence_document_ids_json TEXT NOT NULL DEFAULT '[]',
+    customer_statements TEXT,
+    created_by INTEGER,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (appointment_id) REFERENCES appointments(id) ON DELETE SET NULL,
+    FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE SET NULL,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_assessment_records_appointment_id ON assessment_records(appointment_id);
+CREATE INDEX IF NOT EXISTS idx_assessment_records_property_id ON assessment_records(property_id);
+
 -- Indexing for performance
 -- NOTE: the unique indexes for customers.external_id / leads.external_id /
 -- contacts.external_id / communication_history.provider_message_id are

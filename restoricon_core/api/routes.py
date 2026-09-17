@@ -29,6 +29,7 @@ from ..auth import (
 from ..models import (
     Appointment,
     AppointmentType,
+    AssessmentRecord,
     AutomationRule,
     BusinessProfile,
     ComplianceItem,
@@ -58,6 +59,7 @@ from ..models import (
 )
 from .rate_limiter import RateLimiter
 from ..services.analytics_search_service import AnalyticsSearchService
+from ..services.assessment_service import AssessmentService
 from ..services.audit_service import AuditService, build_audit_details, _AUDITABLE_USER_FIELDS
 from ..services.automation_service import AutomationService
 from ..services.business_ops_service import BusinessOpsService
@@ -342,6 +344,7 @@ class APIRouter:
         business_ops_service: Optional[BusinessOpsService] = None,
         analytics_search_service: Optional[AnalyticsSearchService] = None,
         commission_service: Optional[CommissionService] = None,
+        assessment_service: Optional[AssessmentService] = None,
     ):
         self.auth = auth_service
         self.crm = crm_service
@@ -355,6 +358,7 @@ class APIRouter:
         self.business_ops = business_ops_service or BusinessOpsService(crm_service.db, audit_service)
         self.analytics_search = analytics_search_service or AnalyticsSearchService(crm_service.db)
         self.commissions = commission_service or CommissionService(crm_service.db, audit_service)
+        self.assessments = assessment_service or AssessmentService(crm_service.db, audit_service)
         self.rate_limiter = rate_limiter or RateLimiter(max_requests=60, window_seconds=60)
 
     def handle_request(
@@ -1081,6 +1085,33 @@ class APIRouter:
                         return 404, {"Content-Type": "application/json"}, {"error": "Property not found"}
                     return 200, {"Content-Type": "application/json"}, {"property": prop.to_dict()}
 
+            # Assessment Records (B8.5b, sales_rep_portal.md §5/§6/§7)
+            if path == "/api/v1/assessment-records":
+                if method == "GET":
+                    aid = query_params.get("appointment_id", [None])[0]
+                    pid = query_params.get("property_id", [None])[0]
+                    records = self.assessments.list_assessment_records(
+                        actor,
+                        appointment_id=_parse_int_query_param(query_params, "appointment_id", 0) if aid else None,
+                        property_id=_parse_int_query_param(query_params, "property_id", 0) if pid else None,
+                    )
+                    return 200, {"Content-Type": "application/json"}, {"assessment_records": [r.to_dict() for r in records]}
+                elif method == "POST":
+                    record = AssessmentRecord(**json_body)
+                    created = self.assessments.create_assessment_record(record, actor)
+                    return 201, {"Content-Type": "application/json"}, {"assessment_record": created.to_dict()}
+
+            if (
+                path.startswith("/api/v1/assessment-records/")
+                and "/" not in path[len("/api/v1/assessment-records/"):]
+                and method == "GET"
+            ):
+                record_id = _parse_int_path_segment(path[len("/api/v1/assessment-records/"):], "record_id")
+                record = self.assessments.get_assessment_record(record_id, actor)
+                if not record:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Assessment record not found"}
+                return 200, {"Content-Type": "application/json"}, {"assessment_record": record.to_dict()}
+
             # Projects
             if path == "/api/v1/projects":
                 if method == "GET":
@@ -1346,7 +1377,9 @@ class APIRouter:
                         subcontractor_id = metadata.get("subcontractor_id")
                         if subcontractor_id:
                             tags.append(f"subcontractor_id:{subcontractor_id}")
-                            
+                        if metadata.get("assessment"):
+                            tags.append("assessment")
+
                         doc = Document(
                             customer_id=int(metadata.get("customer_id")) if metadata.get("customer_id") else None,
                             project_id=int(metadata.get("project_id")) if metadata.get("project_id") else None,
