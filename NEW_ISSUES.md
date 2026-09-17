@@ -18597,6 +18597,16 @@ housekeeping, same as `NEW-403`'s own cleanup.
 - **Not fixed this round** — logged per rule 8, non-blocking.
 - **Cross-reference:** `restoricon_core/api/web_surfaces.py` (`_render_sales_portal`, `togglePropertyHistory`).
 
+## Found 2026-09-17 — B8.5b implementer round, not fixed (pre-existing, out of scope), not live-reproduced
+
+### [NEW-571] Suspected, not live-reproduced: `POST /api/v1/documents`'s multipart upload has an undocumented field-ordering contract — the `file` part must be appended after all metadata parts, or the upload silently lands in the wrong storage sub-directory
+
+- **Status:** Suspected (implementer, 2026-09-17, found while building B8.5b's photo-attachment UI; reasoned from reading the multipart parser's callback logic, not exercised by a real multipart POST in any test). `routes.py`'s multipart branch computes the upload's storage sub-directory (e.g. `assessment_photos/customers/<id>/`) in `on_headers_finished` from a `metadata` dict that is only populated by non-file form parts already streamed via `on_part_data` *before* that callback fires for the file part. A client that appends the `file` field before its metadata fields (`document_type`/`customer_id`/`project_id`/etc. — the natural order for a naive `FormData.append()` sequence) would have the byte payload silently land in `uploads/general/` instead of the intended type/entity-scoped directory, while the resulting `Document` DB row still looks fully correct (title/document_type/customer_id all populated) — a purely on-disk misplacement with no visible symptom in the API response.
+- **Impact:** unknown until live-verified — pre-existing (not introduced by B8.5b), affects any caller of this multipart route that doesn't already know to order fields with `file` last. B8.5b's own new `handleAssessmentPhotoUpload` was built with `file` appended first and had to be reordered after tracing the callback logic — this round's own near-miss is direct evidence the ordering requirement is a real, easy-to-hit trap, not theoretical.
+- **Fix direction (not designed/fixed this round):** either make the route order-independent (buffer all parts and process metadata regardless of arrival order, rather than depending on stream order), or explicitly document the field-ordering requirement at the route/docstring level so future callers don't have to re-derive it from the parser source. A live-verifier pass should first confirm the actual on-disk misplacement occurs as reasoned (not just inferred from reading the code).
+- **Not fixed this round** — logged per rule 8, out of B8.5b's scope (pre-existing route, this round only worked around it correctly).
+- **Cross-reference:** `restoricon_core/api/routes.py` (`POST /api/v1/documents` multipart handling), `restoricon_core/api/web_surfaces.py` (`handleAssessmentPhotoUpload`).
+
 ### [NEW-567] Confirmed: `Document` has no `property_id` field anywhere (schema, model, or `list_documents` params) — blocks B8.4's "document/photo list scoped to property_id" as literally specced
 
 - **Status:** Confirmed (project-architect, 2026-09-17, verified against both `models.py`'s `Document` dataclass and `PRAGMA table_info(documents)` against the live `~/.codeyOS/restoricon.db` — only `customer_id`/`project_id` columns exist, no `property_id`).
