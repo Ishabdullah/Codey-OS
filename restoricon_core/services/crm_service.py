@@ -65,6 +65,7 @@ from ..models import (
     PipelineStage,
     Project,
     ProjectStage,
+    Property,
     STAGE_DEFAULT_PROBABILITIES,
     Subcontractor,
     Task,
@@ -513,6 +514,205 @@ class CRMService:
                 return self._row_to_customer(row)
 
         return None
+
+    # ==========================================
+    # PROPERTIES (B8.1, D4, sales_rep_portal.md §4, Ish-approved 2026-09-16)
+    # ==========================================
+    # Gated on PERM_READ_ALL_CUSTOMERS / PERM_WRITE_CUSTOMERS, the same
+    # permissions that already gate Customer CRUD above, rather than a new
+    # PERM_READ_PROPERTIES/PERM_WRITE_PROPERTIES pair -- properties.customer_id
+    # is a direct FK to customers and a property record carries no more
+    # sensitivity than a customer's mailing/service address already does.
+    # No PERM_READ_TEAM_SALES_DATA-style ownership narrowing here: unlike
+    # leads/opportunities/tasks, properties have no assigned_user_id to
+    # narrow on.
+
+    def create_property(self, prop: Property, actor: AuthContext) -> Property:
+        if not actor.has_permission(PERM_WRITE_CUSTOMERS):
+            raise PermissionError("Actor lacks permission to create properties")
+
+        now = utc_now_iso()
+        prop.created_at = now
+        existing_systems_json = json.dumps(prop.existing_systems)
+
+        conn = self.db.get_connection()
+        with conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO properties (
+                    external_id, customer_id, address, parcel_number, property_type,
+                    year_built, square_footage, stories, roof_type, exterior_type,
+                    existing_systems_json, insurance_carrier, notes, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+                (
+                    prop.external_id,
+                    prop.customer_id,
+                    prop.address,
+                    prop.parcel_number,
+                    prop.property_type,
+                    prop.year_built,
+                    prop.square_footage,
+                    prop.stories,
+                    prop.roof_type,
+                    prop.exterior_type,
+                    existing_systems_json,
+                    prop.insurance_carrier,
+                    prop.notes,
+                    now,
+                ),
+            )
+            prop.id = cursor.lastrowid
+
+        self.audit.log(
+            action="create",
+            entity_type="property",
+            entity_id=prop.id,
+            change_summary=f"Created property {prop.address}",
+            actor=actor,
+            details=build_audit_details(after=prop.to_dict()),
+        )
+        return prop
+
+    @staticmethod
+    def _row_to_property(row: Any) -> Property:
+        existing_systems = json.loads(row["existing_systems_json"]) if row["existing_systems_json"] else {}
+        return Property(
+            id=row["id"],
+            external_id=row["external_id"],
+            customer_id=row["customer_id"],
+            address=row["address"],
+            parcel_number=row["parcel_number"],
+            property_type=row["property_type"],
+            year_built=row["year_built"],
+            square_footage=row["square_footage"],
+            stories=row["stories"],
+            roof_type=row["roof_type"],
+            exterior_type=row["exterior_type"],
+            existing_systems=existing_systems,
+            insurance_carrier=row["insurance_carrier"],
+            notes=row["notes"],
+            created_at=row["created_at"],
+        )
+
+    def get_property(self, property_id: int, actor: AuthContext) -> Optional[Property]:
+        if not actor.has_permission(PERM_READ_ALL_CUSTOMERS):
+            raise PermissionError("Actor lacks permission to view properties")
+
+        conn = self.db.get_connection()
+        row = conn.execute("SELECT * FROM properties WHERE id = ?;", (property_id,)).fetchone()
+        if not row:
+            return None
+        return self._row_to_property(row)
+
+    def list_properties(
+        self, actor: AuthContext, customer_id: Optional[int] = None
+    ) -> List[Property]:
+        if not actor.has_permission(PERM_READ_ALL_CUSTOMERS):
+            raise PermissionError("Actor lacks permission to list properties")
+
+        query = "SELECT * FROM properties WHERE 1=1"
+        params: List[Any] = []
+        if customer_id is not None:
+            query += " AND customer_id = ?"
+            params.append(customer_id)
+        query += " ORDER BY id DESC;"
+
+        conn = self.db.get_connection()
+        rows = conn.execute(query, params).fetchall()
+        return [self._row_to_property(r) for r in rows]
+
+    ALLOWED_PROPERTY_UPDATE_FIELDS = {
+        "customer_id",
+        "address",
+        "parcel_number",
+        "property_type",
+        "year_built",
+        "square_footage",
+        "stories",
+        "roof_type",
+        "exterior_type",
+        "existing_systems",
+        "insurance_carrier",
+        "notes",
+    }
+
+    def update_property(
+        self, property_id: int, updates: Dict[str, Any], actor: AuthContext
+    ) -> Optional[Property]:
+        """Partial update for property records with allow-list enforcement,
+        None-value guard, and existing_systems shallow merge -- mirrors
+        update_customer's shape above."""
+        if not actor.has_permission(PERM_WRITE_CUSTOMERS):
+            raise PermissionError("Actor lacks permission to update properties")
+
+        unknown = set(updates) - self.ALLOWED_PROPERTY_UPDATE_FIELDS
+        if unknown:
+            raise ValueError(f"Unknown field(s) for property update: {sorted(unknown)}")
+
+        for key, value in updates.items():
+            if value is None:
+                raise ValueError(
+                    f"Field '{key}' cannot be set to None via update_property; omit the key instead"
+                )
+
+        if not updates:
+            return self.get_property(property_id, actor)
+
+        conn = self.db.get_connection()
+        with conn:
+            row = conn.execute(
+                "SELECT * FROM properties WHERE id = ?;", (property_id,)
+            ).fetchone()
+            if not row:
+                return None
+
+            _before = {}
+            for k in updates:
+                if k == "existing_systems":
+                    _before[k] = json.loads(row["existing_systems_json"]) if row["existing_systems_json"] else {}
+                else:
+                    _before[k] = row[k]
+
+            set_clauses = []
+            params: List[Any] = []
+            for key, value in updates.items():
+                if key == "existing_systems":
+                    existing = json.loads(row["existing_systems_json"]) if row["existing_systems_json"] else {}
+                    merged = {**existing, **value}
+                    set_clauses.append("existing_systems_json = ?")
+                    params.append(json.dumps(merged))
+                else:
+                    set_clauses.append(f"{key} = ?")
+                    params.append(value)
+
+            params.append(property_id)
+            cursor = conn.execute(
+                f"UPDATE properties SET {', '.join(set_clauses)} WHERE id = ?;",
+                params,
+            )
+            if cursor.rowcount == 0:
+                return None
+
+            updated_row = conn.execute(
+                "SELECT * FROM properties WHERE id = ?;", (property_id,)
+            ).fetchone()
+            updated_prop = self._row_to_property(updated_row) if updated_row else None
+
+        details = build_audit_details(
+            before=_before,
+            after=updated_prop.to_dict() if updated_prop else None,
+            fields=sorted(updates),
+        )
+        self.audit.log(
+            action="update",
+            entity_type="property",
+            entity_id=property_id,
+            change_summary=f"Property {property_id} updated ({', '.join(sorted(updates.keys()))})",
+            actor=actor,
+            details=details,
+        )
+        return updated_prop
 
     # ==========================================
     # LEADS

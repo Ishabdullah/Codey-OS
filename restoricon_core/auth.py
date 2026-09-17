@@ -85,6 +85,41 @@ PERM_WRITE_PROJECTS = "write:projects"
 #      other one-off grant -- it is not superseded or removed by (1).
 PERM_READ_TEAM_SALES_DATA = "read:team_sales_data"
 
+# B8.1, D4 (sales_rep_portal.md §4, Ish-approved 2026-09-16). Genuinely
+# separate from PERM_READ_TEAM_SALES_DATA above, not implied by it:
+# PERM_READ_TEAM_SALES_DATA governs pipeline visibility (leads,
+# opportunities, tasks), which is operational data a sales manager needs
+# to run a team day-to-day. Commission ledger rows are compensation --
+# financial data an actor may legitimately need team-pipeline visibility
+# for without also being entitled to see what every rep is being paid.
+# Financial data warrants its own gate even for someone who already sees
+# team pipeline -- this mirrors why PERM_SIGN_CONTRACTS is split from
+# PERM_WRITE_CONTRACTS (being able to edit a contract's terms doesn't
+# imply authority to execute a signature on it). Holding
+# PERM_READ_TEAM_COMMISSIONS lets an actor read (and, per
+# CommissionService's minimal write gate, record/reverse) any rep's
+# commission ledger rows, not just rows where rep_user_id == their own
+# user_id. Default-granted to admin/manager/ai_agent (ROLE_PERMISSIONS
+# below) and to ROLE_SALES_MANAGER (see its derived-permissions line
+# further down), same set that holds PERM_READ_TEAM_SALES_DATA today.
+# Deliberately withheld from sales/project_manager/technician/customer by
+# default -- an ordinary sales rep may read/have recorded their own
+# commission rows (CommissionService narrows to rep_user_id == actor.user_id
+# without this permission) but not another rep's.
+PERM_READ_TEAM_COMMISSIONS = "read:team_commissions"
+
+# code-reviewer round 2 (B8.1): split from PERM_READ_TEAM_COMMISSIONS
+# above, following the exact PERM_SIGN_CONTRACTS / PERM_WRITE_CONTRACTS
+# precedent this same comment block already cites -- being able to see
+# every rep's commissions does not imply authority to author or reverse
+# money-moving ledger rows (CommissionService.record_commission /
+# reverse_commission). Granted to the identical default set as the read
+# permission (admin/manager/ai_agent, plus ROLE_SALES_MANAGER via its
+# derived-permissions line further down) so no default-role behavior
+# changes; this only matters the day a role or custom_permissions_json
+# grant holds read without write.
+PERM_WRITE_TEAM_COMMISSIONS = "write:team_commissions"
+
 # B6.1, 2026-09-02: reassigning the PM, employees, or subcontractors
 # on an existing project is split from ordinary project edits into two
 # additive permissions, mirroring the PERM_SIGN_CONTRACTS / NEW-192 scoped-vs-
@@ -228,6 +263,8 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_MANAGE_PIPELINE,
         PERM_SCORE_LEADS,
         PERM_READ_TEAM_SALES_DATA,
+        PERM_READ_TEAM_COMMISSIONS,
+        PERM_WRITE_TEAM_COMMISSIONS,
         PERM_READ_ALL_PROJECTS,
         PERM_WRITE_PROJECTS,
         PERM_REASSIGN_PROJECT_STAFF,
@@ -292,6 +329,8 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_MANAGE_PIPELINE,
         PERM_SCORE_LEADS,
         PERM_READ_TEAM_SALES_DATA,
+        PERM_READ_TEAM_COMMISSIONS,
+        PERM_WRITE_TEAM_COMMISSIONS,
         PERM_READ_ALL_PROJECTS,
         PERM_WRITE_PROJECTS,
         PERM_READ_ESTIMATES,
@@ -440,6 +479,8 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_MANAGE_PIPELINE,
         PERM_SCORE_LEADS,
         PERM_READ_TEAM_SALES_DATA,
+        PERM_READ_TEAM_COMMISSIONS,
+        PERM_WRITE_TEAM_COMMISSIONS,
         PERM_READ_ALL_PROJECTS,
         PERM_READ_ESTIMATES,
         PERM_READ_CONTRACTS,
@@ -506,7 +547,20 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
 # PERM_REASSIGN_ANY_PROJECT_STAFF or PERM_MANAGE_USERS -- a sales manager
 # manages sales reps' leads/opportunities/tasks, not project staffing or
 # user accounts.
-ROLE_PERMISSIONS[ROLE_SALES_MANAGER] = ROLE_PERMISSIONS[ROLE_SALES] | {PERM_READ_TEAM_SALES_DATA}
+#
+# B8.1, D4, 2026-09-16: also given PERM_READ_TEAM_COMMISSIONS by default,
+# same as how admin/manager/ai_agent hold both team-visibility permissions
+# together -- a sales manager who can see the whole team's pipeline is
+# also expected to see the whole team's commissions (e.g. to verify a
+# rep's payout against their own pipeline). Also given
+# PERM_WRITE_TEAM_COMMISSIONS (code-reviewer round 2) -- a sales manager
+# correcting a payout is exactly the role this write gate is meant for,
+# same default set as the read permission it was split from.
+ROLE_PERMISSIONS[ROLE_SALES_MANAGER] = ROLE_PERMISSIONS[ROLE_SALES] | {
+    PERM_READ_TEAM_SALES_DATA,
+    PERM_READ_TEAM_COMMISSIONS,
+    PERM_WRITE_TEAM_COMMISSIONS,
+}
 
 # Permissions catalog grouped by domain for dynamic permissions UI and validation
 PERMISSIONS_CATALOG: Dict[str, Dict[str, Any]] = {
@@ -532,6 +586,8 @@ PERMISSIONS_CATALOG: Dict[str, Dict[str, Any]] = {
             {"id": PERM_MANAGE_PIPELINE, "name": "Manage Pipeline", "description": "Move stages and configure pipeline"},
             {"id": PERM_SCORE_LEADS, "name": "Score Leads", "description": "Run lead qualification scoring"},
             {"id": PERM_READ_TEAM_SALES_DATA, "name": "Read Team Sales Data", "description": "See leads, opportunities, and tasks assigned to other sales reps, not just your own (sales manager view)"},
+            {"id": PERM_READ_TEAM_COMMISSIONS, "name": "Read Team Commissions", "description": "See commission ledger entries for every sales rep, not just your own -- separate from Read Team Sales Data since compensation is more sensitive than pipeline visibility"},
+            {"id": PERM_WRITE_TEAM_COMMISSIONS, "name": "Write Team Commissions", "description": "Record and reverse commission ledger entries -- separate from Read Team Commissions since seeing compensation data doesn't imply authority to author or reverse money-moving ledger rows"},
         ],
     },
     "operations": {

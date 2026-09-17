@@ -166,6 +166,33 @@ CREATE TABLE IF NOT EXISTS tasks (
     FOREIGN KEY (assigned_user_id) REFERENCES users(id) ON DELETE SET NULL
 );
 
+-- Properties (B8.1, D4, sales_rep_portal.md §4, Ish-approved 2026-09-16).
+-- external_id inline TEXT UNIQUE -- wholly new table, matches the
+-- subcontractors.external_id pattern (not the customers/leads/contacts/
+-- tasks retrofit pattern, which uses a separate post-migration unique
+-- index because those tables predate external_id). existing_systems_json
+-- is an opaque JSON blob (HVAC/plumbing/electrical/etc. -- key shape not
+-- yet settled) mirroring schedule_config.duration_by_relationship_json's
+-- precedent for not inventing structure ahead of the real data.
+CREATE TABLE IF NOT EXISTS properties (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    external_id TEXT UNIQUE,
+    customer_id INTEGER,
+    address TEXT NOT NULL,
+    parcel_number TEXT,
+    property_type TEXT,
+    year_built INTEGER,
+    square_footage INTEGER,
+    stories INTEGER,
+    roof_type TEXT,
+    exterior_type TEXT,
+    existing_systems_json TEXT NOT NULL DEFAULT '{}',
+    insurance_carrier TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL
+);
+
 -- Projects / Jobs
 CREATE TABLE IF NOT EXISTS projects (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -195,10 +222,19 @@ CREATE TABLE IF NOT EXISTS projects (
     adjuster_phone TEXT,
     adjuster_email TEXT,
     deductible REAL,
+    -- property_id: link to the properties table (B8.1). Present here for
+    -- a fresh DB's CREATE TABLE (with FK); a migrated DB gets the bare
+    -- column via the ALTER TABLE entry in _migrate_schema() instead,
+    -- since SQLite's ALTER TABLE ADD COLUMN cannot attach a FOREIGN KEY --
+    -- same deliberate fresh-vs-migrated asymmetry as
+    -- appointment_type_id/assigned_user_id on appointments and user_id on
+    -- subcontractors.
+    property_id INTEGER,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT,
-    FOREIGN KEY (project_manager_id) REFERENCES users(id) ON DELETE SET NULL
+    FOREIGN KEY (project_manager_id) REFERENCES users(id) ON DELETE SET NULL,
+    FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE SET NULL
 );
 
 -- Estimates / Quotes
@@ -886,6 +922,39 @@ CREATE TABLE IF NOT EXISTS staff_schedules_archive (
     archived_reason TEXT NOT NULL DEFAULT 'user_deleted'
 );
 
+-- Commission Ledger (B8.1, D4, sales_rep_portal.md §4, Ish-approved
+-- 2026-09-16). Append-only by convention, same discipline as audit_log
+-- above (no DB-level enforcement -- CommissionService must never issue
+-- UPDATE/DELETE against an existing row; corrections/chargebacks are new
+-- rows referencing the original via reversed_entry_id). source_type enum
+-- per D4 -- supersedes an earlier placeholder list in
+-- sales_rep_portal.md §5 B8.1 itself (dropped 'referral', logged as
+-- NEW-545). source_id is deliberately a bare INTEGER, no FK (polymorphic
+-- reference to Invoice/Project/Contract/etc., matches audit_log's
+-- entity_id). rep_user_id is nullable+SET NULL at the schema level
+-- (matches financial_transactions.recorded_by_id) so historical rows
+-- survive a user deletion, but CommissionService enforces non-null on
+-- create at the service layer.
+CREATE TABLE IF NOT EXISTS commission_ledger_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    rep_user_id INTEGER,
+    source_type TEXT NOT NULL CHECK(source_type IN ('assessment', 'subscription_upsell', 'portfolio_override', 'bonus', 'adjustment', 'chargeback')),
+    source_id INTEGER,
+    basis_amount REAL,
+    commission_rate_or_flat REAL,
+    commission_amount REAL NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'earned', 'paid', 'reversed')),
+    earned_at TEXT,
+    paid_at TEXT,
+    reversed_entry_id INTEGER,
+    created_by INTEGER,
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (rep_user_id) REFERENCES users(id) ON DELETE SET NULL,
+    FOREIGN KEY (reversed_entry_id) REFERENCES commission_ledger_entries(id) ON DELETE SET NULL,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
 -- Indexing for performance
 -- NOTE: the unique indexes for customers.external_id / leads.external_id /
 -- contacts.external_id / communication_history.provider_message_id are
@@ -970,6 +1039,22 @@ CREATE INDEX IF NOT EXISTS idx_po_project_id ON purchase_orders(project_id);
 CREATE INDEX IF NOT EXISTS idx_po_status ON purchase_orders(status);
 CREATE INDEX IF NOT EXISTS idx_staff_schedules_user_id ON staff_schedules(user_id);
 CREATE INDEX IF NOT EXISTS idx_staff_schedules_archive_username ON staff_schedules_archive(original_username);
+CREATE INDEX IF NOT EXISTS idx_properties_customer_id ON properties(customer_id);
+CREATE INDEX IF NOT EXISTS idx_projects_property_id ON projects(property_id);
+CREATE INDEX IF NOT EXISTS idx_commission_ledger_rep_user_id ON commission_ledger_entries(rep_user_id);
+CREATE INDEX IF NOT EXISTS idx_commission_ledger_status ON commission_ledger_entries(status);
+CREATE INDEX IF NOT EXISTS idx_commission_ledger_source ON commission_ledger_entries(source_type, source_id);
+-- code-reviewer round 2 (B8.1): closes a real double-reversal race --
+-- two concurrent reverse_commission() calls on the same entry_id could
+-- both pass an application-level "already reversed?" pre-check and both
+-- INSERT a reversal row (NEW-135/136/534 is this exact TOCTOU class).
+-- This partial unique index makes a second reversal of the same
+-- original row a straight sqlite3.IntegrityError at the DB level,
+-- closing the race for free instead of depending on Python-side
+-- transaction ordering. Partial (WHERE reversed_entry_id IS NOT NULL)
+-- because ordinary (non-reversal) rows all have reversed_entry_id NULL
+-- and must not be constrained against each other.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_commission_ledger_reversed_entry_id_unique ON commission_ledger_entries(reversed_entry_id) WHERE reversed_entry_id IS NOT NULL;
 """
 
 # D2 (sales_rep_portal.md §4, Ish-approved), 2026-09-16: the widened-role
@@ -1132,6 +1217,7 @@ class DatabaseManager:
             ("appointments", "appointment_type_id", "ALTER TABLE appointments ADD COLUMN appointment_type_id INTEGER;"),
             ("appointments", "assigned_user_id", "ALTER TABLE appointments ADD COLUMN assigned_user_id INTEGER;"),
             ("subcontractors", "user_id", "ALTER TABLE subcontractors ADD COLUMN user_id INTEGER;"),
+            ("projects", "property_id", "ALTER TABLE projects ADD COLUMN property_id INTEGER;"),
         )
         with conn:
             for table, column, ddl in migrations:

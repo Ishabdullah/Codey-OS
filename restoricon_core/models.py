@@ -1113,3 +1113,51 @@ class StaffSchedule:
             updated_at=row["updated_at"]
         )
 
+
+@dataclass
+class Property:
+    id: Optional[int] = None
+    external_id: Optional[str] = None
+    customer_id: Optional[int] = None
+    address: str = ""
+    parcel_number: Optional[str] = None
+    property_type: Optional[str] = None
+    year_built: Optional[int] = None
+    square_footage: Optional[int] = None
+    stories: Optional[int] = None
+    roof_type: Optional[str] = None
+    exterior_type: Optional[str] = None
+    existing_systems: Dict[str, Any] = field(default_factory=dict)
+    insurance_carrier: Optional[str] = None
+    notes: Optional[str] = None
+    created_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class CommissionLedgerEntry:
+    """Strictly append-only commission ledger entry (B8.1, D4,
+    sales_rep_portal.md §4, Ish-approved 2026-09-16). Corrections and
+    chargebacks are new rows referencing the original via
+    reversed_entry_id -- never an UPDATE or DELETE of an existing row.
+    See CommissionService.reverse_commission."""
+    id: Optional[int] = None
+    rep_user_id: Optional[int] = None
+    source_type: str = "assessment"  # assessment, subscription_upsell, portfolio_override, bonus, adjustment, chargeback
+    source_id: Optional[int] = None
+    basis_amount: Optional[float] = None
+    commission_rate_or_flat: Optional[float] = None
+    commission_amount: float = 0.0
+    status: str = "pending"  # pending, earned, paid, reversed
+    earned_at: Optional[str] = None
+    paid_at: Optional[str] = None
+    reversed_entry_id: Optional[int] = None
+    created_by: Optional[int] = None
+    notes: Optional[str] = None
+    created_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
