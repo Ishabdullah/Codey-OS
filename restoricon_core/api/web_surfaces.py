@@ -5240,6 +5240,10 @@ def _render_sales_portal() -> str:
             <button class="btn-gold" onclick="window.location.href='/admin/login'" style="padding: 0.5rem 1rem;">Sign Out</button>
         </div>
 
+        <div class="erp-card" id="dashboardErrorBanner" style="display:none; border-left: 4px solid var(--danger);">
+            <p id="dashboardErrorMsg" style="margin:0; color: var(--danger); font-weight:600;"></p>
+        </div>
+
         <div class="erp-card">
             <h2 style="margin-top:0;">My Schedule</h2>
             <table>
@@ -5249,7 +5253,21 @@ def _render_sales_portal() -> str:
         </div>
 
         <div class="erp-card">
-            <h2 style="margin-top:0;">My Leads</h2>
+            <h2 style="margin-top:0;">Appointments</h2>
+            <h3 style="margin:0 0 0.5rem 0; font-size:0.95rem; color:var(--text-muted);">Today</h3>
+            <table>
+                <thead><tr><th>Time</th><th>Title</th><th>Status</th></tr></thead>
+                <tbody id="dashApptTodayList"><tr><td colspan="3">Loading...</td></tr></tbody>
+            </table>
+            <h3 style="margin:1rem 0 0.5rem 0; font-size:0.95rem; color:var(--text-muted);">Upcoming</h3>
+            <table>
+                <thead><tr><th>Time</th><th>Title</th><th>Status</th></tr></thead>
+                <tbody id="dashApptUpcomingList"><tr><td colspan="3">Loading...</td></tr></tbody>
+            </table>
+        </div>
+
+        <div class="erp-card">
+            <h2 style="margin-top:0;">My Leads <span id="newLeadsBadge" class="card-badge badge-gold" style="display:none;"></span></h2>
             <table>
                 <thead><tr><th>ID</th><th>Customer</th><th>Status</th><th>Assigned Rep</th></tr></thead>
                 <tbody id="myLeadsList"><tr><td colspan="4">Loading leads...</td></tr></tbody>
@@ -5262,6 +5280,36 @@ def _render_sales_portal() -> str:
                 <thead><tr><th>ID</th><th>Title</th><th>Stage</th><th>Assigned Rep</th></tr></thead>
                 <tbody id="myOpportunitiesList"><tr><td colspan="4">Loading opportunities...</td></tr></tbody>
             </table>
+        </div>
+
+        <div class="erp-card">
+            <h2 style="margin-top:0;">Follow-ups</h2>
+            <table>
+                <thead><tr><th>Title</th><th>Due</th><th>Priority</th><th>Status</th></tr></thead>
+                <tbody id="followupsList"><tr><td colspan="4">Loading follow-ups...</td></tr></tbody>
+            </table>
+        </div>
+
+        <div class="erp-card">
+            <h2 style="margin-top:0;">Pipeline Summary</h2>
+            <table>
+                <thead><tr><th>Stage</th><th>Count</th><th>Total Value</th><th>Weighted Value</th></tr></thead>
+                <tbody id="pipelineSummaryList"><tr><td colspan="4">Loading pipeline...</td></tr></tbody>
+            </table>
+            <p id="pipelineTotals" style="margin:0.75rem 0 0 0; font-size:0.85rem; color:var(--text-muted);"></p>
+        </div>
+
+        <div class="erp-card">
+            <h2 id="commissionsHeading" style="margin-top:0;">Commissions</h2>
+            <table>
+                <thead><tr><th>Status</th><th>Source</th><th>Amount</th><th>Earned</th></tr></thead>
+                <tbody id="commissionsList"><tr><td colspan="4">Loading commissions...</td></tr></tbody>
+            </table>
+        </div>
+
+        <div class="erp-card" id="teamSummaryCard" style="display:none;">
+            <h2 style="margin-top:0;">Team Snapshot</h2>
+            <div id="teamSummaryStrip" style="display:flex; flex-wrap:wrap; gap:1.5rem;"></div>
         </div>
     </div>
 
@@ -5303,13 +5351,15 @@ def _render_sales_portal() -> str:
             // Display-only viewer-scope banner -- real enforcement is entirely
             // server-side (CRMService._scoped_assignee_filter); this is never
             // an access-control point, only a label for what the fetches below
-            // will return.
+            // will return. NEW-552: the old check (a custom_permissions flag
+            // read off /api/v1/auth/me) missed any actor with team access via
+            // the real ROLE_SALES_MANAGER role rather than a custom_permissions
+            // override. The authoritative signal is now data.scope === 'team'
+            // from the dashboard fetch below -- fail closed to 'My Own' here so
+            // an actor never sees 'Whole Team' before (or instead of) a
+            // confirmed team response.
             const scopeBanner = document.getElementById('viewerScopeBanner');
-            if (user.custom_permissions && user.custom_permissions['read:team_sales_data'] === true) {{
-                scopeBanner.textContent = 'Viewing: Whole Team';
-            }} else {{
-                scopeBanner.textContent = 'Viewing: My Own';
-            }}
+            scopeBanner.textContent = 'Viewing: My Own';
 
             // Load Schedule
             try {{
@@ -5375,6 +5425,176 @@ def _render_sales_portal() -> str:
                     tbody.innerHTML = '<tr><td colspan="4" style="color:var(--text-muted)">No opportunities.</td></tr>';
                 }}
             }} catch (e) {{ /* network/parse failure: opportunities tbody keeps its "Loading..." placeholder, no further UI action needed */ }}
+
+            // Load Command Center Dashboard (B8.2b) -- Appointments, Follow-ups,
+            // Pipeline, Commissions, and (manager-only) Team panels, plus the
+            // NEW-552 viewer-scope banner fix, all fed by this one call.
+            try {{
+                const res = await fetch('/api/v1/sales/dashboard?days=7', {{
+                    headers: {{ 'Authorization': 'Bearer ' + token }}
+                }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                const errBanner = document.getElementById('dashboardErrorBanner');
+                const errMsg = document.getElementById('dashboardErrorMsg');
+                errBanner.style.display = 'none';
+                if (res.status === 403) {{
+                    // actor.user_id is None on the server -- not a real login
+                    // failure (token is valid), so no redirect; just surface it
+                    // inline in the new panels' area per this task's spec: the
+                    // top banner AND each new panel's own placeholder, so none
+                    // of them are left silently stuck on "Loading...".
+                    const dashboardUnavailableMsg = 'Cannot load dashboard: no associated user identity';
+                    errBanner.style.display = 'block';
+                    errMsg.textContent = dashboardUnavailableMsg;
+                    document.getElementById('dashApptTodayList').innerHTML = `<tr><td colspan="3" style="color:var(--danger)">${{escapeHtml(dashboardUnavailableMsg)}}</td></tr>`;
+                    document.getElementById('dashApptUpcomingList').innerHTML = `<tr><td colspan="3" style="color:var(--danger)">${{escapeHtml(dashboardUnavailableMsg)}}</td></tr>`;
+                    document.getElementById('followupsList').innerHTML = `<tr><td colspan="4" style="color:var(--danger)">${{escapeHtml(dashboardUnavailableMsg)}}</td></tr>`;
+                    document.getElementById('pipelineSummaryList').innerHTML = `<tr><td colspan="4" style="color:var(--danger)">${{escapeHtml(dashboardUnavailableMsg)}}</td></tr>`;
+                    document.getElementById('pipelineTotals').textContent = '';
+                    document.getElementById('commissionsList').innerHTML = `<tr><td colspan="4" style="color:var(--danger)">${{escapeHtml(dashboardUnavailableMsg)}}</td></tr>`;
+                    document.getElementById('teamSummaryCard').style.display = 'none';
+                }} else if (res.ok) {{
+                    const data = await res.json();
+
+                    // NEW-552: data.scope === 'team' is now the sole signal for
+                    // the viewer-scope banner -- no OR-fallback to the old
+                    // custom_permissions check (removed above).
+                    if (data.scope === 'team') {{
+                        scopeBanner.textContent = 'Viewing: Whole Team';
+                    }}
+
+                    // Appointments (distinct entity from My Schedule's
+                    // StaffSchedule records above -- these are Appointment rows).
+                    const apptToday = document.getElementById('dashApptTodayList');
+                    const apptUpcoming = document.getElementById('dashApptUpcomingList');
+                    const renderAppts = (list) => list.map(a =>
+                        `<tr>
+                            <td>${{escapeHtml(a.start_time)}}</td>
+                            <td>${{escapeHtml(a.title)}}</td>
+                            <td><span class="badge ${{a.status === 'confirmed' ? 'badge-info' : 'badge-gold'}}">${{escapeHtml(a.status)}}</span></td>
+                        </tr>`
+                    ).join('');
+                    apptToday.innerHTML = (data.appointments && data.appointments.today && data.appointments.today.length > 0)
+                        ? renderAppts(data.appointments.today)
+                        : '<tr><td colspan="3" style="color:var(--text-muted)">No appointments today.</td></tr>';
+                    apptUpcoming.innerHTML = (data.appointments && data.appointments.upcoming && data.appointments.upcoming.length > 0)
+                        ? renderAppts(data.appointments.upcoming)
+                        : '<tr><td colspan="3" style="color:var(--text-muted)">No upcoming appointments.</td></tr>';
+
+                    // New Leads badge (count only -- the My Leads table above stays
+                    // fed by the unparameterized /api/v1/leads fetch, NOT this
+                    // status='new'-only subset, per this task's spec).
+                    const newLeadsBadge = document.getElementById('newLeadsBadge');
+                    const newLeadsCount = (data.leads && data.leads.new) ? data.leads.new.length : 0;
+                    if (newLeadsCount > 0) {{
+                        newLeadsBadge.textContent = newLeadsCount + ' NEW';
+                        newLeadsBadge.style.display = 'inline-block';
+                    }} else {{
+                        newLeadsBadge.style.display = 'none';
+                    }}
+
+                    // Follow-ups -- overdue items flagged with the file's
+                    // established inline var(--danger) convention (e.g. lines
+                    // 2447, 2875); no badge-danger class exists in this file's
+                    // styles, so this matches existing practice rather than
+                    // inventing a new global CSS class for this alone.
+                    const followupsList = document.getElementById('followupsList');
+                    const fu = data.followups || {{}};
+                    const renderTask = (t, overdue) => `<tr>
+                        <td${{overdue ? ' style="color:var(--danger);font-weight:600;"' : ''}}>${{escapeHtml(t.title)}}</td>
+                        <td${{overdue ? ' style="color:var(--danger);font-weight:600;"' : ''}}>${{escapeHtml(t.due_date)}}</td>
+                        <td>${{escapeHtml(t.priority)}}</td>
+                        <td>${{overdue ? 'OVERDUE' : escapeHtml(t.status)}}</td>
+                    </tr>`;
+                    const fuRows = [
+                        ...(fu.overdue || []).map(t => renderTask(t, true)),
+                        ...(fu.due_today || []).map(t => renderTask(t, false)),
+                        ...(fu.upcoming || []).map(t => renderTask(t, false)),
+                    ];
+                    followupsList.innerHTML = fuRows.length > 0
+                        ? fuRows.join('')
+                        : '<tr><td colspan="4" style="color:var(--text-muted)">No follow-ups due.</td></tr>';
+
+                    // Pipeline summary -- first UI surface for this data.
+                    const pipelineList = document.getElementById('pipelineSummaryList');
+                    const pipelineTotals = document.getElementById('pipelineTotals');
+                    const pl = data.pipeline || {{}};
+                    const stages = pl.stages || {{}};
+                    const stageOrder = pl.stage_order || [];
+                    // Per-stage dicts carry count/total_value/weighted_value --
+                    // NOT a per-stage win_rate (that only exists at the
+                    // pipeline-summary level below, and is a 0-1 fraction,
+                    // distinct from team.sales.win_rate_percent further down
+                    // which is already *100 -- formatted separately so the two
+                    // never read as the same number in different units).
+                    pipelineList.innerHTML = stageOrder.length > 0
+                        ? stageOrder.map(st => {{
+                            const s = stages[st] || {{ count: 0, total_value: 0, weighted_value: 0 }};
+                            return `<tr>
+                                <td>${{escapeHtml(st)}}</td>
+                                <td>${{s.count || 0}}</td>
+                                <td>$${{escapeHtml((s.total_value || 0).toLocaleString())}}</td>
+                                <td>$${{escapeHtml((s.weighted_value || 0).toLocaleString())}}</td>
+                            </tr>`;
+                        }}).join('')
+                        : '<tr><td colspan="4" style="color:var(--text-muted)">No pipeline data.</td></tr>';
+                    pipelineTotals.textContent = 'Total deals: ' + (pl.total_deals || 0) +
+                        ' | Active pipeline value: $' + (pl.active_pipeline_value || 0).toLocaleString() +
+                        ' | Won: ' + (pl.won_deals || 0) + ' ($' + (pl.won_value || 0).toLocaleString() + ')' +
+                        ' | Lost: ' + (pl.lost_deals || 0) + ' ($' + (pl.lost_value || 0).toLocaleString() + ')' +
+                        ' | Win rate: ' + Math.round((pl.win_rate || 0) * 100) + '%';
+
+                    // Commissions -- commissions_scope is a separate permission
+                    // axis from the page-level scope banner (B8.2a round-1
+                    // finding); label it independently, never conflate with
+                    // viewerScopeBanner above.
+                    const commissionsHeading = document.getElementById('commissionsHeading');
+                    commissionsHeading.textContent = 'Commissions (' + (data.commissions_scope === 'team' ? 'Team' : 'Mine') + ')';
+                    const commissionsList = document.getElementById('commissionsList');
+                    const commissionsByStatus = data.commissions || {{}};
+                    let commissionRows = [];
+                    Object.keys(commissionsByStatus).forEach(status => {{
+                        (commissionsByStatus[status] || []).forEach(c => {{
+                            commissionRows.push(`<tr>
+                                <td><span class="badge badge-slate">${{escapeHtml(status)}}</span></td>
+                                <td>${{escapeHtml(c.source_type)}}</td>
+                                <td>$${{escapeHtml((c.commission_amount || 0).toLocaleString())}}</td>
+                                <td>${{c.earned_at ? escapeHtml(c.earned_at) : '—'}}</td>
+                            </tr>`);
+                        }});
+                    }});
+                    commissionsList.innerHTML = commissionRows.length > 0
+                        ? commissionRows.join('')
+                        : '<tr><td colspan="4" style="color:var(--text-muted)">No commissions.</td></tr>';
+
+                    // Team snapshot -- gate on key presence ('team' in data),
+                    // not data.scope truthiness, matching the server's own gate
+                    // (route only sets response['team'] when the actor holds
+                    // PERM_READ_TEAM_SALES_DATA).
+                    const teamCard = document.getElementById('teamSummaryCard');
+                    const teamStrip = document.getElementById('teamSummaryStrip');
+                    if ('team' in data && data.team && data.team.sales) {{
+                        const ts = data.team.sales;
+                        teamStrip.innerHTML = `
+                            <div><div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;">Total Leads</div><div style="font-size:1.25rem;font-weight:700;">${{ts.total_leads || 0}}</div></div>
+                            <div><div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;">Hot Leads</div><div style="font-size:1.25rem;font-weight:700;">${{ts.hot_leads || 0}}</div></div>
+                            <div><div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;">New Leads</div><div style="font-size:1.25rem;font-weight:700;">${{ts.new_leads || 0}}</div></div>
+                            <div><div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;">Pipeline Opps</div><div style="font-size:1.25rem;font-weight:700;">${{ts.pipeline_opportunities || 0}}</div></div>
+                            <div><div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;">Pipeline Value</div><div style="font-size:1.25rem;font-weight:700;">$${{escapeHtml((ts.pipeline_value || 0).toLocaleString())}}</div></div>
+                            <div><div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;">Weighted Pipeline</div><div style="font-size:1.25rem;font-weight:700;">$${{escapeHtml((ts.weighted_pipeline_value || 0).toLocaleString())}}</div></div>
+                            <div><div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;">Win Rate</div><div style="font-size:1.25rem;font-weight:700;">${{ts.win_rate_percent || 0}}%</div></div>
+                        `;
+                        teamCard.style.display = 'block';
+                    }} else {{
+                        teamCard.style.display = 'none';
+                    }}
+                }}
+                // else: non-ok, non-401, non-403 response (e.g. 5xx) -- new
+                // panels keep their "Loading..." placeholders, matching the
+                // silent-fallback convention of every other fetch in this
+                // function; scopeBanner stays at its fail-closed 'My Own'
+                // default set above.
+            }} catch (e) {{ /* network/parse failure: new panels keep their "Loading..." placeholders, no further UI action needed */ }}
             }} finally {{
                 dashboardRefreshInFlight = false;
             }}

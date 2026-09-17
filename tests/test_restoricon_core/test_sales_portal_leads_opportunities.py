@@ -39,13 +39,25 @@ def test_sales_portal_leads_and_opportunities_handle_401():
 
 
 def test_sales_portal_viewer_scope_banner_is_display_only():
-    """The banner reads user.custom_permissions client-side purely for
-    display -- real enforcement is server-side. Assert the banner logic
+    """NEW-552: the banner used to read user.custom_permissions client-side,
+    which missed any actor with team access via the real ROLE_SALES_MANAGER
+    role rather than a custom_permissions override. It now derives from
+    data.scope === 'team' off the /api/v1/sales/dashboard response (the
+    authoritative signal, no OR-fallback to the old check) and fails closed
+    to 'My Own' until that response confirms 'team'. Assert the banner logic
     is present and explicitly NOT gating the fetch calls themselves."""
     html = render_sales_surface()
-    assert "read:team_sales_data" in html
+    assert "read:team_sales_data" not in html, (
+        "NEW-552: old custom_permissions-based banner check must be fully "
+        "removed, not left as a fallback alongside the new one"
+    )
+    assert "data.scope === 'team'" in html
     assert "Viewing: Whole Team" in html
     assert "Viewing: My Own" in html
+    assert "scopeBanner.textContent = 'Viewing: My Own';" in html, (
+        "banner must default (fail closed) to 'My Own' before any dashboard "
+        "response is confirmed"
+    )
 
 
 def test_sales_portal_has_claim_buttons_and_fetch_calls():
