@@ -7011,11 +7011,30 @@ this file's own don't-duplicate rule.
       enum drops `referral`, needs a B8.9-time decision), `NEW-546`
       (pre-existing `user_id=None` fail-open in rep-scoping filters,
       currently unreachable, not this round's regression).
-- [ ] **B8.2** — Command Center dashboard, full build (the
-      `/api/v1/sales/dashboard` aggregation route per `sales_rep_
-      portal.md` §5 B8.2). The `NEW-533` fix rewired `/sales`'s
-      existing view to show filtered leads/opportunities but did not
-      build this dedicated route; still open.
+- [x] **B8.2a** — `GET /api/v1/sales/dashboard` aggregation route.
+      **DONE 2026-09-17, code-complete + code-reviewer APPROVED
+      (round 2, after a round-1 CHANGES-REQUESTED on a real
+      independently-grantable-permission composition bug)**, commit
+      `a5206a5`. Full detail in `PROJECT_LOG.md`'s 2026-09-17 entry.
+      Composes `SchedulingService`/`CRMService`/`CommissionService` —
+      wired `CommissionService` into `APIRouter`/`RestoriconAPIServer`
+      for the first time. Team block gated explicitly at the route on
+      `PERM_READ_TEAM_SALES_DATA`; commissions independently gated on
+      `PERM_READ_TEAM_COMMISSIONS` via a separate `commissions_scope`
+      field (round-1 finding). Found/fixed a live security bug ahead
+      of this route's own build: `NEW-549` (`global_search` leaked
+      every rep's leads/opportunities, commit `1dfedc1`). Logged,
+      not fixed: `NEW-547` (staff-schedules 403, → B8.5), `NEW-548`
+      (`Estimate`/`Contract` have no rep field, → B8.6), `NEW-550`
+      (`get_executive_dashboard` aggregate leak, own round), `NEW-551`
+      (appointments strict-scoping divergence, informational).
+- [ ] **B8.2b** — rewire `_render_sales_portal`'s three panels
+      (appointments/leads/tasks, pipeline, commissions) to actually
+      consume B8.2a's route instead of their current separate direct
+      fetches, and add the manager-tier "team" view to the UI. Split
+      out from B8.2 deliberately (scoping pass, 2026-09-17) so the
+      route and its RBAC-critical tests didn't have to land in the
+      same commit as an HTML/JS rewire.
 - [ ] **B8.3** — lead & pipeline UX.
 - [ ] **B8.4** — Customer 360 & multi-property records.
 - [ ] **B8.5** — appointments & property assessment/inspection.
