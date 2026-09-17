@@ -7056,7 +7056,28 @@ this file's own don't-duplicate rule.
       validation). Logged, not fixed: `NEW-561` (narrow
       non-atomicity residual risk), `NEW-559`/`560` (pre-existing,
       from scoping), `NEW-562`/`563` (suggestion-level, round 2).
-- [ ] **B8.4** — Customer 360 & multi-property records.
+- [x] **B8.4a** — Property API routes + Customer 360 view. **DONE
+      2026-09-17, code-complete + code-reviewer APPROVED with zero
+      findings** (reviewer live-executed the rendered fan-out JS
+      under Node with a mocked fetch/DOM, not just string-shape
+      tests), commit `7fa3aad`. Full detail in `PROJECT_LOG.md`'s
+      2026-09-17 entry. Exposed B8.1's previously-unrouted Property
+      CRUD over HTTP (`NEW-564`); client-side fan-out modal (10
+      panels) over each entity's existing `customer_id`-filtered
+      route, `Promise.allSettled`-based so one panel's failure never
+      blocks the rest. Found, flagged for Ish, not decided: `NEW-565`
+      (`ROLE_SALES` can't read invoices at all). Found, logged, not
+      fixed: `NEW-568` (`list_customers` has no per-rep scoping).
+- [ ] **B8.4b** — Property↔Project/Document linkage (project-history
+      and document/photo panels on the Property detail view). Blocked
+      on `NEW-566` (`projects.property_id` DB column exists from B8.1
+      but is unwired at the model/service layer — needs a `Project`
+      dataclass field + `create_project`/`update_project`/
+      `_row_to_project` wiring, no new migration needed) and `NEW-567`
+      (`Document` has no `property_id` at all — scoping's
+      recommendation is NOT to add one; B8.5's planned
+      `AssessmentRecord` is the intended mechanism for pre-project
+      property photos instead).
 - [ ] **B8.5** — appointments & property assessment/inspection.
 - [ ] **B8.6** — estimates, Good/Better/Best packages, proposal
       builder, contracts.
