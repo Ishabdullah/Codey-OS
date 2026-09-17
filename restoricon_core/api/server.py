@@ -25,6 +25,7 @@ from ..services.finance_service import FinanceService
 from ..services.business_ops_service import BusinessOpsService
 from ..services.notification_service import NotificationService
 from ..services.analytics_search_service import AnalyticsSearchService
+from ..services.commission_service import CommissionService
 from .routes import APIRouter
 
 logger = logging.getLogger("restoricon_core.api")
@@ -163,6 +164,7 @@ class RestoriconAPIServer:
         self.finance_service = FinanceService(self.db, self.audit_service)
         self.business_ops_service = BusinessOpsService(self.db, self.audit_service)
         self.analytics_search_service = AnalyticsSearchService(self.db)
+        self.commission_service = CommissionService(self.db, self.audit_service)
 
         # RBAC for these services is enforced in the service layer, not here -- see
         # APIRouter's own class docstring.
@@ -177,6 +179,7 @@ class RestoriconAPIServer:
             finance_service=self.finance_service,
             business_ops_service=self.business_ops_service,
             analytics_search_service=self.analytics_search_service,
+            commission_service=self.commission_service,
         )
 
         class CustomHandler(RestoriconRequestHandler):

@@ -10,6 +10,7 @@ import re
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
@@ -20,6 +21,8 @@ from ..auth import (
     PERM_READ_ALL_CUSTOMERS,
     PERM_LOG_COMMUNICATION,
     PERM_MANAGE_USERS,
+    PERM_READ_TEAM_COMMISSIONS,
+    PERM_READ_TEAM_SALES_DATA,
     PERM_WRITE_SUBCONTRACTORS,
     PERMISSIONS_CATALOG,
 )
@@ -57,6 +60,7 @@ from ..services.analytics_search_service import AnalyticsSearchService
 from ..services.audit_service import AuditService, build_audit_details, _AUDITABLE_USER_FIELDS
 from ..services.automation_service import AutomationService
 from ..services.business_ops_service import BusinessOpsService
+from ..services.commission_service import CommissionService
 from ..services.communication_service import CommunicationService
 from ..services.crm_service import CRMService, ClaimConflictError
 from ..services.finance_service import FinanceService
@@ -336,6 +340,7 @@ class APIRouter:
         finance_service: Optional[FinanceService] = None,
         business_ops_service: Optional[BusinessOpsService] = None,
         analytics_search_service: Optional[AnalyticsSearchService] = None,
+        commission_service: Optional[CommissionService] = None,
     ):
         self.auth = auth_service
         self.crm = crm_service
@@ -348,6 +353,7 @@ class APIRouter:
         self.finance = finance_service or FinanceService(crm_service.db, audit_service)
         self.business_ops = business_ops_service or BusinessOpsService(crm_service.db, audit_service)
         self.analytics_search = analytics_search_service or AnalyticsSearchService(crm_service.db)
+        self.commissions = commission_service or CommissionService(crm_service.db, audit_service)
         self.rate_limiter = rate_limiter or RateLimiter(max_requests=60, window_seconds=60)
 
     def handle_request(
@@ -2718,6 +2724,131 @@ class APIRouter:
                 po_id = _parse_int_path_segment(path[len("/api/v1/procurement/purchase-orders/"):-len("/receive")], "po_id")
                 res = self.business_ops.receive_purchase_order(po_id, actor)
                 return 200, {"Content-Type": "application/json"}, {"status": "received", "purchase_order": res.to_dict()}
+
+            # -------------------------------------------------------------
+            # B8.2a: Sales Rep Portal Command Center Dashboard
+            # -------------------------------------------------------------
+            if path == "/api/v1/sales/dashboard" and method == "GET":
+                # NEW-546 is the exact fail-open shape this guard prevents:
+                # CRMService/CommissionService's own scoped-filter helpers
+                # apply no narrowing at all (see every row) when an actor
+                # lacks the team-read permission AND has user_id=None --
+                # currently unreachable via a real login (only the
+                # ai_agent-only migrate_aigentik.py constructs such a
+                # context, and ai_agent always holds the team-read
+                # permissions anyway), but this route is a brand new
+                # caller of those helpers, so make the precondition
+                # explicit here rather than relying on that being true
+                # forever. 403 (not 400) because this is an authorization
+                # failure -- the token is valid but doesn't resolve to a
+                # real user identity this route can scope data to.
+                if actor.user_id is None:
+                    return 403, {"Content-Type": "application/json"}, {
+                        "error": "Actor has no associated user_id; cannot scope sales dashboard data"
+                    }
+
+                days = _parse_int_query_param(query_params, "days", 7, minimum=1, maximum=90)
+                today = datetime.now(timezone.utc).date()
+                window_end = today + timedelta(days=days)
+                today_iso = today.isoformat()
+                window_end_iso = window_end.isoformat()
+
+                # SchedulingService.list_appointments has no rep-scoping
+                # param of its own -- post-filter here for the rep tier.
+                # Paginate through the full date-filtered result set rather
+                # than taking a single capped page: the rep-tier post-filter
+                # runs in Python *after* the SQL LIMIT, so a single
+                # under-sized page could silently truncate a rep's own
+                # appointments out of the window on a company with a large
+                # number of appointments in-range (advisor review caught
+                # this on this route's first draft).
+                appts: List[Appointment] = []
+                _appt_offset = 0
+                _appt_page_size = 500
+                while True:
+                    _appt_page = self.scheduling.list_appointments(
+                        actor, start=today_iso, end=window_end_iso,
+                        limit=_appt_page_size, offset=_appt_offset,
+                    )
+                    appts.extend(_appt_page)
+                    if len(_appt_page) < _appt_page_size:
+                        break
+                    _appt_offset += _appt_page_size
+                # Note (flagged as NEW-551, not fixed here): this is a
+                # strict assigned_user_id == actor.user_id filter, per this
+                # task's spec -- unlike list_leads/list_tasks' unclaimed-
+                # pool rule (assigned_user_id = ? OR IS NULL, NEW-533/534),
+                # an unassigned appointment is dropped for a narrowed actor
+                # rather than shown as claimable. Intentional per spec, but
+                # a real divergence from the sibling scoping pattern worth
+                # a coordinator decision on whether appointments should
+                # eventually follow the same unclaimed-pool rule.
+                if not actor.has_permission(PERM_READ_TEAM_SALES_DATA):
+                    appts = [a for a in appts if a.assigned_user_id == actor.user_id]
+                appts_today = [a for a in appts if a.start_time and a.start_time[:10] == today_iso]
+                appts_upcoming = [
+                    a for a in appts
+                    if a.start_time and today_iso < a.start_time[:10] <= window_end_iso
+                ]
+
+                new_leads = self.crm.list_leads(actor, status="new")
+
+                tasks = self.crm.list_tasks(actor, status="pending")
+                overdue_tasks = [t for t in tasks if t.due_date and t.due_date[:10] < today_iso]
+                due_today_tasks = [t for t in tasks if t.due_date and t.due_date[:10] == today_iso]
+                upcoming_tasks = [
+                    t for t in tasks
+                    if t.due_date and today_iso < t.due_date[:10] <= window_end_iso
+                ]
+
+                pipeline = self.crm.get_pipeline_summary(actor)
+
+                # PERM_READ_TEAM_COMMISSIONS is a separate, independently
+                # grantable permission from PERM_READ_TEAM_SALES_DATA (every
+                # built-in role happens to pair them, but custom_permissions
+                # can grant one without the other -- NEW-533's own mechanism).
+                # CommissionService.list_commissions already self-scopes
+                # correctly on this permission -- do NOT duplicate that
+                # narrowing here. What this route must not do is imply, via
+                # a single top-level "scope" field, that commissions follow
+                # the same rep/team split as appointments/leads/tasks/
+                # pipeline when they're gated on a different permission.
+                has_team_commissions = actor.has_permission(PERM_READ_TEAM_COMMISSIONS)
+                commissions = self.commissions.list_commissions(actor)
+                commissions_by_status: Dict[str, List[Dict[str, Any]]] = {}
+                for c in commissions:
+                    commissions_by_status.setdefault(c.status, []).append(c.to_dict())
+
+                response: Dict[str, Any] = {
+                    "appointments": {
+                        "today": [a.to_dict() for a in appts_today],
+                        "upcoming": [a.to_dict() for a in appts_upcoming],
+                    },
+                    "leads": {"new": [l.to_dict() for l in new_leads]},
+                    "followups": {
+                        "overdue": [t.to_dict() for t in overdue_tasks],
+                        "due_today": [t.to_dict() for t in due_today_tasks],
+                        "upcoming": [t.to_dict() for t in upcoming_tasks],
+                    },
+                    "pipeline": pipeline,
+                    "commissions": commissions_by_status,
+                    "commissions_scope": "team" if has_team_commissions else "own",
+                }
+
+                # The single most important RBAC point in this route: gate
+                # the entire team block here, at the route level, on
+                # PERM_READ_TEAM_SALES_DATA -- do NOT rely on
+                # get_executive_dashboard's own (too-broad, NEW-550) gate
+                # of PERM_VIEW_REPORTS, which ROLE_SALES already holds by
+                # default. When the actor lacks PERM_READ_TEAM_SALES_DATA,
+                # the "team" key must be absent from the response entirely.
+                if actor.has_permission(PERM_READ_TEAM_SALES_DATA):
+                    response["scope"] = "team"
+                    response["team"] = self.analytics_search.get_executive_dashboard(actor)
+                else:
+                    response["scope"] = "rep"
+
+                return 200, {"Content-Type": "application/json"}, response
 
             # -------------------------------------------------------------
             # Phase B5a: Global Search & Executive Reporting Endpoints
