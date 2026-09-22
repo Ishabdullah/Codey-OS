@@ -182,6 +182,7 @@ install_python_deps() {
         "pyttsx3>=2.90" \
         "python-multipart>=0.0.9" \
         "google-cloud-storage==2.11.0" \
+        "reportlab>=5.0.0" \
         || print_warning "Some pip packages failed — Codey-OS may still work"
 
     print_success "Core Python packages installed"

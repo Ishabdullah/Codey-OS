@@ -7,9 +7,11 @@ Contracts, Invoices, Documents) with RBAC enforcement and automatic audit loggin
 from __future__ import annotations
 
 import json
+import os
 import re
 import secrets
 import sqlite3
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -77,6 +79,7 @@ from .audit_service import AuditService, build_audit_details, _AUDITABLE_CONTRAC
 from .notification_service import NotificationService
 from .operations_service import OperationsService
 from .scheduling_service import SchedulingService
+from . import pdf_service
 
 
 class ClaimConflictError(Exception):
@@ -3836,6 +3839,74 @@ class CRMService:
                 side_effects={"signature_captured": True},
             ),
         )
+
+        # B8.6d-a: server-generated contract PDF, persisted as a Document
+        # row, as a best-effort side effect of a successful sign. This does
+        # NOT touch sign_contract's authorization/ownership/idempotency gate
+        # above (NEW-573/575) -- it only runs after that gate has already
+        # let the sign through and the status/signature UPDATE has
+        # committed.
+        #
+        # Uses a system actor (not the real signer `actor`) for
+        # create_document: ROLE_CUSTOMER -- the common self-signer -- holds
+        # PERM_SIGN_CONTRACTS + PERM_READ_OWN_DOCUMENTS but not
+        # PERM_WRITE_DOCUMENTS (auth.py ROLE_PERMISSIONS), so a customer
+        # signing their own contract would otherwise get a PermissionError
+        # from this internal side effect. The `sign` audit entry above
+        # already records the real actor; only the Document row's own
+        # audit entry (inside create_document) is attributed to the system
+        # actor. Same system_actor shape as the web-intake path elsewhere
+        # in this file (see create_lead_from_web_form).
+        try:
+            from utils.config import get_restoricon_doc_store_path
+
+            signer_label = f"Signed by {actor.username} on {now}"
+            pdf_bytes = pdf_service.render_contract_pdf(_signed, signer_label)
+
+            base_dir = get_restoricon_doc_store_path()
+            target_dir = os.path.join(base_dir, "contracts", "customers", str(_signed.customer_id))
+            os.makedirs(target_dir, exist_ok=True)
+            safe_filename = os.path.basename(
+                f"{contract_id}_{int(time.time())}_{_signed.contract_number or 'contract'}.pdf"
+            )
+            file_path = os.path.join(target_dir, safe_filename)
+            with open(file_path, "wb") as fh:
+                fh.write(pdf_bytes)
+
+            pdf_system_actor = AuthContext(
+                user_id=1,
+                username="system_contract_pdf",
+                role=ROLE_ADMIN,
+                actor_type="agent",
+            )
+            self.create_document(
+                Document(
+                    customer_id=_signed.customer_id,
+                    project_id=_signed.project_id,
+                    document_type="contract",
+                    title=f"Signed Contract {_signed.contract_number or contract_id}",
+                    file_path=file_path,
+                    file_size_bytes=len(pdf_bytes),
+                    mime_type="application/pdf",
+                ),
+                pdf_system_actor,
+            )
+        except Exception as pdf_exc:
+            # Best-effort by design: the sign transaction above is already
+            # committed and authoritative, and must not fail or appear to
+            # roll back because PDF rendering/persistence failed (disk
+            # full, unwritable doc-store path, etc). Not silently
+            # swallowed, though -- audit-logged so an operator reviewing
+            # the log can see a contract signed with no PDF and
+            # investigate, rather than the failure vanishing with no trace.
+            self.audit.log(
+                action="pdf_generation_failed",
+                entity_type="contract",
+                entity_id=contract_id,
+                change_summary=f"PDF generation failed for signed contract #{row['contract_number']}: {pdf_exc}",
+                actor=actor,
+                details=build_audit_details(after={"error": str(pdf_exc)}),
+            )
 
         return _signed
 

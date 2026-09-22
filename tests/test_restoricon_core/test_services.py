@@ -478,7 +478,10 @@ def test_crm_entity_lifecycle_with_audit_trail(setup_services):
     # 8. Verify comprehensive audit trail
     logs = audit_service.query_logs(actor_admin)
     # We should have audit logs for: create customer, create lead, create opp, create proj, create est, create contract, sign contract, create invoice, pay invoice
-    assert len(logs) == 9
+    # B8.6d-a: sign_contract now also generates and persists a contract PDF
+    # as a Document row (create_document's own audit entry), one more log
+    # than before -- 10, not 9.
+    assert len(logs) == 10
 
 
 def test_sign_contract_new192_role_matrix(setup_services):
