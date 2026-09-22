@@ -18803,3 +18803,13 @@ housekeeping, same as `NEW-403`'s own cleanup.
 - **Fix direction:** not decided this round — would need a genuine reserved system-user convention (e.g. a dedicated, never-login-able system account created at DB init, or a `user_id=None`-tolerant audit path) applied consistently across every existing `system_actor`-shaped call site, not just this new one.
 - **Not fixed this round** — logged per rule 8, pre-existing pattern, out of B8.6d-a's scope to redesign.
 - **Cross-reference:** `restoricon_core/services/crm_service.py` (`create_lead_from_web_form`'s `system_actor`, B8.6d-a's `pdf_system_actor`).
+
+## Found 2026-09-22 — B8.6d-b implementer round, not fixed, deliberate scope boundary
+
+### [NEW-592] Confirmed, not a bug — service-layer complete but not end-to-end usable: multi-party contract signing (B8.6d-b) has no API/route surface yet, so a contract can only be opted into it via direct service-layer calls, not through any UI or API today
+
+- **Status:** Confirmed (implementer, 2026-09-22, B8.6d-b). `routes.py`'s two `/sign` handlers still call `sign_contract(contract_id, signature_data, actor)` positionally — correct, that's the unaffected legacy single-signer path — but no route exists for `CRMService.add_contract_signers()` or a party-aware sign call. A contract can only be opted into multi-party signing today from a test or a future script, not from the sales portal, admin dashboard, or customer portal.
+- **Impact:** none currently exploitable or broken — this is B8.6d-b's own deliberate scope boundary (schema + `sign_contract` extension + PDF integration were the named scope; new routes/UI were not). Flagging so it's visible rather than silently assumed complete.
+- **Fix direction:** route wiring (`POST /api/v1/contracts/<id>/signers` or similar, plus a party-aware sign call) belongs in B8.6d-c (the guided UI phase) or a dedicated follow-on, consistent with the standing "everything configurable must be dashboard-editable" rule — multi-party signing isn't real to an end user until it's reachable from a surface, not just the service layer.
+- **Not fixed this round** — logged per rule 8, deliberate scope boundary, not an oversight.
+- **Cross-reference:** `restoricon_core/services/crm_service.py` (`add_contract_signers`, `sign_contract`), `restoricon_core/api/routes.py`, B8.6d-c.
