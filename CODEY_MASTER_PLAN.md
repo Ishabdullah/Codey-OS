@@ -7070,9 +7070,11 @@ this file's own don't-duplicate rule.
       `NEW-568` (`list_customers` had no per-rep scoping) — **fixed
       2026-09-22, commit `e8db392`**, full detail in `PROJECT_LOG.md`'s
       2026-09-22 entry. Found while fixing: `NEW-587` (a real
-      regression — this narrowing can now 404 a rep's own B8.6c
-      estimate proposal if the customer gets reassigned, not yet
-      fixed). Logged, not fixed: `NEW-584`/`NEW-585` (two other
+      regression — this narrowing could 404 a rep's own B8.6c
+      estimate proposal if the customer gets reassigned) — **fixed
+      same day, commit `8a01c5e`**. Logged, not fixed: `NEW-588`
+      (the `NEW-587` fix also bypasses a permission gate, currently
+      unexploitable). Logged, not fixed: `NEW-584`/`NEW-585` (two other
       customer-lookup paths that don't apply the new narrowing /
       handle it cleanly).
 - [x] **B8.4b** — `projects.property_id` wiring + Property
