@@ -7066,10 +7066,15 @@ this file's own don't-duplicate rule.
       panels) over each entity's existing `customer_id`-filtered
       route, `Promise.allSettled`-based so one panel's failure never
       blocks the rest. Found: `NEW-565` (`ROLE_SALES` couldn't read
-      invoices) — **fixed 2026-09-22, commit `a6fdd93`**. Found,
-      logged, not fixed: `NEW-568` (`list_customers` has no per-rep
-      scoping — **answered by Ish 2026-09-22: build the ownership/
-      assignment model, admin can assign/reassign**, not yet built).
+      invoices) — **fixed 2026-09-22, commit `a6fdd93`**. Found:
+      `NEW-568` (`list_customers` had no per-rep scoping) — **fixed
+      2026-09-22, commit `e8db392`**, full detail in `PROJECT_LOG.md`'s
+      2026-09-22 entry. Found while fixing: `NEW-587` (a real
+      regression — this narrowing can now 404 a rep's own B8.6c
+      estimate proposal if the customer gets reassigned, not yet
+      fixed). Logged, not fixed: `NEW-584`/`NEW-585` (two other
+      customer-lookup paths that don't apply the new narrowing /
+      handle it cleanly).
 - [x] **B8.4b** — `projects.property_id` wiring + Property
       project-history panel. **DONE 2026-09-17, code-complete +
       code-reviewer APPROVED** (pre-fix bug independently reproduced,
