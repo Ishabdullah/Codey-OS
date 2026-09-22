@@ -3704,11 +3704,24 @@ class CRMService:
         if actor.role == ROLE_CUSTOMER:
             if not actor.customer_id or actor.customer_id != row["customer_id"]:
                 raise PermissionError("Customer cannot sign another customer's contract")
-        elif not actor.has_permission(PERM_READ_TEAM_SALES_DATA):
+        elif not (
+            actor.has_permission(PERM_READ_TEAM_SALES_DATA)
+            or not actor.has_permission(PERM_WRITE_CONTRACTS)
+        ):
             # NEW-573: rep-ownership narrowing, same gate as get_contract --
             # a rep without team-wide visibility must not be able to sign a
             # contract assigned to a different rep just by knowing its id,
             # bypassing whatever narrowing get_contract applies.
+            #
+            # NEW-575: an actor that lacks PERM_WRITE_CONTRACTS (and so can
+            # never be the assigned owner of a contract in the first place,
+            # e.g. ROLE_PROJECT_MANAGER) is exempted from this ownership
+            # narrowing entirely -- otherwise it could never sign any
+            # contract at all, silently breaking the PERM_SIGN_CONTRACTS
+            # grant from NEW-192. Actors that DO hold PERM_WRITE_CONTRACTS
+            # (e.g. ROLE_SALES) are unaffected: this only widens who is
+            # exempt, it does not narrow ROLE_SALES's existing ownership
+            # check.
             contract_owner = row["assigned_user_id"] if "assigned_user_id" in row.keys() else None
             if contract_owner != actor.user_id:
                 raise PermissionError("Actor cannot sign a contract assigned to another user")

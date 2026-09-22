@@ -427,6 +427,10 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_READ_PROCUREMENT,
         PERM_GLOBAL_SEARCH,
         PERM_VIEW_REPORTS,
+        # NEW-565, 2026-09-18 (Ish): sales reps need to see a customer's
+        # invoices on the Customer 360 panel; verified this only gates
+        # list_invoices/get_invoice in crm_service.py, nothing else.
+        PERM_READ_FINANCIALS,
         # NEW-547: self-only staff-schedule visibility for the sales
         # portal's "My Schedule" panel -- NOT the full company-wide
         # PERM_READ_STAFF_SCHEDULES (that stays admin/manager/PM/ai_agent

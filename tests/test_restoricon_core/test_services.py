@@ -10,6 +10,7 @@ from restoricon_core.auth import (
     PERM_LOG_COMMUNICATION,
     PERM_READ_COMMUNICATIONS,
     PERM_READ_TEAM_SALES_DATA,
+    PERM_WRITE_CONTRACTS,
     ROLE_ADMIN,
     ROLE_AI_AGENT,
     ROLE_CUSTOMER,
@@ -497,16 +498,17 @@ def test_sign_contract_new192_role_matrix(setup_services):
     # (ownership), rather than repeatedly re-signing one shared,
     # admin-owned contract as this test did pre-B8.6a.
     #
-    # KNOWN GAP surfaced (not fixed) by this round: ROLE_PROJECT_MANAGER
-    # holds PERM_SIGN_CONTRACTS (NEW-192) but, per auth.py's current
-    # ROLE_PERMISSIONS matrix, has neither PERM_READ_TEAM_SALES_DATA nor
-    # PERM_WRITE_CONTRACTS -- so post-B8.6a a PM can no longer sign a
-    # contract it doesn't own (no team-tier bypass) and can never own one
-    # (can't create a contract). This narrows the NEW-192 grant for PM to
-    # "can never actually sign anything" and needs an explicit product
-    # decision (grant PM either permission) rather than a silent fix here;
-    # flagged in the B8.6a handoff. The case below documents the current
-    # (probably unintended) behavior, not an accepted spec.
+    # NEW-575 (2026-09-22): B8.6a's ownership narrowing above accidentally
+    # broke the NEW-192 grant for ROLE_PROJECT_MANAGER, which holds
+    # PERM_SIGN_CONTRACTS but neither PERM_READ_TEAM_SALES_DATA nor
+    # PERM_WRITE_CONTRACTS -- it could sign nothing (no team-tier bypass,
+    # can never own a contract since it can't create one). Fixed by
+    # exempting actors that lack PERM_WRITE_CONTRACTS from the ownership
+    # check in sign_contract: such an actor can never be an owner anyway,
+    # so narrowing by ownership can only ever reject it, not usefully scope
+    # it. ROLE_SALES (which holds PERM_WRITE_CONTRACTS) is unaffected --
+    # see test_sign_contract_rejects_non_owning_narrowed_actor. The case
+    # below now documents the restored (accepted) behavior, not a gap.
     db, auth_service, audit_service, _, crm_service = setup_services
 
     admin_user = auth_service.create_user(
@@ -559,13 +561,13 @@ def test_sign_contract_new192_role_matrix(setup_services):
     signed = crm_service.sign_contract(contract_for_customer.id, "sig-customer", actor_customer)
     assert signed.status == "signed"
 
-    # KNOWN GAP (see module comment above): project_manager holds
-    # PERM_SIGN_CONTRACTS but, lacking both PERM_READ_TEAM_SALES_DATA and
-    # PERM_WRITE_CONTRACTS, can no longer sign a contract it doesn't own.
+    # NEW-575: project_manager holds PERM_SIGN_CONTRACTS and, lacking
+    # PERM_WRITE_CONTRACTS, is exempt from the ownership narrowing -- it can
+    # sign a contract it doesn't own (and never could own).
     actor_pm = make_actor(ROLE_PROJECT_MANAGER)
-    contract_for_pm_gap = make_contract("CTR-NEW192-PM-GAP", actor_admin)
-    with pytest.raises(PermissionError):
-        crm_service.sign_contract(contract_for_pm_gap.id, "sig-pm", actor_pm)
+    contract_for_pm = make_contract("CTR-NEW192-PM", actor_admin)
+    signed = crm_service.sign_contract(contract_for_pm.id, "sig-pm", actor_pm)
+    assert signed.status == "signed"
 
     # Negative: technician and ai_agent must still be rejected outright
     # (permission check fires before ownership is even considered).
@@ -774,6 +776,44 @@ def test_sign_contract_rejects_non_owning_narrowed_actor(setup_services):
     assert signed_by_manager.status == "signed"
 
 
+def test_sign_contract_pm_ownership_bypass_local_to_signing(setup_services):
+    """NEW-575: the ownership-narrowing bypass added to sign_contract for
+    actors lacking PERM_WRITE_CONTRACTS (e.g. ROLE_PROJECT_MANAGER) is local
+    to sign_contract only -- it must NOT also widen get_contract/
+    list_contracts visibility. A PM must still be unable to see a contract
+    it doesn't own via those two read paths, confirming the fix didn't leak
+    into general contract visibility."""
+    db, auth_service, audit_service, _, crm_service = setup_services
+    actor_admin, actor_rep_a, actor_rep_b, actor_manager, cust = _make_scoped_actors(
+        auth_service, crm_service, "pmvis"
+    )
+
+    pm_user = auth_service.create_user(
+        username="pm_pmvis", plain_password="Password123", full_name="PM",
+        email="pm_pmvis@test.com", role=ROLE_PROJECT_MANAGER,
+    )
+    actor_pm = AuthContext(user_id=pm_user.id, username="pm_pmvis", role=ROLE_PROJECT_MANAGER, actor_type="human")
+    assert not actor_pm.has_permission(PERM_READ_TEAM_SALES_DATA)
+    assert not actor_pm.has_permission(PERM_WRITE_CONTRACTS)
+
+    contract_a = crm_service.create_contract(
+        Contract(contract_number="CTR-PMVIS-A", customer_id=cust.id, title="A", content="Terms A"), actor_rep_a
+    )
+
+    # get_contract: not owned by the PM -> not-found (same narrowing shape
+    # as get_estimate/get_lead), unchanged by the sign_contract fix.
+    assert crm_service.get_contract(contract_a.id, actor_pm) is None
+
+    # list_contracts: contract_a must not appear for the PM.
+    contract_ids = {c.id for c in crm_service.list_contracts(actor_pm)}
+    assert contract_a.id not in contract_ids
+
+    # But sign_contract itself is exempted (NEW-575) -- the PM can still
+    # sign it despite not owning/seeing it via the read paths.
+    signed = crm_service.sign_contract(contract_a.id, "sig-pm-vis", actor_pm)
+    assert signed.status == "signed"
+
+
 def test_estimates_contracts_full_tier_actors_see_everything(setup_services):
     """Regression: ROLE_ADMIN/ROLE_MANAGER/ROLE_SALES_MANAGER/ROLE_AI_AGENT
     (the roles that actually hold PERM_READ_TEAM_SALES_DATA by default in
@@ -787,9 +827,11 @@ def test_estimates_contracts_full_tier_actors_see_everything(setup_services):
     PERM_READ_TEAM_SALES_DATA in this codebase (only ROLE_ADMIN,
     ROLE_MANAGER, ROLE_AI_AGENT, and the derived ROLE_SALES_MANAGER do), so
     it is deliberately excluded from this regression list rather than
-    asserted incorrectly. See the B8.6a handoff for the flagged product
-    question this raises for ROLE_PROJECT_MANAGER's contract-signing
-    ability post-B8.6a.
+    asserted incorrectly. Note this is about general contract
+    visibility (get_contract/list_contracts), which is unaffected by
+    NEW-575: that fix only restored PROJECT_MANAGER's ability to sign a
+    contract it doesn't own, not team-wide visibility -- see
+    test_sign_contract_pm_ownership_bypass_local_to_signing.
     """
     db, auth_service, audit_service, _, crm_service = setup_services
     actor_admin, actor_rep_a, actor_rep_b, actor_manager, cust = _make_scoped_actors(
