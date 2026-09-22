@@ -7247,12 +7247,48 @@ this file's own don't-duplicate rule.
       pre-existing `NEW-546` fail-open fix). **Was blocked pending
       `NEW-598`** (a guided-flow-created customer had no owning rep to
       attribute commission to) — **NEW-598 fixed and closed 2026-09-22**
-      (commit `f16f717`), unblocked. B8.7a is next up to build. Two
-      more attribution-adjacent findings logged from that fix's review:
-      `NEW-600` (lead-conversion-created customers still land unclaimed
-      when an admin converts — inert today, no live commission code
-      reads `Customer.assigned_user_id` yet), `NEW-601` (inert
-      `ROLE_CUSTOMER`+`custom_permissions` edge case).
+      (commit `f16f717`), unblocked. Two more attribution-adjacent
+      findings logged from that fix's review: `NEW-600`
+      (lead-conversion-created customers still land unclaimed when an
+      admin converts), `NEW-601` (inert `ROLE_CUSTOMER`+
+      `custom_permissions` edge case).
+      - [x] **B8.7a** — plan config + invoice classification + Phase 1
+            flat $100 commission. **DONE 2026-09-22, code-complete +
+            code-reviewer APPROVED (round 2, after a round-1
+            CHANGES-REQUESTED on a live-proven Critical: a
+            commission-plan-config read sat outside its own try/except,
+            so a failure there would raise past an already-committed
+            payment)**, commit `cd658be`. Full detail in
+            `PROJECT_LOG.md`'s 2026-09-22 entry. New
+            `commission_plan_config` singleton (dashboard-editable in a
+            future round, seeded with D4's real numbers, not Python
+            constants). `Invoice.invoice_type`/`assigned_user_id`
+            (inherited from the linked Customer, since `create_invoice`
+            is admin/manager-gated and can't trust the creating actor
+            as the owning rep). Partial unique index on
+            `commission_ledger_entries(source_type, source_id)` as a
+            second-layer double-fire defense (had to exclude
+            `reverse_commission`'s own same-source reversal rows — a
+            real bug the implementer caught before it reached review).
+            `record_payment` fires the commission automatically on the
+            not-paid→paid transition edge; no assigned rep → audit-
+            logged skip, never silent, never a crash. `NEW-600`'s
+            framing corrected (rule 6) — it's now live-relevant to
+            commission attribution, not inert. Logged, not fixed:
+            `NEW-602` (hardcoded system-actor `user_id=1` is FK-fragile
+            for this call site specifically), `NEW-603`
+            (`create_invoice` accepts an unvalidated `assigned_user_id`),
+            `NEW-604` (an invoice already `paid` at creation bypasses
+            the transition-edge trigger), `NEW-605` (pre-existing
+            `payments_json` race, unrelated to this diff).
+      - [ ] **B8.7b** — `homecare_subscriptions` table + Phase 2 bonus +
+            lazy-evaluated 90-day clawback. Not yet built.
+      - [ ] **B8.7c** — Phase 3 portfolio override. **Blocked on D6**
+            (definition of "major GC work" + "gross collected revenue" —
+            see Open Decisions §8 item 13). Not yet scoped in detail.
+      - [ ] **B8.7d** — `get_team_commission_summary`, rep/manager
+            dashboards, folds in the pre-existing `NEW-546` fail-open
+            fix. Not yet built.
 - [ ] **B8.8** — insurance restoration workflow & financing tracking.
       Financing integration blocked on Open Decision D5.
 - [ ] **B8.9** — territory management & referral compensation.
