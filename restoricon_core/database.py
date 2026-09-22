@@ -295,6 +295,25 @@ CREATE TABLE IF NOT EXISTS contracts (
     FOREIGN KEY (estimate_id) REFERENCES estimates(id) ON DELETE SET NULL
 );
 
+-- Package Options (B8.6b, sales_rep_portal.md §B8.6): Good/Better/Best
+-- tiered pricing options scoped to an estimate. tier is deliberately
+-- distinct from and never mixed with home-care.html's real published
+-- subscription tiers (Basic/Plus/Complete/Estate). price/gross_profit/
+-- margin are always server-computed by CRMService.create_package_option,
+-- never client-trusted. New table, no migration entry needed.
+CREATE TABLE IF NOT EXISTS package_options (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    estimate_id INTEGER,
+    tier TEXT NOT NULL CHECK(tier IN ('good', 'better', 'best')),
+    price REAL NOT NULL,
+    gross_profit REAL,
+    margin REAL,
+    included_items_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (estimate_id) REFERENCES estimates(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_package_options_estimate_id ON package_options(estimate_id);
+
 -- Documents
 CREATE TABLE IF NOT EXISTS documents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

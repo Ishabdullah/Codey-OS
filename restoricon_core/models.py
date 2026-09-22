@@ -538,6 +538,29 @@ class Estimate:
 
 
 @dataclass
+class PackageOption:
+    """Good/Better/Best tiered pricing option scoped to an Estimate
+    (B8.6b, sales_rep_portal.md §B8.6). Deliberately distinct from and
+    never mixed with home-care.html's real published subscription tiers
+    (Basic/Plus/Complete/Estate) -- settled by the B8 scoping pass,
+    not a naming decision made here. price/gross_profit/margin are
+    always server-computed from included_items by
+    CRMService.create_package_option -- never trusted from a client,
+    same discipline as Estimate's computed cost fields."""
+    id: Optional[int] = None
+    estimate_id: Optional[int] = None
+    tier: str = "good"  # good, better, best
+    price: float = 0.0
+    gross_profit: Optional[float] = None
+    margin: Optional[float] = None
+    included_items: List[Dict[str, Any]] = field(default_factory=list)
+    created_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class Contract:
     id: Optional[int] = None
     contract_number: str = ""

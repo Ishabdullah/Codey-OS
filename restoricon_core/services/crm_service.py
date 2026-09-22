@@ -63,6 +63,7 @@ from ..models import (
     Invoice,
     Lead,
     Opportunity,
+    PackageOption,
     PipelineStage,
     Project,
     ProjectStage,
@@ -2848,6 +2849,70 @@ class CRMService:
     # ESTIMATES
     # ==========================================
 
+    # Line item bucket categories -- must stay in sync with whatever
+    # dispatcher/UI eventually authors line_items. Mirrors
+    # OperationsService.create_work_order's `quantity` * `unit_cost` = item
+    # total convention (operations_service.py) so both cost-computation
+    # paths in this codebase agree on the same line-item shape. An item
+    # with no recognized `category` (or none at all) still counts toward
+    # `subtotal` but not toward any of the three cost buckets -- e.g. a
+    # generic "other" cost line.
+    _ESTIMATE_COST_BUCKETS = {
+        "materials": "materials_cost",
+        "labor": "labor_cost",
+        "subcontractor": "subcontractor_cost",
+    }
+
+    @classmethod
+    def _compute_line_item_costs(cls, line_items: List[Dict[str, Any]]) -> Dict[str, float]:
+        """Server-side cost computation from line_items -- NEW-574. Never
+        trusts a client-supplied subtotal/materials_cost/labor_cost/
+        subcontractor_cost; always derives them from quantity * unit_cost
+        per item, bucketed by `category`."""
+        totals = {"materials_cost": 0.0, "labor_cost": 0.0, "subcontractor_cost": 0.0, "subtotal": 0.0}
+        for item in line_items or []:
+            try:
+                qty = float(item.get("quantity", 1.0))
+                unit_cost = float(item.get("unit_cost", 0.0))
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"Invalid line_item quantity/unit_cost: {item!r}") from exc
+            item_total = round(qty * unit_cost, 2)
+            totals["subtotal"] += item_total
+            bucket = cls._ESTIMATE_COST_BUCKETS.get(item.get("category"))
+            if bucket:
+                totals[bucket] += item_total
+        totals["subtotal"] = round(totals["subtotal"], 2)
+        totals["materials_cost"] = round(totals["materials_cost"], 2)
+        totals["labor_cost"] = round(totals["labor_cost"], 2)
+        totals["subcontractor_cost"] = round(totals["subcontractor_cost"], 2)
+        return totals
+
+    @staticmethod
+    def _compute_estimate_total(
+        subtotal: float, markup_percent: float, discount_amount: float, tax_amount: float
+    ) -> float:
+        """total_amount = subtotal + markup (applied to subtotal) -
+        discount + tax. markup_percent/discount_amount/tax_amount remain
+        client-settable inputs (not derived from line_items); only the
+        cost buckets and this resulting total are computed here."""
+        markup = subtotal * (float(markup_percent) / 100.0)
+        total = subtotal + markup - float(discount_amount or 0.0) + float(tax_amount or 0.0)
+        return round(total, 2)
+
+    def _apply_estimate_pricing(self, estimate: Estimate) -> None:
+        """Overwrites estimate's computed cost/total fields in place from
+        its own line_items/markup_percent/discount_amount/tax_amount --
+        the only trusted source. Called by both create_estimate and
+        update_estimate so the two paths can never drift."""
+        costs = self._compute_line_item_costs(estimate.line_items)
+        estimate.subtotal = costs["subtotal"]
+        estimate.materials_cost = costs["materials_cost"]
+        estimate.labor_cost = costs["labor_cost"]
+        estimate.subcontractor_cost = costs["subcontractor_cost"]
+        estimate.total_amount = self._compute_estimate_total(
+            estimate.subtotal, estimate.markup_percent, estimate.discount_amount, estimate.tax_amount
+        )
+
     def create_estimate(self, estimate: Estimate, actor: AuthContext) -> Estimate:
         if not actor.has_permission(PERM_WRITE_ESTIMATES):
             raise PermissionError("Actor lacks permission to create estimates")
@@ -2861,6 +2926,11 @@ class CRMService:
         # only place that can be trusted. Same fail-open shape NEW-546 was
         # closed for.
         estimate.assigned_user_id = actor.user_id
+        # NEW-574: force server-side cost/total computation, ignoring/
+        # overwriting any subtotal/materials_cost/labor_cost/
+        # subcontractor_cost/total_amount a client JSON body set -- same
+        # fail-open shape as the assigned_user_id fix above.
+        self._apply_estimate_pricing(estimate)
         line_items_json = json.dumps(estimate.line_items)
 
         conn = self.db.get_connection()
@@ -3003,6 +3073,330 @@ class CRMService:
         query += " ORDER BY id DESC;"
         rows = conn.execute(query, params).fetchall()
         return [self._row_to_estimate(r, actor.role) for r in rows]
+
+    # Fields updatable via update_estimate. Deliberately excludes
+    # customer_id/project_id/assigned_user_id/status/version (status has
+    # its own transition method below; the other three are out of this
+    # round's scope) and every server-computed cost field (subtotal,
+    # materials_cost, labor_cost, subcontractor_cost, total_amount --
+    # NEW-574, see _apply_estimate_pricing).
+    ALLOWED_ESTIMATE_UPDATE_FIELDS = {
+        "line_items", "markup_percent", "tax_amount", "discount_amount",
+        "expiration_date", "notes",
+    }
+
+    # Any change to one of these fields forces a server-side pricing
+    # recompute (see _apply_estimate_pricing) -- they're the only inputs
+    # that feed the computed cost/total fields.
+    _ESTIMATE_PRICING_INPUT_FIELDS = {"line_items", "markup_percent", "tax_amount", "discount_amount"}
+
+    def update_estimate(
+        self, estimate_id: int, updates: Dict[str, Any], actor: AuthContext
+    ) -> Optional[Estimate]:
+        """Partial update for an estimate, allow-list enforced (see
+        ALLOWED_ESTIMATE_UPDATE_FIELDS). NEW-574: any client-supplied
+        subtotal/materials_cost/labor_cost/subcontractor_cost/
+        total_amount is rejected outright (not silently overwritten --
+        those keys aren't in the allow-list at all) and the real computed
+        values are always re-derived server-side from line_items/
+        markup_percent/discount_amount/tax_amount whenever any of those
+        four inputs changes."""
+        if not actor.has_permission(PERM_WRITE_ESTIMATES):
+            raise PermissionError("Actor lacks permission to update estimates")
+
+        unknown = set(updates) - self.ALLOWED_ESTIMATE_UPDATE_FIELDS
+        if unknown:
+            raise ValueError(f"Unknown field(s) for estimate update: {sorted(unknown)}")
+
+        for key, value in updates.items():
+            if value is None:
+                raise ValueError(
+                    f"Field '{key}' cannot be set to None via update_estimate; omit the key instead"
+                )
+
+        if not updates:
+            return self.get_estimate(estimate_id, actor)
+
+        conn = self.db.get_connection()
+        # RAW row read -- never self._row_to_estimate(row, actor.role),
+        # which zeroes cost fields for the customer role (mirrors
+        # update_project's identical rationale, crm_service.py NEW-306).
+        row = conn.execute("SELECT * FROM estimates WHERE id = ?;", (estimate_id,)).fetchone()
+        if not row:
+            return None
+
+        # Customer-isolation gate -- same shape as get_estimate. A
+        # ROLE_CUSTOMER actor granted write:estimates via custom_permissions
+        # (the catalog check in _validate_custom_permissions doesn't enforce
+        # role-compatibility) must still be confined to their own customer_id;
+        # without this, only the rep-ownership branch below ran, and that
+        # branch is skipped entirely for ROLE_CUSTOMER.
+        if actor.role == ROLE_CUSTOMER and (not actor.customer_id or actor.customer_id != row["customer_id"]):
+            raise PermissionError("Customer cannot access another customer's estimate")
+
+        # B8.6a / NEW-548: same rep-ownership narrowing as get_estimate --
+        # a narrowed actor (no PERM_READ_TEAM_SALES_DATA) may only update
+        # their own estimate.
+        if actor.role != ROLE_CUSTOMER and not actor.has_permission(PERM_READ_TEAM_SALES_DATA):
+            if row["assigned_user_id"] != actor.user_id:
+                return None
+
+        estimate = self._row_to_estimate(row)
+        _before = estimate.to_dict()
+
+        for key, value in updates.items():
+            setattr(estimate, key, value)
+
+        if self._ESTIMATE_PRICING_INPUT_FIELDS & set(updates):
+            self._apply_estimate_pricing(estimate)
+
+        now = utc_now_iso()
+        estimate.updated_at = now
+        line_items_json = json.dumps(estimate.line_items)
+
+        with conn:
+            conn.execute(
+                """
+                UPDATE estimates SET
+                    line_items_json = ?, subtotal = ?, materials_cost = ?,
+                    labor_cost = ?, subcontractor_cost = ?, markup_percent = ?,
+                    tax_amount = ?, discount_amount = ?, total_amount = ?,
+                    expiration_date = ?, notes = ?, updated_at = ?
+                WHERE id = ?;
+                """,
+                (
+                    line_items_json,
+                    estimate.subtotal,
+                    estimate.materials_cost,
+                    estimate.labor_cost,
+                    estimate.subcontractor_cost,
+                    estimate.markup_percent,
+                    estimate.tax_amount,
+                    estimate.discount_amount,
+                    estimate.total_amount,
+                    estimate.expiration_date,
+                    estimate.notes,
+                    now,
+                    estimate_id,
+                ),
+            )
+
+        self.audit.log(
+            action="update",
+            entity_type="estimate",
+            entity_id=estimate_id,
+            change_summary=f"Updated estimate #{estimate.estimate_number} (${estimate.total_amount:.2f})",
+            actor=actor,
+            details=build_audit_details(before=_before, after=estimate.to_dict()),
+        )
+        # Redact cost fields for the response per actor.role (get_estimate's
+        # redaction shape) -- re-read post-update so both the empty-updates
+        # early-return path above and this path return the same masked
+        # shape for ROLE_CUSTOMER/ROLE_TECHNICIAN.
+        updated_row = conn.execute("SELECT * FROM estimates WHERE id = ?;", (estimate_id,)).fetchone()
+        return self._row_to_estimate(updated_row, actor.role)
+
+    def send_estimate(self, estimate_id: int, actor: AuthContext) -> Optional[Estimate]:
+        """Transition an estimate from draft to sent (NEW-574 / B8.6b).
+        Mirrors transition_opportunity_stage's audit-logging shape.
+        Deliberately minimal: only draft -> sent is wired this round --
+        approved/rejected/expired are legal CHECK values but have no
+        transition method yet (left for B8.6c per the scoping brief).
+        Idempotent-refusal, not a silent no-op: re-sending an
+        already-sent (or approved/rejected/expired) estimate raises
+        ValueError rather than silently succeeding, so a caller can't
+        mistake a rejected retry for a real state change."""
+        if not actor.has_permission(PERM_WRITE_ESTIMATES):
+            raise PermissionError("Actor lacks permission to send estimates")
+
+        conn = self.db.get_connection()
+        row = conn.execute("SELECT * FROM estimates WHERE id = ?;", (estimate_id,)).fetchone()
+        if not row:
+            return None
+
+        # Customer-isolation gate -- see update_estimate for the same
+        # rationale (a ROLE_CUSTOMER actor granted write:estimates via
+        # custom_permissions must still be confined to their own customer_id).
+        if actor.role == ROLE_CUSTOMER and (not actor.customer_id or actor.customer_id != row["customer_id"]):
+            raise PermissionError("Customer cannot access another customer's estimate")
+
+        if actor.role != ROLE_CUSTOMER and not actor.has_permission(PERM_READ_TEAM_SALES_DATA):
+            if row["assigned_user_id"] != actor.user_id:
+                return None
+
+        estimate = self._row_to_estimate(row)
+        if estimate.status != "draft":
+            raise ValueError(
+                f"Cannot send estimate {estimate_id}: status is '{estimate.status}', not 'draft'"
+            )
+
+        _before = estimate.to_dict()
+        old_status = estimate.status
+        estimate.status = "sent"
+        now = utc_now_iso()
+        estimate.updated_at = now
+
+        with conn:
+            conn.execute(
+                "UPDATE estimates SET status = ?, updated_at = ? WHERE id = ?;",
+                (estimate.status, now, estimate_id),
+            )
+
+        self.audit.log(
+            action="stage_transition",
+            entity_type="estimate",
+            entity_id=estimate_id,
+            change_summary=f"Transitioned estimate #{estimate.estimate_number} ({estimate_id}) from '{old_status}' to '{estimate.status}'",
+            actor=actor,
+            details=build_audit_details(before=_before, after=estimate.to_dict()),
+        )
+        # Redact cost fields for the response per actor.role -- see
+        # update_estimate's identical re-read-and-mask rationale.
+        updated_row = conn.execute("SELECT * FROM estimates WHERE id = ?;", (estimate_id,)).fetchone()
+        return self._row_to_estimate(updated_row, actor.role)
+
+    # ==========================================
+    # PACKAGE OPTIONS
+    # ==========================================
+
+    @staticmethod
+    def _row_to_package_option(row: Any, actor_role: str = "") -> PackageOption:
+        """actor_role redaction mirrors _row_to_estimate: ROLE_CUSTOMER/
+        ROLE_TECHNICIAN never see internal margin/gross_profit -- price
+        (the customer-facing sell number) is always shown."""
+        keys = row.keys() if hasattr(row, "keys") else []
+        included_items = json.loads(row["included_items_json"]) if "included_items_json" in keys and row["included_items_json"] else []
+        is_customer = actor_role in (ROLE_CUSTOMER, ROLE_TECHNICIAN)
+        return PackageOption(
+            id=row["id"],
+            estimate_id=row["estimate_id"] if "estimate_id" in keys else None,
+            tier=row["tier"],
+            price=float(row["price"]),
+            gross_profit=float(row["gross_profit"]) if row["gross_profit"] is not None and not is_customer else None,
+            margin=float(row["margin"]) if row["margin"] is not None and not is_customer else None,
+            included_items=included_items if not is_customer else [],
+            created_at=row["created_at"],
+        )
+
+    def create_package_option(self, package_option: PackageOption, actor: AuthContext) -> PackageOption:
+        """A package option is scoped to its estimate -- inherits
+        estimate's write access model (PERM_WRITE_ESTIMATES), not a new
+        permission. price/gross_profit/margin are always computed here
+        from included_items, reusing the exact same quantity * unit_cost
+        item-total convention as _compute_line_item_costs, plus the same
+        gross_profit/margin formula FinanceService.get_project_pnl already
+        established (gross_profit = revenue - cost, margin = gross_profit
+        / revenue * 100) -- never trusted from the client. included_items
+        entries additionally carry `unit_price` (the sell price per unit,
+        as opposed to `unit_cost`); price is qty * unit_price summed,
+        cost is qty * unit_cost summed."""
+        if not actor.has_permission(PERM_WRITE_ESTIMATES):
+            raise PermissionError("Actor lacks permission to create package options")
+
+        if package_option.tier not in ("good", "better", "best"):
+            raise ValueError(f"Invalid package tier: '{package_option.tier}'")
+
+        # A package option is always estimate-scoped -- a NULL estimate_id
+        # would skip the ownership check below AND be invisible to
+        # list_package_options' unfiltered (INNER JOIN) path, i.e. an
+        # orphan row with no access control. Reject it outright.
+        if package_option.estimate_id is None:
+            raise ValueError("Package option must reference an estimate_id")
+        estimate = self.get_estimate(package_option.estimate_id, actor)
+        if not estimate:
+            raise ValueError(f"Estimate {package_option.estimate_id} not found")
+
+        cost_total = 0.0
+        price_total = 0.0
+        for item in package_option.included_items or []:
+            try:
+                qty = float(item.get("quantity", 1.0))
+                unit_cost = float(item.get("unit_cost", 0.0))
+                unit_price = float(item.get("unit_price", 0.0))
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"Invalid included_item quantity/unit_cost/unit_price: {item!r}") from exc
+            cost_total += round(qty * unit_cost, 2)
+            price_total += round(qty * unit_price, 2)
+        price_total = round(price_total, 2)
+        cost_total = round(cost_total, 2)
+        gross_profit = round(price_total - cost_total, 2)
+        margin = round((gross_profit / price_total * 100.0), 2) if price_total > 0 else 0.0
+
+        package_option.price = price_total
+        package_option.gross_profit = gross_profit
+        package_option.margin = margin
+        package_option.created_at = utc_now_iso()
+        included_items_json = json.dumps(package_option.included_items)
+
+        conn = self.db.get_connection()
+        with conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO package_options (
+                    estimate_id, tier, price, gross_profit, margin,
+                    included_items_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?);
+                """,
+                (
+                    package_option.estimate_id,
+                    package_option.tier,
+                    package_option.price,
+                    package_option.gross_profit,
+                    package_option.margin,
+                    included_items_json,
+                    package_option.created_at,
+                ),
+            )
+            package_option.id = cursor.lastrowid
+
+        self.audit.log(
+            action="create",
+            entity_type="package_option",
+            entity_id=package_option.id,
+            change_summary=f"Created '{package_option.tier}' package option for estimate {package_option.estimate_id} (${package_option.price:.2f})",
+            actor=actor,
+            details=build_audit_details(after=package_option.to_dict()),
+        )
+        return package_option
+
+    def list_package_options(
+        self, actor: AuthContext, estimate_id: Optional[int] = None
+    ) -> List[PackageOption]:
+        if not (actor.has_permission(PERM_READ_ESTIMATES) or actor.has_permission(PERM_READ_OWN_ESTIMATES)):
+            raise PermissionError("Actor lacks permission to read package options")
+
+        # A package option inherits its estimate's access model -- if the
+        # caller can't see the estimate (rep-ownership narrowing / customer
+        # scoping / not-found), they can't see its package options either.
+        if estimate_id is not None:
+            estimate = self.get_estimate(estimate_id, actor)
+            if not estimate:
+                return []
+
+        conn = self.db.get_connection()
+        if estimate_id is not None:
+            rows = conn.execute(
+                "SELECT * FROM package_options WHERE estimate_id = ? ORDER BY id DESC;",
+                (estimate_id,),
+            ).fetchall()
+            return [self._row_to_package_option(r, actor.role) for r in rows]
+
+        # No estimate_id filter: same rep-ownership narrowing as
+        # list_estimates (join to estimates so an unfiltered call can't
+        # leak another rep's package options).
+        query = "SELECT po.* FROM package_options po JOIN estimates e ON po.estimate_id = e.id WHERE 1=1"
+        params: List[Any] = []
+        if actor.role == ROLE_CUSTOMER:
+            query += " AND e.customer_id = ?"
+            params.append(actor.customer_id)
+        elif not actor.has_permission(PERM_READ_TEAM_SALES_DATA):
+            effective_uid = self._scoped_assignee_filter(actor, None)
+            if effective_uid is not None:
+                query += " AND e.assigned_user_id = ?"
+                params.append(effective_uid)
+        query += " ORDER BY po.id DESC;"
+        rows = conn.execute(query, params).fetchall()
+        return [self._row_to_package_option(r, actor.role) for r in rows]
 
     # ==========================================
     # CONTRACTS / PROPOSALS

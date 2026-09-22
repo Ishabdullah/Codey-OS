@@ -45,6 +45,7 @@ from ..models import (
     Lead,
     MarketingCampaign,
     Opportunity,
+    PackageOption,
     Project,
     ProjectMilestone,
     Property,
@@ -1167,6 +1168,44 @@ class APIRouter:
                 if not estimate:
                     return 404, {"Content-Type": "application/json"}, {"error": "Estimate not found"}
                 return 200, {"Content-Type": "application/json"}, {"estimate": estimate.to_dict()}
+
+            if (
+                path.startswith("/api/v1/estimates/")
+                and path.endswith("/update")
+                and "/" not in path[len("/api/v1/estimates/"):-len("/update")]
+                and method == "POST"
+            ):
+                est_id = _parse_int_path_segment(path[len("/api/v1/estimates/"):-len("/update")], "est_id")
+                updated_estimate = self.crm.update_estimate(est_id, json_body, actor)
+                if not updated_estimate:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Estimate not found"}
+                return 200, {"Content-Type": "application/json"}, {"estimate": updated_estimate.to_dict()}
+
+            if (
+                path.startswith("/api/v1/estimates/")
+                and path.endswith("/send")
+                and "/" not in path[len("/api/v1/estimates/"):-len("/send")]
+                and method == "POST"
+            ):
+                est_id = _parse_int_path_segment(path[len("/api/v1/estimates/"):-len("/send")], "est_id")
+                sent_estimate = self.crm.send_estimate(est_id, actor)
+                if not sent_estimate:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Estimate not found"}
+                return 200, {"Content-Type": "application/json"}, {"estimate": sent_estimate.to_dict()}
+
+            # Package Options (B8.6b, sales_rep_portal.md §B8.6)
+            if path == "/api/v1/package-options":
+                if method == "GET":
+                    eid = query_params.get("estimate_id", [None])[0]
+                    package_options = self.crm.list_package_options(
+                        actor,
+                        estimate_id=_parse_int_query_param(query_params, "estimate_id", 0) if eid else None,
+                    )
+                    return 200, {"Content-Type": "application/json"}, {"package_options": [p.to_dict() for p in package_options]}
+                elif method == "POST":
+                    po = PackageOption(**json_body)
+                    created_po = self.crm.create_package_option(po, actor)
+                    return 201, {"Content-Type": "application/json"}, {"package_option": created_po.to_dict()}
 
             # Contracts
             if path == "/api/v1/contracts":
