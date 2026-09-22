@@ -5321,9 +5321,12 @@ def _render_sales_portal() -> str:
         </div>
 
         <div class="erp-card">
-            <h2 style="margin-top:0;">Customers</h2>
+            <h2 style="margin-top:0;display:flex;justify-content:space-between;align-items:center;">
+                <span>Customers</span>
+                <button class="btn-gold" style="padding:0.4rem 0.9rem;font-size:0.8rem;" onclick="openGuidedContractModal()">+ New Contract (Guided)</button>
+            </h2>
             <table>
-                <thead><tr><th>ID</th><th>Name</th><th>Phone</th><th>Email</th><th></th></tr></thead>
+                <thead><tr><th>ID #</th><th>Name</th><th>Phone</th><th>Email</th><th></th></tr></thead>
                 <tbody id="myCustomersList"><tr><td colspan="5">Loading customers...</td></tr></tbody>
             </table>
         </div>
@@ -5440,6 +5443,83 @@ def _render_sales_portal() -> str:
         </div>
     </div>
 
+    <!-- B8.6d-c (NEW-579): guided customer -> template -> fill -> sign flow.
+         Four steps, one <div id="gflowStepN"> shown at a time via
+         showGuidedStep(). Reuses the erp-modal-overlay/erp-modal/
+         modal-header pattern already established above (customer360Modal,
+         createLeadModal) rather than a new UI paradigm. -->
+    <div id="guidedContractModal" class="erp-modal-overlay">
+        <div class="erp-modal" style="max-width:700px;">
+            <div class="modal-header">
+                <h3>New Contract — Guided</h3>
+                <button class="btn-gold" style="padding:0.3rem 0.7rem;" onclick="closeGuidedContractModal()">&times;</button>
+            </div>
+            <p id="gflowError" style="display:none;color:var(--danger);font-weight:600;"></p>
+
+            <div id="gflowStep1">
+                <h4 style="margin:0 0 0.5rem 0;">Step 1 — Find or create customer</h4>
+                <div class="modal-field">
+                    <label>Search by name, phone, or email</label>
+                    <input type="text" id="gflowCustomerSearch" oninput="guidedSearchCustomers()" placeholder="Start typing...">
+                </div>
+                <div id="gflowCustomerResults" style="margin-bottom:0.75rem;"></div>
+                <button class="btn-gold" style="padding:0.4rem 0.9rem;font-size:0.8rem;" onclick="guidedShowNewCustomerForm()">+ New Customer</button>
+
+                <div id="gflowNewCustomerForm" style="display:none;margin-top:1rem;border-top:1px solid var(--border-light);padding-top:1rem;">
+                    <div class="modal-field"><label>First Name</label><input type="text" id="gflowNewFirstName"></div>
+                    <div class="modal-field"><label>Last Name</label><input type="text" id="gflowNewLastName"></div>
+                    <div class="modal-field"><label>Phone</label><input type="text" id="gflowNewPhone"></div>
+                    <div class="modal-field"><label>Email</label><input type="text" id="gflowNewEmail"></div>
+                    <div class="modal-field"><label>Service Address</label><input type="text" id="gflowNewAddress"></div>
+                    <button class="btn-gold" onclick="guidedSubmitNewCustomer()">Create &amp; Continue</button>
+                </div>
+            </div>
+
+            <div id="gflowStep2" style="display:none;">
+                <h4 style="margin:0 0 0.5rem 0;">Step 2 — Contract template</h4>
+                <p id="gflowSelectedCustomerLabel" style="color:var(--text-muted);"></p>
+                <div class="modal-field">
+                    <label>Template</label>
+                    <select id="gflowTemplateSelect">
+                        <option value="general_remodeling">General Remodeling</option>
+                        <option value="homecare_basic">HomeCare — Basic</option>
+                        <option value="homecare_plus">HomeCare — Plus</option>
+                        <option value="homecare_complete">HomeCare — Complete</option>
+                        <option value="homecare_estate">HomeCare — Estate</option>
+                    </select>
+                </div>
+                <button class="btn-gold" style="padding:0.4rem 0.9rem;font-size:0.8rem;" onclick="showGuidedStep(1)">&larr; Back</button>
+                <button class="btn-gold" onclick="guidedGoToStep3()">Continue</button>
+            </div>
+
+            <div id="gflowStep3" style="display:none;">
+                <h4 style="margin:0 0 0.5rem 0;">Step 3 — Contract details</h4>
+                <div class="modal-field"><label>Contract #</label><input type="text" id="gflowContractNumber"></div>
+                <div class="modal-field"><label>Title</label><input type="text" id="gflowContractTitle"></div>
+                <div class="modal-field"><label>Customer Name</label><input type="text" id="gflowFieldName" readonly></div>
+                <div class="modal-field"><label>Address</label><input type="text" id="gflowFieldAddress" readonly></div>
+                <div class="modal-field"><label>Phone</label><input type="text" id="gflowFieldPhone" readonly></div>
+                <div class="modal-field"><label>Email</label><input type="text" id="gflowFieldEmail" readonly></div>
+                <div class="modal-field"><label>Content / Scope of Work</label><textarea id="gflowContractContent" rows="4"></textarea></div>
+                <button class="btn-gold" style="padding:0.4rem 0.9rem;font-size:0.8rem;" onclick="showGuidedStep(2)">&larr; Back</button>
+                <button class="btn-gold" onclick="guidedSubmitContract()">Create Contract</button>
+            </div>
+
+            <div id="gflowStep4" style="display:none;">
+                <h4 style="margin:0 0 0.5rem 0;">Step 4 — Required signers</h4>
+                <p style="color:var(--text-muted);">Select every party who must sign this contract, then collect signatures.</p>
+                <div class="modal-field">
+                    <label><input type="checkbox" id="gflowSignerCustomer" checked style="width:auto;"> Customer</label><br>
+                    <label><input type="checkbox" id="gflowSignerRep" style="width:auto;"> Sales Rep</label><br>
+                    <label><input type="checkbox" id="gflowSignerPM" style="width:auto;"> Project Manager</label><br>
+                    <label><input type="checkbox" id="gflowSignerAdmin" style="width:auto;"> Admin</label>
+                </div>
+                <button class="btn-gold" onclick="guidedConfigureSigners()">Save Required Signers</button>
+                <div id="gflowSignerStatus" style="margin-top:1rem;"></div>
+            </div>
+        </div>
+    </div>
+
     <script>
         function escapeHtml(unsafe) {{
             if (!unsafe) return '';
@@ -5509,15 +5589,20 @@ def _render_sales_portal() -> str:
                 }}
             }} catch (e) {{ /* network/parse failure: schedule tbody keeps its "Loading..." placeholder, no further UI action needed */ }}
 
-            // Load Customers (B8.4a Customer 360 entry point). NOTE: unlike
-            // list_leads/list_opportunities, list_customers (crm_service.py)
-            // has NO PERM_READ_TEAM_SALES_DATA-style per-assignee narrowing --
-            // ROLE_CUSTOMER gets just itself, but every other actor holding
-            // PERM_READ_ALL_CUSTOMERS (which ROLE_SALES holds by default) sees
-            // every customer in the business, not just their own. This is
-            // pre-existing list_customers behavior, not introduced by this
-            // panel -- flagged to the coordinator as a NEW-issue candidate
-            // (out of this task's scope to change), not silently fixed here.
+            // Load Customers (B8.4a Customer 360 entry point).
+            // CORRECTION (B8.6d-c, 2026-09-22): the note this comment
+            // originally carried here claimed list_customers has no
+            // PERM_READ_TEAM_SALES_DATA-style per-assignee narrowing. That
+            // is no longer accurate -- NEW-568 added exactly that
+            // narrowing to list_customers (crm_service.py, "AND
+            // (assigned_user_id = ? OR assigned_user_id IS NULL)" clause):
+            // a plain rep without team-wide visibility now only sees
+            // customers assigned to them or still unclaimed, matching
+            // list_leads/list_opportunities' shape; a sales manager or any
+            // other PERM_READ_TEAM_SALES_DATA holder still sees everyone.
+            // Corrected per CLAUDE.md rule 6 rather than left standing --
+            // this file's guided-flow customer search (below) relies on
+            // the same already-narrowed list_customers.
             try {{
                 const res = await fetch('/api/v1/customers', {{
                     headers: {{ 'Authorization': 'Bearer ' + token }}
@@ -5528,7 +5613,7 @@ def _render_sales_portal() -> str:
                 if (res.ok && data.customers && data.customers.length > 0) {{
                     tbody.innerHTML = data.customers.map(c =>
                         `<tr>
-                            <td>#${{c.id}}</td>
+                            <td>${{c.customer_number ? '#' + c.customer_number : '#' + c.id}}</td>
                             <td>${{escapeHtml((c.first_name || '') + ' ' + (c.last_name || ''))}}</td>
                             <td>${{escapeHtml(c.phone || '')}}</td>
                             <td>${{escapeHtml(c.email || '')}}</td>
@@ -6854,6 +6939,173 @@ def _render_sales_portal() -> str:
             }} catch (e) {{
                 alert('Failed to save property: network error.');
             }}
+        }}
+
+        // -----------------------------------------------------------------
+        // B8.6d-c (NEW-579): guided customer -> template -> fill -> sign
+        // flow. gflowState holds the in-progress customer/contract chosen
+        // across the four steps; nothing here is persisted until the
+        // corresponding "Create"/"Save" button fires its fetch() call --
+        // each step's data lives only in gflowState/the form fields until
+        // then, same as createLeadModal's plain-form-fields pattern above.
+        // -----------------------------------------------------------------
+        let gflowState = {{ customer: null, contractId: null }};
+
+        function guidedFlowError(msg) {{
+            const el = document.getElementById('gflowError');
+            el.textContent = msg;
+            el.style.display = msg ? 'block' : 'none';
+        }}
+
+        function showGuidedStep(n) {{
+            for (let i = 1; i <= 4; i++) {{
+                document.getElementById('gflowStep' + i).style.display = (i === n) ? 'block' : 'none';
+            }}
+            guidedFlowError('');
+        }}
+
+        function openGuidedContractModal() {{
+            gflowState = {{ customer: null, contractId: null }};
+            document.getElementById('gflowCustomerSearch').value = '';
+            document.getElementById('gflowCustomerResults').innerHTML = '';
+            document.getElementById('gflowNewCustomerForm').style.display = 'none';
+            document.getElementById('gflowSignerStatus').innerHTML = '';
+            showGuidedStep(1);
+            document.getElementById('guidedContractModal').classList.add('active');
+        }}
+
+        function closeGuidedContractModal() {{
+            document.getElementById('guidedContractModal').classList.remove('active');
+        }}
+
+        function guidedShowNewCustomerForm() {{
+            document.getElementById('gflowNewCustomerForm').style.display = 'block';
+        }}
+
+        // NOTE (same shape as the "Load Customers" comment above,
+        // 2026-09-16 correction): list_customers DOES apply NEW-568
+        // rep-ownership narrowing today -- a plain rep only searches
+        // customers assigned to them or unclaimed, a sales manager (or
+        // any PERM_READ_TEAM_SALES_DATA holder) searches everyone. No
+        // client-side scoping needed here; the server already narrows the
+        // result set the search query runs against.
+        let gflowSearchDebounce = null;
+        async function guidedSearchCustomers() {{
+            clearTimeout(gflowSearchDebounce);
+            const term = document.getElementById('gflowCustomerSearch').value.trim();
+            const resultsEl = document.getElementById('gflowCustomerResults');
+            if (!term) {{ resultsEl.innerHTML = ''; return; }}
+            gflowSearchDebounce = setTimeout(async () => {{
+                try {{
+                    const token = getAuthToken();
+                    const res = await fetch('/api/v1/customers?search=' + encodeURIComponent(term), {{
+                        headers: {{ 'Authorization': 'Bearer ' + token }}
+                    }});
+                    if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                    const data = await res.json();
+                    if (!res.ok) {{ guidedFlowError(data.error || 'Search failed.'); return; }}
+                    const matches = data.customers || [];
+                    if (matches.length === 0) {{
+                        resultsEl.innerHTML = '<p style="color:var(--text-muted);">No matches. Create a new customer below.</p>';
+                        return;
+                    }}
+                    resultsEl.innerHTML = matches.map(c => `
+                        <div style="padding:0.5rem;border-bottom:1px solid var(--border-light);display:flex;justify-content:space-between;align-items:center;">
+                            <span>${{escapeHtml((c.first_name || '') + ' ' + (c.last_name || ''))}} ${{c.customer_number ? '(#' + c.customer_number + ')' : ''}} — ${{escapeHtml(c.phone || c.email || '')}}</span>
+                            <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick='guidedSelectCustomer(${{JSON.stringify(c)}})'>Select</button>
+                        </div>`
+                    ).join('');
+                }} catch (e) {{ guidedFlowError('Search failed: network error.'); }}
+            }}, 250);
+        }}
+
+        function guidedSelectCustomer(customer) {{
+            gflowState.customer = customer;
+            document.getElementById('gflowSelectedCustomerLabel').textContent =
+                'Customer: ' + (customer.first_name || '') + ' ' + (customer.last_name || '') +
+                (customer.customer_number ? ' (#' + customer.customer_number + ')' : '');
+            showGuidedStep(2);
+        }}
+
+        async function guidedSubmitNewCustomer() {{
+            const body = {{
+                first_name: document.getElementById('gflowNewFirstName').value,
+                last_name: document.getElementById('gflowNewLastName').value,
+                phone: document.getElementById('gflowNewPhone').value || null,
+                email: document.getElementById('gflowNewEmail').value || null,
+                service_address: document.getElementById('gflowNewAddress').value || null,
+            }};
+            if (!body.first_name || !body.last_name) {{
+                guidedFlowError('First and last name are required.');
+                return;
+            }}
+            try {{
+                const token = getAuthToken();
+                const res = await fetch('/api/v1/customers', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify(body),
+                }});
+                const data = await res.json();
+                if (!res.ok) {{ guidedFlowError(data.error || 'Failed to create customer.'); return; }}
+                guidedSelectCustomer(data.customer);
+            }} catch (e) {{ guidedFlowError('Failed to create customer: network error.'); }}
+        }}
+
+        function guidedGoToStep3() {{
+            const c = gflowState.customer;
+            document.getElementById('gflowFieldName').value = ((c.first_name || '') + ' ' + (c.last_name || '')).trim();
+            document.getElementById('gflowFieldAddress').value = c.service_address || c.mailing_address || '';
+            document.getElementById('gflowFieldPhone').value = c.phone || '';
+            document.getElementById('gflowFieldEmail').value = c.email || '';
+            showGuidedStep(3);
+        }}
+
+        async function guidedSubmitContract() {{
+            const number = document.getElementById('gflowContractNumber').value.trim();
+            const title = document.getElementById('gflowContractTitle').value.trim();
+            if (!number || !title) {{ guidedFlowError('Contract # and title are required.'); return; }}
+            const body = {{
+                contract_number: number,
+                customer_id: gflowState.customer.id,
+                title: title,
+                template_name: document.getElementById('gflowTemplateSelect').value,
+                content: document.getElementById('gflowContractContent').value || '',
+            }};
+            try {{
+                const token = getAuthToken();
+                const res = await fetch('/api/v1/contracts', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify(body),
+                }});
+                const data = await res.json();
+                if (!res.ok) {{ guidedFlowError(data.error || 'Failed to create contract.'); return; }}
+                gflowState.contractId = data.contract.id;
+                showGuidedStep(4);
+            }} catch (e) {{ guidedFlowError('Failed to create contract: network error.'); }}
+        }}
+
+        async function guidedConfigureSigners() {{
+            const signers = [];
+            if (document.getElementById('gflowSignerCustomer').checked) signers.push({{ party_role: 'customer' }});
+            if (document.getElementById('gflowSignerRep').checked) signers.push({{ party_role: 'rep' }});
+            if (document.getElementById('gflowSignerPM').checked) signers.push({{ party_role: 'project_manager' }});
+            if (document.getElementById('gflowSignerAdmin').checked) signers.push({{ party_role: 'admin' }});
+            if (signers.length === 0) {{ guidedFlowError('Select at least one required signer.'); return; }}
+            try {{
+                const token = getAuthToken();
+                const res = await fetch('/api/v1/contracts/' + gflowState.contractId + '/signers', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{ signers: signers }}),
+                }});
+                const data = await res.json();
+                if (!res.ok) {{ guidedFlowError(data.error || 'Failed to configure signers.'); return; }}
+                document.getElementById('gflowSignerStatus').innerHTML =
+                    '<p style="color:var(--bronze);">Required signers saved. The contract is now ready for each party to sign from their own portal (Send + Sign actions on the Customer 360 Contracts panel).</p>';
+                loadDashboard();
+            }} catch (e) {{ guidedFlowError('Failed to configure signers: network error.'); }}
         }}
 
         // -----------------------------------------------------------------

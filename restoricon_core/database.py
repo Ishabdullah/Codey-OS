@@ -311,6 +311,20 @@ CREATE TABLE IF NOT EXISTS contracts (
 -- already-created real DB cannot be widened without a full table rebuild
 -- -- avoided here by simply not adding one. New table, no migration entry
 -- needed.
+--
+-- UNIQUE(contract_id, party_role) (NEW-597, B8.6d-c): this table is new
+-- enough (introduced in this same round, B8.6d-b, never yet reachable
+-- through a route -- see NEW-592) that adding this constraint directly to
+-- CREATE TABLE carries none of the "already-shipped data shape" risk that
+-- rules out a CHECK-constraint widening elsewhere in this file. IMPORTANT:
+-- CREATE TABLE IF NOT EXISTS is a silent no-op against any DB file where
+-- this table was already created (by the B8.6d-b commit) before this
+-- constraint was added -- such a DB's contract_signers table has NO
+-- UNIQUE constraint and this line will never retrofit one. The real,
+-- load-bearing guard against duplicate (contract_id, party_role) rows is
+-- therefore the explicit NOT EXISTS check in add_contract_signers()
+-- (crm_service.py), not this constraint -- this is defense-in-depth for
+-- fresh DBs only.
 CREATE TABLE IF NOT EXISTS contract_signers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     contract_id INTEGER NOT NULL,
@@ -320,7 +334,8 @@ CREATE TABLE IF NOT EXISTS contract_signers (
     signature_data TEXT,
     signed_at TEXT,
     created_at TEXT NOT NULL,
-    FOREIGN KEY (contract_id) REFERENCES contracts(id) ON DELETE CASCADE
+    FOREIGN KEY (contract_id) REFERENCES contracts(id) ON DELETE CASCADE,
+    UNIQUE (contract_id, party_role)
 );
 CREATE INDEX IF NOT EXISTS idx_contract_signers_contract_id ON contract_signers(contract_id);
 
@@ -1256,6 +1271,43 @@ class DatabaseManager:
             conn.executescript(_SCHEMA_SQL)
         self._migrate_schema()
 
+    def _backfill_customer_numbers(self, conn: sqlite3.Connection) -> None:
+        """One-time backfill for customer rows that predate customer_number
+        (B8.6d-c). Idempotent: only touches rows where customer_number IS
+        NULL, so re-running this on every _migrate_schema() call (every
+        DatabaseManager() construction) is a no-op once every row has been
+        numbered -- same row-count-guarded shape as the appointment_types
+        seed below.
+
+        Ordered by (created_at, id), id as an explicit tiebreaker since
+        created_at can collide on bulk-inserted/fixture data.
+
+        Deliberately NOT lazy-on-read (i.e. not "assign a number the first
+        time a customer without one is read"): two concurrent reads of the
+        same unnumbered row could each compute the same next number with no
+        DB-level UNIQUE constraint to catch the collision (customer_number
+        has no UNIQUE index -- see create_customer's docstring for why). A
+        single ordered pass here, run once at startup before any request
+        handling begins, avoids that race entirely.
+        """
+        if not conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='customers';"
+        ).fetchone():
+            return
+        unnumbered = conn.execute(
+            "SELECT id FROM customers WHERE customer_number IS NULL ORDER BY created_at, id;"
+        ).fetchall()
+        if not unnumbered:
+            return
+        next_number = (
+            conn.execute("SELECT COALESCE(MAX(customer_number), 0) FROM customers;").fetchone()[0] + 1
+        )
+        for row in unnumbered:
+            conn.execute(
+                "UPDATE customers SET customer_number = ? WHERE id = ?;", (next_number, row["id"])
+            )
+            next_number += 1
+
     def _migrate_schema(self) -> None:
         """Additive, idempotent column migrations for existing DB files.
 
@@ -1311,6 +1363,7 @@ class DatabaseManager:
             ("projects", "property_id", "ALTER TABLE projects ADD COLUMN property_id INTEGER;"),
             ("estimates", "assigned_user_id", "ALTER TABLE estimates ADD COLUMN assigned_user_id INTEGER;"),
             ("contracts", "assigned_user_id", "ALTER TABLE contracts ADD COLUMN assigned_user_id INTEGER;"),
+            ("customers", "customer_number", "ALTER TABLE customers ADD COLUMN customer_number INTEGER;"),
         )
         with conn:
             for table, column, ddl in migrations:
@@ -1319,6 +1372,11 @@ class DatabaseManager:
                 }
                 if existing_columns and column not in existing_columns:
                     conn.execute(ddl)
+            # B8.6d-c: one-time backfill for customer rows that predate the
+            # customer_number ALTER above. Must run in this same `with
+            # conn:` block, after the ALTER (the column has to exist first)
+            # but still inside one transaction with it.
+            self._backfill_customer_numbers(conn)
             # Seed the three default appointment_types rows exactly once.
             # Row-count guarded (COUNT(*) == 0) so re-running DatabaseManager()
             # -- and _migrate_schema runs on every construction -- is a no-op

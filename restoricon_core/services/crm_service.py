@@ -70,6 +70,7 @@ from ..models import (
     Invoice,
     Lead,
     Opportunity,
+    CONTRACT_TEMPLATE_NAMES,
     PackageOption,
     PipelineStage,
     Project,
@@ -143,14 +144,31 @@ class CRMService:
 
         conn = self.db.get_connection()
         with conn:
+            # B8.6d-c: customer_number is generated as part of THIS single
+            # INSERT statement (INSERT ... SELECT ... FROM customers, not a
+            # separate `SELECT MAX(...)` followed by an INSERT) -- a bare
+            # SELECT does not start sqlite3's implicit transaction (that
+            # only begins at the first DML statement), so splitting the
+            # read and the write across two statements would let two
+            # concurrent create_customer calls both read the same MAX and
+            # both insert the same customer_number, with no DB-level
+            # UNIQUE constraint to catch it (SQLite's ALTER TABLE ADD
+            # COLUMN can't attach one -- see the customers table's
+            # external_id comment for the same limit). A single
+            # self-referencing INSERT...SELECT is one atomic write
+            # statement: SQLite takes the write lock before evaluating the
+            # subquery, so no other writer can interleave between the MAX
+            # read and this row's insert.
             cursor = conn.execute(
                 """
                 INSERT INTO customers (
-                    external_id, first_name, last_name, company_name, phone, email,
+                    customer_number, external_id, first_name, last_name, company_name, phone, email,
                     mailing_address, service_address, customer_type,
                     customer_source, assigned_user_id, status, tags_json,
                     notes, custom_fields_json, created_at, last_contact_at, next_followup_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                )
+                SELECT COALESCE(MAX(customer_number), 0) + 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                FROM customers;
                 """,
                 (
                     customer.external_id,
@@ -174,6 +192,15 @@ class CRMService:
                 ),
             )
             customer.id = cursor.lastrowid
+            # Read back the number the INSERT...SELECT above just computed
+            # -- a read-after-write on the same connection/transaction that
+            # produced it, so it's unaffected by any other writer (no other
+            # write could have interleaved with the atomic statement above,
+            # and this connection always sees its own not-yet-committed
+            # write).
+            customer.customer_number = conn.execute(
+                "SELECT customer_number FROM customers WHERE id = ?;", (customer.id,)
+            ).fetchone()["customer_number"]
 
         self.audit.log(
             action="create",
@@ -326,6 +353,12 @@ class CRMService:
         return Customer(
             id=row["id"],
             external_id=row["external_id"],
+            # customer_number (B8.6d-c): unguarded direct access, matching
+            # this method's existing style for every other column -- safe
+            # because _migrate_schema()'s ALTER always runs inside
+            # DatabaseManager.__init__ before any row can be read, so the
+            # column is guaranteed to exist on every reachable connection.
+            customer_number=row["customer_number"],
             first_name=row["first_name"],
             last_name=row["last_name"],
             company_name=row["company_name"],
@@ -3468,6 +3501,15 @@ class CRMService:
         if not actor.has_permission(PERM_WRITE_CONTRACTS):
             raise PermissionError("Actor lacks permission to create contracts")
 
+        # B8.6d-c: template_name, when given, must be one of the fixed
+        # legal values (CONTRACT_TEMPLATE_NAMES in models.py) -- None is
+        # still allowed (unset/legacy contracts).
+        if contract.template_name is not None and contract.template_name not in CONTRACT_TEMPLATE_NAMES:
+            raise ValueError(
+                f"Unknown contract template_name '{contract.template_name}'; "
+                f"must be one of {CONTRACT_TEMPLATE_NAMES} or omitted"
+            )
+
         now = utc_now_iso()
         contract.created_at = now
         contract.updated_at = now
@@ -3624,6 +3666,13 @@ class CRMService:
                     f"Field '{key}' cannot be set to None via update_contract; omit the key instead"
                 )
 
+        # B8.6d-c: same fixed-legal-value check as create_contract.
+        if "template_name" in updates and updates["template_name"] not in CONTRACT_TEMPLATE_NAMES:
+            raise ValueError(
+                f"Unknown contract template_name '{updates['template_name']}'; "
+                f"must be one of {CONTRACT_TEMPLATE_NAMES}"
+            )
+
         if not updates:
             return self.get_contract(contract_id, actor)
 
@@ -3767,6 +3816,22 @@ class CRMService:
         PERM_WRITE_CONTRACTS + rep-ownership gate as create_contract/
         update_contract, since this is contract configuration, not signing
         itself (that stays gated by PERM_SIGN_CONTRACTS in sign_contract).
+
+        NEW-597 (B8.6d-c): calling this twice with the same party_role for
+        one contract used to create a second unsigned row, permanently
+        breaking role-derived signing for that party. Each INSERT below is
+        a single INSERT...SELECT...WHERE NOT EXISTS statement -- same
+        atomicity reasoning as create_customer's customer_number generation
+        -- rather than a separate existence check followed by a plain
+        INSERT, so two concurrent calls (or two duplicate entries within
+        one `signers` list) can't both pass a pre-check and both insert. A
+        skipped duplicate is silent (no row created, not returned in
+        `created`) rather than an error -- this method is meant to be
+        safely re-callable to converge a contract's signer set, not to
+        reject a caller who re-sends a spec it already applied. This is
+        the load-bearing guard (see the contract_signers table's UNIQUE
+        comment in database.py for why the DB-level constraint alone isn't
+        enough for a DB file created before it existed).
         """
         if not actor.has_permission(PERM_WRITE_CONTRACTS):
             raise PermissionError("Actor lacks permission to configure contract signers")
@@ -3799,10 +3864,29 @@ class CRMService:
                     INSERT INTO contract_signers (
                         contract_id, party_role, signer_name, anchor_label,
                         signature_data, signed_at, created_at
-                    ) VALUES (?, ?, ?, ?, NULL, NULL, ?);
+                    )
+                    SELECT ?, ?, ?, ?, NULL, NULL, ?
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM contract_signers
+                        WHERE contract_id = ? AND party_role = ?
+                    );
                     """,
-                    (contract_id, party_role, spec.get("signer_name"), spec.get("anchor_label"), now),
+                    (
+                        contract_id,
+                        party_role,
+                        spec.get("signer_name"),
+                        spec.get("anchor_label"),
+                        now,
+                        contract_id,
+                        party_role,
+                    ),
                 )
+                if cursor.rowcount == 0:
+                    # NEW-597: party_role already configured for this
+                    # contract (either from an earlier call or an earlier
+                    # entry in this same `signers` list) -- skip rather
+                    # than create a second unsigned row for it.
+                    continue
                 created.append(
                     ContractSigner(
                         id=cursor.lastrowid,
@@ -3988,6 +4072,22 @@ class CRMService:
             # NEW-573/575 idempotency for THIS specific party: "already
             # signed" for the resolved signer row is the same ValueError
             # shape as the single-signer guard above, not a silent no-op.
+            # NEW-593 (B8.6d-c): when a caller supplies party_role
+            # explicitly, verify the actor's role can plausibly claim that
+            # party -- reusing _ROLE_TO_PARTY_ROLE (above) as the single
+            # source of truth for valid role->party_role pairs, not a
+            # second mapping. Only enforced when party_role is given: the
+            # omitted-party_role path (every pre-B8.6d-c caller) already
+            # fails closed via _resolve_contract_signer_row's own
+            # ambiguous-match handling, so this doesn't change that
+            # behavior. An unmapped actor.role (.get() returns None) can
+            # never equal a real party_role string, so it's rejected here
+            # too -- fail-closed, not a silent pass-through.
+            if party_role is not None and self._ROLE_TO_PARTY_ROLE.get(actor.role) != party_role:
+                raise PermissionError(
+                    f"Actor role '{actor.role}' may not sign contract {contract_id} as party_role '{party_role}'"
+                )
+
             target = self._resolve_contract_signer_row(signer_rows, actor, party_role)
             if target["signed_at"]:
                 raise ValueError(

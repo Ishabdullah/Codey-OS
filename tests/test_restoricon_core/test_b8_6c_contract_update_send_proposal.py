@@ -52,7 +52,11 @@ def _make_contract(crm, cust_id, actor, number="CTR-1"):
     return crm.create_contract(
         Contract(
             contract_number=number, customer_id=cust_id, title="Original Title",
-            template_name="standard", content="Original content",
+            # B8.6d-c: "standard" was never a real template_name value (the
+            # field was inert before B8.6d-c gave it real meaning) --
+            # updated to a legal CONTRACT_TEMPLATE_NAMES value so
+            # create_contract's new validation doesn't reject this fixture.
+            template_name="general_remodeling", content="Original content",
         ),
         actor,
     )

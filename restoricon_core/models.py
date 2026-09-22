@@ -41,6 +41,7 @@ class User:
 class Customer:
     id: Optional[int] = None
     external_id: Optional[str] = None  # NEW-212/NEW-232, 2026-08-27: external system's own string ID
+    customer_number: Optional[int] = None  # B8.6d-c: server-generated, sequential, see create_customer
     first_name: str = ""
     last_name: str = ""
     company_name: Optional[str] = None
@@ -558,6 +559,25 @@ class PackageOption:
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
+
+
+# B8.6d-c: the small, fixed set of legal Contract.template_name values.
+# 'general_remodeling' is the original free-form contract path; the other
+# four are the real published HomeCare subscription tiers (confirmed
+# against home-care.html during B8.6 scoping) -- Basic/Plus/Complete/
+# Estate, NOT PackageOption's unrelated good/better/best estimate-pricing
+# tiers. template_name stays a plain TEXT column (no CHECK constraint --
+# same "can't be widened later without a full table rebuild" reasoning as
+# contract_signers.party_role) -- this tuple is the single Python-level
+# source of truth create_contract/update_contract validate against and the
+# sales portal's template picker renders from.
+CONTRACT_TEMPLATE_NAMES = (
+    "general_remodeling",
+    "homecare_basic",
+    "homecare_plus",
+    "homecare_complete",
+    "homecare_estate",
+)
 
 
 @dataclass

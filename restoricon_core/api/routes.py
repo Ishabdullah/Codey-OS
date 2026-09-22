@@ -1311,8 +1311,28 @@ class APIRouter:
             ):
                 contract_id = _parse_int_path_segment(path[len("/api/v1/contracts/"):-len("/sign")], "contract_id")
                 signature = json_body.get("signature_data", "digital_signature_token")
-                signed = self.crm.sign_contract(contract_id, signature, actor)
+                # B8.6d-c: party_role, only meaningful for a contract opted
+                # into multi-party signing (add_contract_signers below) --
+                # ignored by sign_contract for the common single-signer
+                # contract. None (the json_body.get default) preserves
+                # every existing caller's behavior exactly.
+                signed = self.crm.sign_contract(
+                    contract_id, signature, actor, party_role=json_body.get("party_role")
+                )
                 return 200, {"Content-Type": "application/json"}, {"contract": signed.to_dict()}
+
+            if (
+                path.startswith("/api/v1/contracts/")
+                and path.endswith("/signers")
+                and "/" not in path[len("/api/v1/contracts/"):-len("/signers")]
+                and method == "POST"
+            ):
+                contract_id = _parse_int_path_segment(path[len("/api/v1/contracts/"):-len("/signers")], "contract_id")
+                signers = json_body.get("signers")
+                if not isinstance(signers, list) or not signers:
+                    return 400, {"Content-Type": "application/json"}, {"error": "signers must be a non-empty list"}
+                created = self.crm.add_contract_signers(contract_id, signers, actor)
+                return 201, {"Content-Type": "application/json"}, {"signers": [s.to_dict() for s in created]}
 
             # Invoices
             if path == "/api/v1/invoices":
@@ -1595,7 +1615,11 @@ class APIRouter:
                     signature = json_body.get("signature_data", "")
                     if not signature:
                         return 400, {"Content-Type": "application/json"}, {"error": "signature_data is required"}
-                    signed = self.crm.sign_contract(contract_id, signature, actor)
+                    # B8.6d-c: see the staff /contracts/<id>/sign route above
+                    # for why party_role is passed through unconditionally.
+                    signed = self.crm.sign_contract(
+                        contract_id, signature, actor, party_role=json_body.get("party_role")
+                    )
                     return 200, {"Content-Type": "application/json"}, {"contract": signed.to_dict()}
 
                 if path == "/api/v1/portal/invoices" and method == "GET":
