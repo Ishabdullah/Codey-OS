@@ -7171,12 +7171,22 @@ this file's own don't-duplicate rule.
       (pre-existing `user_id=1` system-actor pattern, not new to this
       round). Estimate/proposal PDF generation deliberately deferred,
       contracts only this sub-phase.
-- [ ] **B8.6d-b** — multi-party signer model (new `contract_signers`
-      table, extends — does not duplicate — `sign_contract`'s existing
-      ownership/idempotency logic). Explicitly flagged as this sub-
-      phase's highest-risk piece given `sign_contract`'s already-
-      produced three real regressions this session (`NEW-573`/`575`/
-      `587`). Blocked on B8.6d-a. Not yet built.
+- [x] **B8.6d-b** — multi-party signer model. **DONE 2026-09-22,
+      code-complete + code-reviewer APPROVED (round 2, after a round-1
+      CHANGES-REQUESTED on a live-proven Critical: a non-atomic status
+      flip could permanently strand a fully-signed contract)**,
+      commit `718f692`. Full detail in `PROJECT_LOG.md`'s 2026-09-22
+      entry. New `contract_signers` table; `sign_contract` extended,
+      not duplicated — legacy single-signer path verified byte-for-
+      byte unchanged both review rounds. The atomicity fix itself
+      avoided introducing a second, subtler concurrency bug, caught
+      before it ever reached review. Logged, not fixed: `NEW-592`
+      (no route surface yet), `NEW-593` (party_role has no identity
+      validation, pre-existing pattern), `NEW-594`/`595` (PDF anchor
+      overflow for 4+ signers, missing per-party audit attribution),
+      `NEW-596`/`597` (PDF regenerated on every partial sign,
+      `add_contract_signers` has no idempotency guard — both
+      non-blocking).
 - [ ] **B8.6d-c** — guided customer→template→fill→sign UI (`NEW-579`):
       select-or-create customer by name, human-facing sequential
       `customer_number` (from-scratch design, no existing generation
