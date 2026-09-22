@@ -7125,14 +7125,23 @@ this file's own don't-duplicate rule.
       (neither existed before). Logged, not fixed: `NEW-576`
       (line_items/included_items shape has no enforcement yet,
       forward-looking landmine for B8.6c's UI).
-- [ ] **B8.6c** — proposal builder (recommend HTML/print-only, no PDF
-      dependency exists in `install.sh` today — a real PDF export
-      would need its own Ish decision) + contract send/track/sign UI
-      wiring onto B8.6a's now-guarded `sign_contract`. Needs net-new
-      `send_contract`/`update_contract` (neither exists today). License/
-      insurance template content pulls from the `Compliance` model, not
-      `BusinessProfile` (the spec doc's own text names the wrong
-      model — `BusinessProfile` has no insurance field at all).
+- [x] **B8.6c** — proposal builder + contract send/track/sign UI.
+      **DONE 2026-09-22, code-complete + code-reviewer APPROVED (round
+      2, after a round-1 CHANGES-REQUESTED on a Critical money-
+      visibility bug)**, commit `2edb00b`. Full detail in
+      `PROJECT_LOG.md`'s 2026-09-22 entry. New `update_contract`/
+      `send_contract`, HTML/print-only proposal builder (pulls
+      license/insurance from `ComplianceItem`, not `BusinessProfile`
+      — corrects a spec inaccuracy). Found and fixed: proposal's
+      per-line-item price column was falling back to internal
+      `unit_cost` for every real estimate. Logged, not fixed:
+      `NEW-578` (`ROLE_SALES` can't see business profile/compliance
+      data, degrades gracefully), `NEW-580` (a sibling vacuous audit
+      test on `sign_contract`'s real signature path). **B8.6 is now
+      closed in full** (B8.6a + B8.6b + B8.6c all shipped). Real PDF
+      + multi-party signatures queued separately as B8.6d (`NEW-577`,
+      extended by Ish with auto-population/template-selection/
+      customer-search/document-visibility requirements, `NEW-579`).
 - [ ] **B8.7** — commission engine & compensation dashboards.
       **Rule-4 category** (money). **D4 ANSWERED 2026-09-16** — real
       plan read from `Sales_Rep_Contract.docx`, full numbers in
