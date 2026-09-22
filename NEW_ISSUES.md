@@ -18712,3 +18712,20 @@ housekeeping, same as `NEW-403`'s own cleanup.
 - **Fix direction (not decided/fixed this round):** would need its own decision on how a PM should discover contracts it can sign but doesn't own — e.g. a dedicated "pending PM countersignature" list surfaced through whatever staff portal PM uses, scoped narrowly to that purpose rather than general contract visibility (to avoid re-opening the exact broader-grant question Ish already declined for `NEW-575`).
 - **Not fixed this round** — logged per rule 8, deliberately out of `NEW-575`'s narrow scope.
 - **Cross-reference:** `NEW-575`, `NEW-192`, `restoricon_core/services/crm_service.py` (`sign_contract`, `list_contracts`, `get_contract`), `restoricon_core/api/routes.py` (`/api/v1/contracts/{id}/sign`).
+
+## Found 2026-09-22 — code-reviewer's pass on NEW-565/575, both non-blocking, not fixed
+
+### [NEW-582] Suggestion-level, not fixed: `NEW-565`'s `PERM_READ_FINANCIALS` grant to `ROLE_SALES` also silently widens `ROLE_SALES_MANAGER` to hold it, via the existing derived-permissions union — undisclosed, though plausibly intended
+
+- **Status:** Suggestion (code-reviewer, 2026-09-22). `ROLE_PERMISSIONS[ROLE_SALES_MANAGER] = ROLE_PERMISSIONS[ROLE_SALES] | {...}` means any permission added to `ROLE_SALES`'s base set automatically flows to `ROLE_SALES_MANAGER` too — the `NEW-565` fix's implementer report didn't mention this side effect, though it's very likely intended (a sales manager plausibly should see at least what their reports see) and is not itself a red flag.
+- **Impact:** none identified — flagged per this project's own precedent of derived-role grants being an easy-to-miss undisclosed side effect worth a one-line note, not because this particular widening looks wrong.
+- **Not fixed this round** — informational, no action needed unless Ish wants `ROLE_SALES_MANAGER`'s invoice access decided separately from `ROLE_SALES`'s.
+- **Cross-reference:** `restoricon_core/auth.py` (`ROLE_PERMISSIONS[ROLE_SALES_MANAGER]` derivation), `NEW-565`.
+
+### [NEW-583] Suggestion-level, not fixed: `NEW-575`'s `sign_contract` ownership-exemption safety depends on `Contract.assigned_user_id` staying non-reassignable — not defended against if a future change adds a reassignment path
+
+- **Status:** Suggestion (code-reviewer, 2026-09-22, found while verifying `NEW-575`'s "can never own a contract" premise). The exemption (bypass ownership check for any actor lacking `PERM_WRITE_CONTRACTS`) is safe today because `create_contract` is the only place `assigned_user_id` is ever set (forced server-side to the creating actor, a `PERM_WRITE_CONTRACTS` holder) and `update_contract`'s allow-list excludes `assigned_user_id` entirely — verified directly, no reassignment path exists. But the exemption is keyed on permissions, not on `ROLE_PROJECT_MANAGER` specifically, so if a future change ever added a contract-reassignment path AND a `custom_permissions_json` grant gave some actor `PERM_SIGN_CONTRACTS` + an assigned contract without `PERM_WRITE_CONTRACTS`, that actor would get unnarrowed cross-rep signing.
+- **Impact:** none today — the premise holds against the current codebase. This is a forward-looking fragility note, not a live gap.
+- **Fix direction:** if a contract-reassignment path is ever added, revisit whether `NEW-575`'s exemption predicate still holds, or add an explicit code comment now flagging the dependency so a future implementer doesn't miss it.
+- **Not fixed this round** — informational, no action needed unless/until a reassignment path is built.
+- **Cross-reference:** `restoricon_core/services/crm_service.py` (`sign_contract`, `create_contract`, `update_contract`), `NEW-575`.
