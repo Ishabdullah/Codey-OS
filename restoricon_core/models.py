@@ -657,6 +657,23 @@ class Invoice:
     due_date: Optional[str] = None
     payments: List[Dict[str, Any]] = field(default_factory=list)
     notes: Optional[str] = None
+    # B8.7a: which rep earns a commission on this invoice (FK-less ref to
+    # users, same pattern as Contract.assigned_user_id/Estimate.assigned_
+    # user_id). Invoice has no reliable link to a Contract/Opportunity to
+    # trace a rep through (verified directly -- no contract_id/opportunity_id
+    # column exists here), so this is populated at create_invoice() time
+    # from the linked Customer's own assigned_user_id (falls back to None,
+    # same "unclaimed" semantics as Customer.assigned_user_id, if the
+    # customer itself has no owning rep -- see NEW-600 for the known gap
+    # where an admin-converted lead's Customer can land unclaimed).
+    assigned_user_id: Optional[int] = None
+    # B8.7a: classifies what this invoice is for, distinct from any other
+    # invoice -- 'assessment' is the only value B8.7a's trigger logic acts
+    # on. No CHECK constraint (same reasoning as ContractSigner.party_role
+    # -- a real DB's CHECK constraint can't be widened later without a full
+    # table rebuild); validated in Python instead, mirroring
+    # CommissionService._VALID_SOURCE_TYPES.
+    invoice_type: str = "other"  # assessment, subscription, project, other
     created_at: str = field(default_factory=utc_now_iso)
     updated_at: str = field(default_factory=utc_now_iso)
 
@@ -1225,6 +1242,40 @@ class CommissionLedgerEntry:
     created_by: Optional[int] = None
     notes: Optional[str] = None
     created_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class CommissionPlanConfig:
+    """Singleton commission-plan configuration (B8.7a, D4,
+    sales_rep_portal.md §4, Ish-approved 2026-09-16). There is exactly one
+    row (id fixed to 1), same pattern as BusinessProfile/ScheduleConfig --
+    lives in the DB (not Python constants) so a future dashboard round can
+    edit these numbers without a schema change, per the standing "everything
+    configurable must be dashboard-editable" rule (Ish, 2026-09-10).
+
+    Values seeded from D4's real numbers, read directly from
+    `Sales_Rep_Contract.docx` (not guessed): Phase 1 is a $100 flat
+    commission per $299 Initial Property Assessment sold/booked/paid.
+    The four HomeCare monthly tier fees (Basic/Plus/Complete/Estate) are
+    seeded here for Phase 2's future bonus calculation (bonus = first
+    month's fee minus the $100 already paid in Phase 1) -- not used by
+    B8.7a's own trigger logic, which only reads assessment_flat_commission,
+    but seeded now so the whole plan lives in one config row rather than
+    being added piecemeal across B8.7a/b. Estate's real contract value is
+    "$999+/mo" (variable/negotiated at the top end); the seeded value is
+    the floor, not a hard ceiling -- no range mechanism is invented here,
+    that's B8.7b/d's concern if it's ever needed."""
+    id: int = 1
+    assessment_price: float = 299.0
+    assessment_flat_commission: float = 100.0
+    homecare_basic_monthly_fee: float = 179.0
+    homecare_plus_monthly_fee: float = 399.0
+    homecare_complete_monthly_fee: float = 599.0
+    homecare_estate_monthly_fee: float = 999.0
+    updated_at: str = field(default_factory=utc_now_iso)
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

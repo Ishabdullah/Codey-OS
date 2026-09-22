@@ -37,10 +37,12 @@ _AUDITABLE_CONTRACT_FIELDS = frozenset({
 })
 
 # NEW-314: Invoice diff domain -- excludes payments.
+# B8.7a: assigned_user_id/invoice_type added -- same rationale as
+# _AUDITABLE_CONTRACT_FIELDS' inclusion of contracts.assigned_user_id.
 _AUDITABLE_INVOICE_FIELDS = frozenset({
     "id", "invoice_number", "customer_id", "project_id", "status", "amount",
     "deposit_amount", "balance_due", "due_date", "notes",
-    "created_at", "updated_at",
+    "assigned_user_id", "invoice_type", "created_at", "updated_at",
 })
 
 # NEW-314: Subcontractor diff domain -- excludes license_number,

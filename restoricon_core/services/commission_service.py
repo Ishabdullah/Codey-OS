@@ -20,7 +20,7 @@ from ..auth import (
     PERM_WRITE_TEAM_COMMISSIONS,
 )
 from ..database import DatabaseManager
-from ..models import CommissionLedgerEntry, utc_now_iso
+from ..models import CommissionLedgerEntry, CommissionPlanConfig, utc_now_iso
 from .audit_service import AuditService, build_audit_details
 
 # Must stay byte-for-byte identical to the CHECK constraint in
@@ -145,6 +145,41 @@ class CommissionService:
             details=build_audit_details(after=entry.to_dict()),
         )
         return entry
+
+    def get_commission_plan_config(self, actor: AuthContext) -> CommissionPlanConfig:
+        """Read the singleton commission-plan config row (B8.7a, D4).
+
+        Always returns a row -- database.py's _migrate_schema() seeds it
+        automatically with D4's real numbers on every DatabaseManager()
+        construction (unlike schedule_config, which stays unseeded until
+        an actor explicitly configures it -- see database.py's
+        commission_plan_config comment for why B8.7a's trigger needs this
+        seeded from the start). Gated on PERM_READ_TEAM_COMMISSIONS: these
+        are compensation-plan numbers, same sensitivity class as the
+        ledger itself.
+        """
+        if not actor.has_permission(PERM_READ_TEAM_COMMISSIONS):
+            raise PermissionError("Actor lacks permission to view the commission plan config")
+
+        conn = self.db.get_connection()
+        row = conn.execute("SELECT * FROM commission_plan_config WHERE id = 1;").fetchone()
+        if not row:
+            # Defense in depth only -- _migrate_schema() seeds this row
+            # unconditionally, so this should be unreachable in practice.
+            # Returning the dataclass's own defaults (D4's real numbers,
+            # same values the seed uses) rather than raising keeps a
+            # caller from crashing on a DB that somehow predates the seed.
+            return CommissionPlanConfig()
+        return CommissionPlanConfig(
+            id=row["id"],
+            assessment_price=float(row["assessment_price"]),
+            assessment_flat_commission=float(row["assessment_flat_commission"]),
+            homecare_basic_monthly_fee=float(row["homecare_basic_monthly_fee"]),
+            homecare_plus_monthly_fee=float(row["homecare_plus_monthly_fee"]),
+            homecare_complete_monthly_fee=float(row["homecare_complete_monthly_fee"]),
+            homecare_estate_monthly_fee=float(row["homecare_estate_monthly_fee"]),
+            updated_at=row["updated_at"],
+        )
 
     def get_commission(self, entry_id: int, actor: AuthContext) -> Optional[CommissionLedgerEntry]:
         """Read a single ledger entry. Mirrors CRMService.get_lead's

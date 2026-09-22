@@ -157,14 +157,24 @@ class RestoriconAPIServer:
         self.audit_service = AuditService(self.db)
         self.comm_service = CommunicationService(self.db)
         self.notification_service = NotificationService()
-        self.crm_service = CRMService(self.db, self.audit_service, self.notification_service)
+        # B8.7a: constructed before crm_service so the same shared
+        # instance (also used directly by routes.py for the
+        # commission-ledger endpoints) can be passed into CRMService's
+        # record_payment trigger, rather than CRMService lazily
+        # default-constructing its own separate instance.
+        self.commission_service = CommissionService(self.db, self.audit_service)
+        self.crm_service = CRMService(
+            self.db,
+            self.audit_service,
+            self.notification_service,
+            commission_service=self.commission_service,
+        )
         self.scheduling_service = SchedulingService(self.db, self.audit_service, self.notification_service)
         self.automation_service = AutomationService(self.db, self.audit_service)
         self.operations_service = OperationsService(self.db, self.audit_service)
         self.finance_service = FinanceService(self.db, self.audit_service)
         self.business_ops_service = BusinessOpsService(self.db, self.audit_service)
         self.analytics_search_service = AnalyticsSearchService(self.db)
-        self.commission_service = CommissionService(self.db, self.audit_service)
 
         # RBAC for these services is enforced in the service layer, not here -- see
         # APIRouter's own class docstring.

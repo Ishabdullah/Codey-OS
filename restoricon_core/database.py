@@ -615,6 +615,30 @@ CREATE TABLE IF NOT EXISTS schedule_config (
     updated_at TEXT NOT NULL
 );
 
+-- Commission plan configuration (B8.7a, D4, sales_rep_portal.md §4,
+-- Ish-approved 2026-09-16). Deliberately a dedicated singleton table (id
+-- fixed to 1 via CHECK), same pattern as business_profile/schedule_config
+-- above -- lives in the DB, not Python constants, so a future dashboard
+-- round can edit these numbers without a schema change (the standing
+-- "everything configurable must be dashboard-editable" rule, Ish,
+-- 2026-09-10). Unlike schedule_config (left unseeded until an actor
+-- explicitly configures it), this singleton IS seeded automatically in
+-- _migrate_schema() with D4's real numbers -- B8.7a's commission trigger
+-- needs a real, non-null flat-commission amount to exist from the moment
+-- this column set ships, not after a manual admin setup step. See
+-- models.py's CommissionPlanConfig docstring for the full D4 rationale
+-- and the Estate-tier "$999+/mo" caveat.
+CREATE TABLE IF NOT EXISTS commission_plan_config (
+    id INTEGER PRIMARY KEY CHECK(id = 1),
+    assessment_price REAL NOT NULL DEFAULT 299.0,
+    assessment_flat_commission REAL NOT NULL DEFAULT 100.0,
+    homecare_basic_monthly_fee REAL NOT NULL DEFAULT 179.0,
+    homecare_plus_monthly_fee REAL NOT NULL DEFAULT 399.0,
+    homecare_complete_monthly_fee REAL NOT NULL DEFAULT 599.0,
+    homecare_estate_monthly_fee REAL NOT NULL DEFAULT 999.0,
+    updated_at TEXT NOT NULL
+);
+
 -- Appointment service types (final scheduling round, Phase 2). The
 -- "service type" axis (Emergency / Standard estimate / Consultation),
 -- SEPARATE from appointments.appointment_type (the call/in_person modality
@@ -1161,6 +1185,36 @@ CREATE INDEX IF NOT EXISTS idx_commission_ledger_source ON commission_ledger_ent
 -- because ordinary (non-reversal) rows all have reversed_entry_id NULL
 -- and must not be constrained against each other.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_commission_ledger_reversed_entry_id_unique ON commission_ledger_entries(reversed_entry_id) WHERE reversed_entry_id IS NOT NULL;
+-- B8.7a: makes a double-triggered commission (e.g. record_payment firing
+-- its paid-transition trigger twice against the same invoice) a
+-- straight sqlite3.IntegrityError at the DB level rather than a silent
+-- double payment -- the second layer of defense behind record_payment's
+-- own "only fire on the actual not-paid -> paid transition edge" guard.
+-- Partial (WHERE source_type IN ('assessment', 'subscription_upsell')):
+-- these are the two source types B8.7a/b's automatic triggers write
+-- exactly one row per source_id for; portfolio_override/bonus/
+-- adjustment/chargeback rows are not one-per-source_id by design (a
+-- portfolio override recurs monthly against the same originating
+-- account, an adjustment/chargeback is explicitly a correction against
+-- an existing row) and must not be constrained against each other here.
+-- Confirmed safe to add against the real on-device DB (0 rows in
+-- commission_ledger_entries, re-verified directly, not assumed from a
+-- prior report) and against the test suite's own fixtures (only one
+-- existing test row sets a non-null source_id, source_id=42, alone).
+-- Does NOT protect a NULL source_id -- SQLite treats NULLs as distinct
+-- in a UNIQUE index, so callers writing these two source_types MUST
+-- always set a real, non-null source_id (e.g. the originating invoice's
+-- id) or this index is inert for that row.
+-- MUST exclude reversal rows (reversed_entry_id IS NOT NULL): found live
+-- by the full test suite -- reverse_commission() deliberately INSERTs a
+-- new row carrying the SAME source_type/source_id as the row it's
+-- reversing (see its own docstring), so a naive index over all rows
+-- would make every legitimate reversal of an assessment/
+-- subscription_upsell entry collide with its own original. The
+-- `reversed_entry_id IS NULL` clause scopes this index to original
+-- (non-reversal) rows only, which is exactly the set B8.7a's trigger
+-- writes into and the set a double-fire would collide within.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_commission_ledger_source_unique ON commission_ledger_entries(source_type, source_id) WHERE source_type IN ('assessment', 'subscription_upsell') AND reversed_entry_id IS NULL;
 """
 
 # D2 (sales_rep_portal.md §4, Ish-approved), 2026-09-16: the widened-role
@@ -1364,6 +1418,8 @@ class DatabaseManager:
             ("estimates", "assigned_user_id", "ALTER TABLE estimates ADD COLUMN assigned_user_id INTEGER;"),
             ("contracts", "assigned_user_id", "ALTER TABLE contracts ADD COLUMN assigned_user_id INTEGER;"),
             ("customers", "customer_number", "ALTER TABLE customers ADD COLUMN customer_number INTEGER;"),
+            ("invoices", "assigned_user_id", "ALTER TABLE invoices ADD COLUMN assigned_user_id INTEGER;"),
+            ("invoices", "invoice_type", "ALTER TABLE invoices ADD COLUMN invoice_type TEXT NOT NULL DEFAULT 'other';"),
         )
         with conn:
             for table, column, ddl in migrations:
@@ -1402,6 +1458,31 @@ class DatabaseManager:
                             "VALUES (?, 1, ?, 1, '{}', ?, ?);",
                             (_nm, _i, _now, _now),
                         )
+            # B8.7a: seed the singleton commission_plan_config row exactly
+            # once, with D4's real numbers -- unlike schedule_config (left
+            # unseeded until an actor explicitly configures it),
+            # commission_plan_config must be non-empty from the moment
+            # this column set ships, since B8.7a's record_payment trigger
+            # needs a real flat-commission amount to read. `INSERT OR
+            # IGNORE` on the CHECK(id=1) singleton is idempotent by
+            # construction (a second attempt just violates the PK and is
+            # ignored), so re-running DatabaseManager() is always a no-op
+            # once the row exists -- no separate COUNT(*) guard needed.
+            # Table-existence guarded (see the appointment_types seed
+            # above for why): _migrate_schema() runs twice per
+            # construction, and the pre-executescript pass hits a table
+            # that doesn't exist yet on a legacy DB file's first open.
+            if conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='commission_plan_config';"
+            ).fetchone():
+                conn.execute(
+                    "INSERT OR IGNORE INTO commission_plan_config "
+                    "(id, assessment_price, assessment_flat_commission, "
+                    "homecare_basic_monthly_fee, homecare_plus_monthly_fee, "
+                    "homecare_complete_monthly_fee, homecare_estate_monthly_fee, "
+                    "updated_at) VALUES (1, 299.0, 100.0, 179.0, 399.0, 599.0, 999.0, ?);",
+                    (datetime.now(timezone.utc).isoformat(),),
+                )
             # Unique indexes must run after the ALTERs above (see the note
             # in _SCHEMA_SQL's index block for why they can't live there).
             if conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='customers';").fetchone():

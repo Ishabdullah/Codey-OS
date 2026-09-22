@@ -60,6 +60,7 @@ from ..auth import (
 )
 from ..database import DatabaseManager
 from ..models import (
+    CommissionLedgerEntry,
     CommunicationRecord,
     Contact,
     Contract,
@@ -82,10 +83,19 @@ from ..models import (
     utc_now_iso,
 )
 from .audit_service import AuditService, build_audit_details, _AUDITABLE_CONTRACT_FIELDS, _AUDITABLE_INVOICE_FIELDS, _AUDITABLE_SUBCONTRACTOR_FIELDS, _AUDITABLE_PROJECT_FIELDS, _AUDITABLE_CONTACT_FIELDS
+from .commission_service import CommissionService
 from .notification_service import NotificationService
 from .operations_service import OperationsService
 from .scheduling_service import SchedulingService
 from . import pdf_service
+
+
+# B8.7a: Invoice.invoice_type's valid values -- must stay byte-for-byte in
+# sync with models.py's Invoice.invoice_type docstring/comment (no CHECK
+# constraint at the DB level, same reasoning as ContractSigner.party_role
+# and CommissionService._VALID_SOURCE_TYPES -- a real DB's CHECK
+# constraint can't be widened later without a full table rebuild).
+_VALID_INVOICE_TYPES = {"assessment", "subscription", "project", "other"}
 
 
 class ClaimConflictError(Exception):
@@ -111,6 +121,7 @@ class CRMService:
         notification_service: Optional[NotificationService] = None,
         scheduling_service: Optional["SchedulingService"] = None,
         operations_service: Optional["OperationsService"] = None,
+        commission_service: Optional["CommissionService"] = None,
     ):
         self.db = db_manager
         self.audit = audit_service
@@ -128,6 +139,14 @@ class CRMService:
         # -- documented here so that isn't re-discovered the hard way.
         self.scheduling = scheduling_service or SchedulingService(self.db, audit_service)
         self.operations = operations_service or OperationsService(self.db, audit_service)
+        # B8.7a: same lazy-default-construction rationale as scheduling/
+        # operations above -- server.py wires the real shared instance
+        # (also used directly by routes.py for the commission-ledger
+        # endpoints); a fallback instance here only matters for callers
+        # that construct CRMService with fewer args (existing tests,
+        # migrate_aigentik.py), and is harmless since CommissionService is
+        # stateless beyond the shared db/audit it's given.
+        self.commission = commission_service or CommissionService(self.db, audit_service)
 
     # ==========================================
     # CUSTOMERS
@@ -4297,6 +4316,8 @@ class CRMService:
             due_date=row["due_date"] if "due_date" in keys else None,
             payments=payments,
             notes=row["notes"] if "notes" in keys else None,
+            assigned_user_id=row["assigned_user_id"] if "assigned_user_id" in keys else None,
+            invoice_type=row["invoice_type"] if "invoice_type" in keys and row["invoice_type"] else "other",
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -4346,6 +4367,31 @@ class CRMService:
         if not actor.has_permission(PERM_WRITE_FINANCIALS):
             raise PermissionError("Actor lacks permission to create invoices")
 
+        if invoice.invoice_type not in _VALID_INVOICE_TYPES:
+            raise ValueError(f"Invalid invoice_type: {invoice.invoice_type}")
+
+        # B8.7a: default assigned_user_id from the linked Customer's own
+        # assigned_user_id when the caller didn't supply one explicitly.
+        # create_invoice is PERM_WRITE_FINANCIALS-gated (admin/manager
+        # tier -- ROLE_SALES does not hold this permission, confirmed
+        # directly against auth.py), so unconditionally stamping the
+        # *creating actor* here (create_contract's pattern) would
+        # attribute every commission to whichever admin typed the
+        # invoice, not the rep who owns the account -- wrong. Invoice has
+        # no reliable Contract/Opportunity link to trace a rep through
+        # (verified directly), so Customer.assigned_user_id is the only
+        # real ownership signal to inherit from. This can still be None
+        # (an unclaimed customer -- see NEW-600) -- record_payment's
+        # trigger logs and skips rather than crashing or misattributing
+        # when that happens. An explicit client-supplied assigned_user_id
+        # is respected unchanged (this route is only reachable by a
+        # trusted admin/manager-tier actor, unlike create_customer's
+        # untrusted-client-input exposure that NEW-598 had to gate).
+        if invoice.assigned_user_id is None:
+            _customer = self._get_customer_unscoped(invoice.customer_id)
+            if _customer is not None:
+                invoice.assigned_user_id = _customer.assigned_user_id
+
         now = utc_now_iso()
         if not invoice.invoice_number:
             invoice.invoice_number = f"INV-{now[:10].replace('-', '')}-{secrets.token_hex(2).upper()}"
@@ -4361,8 +4407,9 @@ class CRMService:
                 INSERT INTO invoices (
                     invoice_number, customer_id, project_id, status,
                     amount, deposit_amount, balance_due, due_date,
-                    payments_json, notes, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                    payments_json, notes, assigned_user_id, invoice_type,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
                 (
                     invoice.invoice_number,
@@ -4375,6 +4422,8 @@ class CRMService:
                     invoice.due_date,
                     payments_json,
                     invoice.notes,
+                    invoice.assigned_user_id,
+                    invoice.invoice_type,
                     now,
                     now,
                 ),
@@ -4449,6 +4498,8 @@ class CRMService:
             due_date=row["due_date"],
             payments=payments,
             notes=row["notes"],
+            assigned_user_id=row["assigned_user_id"],
+            invoice_type=row["invoice_type"] or "other",
             created_at=row["created_at"],
             updated_at=now,
         )
@@ -4472,6 +4523,158 @@ class CRMService:
                 }},
             ),
         )
+
+        # B8.7a: automatic Phase-1 flat commission -- fires exactly on the
+        # not-paid -> paid transition edge, never on every record_payment
+        # call. record_payment can be invoked more than once against an
+        # already-paid invoice (e.g. a retried request) -- this project
+        # has hit exactly this shape of re-fired-side-effect bug before,
+        # so this check is the first of two independent defenses. The
+        # second is idx_commission_ledger_source_unique (database.py),
+        # a DB-level partial unique index on (source_type, source_id)
+        # that turns a genuine double-fire (e.g. two concurrent
+        # record_payment calls racing past this same in-Python check)
+        # into a straight IntegrityError rather than a silent double
+        # payment -- caught narrowly below. Only acts on invoices
+        # explicitly classified as an assessment sale (invoice_type ==
+        # 'assessment'); every other invoice_type is untouched by this
+        # round (B8.7b/c build Phase 2/3 commission logic later).
+        if _before["status"] != "paid" and new_status == "paid" and row["invoice_type"] == "assessment":
+            rep_user_id = row["assigned_user_id"]
+            if rep_user_id is None:
+                # Explicit product decision (Ish, B8.7a scoping): a
+                # rep-less record must not silently pay nobody's
+                # commission, and must not crash the payment either --
+                # log it clearly so it's visible rather than vanishing
+                # with no trace (see NEW-600 for the known gap where an
+                # admin-converted lead's Customer, and therefore this
+                # invoice's inherited assigned_user_id, can land
+                # unclaimed). Attributed to the REAL actor (not the
+                # system actor used below) so an operator reviewing the
+                # audit log sees who recorded the payment that had no
+                # rep to attribute a commission to.
+                self.audit.log(
+                    action="commission_skipped_no_rep",
+                    entity_type="invoice",
+                    entity_id=invoice_id,
+                    change_summary=(
+                        f"Assessment invoice #{row['invoice_number']} paid in full but has "
+                        f"no assigned rep -- commission skipped, not paid to anyone"
+                    ),
+                    actor=actor,
+                    details=build_audit_details(
+                        after={"invoice_id": invoice_id, "customer_id": row["customer_id"]}
+                    ),
+                )
+            else:
+                # System actor, same shape/rationale as sign_contract's
+                # pdf_system_actor above: recording a commission requires
+                # PERM_WRITE_TEAM_COMMISSIONS, which the actor who merely
+                # recorded a payment (PERM_WRITE_FINANCIALS) may not hold
+                # -- this is an automatic side effect of the payment, not
+                # an action the payment-recording actor is personally
+                # authoring, so it must not be gated on their permission
+                # set. The "pay" audit entry above already records the
+                # real actor; only this ledger entry's own audit trail
+                # (inside record_commission) is attributed to the system
+                # actor.
+                commission_system_actor = AuthContext(
+                    user_id=1,
+                    username="system_commission_engine",
+                    role=ROLE_ADMIN,
+                    actor_type="agent",
+                )
+                # Best-effort by design, same rationale as sign_contract's
+                # PDF side effect above: the payment UPDATE has already
+                # committed (and its own "pay" audit entry already
+                # written) by the time this runs -- a commission-recording
+                # failure of ANY kind must not fail or appear to roll back
+                # the already-successful payment. Never silently swallowed
+                # though: every failure path below is audit-logged so an
+                # operator reviewing the log can see a paid assessment
+                # invoice with no commission recorded and investigate/
+                # manually correct, rather than the failure vanishing with
+                # no trace or propagating as a false 500 on a payment that
+                # actually succeeded.
+                try:
+                    plan = self.commission.get_commission_plan_config(commission_system_actor)
+                    self.commission.record_commission(
+                        CommissionLedgerEntry(
+                            rep_user_id=rep_user_id,
+                            source_type="assessment",
+                            source_id=invoice_id,
+                            basis_amount=plan.assessment_price,
+                            commission_rate_or_flat=plan.assessment_flat_commission,
+                            commission_amount=plan.assessment_flat_commission,
+                            status="earned",
+                            earned_at=now,
+                            notes=f"Auto-recorded: assessment invoice #{row['invoice_number']} paid in full",
+                        ),
+                        commission_system_actor,
+                    )
+                except sqlite3.IntegrityError as exc:
+                    # Narrowly distinguishes the EXPECTED second-layer
+                    # no-op (idx_commission_ledger_source_unique rejecting
+                    # a genuine double-fire -- this invoice already
+                    # produced a commission row) from any OTHER integrity
+                    # violation (e.g. a bogus rep_user_id violating
+                    # commission_ledger_entries' real FK to users --
+                    # reachable since create_invoice's assigned_user_id
+                    # can be client-supplied via routes.py's
+                    # Invoice(**json_body), and this connection runs with
+                    # PRAGMA foreign_keys = ON, confirmed directly). Both
+                    # branches are audit-logged and neither re-raises --
+                    # unlike reverse_commission's narrow check (which DOES
+                    # re-raise a non-matching IntegrityError), this call
+                    # site sits after the payment has already committed,
+                    # so re-raising here would surface as a false 500 on a
+                    # payment that actually succeeded, with no way to
+                    # retry the trigger since the invoice is now 'paid'.
+                    if "commission_ledger_entries.source_type, commission_ledger_entries.source_id" in str(exc):
+                        self.audit.log(
+                            action="commission_duplicate_skipped",
+                            entity_type="invoice",
+                            entity_id=invoice_id,
+                            change_summary=(
+                                f"Commission already recorded for assessment invoice "
+                                f"#{row['invoice_number']} -- duplicate trigger skipped"
+                            ),
+                            actor=actor,
+                            details=build_audit_details(after={"invoice_id": invoice_id}),
+                        )
+                    else:
+                        self.audit.log(
+                            action="commission_recording_failed",
+                            entity_type="invoice",
+                            entity_id=invoice_id,
+                            change_summary=(
+                                f"Commission recording failed for assessment invoice "
+                                f"#{row['invoice_number']}: {exc}"
+                            ),
+                            actor=actor,
+                            details=build_audit_details(after={"invoice_id": invoice_id, "error": str(exc)}),
+                        )
+                except Exception as exc:
+                    # Any other failure -- including get_commission_plan_config
+                    # raising (now covered: the call sits inside this try
+                    # block, immediately before record_commission consumes
+                    # its result) as well as record_commission itself
+                    # raising something other than sqlite3.IntegrityError.
+                    # Same best-effort contract as above, deliberately broad
+                    # since this is the last line of defense protecting an
+                    # already-committed payment from an unrelated side-effect
+                    # failure.
+                    self.audit.log(
+                        action="commission_recording_failed",
+                        entity_type="invoice",
+                        entity_id=invoice_id,
+                        change_summary=(
+                            f"Commission recording failed for assessment invoice "
+                            f"#{row['invoice_number']}: {exc}"
+                        ),
+                        actor=actor,
+                        details=build_audit_details(after={"invoice_id": invoice_id, "error": str(exc)}),
+                    )
 
         return _updated
 
