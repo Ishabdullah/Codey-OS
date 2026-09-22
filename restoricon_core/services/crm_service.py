@@ -52,6 +52,10 @@ from ..auth import (
     ROLE_CUSTOMER,
     ROLE_TECHNICIAN,
     ROLE_ADMIN,
+    ROLE_MANAGER,
+    ROLE_SALES,
+    ROLE_SALES_MANAGER,
+    ROLE_PROJECT_MANAGER,
     _actor_may_reassign_project_staff,
 )
 from ..database import DatabaseManager
@@ -59,6 +63,7 @@ from ..models import (
     CommunicationRecord,
     Contact,
     Contract,
+    ContractSigner,
     Customer,
     Document,
     Estimate,
@@ -3730,13 +3735,149 @@ class CRMService:
         updated_row = conn.execute("SELECT * FROM contracts WHERE id = ?;", (contract_id,)).fetchone()
         return self._row_to_contract(updated_row)
 
+    # B8.6d-b: actor.role -> ContractSigner.party_role, used only to derive
+    # which row a caller is signing when sign_contract's `party_role` kwarg
+    # is omitted on a multi-party contract (see sign_contract below).
+    # Deliberately narrow/explicit rather than a fallback default -- an
+    # unmapped role (or a role mapped to more than one unsigned row) must
+    # force the caller to pass party_role explicitly, not silently guess.
+    _ROLE_TO_PARTY_ROLE = {
+        ROLE_CUSTOMER: "customer",
+        ROLE_SALES: "rep",
+        ROLE_SALES_MANAGER: "rep",
+        ROLE_PROJECT_MANAGER: "project_manager",
+        ROLE_ADMIN: "admin",
+        ROLE_MANAGER: "admin",
+    }
+
+    def add_contract_signers(
+        self,
+        contract_id: int,
+        signers: List[Dict[str, Any]],
+        actor: AuthContext,
+    ) -> List[ContractSigner]:
+        """Opt a contract into multi-party signing (B8.6d-b) by creating one
+        unsigned ContractSigner row per entry in `signers` (each a dict with
+        at least `party_role`, optionally `signer_name`/`anchor_label`).
+
+        A contract with zero ContractSigner rows uses sign_contract's
+        original single-signer path (Contract.customer_signed_at/
+        customer_signature_data) unchanged -- this method is what a caller
+        uses to opt in to the multi-party path instead. Same
+        PERM_WRITE_CONTRACTS + rep-ownership gate as create_contract/
+        update_contract, since this is contract configuration, not signing
+        itself (that stays gated by PERM_SIGN_CONTRACTS in sign_contract).
+        """
+        if not actor.has_permission(PERM_WRITE_CONTRACTS):
+            raise PermissionError("Actor lacks permission to configure contract signers")
+
+        conn = self.db.get_connection()
+        row = conn.execute("SELECT * FROM contracts WHERE id = ?;", (contract_id,)).fetchone()
+        if not row:
+            raise ValueError(f"Contract {contract_id} not found")
+
+        if not actor.has_permission(PERM_READ_TEAM_SALES_DATA):
+            # Same NEW-573/575 ownership narrowing sign_contract applies:
+            # a rep without team-wide visibility may only configure signers
+            # on a contract they own.
+            contract_owner = row["assigned_user_id"] if "assigned_user_id" in row.keys() else None
+            if contract_owner != actor.user_id:
+                raise PermissionError("Actor cannot configure signers on a contract assigned to another user")
+
+        if row["status"] == "signed":
+            raise ValueError(f"Contract {contract_id} is already signed")
+
+        now = utc_now_iso()
+        created: List[ContractSigner] = []
+        with conn:
+            for spec in signers:
+                party_role = spec.get("party_role")
+                if not party_role:
+                    raise ValueError("Each signer must have a party_role")
+                cursor = conn.execute(
+                    """
+                    INSERT INTO contract_signers (
+                        contract_id, party_role, signer_name, anchor_label,
+                        signature_data, signed_at, created_at
+                    ) VALUES (?, ?, ?, ?, NULL, NULL, ?);
+                    """,
+                    (contract_id, party_role, spec.get("signer_name"), spec.get("anchor_label"), now),
+                )
+                created.append(
+                    ContractSigner(
+                        id=cursor.lastrowid,
+                        contract_id=contract_id,
+                        party_role=party_role,
+                        signer_name=spec.get("signer_name"),
+                        anchor_label=spec.get("anchor_label"),
+                        signature_data=None,
+                        signed_at=None,
+                        created_at=now,
+                    )
+                )
+
+        self.audit.log(
+            action="update",
+            entity_type="contract",
+            entity_id=contract_id,
+            change_summary=f"Configured {len(created)} required signer(s) for contract #{row['contract_number']}",
+            actor=actor,
+            details=build_audit_details(after={"required_signers": [c.party_role for c in created]}),
+        )
+        return created
+
+    def _resolve_contract_signer_row(
+        self,
+        signer_rows: List[Any],
+        actor: AuthContext,
+        party_role: Optional[str],
+    ) -> Any:
+        """Pick the single ContractSigner row `actor` is signing on a
+        multi-party contract. Never silently guesses across an ambiguous
+        match -- either the caller says which party_role they're signing
+        as, or exactly one unsigned row must derive unambiguously from
+        actor.role (_ROLE_TO_PARTY_ROLE above)."""
+        if party_role:
+            matches = [r for r in signer_rows if r["party_role"] == party_role]
+            if not matches:
+                raise ValueError(f"No signer of role '{party_role}' found on this contract")
+            unsigned_matches = [r for r in matches if not r["signed_at"]]
+            # Prefer an unsigned row for this role so signing proceeds
+            # normally; if none is unsigned, return the first match so the
+            # idempotency check above raises "already signed" rather than
+            # this method silently picking among already-signed rows.
+            return unsigned_matches[0] if unsigned_matches else matches[0]
+
+        derived_role = self._ROLE_TO_PARTY_ROLE.get(actor.role)
+        candidates = [r for r in signer_rows if r["party_role"] == derived_role] if derived_role else []
+        unsigned_candidates = [r for r in candidates if not r["signed_at"]]
+        if len(unsigned_candidates) == 1:
+            return unsigned_candidates[0]
+        if len(candidates) == 1:
+            # Exactly one row for this role, already signed -- return it so
+            # the caller gets the "already signed" ValueError below rather
+            # than this ambiguity error.
+            return candidates[0]
+        raise ValueError(
+            "Cannot determine which signer role this actor is signing as; "
+            "pass party_role explicitly"
+        )
+
     def sign_contract(
         self,
         contract_id: int,
         signature_data: str,
         actor: AuthContext,
+        party_role: Optional[str] = None,
     ) -> Contract:
-        """Sign a contract (customer digital signature or admin/manager approval)."""
+        """Sign a contract (customer digital signature or admin/manager approval).
+
+        `party_role` (B8.6d-b) is only meaningful for a contract that has
+        been opted into multi-party signing via add_contract_signers; it is
+        ignored (and may be omitted, as every existing caller does) for the
+        common single-signer contract, which signs exactly as before this
+        round -- see the `contract_signers` row-count branch below.
+        """
         if not actor.has_permission(PERM_SIGN_CONTRACTS):
             raise PermissionError("Actor lacks permission to sign contracts")
 
@@ -3793,43 +3934,143 @@ class CRMService:
         if row["status"] == "signed":
             raise ValueError(f"Contract {contract_id} is already signed")
 
+        # B8.6d-b: multi-party branch. A contract with zero contract_signers
+        # rows takes the exact original single-signer path below (the
+        # `if not signer_rows` branch), byte-for-byte unchanged from
+        # B8.6d-a/NEW-573/575 -- every existing caller (routes.py staff +
+        # portal sign endpoints, all pre-B8.6d-b tests) hits this path and
+        # must see identical behavior. This lookup runs AFTER the status
+        # idempotency guard above on purpose: once a multi-party contract's
+        # last required signer completes, status flips to 'signed' and any
+        # further sign_contract call (any party) hits that guard first,
+        # same "already signed" signal a single-signer contract gives.
+        signer_rows = conn.execute(
+            "SELECT * FROM contract_signers WHERE contract_id = ? ORDER BY id;",
+            (contract_id,),
+        ).fetchall()
+
         now = utc_now_iso()
-        with conn:
-            conn.execute(
-                """
-                UPDATE contracts
-                SET status = 'signed',
-                    customer_signed_at = ?,
-                    customer_signature_data = ?,
-                    updated_at = ?
-                WHERE id = ?;
-                """,
-                (now, signature_data, now, contract_id),
+        multi_party_status_note = ""
+        signed_contract_signers: Optional[List[ContractSigner]] = None
+
+        if not signer_rows:
+            with conn:
+                conn.execute(
+                    """
+                    UPDATE contracts
+                    SET status = 'signed',
+                        customer_signed_at = ?,
+                        customer_signature_data = ?,
+                        updated_at = ?
+                    WHERE id = ?;
+                    """,
+                    (now, signature_data, now, contract_id),
+                )
+
+            _signed = Contract(
+                id=row["id"],
+                contract_number=row["contract_number"],
+                customer_id=row["customer_id"],
+                project_id=row["project_id"],
+                estimate_id=row["estimate_id"],
+                title=row["title"],
+                template_name=row["template_name"],
+                content=row["content"],
+                status="signed",
+                customer_signed_at=now,
+                customer_signature_data=signature_data,
+                version=row["version"],
+                assigned_user_id=row["assigned_user_id"] if "assigned_user_id" in row.keys() else None,
+                created_at=row["created_at"],
+                updated_at=now,
+            )
+        else:
+            # NEW-573/575 idempotency for THIS specific party: "already
+            # signed" for the resolved signer row is the same ValueError
+            # shape as the single-signer guard above, not a silent no-op.
+            target = self._resolve_contract_signer_row(signer_rows, actor, party_role)
+            if target["signed_at"]:
+                raise ValueError(
+                    f"{target['party_role']} has already signed contract {contract_id}"
+                )
+
+            # NEW-593 (code-reviewer, B8.6d-b round 1): the signer-row
+            # UPDATE and the conditional contracts.status UPDATE must
+            # commit atomically as one transaction when this signature is
+            # the last one required -- otherwise a process death between
+            # two separate `with conn:` commits can leave every
+            # contract_signers row signed while contracts.status is stuck
+            # at its pre-signing value forever, with no recovery path
+            # through sign_contract (idempotency guard) or
+            # update_contract (status is not in its allow-list). Order
+            # matters here: update first, then COUNT inside the same
+            # block -- sqlite3's deferred transaction takes the write
+            # lock at the first UPDATE, so the COUNT below is protected
+            # from a concurrent signer's UPDATE interleaving between a
+            # pre-update count and this one (which a "count remaining
+            # BEFORE updating, excluding this row" restructuring would
+            # not be: two parties signing concurrently could each read
+            # "one other still pending" and neither would flip status).
+            with conn:
+                conn.execute(
+                    "UPDATE contract_signers SET signature_data = ?, signed_at = ? WHERE id = ?;",
+                    (signature_data, now, target["id"]),
+                )
+                remaining = conn.execute(
+                    "SELECT COUNT(*) AS c FROM contract_signers WHERE contract_id = ? AND signed_at IS NULL;",
+                    (contract_id,),
+                ).fetchone()["c"]
+                all_signed = remaining == 0
+                if all_signed:
+                    conn.execute(
+                        "UPDATE contracts SET status = 'signed', updated_at = ? WHERE id = ?;",
+                        (now, contract_id),
+                    )
+
+            new_status = row["status"]
+            if all_signed:
+                new_status = "signed"
+                multi_party_status_note = "; all required signers complete"
+            else:
+                multi_party_status_note = f"; {remaining} signer(s) still pending"
+
+            _signed = Contract(
+                id=row["id"],
+                contract_number=row["contract_number"],
+                customer_id=row["customer_id"],
+                project_id=row["project_id"],
+                estimate_id=row["estimate_id"],
+                title=row["title"],
+                template_name=row["template_name"],
+                content=row["content"],
+                status=new_status,
+                customer_signed_at=row["customer_signed_at"] if "customer_signed_at" in row.keys() else None,
+                customer_signature_data=row["customer_signature_data"] if "customer_signature_data" in row.keys() else None,
+                version=row["version"],
+                assigned_user_id=row["assigned_user_id"] if "assigned_user_id" in row.keys() else None,
+                created_at=row["created_at"],
+                updated_at=now if all_signed else row["updated_at"],
             )
 
-        _signed = Contract(
-            id=row["id"],
-            contract_number=row["contract_number"],
-            customer_id=row["customer_id"],
-            project_id=row["project_id"],
-            estimate_id=row["estimate_id"],
-            title=row["title"],
-            template_name=row["template_name"],
-            content=row["content"],
-            status="signed",
-            customer_signed_at=now,
-            customer_signature_data=signature_data,
-            version=row["version"],
-            assigned_user_id=row["assigned_user_id"] if "assigned_user_id" in row.keys() else None,
-            created_at=row["created_at"],
-            updated_at=now,
-        )
+            signed_contract_signers = [
+                ContractSigner(
+                    id=r["id"],
+                    contract_id=r["contract_id"],
+                    party_role=r["party_role"],
+                    signer_name=r["signer_name"],
+                    anchor_label=r["anchor_label"],
+                    signature_data=r["signature_data"] if r["id"] != target["id"] else signature_data,
+                    signed_at=r["signed_at"] if r["id"] != target["id"] else now,
+                    created_at=r["created_at"],
+                )
+                for r in signer_rows
+            ]
 
         self.audit.log(
             action="sign",
             entity_type="contract",
             entity_id=contract_id,
-            change_summary=f"Signed contract #{row['contract_number']}",
+            change_summary=f"Signed contract #{row['contract_number']}{multi_party_status_note}",
             actor=actor,
             details=build_audit_details(
                 before=_before,
@@ -3860,8 +4101,17 @@ class CRMService:
         try:
             from utils.config import get_restoricon_doc_store_path
 
-            signer_label = f"Signed by {actor.username} on {now}"
-            pdf_bytes = pdf_service.render_contract_pdf(_signed, signer_label)
+            # B8.6d-b: a multi-party contract (signed_contract_signers is
+            # not None) renders one anchor per ContractSigner row, each
+            # with its own signature/pending state -- regenerated on every
+            # completed signature (not only once all parties are done), so
+            # the stored PDF always reflects the contract's current
+            # signing progress rather than only its final state.
+            if signed_contract_signers is not None:
+                pdf_bytes = pdf_service.render_contract_pdf_multi(_signed, signed_contract_signers)
+            else:
+                signer_label = f"Signed by {actor.username} on {now}"
+                pdf_bytes = pdf_service.render_contract_pdf(_signed, signer_label)
 
             base_dir = get_restoricon_doc_store_path()
             target_dir = os.path.join(base_dir, "contracts", "customers", str(_signed.customer_id))

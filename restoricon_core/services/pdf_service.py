@@ -13,11 +13,13 @@ needs named x/y coordinates per anchor; canvas gives that directly, while
 platypus's flowable model is a better fit for pure prose and would fight
 the anchor model rather than match it.
 
-This sub-phase (B8.6d-a) renders exactly ONE signature anchor -- the
-existing single Contract.customer_signed_at/customer_signature_data pair.
-Multi-party signer tracking is B8.6d-b, out of scope here; `DocumentSpec`
-already carries a *list* of anchors so that later phase does not need a
-data-model change, but `render_pdf` below only draws the first one.
+B8.6d-a rendered exactly ONE signature anchor -- the single
+Contract.customer_signed_at/customer_signature_data pair. B8.6d-b (this
+round) draws every anchor in `spec.signature_anchors`, each with its own
+optional per-anchor `signature_data`/`signer_label` (falling back to the
+single positional `signature_data`/`signer_label` args passed to
+`render_pdf` for any anchor that doesn't carry its own -- this keeps the
+single-signer call shape from B8.6d-a working unchanged).
 """
 
 from __future__ import annotations
@@ -57,6 +59,13 @@ class SignatureAnchor:
     x: float
     y: float
     label: str
+    # B8.6d-b: per-anchor override for render_pdf's positional
+    # signature_data/signer_label args. None means "not signed yet" (for
+    # signature_data) or "use render_pdf's fallback label" (for
+    # signer_label) -- a multi-party PDF draws each anchor with its own
+    # signer's data, not the same signature repeated at every anchor.
+    signature_data: Optional[str] = None
+    signer_label: Optional[str] = None
 
 
 @dataclass
@@ -128,42 +137,107 @@ def render_pdf(spec: DocumentSpec, signature_data: Optional[str], signer_label: 
                 c.drawString(_MARGIN, y, line)
                 y -= _LINE_HEIGHT
 
-    # Signature anchor -- this sub-phase draws only the first entry
-    # (single-signer, B8.6d-a). Always starts on a fresh page so the
-    # anchor's own x/y (measured from that page's origin) never collides
-    # with wrapped body text above; `anchor.page` isn't otherwise used to
-    # route content this round since there is exactly one anchor and one
-    # signature section.
+    # Signature anchors -- ALL anchors in spec.signature_anchors are drawn
+    # (B8.6d-b; B8.6d-a drew only anchors[0], single-signer). All anchors
+    # share one fresh signature page so their own x/y (measured from that
+    # page's origin) land at distinct on-page positions rather than each
+    # starting a new page and only ever landing at the same spot --
+    # `anchor.page` isn't otherwise used to route content this round since
+    # every current caller places all anchors on the same signature page.
     if spec.signature_anchors:
-        anchor = spec.signature_anchors[0]
         c.showPage()
-        c.setFont("Helvetica", 9)
-        c.drawString(anchor.x, anchor.y + 16, f"{anchor.label} ({anchor.party_role}):")
+        for anchor in spec.signature_anchors:
+            # Per-anchor signature_data/signer_label (B8.6d-b multi-party)
+            # falls back to render_pdf's positional args (B8.6d-a
+            # single-signer shape) when the anchor doesn't carry its own.
+            anchor_signature_data = anchor.signature_data if anchor.signature_data is not None else signature_data
+            anchor_signer_label = anchor.signer_label if anchor.signer_label is not None else signer_label
 
-        drew_image = False
-        if is_data_url_image(signature_data):
-            try:
-                image_bytes = _decode_data_url_image(signature_data)
-                reader = ImageReader(io.BytesIO(image_bytes))
-                c.drawImage(
-                    reader, anchor.x, anchor.y, width=180, height=60,
-                    preserveAspectRatio=True, anchor="sw", mask="auto",
-                )
-                drew_image = True
-            except (binascii.Error, ValueError, OSError):
-                # Malformed base64/image payload inside an otherwise
-                # image-shaped data URL -- fall through to the typed-text
-                # stamp rather than raising; a broken signature image must
-                # not abort PDF generation for an already-committed sign.
-                drew_image = False
+            c.setFont("Helvetica", 9)
+            c.drawString(anchor.x, anchor.y + 16, f"{anchor.label} ({anchor.party_role}):")
 
-        if not drew_image:
-            c.setFont("Helvetica-Oblique", 10)
-            c.drawString(anchor.x, anchor.y, signer_label)
+            if not anchor_signature_data:
+                # Required signer who hasn't signed yet (multi-party,
+                # partially-signed contract) -- label the anchor but draw
+                # no signature/stamp content.
+                c.setFont("Helvetica-Oblique", 9)
+                c.drawString(anchor.x, anchor.y, "(pending signature)")
+                continue
+
+            drew_image = False
+            if is_data_url_image(anchor_signature_data):
+                try:
+                    image_bytes = _decode_data_url_image(anchor_signature_data)
+                    reader = ImageReader(io.BytesIO(image_bytes))
+                    c.drawImage(
+                        reader, anchor.x, anchor.y, width=180, height=60,
+                        preserveAspectRatio=True, anchor="sw", mask="auto",
+                    )
+                    drew_image = True
+                except (binascii.Error, ValueError, OSError):
+                    # Malformed base64/image payload inside an otherwise
+                    # image-shaped data URL -- fall through to the typed-text
+                    # stamp rather than raising; a broken signature image must
+                    # not abort PDF generation for an already-committed sign.
+                    drew_image = False
+
+            if not drew_image:
+                c.setFont("Helvetica-Oblique", 10)
+                c.drawString(anchor.x, anchor.y, anchor_signer_label)
 
     c.showPage()
     c.save()
     return buf.getvalue()
+
+
+_MULTI_SIGNER_Y_START = 200.0
+_MULTI_SIGNER_Y_STEP = 80.0  # >= image height (60) + label gap (16), keeps anchors from overlapping
+
+
+def render_contract_pdf_multi(contract, signer_rows) -> bytes:
+    """Build a DocumentSpec from a multi-party contract's ContractSigner
+    rows (B8.6d-b) -- one signature anchor per row, each at its own
+    on-page position, each carrying that signer's own signature_data so
+    render_pdf draws every completed signature (and labels any still-
+    pending one) rather than stacking them all at one spot.
+
+    `signer_rows` must be non-empty (callers should use render_contract_pdf
+    instead for the single-signer/no-ContractSigner-rows case).
+    """
+    anchors = []
+    for i, signer in enumerate(signer_rows):
+        y = _MULTI_SIGNER_Y_START - i * _MULTI_SIGNER_Y_STEP
+        label = signer.anchor_label or signer.signer_name or signer.party_role.title()
+        stamp_label = (
+            f"Signed by {signer.signer_name or signer.party_role} on {signer.signed_at}"
+            if signer.signed_at
+            else ""
+        )
+        anchors.append(
+            SignatureAnchor(
+                party_role=signer.party_role,
+                page=1,
+                x=_MARGIN,
+                y=y,
+                label=label,
+                signature_data=signer.signature_data,
+                signer_label=stamp_label,
+            )
+        )
+
+    spec = DocumentSpec(
+        title=contract.title or f"Contract {contract.contract_number}",
+        fields=[
+            DocumentField("Contract Number", contract.contract_number or ""),
+            DocumentField("Status", contract.status or ""),
+        ],
+        body=contract.content or "",
+        signature_anchors=anchors,
+    )
+    # Positional signature_data/signer_label are unused here -- every
+    # anchor above carries its own via SignatureAnchor.signature_data/
+    # signer_label, which render_pdf always prefers over these fallbacks.
+    return render_pdf(spec, None, "")
 
 
 def render_contract_pdf(contract, signer_label: str) -> bytes:

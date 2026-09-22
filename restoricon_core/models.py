@@ -583,6 +583,28 @@ class Contract:
 
 
 @dataclass
+class ContractSigner:
+    """One required signer on a Contract (B8.6d-b, multi-party signing).
+    Additive on top of Contract.customer_signed_at/customer_signature_data
+    -- a contract with no ContractSigner rows uses that original
+    single-signer pair unchanged; a contract opted into multi-party
+    signing (CRMService.add_contract_signers) tracks each party's
+    signature here instead, and Contract.status only reaches 'signed'
+    once every row's signed_at is non-null."""
+    id: Optional[int] = None
+    contract_id: Optional[int] = None
+    party_role: str = ""  # e.g. 'customer', 'rep', 'project_manager', 'admin'
+    signer_name: Optional[str] = None
+    anchor_label: Optional[str] = None  # matches a pdf_service.SignatureAnchor.label
+    signature_data: Optional[str] = None  # nullable until signed
+    signed_at: Optional[str] = None  # nullable until signed
+    created_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class Document:
     id: Optional[int] = None
     customer_id: Optional[int] = None

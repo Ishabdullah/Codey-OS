@@ -295,6 +295,35 @@ CREATE TABLE IF NOT EXISTS contracts (
     FOREIGN KEY (estimate_id) REFERENCES estimates(id) ON DELETE SET NULL
 );
 
+-- Contract Signers (B8.6d-b): multi-party signer tracking, additive on top
+-- of the single customer_signed_at/customer_signature_data pair on
+-- contracts above. A contract with zero rows here uses the original
+-- single-signer path in CRMService.sign_contract unchanged; a contract
+-- opted into multi-party signing (via CRMService.add_contract_signers)
+-- gets one row per required signer and only reaches contracts.status =
+-- 'signed' once every row here has a non-null signed_at. Deliberately a
+-- new child table rather than new columns on contracts -- a one-to-many
+-- relationship doesn't fit ALTER TABLE ADD COLUMN (no UNIQUE, no FOREIGN
+-- KEY attachable that way), and CREATE TABLE IF NOT EXISTS has no such
+-- limit. party_role is free-form TEXT, not CHECK-constrained, since new
+-- signer roles may be added later and (per the users-role-rebuild
+-- precedent elsewhere in this file) a CHECK constraint on an
+-- already-created real DB cannot be widened without a full table rebuild
+-- -- avoided here by simply not adding one. New table, no migration entry
+-- needed.
+CREATE TABLE IF NOT EXISTS contract_signers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    contract_id INTEGER NOT NULL,
+    party_role TEXT NOT NULL,
+    signer_name TEXT,
+    anchor_label TEXT,
+    signature_data TEXT,
+    signed_at TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (contract_id) REFERENCES contracts(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_contract_signers_contract_id ON contract_signers(contract_id);
+
 -- Package Options (B8.6b, sales_rep_portal.md §B8.6): Good/Better/Best
 -- tiered pricing options scoped to an estimate. tier is deliberately
 -- distinct from and never mixed with home-care.html's real published
