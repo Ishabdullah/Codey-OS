@@ -7065,9 +7065,11 @@ this file's own don't-duplicate rule.
       CRUD over HTTP (`NEW-564`); client-side fan-out modal (10
       panels) over each entity's existing `customer_id`-filtered
       route, `Promise.allSettled`-based so one panel's failure never
-      blocks the rest. Found, flagged for Ish, not decided: `NEW-565`
-      (`ROLE_SALES` can't read invoices at all). Found, logged, not
-      fixed: `NEW-568` (`list_customers` has no per-rep scoping).
+      blocks the rest. Found: `NEW-565` (`ROLE_SALES` couldn't read
+      invoices) — **fixed 2026-09-22, commit `a6fdd93`**. Found,
+      logged, not fixed: `NEW-568` (`list_customers` has no per-rep
+      scoping — **answered by Ish 2026-09-22: build the ownership/
+      assignment model, admin can assign/reassign**, not yet built).
 - [x] **B8.4b** — `projects.property_id` wiring + Property
       project-history panel. **DONE 2026-09-17, code-complete +
       code-reviewer APPROVED** (pre-fix bug independently reproduced,
@@ -7112,10 +7114,14 @@ this file's own don't-duplicate rule.
       zero findings**, commit `a2c88d6`. Full detail in
       `PROJECT_LOG.md`'s 2026-09-17 entry. Closes `NEW-548`
       (no rep-ownership field) and `NEW-573` (`sign_contract` had no
-      re-sign guard or ownership check, IDOR-shaped). Disclosed, not
-      fixed: `NEW-575` (unintentionally strips `ROLE_PROJECT_MANAGER`'s
-      existing `NEW-192` contract-signing grant — flagged for Ish,
-      three plausible fixes, genuinely ambiguous).
+      re-sign guard or ownership check, IDOR-shaped). Disclosed:
+      `NEW-575` (unintentionally strips `ROLE_PROJECT_MANAGER`'s
+      existing `NEW-192` contract-signing grant) — **fixed 2026-09-22,
+      commit `a6fdd93`**, via the narrowest of the three directions
+      (exempt actors that can never own a contract from the ownership
+      check, rather than granting broader team-sales or write access).
+      Logged, not fixed: `NEW-581` (PM's restored signing has no
+      in-app discovery path for an unowned contract's id).
 - [x] **B8.6b** — `PackageOption` table + server-side estimate/package
       pricing computation. **DONE 2026-09-18, code-complete +
       code-reviewer APPROVED (round 2, after a round-1 CHANGES-
