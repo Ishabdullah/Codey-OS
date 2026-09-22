@@ -18813,3 +18813,29 @@ housekeeping, same as `NEW-403`'s own cleanup.
 - **Fix direction:** route wiring (`POST /api/v1/contracts/<id>/signers` or similar, plus a party-aware sign call) belongs in B8.6d-c (the guided UI phase) or a dedicated follow-on, consistent with the standing "everything configurable must be dashboard-editable" rule — multi-party signing isn't real to an end user until it's reachable from a surface, not just the service layer.
 - **Not fixed this round** — logged per rule 8, deliberate scope boundary, not an oversight.
 - **Cross-reference:** `restoricon_core/services/crm_service.py` (`add_contract_signers`, `sign_contract`), `restoricon_core/api/routes.py`, B8.6d-c.
+
+## Found 2026-09-22 — code-reviewer's B8.6d-b review (CHANGES REQUESTED round), three warnings logged, one blocking bug routed back for a fix (not logged separately, tracked as part of B8.6d-b's own round)
+
+### [NEW-593] Confirmed, not a new regression — pre-existing overloaded single-signer semantics carried forward, not blocking, worth closing before B8.6d-c wires a route: `sign_contract`'s `party_role` kwarg has no identity validation against the calling actor — any `PERM_SIGN_CONTRACTS` holder can sign as any party
+
+- **Status:** Confirmed (code-reviewer, 2026-09-22, B8.6d-b review — initially flagged Critical, then correctly downgraded after a differential check against pre-diff behavior). Live-proven: a `ROLE_PROJECT_MANAGER` actor can call `sign_contract(contract_id, "PM_FORGED_SIGNATURE", actor_pm, party_role="customer")` and have it recorded as the customer's signature. But the SAME class of gap already exists on the unmodified legacy single-signer path — any `PERM_SIGN_CONTRACTS` holder (including a PM, exempted from ownership narrowing by `NEW-575` specifically so they can sign) already silently writes into the single `customer_signature_data` slot today, confirmed via a live differential test against pre-B8.6d-b code. So the multi-party explicit-`party_role` path carries forward existing overloaded-authorization semantics rather than introducing a new one.
+- **Impact:** low today (matches existing behavior, not a regression), but real and higher-stakes once B8.6d-c wires a route that accepts `party_role` from a request body — per-party attribution is the entire point of multi-party signing, so an unvalidated `party_role` there would be a genuine authenticity gap, not a carried-forward quirk.
+- **Fix direction (not decided/fixed this round):** add a real identity check — e.g. confirm the actor's role/identity actually matches the `party_role` they're claiming to sign as, rather than trusting a caller-supplied string — before B8.6d-c exposes this over an API route.
+- **Not fixed this round** — logged per rule 8, non-blocking for B8.6d-b's own scope, flagged as a prerequisite for B8.6d-c's route-wiring work.
+- **Cross-reference:** `restoricon_core/services/crm_service.py` (`sign_contract`, `_resolve_contract_signer_row`), `NEW-575`, B8.6d-c.
+
+### [NEW-594] Confirmed, not fixed: multi-signer contract PDFs can render a 4th+ signature anchor off the bottom of the page, silently clipped/hidden by `reportlab`
+
+- **Status:** Confirmed (code-reviewer, 2026-09-22, B8.6d-b review, live-computed). `_MULTI_SIGNER_Y_START=200.0`/`_MULTI_SIGNER_Y_STEP=80.0` avoids overlap between adjacent anchors but doesn't account for page height — for a 4-signer contract (not hypothetical: `_ROLE_TO_PARTY_ROLE` defines exactly 4 real roles, customer/rep/project_manager/admin), the 4th anchor's y-position computes to `-40`, off a LETTER page's bottom edge. `reportlab` doesn't error on this — it silently clips/hides that signature from the rendered PDF.
+- **Impact:** real but narrow — only affects contracts with 4 or more required signers, and the failure mode is silent (no error, just a missing signature on the printed/viewed document) rather than a crash.
+- **Fix direction (not designed/fixed this round):** compute anchor y-positions relative to remaining page space, or start a new page once anchors would overflow the current one, rather than a fixed linear step with no page-boundary check.
+- **Not fixed this round** — logged per rule 8, non-blocking.
+- **Cross-reference:** `restoricon_core/services/pdf_service.py` (`render_contract_pdf_multi`, `_MULTI_SIGNER_Y_START`/`_MULTI_SIGNER_Y_STEP`).
+
+### [NEW-595] Confirmed, not fixed: a partial (1-of-N) multi-party contract sign's audit entry carries no per-party attribution — which specific party signed isn't recoverable from the audit trail alone
+
+- **Status:** Confirmed (code-reviewer, 2026-09-22, B8.6d-b review, live-checked). After a 1-of-2 partial sign, `audit_log.details_json` contains `{"side_effects": {"signature_captured": true}}` — no `party_role`, no signer identity. The `Contract`-level before/after field diff is correctly empty (only `contract_signers` changed, not `Contract` fields), and `change_summary`'s text does distinguish partial from complete ("N signer(s) still pending"), but the specific party who signed isn't recoverable from the audit trail without cross-referencing `contract_signers` directly.
+- **Impact:** real gap in audit fidelity — this project canonicalized 55 audit sites specifically for this level of detail (B6.2b), and a multi-party sign is exactly the kind of event where "who did what" matters most.
+- **Fix direction (not designed/fixed this round):** add `party_role`/signer identity to the audit entry's `side_effects` for a multi-party sign.
+- **Not fixed this round** — logged per rule 8, non-blocking.
+- **Cross-reference:** `restoricon_core/services/crm_service.py` (`sign_contract`'s multi-party audit call), B6.2b.
