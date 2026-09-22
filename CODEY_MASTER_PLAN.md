@@ -7155,13 +7155,22 @@ this file's own don't-duplicate rule.
       + multi-party signatures queued separately as B8.6d (`NEW-577`,
       extended by Ish with auto-population/template-selection/
       customer-search/document-visibility requirements, `NEW-579`).
-- [ ] **B8.6d-a** — PDF renderer + structured template/signature-anchor
-      model (single-signer, proven against the existing contract/
-      estimate flow). **Scoped 2026-09-22, design-only**, full detail
-      in `PROJECT_LOG.md`'s 2026-09-22 B8.6d entry — spec concrete
-      enough to hand to an implementer directly. Adds `reportlab` as a
-      new dependency (rule 11), closing the pre-existing undeclared-
-      install gap `NEW-589` in the same change. Not yet built.
+- [x] **B8.6d-a** — PDF renderer + structured template/signature-anchor
+      model (single-signer, contracts only this round). **DONE
+      2026-09-22, code-complete + code-reviewer APPROVED**, commit
+      `6242ee2`. Full detail in `PROJECT_LOG.md`'s 2026-09-22 entry.
+      New `pdf_service.py` (reportlab-based), wired into `sign_contract`
+      as a best-effort, non-authorization-touching side effect —
+      live-verified by the reviewer that a forced render failure
+      leaves the signature committed and audits the failure, not
+      silently or destructively. Closes `NEW-589` (undeclared
+      dependency). A real test-isolation leak into the user's actual
+      `~/.codeyOS/restoricon_documents/` was found and fixed within
+      the same round. Logged, not fixed: `NEW-590` (incomplete
+      image-decode exception coverage, low severity), `NEW-591`
+      (pre-existing `user_id=1` system-actor pattern, not new to this
+      round). Estimate/proposal PDF generation deliberately deferred,
+      contracts only this sub-phase.
 - [ ] **B8.6d-b** — multi-party signer model (new `contract_signers`
       table, extends — does not duplicate — `sign_contract`'s existing
       ownership/idempotency logic). Explicitly flagged as this sub-
