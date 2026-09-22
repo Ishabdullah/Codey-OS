@@ -70,7 +70,7 @@ from ..services.crm_service import CRMService, ClaimConflictError
 from ..services.finance_service import FinanceService
 from ..services.operations_service import OperationsService
 from ..services.scheduling_service import SchedulingService
-from .web_surfaces import render_admin_surface, render_portal_surface, render_login_surface, render_quote_surface
+from .web_surfaces import render_admin_surface, render_portal_surface, render_login_surface, render_quote_surface, render_estimate_proposal
 
 
 _MODEL_QUANT_RE = re.compile(r"(Q\d+(?:_[A-Z0-9]+)*|F16|F32|BF16)", re.IGNORECASE)
@@ -1193,6 +1193,44 @@ class APIRouter:
                     return 404, {"Content-Type": "application/json"}, {"error": "Estimate not found"}
                 return 200, {"Content-Type": "application/json"}, {"estimate": sent_estimate.to_dict()}
 
+            if (
+                path.startswith("/api/v1/estimates/")
+                and path.endswith("/proposal")
+                and "/" not in path[len("/api/v1/estimates/"):-len("/proposal")]
+                and method == "GET"
+            ):
+                # B8.6c proposal builder. get_estimate() is the only access
+                # gate (customer isolation / rep-ownership narrowing) --
+                # business_profile/compliance_items are fetched through
+                # their own permission-gated service methods and degrade to
+                # None/[] on PermissionError (a ROLE_SALES actor lacks
+                # read:business_profile/read:compliance today -- logged as
+                # NEW-578 rather than widened here) so the proposal still
+                # renders for the estimate's owning rep, just without the
+                # licensed/insured section. This is a display document, not
+                # an authorization decision -- omitting a section is safe;
+                # see render_estimate_proposal's docstring.
+                est_id = _parse_int_path_segment(path[len("/api/v1/estimates/"):-len("/proposal")], "est_id")
+                estimate = self.crm.get_estimate(est_id, actor)
+                if not estimate:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Estimate not found"}
+                customer = self.crm.get_customer(estimate.customer_id, actor)
+                if not customer:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Customer not found"}
+                package_options = self.crm.list_package_options(actor, estimate_id=est_id)
+                try:
+                    business_profile = self.automation.get_business_profile(actor)
+                except PermissionError:
+                    business_profile = None
+                try:
+                    compliance_items = self.business_ops.list_compliance_items(actor, entity_type="company")
+                except PermissionError:
+                    compliance_items = []
+                proposal_html = render_estimate_proposal(
+                    estimate, customer, business_profile, compliance_items, package_options
+                )
+                return 200, {"Content-Type": "text/html; charset=utf-8"}, proposal_html
+
             # Package Options (B8.6b, sales_rep_portal.md §B8.6)
             if path == "/api/v1/package-options":
                 if method == "GET":
@@ -1229,6 +1267,30 @@ class APIRouter:
                 if not contract:
                     return 404, {"Content-Type": "application/json"}, {"error": "Contract not found"}
                 return 200, {"Content-Type": "application/json"}, {"contract": contract.to_dict()}
+
+            if (
+                path.startswith("/api/v1/contracts/")
+                and path.endswith("/update")
+                and "/" not in path[len("/api/v1/contracts/"):-len("/update")]
+                and method == "POST"
+            ):
+                contract_id = _parse_int_path_segment(path[len("/api/v1/contracts/"):-len("/update")], "contract_id")
+                updated_contract = self.crm.update_contract(contract_id, json_body, actor)
+                if not updated_contract:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Contract not found"}
+                return 200, {"Content-Type": "application/json"}, {"contract": updated_contract.to_dict()}
+
+            if (
+                path.startswith("/api/v1/contracts/")
+                and path.endswith("/send")
+                and "/" not in path[len("/api/v1/contracts/"):-len("/send")]
+                and method == "POST"
+            ):
+                contract_id = _parse_int_path_segment(path[len("/api/v1/contracts/"):-len("/send")], "contract_id")
+                sent_contract = self.crm.send_contract(contract_id, actor)
+                if not sent_contract:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Contract not found"}
+                return 200, {"Content-Type": "application/json"}, {"contract": sent_contract.to_dict()}
 
             if (
                 path.startswith("/api/v1/contracts/")

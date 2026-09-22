@@ -8,6 +8,23 @@ Exact brand styling matching restoricon.com:
 - Phone: (860) 337-1820 | CT HIC Licensed General Contractor
 """
 
+import html as _html
+
+
+def _pesc(value) -> str:
+    """Python-side HTML escaping for server-rendered (non-f-string,
+    non-SPA) surfaces such as render_estimate_proposal -- customer
+    names, line-item descriptions, and business-profile text are all
+    client-supplied and land directly in server-rendered HTML, so they
+    must be escaped the same way escapeHtml() protects the client-side
+    JS-rendered surfaces elsewhere in this file. quote=True also escapes
+    quotes, not just angle brackets, since this print-only markup has no
+    client-side re-escaping pass of its own to fall back on."""
+    if value is None:
+        return ""
+    return _html.escape(str(value), quote=True)
+
+
 def _get_universal_drawer_html(active_surface: str = "") -> str:
     """Generate universal slide-out navigation drawer and overlay shared across all web surfaces."""
     return """
@@ -6095,6 +6112,74 @@ def _render_sales_portal() -> str:
         // this reuses -- the form only ever sends ids it already has).
         let assessmentFormEvidenceDocs = [];
 
+        // B8.6c: proposal view + contract send/track/sign actions, wired
+        // into the Estimates/Contracts panels above. viewEstimateProposal
+        // reuses the documents-tab download precedent (window.open with
+        // ?token= -- see loadCustomer360's Documents fetch and the
+        // subcontractors tab's file download button) since a plain <a>
+        // navigation can't carry an Authorization header.
+        function viewEstimateProposal(estimateId) {{
+            window.open('/api/v1/estimates/' + estimateId + '/proposal?token=' + getAuthToken(), '_blank');
+        }}
+
+        // Status-gated action buttons, matching Contract.status's real
+        // CHECK values (draft/sent/signed/expired/superseded) -- draft can
+        // be sent, sent can be signed (an admin/manager/PM/rep counter-
+        // signature via PERM_SIGN_CONTRACTS, not a customer e-signature
+        // pad -- that already exists on the customer portal surface,
+        // render_portal_surface's Digital Contract E-Signature Pad),
+        // signed/expired/superseded show no action.
+        function renderContractActionButtons(c) {{
+            if (c.status === 'draft') {{
+                return `<button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="sendContractAction(${{c.id}})">Send</button>`;
+            }}
+            if (c.status === 'sent') {{
+                return `<button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="signContractAction(${{c.id}})">Sign</button>`;
+            }}
+            return '';
+        }}
+
+        async function sendContractAction(contractId) {{
+            const token = getAuthToken();
+            try {{
+                const res = await fetch('/api/v1/contracts/' + contractId + '/send', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{}}),
+                }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                const data = await res.json();
+                if (!res.ok) {{
+                    alert(data.error || ('Failed to send contract (' + res.status + ').'));
+                    return;
+                }}
+                if (currentCustomer360Id) loadCustomer360(currentCustomer360Id);
+            }} catch (e) {{
+                alert('Failed to send contract: network error.');
+            }}
+        }}
+
+        async function signContractAction(contractId) {{
+            const token = getAuthToken();
+            if (!confirm('Sign this contract? This is a binding signature action.')) return;
+            try {{
+                const res = await fetch('/api/v1/contracts/' + contractId + '/sign', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{ signature_data: 'portal_countersignature' }}),
+                }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                const data = await res.json();
+                if (!res.ok) {{
+                    alert(data.error || ('Failed to sign contract (' + res.status + ').'));
+                    return;
+                }}
+                if (currentCustomer360Id) loadCustomer360(currentCustomer360Id);
+            }} catch (e) {{
+                alert('Failed to sign contract: network error.');
+            }}
+        }}
+
         async function openCustomer360Modal(customerId) {{
             currentCustomer360Id = customerId;
             const overlay = document.getElementById('customer360Modal');
@@ -6211,12 +6296,12 @@ def _render_sales_portal() -> str:
                 '<thead><tr><th>Title</th><th>Status</th><th>Contract Amount</th></tr></thead>');
 
             html += c360PanelSection('Estimates', byKey.estimates, 'No estimates.',
-                (d) => (d.estimates || []).map(e => `<tr><td>${{escapeHtml(e.estimate_number || '')}}</td><td>${{escapeHtml(e.status || '')}}</td><td>$${{escapeHtml((e.total_amount || 0).toLocaleString())}}</td></tr>`),
-                '<thead><tr><th>Number</th><th>Status</th><th>Total</th></tr></thead>');
+                (d) => (d.estimates || []).map(e => `<tr><td>${{escapeHtml(e.estimate_number || '')}}</td><td>${{escapeHtml(e.status || '')}}</td><td>$${{escapeHtml((e.total_amount || 0).toLocaleString())}}</td><td><button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="viewEstimateProposal(${{e.id}})">View Proposal</button></td></tr>`),
+                '<thead><tr><th>Number</th><th>Status</th><th>Total</th><th></th></tr></thead>');
 
             html += c360PanelSection('Contracts', byKey.contracts, 'No contracts.',
-                (d) => (d.contracts || []).map(c => `<tr><td>${{escapeHtml(c.contract_number || '')}}</td><td>${{escapeHtml(c.title || '')}}</td><td>${{escapeHtml(c.status || '')}}</td></tr>`),
-                '<thead><tr><th>Number</th><th>Title</th><th>Status</th></tr></thead>');
+                (d) => (d.contracts || []).map(c => `<tr><td>${{escapeHtml(c.contract_number || '')}}</td><td>${{escapeHtml(c.title || '')}}</td><td>${{escapeHtml(c.status || '')}}${{c.status === 'signed' && c.customer_signed_at ? ' (' + escapeHtml(c.customer_signed_at) + ')' : ''}}</td><td>${{renderContractActionButtons(c)}}</td></tr>`),
+                '<thead><tr><th>Number</th><th>Title</th><th>Status</th><th></th></tr></thead>');
 
             html += c360PanelSection('Invoices', byKey.invoices, 'No invoices.',
                 (d) => (d.invoices || []).map(i => `<tr><td>${{escapeHtml(i.invoice_number || '')}}</td><td>${{escapeHtml(i.status || '')}}</td><td>$${{escapeHtml((i.amount || 0).toLocaleString())}}</td><td>$${{escapeHtml((i.balance_due || 0).toLocaleString())}}</td></tr>`),
@@ -6822,6 +6907,211 @@ def _render_sales_portal() -> str:
     </script>
 </body>
 </html>"""
+
+def render_estimate_proposal(
+    estimate,
+    customer,
+    business_profile=None,
+    compliance_items=None,
+    package_options=None,
+) -> str:
+    """B8.6c proposal builder (sales_rep_portal.md B8.6, request §9-12).
+
+    Server-rendered, print-friendly HTML -- deliberately NOT a PDF.
+    Confirmed during scoping: no PDF dependency (weasyprint/reportlab/
+    jinja2/pdfkit/wkhtmltopdf) exists in requirements.txt/install.sh
+    today, and real PDF rendering on this device class (Termux/Android)
+    is genuinely painful; building it is its own future Ish decision.
+    The browser's own "Print to PDF" over this page's @media print
+    styling is the intended path for now.
+
+    License/insurance content is pulled from the `ComplianceItem` model
+    (category in business_license/general_liability/workers_comp/etc,
+    entity_type="company"), NOT `BusinessProfile` -- BusinessProfile only
+    carries a single license_number field, no insurance data at all.
+    The original spec text (B8.6's "existing BusinessProfile... license/
+    insurance info already modeled") is a known spec inaccuracy, corrected
+    here rather than propagated.
+
+    Deliberately renders ONLY customer-facing numbers from `estimate` --
+    unlike get_estimate's response, this function is handed the raw
+    (unredacted-for-admin/rep) Estimate object by its caller, so the
+    redaction responsibility is this function's own: it prints
+    description/quantity/unit_price/subtotal/discount_amount/tax_amount/
+    total_amount, and never materials_cost/labor_cost/subcontractor_cost/
+    markup_percent/notes (internal-only fields) or a PackageOption's
+    gross_profit/margin (internal-only fields, mirrors
+    _row_to_package_option's customer redaction).
+
+    business_profile/compliance_items are Optional: the caller
+    (routes.py) fetches them through their own permission-gated service
+    methods and passes None/[] through on a PermissionError (a
+    ROLE_SALES actor today lacks read:business_profile/read:compliance --
+    see NEW-578) rather than this function
+    reaching around that gate itself.
+    """
+    package_options = package_options or []
+    compliance_items = compliance_items or []
+
+    biz_name = _pesc((business_profile.business_name if business_profile else None) or "Restoricon, LLC")
+    biz_phone = _pesc((business_profile.business_phone if business_profile else None) or "(860) 337-1820")
+    biz_email = _pesc((business_profile.business_email if business_profile else None) or "")
+    biz_license = _pesc((business_profile.license_number if business_profile else None) or "")
+
+    cust_name = _pesc(f"{customer.first_name or ''} {customer.last_name or ''}".strip())
+    cust_company = _pesc(customer.company_name or "")
+    cust_address = _pesc(customer.service_address or customer.mailing_address or "")
+    cust_phone = _pesc(customer.phone or "")
+    cust_email = _pesc(customer.email or "")
+
+    def _line_item_price_cell(item) -> str:
+        # Never fall back to unit_cost (internal-only field, see docstring
+        # above) -- an estimate's real line_items shape (see
+        # CRMService._compute_line_item_costs) only ever carries unit_cost,
+        # never unit_price, so a unit_cost fallback here would leak internal
+        # cost to the customer on every estimate built through the normal
+        # create/update flow. Guard against an explicit `unit_price: None`
+        # too, not just a missing key -- `.get(key, default)` only covers
+        # absence.
+        price = item.get("unit_price")
+        if price is None:
+            return "&mdash;"
+        try:
+            price = float(price)
+        except (TypeError, ValueError):
+            # _compute_line_item_costs only validates quantity/unit_cost, so
+            # a blank/non-numeric unit_price is storable via create_estimate
+            # today and must not crash this customer-facing page -- treat
+            # it the same as "no price" rather than propagating the error.
+            return "&mdash;"
+        return f"${_pesc('{:,.2f}'.format(price))}"
+
+    line_item_rows = "".join(
+        f"""<tr>
+            <td>{_pesc(item.get('description', ''))}</td>
+            <td class="num">{_pesc(item.get('quantity', ''))}</td>
+            <td class="num">{_line_item_price_cell(item)}</td>
+        </tr>"""
+        for item in (estimate.line_items or [])
+    )
+    if not line_item_rows:
+        line_item_rows = '<tr><td colspan="3">No line items.</td></tr>'
+
+    package_cards = "".join(
+        f"""<div class="pkg-card">
+            <h3>{_pesc(po.tier.capitalize())}</h3>
+            <div class="pkg-price">${_pesc('{:,.2f}'.format(po.price))}</div>
+            <ul>{"".join(f"<li>{_pesc(i.get('description', ''))}</li>" for i in (po.included_items or []))}</ul>
+        </div>"""
+        for po in package_options
+    )
+
+    compliance_rows = "".join(
+        f"""<tr>
+            <td>{_pesc(item.title)}</td>
+            <td>{_pesc(item.category.replace('_', ' ').title())}</td>
+            <td>{_pesc(item.expiration_date or '-')}</td>
+        </tr>"""
+        for item in compliance_items
+    )
+    compliance_section = ""
+    if compliance_rows:
+        compliance_section = f"""
+        <div class="section">
+            <h2>Licensed &amp; Insured</h2>
+            <table>
+                <thead><tr><th>Credential</th><th>Type</th><th>Expiration</th></tr></thead>
+                <tbody>{compliance_rows}</tbody>
+            </table>
+        </div>"""
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Proposal """ + _pesc(estimate.estimate_number) + """ &mdash; Restoricon, LLC</title>
+<style>
+    :root {
+        --navy: #0A192F; --slate: #1E293B; --bronze: #D4AF37; --offwhite: #F8FAFC;
+    }
+    body {
+        font-family: 'Segoe UI', Arial, sans-serif; color: var(--slate); background: var(--offwhite);
+        margin: 0; padding: 2rem;
+    }
+    .sheet { max-width: 800px; margin: 0 auto; background: #fff; padding: 2.5rem; box-shadow: 0 0 12px rgba(0,0,0,0.08); }
+    .letterhead { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid var(--bronze); padding-bottom: 1rem; margin-bottom: 1.5rem; }
+    .letterhead h1 { color: var(--navy); margin: 0; font-size: 1.6rem; }
+    .letterhead .biz-contact { text-align: right; font-size: 0.85rem; color: #475569; }
+    h2 { color: var(--navy); border-bottom: 1px solid #E2E8F0; padding-bottom: 0.3rem; margin-top: 2rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: 0.75rem; }
+    th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid #E2E8F0; font-size: 0.9rem; }
+    td.num, th.num { text-align: right; }
+    .section { margin-bottom: 1rem; }
+    .totals { margin-top: 1rem; float: right; width: 260px; }
+    .totals table td { border-bottom: none; padding: 0.25rem 0.6rem; }
+    .totals .grand-total td { font-weight: 700; border-top: 2px solid var(--navy); font-size: 1.1rem; }
+    .pkg-row { display: flex; gap: 1rem; clear: both; padding-top: 1rem; }
+    .pkg-card { flex: 1; border: 1px solid #E2E8F0; border-radius: 6px; padding: 1rem; text-align: center; }
+    .pkg-card h3 { color: var(--bronze); margin: 0 0 0.5rem 0; text-transform: uppercase; }
+    .pkg-price { font-size: 1.4rem; font-weight: 700; color: var(--navy); margin-bottom: 0.5rem; }
+    .pkg-card ul { text-align: left; font-size: 0.85rem; padding-left: 1.2rem; }
+    .print-btn { margin: 1rem 0; }
+    .print-btn button { background: var(--bronze); border: none; color: var(--navy); font-weight: 700; padding: 0.6rem 1.2rem; border-radius: 4px; cursor: pointer; }
+    @media print {
+        body { padding: 0; background: #fff; }
+        .sheet { box-shadow: none; padding: 0; max-width: 100%; }
+        .print-btn { display: none; }
+    }
+</style>
+</head>
+<body>
+<div class="print-btn"><button onclick="window.print()">Print / Save as PDF</button></div>
+<div class="sheet">
+    <div class="letterhead">
+        <div>
+            <h1>""" + biz_name + """</h1>
+            <div>Proposal &amp; Estimate #""" + _pesc(estimate.estimate_number) + """</div>
+        </div>
+        <div class="biz-contact">
+            """ + biz_phone + ("<br>" + biz_email if biz_email else "") + ("<br>License #" + biz_license if biz_license else "") + """
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Prepared For</h2>
+        <div>""" + cust_name + (" &mdash; " + cust_company if cust_company else "") + """</div>
+        <div>""" + cust_address + """</div>
+        <div>""" + cust_phone + (" &middot; " + cust_email if cust_email else "") + """</div>
+    </div>
+
+    <div class="section">
+        <h2>Scope of Work</h2>
+        <table>
+            <thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Price</th></tr></thead>
+            <tbody>""" + line_item_rows + """</tbody>
+        </table>
+        <div class="totals">
+            <table>
+                <tr><td>Subtotal</td><td class="num">$""" + _pesc('{:,.2f}'.format(estimate.subtotal or 0)) + """</td></tr>
+                <tr><td>Discount</td><td class="num">-$""" + _pesc('{:,.2f}'.format(estimate.discount_amount or 0)) + """</td></tr>
+                <tr><td>Tax</td><td class="num">$""" + _pesc('{:,.2f}'.format(estimate.tax_amount or 0)) + """</td></tr>
+                <tr class="grand-total"><td>Total</td><td class="num">$""" + _pesc('{:,.2f}'.format(estimate.total_amount or 0)) + """</td></tr>
+            </table>
+        </div>
+    </div>
+
+    """ + (f'<div class="section" style="clear:both;"><h2>Package Options</h2><div class="pkg-row">{package_cards}</div></div>' if package_cards else '') + """
+
+    """ + compliance_section + """
+
+    <div class="section" style="clear:both;">
+        <p style="font-size:0.8rem;color:#64748B;">This proposal is valid until """ + _pesc(estimate.expiration_date or 'the date specified by your sales representative') + """. Estimate status: """ + _pesc(estimate.status) + """.</p>
+    </div>
+</div>
+</body>
+</html>"""
+
 
 def render_pm_surface() -> str:
     return _render_staff_portal_base("Project Manager", "Projects I Manage", "project_manager")

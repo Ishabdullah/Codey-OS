@@ -3535,6 +3535,144 @@ class CRMService:
         rows = conn.execute(query, params).fetchall()
         return [self._row_to_contract(r) for r in rows]
 
+    # Fields updatable via update_contract. Deliberately excludes
+    # customer_id/project_id/estimate_id/assigned_user_id/status (status
+    # has its own transition methods -- send_contract below, sign_contract
+    # further down) and the signature fields customer_signed_at/
+    # customer_signature_data (only sign_contract may set those). Mirrors
+    # ALLOWED_ESTIMATE_UPDATE_FIELDS' exclusion logic (B8.6b).
+    ALLOWED_CONTRACT_UPDATE_FIELDS = {"title", "template_name", "content"}
+
+    def update_contract(
+        self, contract_id: int, updates: Dict[str, Any], actor: AuthContext
+    ) -> Optional[Contract]:
+        """Partial update for a contract, allow-list enforced (see
+        ALLOWED_CONTRACT_UPDATE_FIELDS). Mirrors update_estimate's shape
+        exactly (B8.6c)."""
+        if not actor.has_permission(PERM_WRITE_CONTRACTS):
+            raise PermissionError("Actor lacks permission to update contracts")
+
+        unknown = set(updates) - self.ALLOWED_CONTRACT_UPDATE_FIELDS
+        if unknown:
+            raise ValueError(f"Unknown field(s) for contract update: {sorted(unknown)}")
+
+        for key, value in updates.items():
+            if value is None:
+                raise ValueError(
+                    f"Field '{key}' cannot be set to None via update_contract; omit the key instead"
+                )
+
+        if not updates:
+            return self.get_contract(contract_id, actor)
+
+        conn = self.db.get_connection()
+        row = conn.execute("SELECT * FROM contracts WHERE id = ?;", (contract_id,)).fetchone()
+        if not row:
+            return None
+
+        # Customer-isolation gate -- same shape as update_estimate/
+        # get_contract. A ROLE_CUSTOMER actor granted write:contracts via
+        # custom_permissions must still be confined to their own
+        # customer_id; without this, only the rep-ownership branch below
+        # ran, and that branch is skipped entirely for ROLE_CUSTOMER.
+        if actor.role == ROLE_CUSTOMER and (not actor.customer_id or actor.customer_id != row["customer_id"]):
+            raise PermissionError("Customer cannot access another customer's contract")
+
+        # B8.6a / NEW-548: same rep-ownership narrowing as get_contract --
+        # a narrowed actor (no PERM_READ_TEAM_SALES_DATA) may only update
+        # their own contract.
+        if actor.role != ROLE_CUSTOMER and not actor.has_permission(PERM_READ_TEAM_SALES_DATA):
+            if row["assigned_user_id"] != actor.user_id:
+                return None
+
+        contract = self._row_to_contract(row)
+        _before = contract.to_dict()
+
+        for key, value in updates.items():
+            setattr(contract, key, value)
+
+        now = utc_now_iso()
+        contract.updated_at = now
+
+        with conn:
+            conn.execute(
+                """
+                UPDATE contracts SET
+                    title = ?, template_name = ?, content = ?, updated_at = ?
+                WHERE id = ?;
+                """,
+                (
+                    contract.title,
+                    contract.template_name,
+                    contract.content,
+                    now,
+                    contract_id,
+                ),
+            )
+
+        self.audit.log(
+            action="update",
+            entity_type="contract",
+            entity_id=contract_id,
+            change_summary=f"Updated contract #{contract.contract_number} '{contract.title}'",
+            actor=actor,
+            details=build_audit_details(before=_before, after=contract.to_dict(), fields=_AUDITABLE_CONTRACT_FIELDS),
+        )
+        updated_row = conn.execute("SELECT * FROM contracts WHERE id = ?;", (contract_id,)).fetchone()
+        return self._row_to_contract(updated_row)
+
+    def send_contract(self, contract_id: int, actor: AuthContext) -> Optional[Contract]:
+        """Transition a contract from draft to sent (B8.6c). Mirrors
+        send_estimate's shape exactly, including its idempotent-refusal
+        design (rejecting a re-send with ValueError rather than silently
+        no-opping) and its audit-logging shape."""
+        if not actor.has_permission(PERM_WRITE_CONTRACTS):
+            raise PermissionError("Actor lacks permission to send contracts")
+
+        conn = self.db.get_connection()
+        row = conn.execute("SELECT * FROM contracts WHERE id = ?;", (contract_id,)).fetchone()
+        if not row:
+            return None
+
+        # Customer-isolation gate -- see update_contract for the same
+        # rationale (a ROLE_CUSTOMER actor granted write:contracts via
+        # custom_permissions must still be confined to their own customer_id).
+        if actor.role == ROLE_CUSTOMER and (not actor.customer_id or actor.customer_id != row["customer_id"]):
+            raise PermissionError("Customer cannot access another customer's contract")
+
+        if actor.role != ROLE_CUSTOMER and not actor.has_permission(PERM_READ_TEAM_SALES_DATA):
+            if row["assigned_user_id"] != actor.user_id:
+                return None
+
+        contract = self._row_to_contract(row)
+        if contract.status != "draft":
+            raise ValueError(
+                f"Cannot send contract {contract_id}: status is '{contract.status}', not 'draft'"
+            )
+
+        _before = contract.to_dict()
+        old_status = contract.status
+        contract.status = "sent"
+        now = utc_now_iso()
+        contract.updated_at = now
+
+        with conn:
+            conn.execute(
+                "UPDATE contracts SET status = ?, updated_at = ? WHERE id = ?;",
+                (contract.status, now, contract_id),
+            )
+
+        self.audit.log(
+            action="stage_transition",
+            entity_type="contract",
+            entity_id=contract_id,
+            change_summary=f"Transitioned contract #{contract.contract_number} ({contract_id}) from '{old_status}' to '{contract.status}'",
+            actor=actor,
+            details=build_audit_details(before=_before, after=contract.to_dict(), fields=_AUDITABLE_CONTRACT_FIELDS),
+        )
+        updated_row = conn.execute("SELECT * FROM contracts WHERE id = ?;", (contract_id,)).fetchone()
+        return self._row_to_contract(updated_row)
+
     def sign_contract(
         self,
         contract_id: int,
