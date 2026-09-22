@@ -855,6 +855,183 @@ def test_real_sales_manager_role_sees_team_data_with_no_custom_permission_grant(
 
 
 # ==========================================
+# 8b. NEW-568: CUSTOMER REP-OWNERSHIP NARROWING + ADMIN ASSIGN/REASSIGN
+# ==========================================
+
+def test_list_and_get_customers_narrowed_to_own_and_unclaimed(env):
+    crm = env["crm"]
+    actor_a = env["actors"][ROLE_SALES]
+    actor_b = _second_sales_actor(env)
+
+    cust_a = crm.update_customer(
+        crm.create_customer(Customer(first_name="Owned", last_name="ByA"), actor_a).id,
+        {"assigned_user_id": actor_a.user_id},
+        env["actors"][ROLE_ADMIN],
+    )
+    cust_unclaimed = crm.create_customer(Customer(first_name="No", last_name="Owner"), actor_a)
+
+    # Actor B (plain sales, no PERM_READ_TEAM_SALES_DATA) must not see
+    # actor A's assigned customer, but must see the unclaimed one.
+    customers_b = crm.list_customers(actor_b)
+    ids_b = {c.id for c in customers_b}
+    assert cust_a.id not in ids_b
+    assert cust_unclaimed.id in ids_b
+
+    # get_customer on another rep's assigned customer is treated as
+    # not-found, matching get_lead's established pattern.
+    assert crm.get_customer(cust_a.id, actor_b) is None
+    assert crm.get_customer(cust_unclaimed.id, actor_b) is not None
+
+
+def test_customers_full_tier_actors_unaffected_by_narrowing(env):
+    """Regression guard: PERM_READ_TEAM_SALES_DATA holders (admin/manager/
+    ai_agent/sales_manager) must still see every customer, unscoped,
+    exactly as before this change."""
+    crm = env["crm"]
+    actor_a = env["actors"][ROLE_SALES]
+    admin_actor = env["actors"][ROLE_ADMIN]
+    manager_actor = env["actors"][ROLE_MANAGER]
+    agent_actor = env["actors"][ROLE_AI_AGENT]
+
+    cust_a = crm.update_customer(
+        crm.create_customer(Customer(first_name="Owned", last_name="ByA2"), actor_a).id,
+        {"assigned_user_id": actor_a.user_id},
+        admin_actor,
+    )
+
+    for full_tier_actor in (admin_actor, manager_actor, agent_actor):
+        ids = {c.id for c in crm.list_customers(full_tier_actor)}
+        assert cust_a.id in ids
+        assert crm.get_customer(cust_a.id, full_tier_actor) is not None
+
+
+def test_customer_role_self_only_access_unaffected(env):
+    """ROLE_CUSTOMER's existing self-only branch is untouched by the new
+    rep-ownership narrowing (which only applies to non-customer roles).
+    Builds its own properly-scoped ROLE_CUSTOMER AuthContext (the shared
+    `env["actors"][ROLE_CUSTOMER]` fixture entry has customer_id=None --
+    only usable for permission-denied-shape assertions, not a real
+    self-access success path)."""
+    crm = env["crm"]
+    admin_actor = env["actors"][ROLE_ADMIN]
+
+    own_cust = crm.create_customer(Customer(first_name="Self", last_name="Access"), admin_actor)
+    other_cust = crm.create_customer(Customer(first_name="Other", last_name="Cust"), admin_actor)
+
+    cust_user = env["auth"].create_user(
+        "cust_user_self", "Pass123!", "Cust Self", "custself@test.com", ROLE_CUSTOMER, customer_id=own_cust.id
+    )
+    cust_actor = AuthContext(cust_user.id, "cust_user_self", ROLE_CUSTOMER, "human", customer_id=own_cust.id)
+
+    own = crm.list_customers(cust_actor)
+    assert len(own) == 1
+    assert own[0].id == own_cust.id
+    assert crm.get_customer(own_cust.id, admin_actor) is not None
+    assert crm.get_customer(own_cust.id, cust_actor) is not None
+
+    with pytest.raises(PermissionError):
+        crm.get_customer(other_cust.id, cust_actor)
+
+
+def test_admin_can_assign_and_reassign_customer_with_audit_and_visibility_flip(env):
+    crm = env["crm"]
+    audit = env["audit"]
+    admin_actor = env["actors"][ROLE_ADMIN]
+    actor_a = env["actors"][ROLE_SALES]
+    actor_b = _second_sales_actor(env)
+
+    cust = crm.create_customer(Customer(first_name="Reassign", last_name="Me"), admin_actor)
+    assert cust.assigned_user_id is None
+
+    assigned = crm.update_customer(cust.id, {"assigned_user_id": actor_a.user_id}, admin_actor)
+    assert assigned.assigned_user_id == actor_a.user_id
+
+    logs = audit.query_logs(admin_actor, entity_type="customer", entity_id=cust.id, action="update")
+    assert logs
+    changed = logs[0].details.get("changed_fields", {})
+    assert changed.get("assigned_user_id") == {"old": None, "new": actor_a.user_id}
+
+    # Newly-assigned rep (actor_a) can now see it; actor_b cannot.
+    assert crm.get_customer(cust.id, actor_a) is not None
+    assert crm.get_customer(cust.id, actor_b) is None
+
+    # Reassign from actor_a to actor_b.
+    reassigned = crm.update_customer(cust.id, {"assigned_user_id": actor_b.user_id}, admin_actor)
+    assert reassigned.assigned_user_id == actor_b.user_id
+
+    logs2 = audit.query_logs(admin_actor, entity_type="customer", entity_id=cust.id, action="update")
+    changed2 = logs2[0].details.get("changed_fields", {})
+    assert changed2.get("assigned_user_id") == {"old": actor_a.user_id, "new": actor_b.user_id}
+
+    # Previously-assigned rep (actor_a) no longer sees it; actor_b does.
+    assert crm.get_customer(cust.id, actor_a) is None
+    assert crm.get_customer(cust.id, actor_b) is not None
+
+    # Unassign back to the unclaimed pool -- explicit None must be accepted
+    # and audited, not rejected by the general None-guard.
+    unassigned = crm.update_customer(cust.id, {"assigned_user_id": None}, admin_actor)
+    assert unassigned.assigned_user_id is None
+    logs3 = audit.query_logs(admin_actor, entity_type="customer", entity_id=cust.id, action="update")
+    changed3 = logs3[0].details.get("changed_fields", {})
+    assert changed3.get("assigned_user_id") == {"old": actor_b.user_id, "new": None}
+    # Unclaimed again -- both reps' narrowed views must see it.
+    assert crm.get_customer(cust.id, actor_a) is not None
+    assert crm.get_customer(cust.id, actor_b) is not None
+
+
+def test_plain_sales_actor_cannot_reassign_customer_ownership(env):
+    """A ROLE_SALES actor holds PERM_WRITE_CUSTOMERS (so update_customer's
+    top-level gate alone would let the call through) but NOT
+    PERM_READ_TEAM_SALES_DATA -- the assign/reassign action must still be
+    refused."""
+    crm = env["crm"]
+    admin_actor = env["actors"][ROLE_ADMIN]
+    actor_a = env["actors"][ROLE_SALES]
+    actor_b = _second_sales_actor(env)
+
+    cust = crm.create_customer(Customer(first_name="Guarded", last_name="Cust"), admin_actor)
+
+    with pytest.raises(PermissionError):
+        crm.update_customer(cust.id, {"assigned_user_id": actor_b.user_id}, actor_a)
+
+    # A non-write-customers actor (technician) also cannot call it.
+    tech_actor = env["actors"][ROLE_TECHNICIAN]
+    with pytest.raises(PermissionError):
+        crm.update_customer(cust.id, {"assigned_user_id": actor_b.user_id}, tech_actor)
+
+    # Other fields are unaffected by this specific gate -- a plain sales
+    # actor can still update ordinary customer fields.
+    updated = crm.update_customer(cust.id, {"notes": "still allowed"}, actor_a)
+    assert updated.notes == "still allowed"
+
+
+def test_assign_customer_route_accepts_explicit_null_to_unassign(env):
+    """Route-level check for the exact JSON payload {"assigned_user_id":
+    null} reaching the relaxed None-guard through the existing
+    /api/v1/customers/<id>/update POST route (no new route added -- the
+    field was already allow-listed on update_customer)."""
+    router = env["router"]
+    crm = env["crm"]
+    admin_actor = env["actors"][ROLE_ADMIN]
+    actor_a = env["actors"][ROLE_SALES]
+
+    cust = crm.update_customer(
+        crm.create_customer(Customer(first_name="Route", last_name="Test"), admin_actor).id,
+        {"assigned_user_id": actor_a.user_id},
+        admin_actor,
+    )
+
+    status, _headers, body = router.handle_request(
+        "POST",
+        f"/api/v1/customers/{cust.id}/update",
+        {"Authorization": f"Bearer {env['tokens'][ROLE_ADMIN]}"},
+        json.dumps({"assigned_user_id": None}).encode("utf-8"),
+    )
+    assert status == 200, body
+    assert body["customer"]["assigned_user_id"] is None
+
+
+# ==========================================
 # 9. NEW-534: ATOMIC CLAIM WORKFLOW
 # ==========================================
 

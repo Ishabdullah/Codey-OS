@@ -186,6 +186,16 @@ class CRMService:
         if not row:
             return None
 
+        # NEW-568 rep-ownership narrowing, mirroring get_lead's pattern
+        # (crm_service.py:809 area): a non-customer actor without
+        # PERM_READ_TEAM_SALES_DATA only sees customers assigned to them or
+        # left unclaimed (assigned_user_id IS NULL) -- everything else is
+        # treated as not-found, same as get_lead, rather than a 403 that
+        # would leak the record's existence.
+        if actor.role != ROLE_CUSTOMER and not actor.has_permission(PERM_READ_TEAM_SALES_DATA):
+            if row["assigned_user_id"] is not None and row["assigned_user_id"] != actor.user_id:
+                return None
+
         tags = json.loads(row["tags_json"]) if row["tags_json"] else []
         custom_fields = json.loads(row["custom_fields_json"]) if row["custom_fields_json"] else {}
 
@@ -276,6 +286,16 @@ class CRMService:
             query += " AND (first_name LIKE ? OR last_name LIKE ? OR company_name LIKE ? OR phone LIKE ? OR email LIKE ?)"
             params.extend([term, term, term, term, term])
 
+        # NEW-568 rep-ownership narrowing, matching list_leads's convention
+        # (crm_service.py:844 area): a plain sales actor (no
+        # PERM_READ_TEAM_SALES_DATA) only sees customers assigned to them or
+        # still unclaimed. Full-tier actors (admin/manager/ai_agent/
+        # sales_manager) are unaffected -- no extra clause is added for them,
+        # same as today.
+        if not actor.has_permission(PERM_READ_TEAM_SALES_DATA):
+            query += " AND (assigned_user_id = ? OR assigned_user_id IS NULL)"
+            params.append(actor.user_id)
+
         query += " ORDER BY id DESC LIMIT ? OFFSET ?;"
         params.extend([limit, offset])
 
@@ -344,11 +364,26 @@ class CRMService:
         if unknown:
             raise ValueError(f"Unknown field(s) for customer update: {sorted(unknown)}")
 
+        # NEW-568: assigned_user_id is part of ALLOWED_CUSTOMER_UPDATE_FIELDS
+        # (pre-existing), but reassigning ownership is the admin/sales-manager
+        # action Part 2 of NEW-568 asks for -- gating it on the general
+        # PERM_WRITE_CUSTOMERS alone would let any plain ROLE_SALES actor
+        # (who already holds that permission) reassign any customer to
+        # anyone, defeating the narrowing this same change adds to
+        # list_customers/get_customer. Reuse PERM_READ_TEAM_SALES_DATA (the
+        # same permission that ungates full-tier visibility) rather than
+        # inventing a new permission -- it is exactly the tier the task
+        # calls "admin/sales manager".
+        if "assigned_user_id" in updates and not actor.has_permission(PERM_READ_TEAM_SALES_DATA):
+            raise PermissionError("Actor lacks permission to reassign customer ownership")
+
         for key, value in updates.items():
-            if value is None:
+            if value is None and key != "assigned_user_id":
                 raise ValueError(
                     f"Field '{key}' cannot be set to None via update_customer; omit the key instead"
                 )
+            # assigned_user_id may be explicitly None -- that's how a
+            # customer is returned to the unclaimed pool (NEW-568 Part 2).
 
         if not updates:
             return self.get_customer(customer_id, actor)
@@ -445,7 +480,17 @@ class CRMService:
         return updated_cust
 
     def upsert_customer(self, customer: Customer, actor: AuthContext) -> Customer:
-        """Create or update customer by external_id with write-through semantics."""
+        """Create or update customer by external_id with write-through semantics.
+
+        NOTE (NEW-568 follow-up, not fixed this round): get_customer_by_external_id
+        below delegates its authorization entirely to get_customer() (NEW-248,
+        deliberate), which now also applies rep-ownership narrowing. A narrowed
+        actor (no PERM_READ_TEAM_SALES_DATA) calling upsert on an external_id
+        that already exists but is assigned to a *different* rep will see
+        `existing is None` (treated as not-found by narrowing) and fall through
+        to create_customer with the same external_id, raising sqlite3.IntegrityError
+        instead of a clean 403/404. Pre-existing sharp edge, made reachable by
+        this round's narrowing; flagged for NEW_ISSUES.md rather than fixed here."""
         if not actor.has_permission(PERM_WRITE_CUSTOMERS):
             raise PermissionError("Actor lacks permission to create or update customers")
 
@@ -474,6 +519,11 @@ class CRMService:
         Checks external_id exact match -> phone digit substring match (len >= 7) ->
         email exact match -> name substring match -> address substring match.
         Returns first matching customer in ascending id order."""
+        # NOTE (NEW-568 follow-up, not fixed this round): this lookup is
+        # gated below on PERM_READ_ALL_CUSTOMERS only, same as
+        # get_customer_by_email -- neither applies the new rep-ownership
+        # narrowing added to get_customer/list_customers. Flagged for
+        # NEW_ISSUES.md rather than fixed here (out of this round's scope).
         if not actor.has_permission(PERM_READ_ALL_CUSTOMERS):
             raise PermissionError("Actor lacks permission to search customers")
 
