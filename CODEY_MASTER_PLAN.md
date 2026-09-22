@@ -7155,6 +7155,25 @@ this file's own don't-duplicate rule.
       + multi-party signatures queued separately as B8.6d (`NEW-577`,
       extended by Ish with auto-population/template-selection/
       customer-search/document-visibility requirements, `NEW-579`).
+- [ ] **B8.6d-a** — PDF renderer + structured template/signature-anchor
+      model (single-signer, proven against the existing contract/
+      estimate flow). **Scoped 2026-09-22, design-only**, full detail
+      in `PROJECT_LOG.md`'s 2026-09-22 B8.6d entry — spec concrete
+      enough to hand to an implementer directly. Adds `reportlab` as a
+      new dependency (rule 11), closing the pre-existing undeclared-
+      install gap `NEW-589` in the same change. Not yet built.
+- [ ] **B8.6d-b** — multi-party signer model (new `contract_signers`
+      table, extends — does not duplicate — `sign_contract`'s existing
+      ownership/idempotency logic). Explicitly flagged as this sub-
+      phase's highest-risk piece given `sign_contract`'s already-
+      produced three real regressions this session (`NEW-573`/`575`/
+      `587`). Blocked on B8.6d-a. Not yet built.
+- [ ] **B8.6d-c** — guided customer→template→fill→sign UI (`NEW-579`):
+      select-or-create customer by name, human-facing sequential
+      `customer_number` (from-scratch design, no existing generation
+      pattern to follow — corrected in `NEW-579`), template/contract-
+      type selection (general remodeling vs. real HomeCare tiers),
+      auto-populated form fields. Blocked on B8.6d-a/b. Not yet built.
 - [ ] **B8.7** — commission engine & compensation dashboards.
       **Rule-4 category** (money). **D4 ANSWERED 2026-09-16** — real
       plan read from `Sales_Rep_Contract.docx`, full numbers in
