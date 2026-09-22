@@ -18729,3 +18729,29 @@ housekeeping, same as `NEW-403`'s own cleanup.
 - **Fix direction:** if a contract-reassignment path is ever added, revisit whether `NEW-575`'s exemption predicate still holds, or add an explicit code comment now flagging the dependency so a future implementer doesn't miss it.
 - **Not fixed this round** — informational, no action needed unless/until a reassignment path is built.
 - **Cross-reference:** `restoricon_core/services/crm_service.py` (`sign_contract`, `create_contract`, `update_contract`), `NEW-575`.
+
+## Found 2026-09-22 — implementer pass for NEW-568 (customer rep-ownership narrowing), not fixed, out of this round's scope
+
+### [NEW-584] Confirmed: `get_customer_by_email` and `find_customer` are gated on `PERM_READ_ALL_CUSTOMERS` only and do not apply NEW-568's rep-ownership narrowing — a narrowed rep can still resolve any customer by email/fuzzy-search even though `list_customers`/`get_customer` now hide it from them
+
+- **Status:** Confirmed (implementer, 2026-09-22, found while implementing `NEW-568`). Both methods were left untouched this round; `get_customer_by_email` is confirmed reachable with the live request actor (not a system actor) via `routes.py:1673`, so this is a real, live bypass of the new narrowing, not theoretical.
+- **Impact:** real but narrower than a full narrowing bypass — a rep would need to know or guess an exact email/search term for another rep's customer to reach it, but the narrowing `list_customers`/`get_customer` now enforces is not consistently applied across every lookup path.
+- **Fix direction (not designed/fixed this round):** apply the same `PERM_READ_TEAM_SALES_DATA`-gated narrowing (`assigned_user_id` match or unclaimed) to both methods, mirroring the pattern just built for `get_customer`/`list_customers`.
+- **Not fixed this round** — logged per rule 8, out of `NEW-568`'s scoped Part 1/Part 2.
+- **Cross-reference:** `restoricon_core/services/crm_service.py` (`get_customer_by_email`, `find_customer`), `restoricon_core/api/routes.py`, `NEW-568`.
+
+### [NEW-585] Confirmed: `upsert_customer` can raise an uncaught `sqlite3.IntegrityError` (500) instead of a clean 403/404 when a narrowed actor upserts an `external_id` that already exists but belongs to a different rep
+
+- **Status:** Confirmed (implementer, 2026-09-22, found while implementing `NEW-568`). `get_customer_by_external_id` correctly delegates its authorization to `get_customer()` (a deliberate, tested `NEW-248` decision) and so correctly inherits `NEW-568`'s new narrowing — but the consequence is new: a narrowed actor calling `upsert_customer` (reachable via `POST /api/v1/customers/upsert`, gated only on `PERM_WRITE_CUSTOMERS`, which plain `ROLE_SALES` holds) on an `external_id` that already exists but is owned by a different rep sees `existing is None` (correctly hidden by the narrowing) and falls through to `create_customer` with the same `external_id` — which then hits the real DB uniqueness constraint and raises an uncaught `sqlite3.IntegrityError`, surfacing as a raw 500 instead of a clean, handled rejection.
+- **Impact:** real but narrow — requires a narrowed actor to upsert an external_id already claimed by a different rep. A pre-existing design tension (the `NEW-248` delegation pattern) made newly reachable by this round's narrowing, not introduced by it.
+- **Fix direction (not designed/fixed this round):** `upsert_customer` should catch this specific integrity-constraint case and raise a clean domain exception (e.g. `ValueError` → 400/409) rather than let the raw DB error surface.
+- **Not fixed this round** — logged per rule 8, out of `NEW-568`'s scoped Part 1/Part 2.
+- **Cross-reference:** `restoricon_core/services/crm_service.py` (`upsert_customer`, `get_customer_by_external_id`, `create_customer`), `NEW-248`, `NEW-568`.
+
+### [NEW-586] Confirmed, low severity: after NEW-568, `update_customer` narrows *read* visibility (`get_customer`/`list_customers`) but not *write* access — a narrowed rep who already knows/guesses another rep's customer id can still mutate its ordinary fields (phone, email, notes, etc.), just not its `assigned_user_id`
+
+- **Status:** Confirmed (implementer, 2026-09-22, found while implementing `NEW-568`). Only the `assigned_user_id` key in `update_customer`'s payload got the new `PERM_READ_TEAM_SALES_DATA` gate this round; every other field remains gated only on the general `PERM_WRITE_CUSTOMERS`, which plain `ROLE_SALES` holds — no ownership pre-check before the write, unlike `update_lead`'s convention of pre-fetching through the narrowed `get_lead` before allowing a write.
+- **Impact:** low but real — a narrowed rep can no longer discover another rep's customer through list/get, but if they already have (or guess) its id, ordinary field writes still succeed.
+- **Fix direction (not designed/fixed this round):** decide whether `update_customer`'s writes should also be ownership-scoped (pre-fetch through the same narrowing `get_customer` now applies, matching `update_lead`'s pattern), or whether this asymmetry is acceptable given `PERM_WRITE_CUSTOMERS` is a broader grant than the lead/opportunity write permissions.
+- **Not fixed this round** — logged per rule 8, out of `NEW-568`'s scope (Part 2 was specifically the assign action, not a general write-narrowing pass).
+- **Cross-reference:** `restoricon_core/services/crm_service.py` (`update_customer`, `update_lead`), `NEW-568`.
