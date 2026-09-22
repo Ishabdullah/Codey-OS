@@ -632,7 +632,14 @@ CREATE TABLE IF NOT EXISTS commission_plan_config (
     id INTEGER PRIMARY KEY CHECK(id = 1),
     assessment_price REAL NOT NULL DEFAULT 299.0,
     assessment_flat_commission REAL NOT NULL DEFAULT 100.0,
-    homecare_basic_monthly_fee REAL NOT NULL DEFAULT 179.0,
+    -- homecare_basic_monthly_fee: repriced 179.0 -> 119.0 (Ish,
+    -- 2026-09-22, mid-B8.7b) -- confirmed against the live
+    -- home-care.html pricing table, which already shows $119. This
+    -- DEFAULT only affects a fresh CREATE TABLE (a brand-new DB); an
+    -- existing DB's already-seeded row is fixed by the one-time
+    -- corrective UPDATE in _migrate_schema() below, since INSERT OR
+    -- IGNORE below is a no-op once the row exists.
+    homecare_basic_monthly_fee REAL NOT NULL DEFAULT 119.0,
     homecare_plus_monthly_fee REAL NOT NULL DEFAULT 399.0,
     homecare_complete_monthly_fee REAL NOT NULL DEFAULT 599.0,
     homecare_estate_monthly_fee REAL NOT NULL DEFAULT 999.0,
@@ -1053,6 +1060,68 @@ CREATE TABLE IF NOT EXISTS commission_ledger_entries (
     FOREIGN KEY (reversed_entry_id) REFERENCES commission_ledger_entries(id) ON DELETE SET NULL,
     FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
 );
+
+-- HomeCare Subscriptions (B8.7b, D4, sales_rep_portal.md §4, Ish-approved
+-- 2026-09-16). One row per HomeCare enrollment, created by
+-- CRMService.sign_contract as a best-effort side effect when a contract
+-- whose template_name is one of CONTRACT_TEMPLATE_NAMES' four
+-- 'homecare_*' values reaches status='signed' (single- or multi-party).
+-- monthly_fee is a SNAPSHOT of commission_plan_config's corresponding
+-- tier field AT ENROLLMENT TIME, deliberately not re-read live later --
+-- this protects historical Phase 2 bonus math (bonus = monthly_fee -
+-- assessment_flat_commission) from changing retroactively if the plan
+-- config is edited after enrollment via a future dashboard round.
+-- property_id is nullable: Contract has no direct property column (only
+-- project_id); a contract's own project may or may not have a
+-- property_id set (projects.property_id is itself nullable, B8.1) --
+-- so this is a best-effort snapshot of whatever CRMService could resolve
+-- at enrollment time, not a guaranteed link.
+-- originating_rep_user_id mirrors commission_ledger_entries.rep_user_id's
+-- own nullable+SET NULL shape (a historical subscription row must
+-- survive its originating rep's user account being deleted later).
+-- status has no CHECK constraint, same "can't be widened later without a
+-- full table rebuild" reasoning as contract_signers.party_role and
+-- Invoice.invoice_type -- CRMService enforces the two legal values
+-- ('active', 'cancelled') at the service layer.
+-- tier ALSO has no CHECK constraint, for the same reason -- and
+-- deliberately NOT constrained to CONTRACT_TEMPLATE_NAMES' current four
+-- 'homecare_*' values either: that tuple's own comment in models.py
+-- states template_name stays CHECK-free specifically because a real
+-- CHECK constraint can't be widened later without a full table rebuild.
+-- A CHECK here would reintroduce exactly that problem one hop downstream
+-- -- a future fifth HomeCare tier would be accepted by contracts.
+-- template_name but rejected by this column, silently breaking
+-- enrollment for that tier via an IntegrityError. CRMService enforces
+-- tier against HOMECARE_TIER_FEE_FIELDS at the service layer instead,
+-- consistent with status above.
+-- UNIQUE(contract_id): a contract can enroll at most one subscription --
+-- this is the DB-level second-layer defense (matches B8.7a's
+-- idx_commission_ledger_source_unique philosophy) against a double-fire
+-- of sign_contract's enrollment side effect producing two subscription
+-- rows for the same contract, which idx_commission_ledger_source_unique
+-- alone would NOT catch (that index keys on subscription_upsell's
+-- source_id = this table's own id, i.e. it guarantees one bonus per
+-- subscription row, not one subscription per contract).
+CREATE TABLE IF NOT EXISTS homecare_subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL,
+    property_id INTEGER,
+    contract_id INTEGER NOT NULL,
+    tier TEXT NOT NULL,
+    monthly_fee REAL NOT NULL,
+    originating_rep_user_id INTEGER,
+    status TEXT NOT NULL DEFAULT 'active',
+    enrolled_at TEXT NOT NULL,
+    cancelled_at TEXT,
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT,
+    FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE SET NULL,
+    FOREIGN KEY (contract_id) REFERENCES contracts(id) ON DELETE RESTRICT,
+    FOREIGN KEY (originating_rep_user_id) REFERENCES users(id) ON DELETE SET NULL,
+    UNIQUE(contract_id)
+);
+CREATE INDEX IF NOT EXISTS idx_homecare_subscriptions_customer_id ON homecare_subscriptions(customer_id);
+CREATE INDEX IF NOT EXISTS idx_homecare_subscriptions_status ON homecare_subscriptions(status);
+CREATE INDEX IF NOT EXISTS idx_homecare_subscriptions_rep_user_id ON homecare_subscriptions(originating_rep_user_id);
 
 -- Assessment Records (B8.5b, sales_rep_portal.md §5/§6/§7, resolves
 -- NEW-567's deferred decision): property -> assessment_record ->
@@ -1480,7 +1549,27 @@ class DatabaseManager:
                     "(id, assessment_price, assessment_flat_commission, "
                     "homecare_basic_monthly_fee, homecare_plus_monthly_fee, "
                     "homecare_complete_monthly_fee, homecare_estate_monthly_fee, "
-                    "updated_at) VALUES (1, 299.0, 100.0, 179.0, 399.0, 599.0, 999.0, ?);",
+                    "updated_at) VALUES (1, 299.0, 100.0, 119.0, 399.0, 599.0, 999.0, ?);",
+                    (datetime.now(timezone.utc).isoformat(),),
+                )
+                # B8.7b corrective fix (Ish, 2026-09-22, mid-round): HomeCare
+                # Basic was repriced 179.0 -> 119.0. INSERT OR IGNORE above
+                # is a no-op on a DB that already has this singleton row
+                # seeded with B8.7a's original 179.0 default (any DB
+                # constructed before this round, including the real
+                # on-device DB) -- that row needs an actual one-time
+                # corrective UPDATE, not just a changed seed default, or it
+                # keeps paying/quoting the old price forever. Scoped
+                # narrowly to rows still holding the exact old default
+                # (WHERE homecare_basic_monthly_fee = 179.0): if a future
+                # dashboard round already let an operator customize this
+                # value to something else, this must NOT clobber that
+                # deliberate edit. Idempotent by construction -- a second
+                # run finds no row matching 179.0 (either never had it, or
+                # already corrected) and is a no-op.
+                conn.execute(
+                    "UPDATE commission_plan_config SET homecare_basic_monthly_fee = 119.0, "
+                    "updated_at = ? WHERE id = 1 AND homecare_basic_monthly_fee = 179.0;",
                     (datetime.now(timezone.utc).isoformat(),),
                 )
             # Unique indexes must run after the ALTERs above (see the note

@@ -68,6 +68,8 @@ from ..models import (
     Customer,
     Document,
     Estimate,
+    HomecareSubscription,
+    HOMECARE_TIER_FEE_FIELDS,
     Invoice,
     Lead,
     Opportunity,
@@ -4294,7 +4296,389 @@ class CRMService:
                 details=build_audit_details(after={"error": str(pdf_exc)}),
             )
 
+        # B8.7b: automatic HomeCare enrollment + Phase 2 bonus -- a
+        # second, independent best-effort side effect of a successful
+        # sign, deliberately in its own try/except block rather than
+        # nested inside the PDF block above: a PDF failure must not skip
+        # enrollment, and an enrollment failure must not be misattributed
+        # to the "pdf_generation_failed" audit action. Only fires when
+        # this sign_contract call actually reached the fully-signed
+        # status (_signed.status == "signed") -- for the multi-party
+        # branch above, that's only true once every required signer has
+        # completed (all_signed), not on the first signature; for the
+        # single-signer branch it's always true, matching B8.7a's
+        # single-transition-edge precedent. template_name is checked
+        # against HOMECARE_TIER_FEE_FIELDS (the four real 'homecare_*'
+        # values), not against CONTRACT_TEMPLATE_NAMES directly, so a
+        # 'general_remodeling' contract (or a legacy contract with no
+        # template_name at all) is never touched by this trigger.
+        if _signed.status == "signed" and row["template_name"] in HOMECARE_TIER_FEE_FIELDS:
+            subscription_id: Optional[int] = None
+            try:
+                # System actor, same shape/rationale as pdf_system_actor
+                # above and record_payment's commission_system_actor:
+                # PERM_READ_TEAM_COMMISSIONS/PERM_WRITE_TEAM_COMMISSIONS
+                # are required to read the plan config and record a
+                # commission, which the real signer `actor` (often
+                # ROLE_CUSTOMER) may not hold. This is an automatic side
+                # effect of the sign, not an action the signer is
+                # personally authoring.
+                homecare_system_actor = AuthContext(
+                    user_id=1,
+                    username="system_homecare_engine",
+                    role=ROLE_ADMIN,
+                    actor_type="agent",
+                )
+
+                # code-reviewer round-1 bug in B8.7a (NEW context: the
+                # plan-config read sat OUTSIDE its own try/except) must
+                # not be repeated here -- this read is the first thing
+                # inside this try block, not before it.
+                plan = self.commission.get_commission_plan_config(homecare_system_actor)
+                monthly_fee = getattr(plan, HOMECARE_TIER_FEE_FIELDS[row["template_name"]])
+
+                # property_id: Contract has no direct property column,
+                # only project_id -- and a contract's own project's
+                # property_id is itself nullable (B8.1). Best-effort
+                # resolution, not a guarantee (see database.py's
+                # homecare_subscriptions comment).
+                property_id = None
+                if _signed.project_id:
+                    proj_row = conn.execute(
+                        "SELECT property_id FROM projects WHERE id = ?;",
+                        (_signed.project_id,),
+                    ).fetchone()
+                    if proj_row:
+                        property_id = proj_row["property_id"]
+
+                # Attribution comes from Contract.assigned_user_id --
+                # the established pattern this session has used
+                # everywhere (create_contract force-sets it server-side
+                # to the creating actor). None is handled below exactly
+                # like B8.7a's no-rep case: the subscription row is
+                # still created, only the commission is skipped.
+                rep_user_id = _signed.assigned_user_id
+
+                with conn:
+                    cursor = conn.execute(
+                        """
+                        INSERT INTO homecare_subscriptions (
+                            customer_id, property_id, contract_id, tier,
+                            monthly_fee, originating_rep_user_id, status,
+                            enrolled_at, cancelled_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, NULL);
+                        """,
+                        (
+                            _signed.customer_id,
+                            property_id,
+                            contract_id,
+                            row["template_name"],
+                            monthly_fee,
+                            rep_user_id,
+                            now,
+                        ),
+                    )
+                    subscription_id = cursor.lastrowid
+
+                subscription = HomecareSubscription(
+                    id=subscription_id,
+                    customer_id=_signed.customer_id,
+                    property_id=property_id,
+                    contract_id=contract_id,
+                    tier=row["template_name"],
+                    monthly_fee=monthly_fee,
+                    originating_rep_user_id=rep_user_id,
+                    status="active",
+                    enrolled_at=now,
+                    cancelled_at=None,
+                )
+
+                self.audit.log(
+                    action="create",
+                    entity_type="homecare_subscription",
+                    entity_id=subscription_id,
+                    change_summary=(
+                        f"Enrolled HomeCare subscription ({row['template_name']}) "
+                        f"for contract #{row['contract_number']}"
+                    ),
+                    actor=actor,
+                    details=build_audit_details(after=subscription.to_dict()),
+                )
+
+                if rep_user_id is None:
+                    # Explicit mirror of B8.7a's no-rep case (Ish, B8.7a
+                    # scoping): the subscription still enrolls, but a
+                    # rep-less record must not silently pay nobody's
+                    # bonus, and must not crash the sign either.
+                    self.audit.log(
+                        action="commission_skipped_no_rep",
+                        entity_type="homecare_subscription",
+                        entity_id=subscription_id,
+                        change_summary=(
+                            f"HomeCare subscription {subscription_id} enrolled but "
+                            f"contract #{row['contract_number']} has no assigned rep "
+                            f"-- Phase 2 bonus skipped, not paid to anyone"
+                        ),
+                        actor=actor,
+                        details=build_audit_details(
+                            after={"subscription_id": subscription_id, "contract_id": contract_id}
+                        ),
+                    )
+                else:
+                    # D4 (sales_rep_portal.md §4): Phase 2 bonus = the
+                    # tier's first month's fee minus the $100 already
+                    # paid in Phase 1 (assessment_flat_commission). Not
+                    # clamped at zero -- a future plan-config edit that
+                    # drops a tier fee below the flat commission would
+                    # produce a negative, non-reversal ledger row; that's
+                    # a known edge case, not handled here (see handoff).
+                    bonus = monthly_fee - plan.assessment_flat_commission
+                    self.commission.record_commission(
+                        CommissionLedgerEntry(
+                            rep_user_id=rep_user_id,
+                            source_type="subscription_upsell",
+                            source_id=subscription_id,
+                            basis_amount=monthly_fee,
+                            commission_rate_or_flat=bonus,
+                            commission_amount=bonus,
+                            status="earned",
+                            earned_at=now,
+                            notes=(
+                                f"Auto-recorded: HomeCare enrollment for contract "
+                                f"#{row['contract_number']} (tier {row['template_name']})"
+                            ),
+                        ),
+                        homecare_system_actor,
+                    )
+            except sqlite3.IntegrityError as exc:
+                # Mirrors record_payment's narrow IntegrityError handling
+                # (B8.7a) -- distinguishes the two EXPECTED double-fire
+                # shapes (this contract already has a subscription row;
+                # this subscription already has a Phase 2 bonus row) from
+                # any OTHER integrity violation (e.g. a bogus
+                # rep_user_id violating a real FK). All three are
+                # audit-logged and none re-raise: this code runs after
+                # the sign transaction has already committed, so
+                # re-raising here would surface as a false error on an
+                # already-successful sign.
+                exc_text = str(exc)
+                if "homecare_subscriptions.contract_id" in exc_text:
+                    self.audit.log(
+                        action="homecare_enrollment_duplicate_skipped",
+                        entity_type="contract",
+                        entity_id=contract_id,
+                        change_summary=(
+                            f"HomeCare subscription already exists for contract "
+                            f"#{row['contract_number']} -- duplicate enrollment "
+                            f"trigger skipped"
+                        ),
+                        actor=actor,
+                        details=build_audit_details(after={"contract_id": contract_id}),
+                    )
+                elif "commission_ledger_entries.source_type, commission_ledger_entries.source_id" in exc_text:
+                    self.audit.log(
+                        action="commission_duplicate_skipped",
+                        entity_type="homecare_subscription",
+                        entity_id=subscription_id,
+                        change_summary=(
+                            f"Phase 2 bonus already recorded for HomeCare "
+                            f"subscription {subscription_id} -- duplicate trigger "
+                            f"skipped"
+                        ),
+                        actor=actor,
+                        details=build_audit_details(after={"subscription_id": subscription_id}),
+                    )
+                else:
+                    self.audit.log(
+                        action="homecare_enrollment_failed",
+                        entity_type="contract",
+                        entity_id=contract_id,
+                        change_summary=(
+                            f"HomeCare enrollment/commission failed for contract "
+                            f"#{row['contract_number']}: {exc}"
+                        ),
+                        actor=actor,
+                        details=build_audit_details(
+                            after={
+                                "contract_id": contract_id,
+                                "subscription_id": subscription_id,
+                                "error": exc_text,
+                            }
+                        ),
+                    )
+            except Exception as exc:
+                # Any other failure -- including get_commission_plan_config
+                # raising (covered: it's the first call inside this try
+                # block) as well as record_commission itself raising
+                # something other than sqlite3.IntegrityError. Same
+                # best-effort contract as above.
+                self.audit.log(
+                    action="homecare_enrollment_failed",
+                    entity_type="contract",
+                    entity_id=contract_id,
+                    change_summary=(
+                        f"HomeCare enrollment/commission failed for contract "
+                        f"#{row['contract_number']}: {exc}"
+                    ),
+                    actor=actor,
+                    details=build_audit_details(
+                        after={
+                            "contract_id": contract_id,
+                            "subscription_id": subscription_id,
+                            "error": str(exc),
+                        }
+                    ),
+                )
+
         return _signed
+
+    def cancel_homecare_subscription(
+        self, subscription_id: int, actor: AuthContext
+    ) -> HomecareSubscription:
+        """Cancel a HomeCare subscription and lazily evaluate the 90-day
+        Phase 2 clawback (B8.7b, D4, sales_rep_portal.md §4). No
+        scheduler exists in Core (confirmed during B8.7 scoping) -- the
+        clawback is not a background day-90 job, it is evaluated exactly
+        once, right here, at the moment status flips to 'cancelled'. If
+        the gap between enrolled_at and cancelled_at is <= 90 days, the
+        original Phase 2 bonus is reversed in full via the EXISTING
+        CommissionService.reverse_commission mechanism (not duplicated
+        here) -- that reversal row carries
+        source_type='subscription_upsell', status='reversed',
+        commission_amount=-bonus, reversed_entry_id pointing at the
+        original bonus row -- NOT a source_type='chargeback' row.
+        CommissionService has no such write path: reverse_commission
+        always mirrors the original entry's own source_type by design
+        (see its docstring), and hand-rolling a separate chargeback
+        INSERT here would duplicate its logic and bypass
+        idx_commission_ledger_reversed_entry_id_unique's double-reversal
+        guard. Cancelling after 90 days performs the status update only,
+        no reversal.
+
+        Gated on PERM_WRITE_CONTRACTS -- the closest existing write
+        permission to this HomeCare-subscription-adjacent action; no
+        dedicated commission/subscription write permission exists yet
+        (flagged in this round's report for a NEW_ISSUES entry, not
+        built here -- out of B8.7b's scope). Ownership narrowing is the
+        SAME TWO CHECKS update_contract applies (customer isolation for
+        ROLE_CUSTOMER; rep-ownership narrowing against
+        originating_rep_user_id for an actor without
+        PERM_READ_TEAM_SALES_DATA) but DEVIATES on the narrowing
+        failure's shape: update_contract returns None (the get_lead/
+        get_contract not-found precedent, NEW-548) for an out-of-scope
+        row, whereas this method raises PermissionError. Deliberate, not
+        an oversight -- there is no route exposed for this method yet
+        (see this round's report), so there is no HTTP-layer reason to
+        prefer a not-found signal over a clear permission error for a
+        direct/internal caller.
+        """
+        if not actor.has_permission(PERM_WRITE_CONTRACTS):
+            raise PermissionError("Actor lacks permission to cancel a HomeCare subscription")
+
+        conn = self.db.get_connection()
+        row = conn.execute(
+            "SELECT * FROM homecare_subscriptions WHERE id = ?;", (subscription_id,)
+        ).fetchone()
+        if not row:
+            raise ValueError(f"HomeCare subscription {subscription_id} not found")
+
+        if actor.role == ROLE_CUSTOMER:
+            if not actor.customer_id or actor.customer_id != row["customer_id"]:
+                raise PermissionError("Customer cannot cancel another customer's HomeCare subscription")
+        elif not actor.has_permission(PERM_READ_TEAM_SALES_DATA):
+            if row["originating_rep_user_id"] != actor.user_id:
+                raise PermissionError("Actor cannot cancel a HomeCare subscription assigned to another rep")
+
+        # Idempotency guard, same shape as sign_contract's -- reject
+        # cancelling an already-cancelled subscription instead of
+        # silently re-evaluating (and potentially re-reversing, though
+        # reverse_commission's own unique index would catch that too) the
+        # clawback on every call.
+        if row["status"] == "cancelled":
+            raise ValueError(f"HomeCare subscription {subscription_id} is already cancelled")
+
+        now = utc_now_iso()
+        with conn:
+            conn.execute(
+                "UPDATE homecare_subscriptions SET status = 'cancelled', cancelled_at = ? WHERE id = ?;",
+                (now, subscription_id),
+            )
+
+        cancelled = HomecareSubscription(
+            id=row["id"],
+            customer_id=row["customer_id"],
+            property_id=row["property_id"],
+            contract_id=row["contract_id"],
+            tier=row["tier"],
+            monthly_fee=float(row["monthly_fee"]),
+            originating_rep_user_id=row["originating_rep_user_id"],
+            status="cancelled",
+            enrolled_at=row["enrolled_at"],
+            cancelled_at=now,
+        )
+
+        self.audit.log(
+            action="cancel",
+            entity_type="homecare_subscription",
+            entity_id=subscription_id,
+            change_summary=f"Cancelled HomeCare subscription {subscription_id} ({row['tier']})",
+            actor=actor,
+            details=build_audit_details(
+                before={"status": row["status"]},
+                after=cancelled.to_dict(),
+            ),
+        )
+
+        # 90-day clawback, lazy-evaluated right here -- best-effort: the
+        # cancellation UPDATE above has already committed, so a clawback
+        # failure must not fail or appear to roll back the cancellation
+        # itself. Not silently swallowed though -- audit-logged so an
+        # operator can investigate/manually correct.
+        try:
+            enrolled_dt = datetime.fromisoformat(row["enrolled_at"])
+            cancelled_dt = datetime.fromisoformat(now)
+            within_90_days = (cancelled_dt - enrolled_dt).total_seconds() <= 90 * 86400
+
+            if within_90_days:
+                original = conn.execute(
+                    "SELECT id FROM commission_ledger_entries "
+                    "WHERE source_type = 'subscription_upsell' AND source_id = ? "
+                    "AND reversed_entry_id IS NULL;",
+                    (subscription_id,),
+                ).fetchone()
+                # No un-reversed Phase 2 bonus row exists for this
+                # subscription (e.g. it was rep-less at enrollment, so no
+                # bonus was ever recorded) -- nothing to claw back, not an
+                # error.
+                if original:
+                    clawback_system_actor = AuthContext(
+                        user_id=1,
+                        username="system_homecare_engine",
+                        role=ROLE_ADMIN,
+                        actor_type="agent",
+                    )
+                    self.commission.reverse_commission(
+                        original["id"],
+                        clawback_system_actor,
+                        notes=(
+                            f"90-day clawback: HomeCare subscription "
+                            f"{subscription_id} cancelled within 90 days of "
+                            f"enrollment"
+                        ),
+                    )
+        except Exception as exc:
+            self.audit.log(
+                action="clawback_failed",
+                entity_type="homecare_subscription",
+                entity_id=subscription_id,
+                change_summary=f"90-day clawback check failed for subscription {subscription_id}: {exc}",
+                actor=actor,
+                details=build_audit_details(
+                    after={"subscription_id": subscription_id, "error": str(exc)}
+                ),
+            )
+
+        return cancelled
 
     # ==========================================
     # INVOICES & PAYMENTS

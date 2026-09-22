@@ -579,6 +579,17 @@ CONTRACT_TEMPLATE_NAMES = (
     "homecare_estate",
 )
 
+# B8.7b: maps each of CONTRACT_TEMPLATE_NAMES' four 'homecare_*' values to
+# the CommissionPlanConfig attribute holding that tier's monthly fee --
+# single source of truth so CRMService.sign_contract's enrollment trigger
+# doesn't hand-roll a second if/elif tier-to-field mapping.
+HOMECARE_TIER_FEE_FIELDS = {
+    "homecare_basic": "homecare_basic_monthly_fee",
+    "homecare_plus": "homecare_plus_monthly_fee",
+    "homecare_complete": "homecare_complete_monthly_fee",
+    "homecare_estate": "homecare_estate_monthly_fee",
+}
+
 
 @dataclass
 class Contract:
@@ -1267,15 +1278,57 @@ class CommissionPlanConfig:
     being added piecemeal across B8.7a/b. Estate's real contract value is
     "$999+/mo" (variable/negotiated at the top end); the seeded value is
     the floor, not a hard ceiling -- no range mechanism is invented here,
-    that's B8.7b/d's concern if it's ever needed."""
+    that's B8.7b/d's concern if it's ever needed.
+
+    homecare_basic_monthly_fee repriced 179.0 -> 119.0 (Ish, 2026-09-22,
+    mid-B8.7b) -- confirmed against the live home-care.html pricing
+    table, which already reflects $119. database.py's _migrate_schema()
+    carries a one-time corrective UPDATE for any DB whose singleton row
+    was already seeded with the old 179.0 default before this change."""
     id: int = 1
     assessment_price: float = 299.0
     assessment_flat_commission: float = 100.0
-    homecare_basic_monthly_fee: float = 179.0
+    homecare_basic_monthly_fee: float = 119.0
     homecare_plus_monthly_fee: float = 399.0
     homecare_complete_monthly_fee: float = 599.0
     homecare_estate_monthly_fee: float = 999.0
     updated_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class HomecareSubscription:
+    """One HomeCare enrollment (B8.7b, D4, sales_rep_portal.md §4,
+    Ish-approved 2026-09-16). Created by CRMService.sign_contract as a
+    best-effort side effect when a contract whose template_name is one of
+    CONTRACT_TEMPLATE_NAMES' four 'homecare_*' values reaches
+    status='signed'.
+
+    monthly_fee is a SNAPSHOT of commission_plan_config's corresponding
+    tier field at enrollment time -- deliberately not re-read live later,
+    so a future dashboard edit to the plan config doesn't retroactively
+    change historical Phase 2 bonus math.
+
+    property_id is nullable: Contract has no direct property column (only
+    project_id), and a contract's own project's property_id is itself
+    nullable (B8.1) -- this is a best-effort resolution, not a guarantee.
+
+    status is 'active'/'cancelled', no CHECK constraint at either layer
+    -- same enum-like-text-column pattern as Invoice.invoice_type/
+    ContractSigner.party_role (see database.py's homecare_subscriptions
+    comment for why)."""
+    id: Optional[int] = None
+    customer_id: int = 0
+    property_id: Optional[int] = None
+    contract_id: int = 0
+    tier: str = "homecare_basic"
+    monthly_fee: float = 0.0
+    originating_rep_user_id: Optional[int] = None
+    status: str = "active"
+    enrolled_at: str = field(default_factory=utc_now_iso)
+    cancelled_at: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

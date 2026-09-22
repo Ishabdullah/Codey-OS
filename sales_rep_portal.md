@@ -219,10 +219,16 @@ treated as still-current.
     the assessment: bonus = first month's subscription fee minus the
     $100 already paid in Phase 1. Confirms the real four-tier pricing
     (matches `home-care.html`'s Basic/Plus/Complete/Estate naming from
-    §2's ground-truth note): Basic $179/mo → $79 bonus; Plus $399/mo →
-    $299 bonus; Complete $599/mo → $499 bonus; Estate $999+/mo → $899+
-    bonus (tier price variable/negotiated at the top end, per the
-    contract's own "$899+" phrasing).
+    §2's ground-truth note): **Basic $119/mo → $19 bonus** (repriced
+    2026-09-22, Ish, mid-B8.7b, from an original $179/mo → $79 bonus --
+    confirmed against the live `home-care.html` pricing table, `$119
+    Basic`/`HomeCare Basic ($119/mo)`, which already reflects the new
+    price); Plus $399/mo → $299 bonus; Complete $599/mo → $499 bonus;
+    Estate $999+/mo → $899+ bonus (tier price variable/negotiated at the
+    top end, per the contract's own "$899+" phrasing). Plus/Complete/
+    Estate are unchanged. See `commission_plan_config`'s
+    `homecare_basic_monthly_fee` (B8.7a seed, corrected in B8.7b) for
+    where this lives in the DB.
   - **Phase 3 — portfolio override, residual, 5%,** on gross collected
     revenue of any major general-contracting project (roofing, siding,
     storm damage repair, flood restoration, etc.) generated from a

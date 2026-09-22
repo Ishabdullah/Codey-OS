@@ -58,7 +58,11 @@ def _set_flat_commission(db, amount):
 
 def test_commission_plan_config_seeded_with_d4_numbers(setup_services):
     """The singleton row exists and is readable without any manual setup
-    step, seeded with D4's real numbers (not Python constants)."""
+    step, seeded with D4's real numbers (not Python constants).
+
+    homecare_basic_monthly_fee is 119.0, not B8.7a's original 179.0 --
+    repriced by Ish mid-B8.7b (2026-09-22), confirmed against the live
+    home-care.html pricing table."""
     _, auth_service, _, _, commission_service = setup_services
     admin = _make_actor(auth_service, "admin", ROLE_ADMIN)
 
@@ -66,7 +70,7 @@ def test_commission_plan_config_seeded_with_d4_numbers(setup_services):
     assert config.id == 1
     assert config.assessment_price == 299.0
     assert config.assessment_flat_commission == 100.0
-    assert config.homecare_basic_monthly_fee == 179.0
+    assert config.homecare_basic_monthly_fee == 119.0
     assert config.homecare_plus_monthly_fee == 399.0
     assert config.homecare_complete_monthly_fee == 599.0
     assert config.homecare_estate_monthly_fee == 999.0
