@@ -137,6 +137,23 @@ class CRMService:
         if not actor.has_permission(PERM_WRITE_CUSTOMERS):
             raise PermissionError("Actor lacks permission to create customers")
 
+        # NEW-598: force server-side ownership for actors who don't hold
+        # PERM_READ_TEAM_SALES_DATA -- routes.py builds `Customer(**json_body)`
+        # directly from client input (same shape NEW-548/create_contract was
+        # closed for), so a plain rep-tier actor's client-supplied
+        # assigned_user_id can't be trusted, and without this a customer
+        # created through the guided flow lands unclaimed rather than owned
+        # by the creating rep. Unlike create_contract's unconditional
+        # override, this is gated: actors who hold PERM_READ_TEAM_SALES_DATA
+        # (admin/sales-manager/system-intake tiers -- the same tier
+        # update_customer's NEW-568 gate already trusts to reassign
+        # ownership on someone else's behalf) keep today's behavior of
+        # respecting whatever assigned_user_id was supplied, including None
+        # (the unclaimed pool default relied on by web-intake customers and
+        # by admin-created customers awaiting manual assignment).
+        if not actor.has_permission(PERM_READ_TEAM_SALES_DATA):
+            customer.assigned_user_id = actor.user_id
+
         now = utc_now_iso()
         customer.created_at = now
         tags_json = json.dumps(customer.tags)

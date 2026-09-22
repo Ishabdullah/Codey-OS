@@ -868,7 +868,13 @@ def test_list_and_get_customers_narrowed_to_own_and_unclaimed(env):
         {"assigned_user_id": actor_a.user_id},
         env["actors"][ROLE_ADMIN],
     )
-    cust_unclaimed = crm.create_customer(Customer(first_name="No", last_name="Owner"), actor_a)
+    # NEW-598: create_customer auto-assigns a plain rep-tier actor
+    # (actor_a, no PERM_READ_TEAM_SALES_DATA) to themselves, so an
+    # actually-unclaimed customer for this test must be created by a
+    # PERM_READ_TEAM_SALES_DATA holder instead (the same tier trusted to
+    # leave assigned_user_id unset/None, mirroring cust_a's admin-driven
+    # assignment above).
+    cust_unclaimed = crm.create_customer(Customer(first_name="No", last_name="Owner"), env["actors"][ROLE_ADMIN])
 
     # Actor B (plain sales, no PERM_READ_TEAM_SALES_DATA) must not see
     # actor A's assigned customer, but must see the unclaimed one.
@@ -979,6 +985,49 @@ def test_admin_can_assign_and_reassign_customer_with_audit_and_visibility_flip(e
     assert crm.get_customer(cust.id, actor_b) is not None
 
 
+def test_new598_rep_actor_creating_customer_is_auto_assigned_to_self(env):
+    """NEW-598: a plain rep-tier actor (no PERM_READ_TEAM_SALES_DATA)
+    creating a customer must have it auto-assigned to themselves
+    server-side, matching create_contract's ownership pattern -- and any
+    client-supplied assigned_user_id in the Customer object must be
+    ignored/overridden, not trusted, since routes.py builds
+    Customer(**json_body) directly from client input."""
+    crm = env["crm"]
+    actor_a = env["actors"][ROLE_SALES]
+    actor_b = _second_sales_actor(env)
+
+    cust = crm.create_customer(Customer(first_name="Guided", last_name="Flow"), actor_a)
+    assert cust.assigned_user_id == actor_a.user_id
+
+    # A rep attempting to hand the new customer to someone else via a
+    # client-supplied assigned_user_id must be overridden, not trusted.
+    spoofed = crm.create_customer(
+        Customer(first_name="Spoofed", last_name="Owner", assigned_user_id=actor_b.user_id), actor_a
+    )
+    assert spoofed.assigned_user_id == actor_a.user_id
+    assert spoofed.assigned_user_id != actor_b.user_id
+
+
+def test_new598_full_tier_actor_creating_customer_keeps_explicit_or_unclaimed_assignment(env):
+    """NEW-598: actors holding PERM_READ_TEAM_SALES_DATA (admin/manager/
+    sales-manager/system-intake tiers) are unaffected by the new
+    auto-assign gate -- they may still create an unclaimed customer
+    (assigned_user_id left None, the pre-existing default relied on by
+    web-intake and admin bulk data entry) or explicitly assign it to a
+    specific rep on creation."""
+    crm = env["crm"]
+    admin_actor = env["actors"][ROLE_ADMIN]
+    actor_a = env["actors"][ROLE_SALES]
+
+    unclaimed = crm.create_customer(Customer(first_name="Still", last_name="Unclaimed"), admin_actor)
+    assert unclaimed.assigned_user_id is None
+
+    assigned_on_create = crm.create_customer(
+        Customer(first_name="Assigned", last_name="OnCreate", assigned_user_id=actor_a.user_id), admin_actor
+    )
+    assert assigned_on_create.assigned_user_id == actor_a.user_id
+
+
 def test_plain_sales_actor_cannot_reassign_customer_ownership(env):
     """A ROLE_SALES actor holds PERM_WRITE_CUSTOMERS (so update_customer's
     top-level gate alone would let the call through) but NOT
@@ -1029,6 +1078,29 @@ def test_assign_customer_route_accepts_explicit_null_to_unassign(env):
     )
     assert status == 200, body
     assert body["customer"]["assigned_user_id"] is None
+
+
+def test_new598_create_customer_route_overrides_client_supplied_assigned_user_id(env):
+    """Route-level close of NEW-598: POST /api/v1/customers builds
+    Customer(**json_body) directly from client input (routes.py), so a
+    plain rep-tier token attempting to hand the new customer straight to
+    another rep via the request body must have it overridden to the
+    authenticated actor, not silently trusted."""
+    router = env["router"]
+    actor_a = env["actors"][ROLE_SALES]
+    actor_b = _second_sales_actor(env)
+
+    status, _headers, body = router.handle_request(
+        "POST",
+        "/api/v1/customers",
+        {"Authorization": f"Bearer {env['tokens'][ROLE_SALES]}"},
+        json.dumps(
+            {"first_name": "Route", "last_name": "Guided", "assigned_user_id": actor_b.user_id}
+        ).encode("utf-8"),
+    )
+    assert status == 201, body
+    assert body["customer"]["assigned_user_id"] == actor_a.user_id
+    assert body["customer"]["assigned_user_id"] != actor_b.user_id
 
 
 # ==========================================
