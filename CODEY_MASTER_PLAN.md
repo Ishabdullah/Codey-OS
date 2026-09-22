@@ -7187,12 +7187,32 @@ this file's own don't-duplicate rule.
       `NEW-596`/`597` (PDF regenerated on every partial sign,
       `add_contract_signers` has no idempotency guard — both
       non-blocking).
-- [ ] **B8.6d-c** — guided customer→template→fill→sign UI (`NEW-579`):
-      select-or-create customer by name, human-facing sequential
-      `customer_number` (from-scratch design, no existing generation
-      pattern to follow — corrected in `NEW-579`), template/contract-
-      type selection (general remodeling vs. real HomeCare tiers),
-      auto-populated form fields. Blocked on B8.6d-a/b. Not yet built.
+- [x] **B8.6d-c** — guided customer→template→fill→sign UI (`NEW-579`).
+      **DONE 2026-09-22, code-complete + code-reviewer APPROVED round 1
+      (first B8.6d sub-round to clear on round 1)**, commit `e3a13a7`
+      (code) + `45431d6` (ledger). Full detail in `PROJECT_LOG.md`'s
+      2026-09-22 entry. Human-facing sequential `customer_number`,
+      server-generated via a single atomic `INSERT...SELECT` statement
+      (not split read/write — no `UNIQUE` backstop exists on this
+      column), live-stress-tested at 60 concurrent threads with zero
+      collisions; one-time idempotent backfill for pre-existing rows.
+      `Contract.template_name` given real meaning (`general_remodeling`
+      + the 4 real HomeCare tiers). Closes `NEW-592` (new
+      `POST /api/v1/contracts/<id>/signers` route + `party_role`
+      threaded through both `/sign` routes), `NEW-597` (atomic
+      `INSERT...WHERE NOT EXISTS` + `UNIQUE(contract_id, party_role)`,
+      live-stress-tested at 30 concurrent threads, exactly 1 row
+      created), and `NEW-593` for the multi-party branch (`sign_contract`
+      now rejects a supplied `party_role` that doesn't match the
+      actor's role). Guided 4-step UI in the sales portal (search/create
+      customer → pick template → fill contract, auto-prefilled → 
+      configure required signers). Logged, not fixed: `NEW-598`
+      (guided-flow customer creation lands unclaimed — no
+      `assigned_user_id`, needs a product decision), `NEW-599`
+      (legacy single-signer path still has no `party_role` identity
+      check — confirmed not a regression via live differential, now
+      reachable via a real route for the first time). **This closes
+      the full B8.6 chain (a/b/c/d-a/d-b/d-c) — B8.6 is DONE.**
 - [ ] **B8.7** — commission engine & compensation dashboards.
       **Rule-4 category** (money). **D4 ANSWERED 2026-09-16** — real
       plan read from `Sales_Rep_Contract.docx`, full numbers in
