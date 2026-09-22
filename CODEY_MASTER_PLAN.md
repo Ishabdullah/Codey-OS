@@ -7309,9 +7309,24 @@ this file's own don't-duplicate rule.
       - [ ] **B8.7c** — Phase 3 portfolio override. **Blocked on D6**
             (definition of "major GC work" + "gross collected revenue" —
             see Open Decisions §8 item 13). Not yet scoped in detail.
-      - [ ] **B8.7d** — `get_team_commission_summary`, rep/manager
-            dashboards, folds in the pre-existing `NEW-546` fail-open
-            fix. Not yet built.
+      - [x] **B8.7d** — `get_team_commission_summary`, rep/manager
+            dashboards, partial `NEW-546` fix. **DONE 2026-09-22,
+            code-complete + code-reviewer APPROVED round 1**, commit
+            `b7b4e39`. Full detail in `PROJECT_LOG.md`'s 2026-09-22
+            entry. New `get_team_commission_summary` (this-month
+            per-rep aggregate, `_scoped_rep_filter`-narrowed). `GET
+            /api/v1/sales/dashboard` gains `commission_summary` (own
+            row) + `team_commission_rankings` (independently
+            `PERM_READ_TEAM_COMMISSIONS`-gated). Sales portal gains a
+            "This Month" panel + manager rankings table. **`NEW-546`
+            fixed on the `CommissionService` side only** — sentinel-
+            based fail-closed fix, verified call-site-safe by the
+            reviewer — **`CRMService._scoped_assignee_filter` confirmed
+            still unfixed**, tracked separately as `NEW-608` (do not
+            treat `NEW-546` as fully closed). Logged, not fixed:
+            `NEW-609` (no status guard on `reverse_commission`,
+            latent/unreachable today). **This closes B8.7's entire
+            build queue except B8.7c**, which stays blocked on D6.
 - [ ] **B8.8** — insurance restoration workflow & financing tracking.
       Financing integration blocked on Open Decision D5.
 - [ ] **B8.9** — territory management & referral compensation.
