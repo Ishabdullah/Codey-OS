@@ -3041,6 +3041,27 @@ class APIRouter:
                 for c in commissions:
                     commissions_by_status.setdefault(c.status, []).append(c.to_dict())
 
+                # B8.7d: "This Month" rep panel + manager rankings, both
+                # backed by the one get_team_commission_summary call --
+                # a has_team_commissions holder's unfiltered call already
+                # returns every rep (including their own row), so no
+                # second query is needed to also show their own total.
+                # actor.user_id is guaranteed non-None here (the route's
+                # own NEW-546 guard above already 403'd that case), so
+                # this call never hits get_team_commission_summary's own
+                # NEW-546 zero-row path for a legitimate logged-in actor.
+                commission_summary_rows = self.commissions.get_team_commission_summary(actor)
+                own_commission_summary = next(
+                    (row for row in commission_summary_rows if row["rep_user_id"] == actor.user_id),
+                    {
+                        "rep_user_id": actor.user_id,
+                        "total_earned": 0.0,
+                        "total_paid": 0.0,
+                        "total_pending": 0.0,
+                        "entry_count": 0,
+                    },
+                )
+
                 response: Dict[str, Any] = {
                     "appointments": {
                         "today": [a.to_dict() for a in appts_today],
@@ -3055,7 +3076,16 @@ class APIRouter:
                     "pipeline": pipeline,
                     "commissions": commissions_by_status,
                     "commissions_scope": "team" if has_team_commissions else "own",
+                    "commission_summary": own_commission_summary,
                 }
+                # "team_commission_rankings" mirrors the existing "team"
+                # key's own gating pattern below: present only for a
+                # PERM_READ_TEAM_COMMISSIONS holder, gated independently
+                # of PERM_READ_TEAM_SALES_DATA's "team"/"scope" gate --
+                # same independent-permission-axis point the comment above
+                # commissions_scope already makes.
+                if has_team_commissions:
+                    response["team_commission_rankings"] = commission_summary_rows
 
                 # The single most important RBAC point in this route: gate
                 # the entire team block here, at the route level, on

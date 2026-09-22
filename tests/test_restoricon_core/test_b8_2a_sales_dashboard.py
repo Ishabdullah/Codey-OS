@@ -268,6 +268,43 @@ def test_commissions_scope_own_for_plain_rep(env):
     assert data["commissions_scope"] == "own"
 
 
+def test_commission_summary_own_row_for_plain_rep_no_rankings(env):
+    """B8.7d: a plain rep's dashboard carries their own this-month
+    commission_summary row (backing the "This Month" panel) but no
+    team_commission_rankings key at all -- that key is gated on
+    PERM_READ_TEAM_COMMISSIONS, same independent-axis rule
+    commissions_scope already established."""
+    status, _, data = _get(env["router"], env["tokens"]["rep_a"])
+    assert status == 200
+    assert "team_commission_rankings" not in data
+    summary = data["commission_summary"]
+    assert summary["rep_user_id"] == env["rep_a_user"].id
+    assert summary["total_earned"] == 100.0
+    assert summary["entry_count"] == 1
+
+
+def test_commission_summary_rankings_present_for_team_commissions_holder(env):
+    """The commissions_only_rep actor (PERM_READ_TEAM_COMMISSIONS without
+    PERM_READ_TEAM_SALES_DATA) gets team_commission_rankings covering
+    both reps -- same independent-permission-axis point
+    test_commissions_scope_independent_of_sales_data_scope already makes
+    for the row-level "commissions" key."""
+    status, _, data = _get(env["router"], env["tokens"]["commissions_only_rep"])
+    assert status == 200
+    assert "team" not in data  # PERM_READ_TEAM_SALES_DATA-gated, absent
+    rankings = data["team_commission_rankings"]
+    ranked_ids = {row["rep_user_id"] for row in rankings}
+    assert ranked_ids == {env["rep_a_user"].id, env["rep_b_user"].id}
+    by_rep = {row["rep_user_id"]: row for row in rankings}
+    assert by_rep[env["rep_a_user"].id]["total_earned"] == 100.0
+    assert by_rep[env["rep_b_user"].id]["total_earned"] == 200.0
+    # This actor's own user_id doesn't match either rep, so their own
+    # commission_summary row is the empty-defaults shape, not one of the
+    # two reps' rows.
+    assert data["commission_summary"]["total_earned"] == 0.0
+    assert data["commission_summary"]["entry_count"] == 0
+
+
 def test_days_param_changes_window(env):
     router = env["router"]
     token = env["tokens"]["rep_a"]

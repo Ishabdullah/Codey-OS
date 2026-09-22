@@ -5375,9 +5375,36 @@ def _render_sales_portal() -> str:
             </table>
         </div>
 
+        <!-- B8.7d: "This Month" rep-facing commission summary panel, fed by
+             the same /api/v1/sales/dashboard response's new commission_summary
+             field -- one row (the calling rep's own), always present since
+             CommissionService.get_team_commission_summary never raises. -->
+        <div class="erp-card">
+            <h2 style="margin-top:0;">This Month</h2>
+            <div id="commissionSummaryStrip" style="display:flex; flex-wrap:wrap; gap:1.5rem;">
+                <div><div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;">Earned</div><div id="summaryEarned" style="font-size:1.25rem;font-weight:700;">Loading...</div></div>
+                <div><div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;">Paid</div><div id="summaryPaid" style="font-size:1.25rem;font-weight:700;">-</div></div>
+                <div><div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;">Pending</div><div id="summaryPending" style="font-size:1.25rem;font-weight:700;">-</div></div>
+                <div><div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;">Entries</div><div id="summaryEntryCount" style="font-size:1.25rem;font-weight:700;">-</div></div>
+            </div>
+        </div>
+
         <div class="erp-card" id="teamSummaryCard" style="display:none;">
             <h2 style="margin-top:0;">Team Snapshot</h2>
             <div id="teamSummaryStrip" style="display:flex; flex-wrap:wrap; gap:1.5rem;"></div>
+        </div>
+
+        <!-- B8.7d: manager-facing commission rankings, gated independently
+             of teamSummaryCard on team_commission_rankings' own presence
+             (PERM_READ_TEAM_COMMISSIONS, a different permission axis from
+             teamSummaryCard's PERM_READ_TEAM_SALES_DATA -- see
+             commissions_scope's existing precedent for this split). -->
+        <div class="erp-card" id="commissionRankingsCard" style="display:none;">
+            <h2 style="margin-top:0;">Commission Rankings (This Month)</h2>
+            <table>
+                <thead><tr><th>Rep</th><th>Earned</th><th>Paid</th><th>Pending</th><th>Entries</th></tr></thead>
+                <tbody id="commissionRankingsList"></tbody>
+            </table>
         </div>
     </div>
 
@@ -5706,6 +5733,11 @@ def _render_sales_portal() -> str:
                     document.getElementById('pipelineTotals').textContent = '';
                     document.getElementById('commissionsList').innerHTML = `<tr><td colspan="4" style="color:var(--danger)">${{escapeHtml(dashboardUnavailableMsg)}}</td></tr>`;
                     document.getElementById('teamSummaryCard').style.display = 'none';
+                    document.getElementById('summaryEarned').textContent = '—';
+                    document.getElementById('summaryPaid').textContent = '—';
+                    document.getElementById('summaryPending').textContent = '—';
+                    document.getElementById('summaryEntryCount').textContent = '—';
+                    document.getElementById('commissionRankingsCard').style.display = 'none';
                 }} else if (res.ok) {{
                     const data = await res.json();
 
@@ -5840,6 +5872,42 @@ def _render_sales_portal() -> str:
                         teamCard.style.display = 'block';
                     }} else {{
                         teamCard.style.display = 'none';
+                    }}
+
+                    // B8.7d: "This Month" rep-facing commission summary --
+                    // commission_summary is always present (never a gated
+                    // key like 'team'), since get_team_commission_summary
+                    // never raises and the route always supplies the
+                    // empty-defaults shape when a rep has no rows this
+                    // month.
+                    const cs = data.commission_summary || {{}};
+                    document.getElementById('summaryEarned').textContent = '$' + (cs.total_earned || 0).toLocaleString();
+                    document.getElementById('summaryPaid').textContent = '$' + (cs.total_paid || 0).toLocaleString();
+                    document.getElementById('summaryPending').textContent = '$' + (cs.total_pending || 0).toLocaleString();
+                    document.getElementById('summaryEntryCount').textContent = String(cs.entry_count || 0);
+
+                    // B8.7d: manager-facing commission rankings -- gated on
+                    // key presence ('team_commission_rankings' in data),
+                    // same pattern the team snapshot block above uses,
+                    // independently of the 'team' key (different
+                    // permission: PERM_READ_TEAM_COMMISSIONS, not
+                    // PERM_READ_TEAM_SALES_DATA).
+                    const rankingsCard = document.getElementById('commissionRankingsCard');
+                    const rankingsList = document.getElementById('commissionRankingsList');
+                    if ('team_commission_rankings' in data && Array.isArray(data.team_commission_rankings)) {{
+                        const rankings = data.team_commission_rankings;
+                        rankingsList.innerHTML = rankings.length > 0
+                            ? rankings.map(r => `<tr>
+                                <td>${{escapeHtml(String(r.rep_user_id))}}</td>
+                                <td>$${{escapeHtml((r.total_earned || 0).toLocaleString())}}</td>
+                                <td>$${{escapeHtml((r.total_paid || 0).toLocaleString())}}</td>
+                                <td>$${{escapeHtml((r.total_pending || 0).toLocaleString())}}</td>
+                                <td>${{r.entry_count || 0}}</td>
+                            </tr>`).join('')
+                            : '<tr><td colspan="5" style="color:var(--text-muted)">No commission activity this month.</td></tr>';
+                        rankingsCard.style.display = 'block';
+                    }} else {{
+                        rankingsCard.style.display = 'none';
                     }}
                 }}
                 // else: non-ok, non-401, non-403 response (e.g. 5xx) -- new

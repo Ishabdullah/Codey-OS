@@ -502,6 +502,147 @@ def test_read_only_actor_cannot_record_or_reverse_commissions(setup_services):
 
 
 # ==========================================
+# B8.7d: get_team_commission_summary + NEW-546 fail-open fix
+# ==========================================
+
+
+def test_get_team_commission_summary_scopes_per_actor(setup_services):
+    """A rep without PERM_READ_TEAM_COMMISSIONS sees only their own
+    this-month row; a PERM_READ_TEAM_COMMISSIONS holder sees every rep --
+    same narrowing shape list_commissions already proves."""
+    _, auth_service, _, _, commission_service = setup_services
+    admin = _make_actor(auth_service, "admin", ROLE_ADMIN)
+    rep1 = _make_actor(auth_service, "rep1", ROLE_SALES)
+    rep2 = _make_actor(auth_service, "rep2", ROLE_SALES)
+
+    commission_service.record_commission(
+        CommissionLedgerEntry(
+            rep_user_id=rep1.user_id, source_type="assessment", commission_amount=100.0,
+            status="earned",
+        ),
+        admin,
+    )
+    commission_service.record_commission(
+        CommissionLedgerEntry(
+            rep_user_id=rep2.user_id, source_type="assessment", commission_amount=100.0,
+            status="earned",
+        ),
+        admin,
+    )
+
+    # rep1 (no team-read) sees only their own row.
+    rep1_summary = commission_service.get_team_commission_summary(rep1)
+    assert len(rep1_summary) == 1
+    assert rep1_summary[0]["rep_user_id"] == rep1.user_id
+    assert rep1_summary[0]["total_earned"] == 100.0
+    assert rep1_summary[0]["total_paid"] == 0.0
+    assert rep1_summary[0]["total_pending"] == 0.0
+    assert rep1_summary[0]["entry_count"] == 1
+
+    # admin (PERM_READ_TEAM_COMMISSIONS) sees every rep, ranked by
+    # total_earned descending.
+    admin_summary = commission_service.get_team_commission_summary(admin)
+    assert {row["rep_user_id"] for row in admin_summary} == {rep1.user_id, rep2.user_id}
+
+    # admin can also drill into one specific rep.
+    admin_drilldown = commission_service.get_team_commission_summary(admin, rep_user_id=rep2.user_id)
+    assert len(admin_drilldown) == 1
+    assert admin_drilldown[0]["rep_user_id"] == rep2.user_id
+
+
+def test_get_team_commission_summary_nets_reversal_in_same_month(setup_services):
+    """A reversal recorded in the same calendar month as its original
+    nets the rep's total_earned back toward zero (reverse_commission's
+    own docstring: negated reversal amount summed against the original
+    cancels exactly)."""
+    _, auth_service, _, _, commission_service = setup_services
+    admin = _make_actor(auth_service, "admin", ROLE_ADMIN)
+    rep1 = _make_actor(auth_service, "rep1", ROLE_SALES)
+
+    entry = commission_service.record_commission(
+        CommissionLedgerEntry(
+            rep_user_id=rep1.user_id, source_type="assessment", commission_amount=100.0,
+            status="earned",
+        ),
+        admin,
+    )
+    commission_service.reverse_commission(entry.id, admin, notes="chargeback")
+
+    summary = commission_service.get_team_commission_summary(rep1)
+    assert len(summary) == 1
+    assert summary[0]["total_earned"] == 0.0
+    assert summary[0]["entry_count"] == 2  # original + reversal row, both counted
+
+
+def test_new546_user_id_none_actor_without_team_read_gets_zero_rows(setup_services):
+    """NEW-546 regression: an AuthContext with user_id=None and no
+    PERM_READ_TEAM_COMMISSIONS must see ZERO rows -- not every rep's rows
+    (the original fail-open bug) -- for both list_commissions (the
+    originally-reported call site) and get_team_commission_summary (this
+    round's new call site, sharing the same _scoped_rep_filter helper)."""
+    _, auth_service, _, _, commission_service = setup_services
+    admin = _make_actor(auth_service, "admin", ROLE_ADMIN)
+    rep1 = _make_actor(auth_service, "rep1", ROLE_SALES)
+
+    commission_service.record_commission(
+        CommissionLedgerEntry(
+            rep_user_id=rep1.user_id, source_type="assessment", commission_amount=100.0,
+            status="earned",
+        ),
+        admin,
+    )
+
+    ghost_actor = AuthContext(
+        user_id=None, username="ghost", role=ROLE_SALES, actor_type="agent"
+    )
+    assert not ghost_actor.has_permission(PERM_READ_TEAM_COMMISSIONS)
+
+    assert commission_service.list_commissions(ghost_actor) == []
+    assert commission_service.get_team_commission_summary(ghost_actor) == []
+
+
+def test_new546_user_id_none_actor_with_team_read_still_sees_everyone(setup_services):
+    """Confirms the NEW-546 fix doesn't overcorrect: a user_id=None actor
+    who DOES hold PERM_READ_TEAM_COMMISSIONS (the ai_agent role today)
+    still sees every rep's rows -- the sentinel branch must be reached
+    only when the permission check itself already failed."""
+    _, auth_service, _, _, commission_service = setup_services
+    admin = _make_actor(auth_service, "admin", ROLE_ADMIN)
+    rep1 = _make_actor(auth_service, "rep1", ROLE_SALES)
+    rep2 = _make_actor(auth_service, "rep2", ROLE_SALES)
+
+    commission_service.record_commission(
+        CommissionLedgerEntry(
+            rep_user_id=rep1.user_id, source_type="assessment", commission_amount=100.0,
+            status="earned",
+        ),
+        admin,
+    )
+    commission_service.record_commission(
+        CommissionLedgerEntry(
+            rep_user_id=rep2.user_id, source_type="assessment", commission_amount=100.0,
+            status="earned",
+        ),
+        admin,
+    )
+
+    ai_agent_no_id = AuthContext(
+        user_id=None,
+        username="ai-agent-ghost",
+        role=ROLE_SALES,
+        actor_type="agent",
+        custom_permissions={PERM_READ_TEAM_COMMISSIONS: True},
+    )
+    assert ai_agent_no_id.has_permission(PERM_READ_TEAM_COMMISSIONS)
+
+    full_list = commission_service.list_commissions(ai_agent_no_id)
+    assert {e.rep_user_id for e in full_list} == {rep1.user_id, rep2.user_id}
+
+    full_summary = commission_service.get_team_commission_summary(ai_agent_no_id)
+    assert {row["rep_user_id"] for row in full_summary} == {rep1.user_id, rep2.user_id}
+
+
+# ==========================================
 # SCHEMA: projects.property_id (fresh DB + legacy-DB migration path)
 # ==========================================
 

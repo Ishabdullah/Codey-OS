@@ -37,13 +37,27 @@ _VALID_SOURCE_TYPES = {
 }
 _VALID_STATUSES = {"pending", "earned", "paid", "reversed"}
 
+# NEW-546 fix: a sentinel distinct from both `None` (team-wide, no filter --
+# the meaning `_scoped_rep_filter` already returns for a PERM_READ_TEAM_
+# COMMISSIONS holder with no specific rep_user_id requested) and any real
+# int rep_user_id. Before this fix, an actor lacking the team-read
+# permission whose own user_id was also None fell through to the same
+# `return actor.user_id` line, which evaluated to `None` -- indistinguishable
+# from "no filter" to every caller's `if effective_uid is not None:` check,
+# so the actor saw every rep's rows instead of zero. Callers must check
+# `is _NO_COMMISSION_ACCESS` before falling through to the `is not None`
+# branch that adds the SQL filter.
+_NO_COMMISSION_ACCESS = object()
+
 
 class CommissionService:
     """Manages the append-only commission ledger. Minimal surface per
     B8.1's scope: record_commission (create), get_commission (read one),
     reverse_commission (append a reversing row); list_commissions is added
     alongside them since a read-only listing is needed to exercise the
-    PERM_READ_TEAM_COMMISSIONS narrowing at all."""
+    PERM_READ_TEAM_COMMISSIONS narrowing at all. B8.7d adds
+    get_team_commission_summary (per-rep this-month aggregate, backing
+    the sales portal's "This Month" panel and manager rankings view)."""
 
     def __init__(self, db: DatabaseManager, audit: AuditService):
         self.db = db
@@ -201,11 +215,27 @@ class CommissionService:
                 return None
         return entry
 
-    def _scoped_rep_filter(self, actor: AuthContext, requested_rep_user_id: Optional[int]) -> Optional[int]:
+    def _scoped_rep_filter(
+        self, actor: AuthContext, requested_rep_user_id: Optional[int]
+    ) -> Optional[int]:
         """Resolves the effective rep_user_id filter for a read, mirroring
-        CRMService._scoped_assignee_filter (crm_service.py:626-640)."""
+        CRMService._scoped_assignee_filter (crm_service.py:626-640).
+
+        NEW-546 fix: an actor who lacks PERM_READ_TEAM_COMMISSIONS AND has
+        no real user_id of their own (actor.user_id is None) has no rows
+        to legitimately narrow to -- returns the _NO_COMMISSION_ACCESS
+        sentinel so callers fail CLOSED (zero rows), not the previous
+        behavior of returning `None`, which every caller's `if
+        effective_uid is not None:` check indistinguishably treated as
+        "no filter at all" (team-wide visibility). A real user_id always
+        takes the normal narrow-to-self path unchanged; a
+        PERM_READ_TEAM_COMMISSIONS holder is entirely unaffected by this
+        branch since it returns before reaching it.
+        """
         if actor.has_permission(PERM_READ_TEAM_COMMISSIONS):
             return requested_rep_user_id
+        if actor.user_id is None:
+            return _NO_COMMISSION_ACCESS  # type: ignore[return-value]
         return actor.user_id
 
     def list_commissions(
@@ -230,6 +260,8 @@ class CommissionService:
         for audit purposes.
         """
         effective_uid = self._scoped_rep_filter(actor, rep_user_id)
+        if effective_uid is _NO_COMMISSION_ACCESS:
+            return []  # NEW-546: fail closed, not team-wide
 
         query = "SELECT * FROM commission_ledger_entries WHERE 1=1"
         params: List[Any] = []
@@ -250,6 +282,86 @@ class CommissionService:
         conn = self.db.get_connection()
         rows = conn.execute(query, params).fetchall()
         return [self._row_to_entry(r) for r in rows]
+
+    def get_team_commission_summary(
+        self, actor: AuthContext, rep_user_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """Aggregate this-calendar-month commission totals per rep (B8.7d,
+        sales_rep_portal.md:511: `get_team_commission_summary`, "gated
+        behind D2's permission").
+
+        Reuses `_scoped_rep_filter` exactly like `list_commissions` --
+        NOT a separate `PermissionError` gate of its own, same as
+        `list_commissions`/`get_commission` before it: a caller without
+        PERM_READ_TEAM_COMMISSIONS is narrowed to their own rep_user_id
+        (or the NEW-546 zero-row fail-closed path if they also have no
+        real user_id at all), never raises. A PERM_READ_TEAM_COMMISSIONS
+        holder sees every rep (or drills into one specific rep via
+        `rep_user_id`) -- this is what "gated on PERM_READ_TEAM_
+        COMMISSIONS" means here: the permission gates *team breadth*,
+        not the ability to call the method, matching the shape every
+        other read on this service already has.
+
+        "This month" is bucketed by calendar month using created_at (the
+        one guaranteed-non-null timestamp on every row -- unlike
+        earned_at/paid_at, which stay NULL for a 'pending'/'reversed'
+        row) via SQLite's own strftime, in UTC, matching this codebase's
+        existing UTC-everywhere convention (utc_now_iso). No other
+        service in this codebase currently does month-grain aggregation
+        to follow as precedent, so this is a from-scratch (but minimal)
+        date-bucketing scheme, not a reuse of an existing one.
+
+        total_earned sums 'earned' and 'reversed' rows together for the
+        month: reverse_commission's own docstring establishes that
+        summing a reversal row's negated commission_amount against its
+        original nets out correctly. A chargeback landing in a later
+        calendar month than the commission it reverses therefore shows
+        up as a negative contribution to *that later month's* total,
+        not a retroactive rewrite of the original month's already-earned
+        total -- consistent with the ledger's append-only, point-in-time
+        design. total_paid/total_pending are separate buckets for
+        forward-compatibility with a future payout workflow; no code
+        path writes status='paid' yet, so total_paid is always 0.0
+        today.
+
+        Rows with a NULL rep_user_id (a historical entry whose rep's
+        user account was later deleted, per commission_ledger_entries'
+        ON DELETE SET NULL) are excluded from this aggregation -- they
+        don't belong to any current "rep" a summary/ranking view can
+        show a row for.
+        """
+        effective_uid = self._scoped_rep_filter(actor, rep_user_id)
+        if effective_uid is _NO_COMMISSION_ACCESS:
+            return []  # NEW-546: fail closed, not team-wide
+
+        query = (
+            "SELECT rep_user_id, "
+            "SUM(CASE WHEN status IN ('earned', 'reversed') THEN commission_amount ELSE 0 END) AS total_earned, "
+            "SUM(CASE WHEN status = 'paid' THEN commission_amount ELSE 0 END) AS total_paid, "
+            "SUM(CASE WHEN status = 'pending' THEN commission_amount ELSE 0 END) AS total_pending, "
+            "COUNT(*) AS entry_count "
+            "FROM commission_ledger_entries "
+            "WHERE rep_user_id IS NOT NULL "
+            "AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')"
+        )
+        params: List[Any] = []
+        if effective_uid is not None:
+            query += " AND rep_user_id = ?"
+            params.append(effective_uid)
+        query += " GROUP BY rep_user_id ORDER BY total_earned DESC;"
+
+        conn = self.db.get_connection()
+        rows = conn.execute(query, params).fetchall()
+        return [
+            {
+                "rep_user_id": r["rep_user_id"],
+                "total_earned": float(r["total_earned"] or 0.0),
+                "total_paid": float(r["total_paid"] or 0.0),
+                "total_pending": float(r["total_pending"] or 0.0),
+                "entry_count": r["entry_count"],
+            }
+            for r in rows
+        ]
 
     def reverse_commission(
         self, entry_id: int, actor: AuthContext, notes: Optional[str] = None
