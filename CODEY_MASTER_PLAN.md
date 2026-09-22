@@ -7116,16 +7116,15 @@ this file's own don't-duplicate rule.
       fixed: `NEW-575` (unintentionally strips `ROLE_PROJECT_MANAGER`'s
       existing `NEW-192` contract-signing grant — flagged for Ish,
       three plausible fixes, genuinely ambiguous).
-- [ ] **B8.6b** — `PackageOption` table + server-side estimate/package
-      pricing computation. Closes `NEW-574` (`create_estimate`
-      currently persists client-supplied totals with zero server-side
-      computation — money-category, mandatory reviewer gate on the
-      pricing math specifically). Also needs net-new `update_estimate`/
-      `send_estimate` (neither exists today, despite `status` already
-      having `sent`/`approved`/etc. as legal values nothing transitions
-      into). Package tier names (`good`/`better`/`best`) confirmed
-      distinct from `home-care.html`'s real published subscription
-      tiers (Basic/Plus/Complete/Estate) — no naming conflict.
+- [x] **B8.6b** — `PackageOption` table + server-side estimate/package
+      pricing computation. **DONE 2026-09-18, code-complete +
+      code-reviewer APPROVED (round 2, after a round-1 CHANGES-
+      REQUESTED on two real money-visibility/authorization leaks)**,
+      commit `9aefba6`. Full detail in `PROJECT_LOG.md`'s 2026-09-18
+      entry. Closes `NEW-574`. New `update_estimate`/`send_estimate`
+      (neither existed before). Logged, not fixed: `NEW-576`
+      (line_items/included_items shape has no enforcement yet,
+      forward-looking landmine for B8.6c's UI).
 - [ ] **B8.6c** — proposal builder (recommend HTML/print-only, no PDF
       dependency exists in `install.sh` today — a real PDF export
       would need its own Ish decision) + contract send/track/sign UI
