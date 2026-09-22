@@ -7281,8 +7281,31 @@ this file's own don't-duplicate rule.
             `NEW-604` (an invoice already `paid` at creation bypasses
             the transition-edge trigger), `NEW-605` (pre-existing
             `payments_json` race, unrelated to this diff).
-      - [ ] **B8.7b** — `homecare_subscriptions` table + Phase 2 bonus +
-            lazy-evaluated 90-day clawback. Not yet built.
+      - [x] **B8.7b** — `homecare_subscriptions` table + Phase 2 bonus +
+            lazy-evaluated 90-day clawback. **DONE 2026-09-22,
+            code-complete + code-reviewer APPROVED round 1**, commit
+            `a68e16c`. Full detail in `PROJECT_LOG.md`'s 2026-09-22
+            entry. New `homecare_subscriptions` table (`UNIQUE
+            (contract_id)` double-fire guard). `sign_contract` gained a
+            second, independent best-effort side effect (own
+            try/except, separate from the PDF block) enrolling a
+            subscription + recording the Phase 2 bonus (`monthly_fee -
+            assessment_flat_commission`, snapshotted at enrollment) when
+            a HomeCare contract reaches `status='signed'`. New
+            `cancel_homecare_subscription()` — status update + lazy
+            90-day clawback via the existing `reverse_commission`
+            mechanism, not a hand-rolled chargeback path. **Mid-round
+            product correction folded in cleanly**: HomeCare Basic
+            repriced $179/mo → $119/mo (Ish, 2026-09-22) — seed default
+            + a scoped, idempotent corrective `UPDATE` for any
+            already-seeded DB, live-verified via a 3x-reopen repro;
+            `sales_rep_portal.md`'s D4 numbers corrected in place.
+            Logged, not fixed: `NEW-606` (TOCTOU gap in the cancel
+            method's idempotency check, traced to confirm harmless —
+            no money corruption), `NEW-607` (three "no route yet" gaps
+            bundled — no dedicated RBAC permission, a disclosed
+            not-found-shape deviation, unclamped-at-zero bonus formula
+            — deferred to B8.7d).
       - [ ] **B8.7c** — Phase 3 portfolio override. **Blocked on D6**
             (definition of "major GC work" + "gross collected revenue" —
             see Open Decisions §8 item 13). Not yet scoped in detail.
