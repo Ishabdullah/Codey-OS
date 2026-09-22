@@ -4877,6 +4877,23 @@ Numbered for reference. Nothing here is guessed at in this document.
     - **`NEW-534` priority:** Ish chose to prioritize a fix now rather
       than defer to Phase B8.3 — claim workflow with race protection,
       not yet built (`sales_rep_portal.md` §4a item 2).
+13. **D6 (new, raised during B8.7 scoping, 2026-09-22) — NOT YET
+    ANSWERED, blocks B8.7c only (B8.7a/b are unblocked and can proceed
+    without it):**
+    - **Definition of "major general-contracting project"** for D4's
+      Phase-3 5% portfolio-override eligibility. D4 gives examples
+      (roofing, siding, storm damage repair, flood restoration) but no
+      closed rule or field to test a given `Project`/`Invoice` against
+      — needs either a `Project.category`/tag field Ish defines, or an
+      explicit list.
+    - **Definition of "gross collected revenue"** for the same 5%
+      override: `Invoice.deposit_amount` is tracked separately from
+      `payments`, and `record_payment` sums both — needs Ish to confirm
+      whether "collected" means the full sum (deposit + all payments)
+      or something narrower (e.g. excluding a deposit that predates
+      contract signing).
+    - B8.7c should not be scoped in implementation detail until this is
+      answered — B8.7a/b/d don't depend on it.
 
 ---
 
@@ -7216,8 +7233,26 @@ this file's own don't-duplicate rule.
 - [ ] **B8.7** — commission engine & compensation dashboards.
       **Rule-4 category** (money). **D4 ANSWERED 2026-09-16** — real
       plan read from `Sales_Rep_Contract.docx`, full numbers in
-      `sales_rep_portal.md` §4. No longer blocked on the decision, only
-      on being picked up and built.
+      `sales_rep_portal.md` §4. **SCOPED 2026-09-22** (project-architect,
+      design-only), full detail in `PROJECT_LOG.md`. Existing
+      `commission_ledger_entries`/`CommissionService`/RBAC split (B8.1/
+      B8.2) confirmed reusable, not rebuilt. Split into B8.7a (plan
+      config singleton + invoice/assessment classification + Phase 1
+      flat $100 commission, triggered off `record_payment`'s paid-
+      transition edge) → B8.7b (new `homecare_subscriptions` table +
+      Phase 2 bonus + lazy-evaluated 90-day clawback, no scheduler
+      exists in Core so day-90 can't be a background job) → B8.7c
+      (Phase 3 portfolio override — **blocked on Ish's decision**, see
+      Open Decisions below) → B8.7d (dashboards, folds in the
+      pre-existing `NEW-546` fail-open fix). **Was blocked pending
+      `NEW-598`** (a guided-flow-created customer had no owning rep to
+      attribute commission to) — **NEW-598 fixed and closed 2026-09-22**
+      (commit `f16f717`), unblocked. B8.7a is next up to build. Two
+      more attribution-adjacent findings logged from that fix's review:
+      `NEW-600` (lead-conversion-created customers still land unclaimed
+      when an admin converts — inert today, no live commission code
+      reads `Customer.assigned_user_id` yet), `NEW-601` (inert
+      `ROLE_CUSTOMER`+`custom_permissions` edge case).
 - [ ] **B8.8** — insurance restoration workflow & financing tracking.
       Financing integration blocked on Open Decision D5.
 - [ ] **B8.9** — territory management & referral compensation.
