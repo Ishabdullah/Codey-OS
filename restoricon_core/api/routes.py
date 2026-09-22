@@ -1210,11 +1210,22 @@ class APIRouter:
                 # licensed/insured section. This is a display document, not
                 # an authorization decision -- omitting a section is safe;
                 # see render_estimate_proposal's docstring.
+                #
+                # NEW-587: the customer is fetched via _get_customer_unscoped,
+                # NOT the actor-narrowed get_customer. get_estimate's
+                # rep-ownership narrowing above already answered "can this
+                # actor see this record"; that's sufficient to also view the
+                # associated customer's basic info for the proposal. Before
+                # this fix, calling the actor-narrowed get_customer here
+                # meant a rep who legitimately owns the estimate but whose
+                # customer has since been reassigned to a different rep (via
+                # NEW-568's own admin reassign feature) got a spurious 404 on
+                # their own estimate's proposal.
                 est_id = _parse_int_path_segment(path[len("/api/v1/estimates/"):-len("/proposal")], "est_id")
                 estimate = self.crm.get_estimate(est_id, actor)
                 if not estimate:
                     return 404, {"Content-Type": "application/json"}, {"error": "Estimate not found"}
-                customer = self.crm.get_customer(estimate.customer_id, actor)
+                customer = self.crm._get_customer_unscoped(estimate.customer_id)
                 if not customer:
                     return 404, {"Content-Type": "application/json"}, {"error": "Customer not found"}
                 package_options = self.crm.list_package_options(actor, estimate_id=est_id)

@@ -522,3 +522,56 @@ def test_route_estimate_proposal_escapes_injected_customer_name(route_env):
     assert status == 200
     assert "<script>alert(1)</script>" not in body
     assert "&lt;script&gt;" in body
+
+
+def test_route_estimate_proposal_survives_customer_reassignment_to_other_rep(route_env):
+    """NEW-587 regression test. Rep A owns the estimate (assigned_user_id
+    via create_estimate). Admin then reassigns the *customer* record
+    (NEW-568's own admin assign/reassign feature) to a different rep, B.
+    Before the NEW-587 fix, the proposal route's second call --
+    get_customer(estimate.customer_id, actor) -- independently re-applied
+    NEW-568's rep-ownership narrowing and 404'd for rep A even though
+    get_estimate had already authorized them via the estimate's own
+    (unchanged) assigned_user_id. The fix must let rep A's proposal call
+    keep succeeding here."""
+    router = route_env["router"]
+    crm = route_env["crm"]
+    actor_admin = route_env["actor_admin"]
+    actor_sales = route_env["actor_sales"]  # "rep A"
+
+    auth_service = router.auth
+    rep_b_user = auth_service.create_user(
+        "route_sales_b", "Pass123!", "Sales B", "route_sales_b@r.com", role=ROLE_SALES,
+    )
+    rep_b_token = auth_service.create_token(rep_b_user)
+    actor_sales_b = AuthContext(rep_b_user.id, "route_sales_b", ROLE_SALES, "human", token=rep_b_token)
+
+    est = crm.create_estimate(
+        Estimate(
+            estimate_number="EST-RT-4", customer_id=route_env["cust"].id,
+            line_items=[{"description": "Smoke damage repair", "quantity": 1, "unit_cost": 500.0}],
+        ),
+        actor_sales,  # rep A's own estimate -- assigned_user_id = rep A
+    )
+
+    # Admin reassigns the CUSTOMER (not the estimate) to rep B.
+    crm.update_customer(route_env["cust"].id, {"assigned_user_id": rep_b_user.id}, actor_admin)
+
+    # Rep A still owns the estimate and must still be able to view its
+    # proposal -- not a 404, per NEW-587.
+    status, headers, body = router.handle_request(
+        "GET", f"/api/v1/estimates/{est.id}/proposal", _hdr(actor_sales), b"",
+    )
+    assert status == 200
+    assert headers["Content-Type"].startswith("text/html")
+    assert "Smoke damage repair" in body
+    assert "Route Test" in body  # customer's name still renders
+
+    # A rep who never owned the estimate at all (rep B, despite now owning
+    # the customer) must still be correctly rejected -- the fix must only
+    # skip narrowing on the customer lookup, not widen the estimate-level
+    # gate itself.
+    status_b, _, _ = router.handle_request(
+        "GET", f"/api/v1/estimates/{est.id}/proposal", _hdr(actor_sales_b), b"",
+    )
+    assert status_b == 404

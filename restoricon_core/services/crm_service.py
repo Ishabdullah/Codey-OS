@@ -196,30 +196,34 @@ class CRMService:
             if row["assigned_user_id"] is not None and row["assigned_user_id"] != actor.user_id:
                 return None
 
-        tags = json.loads(row["tags_json"]) if row["tags_json"] else []
-        custom_fields = json.loads(row["custom_fields_json"]) if row["custom_fields_json"] else {}
+        cust = self._row_to_customer(row)
+        if actor.role == ROLE_CUSTOMER:
+            cust.notes = None  # Hide internal notes from customer
+        return cust
 
-        return Customer(
-            id=row["id"],
-            external_id=row["external_id"],
-            first_name=row["first_name"],
-            last_name=row["last_name"],
-            company_name=row["company_name"],
-            phone=row["phone"],
-            email=row["email"],
-            mailing_address=row["mailing_address"],
-            service_address=row["service_address"],
-            customer_type=row["customer_type"],
-            customer_source=row["customer_source"],
-            assigned_user_id=row["assigned_user_id"],
-            status=row["status"],
-            tags=tags,
-            notes=row["notes"] if actor.role != ROLE_CUSTOMER else None,  # Hide internal notes from customer
-            custom_fields=custom_fields,
-            created_at=row["created_at"],
-            last_contact_at=row["last_contact_at"],
-            next_followup_at=row["next_followup_at"],
-        )
+    def _get_customer_unscoped(self, customer_id: int) -> Optional[Customer]:
+        """NEW-587 fix: fetch a customer with NO ownership/narrowing check
+        at all -- not even the NEW-568 rep-ownership narrowing that
+        get_customer applies. Only for callers that have already
+        established the caller's authorization to view this customer
+        through a *different*, already-narrowed record (e.g. the proposal
+        route below, which only reaches here after get_estimate's own
+        rep-ownership narrowing already confirmed the actor may see this
+        estimate, and therefore the customer info needed to render it).
+
+        Do NOT call this from a route or service method that hasn't
+        already independently authorized access to this specific
+        customer_id -- it has no access control of its own. `notes` is
+        always cleared (hardcoded, not actor-conditioned) since this
+        helper takes no actor and has no basis to decide who's allowed to
+        see internal notes; callers needing notes must use get_customer."""
+        conn = self.db.get_connection()
+        row = conn.execute("SELECT * FROM customers WHERE id = ?;", (customer_id,)).fetchone()
+        if not row:
+            return None
+        cust = self._row_to_customer(row)
+        cust.notes = None
+        return cust
 
     def get_customer_by_external_id(self, external_id: str, actor: AuthContext) -> Optional[Customer]:
         """Look up by an external system's own string ID (NEW-212/NEW-232,
