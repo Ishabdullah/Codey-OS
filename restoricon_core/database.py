@@ -37,6 +37,20 @@ CREATE TABLE IF NOT EXISTS users (
     customer_id INTEGER, -- Only populated if role == 'customer'
     custom_permissions_json TEXT NOT NULL DEFAULT '{}',
     active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1)),
+    -- terminated_at (B8.7c, D6, sales_rep_portal.md §4 Phase 3): set to the
+    -- current timestamp by AuthService.set_user_active ONLY on a genuine
+    -- active 1->0 transition (never on every suspend call), cleared back to
+    -- NULL on a 0->1 reactivation -- a rehired rep isn't "still terminated"
+    -- for future projects. Read by CRMService's portfolio-override
+    -- eligibility check (record_payment): a GC contract whose resolved
+    -- signed timestamp (customer_signed_at for a single-signer contract,
+    -- or MAX(contract_signers.signed_at) for one signed via multi-party
+    -- signing -- see _resolve_portfolio_override_eligibility gate 1b) is
+    -- <= the originating rep's terminated_at still pays the override on
+    -- payments collected even after the rep left; NULL (never
+    -- terminated) is always eligible on this gate.
+    terminated_at TEXT,
+    territory_id INTEGER, -- B8.9a: FK-less, see the territories table's own DDL comment below
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL
@@ -645,6 +659,19 @@ CREATE TABLE IF NOT EXISTS commission_plan_config (
     homecare_plus_monthly_fee REAL NOT NULL DEFAULT 399.0,
     homecare_complete_monthly_fee REAL NOT NULL DEFAULT 599.0,
     homecare_estate_monthly_fee REAL NOT NULL DEFAULT 999.0,
+    -- portfolio_override_rate/portfolio_override_window_months (B8.7c, D6,
+    -- sales_rep_portal.md §4 Phase 3, Ish-answered 2026-09-23): the 5%
+    -- residual on gross collected revenue from major GC projects, for N
+    -- months from a customer's initial HomeCare enrollment. Deliberately
+    -- NOT hardcoded as Python constants -- same "everything configurable
+    -- must be dashboard-editable" rationale as every other field in this
+    -- table. NOT NULL DEFAULT on the ALTER (see _migrate_schema below)
+    -- means an existing DB's row gets these real numbers automatically on
+    -- migration -- no corrective UPDATE needed, unlike the homecare_basic_
+    -- monthly_fee reprice above, since these are brand-new columns with no
+    -- prior value that could conflict with the real default.
+    portfolio_override_rate REAL NOT NULL DEFAULT 0.05,
+    portfolio_override_window_months INTEGER NOT NULL DEFAULT 12,
     updated_at TEXT NOT NULL
 );
 
@@ -1227,6 +1254,39 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_financing_records_invoice_active
 ON financing_records(invoice_id)
 WHERE status='active' AND application_status IN ('approved','funded') AND invoice_id IS NOT NULL;
 
+-- Territories (B8.9a, sales_rep_portal.md §5 B8.9, corrected scope
+-- 2026-09-23 -- territory management only, NOT referral compensation,
+-- see NEW-545's resolution). Explicit, human-set assignment only -- no
+-- ZIP/geocoding inference: the project-architect's scoping confirmed
+-- Lead has no address field at all and Customer/Property addresses are
+-- free-text blobs, so there is no structured data to derive a territory
+-- from. `code` is a short rep-facing label (e.g. "NORTH", "METRO-1"),
+-- NOT a ZIP code. The `territory_id` columns that reference this table
+-- (on users/leads/customers) are added via the ALTER-TABLE tuples in
+-- _migrate_schema() below, FK-less by design -- matching
+-- commission_ledger_entries.rep_user_id's precedent: a territory_id
+-- must survive the referenced territory row's deletion (there is no
+-- delete path for territories this round, see below, but the
+-- FK-less convention is kept consistent with every other cross-entity
+-- reference in this codebase that isn't a hard ownership relationship).
+-- No delete method exists in TerritoryService this round (B8.9a
+-- scoping decision): a territory with users/leads/customers still
+-- referencing it would silently orphan those references (FK-less, no
+-- cascade, no SET NULL) if deleted -- deferred rather than building
+-- delete-with-guard logic for a lookup table with no real precedent
+-- yet for how "in use" should be defined here (unlike
+-- delete_appointment_type's active-appointments precheck, there is no
+-- obvious "active reference" concept for a territory the way there is
+-- for a bookable appointment type).
+CREATE TABLE IF NOT EXISTS territories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    code TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_territories_name ON territories(name);
+
 -- Indexing for performance
 -- NOTE: the unique indexes for customers.external_id / leads.external_id /
 -- contacts.external_id / communication_history.provider_message_id are
@@ -1386,6 +1446,8 @@ CREATE TABLE users (
     customer_id INTEGER, -- Only populated if role == 'customer'
     custom_permissions_json TEXT NOT NULL DEFAULT '{}',
     active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1)),
+    terminated_at TEXT,
+    territory_id INTEGER,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL
@@ -1564,6 +1626,37 @@ class DatabaseManager:
             ("customers", "customer_number", "ALTER TABLE customers ADD COLUMN customer_number INTEGER;"),
             ("invoices", "assigned_user_id", "ALTER TABLE invoices ADD COLUMN assigned_user_id INTEGER;"),
             ("invoices", "invoice_type", "ALTER TABLE invoices ADD COLUMN invoice_type TEXT NOT NULL DEFAULT 'other';"),
+            # B8.9a: territory_id, additive/nullable on all three tables,
+            # FK-less by design (see the territories table's own DDL
+            # comment above for why). A rep has AT MOST ONE territory
+            # (users.territory_id is a single nullable column, not a
+            # join table) -- a documented default per the architect's
+            # scoping, not yet confirmed with Ish, chosen for being
+            # cheaper and matching the plan's sizing; extensible to a
+            # many-to-many join table later if needed.
+            ("users", "territory_id", "ALTER TABLE users ADD COLUMN territory_id INTEGER;"),
+            ("leads", "territory_id", "ALTER TABLE leads ADD COLUMN territory_id INTEGER;"),
+            ("customers", "territory_id", "ALTER TABLE customers ADD COLUMN territory_id INTEGER;"),
+            # B8.7c: terminated_at, additive/nullable, see the users table's
+            # own DDL comment above for the full set_user_active transition
+            # semantics.
+            ("users", "terminated_at", "ALTER TABLE users ADD COLUMN terminated_at TEXT;"),
+            # B8.7c: portfolio_override_rate/window_months, additive on
+            # commission_plan_config. NOT NULL DEFAULT on the ALTER itself
+            # backfills any already-migrated DB's existing singleton row
+            # with the real numbers -- no separate corrective UPDATE
+            # needed (see the table's own DDL comment above for why this
+            # differs from the homecare_basic_monthly_fee reprice).
+            (
+                "commission_plan_config",
+                "portfolio_override_rate",
+                "ALTER TABLE commission_plan_config ADD COLUMN portfolio_override_rate REAL NOT NULL DEFAULT 0.05;",
+            ),
+            (
+                "commission_plan_config",
+                "portfolio_override_window_months",
+                "ALTER TABLE commission_plan_config ADD COLUMN portfolio_override_window_months INTEGER NOT NULL DEFAULT 12;",
+            ),
         )
         with conn:
             for table, column, ddl in migrations:
@@ -1664,6 +1757,22 @@ class DatabaseManager:
             if conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks';").fetchone():
                 conn.execute(
                     "CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_external_id ON tasks(external_id);"
+                )
+            # B8.9a: non-unique territory_id indexes, same after-the-ALTER
+            # placement rationale as the external_id unique indexes above
+            # (territory_id doesn't exist on a legacy DB file until the
+            # ALTER above runs first in this same pass).
+            if conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users';").fetchone():
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_users_territory_id ON users(territory_id);"
+                )
+            if conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='leads';").fetchone():
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_leads_territory_id ON leads(territory_id);"
+                )
+            if conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='customers';").fetchone():
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_customers_territory_id ON customers(territory_id);"
                 )
             # Partial index (WHERE provider_message_id IS NOT NULL): rows
             # with no natural external message id (internal_note,
@@ -1808,6 +1917,8 @@ class DatabaseManager:
         new_cols = {
             "id", "username", "password_hash", "full_name", "email", "phone", "role",
             "department", "customer_id", "custom_permissions_json", "active",
+            "territory_id",  # B8.9a
+            "terminated_at",  # B8.7c
             "created_at", "updated_at",
         }
         missing = set(old_cols) - new_cols

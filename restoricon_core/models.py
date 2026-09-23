@@ -27,6 +27,8 @@ class User:
     customer_id: Optional[int] = None
     custom_permissions: Dict[str, bool] = field(default_factory=dict)
     active: int = 1
+    terminated_at: Optional[str] = None  # B8.7c: set/cleared by AuthService.set_user_active, see database.py's ALTER comment
+    territory_id: Optional[int] = None  # B8.9a: at most one territory per rep, see database.py's ALTER comment
     created_at: str = field(default_factory=utc_now_iso)
     updated_at: str = field(default_factory=utc_now_iso)
 
@@ -53,6 +55,7 @@ class Customer:
     customer_source: Optional[str] = None
     assigned_user_id: Optional[int] = None
     status: str = "lead"  # lead, prospect, active, past, lost
+    territory_id: Optional[int] = None  # B8.9a: FK-less, see database.py's territories table comment
     tags: List[str] = field(default_factory=list)
     notes: Optional[str] = None
     custom_fields: Dict[str, Any] = field(default_factory=dict)
@@ -145,6 +148,7 @@ class Lead:
     insurance_status: Optional[str] = None
     estimated_value: float = 0.0
     assigned_user_id: Optional[int] = None
+    territory_id: Optional[int] = None  # B8.9a: FK-less, see database.py's territories table comment
     first_contact_at: Optional[str] = None
     last_contact_at: Optional[str] = None
     next_followup_at: Optional[str] = None
@@ -1286,7 +1290,14 @@ class CommissionPlanConfig:
     mid-B8.7b) -- confirmed against the live home-care.html pricing
     table, which already reflects $119. database.py's _migrate_schema()
     carries a one-time corrective UPDATE for any DB whose singleton row
-    was already seeded with the old 179.0 default before this change."""
+    was already seeded with the old 179.0 default before this change.
+
+    portfolio_override_rate/portfolio_override_window_months (B8.7c, D6,
+    Phase 3): the 5% residual on gross collected revenue from major GC
+    projects, for 12 months from a customer's initial HomeCare enrollment.
+    Snapshotted at each ledger write (CRMService.record_payment reads the
+    live config value at write time, same as every other field here) so a
+    later rate edit never retroactively changes historical ledger rows."""
     id: int = 1
     assessment_price: float = 299.0
     assessment_flat_commission: float = 100.0
@@ -1294,6 +1305,8 @@ class CommissionPlanConfig:
     homecare_plus_monthly_fee: float = 399.0
     homecare_complete_monthly_fee: float = 599.0
     homecare_estate_monthly_fee: float = 999.0
+    portfolio_override_rate: float = 0.05
+    portfolio_override_window_months: int = 12
     updated_at: str = field(default_factory=utc_now_iso)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -1353,6 +1366,23 @@ class AssessmentRecord:
     evidence_document_ids: List[int] = field(default_factory=list)
     customer_statements: Optional[str] = None
     created_by: Optional[int] = None
+    created_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class Territory:
+    """Territory management lookup (B8.9a, sales_rep_portal.md §5 B8.9,
+    corrected scope 2026-09-23). Explicit, human-set only -- no ZIP/
+    geocoding inference, see database.py's territories table comment for
+    why. `code` is a short rep-facing label (e.g. "NORTH"), NOT a ZIP
+    code."""
+    id: Optional[int] = None
+    name: str = ""
+    code: Optional[str] = None
+    notes: Optional[str] = None
     created_at: str = field(default_factory=utc_now_iso)
 
     def to_dict(self) -> Dict[str, Any]:

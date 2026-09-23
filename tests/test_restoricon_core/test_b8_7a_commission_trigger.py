@@ -311,9 +311,16 @@ def test_get_commission_plan_config_raising_does_not_fail_the_already_committed_
     entries = commission_service.list_commissions(admin, rep_user_id=rep.user_id)
     assert entries == []
 
+    # B8.7c's independent Phase-3 (portfolio-override) block ALSO calls
+    # get_commission_plan_config as the literal first statement inside its
+    # own try block (unconditionally, regardless of invoice_type -- it
+    # needs the config's portfolio_override_window_months before it can
+    # even resolve eligibility) -- so this class-wide monkeypatch now
+    # produces TWO independent commission_recording_failed entries, one
+    # per block, neither masking the other.
     logs = audit_service.query_logs(admin, entity_type="invoice", entity_id=invoice.id, action="commission_recording_failed")
-    assert len(logs) == 1
-    assert "simulated get_commission_plan_config failure" in logs[0].change_summary
+    assert len(logs) == 2
+    assert all("simulated get_commission_plan_config failure" in log.change_summary for log in logs)
 
 
 def test_create_invoice_rejects_invalid_invoice_type(setup_services):

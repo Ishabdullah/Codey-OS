@@ -240,6 +240,20 @@ PERM_WRITE_CRM = "write:crm"
 PERM_MANAGE_PIPELINE = "manage:pipeline"
 PERM_SCORE_LEADS = "score:leads"
 
+# B8.9a: territory management -- defining what territories EXIST (create/
+# rename/edit the lookup table itself) is an operational/admin decision,
+# same class as appointment_types (own dedicated read/write pair, not a
+# reuse of PERM_MANAGE_USERS -- that permission is admin-only and cannot
+# express a read/write split, and territory names need to be readable by
+# a broader tier than "can manage user accounts" the moment any rep-
+# facing surface lists them). Assigning a territory_id TO a user/lead/
+# customer is NOT gated by this pair -- that's already covered by the
+# existing PERM_MANAGE_USERS (users.territory_id via update_user) and
+# PERM_WRITE_LEADS/PERM_WRITE_CUSTOMERS (leads/customers.territory_id via
+# update_lead/update_customer) gates on those write paths.
+PERM_READ_TERRITORIES = "read:territories"
+PERM_WRITE_TERRITORIES = "write:territories"
+
 # Operations Domain permissions (Track B Phase B3)
 PERM_READ_OPERATIONS = "read:operations"
 PERM_WRITE_OPERATIONS = "write:operations"
@@ -327,6 +341,8 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_PROCUREMENT,
         PERM_GLOBAL_SEARCH,
         PERM_VIEW_REPORTS,
+        PERM_READ_TERRITORIES,
+        PERM_WRITE_TERRITORIES,
     },
     ROLE_MANAGER: {
         PERM_READ_ALL_CUSTOMERS,
@@ -392,6 +408,8 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_PROCUREMENT,
         PERM_GLOBAL_SEARCH,
         PERM_VIEW_REPORTS,
+        PERM_READ_TERRITORIES,
+        PERM_WRITE_TERRITORIES,
     },
     ROLE_SALES: {
         PERM_READ_ALL_CUSTOMERS,
@@ -542,6 +560,11 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_PROCUREMENT,
         PERM_GLOBAL_SEARCH,
         PERM_VIEW_REPORTS,
+        # B8.9a: read-only, mirroring PERM_READ_APPOINTMENT_TYPES' own
+        # ai_agent grant above -- the agent needs to read territory names
+        # (e.g. to render them in a write-through payload) but authoring
+        # what territories exist is an admin/manager decision.
+        PERM_READ_TERRITORIES,
     },
     ROLE_CUSTOMER: {
         PERM_READ_OWN_CUSTOMER,
@@ -608,6 +631,8 @@ PERMISSIONS_CATALOG: Dict[str, Dict[str, Any]] = {
             {"id": PERM_READ_TEAM_SALES_DATA, "name": "Read Team Sales Data", "description": "See leads, opportunities, and tasks assigned to other sales reps, not just your own (sales manager view)"},
             {"id": PERM_READ_TEAM_COMMISSIONS, "name": "Read Team Commissions", "description": "See commission ledger entries for every sales rep, not just your own -- separate from Read Team Sales Data since compensation is more sensitive than pipeline visibility"},
             {"id": PERM_WRITE_TEAM_COMMISSIONS, "name": "Write Team Commissions", "description": "Record and reverse commission ledger entries -- separate from Read Team Commissions since seeing compensation data doesn't imply authority to author or reverse money-moving ledger rows"},
+            {"id": PERM_READ_TERRITORIES, "name": "Read Territories", "description": "View the territory lookup list (name/code/notes)"},
+            {"id": PERM_WRITE_TERRITORIES, "name": "Write Territories", "description": "Create and edit territory definitions -- separate from assigning a territory to a user/lead/customer, which is gated by that record's own write permission"},
         ],
     },
     "operations": {
@@ -929,6 +954,8 @@ class AuthService:
             customer_id=row["customer_id"],
             custom_permissions=perms,
             active=row["active"],
+            terminated_at=row["terminated_at"] if "terminated_at" in row.keys() else None,
+            territory_id=row["territory_id"] if "territory_id" in row.keys() else None,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -1016,6 +1043,8 @@ class AuthService:
             customer_id=row["customer_id"],
             custom_permissions=perms,
             active=row["active"],
+            terminated_at=row["terminated_at"] if "terminated_at" in row.keys() else None,
+            territory_id=row["territory_id"] if "territory_id" in row.keys() else None,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -1060,6 +1089,8 @@ class AuthService:
                     customer_id=r["customer_id"],
                     custom_permissions=perms,
                     active=r["active"],
+                    terminated_at=r["terminated_at"] if "terminated_at" in r.keys() else None,
+                    territory_id=r["territory_id"] if "territory_id" in r.keys() else None,
                     created_at=r["created_at"],
                     updated_at=r["updated_at"],
                 )
@@ -1094,7 +1125,12 @@ class AuthService:
         if not user:
             return None, False
 
-        allowed_fields = {"full_name", "email", "phone", "role", "department", "customer_id"}
+        # territory_id (B8.9a): setting it to None is how a rep is returned
+        # to "no territory" -- no None-guard exists on this dict-driven
+        # UPDATE path (unlike update_customer's explicit None-rejection),
+        # so an explicit territory_id=None in `updates` is accepted and
+        # clears the column, same as every other nullable field here.
+        allowed_fields = {"full_name", "email", "phone", "role", "department", "customer_id", "territory_id"}
         set_clauses: List[str] = []
         params: List[Any] = []
 
@@ -1187,7 +1223,37 @@ class AuthService:
         active: int,
         actor_context: AuthContext,
     ) -> Optional[User]:
-        """Activate or suspend user account (requires PERM_MANAGE_USERS)."""
+        """Activate or suspend user account (requires PERM_MANAGE_USERS).
+
+        terminated_at (B8.7c, D6): set to the current timestamp ONLY on a
+        genuine active 1->0 transition (checked against this SAME
+        get_user_by_id read below, before the UPDATE -- a repeated
+        suspend call against an already-suspended user is a no-op
+        transition and must not keep bumping terminated_at forward,
+        which would silently move CRMService's portfolio-override
+        termination gate later than the rep's real departure). Cleared
+        back to NULL on a 0->1 reactivation -- a rehired rep isn't
+        "still terminated" for future GC projects. Built into ONE UPDATE
+        below (not a second follow-up statement) so there is no
+        partial-write window between the active flag and terminated_at
+        landing -- same atomicity discipline as the B8.6d-b finding.
+        Known, accepted TOCTOU (not fixed here, same class as NEW-606):
+        the get_user_by_id read above and the UPDATE below are not one
+        atomic operation, so two concurrent set_user_active calls on the
+        same user (a suspend racing a reactivate) could interleave and
+        land active=1 with a stale terminated_at still set, or vice
+        versa -- no lock exists on this row for that window. Consequence
+        for the active=1/terminated_at-stale case specifically: CRMService's
+        portfolio-override gate 5 (crm_service.py,
+        _resolve_portfolio_override_eligibility) treats a non-NULL
+        terminated_at as "this rep departed on this date" regardless of
+        the active flag, so a currently-employed rep left in this state
+        would have a legitimate override silently rejected (fail-closed
+        money loss, not a security exposure) on every payment until the
+        stale terminated_at is corrected -- and since normal-ineligible
+        outcomes aren't audit-logged, there would be no trail pointing at
+        why.
+        """
         if not actor_context.has_permission(PERM_MANAGE_USERS):
             raise PermissionError("Actor lacks permission to manage users")
 
@@ -1201,10 +1267,26 @@ class AuthService:
         now = utc_now_iso()
         conn = self.db.get_connection()
         with conn:
-            conn.execute(
-                "UPDATE users SET active = ?, updated_at = ? WHERE id = ?;",
-                (active, now, user_id),
-            )
+            if user.active == 1 and active == 0:
+                # Genuine 1->0 transition: stamp terminated_at.
+                conn.execute(
+                    "UPDATE users SET active = ?, terminated_at = ?, updated_at = ? WHERE id = ?;",
+                    (active, now, now, user_id),
+                )
+            elif user.active == 0 and active == 1:
+                # Genuine 0->1 transition: clear terminated_at.
+                conn.execute(
+                    "UPDATE users SET active = ?, terminated_at = NULL, updated_at = ? WHERE id = ?;",
+                    (active, now, user_id),
+                )
+            else:
+                # No actual transition (e.g. suspend called again on an
+                # already-suspended user) -- leave terminated_at
+                # untouched.
+                conn.execute(
+                    "UPDATE users SET active = ?, updated_at = ? WHERE id = ?;",
+                    (active, now, user_id),
+                )
             # If suspending, immediately revoke all active sessions
             if active == 0:
                 conn.execute(

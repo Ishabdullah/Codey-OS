@@ -41,3 +41,24 @@ prior instance of `git stash push -- path` being unreliable for the
 same class of reason). After restoring, always re-run `git diff --stat`
 on the file and confirm the line count matches the original diff
 `--stat` exactly before trusting the restore.
+
+**Repeat hit (2026-09-23, B8.7c/B8.9a round-2 re-review):** did the
+negative-control edit correctly this time (a Python `str.replace` patch
+on `_resolved_signed_at`, not `sed`), but then reverted it via
+`git checkout -- restoricon_core/services/crm_service.py` anyway,
+instead of just writing back the pre-patch text — wiped the entire
+411-line uncommitted implementer diff on that file a second time, same
+mechanism, despite this exact memory existing. Recovered because a full
+`git diff` of the file had already been captured to a tool-results file
+earlier in the same review session and could be re-applied with
+`git apply <saved-diff-file>` — this only worked because the diff had
+incidentally been saved before the mistake; do not rely on that being
+available. **Concrete rule going forward: never run `git checkout --
+<path>` or `git restore <path>` on any file that has an uncommitted
+diff you did not create yourself in this turn, for any reason,
+including "restoring my own scratch edit."** The only safe restore
+paths are (a) reversing your own patch by reapplying its inverse text
+directly, or (b) `git apply` of a diff file you saved with `git diff >
+file` *before* the scratch edit. Save that diff file preemptively, every
+time, before any negative-control edit — treat it as mandatory setup,
+not optional.

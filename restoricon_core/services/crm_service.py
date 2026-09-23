@@ -6,12 +6,14 @@ Contracts, Invoices, Documents) with RBAC enforcement and automatic audit loggin
 
 from __future__ import annotations
 
+import calendar
 import json
 import os
 import re
 import secrets
 import sqlite3
 import time
+from collections import namedtuple
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -98,6 +100,43 @@ from . import pdf_service
 # and CommissionService._VALID_SOURCE_TYPES -- a real DB's CHECK
 # constraint can't be widened later without a full table rebuild).
 _VALID_INVOICE_TYPES = {"assessment", "subscription", "project", "other"}
+
+# B8.7c: the result of CRMService._resolve_portfolio_override_eligibility.
+# rep_user_id is only meaningful when eligible is True. skip_reason is only
+# populated for the ONE skip shape record_payment must audit-log
+# (contract_link_missing, the disclosed fail-closed gap) -- every other
+# ineligible outcome (outside the window, HomeCare cancelled, signed after
+# termination, not a GC invoice, no HomeCare origination at all) is a
+# normal business outcome, not logged.
+_PortfolioOverrideEligibility = namedtuple(
+    "_PortfolioOverrideEligibility", ["eligible", "rep_user_id", "skip_reason"]
+)
+
+
+def _add_months(dt: datetime, months: int) -> datetime:
+    """Add a whole number of calendar months to `dt`, clamping the day of
+    month to the target month's real length (stdlib only -- no dateutil
+    dependency exists in this project, confirmed against requirements.txt).
+    Used by the B8.7c 12-month portfolio-override window check."""
+    month_index = dt.month - 1 + months
+    year = dt.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(dt.day, calendar.monthrange(year, month)[1])
+    return dt.replace(year=year, month=month, day=day)
+
+
+def _parse_aware_iso(value: str) -> datetime:
+    """Parse a stored ISO timestamp as timezone-aware, coercing a naive
+    string to UTC. utc_now_iso() always produces an aware string, but this
+    project has no schema-versioning/backfill guarantee that every
+    historical row in the DB was written that way -- see
+    cancel_homecare_subscription's own datetime.fromisoformat use, which
+    this mirrors, extended defensively since B8.7c compares against
+    payment timestamps at a real money boundary."""
+    dt = datetime.fromisoformat(value)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
 class ClaimConflictError(Exception):
@@ -202,10 +241,10 @@ class CRMService:
                 INSERT INTO customers (
                     customer_number, external_id, first_name, last_name, company_name, phone, email,
                     mailing_address, service_address, customer_type,
-                    customer_source, assigned_user_id, status, tags_json,
+                    customer_source, assigned_user_id, territory_id, status, tags_json,
                     notes, custom_fields_json, created_at, last_contact_at, next_followup_at
                 )
-                SELECT COALESCE(MAX(customer_number), 0) + 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                SELECT COALESCE(MAX(customer_number), 0) + 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                 FROM customers;
                 """,
                 (
@@ -220,6 +259,7 @@ class CRMService:
                     customer.customer_type,
                     customer.customer_source,
                     customer.assigned_user_id,
+                    customer.territory_id,
                     customer.status,
                     tags_json,
                     customer.notes,
@@ -339,6 +379,7 @@ class CRMService:
         actor: AuthContext,
         status: Optional[str] = None,
         search_term: Optional[str] = None,
+        territory_id: Optional[int] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> List[Customer]:
@@ -357,6 +398,12 @@ class CRMService:
         if status:
             query += " AND status = ?"
             params.append(status)
+
+        # B8.9a: territory_id filter, same 1=1-appended shape as status
+        # above.
+        if territory_id is not None:
+            query += " AND territory_id = ?"
+            params.append(territory_id)
 
         if search_term:
             term = f"%{search_term.strip()}%"
@@ -407,6 +454,10 @@ class CRMService:
             customer_type=row["customer_type"],
             customer_source=row["customer_source"],
             assigned_user_id=row["assigned_user_id"],
+            # territory_id (B8.9a): unguarded direct access, same
+            # justification as customer_number above -- _migrate_schema()'s
+            # ALTER always runs before any row can be read.
+            territory_id=row["territory_id"],
             status=row["status"],
             tags=tags,
             notes=row["notes"],
@@ -427,6 +478,7 @@ class CRMService:
         "customer_type",
         "customer_source",
         "assigned_user_id",
+        "territory_id",
         "status",
         "tags",
         "notes",
@@ -461,12 +513,15 @@ class CRMService:
             raise PermissionError("Actor lacks permission to reassign customer ownership")
 
         for key, value in updates.items():
-            if value is None and key != "assigned_user_id":
+            if value is None and key not in ("assigned_user_id", "territory_id"):
                 raise ValueError(
                     f"Field '{key}' cannot be set to None via update_customer; omit the key instead"
                 )
             # assigned_user_id may be explicitly None -- that's how a
             # customer is returned to the unclaimed pool (NEW-568 Part 2).
+            # territory_id (B8.9a) may also be explicitly None -- how a
+            # customer is returned to "no territory", same nullable-
+            # cross-entity-reference shape as assigned_user_id.
 
         if not updates:
             return self.get_customer(customer_id, actor)
@@ -876,6 +931,7 @@ class CRMService:
             insurance_status=row["insurance_status"] if "insurance_status" in keys else None,
             estimated_value=row["estimated_value"],
             assigned_user_id=row["assigned_user_id"] if "assigned_user_id" in keys else None,
+            territory_id=row["territory_id"] if "territory_id" in keys else None,
             first_contact_at=row["first_contact_at"] if "first_contact_at" in keys else None,
             last_contact_at=row["last_contact_at"] if "last_contact_at" in keys else None,
             next_followup_at=row["next_followup_at"] if "next_followup_at" in keys else None,
@@ -901,9 +957,9 @@ class CRMService:
                 INSERT INTO leads (
                     external_id, customer_id, source, status, score, score_factors_json,
                     property_type, project_scope, urgency_level, insurance_status,
-                    estimated_value, assigned_user_id, first_contact_at, last_contact_at,
+                    estimated_value, assigned_user_id, territory_id, first_contact_at, last_contact_at,
                     next_followup_at, notes, lost_reason, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
                 (
                     lead.external_id,
@@ -918,6 +974,7 @@ class CRMService:
                     lead.insurance_status,
                     lead.estimated_value,
                     lead.assigned_user_id,
+                    lead.territory_id,
                     lead.first_contact_at,
                     lead.last_contact_at,
                     lead.next_followup_at,
@@ -979,6 +1036,7 @@ class CRMService:
         actor: AuthContext,
         status: Optional[str] = None,
         assigned_user_id: Optional[int] = None,
+        territory_id: Optional[int] = None,
     ) -> List[Lead]:
         if not (actor.has_permission(PERM_READ_LEADS) or actor.has_permission(PERM_READ_CRM)):
             raise PermissionError("Actor lacks permission to view leads")
@@ -988,6 +1046,13 @@ class CRMService:
         if status:
             query += " AND status = ?"
             params.append(status)
+
+        # B8.9a: territory_id filter, composes with the assigned_user_id/
+        # unclaimed-pool narrowing below rather than replacing it -- both
+        # clauses are simply AND-ed onto the same query.
+        if territory_id is not None:
+            query += " AND territory_id = ?"
+            params.append(territory_id)
 
         effective_uid = self._scoped_assignee_filter(actor, assigned_user_id)
         if effective_uid is not None:
@@ -1038,7 +1103,7 @@ class CRMService:
         allowed_fields = {
             "customer_id", "source", "status", "score", "score_factors",
             "property_type", "project_scope", "urgency_level", "insurance_status",
-            "estimated_value", "assigned_user_id", "first_contact_at",
+            "estimated_value", "assigned_user_id", "territory_id", "first_contact_at",
             "last_contact_at", "next_followup_at", "notes", "lost_reason"
         }
         for k, v in updates.items():
@@ -1056,7 +1121,7 @@ class CRMService:
                 UPDATE leads SET
                     customer_id = ?, source = ?, status = ?, score = ?, score_factors_json = ?,
                     property_type = ?, project_scope = ?, urgency_level = ?, insurance_status = ?,
-                    estimated_value = ?, assigned_user_id = ?, first_contact_at = ?,
+                    estimated_value = ?, assigned_user_id = ?, territory_id = ?, first_contact_at = ?,
                     last_contact_at = ?, next_followup_at = ?, notes = ?, lost_reason = ?,
                     updated_at = ?
                 WHERE id = ?;
@@ -1064,7 +1129,7 @@ class CRMService:
                 (
                     lead.customer_id, lead.source, lead.status, lead.score, factors_json,
                     lead.property_type, lead.project_scope, lead.urgency_level, lead.insurance_status,
-                    lead.estimated_value, lead.assigned_user_id, lead.first_contact_at,
+                    lead.estimated_value, lead.assigned_user_id, lead.territory_id, lead.first_contact_at,
                     lead.last_contact_at, lead.next_followup_at, lead.notes, lead.lost_reason,
                     now, lead_id,
                 ),
@@ -4833,6 +4898,231 @@ class CRMService:
         )
         return invoice
 
+    def _resolve_portfolio_override_eligibility(
+        self,
+        invoice_id: int,
+        project_id: Optional[int],
+        invoice_type: str,
+        payment_timestamp: str,
+        window_months: int,
+    ) -> _PortfolioOverrideEligibility:
+        """B8.7c, D6, sales_rep_portal.md §4 Phase 3 -- isolated, independently
+        testable eligibility resolution for the portfolio-override commission
+        (a 5% residual on gross collected revenue from major GC projects, for
+        `window_months` from a customer's initial HomeCare enrollment).
+        Called by record_payment on EVERY call against an eligible invoice
+        (not a status-transition edge -- "collected" is any amount received).
+
+        Every gate below is independent; ALL must pass for `eligible=True`:
+
+        1. Invoice classification: invoice_type not in ('assessment',
+           'subscription') AND the linked Contract's template_name ==
+           'general_remodeling'. Invoice has no direct contract_id -- resolved
+           via Invoice.project_id -> Contract WHERE project_id = ? AND
+           status = 'signed' (both links are nullable; a missing link is the
+           ONE fail-closed skip this method flags via skip_reason, since it
+           is a genuine data-integrity gap rather than a normal business
+           outcome).
+        2. HomeCare origination (customer-level, deliberately NOT
+           property-level -- homecare_subscriptions.property_id is
+           documented best-effort/not-guaranteed): the customer's INITIAL
+           enrollment (MIN(enrolled_at)) supplies both the enrollment date
+           for gate 3 and the attributed rep (originating_rep_user_id) --
+           attribution is locked to this, NEVER the GC contract's own
+           assigned_user_id.
+        3. 12-month window: payment_timestamp <= initial enrolled_at +
+           window_months. Live-evaluated on every call, no caching.
+        4. Live HomeCare-active check: the customer's most-relevant (latest
+           by enrolled_at) subscription row must have status == 'active' --
+           if their HomeCare account has since been cancelled, no override on
+           subsequent payments.
+        5. Termination gate, independent of gate 3: the GC contract's
+           resolved signed timestamp (customer_signed_at for a
+           single-signer contract, or MAX(contract_signers.signed_at) for
+           one opted into multi-party signing via add_contract_signers --
+           see gate 1b) must be <= the originating rep's terminated_at, OR
+           the rep was never terminated (terminated_at IS NULL). This is
+           the counter-intuitive rule from the real signed contract text:
+           a contract signed BEFORE the rep's departure still pays the
+           override on payments collected even AFTER the rep left --
+           there is deliberately no "is the rep currently active" check
+           anywhere in this method.
+
+        Returns eligible=False with skip_reason=None for every normal
+        ineligible outcome (not logged by the caller) and
+        skip_reason='contract_link_missing' only for the disclosed
+        fail-closed gap (Invoice.project_id or the resolved Contract's own
+        project_id is missing) -- record_payment audit-logs only that one
+        case, mirroring commission_skipped_no_rep's shape.
+        """
+        no_override = _PortfolioOverrideEligibility(False, None, None)
+
+        # Gate 1a: invoice classification (cheap check first).
+        if invoice_type in ("assessment", "subscription"):
+            return no_override
+
+        if project_id is None:
+            return _PortfolioOverrideEligibility(False, None, "contract_link_missing")
+
+        conn = self.db.get_connection()
+
+        # Gate 1b: resolve the project's own signed contract(s). If more
+        # than one signed contract somehow exists for this project, pick
+        # the one matching template_name == 'general_remodeling', most
+        # recently signed first.
+        #
+        # NEW (round 2, code-reviewer Critical): a contract's real "signed"
+        # moment is NOT always Contract.customer_signed_at -- a contract
+        # opted into multi-party signing via add_contract_signers
+        # (B8.6d-b) flips contracts.status to 'signed' when its LAST
+        # required signer completes, without ever writing
+        # customer_signed_at (that column specifically means "the
+        # customer signed", and on a multi-party contract the last signer
+        # may be the admin/PM, not the customer -- see sign_contract's
+        # `all_signed` branch, crm_service.py ~4236-4239, and
+        # add_contract_signers's docstring, ~3924-3927). Left unresolved,
+        # every multi-party-signed GC contract has customer_signed_at
+        # NULL forever, which (a) made gate 5 below always fall through
+        # to eligible=True (the contract-signed-before-termination check
+        # never ran), and (b) made this ORDER BY systematically
+        # deprioritize a multi-party contract under SQLite's NULLS-last
+        # DESC ordering when a project has more than one signed contract.
+        #
+        # Fix: resolve each candidate contract's real signed timestamp as
+        # MAX(contract_signers.signed_at) when contract_signers rows
+        # exist for it (the multi-party analogue of "done when the last
+        # required signer finishes"), falling back to
+        # Contract.customer_signed_at when there are no contract_signers
+        # rows (the legacy single-signer path, unchanged). Applied in
+        # Python after fetching candidates rather than in the ORDER BY
+        # itself, then re-sorted here -- keeps this query readable and
+        # keeps the resolution logic in one place gate 5 can reuse below.
+        contract_rows = conn.execute(
+            """
+            SELECT c.id, c.template_name, c.customer_signed_at,
+                   (SELECT MAX(cs.signed_at) FROM contract_signers cs
+                    WHERE cs.contract_id = c.id) AS multi_party_signed_at,
+                   (SELECT COUNT(*) FROM contract_signers cs
+                    WHERE cs.contract_id = c.id) AS signer_row_count
+            FROM contracts c
+            WHERE c.project_id = ? AND c.status = 'signed';
+            """,
+            (project_id,),
+        ).fetchall()
+        if not contract_rows:
+            # No signed contract at all links back to this project -- the
+            # disclosed fail-closed gap, not a normal ineligible outcome.
+            return _PortfolioOverrideEligibility(False, None, "contract_link_missing")
+
+        def _resolved_signed_at(row: Any) -> Optional[str]:
+            if row["signer_row_count"] > 0:
+                return row["multi_party_signed_at"]
+            return row["customer_signed_at"]
+
+        contract_rows = sorted(
+            contract_rows,
+            key=lambda r: (_resolved_signed_at(r) or "", r["id"]),
+            reverse=True,
+        )
+
+        gc_contract = next(
+            (r for r in contract_rows if r["template_name"] == "general_remodeling"), None
+        )
+        if gc_contract is None:
+            # Real signed contract(s) exist for this project, just none of
+            # them are the GC template -- a normal ineligible outcome (e.g.
+            # a HomeCare-only project), not a link gap.
+            return no_override
+
+        project_row = conn.execute(
+            "SELECT customer_id FROM projects WHERE id = ?;", (project_id,)
+        ).fetchone()
+        if project_row is None:
+            # invoices.project_id carries ON DELETE SET NULL, so this is
+            # only reachable via a race with a concurrent project delete --
+            # treat the same as a missing link.
+            return _PortfolioOverrideEligibility(False, None, "contract_link_missing")
+
+        # Gate 2: HomeCare origination, customer-level. The initial
+        # (earliest) enrollment supplies both the window's anchor date and
+        # the attributed rep.
+        initial_enrollment = conn.execute(
+            "SELECT enrolled_at, originating_rep_user_id FROM homecare_subscriptions "
+            "WHERE customer_id = ? ORDER BY enrolled_at ASC, id ASC LIMIT 1;",
+            (project_row["customer_id"],),
+        ).fetchone()
+        if initial_enrollment is None:
+            # This customer never had a HomeCare enrollment -- a normal
+            # ineligible outcome for a GC-only customer.
+            return no_override
+
+        rep_user_id = initial_enrollment["originating_rep_user_id"]
+        if rep_user_id is None:
+            # The originating rep's user row was deleted (originating_rep_
+            # user_id is ON DELETE SET NULL) -- no rep to attribute this
+            # override to. Distinct from contract_link_missing: this is a
+            # rep-attribution gap, not a data-integrity link gap, so it is
+            # deliberately NOT flagged via skip_reason here (record_payment
+            # gives it its own dedicated skip/audit action, separate from
+            # both commission_skipped_no_rep and commission_skipped_no_
+            # contract_link, so it is never confused with either in the
+            # audit log).
+            return no_override
+
+        # Gate 4: live HomeCare-active check, the customer's most-relevant
+        # (latest by enrolled_at) subscription row.
+        latest_subscription = conn.execute(
+            "SELECT status FROM homecare_subscriptions "
+            "WHERE customer_id = ? ORDER BY enrolled_at DESC, id DESC LIMIT 1;",
+            (project_row["customer_id"],),
+        ).fetchone()
+        if latest_subscription is None or latest_subscription["status"] != "active":
+            return no_override
+
+        # Gate 3: 12-month window, live-evaluated.
+        initial_enrolled_at = _parse_aware_iso(initial_enrollment["enrolled_at"])
+        window_end = _add_months(initial_enrolled_at, window_months)
+        payment_dt = _parse_aware_iso(payment_timestamp)
+        if payment_dt > window_end:
+            return no_override
+
+        # Gate 5: termination gate, INDEPENDENT of gate 3. A contract
+        # signed before (or on) the rep's departure still pays the
+        # override on payments collected after the rep left -- no "is the
+        # rep currently active" check. Uses _resolved_signed_at (gate 1b
+        # above), not the raw customer_signed_at column -- a multi-party
+        # contract's real completion moment is
+        # MAX(contract_signers.signed_at), which customer_signed_at never
+        # captures (see gate 1b's comment for why).
+        #
+        # gc_contract was already filtered to status = 'signed' by gate
+        # 1b's query, and status only ever becomes 'signed' via
+        # sign_contract's two branches -- the single-signer branch always
+        # writes customer_signed_at in the SAME UPDATE that sets status,
+        # and the multi-party branch only sets status when every
+        # contract_signers row already has signed_at populated
+        # (sign_contract's `all_signed` check) -- so _resolved_signed_at
+        # cannot actually be None for a row that reaches this line today.
+        # Still fails CLOSED, not open, if it ever is: this is the exact
+        # mechanism the round-1 Critical exploited (an unresolved signed
+        # timestamp silently falling through to eligible=True), so rather
+        # than repeat that shape for a hypothetical future third path to
+        # status='signed', a rep with a non-NULL terminated_at and an
+        # unresolvable signed_at is treated as failing the termination
+        # check (no override) rather than passing it by default. A rep
+        # who was never terminated (terminated_at IS NULL) is unaffected
+        # either way, since there is nothing to compare signed_at against.
+        signed_at = _resolved_signed_at(gc_contract)
+        rep_row = conn.execute(
+            "SELECT terminated_at FROM users WHERE id = ?;", (rep_user_id,)
+        ).fetchone()
+        terminated_at = rep_row["terminated_at"] if rep_row is not None else None
+        if terminated_at is not None:
+            if signed_at is None or _parse_aware_iso(signed_at) > _parse_aware_iso(terminated_at):
+                return no_override
+
+        return _PortfolioOverrideEligibility(True, rep_user_id, None)
+
     def record_payment(
         self,
         invoice_id: int,
@@ -5068,6 +5358,119 @@ class CRMService:
                         actor=actor,
                         details=build_audit_details(after={"invoice_id": invoice_id, "error": str(exc)}),
                     )
+
+        # B8.7c, D6, sales_rep_portal.md §4 Phase 3: portfolio-override
+        # commission (5% residual on gross collected revenue from major GC
+        # projects, for a config-driven N months from a customer's initial
+        # HomeCare enrollment). GENUINELY INDEPENDENT of the Phase-1 block
+        # above -- fires on EVERY record_payment call against an eligible
+        # invoice, not the not-paid -> paid transition edge Phase 1 uses.
+        # "Collected" is any amount received, not full payoff, so the
+        # basis is this call's own payment_amount increment, never the
+        # invoice's cumulative total. Eligibility resolution is isolated
+        # in _resolve_portfolio_override_eligibility (independently
+        # testable, see its own docstring for the 5 gates).
+        #
+        # THE CONFIG READ (get_commission_plan_config) IS THE LITERAL
+        # FIRST STATEMENT INSIDE THIS TRY BLOCK. This is the exact bug
+        # B8.7a shipped in round 1 (a plan-config read sitting OUTSIDE its
+        # own try/except let a config-read failure escape as a false error
+        # on an already-committed payment) -- B8.7b's implementer
+        # explicitly avoided repeating it, and this is that same
+        # verification a third time. Best-effort, audit-logged, NEVER
+        # re-raised: the payment UPDATE has already committed by the time
+        # this runs, same rationale as the Phase-1 block above.
+        #
+        # KNOWN, ACCEPTED LIMITATIONS (disclosed, not fixed this round --
+        # see the B8.7c round's NEW_ISSUES entries):
+        #   - No DB-level double-fire guard on source_type='portfolio_
+        #     override' rows (idx_commission_ledger_source_unique only
+        #     covers 'assessment'/'subscription_upsell') -- there is no
+        #     stable per-payment identity to key a unique index on, since
+        #     payments_json is a plain append-only array with no per-
+        #     payment id. `notes` below records the payment's own
+        #     timestamp+amount explicitly so a human can identify a
+        #     duplicate row from a retried record_payment call.
+        #   - record_payment validates neither payment_amount > 0 nor
+        #     record_payment being called with the SAME timestamp/amount
+        #     twice -- a $0.00 or negative payment_amount on an eligible
+        #     invoice writes a $0.00/negative override row unchanged from
+        #     that input, same as every other money field this function
+        #     already trusts from the caller.
+        #
+        # System actor, same shape/rationale/known FK-fragility as the
+        # Phase-1 block's commission_system_actor above (see NEW-602) --
+        # a fresh instance here since this block is unconditional and the
+        # Phase-1 block's own instance only exists inside its own `if`.
+        commission_config_actor = AuthContext(
+            user_id=1,
+            username="system_commission_engine",
+            role=ROLE_ADMIN,
+            actor_type="agent",
+        )
+        try:
+            plan = self.commission.get_commission_plan_config(commission_config_actor)
+            eligibility = self._resolve_portfolio_override_eligibility(
+                invoice_id=invoice_id,
+                project_id=row["project_id"],
+                invoice_type=row["invoice_type"] or "other",
+                payment_timestamp=now,
+                window_months=plan.portfolio_override_window_months,
+            )
+            if eligibility.eligible:
+                override_amount = round(payment_amount * plan.portfolio_override_rate, 2)
+                self.commission.record_commission(
+                    CommissionLedgerEntry(
+                        rep_user_id=eligibility.rep_user_id,
+                        source_type="portfolio_override",
+                        source_id=invoice_id,
+                        basis_amount=payment_amount,
+                        commission_rate_or_flat=plan.portfolio_override_rate,
+                        commission_amount=override_amount,
+                        status="earned",
+                        earned_at=now,
+                        notes=(
+                            f"Auto-recorded: portfolio override on invoice "
+                            f"#{row['invoice_number']}, payment of ${payment_amount:.2f} "
+                            f"recorded at {now}"
+                        ),
+                    ),
+                    commission_config_actor,
+                )
+            elif eligibility.skip_reason == "contract_link_missing":
+                # The disclosed fail-closed gap: Invoice.project_id or the
+                # resolved Contract's own project_id is missing -- never
+                # guessed, never crashed, skipped with an explicit audit
+                # trail so an operator can investigate/manually correct.
+                self.audit.log(
+                    action="commission_skipped_no_contract_link",
+                    entity_type="invoice",
+                    entity_id=invoice_id,
+                    change_summary=(
+                        f"Invoice #{row['invoice_number']} payment recorded but has no "
+                        f"resolvable project/contract link -- portfolio override skipped"
+                    ),
+                    actor=actor,
+                    details=build_audit_details(
+                        after={"invoice_id": invoice_id, "project_id": row["project_id"]}
+                    ),
+                )
+        except Exception as exc:
+            # Same best-effort contract as the Phase-1 block above,
+            # deliberately broad since this is the last line of defense
+            # protecting an already-committed payment from an unrelated
+            # side-effect failure.
+            self.audit.log(
+                action="commission_recording_failed",
+                entity_type="invoice",
+                entity_id=invoice_id,
+                change_summary=(
+                    f"Portfolio-override commission recording failed for invoice "
+                    f"#{row['invoice_number']}: {exc}"
+                ),
+                actor=actor,
+                details=build_audit_details(after={"invoice_id": invoice_id, "error": str(exc)}),
+            )
 
         return _updated
 

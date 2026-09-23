@@ -54,6 +54,7 @@ from ..models import (
     ScheduleConfig,
     Subcontractor,
     Task,
+    Territory,
     Timesheet,
     Vendor,
     WorkOrder,
@@ -70,6 +71,7 @@ from ..services.crm_service import CRMService, ClaimConflictError
 from ..services.finance_service import FinanceService
 from ..services.operations_service import OperationsService
 from ..services.scheduling_service import SchedulingService
+from ..services.territory_service import TerritoryService
 from .web_surfaces import render_admin_surface, render_portal_surface, render_login_surface, render_quote_surface, render_estimate_proposal
 
 
@@ -346,6 +348,7 @@ class APIRouter:
         analytics_search_service: Optional[AnalyticsSearchService] = None,
         commission_service: Optional[CommissionService] = None,
         assessment_service: Optional[AssessmentService] = None,
+        territory_service: Optional[TerritoryService] = None,
     ):
         self.auth = auth_service
         self.crm = crm_service
@@ -360,6 +363,7 @@ class APIRouter:
         self.analytics_search = analytics_search_service or AnalyticsSearchService(crm_service.db)
         self.commissions = commission_service or CommissionService(crm_service.db, audit_service)
         self.assessments = assessment_service or AssessmentService(crm_service.db, audit_service)
+        self.territories = territory_service or TerritoryService(crm_service.db, audit_service)
         self.rate_limiter = rate_limiter or RateLimiter(max_requests=60, window_seconds=60)
 
     def handle_request(
@@ -780,7 +784,11 @@ class APIRouter:
                     search = query_params.get("search", [None])[0]
                     limit = _parse_int_query_param(query_params, "limit", 50, minimum=1, maximum=1000)
                     offset = _parse_int_query_param(query_params, "offset", 0)
-                    customers = self.crm.list_customers(actor, status=status, search_term=search, limit=limit, offset=offset)
+                    tid = query_params.get("territory_id", [None])[0]
+                    customers = self.crm.list_customers(
+                        actor, status=status, search_term=search, limit=limit, offset=offset,
+                        territory_id=_parse_int_query_param(query_params, "territory_id", 0) if tid else None,
+                    )
                     return 200, {"Content-Type": "application/json"}, {"customers": [c.to_dict() for c in customers]}
                 elif method == "POST":
                     cust = Customer(**json_body)
@@ -906,10 +914,12 @@ class APIRouter:
                 if method == "GET":
                     status = query_params.get("status", [None])[0]
                     uid = query_params.get("assigned_user_id", [None])[0]
+                    tid = query_params.get("territory_id", [None])[0]
                     leads = self.crm.list_leads(
                         actor,
                         status=status,
                         assigned_user_id=_parse_int_query_param(query_params, "assigned_user_id", 0) if uid else None,
+                        territory_id=_parse_int_query_param(query_params, "territory_id", 0) if tid else None,
                     )
                     return 200, {"Content-Type": "application/json"}, {"leads": [l.to_dict() for l in leads]}
                 elif method == "POST":
@@ -1112,6 +1122,39 @@ class APIRouter:
                 if not record:
                     return 404, {"Content-Type": "application/json"}, {"error": "Assessment record not found"}
                 return 200, {"Content-Type": "application/json"}, {"assessment_record": record.to_dict()}
+
+            # Territories (B8.9a, sales_rep_portal.md §5 B8.9)
+            if path == "/api/v1/territories":
+                if method == "GET":
+                    territories = self.territories.list_territories(actor)
+                    return 200, {"Content-Type": "application/json"}, {"territories": [t.to_dict() for t in territories]}
+                elif method == "POST":
+                    territory = Territory(**json_body)
+                    created = self.territories.create_territory(territory, actor)
+                    return 201, {"Content-Type": "application/json"}, {"territory": created.to_dict()}
+
+            if (
+                path.startswith("/api/v1/territories/")
+                and path.endswith("/update")
+                and "/" not in path[len("/api/v1/territories/"):-len("/update")]
+                and method == "POST"
+            ):
+                territory_id = _parse_int_path_segment(path[len("/api/v1/territories/"):-len("/update")], "territory_id")
+                updated = self.territories.update_territory(territory_id, json_body, actor)
+                if not updated:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Territory not found"}
+                return 200, {"Content-Type": "application/json"}, {"territory": updated.to_dict()}
+
+            if (
+                path.startswith("/api/v1/territories/")
+                and "/" not in path[len("/api/v1/territories/"):]
+                and method == "GET"
+            ):
+                territory_id = _parse_int_path_segment(path[len("/api/v1/territories/"):], "territory_id")
+                territory = self.territories.get_territory(territory_id, actor)
+                if not territory:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Territory not found"}
+                return 200, {"Content-Type": "application/json"}, {"territory": territory.to_dict()}
 
             # Projects
             if path == "/api/v1/projects":

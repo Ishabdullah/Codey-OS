@@ -192,6 +192,8 @@ class CommissionService:
             homecare_plus_monthly_fee=float(row["homecare_plus_monthly_fee"]),
             homecare_complete_monthly_fee=float(row["homecare_complete_monthly_fee"]),
             homecare_estate_monthly_fee=float(row["homecare_estate_monthly_fee"]),
+            portfolio_override_rate=float(row["portfolio_override_rate"]),
+            portfolio_override_window_months=int(row["portfolio_override_window_months"]),
             updated_at=row["updated_at"],
         )
 

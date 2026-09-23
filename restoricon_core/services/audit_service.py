@@ -25,6 +25,8 @@ from ..models import AuditRecord, utc_now_iso
 _AUDITABLE_USER_FIELDS = frozenset({
     "full_name", "email", "phone", "role", "department",
     "customer_id", "custom_permissions", "active",
+    "territory_id",  # B8.9a
+    "terminated_at",  # B8.7c
 })
 
 # NEW-314: Contract diff domain -- excludes customer_signature_data / content.
@@ -176,6 +178,12 @@ _AUDITABLE_FINANCING_RECORD_FIELDS = frozenset({
     "id", "project_id", "invoice_id", "provider", "application_status",
     "amount_financed", "customer_contribution", "document_ids", "status",
     "created_by", "created_at", "updated_at",
+})
+
+# B8.9a: Territory diff domain. Excludes nothing -- drift guard only,
+# same rationale as _AUDITABLE_FINANCING_RECORD_FIELDS above.
+_AUDITABLE_TERRITORY_FIELDS = frozenset({
+    "id", "name", "code", "notes", "created_at",
 })
 
 
