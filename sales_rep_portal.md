@@ -531,18 +531,30 @@ Ish).
 
 ### B8.8 — Insurance restoration workflow & financing tracking (request §21, §22)
 
-- **`InsuranceClaim`** table (net-new): `id`, `property_id`,
-  `customer_id`, `carrier`, `claim_number`, `adjuster_name`,
-  `adjuster_contact`, `date_of_loss`, `loss_type`, `status`
-  (`reported`→`inspection`→`documentation`→`estimate`→`carrier_review`→
-  `supplement`→`approved`→`contract`→`production`, matching the
-  request's stated chain), `coverage_amount`, `deductible`,
-  `supplement_amount`, `notes`. Linked from `Property`/`Project`, photos
-  via existing `Document`.
+- **CORRECTION (rule 6, 2026-09-23, B8.8 scoping):** the original text
+  here proposed a net-new `InsuranceClaim` table — that was never
+  actually needed. Insurance/claim/adjuster fields already existed on
+  both `Project` (`insurance_claim_number`/`insurance_carrier`/
+  `adjuster_name`/`adjuster_phone`/`adjuster_email`/`deductible`,
+  commit `07c5f85`) and `Opportunity` (`insurance_carrier`/
+  `claim_number`/`adjuster_name`/`adjuster_phone`/`adjuster_email`/
+  `deductible`/`insurance_claim_status`, commit `470d87f`), both
+  predating this document, fully CRUD-wired and audit-logged —
+  confirmed live against the real production DB. `Property` separately
+  carries its own `insurance_carrier`. `ProjectStage` already has a
+  real `INSURANCE_APPROVAL` lifecycle stage with a live transition
+  guard. What was actually missing was UI exposing these fields to a
+  rep, plus two claim-dollar fields (coverage vs. supplement amount)
+  that didn't exist anywhere — see B8.8's `PROJECT_LOG.md` entry for
+  the real build.
 - **`FinancingRecord`** table (net-new): `id`, `project_id`, `provider`,
   `application_status`, `amount_financed`, `customer_contribution`,
-  `document_ids_json`, `status`. **Manual-entry only until D5 is
-  answered** — no external financing API integration assumed.
+  `document_ids_json`, `status`. **Manual-entry only, D5 confirmed
+  2026-09-16** — no external financing API integration. **Ish decided
+  2026-09-23 that a recorded financed amount SHOULD offset AR
+  aging/financial-summary computation** (not pure display) — this
+  makes the financing piece a rule-4 money-computation change, split
+  into its own round rather than bundled with the insurance-UI piece.
 - **Exit criterion:** an insurance-involved project shows claim status
   alongside the normal project record, with no separate insurance
   database — this is columns/tables in the same Core, queried the same

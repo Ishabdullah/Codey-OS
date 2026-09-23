@@ -4365,10 +4365,20 @@ requested capability (lead capture, pipeline, estimates, contracts,
 tasks, customer 360, global search, executive dashboard) already exists
 in the Core and only needs UI wiring. Genuinely net-new schema is small
 and named explicitly in `sales_rep_portal.md` §2: a `Property` table, an
-append-only `CommissionLedgerEntry` table, `InsuranceClaim`,
-`FinancingRecord`, `AssessmentRecord`, `PackageOption`, and
-`ProductionHandoffChecklist`. Found in scoping: `NEW-533` (the current
-`/sales` surface shows every rep's projects, unfiltered).
+append-only `CommissionLedgerEntry` table, `FinancingRecord`,
+`AssessmentRecord`, `PackageOption`, and `ProductionHandoffChecklist`.
+**CORRECTION (rule 6, 2026-09-23, B8.8 scoping):** this line originally
+also listed `InsuranceClaim` as genuinely net-new schema — that was
+false even at the time this section was written. Insurance/claim/
+adjuster fields (`insurance_claim_number`/`insurance_carrier`/
+`adjuster_name`/`adjuster_phone`/`adjuster_email`/`deductible`) already
+existed on both `Project` (commit `07c5f85`) and `Opportunity` (commit
+`470d87f`), both predating this plan, fully CRUD-wired and audit-logged
+— confirmed live against the real production DB. What's actually
+missing is UI exposing these fields to a rep, not schema. See B8.8's
+own `PROJECT_LOG.md` entry for the full correction. Found in scoping:
+`NEW-533` (the current `/sales` surface shows every rep's projects,
+unfiltered).
 
 **All five open decisions (D1-D5) answered by Ish, 2026-09-16 — see §8
 item 12 and `sales_rep_portal.md` §4/§4a for full detail.** Two answers
