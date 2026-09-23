@@ -7366,18 +7366,33 @@ this file's own don't-duplicate rule.
             not fixed: `NEW-610` (no opportunity→project field
             carryover), `NEW-611` (`insurance_carrier` duplicated
             across 3 tables).
-      - [ ] **B8.8b-1** — `financing_records` table + CRUD, RBAC. Not
-            yet built. Deliberately inert (no AR wiring) — see design
-            in `PROJECT_LOG.md`'s B8.8 scoping entry for the schema
-            (`invoice_id` nullable, `customer_contribution` never
-            enters offset math, partial unique index against
-            double-financing on one invoice).
+      - [x] **B8.8b-1** — `financing_records` table + CRUD, RBAC.
+            **DONE 2026-09-23, code-complete + code-reviewer APPROVED
+            round 1 (2 Warnings, both fixed inline before commit)**,
+            commit `84c8260`. Full detail in `PROJECT_LOG.md`'s
+            2026-09-23 entry. Deliberately inert (no AR wiring) — new
+            dedicated `FinancingService` (`PERM_WRITE_CUSTOMERS` write /
+            `PERM_READ_FINANCIALS` read), `invoice_id` nullable,
+            `customer_contribution` never enters offset math, partial
+            unique index against double-financing on one invoice.
+            **`get_ar_aging`/`get_financial_summary`/`get_project_pnl`
+            independently verified completely untouched** by both the
+            implementer and the reviewer. Logged, not fixed —
+            structural prerequisite for B8.8b-2, do not start that
+            round without re-reading: `NEW-614` (two distinct
+            double-count shapes the offset query must filter for:
+            NULL-`invoice_id` rows on the same project, and a voided
+            `'approved'`/`'funded'` record coexisting with an active
+            one on the same invoice — voiding never clears
+            `application_status`).
       - [ ] **B8.8b-2** — wire the financing offset into
             `get_ar_aging`/`get_financial_summary`/`get_project_pnl`
             (live re-evaluation at query time, no reversal mechanism
             needed — a denied/cancelled record simply stops
             contributing on the next read). **Rule-4 category**
-            (money). Not yet built. Logged, not fixed: `NEW-612`
+            (money). Not yet built. **Must design its offset query
+            around `NEW-614` (both double-count shapes) before writing
+            any code.** Logged, not fixed: `NEW-612`
             (pre-existing, `get_financial_summary`'s revenue figure is
             disconnected from real invoice payments — found while
             tracing this design, unrelated to B8.8b itself), `NEW-613`
