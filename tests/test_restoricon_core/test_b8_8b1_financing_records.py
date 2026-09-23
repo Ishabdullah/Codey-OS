@@ -459,3 +459,42 @@ def test_update_financing_record_rejects_negative_amount_financed(setup_services
     )
     with pytest.raises(ValueError):
         financing_service.update_financing_record(record.id, {"amount_financed": -1.0}, admin)
+
+
+def test_create_financing_record_rounds_sub_cent_amount_financed(setup_services):
+    """code-reviewer finding (B8.8b-2 review): a sub-cent amount_financed
+    (e.g. 166.665) could make B8.8b-2's AR reconciliation identity off by
+    a cent across several invoices. Rounded to 2 decimal places at the
+    write side, same convention every other money field in this codebase
+    uses -- closes the gap at the source rather than every downstream AR
+    read needing to defend against it."""
+    _, auth_service, _, crm_service, financing_service = setup_services
+    admin = _make_actor(auth_service, "admin", ROLE_ADMIN)
+    _, project = _make_project(crm_service, admin)
+
+    record = financing_service.create_financing_record(
+        FinancingRecord(project_id=project.id, amount_financed=166.665, customer_contribution=33.335),
+        admin,
+    )
+    # Exact rounded value depends on float representation/banker's
+    # rounding; what matters is idempotency -- the stored value is
+    # already cent-precision, not that it lands on a specific cent.
+    assert round(record.amount_financed, 2) == record.amount_financed
+    assert round(record.customer_contribution, 2) == record.customer_contribution
+
+    fetched = financing_service.get_financing_record(record.id, admin)
+    assert round(fetched.amount_financed, 2) == fetched.amount_financed
+    assert round(fetched.customer_contribution, 2) == fetched.customer_contribution
+
+
+def test_update_financing_record_rounds_sub_cent_amount_financed(setup_services):
+    _, auth_service, _, crm_service, financing_service = setup_services
+    admin = _make_actor(auth_service, "admin", ROLE_ADMIN)
+    _, project = _make_project(crm_service, admin)
+
+    record = financing_service.create_financing_record(
+        FinancingRecord(project_id=project.id, amount_financed=100.0), admin
+    )
+    updated = financing_service.update_financing_record(record.id, {"amount_financed": 250.001}, admin)
+    assert round(updated.amount_financed, 2) == updated.amount_financed
+    assert updated.amount_financed == 250.0

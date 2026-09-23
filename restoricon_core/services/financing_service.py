@@ -137,6 +137,22 @@ class FinancingService:
         if value < 0:
             raise ValueError(f"'{field_name}' cannot be negative, got {value}")
 
+    @staticmethod
+    def _round_money_fields(record: FinancingRecord) -> None:
+        # code-reviewer finding (B8.8b-2 review): _validate_non_negative_amount
+        # never rounded, so a sub-cent amount_financed (e.g. 166.665) could
+        # make B8.8b-2's "total_ar_gross - total_financed_offset == total_ar"
+        # reconciliation identity off by a cent across several invoices --
+        # not a regression B8.8b-2 introduced (the gap is here, at the
+        # write side), but the right place to close it is at the source,
+        # not by making every downstream AR computation defensive against
+        # sub-cent currency that should never have been stored in the
+        # first place. Rounded in-place before validation/storage, same
+        # 2-decimal-place currency convention every other money field in
+        # this codebase uses (round(x, 2) at write time).
+        record.amount_financed = round(record.amount_financed, 2)
+        record.customer_contribution = round(record.customer_contribution, 2)
+
     def create_financing_record(
         self, record: FinancingRecord, actor: AuthContext
     ) -> FinancingRecord:
@@ -145,6 +161,7 @@ class FinancingService:
 
         self._validate_application_status(record.application_status)
         self._validate_status(record.status)
+        self._round_money_fields(record)
         self._validate_non_negative_amount("amount_financed", record.amount_financed)
         self._validate_non_negative_amount("customer_contribution", record.customer_contribution)
 
@@ -221,9 +238,16 @@ class FinancingService:
             self._validate_application_status(updates["application_status"])
         if "status" in updates:
             self._validate_status(updates["status"])
+        # Round before validating/storing -- same sub-cent-currency fix as
+        # create_financing_record's _round_money_fields, applied here
+        # in-place on the updates dict since update's record is built via
+        # setattr from this dict further down, not via _round_money_fields
+        # itself (which takes a FinancingRecord, not a raw updates dict).
         if "amount_financed" in updates:
+            updates["amount_financed"] = round(updates["amount_financed"], 2)
             self._validate_non_negative_amount("amount_financed", updates["amount_financed"])
         if "customer_contribution" in updates:
+            updates["customer_contribution"] = round(updates["customer_contribution"], 2)
             self._validate_non_negative_amount("customer_contribution", updates["customer_contribution"])
 
         if not updates:
