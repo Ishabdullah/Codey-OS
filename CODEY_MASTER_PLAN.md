@@ -7337,7 +7337,11 @@ this file's own don't-duplicate rule.
             `NEW-609` (no status guard on `reverse_commission`,
             latent/unreachable today). **This closes B8.7's entire
             build queue except B8.7c**, which stays blocked on D6.
-- [ ] **B8.8** — insurance restoration workflow & financing tracking.
+- [x] **B8.8** — insurance restoration workflow & financing tracking.
+      **DONE 2026-09-23** (B8.8a + B8.8b-1 + B8.8b-2 all shipped, code-
+      complete + code-reviewer approved). Only open piece: `NEW-613`'s
+      follow-on (extending the financing offset to two more AR
+      aggregates outside `finance_service.py`), not yet scheduled.
       **D5 confirmed 2026-09-16, manual tracking only, no integration.**
       **SCOPED 2026-09-23** (project-architect, both halves), full
       detail in `PROJECT_LOG.md`. Split into B8.8a (insurance workflow
@@ -7385,20 +7389,34 @@ this file's own don't-duplicate rule.
             `'approved'`/`'funded'` record coexisting with an active
             one on the same invoice — voiding never clears
             `application_status`).
-      - [ ] **B8.8b-2** — wire the financing offset into
-            `get_ar_aging`/`get_financial_summary`/`get_project_pnl`
-            (live re-evaluation at query time, no reversal mechanism
-            needed — a denied/cancelled record simply stops
-            contributing on the next read). **Rule-4 category**
-            (money). Not yet built. **Must design its offset query
-            around `NEW-614` (both double-count shapes) before writing
-            any code.** Logged, not fixed: `NEW-612`
-            (pre-existing, `get_financial_summary`'s revenue figure is
-            disconnected from real invoice payments — found while
-            tracing this design, unrelated to B8.8b itself), `NEW-613`
-            (two more AR aggregates outside this round's scope, Ish
-            confirmed they should get the same offset in a follow-on
-            round).
+      - [x] **B8.8b-2** — wire the financing offset into
+            `get_ar_aging`/`get_financial_summary`/`get_project_pnl`.
+            **DONE 2026-09-23, code-complete + code-reviewer APPROVED
+            round 1 (1 Warning fixed inline before commit)**, commit
+            `150654d`. Full detail in `PROJECT_LOG.md`'s 2026-09-23
+            entry. Live re-evaluation at query time, no reversal
+            mechanism — designed explicitly around `NEW-614`'s two
+            double-count shapes (both `status='active' AND
+            application_status IN ('approved','funded')`, never the
+            latter alone). **A real misattribution bug was caught by
+            the implementer's own process and independently
+            live-reproduced from scratch by the reviewer**: a stale
+            financing record linked to an already-paid invoice could
+            have spilled over and offset a *different* invoice's real
+            balance in the same project — fixed via per-invoice
+            clamping before summing, confirmed live to produce zero
+            spillover. Existing key names (`total_ar`,
+            `total_ar_outstanding`, `ar_buckets`) now carry netted
+            figures; new `total_ar_gross`/`total_financed_offset`
+            keys added for reconciliation, nothing silently changed
+            meaning. Logged, not fixed: `NEW-612` (pre-existing,
+            `get_financial_summary`'s revenue figure is disconnected
+            from real invoice payments — unrelated to B8.8b itself),
+            `NEW-613` (two more AR aggregates outside this round's
+            scope, Ish confirmed they should get the same offset in a
+            follow-on round, not yet scheduled). **This closes B8.8b
+            in full — B8.8 is otherwise DONE**, its only remaining
+            open piece being `NEW-613`'s follow-on.
 - [ ] **B8.9** — territory management & referral compensation.
 - [ ] **B8.10** — communications center & follow-up visibility. Blocked
       on Open Decision D1 (SMS) for anything beyond email + the
