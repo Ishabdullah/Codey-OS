@@ -4887,23 +4887,26 @@ Numbered for reference. Nothing here is guessed at in this document.
     - **`NEW-534` priority:** Ish chose to prioritize a fix now rather
       than defer to Phase B8.3 — claim workflow with race protection,
       not yet built (`sales_rep_portal.md` §4a item 2).
-13. **D6 (new, raised during B8.7 scoping, 2026-09-22) — NOT YET
-    ANSWERED, blocks B8.7c only (B8.7a/b are unblocked and can proceed
-    without it):**
-    - **Definition of "major general-contracting project"** for D4's
-      Phase-3 5% portfolio-override eligibility. D4 gives examples
-      (roofing, siding, storm damage repair, flood restoration) but no
-      closed rule or field to test a given `Project`/`Invoice` against
-      — needs either a `Project.category`/tag field Ish defines, or an
-      explicit list.
-    - **Definition of "gross collected revenue"** for the same 5%
-      override: `Invoice.deposit_amount` is tracked separately from
-      `payments`, and `record_payment` sums both — needs Ish to confirm
-      whether "collected" means the full sum (deposit + all payments)
-      or something narrower (e.g. excluding a deposit that predates
-      contract signing).
-    - B8.7c should not be scoped in implementation detail until this is
-      answered — B8.7a/b/d don't depend on it.
+13. **D6 (raised during B8.7 scoping, 2026-09-22) — ANSWERED
+    2026-09-23, unblocks B8.7c:**
+    - **"Gross collected revenue"** (for D4's Phase-3 5% portfolio-
+      override): the actual money collected from the customer to date
+      — deposit + all payments actually received — **not** the
+      contract's full value. Example given directly by Ish: a $50,000
+      contract with only $20,000 paid in has a gross collected revenue
+      of $20,000, so the override basis is $20,000 × 5% = $1,000, not
+      $50,000 × 5%. Maps to `Invoice.deposit_amount + SUM(payments)` —
+      the full-sum reading, confirmed, not the narrower "excluding a
+      predates-signing deposit" alternative that was on the table.
+    - **"Major general-contracting project"**: anything that is NOT
+      HomeCare (any of the 4 tiers), NOT an assessment, and NOT an
+      add-on/upsell to a HomeCare plan. In practice: any `Contract`
+      whose `template_name` is `general_remodeling` (not one of the
+      four `homecare_*` values) and any `Invoice` whose `invoice_type`
+      is not `assessment`/`subscription` — i.e., the inverse of the
+      already-established HomeCare/assessment classification, not a
+      new taxonomy to invent.
+    - **B8.7c can now be scoped in implementation detail.**
 
 ---
 
@@ -7316,9 +7319,12 @@ this file's own don't-duplicate rule.
             bundled — no dedicated RBAC permission, a disclosed
             not-found-shape deviation, unclamped-at-zero bonus formula
             — deferred to B8.7d).
-      - [ ] **B8.7c** — Phase 3 portfolio override. **Blocked on D6**
-            (definition of "major GC work" + "gross collected revenue" —
-            see Open Decisions §8 item 13). Not yet scoped in detail.
+      - [ ] **D6 ANSWERED 2026-09-23** — see Open Decisions §8 item 13.
+            Gross collected revenue = deposit + payments actually
+            received to date (not contract value). Major GC project =
+            anything not HomeCare/assessment/HomeCare-add-on. **B8.7c**
+            (Phase 3 portfolio override) unblocked, not yet scoped in
+            detail or built.
       - [x] **B8.7d** — `get_team_commission_summary`, rep/manager
             dashboards, partial `NEW-546` fix. **DONE 2026-09-22,
             code-complete + code-reviewer APPROVED round 1**, commit
@@ -7336,7 +7342,8 @@ this file's own don't-duplicate rule.
             treat `NEW-546` as fully closed). Logged, not fixed:
             `NEW-609` (no status guard on `reverse_commission`,
             latent/unreachable today). **This closes B8.7's entire
-            build queue except B8.7c**, which stays blocked on D6.
+            build queue except B8.7c**, which was blocked on D6 —
+            **D6 answered 2026-09-23**, B8.7c now unblocked, next up.
 - [x] **B8.8** — insurance restoration workflow & financing tracking.
       **DONE 2026-09-23** (B8.8a + B8.8b-1 + B8.8b-2 all shipped, code-
       complete + code-reviewer approved). Only open piece: `NEW-613`'s
