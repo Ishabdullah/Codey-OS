@@ -7473,8 +7473,45 @@ this file's own don't-duplicate rule.
       answered 2026-09-16 (email only for now, no SMS — see item 12
       above). That already IS this phase's scope (email + the existing
       communication log) — the "Blocked on D1" framing predates the
-      answer and was never updated. Unblocked, not yet scoped or
-      built.
+      answer and was never updated. **SCOPED 2026-09-23**
+      (project-architect) — found the phase is much smaller than its
+      original write-up implies (most backing infrastructure already
+      exists: `Task` fields, rep-narrowed `list_tasks`, the dashboard's
+      `followups` block, `CommunicationRecord`/`CommunicationService`,
+      real configured SMTP). Split into three sub-phases: B8.10a
+      (follow-up action wiring, zero Ish dependency) → B8.10b
+      (communications center feed, needs RBAC narrowing per `NEW-618`,
+      needs the just-answered lead-linkage schema addition) → B8.10c
+      (compose/send email, needs the just-answered sender-identity
+      decision, needs the SMTP-timeout check per `NEW-623`). Ish
+      answered both open questions 2026-09-23: leads get a `lead_id`
+      addition (covered in the communications feed), portal-composed
+      email sends from the existing shared company account with the
+      rep's name in the signature.
+      - [x] **B8.10a** — follow-up action wiring. **DONE 2026-09-23,
+            code-complete + code-reviewer APPROVED round 1**, commit
+            `9bcb9e0`. Full detail in `PROJECT_LOG.md`'s 2026-09-23
+            entry. Complete/Cancel/Snooze buttons on the dashboard
+            Follow-ups panel and Customer 360 Tasks panel, over
+            already-existing routes — no new backend, no RBAC delta.
+            "Pause" implemented as Cancel, not a new `Task.status`
+            value. New `task_type`/`trigger_source`/`rule_name` "Auto"
+            badge — the mechanism discharging "no black-box
+            automation." A real self-caught timezone bug was fixed
+            before review and independently live-verified by the
+            reviewer via real date-math execution. Logged, not fixed:
+            `NEW-624` (date-only-string snooze parsing would break for
+            a future full-timestamp `due_date` writer, not reachable
+            today).
+      - [ ] **B8.10b** — communications center feed. Not yet built.
+            Needs `lead_id` on `CommunicationRecord` (Ish-answered) and
+            the RBAC narrowing `NEW-618` documents as a mandatory
+            prerequisite, not optional.
+      - [ ] **B8.10c** — compose/send email from the portal. Not yet
+            built. Sends from the shared company account (Ish-
+            answered). Must check `NEW-623` (SMTP-timeout risk) before
+            or during this round, and must call `record_communication`
+            only after a confirmed successful send, per `NEW-620`.
 - [ ] **B8.11** — AI Sales Copilot. Deliberately last; depends on CCOS
       reaching a state where it can serve read-only advisory queries.
       Not designed further until then.
