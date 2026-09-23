@@ -7468,9 +7468,13 @@ this file's own don't-duplicate rule.
       yet (routes only), no delete on territories — all disclosed,
       deliberate deferrals. At-most-one-territory-per-rep is a
       documented default, not yet confirmed with Ish.
-- [ ] **B8.10** — communications center & follow-up visibility. Blocked
-      on Open Decision D1 (SMS) for anything beyond email + the
-      existing communication log.
+- [ ] **B8.10** — communications center & follow-up visibility.
+      **CORRECTION (2026-09-23): not actually blocked.** D1 was
+      answered 2026-09-16 (email only for now, no SMS — see item 12
+      above). That already IS this phase's scope (email + the existing
+      communication log) — the "Blocked on D1" framing predates the
+      answer and was never updated. Unblocked, not yet scoped or
+      built.
 - [ ] **B8.11** — AI Sales Copilot. Deliberately last; depends on CCOS
       reaching a state where it can serve read-only advisory queries.
       Not designed further until then.
