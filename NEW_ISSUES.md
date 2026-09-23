@@ -19098,3 +19098,13 @@ housekeeping, same as `NEW-403`'s own cleanup.
 - **Fix direction (not decided/fixed this round):** measure real SMTP round-trip time under realistic conditions before B8.10c ships; raise the timeout or make it configurable if the risk is confirmed.
 - **Not fixed this round** — logged per rule 8. **When to revisit:** mandatory check before/during B8.10c, since that's the first round where this could cause a customer-facing false-failure.
 - **Cross-reference:** `restoricon_core/services/notification_service.py` (`_post_request`), B8.10c.
+
+## Found 2026-09-23 — B8.10a implementer + code-reviewer round (follow-up action wiring), commit `9bcb9e0`, non-blocking
+
+### [NEW-624] Suspected, not live-reachable today: `snoozeTaskAction`'s date-only-string parsing (`currentDueDate + 'T00:00:00Z'`) would silently break for a task whose `due_date` is ever set as a full ISO timestamp instead of a bare date string
+
+- **Status:** Suspected (code-reviewer, 2026-09-23, B8.10a review). The only current `trigger_source`-setting task generator (`generate_cadence_tasks`, `rule_name="pipeline_stage_transition"`) never sets `due_date` at all (always `None`), so every live automation task today hits the already-verified UTC-safe null-`due_date` fallback path in `snoozeTaskAction`, not the date-only-string parse path — confirmed by reading the generator directly, not assumed.
+- **Impact:** none live today. If a future automation rule ever sets `due_date` from a full-ISO-timestamp helper (e.g. `utc_now_iso()`-style) instead of a bare `"YYYY-MM-DD"` string, `currentDueDate + 'T00:00:00Z'` would concatenate onto an already-timestamped string, producing an `Invalid Date` and silently breaking Snooze on exactly the "Auto"-tagged rows the feature was built for.
+- **Fix direction (not decided/fixed this round):** either normalize `due_date` to a consistent bare-date format at the point every writer sets it, or make `snoozeTaskAction`'s parsing robust to both a bare date and a full ISO timestamp.
+- **Not fixed this round** — logged per rule 8, non-blocking, currently unreachable. **When to revisit:** before/if any future automation rule starts setting `Task.due_date` from a full-timestamp source rather than a bare date string — check this the moment such a rule is added.
+- **Cross-reference:** `restoricon_core/api/web_surfaces.py` (`snoozeTaskAction`), `restoricon_core/services/crm_service.py` (`generate_cadence_tasks`).
