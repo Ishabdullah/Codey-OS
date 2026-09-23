@@ -1156,6 +1156,77 @@ CREATE TABLE IF NOT EXISTS assessment_records (
 CREATE INDEX IF NOT EXISTS idx_assessment_records_appointment_id ON assessment_records(appointment_id);
 CREATE INDEX IF NOT EXISTS idx_assessment_records_property_id ON assessment_records(property_id);
 
+-- Financing Records (B8.8b-1, sales_rep_portal.md §4/§8, Ish-approved
+-- 2026-09-23: a recorded financed amount should offset AR). This round
+-- is DELIBERATELY INERT -- table + CRUD only, reads into nothing else.
+-- B8.8b-2 (separate, higher-scrutiny round) wires amount_financed into
+-- FinanceService.get_ar_aging/get_financial_summary/get_project_pnl as
+-- an AR offset for records whose application_status IS IN
+-- ('approved','funded') AND status='active' -- BOTH conditions, not
+-- application_status alone. A voided record can carry
+-- application_status='approved' (voiding doesn't clear it) and must
+-- never contribute to the offset; the round's own tests create exactly
+-- this shape. invoice_id is nullable: financing is often initiated before
+-- the invoice exists. customer_contribution is the customer's own
+-- out-of-pocket share (already reflected in invoices.balance_due if
+-- paid via the normal record_payment path) and must NEVER be summed
+-- into the AR offset -- amount_financed is the only field B8.8b-2 will
+-- ever read from this table.
+-- application_status/status carry no CHECK constraint, same
+-- "can't be widened later without a full table rebuild" reasoning as
+-- contract_signers.party_role/Invoice.invoice_type/homecare_
+-- subscriptions.status -- FinancingService enforces both legal-value
+-- sets at the service layer instead. status is an administrative flag
+-- ('active'/'voided') that gates whether a row counts at all -- NOT
+-- independent of application_status for AR-offset purposes: a voided
+-- record can still carry application_status='approved'/'funded' (voiding
+-- never clears it), so B8.8b-2's offset query MUST filter on both
+-- status='active' AND application_status IN ('approved','funded')
+-- together, never application_status alone.
+-- No FOREIGN KEY declared on project_id/invoice_id/created_by, matching
+-- financial_transactions.project_id/customer_id/invoice_id's own
+-- FK-less precedent for this same reason (a financing record must
+-- survive a linked row's deletion without cascading).
+CREATE TABLE IF NOT EXISTS financing_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    invoice_id INTEGER,
+    provider TEXT,
+    application_status TEXT NOT NULL DEFAULT 'submitted',
+    amount_financed REAL NOT NULL DEFAULT 0.0,
+    customer_contribution REAL NOT NULL DEFAULT 0.0,
+    document_ids_json TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL DEFAULT 'active',
+    created_by INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_financing_records_project_id ON financing_records(project_id);
+CREATE INDEX IF NOT EXISTS idx_financing_records_invoice_id ON financing_records(invoice_id);
+-- Double-financing-provider guard, mirroring B8.7a's
+-- idx_commission_ledger_source_unique precedent exactly: prevents two
+-- simultaneously-approved/funded financing records on the same invoice
+-- (customer shopped multiple lenders) from ever being able to
+-- double-count once B8.8b-2 wires the offset. Built now, even though
+-- nothing reads application_status='approved'/'funded' as an
+-- "eligible" concept yet, because retrofitting a UNIQUE constraint onto
+-- an already-shipped table with real data is much harder later (this
+-- project has hit this exact SQLite limit repeatedly -- see
+-- contract_signers' own comment). Partial on invoice_id IS NOT NULL,
+-- required because SQLite would otherwise treat every NULL invoice_id
+-- as satisfying the WHERE clause with no way to compare them.
+-- KNOWN, ACCEPTED LIMITATION (matches idx_commission_ledger_source_
+-- unique's own documented NULL hole): this index is INERT for rows
+-- where invoice_id IS NULL -- SQLite treats NULLs as distinct within a
+-- UNIQUE index, so two 'approved'/'funded' records on the SAME project
+-- but both still invoice_id IS NULL are NOT blocked here. B8.8b-2 (which
+-- reads amount_financed for a project-scoped P&L offset, not an
+-- invoice-scoped one) must account for this gap explicitly -- it is not
+-- solved by this guard.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_financing_records_invoice_active
+ON financing_records(invoice_id)
+WHERE status='active' AND application_status IN ('approved','funded') AND invoice_id IS NOT NULL;
+
 -- Indexing for performance
 -- NOTE: the unique indexes for customers.external_id / leads.external_id /
 -- contacts.external_id / communication_history.provider_message_id are

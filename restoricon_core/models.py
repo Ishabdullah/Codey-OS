@@ -1358,3 +1358,51 @@ class AssessmentRecord:
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
+
+@dataclass
+class FinancingRecord:
+    """Third-party financing application/status tracking for a project
+    (B8.8b-1, sales_rep_portal.md §4/§8). Deliberately inert this round --
+    reads into nothing else. B8.8b-2 will wire ``amount_financed`` into
+    ``FinanceService.get_ar_aging``/``get_financial_summary``/
+    ``get_project_pnl`` as an AR offset for records whose
+    ``application_status IN ('approved', 'funded') AND status == 'active'``
+    -- BOTH conditions together, never application_status alone: a
+    voided record can still carry application_status='approved' (voiding
+    never clears it), so status='active' is load-bearing for the offset,
+    not incidental. That eligibility concept belongs entirely to
+    B8.8b-2, not here.
+
+    invoice_id is nullable: financing is often initiated before the
+    invoice exists.
+
+    customer_contribution is the customer's OWN out-of-pocket share of
+    the financed project (already reflected in invoices.balance_due if
+    paid via the normal record_payment path) -- it must NEVER be summed
+    into the AR offset B8.8b-2 computes. amount_financed is the only
+    field B8.8b-2 will ever read from; a future implementer should not
+    double-count by also reading customer_contribution.
+
+    application_status ('submitted'/'approved'/'funded'/'denied'/
+    'cancelled') and status ('active'/'voided', an administrative flag
+    that gates whether a row counts at all -- NOT independent of
+    application_status for AR-offset purposes, see above) carry no CHECK
+    constraint at the DB layer, same enum-like-text-column pattern as
+    ContractSigner.party_role/Invoice.invoice_type -- FinancingService
+    enforces both at the service layer instead."""
+    id: Optional[int] = None
+    project_id: int = 0
+    invoice_id: Optional[int] = None
+    provider: Optional[str] = None
+    application_status: str = "submitted"
+    amount_financed: float = 0.0
+    customer_contribution: float = 0.0
+    document_ids: List[int] = field(default_factory=list)
+    status: str = "active"
+    created_by: Optional[int] = None
+    created_at: str = field(default_factory=utc_now_iso)
+    updated_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+

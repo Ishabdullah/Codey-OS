@@ -168,6 +168,16 @@ _AUDITABLE_PURCHASE_ORDER_FIELDS = frozenset({
     "received_date", "notes", "created_at", "updated_at",
 })
 
+# B8.8b-1: FinancingRecord diff domain. Excludes nothing -- drift guard
+# only. Uses the dataclass field name `document_ids` (not the `_json`
+# column) since build_audit_details sees to_dict() keys, mirroring
+# _AUDITABLE_APPOINTMENT_TYPE_FIELDS' `scheduling_hours` precedent.
+_AUDITABLE_FINANCING_RECORD_FIELDS = frozenset({
+    "id", "project_id", "invoice_id", "provider", "application_status",
+    "amount_financed", "customer_contribution", "document_ids", "status",
+    "created_by", "created_at", "updated_at",
+})
+
 
 def build_audit_details(
     *,
