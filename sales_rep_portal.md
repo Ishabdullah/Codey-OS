@@ -567,11 +567,26 @@ Ish).
   Map view reuses existing address fields — no new geocoding service
   unless Ish asks for one; this phase is assignment/filtering, not a
   mapping platform build.
-- Referral compensation is a `CommissionLedgerEntry` with
-  `source_type='referral'` (B8.1) — **not** a new table, per §2's gap
-  analysis.
-- **Exit criterion:** leads can be filtered/auto-assigned by territory;
-  a referral produces a correctly-attributed ledger row.
+- **CORRECTION (rule 6, 2026-09-23, B8.9 scoping):** the `source_type=
+  'referral'` line below was never accurate against D4's real numbers
+  and is stale. "Referral compensation" is not a separate concept —
+  D4 (`sales_rep_portal.md` §4, Ish, 2026-09-16) describes exactly this
+  as the Phase 3 5% portfolio-override residual, already modeled via
+  `source_type='portfolio_override'` (B8.1, shipped) with
+  `originating_rep_user_id` attribution already wired (B8.7b, shipped).
+  No `referral` `source_type` exists or is needed — see `NEW-545`'s
+  resolution. The remaining gap is entirely **B8.7c** (the actual
+  override-calculation logic), blocked on **D6**, not a B8.9 concern.
+  B8.9 itself is territory management only. ~~Referral compensation is
+  a `CommissionLedgerEntry` with `source_type='referral'` (B8.1) — not
+  a new table, per §2's gap analysis.~~ (superseded, see above)
+- **Exit criterion (narrowed 2026-09-23):** leads/customers can be
+  filtered by territory; a rep and a territory can be associated.
+  Auto-assignment by territory match is a future consumer of this work
+  (`NEW-534`), not part of B8.9's own exit criterion. The referral half
+  of the original exit criterion ("a referral produces a correctly-
+  attributed ledger row") is automatically satisfied once B8.7c ships —
+  B8.9 does not build anything referral-specific.
 
 ### B8.10 — Communications center & follow-up visibility (request §14, §15, §16, §31)
 
