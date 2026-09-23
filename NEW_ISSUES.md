@@ -19048,3 +19048,53 @@ housekeeping, same as `NEW-403`'s own cleanup.
 - **Fix direction (not decided/fixed this round):** apply the same `_resolved_signed_at`-style resolution (customer_signed_at, falling back to/preferring `MAX(contract_signers.signed_at)` when signer rows exist) at both display sites — out of B8.7c's scope to touch (`pdf_service.py`/`web_surfaces.py` weren't part of this round's task).
 - **Not fixed this round** — logged per rule 8. **When to revisit:** any future round that touches contract PDF generation or the admin contract-detail UI, or when multi-party signing gets its own dedicated UI polish pass.
 - **Cross-reference:** `restoricon_core/services/pdf_service.py:252`, `restoricon_core/api/web_surfaces.py:6465`, `restoricon_core/services/crm_service.py` (`_resolved_signed_at`), B8.6d-b.
+
+## Found 2026-09-23 — project-architect scoping pass for B8.10 (communications center & follow-up visibility), not fixed, no code written this round
+
+### [NEW-618] Confirmed, non-blocking today, load-bearing prerequisite for B8.10b: `CommunicationService.query_communications()` has zero rep-ownership narrowing — currently latent only because every real caller passes `customer_id` (a single-customer scope), but a rep-facing communications feed would expose every customer's communications to every `PERM_READ_COMMUNICATIONS` holder
+
+- **Status:** Confirmed (project-architect, 2026-09-23, B8.10 scoping, read directly). `query_communications()` (`communication_service.py:204-243`) applies no `assigned_user_id`-style narrowing at all — every `ROLE_SALES` actor already holds `PERM_READ_COMMUNICATIONS`. Today this is inert because Customer 360's own communications panel always scopes by `customer_id` first, so a rep only ever sees one customer's log at a time (already gated by whatever access got them to that customer's c360 page). A non-customer-scoped "Communications Center" feed (B8.10b) would remove that implicit scoping and expose everyone's communications.
+- **Impact:** none live today; becomes a real RBAC narrowing gap the moment B8.10b ships without its own fix.
+- **Fix direction (not decided/fixed this round):** B8.10b must add narrowing reusing `list_customers()`'s exact clause (`assigned_user_id = ? OR assigned_user_id IS NULL`, gated on `PERM_READ_TEAM_SALES_DATA`) via a `customer_id IN (subquery)` join, not a new pattern.
+- **Not fixed this round** — logged per rule 8. **When to revisit:** mandatory prerequisite for B8.10b, not optional — do not build that feed without this narrowing in the same round.
+- **Cross-reference:** `restoricon_core/services/communication_service.py` (`query_communications`), `NEW-568` (the `list_customers` narrowing pattern to reuse), B8.10b.
+
+### [NEW-619] Suspected, non-blocking: `CommunicationRecord` has no `opportunity_id` filter in `query_communications()` despite the field existing on the model
+
+- **Status:** Confirmed the field exists unused in the query (project-architect, 2026-09-23). No live caller needs it today.
+- **Impact:** none today, minor completeness gap.
+- **Fix direction (not decided/fixed this round):** add an `opportunity_id` filter param mirroring the existing `customer_id`/`project_id` ones, if/when a caller needs it.
+- **Not fixed this round** — logged per rule 8. **When to revisit:** if B8.10b's feed design ends up wanting opportunity-scoped filtering.
+- **Cross-reference:** `restoricon_core/services/communication_service.py` (`query_communications`), `restoricon_core/models.py` (`CommunicationRecord`).
+
+### [NEW-620] Confirmed, non-blocking: `NotificationService.send_email()`'s only existing call site (PM-assignment notification) never logs a `CommunicationRecord` — that email is invisible in communication history today
+
+- **Status:** Confirmed (project-architect, 2026-09-23, B8.10 scoping, read directly). `crm_service.py:3037` calls `send_email()` with no follow-up `record_communication()` call.
+- **Impact:** low today (an internal PM-assignment notification, not customer-facing), but establishes a real gap pattern: any `send_email()` call site that should be visible in communication history needs an explicit paired logging call — nothing does this automatically.
+- **Fix direction (not decided/fixed this round):** either add the logging call to this existing site, or explicitly decide it's internal-only and doesn't need to be customer-communication-log-visible. B8.10c's own compose/send flow must NOT repeat this gap — it must call `record_communication()` after a confirmed successful send (send-then-log, not log-then-send, since `NotificationService._post_request`'s short timeout can misread a slow-but-successful send as a failure).
+- **Not fixed this round** — logged per rule 8. **When to revisit:** B8.10c, mandatory design constraint for that round (send-then-log ordering), plus a separate decision on whether to backfill this existing internal call site.
+- **Cross-reference:** `restoricon_core/services/notification_service.py` (`send_email`, `_post_request`), `restoricon_core/services/crm_service.py:3037`, B8.10c.
+
+### [NEW-621] Confirmed, non-blocking: `list_tasks()` has no `task_type` filter parameter
+
+- **Status:** Confirmed (project-architect, 2026-09-23). Not necessarily a gap needing a fix — B8.10a's plan is to keep the follow-up panels broad and just display the type as a badge, not filter by it — but recorded since a future type-scoped view would need this.
+- **Impact:** none today.
+- **Fix direction (not decided/fixed this round):** add a `task_type` filter param mirroring the existing `status`/`assigned_user_id` ones, if/when a caller needs type-scoped filtering.
+- **Not fixed this round** — logged per rule 8. **When to revisit:** if a future round wants a type-scoped task view.
+- **Cross-reference:** `restoricon_core/services/crm_service.py` (`list_tasks`).
+
+### [NEW-622] Confirmed, doc-only: `sales_rep_portal.md`'s B8.10 line ("Notification center: poll-based (D3), reusing `NotificationService`") mischaracterizes `NotificationService` — it is an outbound-email sender, not a notification store, and no notification-entity model exists anywhere in this codebase
+
+- **Status:** Confirmed (project-architect, 2026-09-23, read `notification_service.py` directly). The dashboard's existing poll-on-load badges (new-leads badge, the Follow-ups panel) already ARE the substance of a "notification center" — there is no separate notification store to build or reuse, and the doc line would mislead a future implementer into trying to build one.
+- **Impact:** doc-accuracy only, no code impact yet.
+- **Fix direction:** correct the `sales_rep_portal.md` line when B8.10 (specifically B8.10a, which touches these exact panels) is built, per rule 6.
+- **Not fixed this round** — logged per rule 8, doc correction deferred to the implementer round that actually touches this area.
+- **Cross-reference:** `sales_rep_portal.md` (B8.10 section), `restoricon_core/services/notification_service.py`, B8.10a.
+
+### [NEW-623] Suspected, not reproduced: `NotificationService._post_request`'s 2.0s `urllib` timeout may be too short for a real SMTP round trip under load, causing `send_email()` to report failure on a call that actually succeeded
+
+- **Status:** Suspected (project-architect, 2026-09-23) — a real risk given `notification_service.py:41-57`'s hardcoded 2.0s timeout on an HTTP call that itself proxies to a real SMTP send, but not reproduced/timed under real load this round.
+- **Impact:** if true, could cause B8.10c's compose/send flow (or the existing PM-notification call site) to log a false failure while the email actually goes out — a customer-facing risk once B8.10c ships (a rep might re-send, thinking the first attempt failed).
+- **Fix direction (not decided/fixed this round):** measure real SMTP round-trip time under realistic conditions before B8.10c ships; raise the timeout or make it configurable if the risk is confirmed.
+- **Not fixed this round** — logged per rule 8. **When to revisit:** mandatory check before/during B8.10c, since that's the first round where this could cause a customer-facing false-failure.
+- **Cross-reference:** `restoricon_core/services/notification_service.py` (`_post_request`), B8.10c.
