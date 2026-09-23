@@ -18973,3 +18973,21 @@ housekeeping, same as `NEW-403`'s own cleanup.
 - **Fix direction (not decided/fixed this round):** either add a status guard to `reverse_commission` (reject reversing anything but an `'earned'` entry, matching the ledger's real current usage), or make `get_team_commission_summary`'s bucketing logic robust to a reversal of a non-`'earned'` original if that's ever intentionally allowed.
 - **Not fixed this round** — logged per rule 8, non-blocking, currently unreachable.
 - **Cross-reference:** `restoricon_core/services/commission_service.py` (`reverse_commission`, `get_team_commission_summary`).
+
+## Found 2026-09-23 — project-architect scoping pass for B8.8 (insurance restoration workflow & financing tracking), not fixed, no code written this round
+
+### [NEW-610] Confirmed, non-blocking: no carryover of insurance/claim/adjuster fields from `Opportunity` to `Project` on conversion — a rep who enters claim info at the estimate stage must re-enter it once the opportunity converts to a project
+
+- **Status:** Confirmed (project-architect, 2026-09-23, B8.8 scoping, read directly). `create_project` (`crm_service.py:2579`) takes a fresh `Project` object with no copy-forward logic from any source `Opportunity` — both entities carry their own independent copies of `insurance_carrier`/`claim_number`/`adjuster_name`/`adjuster_phone`/`adjuster_email`/`deductible`, and nothing links or propagates them when a won opportunity becomes a project.
+- **Impact:** real data-entry friction, not a correctness bug — a rep who carefully filled in claim/adjuster info during the estimate/opportunity phase has to type it all again once the project exists, with no warning that the fields didn't carry over.
+- **Fix direction (not decided/fixed this round):** either have the opportunity→project conversion path copy these fields forward automatically, or surface the source opportunity's values as pre-fill suggestions in whatever B8.8 UI is built for `Project`'s insurance panel. A conversion-workflow feature, not core to "insurance restoration workflow" itself — deliberately kept out of B8.8's own scope, logged for a future round.
+- **Not fixed this round** — logged per rule 8, deliberate scope boundary.
+- **Cross-reference:** `restoricon_core/services/crm_service.py` (`create_project`, `convert_lead_to_opportunity`), B8.8.
+
+### [NEW-611] Suspected, non-blocking: `insurance_carrier` is duplicated across three tables (`Project`, `Opportunity`, `Property`) with no carryover between any of them — whichever becomes canonical for a future UI leaves the other two silently able to drift out of sync
+
+- **Status:** Suspected (project-architect, 2026-09-23, B8.8 scoping). Three independent copies of `insurance_carrier` exist (`Project`, `Opportunity`, `Property`), each editable independently with no propagation logic tying them together. Not reproduced as a live data-integrity failure (no evidence of actual drift in the real DB), but the structural risk is real and worth naming explicitly rather than discovering as a surprise later.
+- **Impact:** low today, latent — becomes a real UX confusion risk once more than one of the three surfaces gets an edit UI (B8.8 gives `Project` one; `Property`/`Opportunity` already have partial exposure per the B8.8 scoping pass's own findings).
+- **Fix direction (not decided/fixed this round):** decide which entity is canonical for `insurance_carrier` (likely `Project`, since that's the execution-phase record) and either remove or clearly document the other two as legacy/pre-conversion snapshots, not live-synced duplicates.
+- **Not fixed this round** — logged per rule 8, non-blocking, structural observation.
+- **Cross-reference:** `restoricon_core/models.py` (`Project.insurance_carrier`, `Opportunity.insurance_carrier`, `Property.insurance_carrier`), `NEW-610`.
