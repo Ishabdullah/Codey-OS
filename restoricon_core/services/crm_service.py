@@ -2571,6 +2571,8 @@ class CRMService:
             adjuster_phone=row["adjuster_phone"] if "adjuster_phone" in keys else None,
             adjuster_email=row["adjuster_email"] if "adjuster_email" in keys else None,
             deductible=row["deductible"] if "deductible" in keys else None,
+            coverage_amount=row["coverage_amount"] if "coverage_amount" in keys else None,
+            supplement_amount=row["supplement_amount"] if "supplement_amount" in keys else None,
             property_id=row["property_id"] if "property_id" in keys else None,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
@@ -2627,9 +2629,10 @@ class CRMService:
                     scope_of_work, estimated_cost, contract_amount, actual_cost,
                     profit, notes, warranty_info, stage_entered_at,
                     insurance_claim_number, insurance_carrier, adjuster_name,
-                    adjuster_phone, adjuster_email, deductible, property_id,
+                    adjuster_phone, adjuster_email, deductible, coverage_amount,
+                    supplement_amount, property_id,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
                 (
                     project.customer_id,
@@ -2658,6 +2661,8 @@ class CRMService:
                     project.adjuster_phone,
                     project.adjuster_email,
                     project.deductible,
+                    project.coverage_amount,
+                    project.supplement_amount,
                     project.property_id,
                     now,
                     now,
@@ -2749,7 +2754,8 @@ class CRMService:
         "scope_of_work", "estimated_cost", "contract_amount", "actual_cost",
         "profit", "notes", "warranty_info",
         "insurance_claim_number", "insurance_carrier", "adjuster_name",
-        "adjuster_phone", "adjuster_email", "deductible", "property_id",
+        "adjuster_phone", "adjuster_email", "deductible", "coverage_amount",
+        "supplement_amount", "property_id",
     }
 
     # The three fields whose modification is a "staff reassignment" and needs
@@ -2843,7 +2849,10 @@ class CRMService:
             "warranty_info", "insurance_claim_number", "insurance_carrier",
             "adjuster_name", "adjuster_phone", "adjuster_email",
         }
-        _PROJECT_NUMERIC_FIELDS = {"estimated_cost", "contract_amount", "actual_cost", "profit", "deductible"}
+        _PROJECT_NUMERIC_FIELDS = {
+            "estimated_cost", "contract_amount", "actual_cost", "profit",
+            "deductible", "coverage_amount", "supplement_amount",
+        }
 
         for key in _PROJECT_STRING_FIELDS & set(updates):
             if not isinstance(updates[key], str):

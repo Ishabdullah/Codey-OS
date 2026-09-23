@@ -78,7 +78,8 @@ _AUDITABLE_PROJECT_FIELDS = frozenset({
     "subcontractors", "scope_of_work", "estimated_cost", "contract_amount",
     "actual_cost", "profit", "notes", "warranty_info", "stage_entered_at",
     "insurance_claim_number", "insurance_carrier", "adjuster_name",
-    "adjuster_phone", "adjuster_email", "deductible", "property_id",
+    "adjuster_phone", "adjuster_email", "deductible", "coverage_amount",
+    "supplement_amount", "property_id",
     "created_at", "updated_at",
 })
 

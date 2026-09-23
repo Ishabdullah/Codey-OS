@@ -222,6 +222,8 @@ CREATE TABLE IF NOT EXISTS projects (
     adjuster_phone TEXT,
     adjuster_email TEXT,
     deductible REAL,
+    coverage_amount REAL,
+    supplement_amount REAL,
     -- property_id: link to the properties table (B8.1). Present here for
     -- a fresh DB's CREATE TABLE (with FK); a migrated DB gets the bare
     -- column via the ALTER TABLE entry in _migrate_schema() instead,
@@ -1475,6 +1477,8 @@ class DatabaseManager:
             ("projects", "adjuster_phone", "ALTER TABLE projects ADD COLUMN adjuster_phone TEXT;"),
             ("projects", "adjuster_email", "ALTER TABLE projects ADD COLUMN adjuster_email TEXT;"),
             ("projects", "deductible", "ALTER TABLE projects ADD COLUMN deductible REAL;"),
+            ("projects", "coverage_amount", "ALTER TABLE projects ADD COLUMN coverage_amount REAL;"),
+            ("projects", "supplement_amount", "ALTER TABLE projects ADD COLUMN supplement_amount REAL;"),
             ("equipment", "current_project_id", "ALTER TABLE equipment ADD COLUMN current_project_id INTEGER;"),
             ("users", "custom_permissions_json", "ALTER TABLE users ADD COLUMN custom_permissions_json TEXT NOT NULL DEFAULT '{}';"),
             ("business_profile", "business_phone", "ALTER TABLE business_profile ADD COLUMN business_phone TEXT;"),

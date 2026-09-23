@@ -6244,6 +6244,14 @@ def _render_sales_portal() -> str:
         let currentCustomer360Properties = [];
         let editingPropertyId = null;
         let currentPropertyHistoryId = null;
+        // B8.8a: insurance/claim fields on Project (title, address, panel
+        // location -- mirrors currentCustomer360Properties/editingPropertyId
+        // above exactly). insurance_claim_status is deliberately NOT part of
+        // this panel: it lives on Opportunity, not Project (models.py,
+        // crm_service.py:1487's vocabulary-separation note), and Project has
+        // no column for it.
+        let currentCustomer360Projects = [];
+        let editingInsuranceProjectId = null;
         // B8.5b: appointment scheduling UI + assessment records (sales_rep_portal.md
         // §5 B8.5, request §6/§7). currentAppointmentDetailId/currentPropertyAssessmentsId
         // mirror the toggle-tracking pattern already used above for
@@ -6347,6 +6355,8 @@ def _render_sales_portal() -> str:
             currentCustomer360Id = null;
             currentCustomer360Properties = [];
             editingPropertyId = null;
+            currentCustomer360Projects = [];
+            editingInsuranceProjectId = null;
             currentPropertyHistoryId = null;
             currentPropertyAssessmentsId = null;
             assessmentFormScope = null;
@@ -6430,6 +6440,7 @@ def _render_sales_portal() -> str:
             title.textContent = 'Customer 360 — ' + (cust.first_name || '') + ' ' + (cust.last_name || '');
 
             currentCustomer360Properties = (byKey.properties && byKey.properties.ok && byKey.properties.data.properties) || [];
+            currentCustomer360Projects = (byKey.projects && byKey.projects.ok && byKey.projects.data.projects) || [];
 
             let html = '';
             html += `<div class="erp-card">
@@ -6444,9 +6455,7 @@ def _render_sales_portal() -> str:
 
             html += renderPropertiesPanel(byKey.properties);
 
-            html += c360PanelSection('Projects', byKey.projects, 'No projects.',
-                (d) => (d.projects || []).map(p => `<tr><td>${{escapeHtml(p.title || '')}}</td><td>${{escapeHtml(p.status || '')}}</td><td>$${{escapeHtml((p.contract_amount || 0).toLocaleString())}}</td></tr>`),
-                '<thead><tr><th>Title</th><th>Status</th><th>Contract Amount</th></tr></thead>');
+            html += renderProjectsPanel(byKey.projects);
 
             html += c360PanelSection('Estimates', byKey.estimates, 'No estimates.',
                 (d) => (d.estimates || []).map(e => `<tr><td>${{escapeHtml(e.estimate_number || '')}}</td><td>${{escapeHtml(e.status || '')}}</td><td>$${{escapeHtml((e.total_amount || 0).toLocaleString())}}</td><td><button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="viewEstimateProposal(${{e.id}})">View Proposal</button></td></tr>`),
@@ -6522,6 +6531,118 @@ def _render_sales_portal() -> str:
                 <div id="propertyHistoryArea"></div>
                 <div id="propertyAssessmentsArea"></div>
             </div>`;
+        }}
+
+        // B8.8a: Project insurance/claim/adjuster panel. Project already
+        // carries 6 insurance fields (insurance_claim_number,
+        // insurance_carrier, adjuster_name, adjuster_phone, adjuster_email,
+        // deductible) plus 2 added this round (coverage_amount,
+        // supplement_amount), all fully CRUD-wired server-side
+        // (update_project's ALLOWED_PROJECT_UPDATE_FIELDS) but previously
+        // exposed nowhere in the UI. Mirrors renderPropertiesPanel's
+        // table + inline-form-area shape exactly (openPropertyForm /
+        // savePropertyForm below). insurance_claim_status is NOT included
+        // here -- it lives on Opportunity, not Project (crm_service.py:1487
+        // documents the two fields use different value vocabularies; there
+        // is no Project column to persist it to).
+        function renderProjectsPanel(projectsResult) {{
+            editingInsuranceProjectId = null;
+            if (!projectsResult || !projectsResult.ok) {{
+                const msg = (projectsResult && projectsResult.status === 403) ? 'No access.' : 'Failed to load.';
+                return `<div class="erp-card"><h3 style="margin-top:0;">Projects</h3><p style="color:var(--text-muted);">${{msg}}</p></div>`;
+            }}
+            const projects = projectsResult.data.projects || [];
+            const rows = projects.map(p => `<tr>
+                <td>${{escapeHtml(p.title || '')}}</td>
+                <td>${{escapeHtml(p.status || '')}}</td>
+                <td>$${{escapeHtml((p.contract_amount || 0).toLocaleString())}}</td>
+                <td>
+                    <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="openProjectInsuranceForm(${{p.id}})">Insurance</button>
+                </td>
+            </tr>`);
+            const table = rows.length > 0
+                ? `<table><thead><tr><th>Title</th><th>Status</th><th>Contract Amount</th><th></th></tr></thead><tbody>${{rows.join('')}}</tbody></table>`
+                : '<p style="color:var(--text-muted);">No projects.</p>';
+            return `<div class="erp-card">
+                <h3 style="margin-top:0;">Projects</h3>
+                ${{table}}
+                <div id="projectInsuranceFormArea"></div>
+            </div>`;
+        }}
+
+        function openProjectInsuranceForm(projectId) {{
+            editingInsuranceProjectId = projectId;
+            const proj = currentCustomer360Projects.find(p => p.id === projectId);
+            const v = (field) => proj && proj[field] !== undefined && proj[field] !== null ? proj[field] : '';
+            const area = document.getElementById('projectInsuranceFormArea');
+            area.innerHTML = `
+                <div class="erp-card">
+                    <h4 style="margin-top:0;">Insurance / Claim — ${{escapeHtml(proj ? (proj.title || '') : '')}}</h4>
+                    <div class="modal-field"><label>Claim Number</label><input type="text" id="projInsuranceClaimNumber" value="${{escapeHtml(v('insurance_claim_number'))}}"></div>
+                    <div class="modal-field"><label>Carrier</label><input type="text" id="projInsuranceCarrier" value="${{escapeHtml(v('insurance_carrier'))}}"></div>
+                    <div class="modal-field"><label>Adjuster Name</label><input type="text" id="projAdjusterName" value="${{escapeHtml(v('adjuster_name'))}}"></div>
+                    <div class="modal-field"><label>Adjuster Phone</label><input type="text" id="projAdjusterPhone" value="${{escapeHtml(v('adjuster_phone'))}}"></div>
+                    <div class="modal-field"><label>Adjuster Email</label><input type="text" id="projAdjusterEmail" value="${{escapeHtml(v('adjuster_email'))}}"></div>
+                    <div class="modal-field"><label>Deductible</label><input type="number" step="0.01" id="projDeductible" value="${{v('deductible')}}"></div>
+                    <div class="modal-field"><label>Coverage Amount</label><input type="number" step="0.01" id="projCoverageAmount" value="${{v('coverage_amount')}}"></div>
+                    <div class="modal-field"><label>Supplement Amount</label><input type="number" step="0.01" id="projSupplementAmount" value="${{v('supplement_amount')}}"></div>
+                    <div style="display:flex;gap:0.5rem;">
+                        <button class="btn-gold" onclick="saveProjectInsuranceForm()">Save Changes</button>
+                        <button class="btn-gold" onclick="document.getElementById('projectInsuranceFormArea').innerHTML=''">Cancel</button>
+                    </div>
+                </div>
+            `;
+        }}
+
+        // update_project (crm_service.py) rejects None values outright and
+        // enforces an explicit allow-list, same as savePropertyForm's
+        // comment above -- only send fields actually filled in. Money
+        // fields use parseFloat (NOT parseInt, unlike savePropertyForm's
+        // numVal -- those are years/sqft/stories, these are dollars) and a
+        // Number.isFinite guard: parseFloat('') / parseFloat('abc') is NaN,
+        // and JSON.stringify(NaN) serializes to null, which would hit
+        // update_project's blanket None-guard and fail the whole save with
+        // a confusing "cannot be set to None" error instead of just
+        // omitting the field.
+        async function saveProjectInsuranceForm() {{
+            if (!editingInsuranceProjectId) {{ return; }}
+            const token = getAuthToken();
+            const strVal = (id) => {{ const v = document.getElementById(id).value.trim(); return v === '' ? null : v; }};
+            const numVal = (id) => {{ const n = parseFloat(document.getElementById(id).value); return Number.isFinite(n) ? n : null; }};
+
+            const updates = {{}};
+            const strFields = {{
+                insurance_claim_number: 'projInsuranceClaimNumber',
+                insurance_carrier: 'projInsuranceCarrier',
+                adjuster_name: 'projAdjusterName',
+                adjuster_phone: 'projAdjusterPhone',
+                adjuster_email: 'projAdjusterEmail',
+            }};
+            Object.keys(strFields).forEach(k => {{ const val = strVal(strFields[k]); if (val !== null) {{ updates[k] = val; }} }});
+            const numFields = {{
+                deductible: 'projDeductible',
+                coverage_amount: 'projCoverageAmount',
+                supplement_amount: 'projSupplementAmount',
+            }};
+            Object.keys(numFields).forEach(k => {{ const val = numVal(numFields[k]); if (val !== null) {{ updates[k] = val; }} }});
+
+            try {{
+                const res = await fetch('/api/v1/projects/' + editingInsuranceProjectId + '/update', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify(updates),
+                }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                const data = await res.json();
+                if (!res.ok) {{
+                    alert(data.error || ('Failed to save insurance info (' + res.status + ').'));
+                    return;
+                }}
+                editingInsuranceProjectId = null;
+                await loadCustomer360(currentCustomer360Id);
+            }} catch (e) {{
+                alert('Failed to save insurance info: network error.');
+            }}
         }}
 
         // NEW-566: property-scoped project history, fetched on demand (not
