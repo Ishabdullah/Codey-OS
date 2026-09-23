@@ -7319,12 +7319,43 @@ this file's own don't-duplicate rule.
             bundled — no dedicated RBAC permission, a disclosed
             not-found-shape deviation, unclamped-at-zero bonus formula
             — deferred to B8.7d).
-      - [ ] **D6 ANSWERED 2026-09-23** — see Open Decisions §8 item 13.
+      - [x] **D6 ANSWERED 2026-09-23** — see Open Decisions §8 item 13.
             Gross collected revenue = deposit + payments actually
             received to date (not contract value). Major GC project =
-            anything not HomeCare/assessment/HomeCare-add-on. **B8.7c**
-            (Phase 3 portfolio override) unblocked, not yet scoped in
-            detail or built.
+            anything not HomeCare/assessment/HomeCare-add-on.
+      - [x] **B8.7c** — Phase 3 portfolio-override commission. **DONE
+            2026-09-23, code-complete + code-reviewer APPROVED round 2
+            (round 1: CHANGES REQUESTED on a live-proven Critical)**,
+            commit `4c69d5a`. Full detail in `PROJECT_LOG.md`'s
+            2026-09-23 combined B8.9a+B8.7c entry. Scoped by reading
+            the actual signed contractor agreement directly, not just
+            the D4/D6 summaries — the termination rule is genuinely
+            counter-intuitive: a GC contract signed BEFORE a rep's
+            departure still pays the override on payments collected
+            even AFTER they leave, no "currently active" check. New
+            `users.terminated_at` (set/cleared by `set_user_active` on
+            genuine transitions only). **Round 1 found a real, live-
+            proven Critical**: the termination gate was silently
+            bypassed for any GC contract signed via multi-party
+            signing (that path never writes `customer_signed_at`),
+            letting a real $2,500 override pay out to a rep terminated
+            before the contract even existed. Fixed via a
+            `contract_signers.signed_at`-aware timestamp resolution
+            applied to both the termination gate and the contract-
+            selection ordering (which had the same NULL-sorts-last
+            gap), plus fail-closed hardening. Round 2 independently
+            re-reproduced the original exploit and confirmed it's
+            closed; also corrected a rule-5/6 inaccuracy in the
+            implementer's own self-verification account (didn't
+            change the outcome — the fix is genuinely correct).
+            Logged, not fixed: `NEW-615` (`set_user_active` TOCTOU
+            could silently withhold a legitimate override, opposite
+            failure direction from the Critical), `NEW-616` (a real,
+            disclosed attribution-asymmetry design question — needs
+            Ish's input on re-enrollment semantics), `NEW-617`
+            (cosmetic — multi-party contract PDFs/admin UI show a
+            blank "Signed At"). **This closes B8.7's entire build
+            queue in full.**
       - [x] **B8.7d** — `get_team_commission_summary`, rep/manager
             dashboards, partial `NEW-546` fix. **DONE 2026-09-22,
             code-complete + code-reviewer APPROVED round 1**, commit
@@ -7424,7 +7455,19 @@ this file's own don't-duplicate rule.
             follow-on round, not yet scheduled). **This closes B8.8b
             in full — B8.8 is otherwise DONE**, its only remaining
             open piece being `NEW-613`'s follow-on.
-- [ ] **B8.9** — territory management & referral compensation.
+- [x] **B8.9** — territory management & referral compensation. **DONE
+      2026-09-23** (B8.9a). Scoping found "referral compensation" was
+      never a separate concept — it's D4's Phase 3 portfolio-override
+      residual, already fully modeled (`NEW-545` resolved) and built
+      as B8.7c. B8.9a itself (territory management: `territories`
+      table, `territory_id` on `users`/`leads`/`customers`, dedicated
+      `TerritoryService` + RBAC pair) is code-complete + code-reviewer
+      approved, commit `4c69d5a`. Full detail in `PROJECT_LOG.md`'s
+      2026-09-23 combined entry. No auto-assignment by territory
+      (deferred, `NEW-534`'s future consumer), no dashboard UI panel
+      yet (routes only), no delete on territories — all disclosed,
+      deliberate deferrals. At-most-one-territory-per-rep is a
+      documented default, not yet confirmed with Ish.
 - [ ] **B8.10** — communications center & follow-up visibility. Blocked
       on Open Decision D1 (SMS) for anything beyond email + the
       existing communication log.
