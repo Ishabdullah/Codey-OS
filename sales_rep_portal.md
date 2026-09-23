@@ -604,11 +604,23 @@ communication log.
   black-box automation"* per the request is satisfied by making every
   rule and its next scheduled task readable and editable in this UI,
   not by adding new automation infrastructure.
-- Notification center: **poll-based** (D3), reusing `NotificationService`.
+- Notification center: **poll-based** (D3). Corrected 2026-09-23 per
+  `NEW-622` — `NotificationService` is an outbound-email sender, not a
+  notification store or entity, and no notification-entity model exists
+  anywhere in this codebase, so there is nothing to "reuse" in that
+  sense. The dashboard's existing poll-on-load surfaces (the new-leads
+  badge, the Follow-ups panel — the latter given Complete/Cancel/Snooze
+  actions plus automation-source badges in B8.10a) already are the
+  substance of a notification center; no separate notification store was
+  built or needed.
 - **Exit criterion:** every communication auto-attaches to the correct
   customer/lead record (already true at the data layer — this verifies
-  the UI reflects it), and a rep can see and pause any pending automated
-  follow-up before it fires.
+  the UI reflects it), and a rep can see and act on (complete, cancel,
+  or snooze) any pending automated follow-up before it fires. Corrected
+  2026-09-23, B8.10a: "pause" is implemented as Cancel — `Task.status`
+  has no `paused` value, and inventing one would need a schema/CHECK-
+  constraint change this phase doesn't otherwise need (see B8.10a's
+  own `PROJECT_LOG.md` entry).
 
 ### B8.11 — AI Sales Copilot (request §8, §27, §28)
 

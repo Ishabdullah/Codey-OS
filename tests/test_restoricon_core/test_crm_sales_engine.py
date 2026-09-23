@@ -596,6 +596,90 @@ def test_api_tasks_and_cadence(env):
     assert any(t["id"] == task_id for t in list_data["tasks"])
 
 
+def test_api_task_cancel_via_update_route(env):
+    """B8.10a: the portal's Cancel button posts {"status": "cancelled"}
+    to the existing POST /api/v1/crm/tasks/{id}/update route -- no new
+    route, but this exact UI-triggered call shape wasn't previously
+    exercised at the route level (only via the crm.update_task service
+    call directly, e.g. test_custom_task_crud). "Pause" has no backing
+    Task.status value (only pending/in_progress/completed/cancelled),
+    so the portal's pause-like action is implemented as this same
+    cancel call, not a separate status."""
+    router = env["router"]
+    token = env["tokens"][ROLE_SALES]
+
+    s, _, task_data = router.handle_request(
+        "POST",
+        "/api/v1/crm/tasks",
+        {"Authorization": f"Bearer {token}"},
+        json.dumps({"title": "Task to cancel", "task_type": "follow_up"}).encode("utf-8"),
+    )
+    assert s == 201
+    task_id = task_data["task"]["id"]
+
+    s, _, upd_data = router.handle_request(
+        "POST",
+        f"/api/v1/crm/tasks/{task_id}/update",
+        {"Authorization": f"Bearer {token}"},
+        json.dumps({"status": "cancelled"}).encode("utf-8"),
+    )
+    assert s == 200
+    assert upd_data["task"]["status"] == "cancelled"
+
+    s, _, get_data = router.handle_request(
+        "GET",
+        f"/api/v1/crm/tasks/{task_id}",
+        {"Authorization": f"Bearer {token}"},
+        b"",
+    )
+    assert s == 200
+    assert get_data["task"]["status"] == "cancelled"
+
+
+def test_api_task_snooze_due_date_round_trips_via_update_route(env):
+    """B8.10a: the portal's Snooze button posts a pushed due_date to the
+    existing POST /api/v1/crm/tasks/{id}/update route. Confirms the new
+    value round-trips through a real update + a real re-read, both at
+    the route level, not just the already-covered service layer."""
+    router = env["router"]
+    token = env["tokens"][ROLE_SALES]
+
+    s, _, task_data = router.handle_request(
+        "POST",
+        "/api/v1/crm/tasks",
+        {"Authorization": f"Bearer {token}"},
+        json.dumps({
+            "title": "Task to snooze",
+            "task_type": "follow_up",
+            "due_date": "2026-09-20",
+        }).encode("utf-8"),
+    )
+    assert s == 201
+    task_id = task_data["task"]["id"]
+    assert task_data["task"]["due_date"] == "2026-09-20"
+
+    s, _, upd_data = router.handle_request(
+        "POST",
+        f"/api/v1/crm/tasks/{task_id}/update",
+        {"Authorization": f"Bearer {token}"},
+        json.dumps({"due_date": "2026-09-21"}).encode("utf-8"),
+    )
+    assert s == 200
+    assert upd_data["task"]["due_date"] == "2026-09-21"
+    # status is untouched by a snooze -- the route-level update is
+    # additive over allowed_fields, not a full-record overwrite.
+    assert upd_data["task"]["status"] == "pending"
+
+    s, _, get_data = router.handle_request(
+        "GET",
+        f"/api/v1/crm/tasks/{task_id}",
+        {"Authorization": f"Bearer {token}"},
+        b"",
+    )
+    assert s == 200
+    assert get_data["task"]["due_date"] == "2026-09-21"
+
+
 def test_rbac_crm_permissions(env):
     router = env["router"]
     tech_token = env["tokens"][ROLE_TECHNICIAN]

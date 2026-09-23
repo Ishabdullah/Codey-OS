@@ -5353,8 +5353,8 @@ def _render_sales_portal() -> str:
         <div class="erp-card">
             <h2 style="margin-top:0;">Follow-ups</h2>
             <table>
-                <thead><tr><th>Title</th><th>Due</th><th>Priority</th><th>Status</th></tr></thead>
-                <tbody id="followupsList"><tr><td colspan="4">Loading follow-ups...</td></tr></tbody>
+                <thead><tr><th>Title</th><th>Type</th><th>Due</th><th>Priority</th><th>Status</th><th>Actions</th></tr></thead>
+                <tbody id="followupsList"><tr><td colspan="6">Loading follow-ups...</td></tr></tbody>
             </table>
         </div>
 
@@ -5557,6 +5557,139 @@ def _render_sales_portal() -> str:
             return sessionStorage.getItem('restoricon_token') || '';
         }}
 
+        // B8.10a: shared badge/action-button renderers for the Follow-ups
+        // panel and the Customer 360 Tasks panel -- both display the same
+        // Task rows fetched from GET /api/v1/crm/tasks (directly or via the
+        // dashboard's followups block), so they share one rendering path
+        // rather than two copies drifting apart.
+        //
+        // Surfaces task_type always, plus an "Auto" tag (with rule_name in
+        // its tooltip) when trigger_source is set -- this is the mechanism
+        // that discharges the "no black-box automation" requirement per
+        // NEW-622: every automation-generated task is visibly distinguished
+        // from a manually-created one, right on the row.
+        function taskTypeBadge(t) {{
+            const typeLabel = escapeHtml(t.task_type || 'follow_up');
+            let html = `<span class="badge badge-slate">${{typeLabel}}</span>`;
+            if (t.trigger_source) {{
+                const ruleLabel = t.rule_name ? escapeHtml(t.rule_name) : escapeHtml(t.trigger_source);
+                html += ` <span class="badge badge-gold" title="Automated by rule: ${{ruleLabel}}">Auto</span>`;
+            }}
+            return html;
+        }}
+
+        // Complete/Cancel/Snooze action buttons. Only shown for a task that
+        // is still actionable (pending/in_progress) -- a completed or
+        // cancelled task has nothing left to do. "Pause" has no backing
+        // Task.status value (only pending/in_progress/completed/cancelled
+        // exist, no CHECK-constraint change this round) -- the pause-like
+        // request is implemented as Cancel, deliberately, not as an
+        // invented new status.
+        function taskActionButtons(t) {{
+            if (t.status !== 'pending' && t.status !== 'in_progress') {{
+                return '';
+            }}
+            // escapeHtml(JSON.stringify(...)) is this file's established
+            // pattern for passing a string argument through an onclick="..."
+            // HTML attribute (see deleteSubcontractor/openPermModal/
+            // deleteUser/deleteAppointmentType) -- JSON.stringify produces
+            // a properly quoted/escaped JS string literal, and escapeHtml
+            // on top of that keeps its own double quotes from breaking out
+            // of the onclick="..." HTML attribute they sit inside.
+            const dueDateArg = escapeHtml(JSON.stringify(t.due_date || null));
+            return `<button class="btn-gold" style="padding:0.2rem 0.5rem;font-size:0.7rem;" onclick="completeTaskAction(${{t.id}})">Complete</button>
+                <button class="btn-gold" style="padding:0.2rem 0.5rem;font-size:0.7rem;" onclick="cancelTaskAction(${{t.id}})">Cancel</button>
+                <button class="btn-gold" style="padding:0.2rem 0.5rem;font-size:0.7rem;" onclick="snoozeTaskAction(${{t.id}}, ${{dueDateArg}})">Snooze +1d</button>`;
+        }}
+
+        // Each action reloads whichever panel(s) are currently visible --
+        // the dashboard Follow-ups panel always, and the Customer 360 Tasks
+        // panel too if that modal happens to be open -- mirroring
+        // sendContractAction/signContractAction's own currentCustomer360Id
+        // refresh check and claimLead/claimOpportunity's unconditional
+        // loadDashboard() reload on every outcome (success or failure), so
+        // a stale row never lingers either place.
+        async function completeTaskAction(id) {{
+            const token = getAuthToken();
+            try {{
+                const res = await fetch('/api/v1/crm/tasks/' + id + '/complete', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{}}),
+                }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                if (!res.ok) {{
+                    const data = await res.json();
+                    alert(data.error || ('Failed to complete task (' + res.status + ').'));
+                }}
+                loadDashboard();
+                if (currentCustomer360Id) loadCustomer360(currentCustomer360Id);
+            }} catch (e) {{
+                alert('Failed to complete task: network error.');
+            }}
+        }}
+
+        async function cancelTaskAction(id) {{
+            const token = getAuthToken();
+            if (!confirm('Cancel this follow-up task?')) return;
+            try {{
+                const res = await fetch('/api/v1/crm/tasks/' + id + '/update', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{ status: 'cancelled' }}),
+                }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                if (!res.ok) {{
+                    const data = await res.json();
+                    alert(data.error || ('Failed to cancel task (' + res.status + ').'));
+                }}
+                loadDashboard();
+                if (currentCustomer360Id) loadCustomer360(currentCustomer360Id);
+            }} catch (e) {{
+                alert('Failed to cancel task: network error.');
+            }}
+        }}
+
+        async function snoozeTaskAction(id, currentDueDate) {{
+            const token = getAuthToken();
+            // Push the due date forward by exactly one day from its current
+            // value (or from today, if the task has none yet) -- a simple,
+            // minimal snooze rather than a date-picker modal, consistent
+            // with the "keep it minimal" scope for this round.
+            //
+            // The dashboard route buckets overdue/due_today/upcoming via a
+            // plain string compare against datetime.now(timezone.utc).date()
+            // (routes.py) -- entirely in UTC. Build and parse the date here
+            // entirely in UTC too (getUTCDate/setUTCDate, never the local-
+            // timezone getDate/setDate), or a snooze clicked in the evening
+            // in a timezone behind UTC can silently land a day off from
+            // what the user asked for, or a task can stay/land in the
+            // wrong overdue/due_today/upcoming bucket.
+            const base = currentDueDate ? new Date(currentDueDate + 'T00:00:00Z') : new Date();
+            if (isNaN(base.getTime())) {{
+                alert('Cannot snooze: task has an unrecognized due date.');
+                return;
+            }}
+            base.setUTCDate(base.getUTCDate() + 1);
+            const newDueDate = base.toISOString().slice(0, 10);
+            try {{
+                const res = await fetch('/api/v1/crm/tasks/' + id + '/update', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{ due_date: newDueDate }}),
+                }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                if (!res.ok) {{
+                    const data = await res.json();
+                    alert(data.error || ('Failed to snooze task (' + res.status + ').'));
+                }}
+                loadDashboard();
+                if (currentCustomer360Id) loadCustomer360(currentCustomer360Id);
+            }} catch (e) {{
+                alert('Failed to snooze task: network error.');
+            }}
+        }}
+
         let dashboardRefreshInFlight = false;
         async function loadDashboard(redirectOnIndeterminate = true) {{
             if (dashboardRefreshInFlight) return;
@@ -5728,7 +5861,7 @@ def _render_sales_portal() -> str:
                     errMsg.textContent = dashboardUnavailableMsg;
                     document.getElementById('dashApptTodayList').innerHTML = `<tr><td colspan="3" style="color:var(--danger)">${{escapeHtml(dashboardUnavailableMsg)}}</td></tr>`;
                     document.getElementById('dashApptUpcomingList').innerHTML = `<tr><td colspan="3" style="color:var(--danger)">${{escapeHtml(dashboardUnavailableMsg)}}</td></tr>`;
-                    document.getElementById('followupsList').innerHTML = `<tr><td colspan="4" style="color:var(--danger)">${{escapeHtml(dashboardUnavailableMsg)}}</td></tr>`;
+                    document.getElementById('followupsList').innerHTML = `<tr><td colspan="6" style="color:var(--danger)">${{escapeHtml(dashboardUnavailableMsg)}}</td></tr>`;
                     document.getElementById('pipelineSummaryList').innerHTML = `<tr><td colspan="4" style="color:var(--danger)">${{escapeHtml(dashboardUnavailableMsg)}}</td></tr>`;
                     document.getElementById('pipelineTotals').textContent = '';
                     document.getElementById('commissionsList').innerHTML = `<tr><td colspan="4" style="color:var(--danger)">${{escapeHtml(dashboardUnavailableMsg)}}</td></tr>`;
@@ -5787,9 +5920,11 @@ def _render_sales_portal() -> str:
                     const fu = data.followups || {{}};
                     const renderTask = (t, overdue) => `<tr>
                         <td${{overdue ? ' style="color:var(--danger);font-weight:600;"' : ''}}>${{escapeHtml(t.title)}}</td>
+                        <td>${{taskTypeBadge(t)}}</td>
                         <td${{overdue ? ' style="color:var(--danger);font-weight:600;"' : ''}}>${{escapeHtml(t.due_date)}}</td>
                         <td>${{escapeHtml(t.priority)}}</td>
                         <td>${{overdue ? 'OVERDUE' : escapeHtml(t.status)}}</td>
+                        <td>${{taskActionButtons(t)}}</td>
                     </tr>`;
                     const fuRows = [
                         ...(fu.overdue || []).map(t => renderTask(t, true)),
@@ -5798,7 +5933,7 @@ def _render_sales_portal() -> str:
                     ];
                     followupsList.innerHTML = fuRows.length > 0
                         ? fuRows.join('')
-                        : '<tr><td colspan="4" style="color:var(--text-muted)">No follow-ups due.</td></tr>';
+                        : '<tr><td colspan="6" style="color:var(--text-muted)">No follow-ups due.</td></tr>';
 
                     // Pipeline summary -- first UI surface for this data.
                     const pipelineList = document.getElementById('pipelineSummaryList');
@@ -6480,8 +6615,8 @@ def _render_sales_portal() -> str:
                 '<thead><tr><th>Channel</th><th>Direction</th><th>Subject/Content</th></tr></thead>');
 
             html += c360PanelSection('Tasks', byKey.tasks, 'No tasks.',
-                (d) => (d.tasks || []).map(t => `<tr><td>${{escapeHtml(t.title || '')}}</td><td>${{escapeHtml(t.status || '')}}</td><td>${{escapeHtml(t.due_date || '')}}</td></tr>`),
-                '<thead><tr><th>Title</th><th>Status</th><th>Due</th></tr></thead>');
+                (d) => (d.tasks || []).map(t => `<tr><td>${{escapeHtml(t.title || '')}}</td><td>${{taskTypeBadge(t)}}</td><td>${{escapeHtml(t.status || '')}}</td><td>${{escapeHtml(t.due_date || '')}}</td><td>${{taskActionButtons(t)}}</td></tr>`),
+                '<thead><tr><th>Title</th><th>Type</th><th>Status</th><th>Due</th><th>Actions</th></tr></thead>');
 
             body.innerHTML = html;
         }}
