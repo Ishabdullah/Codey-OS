@@ -7338,7 +7338,52 @@ this file's own don't-duplicate rule.
             latent/unreachable today). **This closes B8.7's entire
             build queue except B8.7c**, which stays blocked on D6.
 - [ ] **B8.8** — insurance restoration workflow & financing tracking.
-      Financing integration blocked on Open Decision D5.
+      **D5 confirmed 2026-09-16, manual tracking only, no integration.**
+      **SCOPED 2026-09-23** (project-architect, both halves), full
+      detail in `PROJECT_LOG.md`. Split into B8.8a (insurance workflow
+      UI, plain data-entry) → B8.8b-1 (`FinancingRecord` table + CRUD,
+      deliberately inert — reads nothing into AR) → B8.8b-2 (wiring the
+      financing offset into `get_ar_aging`/`get_financial_summary`/
+      `get_project_pnl`, rule-4 money category, isolated as the
+      highest-risk piece). **Ish decided 2026-09-23 that a recorded
+      financed amount should offset AR** (not pure display), and
+      answered two follow-on questions: eligibility = `approved` +
+      `funded` application statuses (not merely `submitted`); the two
+      other independent `balance_due` aggregates outside
+      `finance_service.py` (`AnalyticsSearchService`'s KPI, `Operations
+      Service`'s per-project list — logged as `NEW-613`) should get the
+      same offset in a follow-on round, not stay cash-only.
+      - [x] **B8.8a** — insurance workflow UI. **DONE 2026-09-23,
+            code-complete + code-reviewer APPROVED round 1, no
+            findings**, commit `795b4c8`. Full detail in
+            `PROJECT_LOG.md`'s 2026-09-23 entry. Corrected a stale
+            "InsuranceClaim is net-new schema" claim in both this file
+            and `sales_rep_portal.md` (rule 6, commit `e2f3a87`) — the
+            real gap was UI, not schema; `Project`/`Opportunity` have
+            carried insurance/claim/adjuster fields since Phase B3.
+            Added 2 new fields (`coverage_amount`/`supplement_amount`)
+            and built the first-ever UI panel exposing all 8. Logged,
+            not fixed: `NEW-610` (no opportunity→project field
+            carryover), `NEW-611` (`insurance_carrier` duplicated
+            across 3 tables).
+      - [ ] **B8.8b-1** — `financing_records` table + CRUD, RBAC. Not
+            yet built. Deliberately inert (no AR wiring) — see design
+            in `PROJECT_LOG.md`'s B8.8 scoping entry for the schema
+            (`invoice_id` nullable, `customer_contribution` never
+            enters offset math, partial unique index against
+            double-financing on one invoice).
+      - [ ] **B8.8b-2** — wire the financing offset into
+            `get_ar_aging`/`get_financial_summary`/`get_project_pnl`
+            (live re-evaluation at query time, no reversal mechanism
+            needed — a denied/cancelled record simply stops
+            contributing on the next read). **Rule-4 category**
+            (money). Not yet built. Logged, not fixed: `NEW-612`
+            (pre-existing, `get_financial_summary`'s revenue figure is
+            disconnected from real invoice payments — found while
+            tracing this design, unrelated to B8.8b itself), `NEW-613`
+            (two more AR aggregates outside this round's scope, Ish
+            confirmed they should get the same offset in a follow-on
+            round).
 - [ ] **B8.9** — territory management & referral compensation.
 - [ ] **B8.10** — communications center & follow-up visibility. Blocked
       on Open Decision D1 (SMS) for anything beyond email + the
