@@ -7523,11 +7523,19 @@ this file's own don't-duplicate rule.
             `NEW-626` (project-linked-only rows conservatively hidden,
             a real design question), `NEW-627` (unvalidated `lead_id`
             on the POST route, matching a pre-existing pattern).
-      - [ ] **B8.10c** — compose/send email from the portal. Not yet
-            built. Sends from the shared company account (Ish-
-            answered). Must check `NEW-623` (SMTP-timeout risk) before
-            or during this round, and must call `record_communication`
-            only after a confirmed successful send, per `NEW-620`.
+      - [x] **B8.10c** — compose/send email from the portal. **DONE
+            2026-09-24, code-complete + code-reviewer APPROVED round 1,
+            zero blocking findings**, commit `af213bf`. Full detail in
+            `PROJECT_LOG.md`'s 2026-09-24 entry. Sends from the shared
+            company account with the rep's name in the signature. Send-
+            then-log ordering (`NEW-620`) and recipient-locking
+            (reusing `NEW-568`'s narrowing) both independently live-
+            reproduced by the reviewer, not just tested. `NEW-623`'s
+            SMTP-timeout risk confirmed (not just suspected) by reading
+            Aigentik's send path directly — mitigated for this route
+            only (`timeout=15.0`), the three pre-existing callers left
+            unchanged at 2.0s, explicitly still open. **This closes
+            B8.10 in full (a/b/c all shipped).**
 - [ ] **B8.11** — AI Sales Copilot. Deliberately last; depends on CCOS
       reaching a state where it can serve read-only advisory queries.
       Not designed further until then.
