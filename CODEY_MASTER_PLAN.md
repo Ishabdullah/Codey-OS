@@ -7540,7 +7540,42 @@ this file's own don't-duplicate rule.
       reaching a state where it can serve read-only advisory queries.
       Not designed further until then.
 - [ ] **B8.12** — sales-to-production handoff & read-only job
-      visibility. **Rule-4 category** (RBAC narrowing).
+      visibility. **Rule-4 category** (RBAC narrowing). **SCOPED
+      2026-09-24** (project-architect) — reframed: `sales_rep_portal.md`'s
+      own text ("reuse `PERM_READ_ASSIGNED_PROJECTS`") doesn't work as
+      written; the real finding was that `ROLE_SALES` already held two
+      flat, company-wide, zero-ownership-filter permissions
+      (`PERM_READ_ALL_PROJECTS`/`PERM_READ_OPERATIONS`) — a live over-
+      grant, not a missing feature. Split into B8.12a (the narrowing
+      fix, zero Ish dependency) → B8.12b (`ProductionHandoffChecklist` +
+      signed/deposit guard, needed Ish's input, all three questions
+      answered 2026-09-24: deposit-received = an explicit `payment_type`
+      field tags a payment as the deposit, not a sum check; the guard
+      blocks checklist completion only, not project creation; checklist
+      items can be marked N/A per job type).
+      - [x] **B8.12a** — narrow `ROLE_SALES`'s project/operations
+            visibility. **DONE 2026-09-24, code-complete + code-reviewer
+            APPROVED round 1 (1 Warning fixed inline before commit)**,
+            commit `fb996db`. Full detail in `PROJECT_LOG.md`'s
+            2026-09-24 entry. New `PERM_READ_OWN_SOLD_PROJECTS`,
+            narrowed via `Contract.assigned_user_id`. Unclaimed
+            (`NULL`) contracts denied, not visible — deliberately
+            fail-closed, live-verified by the reviewer. `PERM_READ_TEAM_
+            SALES_DATA` reused as the team-wide bypass; `ROLE_SALES_
+            MANAGER` needs no direct grant. **`NEW-630`**: the manager's
+            derived-permissions union silently lost equipment/
+            deployment visibility as a side effect (project/work-order
+            visibility itself is a genuine no-op, live-verified) —
+            logged, not fixed, needs a product decision. A second gap
+            (bypass helper not exempting two other independent
+            entitlements) was found and fixed inline with a regression
+            test before commit. Logged, not fixed: `NEW-628`
+            (`operations_service.py`'s zero-ownership-filter pattern is
+            broader than just `ROLE_SALES`), `NEW-629` (a pre-existing,
+            non-bug observation about `PERM_READ_OWN_PROJECTS`).
+      - [ ] **B8.12b** — `ProductionHandoffChecklist` + signed/deposit
+            guard. Not yet built. All three open questions answered —
+            ready to scope in full detail.
 - [ ] **B8.13** — mobile-first pass & audit completeness sweep across
       every B8 write path.
 - [ ] **B8.14** — analytics rollups (rep/manager/executive tiers).
