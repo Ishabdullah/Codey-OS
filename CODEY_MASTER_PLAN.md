@@ -7573,9 +7573,28 @@ this file's own don't-duplicate rule.
             (`operations_service.py`'s zero-ownership-filter pattern is
             broader than just `ROLE_SALES`), `NEW-629` (a pre-existing,
             non-bug observation about `PERM_READ_OWN_PROJECTS`).
-      - [ ] **B8.12b** — `ProductionHandoffChecklist` + signed/deposit
-            guard. Not yet built. All three open questions answered —
-            ready to scope in full detail.
+      - [x] **B8.12b** — `ProductionHandoffChecklist` + signed/deposit
+            guard. **DONE 2026-09-24, code-complete + code-reviewer
+            APPROVED**, commit `a261de5`. Full detail in
+            `PROJECT_LOG.md`'s 2026-09-24 entry. New table keyed on
+            `project_id` (a deliberate reconciliation against the
+            source doc's literal "contract_id" — `Invoice` has no
+            `contract_id`). New explicit `payment_type` deposit-tagging
+            on `payments_json` entries. Completion guard blocks
+            checklist completion only, never project creation. Gated
+            `PERM_WRITE_PROJECTS`; read delegates to `get_project`'s
+            own gate + B8.12a's narrowing. **`NEW-631` (CRITICAL, not
+            fixed)**: this round's own sanctioned deposit-tagging
+            workflow routinely triggers a pre-existing `record_payment`
+            balance-double-count bug, flipping an invoice to falsely
+            `status='paid'` and silently dropping it out of AR
+            aging/executive-dashboard total AR. Root cause predates
+            this round and needs its own dedicated fix round — flagged
+            as the next priority, not routine backlog. `NEW-632`
+            (non-blocking): a compound gap letting a trusted actor
+            satisfy the deposit condition against the wrong invoice
+            without malice. **This closes B8.12 in full (a/b both
+            shipped).**
 - [ ] **B8.13** — mobile-first pass & audit completeness sweep across
       every B8 write path.
 - [ ] **B8.14** — analytics rollups (rep/manager/executive tiers).
