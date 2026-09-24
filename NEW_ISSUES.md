@@ -19108,3 +19108,29 @@ housekeeping, same as `NEW-403`'s own cleanup.
 - **Fix direction (not decided/fixed this round):** either normalize `due_date` to a consistent bare-date format at the point every writer sets it, or make `snoozeTaskAction`'s parsing robust to both a bare date and a full ISO timestamp.
 - **Not fixed this round** — logged per rule 8, non-blocking, currently unreachable. **When to revisit:** before/if any future automation rule starts setting `Task.due_date` from a full-timestamp source rather than a bare date string — check this the moment such a rule is added.
 - **Cross-reference:** `restoricon_core/api/web_surfaces.py` (`snoozeTaskAction`), `restoricon_core/services/crm_service.py` (`generate_cadence_tasks`).
+
+## Found 2026-09-24 — B8.10b implementer + code-reviewer round (Communications Center feed, `NEW-618` closed), commit `381b807`, all non-blocking
+
+### [NEW-625] Confirmed, pre-existing architectural gap, surfaced not introduced: `/admin` (serving `render_admin_surface()`) has no server-side role check at all — any authenticated actor with a valid token, including `ROLE_SALES`/`ROLE_PROJECT_MANAGER`, can architecturally reach the full admin surface, including Customer 360's explicit-`customer_id` communications panel and the unscoped admin "Comms" tab
+
+- **Status:** Confirmed (code-reviewer, 2026-09-24, B8.10b review, read directly). `routes.py:445` serves `render_admin_surface()` for any GET to `/admin` with no server-side role gate; the rendered JS (`switchErpTab()`) has no client-side gate either. This was found while verifying an implementer's disclosure comment about PM-tier reachability of the communications-narrowing fix (that comment incorrectly called this panel "admin/manager-only" — corrected in the same commit, see `communication_service.py`).
+- **Impact:** real but bounded by this round's own fix — `query_communications()`'s new `NEW-618` narrowing applies uniformly to every caller regardless of which route/panel reaches it, so this gap doesn't expose MORE than it already did; if anything, B8.10b's fix closes a real pre-existing hole (the unscoped admin Comms tab had zero narrowing before this round, reachable by any `PERM_READ_COMMUNICATIONS` holder including a plain `ROLE_SALES` rep). But the underlying `/admin` route-gating gap itself is real and broader than just communications — every panel/action reachable from `/admin` presumably relies on service-layer RBAC alone, with no route-level defense-in-depth.
+- **Fix direction (not decided/fixed this round):** add a server-side role check on `/admin` (or confirm every single panel/action reachable from it is independently, correctly RBAC-gated at the service layer with no gaps — a much larger audit).
+- **Not fixed this round** — logged per rule 8, out of B8.10b's scope. **When to revisit:** any future security-focused audit pass, or the next time a new admin-surface panel is added (verify its own service-layer gate independently, don't rely on route-level protection that doesn't exist).
+- **Cross-reference:** `restoricon_core/api/routes.py` (`/admin`), `restoricon_core/api/web_surfaces.py` (`render_admin_surface`, `switchErpTab`), B8.10b.
+
+### [NEW-626] Suspected, non-blocking: `query_communications()`'s narrowing treats a `project_id`-only communication row (no `customer_id`, no `lead_id`) as unknown-provenance and hides it from narrowed actors, even though `project_id` has a resolvable ownership chain (project → customer → `assigned_user_id`) that isn't checked
+
+- **Status:** Suspected (code-reviewer, 2026-09-24, B8.10b review). This is disclosed in the code's own comment but wasn't logged to the ledger. No fixture/test exercises this specific case (a `project_id`-only row with no `customer_id`/`lead_id`).
+- **Impact:** minor — a real, if narrow, design question: should a `PERM_READ_ALL_PROJECTS`-holding actor (e.g. a PM) see project-linked communications too, via a resolvable project → customer chain, or is excluding them from the narrowed feed the correct conservative default?
+- **Fix direction (not decided/fixed this round):** either extend the narrowing clause to also check a resolvable `project_id → customer.assigned_user_id` chain, or explicitly confirm the current conservative exclusion is the intended design.
+- **Not fixed this round** — logged per rule 8, non-blocking. **When to revisit:** if a real caller ever needs project-linked communications visible in a narrowed feed.
+- **Cross-reference:** `restoricon_core/services/communication_service.py` (`query_communications`), B8.10b.
+
+### [NEW-627] Confirmed, low-priority, not a regression: `POST /api/v1/communications`'s `lead_id` field is unvalidated (no integer-type check), matching the pre-existing unvalidated treatment of `project_id`/`opportunity_id` on the same route
+
+- **Status:** Confirmed (code-reviewer, 2026-09-24, B8.10b review, read directly). `json_body.get("lead_id")` is passed straight through with no `_parse_int_body_field`-style validation — but this exactly matches how `project_id`/`opportunity_id` are already handled on the same route, so it's consistency with an existing pattern, not a new gap this diff introduces.
+- **Impact:** low — a malformed `lead_id` (wrong type, e.g. a string) would likely surface as a downstream SQL type error rather than being caught at the API boundary with a clean 400.
+- **Fix direction (not decided/fixed this round):** add integer-type validation to all three fields (`lead_id`, `project_id`, `opportunity_id`) on this route together, for consistency, rather than fixing `lead_id` alone.
+- **Not fixed this round** — logged per rule 8, non-blocking, pre-existing pattern. **When to revisit:** if this route ever gets a general input-validation hardening pass.
+- **Cross-reference:** `restoricon_core/api/routes.py` (`POST /api/v1/communications`), B8.10b.
