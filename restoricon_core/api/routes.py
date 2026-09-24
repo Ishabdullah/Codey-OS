@@ -25,6 +25,7 @@ from ..auth import (
     PERM_READ_TEAM_SALES_DATA,
     PERM_WRITE_SUBCONTRACTORS,
     PERMISSIONS_CATALOG,
+    ROLE_CUSTOMER,
 )
 from ..models import (
     Appointment,
@@ -1809,6 +1810,140 @@ class APIRouter:
                     "communications": [c.to_dict() for c in records],
                     "scope": scope,
                 }
+
+            # -------------------------------------------------------------
+            # B8.10c: Sales Rep Portal compose/send email -- the only
+            # B8.10 sub-phase with a real external side effect (a genuine
+            # email to a genuine customer via NotificationService.send_email
+            # -> Aigentik's real Gmail SMTP transport). Sends from the
+            # existing shared company account with the composing rep's
+            # name appended, per Ish's 2026-09-23 decision (no per-rep
+            # sending identity).
+            #
+            # NEW-620 mandatory ordering: send FIRST, log SECOND -- only on
+            # a confirmed successful send does this call
+            # record_communication(). Logging first (or logging
+            # unconditionally) would let a failed/uncertain send claim a
+            # CommunicationRecord for an email that was never actually
+            # delivered, which is worse than the pre-existing gap NEW-620
+            # itself describes (a send with no log at all): a *false*
+            # record actively misleads anyone reading communication
+            # history, whereas an unlogged real send is merely invisible.
+            #
+            # Recipient locking: `to_email` is read ONLY from
+            # get_customer(customer_id, actor).email -- never from
+            # json_body -- so a request body cannot redirect the send to
+            # an attacker-controlled address regardless of what fields it
+            # includes.
+            # -------------------------------------------------------------
+            if (
+                path.startswith("/api/v1/customers/")
+                and path.endswith("/compose-email")
+                and "/" not in path[len("/api/v1/customers/"):-len("/compose-email")]
+                and method == "POST"
+            ):
+                customer_id = _parse_int_path_segment(
+                    path[len("/api/v1/customers/"):-len("/compose-email")], "customer_id"
+                )
+
+                # RBAC: the write-permission for communications
+                # (PERM_LOG_COMMUNICATION), checked BEFORE any send is
+                # attempted -- record_communication() below also checks
+                # this internally, but checking it there would be too
+                # late: send-then-log means the email would already be
+                # gone by the time that internal check could fire, so an
+                # actor lacking this permission would get a real send
+                # followed by a PermissionError with nothing logged
+                # (worse than either a clean 403 or a logged send).
+                if not actor.has_permission(PERM_LOG_COMMUNICATION):
+                    return 403, {"Content-Type": "application/json"}, {
+                        "error": "Actor lacks permission to log communications"
+                    }
+
+                # This is a staff/sales-portal compose action, not a
+                # customer-portal feature -- ROLE_CUSTOMER also holds
+                # PERM_LOG_COMMUNICATION (for portal_messages) and
+                # can_access_customer() would let a customer-role actor
+                # target their own record, which is out of this route's
+                # scope entirely.
+                if actor.role == ROLE_CUSTOMER:
+                    return 403, {"Content-Type": "application/json"}, {
+                        "error": "Compose is not available for this role"
+                    }
+
+                content_body = json_body.get("body", json_body.get("content", ""))
+                if not isinstance(content_body, str) or not content_body.strip():
+                    return 400, {"Content-Type": "application/json"}, {"error": "body is required"}
+                subject = json_body.get("subject") or "Message from Restoricon"
+                if not isinstance(subject, str):
+                    return 400, {"Content-Type": "application/json"}, {"error": "subject must be a string"}
+
+                # get_customer() enforces can_access_customer() plus the
+                # NEW-568 rep-ownership narrowing and returns None (not a
+                # raise) for both "doesn't exist" and "not visible to this
+                # actor" -- reusing that exact pattern rather than
+                # inventing a new ownership check, per this round's scope.
+                customer = self.crm.get_customer(customer_id, actor)
+                if customer is None:
+                    return 404, {"Content-Type": "application/json"}, {"error": "Customer not found"}
+                if not customer.email:
+                    return 400, {"Content-Type": "application/json"}, {
+                        "error": "Customer has no email address on file"
+                    }
+
+                # CRMService is legitimately constructed with
+                # notification_service=None in some contexts (see its own
+                # __init__ comment) -- mirror the same guard used at the
+                # PM-assignment notification call site rather than letting
+                # this raise an AttributeError.
+                if self.crm.notification_service is None:
+                    return 503, {"Content-Type": "application/json"}, {
+                        "error": "Email service is not configured"
+                    }
+
+                rep = self.auth.get_user_by_id(actor.user_id) if actor.user_id else None
+                rep_name = (rep.full_name if rep and rep.full_name else actor.username) or "Restoricon Team"
+                full_body = f"{content_body.strip()}\n\n-- \n{rep_name}\nRestoricon"
+
+                # NEW-623: 15.0s, not the 2.0s default -- this call is on
+                # the only path in the codebase where a false-negative
+                # (reporting failure on an email that actually sent) is a
+                # customer-facing risk (a rep re-sending on a "failed"
+                # compose would produce a genuine duplicate email to a real
+                # customer). The request runs on its own thread
+                # (ThreadingHTTPServer), so a slower response here does not
+                # block any other in-flight request.
+                sent = self.crm.notification_service.send_email(
+                    to_email=customer.email,
+                    subject=subject,
+                    body=full_body,
+                    timeout=15.0,
+                )
+                if not sent:
+                    # NEW-623 residual: even with this route's own longer
+                    # 15.0s timeout, a false-negative (the email actually
+                    # sent but this call still reports failure) is not
+                    # fully ruled out -- only mitigated. Wording
+                    # deliberately avoids telling the rep the email
+                    # "didn't send," since re-sending on that belief is
+                    # exactly the duplicate-email risk NEW-623 describes.
+                    return 502, {"Content-Type": "application/json"}, {
+                        "error": (
+                            "Could not confirm the email was sent, and nothing was logged to "
+                            "communication history. Check with the customer before resending."
+                        )
+                    }
+
+                rec = self.comm.record_communication(
+                    channel="email",
+                    direction="outbound",
+                    content=content_body.strip(),
+                    actor=actor,
+                    subject=subject,
+                    customer_id=customer_id,
+                    metadata={"source": "sales_portal_compose", "rep_name": rep_name},
+                )
+                return 201, {"Content-Type": "application/json"}, {"communication": rec.to_dict()}
 
             # Audit Log (Append-only query)
             if path == "/api/v1/audit-log" and method == "GET":

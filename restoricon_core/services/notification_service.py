@@ -10,7 +10,19 @@ class NotificationService:
     def __init__(self, aigentik_api_url: str = "http://127.0.0.1:8081"):
         self.aigentik_api_url = aigentik_api_url.rstrip("/")
 
-    def send_email(self, to_email: str, subject: str, body: str, html: Optional[str] = None) -> bool:
+    def send_email(
+        self, to_email: str, subject: str, body: str, html: Optional[str] = None,
+        timeout: float = 2.0,
+    ) -> bool:
+        """NEW-623: `timeout` defaults to the original 2.0s (unchanged for
+        existing callers -- the PM-assignment notification path at
+        crm_service.py:3037) but the actual Aigentik /send-email endpoint
+        does not write its HTTP response until the real, live SMTP round
+        trip to Gmail completes (http-server.js awaits
+        emailProvider.sendEmail() before responding), so 2.0s is not a
+        defensible default for a caller where a false-failure/duplicate-
+        send risk matters -- see the B8.10c compose route, which passes an
+        explicit longer timeout instead of relying on this default."""
         url = f"{self.aigentik_api_url}/send-email"
         data = {
             "to": to_email,
@@ -19,8 +31,8 @@ class NotificationService:
         }
         if html:
             data["html"] = html
-            
-        return self._post_request(url, data)
+
+        return self._post_request(url, data, timeout=timeout)
 
     def send_calendar_invite(self, to_email: str, appointment: Dict[str, Any], text: str) -> bool:
         url = f"{self.aigentik_api_url}/send-invite"
@@ -38,12 +50,12 @@ class NotificationService:
         data = {"to": to_email, "appointment": appointment, "text": text}
         return self._post_request(url, data)
 
-    def _post_request(self, url: str, data: Dict[str, Any]) -> bool:
+    def _post_request(self, url: str, data: Dict[str, Any], timeout: float = 2.0) -> bool:
         payload = json.dumps(data).encode("utf-8")
         req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
-        
+
         try:
-            with urllib.request.urlopen(req, timeout=2.0) as response:
+            with urllib.request.urlopen(req, timeout=timeout) as response:
                 if response.getcode() == 200:
                     return True
                 else:

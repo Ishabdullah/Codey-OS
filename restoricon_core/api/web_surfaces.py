@@ -5485,6 +5485,24 @@ def _render_sales_portal() -> str:
         </div>
     </div>
 
+    <!-- B8.10c: Compose email modal -- To is always a read-only display of
+         the locked customer address (the actual outbound recipient is
+         resolved server-side from customer_id, never from this field), so
+         there is no input for it at all. -->
+    <div id="composeEmailModal" class="erp-modal-overlay">
+        <div class="erp-modal">
+            <div class="modal-header">
+                <h3>Compose Email</h3>
+                <button class="btn-gold" style="padding:0.3rem 0.7rem;" onclick="closeComposeEmailModal()">&times;</button>
+            </div>
+            <p id="composeEmailError" style="display:none;color:var(--danger);font-weight:600;"></p>
+            <div class="modal-field"><label>To</label><div id="composeEmailTo" style="color:var(--text-muted);"></div></div>
+            <div class="modal-field"><label>Subject</label><input type="text" id="composeEmailSubject" placeholder="Message from Restoricon"></div>
+            <div class="modal-field"><label>Message</label><textarea id="composeEmailBody" rows="6"></textarea></div>
+            <button class="btn-gold" id="composeEmailSendBtn" onclick="sendComposeEmail()">Send</button>
+        </div>
+    </div>
+
     <!-- B8.6d-c (NEW-579): guided customer -> template -> fill -> sign flow.
          Four steps, one <div id="gflowStepN"> shown at a time via
          showGuidedStep(). Reuses the erp-modal-overlay/erp-modal/
@@ -6435,6 +6453,7 @@ def _render_sales_portal() -> str:
         // re-derived for this modal's own fields, not copied verbatim.
         // -----------------------------------------------------------------
         let currentCustomer360Id = null;
+        let currentCustomer360Email = null; // B8.10c: locks the Compose modal's To field
         let currentCustomer360Properties = [];
         let editingPropertyId = null;
         let currentPropertyHistoryId = null;
@@ -6547,6 +6566,7 @@ def _render_sales_portal() -> str:
         function closeCustomer360Modal() {{
             document.getElementById('customer360Modal').classList.remove('active');
             currentCustomer360Id = null;
+            currentCustomer360Email = null;
             currentCustomer360Properties = [];
             editingPropertyId = null;
             currentCustomer360Projects = [];
@@ -6557,6 +6577,70 @@ def _render_sales_portal() -> str:
             currentAppointmentDetailId = null;
             currentCustomer360Appointments = [];
             assessmentFormEvidenceDocs = [];
+        }}
+
+        // -----------------------------------------------------------------
+        // B8.10c: Compose/send email -- POST /api/v1/customers/<id>/compose-email.
+        // The To field is a locked, read-only display of
+        // currentCustomer360Email; there is no editable recipient input at
+        // all, so there is nothing here for a user to change even if they
+        // wanted to send to a different address.
+        // -----------------------------------------------------------------
+        function openComposeEmailModal() {{
+            if (!currentCustomer360Id || !currentCustomer360Email) return;
+            document.getElementById('composeEmailTo').textContent = currentCustomer360Email;
+            document.getElementById('composeEmailSubject').value = '';
+            document.getElementById('composeEmailBody').value = '';
+            const err = document.getElementById('composeEmailError');
+            err.style.display = 'none';
+            err.textContent = '';
+            document.getElementById('composeEmailModal').classList.add('active');
+        }}
+
+        function closeComposeEmailModal() {{
+            document.getElementById('composeEmailModal').classList.remove('active');
+        }}
+
+        async function sendComposeEmail() {{
+            const customerId = currentCustomer360Id;
+            if (!customerId) return;
+            const subject = document.getElementById('composeEmailSubject').value;
+            const body = document.getElementById('composeEmailBody').value;
+            const err = document.getElementById('composeEmailError');
+            const btn = document.getElementById('composeEmailSendBtn');
+            if (!body || !body.trim()) {{
+                err.textContent = 'Message body is required.';
+                err.style.display = 'block';
+                return;
+            }}
+            btn.disabled = true;
+            btn.textContent = 'Sending...';
+            err.style.display = 'none';
+            try {{
+                const token = getAuthToken();
+                const res = await fetch('/api/v1/customers/' + customerId + '/compose-email', {{
+                    method: 'POST',
+                    headers: {{ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{ subject: subject, body: body }}),
+                }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                if (!res.ok) {{
+                    const data = await res.json().catch(() => ({{}}));
+                    err.textContent = data.error || 'Failed to send email.';
+                    err.style.display = 'block';
+                    return;
+                }}
+                closeComposeEmailModal();
+                // Refresh Customer 360 so the just-sent email appears in
+                // its Communications panel immediately.
+                await loadCustomer360(customerId);
+            }} catch (e) {{
+                err.textContent = 'Failed to send email: network error.';
+                err.style.display = 'block';
+            }} finally {{
+                btn.disabled = false;
+                btn.textContent = 'Send';
+            }}
         }}
 
         // Each entity has its own customer_id-scoped route already (B8.1's
@@ -6609,16 +6693,27 @@ def _render_sales_portal() -> str:
             renderCustomer360(customerId, byKey);
         }}
 
-        function c360PanelSection(title, result, emptyMsg, renderRows, headerRow) {{
+        function c360PanelSection(title, result, emptyMsg, renderRows, headerRow, headerAction) {{
+            // headerAction (B8.10c): optional extra HTML rendered inline
+            // in the panel's own <h3> header (e.g. the Communications
+            // panel's Compose button) -- a defaulted 6th param rather than
+            // a second helper function or a post-hoc string .replace()
+            // against this function's own template (fragile: a future
+            // edit to the <h3> markup here would silently no-op that
+            // replace with no error anywhere).
+            const action = headerAction || '';
+            const headerHtml = action
+                ? `<h3 style="margin-top:0;display:flex;justify-content:space-between;align-items:center;">${{title}} ${{action}}</h3>`
+                : `<h3 style="margin-top:0;">${{title}}</h3>`;
             if (!result || !result.ok) {{
                 const msg = (result && result.status === 403) ? 'No access.' : 'Failed to load.';
-                return `<div class="erp-card"><h3 style="margin-top:0;">${{title}}</h3><p style="color:var(--text-muted);">${{msg}}</p></div>`;
+                return `<div class="erp-card">${{headerHtml}}<p style="color:var(--text-muted);">${{msg}}</p></div>`;
             }}
             const rows = renderRows(result.data);
             const table = rows.length > 0
                 ? `<table>${{headerRow}}<tbody>${{rows.join('')}}</tbody></table>`
                 : `<p style="color:var(--text-muted);">${{emptyMsg}}</p>`;
-            return `<div class="erp-card"><h3 style="margin-top:0;">${{title}}</h3>${{table}}</div>`;
+            return `<div class="erp-card">${{headerHtml}}${{table}}</div>`;
         }}
 
         function renderCustomer360(customerId, byKey) {{
@@ -6632,6 +6727,7 @@ def _render_sales_portal() -> str:
             }}
             const cust = byKey.customer.data.customer;
             title.textContent = 'Customer 360 — ' + (cust.first_name || '') + ' ' + (cust.last_name || '');
+            currentCustomer360Email = cust.email || null;
 
             currentCustomer360Properties = (byKey.properties && byKey.properties.ok && byKey.properties.data.properties) || [];
             currentCustomer360Projects = (byKey.projects && byKey.projects.ok && byKey.projects.data.projects) || [];
@@ -6669,9 +6765,16 @@ def _render_sales_portal() -> str:
 
             html += renderAppointmentsPanel(byKey.appointments);
 
+            // B8.10c: Compose button -- disabled (not hidden) when the
+            // customer has no email on file, so the reason is visible
+            // rather than the action just silently not being there.
+            const composeBtn = currentCustomer360Email
+                ? `<button class="btn-gold" style="padding:0.3rem 0.7rem;font-size:0.8rem;" onclick="openComposeEmailModal()">Compose</button>`
+                : `<button class="btn-gold" style="padding:0.3rem 0.7rem;font-size:0.8rem;" disabled title="Customer has no email on file">Compose</button>`;
             html += c360PanelSection('Communications', byKey.communications, 'No communications.',
                 (d) => (d.communications || []).map(m => `<tr><td>${{escapeHtml(m.channel || '')}}</td><td>${{escapeHtml(m.direction || '')}}</td><td>${{escapeHtml(m.subject || m.content || '')}}</td></tr>`),
-                '<thead><tr><th>Channel</th><th>Direction</th><th>Subject/Content</th></tr></thead>');
+                '<thead><tr><th>Channel</th><th>Direction</th><th>Subject/Content</th></tr></thead>',
+                composeBtn);
 
             html += c360PanelSection('Tasks', byKey.tasks, 'No tasks.',
                 (d) => (d.tasks || []).map(t => `<tr><td>${{escapeHtml(t.title || '')}}</td><td>${{taskTypeBadge(t)}}</td><td>${{escapeHtml(t.status || '')}}</td><td>${{escapeHtml(t.due_date || '')}}</td><td>${{taskActionButtons(t)}}</td></tr>`),
