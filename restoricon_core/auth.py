@@ -60,6 +60,22 @@ PERM_READ_ASSIGNED_PROJECTS = "read:assigned_projects"
 PERM_READ_OWN_PROJECTS = "read:own_projects"
 PERM_WRITE_PROJECTS = "write:projects"
 
+# B8.12a, 2026-09-24: replaces PERM_READ_ALL_PROJECTS/PERM_READ_OPERATIONS on
+# ROLE_SALES, which were flat, company-wide over-grants with zero per-row
+# ownership check anywhere in crm_service.py/operations_service.py (NEW-628).
+# Narrowed to projects a rep actually sold: crm_service.py/
+# operations_service.py filter to rows where a `contracts` row exists with
+# matching project_id AND assigned_user_id == actor.user_id.
+# assigned_user_id IS NULL (an unclaimed contract) is DENIED, not treated as
+# visible -- deliberately different from the leads/opportunities
+# unclaimed-pool leniency (_scoped_assignee_filter), since granting an
+# unclaimed project to every rep would recreate the exact over-grant this
+# permission replaces. A rep additionally holding PERM_READ_TEAM_SALES_DATA
+# (i.e. ROLE_SALES_MANAGER, via its derived-permissions union below) bypasses
+# the ownership filter entirely and keeps full visibility, same team-wide
+# semantics as every other PERM_READ_TEAM_SALES_DATA narrowing in this file.
+PERM_READ_OWN_SOLD_PROJECTS = "read:own_sold_projects"
+
 # NEW-533, 2026-09-16 (permission introduced); D2, sales_rep_portal.md §4,
 # Ish-approved, 2026-09-16 (real ROLE_SALES_MANAGER role added on top).
 # Holding PERM_READ_TEAM_SALES_DATA lets an actor see every rep's leads,
@@ -422,7 +438,20 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_WRITE_CRM,
         PERM_MANAGE_PIPELINE,
         PERM_SCORE_LEADS,
-        PERM_READ_ALL_PROJECTS,
+        # B8.12a, 2026-09-24 (NEW-628): PERM_READ_ALL_PROJECTS and
+        # PERM_READ_OPERATIONS were removed from here -- both were flat,
+        # company-wide over-grants with zero per-row ownership check,
+        # letting any sales rep read every project/work order/equipment
+        # deployment in the company. Replaced with PERM_READ_OWN_SOLD_PROJECTS
+        # (see its definition above), which crm_service.py/
+        # operations_service.py narrow to projects the rep actually sold via
+        # a matching Contract row. This also intentionally denies ROLE_SALES
+        # get_equipment/list_equipment/deploy_equipment/return_equipment/
+        # list_project_deployments/get_active_work_orders_for_subcontractor/
+        # match_subcontractors_for_trade -- none of those had a legitimate
+        # sales-rep use case and PERM_READ_OWN_SOLD_PROJECTS does not cover
+        # them; this is the intended narrowing outcome, not a gap.
+        PERM_READ_OWN_SOLD_PROJECTS,
         PERM_READ_ESTIMATES,
         PERM_WRITE_ESTIMATES,
         PERM_READ_CONTRACTS,
@@ -439,7 +468,6 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERM_READ_DNC,
         PERM_READ_CONTACTS,
         PERM_WRITE_CONTACTS,
-        PERM_READ_OPERATIONS,
         PERM_READ_MARKETING,
         PERM_WRITE_MARKETING,
         PERM_READ_PROCUREMENT,
@@ -599,6 +627,29 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
 # PERM_WRITE_TEAM_COMMISSIONS (code-reviewer round 2) -- a sales manager
 # correcting a payout is exactly the role this write gate is meant for,
 # same default set as the read permission it was split from.
+#
+# B8.12a, 2026-09-24: confirmed this union needs no change for
+# get_project/get_milestone/list_milestones/get_work_order/
+# list_work_orders and get_project_summary's project/milestone/work-order
+# data -- PERM_READ_ALL_PROJECTS/PERM_READ_OPERATIONS were removed from
+# ROLE_SALES and replaced with PERM_READ_OWN_SOLD_PROJECTS above. A manager
+# inherits PERM_READ_OWN_SOLD_PROJECTS from ROLE_SALES (passing the
+# crm_service.py/operations_service.py gate on those six methods) and
+# independently holds PERM_READ_TEAM_SALES_DATA right here, which every
+# ownership-filter branch B8.12a added treats as a bypass.
+#
+# NOT a no-op for equipment: this union never re-adds PERM_READ_OPERATIONS
+# itself, only the narrower PERM_READ_OWN_SOLD_PROJECTS (via the ROLE_SALES
+# union) -- so ROLE_SALES_MANAGER, same as ROLE_SALES, loses
+# get_equipment/list_equipment/deploy_equipment/return_equipment/
+# list_project_deployments/get_active_work_orders_for_subcontractor/
+# match_subcontractors_for_trade (all still PERM_READ_OPERATIONS-only,
+# deliberately not extended -- B8.12a's own scope excludes equipment), and
+# get_project_summary's equipment_summary comes back None for a manager
+# too, not real deployment data. Logged as NEW-630 (open, needs an
+# explicit decision on whether ROLE_SALES_MANAGER should keep equipment
+# visibility) rather than silently fixed, since re-granting it was
+# explicitly out of scope for this round.
 ROLE_PERMISSIONS[ROLE_SALES_MANAGER] = ROLE_PERMISSIONS[ROLE_SALES] | {
     PERM_READ_TEAM_SALES_DATA,
     PERM_READ_TEAM_COMMISSIONS,
@@ -640,6 +691,7 @@ PERMISSIONS_CATALOG: Dict[str, Dict[str, Any]] = {
         "description": "Projects, work orders, and drying fleet",
         "permissions": [
             {"id": PERM_READ_ALL_PROJECTS, "name": "Read All Projects", "description": "View all job sites and projects"},
+            {"id": PERM_READ_OWN_SOLD_PROJECTS, "name": "Read Own Sold Projects", "description": "View projects, work orders, and status for jobs the actor personally sold (has a matching Contract), not the whole company's -- default sales-rep grant"},
             {"id": PERM_READ_ASSIGNED_PROJECTS, "name": "Read Assigned Projects", "description": "View assigned project jobs"},
             {"id": PERM_READ_OWN_PROJECTS, "name": "Read Own Projects", "description": "View own customer projects"},
             {"id": PERM_WRITE_PROJECTS, "name": "Write Projects", "description": "Create and update project records"},

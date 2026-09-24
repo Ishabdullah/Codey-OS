@@ -16,7 +16,9 @@ from ..auth import (
     PERM_DISPATCH_WORK_ORDERS,
     PERM_MANAGE_PROJECTS,
     PERM_READ_OPERATIONS,
+    PERM_READ_OWN_SOLD_PROJECTS,
     PERM_READ_SUBCONTRACTORS,
+    PERM_READ_TEAM_SALES_DATA,
     PERM_WRITE_OPERATIONS,
     ROLE_CUSTOMER,
 )
@@ -185,10 +187,41 @@ class OperationsService:
     # PROJECT LIFECYCLE & STAGE TRANSITIONS
     # ==========================================
 
+    def _actor_reaches_only_via_sold_projects(self, actor: AuthContext) -> bool:
+        """True iff `actor` holds PERM_READ_OWN_SOLD_PROJECTS (B8.12a) but
+        neither PERM_READ_OPERATIONS/PERM_MANAGE_PROJECTS (this domain's
+        existing flat gates) nor PERM_READ_TEAM_SALES_DATA (the team-wide
+        bypass -- this is how ROLE_SALES_MANAGER keeps full, unfiltered
+        operations visibility with zero extra grant, same mechanism as
+        crm_service.py's identical narrowing). Keyed on permission, never
+        `actor.role`, so a custom_permissions_json grant of
+        PERM_READ_OWN_SOLD_PROJECTS to any other role is narrowed
+        identically."""
+        return (
+            actor.has_permission(PERM_READ_OWN_SOLD_PROJECTS)
+            and not actor.has_permission(PERM_READ_OPERATIONS)
+            and not actor.has_permission(PERM_MANAGE_PROJECTS)
+            and not actor.has_permission(PERM_READ_TEAM_SALES_DATA)
+        )
+
+    def _actor_owns_sold_project(self, project_id: int, actor: AuthContext) -> bool:
+        """True iff a `contracts` row exists with `project_id` matching and
+        `assigned_user_id == actor.user_id`. A Contract row with
+        assigned_user_id IS NULL (unclaimed) never matches this query --
+        fail-closed, deliberately NOT the leads/opportunities unclaimed-pool
+        leniency (see PERM_READ_OWN_SOLD_PROJECTS in auth.py)."""
+        conn = self.db.get_connection()
+        row = conn.execute(
+            "SELECT 1 FROM contracts WHERE project_id = ? AND assigned_user_id = ? LIMIT 1;",
+            (project_id, actor.user_id),
+        ).fetchone()
+        return row is not None
+
     def get_project(self, project_id: int, actor: AuthContext) -> Optional[Project]:
         if not (
             actor.has_permission(PERM_READ_OPERATIONS)
             or actor.has_permission(PERM_MANAGE_PROJECTS)
+            or actor.has_permission(PERM_READ_OWN_SOLD_PROJECTS)
             or (actor.role == ROLE_CUSTOMER and actor.customer_id is not None)
         ):
             raise PermissionError("Actor lacks permission to view projects in operations domain")
@@ -201,6 +234,11 @@ class OperationsService:
         if actor.role == ROLE_CUSTOMER:
             if not actor.customer_id or actor.customer_id != row["customer_id"]:
                 raise PermissionError("Customer cannot view other customers' projects")
+        elif self._actor_reaches_only_via_sold_projects(actor):
+            # B8.12a (NEW-628): actor reached this gate only via
+            # PERM_READ_OWN_SOLD_PROJECTS -- narrow to projects they sold.
+            if not self._actor_owns_sold_project(project_id, actor):
+                raise PermissionError("Actor cannot view a project they did not sell")
 
         return self._row_to_project(row, actor.role)
 
@@ -482,18 +520,31 @@ class OperationsService:
         return milestone
 
     def get_milestone(self, milestone_id: int, actor: AuthContext) -> Optional[ProjectMilestone]:
-        if not actor.has_permission(PERM_READ_OPERATIONS):
+        if not (
+            actor.has_permission(PERM_READ_OPERATIONS)
+            or actor.has_permission(PERM_READ_OWN_SOLD_PROJECTS)
+        ):
             raise PermissionError("Actor lacks permission to view milestones")
 
         conn = self.db.get_connection()
         row = conn.execute("SELECT * FROM project_milestones WHERE id = ?;", (milestone_id,)).fetchone()
         if not row:
             return None
+
+        # B8.12a (NEW-628): actor reached this gate only via
+        # PERM_READ_OWN_SOLD_PROJECTS -- narrow to milestones on projects
+        # they sold. (PERM_READ_OPERATIONS holders remain unfiltered here,
+        # same as before this round -- see NEW-628 for that broader gap.)
+        if self._actor_reaches_only_via_sold_projects(actor):
+            if not self._actor_owns_sold_project(row["project_id"], actor):
+                raise PermissionError("Actor cannot view a milestone for a project they did not sell")
+
         return self._row_to_milestone(row)
 
     def list_milestones(self, project_id: int, actor: AuthContext) -> List[ProjectMilestone]:
         if not (
             actor.has_permission(PERM_READ_OPERATIONS)
+            or actor.has_permission(PERM_READ_OWN_SOLD_PROJECTS)
             or (actor.role == ROLE_CUSTOMER and actor.customer_id is not None)
         ):
             raise PermissionError("Actor lacks permission to list milestones")
@@ -503,6 +554,9 @@ class OperationsService:
             proj = conn.execute("SELECT customer_id FROM projects WHERE id = ?;", (project_id,)).fetchone()
             if not proj or proj["customer_id"] != actor.customer_id:
                 raise PermissionError("Customer cannot view milestones for other customers' projects")
+        elif self._actor_reaches_only_via_sold_projects(actor):
+            if not self._actor_owns_sold_project(project_id, actor):
+                raise PermissionError("Actor cannot list milestones for a project they did not sell")
 
         rows = conn.execute(
             "SELECT * FROM project_milestones WHERE project_id = ? ORDER BY id ASC;",
@@ -692,13 +746,24 @@ class OperationsService:
         return work_order
 
     def get_work_order(self, work_order_id: int, actor: AuthContext) -> Optional[WorkOrder]:
-        if not actor.has_permission(PERM_READ_OPERATIONS):
+        if not (
+            actor.has_permission(PERM_READ_OPERATIONS)
+            or actor.has_permission(PERM_READ_OWN_SOLD_PROJECTS)
+        ):
             raise PermissionError("Actor lacks permission to view work orders")
 
         conn = self.db.get_connection()
         row = conn.execute("SELECT * FROM work_orders WHERE id = ?;", (work_order_id,)).fetchone()
         if not row:
             return None
+
+        # B8.12a (NEW-628): actor reached this gate only via
+        # PERM_READ_OWN_SOLD_PROJECTS -- narrow to work orders on projects
+        # they sold.
+        if self._actor_reaches_only_via_sold_projects(actor):
+            if not self._actor_owns_sold_project(row["project_id"], actor):
+                raise PermissionError("Actor cannot view a work order for a project they did not sell")
+
         return self._row_to_work_order(row)
 
     def list_work_orders(
@@ -709,7 +774,10 @@ class OperationsService:
         status: Optional[str] = None,
         subcontractor_id: Optional[int] = None,
     ) -> List[WorkOrder]:
-        if not actor.has_permission(PERM_READ_OPERATIONS):
+        if not (
+            actor.has_permission(PERM_READ_OPERATIONS)
+            or actor.has_permission(PERM_READ_OWN_SOLD_PROJECTS)
+        ):
             raise PermissionError("Actor lacks permission to list work orders")
 
         query = "SELECT * FROM work_orders WHERE 1=1"
@@ -718,6 +786,17 @@ class OperationsService:
         if project_id is not None:
             query += " AND project_id = ?"
             params.append(project_id)
+
+        # B8.12a: rep-ownership narrowing. When project_id is given, this
+        # composes with the clause above (both AND-ed); when it isn't, this
+        # is the only thing keeping a narrowed rep's list to their own sold
+        # projects' work orders instead of leaking the whole company's --
+        # see NEW-628 for why every OTHER caller of this method still gets
+        # zero row-level filtering.
+        if self._actor_reaches_only_via_sold_projects(actor):
+            query += " AND project_id IN (SELECT project_id FROM contracts WHERE assigned_user_id = ?)"
+            params.append(actor.user_id)
+
         if trade:
             query += " AND trade = ?"
             params.append(trade.strip().lower())
@@ -1577,7 +1656,26 @@ class OperationsService:
 
         milestones = self.list_milestones(project_id, actor)
         work_orders = self.list_work_orders(actor, project_id=project_id)
-        deployments = self.list_project_deployments(project_id, actor, active_only=True)
+
+        # B8.12a: equipment/deployment visibility is deliberately NOT part
+        # of PERM_READ_OWN_SOLD_PROJECTS' grant (no sales-rep use case, see
+        # auth.py) -- list_project_deployments still only accepts
+        # PERM_READ_OPERATIONS, so calling it unconditionally would raise
+        # PermissionError for a plain rep and break this whole summary read.
+        # Guard it explicitly rather than fabricating a deployments=[]/
+        # active_deployed_count=0 that would misrepresent "not visible to
+        # this actor" as "nothing deployed" -- equipment_summary is simply
+        # omitted (None) for an actor who can't see it. No current UI
+        # surface reads equipment_summary yet (checked web_surfaces.py), so
+        # there is nothing to regress for a rep hitting this path today.
+        if actor.has_permission(PERM_READ_OPERATIONS) or actor.has_permission(PERM_MANAGE_PROJECTS):
+            deployments = self.list_project_deployments(project_id, actor, active_only=True)
+            equipment_summary = {
+                "active_deployed_count": len(deployments),
+                "deployments": [d.to_dict() for d in deployments],
+            }
+        else:
+            equipment_summary = None
 
         total_milestones = len(milestones)
         completed_milestones = sum(1 for m in milestones if m.status == MilestoneStatus.COMPLETED)
@@ -1602,8 +1700,5 @@ class OperationsService:
                 "total_cost": total_wo_cost,
                 "work_orders": [wo.to_dict() for wo in work_orders],
             },
-            "equipment_summary": {
-                "active_deployed_count": len(deployments),
-                "deployments": [d.to_dict() for d in deployments],
-            },
+            "equipment_summary": equipment_summary,
         }

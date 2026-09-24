@@ -31,6 +31,7 @@ from ..auth import (
     PERM_SCORE_LEADS,
     PERM_READ_TEAM_SALES_DATA,
     PERM_READ_ALL_PROJECTS,
+    PERM_READ_OWN_SOLD_PROJECTS,
     PERM_READ_ASSIGNED_PROJECTS,
     PERM_READ_OWN_PROJECTS,
     PERM_WRITE_PROJECTS,
@@ -2745,9 +2746,51 @@ class CRMService:
         )
         return project
 
+    def _actor_lacks_sold_project_ownership(self, project_id: int, actor: AuthContext) -> bool:
+        """True iff `actor` reaches project reads only via
+        PERM_READ_OWN_SOLD_PROJECTS (B8.12a) and does NOT own a Contract
+        row for `project_id`. Keyed on permission, never `actor.role`
+        (`_scoped_assignee_filter`'s documented convention) so a
+        custom_permissions_json grant of PERM_READ_OWN_SOLD_PROJECTS to any
+        other role is narrowed identically, and so PERM_READ_ALL_PROJECTS/
+        PERM_READ_TEAM_SALES_DATA both bypass the filter (the latter is how
+        ROLE_SALES_MANAGER keeps full visibility with zero extra grant).
+        A Contract row with assigned_user_id IS NULL (unclaimed) does NOT
+        match -- fail-closed, deliberately NOT the leads/opportunities
+        unclaimed-pool leniency (see PERM_READ_OWN_SOLD_PROJECTS in auth.py).
+
+        Also exempts PERM_READ_ASSIGNED_PROJECTS/PERM_READ_OWN_PROJECTS --
+        both are independent entitlements in get_project's own outer gate
+        (code-reviewer finding, B8.12a round 1: the first draft only
+        exempted PERM_READ_ALL_PROJECTS/PERM_READ_TEAM_SALES_DATA, so a
+        hypothetical actor holding PERM_READ_OWN_SOLD_PROJECTS plus one of
+        these -- not reachable via any built-in role today, only a future
+        custom_permissions_json grant -- would have been narrowed BELOW
+        what the weaker permission alone already grants, contradicting
+        this method's own "narrowed identically" claim). This mirrors
+        operations_service.py's symmetric _actor_reaches_only_via_sold_projects,
+        which never had this asymmetry.
+        """
+        if not actor.has_permission(PERM_READ_OWN_SOLD_PROJECTS):
+            return False
+        if (
+            actor.has_permission(PERM_READ_ALL_PROJECTS)
+            or actor.has_permission(PERM_READ_TEAM_SALES_DATA)
+            or actor.has_permission(PERM_READ_ASSIGNED_PROJECTS)
+            or actor.has_permission(PERM_READ_OWN_PROJECTS)
+        ):
+            return False
+        conn = self.db.get_connection()
+        owned = conn.execute(
+            "SELECT 1 FROM contracts WHERE project_id = ? AND assigned_user_id = ? LIMIT 1;",
+            (project_id, actor.user_id),
+        ).fetchone()
+        return owned is None
+
     def get_project(self, project_id: int, actor: AuthContext) -> Optional[Project]:
         if not (
             actor.has_permission(PERM_READ_ALL_PROJECTS)
+            or actor.has_permission(PERM_READ_OWN_SOLD_PROJECTS)
             or actor.has_permission(PERM_READ_ASSIGNED_PROJECTS)
             or actor.has_permission(PERM_READ_OWN_PROJECTS)
         ):
@@ -2769,6 +2812,13 @@ class CRMService:
         if actor.role == ROLE_TECHNICIAN and actor.user_id not in assigned_employees:
             raise PermissionError("Technician can only view assigned projects")
 
+        # B8.12a: rep-ownership narrowing via Contract.assigned_user_id.
+        # Same PermissionError shape as the customer/technician branches
+        # above (not get_contract's return-None shape) -- this method's own
+        # existing convention for a denied single-record read.
+        if self._actor_lacks_sold_project_ownership(project_id, actor):
+            raise PermissionError("Actor cannot view a project they did not sell")
+
         return self._row_to_project(row, actor.role)
 
     def list_projects(
@@ -2776,6 +2826,7 @@ class CRMService:
     ) -> List[Project]:
         if not (
             actor.has_permission(PERM_READ_ALL_PROJECTS)
+            or actor.has_permission(PERM_READ_OWN_SOLD_PROJECTS)
             or actor.has_permission(PERM_READ_ASSIGNED_PROJECTS)
             or actor.has_permission(PERM_READ_OWN_PROJECTS)
         ):
@@ -2797,6 +2848,19 @@ class CRMService:
         if property_id is not None:
             query += " AND property_id = ?"
             params.append(property_id)
+
+        # B8.12a: rep-ownership narrowing, mirrors get_project's single-row
+        # check as a subquery so list_projects stays one query instead of
+        # N+1. A rep who lacks PERM_READ_ALL_PROJECTS/PERM_READ_TEAM_SALES_DATA
+        # but holds PERM_READ_OWN_SOLD_PROJECTS only sees projects with a
+        # matching, actually-assigned Contract row -- an unclaimed contract
+        # (assigned_user_id IS NULL) can never match this subquery, so it's
+        # fail-closed for free, no special-case needed.
+        if actor.has_permission(PERM_READ_OWN_SOLD_PROJECTS) and not (
+            actor.has_permission(PERM_READ_ALL_PROJECTS) or actor.has_permission(PERM_READ_TEAM_SALES_DATA)
+        ):
+            query += " AND id IN (SELECT project_id FROM contracts WHERE assigned_user_id = ?)"
+            params.append(actor.user_id)
 
         query += " ORDER BY id DESC;"
 
