@@ -7503,10 +7503,26 @@ this file's own don't-duplicate rule.
             `NEW-624` (date-only-string snooze parsing would break for
             a future full-timestamp `due_date` writer, not reachable
             today).
-      - [ ] **B8.10b** — communications center feed. Not yet built.
-            Needs `lead_id` on `CommunicationRecord` (Ish-answered) and
-            the RBAC narrowing `NEW-618` documents as a mandatory
-            prerequisite, not optional.
+      - [x] **B8.10b** — communications center feed. **DONE 2026-09-24,
+            code-complete + code-reviewer APPROVED round 1**, commit
+            `381b807`. Full detail in `PROJECT_LOG.md`'s 2026-09-24
+            entry. New `GET /api/v1/sales/communications-center` feed.
+            `NEW-618` closed — `query_communications()`'s previously-
+            zero rep-ownership narrowing now reuses `list_customers()`'s
+            exact clause. New `CommunicationRecord.lead_id` (additive,
+            FK-less by design). A row with neither `customer_id` nor
+            `lead_id` is treated as unknown-provenance and hidden from
+            narrowed actors — deliberately not the `list_customers`/
+            `list_leads` "NULL == unclaimed" leniency, live-verified by
+            the reviewer. Reviewer caught and corrected an inaccurate
+            disclosure comment (Customer 360's admin panel was wrongly
+            called "admin/manager-only" — `/admin` has no server-side
+            role check at all) — didn't change the fix's correctness,
+            but surfaced a broader pre-existing gap. Logged, not fixed:
+            `NEW-625` (the underlying `/admin` route-gating gap),
+            `NEW-626` (project-linked-only rows conservatively hidden,
+            a real design question), `NEW-627` (unvalidated `lead_id`
+            on the POST route, matching a pre-existing pattern).
       - [ ] **B8.10c** — compose/send email from the portal. Not yet
             built. Sends from the shared company account (Ish-
             answered). Must check `NEW-623` (SMTP-timeout risk) before
