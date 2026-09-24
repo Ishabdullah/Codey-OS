@@ -713,6 +713,10 @@ class CommunicationRecord:
     customer_id: Optional[int] = None
     project_id: Optional[int] = None
     opportunity_id: Optional[int] = None
+    lead_id: Optional[int] = None  # B8.10b: pre-conversion correspondence -- a
+    # lead's own communications (before it becomes a customer) link here
+    # instead of customer_id, per Ish's 2026-09-23 decision that lead
+    # correspondence must show up in the communications feed too.
     metadata: Dict[str, Any] = field(default_factory=dict)
     provider_message_id: Optional[str] = None  # NEW-233: originating channel's own
     # message id (e.g. IMAP Message-ID header), used as an idempotency key so a

@@ -1718,11 +1718,14 @@ class APIRouter:
                     cust_id = _parse_int_query_param(query_params, "customer_id", 0) if cid else None
                     pid = query_params.get("project_id", [None])[0]
                     proj_id = _parse_int_query_param(query_params, "project_id", 0) if pid else None
+                    lid = query_params.get("lead_id", [None])[0]
+                    lead_id_param = _parse_int_query_param(query_params, "lead_id", 0) if lid else None
                     channel = query_params.get("channel", [None])[0]
                     limit = _parse_int_query_param(query_params, "limit", 50, minimum=1, maximum=1000)
                     offset = _parse_int_query_param(query_params, "offset", 0)
                     records = self.comm.query_communications(
-                        actor, customer_id=cust_id, project_id=proj_id, channel=channel, limit=limit, offset=offset
+                        actor, customer_id=cust_id, project_id=proj_id, lead_id=lead_id_param,
+                        channel=channel, limit=limit, offset=offset,
                     )
                     return 200, {"Content-Type": "application/json"}, {"communications": [c.to_dict() for c in records]}
                 elif method == "POST":
@@ -1766,10 +1769,46 @@ class APIRouter:
                         customer_id=customer_id,
                         project_id=json_body.get("project_id"),
                         opportunity_id=json_body.get("opportunity_id"),
+                        lead_id=json_body.get("lead_id"),
                         metadata=json_body.get("metadata"),
                         provider_message_id=provider_message_id,
                     )
                     return 201, {"Content-Type": "application/json"}, {"communication": rec.to_dict()}
+
+            # -------------------------------------------------------------
+            # B8.10b: Sales Rep Portal Communications Center -- a non-
+            # customer-scoped feed across every customer/lead the calling
+            # actor can see (unlike /api/v1/communications above, whose
+            # every real caller today always passes a single customer_id).
+            # Narrowing itself lives in CommunicationService.
+            # query_communications (NEW-618); this route only resolves
+            # query params and reports which scope tier the response is in,
+            # same "scope" field convention as /api/v1/sales/dashboard.
+            # -------------------------------------------------------------
+            if path == "/api/v1/sales/communications-center" and method == "GET":
+                # Same guard and rationale as /api/v1/sales/dashboard above
+                # (NEW-546): a valid token that resolves to no real user_id
+                # cannot be scoped by the rep-ownership narrowing below, so
+                # fail closed with an explicit 403 rather than silently
+                # falling into the "only unclaimed" or (if somehow paired
+                # with PERM_READ_TEAM_SALES_DATA) unrestricted branch.
+                if actor.user_id is None:
+                    return 403, {"Content-Type": "application/json"}, {
+                        "error": "Actor has no associated user_id; cannot scope communications center data"
+                    }
+                channel = query_params.get("channel", [None])[0]
+                limit = _parse_int_query_param(query_params, "limit", 50, minimum=1, maximum=1000)
+                offset = _parse_int_query_param(query_params, "offset", 0)
+                records = self.comm.query_communications(
+                    actor, channel=channel, limit=limit, offset=offset,
+                )
+                # "rep"/"team" matches /api/v1/sales/dashboard's own scope
+                # field convention exactly (not a new "mine"/"team" pair).
+                scope = "team" if actor.has_permission(PERM_READ_TEAM_SALES_DATA) else "rep"
+                return 200, {"Content-Type": "application/json"}, {
+                    "communications": [c.to_dict() for c in records],
+                    "scope": scope,
+                }
 
             # Audit Log (Append-only query)
             if path == "/api/v1/audit-log" and method == "GET":

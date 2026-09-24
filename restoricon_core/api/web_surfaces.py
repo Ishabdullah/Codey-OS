@@ -5358,6 +5358,21 @@ def _render_sales_portal() -> str:
             </table>
         </div>
 
+        <!-- B8.10b: Communications Center -- a non-customer-scoped feed
+             across every customer/lead the calling actor can see, unlike
+             Customer 360's own Communications panel (still customer_id-
+             scoped, unchanged). Server-side narrowed per NEW-618: a plain
+             rep sees only their own assigned (or unclaimed) customers'/
+             leads' communications; a PERM_READ_TEAM_SALES_DATA holder sees
+             everything. -->
+        <div class="erp-card">
+            <h2 id="commsCenterHeading" style="margin-top:0;">Communications Center</h2>
+            <table>
+                <thead><tr><th>When</th><th>Channel</th><th>Direction</th><th>Linked To</th><th>Subject / Content</th></tr></thead>
+                <tbody id="commsCenterList"><tr><td colspan="5">Loading communications...</td></tr></tbody>
+            </table>
+        </div>
+
         <div class="erp-card">
             <h2 style="margin-top:0;">Pipeline Summary</h2>
             <table>
@@ -5839,6 +5854,11 @@ def _render_sales_portal() -> str:
                 await loadStageAnalytics(token);
             }} catch (e) {{ /* network/parse failure: analytics panel keeps its "Loading..." placeholder, no further UI action needed */ }}
 
+            // Load Communications Center (B8.10b)
+            try {{
+                await loadCommunicationsCenter(token);
+            }} catch (e) {{ /* network/parse failure: communications panel keeps its "Loading..." placeholder, no further UI action needed */ }}
+
             // Load Command Center Dashboard (B8.2b) -- Appointments, Follow-ups,
             // Pipeline, Commissions, and (manager-only) Team panels, plus the
             // NEW-552 viewer-scope banner fix, all fed by this one call.
@@ -6212,6 +6232,45 @@ def _render_sales_portal() -> str:
             stuckList.innerHTML = stuck.length > 0
                 ? stuck.map(s => `<tr><td>#${{s.opportunity_id}}</td><td>${{escapeHtml(s.stage)}}</td><td>${{(s.hours_in_stage || 0).toFixed(1)}}</td></tr>`).join('')
                 : '<tr><td colspan="3" style="color:var(--text-muted)">Nothing currently stuck.</td></tr>';
+        }}
+
+        // -----------------------------------------------------------------
+        // B8.10b: Communications Center panel -- non-customer-scoped feed,
+        // narrowed server-side (NEW-618). Same fetch/render shape as
+        // loadStageAnalytics above.
+        // -----------------------------------------------------------------
+        async function loadCommunicationsCenter(token) {{
+            const res = await fetch('/api/v1/sales/communications-center?limit=50', {{
+                headers: {{ 'Authorization': 'Bearer ' + token }}
+            }});
+            if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+            const heading = document.getElementById('commsCenterHeading');
+            const list = document.getElementById('commsCenterList');
+            if (res.status === 403) {{
+                heading.textContent = 'Communications Center';
+                list.innerHTML = '<tr><td colspan="5" style="color:var(--danger)">Cannot load: no associated user identity.</td></tr>';
+                return;
+            }}
+            if (!res.ok) {{
+                list.innerHTML = '<tr><td colspan="5" style="color:var(--danger)">Unable to load communications.</td></tr>';
+                return;
+            }}
+            const data = await res.json();
+            heading.textContent = 'Communications Center (' + (data.scope === 'team' ? 'Team' : 'Mine') + ')'; // data.scope is 'rep' or 'team', matching /api/v1/sales/dashboard's convention
+            const comms = data.communications || [];
+            list.innerHTML = comms.length > 0
+                ? comms.map(c => {{
+                    const linkedTo = c.customer_id ? 'Cust #' + c.customer_id
+                        : (c.lead_id ? 'Lead #' + c.lead_id : '—');
+                    return `<tr>
+                        <td>${{escapeHtml(c.timestamp || '')}}</td>
+                        <td>${{escapeHtml(c.channel || '')}}</td>
+                        <td>${{escapeHtml(c.direction || '')}}</td>
+                        <td>${{linkedTo}}</td>
+                        <td>${{escapeHtml(c.subject || c.content || '')}}</td>
+                    </tr>`;
+                }}).join('')
+                : '<tr><td colspan="5" style="color:var(--text-muted)">No communications.</td></tr>';
         }}
 
         // -----------------------------------------------------------------

@@ -437,6 +437,15 @@ CREATE TABLE IF NOT EXISTS communication_history (
     customer_id INTEGER,
     project_id INTEGER,
     opportunity_id INTEGER,
+    -- lead_id: bare INTEGER, no FK -- matches the appointments.
+    -- assigned_user_id / estimates.assigned_user_id precedent (NEW-487/488,
+    -- B8.9a's territory_id): SQLite's ALTER TABLE ADD COLUMN (used in
+    -- _migrate_schema for existing DB files) can't attach a FK, so the
+    -- fresh-DB CREATE TABLE path deliberately stays FK-less too, to keep
+    -- both paths identical rather than a fresh DB enforcing referential
+    -- integrity/ON DELETE SET NULL cascade on this column while a migrated
+    -- DB silently doesn't.
+    lead_id INTEGER,
     metadata_json TEXT NOT NULL DEFAULT '{}',
     provider_message_id TEXT,
     FOREIGN KEY (actor_id) REFERENCES users(id) ON DELETE SET NULL,
@@ -1315,6 +1324,7 @@ CREATE INDEX IF NOT EXISTS idx_invoices_customer_id ON invoices(customer_id);
 CREATE INDEX IF NOT EXISTS idx_documents_customer_id ON documents(customer_id);
 CREATE INDEX IF NOT EXISTS idx_comms_customer_id ON communication_history(customer_id);
 CREATE INDEX IF NOT EXISTS idx_comms_project_id ON communication_history(project_id);
+CREATE INDEX IF NOT EXISTS idx_comms_lead_id ON communication_history(lead_id);
 CREATE INDEX IF NOT EXISTS idx_comms_timestamp ON communication_history(timestamp);
 CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
 CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity_type, entity_id);
@@ -1656,6 +1666,15 @@ class DatabaseManager:
                 "commission_plan_config",
                 "portfolio_override_window_months",
                 "ALTER TABLE commission_plan_config ADD COLUMN portfolio_override_window_months INTEGER NOT NULL DEFAULT 12;",
+            ),
+            # B8.10b: lead_id, additive/nullable, FK-less by design -- see
+            # the communication_history table's own DDL comment above for
+            # why (matches the appointments.assigned_user_id / B8.9a
+            # territory_id precedent).
+            (
+                "communication_history",
+                "lead_id",
+                "ALTER TABLE communication_history ADD COLUMN lead_id INTEGER;",
             ),
         )
         with conn:
