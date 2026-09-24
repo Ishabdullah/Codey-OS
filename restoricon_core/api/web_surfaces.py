@@ -2219,6 +2219,34 @@ def render_admin_surface() -> str:
                     </tbody>
                 </table>
             </div>
+
+            <!-- B8.12b, sales_rep_portal.md §B8.12: Production Handoff
+                 Checklist -- operations/PM-tier (PERM_WRITE_PROJECTS-gated
+                 server-side in CRMService; ROLE_SALES does not hold that
+                 permission per B8.12a). Every project is listed here
+                 (unfiltered), unlike the PM staff portal's own
+                 project_manager_id-scoped list, since a just-sold project
+                 has no project_manager_id assigned yet and still needs a
+                 reachable entry point for its handoff. -->
+            <div class="erp-card">
+                <div class="card-title-row">
+                    <h2><span>📋</span> Production Handoff Checklists</h2>
+                </div>
+                <table class="erp-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Title</th>
+                            <th>Status</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="handoffProjectsTableBody">
+                        <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">No records found.</td></tr>
+                    </tbody>
+                </table>
+                <div id="handoffChecklistArea"></div>
+            </div>
         </div>
 
         <!-- Tab 7: Subcontractors -->
@@ -2871,6 +2899,186 @@ def render_admin_surface() -> str:
             }
         }
 
+        // B8.12b, sales_rep_portal.md §B8.12: Production Handoff Checklist
+        // -- operations/PM-tier panel. Lists every project unfiltered
+        // (GET /api/v1/projects has no client-side project_manager_id
+        // filter here, unlike the PM staff portal's own list -- a
+        // just-sold project has no project_manager_id assigned yet and
+        // still needs a reachable entry point for its handoff). All 7
+        // items are always rendered; each individually settable to
+        // done/na/pending. "Complete Handoff" is disabled with the
+        // server's own blocking_reasons (CRMService.
+        // _evaluate_handoff_conditions, the single source of truth for
+        // the guard) whenever any condition is unmet -- never a second
+        // copy of the guard's rules computed client-side.
+        // PERM_WRITE_PROJECTS is enforced server-side in CRMService --
+        // ROLE_SALES does not hold it (B8.12a), so a rep reaching this
+        // admin surface (NEW-625: /admin has no server-side role check)
+        // gets a clean 403 from every write route below regardless.
+        let editingHandoffChecklistProjectId = null;
+        const HANDOFF_ITEM_LABELS = {
+            scope: 'Scope of Work',
+            materials: 'Materials',
+            customer_selections: 'Customer Selections',
+            permits: 'Permits',
+            insurance: 'Insurance Info',
+            financing: 'Financing',
+            deposit: 'Deposit Status',
+        };
+
+        async function loadHandoffProjects() {
+            const token = getAuthToken();
+            const tbody = document.getElementById('handoffProjectsTableBody');
+            try {
+                const res = await fetch('/api/v1/projects', { headers: { 'Authorization': 'Bearer ' + token } });
+                if (res.status === 401) { logoutUser(); return; }
+                const data = await res.json();
+                const projects = (data && data.projects) || [];
+                if (projects.length > 0) {
+                    tbody.innerHTML = projects.map(p => `
+                        <tr>
+                            <td>#${p.id}</td>
+                            <td>${escapeHtml(p.title || '')}</td>
+                            <td>${escapeHtml(p.status || '')}</td>
+                            <td><button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="openHandoffChecklist(${p.id})">Handoff</button></td>
+                        </tr>
+                    `).join('');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted);">No records found.</td></tr>';
+                }
+            } catch (e) {
+                tbody.innerHTML = '<tr><td colspan="4">Error loading projects.</td></tr>';
+            }
+        }
+
+        async function openHandoffChecklist(projectId) {
+            editingHandoffChecklistProjectId = projectId;
+            const area = document.getElementById('handoffChecklistArea');
+            area.innerHTML = '<div class="erp-card"><p style="color:var(--text-muted);">Loading handoff checklist...</p></div>';
+            await refreshHandoffChecklist();
+        }
+
+        async function refreshHandoffChecklist() {
+            const projectId = editingHandoffChecklistProjectId;
+            if (!projectId) { return; }
+            const area = document.getElementById('handoffChecklistArea');
+            const token = getAuthToken();
+            try {
+                const res = await fetch('/api/v1/projects/' + projectId + '/handoff-checklist', {
+                    headers: { 'Authorization': 'Bearer ' + token },
+                });
+                if (res.status === 401) { logoutUser(); return; }
+                if (res.status === 403) {
+                    area.innerHTML = '<div class="erp-card"><p style="color:var(--text-muted);">No access.</p></div>';
+                    return;
+                }
+                if (res.status === 404) {
+                    area.innerHTML = `<div class="erp-card">
+                        <h4 style="margin-top:0;">Production Handoff Checklist — Project #${projectId}</h4>
+                        <p style="color:var(--text-muted);">No checklist started yet for this project.</p>
+                        <button class="btn-gold" onclick="createHandoffChecklist(${projectId})">Start Handoff Checklist</button>
+                    </div>`;
+                    return;
+                }
+                const data = await res.json();
+                if (!res.ok) {
+                    area.innerHTML = `<div class="erp-card"><p style="color:var(--text-muted);">${escapeHtml(data.error || 'Failed to load.')}</p></div>`;
+                    return;
+                }
+                area.innerHTML = renderHandoffChecklist(projectId, data.handoff_checklist);
+            } catch (e) {
+                area.innerHTML = '<div class="erp-card"><p style="color:var(--text-muted);">Failed to load: network error.</p></div>';
+            }
+        }
+
+        function renderHandoffChecklist(projectId, checklist) {
+            const items = checklist.items || {};
+            const guard = checklist.guard || {};
+            const completed = !!checklist.completed_at;
+            const itemRows = Object.keys(HANDOFF_ITEM_LABELS).map(key => {
+                const status = items[key] || 'pending';
+                const opt = (val, label) => `<option value="${val}" ${status === val ? 'selected' : ''}>${label}</option>`;
+                return `<tr>
+                    <td>${escapeHtml(HANDOFF_ITEM_LABELS[key])}</td>
+                    <td>
+                        <select ${completed ? 'disabled' : ''} onchange="setHandoffChecklistItem(${projectId}, ${escapeHtml(JSON.stringify(key))}, this.value)">
+                            ${opt('pending', 'Pending')}${opt('done', 'Done')}${opt('na', 'N/A')}
+                        </select>
+                    </td>
+                </tr>`;
+            }).join('');
+            const reasons = (guard.blocking_reasons || []);
+            const reasonsHtml = reasons.length > 0
+                ? `<p style="color:var(--text-muted);">Cannot complete: ${escapeHtml(reasons.join('; '))}</p>`
+                : '';
+            const completeDisabled = completed || reasons.length > 0;
+            const completeLabel = completed ? 'Handoff Completed' : 'Complete Handoff';
+            return `<div class="erp-card">
+                <h4 style="margin-top:0;">Production Handoff Checklist — Project #${projectId}</h4>
+                <table class="erp-table"><thead><tr><th>Item</th><th>Status</th></tr></thead><tbody>${itemRows}</tbody></table>
+                ${reasonsHtml}
+                <button class="btn-gold" ${completeDisabled ? 'disabled' : ''} onclick="completeHandoffChecklist(${projectId})">${completeLabel}</button>
+            </div>`;
+        }
+
+        async function createHandoffChecklist(projectId) {
+            const token = getAuthToken();
+            try {
+                const res = await fetch('/api/v1/projects/' + projectId + '/handoff-checklist', {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + token },
+                });
+                if (res.status === 401) { logoutUser(); return; }
+                const data = await res.json();
+                if (!res.ok) {
+                    alert(data.error || ('Failed to start handoff checklist (' + res.status + ').'));
+                    return;
+                }
+                await refreshHandoffChecklist();
+            } catch (e) {
+                alert('Failed to start handoff checklist: network error.');
+            }
+        }
+
+        async function setHandoffChecklistItem(projectId, item, status) {
+            const token = getAuthToken();
+            try {
+                const res = await fetch('/api/v1/projects/' + projectId + '/handoff-checklist/item', {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ item: item, status: status }),
+                });
+                if (res.status === 401) { logoutUser(); return; }
+                const data = await res.json();
+                if (!res.ok) {
+                    alert(data.error || ('Failed to update checklist item (' + res.status + ').'));
+                }
+                await refreshHandoffChecklist();
+            } catch (e) {
+                alert('Failed to update checklist item: network error.');
+            }
+        }
+
+        async function completeHandoffChecklist(projectId) {
+            const token = getAuthToken();
+            try {
+                const res = await fetch('/api/v1/projects/' + projectId + '/handoff-checklist/complete', {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + token },
+                });
+                if (res.status === 401) { logoutUser(); return; }
+                const data = await res.json();
+                if (!res.ok) {
+                    alert(data.error || ('Failed to complete handoff checklist (' + res.status + ').'));
+                    await refreshHandoffChecklist();
+                    return;
+                }
+                await refreshHandoffChecklist();
+            } catch (e) {
+                alert('Failed to complete handoff checklist: network error.');
+            }
+        }
+
         async function loadSubcontractors() {
             // NEW-489: the list route lives under /api/v1/subcontractors
             // directly, not under an operations/ prefix -- no handler
@@ -3273,7 +3481,15 @@ def render_admin_surface() -> str:
             if (target) target.classList.add('active');
             
             if (tabId === 'kpis') loadKPIs();
+            // B8.12b: kept as two separate statements, NOT merged into
+            // `{ loadEquipment(); loadHandoffProjects(); }` --
+            // test_b6_4_admin_wiring_tabs_has_fetches asserts the exact
+            // literal substring "if (tabId === 'operations') loadEquipment();"
+            // is present verbatim; a merge (even though functionally
+            // equivalent) breaks that pre-existing test on a
+            // string-equality technicality, not a real regression.
             if (tabId === 'operations') loadEquipment();
+            if (tabId === 'operations') loadHandoffProjects();
             if (tabId === 'subcontractors') loadSubcontractors();
             if (tabId === 'finance') loadFinance();
             if (tabId === 'comms') loadComms();

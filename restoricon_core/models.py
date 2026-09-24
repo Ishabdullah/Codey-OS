@@ -1440,3 +1440,69 @@ class FinancingRecord:
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
+
+# B8.12b, sales_rep_portal.md §B8.12 (`production handoff checklist`): the
+# fixed set of 7 required items, confirmed against the source doc's own
+# text ("scope, materials, customer selections, permits, insurance info,
+# financing, deposit status") -- NOT invented here. Always all 7 present on
+# every checklist row; each is individually 'done'/'na'/'pending', never a
+# partial/some-required scheme beyond that (Ish, 2026-09-24). A plain
+# Python tuple validated at the service layer, same "can't be widened
+# later without a full table rebuild" reasoning as CONTRACT_TEMPLATE_NAMES
+# -- not a DB CHECK constraint.
+PRODUCTION_HANDOFF_CHECKLIST_ITEMS = (
+    "scope",
+    "materials",
+    "customer_selections",
+    "permits",
+    "insurance",
+    "financing",
+    "deposit",
+)
+
+PRODUCTION_HANDOFF_ITEM_STATUSES = ("pending", "done", "na")
+
+
+@dataclass
+class ProductionHandoffChecklist:
+    """Sales-to-production handoff gate (B8.12b). Keyed on `project_id`,
+    NOT `contract_id` as sales_rep_portal.md's B8.12 text literally says --
+    deliberate reconciliation, not an arbitrary choice: Invoice (the other
+    half of the completion guard, for deposit status) has no contract_id
+    column at all (verified directly, see Invoice.assigned_user_id's own
+    B8.7a comment), only project_id, while Contract does carry project_id.
+    Keying this table on contract_id would make the deposit half of the
+    guard unreachable. The completion guard resolves "is there a signed
+    contract for this project" via a direct `contracts.status = 'signed'`
+    existence check (mirroring crm_service.py's
+    `_resolve_gc_contract_for_portfolio_override` gate-1b query shape) --
+    it does not store or pin to one specific contract row, since a project
+    can have more than one contract (e.g. a HomeCare enrollment alongside
+    a general_remodeling contract) and the guard only needs "a signed one
+    exists", not "which one".
+
+    One checklist per project (UNIQUE(project_id) at the DB layer,
+    financing_records.invoice_id's own precedent for this shape of
+    guard). FK-less by design on project_id/completed_by/created_by,
+    matching financing_records' project_id/invoice_id/created_by
+    precedent -- a checklist row must survive a linked row's deletion
+    without cascading.
+
+    `completed_at`/`completed_by` are both nullable and only ever set
+    together, atomically, by `CRMService.complete_handoff_checklist` once
+    every guard condition passes (contract signed + qualifying deposit
+    payment recorded + every one of the 7 items done-or-na)."""
+    id: Optional[int] = None
+    project_id: int = 0
+    items: Dict[str, str] = field(
+        default_factory=lambda: {k: "pending" for k in PRODUCTION_HANDOFF_CHECKLIST_ITEMS}
+    )
+    completed_at: Optional[str] = None
+    completed_by: Optional[int] = None
+    created_by: Optional[int] = None
+    created_at: str = field(default_factory=utc_now_iso)
+    updated_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+

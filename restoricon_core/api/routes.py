@@ -1411,8 +1411,59 @@ class APIRouter:
                 amount = float(json_body.get("amount", 0.0))
                 method_name = json_body.get("payment_method", "credit_card")
                 ref = json_body.get("reference", "manual_entry")
-                updated_inv = self.crm.record_payment(inv_id, amount, method_name, ref, actor)
+                # B8.12b: explicit deposit-tagging (Ish, 2026-09-24) -- an
+                # untagged payment defaults to 'installment', matching
+                # CRMService.record_payment's own default.
+                payment_type = json_body.get("payment_type", "installment")
+                updated_inv = self.crm.record_payment(inv_id, amount, method_name, ref, actor, payment_type=payment_type)
                 return 200, {"Content-Type": "application/json"}, {"invoice": updated_inv.to_dict()}
+
+            # Production Handoff Checklist (B8.12b, sales_rep_portal.md
+            # §B8.12). Gated entirely inside CRMService -- PERM_WRITE_PROJECTS
+            # for all three write actions, get_project's own permission
+            # gate + B8.12a rep-ownership narrowing for the read.
+            if (
+                path.startswith("/api/v1/projects/")
+                and path.endswith("/handoff-checklist")
+                and "/" not in path[len("/api/v1/projects/"):-len("/handoff-checklist")]
+            ):
+                proj_id = _parse_int_path_segment(
+                    path[len("/api/v1/projects/"):-len("/handoff-checklist")], "project_id"
+                )
+                if method == "GET":
+                    checklist = self.crm.get_handoff_checklist(proj_id, actor)
+                    if checklist is None:
+                        return 404, {"Content-Type": "application/json"}, {"error": "Project not found or has no handoff checklist"}
+                    return 200, {"Content-Type": "application/json"}, {"handoff_checklist": checklist}
+                elif method == "POST":
+                    created = self.crm.create_handoff_checklist(proj_id, actor)
+                    return 201, {"Content-Type": "application/json"}, {"handoff_checklist": created.to_dict()}
+
+            if (
+                path.startswith("/api/v1/projects/")
+                and path.endswith("/handoff-checklist/item")
+                and "/" not in path[len("/api/v1/projects/"):-len("/handoff-checklist/item")]
+                and method == "POST"
+            ):
+                proj_id = _parse_int_path_segment(
+                    path[len("/api/v1/projects/"):-len("/handoff-checklist/item")], "project_id"
+                )
+                item = json_body.get("item", "")
+                status = json_body.get("status", "")
+                updated = self.crm.update_handoff_checklist_item(proj_id, item, status, actor)
+                return 200, {"Content-Type": "application/json"}, {"handoff_checklist": updated.to_dict()}
+
+            if (
+                path.startswith("/api/v1/projects/")
+                and path.endswith("/handoff-checklist/complete")
+                and "/" not in path[len("/api/v1/projects/"):-len("/handoff-checklist/complete")]
+                and method == "POST"
+            ):
+                proj_id = _parse_int_path_segment(
+                    path[len("/api/v1/projects/"):-len("/handoff-checklist/complete")], "project_id"
+                )
+                completed = self.crm.complete_handoff_checklist(proj_id, actor)
+                return 200, {"Content-Type": "application/json"}, {"handoff_checklist": completed.to_dict()}
 
             # Documents
             if path == "/api/v1/documents":

@@ -1296,6 +1296,42 @@ CREATE TABLE IF NOT EXISTS territories (
 );
 CREATE INDEX IF NOT EXISTS idx_territories_name ON territories(name);
 
+-- Production Handoff Checklists (B8.12b, sales_rep_portal.md §B8.12,
+-- request §23/§24). Keyed on project_id, NOT contract_id as the source
+-- doc's own text literally says -- see models.ProductionHandoffChecklist's
+-- docstring for the full reconciliation: Invoice (the other half of the
+-- completion guard) has no contract_id column, only project_id, so
+-- keying here on contract_id would make the deposit half of the guard
+-- unreachable. The signed-contract half of the guard is resolved at read
+-- time via a direct `contracts.status = 'signed'` existence check
+-- (CRMService), not stored here -- a project can have more than one
+-- contract and this table only needs "a signed one exists".
+-- items_json holds all 7 of models.PRODUCTION_HANDOFF_CHECKLIST_ITEMS,
+-- each 'pending'/'done'/'na' -- no CHECK constraint, same "can't be
+-- widened later without a full table rebuild" reasoning as
+-- contract_signers.party_role/Invoice.invoice_type; CRMService validates
+-- both the item-key set and the status value at the service layer.
+-- UNIQUE(project_id): one checklist per project, matching
+-- homecare_subscriptions.UNIQUE(contract_id)'s own "at most one of these
+-- per parent" precedent -- CRMService.create_handoff_checklist converts
+-- the resulting sqlite3.IntegrityError into a clear ValueError (mirrors
+-- financing_service.py's own double-financing IntegrityError handling).
+-- FK-less on project_id/completed_by/created_by, matching
+-- financing_records' own FK-less precedent for the identical reason: a
+-- checklist row must survive a linked row's deletion without cascading.
+CREATE TABLE IF NOT EXISTS production_handoff_checklists (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    items_json TEXT NOT NULL DEFAULT '{}',
+    completed_at TEXT,
+    completed_by INTEGER,
+    created_by INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(project_id)
+);
+CREATE INDEX IF NOT EXISTS idx_production_handoff_checklists_project_id ON production_handoff_checklists(project_id);
+
 -- Indexing for performance
 -- NOTE: the unique indexes for customers.external_id / leads.external_id /
 -- contacts.external_id / communication_history.provider_message_id are

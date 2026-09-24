@@ -79,6 +79,9 @@ from ..models import (
     CONTRACT_TEMPLATE_NAMES,
     PackageOption,
     PipelineStage,
+    ProductionHandoffChecklist,
+    PRODUCTION_HANDOFF_CHECKLIST_ITEMS,
+    PRODUCTION_HANDOFF_ITEM_STATUSES,
     Project,
     ProjectStage,
     Property,
@@ -87,7 +90,7 @@ from ..models import (
     Task,
     utc_now_iso,
 )
-from .audit_service import AuditService, build_audit_details, _AUDITABLE_CONTRACT_FIELDS, _AUDITABLE_INVOICE_FIELDS, _AUDITABLE_SUBCONTRACTOR_FIELDS, _AUDITABLE_PROJECT_FIELDS, _AUDITABLE_CONTACT_FIELDS
+from .audit_service import AuditService, build_audit_details, _AUDITABLE_CONTRACT_FIELDS, _AUDITABLE_INVOICE_FIELDS, _AUDITABLE_SUBCONTRACTOR_FIELDS, _AUDITABLE_PROJECT_FIELDS, _AUDITABLE_CONTACT_FIELDS, _AUDITABLE_HANDOFF_CHECKLIST_FIELDS
 from .commission_service import CommissionService
 from .notification_service import NotificationService
 from .operations_service import OperationsService
@@ -101,6 +104,18 @@ from . import pdf_service
 # and CommissionService._VALID_SOURCE_TYPES -- a real DB's CHECK
 # constraint can't be widened later without a full table rebuild).
 _VALID_INVOICE_TYPES = {"assessment", "subscription", "project", "other"}
+
+# B8.12b, sales_rep_portal.md §B8.12: explicit deposit-tagging mechanism
+# (Ish, 2026-09-24) -- deliberately NOT a sum-of-payments deposit
+# inference. A payment recorded via record_payment can be tagged
+# payment_type='deposit' (vs the 'installment' default) so
+# complete_handoff_checklist's guard can check for a specific tagged
+# payment >= Invoice.deposit_amount, rather than guessing intent from
+# amounts. Stored as a new key inside each payments_json list entry, not
+# a schema/column change -- payments are already an opaque JSON list, no
+# separate payments table exists to migrate. No CHECK constraint, same
+# reasoning as _VALID_INVOICE_TYPES above.
+_VALID_PAYMENT_TYPES = {"installment", "deposit"}
 
 # B8.7c: the result of CRMService._resolve_portfolio_override_eligibility.
 # rep_user_id is only meaningful when eligible is True. skip_reason is only
@@ -5194,10 +5209,22 @@ class CRMService:
         payment_method: str,
         transaction_reference: str,
         actor: AuthContext,
+        payment_type: str = "installment",
     ) -> Invoice:
-        """Record a customer payment against an invoice."""
+        """Record a customer payment against an invoice.
+
+        `payment_type` (B8.12b, default 'installment') is the explicit
+        deposit-tagging mechanism -- see _VALID_PAYMENT_TYPES' module-level
+        comment. Passing 'deposit' is how a caller marks this specific
+        payment as the one complete_handoff_checklist's guard looks for.
+        """
         if not actor.has_permission(PERM_WRITE_FINANCIALS):
             raise PermissionError("Actor lacks permission to record payments")
+
+        if payment_type not in _VALID_PAYMENT_TYPES:
+            raise ValueError(
+                f"Invalid payment_type '{payment_type}'; must be one of {sorted(_VALID_PAYMENT_TYPES)}"
+            )
 
         conn = self.db.get_connection()
         row = conn.execute("SELECT * FROM invoices WHERE id = ?;", (invoice_id,)).fetchone()
@@ -5214,6 +5241,7 @@ class CRMService:
             "method": payment_method,
             "reference": transaction_reference,
             "recorded_by_user_id": actor.user_id,
+            "payment_type": payment_type,
         })
 
         total_paid = row["deposit_amount"] + sum(p["amount"] for p in payments)
@@ -5265,6 +5293,7 @@ class CRMService:
                     "amount": payment_amount,
                     "method": payment_method,
                     "reference": transaction_reference,
+                    "payment_type": payment_type,
                     "new_balance": new_balance,
                     "new_status": new_status,
                 }},
@@ -5537,6 +5566,363 @@ class CRMService:
             )
 
         return _updated
+
+    # ==========================================
+    # PRODUCTION HANDOFF CHECKLIST (B8.12b)
+    # ==========================================
+
+    @staticmethod
+    def _row_to_handoff_checklist(row: Any) -> ProductionHandoffChecklist:
+        items = json.loads(row["items_json"]) if row["items_json"] else {}
+        return ProductionHandoffChecklist(
+            id=row["id"],
+            project_id=row["project_id"],
+            items=items,
+            completed_at=row["completed_at"],
+            completed_by=row["completed_by"],
+            created_by=row["created_by"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    def _evaluate_handoff_conditions(
+        self, project_id: int, items: Dict[str, str]
+    ) -> Dict[str, Any]:
+        """Evaluates the three independent completion-guard conditions
+        (B8.12b, sales_rep_portal.md §B8.12) without mutating anything --
+        shared by get_handoff_checklist (so the UI can render each
+        condition's live status/disabled-reason before attempting
+        completion) and complete_handoff_checklist (so the guard has
+        exactly one implementation, not a second copy of the rules in
+        the route/renderer).
+
+        Condition (a): a signed contract exists for this project.
+        Resolved as a direct `contracts.status = 'signed'` existence
+        check, mirroring `_resolve_gc_contract_for_portfolio_override`'s
+        gate-1b query shape -- deliberately not pinned to one specific
+        contract row (a project can have more than one contract, e.g. a
+        HomeCare enrollment alongside a general_remodeling contract; the
+        guard only needs "a signed one exists", not "which one").
+
+        Condition (b): a qualifying deposit payment exists. Checks every
+        invoice linked to this project_id (a project can have more than
+        one invoice by invoice_type -- this is a deliberate "any invoice
+        satisfies it" reading of the task text, not an
+        invoice_type='project' filter, since the doc does not specify
+        which invoice_type carries the deposit) for a payments_json entry
+        with payment_type == 'deposit' and amount >= that invoice's own
+        deposit_amount. Uses `.get('payment_type')`, never `['payment_type']`
+        -- every payment recorded before this round has no payment_type
+        key at all, and must be treated as non-deposit, not crash.
+
+        KNOWN, DISCLOSED INTERACTION (not fixed here, out of this round's
+        scope -- "no changes to how deposit_amount is set or computed"):
+        record_payment's own balance math
+        (`total_paid = row['deposit_amount'] + sum(payment amounts)`)
+        already assumes deposit_amount is collected outside the payments
+        list entirely (balance_due is initialized to
+        amount - deposit_amount at create_invoice time). Recording a
+        payment tagged payment_type='deposit' for the amount that
+        satisfies THIS guard therefore double-counts against
+        balance_due/status -- a pre-existing shape this round's sanctioned
+        workflow now actively exercises. Disclosed to code-reviewer;
+        logging as a new NEW_ISSUES.md finding is the coordinator's job,
+        not fixed here.
+
+        Condition (c): every one of the 7 required items is 'done' or
+        'na' -- never a partial/some-required scheme.
+        """
+        conn = self.db.get_connection()
+        contract_signed = conn.execute(
+            "SELECT 1 FROM contracts WHERE project_id = ? AND status = 'signed' LIMIT 1;",
+            (project_id,),
+        ).fetchone() is not None
+
+        deposit_received = False
+        invoice_rows = conn.execute(
+            "SELECT deposit_amount, payments_json FROM invoices WHERE project_id = ?;",
+            (project_id,),
+        ).fetchall()
+        for inv_row in invoice_rows:
+            payments = json.loads(inv_row["payments_json"]) if inv_row["payments_json"] else []
+            for p in payments:
+                if p.get("payment_type") == "deposit" and p.get("amount", 0.0) >= inv_row["deposit_amount"]:
+                    deposit_received = True
+                    break
+            if deposit_received:
+                break
+
+        pending_items = [k for k in PRODUCTION_HANDOFF_CHECKLIST_ITEMS if items.get(k) not in ("done", "na")]
+        items_complete = not pending_items
+
+        reasons: List[str] = []
+        if not contract_signed:
+            reasons.append("contract is not signed")
+        if not deposit_received:
+            reasons.append(
+                "no qualifying deposit payment recorded "
+                "(payment_type='deposit' with amount >= the invoice's deposit_amount)"
+            )
+        if not items_complete:
+            reasons.append(f"checklist item(s) still pending: {', '.join(pending_items)}")
+
+        return {
+            "contract_signed": contract_signed,
+            "deposit_received": deposit_received,
+            "items_complete": items_complete,
+            "pending_items": pending_items,
+            "blocking_reasons": reasons,
+        }
+
+    def create_handoff_checklist(
+        self, project_id: int, actor: AuthContext
+    ) -> ProductionHandoffChecklist:
+        """Creates the (single, UNIQUE(project_id)) handoff checklist row
+        for a project, all 7 items defaulted to 'pending'. Gated on
+        PERM_WRITE_PROJECTS -- an operations/production-side action (PM/
+        admin/manager tier); ROLE_SALES does not hold this permission
+        (B8.12a removed it), so a rep who originated the sale cannot
+        author or complete the checklist itself, only read its status
+        (see get_handoff_checklist). Creating a checklist does NOT gate
+        project creation or production tracking in any way -- a project
+        can exist and be worked indefinitely with no checklist row at
+        all; this table only gates complete_handoff_checklist.
+        """
+        if not actor.has_permission(PERM_WRITE_PROJECTS):
+            raise PermissionError("Actor lacks permission to create a handoff checklist")
+
+        conn = self.db.get_connection()
+        project_row = conn.execute("SELECT id FROM projects WHERE id = ?;", (project_id,)).fetchone()
+        if not project_row:
+            raise ValueError(f"Project {project_id} not found")
+
+        now = utc_now_iso()
+        items = {k: "pending" for k in PRODUCTION_HANDOFF_CHECKLIST_ITEMS}
+        items_json = json.dumps(items)
+
+        try:
+            with conn:
+                cursor = conn.execute(
+                    """
+                    INSERT INTO production_handoff_checklists (
+                        project_id, items_json, completed_at, completed_by,
+                        created_by, created_at, updated_at
+                    ) VALUES (?, ?, NULL, NULL, ?, ?, ?);
+                    """,
+                    (project_id, items_json, actor.user_id, now, now),
+                )
+                checklist_id = cursor.lastrowid
+        except sqlite3.IntegrityError as exc:
+            if "production_handoff_checklists.project_id" in str(exc):
+                raise ValueError(
+                    f"Project {project_id} already has a handoff checklist"
+                ) from exc
+            raise
+
+        checklist = ProductionHandoffChecklist(
+            id=checklist_id,
+            project_id=project_id,
+            items=items,
+            completed_at=None,
+            completed_by=None,
+            created_by=actor.user_id,
+            created_at=now,
+            updated_at=now,
+        )
+
+        self.audit.log(
+            action="create",
+            entity_type="production_handoff_checklist",
+            entity_id=checklist_id,
+            change_summary=f"Created handoff checklist for project ID {project_id}",
+            actor=actor,
+            details=build_audit_details(after=checklist.to_dict(), fields=_AUDITABLE_HANDOFF_CHECKLIST_FIELDS),
+        )
+        return checklist
+
+    def get_handoff_checklist(
+        self, project_id: int, actor: AuthContext
+    ) -> Optional[Dict[str, Any]]:
+        """Read-only. Authorization is delegated entirely to get_project's
+        own permission gate + B8.12a rep-ownership narrowing (raises
+        PermissionError / returns None exactly as get_project does) --
+        a single source of truth for "can this actor see this project",
+        rather than a second copy of that narrowing here. Returns the
+        checklist merged with the live guard-condition status (see
+        _evaluate_handoff_conditions) so a caller -- in particular the UI
+        -- can render each condition's pass/fail state and a clear reason
+        without attempting (and failing) a real completion call. Returns
+        None if the project has no checklist row yet (this is normal, not
+        an error -- see create_handoff_checklist's docstring)."""
+        project = self.get_project(project_id, actor)
+        if project is None:
+            return None
+
+        conn = self.db.get_connection()
+        row = conn.execute(
+            "SELECT * FROM production_handoff_checklists WHERE project_id = ?;",
+            (project_id,),
+        ).fetchone()
+        if not row:
+            return None
+
+        checklist = self._row_to_handoff_checklist(row)
+        result = checklist.to_dict()
+        if checklist.completed_at is None:
+            result["guard"] = self._evaluate_handoff_conditions(project_id, checklist.items)
+        else:
+            # Already completed -- guard conditions are moot; report as
+            # fully satisfied rather than re-running (a condition, e.g. a
+            # contract, could theoretically change status after
+            # completion, and this must not make an already-completed
+            # checklist appear to "fail" retroactively).
+            result["guard"] = {
+                "contract_signed": True,
+                "deposit_received": True,
+                "items_complete": True,
+                "pending_items": [],
+                "blocking_reasons": [],
+            }
+        return result
+
+    def update_handoff_checklist_item(
+        self, project_id: int, item: str, status: str, actor: AuthContext
+    ) -> ProductionHandoffChecklist:
+        """Marks a single checklist item 'done' or 'na' (or back to
+        'pending'). Gated on PERM_WRITE_PROJECTS, same tier as
+        create_handoff_checklist. Rejected once the checklist is
+        completed (completed_at is not None) -- a completed checklist's
+        items must not be silently edited after the fact; the caller must
+        go through whatever un-complete path a future round designs (none
+        exists this round -- completion is a one-way gate, mirroring
+        sign_contract's own idempotency convention)."""
+        if not actor.has_permission(PERM_WRITE_PROJECTS):
+            raise PermissionError("Actor lacks permission to update a handoff checklist")
+
+        if item not in PRODUCTION_HANDOFF_CHECKLIST_ITEMS:
+            raise ValueError(
+                f"Invalid checklist item '{item}'; must be one of {list(PRODUCTION_HANDOFF_CHECKLIST_ITEMS)}"
+            )
+        if status not in PRODUCTION_HANDOFF_ITEM_STATUSES:
+            raise ValueError(
+                f"Invalid item status '{status}'; must be one of {list(PRODUCTION_HANDOFF_ITEM_STATUSES)}"
+            )
+
+        conn = self.db.get_connection()
+        row = conn.execute(
+            "SELECT * FROM production_handoff_checklists WHERE project_id = ?;",
+            (project_id,),
+        ).fetchone()
+        if not row:
+            raise ValueError(f"Project {project_id} has no handoff checklist")
+
+        if row["completed_at"] is not None:
+            raise ValueError(
+                f"Handoff checklist for project {project_id} is already completed; "
+                f"items cannot be modified"
+            )
+
+        _before = self._row_to_handoff_checklist(row).to_dict()
+
+        items = json.loads(row["items_json"]) if row["items_json"] else {}
+        items[item] = status
+        now = utc_now_iso()
+        items_json = json.dumps(items)
+
+        with conn:
+            conn.execute(
+                "UPDATE production_handoff_checklists SET items_json = ?, updated_at = ? WHERE id = ?;",
+                (items_json, now, row["id"]),
+            )
+
+        updated = ProductionHandoffChecklist(
+            id=row["id"],
+            project_id=project_id,
+            items=items,
+            completed_at=None,
+            completed_by=row["completed_by"],
+            created_by=row["created_by"],
+            created_at=row["created_at"],
+            updated_at=now,
+        )
+
+        self.audit.log(
+            action="update",
+            entity_type="production_handoff_checklist",
+            entity_id=row["id"],
+            change_summary=f"Set handoff checklist item '{item}' to '{status}' for project {project_id}",
+            actor=actor,
+            details=build_audit_details(before=_before, after=updated.to_dict(), fields=_AUDITABLE_HANDOFF_CHECKLIST_FIELDS),
+        )
+        return updated
+
+    def complete_handoff_checklist(
+        self, project_id: int, actor: AuthContext
+    ) -> ProductionHandoffChecklist:
+        """The guarded completion action (B8.12b's central rule 4-category
+        guard). Blocks completion ONLY -- never project creation or
+        production tracking, see create_handoff_checklist's docstring.
+        Raises ValueError identifying every specific unmet condition (not
+        a generic message) via _evaluate_handoff_conditions' shared
+        reasons list. Idempotency: re-completing an already-completed
+        checklist raises, mirroring sign_contract's own "already signed"
+        convention, rather than silently no-op'ing or re-stamping
+        completed_at/completed_by."""
+        if not actor.has_permission(PERM_WRITE_PROJECTS):
+            raise PermissionError("Actor lacks permission to complete a handoff checklist")
+
+        conn = self.db.get_connection()
+        row = conn.execute(
+            "SELECT * FROM production_handoff_checklists WHERE project_id = ?;",
+            (project_id,),
+        ).fetchone()
+        if not row:
+            raise ValueError(f"Project {project_id} has no handoff checklist")
+
+        if row["completed_at"] is not None:
+            raise ValueError(f"Handoff checklist for project {project_id} is already completed")
+
+        _before = self._row_to_handoff_checklist(row).to_dict()
+        items = json.loads(row["items_json"]) if row["items_json"] else {}
+
+        conditions = self._evaluate_handoff_conditions(project_id, items)
+        if conditions["blocking_reasons"]:
+            raise ValueError(
+                f"Cannot complete handoff checklist for project {project_id}: "
+                + "; ".join(conditions["blocking_reasons"])
+            )
+
+        now = utc_now_iso()
+        with conn:
+            conn.execute(
+                """
+                UPDATE production_handoff_checklists
+                SET completed_at = ?, completed_by = ?, updated_at = ?
+                WHERE id = ?;
+                """,
+                (now, actor.user_id, now, row["id"]),
+            )
+
+        updated = ProductionHandoffChecklist(
+            id=row["id"],
+            project_id=project_id,
+            items=items,
+            completed_at=now,
+            completed_by=actor.user_id,
+            created_by=row["created_by"],
+            created_at=row["created_at"],
+            updated_at=now,
+        )
+
+        self.audit.log(
+            action="complete",
+            entity_type="production_handoff_checklist",
+            entity_id=row["id"],
+            change_summary=f"Completed handoff checklist for project {project_id}",
+            actor=actor,
+            details=build_audit_details(before=_before, after=updated.to_dict(), fields=_AUDITABLE_HANDOFF_CHECKLIST_FIELDS),
+        )
+        return updated
 
     # ==========================================
     # DOCUMENTS

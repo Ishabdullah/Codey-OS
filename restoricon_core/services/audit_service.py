@@ -186,6 +186,15 @@ _AUDITABLE_TERRITORY_FIELDS = frozenset({
     "id", "name", "code", "notes", "created_at",
 })
 
+# B8.12b: ProductionHandoffChecklist diff domain. Excludes nothing --
+# drift guard only, same rationale as _AUDITABLE_FINANCING_RECORD_FIELDS
+# above. Uses the dataclass field name `items` (not the `_json` column),
+# same convention as _AUDITABLE_FINANCING_RECORD_FIELDS' `document_ids`.
+_AUDITABLE_HANDOFF_CHECKLIST_FIELDS = frozenset({
+    "id", "project_id", "items", "completed_at", "completed_by",
+    "created_by", "created_at", "updated_at",
+})
+
 
 def build_audit_details(
     *,
