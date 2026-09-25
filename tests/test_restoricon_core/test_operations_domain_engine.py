@@ -693,6 +693,14 @@ def test_technician_role_permissions(env, actors, sample_project):
     pm = actors["pm"]
     pid = sample_project.id
 
+    # NEW-628: operations_service.py now narrows ROLE_TECHNICIAN reads/writes
+    # to projects.assigned_employees_json membership (mirrors crm_service.py's
+    # pre-existing identical check) -- this test's whole premise is a
+    # technician acting on a project, so assign them first, same as any real
+    # technician would need to be for these calls to reach the RBAC checks
+    # this test is actually exercising, not incidentally fail on ownership.
+    env["crm"].update_project(pid, {"assigned_employees": [tech.user_id]}, actors["admin"])
+
     # Tech CANNOT transition project lifecycle
     with pytest.raises(PermissionError, match="manage project lifecycle"):
         ops.transition_project_stage(pid, ProjectStage.ASSESSMENT_SCOPING, tech)

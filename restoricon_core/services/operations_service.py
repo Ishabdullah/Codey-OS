@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from ..auth import (
     AuthContext,
@@ -21,6 +21,7 @@ from ..auth import (
     PERM_READ_TEAM_SALES_DATA,
     PERM_WRITE_OPERATIONS,
     ROLE_CUSTOMER,
+    ROLE_TECHNICIAN,
 )
 from ..database import DatabaseManager
 from ..models import (
@@ -217,6 +218,51 @@ class OperationsService:
         ).fetchone()
         return row is not None
 
+    def _actor_assigned_to_project(self, project_id: int, actor: AuthContext) -> bool:
+        """True iff `actor.user_id` appears in the owning project's
+        `projects.assigned_employees_json` list (NEW-628). Deliberately
+        role-keyed (`actor.role == ROLE_TECHNICIAN` at each call site, not a
+        permission check) to mirror crm_service.py's identical, already-shipped
+        ROLE_TECHNICIAN check on the same column (crm_service.py ~L2833) --
+        unlike `_actor_reaches_only_via_sold_projects` above (permission-keyed,
+        so a custom_permissions_json grant of PERM_READ_OWN_SOLD_PROJECTS to
+        any role gets narrowed), assigned_employees ownership has no
+        standalone permission of its own to key on; ROLE_TECHNICIAN's actual
+        grant is PERM_READ_ASSIGNED_PROJECTS, which no other built-in role
+        holds, so keying on role vs. that permission is equivalent for every
+        role defined today. Python-side json.loads decode, not a SQL
+        `json_each` subquery -- this codebase has never used json_each
+        anywhere (checked), and crm_service.py's identical check decodes in
+        Python too; matching that convention over inventing a third style."""
+        conn = self.db.get_connection()
+        row = conn.execute(
+            "SELECT assigned_employees_json FROM projects WHERE id = ?;",
+            (project_id,),
+        ).fetchone()
+        if not row or not row["assigned_employees_json"]:
+            return False
+        assigned = json.loads(row["assigned_employees_json"])
+        return actor.user_id in assigned
+
+    def _technician_assigned_project_ids(self, actor: AuthContext) -> Set[int]:
+        """Set of project ids `actor.user_id` is assigned to, for narrowing
+        a *different* table's rows (work_orders/equipment) by their
+        project_id/current_project_id in one pass instead of N+1 calls to
+        `_actor_assigned_to_project`. Scans+decodes all `projects` rows in
+        Python rather than a SQL subquery for the same json_each-avoidance
+        reason as `_actor_assigned_to_project` above; mirrors
+        crm_service.py's list_projects, which already does an unfiltered
+        `SELECT * FROM projects` and filters technician rows in Python
+        (crm_service.py ~L2888-2897)."""
+        conn = self.db.get_connection()
+        rows = conn.execute("SELECT id, assigned_employees_json FROM projects;").fetchall()
+        ids: Set[int] = set()
+        for r in rows:
+            assigned = json.loads(r["assigned_employees_json"]) if r["assigned_employees_json"] else []
+            if actor.user_id in assigned:
+                ids.add(r["id"])
+        return ids
+
     def get_project(self, project_id: int, actor: AuthContext) -> Optional[Project]:
         if not (
             actor.has_permission(PERM_READ_OPERATIONS)
@@ -239,6 +285,14 @@ class OperationsService:
             # PERM_READ_OWN_SOLD_PROJECTS -- narrow to projects they sold.
             if not self._actor_owns_sold_project(project_id, actor):
                 raise PermissionError("Actor cannot view a project they did not sell")
+        elif actor.role == ROLE_TECHNICIAN:
+            # NEW-628: ROLE_TECHNICIAN holds PERM_READ_OPERATIONS/
+            # PERM_WRITE_OPERATIONS org-wide but only
+            # PERM_READ_ASSIGNED_PROJECTS -- narrow to projects they're
+            # assigned to, mirroring crm_service.py's identical check.
+            assigned = json.loads(row["assigned_employees_json"]) if row["assigned_employees_json"] else []
+            if actor.user_id not in assigned:
+                raise PermissionError("Technician cannot view a project they are not assigned to")
 
         return self._row_to_project(row, actor.role)
 
@@ -538,6 +592,11 @@ class OperationsService:
         if self._actor_reaches_only_via_sold_projects(actor):
             if not self._actor_owns_sold_project(row["project_id"], actor):
                 raise PermissionError("Actor cannot view a milestone for a project they did not sell")
+        elif actor.role == ROLE_TECHNICIAN:
+            # NEW-628: narrow to milestones on projects the technician is
+            # assigned to.
+            if not self._actor_assigned_to_project(row["project_id"], actor):
+                raise PermissionError("Technician cannot view a milestone for a project they are not assigned to")
 
         return self._row_to_milestone(row)
 
@@ -557,6 +616,11 @@ class OperationsService:
         elif self._actor_reaches_only_via_sold_projects(actor):
             if not self._actor_owns_sold_project(project_id, actor):
                 raise PermissionError("Actor cannot list milestones for a project they did not sell")
+        elif actor.role == ROLE_TECHNICIAN:
+            # NEW-628: narrow to milestones on projects the technician is
+            # assigned to.
+            if not self._actor_assigned_to_project(project_id, actor):
+                raise PermissionError("Technician cannot list milestones for a project they are not assigned to")
 
         rows = conn.execute(
             "SELECT * FROM project_milestones WHERE project_id = ? ORDER BY id ASC;",
@@ -763,6 +827,11 @@ class OperationsService:
         if self._actor_reaches_only_via_sold_projects(actor):
             if not self._actor_owns_sold_project(row["project_id"], actor):
                 raise PermissionError("Actor cannot view a work order for a project they did not sell")
+        elif actor.role == ROLE_TECHNICIAN:
+            # NEW-628: narrow to work orders on projects the technician is
+            # assigned to.
+            if not self._actor_assigned_to_project(row["project_id"], actor):
+                raise PermissionError("Technician cannot view a work order for a project they are not assigned to")
 
         return self._row_to_work_order(row)
 
@@ -810,6 +879,16 @@ class OperationsService:
         query += " ORDER BY id ASC;"
         conn = self.db.get_connection()
         rows = conn.execute(query, params).fetchall()
+
+        if actor.role == ROLE_TECHNICIAN:
+            # NEW-628: narrow to work orders on projects the technician is
+            # assigned to. Python-side filter (not a SQL clause) since
+            # assigned_employees_json isn't a queryable FK column -- mirrors
+            # crm_service.py's list_projects, same reasoning as
+            # `_technician_assigned_project_ids`'s docstring above.
+            allowed_project_ids = self._technician_assigned_project_ids(actor)
+            rows = [r for r in rows if r["project_id"] in allowed_project_ids]
+
         return [self._row_to_work_order(r) for r in rows]
 
     def _query_active_work_orders_for_subcontractor(self, subcontractor_id: int) -> List[Dict[str, Any]]:
@@ -1389,6 +1468,18 @@ class OperationsService:
         row = conn.execute("SELECT * FROM equipment WHERE id = ?;", (equipment_id,)).fetchone()
         if not row:
             return None
+
+        # NEW-628: narrow to equipment currently deployed to a project the
+        # technician is assigned to. Equipment with no current project
+        # (current_project_id IS NULL, i.e. available warehouse stock) is
+        # deliberately NOT narrowed -- deploy_equipment's own pre-read
+        # (below) calls this same method on AVAILABLE equipment before it
+        # has any project_id to check against, so denying NULL here would
+        # make deploy_equipment permanently unusable for every technician.
+        if actor.role == ROLE_TECHNICIAN and row["current_project_id"] is not None:
+            if not self._actor_assigned_to_project(row["current_project_id"], actor):
+                raise PermissionError("Technician cannot view equipment deployed to a project they are not assigned to")
+
         return self._row_to_equipment(row)
 
     def list_equipment(
@@ -1417,6 +1508,17 @@ class OperationsService:
         query += " ORDER BY id ASC;"
         conn = self.db.get_connection()
         rows = conn.execute(query, params).fetchall()
+
+        if actor.role == ROLE_TECHNICIAN:
+            # NEW-628: same NULL-current_project_id allowance as
+            # get_equipment above -- available stock stays visible so a
+            # technician can find something to deploy.
+            allowed_project_ids = self._technician_assigned_project_ids(actor)
+            rows = [
+                r for r in rows
+                if r["current_project_id"] is None or r["current_project_id"] in allowed_project_ids
+            ]
+
         return [self._row_to_equipment(r) for r in rows]
 
     def deploy_equipment(
@@ -1490,7 +1592,19 @@ class OperationsService:
                 ),
             )
 
-        _after = self.get_equipment(equipment_id, actor)
+        # NEW-628: NOT self.get_equipment(equipment_id, actor) here. That
+        # method now denies a technician read of equipment whose
+        # current_project_id doesn't match one of their assigned projects --
+        # and the UPDATE just above set current_project_id = project_id,
+        # which this technician's own write just committed. Re-checking RBAC
+        # on an actor's own just-completed write would raise PermissionError
+        # AFTER the INSERT/UPDATE already committed and BEFORE audit.log
+        # below runs, silently dropping the audit trail for a real
+        # deployment. The actor already cleared the write gate and the
+        # pre-read above; this is a same-transaction audit snapshot, not a
+        # fresh access decision, so a direct read is safe here.
+        _after_row = conn.execute("SELECT * FROM equipment WHERE id = ?;", (equipment_id,)).fetchone()
+        _after = self._row_to_equipment(_after_row) if _after_row else None
         _se = {
             "deployment_created": {
                 "deployment_id": deployment_id,
@@ -1631,6 +1745,14 @@ class OperationsService:
         if not actor.has_permission(PERM_READ_OPERATIONS):
             raise PermissionError("Actor lacks permission to list equipment deployments")
 
+        if actor.role == ROLE_TECHNICIAN:
+            # NEW-628: narrow to deployments for a project the technician is
+            # assigned to. project_id is required here (unlike list_equipment),
+            # so raise rather than silently filter, matching this file's
+            # required-project_id convention (list_milestones above).
+            if not self._actor_assigned_to_project(project_id, actor):
+                raise PermissionError("Technician cannot list equipment deployments for a project they are not assigned to")
+
         query = "SELECT * FROM equipment_deployments WHERE project_id = ?"
         params: List[Any] = [project_id]
 
@@ -1649,6 +1771,14 @@ class OperationsService:
     def get_project_summary(self, project_id: int, actor: AuthContext) -> Dict[str, Any]:
         """
         Aggregate full operational status for a project: stage, milestones, work orders, equipment.
+
+        NEW-628: no ROLE_TECHNICIAN-specific narrowing needed directly in
+        this method -- it composes get_project/list_milestones/
+        list_work_orders/list_project_deployments, all narrowed above, so an
+        unassigned technician is denied at the get_project call below
+        (PermissionError, same as B8.12a's rep case) and an assigned
+        technician's downstream calls all resolve against the same
+        already-verified project_id.
         """
         project = self.get_project(project_id, actor)
         if not project:
