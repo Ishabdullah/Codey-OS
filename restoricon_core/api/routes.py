@@ -1317,7 +1317,19 @@ class APIRouter:
                         customer_id=_parse_int_query_param(query_params, "customer_id", 0) if cid else None,
                         project_id=_parse_int_query_param(query_params, "project_id", 0) if pid else None,
                     )
-                    return 200, {"Content-Type": "application/json"}, {"contracts": [c.to_dict() for c in contracts]}
+                    # NEW-617: "resolved_signed_at" is additive to
+                    # to_dict()'s dataclass fields -- Contract.
+                    # customer_signed_at is left untouched (still needed
+                    # for the legacy single-signer path and elsewhere) but
+                    # is never populated for a multi-party contract (see
+                    # CRMService.resolve_contract_signed_at), so display
+                    # callers should prefer this field.
+                    return 200, {"Content-Type": "application/json"}, {
+                        "contracts": [
+                            {**c.to_dict(), "resolved_signed_at": self.crm.resolve_contract_signed_at(c.id)}
+                            for c in contracts
+                        ]
+                    }
                 elif method == "POST":
                     contract = Contract(**json_body)
                     created = self.crm.create_contract(contract, actor)
@@ -1328,7 +1340,10 @@ class APIRouter:
                 contract = self.crm.get_contract(contract_id, actor)
                 if not contract:
                     return 404, {"Content-Type": "application/json"}, {"error": "Contract not found"}
-                return 200, {"Content-Type": "application/json"}, {"contract": contract.to_dict()}
+                # NEW-617: see the list-endpoint comment above.
+                return 200, {"Content-Type": "application/json"}, {
+                    "contract": {**contract.to_dict(), "resolved_signed_at": self.crm.resolve_contract_signed_at(contract_id)}
+                }
 
             if (
                 path.startswith("/api/v1/contracts/")
@@ -1819,6 +1834,15 @@ class APIRouter:
                             {"Content-Type": "application/json"},
                             {"error": "provider_message_id must be a string"},
                         )
+                    # NEW-627: project_id/opportunity_id/lead_id previously
+                    # passed straight through from json_body unvalidated --
+                    # a non-integer value reached record_communication's DB
+                    # layer and surfaced as a raw type/SQL error instead of
+                    # a clean 400. Validated together via the same
+                    # _parse_int_body_field helper every other body-field
+                    # integer already uses on this router (NEW-528), each
+                    # defaulting to None (all three are genuinely optional
+                    # here, same as before this fix).
                     rec = self.comm.record_communication(
                         channel=json_body.get("channel", "email"),
                         direction=json_body.get("direction", "inbound"),
@@ -1826,9 +1850,9 @@ class APIRouter:
                         actor=actor,
                         subject=json_body.get("subject"),
                         customer_id=customer_id,
-                        project_id=json_body.get("project_id"),
-                        opportunity_id=json_body.get("opportunity_id"),
-                        lead_id=json_body.get("lead_id"),
+                        project_id=_parse_int_body_field(json_body, "project_id", None),
+                        opportunity_id=_parse_int_body_field(json_body, "opportunity_id", None),
+                        lead_id=_parse_int_body_field(json_body, "lead_id", None),
                         metadata=json_body.get("metadata"),
                         provider_message_id=provider_message_id,
                     )

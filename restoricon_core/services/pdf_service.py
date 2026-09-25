@@ -204,6 +204,26 @@ def render_contract_pdf_multi(contract, signer_rows) -> bytes:
     `signer_rows` must be non-empty (callers should use render_contract_pdf
     instead for the single-signer/no-ContractSigner-rows case).
     """
+    # NEW-617: the "Signed At" field below resolves to
+    # MAX(signer.signed_at) ONLY once every row in `signer_rows` has
+    # signed -- same "all_signed" gate sign_contract itself uses to flip
+    # contracts.status to 'signed' (see crm_service.py's sign_contract),
+    # and the same rule CRMService._resolve_signed_at_value applies for a
+    # fully-signed contract (Contract.customer_signed_at is never written
+    # once a contract has contract_signers rows, since the last required
+    # signer to complete may not be the customer). This function is also
+    # called on every regenerate-on-each-signature side effect for a
+    # still-partially-signed contract (see this function's docstring
+    # above) -- deliberately None in that case, not the latest partial
+    # signer's own timestamp, so this legal document's "Signed At" field
+    # can never show a date before every party has actually signed. No DB
+    # access needed here: `signer_rows` already carries every signer's own
+    # signed_at.
+    resolved_signed_at = (
+        max(s.signed_at for s in signer_rows)
+        if signer_rows and all(s.signed_at for s in signer_rows)
+        else None
+    )
     anchors = []
     for i, signer in enumerate(signer_rows):
         y = _MULTI_SIGNER_Y_START - i * _MULTI_SIGNER_Y_STEP
@@ -230,6 +250,7 @@ def render_contract_pdf_multi(contract, signer_rows) -> bytes:
         fields=[
             DocumentField("Contract Number", contract.contract_number or ""),
             DocumentField("Status", contract.status or ""),
+            DocumentField("Signed At", resolved_signed_at or ""),
         ],
         body=contract.content or "",
         signature_anchors=anchors,

@@ -5049,6 +5049,55 @@ class CRMService:
         )
         return invoice
 
+    @staticmethod
+    def _resolve_signed_at_value(
+        customer_signed_at: Optional[str],
+        multi_party_signed_at: Optional[str],
+        signer_row_count: int,
+    ) -> Optional[str]:
+        """Pure resolution rule, shared by _resolve_portfolio_override_
+        eligibility's gate 1b/5 (below) and resolve_contract_signed_at
+        (NEW-617): a contract with one or more contract_signers rows
+        (opted into multi-party signing via add_contract_signers,
+        B8.6d-b) resolves to MAX(contract_signers.signed_at) --
+        Contract.customer_signed_at is never written for such a
+        contract, since the last required signer to complete may not be
+        the customer (see add_contract_signers's docstring). A contract
+        with zero contract_signers rows (the legacy single-signer path)
+        resolves to Contract.customer_signed_at unchanged. Extracted as
+        its own pure function (rather than duplicated logic) so both
+        callers can never diverge on this rule.
+        """
+        if signer_row_count and signer_row_count > 0:
+            return multi_party_signed_at
+        return customer_signed_at
+
+    def resolve_contract_signed_at(self, contract_id: int) -> Optional[str]:
+        """NEW-617: standalone, DB-backed resolution of a single
+        contract's real "signed at" timestamp, for display sites (the
+        /api/v1/contracts list/get responses) that need this outside
+        _resolve_portfolio_override_eligibility's own query shape.
+        Delegates to _resolve_signed_at_value so the resolution rule
+        itself lives in exactly one place. Returns None if the contract
+        doesn't exist."""
+        conn = self.db.get_connection()
+        row = conn.execute(
+            """
+            SELECT c.customer_signed_at,
+                   (SELECT MAX(cs.signed_at) FROM contract_signers cs
+                    WHERE cs.contract_id = c.id) AS multi_party_signed_at,
+                   (SELECT COUNT(*) FROM contract_signers cs
+                    WHERE cs.contract_id = c.id) AS signer_row_count
+            FROM contracts c WHERE c.id = ?;
+            """,
+            (contract_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return self._resolve_signed_at_value(
+            row["customer_signed_at"], row["multi_party_signed_at"], row["signer_row_count"]
+        )
+
     def _resolve_portfolio_override_eligibility(
         self,
         invoice_id: int,
@@ -5166,9 +5215,9 @@ class CRMService:
             return _PortfolioOverrideEligibility(False, None, "contract_link_missing")
 
         def _resolved_signed_at(row: Any) -> Optional[str]:
-            if row["signer_row_count"] > 0:
-                return row["multi_party_signed_at"]
-            return row["customer_signed_at"]
+            return self._resolve_signed_at_value(
+                row["customer_signed_at"], row["multi_party_signed_at"], row["signer_row_count"]
+            )
 
         contract_rows = sorted(
             contract_rows,

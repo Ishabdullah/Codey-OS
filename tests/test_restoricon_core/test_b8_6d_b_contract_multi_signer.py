@@ -84,7 +84,8 @@ def env(tmp_path, monkeypatch):
 
     return {
         "db": db, "crm": crm, "audit": audit_service, "auth": auth_service,
-        "admin": actor_admin, "cust": cust, "actor_customer": actor_customer, "actor_pm": actor_pm,
+        "admin": actor_admin, "admin_user": admin_user,
+        "cust": cust, "actor_customer": actor_customer, "actor_pm": actor_pm,
     }
 
 
@@ -416,3 +417,196 @@ def test_multi_party_pdf_draws_each_signature_at_distinct_anchor(env, monkeypatc
 
     # PM's text-stamp signature line is present with PM's own label text.
     assert any("PM" in text and "on" in text for (_, _, text) in drawn_strings)
+
+
+# ---------------------------------------------------------------------------
+# NEW-617: fully-signed multi-party contract's "Signed At" must resolve,
+# not render blank -- Contract.customer_signed_at is never populated once
+# a contract has contract_signers rows (see add_contract_signers's
+# docstring), so display sites that read that column directly always saw
+# a blank value for a multi-party contract even after every party signed.
+# ---------------------------------------------------------------------------
+
+def test_multi_party_signed_contract_customer_signed_at_stays_null(env):
+    """Confirms the root cause: the legacy column is genuinely never
+    written for a multi-party contract, so any display site reading it
+    directly is structurally blank -- this is what resolve_contract_
+    signed_at / render_contract_pdf_multi's "Signed At" field must work
+    around."""
+    contract = _make_contract(env, "CTR-MP-NULLCHECK-1")
+    crm = env["crm"]
+    crm.add_contract_signers(
+        contract.id, [{"party_role": "customer", "signer_name": "Multi Signer"}], env["admin"],
+    )
+    signed = crm.sign_contract(contract.id, _png_data_url(), env["actor_customer"], party_role="customer")
+    assert signed.status == "signed"
+    assert signed.customer_signed_at is None
+
+
+def test_multi_party_pdf_signed_at_field_resolves_not_blank(env, monkeypatch):
+    contract = _make_contract(env, "CTR-MP-SIGNEDAT-1")
+    crm = env["crm"]
+    crm.add_contract_signers(
+        contract.id, [{"party_role": "customer", "signer_name": "Multi Signer"}], env["admin"],
+    )
+
+    drawn_strings = []
+    orig_draw_string = pdf_service.rl_canvas.Canvas.drawString
+
+    def spy_draw_string(self, x, y, text, *a, **kw):
+        drawn_strings.append(text)
+        return orig_draw_string(self, x, y, text, *a, **kw)
+
+    monkeypatch.setattr(pdf_service.rl_canvas.Canvas, "drawString", spy_draw_string)
+
+    signed = crm.sign_contract(contract.id, _png_data_url(), env["actor_customer"], party_role="customer")
+    assert signed.status == "signed"
+
+    conn = env["db"].get_connection()
+    resolved = conn.execute(
+        "SELECT MAX(signed_at) AS s FROM contract_signers WHERE contract_id = ?;", (contract.id,),
+    ).fetchone()["s"]
+    assert resolved is not None
+
+    assert any(text == "Signed At:" for text in drawn_strings)
+    assert any(text == resolved for text in drawn_strings)
+
+
+def test_multi_party_partial_signature_pdf_signed_at_still_blank(env, monkeypatch):
+    """A partially-signed multi-party contract (not every required signer
+    done yet) must NOT show a resolved "Signed At" -- this is a legal
+    document, and it must never show a signed-at date before every party
+    has actually signed, even though render_contract_pdf_multi
+    regenerates on every completed signature (see its docstring). Uses
+    the same "all_signed" gate sign_contract itself uses to flip
+    contracts.status."""
+    contract = _make_contract(env, "CTR-MP-PARTIAL-SIGNEDAT-1")
+    crm = env["crm"]
+    crm.add_contract_signers(
+        contract.id,
+        [
+            {"party_role": "customer", "signer_name": "Multi Signer"},
+            {"party_role": "project_manager", "signer_name": "PM"},
+        ],
+        env["admin"],
+    )
+
+    drawn_strings = []
+    orig_draw_string = pdf_service.rl_canvas.Canvas.drawString
+
+    def spy_draw_string(self, x, y, text, *a, **kw):
+        drawn_strings.append(text)
+        return orig_draw_string(self, x, y, text, *a, **kw)
+
+    monkeypatch.setattr(pdf_service.rl_canvas.Canvas, "drawString", spy_draw_string)
+
+    after_first = crm.sign_contract(contract.id, _png_data_url(), env["actor_customer"], party_role="customer")
+    assert after_first.status != "signed"
+
+    conn = env["db"].get_connection()
+    customer_signed_at = conn.execute(
+        "SELECT signed_at FROM contract_signers WHERE contract_id = ? AND party_role = ?;",
+        (contract.id, "customer"),
+    ).fetchone()["signed_at"]
+    assert customer_signed_at is not None  # sanity: the customer really did sign
+
+    assert any(text == "Signed At:" for text in drawn_strings)
+    assert any(text == "" for text in drawn_strings)
+    assert not any(text == customer_signed_at for text in drawn_strings)
+
+
+def test_legacy_single_signer_pdf_signed_at_unchanged(env):
+    """render_contract_pdf (the legacy single-signer path, zero
+    contract_signers rows) is untouched by this fix -- still reads
+    Contract.customer_signed_at directly."""
+    from restoricon_core.services.pdf_service import render_contract_pdf
+
+    contract = _make_contract(env, "CTR-LEGACY-SIGNEDAT-1")
+    signed = env["crm"].sign_contract(contract.id, _png_data_url(), env["actor_customer"])
+    assert signed.status == "signed"
+    assert signed.customer_signed_at is not None
+
+    pdf_bytes = render_contract_pdf(signed, "Signed by Multi Signer")
+    assert isinstance(pdf_bytes, bytes)
+    assert pdf_bytes.startswith(b"%PDF-")
+
+
+# ---------------------------------------------------------------------------
+# NEW-617: CRMService.resolve_contract_signed_at + the /api/v1/contracts
+# list/get responses' "resolved_signed_at" field.
+# ---------------------------------------------------------------------------
+
+def test_resolve_contract_signed_at_multi_party(env):
+    contract = _make_contract(env, "CTR-MP-RESOLVE-1")
+    crm = env["crm"]
+    crm.add_contract_signers(
+        contract.id, [{"party_role": "customer", "signer_name": "Multi Signer"}], env["admin"],
+    )
+    assert crm.resolve_contract_signed_at(contract.id) is None  # unsigned yet
+
+    signed = crm.sign_contract(contract.id, _png_data_url(), env["actor_customer"], party_role="customer")
+    assert signed.status == "signed"
+
+    conn = env["db"].get_connection()
+    expected = conn.execute(
+        "SELECT MAX(signed_at) AS s FROM contract_signers WHERE contract_id = ?;", (contract.id,),
+    ).fetchone()["s"]
+    assert crm.resolve_contract_signed_at(contract.id) == expected
+    assert expected is not None
+
+
+def test_resolve_contract_signed_at_legacy_single_signer_unchanged(env):
+    contract = _make_contract(env, "CTR-LEGACY-RESOLVE-1")
+    crm = env["crm"]
+    assert crm.resolve_contract_signed_at(contract.id) is None
+
+    signed = crm.sign_contract(contract.id, _png_data_url(), env["actor_customer"])
+    assert signed.status == "signed"
+    assert crm.resolve_contract_signed_at(contract.id) == signed.customer_signed_at
+    assert signed.customer_signed_at is not None
+
+
+def test_resolve_contract_signed_at_missing_contract_returns_none(env):
+    assert env["crm"].resolve_contract_signed_at(999999) is None
+
+
+def test_contracts_list_route_resolved_signed_at_multi_party(env):
+    """/api/v1/contracts?customer_id= must expose resolved_signed_at,
+    non-blank for a fully-signed multi-party contract even though
+    Contract.customer_signed_at (still present in the payload) is null."""
+    from restoricon_core.api.routes import APIRouter
+    from restoricon_core.services.automation_service import AutomationService
+    from restoricon_core.services.communication_service import CommunicationService
+    from restoricon_core.services.operations_service import OperationsService
+    from restoricon_core.services.scheduling_service import SchedulingService
+
+    crm = env["crm"]
+    contract = _make_contract(env, "CTR-MP-ROUTE-1")
+    crm.add_contract_signers(
+        contract.id, [{"party_role": "customer", "signer_name": "Multi Signer"}], env["admin"],
+    )
+    crm.sign_contract(contract.id, _png_data_url(), env["actor_customer"], party_role="customer")
+
+    db = env["db"]
+    audit_service = env["audit"]
+    router = APIRouter(
+        auth_service=env["auth"],
+        crm_service=crm,
+        comm_service=CommunicationService(db),
+        audit_service=audit_service,
+        scheduling_service=SchedulingService(db, audit_service),
+        automation_service=AutomationService(db, audit_service),
+        operations_service=OperationsService(db, audit_service),
+    )
+    token = env["auth"].create_token(env["admin_user"])
+    hdr = {"Authorization": f"Bearer {token}"}
+
+    status, _, data = router.handle_request(
+        "GET", f"/api/v1/contracts?customer_id={env['cust'].id}", hdr, b"",
+    )
+    assert status == 200
+    matches = [c for c in data["contracts"] if c["contract_number"] == "CTR-MP-ROUTE-1"]
+    assert len(matches) == 1
+    resolved = matches[0]
+    assert resolved["customer_signed_at"] is None
+    assert resolved["resolved_signed_at"] is not None

@@ -7110,7 +7110,7 @@ def _render_sales_portal() -> str:
                 '<thead><tr><th>Number</th><th>Status</th><th>Total</th><th></th></tr></thead>');
 
             html += c360PanelSection('Contracts', byKey.contracts, 'No contracts.',
-                (d) => (d.contracts || []).map(c => `<tr><td>${{escapeHtml(c.contract_number || '')}}</td><td>${{escapeHtml(c.title || '')}}</td><td>${{escapeHtml(c.status || '')}}${{c.status === 'signed' && c.customer_signed_at ? ' (' + escapeHtml(c.customer_signed_at) + ')' : ''}}</td><td>${{renderContractActionButtons(c)}}</td></tr>`),
+                (d) => (d.contracts || []).map(c => `<tr><td>${{escapeHtml(c.contract_number || '')}}</td><td>${{escapeHtml(c.title || '')}}</td><td>${{escapeHtml(c.status || '')}}${{c.status === 'signed' && c.resolved_signed_at ? ' (' + escapeHtml(c.resolved_signed_at) + ')' : ''}}</td><td>${{renderContractActionButtons(c)}}</td></tr>`),
                 '<thead><tr><th>Number</th><th>Title</th><th>Status</th><th></th></tr></thead>');
 
             html += c360PanelSection('Invoices', byKey.invoices, 'No invoices.',
