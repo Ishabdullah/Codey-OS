@@ -524,11 +524,20 @@ class OperationsService:
     # ==========================================
 
     def create_milestone(self, milestone: ProjectMilestone, actor: AuthContext) -> ProjectMilestone:
+        """Create a milestone under `milestone.project_id`. Write-path
+        counterpart to NEW-628: a ROLE_TECHNICIAN actor is additionally
+        narrowed to projects they are assigned to
+        (`_actor_assigned_to_project`) -- otherwise any technician with
+        org-wide PERM_WRITE_OPERATIONS could create milestones on a project
+        they have no assignment to at all."""
         if not (
             actor.has_permission(PERM_WRITE_OPERATIONS)
             or actor.has_permission(PERM_MANAGE_PROJECTS)
         ):
             raise PermissionError("Actor lacks permission to create project milestones")
+
+        if actor.role == ROLE_TECHNICIAN and not self._actor_assigned_to_project(milestone.project_id, actor):
+            raise PermissionError("Technician cannot create a milestone for a project they are not assigned to")
 
         if not milestone.name or not milestone.name.strip():
             raise ValueError("Milestone name cannot be empty")
@@ -730,11 +739,18 @@ class OperationsService:
         return "WO-0001"
 
     def create_work_order(self, work_order: WorkOrder, actor: AuthContext) -> WorkOrder:
+        """Create a work order under `work_order.project_id`. Write-path
+        counterpart to NEW-628: a ROLE_TECHNICIAN actor is additionally
+        narrowed to projects they are assigned to
+        (`_actor_assigned_to_project`)."""
         if not (
             actor.has_permission(PERM_WRITE_OPERATIONS)
             or actor.has_permission(PERM_MANAGE_PROJECTS)
         ):
             raise PermissionError("Actor lacks permission to create work orders")
+
+        if actor.role == ROLE_TECHNICIAN and not self._actor_assigned_to_project(work_order.project_id, actor):
+            raise PermissionError("Technician cannot create a work order for a project they are not assigned to")
 
         if not work_order.title or not work_order.title.strip():
             raise ValueError("Work order title cannot be empty")
@@ -902,10 +918,20 @@ class OperationsService:
         (get_active_work_orders_for_subcontractor) and the subcontractor
         DELETE route's server-side re-check, so the two can never drift
         (NEW-507, mirrors the staff_schedules/appointment_types
-        active-reference precedent, Delete-buttons round 2026-09-11)."""
+        active-reference precedent, Delete-buttons round 2026-09-11).
+
+        NEW-646: `project_id` was added to the SELECT (additive column) so
+        the RBAC-gated public method below can narrow its own return value
+        for ROLE_TECHNICIAN by assigned-project membership. Deliberately NOT
+        row-filtered in here -- crm_service.py's subcontractor-delete
+        precheck (crm_service.py ~L6742) calls this exact unguarded method
+        directly, bypassing the narrowed public method entirely, so a
+        technician's narrowed (possibly empty) result must never reach it;
+        doing so would let a subcontractor with real active work orders get
+        deleted. Any future filtering belongs ONLY in the public method."""
         conn = self.db.get_connection()
         rows = conn.execute(
-            "SELECT id, work_order_number, title, status FROM work_orders "
+            "SELECT id, work_order_number, title, status, project_id FROM work_orders "
             "WHERE assigned_subcontractor_id = ? "
             "AND status NOT IN ('completed', 'verified', 'cancelled');",
             (subcontractor_id,),
@@ -917,12 +943,31 @@ class OperationsService:
     ) -> List[Dict[str, Any]]:
         """RBAC-gated read of active (non-terminal) work orders assigned to
         a subcontractor -- backs the admin-surface subcontractor-delete
-        precheck popup (NEW-507)."""
+        precheck popup (NEW-507).
+
+        NEW-646: ROLE_TECHNICIAN is narrowed to rows whose `project_id` is
+        one of their assigned projects (`_technician_assigned_project_ids`).
+        This filtering lives here, not in the shared
+        `_query_active_work_orders_for_subcontractor` helper, because that
+        helper is also called unguarded by crm_service.py's
+        subcontractor-delete precheck -- see that helper's docstring."""
         if not actor.has_permission(PERM_READ_OPERATIONS):
             raise PermissionError("Actor lacks permission to read work orders")
-        return self._query_active_work_orders_for_subcontractor(subcontractor_id)
+        rows = self._query_active_work_orders_for_subcontractor(subcontractor_id)
+        if actor.role == ROLE_TECHNICIAN:
+            allowed_project_ids = self._technician_assigned_project_ids(actor)
+            rows = [r for r in rows if r["project_id"] in allowed_project_ids]
+        return rows
 
     def update_work_order(self, work_order: WorkOrder, actor: AuthContext) -> WorkOrder:
+        """Update an existing work order's dispatch/execution fields.
+        NEW-643: for ROLE_TECHNICIAN, ownership is checked against the
+        CURRENT `project_id` read fresh from the `work_orders` row in the
+        DB -- never `work_order.project_id` off the caller-supplied model.
+        The `UPDATE` below never writes `project_id` (it isn't a mutable
+        field of this call), so the model's copy could be stale or spoofed;
+        the DB row is the only authoritative source for which project this
+        work order actually belongs to."""
         if not (
             actor.has_permission(PERM_WRITE_OPERATIONS)
             or actor.has_permission(PERM_MANAGE_PROJECTS)
@@ -931,6 +976,14 @@ class OperationsService:
 
         if not work_order.id:
             raise ValueError("Work order ID is required for update")
+
+        if actor.role == ROLE_TECHNICIAN:
+            conn = self.db.get_connection()
+            row = conn.execute(
+                "SELECT project_id FROM work_orders WHERE id = ?;", (work_order.id,)
+            ).fetchone()
+            if not row or not self._actor_assigned_to_project(row["project_id"], actor):
+                raise PermissionError("Technician cannot update a work order for a project they are not assigned to")
 
         if work_order.line_items:
             total = 0.0
@@ -1534,6 +1587,15 @@ class OperationsService:
     ) -> EquipmentDeployment:
         """
         Deploy available equipment to a project job site with moisture/environmental logs.
+
+        NEW-645 (deploy_equipment write-path counterpart to NEW-628): for
+        ROLE_TECHNICIAN, ownership is checked against `project_id` -- the
+        deploy TARGET -- BEFORE the INSERT/UPDATE below, not after. A
+        post-write check here would have the same problem the NEW-628
+        comment further down (~L1595) documents for the audit re-read: it
+        would raise PermissionError after the write already committed,
+        producing a real deployment with no audit trail. Checking before
+        the write means a denied technician never mutates any row.
         """
         if not (
             actor.has_permission(PERM_WRITE_OPERATIONS)
@@ -1548,6 +1610,9 @@ class OperationsService:
 
         if eq.status != EquipmentStatus.AVAILABLE:
             raise ValueError(f"Equipment #{equipment_id} is not available (current status: {eq.status})")
+
+        if actor.role == ROLE_TECHNICIAN and not self._actor_assigned_to_project(project_id, actor):
+            raise PermissionError("Technician cannot deploy equipment to a project they are not assigned to")
 
         now = utc_now_iso()
         conn = self.db.get_connection()
@@ -1647,6 +1712,12 @@ class OperationsService:
     ) -> EquipmentDeployment:
         """
         Record equipment return from job site with final dry-down readings.
+
+        NEW-644 (return_equipment write-path counterpart to NEW-628): for
+        ROLE_TECHNICIAN, ownership is checked against `dep_row["project_id"]`
+        -- the project this deployment was made to -- BEFORE any UPDATE
+        below, matching deploy_equipment's pre-write ordering for the same
+        reason (see that method's docstring).
         """
         if not (
             actor.has_permission(PERM_WRITE_OPERATIONS)
@@ -1661,6 +1732,9 @@ class OperationsService:
 
         if dep_row["returned_at"]:
             raise ValueError("Equipment deployment has already been returned")
+
+        if actor.role == ROLE_TECHNICIAN and not self._actor_assigned_to_project(dep_row["project_id"], actor):
+            raise PermissionError("Technician cannot return equipment for a project they are not assigned to")
 
         equipment_id = dep_row["equipment_id"]
         now = utc_now_iso()
