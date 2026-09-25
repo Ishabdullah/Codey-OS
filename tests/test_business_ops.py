@@ -291,6 +291,48 @@ def test_hr_employee_and_timesheet(ops_setup):
     assert approved.approved_by_id == admin_ctx.user_id
 
 
+def test_timesheet_audit_records_submit_and_approve(ops_setup):
+    """NEW-636: submit_timesheet and approve_timesheet each write an audit entry."""
+    ops = ops_setup["ops"]
+    audit = ops_setup["audit"]
+    admin_ctx = ops_setup["admin_ctx"]
+    tech_ctx = ops_setup["tech_ctx"]
+
+    emp = ops.create_employee(
+        Employee(
+            first_name="Rosa",
+            last_name="Fieldhand",
+            role_title="Restoration Tech",
+            department="operations",
+            hourly_rate=40.0,
+        ),
+        admin_ctx,
+    )
+
+    ts = ops.submit_timesheet(
+        Timesheet(employee_id=emp.id, hours_worked=6.0, work_type="regular"),
+        tech_ctx,
+    )
+
+    submit_logs = audit.query_logs(admin_ctx, entity_type="timesheet", entity_id=ts.id, action="create")
+    assert len(submit_logs) == 1
+    submit_log = submit_logs[0]
+    assert submit_log.actor_id == tech_ctx.user_id
+    submit_changed = submit_log.details["changed_fields"]
+    assert submit_changed["employee_id"] == {"old": None, "new": emp.id}
+    assert submit_changed["status"] == {"old": None, "new": "submitted"}
+
+    ops.approve_timesheet(ts.id, admin_ctx)
+
+    approve_logs = audit.query_logs(admin_ctx, entity_type="timesheet", entity_id=ts.id, action="update")
+    assert len(approve_logs) == 1
+    approve_log = approve_logs[0]
+    assert approve_log.actor_id == admin_ctx.user_id
+    approve_changed = approve_log.details["changed_fields"]
+    assert approve_changed["status"] == {"old": "submitted", "new": "approved"}
+    assert approve_changed["approved_by_id"] == {"old": None, "new": admin_ctx.user_id}
+
+
 def test_procurement_vendor_and_po(ops_setup):
     ops = ops_setup["ops"]
     admin_ctx = ops_setup["admin_ctx"]

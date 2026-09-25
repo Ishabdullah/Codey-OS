@@ -36,6 +36,7 @@ from restoricon_core.models import (
     PurchaseOrder,
     ReviewRequest,
     ScheduleConfig,
+    Timesheet,
     Vendor,
 )
 from restoricon_core.services.audit_service import (
@@ -45,6 +46,7 @@ from restoricon_core.services.audit_service import (
     _AUDITABLE_CONTACT_FIELDS,
     _AUDITABLE_PURCHASE_ORDER_FIELDS,
     _AUDITABLE_REVIEW_REQUEST_FIELDS,
+    _AUDITABLE_TIMESHEET_FIELDS,
 )
 from restoricon_core.services.automation_service import AutomationService
 from restoricon_core.services.business_ops_service import BusinessOpsService
@@ -381,6 +383,10 @@ def test_drift_review_request_fields():
 
 def test_drift_purchase_order_fields():
     assert _AUDITABLE_PURCHASE_ORDER_FIELDS == set(PurchaseOrder().to_dict())
+
+
+def test_drift_timesheet_fields():
+    assert _AUDITABLE_TIMESHEET_FIELDS == set(Timesheet().to_dict())
 
 
 # --------------------------------------------------------------------------

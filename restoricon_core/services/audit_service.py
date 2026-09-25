@@ -186,6 +186,23 @@ _AUDITABLE_TERRITORY_FIELDS = frozenset({
     "id", "name", "code", "notes", "created_at",
 })
 
+# NEW-636: Timesheet diff domain. Excludes nothing -- drift guard only,
+# same rationale as _AUDITABLE_PURCHASE_ORDER_FIELDS above. hourly_rate /
+# total_cost ARE included here, unlike _AUDITABLE_EMPLOYEE_FIELDS's exclusion
+# of the employee's standing rate: submit_timesheet defaults ts.hourly_rate
+# from the employee's own rate when not explicitly supplied, so this is
+# often a direct copy of it, not a distinct transaction amount -- included
+# anyway per the drift-guard-only rationale, not because it's a different
+# kind of value. No new disclosure surface either way: PERM_READ_AUDIT_LOG
+# holders (ROLE_ADMIN/ROLE_MANAGER) already hold PERM_READ_HR and can read
+# Employee.hourly_rate directly. Note: Timesheet has no updated_at field,
+# unlike its neighbors.
+_AUDITABLE_TIMESHEET_FIELDS = frozenset({
+    "id", "employee_id", "project_id", "work_order_id", "work_date",
+    "hours_worked", "work_type", "hourly_rate", "total_cost", "notes",
+    "approved_by_id", "status", "created_at",
+})
+
 # B8.12b: ProductionHandoffChecklist diff domain. Excludes nothing --
 # drift guard only, same rationale as _AUDITABLE_FINANCING_RECORD_FIELDS
 # above. Uses the dataclass field name `items` (not the `_json` column),
