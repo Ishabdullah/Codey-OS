@@ -19243,3 +19243,21 @@ housekeeping, same as `NEW-403`'s own cleanup.
 - **Fix direction:** none needed — informational. Flagging so future rounds' "full suite" language in a report is trusted at face value only when it demonstrably included `ccos/tests`, matching this project's repeat pattern of scoped-run-reported-as-full-suite claims.
 - **Not fixed this round** — nothing to fix, record-correction only.
 - **Cross-reference:** `NEW-512` (same error class), `NEW-550`, B8.14a's implementer round.
+
+## Found 2026-09-25 — code-reviewer's B8.14b round (tiered analytics rollup review), both non-blocking, not fixed
+
+### [NEW-639] Suspected, cosmetic: `get_sales_analytics_rollup`'s reconciliation `"note"` field is returned unconditionally on both rep AND manager tiers, but its text only describes a condition (unclaimed-pool leniency) that's true for actors WITHOUT `PERM_READ_TEAM_SALES_DATA`
+
+- **Status:** Suspected (code-reviewer, 2026-09-25, B8.14b review). `_ROLLUP_RECONCILIATION_NOTE` (`analytics_search_service.py`) describes `_scoped_assignee_filter`'s fail-open unclaimed-pool behavior, which only applies to an actor lacking `PERM_READ_TEAM_SALES_DATA`. It's attached to every rep/manager-tier response regardless, so a manager-tier actor who genuinely holds that permission receives a note describing a condition that isn't actually true of their own response.
+- **Impact:** cosmetic only — no data exposure or correctness issue, just a slightly misleading disclosure string for one sub-case of the manager tier.
+- **Fix direction (not decided/fixed this round):** make the note conditional on whether the actor actually lacks `PERM_READ_TEAM_SALES_DATA`, or split it into two note variants.
+- **Not fixed this round** — logged per rule 8, non-blocking. **When to revisit:** next time `get_sales_analytics_rollup` or its UI rendering is touched.
+- **Cross-reference:** `restoricon_core/services/analytics_search_service.py` (`get_sales_analytics_rollup`, `_ROLLUP_RECONCILIATION_NOTE`), B8.14b.
+
+### [NEW-640] Suspected, cosmetic: `get_sales_analytics_rollup`'s `"manager"` tier label can describe a response that's actually a mix of team-wide commission data + self-scoped pipeline data, for an actor holding only `PERM_READ_TEAM_COMMISSIONS`
+
+- **Status:** Suspected (code-reviewer, 2026-09-25, B8.14b review, verified via direct read of both underlying gates). The manager tier's OR-composed check (`PERM_READ_TEAM_SALES_DATA` or `PERM_READ_TEAM_COMMISSIONS`) is confirmed safe — no data leak, since `get_pipeline_summary` and `get_team_commission_summary` each independently gate on their own specific permission regardless of this rollup's tier label. But an actor holding only `PERM_READ_TEAM_COMMISSIONS` gets a response labeled `tier: "manager"` in which the pipeline section is actually self-scoped (not team-wide) — accurate per-field, but the single tier label/UI badge ("Manager view") doesn't convey the split. Same disclosure shape as an existing B8.7d reconciliation-quirk precedent in this codebase.
+- **Impact:** cosmetic/UX-clarity only — no security or correctness issue, confirmed by the reviewer's own independent read of both gates.
+- **Fix direction (not decided/fixed this round):** if this ever needs to be precise (e.g. a future UI iteration), consider a per-section indicator (e.g. `pipeline_scope: "team"|"self"`, `commission_scope: "team"|"self"`) instead of one blended tier label.
+- **Not fixed this round** — logged per rule 8, non-blocking. **When to revisit:** if the Analytics Rollup UI panel is iterated on, or if a `PERM_READ_TEAM_COMMISSIONS`-only role is ever actually granted to a real user (currently no built-in role holds this permission without also holding `PERM_READ_TEAM_SALES_DATA`, per `auth.py`'s role table, so this is not live-reachable via any default role today — only via a `custom_permissions` grant).
+- **Cross-reference:** `restoricon_core/services/analytics_search_service.py` (`get_sales_analytics_rollup`), `restoricon_core/services/crm_service.py` (`_scoped_assignee_filter`), `restoricon_core/services/commission_service.py` (`_scoped_rep_filter`), B8.7d, B8.14b.
