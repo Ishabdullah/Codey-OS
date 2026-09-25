@@ -358,8 +358,12 @@ class APIRouter:
         self.auth.audit = audit_service  # Wire audit into AuthService (declares self.audit=None in __init__; post-construction assignment to a declared slot)
         self.scheduling = scheduling_service
         self.automation = automation_service
-        self.operations = operations_service or OperationsService(crm_service.db, audit_service)
+        # NEW-613: finance constructed before operations (reordered from
+        # its previous position after operations) so the same shared
+        # instance can be passed into OperationsService's lazy-default
+        # branch -- see OperationsService.__init__'s own comment for why.
         self.finance = finance_service or FinanceService(crm_service.db, audit_service)
+        self.operations = operations_service or OperationsService(crm_service.db, audit_service, finance_service=self.finance)
         self.business_ops = business_ops_service or BusinessOpsService(crm_service.db, audit_service)
         self.commissions = commission_service or CommissionService(crm_service.db, audit_service)
         # B8.14: pass the real crm_service/self.commissions instances
@@ -367,8 +371,10 @@ class APIRouter:
         # same shared services every other route on this router uses,
         # rather than AnalyticsSearchService default-constructing its own
         # separate ones (see AnalyticsSearchService.__init__'s own comment).
+        # self.finance (NEW-613) is passed the same way, for
+        # get_executive_dashboard's total_ar figure.
         self.analytics_search = analytics_search_service or AnalyticsSearchService(
-            crm_service.db, crm_service=crm_service, commission_service=self.commissions
+            crm_service.db, crm_service=crm_service, commission_service=self.commissions, finance_service=self.finance
         )
         self.assessments = assessment_service or AssessmentService(crm_service.db, audit_service)
         self.territories = territory_service or TerritoryService(crm_service.db, audit_service)

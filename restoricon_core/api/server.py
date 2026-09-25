@@ -172,18 +172,29 @@ class RestoriconAPIServer:
         )
         self.scheduling_service = SchedulingService(self.db, self.audit_service, self.notification_service)
         self.automation_service = AutomationService(self.db, self.audit_service)
-        self.operations_service = OperationsService(self.db, self.audit_service)
+        # NEW-613: finance_service constructed before operations_service/
+        # analytics_search_service (reordered from its previous position
+        # after operations_service) so the same shared instance can be
+        # passed into both -- OperationsService.transition_project_stage's
+        # CLOSED gate and AnalyticsSearchService.get_executive_dashboard
+        # both now call through FinanceService's internal
+        # get_project_ar_net()/get_ar_net_totals() helpers, rather than
+        # each lazily default-constructing its own separate FinanceService.
         self.finance_service = FinanceService(self.db, self.audit_service)
+        self.operations_service = OperationsService(self.db, self.audit_service, finance_service=self.finance_service)
         self.business_ops_service = BusinessOpsService(self.db, self.audit_service)
         # B8.14: pass the already-constructed shared crm_service/
         # commission_service instances (same reasoning as the
         # commission_service comment above self.crm_service) rather than
         # letting AnalyticsSearchService default-construct its own
         # separate ones for get_sales_analytics_rollup's underlying calls.
+        # finance_service (NEW-613) is passed the same way, for
+        # get_executive_dashboard's total_ar figure.
         self.analytics_search_service = AnalyticsSearchService(
             self.db,
             crm_service=self.crm_service,
             commission_service=self.commission_service,
+            finance_service=self.finance_service,
         )
         self.territory_service = TerritoryService(self.db, self.audit_service)
 

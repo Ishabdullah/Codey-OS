@@ -20,6 +20,7 @@ from ..database import DatabaseManager
 from .audit_service import AuditService
 from .commission_service import CommissionService
 from .crm_service import CRMService
+from .finance_service import FinanceService
 
 # B8.14: documents the known cross-tier reconciliation quirk in
 # get_sales_analytics_rollup's rep/manager-tier response so a future
@@ -46,6 +47,7 @@ class AnalyticsSearchService:
         db: DatabaseManager,
         crm_service: Optional[CRMService] = None,
         commission_service: Optional[CommissionService] = None,
+        finance_service: Optional[FinanceService] = None,
     ):
         self.db = db
         # B8.14: lazily default-constructed only when not supplied, mirroring
@@ -53,11 +55,19 @@ class AnalyticsSearchService:
         # audit_service)` pattern (crm_service.py:206) -- callers that wire
         # real app services (api/server.py) should pass the actual shared
         # instances rather than letting this service default-construct its
-        # own separate ones. These are only used by get_sales_analytics_rollup
-        # below (read-only calls), so a fresh, never-written-to AuditService
-        # is safe for the lazy-default path.
+        # own separate ones. These are used by get_sales_analytics_rollup
+        # below (read-only calls) and, as of NEW-613, also by
+        # get_executive_dashboard's total_ar figure
+        # (self._finance_service.get_ar_net_totals(), also read-only, never
+        # writes/audits), so a fresh, never-written-to AuditService is safe
+        # for every lazy-default path here.
         self._crm_service = crm_service or CRMService(db, AuditService(db))
         self._commission_service = commission_service or CommissionService(db, AuditService(db))
+        # NEW-613: FinanceService.get_ar_net_totals() is an internal,
+        # no-actor helper (see its own docstring for the RBAC contract) --
+        # only called from get_executive_dashboard below, itself already
+        # gated on PERM_VIEW_REPORTS + PERM_READ_TEAM_SALES_DATA.
+        self._finance_service = finance_service or FinanceService(db, AuditService(db))
 
     def global_search(
         self,
@@ -407,10 +417,24 @@ class AnalyticsSearchService:
         net_profit = tot_rev - tot_exp
         gross_margin = (net_profit / tot_rev * 100.0) if tot_rev > 0 else 0.0
 
-        ar_stat = conn.execute(
-            "SELECT COALESCE(SUM(balance_due), 0.0) as total_ar FROM invoices WHERE balance_due > 0;"
-        ).fetchone()
-        total_ar = float(ar_stat["total_ar"]) if ar_stat else 0.0
+        # NEW-613: was a raw, unoffset SUM(balance_due) that disagreed with
+        # FinanceService.get_ar_aging's own total_ar on the same underlying
+        # data. Now sourced from the same shared, no-actor
+        # get_ar_net_totals() helper get_ar_aging itself calls, so this
+        # figure reconciles to get_ar_aging()["total_ar"] by construction.
+        # Behavior change: get_ar_net_totals' invoice SELECT is
+        # status IN ('sent','partially_paid','overdue') AND balance_due>0,
+        # narrower than the old query's bare "balance_due > 0" (every
+        # status). Verified inert except for the 'draft' exclusion --
+        # nothing in this codebase ever sets status='void' on an invoice
+        # (repo-wide grep), and 'paid' invoices already have
+        # balance_due≈0 by construction (CRMService's
+        # _recalculate_invoice_balance), so those two status differences
+        # are no-ops; only draft invoices with a nonzero balance_due stop
+        # counting toward this KPI, which is the intended effect of this
+        # fix (see finance_service.py's module docstring for the fuller
+        # NEW-613 writeup).
+        total_ar = self._finance_service.get_ar_net_totals()["total_ar"]
 
         # 4. Marketing KPIs
         mkt_stat = conn.execute(
@@ -509,10 +533,16 @@ class AnalyticsSearchService:
         executive -- the task spec is explicit ("Do not surface any
         AR/revenue figure in this rollup") because get_executive_dashboard's
         own "financial" block (total_revenue/total_expenses/net_profit/
-        gross_margin_percent/total_ar_outstanding) is all AR/revenue-derived,
-        and its total_ar_outstanding figure has no financing offset unlike
-        FinanceService.get_ar_aging -- two divergent truths for the same
-        number (NEW-613, open, unscheduled). The executive tier below calls
+        gross_margin_percent/total_ar_outstanding) is all AR/revenue-derived.
+        This exclusion is an unrelated, explicit scope decision for THIS
+        rollup response, not a workaround for NEW-613's reconciliation bug
+        (now fixed -- as of NEW-613, get_executive_dashboard's own
+        total_ar_outstanding DOES carry the same financing offset as
+        FinanceService.get_ar_aging, sourced from the same shared
+        get_ar_net_totals() helper, so the two no longer diverge). A future
+        reader should not conflate the two: even with NEW-613 fixed, this
+        rollup would still omit "financial" from every tier, by the task
+        spec's own explicit requirement. The executive tier below calls
         get_executive_dashboard(actor) UNMODIFIED (per this method's own
         "reuse get_executive_dashboard" requirement) and then projects the
         "financial" key back out of the copy returned here -- the
