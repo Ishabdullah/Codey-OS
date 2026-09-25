@@ -7697,7 +7697,39 @@ this file's own don't-duplicate rule.
       still-partially-signed contract; fixed to require full completion,
       matching `sign_contract`'s own `all_signed` gate. code-reviewer
       APPROVED both; full suite clean (2526 passed, 1 skipped).
-      See `PROJECT_LOG.md`'s 2026-09-25 B8.15 entries (three rounds).
+      **Round 4, Ish's four pending decisions, commits `dd244d5` +
+      `571f038`** — Ish answered all four open questions from round 3
+      directly: NEW-630 ("grant PERM_READ_OPERATIONS back to
+      ROLE_SALES_MANAGER" — full org-wide grant, not ownership-scoped,
+      since NEW-628's narrowing keys on `actor.role`, not the
+      permission), NEW-642 ("add it" — `sales_manager` → `/sales` in
+      the `/admin` redirect map), NEW-647 ("deploy/return yes, create
+      no" — flat `PermissionError` denial for `ROLE_TECHNICIAN` on
+      `create_equipment`, `deploy_equipment`/`return_equipment`
+      untouched), and NEW-613 ("fix it now, extend the offset to all
+      sites" — a rule-6 correction during scoping found only 2 of the
+      3 originally-named sites actually needed it, `get_project_pnl`
+      already had B8.8b-2's offset; two new internal `FinanceService`
+      helpers now make `get_executive_dashboard`'s `total_ar` and
+      `transition_project_stage`'s CLOSED-gate reconcile to
+      `get_ar_aging`/`get_project_pnl` by construction). Two follow-on
+      sub-decisions from NEW-613's own credit-tracking half also
+      answered: overpayments logged as a manual-only `customer_credits`
+      ledger (no auto-apply), kept separate from AR reporting — **not
+      yet implemented, still queued** (see Appendix A/`NEW_ISSUES.md`
+      for the design). **Process incident, same round:** a cross-agent
+      commit collision left `dd244d5` bisect-broken in isolation — a
+      concurrent session's `git add <exact-path>` on
+      `operations_service.py` swept up another implementer's
+      in-progress, uncommitted NEW-613 edit to that same file alongside
+      its own legitimate NEW-647 change. Not rewritten (per rule on
+      destructive actions); `571f038` supplies the missing piece,
+      restoring HEAD consistency. Logged as `NEW-649` (process finding)
+      plus `NEW-648` (a real test-coverage gap the collision review
+      surfaced: unlinked financing records untested at the new
+      CLOSED-gate site). code-reviewer APPROVED all of round 4's code
+      changes across two review passes.
+      See `PROJECT_LOG.md`'s 2026-09-25 B8.15 entries (four rounds).
 - [x] **B8.14** — analytics rollups (rep/manager/executive tiers).
       **DONE in full 2026-09-25 (both halves shipped).** Split into
       B8.14a (RBAC prerequisite) + B8.14b (the rollup itself), per
