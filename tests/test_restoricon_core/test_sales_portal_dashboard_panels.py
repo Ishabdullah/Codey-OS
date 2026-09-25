@@ -4,9 +4,13 @@ Follow-ups, Pipeline Summary, Commissions, and a manager-only Team
 snapshot, plus the NEW-552 viewer-scope banner fix. This file covers the
 portal's rendered HTML/JS shape only; server-side scoping is covered by
 tests/test_restoricon_core/test_crm_sales_engine.py and the B8.2a route
-tests."""
+tests.
 
-from restoricon_core.api.web_surfaces import render_sales_surface
+Also covers B8.13b (mobile-first pass, sales-portal half): the
+.table-scroll-wrapper container every rendered <table> in the sales
+portal must be wrapped in."""
+
+from restoricon_core.api.web_surfaces import _get_common_styles, render_sales_surface
 
 
 def test_sales_portal_fetches_command_center_dashboard():
@@ -77,3 +81,39 @@ def test_sales_portal_team_block_gated_on_key_presence():
     assert "'team' in data" in html
     # Must not gate on scope truthiness instead of key presence.
     assert "data.scope === 'team' && data.team" not in html
+
+
+def test_sales_portal_tables_wrapped_for_mobile_horizontal_scroll():
+    """B8.13b: every <table> the sales portal renders (both the static
+    markup and the ones the dashboard/Customer 360 JS builds via
+    innerHTML) must be immediately preceded by the shared
+    .table-scroll-wrapper container so it scrolls sideways instead of
+    overflowing a phone-width viewport. Decided against card-stacking
+    (Ish) -- existing table markup is kept exactly as-is."""
+    styles = _get_common_styles()
+    assert ".table-scroll-wrapper" in styles
+    assert "overflow-x: auto" in styles
+
+    html = render_sales_surface()
+    table_count = html.count("<table")
+    wrapped_count = html.count('<div class="table-scroll-wrapper"><table')
+    assert table_count > 0
+    assert wrapped_count == table_count, (
+        f"expected every <table> ({table_count}) to be immediately preceded "
+        f"by <div class=\"table-scroll-wrapper\">, only {wrapped_count} were"
+    )
+
+    # Spot-check a sample of distinct panels across the surface, not just
+    # the aggregate count -- covers a static dashboard table, a JS-built
+    # Customer 360 panel table, and the on-demand assessment-history table.
+    for anchor in (
+        'id="myScheduleList"',
+        'id="commissionRankingsList"',
+        "<thead><tr><th>Address</th><th>Type</th><th>Year Built</th>",
+        "<thead><tr><th>Created</th><th>Checklist</th><th>Evidence</th>",
+    ):
+        idx = html.index(anchor)
+        preceding = html[max(0, idx - 200):idx]
+        assert '<div class="table-scroll-wrapper">' in preceding, (
+            f"no table-scroll-wrapper found ahead of panel anchored by {anchor!r}"
+        )

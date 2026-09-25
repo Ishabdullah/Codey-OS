@@ -399,6 +399,12 @@ def _get_common_styles() -> str:
             .nav-center-links { display: none; }
             .nav-phone-btn span { display: none; }
         }
+
+        /* B8.13b: horizontal-scroll container for data tables so a wide
+           table never overflows a narrow (phone-width) viewport. Tables
+           keep their existing markup exactly as-is -- this only wraps
+           them, it does not restructure them into cards. */
+        .table-scroll-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
     """
 
 
@@ -5497,24 +5503,24 @@ def _render_sales_portal() -> str:
 
         <div class="erp-card">
             <h2 style="margin-top:0;">My Schedule</h2>
-            <table>
+            <div class="table-scroll-wrapper"><table>
                 <thead><tr><th>Time</th><th>Title</th><th>Status</th></tr></thead>
                 <tbody id="myScheduleList"><tr><td colspan="3">Loading schedule...</td></tr></tbody>
-            </table>
+            </table></div>
         </div>
 
         <div class="erp-card">
             <h2 style="margin-top:0;">Appointments</h2>
             <h3 style="margin:0 0 0.5rem 0; font-size:0.95rem; color:var(--text-muted);">Today</h3>
-            <table>
+            <div class="table-scroll-wrapper"><table>
                 <thead><tr><th>Time</th><th>Title</th><th>Status</th></tr></thead>
                 <tbody id="dashApptTodayList"><tr><td colspan="3">Loading...</td></tr></tbody>
-            </table>
+            </table></div>
             <h3 style="margin:1rem 0 0.5rem 0; font-size:0.95rem; color:var(--text-muted);">Upcoming</h3>
-            <table>
+            <div class="table-scroll-wrapper"><table>
                 <thead><tr><th>Time</th><th>Title</th><th>Status</th></tr></thead>
                 <tbody id="dashApptUpcomingList"><tr><td colspan="3">Loading...</td></tr></tbody>
-            </table>
+            </table></div>
         </div>
 
         <div class="erp-card">
@@ -5522,18 +5528,18 @@ def _render_sales_portal() -> str:
                 <span>My Leads <span id="newLeadsBadge" class="card-badge badge-gold" style="display:none;"></span></span>
                 <button class="btn-gold" style="padding:0.4rem 0.9rem;font-size:0.8rem;" onclick="openCreateLeadModal()">+ New Lead</button>
             </h2>
-            <table>
+            <div class="table-scroll-wrapper"><table>
                 <thead><tr><th>ID</th><th>Customer</th><th>Status</th><th>Assigned Rep</th></tr></thead>
                 <tbody id="myLeadsList"><tr><td colspan="4">Loading leads...</td></tr></tbody>
-            </table>
+            </table></div>
         </div>
 
         <div class="erp-card">
             <h2 style="margin-top:0;">My Opportunities</h2>
-            <table>
+            <div class="table-scroll-wrapper"><table>
                 <thead><tr><th>ID</th><th>Title</th><th>Stage</th><th>Assigned Rep</th></tr></thead>
                 <tbody id="myOpportunitiesList"><tr><td colspan="4">Loading opportunities...</td></tr></tbody>
-            </table>
+            </table></div>
         </div>
 
         <div class="erp-card">
@@ -5541,10 +5547,10 @@ def _render_sales_portal() -> str:
                 <span>Customers</span>
                 <button class="btn-gold" style="padding:0.4rem 0.9rem;font-size:0.8rem;" onclick="openGuidedContractModal()">+ New Contract (Guided)</button>
             </h2>
-            <table>
+            <div class="table-scroll-wrapper"><table>
                 <thead><tr><th>ID #</th><th>Name</th><th>Phone</th><th>Email</th><th></th></tr></thead>
                 <tbody id="myCustomersList"><tr><td colspan="5">Loading customers...</td></tr></tbody>
-            </table>
+            </table></div>
         </div>
 
         <div class="erp-card">
@@ -5554,24 +5560,24 @@ def _render_sales_portal() -> str:
 
         <div class="erp-card">
             <h2 style="margin-top:0;">Where Deals Get Stuck</h2>
-            <table>
+            <div class="table-scroll-wrapper"><table>
                 <thead><tr><th>Stage</th><th>Avg Hours In Stage</th></tr></thead>
                 <tbody id="stageAnalyticsList"><tr><td colspan="2">Loading stage analytics...</td></tr></tbody>
-            </table>
+            </table></div>
             <p id="stageAnalyticsCoverage" style="margin:0.75rem 0 0 0; font-size:0.85rem; color:var(--text-muted);"></p>
             <h3 style="margin:1rem 0 0.5rem 0; font-size:0.95rem; color:var(--text-muted);">Currently Stuck</h3>
-            <table>
+            <div class="table-scroll-wrapper"><table>
                 <thead><tr><th>Opportunity</th><th>Stage</th><th>Hours In Stage</th></tr></thead>
                 <tbody id="currentlyStuckList"><tr><td colspan="3">Loading...</td></tr></tbody>
-            </table>
+            </table></div>
         </div>
 
         <div class="erp-card">
             <h2 style="margin-top:0;">Follow-ups</h2>
-            <table>
+            <div class="table-scroll-wrapper"><table>
                 <thead><tr><th>Title</th><th>Type</th><th>Due</th><th>Priority</th><th>Status</th><th>Actions</th></tr></thead>
                 <tbody id="followupsList"><tr><td colspan="6">Loading follow-ups...</td></tr></tbody>
-            </table>
+            </table></div>
         </div>
 
         <!-- B8.10b: Communications Center -- a non-customer-scoped feed
@@ -5583,27 +5589,27 @@ def _render_sales_portal() -> str:
              everything. -->
         <div class="erp-card">
             <h2 id="commsCenterHeading" style="margin-top:0;">Communications Center</h2>
-            <table>
+            <div class="table-scroll-wrapper"><table>
                 <thead><tr><th>When</th><th>Channel</th><th>Direction</th><th>Linked To</th><th>Subject / Content</th></tr></thead>
                 <tbody id="commsCenterList"><tr><td colspan="5">Loading communications...</td></tr></tbody>
-            </table>
+            </table></div>
         </div>
 
         <div class="erp-card">
             <h2 style="margin-top:0;">Pipeline Summary</h2>
-            <table>
+            <div class="table-scroll-wrapper"><table>
                 <thead><tr><th>Stage</th><th>Count</th><th>Total Value</th><th>Weighted Value</th></tr></thead>
                 <tbody id="pipelineSummaryList"><tr><td colspan="4">Loading pipeline...</td></tr></tbody>
-            </table>
+            </table></div>
             <p id="pipelineTotals" style="margin:0.75rem 0 0 0; font-size:0.85rem; color:var(--text-muted);"></p>
         </div>
 
         <div class="erp-card">
             <h2 id="commissionsHeading" style="margin-top:0;">Commissions</h2>
-            <table>
+            <div class="table-scroll-wrapper"><table>
                 <thead><tr><th>Status</th><th>Source</th><th>Amount</th><th>Earned</th></tr></thead>
                 <tbody id="commissionsList"><tr><td colspan="4">Loading commissions...</td></tr></tbody>
-            </table>
+            </table></div>
         </div>
 
         <!-- B8.7d: "This Month" rep-facing commission summary panel, fed by
@@ -5632,10 +5638,10 @@ def _render_sales_portal() -> str:
              commissions_scope's existing precedent for this split). -->
         <div class="erp-card" id="commissionRankingsCard" style="display:none;">
             <h2 style="margin-top:0;">Commission Rankings (This Month)</h2>
-            <table>
+            <div class="table-scroll-wrapper"><table>
                 <thead><tr><th>Rep</th><th>Earned</th><th>Paid</th><th>Pending</th><th>Entries</th></tr></thead>
                 <tbody id="commissionRankingsList"></tbody>
-            </table>
+            </table></div>
         </div>
     </div>
 
@@ -6927,7 +6933,7 @@ def _render_sales_portal() -> str:
             }}
             const rows = renderRows(result.data);
             const table = rows.length > 0
-                ? `<table>${{headerRow}}<tbody>${{rows.join('')}}</tbody></table>`
+                ? `<div class="table-scroll-wrapper"><table>${{headerRow}}<tbody>${{rows.join('')}}</tbody></table></div>`
                 : `<p style="color:var(--text-muted);">${{emptyMsg}}</p>`;
             return `<div class="erp-card">${{headerHtml}}${{table}}</div>`;
         }}
@@ -7032,7 +7038,7 @@ def _render_sales_portal() -> str:
                 </td>
             </tr>`);
             const table = rows.length > 0
-                ? `<table><thead><tr><th>Address</th><th>Type</th><th>Year Built</th><th></th></tr></thead><tbody>${{rows.join('')}}</tbody></table>`
+                ? `<div class="table-scroll-wrapper"><table><thead><tr><th>Address</th><th>Type</th><th>Year Built</th><th></th></tr></thead><tbody>${{rows.join('')}}</tbody></table></div>`
                 : '<p style="color:var(--text-muted);">No properties on file.</p>';
             return `<div class="erp-card">
                 <h3 style="margin-top:0;display:flex;justify-content:space-between;align-items:center;">
@@ -7074,7 +7080,7 @@ def _render_sales_portal() -> str:
                 </td>
             </tr>`);
             const table = rows.length > 0
-                ? `<table><thead><tr><th>Title</th><th>Status</th><th>Contract Amount</th><th></th></tr></thead><tbody>${{rows.join('')}}</tbody></table>`
+                ? `<div class="table-scroll-wrapper"><table><thead><tr><th>Title</th><th>Status</th><th>Contract Amount</th><th></th></tr></thead><tbody>${{rows.join('')}}</tbody></table></div>`
                 : '<p style="color:var(--text-muted);">No projects.</p>';
             return `<div class="erp-card">
                 <h3 style="margin-top:0;">Projects</h3>
@@ -7190,7 +7196,7 @@ def _render_sales_portal() -> str:
                 const projects = data.projects || [];
                 const rows = projects.map(p => `<tr><td>${{escapeHtml(p.title || '')}}</td><td>${{escapeHtml(p.status || '')}}</td><td>$${{escapeHtml((p.contract_amount || 0).toLocaleString())}}</td></tr>`);
                 const table = rows.length > 0
-                    ? `<table><thead><tr><th>Title</th><th>Status</th><th>Contract Amount</th></tr></thead><tbody>${{rows.join('')}}</tbody></table>`
+                    ? `<div class="table-scroll-wrapper"><table><thead><tr><th>Title</th><th>Status</th><th>Contract Amount</th></tr></thead><tbody>${{rows.join('')}}</tbody></table></div>`
                     : '<p style="color:var(--text-muted);">No projects on file for this property.</p>';
                 area.innerHTML = `<div class="erp-card"><h3 style="margin-top:0;">Project History</h3>${{table}}</div>`;
             }} catch (e) {{
@@ -7223,7 +7229,7 @@ def _render_sales_portal() -> str:
                 <td><button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="toggleAppointmentDetail(${{a.id}})">Details</button></td>
             </tr>`);
             const table = rows.length > 0
-                ? `<table><thead><tr><th>Title</th><th>Start</th><th>Status</th><th></th></tr></thead><tbody>${{rows.join('')}}</tbody></table>`
+                ? `<div class="table-scroll-wrapper"><table><thead><tr><th>Title</th><th>Start</th><th>Status</th><th></th></tr></thead><tbody>${{rows.join('')}}</tbody></table></div>`
                 : '<p style="color:var(--text-muted);">No appointments on file.</p>';
             return `<div class="erp-card">
                 <h3 style="margin-top:0;display:flex;justify-content:space-between;align-items:center;">
@@ -7384,7 +7390,7 @@ def _render_sales_portal() -> str:
                         <td>${{escapeHtml(r.customer_statements || '—')}}</td>
                     </tr>`;
                 }});
-                area.innerHTML = `<table><thead><tr><th>Created</th><th>Checklist</th><th>Evidence</th><th>Customer Statement</th></tr></thead><tbody>${{rows.join('')}}</tbody></table>`;
+                area.innerHTML = `<div class="table-scroll-wrapper"><table><thead><tr><th>Created</th><th>Checklist</th><th>Evidence</th><th>Customer Statement</th></tr></thead><tbody>${{rows.join('')}}</tbody></table></div>`;
             }} catch (e) {{
                 area.innerHTML = '<p style="color:var(--text-muted);">Failed to load: network error.</p>';
             }}
