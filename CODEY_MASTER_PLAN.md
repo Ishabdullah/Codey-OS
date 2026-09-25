@@ -7675,8 +7675,29 @@ this file's own don't-duplicate rule.
       and passing). `NEW-630` (needs an Ish decision) and `NEW-613`/
       `NEW-633` (a separate money-correctness cluster — AR aggregates
       and `record_payment`'s void-resurrection/overpayment gaps) remain
-      open, explicitly out of both rounds' scope. See `PROJECT_LOG.md`'s
-      2026-09-25 B8.15 entries (two rounds).
+      open, explicitly out of both rounds' scope.
+      **Round 3, NEW-617/NEW-627, commit `2801eb2`** — before scoping,
+      re-verified `NEW-633`'s void half against the live repo and found
+      it's currently unreachable through any code path (schema permits
+      `status='void'`, nothing writes it) — downgraded per rule 6,
+      spec banked for later rather than picked this round. Fixed two
+      live-reachable, decision-free findings instead: `NEW-627`
+      (`POST /api/v1/communications`'s `lead_id`/`project_id`/
+      `opportunity_id` now validated via the router's existing
+      `_parse_int_body_field` helper) and `NEW-617` (a multi-party-
+      signed contract's "Signed At" rendered blank in its PDF and the
+      admin/sales portal — the originally-cited fix location turned out
+      not to be a bug; the real gap was `render_contract_pdf_multi`
+      having no "Signed At" field at all, fixed by extracting the
+      existing single-signer-resolution logic into a shared
+      `CRMService._resolve_signed_at_value`/`resolve_contract_signed_at`
+      and wiring it into PDF rendering and the contracts API). A real
+      bug caught before commit: an initial version would have resolved
+      "Signed At" to the latest partial signer's timestamp on a
+      still-partially-signed contract; fixed to require full completion,
+      matching `sign_contract`'s own `all_signed` gate. code-reviewer
+      APPROVED both; full suite clean (2526 passed, 1 skipped).
+      See `PROJECT_LOG.md`'s 2026-09-25 B8.15 entries (three rounds).
 - [x] **B8.14** — analytics rollups (rep/manager/executive tiers).
       **DONE in full 2026-09-25 (both halves shipped).** Split into
       B8.14a (RBAC prerequisite) + B8.14b (the rollup itself), per
