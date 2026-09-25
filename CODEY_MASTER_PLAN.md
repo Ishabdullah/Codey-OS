@@ -7652,7 +7652,31 @@ this file's own don't-duplicate rule.
       browser `window.location.href` navigation primitive itself remains
       unverified (no browser-automation harness in this repo) — treat as
       code-complete + logic-verified, not full live-verified, per rule 7.
-      See `PROJECT_LOG.md`'s 2026-09-25 B8.15 entry.
+      **Round 2, NEW-643/644/645/646, commit `146d71a`** — write-path
+      counterpart to NEW-628's read-path-only fix, same file, same
+      helpers reused (`_actor_assigned_to_project`/
+      `_technician_assigned_project_ids`). Narrowed `create_milestone`,
+      `create_work_order`, `update_work_order`, `deploy_equipment`,
+      `return_equipment`, `get_active_work_orders_for_subcontractor` (two
+      new gaps — `create_milestone`/`create_work_order` — found and
+      fixed same-round via a full method audit, not just the four named
+      findings). `update_work_order` checks the work order's CURRENT
+      DB-read `project_id`, never the caller-supplied model's copy.
+      `get_active_work_orders_for_subcontractor` required care: its
+      shared query helper is also called unguarded by
+      `crm_service.py`'s subcontractor-delete precheck — filtering was
+      added only in the RBAC-gated public method so a narrowed
+      technician's empty result can never defeat that precheck.
+      `create_equipment`'s similar-shaped gap deliberately left open as
+      `NEW-647` (a product-scope question — should technicians register
+      new equipment at all — not a mechanical fix). code-reviewer
+      APPROVED (rule 4); full-suite reconciled at 2514 passed, 1 skipped
+      (2399 core + 114 ccos + 1 confirmed-flaky test reproduced isolated
+      and passing). `NEW-630` (needs an Ish decision) and `NEW-613`/
+      `NEW-633` (a separate money-correctness cluster — AR aggregates
+      and `record_payment`'s void-resurrection/overpayment gaps) remain
+      open, explicitly out of both rounds' scope. See `PROJECT_LOG.md`'s
+      2026-09-25 B8.15 entries (two rounds).
 - [x] **B8.14** — analytics rollups (rep/manager/executive tiers).
       **DONE in full 2026-09-25 (both halves shipped).** Split into
       B8.14a (RBAC prerequisite) + B8.14b (the rollup itself), per

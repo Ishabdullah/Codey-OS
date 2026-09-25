@@ -19283,37 +19283,37 @@ housekeeping, same as `NEW-403`'s own cleanup.
 
 ## Found 2026-09-25 — NEW-628 implementation, sibling write-path gaps in operations_service.py, not fixed this round (read-path-only was NEW-628's scope)
 
-### [NEW-643] Confirmed, non-blocking: `operations_service.py`'s `update_work_order` has no internal ownership check of its own — it relies on callers having pre-fetched via the now-narrowed `get_work_order`, unenforced from inside the service
+### [NEW-643] RESOLVED 2026-09-25, commit `146d71a`: `operations_service.py`'s `update_work_order` has no internal ownership check of its own — it relies on callers having pre-fetched via the now-narrowed `get_work_order`, unenforced from inside the service
 
 - **Status:** Confirmed (implementer, 2026-09-25, NEW-628 fix, read `operations_service.py` ~L910 directly). A comment there says the caller (`api/routes.py`) is expected to have pre-fetched via `get_work_order` first, but nothing enforces that from inside `update_work_order` itself.
 - **Impact:** a `ROLE_TECHNICIAN` actor calling this method directly (bypassing the route layer that's assumed to pre-check) could update any work order org-wide, defeating NEW-628's read-path narrowing on the write side. Same class of gap B8.12a explicitly scoped out for `ROLE_SALES`.
 - **Fix direction (not decided/fixed this round):** add the same `_actor_assigned_to_project` check NEW-628 added to the read methods, or confirm every route calling `update_work_order` genuinely pre-fetches via `get_work_order` first and document that as the enforced contract.
-- **Not fixed this round** — logged per rule 8, out of NEW-628's read-path-only scope. **When to revisit:** the next operations_service.py write-path narrowing round.
+- **Resolved 2026-09-25, commit `146d71a`, code-reviewer APPROVED (rule 4).** For `ROLE_TECHNICIAN`, ownership is now checked against the work order's CURRENT `project_id` read fresh from the DB (never the caller-supplied model's copy, which the `UPDATE`'s SET clause never writes and could be stale/spoofed).
 - **Cross-reference:** `restoricon_core/services/operations_service.py` (`update_work_order`, `get_work_order`), `NEW-628`.
 
-### [NEW-644] Confirmed, non-blocking: `operations_service.py`'s `return_equipment` has zero ownership narrowing — gated only on flat `PERM_WRITE_OPERATIONS`/`PERM_MANAGE_PROJECTS`
+### [NEW-644] RESOLVED 2026-09-25, commit `146d71a`: `operations_service.py`'s `return_equipment` has zero ownership narrowing — gated only on flat `PERM_WRITE_OPERATIONS`/`PERM_MANAGE_PROJECTS`
 
 - **Status:** Confirmed (implementer, 2026-09-25, NEW-628 fix; independently re-confirmed by code-reviewer, read `operations_service.py` ~L1639-1663 directly). No ownership check at all, unlike the nine methods NEW-628 narrowed.
 - **Impact:** a `ROLE_TECHNICIAN` actor can return-and-close any equipment deployment org-wide, not just ones on their assigned projects.
 - **Fix direction (not decided/fixed this round):** add the same `_actor_assigned_to_project` check, keyed on the deployment's project.
-- **Not fixed this round** — logged per rule 8, out of NEW-628's read-path-only scope. **When to revisit:** the next operations_service.py write-path narrowing round.
+- **Resolved 2026-09-25, commit `146d71a`, code-reviewer APPROVED (rule 4).** Checked against `dep_row["project_id"]`, before any UPDATE.
 - **Cross-reference:** `restoricon_core/services/operations_service.py` (`return_equipment`), `NEW-628`.
 
-### [NEW-645] Confirmed, non-blocking: `operations_service.py`'s `deploy_equipment` never checks its target `project_id` against the technician's own assignment
+### [NEW-645] RESOLVED 2026-09-25, commit `146d71a`: `operations_service.py`'s `deploy_equipment` never checks its target `project_id` against the technician's own assignment
 
 - **Status:** Confirmed (implementer, 2026-09-25, NEW-628 fix; independently re-confirmed by code-reviewer). NEW-628's narrowing on `get_equipment` only checks the equipment's own current visibility (and deliberately allows `current_project_id IS NULL` through so available stock stays visible) — it never checks whether the actor is assigned to the project equipment is being deployed *to*.
 - **Impact:** a `ROLE_TECHNICIAN` actor can currently deploy equipment to any project, not just their own assigned work.
 - **Fix direction (not decided/fixed this round):** add an `_actor_assigned_to_project(project_id, actor)` check against the deploy target, mirroring the read-path pattern.
-- **Not fixed this round** — logged per rule 8, out of NEW-628's read-path-only scope. **When to revisit:** the next operations_service.py write-path narrowing round.
+- **Resolved 2026-09-25, commit `146d71a`, code-reviewer APPROVED (rule 4).** Check placed before the INSERT/UPDATE block (not after — a post-write check would raise after the write already committed, same rationale as NEW-628's audit-reread fix on this same method).
 - **Cross-reference:** `restoricon_core/services/operations_service.py` (`deploy_equipment`), `NEW-628`.
 
-### [NEW-646] Confirmed, non-blocking: `operations_service.py`'s `get_active_work_orders_for_subcontractor` has no ownership narrowing, flat `PERM_READ_OPERATIONS` gate only
+### [NEW-646] RESOLVED 2026-09-25, commit `146d71a`: `operations_service.py`'s `get_active_work_orders_for_subcontractor` has no ownership narrowing, flat `PERM_READ_OPERATIONS` gate only
 
 - **Status:** Confirmed (implementer, 2026-09-25, NEW-628 fix, read `operations_service.py` ~L842 directly). Not one of the nine methods NEW-628's task scope named.
 - **Impact:** low today (subcontractor-scoped query, narrower blast radius than the other gaps), but same underlying pattern.
 - **Fix direction (not decided/fixed this round):** evaluate alongside NEW-643/644/645 in a future write-path narrowing round.
-- **Not fixed this round** — logged per rule 8, out of NEW-628's read-path-only scope. **When to revisit:** the next operations_service.py write-path narrowing round.
-- **Cross-reference:** `restoricon_core/services/operations_service.py` (`get_active_work_orders_for_subcontractor`), `NEW-628`.
+- **Resolved 2026-09-25, commit `146d71a`, code-reviewer APPROVED (rule 4).** Required care: the shared `_query_active_work_orders_for_subcontractor` helper is also called unguarded by `crm_service.py`'s subcontractor-delete precheck (~L6742) — filtering a technician's result there would have let a subcontractor with real active work orders slip past deletion protection. Filtering was added only in the RBAC-gated public method (`_technician_assigned_project_ids`), leaving the shared helper's own row-filtering untouched; `project_id` was added to the shared SELECT as an additive column to make that possible. This also makes `project_id` a new additive field in `GET /api/v1/subcontractors/{id}/active-references`'s JSON response — checked against its one real consumer (`web_surfaces.py`'s `deleteSubcontractor()`), confirmed harmless (name-based field access, no strict-key iteration).
+- **Cross-reference:** `restoricon_core/services/operations_service.py` (`get_active_work_orders_for_subcontractor`), `restoricon_core/services/crm_service.py` (`delete_subcontractor`), `NEW-628`.
 
 ## Found 2026-09-25 — NEW-643/644/645/646 write-path narrowing round (project-architect-scoped), NEW-643/644/645/646 plus create_milestone/create_work_order fixed this round; this one intentionally not
 
