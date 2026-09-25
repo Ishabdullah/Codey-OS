@@ -5194,10 +5194,10 @@ def render_admin_surface() -> str:
                 // ROLE_SALES_MANAGER DOES have a dedicated portal (/sales --
                 // see _render_sales_portal()'s own docstring, and the
                 // existing login-page redirect at line ~713-714 which already
-                // sends sales_manager to /sales) but is deliberately left off
-                // this map for now: this round's task only named 4 roles,
-                // and redirecting sales_manager away from /admin needs its
-                // own explicit scoping decision (see NEW-642).
+                // sends sales_manager to /sales) and, as of NEW-642
+                // (resolved, Ish decision 2026-09-25), IS in this map --
+                // a sales_manager actor is redirected away from /admin to
+                // /sales just like the other dedicated-portal roles below.
                 // "subcontractor" is likewise absent -- it is not in
                 // auth.py's ALL_ROLES, so no actor can ever be issued that
                 // role; /subcontractor is unreachable by construction, not
@@ -5214,6 +5214,7 @@ def render_admin_surface() -> str:
                         const rolePortals = {
                             'project_manager': '/pm',
                             'sales': '/sales',
+                            'sales_manager': '/sales',
                             'technician': '/tech',
                             'customer': '/portal'
                         };

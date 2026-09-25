@@ -337,6 +337,7 @@ def test_admin_surface_redirects_dedicated_portal_roles_away_from_admin():
     for role, portal_path in (
         ("project_manager", "/pm"),
         ("sales", "/sales"),
+        ("sales_manager", "/sales"),
         ("technician", "/tech"),
         ("customer", "/portal"),
     ):
@@ -347,12 +348,12 @@ def test_admin_surface_does_not_redirect_roles_without_a_dedicated_portal():
     """Negative list: ROLE_MANAGER and ROLE_AI_AGENT have no dedicated
     portal of their own, so they must continue to land on /admin --
     getting this wrong risks silently locking one of them out.
-    'sales_manager' is deliberately NOT in this list -- it DOES have a
-    dedicated portal (/sales, see _render_sales_portal()'s docstring and
-    the pre-existing login-redirect at web_surfaces.py:713-714) but this
-    round's admin-surface redirect (NEW-625) does not yet cover it,
-    pending an explicit scoping decision (see NEW-642); asserting
-    its absence here would just pin that gap, not protect anything.
+    'sales_manager' is NOT in this negative list -- as of NEW-642
+    (resolved 2026-09-25), it DOES have a dedicated portal (/sales, see
+    _render_sales_portal()'s docstring and the pre-existing login-redirect
+    at web_surfaces.py:713-714) and IS now a key in rolePortals, covered
+    instead by test_admin_surface_redirects_dedicated_portal_roles_away_from_admin
+    above.
     'subcontractor' is also excluded: it is not a member of auth.py's
     ALL_ROLES (create_user() rejects it), so no actor can ever be issued
     that role even though /subcontractor and

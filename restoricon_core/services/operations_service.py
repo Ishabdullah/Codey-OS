@@ -45,14 +45,28 @@ from .audit_service import (
     _AUDITABLE_PROJECT_FIELDS,
     _AUDITABLE_WORK_ORDER_FIELDS,
 )
+from .finance_service import FinanceService
 
 
 class OperationsService:
     """Core domain operations engine for Restoricon Core."""
 
-    def __init__(self, db_manager: DatabaseManager, audit_service: AuditService):
+    def __init__(
+        self,
+        db_manager: DatabaseManager,
+        audit_service: AuditService,
+        finance_service: Optional[FinanceService] = None,
+    ):
         self.db = db_manager
         self.audit = audit_service
+        # NEW-613: lazily default-constructed only when not supplied, same
+        # pattern as CRMService's `operations_service or OperationsService(
+        # self.db, audit_service)` (crm_service.py:198). Only used by
+        # transition_project_stage's CLOSED-stage gate below
+        # (FinanceService.get_project_ar_net, an internal read-only,
+        # no-actor helper -- see its own docstring), so a fallback instance
+        # built with this same audit_service is harmless.
+        self.finance_service = finance_service or FinanceService(db_manager, audit_service)
 
     # ==========================================
     # ROW CONVERTERS
@@ -193,8 +207,11 @@ class OperationsService:
         neither PERM_READ_OPERATIONS/PERM_MANAGE_PROJECTS (this domain's
         existing flat gates) nor PERM_READ_TEAM_SALES_DATA (the team-wide
         bypass -- this is how ROLE_SALES_MANAGER keeps full, unfiltered
-        operations visibility with zero extra grant, same mechanism as
-        crm_service.py's identical narrowing). Keyed on permission, never
+        operations visibility, same mechanism as crm_service.py's
+        identical narrowing; as of NEW-630 the manager also independently
+        holds PERM_READ_OPERATIONS itself, so this bypass is now a second,
+        redundant route to the same unfiltered result for that role, not
+        the only one). Keyed on permission, never
         `actor.role`, so a custom_permissions_json grant of
         PERM_READ_OWN_SOLD_PROJECTS to any other role is narrowed
         identically."""
@@ -387,13 +404,27 @@ class OperationsService:
                 project.actual_completion = utc_now_iso()
 
         elif target == ProjectStage.CLOSED:
-            unpaid_invoices = conn.execute(
-                "SELECT id, balance_due FROM invoices WHERE project_id = ? AND balance_due > 0 AND status NOT IN ('void', 'paid');",
-                (project_id,),
-            ).fetchall()
-            if unpaid_invoices and not reason:
-                total_unpaid = sum(r["balance_due"] for r in unpaid_invoices)
-                raise ValueError(f"Cannot close project with outstanding balance of ${total_unpaid:.2f} without an override reason")
+            # NEW-613: was a raw balance_due query with no financing
+            # offset, disagreeing with FinanceService.get_project_pnl on
+            # the same project's AR. Now sourced from the same shared,
+            # no-actor get_project_ar_net() helper get_project_pnl itself
+            # calls, so this gate reconciles to
+            # get_project_pnl(project_id)["total_outstanding"] by
+            # construction. Behavior change (intended, not an incidental
+            # refactor side effect): a project whose outstanding balance
+            # is now fully covered by an eligible financing record can
+            # transition to CLOSED with no override `reason`, where
+            # previously it always required one regardless of financing.
+            # Rounded before the `> 0` comparison -- total_outstanding is
+            # a raw (unrounded) float subtraction, and float noise from
+            # summing several invoice balances/offsets could otherwise
+            # leave a residue like 4.5e-13 that reads as ">0" while every
+            # displayed dollar figure is $0.00, producing a
+            # self-contradictory error message.
+            ar_net = self.finance_service.get_project_ar_net(project_id)
+            net_outstanding = round(ar_net["total_outstanding"], 2)
+            if net_outstanding > 0 and not reason:
+                raise ValueError(f"Cannot close project with outstanding balance of ${net_outstanding:.2f} without an override reason")
 
         # Map to legacy status
         status_map = {
@@ -1468,6 +1499,19 @@ class OperationsService:
             or actor.has_permission(PERM_MANAGE_PROJECTS)
         ):
             raise PermissionError("Actor lacks permission to create equipment records")
+
+        # NEW-647: flat denial, role-keyed like _actor_assigned_to_project's
+        # ROLE_TECHNICIAN checks elsewhere in this file (no standalone
+        # permission to key on instead). ROLE_TECHNICIAN holds
+        # PERM_WRITE_OPERATIONS org-wide, so it passes the gate above and
+        # must be checked here explicitly, before field validation -- a
+        # technician's `equipment` payload could otherwise fail on a
+        # ValueError (e.g. empty asset_tag) instead of the intended
+        # PermissionError. Technicians may still deploy_equipment/
+        # return_equipment existing stock (narrowed by NEW-644/NEW-645);
+        # they may never register new equipment records.
+        if actor.role == ROLE_TECHNICIAN:
+            raise PermissionError("Technicians cannot register new equipment; use deploy_equipment on existing stock")
 
         if not equipment.asset_tag or not equipment.asset_tag.strip():
             raise ValueError("Asset tag cannot be empty")

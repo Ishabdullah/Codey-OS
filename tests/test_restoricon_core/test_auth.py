@@ -21,6 +21,7 @@ from restoricon_core.auth import (
     PERM_READ_TEAM_COMMISSIONS,
     PERM_WRITE_TEAM_COMMISSIONS,
     PERM_WRITE_FINANCIALS,
+    PERM_READ_OPERATIONS,
 )
 from restoricon_core.database import DatabaseManager
 
@@ -137,14 +138,16 @@ def test_role_sales_manager_registered():
 
 def test_role_sales_manager_permissions_derived_from_sales_plus_team_read():
     """ROLE_SALES_MANAGER's permission set must be exactly ROLE_SALES's
-    set plus PERM_READ_TEAM_SALES_DATA, PERM_READ_TEAM_COMMISSIONS, and
+    set plus PERM_READ_TEAM_SALES_DATA, PERM_READ_TEAM_COMMISSIONS,
     PERM_WRITE_TEAM_COMMISSIONS (B8.1, D4; write split added in
-    code-reviewer round 2) -- derived, not duplicated, so it can never
-    drift out of sync with ROLE_SALES."""
+    code-reviewer round 2), and PERM_READ_OPERATIONS (NEW-630, resolved
+    2026-09-25) -- derived, not duplicated, so it can never drift out of
+    sync with ROLE_SALES."""
     assert ROLE_PERMISSIONS[ROLE_SALES_MANAGER] == ROLE_PERMISSIONS[ROLE_SALES] | {
         PERM_READ_TEAM_SALES_DATA,
         PERM_READ_TEAM_COMMISSIONS,
         PERM_WRITE_TEAM_COMMISSIONS,
+        PERM_READ_OPERATIONS,
     }
 
 

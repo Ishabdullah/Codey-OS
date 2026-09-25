@@ -638,22 +638,31 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
 # independently holds PERM_READ_TEAM_SALES_DATA right here, which every
 # ownership-filter branch B8.12a added treats as a bypass.
 #
-# NOT a no-op for equipment: this union never re-adds PERM_READ_OPERATIONS
-# itself, only the narrower PERM_READ_OWN_SOLD_PROJECTS (via the ROLE_SALES
-# union) -- so ROLE_SALES_MANAGER, same as ROLE_SALES, loses
-# get_equipment/list_equipment/deploy_equipment/return_equipment/
-# list_project_deployments/get_active_work_orders_for_subcontractor/
-# match_subcontractors_for_trade (all still PERM_READ_OPERATIONS-only,
-# deliberately not extended -- B8.12a's own scope excludes equipment), and
-# get_project_summary's equipment_summary comes back None for a manager
-# too, not real deployment data. Logged as NEW-630 (open, needs an
-# explicit decision on whether ROLE_SALES_MANAGER should keep equipment
-# visibility) rather than silently fixed, since re-granting it was
-# explicitly out of scope for this round.
+# NEW-630 (2026-09-25, Ish decision -- resolved, no longer an open
+# question): PERM_READ_OPERATIONS is re-granted to ROLE_SALES_MANAGER
+# below. This is NOT an ownership-scoped re-grant -- PERM_READ_OPERATIONS
+# is a flat, company-wide permission gating get_equipment/list_equipment/
+# get_active_work_orders_for_subcontractor/match_subcontractors_for_trade/
+# list_project_deployments in operations_service.py, and every one of
+# NEW-628's ownership-narrowing branches on those methods keys
+# specifically on `actor.role == ROLE_TECHNICIAN`, not on the permission
+# itself. ROLE_SALES_MANAGER is not that role, so this is a full, org-wide
+# read grant on equipment/deployment/subcontractor-matching data across
+# every project, not one narrowed to the manager's own team's sold
+# projects (unlike PERM_READ_OWN_SOLD_PROJECTS/PERM_READ_TEAM_SALES_DATA
+# above, which are narrowed). get_project_summary's equipment_summary
+# field also starts returning real deployment data (not None) for a
+# sales_manager actor as a direct consequence -- see L1875-ish's
+# `PERM_READ_OPERATIONS or PERM_MANAGE_PROJECTS` gate on that field.
+# deploy_equipment/return_equipment are unaffected either way: both gate
+# on PERM_WRITE_OPERATIONS or PERM_MANAGE_PROJECTS, neither of which this
+# grant touches, so a sales_manager still cannot deploy or return
+# equipment.
 ROLE_PERMISSIONS[ROLE_SALES_MANAGER] = ROLE_PERMISSIONS[ROLE_SALES] | {
     PERM_READ_TEAM_SALES_DATA,
     PERM_READ_TEAM_COMMISSIONS,
     PERM_WRITE_TEAM_COMMISSIONS,
+    PERM_READ_OPERATIONS,
 }
 
 # Permissions catalog grouped by domain for dynamic permissions UI and validation

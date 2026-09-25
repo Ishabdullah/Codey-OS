@@ -380,3 +380,65 @@ def test_subcontractor_delete_precheck_unaffected_by_technician_narrowing(env, a
     # unfiltered shared helper directly and must still block the delete.
     with pytest.raises(ValueError, match="active work order"):
         env["crm"].delete_subcontractor(sub.id, actors["admin"])
+
+
+# ==========================================
+# create_equipment (NEW-647): flat denial for ROLE_TECHNICIAN
+# ==========================================
+
+
+def test_technician_denied_create_equipment(env, actors):
+    """NEW-647: a technician holds PERM_WRITE_OPERATIONS org-wide (passes
+    create_equipment's permission gate) but is flatly denied by the
+    role-keyed check that follows it -- unlike create_milestone/
+    create_work_order/deploy_equipment/return_equipment, there is no
+    ownership narrowing here; technicians may never register new
+    equipment at all, regardless of project assignment."""
+    with pytest.raises(PermissionError, match="cannot register new equipment"):
+        env["ops"].create_equipment(
+            Equipment(asset_tag="AT-647-TECH", name="Dehumidifier", category="dehumidifier"),
+            actors["tech_a"],
+        )
+
+
+def test_technician_denied_create_equipment_regardless_of_project_assignment(env, actors, assigned_project):
+    """Confirms the denial is genuinely flat, not accidentally re-using
+    the ownership-narrowing pattern -- tech_a is assigned to
+    assigned_project, yet create_equipment takes no project_id at all and
+    still denies tech_a outright."""
+    with pytest.raises(PermissionError, match="cannot register new equipment"):
+        env["ops"].create_equipment(
+            Equipment(asset_tag="AT-647-TECH-2", name="Air Mover", category="air_mover"),
+            actors["tech_a"],
+        )
+
+
+def test_technician_deploy_and_return_equipment_unaffected_by_new647(env, actors, assigned_project):
+    """NEW-647 only touches create_equipment -- deploy_equipment/
+    return_equipment (already correctly ownership-narrowed by
+    NEW-645/NEW-644) remain unaffected for the same tech_a actor."""
+    eq = env["ops"].create_equipment(
+        Equipment(asset_tag="AT-647-DEPLOY", name="Dehumidifier", category="dehumidifier"),
+        actors["admin"],
+    )
+    deployment = env["ops"].deploy_equipment(eq.id, assigned_project.id, actors["tech_a"])
+    assert deployment.project_id == assigned_project.id
+
+    returned = env["ops"].return_equipment(deployment.id, actors["tech_a"])
+    assert returned.returned_at is not None
+
+
+def test_pm_create_equipment_unaffected_by_new647(env, actors):
+    eq = env["ops"].create_equipment(
+        Equipment(asset_tag="AT-647-PM", name="Dehumidifier", category="dehumidifier"),
+        actors["pm"],
+    )
+    assert eq.id is not None
+
+
+def test_admin_create_equipment_unaffected_by_new647(env, actors):
+    eq = env["ops"].create_equipment(
+        Equipment(asset_tag="AT-647-ADMIN", name="Dehumidifier", category="dehumidifier"),
+        actors["admin"],
+    )
+    assert eq.id is not None
