@@ -7596,8 +7596,16 @@ this file's own don't-duplicate rule.
             `NEW-634`/`NEW-635` (both Warning, zero live blast radius
             today — check before any invoice-creation UI is built).
             **This closes B8.12 in full (a/b both shipped).**
-- [ ] **B8.13** — mobile-first pass & audit completeness sweep across
-      every B8 write path.
+- [~] **B8.13** — mobile-first pass & audit completeness sweep across
+      every B8 write path. **B8.13a (audit completeness) DONE
+      2026-09-25, commit `a1b15d8`** — `delete_subcontractor` audit
+      call moved into the service layer (was route-only, so a direct
+      service caller was previously unaudited); `NEW-595`/`NEW-580`
+      closed; `NEW-559` fixed as a trivial included judgment call. See
+      `PROJECT_LOG.md`'s 2026-09-25 B8.13a entry. **B8.13b (mobile
+      horizontal-scroll table wrapper, sales portal) implemented and
+      self-verified, code-review in progress** — not yet committed as
+      of this entry.
 - [ ] **B8.14** — analytics rollups (rep/manager/executive tiers).
 
 ### T-lane — self-measurement/telemetry layer (NSF SBIR grant evidence, separate initiative from B-lane, does not block or depend on B6/B7)
