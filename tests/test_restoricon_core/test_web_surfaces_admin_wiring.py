@@ -324,3 +324,45 @@ def test_admin_surface_edit_user_modal_adds_back_nonstandard_current_role():
     assert "standardRoles.includes(u.role)" in fn_body
     assert "data-dynamic-role" in fn_body
     assert "roleSelect.appendChild(opt)" in fn_body
+
+
+def test_admin_surface_redirects_dedicated_portal_roles_away_from_admin():
+    """NEW-625: an authenticated actor whose role has its own dedicated
+    staff/customer portal (B6.8) must not be able to sail through to the
+    full 11-domain admin ERP shell just by holding a valid token. The JS
+    *behavior* of this redirect (does the browser actually navigate) has
+    no Python harness here -- only the presence of the correct role->path
+    map is pinned; live-verifier is needed to confirm the redirect fires."""
+    html = render_admin_surface()
+    for role, portal_path in (
+        ("project_manager", "/pm"),
+        ("sales", "/sales"),
+        ("technician", "/tech"),
+        ("customer", "/portal"),
+    ):
+        assert f"'{role}': '{portal_path}'" in html, role
+
+
+def test_admin_surface_does_not_redirect_roles_without_a_dedicated_portal():
+    """Negative list: ROLE_MANAGER and ROLE_AI_AGENT have no dedicated
+    portal of their own, so they must continue to land on /admin --
+    getting this wrong risks silently locking one of them out.
+    'sales_manager' is deliberately NOT in this list -- it DOES have a
+    dedicated portal (/sales, see _render_sales_portal()'s docstring and
+    the pre-existing login-redirect at web_surfaces.py:713-714) but this
+    round's admin-surface redirect (NEW-625) does not yet cover it,
+    pending an explicit scoping decision (see NEW-642); asserting
+    its absence here would just pin that gap, not protect anything.
+    'subcontractor' is also excluded: it is not a member of auth.py's
+    ALL_ROLES (create_user() rejects it), so no actor can ever be issued
+    that role even though /subcontractor and
+    render_subcontractor_surface() exist as reachable routes (logged
+    separately, see NEW-641)."""
+    html = render_admin_surface()
+    i = html.find("const rolePortals = {")
+    assert i != -1
+    j = html.find("};", i)
+    assert j != -1
+    role_portal_map_js = html[i:j]
+    for role in ("manager", "ai_agent", "subcontractor", "admin"):
+        assert f"'{role}':" not in role_portal_map_js, role

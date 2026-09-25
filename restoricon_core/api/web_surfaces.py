@@ -5181,6 +5181,49 @@ def render_admin_surface() -> str:
         // Initial load
         validateSession('/admin/login').then(async valid => {
             if (valid) {
+                // NEW-625: validateSession() above only checks token validity,
+                // not role -- it is shared with render_portal_surface()'s own
+                // session check and must stay bool-returning for that caller,
+                // so a role check can't be folded into it. This is a
+                // deliberate second /auth/me fetch specifically for /admin's
+                // own role gate: any actor whose role has its own dedicated
+                // portal (B6.8) must not land on the full admin ERP shell.
+                // ROLE_MANAGER and ROLE_AI_AGENT have no dedicated portal
+                // anywhere in this codebase (verified), so they are
+                // deliberately left off this map and continue to /admin.
+                // ROLE_SALES_MANAGER DOES have a dedicated portal (/sales --
+                // see _render_sales_portal()'s own docstring, and the
+                // existing login-page redirect at line ~713-714 which already
+                // sends sales_manager to /sales) but is deliberately left off
+                // this map for now: this round's task only named 4 roles,
+                // and redirecting sales_manager away from /admin needs its
+                // own explicit scoping decision (see NEW-642).
+                // "subcontractor" is likewise absent -- it is not in
+                // auth.py's ALL_ROLES, so no actor can ever be issued that
+                // role; /subcontractor is unreachable by construction, not
+                // an oversight here (see NEW-641).
+                try {
+                    const meToken = getAuthToken();
+                    const meRes = await fetch('/api/v1/auth/me', { headers: { 'Authorization': 'Bearer ' + meToken } });
+                    // 401/403 were already handled by validateSession() above;
+                    // a non-ok response here just means role is unknown, so
+                    // fall through and let the admin shell load as before.
+                    if (meRes.ok) {
+                        const meData = await meRes.json();
+                        const role = meData.user && meData.user.role;
+                        const rolePortals = {
+                            'project_manager': '/pm',
+                            'sales': '/sales',
+                            'technician': '/tech',
+                            'customer': '/portal'
+                        };
+                        if (role && rolePortals[role]) {
+                            window.location.href = rolePortals[role];
+                            return;
+                        }
+                    }
+                } catch (e) { /* network/parse failure: fail open to the admin shell, matching validateSession()'s own fail-open catch above */ }
+
                 loadUsersList();
                 // Awaited (not fire-and-forget) so window.currentAppointmentTypes
                 // is populated before the Calendar's initial loadCalendar() call
