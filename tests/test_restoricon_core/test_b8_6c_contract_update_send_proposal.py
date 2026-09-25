@@ -226,6 +226,35 @@ def test_send_contract_transitions_draft_to_sent_and_is_audit_logged(env):
     assert "customer_signature_data" not in transition_logs[0].details.get("changed_fields", {})
 
 
+def test_sign_contract_audit_excludes_signature_data_and_content_from_changed_fields(env):
+    """NEW-580: the existing coverage above exercises send_contract, which
+    never touches customer_signature_data, so it's vacuous for proving
+    sign_contract's own exclusion. sign_contract (crm_service.py) is the
+    real path where customer_signature_data changes -- this asserts the
+    _AUDITABLE_CONTRACT_FIELDS exclusion actually holds there."""
+    db, audit_service, crm, auth_service, admin = env
+    cust = crm.create_customer(Customer(first_name="Sig", last_name="Nature", email="sig@test.com"), admin)
+    contract = _make_contract(crm, cust.id, admin, number="CTR-SIGN-AUDIT-1")
+
+    signed = crm.sign_contract(contract.id, "data:image/png;base64,fakebytes==", admin)
+    assert signed.status == "signed"
+    assert signed.customer_signature_data is not None
+
+    logs = audit_service.query_logs(admin)
+    sign_logs = [
+        l for l in logs
+        if l.entity_type == "contract" and l.entity_id == contract.id and l.action == "sign"
+    ]
+    assert len(sign_logs) == 1
+    changed_fields = sign_logs[0].details.get("changed_fields", {})
+    assert "customer_signature_data" not in changed_fields
+    assert "content" not in changed_fields
+    # Sanity: the exclusion mechanism is actually filtering something
+    # real, not vacuously passing because nothing changed at all -- a
+    # genuinely auditable field (status) must still show up.
+    assert "status" in changed_fields
+
+
 def test_send_contract_rejects_already_sent(env):
     db, audit_service, crm, auth_service, admin = env
     cust = crm.create_customer(Customer(first_name="A", last_name="Four", email="a4@test.com"), admin)

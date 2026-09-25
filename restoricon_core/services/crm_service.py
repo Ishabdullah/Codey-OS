@@ -1882,7 +1882,13 @@ class CRMService:
                 ),
             )
 
-        _after = self.get_opportunity(opp_id, actor)
+        # NEW-559/NEW-533: after-image built from the already-updated
+        # in-memory `opp` object rather than a re-read via
+        # self.get_opportunity(opp_id, actor) -- aligns with the
+        # NEW-533-corrected pattern in update_lead/update_opportunity, so
+        # a permission-gated re-read can never silently substitute `None`
+        # into the audit after-image here either.
+        _after = opp
 
         # Generate cadence follow-up tasks for the new stage.
         # Initialized before the try so the except path can't NameError.
@@ -4227,6 +4233,10 @@ class CRMService:
         now = utc_now_iso()
         multi_party_status_note = ""
         signed_contract_signers: Optional[List[ContractSigner]] = None
+        # NEW-595: populated only on the multi-party branch below, so the
+        # audit entry for a partial (1-of-N) sign can record specifically
+        # WHICH party signed, not just that "a signature happened."
+        signed_party_details: Optional[Dict[str, Any]] = None
 
         if not signer_rows:
             with conn:
@@ -4357,6 +4367,20 @@ class CRMService:
                 for r in signer_rows
             ]
 
+            # NEW-595: the specific party/signer identity for this
+            # signature, so a partial sign's audit entry answers "who
+            # specifically signed" rather than only "a signature
+            # happened." `target` is the contract_signers row this call
+            # just updated.
+            signed_party_details = {
+                "party_role": target["party_role"],
+                "signer_name": target["signer_name"],
+            }
+
+        side_effects: Dict[str, Any] = {"signature_captured": True}
+        if signed_party_details is not None:
+            side_effects.update(signed_party_details)
+
         self.audit.log(
             action="sign",
             entity_type="contract",
@@ -4368,7 +4392,7 @@ class CRMService:
                 after=_signed.to_dict(),
                 fields=_AUDITABLE_CONTRACT_FIELDS,
                 # Never surface the signature blob in the audit payload.
-                side_effects={"signature_captured": True},
+                side_effects=side_effects,
             ),
         )
 
@@ -6733,7 +6757,20 @@ class CRMService:
         conn = self.db.get_connection()
         with conn:
             cursor = conn.execute("DELETE FROM subcontractors WHERE id = ?;", (subcontractor_id,))
-            return bool(cursor.rowcount)
+            if cursor.rowcount == 0:
+                return False
+
+        # B8.13a: audit call moved in here from the /delete route handler
+        # so any caller of this method (not just the HTTP route) produces
+        # an audited hard DELETE. Matches delete_contact's pattern (audit
+        # call inside the service method, after the DELETE commits, using
+        # the pre-delete snapshot).
+        self.audit.log(
+            "subcontractor_deleted", "subcontractor", subcontractor_id,
+            f"Subcontractor '{sub.company_name}' deleted",
+            actor=actor, details=build_audit_details(snapshot=sub.to_dict()),
+        )
+        return True
 
     # ==========================================
     # CONTACTS (Aigentik Memory System)

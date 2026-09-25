@@ -393,13 +393,47 @@ def test_delete_audit_logs_snapshot(env):
     assert status == 200
 
     conn = db.get_connection()
-    row = conn.execute(
+    rows = conn.execute(
         "SELECT * FROM audit_log WHERE action = 'subcontractor_deleted' AND entity_id = ?;",
         (sub.id,),
-    ).fetchone()
-    assert row is not None
-    details = json.loads(row["details_json"])
+    ).fetchall()
+    # B8.13a: the audit call was moved from this route handler into
+    # CRMService.delete_subcontractor() itself. Confirms the move didn't
+    # leave a redundant second call at the route level -- exactly one
+    # audit entry for this one delete, not two.
+    assert len(rows) == 1
+    details = json.loads(rows[0]["details_json"])
     assert details["snapshot"]["company_name"] == "Zenith Drywall"
+
+
+# ---------------------------------------------------------------------------
+# B8.13a: audit call moved from the /delete route handler into
+# CRMService.delete_subcontractor() itself (matching delete_contact's
+# pattern), so any direct service-layer caller -- not just the HTTP
+# route -- produces an audited delete.
+# ---------------------------------------------------------------------------
+
+def test_delete_subcontractor_direct_call_is_audit_logged(env):
+    """A caller that never goes through the HTTP route (a script, a
+    different route, a future bulk-delete) must still produce a real
+    audit_log entry -- proving the audit call now lives inside the
+    service method itself, not only in routes.py."""
+    crm = env["crm"]
+    db = env["db"]
+    admin_ctx = env["admin_ctx"]
+
+    sub = _make_subcontractor(env, company_name="Direct-Call Audit Roofing")
+    deleted = crm.delete_subcontractor(sub.id, admin_ctx)
+    assert deleted is True
+
+    conn = db.get_connection()
+    rows = conn.execute(
+        "SELECT * FROM audit_log WHERE action = 'subcontractor_deleted' AND entity_id = ?;",
+        (sub.id,),
+    ).fetchall()
+    assert len(rows) == 1
+    details = json.loads(rows[0]["details_json"])
+    assert details["snapshot"]["company_name"] == "Direct-Call Audit Roofing"
 
 
 # ---------------------------------------------------------------------------

@@ -2137,14 +2137,19 @@ class APIRouter:
             ):
                 sub_id = _parse_int_path_segment(path[len("/api/v1/subcontractors/"):-len("/delete")], "sub_id")
                 # Explicit permission gate BEFORE the unguarded `before`
-                # fetch below, which is used only for audit-snapshot
-                # context and doesn't itself leak schedule/work-order
+                # fetch below, which is used only for the 404-vs-delete
+                # distinction and doesn't itself leak schedule/work-order
                 # data. NEW-510: the active-reference precheck (and its
                 # own permission check) now lives in
                 # CRMService.delete_subcontractor() itself, which runs
                 # FIRST inside that call -- so it's no longer "too late"
                 # to gate the reference queries the way this comment used
                 # to warn about; it's simply the one and only gate now.
+                # B8.13a: the audit call itself also now lives inside
+                # CRMService.delete_subcontractor() (matching
+                # delete_contact's pattern) so any caller -- not just this
+                # route -- produces an audited delete. Do not re-log here;
+                # that would double the audit entry for this same delete.
                 if not actor.has_permission(PERM_WRITE_SUBCONTRACTORS):
                     raise PermissionError("Actor lacks permission to delete subcontractors")
                 before = self.crm._get_subcontractor_unguarded(sub_id)
@@ -2153,14 +2158,6 @@ class APIRouter:
                 deleted = self.crm.delete_subcontractor(sub_id, actor)
                 if not deleted:
                     return 404, {"Content-Type": "application/json"}, {"error": "Subcontractor not found"}
-                # No changed_fields for a delete -- record the final-state
-                # snapshot instead, matching user_deleted's shape.
-                delete_details = build_audit_details(snapshot=before.to_dict())
-                self.audit.log(
-                    "subcontractor_deleted", "subcontractor", sub_id,
-                    f"Subcontractor '{before.company_name}' deleted",
-                    actor=actor, details=delete_details,
-                )
                 return 200, {"Content-Type": "application/json"}, {"deleted": True, "subcontractor_id": sub_id}
 
             if path.startswith("/api/v1/subcontractors/") and "/" not in path[len("/api/v1/subcontractors/"):] and method == "GET":

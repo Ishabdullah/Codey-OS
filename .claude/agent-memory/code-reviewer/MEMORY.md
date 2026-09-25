@@ -1,150 +1,58 @@
-- [NEW-481 text-node escaping (2nd half) — approved via negative-control repro](new481_textnode_escaping_second_half_approved.md)
 - [Working tree accumulates unstaged cross-round changes](working_tree_cross_round_bleed.md) — check `git status` scope before approving
-- [daemon check_pid_file self-PID guard — approved](daemon_self_pid_check_verified.md) — re-check
-- [GUI removal round (2026-09-02) — changes requested](gui_removal_round_changes_requested.md)
-- [main.py NEW-5/6 KeyboardInterrupt/SystemExit fix — approved](main_py_new5_keyboardinterrupt_fix_approved.md)
-- [Termux signal delivery unreliable in Bash-tool sandbox](termux_signal_delivery_unreliable_in_sandbox.md) — don't trust live-repro of SIGINT this
-- [NEW-2 EDIT NOT APPLIED marker — approved](new2_edit_not_applied_approved.md)
-- [loader_v2.py NEW-9 pthread_sigmask fix — approved](loader_v2_new9_sigmask_approved.md) — child
-- [NEW-12/13 inference.py launcher delegation + thermal re-consumer — approved](new12_inference_launcher_delegation_approved.md)
-- [NEW-11 daemon watchdog liveness check — approved](new11_daemon_watchdog_liveness_check.md) — stale
-- [NEW-15/16 write_file+patch error display — approved](new15_write_file_syntax_guard_approved.md)
-- [NEW-17 scoped git commit staging — approved](new17_git_commit_scoped_staging_approved.md)
-- [NEW-20 main.py isatty() paste guard — approved](new20_main_isatty_paste_guard_approved.md)
-- [NEW-22/23 entry-point cleanup — approved](new22_23_entrypoint_cleanup_approved.md)
-- [NEW-19 patch-failed-repeat escalation — approved](new19_patch_failed_repeat_escalation.md)
-- [NEW-10 SIGTERM handler — approved w/ doc fix
-- [NEW-8 sandbox ALLOWED_DIRS gettempdir() fix — approved](sandbox_new8_gettempdir_fix_approved.md) — found
-- [NEW-7 patch_file old_str prompt fix — approved](new7_patch_file_prompt_fix_approved.md)
-- [NEW-46/47/28 plannd prompt+regex fix — approved](plannd_new46_47_28_prompt_fix_approved.md)
-- [plannd iter3 one-step delegation fix — approved w/
-- [plannd iter4 report_gen deletion — approved w/ scope
-- [NEW-30 system_prompt.py Done-vs-patch fix — approved, all 6
-- [NEW-55 agent.py input() EOF fix — changes
-- [NEW-58/59 recursive.py+layered_prompt.py fix — approved w/ 2
-- [read_file WorkingMemory + regex leading-dot fix — approved w/ 1
-- [NEW-12 flock lock + primary/planner sequential swap — r1 rejected, r2
-- [resource_gate 7.4 sub-tasks 1-5 + test-arch override — all
-- [NEW-97/U.28 plannd slot registration — approved w/ comment+doc
-- [U.31 CODEY_N_CTX override — changes
-- [Phase 5a/7.4 sub-tasks A (CPU sampler) + B (TUI/GUI signal) — both r1 CR, r2
-- [Phase 4.1 sub-task C dispatch gate — CR](resource_gate_phase4_1_subtaskC_dispatch_gate_changes_re
-- [Phase 4.1 sub-task D shutdown tripwire — CR, r2→3
-- [NEW-187 can_dispatch_task fail-closed fix r2 — approved](new187_swap_dispatch_fail_closed_round2_approved.m
-- [NEW-135/136 swap-claim double-admission race — approved](new135_136_swap_claim_race_approved.md)
-- [7.3 sub-tasks B (model_tiers.py) + E (NEW-172/178 tier split) — both approved](new172_178_task_b_tier_split_approved.md)
-- [7.4a sub-tasks A/B/C1/C2/D/F resource_gate.py — all
-- [NEW-152 _ever_loaded->_ever_spawned narrowing — approved](new152_ever_spawned_narrowing_approved.md)
-- [M1-A Qwen3.5-4B hybrid arch — changes
-- [M1-B/C/D planner-server collapse — CR (M1-D only), r2
-- [NEW-164/165 plannd.py formula-timeout fix — approved](new164_165_planner_timeout_fix_approved.md)
-- [NEW-167 constant recalibration — CR, NEW-169 closed round
-- [NEW-172 dead code deletion, Task A — changes requested (doc-status
-- [Phase B1 Restoricon Core API/auth/RBAC — round1 changes
-- [Phase B2 Restoricon Core schema expansion — round1 changes
-- [NEW-189 fix round2 — approved, plus NEW-194 follow-on
-- [Lease/registry item (NEW-104/144/146/149) — approved](lease_registry_new104_144_146_149_approved.md)
-- [NEW-206/§8 Q11 context-budget admission fix — CR (doc-logging
-- [Phase B2 task 2 migrate_aigentik.py + RBAC lookups — approved](restoricon_core_phase_b2_task2_migrate_aigentik_ap
-- [Phase B2 task 4a 17 new HTTP routes — approved, 2
-- [Phase B2 task 4 DNC write-through pilot (Aigentik) — approved](phase_b2_task4_dnc_writethrough_approved.md)
-- [Phase B2 task 4 email/sms-rules write-through + delete_rule — approved](phase_b2_task4_email_sms_rules_writethrough_approv
-- [Phase B2 task 4 update_subcontractor + route — approved](restoricon_core_phase_b2_task4_update_subcontracto
-- [Phase B2 task 4 find_subcontractor + NEW-246 mirror-bug — approved](restoricon_core_phase_b2_task4_find_subcontractor_
-- [NEW-414 except-narrowing + NEW-91/163 LoRA rollback fix — approved](new414_lora_rollback_new91_163_batch_approved.md)
-- [git checkout -- path wipes uncommitted diff, not just reviewer's tweak](git_checkout_path_wipes_uncommitted_diff.md) — use scratchpad backup copy
-- [NEW-227/NEW-222/NEW-237 provision.py revoke + by-id GET fix — approved w/ 1
-- [NEW-212/216/232 schema-migration mechanism — approved](restoricon_core_new212_216_232_external_id_schedul
-- [NEW-145/149/155 Option C kill+respawn upgrade fix — approved+closed](new145_149_155_option_c_approved.md)
-- [NEW-233/257 comms provider_message_id dedup — round2 approved, 1 warning
-- [CRM create_contact external_id auto-assign — approved](crm_create_contact_external_id_autoassign_approved
-- [NEW-259 daemon._config + loader_v2 reserve_slot port fix — approved](new259_daemon_config_and_loader_port_fix_approved.
-- [service_manager.sh Aigentik orphan-by-cwd kill — round1 CHANGES
-- [submit_review RBAC + role-change token revoke + sessionStorage — approved](submit_review_rbac_and_role_token_revoke_approved.
-- [B2-fin-1 business_profile read cutover — round2
-- [B6.1 update_project + two-perm reassignment model — approved](b6_1_update_project_approved.md)
-- [B6.2a build_audit_details + 9 audit sites — round2 APPROVED](b6_2a_audit_details_round2_approved.md)
-- [B6.2b-1/2/4 audit-details canonicalization (all 55 sites) — APPROVED](b6_2b1_audit_details_canonicalization.md)
-- [U.35/U.36 update_user active+role-invariant fix — approved](u35_u36_update_user_active_role_invariant_approved
-- [Telemetry T0 record_run_start honest-null fix — round2
-- [Telemetry T1 Aigentik extraction/grounding — approved](telemetry_t1_aigentik_extraction_grounding_approve
-- [Telemetry T3 prefix_cache_hit fix — r1 CR (flaky admission tests), r2
-- [Telemetry T4 codey-metrics CLI + rollup + rotate — APPROVED w/
-- [Telemetry T5 inference_hybrid.py — CHANGES REQUESTED (test fixture
-- [Telemetry T7 agent.py+task_executor.py — CHANGES
-- [Telemetry T8a daemon.py dedup docstring overclaim — CHANGES REQUESTED
-- [NEW-345 thread-identity run-stats fix — 3 rounds, round3
-- [Telemetry T9 loader_v2.py argv provenance — CHANGES REQUESTED (doc/disclosure
-- [NEW-358 run_start fallback conflation — CHANGES
-- [NEW-358 Site 3 tools/ensure_model_cli.py — APPROVED](new358_site3_aigentik_cli_approved.md)
-- [Telemetry batch NEW-354/360/361/362 — 3 rounds, round3
-- [NEW-357 wait_for()-timeout __cause__ guard — round1 CHANGES REQUESTED (doc
-- [NEW_ISSUES.md cleanup batch 1 (plannd/resource_gate/recursive + 5 tests) — approved](new_issues_cleanup_batch1_approved.md) — every
-- [NEW_ISSUES.md cleanup batch 2 (crm/scheduling/auth/routes/sandbox) — CHANGES
-- [NEW_ISSUES.md batch 2 round2 — APPROVED w/ 2
-- [NEW_ISSUES.md batch 3 (crm/scheduling/automation) — CHANGES
-- [NEW_ISSUES.md batch 3 round2 — APPROVED](new_issues_cleanup_batch3_round2_approved.md)
-- [NEW_ISSUES.md batch 4 (telemetry) — CHANGES REQUESTED (NEW-327
-- [NEW_ISSUES.md batch 4 round2 (NEW-407) — APPROVED](new_issues_cleanup_batch4_round2_new407_approved.m
-- [NEW_ISSUES.md batch 5 (prompt/planner) — CHANGES
-- [NEW_ISSUES.md batch 5 round2 (NEW-31 NEED_DOCS fix) — APPROVED](new_issues_cleanup_batch5_round2_approved.md)
-- [NEW-534 atomic claim workflow (leads/opps/tasks) — APPROVED](new534_atomic_claim_workflow_approved.md) — full independent verification incl. node --check on rendered JS
-- [Daemon/process-lifecycle batch 1: NEW-409 kill-loop de-8081 + NEW-70 thermal-restart try/except split — APPROVED](new409_new70_daemon_lifecycle_batch1_approved.md)
-- [Daemon/process-lifecycle batch 2: NEW-74 stop() bool-return + adopted-state warning — CHANGES REQUESTED
-- [Daemon/process-lifecycle batch 3: NEW-268 start_aigentik flock lock + fd-leak fix — CHANGES REQUESTED
-- [Process-lifecycle round 2: NEW-68 inference retry + NEW-413 piece-1 release_model_cli.py — APPROVED](new68_inference_retry_and_new413_release_cli_appro
-- [NEW-413 piece 2: Aigentik index.js warm-up-failure release call — APPROVED w/ 2
-- [Cleanup round 3: NEW-415/416/417/418/421/422/423 — split verdict, NEW-421
-- [NEW-419/420 Aigentik TOCTOU + missing-release fix — APPROVED](new419_420_aigentik_toctou_release_fix_approved.md
-- [NEW-422/423 finetune import + scan fallback default mismatch](new422_423_finetune_import_and_scan_fallback_default_mismatch.md) — NEW-422 clean; NEW-423 blocked, "5/5
-- [NEW-330 API server start() re-entrancy fix — approved](new330_api_server_start_reentrancy_approved.md)
-- [NEW-325 Aigentik telemetry shutdown flush + _flushPromise race fix — approved](new325_aigentik_shutdown_telemetry_flush.md)
-- [NEW-86/NEW-203 embed_server.py PID-reverify + stop() docstring — approved](new86_new203_pid_reverify_approved.md)
-- [NEW-80/NEW-104 resource_gate lock fd-leak + ledger-correction — APPROVED](new80_new104_ledger_fix_approved.md) — negative
-- [NEW-278 plugin_manager.py PID-dir resolution — APPROVED](new278_plugin_pid_dir_resolution_approved.md)
-- [NEW-271 svc_entrypoint_proc_filter fix — approved](new271_proc_filter_fix_approved.md)
-- [NEW-40 idle-wait SystemExit fix — approved](new40_idle_wait_sigterm_fix_approved.md)
-- [daemon batch NEW-88/113/118/256 — approved](daemon_new88_113_118_256_batch_approved.md)
-- [NEW-107/109 observability daemon_pid/uptime PID-file fix + scope-label reversal — approved](new107_new109_observability_daemon_pid_uptime_appr
-- [NEW-430/431 context-lease + /slots fail-closed fix — approved](new430_431_context_lease_fix_approved.md) — full
-- [NEW-435 is_processing gating fix — approved](new435_slots_is_processing_fix_approved.md)
-- [NEW-432 round2 port-precheck restructure — approved](new432_port_precheck_restructure_round2_approved.m
-- [NEW-436 doc-only round — CHANGES REQUESTED (4546 vs 4246
-- [NEW-441 dead JSON context-budget store removal — approved](new441_dead_json_context_store_removal_approved.md
-- [T10 commit 1 telemetry schema v1->v2 additive migration — r1 CHANGES REQUESTED
-- [T10 commit 2 (Aigentik) telemetry schema v2 migration — APPROVED](t10_commit2_aigentik_schema_v2_approved.md) — v2
-- [T10 c3 / NEW-358 Site 1 main.py CLI-flag run_start — approved](new358_site1_main_cli_run_start_approved.md)
-- [NEW-433 ai/chat admission-gate mock in test_api.py — approved](new433_ai_chat_admission_gate_mock_approved.md)
-- [appointment_types Phase 2 (final scheduling round) — APPROVED w/ warnings
-- [appointment_types Phase 2 round 2 — CHANGES REQUESTED (staging
-- [appointment_types Phase 3 hours-semantics doc+test — APPROVED](appointment_types_phase3_hours_semantics_approved.
-- [appointment_types Phase 4 concurrency-cap enforcement — APPROVED w/ 2
-- [Phase 5 business-hours-grid UI — APPROVED w/ 1 mandatory NEW-### (default-value mismatch vs
-- [Phase 6 Aigentik calendar.js/index.js/owner-command.js alignment + NEW-467 — APPROVED](appointment_types_phase6_aigentik_calendar_alignme
-- [Phase 7 Part 1 subcontractor.user_id link + range filters — APPROVED](phase7_part1_subcontractor_link_range_filters_appr
-- [Phase 7 Part 2 Calendar view — round1 CR, round2
-- [Phase 7 Part 3 Calendar create/edit + StaffSchedule.id fix — APPROVED](phase7_part3_calendar_create_edit_approved.md)
-- [do_PATCH missing verb-handler fix — APPROVED](do_patch_missing_verb_handler_approved.md)
-- [Admin delete-buttons Part A (users+appt-types) — round1 CR, round2
-- [Admin Dashboard Part B KPI-tab consolidation — APPROVED](admin_dashboard_partB_kpi_consolidation_approved.m
-- [Cloud-ultrareview F1-F8 round (NEW-481 handler quoting, NEW-491, F3/F4/F8) — r1 CR (stale test comments), r2
-- [NEW-489 Subcontractors tab route/field fix — APPROVED](new489_subcontractors_tab_route_fix_approved.md)
-- [NEW-507/508/509 subcontractor delete+onboard-modal+401-fixes — APPROVED](new507_508_509_subcontractor_delete_approved.md)
-- [NEW-509 finishing round (10 more loaders + loadDashboard exclusion) — APPROVED](new509_remaining_ten_loaders_401_approved.md) — verify surface boundaries by line range, not name pattern
-- [NEW-512 loadDashboard 401 fix — APPROVED, test-count claim didn't match reality](new512_staff_portal_dashboard_401_fix.md) — always reproduce claimed pytest deltas
-- [NEW-501/506/510/511/513 batch — APPROVED](new501_506_510_511_513_batch_approved.md) — NEW-510 rule-4 delete-guard relocation clean; NEW-501 verified non-vacuous via negative control; PROJECT_LOG lag flagged non-blocking
-- [NEW-515/516 allow-list + warning log — APPROVED](new515_516_allowlist_and_warning_log_approved.md) — confirmed Aigentik subcontractor-recruiter.js really sends stray keys (rule-6 ledger correction needed)
-- [NEW-517 mapJSToCore stale-key delete — APPROVED](new517_subcontractor_recruiter_stale_key_delete_approved.md) — traced mapCoreToJS callers, confirmed reverse leak genuinely benign; implementer's JSON.stringify(undefined) rationale was wrong but harmless
-- [Sandbox HTTP_PROXY env vars break urllib.request loopback tests (405s)](sandbox_http_proxy_urllib_405_env_artifact.md) — unset http(s)_proxy before trusting a full-suite failure count
-- [NEW-487 assigned_user_id on Appointment — APPROVED](new487_assigned_user_id_appointment_approved.md) — 34-test scare was the proxy artifact above, not a regression
-- [NEW-492/494/519 staff-schedule GET-by-id + delete_user() null-out — APPROVED](new492_494_519_staff_schedule_get_and_delete_user_nullout_approved.md) — "pre-existing" bug claim was incomplete, new code shared it
-- [NEW-520/522/523 batch1 path-segment sweep — APPROVED w/ 1 Warning](new520_522_523_batch1_path_segment_sweep_approved.md) — new pattern: loose route-match conditions can make a wrapped helper's error message confidently wrong, not just unpolished
-- [NEW-526 batch2 27-site segment guard — APPROVED, regex-verified all 27 + live negative-control repro](new526_batch2_segment_guard_approved.md)
-- [NEW-525/527+stray batch3 — APPROVED, NEW-525's "cosmetic" severity was wrong, corrected via live repro](new525_527_stray_batch3_approved.md)
-- [NEW-530/531/532 follow-on — APPROVED, rstrip trailing-slash claim + all ~57 call sites verified directly](new530_531_532_followon_approved.md)
-- [NEW-528/529 body-field helper + contacts segment guard — APPROVED w/ 1 Warning](new528_529_body_field_and_contacts_guard_approved.md) — one disclosed behavior change (DELETE-on-/delete-suffix) had zero test coverage; live-repro'd it myself both pre- and post-fix
-- [NEW-533 sales-manager PERM_READ_TEAM_SALES_DATA narrowing — APPROVED](new533_sales_manager_permission_approved.md) — server-side enforcement traced through route bypass attempt; audit after-image re-gate bug pattern is new and worth checking on future get_X narrowings
-- [D2 ROLE_SALES_MANAGER users-table CHECK rebuild — APPROVED](d2_sales_manager_role_users_table_rebuild_approved.md) — independent SQLite empirical repro of every migration claim (legacy_alter_table nuance, BEGIN IMMEDIATE atomicity via injected crash, sqlite_sequence dedupe); reusable crash-injection technique documented
-- [NEW-538 Edit User modal — APPROVED](new538_edit_user_modal_approved.md) — full live+vm-execution verification; advisor's to_dict() concern checked and ruled out empirically
-- [vm harness silent stub gaps](vm_harness_silent_stub_gaps.md) — incomplete DOM stub errors get swallowed by the code's own try/catch, producing false-clean "nothing happened" results
-- [D3 sales-portal 12s periodic refresh — APPROVED](d3_sales_portal_periodic_refresh_approved.md) — try/finally guard wraps whole body incl. all early returns; node --check on rendered <script> block catches brace-escape bugs
+- [Termux signal delivery unreliable in Bash-tool sandbox](termux_signal_delivery_unreliable_in_sandbox.md) — don't trust live-repro of SIGINT
+- [git checkout -- path wipes uncommitted diff](git_checkout_path_wipes_uncommitted_diff.md) — use scratchpad backup copy first
+- [Sandbox HTTP_PROXY env vars break urllib.request loopback tests (405s)](sandbox_http_proxy_urllib_405_env_artifact.md) — unset before trusting failure counts
+- [test_resource_bus aging test flaky under full-suite load](test_resource_bus_aging_flaky_under_load.md) — wall-clock-sensitive, passes in isolation, don't panic-reject alone
+- [vm harness silent stub gaps](vm_harness_silent_stub_gaps.md) — incomplete DOM stubs swallowed by code's own try/catch → false-clean results
+- [Termux grep/find alias broken](new422_423_finetune_import_and_scan_fallback_default_mismatch.md) — use full binary paths, noted repeatedly
+
+Early core-agent rounds (2026-08, all approved unless noted), terse index:
+- [NEW-2/5/6/7/8/9/10/11/12/13/15/16/17/19/20/22/23 daemon/loader/sandbox/plannd batch](new2_edit_not_applied_approved.md) — PID/signal/lock fixes; GUI removal round was CR ([gui_removal_round_changes_requested.md](gui_removal_round_changes_requested.md))
+- [plannd/resource_gate iter rounds (NEW-28/30/46/47/55/58/59/97, U.28/31)](plannd_new46_47_28_prompt_fix_approved.md) — mixed CR→approved across rounds; resource_gate 7.3/7.4 sub-tasks all approved ([new172_178_task_b_tier_split_approved.md](new172_178_task_b_tier_split_approved.md))
+- [Swap/dispatch fail-closed races (NEW-135/136/152/164/165/167/172/187)](new187_swap_dispatch_fail_closed_round2_approved.md) — double-admission and tier/timeout fixes, all closed approved
+
+Restoricon Core / Aigentik build-out (2026-08→09), terse index:
+- [Phase B1/B2 API+auth+RBAC+schema rounds (NEW-104/144/146/149/189/194/206/212/216/227/222/232/237/246/259)](restoricon_core_new212_216_232_external_id_schedul) — first-round CR common, converges on re-review; NEW-259 caught real `_config`/port-kwarg bugs live tests found that diff-review missed
+- [B6.1/B6.2 audit-details canonicalization + update_project reassignment model — all APPROVED](b6_2b1_audit_details_canonicalization.md) — 55 audit sites made canonical
+- [Telemetry T0-T10 rollout (round-by-round, several CR→approved)](telemetry_t1_aigentik_extraction_grounding_approve) — T8a caught docstring overclaim, T9 doc/disclosure gaps; T10 schema v1→v2 additive migration approved both sides
+- [Process-lifecycle/daemon batch rounds (NEW-40/68/70/74/80/86/88/104/107/109/113/118/256/268/271/278/325/330/345/409/413/415-423/430-436/441)](new409_new70_daemon_lifecycle_batch1_approved.md) — this project's highest-CR-rate category; PID/fd-leak/re-entrancy bugs repeatedly real, several caught only via live verify not diff-read
+- [appointment_types Phases 2-7 (scheduling rebuild) — all APPROVED, Phase 2/7pt2 needed round 2](appointment_types_phase6_aigentik_calendar_alignme) — hours-semantics, concurrency-cap, business-hours UI, Aigentik calendar alignment all verified live
+- [NEW_ISSUES.md cleanup batches 1-5 — mostly CR round1 → APPROVED round2](new_issues_cleanup_batch1_approved.md) — recurring pattern: first pass under-tests the negative/edge case, round2 closes it
+
+Admin dashboard / sales portal / staff portal rounds (2026-09), terse index:
+- [do_PATCH verb-handler + Admin dashboard Parts A/B/round3 (NEW-467/481/489/491/507-517)](admin_dashboard_partB_kpi_consolidation_approved.md) — subcontractor delete/onboard/401 fixes, F1-F8 cloud-ultrareview; NEW-512 test-count claim didn't match reality — always reproduce claimed pytest deltas
+- [NEW-520-533 path-segment/route-guard sweep (batches 1-3 + follow-ons)](new530_531_532_followon_approved.md) — loose route-match can make wrapped helper's error message confidently wrong; regex-verified all ~57 call sites + live negative controls each round
+- [D2 users-table CHECK rebuild + D3 12s periodic refresh — both APPROVED](d2_sales_manager_role_users_table_rebuild_approved.md) — reusable SQLite crash-injection technique for migration-atomicity claims; try/finally + node --check catches brace-escape bugs
+- [NEW-538 Edit User modal — APPROVED](new538_edit_user_modal_approved.md) — full live+vm-execution verification, advisor's to_dict() concern ruled out empirically
+- [NEW-549 global_search rep-ownership narrowing — APPROVED](new549_global_search_rep_scoping_approved.md) — "matches CRM" claim diverges at user_id=None edge; role-matrix walk caught undisclosed narrowing
+
+B8.x CRM/Sales pipeline (2026-09, active), terse index:
+- [B8.1 properties+commission_ledger_entries — CR round1 (double-reversal ledger corruption), APPROVED round2](b8_1_properties_commissions_round2_approved.md) — ledger-invariant docstring claims need live repro not diff read
+- [B8.2a/b sales dashboard gates + panels wiring — CR→APPROVED both](b8_2b_sales_dashboard_panels_wiring_approved.md) — verify every JS field name against real to_dict()/service shapes; bg-task progress log can silently stall, don't trust without literal "N passed"
+- [B8.3 lead-convert + stage-duration analytics — CR round1 (Lead.customer_id never written back), APPROVED round2](b8_3_lead_convert_stage_analytics_round2_approved.md) — passing test suite missed it because it never re-fetched the Lead
+- [B8.4a Property routes + Customer 360 fan-out — APPROVED](b8_4a_property_routes_customer360_approved.md) — live Node execution of rendered JS confirmed Promise.allSettled/401-vs-403 claims beyond string-shape tests
+- [B8.4b Project.property_id wiring + history panel — APPROVED w/ 2 Warnings](b8_4b_project_property_id_approved.md) — live-repro'd pre-fix 500; advisor caught untested restricted-role list_projects filter (ruled out empirically); "mirrors project_manager_id" claim false (new code stricter, old code has a live bool-int gap worth a NEW-###)
+- [B8.5b assessment_records table + photo upload — CR round1, APPROVED round2](b8_5b_assessment_photo_round2_approved.md) — round1: document_type='assessment_photo' not in CHECK allow-list, every upload 500s; round2 fix verified via independent differential live repro (old value still 500s, new value 201s on same server), not just trusting the new test's own assertions
+- [B8.6a estimates/contracts rep-ownership + sign_contract idempotency — APPROVED](b8_6a_estimates_contracts_rep_ownership_approved.md) — ordering fix verified live-traced; disclosed PM-permission regression (NEW-575) confirmed real via auth.py read, correctly not silently patched
+- [B8.6b estimate pricing + PackageOption table — CR round1, APPROVED round2](b8_6b_estimate_pricing_package_options_round2_approved.md) — round1: missing customer-isolation gate + unredacted return leak on update_estimate/send_estimate; round2 fixes verified placement+early-return path, full suite matched verbatim (2178 passed) reviewer-side and coordinator-side
+- [NEW-565/575 RBAC financials grant + sign_contract PM exemption — APPROVED](new565_575_rbac_sign_contract_approved.md) — grep the permission's raw string value not just the constant name; derived-role lines (ROLE_SALES_MANAGER = ROLE_SALES | {...}) silently inherit grants; full-repo pytest hangs in this sandbox on unrelated process/signal tests, `pytest | tail` exit code is worthless — use scoped dir run instead
+- [NEW-568 customer rep-ownership narrowing — CHANGES REQUESTED round 1](new568_customer_rep_narrowing_changes_requested.md) — core narrowing/reassign-gate sound; trace internal callers of a newly-narrowed method (found undisclosed proposal-route 404 regression) + check write routes' response body for full-record disclosure bypassing a read-only narrowing
+- [NEW-587 proposal route _get_customer_unscoped fix — APPROVED](new587_proposal_unscoped_customer_approved.md) — bypass helper skips BOTH narrowing checks (PERM_READ_ALL_CUSTOMERS gate too, not just assigned_user_id); empirically checked every role's permission set before ruling it harmless today; full 2205-test suite ran to completion this time (no hang)
+- [B8.6d-a contract PDF service + sign_contract wiring — APPROVED, no round 2](b8_6d_a_contract_pdf_service_approved.md) — new reportlab/Pillow dep verified via .so walk + installed WHEEL tag, not trusted; doc-store leak fix re-verified independently via find -newer; full suite matched verbatim (2214 passed, no hang this time)
+- [B8.6d-b multi-party contract_signers + sign_contract branch — CHANGES REQUESTED round1, APPROVED round2](b8_6d_b_round2_atomicity_fix_approved.md) — round1 real Critical was non-atomic 2-commit status flip; round2 fix independently re-verified by reverting to two-block structure and rerunning the regression test live (failed as predicted, then passed restored); advisor caught 2 new Warnings (per-partial-sign PDF churn, no UNIQUE on contract_signers causing recoverable-but-real duplicate-row stuck state)
+- [B8.6d-c guided flow + customer_number + NEW-597/593 fixes — APPROVED round1](b8_6d_c_guided_flow_customer_number_approved.md) — first B8.6d sub-round to clear round1; live 60/30-thread stress tests confirmed both INSERT...SELECT atomicity claims hold for real; disclosed one out-of-scope gap (guided-flow customers land unclaimed, unlike auto-assigned contracts); fake AuthContext user_id in stress tests silently FK-fails on audit_log, use a real created user
+- [B8.10a follow-up action wiring (Complete/Cancel/Snooze) — APPROVED round1, zero findings](b8_10a_followup_actions_approved.md) — UTC snooze math live node-verified TZ-independent; update_task partial-merge + NotificationService email-only doc claim both confirmed by reading code; full suite 2370 matched verbatim
+- [NEW-598 create_customer auto-assign gate — APPROVED round1, 2 findings still need NEW-### entries](new598_create_customer_auto_assign_approved.md) — permission choice byte-for-byte matches NEW-568's update_customer gate; commission ledger doesn't read customer.assigned_user_id at all yet (B8.7 unbuilt), so disclosed admin-convert-lead gap has zero live bearing today
+- [B8.7a commission trigger — CHANGES REQUESTED round1, APPROVED round2](b8_7a_commission_trigger_round2_approved.md) — get_commission_plan_config() call sat outside try block; round2 fix verified by surgically re-breaking just that line and re-running the test to watch it fail identically, then restoring; full suite 2252 passed matched verbatim
+- [B8.7b HomeCare subscriptions + 90-day clawback + mid-round $179→$119 reprice — APPROVED round1](b8_7b_homecare_subscriptions_clawback_approved.md) — models.py docstring falsely claimed a DB CHECK constraint that database.py's own adjacent comment says doesn't exist (grep both, don't assume agreement); untested composite-partial-index IntegrityError string reproduced live via real record_commission() call; full suite 2271 passed matched verbatim, no hang
+- [B8.7d get_team_commission_summary + NEW-546 sentinel fix + dashboard panels — APPROVED round1](b8_7d_commission_summary_new546_partial_approved.md) — NEW-546 only partially closed (CRMService._scoped_assignee_filter side still open, confirmed identical fail-open shape, untouched by this round); reversal-netting only holds for 'earned' originals, gap not live-reachable today (verified every real call site hardcodes status="earned"); one full-suite run showed a spurious unrelated ERROR that vanished identically on rerun — full-suite flake, not a regression, don't misattribute a single anomalous run
+- [B8.8a insurance/claim UI panel + 2 new Project columns — APPROVED round1, zero findings](b8_8a_insurance_fields_panel_approved.md) — all 8 task-brief claims independently verified against code (placeholder count, numeric-guard, deductible unmasking precedent, staff-only portal reachability, insurance_claim_status field location, None-guard citation, live node --check on real rendered script, drift-guard test); full suite 2285 passed matched verbatim
+- [B8.8b-1 financing_records table + FinancingService (deliberately inert) — APPROVED round1](b8_8b1_financing_records_inert_approved.md) — inertness independently confirmed by reading all 3 FinanceService methods + repo-wide grep; NULL-invoice_id double-count gap live-reproduced; PERM_READ_FINANCIALS vs PERM_READ_FINANCE are distinct constants, don't conflate; full suite 2306 passed matched verbatim (+21 exactly)
+- [B8.8b-2 financing AR offset wiring — APPROVED round1, 1 Warning](b8_8b2_financing_ar_offset_approved.md) — misattribution guard + NEW-614 shapes live-reproduced independently; "identity holds exactly" claim breaks on sub-cent inputs (no cent-rounding validation); full suite 2327 passed matched verbatim (+18)
+- [B8.7c portfolio-override + B8.9a territories combined round — CHANGES REQUESTED](b8_7c_9a_multiparty_termination_gate_bypass_changes_requested.md) — Critical: multi-party-signed GC contracts never get customer_signed_at set, so gate 5's termination check is skipped entirely (live-reproduced $2,500 override paid to a rep terminated before the contract even existed); everything else (drift-guard, RBAC parity, atomicity, placeholder counts) verified clean; full suite 2357 passed
+- [B8.7c round 2 termination-gate fix — APPROVED](b8_7c_9a_round2_termination_gate_fix_approved.md) — fix verified correct via independent live repro; implementer's own revert-and-recheck self-test claim didn't match reality (wrong test pair) — always reproduce, don't trust; reviewer re-hit git-checkout-wipes-diff mid-review, recovered via saved diff + `git apply`
+- [B8.10c compose-email (real Gmail SMTP side effect) — APPROVED round1](b8_10c_compose_email_approved.md) — send-then-log/recipient-locking/ROLE_CUSTOMER-exclusion/NEW-623-timeout-mechanism all independently re-verified (incl. reading sibling Codey-Aigentik repo directly); found untested-but-safe ROLE_TECHNICIAN edge case relying on outer `except PermissionError` catch, live-repro'd clean; full suite 2398 passed matched verbatim (+15)
+- [B8.12a ROLE_SALES project/ops RBAC narrowing (removes over-grant, adds PERM_READ_OWN_SOLD_PROJECTS) — APPROVED round1](b8_12a_sales_project_ownership_narrowing_approved.md) — removal-side regression risk traced via every internal caller + global except-PermissionError wrapper confirmed; NEW-630 manager-equipment-loss live-confirmed independently; found undisclosed but currently-unreachable helper-exemption asymmetry (Warning); full suite 2419 passed matched verbatim (+21)
+- [B8.12b handoff checklist + deposit-tagging guard — APPROVED round1, 1 Critical disclosed](b8_12b_handoff_checklist_deposit_status_flip.md) — implementer self-disclosed balance_due understatement; advisor pushed to test the zero-boundary case, which flips invoice status to 'paid' and zeroes balance_due on the guard's own happy path, confirmed to silently vanish from AR aging + total_ar reports (real consumers grepped); still approved since guard's own RBAC/idempotency is sound and bug is pre-existing math this round didn't touch, but escalated to Critical not routine; full suite 2446 passed matched verbatim (+26)
+- [NEW-631/632 deposit-balance Design B fix — APPROVED round1](new631_632_deposit_balance_fix_approved.md) — Critical fixed and live-repro'd independently (10000→5000 balance_due, not old buggy 0); epsilon correctly scoped at 3 scales both directions; found undisclosed invoice_type default-"other" trap on the only production invoice-creation route (zero blast radius, no UI exists yet) — same fixture-masks-reality shape as B8.3/B8.5b; full suite 2454 passed matched verbatim (+8)
+- [B8.13a subcontractor audit-layering + NEW-595/580/559 fixes — APPROVED round1](b8_13a_subcontractor_audit_layering_opportunity_559_approved.md) — double-audit/lost-audit claim live-repro'd via standalone from-scratch script (not implementer's own test); NEW-559 opp/to_dict aliasing independently ruled out; Warning: test-count claim +4 vs actual +3 in scoped files (4th likely from concurrent B8.13b round in same tree); full suite 2458 passed matched

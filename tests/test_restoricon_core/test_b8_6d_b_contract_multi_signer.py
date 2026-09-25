@@ -169,6 +169,41 @@ def test_multi_party_contract_only_signed_once_all_parties_sign(env):
     assert final.status == "signed"
 
 
+def test_partial_multi_party_sign_audit_records_which_party_signed(env):
+    """NEW-595: a partial (1-of-N) multi-party sign's audit entry must
+    carry the specific party's attribution (party_role + signer_name) in
+    `side_effects`, not just `{"signature_captured": True}` -- otherwise
+    the audit trail can't answer "who specifically signed" without
+    cross-referencing contract_signers directly."""
+    import json
+
+    contract = _make_contract(env, "CTR-MP-AUDIT-1")
+    crm = env["crm"]
+    crm.add_contract_signers(
+        contract.id,
+        [
+            {"party_role": "customer", "signer_name": "Multi Signer"},
+            {"party_role": "project_manager", "signer_name": "PM"},
+        ],
+        env["admin"],
+    )
+
+    after_first = crm.sign_contract(contract.id, _png_data_url(), env["actor_customer"], party_role="customer")
+    assert after_first.status != "signed"
+
+    conn = env["db"].get_connection()
+    row = conn.execute(
+        "SELECT details_json FROM audit_log WHERE action = 'sign' AND entity_id = ? ORDER BY id DESC LIMIT 1;",
+        (contract.id,),
+    ).fetchone()
+    assert row is not None
+    details = json.loads(row["details_json"])
+    side_effects = details["side_effects"]
+    assert side_effects["signature_captured"] is True
+    assert side_effects["party_role"] == "customer"
+    assert side_effects["signer_name"] == "Multi Signer"
+
+
 def test_multi_party_signer_role_derived_from_actor_when_omitted(env):
     contract = _make_contract(env, "CTR-MP-DERIVE-1")
     crm = env["crm"]
