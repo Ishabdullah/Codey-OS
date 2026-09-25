@@ -361,8 +361,15 @@ class APIRouter:
         self.operations = operations_service or OperationsService(crm_service.db, audit_service)
         self.finance = finance_service or FinanceService(crm_service.db, audit_service)
         self.business_ops = business_ops_service or BusinessOpsService(crm_service.db, audit_service)
-        self.analytics_search = analytics_search_service or AnalyticsSearchService(crm_service.db)
         self.commissions = commission_service or CommissionService(crm_service.db, audit_service)
+        # B8.14: pass the real crm_service/self.commissions instances
+        # through so get_sales_analytics_rollup's underlying calls hit the
+        # same shared services every other route on this router uses,
+        # rather than AnalyticsSearchService default-constructing its own
+        # separate ones (see AnalyticsSearchService.__init__'s own comment).
+        self.analytics_search = analytics_search_service or AnalyticsSearchService(
+            crm_service.db, crm_service=crm_service, commission_service=self.commissions
+        )
         self.assessments = assessment_service or AssessmentService(crm_service.db, audit_service)
         self.territories = territory_service or TerritoryService(crm_service.db, audit_service)
         self.rate_limiter = rate_limiter or RateLimiter(max_requests=60, window_seconds=60)
@@ -3375,6 +3382,29 @@ class APIRouter:
             if path == "/api/v1/sales/pipeline-stuck-analytics" and method == "GET":
                 analytics = self.crm.get_stage_duration_analytics(actor)
                 return 200, {"Content-Type": "application/json"}, analytics
+
+            # -------------------------------------------------------------
+            # B8.14: tiered sales analytics rollup (rep/manager/executive),
+            # one route/method covering all three tiers -- see
+            # AnalyticsSearchService.get_sales_analytics_rollup's own
+            # docstring for the full tiering rule. No route-level
+            # permission gate of its own: the method's tier branching is
+            # purely on PERM_VIEW_REPORTS/PERM_READ_TEAM_SALES_DATA/
+            # PERM_READ_TEAM_COMMISSIONS, but it still delegates to
+            # CRMService.get_pipeline_summary for its rep/manager-tier data,
+            # which DOES raise PermissionError for an actor holding neither
+            # PERM_READ_OPPORTUNITIES nor PERM_READ_CRM (e.g. ROLE_TECHNICIAN/
+            # ROLE_CUSTOMER) -- the global `except PermissionError` handler
+            # below turns that into a 403, same as every other CRM-backed
+            # route on this router. This is the correct "no new data
+            # exposure" outcome, not a gap: a role that can't see pipeline
+            # data via get_pipeline_summary elsewhere shouldn't see it via
+            # this rollup either. Deliberately load-on-demand only (not
+            # wired into /api/v1/sales/dashboard's polling), per NEW-554.
+            # -------------------------------------------------------------
+            if path == "/api/v1/sales/analytics-rollup" and method == "GET":
+                rollup = self.analytics_search.get_sales_analytics_rollup(actor)
+                return 200, {"Content-Type": "application/json"}, rollup
 
             # -------------------------------------------------------------
             # Phase B5a: Global Search & Executive Reporting Endpoints

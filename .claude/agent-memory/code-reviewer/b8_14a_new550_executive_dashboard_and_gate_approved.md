@@ -1,0 +1,16 @@
+---
+name: b8_14a_new550_executive_dashboard_and_gate_approved
+description: NEW-550 get_executive_dashboard RBAC AND-gate (PERM_VIEW_REPORTS + PERM_READ_TEAM_SALES_DATA) — APPROVED round1, with a cited-precedent-doesn't-cover-this-case Warning
+metadata:
+  type: project
+---
+
+2026-09-25, `restoricon_core/services/analytics_search_service.py` one-line AND-gate fix, closing NEW-550 (ROLE_SALES could pull company-wide executive dashboard data via `/api/v1/reports/summary`/`executive`, gated only on PERM_VIEW_REPORTS which ROLE_SALES holds by default).
+
+**APPROVED.** Core fix is correct and necessary — differential stash/pop live-repro confirmed sales went 200-with-full-data → 403, response shape unchanged for roles that still pass, `/api/v1/sales/dashboard` genuinely unaffected (it already independently gated its own "team" key on PERM_READ_TEAM_SALES_DATA before this round). Full suite 2458 passed/1 skipped matched exactly (verbatim, no hang).
+
+**The one real finding: an implementer citing an existing dated/Ish-approved code comment as precedent for a side effect needs the precedent's *scope* checked, not just its existence.** The implementer cited `auth.py:79-90` (NEW-533, PM deliberately losing PERM_READ_TEAM_SALES_DATA) to justify PM also losing access to `get_executive_dashboard` here. The comment is real and says what they claimed — but it's scoped to CRM (leads/opportunities/tasks) narrowing specifically. Extending it to a *different* data domain (company-wide financial/ops/marketing reports) is an extrapolation the citation doesn't actually cover. Caught this by reading the citation at its own word boundaries (what exactly is it approving) rather than trusting "cites an existing Ish-approved comment" as sufficient. Confirmed the regression is live-reachable, not theoretical: `/admin` has no server-side role check (NEW-625, pre-existing), so a PM landing on the admin dashboard's KPI tab now silently gets blank tiles (no crash — `loadKPIs()`'s `if (data.dashboard)` guard degrades gracefully — but a previously-working feature is now silently gone). Verdict: approve the fix (the leak being closed is worse than blank PM tiles), but require the PM side effect logged as its own NEW-### needing an explicit Ish decision, not silently absorbed under the cited precedent.
+
+**Test-count claim was wrong by exactly one directory.** Implementer claimed "2344 passed, 1 skipped" for a "full suite" run; actual full suite = 2458. Root-caused rather than just flagging: `pytest --collect-only ccos/tests` = exactly 114 tests, and 2458 − 2344 = 114. Their "full suite" run excluded `ccos/tests` entirely. Same class of error as NEW-512 (test-count claims not matching reality) — always reproduce the claimed number, and if it's off, try to find the exact missing subset before writing it up as a generic mismatch.
+
+**Reusable technique:** to verify a claimed mitigation exists (here, "PM can still get access via `custom_permissions`"), don't take the code comment's word for it — construct the actual user via `auth.create_user(..., custom_permissions={PERM_X: True})` and hit the route. Confirmed it works empirically (200 for a PM with the custom grant) rather than assuming the mechanism the comment describes is still wired correctly.

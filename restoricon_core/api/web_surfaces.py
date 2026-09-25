@@ -5643,6 +5643,22 @@ def _render_sales_portal() -> str:
                 <tbody id="commissionRankingsList"></tbody>
             </table></div>
         </div>
+
+        <!-- B8.14b: tiered analytics rollup -- deliberately load-on-demand
+             (a button, not window.onload/DOMContentLoaded), never wired
+             into this page's existing polling, per NEW-554's cost concern.
+             GET /api/v1/sales/analytics-rollup itself has no route-level
+             permission gate -- AnalyticsSearchService.get_sales_analytics_
+             rollup branches purely on the caller's own permission set and
+             returns exactly the rep/manager/executive tier they're already
+             entitled to elsewhere, so every actor can click this button. -->
+        <div class="erp-card">
+            <h2 style="margin-top:0;display:flex;justify-content:space-between;align-items:center;">
+                <span>Analytics Rollup</span>
+                <button class="btn-gold" style="padding:0.4rem 0.9rem;font-size:0.8rem;" onclick="loadAnalyticsRollup()">Load / Refresh</button>
+            </h2>
+            <div id="analyticsRollupArea"><p style="color:var(--text-muted);">Click "Load / Refresh" to view your analytics rollup.</p></div>
+        </div>
     </div>
 
     <div id="leadDetailModal" class="erp-modal-overlay">
@@ -6472,6 +6488,83 @@ def _render_sales_portal() -> str:
             stuckList.innerHTML = stuck.length > 0
                 ? stuck.map(s => `<tr><td>#${{s.opportunity_id}}</td><td>${{escapeHtml(s.stage)}}</td><td>${{(s.hours_in_stage || 0).toFixed(1)}}</td></tr>`).join('')
                 : '<tr><td colspan="3" style="color:var(--text-muted)">Nothing currently stuck.</td></tr>';
+        }}
+
+        // -----------------------------------------------------------------
+        // B8.14b: tiered sales analytics rollup -- load-on-demand only
+        // (button-triggered, see the panel's own comment above), NOT
+        // called from loadDashboard/window.onload, per NEW-554.
+        // -----------------------------------------------------------------
+        async function loadAnalyticsRollup() {{
+            const token = getAuthToken();
+            const area = document.getElementById('analyticsRollupArea');
+            area.innerHTML = '<p style="color:var(--text-muted);">Loading analytics rollup...</p>';
+            try {{
+                const res = await fetch('/api/v1/sales/analytics-rollup', {{
+                    headers: {{ 'Authorization': 'Bearer ' + token }}
+                }});
+                if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                if (!res.ok) {{
+                    const errData = await res.json().catch(() => ({{}}));
+                    area.innerHTML = `<p style="color:var(--danger)">${{escapeHtml(errData.error || 'Unable to load analytics rollup.')}}</p>`;
+                    return;
+                }}
+                const data = await res.json();
+                area.innerHTML = renderAnalyticsRollup(data);
+            }} catch (e) {{
+                area.innerHTML = '<p style="color:var(--danger)">Failed to load: network error.</p>';
+            }}
+        }}
+
+        function renderAnalyticsRollup(data) {{
+            const tier = data.tier || 'rep';
+            const tierLabel = tier.charAt(0).toUpperCase() + tier.slice(1);
+            let body = '';
+            if (tier === 'executive') {{
+                // NEW-613: no AR/revenue figure in this rollup -- the
+                // server-side response already omits get_executive_
+                // dashboard's "financial" block entirely (see
+                // AnalyticsSearchService.get_sales_analytics_rollup's
+                // docstring), so this renderer never reads ex.financial.
+                const ex = data.executive || {{}};
+                const sales = ex.sales || {{}};
+                const ops = ex.operations || {{}};
+                body = `
+                    <h4 style="margin:0.5rem 0;">Sales</h4>
+                    <p style="margin:0;">Total leads: ${{sales.total_leads || 0}} | Hot leads: ${{sales.hot_leads || 0}} |
+                        Pipeline value: $${{(sales.pipeline_value || 0).toLocaleString()}} |
+                        Weighted: $${{(sales.weighted_pipeline_value || 0).toLocaleString()}} |
+                        Win rate: ${{sales.win_rate_percent || 0}}%</p>
+                    <h4 style="margin:1rem 0 0.5rem 0;">Operations</h4>
+                    <p style="margin:0;">Active projects: ${{ops.active_projects || 0}} | Active work orders: ${{ops.active_work_orders || 0}}</p>
+                `;
+            }} else {{
+                const pl = data.pipeline || {{}};
+                const commissions = data.commissions || [];
+                const commissionRows = commissions.length > 0
+                    ? commissions.map(c => `<tr>
+                        <td>${{c.rep_user_id != null ? '#' + c.rep_user_id : '—'}}</td>
+                        <td>$${{(c.total_earned || 0).toLocaleString()}}</td>
+                        <td>$${{(c.total_paid || 0).toLocaleString()}}</td>
+                        <td>$${{(c.total_pending || 0).toLocaleString()}}</td>
+                        <td>${{c.entry_count || 0}}</td>
+                    </tr>`).join('')
+                    : '<tr><td colspan="5" style="color:var(--text-muted)">No commission entries this month.</td></tr>';
+                body = `
+                    <h4 style="margin:0.5rem 0;">Pipeline</h4>
+                    <p style="margin:0;">Total deals: ${{pl.total_deals || 0}} |
+                        Active pipeline value: $${{(pl.active_pipeline_value || 0).toLocaleString()}} |
+                        Weighted: $${{(pl.active_weighted_value || 0).toLocaleString()}} |
+                        Win rate: ${{Math.round((pl.win_rate || 0) * 100)}}%</p>
+                    <h4 style="margin:1rem 0 0.5rem 0;">Commissions (This Month)</h4>
+                    <div class="table-scroll-wrapper"><table>
+                        <thead><tr><th>Rep</th><th>Earned</th><th>Paid</th><th>Pending</th><th>Entries</th></tr></thead>
+                        <tbody>${{commissionRows}}</tbody>
+                    </table></div>
+                `;
+            }}
+            const note = data.note ? `<p style="margin-top:1rem;font-size:0.8rem;color:var(--text-muted);">${{escapeHtml(data.note)}}</p>` : '';
+            return `<p style="margin:0 0 0.75rem 0;"><span class="badge badge-info">${{escapeHtml(tierLabel)}} view</span></p>${{body}}${{note}}`;
         }}
 
         // -----------------------------------------------------------------

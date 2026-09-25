@@ -175,7 +175,16 @@ class RestoriconAPIServer:
         self.operations_service = OperationsService(self.db, self.audit_service)
         self.finance_service = FinanceService(self.db, self.audit_service)
         self.business_ops_service = BusinessOpsService(self.db, self.audit_service)
-        self.analytics_search_service = AnalyticsSearchService(self.db)
+        # B8.14: pass the already-constructed shared crm_service/
+        # commission_service instances (same reasoning as the
+        # commission_service comment above self.crm_service) rather than
+        # letting AnalyticsSearchService default-construct its own
+        # separate ones for get_sales_analytics_rollup's underlying calls.
+        self.analytics_search_service = AnalyticsSearchService(
+            self.db,
+            crm_service=self.crm_service,
+            commission_service=self.commission_service,
+        )
         self.territory_service = TerritoryService(self.db, self.audit_service)
 
         # RBAC for these services is enforced in the service layer, not here -- see
