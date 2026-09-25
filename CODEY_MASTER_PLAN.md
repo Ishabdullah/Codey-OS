@@ -7729,7 +7729,22 @@ this file's own don't-duplicate rule.
       surfaced: unlinked financing records untested at the new
       CLOSED-gate site). code-reviewer APPROVED all of round 4's code
       changes across two review passes.
-      See `PROJECT_LOG.md`'s 2026-09-25 B8.15 entries (four rounds).
+      **Round 5, commit `a8365a7`** — the credit-tracking design banked in
+      round 4 was implemented: a new append-only `customer_credits` table
+      (customer-linked, not invoice-trapped), `record_payment` now inserts
+      the incremental overage delta on every call (correct across
+      retries and genuine repeat overpayments — hand-verified by
+      code-reviewer with concrete numbers, not just trusted), and a
+      gated `get_customer_credit_balance()` read method. Manual-only, no
+      auto-apply; kept separate from AR reporting (confirmed zero
+      references in `finance_service.py`/`analytics_search_service.py`).
+      NEW-633's overpayment half closed; its void half remains open
+      (spec banked, not picked). code-reviewer APPROVED. Two follow-ups
+      logged, not fixed: `NEW-650` (no route/UI exists yet — write-only
+      from an operator's perspective) and `NEW-651` (pre-existing:
+      `record_payment` doesn't validate non-negative payment amounts).
+      This closes all four of Ish's round-4 decisions in full.
+      See `PROJECT_LOG.md`'s 2026-09-25 B8.15 entries (five rounds).
 - [x] **B8.14** — analytics rollups (rep/manager/executive tiers).
       **DONE in full 2026-09-25 (both halves shipped).** Split into
       B8.14a (RBAC prerequisite) + B8.14b (the rollup itself), per
