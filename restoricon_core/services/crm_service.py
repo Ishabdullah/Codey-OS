@@ -15,7 +15,7 @@ import sqlite3
 import time
 from collections import namedtuple
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from ..auth import (
     AuthContext,
@@ -4900,6 +4900,45 @@ class CRMService:
         rows = conn.execute(query, params).fetchall()
         return [self._row_to_invoice(r) for r in rows]
 
+    @staticmethod
+    def _recalculate_invoice_balance(
+        amount: float, payments: List[Dict[str, Any]]
+    ) -> Tuple[float, str]:
+        """NEW-631 fix: the single, shared balance/status formula for an
+        invoice -- `deposit_amount` deliberately does NOT appear here at
+        all. Per Ish's 2026-09-25 Design B decision, `deposit_amount` is
+        purely a TARGET/expected figure (still stored on the Invoice row,
+        still what the handoff-completion guard's deposit condition
+        checks against) and never feeds balance/status math again -- no
+        special-casing, no conditional logic based on payment_type
+        tagging. `balance_due` is always `amount` minus the sum of every
+        REAL payment recorded in `payments` (a payment tagged
+        payment_type='deposit' is just a real payment like any other
+        here; tagging only matters to the handoff guard's own separate
+        check).
+
+        Called by create_invoice with payments=[] (so balance_due starts
+        at the full amount -- a freshly created invoice owes its full
+        amount until a real payment lands, deposit or not) and by
+        record_payment with the real, already-updated payments list
+        (which includes the just-recorded payment).
+
+        Deliberately uses p["amount"] (hard key, not .get), unlike the
+        deposit-guard's own p.get("amount", 0.0) below -- a malformed
+        payment dict reaching THIS calculation should fail loud rather
+        than silently be treated as $0.0, which would understate
+        total_paid and overstate balance_due (money the customer already
+        paid would appear still owed). Every real caller (record_payment)
+        constructs this dict itself with "amount" always present; the
+        only way to reach this without it is a directly-manipulated DB
+        row, which is exactly the case that should surface as an error,
+        not a wrong number.
+        """
+        total_paid = sum(p["amount"] for p in payments)
+        balance_due = max(0.0, amount - total_paid)
+        status = "paid" if balance_due <= 0.001 else "partially_paid"
+        return balance_due, status
+
     def create_invoice(self, invoice: Invoice, actor: AuthContext) -> Invoice:
         if not actor.has_permission(PERM_WRITE_FINANCIALS):
             raise PermissionError("Actor lacks permission to create invoices")
@@ -4934,7 +4973,16 @@ class CRMService:
             invoice.invoice_number = f"INV-{now[:10].replace('-', '')}-{secrets.token_hex(2).upper()}"
         invoice.created_at = now
         invoice.updated_at = now
-        invoice.balance_due = invoice.amount - invoice.deposit_amount
+        # NEW-631 fix: balance_due at creation is always the FULL amount --
+        # a freshly created invoice owes its full amount until a real
+        # payment lands, deposit or not. deposit_amount is a target figure
+        # only (see _recalculate_invoice_balance), never subtracted here.
+        # Deliberately called with payments=[], NOT invoice.payments --
+        # a caller-supplied payments list at creation time (an unusual
+        # shape, but Invoice's own dataclass allows it) must not be fed
+        # into the balance formula here; only record_payment's own real,
+        # recorded payments ever count toward balance_due.
+        invoice.balance_due, _ = self._recalculate_invoice_balance(invoice.amount, [])
         payments_json = json.dumps(invoice.payments)
 
         conn = self.db.get_connection()
@@ -5244,9 +5292,11 @@ class CRMService:
             "payment_type": payment_type,
         })
 
-        total_paid = row["deposit_amount"] + sum(p["amount"] for p in payments)
-        new_balance = max(0.0, row["amount"] - total_paid)
-        new_status = "paid" if new_balance <= 0.001 else "partially_paid"
+        # NEW-631 fix: deposit_amount does NOT feed this calculation --
+        # `payments` (already includes the just-recorded payment above) is
+        # the sole source of truth for what's actually been paid. See
+        # _recalculate_invoice_balance's docstring for the full rationale.
+        new_balance, new_status = self._recalculate_invoice_balance(row["amount"], payments)
 
         with conn:
             conn.execute(
@@ -5604,30 +5654,29 @@ class CRMService:
         HomeCare enrollment alongside a general_remodeling contract; the
         guard only needs "a signed one exists", not "which one").
 
-        Condition (b): a qualifying deposit payment exists. Checks every
-        invoice linked to this project_id (a project can have more than
-        one invoice by invoice_type -- this is a deliberate "any invoice
-        satisfies it" reading of the task text, not an
-        invoice_type='project' filter, since the doc does not specify
-        which invoice_type carries the deposit) for a payments_json entry
-        with payment_type == 'deposit' and amount >= that invoice's own
-        deposit_amount. Uses `.get('payment_type')`, never `['payment_type']`
+        Condition (b): a qualifying deposit payment exists. NEW-632 fix
+        (2026-09-25): checks only invoices linked to this project_id with
+        invoice_type == 'project' (not every invoice linked to the
+        project regardless of type -- the original "any invoice
+        satisfies it" reading let an unrelated invoice, e.g. a $0-deposit
+        assessment invoice, void the deposit condition). For each
+        eligible invoice, SUMS every payments_json entry with
+        payment_type == 'deposit' (multiple deposit-tagged payments
+        against the same invoice count together -- e.g. two $2,500
+        deposit-tagged payments satisfy a $5,000 deposit_amount, neither
+        needs to meet it alone) and requires that sum >= the invoice's
+        own deposit_amount, AND deposit_amount > 0 (a genuinely
+        zero-target deposit is not trivially satisfiable by a $0 tagged
+        payment). Uses `.get('payment_type')`, never `['payment_type']`
         -- every payment recorded before this round has no payment_type
         key at all, and must be treated as non-deposit, not crash.
 
-        KNOWN, DISCLOSED INTERACTION (not fixed here, out of this round's
-        scope -- "no changes to how deposit_amount is set or computed"):
-        record_payment's own balance math
-        (`total_paid = row['deposit_amount'] + sum(payment amounts)`)
-        already assumes deposit_amount is collected outside the payments
-        list entirely (balance_due is initialized to
-        amount - deposit_amount at create_invoice time). Recording a
-        payment tagged payment_type='deposit' for the amount that
-        satisfies THIS guard therefore double-counts against
-        balance_due/status -- a pre-existing shape this round's sanctioned
-        workflow now actively exercises. Disclosed to code-reviewer;
-        logging as a new NEW_ISSUES.md finding is the coordinator's job,
-        not fixed here.
+        NEW-631 (fixed in this same round): deposit_amount no longer
+        feeds record_payment's/create_invoice's balance_due/status
+        formula at all (see _recalculate_invoice_balance) -- a payment
+        tagged payment_type='deposit' is a real payment like any other
+        for balance purposes; tagging only matters to this guard's own
+        check.
 
         Condition (c): every one of the 7 required items is 'done' or
         'na' -- never a partial/some-required scheme.
@@ -5640,16 +5689,29 @@ class CRMService:
 
         deposit_received = False
         invoice_rows = conn.execute(
-            "SELECT deposit_amount, payments_json FROM invoices WHERE project_id = ?;",
+            "SELECT deposit_amount, payments_json FROM invoices WHERE project_id = ? AND invoice_type = 'project';",
             (project_id,),
         ).fetchall()
         for inv_row in invoice_rows:
+            if inv_row["deposit_amount"] <= 0.0:
+                continue
             payments = json.loads(inv_row["payments_json"]) if inv_row["payments_json"] else []
-            for p in payments:
-                if p.get("payment_type") == "deposit" and p.get("amount", 0.0) >= inv_row["deposit_amount"]:
-                    deposit_received = True
-                    break
-            if deposit_received:
+            deposit_total = sum(
+                p.get("amount", 0.0) for p in payments if p.get("payment_type") == "deposit"
+            )
+            # Epsilon tolerance (same 0.001 threshold _recalculate_invoice_
+            # balance uses above), defensive against float accumulation
+            # error in a summed comparison -- summing several
+            # deposit-tagged payments is a new failure surface this
+            # single-payment comparison never had. A GENUINE shortfall
+            # (e.g. three payments totalling one cent under
+            # deposit_amount) must still correctly block completion --
+            # 0.001 is far smaller than a cent, so it only forgives true
+            # floating-point drift, never a real underpayment. See
+            # test_complete_handoff_checklist_genuine_one_cent_shortfall_
+            # still_blocks for the negative case.
+            if deposit_total >= inv_row["deposit_amount"] - 0.001:
+                deposit_received = True
                 break
 
         pending_items = [k for k in PRODUCTION_HANDOFF_CHECKLIST_ITEMS if items.get(k) not in ("done", "na")]

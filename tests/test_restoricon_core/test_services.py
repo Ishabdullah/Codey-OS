@@ -462,7 +462,9 @@ def test_crm_entity_lifecycle_with_audit_trail(setup_services):
         deposit_amount=5000.0,
     )
     created_inv = crm_service.create_invoice(inv, actor_admin)
-    assert created_inv.balance_due == 20000.0
+    # NEW-631 fix: balance_due at creation is always the full amount --
+    # deposit_amount is a target figure only, never pre-subtracted.
+    assert created_inv.balance_due == 25000.0
 
     # Record partial payment
     updated_inv = crm_service.record_payment(
@@ -473,7 +475,9 @@ def test_crm_entity_lifecycle_with_audit_trail(setup_services):
         actor=actor_admin,
     )
     assert updated_inv.status == "partially_paid"
-    assert updated_inv.balance_due == 10000.0
+    # NEW-631 fix: balance_due reflects real payments only (25000 - 10000),
+    # deposit_amount is never added back in or subtracted here.
+    assert updated_inv.balance_due == 15000.0
 
     # 8. Verify comprehensive audit trail
     logs = audit_service.query_logs(actor_admin)

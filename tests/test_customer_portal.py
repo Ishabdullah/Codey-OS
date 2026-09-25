@@ -269,7 +269,11 @@ def test_portal_invoices_and_documents(portal_setup):
     assert code == 200
     assert len(data["invoices"]) == 1
     assert data["invoices"][0]["invoice_number"] == "INV-ALICE-001"
-    assert data["invoices"][0]["balance_due"] == 4000.0
+    # NEW-631 fix: balance_due at creation is always the full amount --
+    # deposit_amount (1000.0) is a target figure only, no longer
+    # pre-subtracted, so this invoice (no real payments recorded) owes
+    # its full 5000.0.
+    assert data["invoices"][0]["balance_due"] == 5000.0
 
     # Documents
     code, _, data = router.handle_request("GET", "/api/v1/portal/documents", headers, b"")

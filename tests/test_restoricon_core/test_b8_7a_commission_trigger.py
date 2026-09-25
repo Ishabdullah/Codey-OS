@@ -115,6 +115,49 @@ def test_assessment_invoice_paid_in_full_creates_one_commission_entry_reading_co
     assert entry.status == "earned"
 
 
+def test_assessment_invoice_with_deposit_amount_commission_fires_only_on_full_payment(setup_services):
+    """NEW-631 regression guard: before the fix, record_payment's balance
+    formula added deposit_amount into total_paid unconditionally, so an
+    assessment invoice carrying a nonzero deposit_amount could flip to
+    'paid' -- and fire its commission -- on a partial payment alone. Under
+    the fixed formula (deposit_amount never feeds balance/status math),
+    the commission trigger must only fire once the invoice is genuinely
+    paid in full via real payments."""
+    db, auth_service, _, crm_service, commission_service = setup_services
+    admin = _make_actor(auth_service, "admin", ROLE_ADMIN)
+    rep = _make_actor(auth_service, "rep1", ROLE_SALES)
+
+    _set_flat_commission(db, 100.0)
+
+    cust = crm_service.create_customer(
+        Customer(first_name="Jane", last_name="Doe", email="jane@test.com", assigned_user_id=rep.user_id),
+        admin,
+    )
+
+    invoice = crm_service.create_invoice(
+        Invoice(customer_id=cust.id, amount=1000.0, deposit_amount=500.0, invoice_type="assessment"),
+        admin,
+    )
+
+    # A deposit-tagged payment for half the invoice must NOT flip it to
+    # paid, and must NOT fire the commission yet.
+    after_deposit = crm_service.record_payment(invoice.id, 500.0, "check", "TXN-DEP", admin, payment_type="deposit")
+    assert after_deposit.status == "partially_paid"
+    assert after_deposit.balance_due == 500.0
+    assert commission_service.list_commissions(admin, rep_user_id=rep.user_id) == []
+
+    # The remaining real payment completes the invoice and fires exactly
+    # one commission entry.
+    after_final = crm_service.record_payment(invoice.id, 500.0, "check", "TXN-FINAL", admin)
+    assert after_final.status == "paid"
+    assert after_final.balance_due == 0.0
+
+    entries = commission_service.list_commissions(admin, rep_user_id=rep.user_id)
+    assert len(entries) == 1
+    assert entries[0].source_id == invoice.id
+    assert entries[0].commission_amount == 100.0
+
+
 def test_record_payment_called_again_on_already_paid_invoice_produces_no_additional_commission(setup_services):
     """Idempotency: record_payment can be called more than once against
     an already-paid invoice (e.g. a retried request) -- the trigger must

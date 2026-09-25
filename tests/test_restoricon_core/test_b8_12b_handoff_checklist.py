@@ -11,6 +11,15 @@ Confirmed decisions (Ish, 2026-09-24, folded into this round's spec):
    creation or production tracking.
 3. All 7 checklist items are always present; each is individually
    'done'/'na'/'pending' -- complete once every item is done-or-na.
+
+NEW-631/NEW-632 fix (Ish, 2026-09-25, folded into this round's spec):
+4. deposit_amount no longer feeds record_payment's/create_invoice's
+   balance_due/status math at all -- it's a target figure only.
+5. The deposit-received guard only considers invoices with
+   invoice_type == 'project' (_make_invoice below defaults to this),
+   requires deposit_amount > 0 to be eligible, and SUMS every
+   payment_type='deposit' payment on an eligible invoice (multiple
+   partial deposit payments correctly satisfy the threshold together).
 """
 
 import json
@@ -87,13 +96,16 @@ def _make_signed_contract(crm_service, admin, customer, project, assigned_user_i
     return signed
 
 
-def _make_invoice(crm_service, admin, customer, project, deposit_amount=1000.0, amount=10000.0):
+def _make_invoice(
+    crm_service, admin, customer, project, deposit_amount=1000.0, amount=10000.0, invoice_type="project"
+):
     invoice = crm_service.create_invoice(
         Invoice(
             customer_id=customer.id,
             project_id=project.id,
             amount=amount,
             deposit_amount=deposit_amount,
+            invoice_type=invoice_type,
         ),
         admin,
     )
@@ -256,6 +268,11 @@ def test_complete_handoff_checklist_blocks_missing_deposit_payment(setup_service
 
 
 def test_complete_handoff_checklist_blocks_deposit_payment_under_threshold(setup_services):
+    """A single deposit-tagged payment below the threshold does not
+    satisfy the guard (NEW-632: the SUM of deposit-tagged payments must
+    reach deposit_amount; a lone $250 payment against a $1000 target is
+    under threshold under both the old single-payment reading and the
+    new summing reading)."""
     _, auth_service, _, crm_service = setup_services
     admin = _make_actor(auth_service, "admin", ROLE_ADMIN)
     cust, project = _make_project(crm_service, admin)
@@ -264,6 +281,111 @@ def test_complete_handoff_checklist_blocks_deposit_payment_under_threshold(setup
     _make_signed_contract(crm_service, admin, cust, project)
     invoice = _make_invoice(crm_service, admin, cust, project, deposit_amount=1000.0)
     crm_service.record_payment(invoice.id, 250.0, "check", "ref-2", admin, payment_type="deposit")
+
+    with pytest.raises(ValueError, match="no qualifying deposit payment"):
+        crm_service.complete_handoff_checklist(project.id, admin)
+
+
+def test_complete_handoff_checklist_sums_multiple_partial_deposit_payments(setup_services):
+    """NEW-632 fix: two separate payment_type='deposit' payments that
+    individually fall under deposit_amount correctly SUM to satisfy the
+    guard together -- neither payment needs to meet the threshold alone."""
+    _, auth_service, _, crm_service = setup_services
+    admin = _make_actor(auth_service, "admin", ROLE_ADMIN)
+    cust, project = _make_project(crm_service, admin)
+    crm_service.create_handoff_checklist(project.id, admin)
+    _mark_all_items(crm_service, admin, project.id, "done")
+    _make_signed_contract(crm_service, admin, cust, project)
+    invoice = _make_invoice(crm_service, admin, cust, project, deposit_amount=5000.0)
+    crm_service.record_payment(invoice.id, 2500.0, "check", "ref-2a", admin, payment_type="deposit")
+
+    # First partial payment alone is not enough.
+    with pytest.raises(ValueError, match="no qualifying deposit payment"):
+        crm_service.complete_handoff_checklist(project.id, admin)
+
+    crm_service.record_payment(invoice.id, 2500.0, "check", "ref-2b", admin, payment_type="deposit")
+
+    # Together, the two $2500 deposit-tagged payments satisfy the $5000 target.
+    completed = crm_service.complete_handoff_checklist(project.id, admin)
+    assert completed.completed_at is not None
+
+
+def test_complete_handoff_checklist_sums_three_way_split_deposit_exactly(setup_services):
+    """NEW-632 fix, multi-installment summing: three deposit-tagged
+    payments (1666.67 + 1666.67 + 1666.66) that decimally sum to exactly
+    the 5000.0 deposit_amount target must satisfy the guard together.
+    The guard's comparison uses a small (0.001) epsilon tolerance -- the
+    same threshold _recalculate_invoice_balance uses for balance_due/
+    status -- as defensive tolerance against float accumulation error in
+    a summed comparison (deliberately not an exact >= that a few cents of
+    float drift across several installments could defeat for a customer
+    who genuinely paid the full deposit)."""
+    _, auth_service, _, crm_service = setup_services
+    admin = _make_actor(auth_service, "admin", ROLE_ADMIN)
+    cust, project = _make_project(crm_service, admin)
+    crm_service.create_handoff_checklist(project.id, admin)
+    _mark_all_items(crm_service, admin, project.id, "done")
+    _make_signed_contract(crm_service, admin, cust, project)
+    invoice = _make_invoice(crm_service, admin, cust, project, deposit_amount=5000.0)
+    crm_service.record_payment(invoice.id, 1666.67, "check", "ref-3a", admin, payment_type="deposit")
+    crm_service.record_payment(invoice.id, 1666.67, "check", "ref-3b", admin, payment_type="deposit")
+    crm_service.record_payment(invoice.id, 1666.66, "check", "ref-3c", admin, payment_type="deposit")
+
+    completed = crm_service.complete_handoff_checklist(project.id, admin)
+    assert completed.completed_at is not None
+
+
+def test_complete_handoff_checklist_genuine_one_cent_shortfall_still_blocks(setup_services):
+    """The epsilon tolerance added for float-accumulation error must NOT
+    forgive a genuine shortfall -- three deposit-tagged payments that
+    decimally sum to 4999.99 (one cent short of a 5000.0 deposit_amount
+    target) must still correctly block completion."""
+    _, auth_service, _, crm_service = setup_services
+    admin = _make_actor(auth_service, "admin", ROLE_ADMIN)
+    cust, project = _make_project(crm_service, admin)
+    crm_service.create_handoff_checklist(project.id, admin)
+    _mark_all_items(crm_service, admin, project.id, "done")
+    _make_signed_contract(crm_service, admin, cust, project)
+    invoice = _make_invoice(crm_service, admin, cust, project, deposit_amount=5000.0)
+    crm_service.record_payment(invoice.id, 1666.67, "check", "ref-4a", admin, payment_type="deposit")
+    crm_service.record_payment(invoice.id, 1666.66, "check", "ref-4b", admin, payment_type="deposit")
+    crm_service.record_payment(invoice.id, 1666.66, "check", "ref-4c", admin, payment_type="deposit")
+
+    with pytest.raises(ValueError, match="no qualifying deposit payment"):
+        crm_service.complete_handoff_checklist(project.id, admin)
+
+
+def test_complete_handoff_checklist_ignores_non_project_invoice_type(setup_services):
+    """NEW-632 fix: a qualifying deposit payment on an invoice whose
+    invoice_type is NOT 'project' must not satisfy the guard -- only a
+    'project'-type invoice's deposit counts."""
+    _, auth_service, _, crm_service = setup_services
+    admin = _make_actor(auth_service, "admin", ROLE_ADMIN)
+    cust, project = _make_project(crm_service, admin)
+    crm_service.create_handoff_checklist(project.id, admin)
+    _mark_all_items(crm_service, admin, project.id, "done")
+    _make_signed_contract(crm_service, admin, cust, project)
+    other_invoice = _make_invoice(
+        crm_service, admin, cust, project, deposit_amount=500.0, invoice_type="assessment"
+    )
+    crm_service.record_payment(other_invoice.id, 500.0, "check", "ref-x1", admin, payment_type="deposit")
+
+    with pytest.raises(ValueError, match="no qualifying deposit payment"):
+        crm_service.complete_handoff_checklist(project.id, admin)
+
+
+def test_complete_handoff_checklist_zero_deposit_not_trivially_satisfied(setup_services):
+    """NEW-632 fix: a deposit_amount=0.0 invoice cannot be trivially
+    satisfied by a $0 tagged payment -- deposit_amount must be > 0 to be
+    an eligible deposit condition at all."""
+    _, auth_service, _, crm_service = setup_services
+    admin = _make_actor(auth_service, "admin", ROLE_ADMIN)
+    cust, project = _make_project(crm_service, admin)
+    crm_service.create_handoff_checklist(project.id, admin)
+    _mark_all_items(crm_service, admin, project.id, "done")
+    _make_signed_contract(crm_service, admin, cust, project)
+    invoice = _make_invoice(crm_service, admin, cust, project, deposit_amount=0.0)
+    crm_service.record_payment(invoice.id, 0.0, "check", "ref-x2", admin, payment_type="deposit")
 
     with pytest.raises(ValueError, match="no qualifying deposit payment"):
         crm_service.complete_handoff_checklist(project.id, admin)
@@ -671,3 +793,62 @@ def test_handoff_checklist_route_full_round_trip(live_api_server):
         headers=rep_headers,
     )
     assert status == 403, body
+
+
+# ==========================================
+# NEW-631: deposit-tagged payment no longer double-counts deposit_amount
+# ==========================================
+
+
+def test_new631_exact_repro_deposit_payment_leaves_correct_balance(setup_services):
+    """The exact NEW-631 reproduction scenario: create_invoice(amount=10000,
+    deposit_amount=5000) -> balance_due=10000 (not the old buggy 5000).
+    Record a payment_type='deposit' payment of 5000 -> balance_due=5000
+    (customer still owes $5,000 of $10,000), NOT 0/status='paid' (the old,
+    buggy behavior)."""
+    _, auth_service, _, crm_service = setup_services
+    admin = _make_actor(auth_service, "admin", ROLE_ADMIN)
+    cust, project = _make_project(crm_service, admin)
+
+    inv = crm_service.create_invoice(
+        Invoice(customer_id=cust.id, project_id=project.id, amount=10000.0, deposit_amount=5000.0),
+        admin,
+    )
+    assert inv.balance_due == 10000.0
+
+    paid = crm_service.record_payment(inv.id, 5000.0, "check", "ref-631", admin, payment_type="deposit")
+    assert paid.balance_due == 5000.0
+    assert paid.status == "partially_paid"
+
+
+def test_new631_ar_aging_and_total_ar_still_show_invoice_after_deposit_payment(setup_services):
+    """End-to-end proof the NEW-631 fix propagates to the two real
+    downstream consumers the code-reviewer traced: finance_service's
+    get_ar_aging and analytics_search_service's executive-dashboard
+    total_ar must still show this invoice as outstanding after a
+    deposit-only payment, not silently vanish from collections/AR."""
+    from restoricon_core.services.finance_service import FinanceService
+    from restoricon_core.services.analytics_search_service import AnalyticsSearchService
+
+    db, auth_service, audit_service, crm_service = setup_services
+    finance_service = FinanceService(db, audit_service)
+    analytics_service = AnalyticsSearchService(db)
+    admin = _make_actor(auth_service, "admin", ROLE_ADMIN)
+    cust, project = _make_project(crm_service, admin)
+
+    inv = crm_service.create_invoice(
+        Invoice(
+            customer_id=cust.id, project_id=project.id, amount=10000.0, deposit_amount=5000.0,
+            due_date="2099-01-01T00:00:00Z", status="sent",
+        ),
+        admin,
+    )
+    crm_service.record_payment(inv.id, 5000.0, "check", "ref-631b", admin, payment_type="deposit")
+
+    aging = finance_service.get_ar_aging(admin)
+    row = next((d for d in aging["details"] if d["invoice_id"] == inv.id), None)
+    assert row is not None, "invoice incorrectly vanished from AR aging after a deposit-only payment"
+    assert row["balance_due"] == 5000.0
+
+    dashboard = analytics_service.get_executive_dashboard(admin)
+    assert dashboard["financial"]["total_ar_outstanding"] >= 5000.0
