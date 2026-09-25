@@ -7243,7 +7243,10 @@ this file's own don't-duplicate rule.
       check — confirmed not a regression via live differential, now
       reachable via a real route for the first time). **This closes
       the full B8.6 chain (a/b/c/d-a/d-b/d-c) — B8.6 is DONE.**
-- [ ] **B8.7** — commission engine & compensation dashboards.
+- [x] **B8.7** — commission engine & compensation dashboards. **DONE
+      in full** (a/b/c/d all shipped — see below); this top-level box
+      was stale (never flipped after the last sub-phase closed) until
+      corrected 2026-09-25 during B8.14 wrap-up, per rule 6/9.
       **Rule-4 category** (money). **D4 ANSWERED 2026-09-16** — real
       plan read from `Sales_Rep_Contract.docx`, full numbers in
       `sales_rep_portal.md` §4. **SCOPED 2026-09-22** (project-architect,
@@ -7468,7 +7471,10 @@ this file's own don't-duplicate rule.
       yet (routes only), no delete on territories — all disclosed,
       deliberate deferrals. At-most-one-territory-per-rep is a
       documented default, not yet confirmed with Ish.
-- [ ] **B8.10** — communications center & follow-up visibility.
+- [x] **B8.10** — communications center & follow-up visibility. **DONE
+      in full** (a/b/c all shipped — see below); this top-level box
+      was stale until corrected 2026-09-25 during B8.14 wrap-up, per
+      rule 6/9.
       **CORRECTION (2026-09-23): not actually blocked.** D1 was
       answered 2026-09-16 (email only for now, no SMS — see item 12
       above). That already IS this phase's scope (email + the existing
@@ -7539,8 +7545,10 @@ this file's own don't-duplicate rule.
 - [ ] **B8.11** — AI Sales Copilot. Deliberately last; depends on CCOS
       reaching a state where it can serve read-only advisory queries.
       Not designed further until then.
-- [ ] **B8.12** — sales-to-production handoff & read-only job
-      visibility. **Rule-4 category** (RBAC narrowing). **SCOPED
+- [x] **B8.12** — sales-to-production handoff & read-only job
+      visibility. **DONE in full** (a/b both shipped — see below);
+      this top-level box was stale until corrected 2026-09-25 during
+      B8.14 wrap-up, per rule 6/9. **Rule-4 category** (RBAC narrowing). **SCOPED
       2026-09-24** (project-architect) — reframed: `sales_rep_portal.md`'s
       own text ("reuse `PERM_READ_ASSIGNED_PROJECTS`") doesn't work as
       written; the real finding was that `ROLE_SALES` already held two
