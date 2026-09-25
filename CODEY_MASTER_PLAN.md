@@ -7609,7 +7609,28 @@ this file's own don't-duplicate rule.
       scroll" answer; other surfaces (admin/quote/portal/staff) not
       yet wrapped — logged as scope for a future pass if/when needed.
       See `PROJECT_LOG.md`'s two 2026-09-25 B8.13a/B8.13b entries.
-- [ ] **B8.14** — analytics rollups (rep/manager/executive tiers).
+- [~] **B8.14** — analytics rollups (rep/manager/executive tiers). Split
+      into B8.14a (RBAC prerequisite) + B8.14b (the rollup itself),
+      per project-architect scoping 2026-09-25 — `sales_rep_portal.md`'s
+      "three permission-gated views of the same query" exit criterion
+      was unsatisfiable while `get_executive_dashboard` stayed leaky.
+      **B8.14a DONE 2026-09-25, commit `e58a7a3`** — closed `NEW-550`
+      (any `ROLE_SALES` actor could pull company-wide executive
+      pipeline/lead/win-rate aggregates); `get_executive_dashboard` now
+      requires `PERM_READ_TEAM_SALES_DATA` in addition to
+      `PERM_VIEW_REPORTS`. Live-verified 403/200 split across all 7
+      roles independently by both implementer and reviewer. Side
+      effect logged, not silently absorbed: `NEW-637` (`ROLE_PROJECT_MANAGER`
+      also demoted, needs Ish's decision before further action).
+      See `PROJECT_LOG.md`'s 2026-09-25 B8.14a entry. **B8.14b
+      (the tiered rollup) not yet started** — rep tier reuses
+      `get_pipeline_summary`/`get_team_commission_summary`; manager
+      tier is the same calls unfiltered for `PERM_READ_TEAM_SALES_DATA`
+      holders; executive tier is `get_executive_dashboard` post-14a-fix.
+      Explicitly excludes AR/revenue (`NEW-613`, two divergent AR
+      truths not yet reconciled), territory/handoff dimensions, and
+      auto-refresh wiring (`NEW-554`, cost concern) — deferred to
+      future rounds, not silently dropped.
 
 ### T-lane — self-measurement/telemetry layer (NSF SBIR grant evidence, separate initiative from B-lane, does not block or depend on B6/B7)
 
