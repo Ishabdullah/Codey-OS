@@ -7617,6 +7617,42 @@ this file's own don't-duplicate rule.
       scroll" answer; other surfaces (admin/quote/portal/staff) not
       yet wrapped — logged as scope for a future pass if/when needed.
       See `PROJECT_LOG.md`'s two 2026-09-25 B8.13a/B8.13b entries.
+- [x] **B8.15** — findings-backlog sweep: `NEW-628`/`NEW-636`/`NEW-625`,
+      scoped and closed together as the M-lane/B-lane continuation round
+      once M-lane's `U.x` register and B8.1–B8.14 were fully checked off.
+      Per rule 8, these had all been logged as "Confirmed, not fixed"
+      during earlier B8.10b/B8.12/B8.13 rounds but never promoted to a
+      queue line here — this stub closes that gap. **DONE 2026-09-25, all
+      three shipped and code-reviewer APPROVED.**
+      **NEW-628, commit `661ce48`** — `ROLE_TECHNICIAN` (not
+      `ROLE_PROJECT_MANAGER`, a rule-6 correction to the original finding
+      text) had zero ownership narrowing across nine `operations_service.py`
+      read methods despite holding only `PERM_READ_ASSIGNED_PROJECTS`.
+      Narrowed to `projects.assigned_employees_json` membership, mirroring
+      `crm_service.py`'s existing identical check. **Read-path only** —
+      four sibling write-path gaps found and deliberately left open,
+      logged as `NEW-643`–`NEW-646`.
+      **NEW-636, commit `c9c2f1d`** — `business_ops_service.py`'s
+      `submit_timesheet`/`approve_timesheet` had zero audit trail; added
+      `self.audit.log()` calls matching the file's existing per-entity
+      convention.
+      **NEW-625, commit `3f77344`, live-verified** — `/admin` had no
+      role gate beyond token validity. A true server-side route gate
+      isn't reachable (routes don't do their own RBAC by design here);
+      added a client-side redirect (defense-in-depth, not the real
+      security boundary) sending `project_manager`/`sales`/`technician`/
+      `customer` to their own dedicated portals. `sales_manager` has a
+      portal too but was deliberately deferred (`NEW-642`, needs a
+      product decision); `subcontractor` excluded because the role can
+      never be issued (`NEW-641`, a real dead-route finding). Round 1
+      code-reviewer caught a false comment claim and a vacuous test;
+      round 2 fixed both. Live-verifier confirmed the real `/auth/me`
+      response shape matches what the JS reads and the actual extracted
+      redirect logic fires correctly against a real running server; the
+      browser `window.location.href` navigation primitive itself remains
+      unverified (no browser-automation harness in this repo) — treat as
+      code-complete + logic-verified, not full live-verified, per rule 7.
+      See `PROJECT_LOG.md`'s 2026-09-25 B8.15 entry.
 - [x] **B8.14** — analytics rollups (rep/manager/executive tiers).
       **DONE in full 2026-09-25 (both halves shipped).** Split into
       B8.14a (RBAC prerequisite) + B8.14b (the rollup itself), per
