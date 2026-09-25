@@ -19211,3 +19211,13 @@ housekeeping, same as `NEW-403`'s own cleanup.
 - **Fix direction (not decided/fixed this round):** either require `invoice_type` to be explicitly specified at `create_invoice` time (reject a request that omits it, at least for a project-linked invoice), or add a clearer validation/warning path so this doesn't silently produce a permanently-stuck handoff checklist.
 - **Not fixed this round** — logged per rule 8, non-blocking, zero live blast radius today. **When to revisit:** mandatory check before/during whichever future round builds an invoice-creation UI or wires an external client to `POST /api/v1/invoices`.
 - **Cross-reference:** `restoricon_core/models.py` (`Invoice.invoice_type` default), `restoricon_core/api/routes.py` (`POST /api/v1/invoices`), `restoricon_core/services/crm_service.py` (`_evaluate_handoff_conditions`), `NEW-632`.
+
+## Found 2026-09-25 — project-architect scoping pass for B8.13 (mobile-first pass & audit completeness sweep), not fixed, no code written this round
+
+### [NEW-636] Confirmed, pre-existing, unrelated to B8's own scope: `business_ops_service.py`'s `submit_timesheet` and `approve_timesheet` have zero `self.audit.log()` calls at all — real hard INSERT/UPDATE writes with no audit trail
+
+- **Status:** Confirmed (project-architect, 2026-09-25, B8.13 scoping, read `business_ops_service.py:544` and `:595` directly). This file predates both the B6.2 audit-standardization commits (`5759d36`/`e96df81`) and the entire B8 phase — pre-existing tech debt the earlier B6.2b/c audit-envelope sweep itself missed, not a gap in any B8 write path.
+- **Impact:** real — a timesheet submission or approval today produces no audit trail at all, unlike essentially every other write path in this codebase.
+- **Fix direction (not decided/fixed this round):** add `self.audit.log(...)`/`build_audit_details(...)` calls to both methods, following the same pattern used throughout `crm_service.py`/`operations_service.py`.
+- **Not fixed this round** — logged per rule 8, out of B8.13's own scope (a B8 write-path sweep, not a pre-B8 tech-debt sweep). **When to revisit:** a future dedicated audit-completeness pass covering pre-B8 services, or whenever `business_ops_service.py` is next touched for another reason.
+- **Cross-reference:** `restoricon_core/services/business_ops_service.py` (`submit_timesheet`, `approve_timesheet`), B6.2b/c.
