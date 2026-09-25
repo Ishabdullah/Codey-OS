@@ -288,7 +288,18 @@ class AnalyticsSearchService:
 
     def get_executive_dashboard(self, actor: AuthContext) -> Dict[str, Any]:
         """Compute aggregated executive analytics dashboard across all domains."""
-        if not actor.has_permission(PERM_VIEW_REPORTS):
+        # NEW-550: this method has no per-rep scoping mode -- every query
+        # below is inherently company-wide, unlike the assignee-filtered
+        # queries elsewhere in this file (see PERM_READ_TEAM_SALES_DATA
+        # narrowing above). Gating on PERM_VIEW_REPORTS alone let any
+        # ROLE_SALES actor (which holds PERM_VIEW_REPORTS by default) pull
+        # every rep's company-wide pipeline/lead/win-rate aggregates via
+        # /api/v1/reports/summary and /api/v1/reports/executive, which call
+        # this method directly with no route-level gate of their own.
+        # AND-composing with PERM_READ_TEAM_SALES_DATA closes that: a caller
+        # now needs both permissions, same as /api/v1/sales/dashboard's
+        # "team" block already required independently (routes.py ~3362).
+        if not actor.has_permission(PERM_VIEW_REPORTS) or not actor.has_permission(PERM_READ_TEAM_SALES_DATA):
             raise PermissionError("Actor lacks permission to view executive reports")
 
         conn = self.db.get_connection()
