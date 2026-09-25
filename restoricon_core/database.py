@@ -412,6 +412,50 @@ CREATE TABLE IF NOT EXISTS invoices (
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
 );
 
+-- Customer Credits (B8.15, NEW-613/633 cluster, Ish-approved 2026-09-25:
+-- "overpayments should be logged as credit" -- manual-only, no auto-apply
+-- to future invoices this round, and DELIBERATELY kept out of AR
+-- reporting -- get_ar_aging/get_financial_summary/get_project_pnl
+-- (finance_service.py) and AnalyticsSearchService.total_ar must never
+-- reference this table. Belongs to the customer, not the invoice
+-- (source_invoice_id just records provenance) -- a credit is, in
+-- principle, reusable against ANY future invoice for that customer, even
+-- though no application mechanism is built this round. Deliberately
+-- append-only: no applied/status/remaining_amount column, no
+-- credit-application method -- the minimal shape that stops an
+-- overpayment from vanishing (a recorded, queryable, customer-linked
+-- liability) without building a refund/credit-application system nobody
+-- asked for yet. amount is always positive (the overage itself, never a
+-- running balance). No UNIQUE constraint on source_invoice_id: unlike
+-- commission_ledger_entries' one-commission-per-source invariant,
+-- multiple credit rows against the same invoice are legitimate -- an
+-- invoice's overage can grow across more than one record_payment call
+-- (e.g. overpaid by $500 today, then a further $200 misdirected payment
+-- next week), so record_payment's own delta-against-already-recorded
+-- guard (crm_service.py) is what prevents double-counting on a retried
+-- call, not a DB constraint. No FK on created_by_user_id (unlike this
+-- codebase's usual created_by convention) -- this INSERT runs inside the
+-- SAME transaction as the invoice-balance UPDATE it accompanies (PRAGMA
+-- foreign_keys = ON on this connection), and adding a FK here would be a
+-- new, avoidable way for an otherwise-legitimate payment to abort and
+-- roll back over an unrelated users-table integrity detail. customer_id
+-- and source_invoice_id are both valid by construction (sourced directly
+-- from the invoice row's own already-FK-checked columns), so those two
+-- FKs add no equivalent risk.
+CREATE TABLE IF NOT EXISTS customer_credits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL,
+    source_invoice_id INTEGER,
+    amount REAL NOT NULL,
+    reason TEXT NOT NULL DEFAULT 'overpayment',
+    created_by_user_id INTEGER,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT,
+    FOREIGN KEY (source_invoice_id) REFERENCES invoices(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_customer_credits_customer_id ON customer_credits(customer_id);
+CREATE INDEX IF NOT EXISTS idx_customer_credits_source_invoice_id ON customer_credits(source_invoice_id);
+
 -- Communication History (DAY-ONE-OR-NEVER, STRICTLY APPEND-ONLY).
 -- provider_message_id (NEW-233, 2026-08-27, Ish-approved -- "reliable
 -- log" requirement) holds the originating channel's own message

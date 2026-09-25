@@ -4897,6 +4897,34 @@ class CRMService:
 
         return self._row_to_invoice(row)
 
+    def get_customer_credit_balance(self, customer_id: int, actor: AuthContext) -> float:
+        """B8.15 (NEW-613/633): sum of every customer_credits row logged
+        for this customer -- read-only, no application/spend mechanism
+        exists yet (manual-only per Ish's decision). Gated identically to
+        get_invoice/list_invoices (PERM_READ_FINANCIALS or PERM_READ_OWN_
+        FINANCIALS), with the same ROLE_CUSTOMER narrowing get_invoice
+        applies -- customer_id is a caller-supplied parameter here, so
+        without this check a ROLE_CUSTOMER actor holding PERM_READ_OWN_
+        FINANCIALS could pass an arbitrary customer_id and read someone
+        else's credit balance.
+
+        Deliberately excluded from get_ar_aging/get_financial_summary/
+        get_project_pnl/AnalyticsSearchService.total_ar per Ish's
+        decision that credits stay separate from AR reporting.
+        """
+        if not (actor.has_permission(PERM_READ_FINANCIALS) or actor.has_permission(PERM_READ_OWN_FINANCIALS)):
+            raise PermissionError("Actor lacks permission to read customer credits")
+
+        if actor.role == ROLE_CUSTOMER and (not actor.customer_id or actor.customer_id != customer_id):
+            raise PermissionError("Customer cannot access another customer's credit balance")
+
+        conn = self.db.get_connection()
+        total = conn.execute(
+            "SELECT COALESCE(SUM(amount), 0.0) FROM customer_credits WHERE customer_id = ?;",
+            (customer_id,),
+        ).fetchone()[0]
+        return round(total, 2)
+
     def list_invoices(
         self,
         actor: AuthContext,
@@ -5371,6 +5399,39 @@ class CRMService:
         # _recalculate_invoice_balance's docstring for the full rationale.
         new_balance, new_status = self._recalculate_invoice_balance(row["amount"], payments)
 
+        # B8.15 (NEW-613/633, Ish-approved 2026-09-25): "overpayments
+        # should be logged as credit" -- manual-only, no auto-apply, and
+        # deliberately kept out of AR reporting (see customer_credits'
+        # own DDL comment in database.py for the full rationale). total
+        # overage is total_paid (every real payment on this invoice,
+        # including the one just appended above) minus the invoice's
+        # full amount -- the SAME total_paid _recalculate_invoice_balance
+        # just computed internally, recomputed here since that helper
+        # only returns balance_due/status, not the raw total.
+        #
+        # Idempotency: record_payment is documented above as re-callable
+        # against an already-settled invoice (e.g. a retried request, or
+        # an operator recording a $0 reconciliation note) -- since
+        # total_paid is recomputed from the ENTIRE payments list on every
+        # call, `overage` stays the same (or grows, if a genuine further
+        # payment lands) on every subsequent call. A naive per-call
+        # insert would log a new credit row every retry. Instead, only
+        # the INCREMENTAL overage beyond what's already been logged for
+        # this invoice is inserted -- covers: (a) first-time overpayment
+        # (nothing logged yet, insert the full overage), (b) a retried
+        # call with no new payment (overage unchanged, already_credited
+        # matches it, delta is 0, no insert), and (c) a genuine further
+        # overpayment on top of an already-credited invoice (delta is
+        # just the new increment). No DB-level uniqueness constraint is
+        # used as a second defense here (unlike commission_ledger_
+        # entries' idx_commission_ledger_source_unique) because multiple
+        # credit rows per invoice are legitimate -- the constraint that
+        # matters is this delta computation, not a source_invoice_id
+        # uniqueness rule.
+        total_paid = sum(p["amount"] for p in payments)
+        overage = round(total_paid - row["amount"], 2)
+        credit_delta = 0.0
+
         with conn:
             conn.execute(
                 """
@@ -5383,6 +5444,24 @@ class CRMService:
                 """,
                 (new_status, new_balance, json.dumps(payments), now, invoice_id),
             )
+
+            if overage > 0.001:
+                already_credited = conn.execute(
+                    "SELECT COALESCE(SUM(amount), 0.0) FROM customer_credits WHERE source_invoice_id = ?;",
+                    (invoice_id,),
+                ).fetchone()[0]
+                credit_delta = round(overage - already_credited, 2)
+                if credit_delta > 0.001:
+                    conn.execute(
+                        """
+                        INSERT INTO customer_credits
+                            (customer_id, source_invoice_id, amount, reason, created_by_user_id, created_at)
+                        VALUES (?, ?, ?, 'overpayment', ?, ?);
+                        """,
+                        (row["customer_id"], invoice_id, credit_delta, actor.user_id, now),
+                    )
+                else:
+                    credit_delta = 0.0
 
         _updated = Invoice(
             id=row["id"],
@@ -5402,6 +5481,26 @@ class CRMService:
             updated_at=now,
         )
 
+        _side_effects: Dict[str, Any] = {"payment_recorded": {
+            "amount": payment_amount,
+            "method": payment_method,
+            "reference": transaction_reference,
+            "payment_type": payment_type,
+            "new_balance": new_balance,
+            "new_status": new_status,
+        }}
+        if credit_delta > 0.001:
+            # B8.15: recorded in the SAME "pay" audit entry rather than a
+            # new audit.log call -- test_crm_entity_lifecycle_with_audit_
+            # trail (test_services.py) hard-asserts an exact log count,
+            # and this credit insert is a side effect of THIS payment,
+            # not an independently-authored action.
+            _side_effects["credit_recorded"] = {
+                "amount": credit_delta,
+                "reason": "overpayment",
+                "customer_id": row["customer_id"],
+            }
+
         self.audit.log(
             action="pay",
             entity_type="invoice",
@@ -5412,14 +5511,7 @@ class CRMService:
                 before=_before,
                 after=_updated.to_dict(),
                 fields=_AUDITABLE_INVOICE_FIELDS,
-                side_effects={"payment_recorded": {
-                    "amount": payment_amount,
-                    "method": payment_method,
-                    "reference": transaction_reference,
-                    "payment_type": payment_type,
-                    "new_balance": new_balance,
-                    "new_status": new_status,
-                }},
+                side_effects=_side_effects,
             ),
         )
 
