@@ -7583,18 +7583,19 @@ this file's own don't-duplicate rule.
             on `payments_json` entries. Completion guard blocks
             checklist completion only, never project creation. Gated
             `PERM_WRITE_PROJECTS`; read delegates to `get_project`'s
-            own gate + B8.12a's narrowing. **`NEW-631` (CRITICAL, not
-            fixed)**: this round's own sanctioned deposit-tagging
-            workflow routinely triggers a pre-existing `record_payment`
-            balance-double-count bug, flipping an invoice to falsely
-            `status='paid'` and silently dropping it out of AR
-            aging/executive-dashboard total AR. Root cause predates
-            this round and needs its own dedicated fix round — flagged
-            as the next priority, not routine backlog. `NEW-632`
-            (non-blocking): a compound gap letting a trusted actor
-            satisfy the deposit condition against the wrong invoice
-            without malice. **This closes B8.12 in full (a/b both
-            shipped).**
+            own gate + B8.12a's narrowing. **`NEW-631` (CRITICAL) and
+            `NEW-632` — RESOLVED 2026-09-25, commit `f410827`**, fixed
+            same day as top priority ahead of any other phase. Design B
+            (Ish-confirmed): `deposit_amount` is now purely a target
+            figure, never feeding `balance_due`/`status` math — a new
+            shared `_recalculate_invoice_balance` helper computes both
+            from real payments only. Deposit guard now filters to
+            `invoice_type == 'project'`, requires `deposit_amount > 0`,
+            and sums multiple deposit-tagged payments. Full detail in
+            `PROJECT_LOG.md`'s 2026-09-25 entry. Logged, not fixed:
+            `NEW-634`/`NEW-635` (both Warning, zero live blast radius
+            today — check before any invoice-creation UI is built).
+            **This closes B8.12 in full (a/b both shipped).**
 - [ ] **B8.13** — mobile-first pass & audit completeness sweep across
       every B8 write path.
 - [ ] **B8.14** — analytics rollups (rep/manager/executive tiers).
