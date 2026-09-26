@@ -7022,6 +7022,7 @@ def _render_sales_portal() -> str:
                 estimates: '/api/v1/estimates?customer_id=' + customerId,
                 contracts: '/api/v1/contracts?customer_id=' + customerId,
                 invoices: '/api/v1/invoices?customer_id=' + customerId,
+                creditBalance: '/api/v1/customers/' + customerId + '/credit-balance',
                 documents: '/api/v1/documents?customer_id=' + customerId,
                 appointments: '/api/v1/appointments?customer_id=' + customerId,
                 communications: '/api/v1/communications?customer_id=' + customerId,
@@ -7075,6 +7076,29 @@ def _render_sales_portal() -> str:
             return `<div class="erp-card">${{headerHtml}}${{table}}</div>`;
         }}
 
+        // NEW-650 (UI half): credit_balance is a single scalar, not a
+        // list, so this doesn't fit c360PanelSection's table/renderRows
+        // shape -- mirrors the Info card above (a single-value erp-card)
+        // for the non-zero case, and c360PanelSection's own emptyMsg
+        // branch for the (most common) zero-balance case. Same 403/
+        // "No access." handling as every other panel here -- gated
+        // identically to Invoices (get_customer_credit_balance uses the
+        // exact same PERM_READ_FINANCIALS/PERM_READ_OWN_FINANCIALS check
+        // as list_invoices), so this never 403s for a role that doesn't
+        // already get "No access." on Invoices.
+        function renderCreditBalancePanel(result) {{
+            const headerHtml = `<h3 style="margin-top:0;">Credit Balance</h3>`;
+            if (!result || !result.ok) {{
+                const msg = (result && result.status === 403) ? 'No access.' : 'Failed to load.';
+                return `<div class="erp-card">${{headerHtml}}<p style="color:var(--text-muted);">${{msg}}</p></div>`;
+            }}
+            const balance = result.data.credit_balance || 0;
+            const body = balance > 0
+                ? `<div class="modal-field"><label>Available</label><div>$${{escapeHtml(balance.toLocaleString())}}</div></div>`
+                : `<p style="color:var(--text-muted);">No credit balance.</p>`;
+            return `<div class="erp-card">${{headerHtml}}${{body}}</div>`;
+        }}
+
         function renderCustomer360(customerId, byKey) {{
             const body = document.getElementById('c360Body');
             const title = document.getElementById('c360Title');
@@ -7117,6 +7141,8 @@ def _render_sales_portal() -> str:
             html += c360PanelSection('Invoices', byKey.invoices, 'No invoices.',
                 (d) => (d.invoices || []).map(i => `<tr><td>${{escapeHtml(i.invoice_number || '')}}</td><td>${{escapeHtml(i.status || '')}}</td><td>$${{escapeHtml((i.amount || 0).toLocaleString())}}</td><td>$${{escapeHtml((i.balance_due || 0).toLocaleString())}}</td></tr>`),
                 '<thead><tr><th>Number</th><th>Status</th><th>Amount</th><th>Balance Due</th></tr></thead>');
+
+            html += renderCreditBalancePanel(byKey.creditBalance);
 
             html += c360PanelSection('Documents', byKey.documents, 'No documents.',
                 (d) => (d.documents || []).map(doc => `<tr><td>${{escapeHtml(doc.title || '')}}</td><td>${{escapeHtml(doc.document_type || '')}}</td></tr>`),

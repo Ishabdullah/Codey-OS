@@ -94,6 +94,46 @@ def test_customer_360_properties_panel_uses_only_real_property_fields():
     assert "/api/v1/properties/" in save_js and "/update'" in save_js
 
 
+def test_customer_360_fans_out_to_credit_balance_route():
+    """NEW-650 (UI half): the Credit Balance panel must call the real
+    GET /api/v1/customers/<id>/credit-balance route added in e82c41f
+    (routes.py), not a guessed path -- and it must be wired through the
+    same Promise.allSettled fan-out as every other panel (a plain
+    prefix check on '/api/v1/customers/' + customerId would also match
+    the pre-existing 'customer' endpoint, so this asserts the full
+    concatenation including the '/credit-balance' suffix)."""
+    html = render_sales_surface()
+    start = html.index("async function loadCustomer360(customerId)")
+    end = html.index("function c360PanelSection(")
+    fanout_js = html[start:end]
+    assert "'/api/v1/customers/' + customerId + '/credit-balance'" in fanout_js
+
+
+def test_customer_360_credit_balance_panel_matches_other_panels_conventions():
+    """Single-scalar panel (not a table/renderRows shape like
+    c360PanelSection) -- must still share the same 403/'No access.'
+    handling as every other panel (get_customer_credit_balance uses the
+    identical PERM_READ_FINANCIALS/PERM_READ_OWN_FINANCIALS + ROLE_CUSTOMER
+    gating as list_invoices, so it never surfaces to a role that
+    wouldn't already see 'No access.' on Invoices), and the zero-balance
+    case (the common case) must render a quiet empty-state message, not
+    an alarming '$0'."""
+    html = render_sales_surface()
+    start = html.index("function renderCreditBalancePanel(result)")
+    end = html.index("function renderCustomer360(customerId, byKey)")
+    panel_js = html[start:end]
+    assert "Credit Balance" in panel_js
+    assert "No access." in panel_js
+    assert "No credit balance." in panel_js
+    assert "credit_balance" in panel_js
+    assert "toLocaleString()" in panel_js
+    # Rendered into the modal body via the same byKey lookup pattern as
+    # every other panel.
+    render_start = html.index("function renderCustomer360(customerId, byKey)")
+    render_end = html.index("function renderPropertiesPanel(propertiesResult)")
+    assert "renderCreditBalancePanel(byKey.creditBalance)" in html[render_start:render_end]
+
+
 def test_customer_360_property_panel_has_project_history_but_not_documents():
     """NEW-566 (project-history) was wired into the Project service layer
     and this panel in B8.4b -- the Property panel now fetches
