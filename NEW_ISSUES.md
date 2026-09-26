@@ -19350,13 +19350,13 @@ housekeeping, same as `NEW-403`'s own cleanup.
 
 ## Found 2026-09-25 — code-reviewer's round on the overpayment-credit ledger (NEW-613/633), both non-blocking, not fixed this round
 
-### [NEW-650] Confirmed, non-blocking: `CRMService.get_customer_credit_balance` has no caller anywhere outside its own definition and its test file — the credit ledger is currently write-only from an operator's perspective
+### [NEW-650] RESOLVED (route half) 2026-09-25, commit `e82c41f`: `CRMService.get_customer_credit_balance` has no caller anywhere outside its own definition and its test file — the credit ledger is currently write-only from an operator's perspective
 
 - **Status:** Confirmed (code-reviewer, 2026-09-25, `a8365a7` review, grepped `restoricon_core/` and `tests/` directly). No route, no dashboard panel, no service-layer caller exists for this method today.
 - **Impact:** sits in tension with the `customer_credits` table's own DDL comment ("a recorded, queryable, customer-linked liability") and Ish's standing dashboard-single-control-surface preference — a credit is recorded on overpayment but has no UI/API surface for staff to actually see it yet.
 - **Fix direction (not decided/fixed this round):** add a route (e.g. `GET /api/v1/customers/{id}/credit-balance`) and/or wire it into the customer-360/dashboard view, whenever the B8.15 dashboard-wiring round happens.
-- **Not fixed this round** — logged per rule 8, out of the ledger round's own scope (backend + read method was the explicit bar, UI/route was explicitly not required). **When to revisit:** whenever a B8.15 dashboard/UI-wiring pass covers this area.
-- **Cross-reference:** `restoricon_core/services/crm_service.py` (`get_customer_credit_balance`), `NEW-613`, `NEW-633`.
+- **Route half resolved 2026-09-25, commit `e82c41f`, code-reviewer APPROVED.** Added `GET /api/v1/customers/{id}/credit-balance`, delegating RBAC entirely to the service method's existing gate. **Dashboard/customer-360 UI wiring remains open** — deliberately out of this fix's scope (an API caller, not a UI panel).
+- **Cross-reference:** `restoricon_core/services/crm_service.py` (`get_customer_credit_balance`), `restoricon_core/api/routes.py`, `NEW-613`, `NEW-633`.
 
 ### [NEW-651] RESOLVED 2026-09-25, commit `86106b4`: `record_payment` doesn't validate `payment_amount >= 0` — a negative payment can't claw back a previously-issued credit
 

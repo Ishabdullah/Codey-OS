@@ -1,3 +1,20 @@
+## 2026-09-25 — B8.15 round 8: NEW-650's route half, closing the B8.15 backlog sweep down to two intentionally-open items
+
+**What changed:** last item in the sweep. `CRMService.get_customer_credit_balance` (added `a8365a7`) had zero callers. Added `GET /api/v1/customers/{id}/credit-balance`, matching this router's established convention of doing zero RBAC in the route itself — the service method's own gate (`PERM_READ_FINANCIALS`/`PERM_READ_OWN_FINANCIALS` + `ROLE_CUSTOMER` same-customer narrowing) is what actually authorizes, and the router's existing global `except PermissionError` handler maps a denial to a 403. Standard pipeline (not rule-4-mandatory, but real scrutiny given it's financial data). APPROVED. Committed `e82c41f`.
+
+- **A real edge case was caught and fixed before handoff, not left for review to find**: the first draft of the path-matching guard would have let an omitted id (`GET /api/v1/customers/credit-balance`) reach the integer parser and wrongly return a 400, instead of falling through to this router's established generic-404 contract for that shape (the same `NEW-525`/`526`/`531` precedent this file already applies to its other suffix routes). Fixed with a non-empty-segment check before parsing.
+- **Code-reviewer hand-traced the arithmetic for all three malformed-path shapes rather than pattern-matching the fix against the cited precedent** — worked through the actual string-slice indices for the omitted-id case and confirmed the prefix's trailing slash and the suffix's leading slash land on the same character, producing an empty slice that correctly fails the guard's truthy check.
+- **A deliberate non-fix was correctly scoped, not silently expanded**: `get_customer_credit_balance` returns `0.0` for a nonexistent `customer_id` rather than a 404 (no existence check, `COALESCE(SUM(...), 0.0)`) — this is the already-reviewed `a8365a7` service contract, and adding a customer-existence check was correctly identified as a separate, legitimate question out of this task's scope, not something to quietly bolt on.
+- **Dashboard/customer-360 UI wiring remains explicitly out of scope** — this closes the API-caller half of `NEW-650` only, not the UI-visibility half. Logged as still open, not silently treated as fully closed.
+
+**Verification performed:** code-reviewer reran `test_api.py` (57/57), the two related B8.15 test files (11/11), and — beyond what was asked — the full `tests/test_restoricon_core/` directory (1241 passed) to confirm no interaction with the ~1180 other tests in that directory.
+
+**Outcome:** `e82c41f` on `main`. `CODEY_MASTER_PLAN.md`'s `B8.15` stub extended with a final "Round 8" paragraph. `NEW_ISSUES.md`'s `NEW-650` marked resolved (route half only).
+
+**This closes the entire B8.15 findings-backlog sweep** (rounds 1-8, commits `661ce48` through `e82c41f`, spanning eight rounds of implementer→code-reviewer pairs plus one live-verifier pass) down to two intentionally-open items: `NEW-649` (the cross-agent commit collision process finding — no code fix applies, it's a coordination-discipline note) and the credit-ledger dashboard/UI-visibility half of `NEW-650` (future-triggered, no urgency signal, no decision pending). No further open Ish decisions or self-contained findings remain in this sweep as of this round.
+
+---
+
 ## 2026-09-25 — B8.15 round 7: NEW-648 test-coverage closure, no production code changed
 
 **What changed:** the last two remaining self-contained follow-ups from this backlog sweep were NEW-648 (a coverage gap) and NEW-650 (a route/wiring gap). NEW-648 first: added three tests to `test_new613_ar_offset_reconciliation.py` specifically exercising `transition_project_stage`'s CLOSED gate with an unlinked (`invoice_id=None`) financing record — the code path was already correct (reused verbatim from the already-reviewed B8.8b-2 offset math) but untested at this specific, newly-reachable call site. Test-only change, standard pipeline. APPROVED. Committed `c94824c`.

@@ -7761,7 +7761,16 @@ this file's own don't-duplicate rule.
       offset was untested for unlinked, `invoice_id=None` records).
       Three tests added confirming existing behavior is already correct
       — no production code changed, no bug found.
-      See `PROJECT_LOG.md`'s 2026-09-25 B8.15 entries (seven rounds).
+      **Round 8, commit `e82c41f`** — closed `NEW-650`'s route half:
+      `GET /api/v1/customers/{id}/credit-balance`, delegating RBAC
+      entirely to the already-reviewed service method's own gate.
+      Dashboard/customer-360 UI wiring remains open, out of scope.
+      code-reviewer APPROVED; hand-traced the malformed-path guard
+      arithmetic. **This closes the entire B8.15 findings-backlog sweep
+      down to two intentionally-open items**: `NEW-649` (a process
+      finding, no code fix applies) and the credit-ledger UI wiring
+      just named (future-triggered, no urgency signal).
+      See `PROJECT_LOG.md`'s 2026-09-25 B8.15 entries (eight rounds).
 - [x] **B8.14** — analytics rollups (rep/manager/executive tiers).
       **DONE in full 2026-09-25 (both halves shipped).** Split into
       B8.14a (RBAC prerequisite) + B8.14b (the rollup itself), per
