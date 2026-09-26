@@ -5726,8 +5726,8 @@ def _render_sales_portal() -> str:
                 <input type="text" id="newLeadSource" value="manual_entry">
             </div>
             <div class="modal-field">
-                <label>Customer ID (leave blank if unknown)</label>
-                <input type="number" id="newLeadCustomerId">
+                <label>Customer (leave blank if unknown)</label>
+                <select id="newLeadCustomerId"><option value="">-- none --</option></select>
             </div>
             <div class="modal-field">
                 <label>Property Type</label>
@@ -6098,6 +6098,11 @@ def _render_sales_portal() -> str:
                 }} else {{
                     tbody.innerHTML = '<tr><td colspan="5" style="color:var(--text-muted)">No customers.</td></tr>';
                 }}
+                // window.currentSalesCustomers: same window.currentX caching
+                // convention as window.currentCalendarUsers (~loadCalendar) --
+                // feeds the New Lead modal's customer <select> below without a
+                // second /api/v1/customers fetch.
+                window.currentSalesCustomers = (res.ok && data.customers) || [];
             }} catch (e) {{ /* network/parse failure: customers tbody keeps its "Loading..." placeholder, no further UI action needed */ }}
 
             // Load Leads
@@ -6112,9 +6117,9 @@ def _render_sales_portal() -> str:
                     tbody.innerHTML = data.leads.map(l =>
                         `<tr>
                             <td><a href="#" onclick="openLeadDetailModal(${{l.id}}); return false;">#${{l.id}}</a></td>
-                            <td>${{l.customer_id ? 'Cust #' + l.customer_id : '—'}}</td>
+                            <td>${{l.customer_id ? escapeHtml(l.customer_name || ('Customer #' + l.customer_id)) : '—'}}</td>
                             <td><span class="badge badge-info">${{escapeHtml(l.status)}}</span></td>
-                            <td>${{l.assigned_user_id ? escapeHtml(String(l.assigned_user_id)) : 'Unclaimed <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="claimLead(' + l.id + ')">Claim</button>'}}</td>
+                            <td>${{l.assigned_user_id ? escapeHtml(l.assigned_user_name || ('User #' + l.assigned_user_id)) : 'Unclaimed <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="claimLead(' + l.id + ')">Claim</button>'}}</td>
                         </tr>`
                     ).join('');
                 }} else {{
@@ -6136,7 +6141,7 @@ def _render_sales_portal() -> str:
                             <td>#${{o.id}}</td>
                             <td>${{escapeHtml(o.title)}}</td>
                             <td><span class="badge badge-info">${{escapeHtml(o.pipeline_stage)}}</span></td>
-                            <td>${{o.assigned_user_id ? escapeHtml(String(o.assigned_user_id)) : 'Unclaimed <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="claimOpportunity(' + o.id + ')">Claim</button>'}}</td>
+                            <td>${{o.assigned_user_id ? escapeHtml(o.assigned_user_name || ('User #' + o.assigned_user_id)) : 'Unclaimed <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="claimOpportunity(' + o.id + ')">Claim</button>'}}</td>
                         </tr>`
                     ).join('');
                 }} else {{
@@ -6353,7 +6358,7 @@ def _render_sales_portal() -> str:
                         const rankings = data.team_commission_rankings;
                         rankingsList.innerHTML = rankings.length > 0
                             ? rankings.map(r => `<tr>
-                                <td>${{escapeHtml(String(r.rep_user_id))}}</td>
+                                <td>${{escapeHtml(r.rep_user_name || ('User #' + r.rep_user_id))}}</td>
                                 <td>$${{escapeHtml((r.total_earned || 0).toLocaleString())}}</td>
                                 <td>$${{escapeHtml((r.total_paid || 0).toLocaleString())}}</td>
                                 <td>$${{escapeHtml((r.total_pending || 0).toLocaleString())}}</td>
@@ -6637,7 +6642,7 @@ def _render_sales_portal() -> str:
             const comms = data.communications || [];
             list.innerHTML = comms.length > 0
                 ? comms.map(c => {{
-                    const linkedTo = c.customer_id ? 'Cust #' + c.customer_id
+                    const linkedTo = c.customer_id ? escapeHtml(c.customer_name || ('Customer #' + c.customer_id))
                         : (c.lead_id ? 'Lead #' + c.lead_id : '—');
                     return `<tr>
                         <td>${{escapeHtml(c.timestamp || '')}}</td>
@@ -6686,11 +6691,11 @@ def _render_sales_portal() -> str:
         function renderLeadDetail(l) {{
             const body = document.getElementById('leadDetailBody');
             const claimBtn = l.assigned_user_id
-                ? `<span class="badge badge-info">Assigned: ${{escapeHtml(String(l.assigned_user_id))}}</span>`
+                ? `<span class="badge badge-info">Assigned: ${{escapeHtml(l.assigned_user_name || ('User #' + l.assigned_user_id))}}</span>`
                 : `<button class="btn-gold" style="padding:0.3rem 0.7rem;" onclick="claimLead(${{l.id}})">Claim</button>`;
             body.innerHTML = `
                 <div class="modal-field"><label>ID</label><div>#${{l.id}}</div></div>
-                <div class="modal-field"><label>Customer</label><div>${{l.customer_id ? 'Cust #' + l.customer_id : 'None linked'}}</div></div>
+                <div class="modal-field"><label>Customer</label><div>${{l.customer_id ? escapeHtml(l.customer_name || ('Customer #' + l.customer_id)) : 'None linked'}}</div></div>
                 <div class="modal-field"><label>Assigned</label><div>${{claimBtn}}</div></div>
                 <div class="modal-field"><label>Status</label><input type="text" id="leadEditStatus" value="${{escapeHtml(l.status || '')}}"></div>
                 <div class="modal-field"><label>Source</label><div>${{escapeHtml(l.source || '')}}</div></div>
@@ -7988,7 +7993,22 @@ def _render_sales_portal() -> str:
         // Lead(**json_body) directly (routes.py) -- only real Lead dataclass
         // field names may be sent, or the route 400s on an unexpected kwarg.
         // -----------------------------------------------------------------
+        function populateNewLeadCustomerSelect() {{
+            const sel = document.getElementById('newLeadCustomerId');
+            if (!sel) return;
+            const customers = window.currentSalesCustomers || [];
+            // Label composition mirrors CRMService._get_customer_display_name:
+            // first + last name, falling back to company_name, falling back
+            // to 'Customer #id' if neither is set.
+            sel.innerHTML = '<option value="">-- none --</option>' +
+                customers.map(c => {{
+                    const name = `${{c.first_name || ''}} ${{c.last_name || ''}}`.trim() || c.company_name || ('Customer #' + c.id);
+                    return `<option value="${{c.id}}">${{escapeHtml(name)}}</option>`;
+                }}).join('');
+        }}
+
         function openCreateLeadModal() {{
+            populateNewLeadCustomerSelect();
             document.getElementById('createLeadModal').classList.add('active');
         }}
 

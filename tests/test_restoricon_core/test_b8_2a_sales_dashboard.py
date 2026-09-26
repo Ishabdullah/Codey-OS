@@ -298,6 +298,11 @@ def test_commission_summary_rankings_present_for_team_commissions_holder(env):
     by_rep = {row["rep_user_id"]: row for row in rankings}
     assert by_rep[env["rep_a_user"].id]["total_earned"] == 100.0
     assert by_rep[env["rep_b_user"].id]["total_earned"] == 200.0
+    # Sales portal name-resolution fix: rep_user_name must resolve to the
+    # rep's real full_name, not just the raw rep_user_id -- Sales Rep
+    # Portal previously showed a bare rep number here.
+    assert by_rep[env["rep_a_user"].id]["rep_user_name"] == "Rep A"
+    assert by_rep[env["rep_b_user"].id]["rep_user_name"] == "Rep B"
     # This actor's own user_id doesn't match either rep, so their own
     # commission_summary row is the empty-defaults shape, not one of the
     # two reps' rows.

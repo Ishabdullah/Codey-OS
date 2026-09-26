@@ -330,6 +330,30 @@ class CRMService:
             cust.notes = None  # Hide internal notes from customer
         return cust
 
+    def _get_customer_display_name(self, customer_id: int) -> Optional[str]:
+        """Resolve a customer id to a display name, with NO
+        actor/permission check at all -- mirrors AuthService.get_user_by_id's
+        established pattern (auth.py) for "resolve a display name for an id
+        the caller already independently holds from a row they're already
+        permitted to see" (e.g. a lead/opportunity's customer_id). This is
+        deliberately NOT get_customer(): get_customer enforces the NEW-568
+        per-row ownership narrowing, and a lead's assigned_user_id can
+        legitimately diverge from its linked customer's assigned_user_id --
+        using get_customer here would silently hide the very rows this is
+        meant to name. Discloses only a name, not the full customer record,
+        for an id the caller doesn't get to choose (it comes from an
+        already-authorized row), so no new permission constant is needed.
+        Returns None for a nonexistent id, never raises."""
+        conn = self.db.get_connection()
+        row = conn.execute(
+            "SELECT first_name, last_name, company_name FROM customers WHERE id = ?;",
+            (customer_id,),
+        ).fetchone()
+        if not row:
+            return None
+        full_name = f"{row['first_name'] or ''} {row['last_name'] or ''}".strip()
+        return full_name or row["company_name"] or None
+
     def _get_customer_unscoped(self, customer_id: int) -> Optional[Customer]:
         """NEW-587 fix: fetch a customer with NO ownership/narrowing check
         at all -- not even the NEW-568 rep-ownership narrowing that

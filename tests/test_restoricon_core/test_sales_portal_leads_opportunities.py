@@ -87,6 +87,60 @@ def test_sales_portal_has_claim_buttons_and_fetch_calls():
     assert "loadDashboard();" in claim_opp_js
 
 
+def test_sales_portal_leads_and_opportunities_render_names_not_raw_ids():
+    """Ish reported the portal showed raw customer/rep ids ("Cust #3", a
+    bare rep number) instead of names. Leads/opportunities tables, the
+    lead detail modal, and the commission rankings table must all prefer
+    the new customer_name/assigned_user_name/rep_user_name fields, with a
+    'Customer #id'/'User #id' fallback (matching the calUserName
+    convention) only when a name failed to resolve."""
+    html = render_sales_surface()
+    assert "l.customer_name || ('Customer #' + l.customer_id)" in html
+    assert "l.assigned_user_name || ('User #' + l.assigned_user_id)" in html
+    assert "o.assigned_user_name || ('User #' + o.assigned_user_id)" in html
+    assert "r.rep_user_name || ('User #' + r.rep_user_id)" in html
+    # Lead detail modal
+    assert "l.customer_name || ('Customer #' + l.customer_id)) : 'None linked'" in html
+    assert "Assigned: ${escapeHtml(l.assigned_user_name || ('User #' + l.assigned_user_id))}" in html
+    # No stray raw-id-only rendering left over from before the fix. Bare
+    # "'Cust #'" (not just "'Cust #' + l.customer_id") also catches the
+    # Communications Center panel's own copy of the same symptom, which
+    # used a different variable name (c.customer_id, not l.customer_id).
+    assert "'Cust #'" not in html
+    assert "String(l.assigned_user_id)" not in html
+    assert "String(o.assigned_user_id)" not in html
+    assert "String(r.rep_user_id)" not in html
+
+
+def test_communications_center_panel_shows_customer_name_not_raw_id():
+    """Ish's reported symptom ("Cust #3") also appeared in the
+    Communications Center panel's linkedTo computation, a separate
+    /api/v1/sales/communications-center fetch from the leads table above --
+    covered by its own test since it's a distinct code path/endpoint."""
+    html = render_sales_surface()
+    assert "c.customer_name || ('Customer #' + c.customer_id)" in html
+    assert "c.lead_id ? 'Lead #' + c.lead_id : '—'" in html, (
+        "lead_id half must be left alone per spec -- leads have no "
+        "independent name field"
+    )
+
+
+def test_new_lead_modal_customer_field_is_a_populated_select_not_a_number_input():
+    """The New Lead create form used to be a bare `<input type="number">`
+    for customer_id, forcing a rep to know/guess a raw numeric id. It is
+    now a `<select>` populated from window.currentSalesCustomers (the same
+    /api/v1/customers data the My Customers panel already fetches under
+    ROLE_SALES), with an empty '-- none --' option preserving the existing
+    "leave blank if unknown" behavior that submitCreateLead()'s
+    `if (custIdRaw)` guard already handles."""
+    html = render_sales_surface()
+    assert '<input type="number" id="newLeadCustomerId">' not in html
+    assert '<select id="newLeadCustomerId">' in html
+    assert "function populateNewLeadCustomerSelect()" in html
+    assert "window.currentSalesCustomers" in html
+    assert "if (custIdRaw)" in html, "empty-value read-side guard must be untouched"
+
+
 def test_sales_portal_auto_refreshes_via_interval():
     """D3 (sales_rep_portal.md §4a item 3): Ish chose the cheap 10-15s
     periodic-refresh fix over the full SSE push layer

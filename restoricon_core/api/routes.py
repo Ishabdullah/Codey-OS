@@ -12,7 +12,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
 from ..auth import (
@@ -954,7 +954,19 @@ class APIRouter:
                         assigned_user_id=_parse_int_query_param(query_params, "assigned_user_id", 0) if uid else None,
                         territory_id=_parse_int_query_param(query_params, "territory_id", 0) if tid else None,
                     )
-                    return 200, {"Content-Type": "application/json"}, {"leads": [l.to_dict() for l in leads]}
+                    # NEW-656-adjacent fix: raw customer_id/assigned_user_id
+                    # are the wrong thing for a portal to display -- attach
+                    # NEW customer_name/assigned_user_name keys without
+                    # removing customer_id/assigned_user_id (other consumers
+                    # may still depend on those staying), batch-resolved so
+                    # a repeated id across many leads isn't looked up twice.
+                    lead_dicts = [l.to_dict() for l in leads]
+                    cust_names = self._resolve_customer_names(l.customer_id for l in leads)
+                    user_names = self._resolve_user_names(l.assigned_user_id for l in leads)
+                    for ld in lead_dicts:
+                        ld["customer_name"] = cust_names.get(ld["customer_id"])
+                        ld["assigned_user_name"] = user_names.get(ld["assigned_user_id"])
+                    return 200, {"Content-Type": "application/json"}, {"leads": lead_dicts}
                 elif method == "POST":
                     lead = Lead(**json_body)
                     created = self.crm.create_lead(lead, actor)
@@ -1023,7 +1035,10 @@ class APIRouter:
                     lead = self.crm.get_lead(lead_id, actor)
                     if not lead:
                         return 404, {"Content-Type": "application/json"}, {"error": "Lead not found"}
-                    return 200, {"Content-Type": "application/json"}, {"lead": lead.to_dict()}
+                    lead_dict = lead.to_dict()
+                    lead_dict["customer_name"] = self._resolve_customer_names([lead.customer_id]).get(lead.customer_id)
+                    lead_dict["assigned_user_name"] = self._resolve_user_names([lead.assigned_user_id]).get(lead.assigned_user_id)
+                    return 200, {"Content-Type": "application/json"}, {"lead": lead_dict}
 
             # Opportunities
             if path == "/api/v1/opportunities":
@@ -1037,7 +1052,21 @@ class APIRouter:
                         customer_id=_parse_int_query_param(query_params, "customer_id", 0) if cid else None,
                         assigned_user_id=_parse_int_query_param(query_params, "assigned_user_id", 0) if uid else None,
                     )
-                    return 200, {"Content-Type": "application/json"}, {"opportunities": [o.to_dict() for o in opps]}
+                    # Same enrichment pattern as /api/v1/leads above, for
+                    # assigned_user_name only, per spec. NOTE: unlike the
+                    # architect's spec assumption, opportunities.customer_id
+                    # IS a real, NOT NULL column (database.py, "opportunities"
+                    # table) -- verified directly rather than taken on faith
+                    # per CLAUDE.md rule 12 -- but the opportunities table in
+                    # the sales portal has no customer column to consume a
+                    # customer_name key, so it is deliberately NOT added here
+                    # (logged as a finding for the coordinator instead of
+                    # adding an unconsumed response key).
+                    opp_dicts = [o.to_dict() for o in opps]
+                    opp_user_names = self._resolve_user_names(o.assigned_user_id for o in opps)
+                    for od in opp_dicts:
+                        od["assigned_user_name"] = opp_user_names.get(od["assigned_user_id"])
+                    return 200, {"Content-Type": "application/json"}, {"opportunities": opp_dicts}
                 elif method == "POST":
                     opp = Opportunity(**json_body)
                     created = self.crm.create_opportunity(opp, actor)
@@ -1913,8 +1942,19 @@ class APIRouter:
                 # "rep"/"team" matches /api/v1/sales/dashboard's own scope
                 # field convention exactly (not a new "mine"/"team" pair).
                 scope = "team" if actor.has_permission(PERM_READ_TEAM_SALES_DATA) else "rep"
+                # Same customer_name enrichment as /api/v1/leads --
+                # CommunicationRecord has no name field of its own
+                # (models.py), and this panel's own reported symptom
+                # ("Cust #3") is the same raw-id display the rest of this
+                # round fixes, so this endpoint needs its own enrichment
+                # rather than inheriting the leads route's. lead_id is left
+                # alone (leads have no independent name field to resolve).
+                comm_dicts = [c.to_dict() for c in records]
+                comm_cust_names = self._resolve_customer_names(c.customer_id for c in records)
+                for cd in comm_dicts:
+                    cd["customer_name"] = comm_cust_names.get(cd["customer_id"])
                 return 200, {"Content-Type": "application/json"}, {
-                    "communications": [c.to_dict() for c in records],
+                    "communications": comm_dicts,
                     "scope": scope,
                 }
 
@@ -3406,7 +3446,11 @@ class APIRouter:
                 # same independent-permission-axis point the comment above
                 # commissions_scope already makes.
                 if has_team_commissions:
-                    response["team_commission_rankings"] = commission_summary_rows
+                    rep_names = self._resolve_user_names(row["rep_user_id"] for row in commission_summary_rows)
+                    response["team_commission_rankings"] = [
+                        {**row, "rep_user_name": rep_names.get(row["rep_user_id"])}
+                        for row in commission_summary_rows
+                    ]
 
                 # The single most important RBAC point in this route: gate
                 # the entire team block here, at the route level, on
@@ -3478,6 +3522,35 @@ class APIRouter:
             return 400, {"Content-Type": "application/json"}, {"error": str(ve)}
         except Exception as ex:
             return 500, {"Content-Type": "application/json"}, {"error": f"Internal server error: {str(ex)}"}
+
+    def _resolve_customer_names(self, customer_ids: Iterable[Optional[int]]) -> Dict[int, str]:
+        """Batch-resolve customer_id -> display name for a set of rows the
+        caller already holds (leads/opportunities), via CRMService's
+        ungated `_get_customer_display_name` helper -- deliberately NOT
+        `get_customer`/`actor`-scoped, since a lead's assigned_user_id can
+        legitimately diverge from its linked customer's assigned_user_id
+        (see CRMService._get_customer_display_name's own docstring).
+        Distinct, non-None ids are resolved once each, not once per row."""
+        result: Dict[int, str] = {}
+        for cid in {c for c in customer_ids if c is not None}:
+            name = self.crm._get_customer_display_name(cid)
+            if name:
+                result[cid] = name
+        return result
+
+    def _resolve_user_names(self, user_ids: Iterable[Optional[int]]) -> Dict[int, str]:
+        """Batch-resolve user_id -> display name (full_name, falling back
+        to username) via AuthService.get_user_by_id, which has no
+        permission gate of its own -- the established pattern for
+        resolving a display name for an id the caller is already
+        otherwise permitted to see (e.g. rep_name at the compose-email
+        route above). Distinct, non-None ids are resolved once each."""
+        result: Dict[int, str] = {}
+        for uid in {u for u in user_ids if u is not None}:
+            user = self.auth.get_user_by_id(uid)
+            if user:
+                result[uid] = user.full_name or user.username
+        return result
 
     def _handle_login(self, body: Dict[str, Any]) -> Tuple[int, Dict[str, str], Dict[str, Any]]:
         username_or_email = body.get("username_or_email", body.get("username", body.get("email", "")))
