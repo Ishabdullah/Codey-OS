@@ -5460,7 +5460,7 @@ def _render_staff_portal_base(role_title: str, primary_label: str, role_key: str
                         tbody.innerHTML = myProjects.map(p => 
                             `<tr>
                                 <td>#${{p.id}}</td>
-                                <td>Cust #${{p.customer_id}}</td>
+                                <td>${{escapeHtml(p.customer_name || ('Customer #' + p.customer_id))}}</td>
                                 <td>${{escapeHtml(p.title)}}</td>
                                 <td><span class="badge badge-info">${{escapeHtml(p.status)}}</span></td>
                             </tr>`

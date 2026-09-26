@@ -1226,7 +1226,16 @@ class APIRouter:
                     pid = query_params.get("property_id", [None])[0]
                     prop_id = _parse_int_query_param(query_params, "property_id", 0) if pid else None
                     projects = self.crm.list_projects(actor, customer_id=cust_id, property_id=prop_id)
-                    return 200, {"Content-Type": "application/json"}, {"projects": [p.to_dict() for p in projects]}
+                    # NEW-660-adjacent fix: same customer_name enrichment as
+                    # /api/v1/leads -- raw customer_id is the wrong thing for
+                    # the PM/technician/subcontractor staff portals'
+                    # "Assignments" table to display. customer_id stays for
+                    # other consumers (admin CRM panel, project create form).
+                    project_dicts = [p.to_dict() for p in projects]
+                    proj_cust_names = self._resolve_customer_names(p.customer_id for p in projects)
+                    for pd in project_dicts:
+                        pd["customer_name"] = proj_cust_names.get(pd["customer_id"])
+                    return 200, {"Content-Type": "application/json"}, {"projects": project_dicts}
                 elif method == "POST":
                     proj = Project(**json_body)
                     created = self.crm.create_project(proj, actor)
