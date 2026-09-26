@@ -113,11 +113,12 @@ def test_customer_360_credit_balance_panel_matches_other_panels_conventions():
     """Single-scalar panel (not a table/renderRows shape like
     c360PanelSection) -- must still share the same 403/'No access.'
     handling as every other panel (get_customer_credit_balance uses the
-    identical PERM_READ_FINANCIALS/PERM_READ_OWN_FINANCIALS + ROLE_CUSTOMER
-    gating as list_invoices, so it never surfaces to a role that
-    wouldn't already see 'No access.' on Invoices), and the zero-balance
-    case (the common case) must render a quiet empty-state message, not
-    an alarming '$0'."""
+    same PERM_READ_FINANCIALS/PERM_READ_OWN_FINANCIALS check as
+    list_invoices, so it never surfaces to a role that wouldn't already
+    see 'No access.' on Invoices -- though the ROLE_CUSTOMER narrowing
+    itself isn't byte-identical, see the panel's own comment), and the
+    zero-balance case (the common case) must render a quiet empty-state
+    message, not an alarming '$0'."""
     html = render_sales_surface()
     start = html.index("function renderCreditBalancePanel(result)")
     end = html.index("function renderCustomer360(customerId, byKey)")

@@ -7081,11 +7081,15 @@ def _render_sales_portal() -> str:
         // shape -- mirrors the Info card above (a single-value erp-card)
         // for the non-zero case, and c360PanelSection's own emptyMsg
         // branch for the (most common) zero-balance case. Same 403/
-        // "No access." handling as every other panel here -- gated
-        // identically to Invoices (get_customer_credit_balance uses the
-        // exact same PERM_READ_FINANCIALS/PERM_READ_OWN_FINANCIALS check
-        // as list_invoices), so this never 403s for a role that doesn't
-        // already get "No access." on Invoices.
+        // "No access." handling as every other panel here --
+        // get_customer_credit_balance uses the same PERM_READ_FINANCIALS/
+        // PERM_READ_OWN_FINANCIALS check as list_invoices, so this never
+        // 403s for a role that doesn't already get "No access." on
+        // Invoices. Not byte-identical gating, though: for a mismatched
+        // ROLE_CUSTOMER id, list_invoices silently narrows to the actor's
+        // own customer_id while get_customer_credit_balance raises --
+        // currently a dead distinction, since this file (the sales
+        // portal) has no ROLE_CUSTOMER code path at all.
         function renderCreditBalancePanel(result) {{
             const headerHtml = `<h3 style="margin-top:0;">Credit Balance</h3>`;
             if (!result || !result.ok) {{
