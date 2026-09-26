@@ -5375,10 +5375,32 @@ class CRMService:
                 f"Invalid payment_type '{payment_type}'; must be one of {sorted(_VALID_PAYMENT_TYPES)}"
             )
 
+        # NEW-651: negative payments would silently skip the overpayment-
+        # credit insert below (its guard is `> 0.001`) while leaving any
+        # previously-issued customer_credits row unreversed -- there's no
+        # payment-correction/reversal mechanism in this codebase, so the
+        # fix is simply to reject negative amounts outright. $0.00 stays
+        # allowed -- it's a documented legitimate use case (an operator's
+        # reconciliation note, see the idempotency comment below).
+        if payment_amount < 0:
+            raise ValueError(
+                f"payment_amount must be >= 0, got {payment_amount}"
+            )
+
         conn = self.db.get_connection()
         row = conn.execute("SELECT * FROM invoices WHERE id = ?;", (invoice_id,)).fetchone()
         if not row:
             raise ValueError(f"Invoice {invoice_id} not found")
+
+        # NEW-633: a payment against a voided invoice must not silently
+        # resurrect it to paid/partially_paid. finance_service.py already
+        # treats status='void' as excluded/terminal on the read side (its
+        # AR-balance queries filter `status != 'void'`); this matches that
+        # on the write side. Checked before any side effect
+        # (before _before is even captured) so a rejected call leaves no
+        # audit entry, matching this method's other early-raise sites.
+        if row["status"] == "void":
+            raise ValueError(f"Cannot record a payment against voided invoice {invoice_id}")
 
         _before = self._row_to_invoice(row).to_dict()
 
@@ -5699,12 +5721,14 @@ class CRMService:
         #     payment id. `notes` below records the payment's own
         #     timestamp+amount explicitly so a human can identify a
         #     duplicate row from a retried record_payment call.
-        #   - record_payment validates neither payment_amount > 0 nor
-        #     record_payment being called with the SAME timestamp/amount
-        #     twice -- a $0.00 or negative payment_amount on an eligible
-        #     invoice writes a $0.00/negative override row unchanged from
-        #     that input, same as every other money field this function
-        #     already trusts from the caller.
+        #   - record_payment does not guard against being called with the
+        #     SAME timestamp/amount twice -- a retried call still writes a
+        #     second override row here. (NEW-651, fixed: negative
+        #     payment_amount is now rejected before this point; a $0.00
+        #     payment_amount is still legitimate -- see the idempotency
+        #     comment below -- and still writes a $0.00 override row
+        #     unchanged from that input, same as every other money field
+        #     this function already trusts from the caller.)
         #
         # System actor, same shape/rationale/known FK-fragility as the
         # Phase-1 block's commission_system_actor above (see NEW-602) --
