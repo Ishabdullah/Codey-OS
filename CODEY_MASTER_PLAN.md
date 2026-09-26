@@ -7744,7 +7744,19 @@ this file's own don't-duplicate rule.
       from an operator's perspective) and `NEW-651` (pre-existing:
       `record_payment` doesn't validate non-negative payment amounts).
       This closes all four of Ish's round-4 decisions in full.
-      See `PROJECT_LOG.md`'s 2026-09-25 B8.15 entries (five rounds).
+      **Round 6, commit `86106b4`** — closed `NEW-633`'s remaining void
+      half (decision-free, spec banked since round 3) and `NEW-651`
+      together, since both are `record_payment` guards, bundled per
+      Ish's standing preference. `record_payment` now rejects a payment
+      against a `status='void'` invoice and a negative `payment_amount`,
+      both checked before any side effect. A second rule-6 correction
+      landed mid-fix: the original `NEW-633` claim that
+      `operations_service.py` also excludes void on reads was itself
+      wrong — only `finance_service.py` does. code-reviewer APPROVED,
+      including a concrete worked example of the bug `NEW-651` prevents
+      (a $200 phantom credit-ledger liability). Full suite: 2436
+      passed, 1 skipped.
+      See `PROJECT_LOG.md`'s 2026-09-25 B8.15 entries (six rounds).
 - [x] **B8.14** — analytics rollups (rep/manager/executive tiers).
       **DONE in full 2026-09-25 (both halves shipped).** Split into
       B8.14a (RBAC prerequisite) + B8.14b (the rollup itself), per
