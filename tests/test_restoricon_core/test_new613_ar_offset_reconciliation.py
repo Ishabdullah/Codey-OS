@@ -302,6 +302,98 @@ def test_voided_but_still_approved_financing_record_produces_zero_offset_at_both
 
 
 # ==========================================
+# (3b) NEW-648: unlinked (invoice_id=None) financing record specifically
+# at the CLOSED gate -- every test above uses invoice_id-linked records;
+# this section exercises _financing_offset_for_project_unlinked via
+# transition_project_stage rather than only via get_project_pnl.
+# ==========================================
+
+
+def test_closed_gate_unlinked_financing_fully_covers_balance_no_reason_needed(setup_services):
+    s = setup_services
+    admin, crm, finance, financing, ops, db = (
+        s["admin"], s["crm"], s["finance"], s["financing"], s["ops"], s["db"]
+    )
+    cust, project, inv = _make_billed_project_with_invoice(crm, admin, db, balance_due=3000.0)
+
+    # Unlinked -- no invoice_id.
+    record = financing.create_financing_record(
+        FinancingRecord(
+            project_id=project.id, invoice_id=None,
+            application_status="approved", amount_financed=3000.0,
+        ),
+        admin,
+    )
+    # Confirm eligibility explicitly (status='active') rather than relying
+    # on an assumed default -- symmetric with the voided-record test below,
+    # which also refetches and asserts on status.
+    refetched = financing.get_financing_record(record.id, admin)
+    assert refetched.status == "active"
+
+    # Pin the offset to this specific unlinked record via the same helper
+    # the CLOSED gate calls, so a pass here can't be coincidental (e.g.
+    # gross computed as 0 for an unrelated reason) -- "no exception raised"
+    # alone would be satisfied by any path landing at net_outstanding <= 0.
+    ar_net = finance.get_project_ar_net(project.id)
+    assert ar_net["total_outstanding_gross"] == 3000.0
+    assert ar_net["total_financing_offset"] == 3000.0
+    assert ar_net["total_outstanding"] == 0.0
+
+    # No reason passed -- must NOT raise, mirroring the linked-record case
+    # above (test_closed_gate_financing_fully_covers_balance_no_reason_needed).
+    closed = ops.transition_project_stage(project.id, ProjectStage.CLOSED, admin)
+    assert closed.stage == ProjectStage.CLOSED
+
+
+def test_closed_gate_unlinked_denied_financing_produces_zero_offset_still_requires_reason(setup_services):
+    s = setup_services
+    admin, crm, financing, ops, db = s["admin"], s["crm"], s["financing"], s["ops"], s["db"]
+    cust, project, inv = _make_billed_project_with_invoice(crm, admin, db, balance_due=4000.0)
+
+    # Unlinked but ineligible -- application_status='denied' -- must
+    # produce zero offset, mirroring
+    # test_denied_financing_record_produces_zero_offset_at_both_sites's
+    # Site 2 (which uses an invoice_id-linked record).
+    financing.create_financing_record(
+        FinancingRecord(
+            project_id=project.id, invoice_id=None,
+            application_status="denied", amount_financed=2000.0,
+        ),
+        admin,
+    )
+
+    with pytest.raises(ValueError, match=r"outstanding balance of \$4000\.00"):
+        ops.transition_project_stage(project.id, ProjectStage.CLOSED, admin)
+
+
+def test_closed_gate_unlinked_voided_but_approved_financing_produces_zero_offset(setup_services):
+    """NEW-614 shape, unlinked case: voiding a financing_records row never
+    clears its application_status, so eligibility must be status='active'
+    AND application_status IN (...) TOGETHER, not application_status
+    alone -- mirrors
+    test_voided_but_still_approved_financing_record_produces_zero_offset_at_both_sites's
+    Site 2 (which uses an invoice_id-linked record)."""
+    s = setup_services
+    admin, crm, financing, ops, db = s["admin"], s["crm"], s["financing"], s["ops"], s["db"]
+    cust, project, inv = _make_billed_project_with_invoice(crm, admin, db, balance_due=4000.0)
+
+    record = financing.create_financing_record(
+        FinancingRecord(
+            project_id=project.id, invoice_id=None,
+            application_status="approved", amount_financed=2000.0,
+        ),
+        admin,
+    )
+    financing.update_financing_record(record.id, {"status": "voided"}, admin)
+    refetched = financing.get_financing_record(record.id, admin)
+    assert refetched.status == "voided"
+    assert refetched.application_status == "approved"  # NOT cleared by voiding
+
+    with pytest.raises(ValueError, match=r"outstanding balance of \$4000\.00"):
+        ops.transition_project_stage(project.id, ProjectStage.CLOSED, admin)
+
+
+# ==========================================
 # (4) get_project_ar_net / get_ar_net_totals RBAC contract sanity
 # ==========================================
 
