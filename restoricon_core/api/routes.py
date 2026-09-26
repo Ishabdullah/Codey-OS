@@ -844,6 +844,25 @@ class APIRouter:
                         return 404, {"Content-Type": "application/json"}, {"error": "Customer not found"}
                     return 200, {"Content-Type": "application/json"}, {"customer": cust.to_dict()}
 
+            # NEW-650: customer credit-balance read -- no route/caller existed
+            # for CRMService.get_customer_credit_balance (added a8365a7). RBAC
+            # (PERM_READ_FINANCIALS/PERM_READ_OWN_FINANCIALS plus ROLE_CUSTOMER
+            # same-customer narrowing) lives entirely in that service method;
+            # the global `except PermissionError` handler below turns its
+            # denial into a 403, same as every other CRM-backed route.
+            if (
+                path.startswith("/api/v1/customers/")
+                and path.endswith("/credit-balance")
+                and path[len("/api/v1/customers/"):-len("/credit-balance")]
+                and "/" not in path[len("/api/v1/customers/"):-len("/credit-balance")]
+                and method == "GET"
+            ):
+                cust_id = _parse_int_path_segment(
+                    path[len("/api/v1/customers/"):-len("/credit-balance")], "customer_id"
+                )
+                balance = self.crm.get_customer_credit_balance(cust_id, actor)
+                return 200, {"Content-Type": "application/json"}, {"customer_id": cust_id, "credit_balance": balance}
+
             # CRM Pipeline Summary
             if path == "/api/v1/crm/pipeline" and method == "GET":
                 summary = self.crm.get_pipeline_summary(actor)
