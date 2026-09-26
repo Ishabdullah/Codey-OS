@@ -6336,6 +6336,65 @@ Then:
       forwarding, and deployed manifests for `Codey-Aigentik` and `Private-Codey-Agent`.
 - [ ] **11.x** — Model Orchestrator. **Parked** until a domain agent
       needing it is scoped.
+- [ ] **12.x — CCOS read-only CRM query capability (B8.11's actual
+      prerequisite).** Added 2026-09-26. Coordinator verified directly
+      that CCOS today has no path into Restoricon Core's sales/CRM
+      data: `domain_router.py`'s CRM domain classifies requests but its
+      default capability (`crm.customer_query`) is registered by no
+      plugin (`NEW-652`); `ccos/core/device_bridge.py` is write-only
+      (device-limb comms logging); no plugin under `ccos/plugins/`
+      calls Restoricon Core's HTTP API at all. This is the literal
+      block condition B8.11 names ("depends on CCOS reaching a state
+      where it can serve read-only advisory queries") — this item is
+      CCOS-layer infrastructure, deliberately not nested under B8 since
+      it isn't sales-portal work.
+      **Scoped 2026-09-26 by project-architect** (spec in
+      `PROJECT_LOG.md`'s 2026-09-26 entry). First-slice scope: one new
+      `crm.count_open_leads` capability (`in_process`, not
+      `external_process` — stays outside rule 4's mandatory
+      process-lifecycle review), new plugin
+      `ccos/plugins/crm/core_query/` (manifest + client + capability
+      entry point, mirroring `ccos/plugins/device/bridge/`'s
+      structure), backed by one existing Core read endpoint
+      (`GET /api/v1/leads?assigned_user_id=`, no new API route needed).
+      Demonstrates one real end-to-end question ("how many open leads
+      does rep X have") through the planner's real dispatch path
+      (`planner.py` → `plugin_manager.call_capability()`). Auth/config
+      placement: reuses `utils.config.get_restoricon_api_config()` for
+      host/port; a new token lives under `CODEY_STATE_DIR`
+      (`~/.codeyOS/ccos_crm_read_token`, gitignored), provisioned via an
+      extended `tools/provision_ai_agent_auth.py` with a distinct
+      `--username` (not Aigentik's — see `NEW-654`).
+      **Blocked on an Ish decision before implementation starts**
+      (open question 5.1 in the spec, load-bearing, not a detail):
+      `ROLE_AI_AGENT` is a full company-wide read/write grant
+      (`NEW-655`) — a token minted today is "read-only" only because
+      this plugin's own code chooses to send GETs, not because the
+      credential itself is restricted. Two options, genuinely different
+      in size: (a) a `custom_permissions_json` deny-list on the token
+      (small, legal today with zero `auth.py` changes, but drifts if
+      `ROLE_AI_AGENT` gains new write permissions later that the
+      deny-list isn't updated to match) or (b) a new dedicated
+      `ROLE_AI_AGENT_READONLY` role in `auth.py`'s `ROLE_PERMISSIONS`
+      (bigger, rule-4-adjacent, additive/non-drifting). Two further
+      open questions, not blocking but to confirm before slice 2: which
+      read endpoints get exposed next (opportunities? pipeline summary?
+      the analytics rollup?), and whether Ish is fine with the local
+      Qwen3.5-4B model itself having retrieval access to this business
+      data in a live conversational context, not just admin-dashboard
+      human users. Explicitly out of scope for slice 1: any write
+      access, multi-step/chained reasoning, the B8.11 UI itself, any
+      new Core API endpoint, any `auth.py`/`crm_service.py` change
+      beyond whatever the 5.1 decision requires, and anything
+      commission/analytics-rollup-gated (deferred — RBAC shape varies
+      by permission tier, would multiply the same ambiguity 5.1 is
+      trying to isolate). Findings from this scoping pass logged as
+      `NEW-652`/`653`/`654`/`655`.
+      **Ish decided 2026-09-26: option (a), the `custom_permissions_json`
+      deny-list** — smallest change, zero `auth.py` edits required. Ish
+      also decided to **hold implementation for now** rather than start
+      the implementer pipeline this round; spec stands as
+      implementer-ready whenever picked back up. Not started.
 
 ### Phase B — business layer (§6.3–§6.10)
 

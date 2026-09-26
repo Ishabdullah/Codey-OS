@@ -1,3 +1,37 @@
+## 2026-09-26 — Ish's visual bug report: unreadable Sales Rep Portal text, fixed same round (NEW-656)
+
+**What changed:** Ish reported "the lettering looks like i can't see it" on the Sales Rep Portal. Coordinator read `restoricon_core/api/web_surfaces.py` directly and confirmed a real bug, not a display/browser issue: `.erp-card`, `.erp-modal`, and `.kanban-card` in `_render_sales_portal()` (and `.erp-card` in `_render_staff_portal_base()`, shared by the PM/technician/subcontractor portals) set a white background with no explicit text color, so text inherited the page body's near-white color (`#F8FAFC`, tuned for the site's dark navy theme) — effectively invisible on white. implementer → code-reviewer pipeline, lighter pass (pure CSS, no process/security/RBAC). APPROVED. Committed `4b540ae`.
+
+- **The bug affected four portals, not just sales** — `_render_staff_portal_base()` is a shared template, so the same white-on-white gap existed on the PM, technician, and subcontractor portals too. Caught by reading the actual template reuse, not assumed from the one-portal report.
+- **The fix reused an existing token rather than inventing a color**: `var(--charcoal)` (`#1E293B`) was already defined in `_get_common_styles()`'s `:root` for exactly this dark-on-light case. Four one-line additions, nothing else touched.
+- **Both implementer and code-reviewer independently verified variable resolution and contrast math rather than trusting each other's numbers** — the code-reviewer re-ran the WCAG relative-luminance formula itself (14.63:1 for the fix, well above AAA) rather than accepting the implementer's stated figure, per this project's own "verification means real, verbatim output" rule.
+- **Two adjacent, lower-severity findings surfaced during the fix and correctly left unfixed rather than scope-crept in**: `--border-light` (used for table-row borders on these same cards) is referenced but defined nowhere in the file, so those borders currently render as nothing (`NEW-657`) — fixing it would add borders to ~5 unrelated call sites across the file, out of this task's scope. And `th`'s existing `var(--text-muted)` gives ~2.56:1 contrast on the new white backgrounds — legible but below WCAG AA, not the reported bug (`NEW-658`).
+
+**Verification performed:** `python3 -c "import restoricon_core.api.web_surfaces"` (clean import), 113 tests across 9 test files (structural/wiring, not computed-color — both agents explicitly noted this doesn't prove the visual fix, only that nothing broke structurally), plus manual DOM-nesting and full-stylesheet color-rule audits by both implementer and code-reviewer to confirm no competing rule would override the new inherited color.
+
+**Outcome:** `4b540ae` on `main`. `NEW_ISSUES.md` gained `NEW-656` (resolved in full), `NEW-657`, `NEW-658` (both logged, non-blocking, not fixed).
+
+---
+
+## 2026-09-26 — Scoping-only round: CCOS read-only CRM query capability (B8.11's actual prerequisite)
+
+**What changed:** with the B lane (B8.1–B8.15) fully closed, Ish asked to check what B8.11 (AI Sales Copilot) is actually blocked on rather than treat it as further B-lane work. Coordinator verified directly (not from the plan's own wording) that CCOS today has zero path into Restoricon Core's sales/CRM data — `domain_router.py`'s CRM domain classifies requests but its default capability is registered by no plugin; `device_bridge.py` is write-only (device-limb comms logging); no plugin under `ccos/plugins/` calls Restoricon Core's HTTP API at all. Ish approved scoping this prerequisite as new, standalone work — CCOS-layer infrastructure, not nested under B8. Dispatched project-architect (no implementer/code-reviewer this round — scoping only, no code written).
+
+- **The architect correctly refused to let this become B8.11 itself.** First-slice scope is deliberately narrow: one new `crm.count_open_leads` capability, one existing Core read endpoint (`GET /api/v1/leads`), one demonstrable end-to-end question through the real planner dispatch path. Multi-step reasoning, the actual copilot UI, and any endpoint beyond lead-counting are explicitly out of scope for this slice.
+- **A load-bearing gap was surfaced rather than glossed over**: `ROLE_AI_AGENT` (the role any CCOS-minted token would hold) is a full company-wide read/write grant. A token is "read-only" today only because this plugin's own code would choose to send GETs — the credential itself isn't restricted. The architect laid out two genuinely different-sized fixes (a `custom_permissions_json` deny-list vs. a new dedicated read-only role) without picking one, correctly treating it as Ish's call, not an implementation detail to default through.
+- **Routing was checked at the mechanism level, not assumed**: confirmed `capability_registry.find_for_task()` does exact lowercased whitespace-token-set matching with no stemming, so keyword-based discovery alone would be nondeterministic — the spec's routing-default edit (`domain_router.py:71`) is there to make dispatch deterministic, not just to register the capability and hope.
+- **Four out-of-scope findings surfaced and logged, none fixed silently**: `NEW-652` (dangling `crm.customer_query` default, registered by nothing), `NEW-653` (`list_leads` has no pagination), `NEW-654` (`provision_ai_agent_auth.py`'s rerun-revokes-all-tokens-for-username behavior becomes a real hazard the moment a second caller exists), `NEW-655` (no read-only agent role exists — the root cause behind the blocking decision above).
+
+**Verification performed:** none — this is a scoping-only round, no code written, no tests run. Full spec is implementer-ready but not yet actioned.
+
+**Outcome:** New Appendix A item `12.x` added to `CODEY_MASTER_PLAN.md` (CCOS read-only CRM query capability), status "Not started — waiting on Ish's 5.1 decision." `NEW_ISSUES.md` gained `NEW-652` through `NEW-655`. No commits this round (no code changed).
+
+**Next action:** blocked on Ish's decision between the deny-list vs. new-role approach to making the token genuinely read-only (item 5.1 in the spec) before the implementer pipeline starts. Two more non-blocking questions to confirm before slice 2: which read endpoints come next, and whether the local Qwen3.5-4B model itself should have retrieval access to this data in a live conversational context.
+
+**Update, same day:** Ish decided 5.1 — option (a), the `custom_permissions_json` deny-list (smallest change, zero `auth.py` edits). Ish also chose to hold implementation rather than start the implementer pipeline this round. `CODEY_MASTER_PLAN.md`'s `12.x` entry updated with the decision; status remains "Not started," now unblocked and implementer-ready whenever picked back up. No code written, no commits.
+
+---
+
 ## 2026-09-25 — B8.15 round 9: Customer 360 credit-balance panel, closing NEW-650 and the entire backlog sweep down to one item
 
 **What changed:** Ish asked to wire the credit balance into the Customer 360 view, closing the UI half of `NEW-650` that round 8 left open. implementer → code-reviewer pipeline, standard (touches a route the service layer already authorizes, no new RBAC logic of its own). APPROVED. Committed `ba7f3e3`, plus a same-round wording fix (`e69fd66`).

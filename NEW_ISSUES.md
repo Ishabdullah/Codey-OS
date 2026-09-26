@@ -19366,3 +19366,56 @@ housekeeping, same as `NEW-403`'s own cleanup.
 - **Fix direction (not decided/fixed this round):** whenever a payment-correction/reversal mechanism is designed, it should also handle reducing/reversing an associated `customer_credits` row, not just the invoice balance.
 - **Resolved 2026-09-25, commit `86106b4`, code-reviewer APPROVED.** `record_payment` now rejects `payment_amount < 0` with a `ValueError`, checked before any DB read/write. `payment_amount == 0` remains allowed (a documented "$0.00 reconciliation note" use case, relied on by an existing test). A payment-correction/reversal mechanism for `customer_credits` itself remains out of scope — this fix only prevents the negative-amount trigger, it doesn't add a way to intentionally reverse a credit.
 - **Cross-reference:** `restoricon_core/services/crm_service.py` (`record_payment`), `NEW-613`, `NEW-633`.
+
+## Found 2026-09-26 — project-architect scoping pass for the CCOS read-only CRM query capability (B8.11's actual prerequisite), desk-only reads, no code written, not fixed
+
+### [NEW-652] Confirmed: `domain_router.py`'s CRM domain default capability (`crm.customer_query`) is registered by no plugin anywhere in `ccos/plugins/`, so every CRM-classified request falls through to a nonexistent capability today
+
+- **Status:** Confirmed (project-architect, 2026-09-26, read directly). `DOMAIN_DEFAULT_CAPABILITIES[Domain.CRM]` (`ccos/core/domain_router.py:71`) names `crm.customer_query`. No plugin under `ccos/plugins/` registers a capability by that name. Any request classified into the CRM domain that also fails `capability_registry.find_for_task()`'s keyword match falls back to this default and fails at `plugin_manager.py:604`'s `call_capability()` with `RuntimeError("No loaded plugin implements 'crm.customer_query'")`.
+- **Impact:** low today — nothing currently drives CRM-domain requests through the planner in production, so this is latent, not live-triggered. Becomes load-bearing the moment any CRM-domain capability work ships.
+- **Fix direction (not decided/fixed this round):** the CCOS CRM-read-capability slice scoped this round (see Appendix A) repoints this default to its own new capability (`crm.count_open_leads`) as a side effect, but that's a stand-in for "the one CRM capability that exists," not a permanent decision about what the CRM domain's default action should be. Whoever adds a second CRM capability should revisit this default again.
+- **Cross-reference:** `ccos/core/domain_router.py`, `ccos/core/plugin_manager.py`, `ccos/core/capability_registry.py`.
+
+### [NEW-653] Confirmed: `CRMService.list_leads` and its `GET /api/v1/leads` route have no LIMIT/pagination of any kind
+
+- **Status:** Confirmed (project-architect, 2026-09-26, read directly at `restoricon_core/services/crm_service.py:1050-1092` and `restoricon_core/api/routes.py:946-957`). The query is an unbounded `ORDER BY id DESC;` with no LIMIT/OFFSET and the route accepts no pagination params.
+- **Impact:** none at current data volume (single-digit-to-low-hundreds lead counts). Will become a real cost/latency issue if lead volume grows substantially before this is revisited — every caller, including any future CCOS read capability, pays for a full table scan and full result serialization on every call.
+- **Fix direction (not decided/fixed this round):** add LIMIT/OFFSET pagination to both the service method and the route when lead volume or a caller's needs justify it. No urgency signal today.
+- **Cross-reference:** `restoricon_core/services/crm_service.py`, `restoricon_core/api/routes.py`.
+
+### [NEW-654] Confirmed: `tools/provision_ai_agent_auth.py` revokes every unrevoked token for a given `--username` on rerun, a shared-username collision hazard once a second caller exists
+
+- **Status:** Confirmed (project-architect, 2026-09-26, read directly). This behavior was added deliberately for `NEW-227`. It was safe while Aigentik (`codey-aigentik-agent`) was the script's only caller. The CCOS CRM-read-capability slice scoped this round (see Appendix A) would be a second caller; if it reused Aigentik's username, refreshing either client's token would silently revoke the other's.
+- **Impact:** low today (still only one real caller), becomes real the moment a second caller is provisioned.
+- **Fix direction (not decided/fixed this round):** the CCOS CRM-read-capability slice's own spec already mandates a distinct `--username` (`codey-ccos-crm-reader`) for this reason — logged here so the hazard itself is on record independent of that one mitigation, in case a third caller shows up later without reading this slice's spec first.
+- **Cross-reference:** `tools/provision_ai_agent_auth.py`, `NEW-227`.
+
+### [NEW-655] Confirmed: `ROLE_AI_AGENT` is a full company-wide read/write grant (leads, customers, CRM, financials, team commissions, DNC, and more) — no role or mechanism exists today that expresses "read-only agent"
+
+- **Status:** Confirmed (project-architect, 2026-09-26, read directly at `restoricon_core/auth.py`'s `ROLE_PERMISSIONS[ROLE_AI_AGENT]`). A token minted via `provision_ai_agent_auth.py` as it exists today is "read-only" only because a given caller's own code chooses to send GET requests — the credential itself is fully write-capable via any other caller holding it.
+- **Impact:** directly blocks the CCOS CRM-read-capability slice from being genuinely safe to ship — this is that slice's open decision 5.1 (Ish's call, not yet made): a `custom_permissions_json` deny-list on the token (small, but drifts if `ROLE_AI_AGENT`'s write permissions grow later and the deny-list isn't updated to match) vs. a new dedicated `ROLE_AI_AGENT_READONLY` role (bigger, rule-4-adjacent, but additive and non-drifting).
+- **Fix direction (not decided/fixed this round):** Ish's decision — see the CCOS CRM-read-capability Appendix A item's open questions.
+- **Cross-reference:** `restoricon_core/auth.py`, the CCOS CRM-read-capability Appendix A item.
+
+## Found 2026-09-26 — Ish's own visual report of unreadable Sales Rep Portal text, fixed same round; two adjacent findings surfaced during the fix, not fixed
+
+### [NEW-656] RESOLVED 2026-09-26, commit `4b540ae`: `.erp-card`/`.erp-modal`/`.kanban-card` set a white background with no explicit text color, inheriting the page body's near-white color and rendering effectively invisible
+
+- **Status:** Confirmed (Ish's direct visual report, independently confirmed by the coordinator reading the CSS before any fix was scoped). `restoricon_core/api/web_surfaces.py`'s `_render_staff_portal_base()` (shared by the PM, technician, and subcontractor portals) and `_render_sales_portal()` each define `.erp-card { background: white; ... }` in their own self-contained `<style>` block with no `color` override; `_render_sales_portal()` also has `.erp-modal` and `.kanban-card` with the same gap. `body { color: var(--text-main) }` resolves to `#F8FAFC` (near-white), designed for the site's dark navy theme — any text inside these white containers without its own inline color (most `<h2>` headings, table `<td>` contents, "Loading..." placeholders, kanban card text) inherited that near-white color on a white background.
+- **Impact:** high (visual) — affected four staff-facing portals (sales, PM, technician, subcontractor), not just sales. No data-integrity or security impact; presentation-only.
+- **Resolved 2026-09-26, commit `4b540ae`, code-reviewer APPROVED (lighter pass, pure CSS, not rule-4).** Added `color: var(--charcoal)` (`#1E293B`, an existing token already defined in `_get_common_styles()`'s `:root`, reused rather than invented) to all four affected rules. Code-reviewer independently computed contrast (14.63:1, well above WCAG AAA) rather than trusting the implementer's stated numbers, and confirmed no competing element-level color rule in either function's `<style>`/JS would override the new inherited color.
+- **Cross-reference:** `restoricon_core/api/web_surfaces.py` (`_render_staff_portal_base`, `_render_sales_portal`), `NEW-657`, `NEW-658`.
+
+### [NEW-657] Confirmed, non-blocking: `--border-light` CSS variable is referenced in multiple places in `web_surfaces.py` but defined nowhere in the file — those borders currently render as nothing
+
+- **Status:** Confirmed (implementer + code-reviewer, 2026-09-26, both independently grepped for a `--border-light:` definition and found only usages — lines ~5356, ~5510, ~5523, ~5810, ~7888 at time of finding — with zero declaration anywhere in any `:root` block in this file).
+- **Impact:** low — `border-bottom: 1px solid var(--border-light)` with an undefined custom property is an invalid declaration value, so browsers drop it entirely; the affected table rows/dividers simply have no visible border rather than a broken one. Not the reported bug (text was invisible, not merely under-bordered).
+- **Fix direction (not decided/fixed this round):** define `--border-light` in `_get_common_styles()`'s `:root` block (a light-gray tone appropriate for use on white card backgrounds, e.g. in the `#E2E8F0`–`#CBD5E1` range) — deliberately not done this round since adding the variable would suddenly introduce visible borders on every one of its ~5 call sites across the file, a behavior change beyond this task's scope of "fix the invisible text."
+- **Cross-reference:** `restoricon_core/api/web_surfaces.py`, `NEW-656`.
+
+### [NEW-658] Confirmed, non-blocking: `th { color: var(--text-muted) }` gives ~2.56:1 contrast on the sales/staff portals' white card backgrounds, below WCAG AA's 4.5:1 for normal text
+
+- **Status:** Confirmed (code-reviewer, 2026-09-26, computed via the WCAG relative-luminance formula directly: `#94A3B8` on `#FFFFFF` = 2.56:1).
+- **Impact:** low — legible, not invisible (this is not the bug Ish reported); table header labels are simply lower-contrast than ideal on the newly-corrected white backgrounds.
+- **Fix direction (not decided/fixed this round):** if revisited, use a darker slate (e.g. `#64748B`/`#475569` range) for `th` specifically on these white-card surfaces rather than reusing `--text-muted` verbatim, since that token is tuned for the dark navy theme where it has good contrast, not for these white cards.
+- **Cross-reference:** `restoricon_core/api/web_surfaces.py`, `NEW-656`.
