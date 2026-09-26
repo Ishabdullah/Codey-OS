@@ -7756,7 +7756,12 @@ this file's own don't-duplicate rule.
       including a concrete worked example of the bug `NEW-651` prevents
       (a $200 phantom credit-ledger liability). Full suite: 2436
       passed, 1 skipped.
-      See `PROJECT_LOG.md`'s 2026-09-25 B8.15 entries (six rounds).
+      **Round 7, commit `c94824c`** — closed `NEW-648`, a test-coverage
+      gap flagged during `NEW-613`'s review (the CLOSED-gate financing
+      offset was untested for unlinked, `invoice_id=None` records).
+      Three tests added confirming existing behavior is already correct
+      — no production code changed, no bug found.
+      See `PROJECT_LOG.md`'s 2026-09-25 B8.15 entries (seven rounds).
 - [x] **B8.14** — analytics rollups (rep/manager/executive tiers).
       **DONE in full 2026-09-25 (both halves shipped).** Split into
       B8.14a (RBAC prerequisite) + B8.14b (the rollup itself), per

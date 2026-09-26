@@ -1,3 +1,18 @@
+## 2026-09-25 — B8.15 round 7: NEW-648 test-coverage closure, no production code changed
+
+**What changed:** the last two remaining self-contained follow-ups from this backlog sweep were NEW-648 (a coverage gap) and NEW-650 (a route/wiring gap). NEW-648 first: added three tests to `test_new613_ar_offset_reconciliation.py` specifically exercising `transition_project_stage`'s CLOSED gate with an unlinked (`invoice_id=None`) financing record — the code path was already correct (reused verbatim from the already-reviewed B8.8b-2 offset math) but untested at this specific, newly-reachable call site. Test-only change, standard pipeline. APPROVED. Committed `c94824c`.
+
+- **The implementer deliberately strengthened test 1 beyond a coincidental-pass risk**: rather than just asserting "no exception raised" (which could pass for the wrong reason — e.g. a bug elsewhere that zeroes the gross balance entirely, not the offset math working correctly), it pins `get_project_ar_net`'s exact return values (`total_outstanding_gross`, `total_financing_offset`, `total_outstanding`) before asserting on the transition's side effect. Code-reviewer verified this distinction matters by constructing a concrete counter-scenario where the weaker version would have passed coincidentally and confirming the stronger version catches it.
+- **No bug found** — this was purely a confidence gap, not a defect. The unlinked-offset code path (`_financing_offset_for_project_unlinked`) has no per-invoice clamp the way the linked path does, only a project-wide floor — confirmed this is documented, intentional design (unlinked financing isn't tied to one invoice, so there's nothing per-invoice to clamp against), not something these coverage tests should have caught as a gap.
+
+**Verification performed:** code-reviewer reran the new tests plus the full existing 29-test combined file set, confirmed via `git diff --stat` that only the one test file changed.
+
+**Outcome:** `c94824c` on `main`. `CODEY_MASTER_PLAN.md`'s `B8.15` stub extended with a "Round 7" paragraph. `NEW_ISSUES.md`'s `NEW-648` marked resolved.
+
+**Next action:** `NEW-650` (credit ledger has no route/UI wiring yet) is the last remaining self-contained item from this backlog sweep. `NEW-649` (the cross-agent collision process finding) needs no code fix.
+
+---
+
 ## 2026-09-25 — B8.15 round 6: NEW-633's void half + NEW-651, bundled into one record_payment round
 
 **What changed:** after round 5 closed all four of Ish's explicit decisions, he said "keep going on the rest." Two remaining findings both touched `record_payment`'s money-handling core, so they were bundled per his standing "fix related findings together" preference rather than run as separate rounds. implementer → code-reviewer pipeline, rule-4-level scrutiny. APPROVED, zero blocking findings. Committed `86106b4`.
