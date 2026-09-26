@@ -5351,7 +5351,7 @@ def _render_staff_portal_base(role_title: str, primary_label: str, role_key: str
         {_get_common_styles()}
         .portal-layout {{ max-width: 1200px; margin: 2rem auto; padding: 0 1.25rem; display: flex; flex-direction: column; gap: 2rem; }}
         .header-card {{ background: linear-gradient(135deg, #112240 0%, #1c2e4a 100%); border-radius: 12px; padding: 2rem; color: white; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }}
-        .erp-card {{ background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); padding: 1.5rem; margin-bottom: 1.5rem; }}
+        .erp-card {{ background: white; color: var(--charcoal); border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); padding: 1.5rem; margin-bottom: 1.5rem; }}
         table {{ width: 100%; border-collapse: collapse; }}
         th, td {{ padding: 0.75rem; text-align: left; border-bottom: 1px solid var(--border-light); }}
         th {{ color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }}
@@ -5505,7 +5505,7 @@ def _render_sales_portal() -> str:
         {_get_common_styles()}
         .portal-layout {{ max-width: 1200px; margin: 2rem auto; padding: 0 1.25rem; display: flex; flex-direction: column; gap: 2rem; }}
         .header-card {{ background: linear-gradient(135deg, #112240 0%, #1c2e4a 100%); border-radius: 12px; padding: 2rem; color: white; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }}
-        .erp-card {{ background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); padding: 1.5rem; margin-bottom: 1.5rem; }}
+        .erp-card {{ background: white; color: var(--charcoal); border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); padding: 1.5rem; margin-bottom: 1.5rem; }}
         table {{ width: 100%; border-collapse: collapse; }}
         th, td {{ padding: 0.75rem; text-align: left; border-bottom: 1px solid var(--border-light); }}
         th {{ color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }}
@@ -5515,7 +5515,7 @@ def _render_sales_portal() -> str:
            each surface in this file ships its own self-contained <style>. */
         .erp-modal-overlay {{ position: fixed; inset: 0; background: rgba(10, 25, 47, 0.85); display: none; align-items: center; justify-content: center; z-index: 3000; padding: 1.5rem; }}
         .erp-modal-overlay.active {{ display: flex; }}
-        .erp-modal {{ background: white; border-radius: 12px; width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto; padding: 1.75rem; box-shadow: 0 25px 50px rgba(0,0,0,0.5); }}
+        .erp-modal {{ background: white; color: var(--charcoal); border-radius: 12px; width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto; padding: 1.75rem; box-shadow: 0 25px 50px rgba(0,0,0,0.5); }}
         .modal-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; }}
         .modal-header h3 {{ margin: 0; font-size: 1.15rem; }}
         .modal-field {{ margin-bottom: 0.85rem; }}
@@ -5525,7 +5525,7 @@ def _render_sales_portal() -> str:
         .kanban-board {{ display: flex; gap: 0.85rem; overflow-x: auto; padding-bottom: 0.5rem; }}
         .kanban-col {{ flex: 0 0 230px; background: #f4f5f7; border-radius: 8px; padding: 0.65rem; }}
         .kanban-col h4 {{ margin: 0 0 0.6rem 0; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }}
-        .kanban-card {{ background: white; border-radius: 6px; padding: 0.6rem; margin-bottom: 0.6rem; box-shadow: 0 1px 3px rgba(0,0,0,0.12); font-size: 0.82rem; }}
+        .kanban-card {{ background: white; color: var(--charcoal); border-radius: 6px; padding: 0.6rem; margin-bottom: 0.6rem; box-shadow: 0 1px 3px rgba(0,0,0,0.12); font-size: 0.82rem; }}
         .kanban-card select {{ width: 100%; margin-top: 0.4rem; font-size: 0.78rem; padding: 0.25rem; }}
     </style>
 </head>
