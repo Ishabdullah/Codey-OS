@@ -354,6 +354,23 @@ class CRMService:
         full_name = f"{row['first_name'] or ''} {row['last_name'] or ''}".strip()
         return full_name or row["company_name"] or None
 
+    def _get_project_display_name(self, project_id: int) -> Optional[str]:
+        """Resolve a project id to a display name (its title), with NO
+        actor/permission check at all -- same rationale as
+        `_get_customer_display_name` above: the caller already
+        independently holds this id from a row (e.g. a document) it is
+        already authorized to see, so disclosing only a name for that id
+        needs no new permission constant. Returns None for a nonexistent
+        id, never raises."""
+        conn = self.db.get_connection()
+        row = conn.execute(
+            "SELECT title FROM projects WHERE id = ?;",
+            (project_id,),
+        ).fetchone()
+        if not row:
+            return None
+        return row["title"] or None
+
     def _get_customer_unscoped(self, customer_id: int) -> Optional[Customer]:
         """NEW-587 fix: fetch a customer with NO ownership/narrowing check
         at all -- not even the NEW-568 rep-ownership narrowing that

@@ -367,3 +367,23 @@ def test_admin_surface_does_not_redirect_roles_without_a_dedicated_portal():
     role_portal_map_js = html[i:j]
     for role in ("manager", "ai_agent", "subcontractor", "admin"):
         assert f"'{role}':" not in role_portal_map_js, role
+
+
+def test_admin_surface_documents_panel_renders_names_not_raw_ids():
+    """NEW-661: the admin Documents panel's loadDocuments() used to render
+    bare 'Cust: <id>' / 'Proj: <id>' text. GET /api/v1/documents now
+    additively returns customer_name/project_name (routes.py), and the
+    client renders those, falling back to 'Customer #id'/'Project #id'
+    (matching this project's established fallback convention) only when a
+    name failed to resolve -- customer_id/project_id keys/behaviour are
+    otherwise unchanged."""
+    html = render_admin_surface()
+    start = html.index("async function loadDocuments()")
+    end = html.index("async function searchAuditLog()")
+    documents_js = html[start:end]
+    assert "'Cust: ' + d.customer_id" not in documents_js
+    assert "'Proj: ' + d.project_id" not in documents_js
+    assert "d.customer_name || ('Customer #' + d.customer_id)" in documents_js
+    assert "d.project_name || ('Project #' + d.project_id)" in documents_js
+    assert "escapeHtml(d.customer_name" in documents_js
+    assert "escapeHtml(d.project_name" in documents_js

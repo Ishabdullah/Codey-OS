@@ -4309,8 +4309,8 @@ def render_admin_surface() -> str:
                             <td>${escapeHtml(d.document_type)}</td>
                             <td>${escapeHtml(d.title)}</td>
                             <td>
-                                ${d.customer_id ? 'Cust: ' + d.customer_id : ''}
-                                ${d.project_id ? 'Proj: ' + d.project_id : ''}
+                                ${d.customer_id ? 'Cust: ' + escapeHtml(d.customer_name || ('Customer #' + d.customer_id)) : ''}
+                                ${d.project_id ? 'Proj: ' + escapeHtml(d.project_name || ('Project #' + d.project_id)) : ''}
                             </td>
                             <td>
                                 <button onclick="window.open('/api/v1/documents/${d.id}/download?token=' + getAuthToken(), '_blank')" class="btn-gold" style="padding: 0.2rem 0.5rem;">Download</button>
@@ -5727,7 +5727,11 @@ def _render_sales_portal() -> str:
             </div>
             <div class="modal-field">
                 <label>Customer (leave blank if unknown)</label>
-                <select id="newLeadCustomerId"><option value="">-- none --</option></select>
+                <input type="text" id="newLeadCustomerSearch" oninput="searchNewLeadCustomers()" placeholder="Start typing a customer name...">
+                <div id="newLeadCustomerResults" style="margin-bottom:0.5rem;"></div>
+                <p id="newLeadSelectedCustomerLabel" style="color:var(--text-muted);"></p>
+                <button type="button" class="btn-gold" id="newLeadClearCustomerBtn" style="display:none;padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="clearNewLeadCustomer()">Change</button>
+                <input type="hidden" id="newLeadCustomerId" value="">
             </div>
             <div class="modal-field">
                 <label>Property Type</label>
@@ -6098,11 +6102,6 @@ def _render_sales_portal() -> str:
                 }} else {{
                     tbody.innerHTML = '<tr><td colspan="5" style="color:var(--text-muted)">No customers.</td></tr>';
                 }}
-                // window.currentSalesCustomers: same window.currentX caching
-                // convention as window.currentCalendarUsers (~loadCalendar) --
-                // feeds the New Lead modal's customer <select> below without a
-                // second /api/v1/customers fetch.
-                window.currentSalesCustomers = (res.ok && data.customers) || [];
             }} catch (e) {{ /* network/parse failure: customers tbody keeps its "Loading..." placeholder, no further UI action needed */ }}
 
             // Load Leads
@@ -7846,8 +7845,10 @@ def _render_sales_portal() -> str:
 
         function openGuidedContractModal() {{
             gflowState = {{ customer: null, contractId: null }};
+            clearTimeout(gflowSearchDebounce);
             document.getElementById('gflowCustomerSearch').value = '';
             document.getElementById('gflowCustomerResults').innerHTML = '';
+            gflowSearchResults = [];
             document.getElementById('gflowNewCustomerForm').style.display = 'none';
             document.getElementById('gflowSignerStatus').innerHTML = '';
             showGuidedStep(1);
@@ -7870,6 +7871,7 @@ def _render_sales_portal() -> str:
         // client-side scoping needed here; the server already narrows the
         // result set the search query runs against.
         let gflowSearchDebounce = null;
+        let gflowSearchResults = [];
         async function guidedSearchCustomers() {{
             clearTimeout(gflowSearchDebounce);
             const term = document.getElementById('gflowCustomerSearch').value.trim();
@@ -7885,6 +7887,7 @@ def _render_sales_portal() -> str:
                     const data = await res.json();
                     if (!res.ok) {{ guidedFlowError(data.error || 'Search failed.'); return; }}
                     const matches = data.customers || [];
+                    gflowSearchResults = matches;
                     if (matches.length === 0) {{
                         resultsEl.innerHTML = '<p style="color:var(--text-muted);">No matches. Create a new customer below.</p>';
                         return;
@@ -7892,14 +7895,26 @@ def _render_sales_portal() -> str:
                     resultsEl.innerHTML = matches.map(c => `
                         <div style="padding:0.5rem;border-bottom:1px solid var(--border-light);display:flex;justify-content:space-between;align-items:center;">
                             <span>${{escapeHtml((c.first_name || '') + ' ' + (c.last_name || ''))}} ${{c.customer_number ? '(#' + c.customer_number + ')' : ''}} — ${{escapeHtml(c.phone || c.email || '')}}</span>
-                            <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick='guidedSelectCustomer(${{JSON.stringify(c)}})'>Select</button>
+                            <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="guidedSelectCustomer(${{c.id}})">Select</button>
                         </div>`
                     ).join('');
                 }} catch (e) {{ guidedFlowError('Search failed: network error.'); }}
             }}, 250);
         }}
 
-        function guidedSelectCustomer(customer) {{
+        // Looks up the customer object by id from the held search-results
+        // array rather than taking it inline from the onclick attribute --
+        // JSON.stringify(c) inlined into a single-quoted onclick is a
+        // stored-XSS vector (a customer name containing a single quote
+        // breaks out of the attribute). See guidedSelectCustomerObj() for
+        // the actual selection logic, also used by the new-customer path.
+        function guidedSelectCustomer(customerId) {{
+            const customer = gflowSearchResults.find(c => c.id === customerId);
+            if (!customer) {{ console.warn('guidedSelectCustomer: id not found in last search results', customerId); return; }}
+            guidedSelectCustomerObj(customer);
+        }}
+
+        function guidedSelectCustomerObj(customer) {{
             gflowState.customer = customer;
             document.getElementById('gflowSelectedCustomerLabel').textContent =
                 'Customer: ' + (customer.first_name || '') + ' ' + (customer.last_name || '') +
@@ -7928,7 +7943,7 @@ def _render_sales_portal() -> str:
                 }});
                 const data = await res.json();
                 if (!res.ok) {{ guidedFlowError(data.error || 'Failed to create customer.'); return; }}
-                guidedSelectCustomer(data.customer);
+                guidedSelectCustomerObj(data.customer);
             }} catch (e) {{ guidedFlowError('Failed to create customer: network error.'); }}
         }}
 
@@ -7993,22 +8008,75 @@ def _render_sales_portal() -> str:
         // Lead(**json_body) directly (routes.py) -- only real Lead dataclass
         // field names may be sent, or the route 400s on an unexpected kwarg.
         // -----------------------------------------------------------------
-        function populateNewLeadCustomerSelect() {{
-            const sel = document.getElementById('newLeadCustomerId');
-            if (!sel) return;
-            const customers = window.currentSalesCustomers || [];
-            // Label composition mirrors CRMService._get_customer_display_name:
-            // first + last name, falling back to company_name, falling back
-            // to 'Customer #id' if neither is set.
-            sel.innerHTML = '<option value="">-- none --</option>' +
-                customers.map(c => {{
-                    const name = `${{c.first_name || ''}} ${{c.last_name || ''}}`.trim() || c.company_name || ('Customer #' + c.id);
-                    return `<option value="${{c.id}}">${{escapeHtml(name)}}</option>`;
-                }}).join('');
+        // Type-ahead customer search for the New Lead modal, same
+        // 250ms-debounce-then-fetch-then-render-Select-buttons shape as
+        // guidedSearchCustomers() above -- kept as its own parallel
+        // function (not a call into guidedSearchCustomers()) since that
+        // one writes into the guided-contract-flow's own gflowCustomer*
+        // elements/state; coupling the two modals' state together isn't
+        // worth the few lines saved.
+        let newLeadSearchDebounce = null;
+        let newLeadSearchResults = [];
+        async function searchNewLeadCustomers() {{
+            clearTimeout(newLeadSearchDebounce);
+            const term = document.getElementById('newLeadCustomerSearch').value.trim();
+            const resultsEl = document.getElementById('newLeadCustomerResults');
+            if (!term) {{ resultsEl.innerHTML = ''; return; }}
+            newLeadSearchDebounce = setTimeout(async () => {{
+                try {{
+                    const token = getAuthToken();
+                    const res = await fetch('/api/v1/customers?search=' + encodeURIComponent(term), {{
+                        headers: {{ 'Authorization': 'Bearer ' + token }}
+                    }});
+                    if (res.status === 401) {{ window.location.href = '/admin/login'; return; }}
+                    const data = await res.json();
+                    if (!res.ok) {{ resultsEl.innerHTML = '<p style="color:var(--danger);">' + escapeHtml(data.error || 'Search failed.') + '</p>'; return; }}
+                    const matches = data.customers || [];
+                    newLeadSearchResults = matches;
+                    if (matches.length === 0) {{
+                        resultsEl.innerHTML = '<p style="color:var(--text-muted);">No matches.</p>';
+                        return;
+                    }}
+                    resultsEl.innerHTML = matches.map(c => `
+                        <div style="padding:0.5rem;border-bottom:1px solid var(--border-light);display:flex;justify-content:space-between;align-items:center;">
+                            <span>${{escapeHtml((c.first_name || '') + ' ' + (c.last_name || ''))}} ${{c.customer_number ? '(#' + c.customer_number + ')' : ''}} — ${{escapeHtml(c.phone || c.email || '')}}</span>
+                            <button class="btn-gold" style="padding:0.2rem 0.6rem;font-size:0.75rem;" onclick="selectNewLeadCustomer(${{c.id}})">Select</button>
+                        </div>`
+                    ).join('');
+                }} catch (e) {{ resultsEl.innerHTML = '<p style="color:var(--danger);">Search failed: network error.</p>'; }}
+            }}, 250);
+        }}
+
+        // Looks up the customer object by id from the held search-results
+        // array rather than taking it inline from the onclick attribute --
+        // JSON.stringify(c) inlined into a single-quoted onclick is a
+        // stored-XSS vector (a customer name containing a single quote
+        // breaks out of the attribute). Same fix as guidedSelectCustomer()
+        // above.
+        function selectNewLeadCustomer(customerId) {{
+            const customer = newLeadSearchResults.find(c => c.id === customerId);
+            if (!customer) {{ console.warn('selectNewLeadCustomer: id not found in last search results', customerId); return; }}
+            document.getElementById('newLeadCustomerId').value = customer.id;
+            document.getElementById('newLeadSelectedCustomerLabel').textContent =
+                'Selected: ' + (customer.first_name || '') + ' ' + (customer.last_name || '') +
+                (customer.customer_number ? ' (#' + customer.customer_number + ')' : '');
+            document.getElementById('newLeadClearCustomerBtn').style.display = 'inline-block';
+            document.getElementById('newLeadCustomerSearch').value = '';
+            document.getElementById('newLeadCustomerResults').innerHTML = '';
+        }}
+
+        function clearNewLeadCustomer() {{
+            document.getElementById('newLeadCustomerId').value = '';
+            document.getElementById('newLeadSelectedCustomerLabel').textContent = '';
+            document.getElementById('newLeadClearCustomerBtn').style.display = 'none';
         }}
 
         function openCreateLeadModal() {{
-            populateNewLeadCustomerSelect();
+            clearTimeout(newLeadSearchDebounce);
+            document.getElementById('newLeadCustomerSearch').value = '';
+            document.getElementById('newLeadCustomerResults').innerHTML = '';
+            newLeadSearchResults = [];
+            clearNewLeadCustomer();
             document.getElementById('createLeadModal').classList.add('active');
         }}
 

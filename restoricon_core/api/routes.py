@@ -1562,7 +1562,18 @@ class APIRouter:
                         project_id=_parse_int_query_param(query_params, "project_id", 0) if pid else None,
                         document_type=dtype,
                     )
-                    return 200, {"Content-Type": "application/json"}, {"documents": [d.to_dict() for d in documents]}
+                    # NEW-661 fix: same customer_name enrichment as
+                    # /api/v1/leads and /api/v1/projects, plus a matching
+                    # project_name -- raw ids are the wrong thing for the
+                    # admin Documents panel to display. customer_id/
+                    # project_id stay for other consumers.
+                    doc_dicts = [d.to_dict() for d in documents]
+                    doc_cust_names = self._resolve_customer_names(d.customer_id for d in documents)
+                    doc_proj_names = self._resolve_project_names(d.project_id for d in documents)
+                    for dd in doc_dicts:
+                        dd["customer_name"] = doc_cust_names.get(dd["customer_id"])
+                        dd["project_name"] = doc_proj_names.get(dd["project_id"])
+                    return 200, {"Content-Type": "application/json"}, {"documents": doc_dicts}
                 elif method == "POST":
                     content_type = headers_lower.get("content-type", "")
                     if content_type.startswith("multipart/form-data"):
@@ -3545,6 +3556,19 @@ class APIRouter:
             name = self.crm._get_customer_display_name(cid)
             if name:
                 result[cid] = name
+        return result
+
+    def _resolve_project_names(self, project_ids: Iterable[Optional[int]]) -> Dict[int, str]:
+        """Batch-resolve project_id -> title for a set of rows the caller
+        already holds (e.g. documents), via CRMService's ungated
+        `_get_project_display_name` helper -- same shape/rationale as
+        `_resolve_customer_names` above. Distinct, non-None ids are
+        resolved once each, not once per row."""
+        result: Dict[int, str] = {}
+        for pid in {p for p in project_ids if p is not None}:
+            name = self.crm._get_project_display_name(pid)
+            if name:
+                result[pid] = name
         return result
 
     def _resolve_user_names(self, user_ids: Iterable[Optional[int]]) -> Dict[int, str]:

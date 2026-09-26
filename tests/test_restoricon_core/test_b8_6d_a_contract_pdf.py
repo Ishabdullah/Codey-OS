@@ -270,3 +270,21 @@ def test_signed_contract_pdf_visible_via_customer_360_documents_route(route_env)
     contract_docs = [d for d in data["documents"] if d["document_type"] == "contract"]
     assert len(contract_docs) == 1
     assert contract_docs[0]["customer_id"] == route_env["cust"].id
+
+
+def test_documents_route_response_includes_customer_and_project_names(route_env):
+    """NEW-661: GET /api/v1/documents additively enriches each document
+    dict with customer_name/project_name (batch-resolved via
+    _resolve_customer_names/_resolve_project_names), alongside the
+    existing, unchanged customer_id/project_id keys."""
+    status, _, data = route_env["router"].handle_request(
+        "GET", f"/api/v1/documents?customer_id={route_env['cust'].id}",
+        _hdr(route_env["actor_sales"]), b"",
+    )
+    assert status == 200
+    contract_docs = [d for d in data["documents"] if d["document_type"] == "contract"]
+    assert len(contract_docs) == 1
+    doc = contract_docs[0]
+    assert doc["customer_id"] == route_env["cust"].id
+    assert doc["customer_name"] == "Route Pdf"
+    assert doc["project_name"] is None  # this document has no linked project

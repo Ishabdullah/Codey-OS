@@ -125,20 +125,49 @@ def test_communications_center_panel_shows_customer_name_not_raw_id():
     )
 
 
-def test_new_lead_modal_customer_field_is_a_populated_select_not_a_number_input():
-    """The New Lead create form used to be a bare `<input type="number">`
-    for customer_id, forcing a rep to know/guess a raw numeric id. It is
-    now a `<select>` populated from window.currentSalesCustomers (the same
-    /api/v1/customers data the My Customers panel already fetches under
-    ROLE_SALES), with an empty '-- none --' option preserving the existing
-    "leave blank if unknown" behavior that submitCreateLead()'s
-    `if (custIdRaw)` guard already handles."""
+def test_new_lead_modal_customer_field_is_a_live_type_ahead_search():
+    """NEW-663 superseded: the New Lead create form's customer field went
+    through two shapes -- a bare `<input type="number">` (raw id), then a
+    `<select>` populated from a static window.currentSalesCustomers cache
+    (stale-preload gap = NEW-663), and is now live per-keystroke type-ahead
+    search matching the guided-contract-flow's own established pattern
+    (guidedSearchCustomers/guidedSelectCustomer). A hidden input keeps the
+    same `newLeadCustomerId` id so submitCreateLead()'s existing
+    `if (custIdRaw)` guard needs no changes."""
     html = render_sales_surface()
     assert '<input type="number" id="newLeadCustomerId">' not in html
-    assert '<select id="newLeadCustomerId">' in html
-    assert "function populateNewLeadCustomerSelect()" in html
-    assert "window.currentSalesCustomers" in html
+    assert '<select id="newLeadCustomerId">' not in html
+    assert "function populateNewLeadCustomerSelect()" not in html
+    assert "window.currentSalesCustomers" not in html
+    assert '<input type="hidden" id="newLeadCustomerId" value="">' in html
+    assert 'id="newLeadCustomerSearch"' in html
+    assert 'oninput="searchNewLeadCustomers()"' in html
+    assert 'id="newLeadCustomerResults"' in html
+    assert "async function searchNewLeadCustomers()" in html
+    assert "function selectNewLeadCustomer(customerId)" in html
+    assert "document.getElementById('newLeadCustomerId').value = customer.id;" in html
     assert "if (custIdRaw)" in html, "empty-value read-side guard must be untouched"
+
+
+def test_new_lead_and_guided_flow_customer_select_no_json_stringify_onclick():
+    """NEW-XXX (this round): JSON.stringify(c) inlined into a single-quoted
+    onclick attribute is a stored-XSS breakout vector -- a customer name
+    containing a single quote (e.g. malicious ' onmouseover=... content set
+    via the ordinary customer create/edit form, no special privilege gate)
+    breaks out of the attribute. Both the New Lead modal's
+    selectNewLeadCustomer and the guided-contract-flow's guidedSelectCustomer
+    must pass a bare numeric id through a double-quoted onclick and look the
+    customer object up from a held search-results array instead."""
+    html = render_sales_surface()
+    assert "onclick='selectNewLeadCustomer(${JSON.stringify" not in html
+    assert "onclick='guidedSelectCustomer(${JSON.stringify" not in html
+    assert 'onclick="selectNewLeadCustomer(${c.id})"' in html
+    assert 'onclick="guidedSelectCustomer(${c.id})"' in html
+    assert "let newLeadSearchResults = [];" in html
+    assert "let gflowSearchResults = [];" in html
+    assert "function guidedSelectCustomer(customerId)" in html
+    assert "function guidedSelectCustomerObj(customer)" in html
+    assert "guidedSelectCustomerObj(data.customer);" in html
 
 
 def test_sales_portal_auto_refreshes_via_interval():
