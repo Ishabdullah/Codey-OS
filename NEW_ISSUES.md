@@ -19350,13 +19350,14 @@ housekeeping, same as `NEW-403`'s own cleanup.
 
 ## Found 2026-09-25 — code-reviewer's round on the overpayment-credit ledger (NEW-613/633), both non-blocking, not fixed this round
 
-### [NEW-650] RESOLVED (route half) 2026-09-25, commit `e82c41f`: `CRMService.get_customer_credit_balance` has no caller anywhere outside its own definition and its test file — the credit ledger is currently write-only from an operator's perspective
+### [NEW-650] RESOLVED IN FULL 2026-09-25, commits `e82c41f` + `ba7f3e3` + `e69fd66`: `CRMService.get_customer_credit_balance` has no caller anywhere outside its own definition and its test file — the credit ledger is currently write-only from an operator's perspective
 
 - **Status:** Confirmed (code-reviewer, 2026-09-25, `a8365a7` review, grepped `restoricon_core/` and `tests/` directly). No route, no dashboard panel, no service-layer caller exists for this method today.
 - **Impact:** sits in tension with the `customer_credits` table's own DDL comment ("a recorded, queryable, customer-linked liability") and Ish's standing dashboard-single-control-surface preference — a credit is recorded on overpayment but has no UI/API surface for staff to actually see it yet.
 - **Fix direction (not decided/fixed this round):** add a route (e.g. `GET /api/v1/customers/{id}/credit-balance`) and/or wire it into the customer-360/dashboard view, whenever the B8.15 dashboard-wiring round happens.
-- **Route half resolved 2026-09-25, commit `e82c41f`, code-reviewer APPROVED.** Added `GET /api/v1/customers/{id}/credit-balance`, delegating RBAC entirely to the service method's existing gate. **Dashboard/customer-360 UI wiring remains open** — deliberately out of this fix's scope (an API caller, not a UI panel).
-- **Cross-reference:** `restoricon_core/services/crm_service.py` (`get_customer_credit_balance`), `restoricon_core/api/routes.py`, `NEW-613`, `NEW-633`.
+- **Route half resolved 2026-09-25, commit `e82c41f`, code-reviewer APPROVED.** Added `GET /api/v1/customers/{id}/credit-balance`, delegating RBAC entirely to the service method's existing gate.
+- **UI half resolved 2026-09-25, commits `ba7f3e3`+`e69fd66`, code-reviewer APPROVED (Ish: "wire the credit balance into the customer 360 view").** Discovered mid-implementation that Customer 360 lives ONLY in `_render_sales_portal()`, not `render_admin_surface()`/`render_tech_surface()` as the original scoping had assumed — corrected. Added a dedicated `renderCreditBalancePanel` (single scalar, doesn't fit the existing table-shaped `c360PanelSection` helper), matching this view's existing currency-formatting and 403/"No access." conventions exactly, deliberately not hidden by any inferred client-side role check (an existing test in this same file already establishes that rationale — `PERM_READ_FINANCIALS` can be granted per-user via `custom_permissions_json`). One wording overclaim caught by review ("gated identically to Invoices" — not quite true for a mismatched `ROLE_CUSTOMER` id, though currently a dead path since this file has no `ROLE_CUSTOMER` code path at all) was fixed inline the same round (`e69fd66`) rather than left standing.
+- **Cross-reference:** `restoricon_core/services/crm_service.py` (`get_customer_credit_balance`), `restoricon_core/api/routes.py`, `restoricon_core/api/web_surfaces.py` (`_render_sales_portal`), `NEW-613`, `NEW-633`.
 
 ### [NEW-651] RESOLVED 2026-09-25, commit `86106b4`: `record_payment` doesn't validate `payment_amount >= 0` — a negative payment can't claw back a previously-issued credit
 

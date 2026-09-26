@@ -7764,13 +7764,25 @@ this file's own don't-duplicate rule.
       **Round 8, commit `e82c41f`** — closed `NEW-650`'s route half:
       `GET /api/v1/customers/{id}/credit-balance`, delegating RBAC
       entirely to the already-reviewed service method's own gate.
-      Dashboard/customer-360 UI wiring remains open, out of scope.
       code-reviewer APPROVED; hand-traced the malformed-path guard
-      arithmetic. **This closes the entire B8.15 findings-backlog sweep
-      down to two intentionally-open items**: `NEW-649` (a process
-      finding, no code fix applies) and the credit-ledger UI wiring
-      just named (future-triggered, no urgency signal).
-      See `PROJECT_LOG.md`'s 2026-09-25 B8.15 entries (eight rounds).
+      arithmetic.
+      **Round 9, commits `ba7f3e3`+`e69fd66`** — Ish asked to wire the
+      credit balance into the Customer 360 view. Discovered mid-
+      implementation that Customer 360 lives only in
+      `_render_sales_portal()`, not the admin/tech surfaces as
+      originally assumed — corrected. Added a dedicated single-value
+      panel (the existing `c360PanelSection` helper is table-shaped,
+      doesn't fit a scalar), matching this view's currency-formatting
+      and 403-handling conventions exactly, deliberately not hidden by
+      any client-side role inference per this view's own existing test
+      rationale. code-reviewer APPROVED; one wording overclaim it
+      flagged ("gated identically to Invoices," not quite true for a
+      currently-dead `ROLE_CUSTOMER` edge case) was fixed inline the
+      same round rather than left standing. **This closes NEW-650 in
+      full and closes the entire B8.15 findings-backlog sweep down to
+      one intentionally-open item**: `NEW-649` (a process finding, no
+      code fix applies).
+      See `PROJECT_LOG.md`'s 2026-09-25 B8.15 entries (nine rounds).
 - [x] **B8.14** — analytics rollups (rep/manager/executive tiers).
       **DONE in full 2026-09-25 (both halves shipped).** Split into
       B8.14a (RBAC prerequisite) + B8.14b (the rollup itself), per
