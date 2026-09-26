@@ -19419,3 +19419,40 @@ housekeeping, same as `NEW-403`'s own cleanup.
 - **Impact:** low — legible, not invisible (this is not the bug Ish reported); table header labels are simply lower-contrast than ideal on the newly-corrected white backgrounds.
 - **Fix direction (not decided/fixed this round):** if revisited, use a darker slate (e.g. `#64748B`/`#475569` range) for `th` specifically on these white-card surfaces rather than reusing `--text-muted` verbatim, since that token is tuned for the dark navy theme where it has good contrast, not for these white cards.
 - **Cross-reference:** `restoricon_core/api/web_surfaces.py`, `NEW-656`.
+
+## Found 2026-09-26 — Ish's own follow-up report ("i need the actual names... same thing when creating anything"), fixed same round for the Sales Rep Portal; PM/technician/subcontractor follow-on and other findings logged, not yet fixed
+
+### [NEW-659] RESOLVED 2026-09-26, commit `4d57d50`: Sales Rep Portal showed raw `customer_id`/`assigned_user_id` numbers instead of names, in the leads/opportunities tables, lead detail modal, commission rankings, Communications Center panel, and the New Lead create form
+
+- **Status:** Confirmed (Ish's direct report, scoped by project-architect, fixed by implementer, code-reviewer APPROVED). Root cause: `GET /api/v1/leads`, `GET /api/v1/leads/{id}`, `GET /api/v1/opportunities`, `/api/v1/sales/dashboard`'s `team_commission_rankings`, and `/api/v1/sales/communications-center` all returned bare ids with no name join, and the client rendered them as `'Cust #' + id'` / raw numbers.
+- **Resolved 2026-09-26, commit `4d57d50`, code-reviewer APPROVED.** Added additive `customer_name`/`assigned_user_name`/`rep_user_name` keys (existing id keys unchanged) via two ungated resolvers: `AuthService.get_user_by_id()` (pre-existing, no permission gate) for rep names, and a new `CRMService._get_customer_display_name()` (name-only, no actor check) for customer names — deliberately not `get_customer(customer_id, actor)`, which enforces `NEW-568` ownership narrowing and would silently hide exactly the rows where a lead's `assigned_user_id` diverges from its linked customer's. New Lead modal's numeric input became a name-based `<select>` populated from the existing `/api/v1/customers` fetch. No new permission constant added; `GET /api/v1/users` remains correctly blocked for `ROLE_SALES`.
+- **Cross-reference:** `restoricon_core/api/routes.py`, `restoricon_core/services/crm_service.py`, `restoricon_core/api/web_surfaces.py`, `NEW-568`, `NEW-660`.
+
+### [NEW-660] Confirmed, not yet fixed: `_render_staff_portal_base()` (PM/technician/subcontractor portals) has the identical raw-`customer_id`-instead-of-name display bug as `NEW-659`, at `restoricon_core/api/web_surfaces.py` ~line 5463
+
+- **Status:** Confirmed (project-architect, 2026-09-26, read directly: `<td>Cust #${{p.customer_id}}</td>`, same pattern `NEW-659` fixed in the sales portal). This is a different portal (PM/technician/subcontractor, not sales) from what Ish's report literally named, so it was scoped as an explicit follow-on rather than silently bundled into the sales-portal fix or silently dropped.
+- **Impact:** same class as `NEW-659` — a raw id where a name should be, on three staff-facing portals.
+- **Fix direction (not decided/fixed this round):** same mechanism as `NEW-659` — `_get_customer_display_name()` already exists now (added for `NEW-659`) and can be reused directly; likely just needs the equivalent route-level enrichment wired to whichever endpoint `_render_staff_portal_base()`'s assignments table calls (`GET /api/v1/projects`, per its own JS), plus the client-side display swap. Small, mechanical follow-on.
+- **When to revisit:** next round — this project's standing convention is that a UI fix should propagate everywhere the same problem exists (`feedback_dashboard_single_control_surface`), not be left half-fixed.
+- **Cross-reference:** `restoricon_core/api/web_surfaces.py` (`_render_staff_portal_base`), `NEW-659`.
+
+### [NEW-661] Confirmed, non-blocking: the admin surface's Documents panel shows raw `customer_id`/`project_id` instead of names, same bug class as `NEW-659`/`NEW-660`, different surface
+
+- **Status:** Confirmed (project-architect, 2026-09-26, read directly at `restoricon_core/api/web_surfaces.py` ~line 4312: `${{d.customer_id ? 'Cust: ' + d.customer_id : ''}}`).
+- **Impact:** low — admin users already have full `GET /api/v1/users`/customer access and are a smaller, more id-literate audience than sales reps; not the surface Ish reported.
+- **Fix direction (not decided/fixed this round):** same mechanism as `NEW-659`/`NEW-660` if this surface is ever revisited for the same class of fix.
+- **Cross-reference:** `restoricon_core/api/web_surfaces.py`, `NEW-659`, `NEW-660`.
+
+### [NEW-662] Suspected, pre-existing, non-blocking: `GET /api/v1/customers` defaults to `limit=50, offset=0` with no pagination UI anywhere it's called (including the sales portal's "My Customers" panel and the new customer-name cache added for `NEW-659`)
+
+- **Status:** Suspected (project-architect, 2026-09-26, read directly at `restoricon_core/services/crm_service.py:399`). Every caller in `web_surfaces.py` calls this endpoint unparameterized.
+- **Impact:** low today, grows with customer-list size — a business with more than 50 customers would silently truncate both the "My Customers" table and the New Lead modal's customer picker (added for `NEW-659`), with no UI affordance to reach page 2. Pre-existing, not introduced by `NEW-659`.
+- **Fix direction (not decided/fixed this round):** add pagination (or a search-as-you-type pattern, matching the "New Contract — Guided" flow's existing live-search precedent) once actual customer volume approaches 50.
+- **Cross-reference:** `restoricon_core/services/crm_service.py`, `restoricon_core/api/web_surfaces.py`, `NEW-659`.
+
+### [NEW-663] Suspected, narrow, non-blocking: the New Lead modal's customer `<select>` offers no way to link a customer by id if `/api/v1/customers` hasn't loaded yet or fails, unlike the old numeric input which let a rep type a known id regardless
+
+- **Status:** Suspected (implementer, 2026-09-26, disclosed during `NEW-659`'s implementation). If a rep opens "+ New Lead" before `loadDashboard()`'s customer fetch resolves, or if that fetch fails, the select has only the "-- none --" option.
+- **Impact:** low/narrow — matches this file's existing silent-degrade convention (no fetch failure in this file surfaces an error to the user), so this is a pre-existing pattern applied to a new field, not a new failure mode invented by `NEW-659`. Still a real (if edge-case) regression in that one scenario versus the old always-available numeric input.
+- **Fix direction (not decided/fixed this round):** none identified yet; would need either a retry/error-visible state for the customer fetch, or a manual-id fallback input alongside the select.
+- **Cross-reference:** `restoricon_core/api/web_surfaces.py`, `NEW-659`.
