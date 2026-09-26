@@ -15,6 +15,8 @@
 
 **Next action:** `NEW-660` (PM/technician/subcontractor portal fix) is a small, mechanical follow-on — the same `_get_customer_display_name()` helper already exists and can be reused directly.
 
+**Update, same day — `NEW-660` closed.** implementer → code-reviewer pipeline, standard scrutiny. Applied the identical fix to `GET /api/v1/projects` and `_render_staff_portal_base()`'s Assignments table, reusing `_resolve_customer_names()`/`_get_customer_display_name()` verbatim from the sales-portal fix. Code-reviewer confirmed by construction (not just by test) that enrichment is applied to the already actor-narrowed `list_projects()` result — there's no separate unnarrowed fetch path it could leak from — and independently verified via a real `ROLE_TECHNICIAN` token round trip that narrowing and enrichment both hold together. The implementer's claim that `Project.customer_id` is a NOT NULL FK (unlike `Lead.customer_id`, nullable) was checked directly against the schema, confirming a dead-branch simplification rather than a shortcut. Reviewer also reproduced the proxy-artifact test failures independently for the second time this round. APPROVED. Committed `c538771`.
+
 ---
 
 ## 2026-09-26 — Ish's visual bug report: unreadable Sales Rep Portal text, fixed same round (NEW-656)
