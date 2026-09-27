@@ -2863,7 +2863,16 @@ class CRMService:
         if not row:
             return None
 
-        # Customer isolation
+        # Customer isolation. NEW-629: PERM_READ_OWN_PROJECTS (and
+        # PERM_READ_ASSIGNED_PROJECTS) above are checked only as an
+        # `or`-exemption from the outer permission gate -- they do no
+        # narrowing work themselves. The actual customer-row isolation
+        # that makes "own projects" meaningful for a customer actor is
+        # this explicit `actor.role == ROLE_CUSTOMER` branch, keyed on
+        # customer_id, not on either permission constant. Don't assume
+        # PERM_READ_OWN_PROJECTS alone does the narrowing, and don't try
+        # to "fix" narrowing by changing the permission's definition --
+        # fix this branch instead.
         if actor.role == ROLE_CUSTOMER:
             if not actor.customer_id or actor.customer_id != row["customer_id"]:
                 raise PermissionError("Customer cannot view other customers' projects")
@@ -2897,6 +2906,10 @@ class CRMService:
         query = "SELECT * FROM projects WHERE 1=1"
         params: List[Any] = []
 
+        # NEW-629: same note as get_project above -- PERM_READ_OWN_PROJECTS/
+        # PERM_READ_ASSIGNED_PROJECTS in the outer gate are exemptions only;
+        # this explicit `actor.role == ROLE_CUSTOMER` branch is what actually
+        # narrows the row set to the customer's own projects.
         if actor.role == ROLE_CUSTOMER:
             if not actor.customer_id:
                 return []
@@ -6272,8 +6285,17 @@ class CRMService:
         if not row:
             return None
 
-        if actor.role == ROLE_CUSTOMER and (not actor.customer_id or actor.customer_id != row["customer_id"]):
-            raise PermissionError("Customer cannot access another customer's document")
+        # NEW-665: narrow by permission, not `actor.role == ROLE_CUSTOMER`.
+        # custom_permissions_json can grant PERM_READ_OWN_DOCUMENTS to any
+        # role, not just ROLE_CUSTOMER -- an actor relying on that narrower
+        # permission alone (i.e. lacking the broader PERM_READ_DOCUMENTS)
+        # must be confined to their own customer_id the same way ROLE_CUSTOMER
+        # already is, or "own" is meaningless/unenforced for anyone else
+        # holding the grant.
+        if not actor.has_permission(PERM_READ_DOCUMENTS) and (
+            not actor.customer_id or actor.customer_id != row["customer_id"]
+        ):
+            raise PermissionError("Actor cannot access another customer's document")
 
         return self._row_to_document(row)
 
@@ -6287,7 +6309,20 @@ class CRMService:
         if not (actor.has_permission(PERM_READ_DOCUMENTS) or actor.has_permission(PERM_READ_OWN_DOCUMENTS)):
             raise PermissionError("Actor lacks permission to read documents")
 
-        if actor.role == ROLE_CUSTOMER:
+        # NEW-665: same permission-based narrowing as get_document above.
+        # An actor without PERM_READ_DOCUMENTS is relying on the narrower
+        # PERM_READ_OWN_DOCUMENTS alone and must be confined to their own
+        # customer_id, regardless of role. customer_id is only meaningfully
+        # populated for ROLE_CUSTOMER accounts today -- a narrowed actor with
+        # no customer_id (the normal case for a non-customer role holding
+        # this permission via a custom grant) has no "own" scope to see, so
+        # fail closed with an empty list rather than run the query below
+        # with a NULL customer_id param (which would filter out nothing,
+        # since the `if customer_id is not None` guard below would skip the
+        # WHERE clause entirely and return every document, not zero).
+        if not actor.has_permission(PERM_READ_DOCUMENTS):
+            if not actor.customer_id:
+                return []
             customer_id = actor.customer_id
 
         conn = self.db.get_connection()

@@ -208,10 +208,12 @@ class OperationsService:
         existing flat gates) nor PERM_READ_TEAM_SALES_DATA (the team-wide
         bypass -- this is how ROLE_SALES_MANAGER keeps full, unfiltered
         operations visibility, same mechanism as crm_service.py's
-        identical narrowing; as of NEW-630 the manager also independently
-        holds PERM_READ_OPERATIONS itself, so this bypass is now a second,
-        redundant route to the same unfiltered result for that role, not
-        the only one). Keyed on permission, never
+        identical narrowing). NEW-630 briefly granted PERM_READ_OPERATIONS
+        itself to ROLE_SALES_MANAGER (dd244d5, 2026-09-25), which would
+        have made this bypass a second, redundant route to the same
+        unfiltered result for that role -- that grant was reversed
+        (2026-09-27, direct Ish decision), so PERM_READ_TEAM_SALES_DATA
+        remains the only route. Keyed on permission, never
         `actor.role`, so a custom_permissions_json grant of
         PERM_READ_OWN_SOLD_PROJECTS to any other role is narrowed
         identically."""

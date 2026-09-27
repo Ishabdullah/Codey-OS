@@ -638,31 +638,34 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
 # independently holds PERM_READ_TEAM_SALES_DATA right here, which every
 # ownership-filter branch B8.12a added treats as a bypass.
 #
-# NEW-630 (2026-09-25, Ish decision -- resolved, no longer an open
-# question): PERM_READ_OPERATIONS is re-granted to ROLE_SALES_MANAGER
-# below. This is NOT an ownership-scoped re-grant -- PERM_READ_OPERATIONS
-# is a flat, company-wide permission gating get_equipment/list_equipment/
+# NEW-630 (2026-09-25, Ish decision -- dd244d5): PERM_READ_OPERATIONS was
+# re-granted to ROLE_SALES_MANAGER below. That was NOT an ownership-scoped
+# re-grant -- PERM_READ_OPERATIONS is a flat, company-wide permission
+# gating get_equipment/list_equipment/
 # get_active_work_orders_for_subcontractor/match_subcontractors_for_trade/
 # list_project_deployments in operations_service.py, and every one of
 # NEW-628's ownership-narrowing branches on those methods keys
 # specifically on `actor.role == ROLE_TECHNICIAN`, not on the permission
-# itself. ROLE_SALES_MANAGER is not that role, so this is a full, org-wide
-# read grant on equipment/deployment/subcontractor-matching data across
-# every project, not one narrowed to the manager's own team's sold
-# projects (unlike PERM_READ_OWN_SOLD_PROJECTS/PERM_READ_TEAM_SALES_DATA
-# above, which are narrowed). get_project_summary's equipment_summary
-# field also starts returning real deployment data (not None) for a
-# sales_manager actor as a direct consequence -- see L1875-ish's
-# `PERM_READ_OPERATIONS or PERM_MANAGE_PROJECTS` gate on that field.
-# deploy_equipment/return_equipment are unaffected either way: both gate
-# on PERM_WRITE_OPERATIONS or PERM_MANAGE_PROJECTS, neither of which this
-# grant touches, so a sales_manager still cannot deploy or return
-# equipment.
+# itself. ROLE_SALES_MANAGER is not that role, so the 2026-09-25 grant was
+# a full, org-wide read grant on equipment/deployment/subcontractor-
+# matching data across every project, not one narrowed to the manager's
+# own team's sold projects (unlike PERM_READ_OWN_SOLD_PROJECTS/
+# PERM_READ_TEAM_SALES_DATA above, which are narrowed).
+#
+# NEW-630, superseded (2026-09-27, direct Ish decision): the 2026-09-25
+# grant is reversed. PERM_READ_OPERATIONS is deliberately NOT included in
+# ROLE_SALES_MANAGER's permission set below -- a sales manager gets no
+# equipment/deployment/subcontractor-matching visibility, same as plain
+# ROLE_SALES. get_project_summary's equipment_summary field goes back to
+# returning None for a sales_manager actor (see L1875-ish's
+# `PERM_READ_OPERATIONS or PERM_MANAGE_PROJECTS` gate on that field).
+# deploy_equipment/return_equipment were never affected either way: both
+# gate on PERM_WRITE_OPERATIONS or PERM_MANAGE_PROJECTS, neither of which
+# this permission touches.
 ROLE_PERMISSIONS[ROLE_SALES_MANAGER] = ROLE_PERMISSIONS[ROLE_SALES] | {
     PERM_READ_TEAM_SALES_DATA,
     PERM_READ_TEAM_COMMISSIONS,
     PERM_WRITE_TEAM_COMMISSIONS,
-    PERM_READ_OPERATIONS,
 }
 
 # Permissions catalog grouped by domain for dynamic permissions UI and validation

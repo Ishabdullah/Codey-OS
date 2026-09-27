@@ -12,9 +12,11 @@ opportunities unclaimed-pool leniency. ROLE_SALES_MANAGER (holds
 PERM_READ_TEAM_SALES_DATA) must keep full, unnarrowed project/work-order
 visibility via that bypass. Equipment/deployment visibility specifically
 was NOT covered by this round's PERM_READ_TEAM_SALES_DATA bypass and was
-logged as NEW-630 -- since resolved (2026-09-25) by re-granting
-PERM_READ_OPERATIONS itself to ROLE_SALES_MANAGER in auth.py; see
-test_ops_sales_manager_has_equipment_visibility_new630 below.
+logged as NEW-630 -- briefly resolved (2026-09-25, dd244d5) by re-granting
+PERM_READ_OPERATIONS itself to ROLE_SALES_MANAGER in auth.py, then
+reversed (2026-09-27, direct Ish decision): a sales manager should not
+get equipment/deployment visibility after all. See
+test_ops_sales_manager_loses_equipment_visibility_new630 below.
 """
 
 import pytest
@@ -35,7 +37,7 @@ from restoricon_core.auth import (
     ROLE_TECHNICIAN,
 )
 from restoricon_core.database import DatabaseManager
-from restoricon_core.models import Contract, Customer, Equipment, Project, ProjectStage, WorkOrder
+from restoricon_core.models import Contract, Customer, Project, ProjectStage, WorkOrder
 from restoricon_core.services.audit_service import AuditService
 from restoricon_core.services.automation_service import AutomationService
 from restoricon_core.services.communication_service import CommunicationService
@@ -382,32 +384,24 @@ def test_ops_get_project_summary_admin_still_has_equipment_summary(env, actors, 
     assert summary["equipment_summary"]["active_deployed_count"] == 0
 
 
-def test_ops_sales_manager_has_equipment_visibility_new630(env, actors, other_rep_project):
-    """NEW-630 (resolved 2026-09-25, Ish decision): ROLE_SALES_MANAGER's
-    derived-permissions union now re-adds PERM_READ_OPERATIONS itself
-    (auth.py), on top of the narrower PERM_READ_OWN_SOLD_PROJECTS it
-    already held via the ROLE_SALES union -- so a manager regains full,
-    org-wide equipment/deployment visibility, identical to admin/PM, not
-    narrowed to the manager's own team's sold projects. This supersedes
-    the prior version of this test (same name minus '_new630' history),
-    which pinned the pre-fix denial. get_project/list_work_orders/etc.
-    stay fully unnarrowed for a manager (see
-    test_ops_sales_manager_sees_all_via_operations_service); equipment now
-    matches."""
-    assert actors["manager"].has_permission(PERM_READ_OPERATIONS)
-    assert env["ops"].list_equipment(actors["manager"]) == []
-    assert env["ops"].list_project_deployments(other_rep_project.id, actors["manager"]) == []
-
-    eq = env["ops"].create_equipment(
-        Equipment(asset_tag="AT-NEW630-1", name="Dehumidifier", category="dehumidifier"),
-        actors["admin"],
-    )
-    fetched = env["ops"].get_equipment(eq.id, actors["manager"])
-    assert fetched is not None
-    assert fetched.id == eq.id
+def test_ops_sales_manager_loses_equipment_visibility_new630(env, actors, other_rep_project):
+    """NEW-630 (reversed 2026-09-27, direct Ish decision -- previously
+    granted 2026-09-25 via dd244d5, now undone): ROLE_SALES_MANAGER's
+    derived-permissions union never re-adds PERM_READ_OPERATIONS itself
+    (only the narrower PERM_READ_OWN_SOLD_PROJECTS, via the ROLE_SALES
+    union), so a manager loses equipment/deployment visibility identically
+    to a plain rep -- this is a real, tested side effect of this round,
+    not an assumption. get_project/list_work_orders/etc. stay fully
+    unnarrowed for a manager (see test_ops_sales_manager_sees_all_via_operations_service);
+    equipment specifically does not."""
+    assert not actors["manager"].has_permission(PERM_READ_OPERATIONS)
+    with pytest.raises(PermissionError):
+        env["ops"].list_equipment(actors["manager"])
+    with pytest.raises(PermissionError):
+        env["ops"].list_project_deployments(other_rep_project.id, actors["manager"])
 
     summary = env["ops"].get_project_summary(other_rep_project.id, actors["manager"])
-    assert summary["equipment_summary"] is not None
+    assert summary["equipment_summary"] is None
 
 
 def test_get_project_bypass_exempts_own_projects_permission_too(env, actors, other_rep_project):
